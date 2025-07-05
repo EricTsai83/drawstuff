@@ -3,22 +3,22 @@
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { useEffect, useRef, useState } from "react";
-import type {
+import {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { useCallbackRefState } from "@/hooks/useCallbackRefState";
-import { useDebounce } from "@/hooks/useDebounce";
-import { importFromLocalStorage } from "@/data/localStorage";
+import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
+import { useDebounce } from "@/hooks/use-debounce";
+import { importFromLocalStorage } from "@/data/local-storage";
 import { resolvablePromise } from "@/lib/utils";
-import { STORAGE_KEYS } from "@/config/app_constants";
+import { STORAGE_KEYS } from "@/config/app-constants";
 import { getPreferredLanguage } from "./app-language/language-detector";
-import AppMainMenu from "./AppMainMenu";
-import { useHandleAppTheme } from "@/hooks/useHandleAppTheme";
-import AppWelcomeScreen from "./AppWelcomeScreen";
+import AppMainMenu from "./app-main-menu";
+import { useHandleAppTheme } from "@/hooks/use-handle-app-theme";
+import AppWelcomeScreen from "./app-welcome-screen";
 
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =

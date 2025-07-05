@@ -3,7 +3,7 @@ import { useLayoutEffect, useState } from "react";
 
 import type { Theme } from "@excalidraw/excalidraw/element/types";
 
-import { STORAGE_KEYS } from "@/config/app_constants";
+import { STORAGE_KEYS } from "@/config/app-constants";
 
 const getDarkThemeMediaQuery = (): MediaQueryList | undefined =>
   window.matchMedia?.("(prefers-color-scheme: dark)");

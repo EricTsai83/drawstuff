@@ -1,6 +1,6 @@
 import { MainMenu } from "@excalidraw/excalidraw";
 import React from "react";
-import { LanguageList } from "./app-language/LanguageList";
+import { LanguageList } from "./app-language/language-list";
 import type { Theme } from "@excalidraw/excalidraw/element/types";
 
 interface AppMainMenuProps {

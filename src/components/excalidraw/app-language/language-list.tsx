@@ -10,7 +10,7 @@ export const LanguageList = ({
 
   return (
     <select
-      className="dropdown-select dropdown-select__language w-full text-sm"
+      className={"dropdown-select dropdown-select__language w-full text-sm"}
       onChange={({ target }) => handleLangCodeChange(target.value)}
       value={langCode}
       aria-label={t("buttons.selectLanguage")}

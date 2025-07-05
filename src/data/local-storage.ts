@@ -1,6 +1,6 @@
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { STORAGE_KEYS } from "@/config/app_constants";
+import { STORAGE_KEYS } from "@/config/app-constants";
 
 // ====== 自行實作 Excalidraw 狀態相關 helper ======
 
