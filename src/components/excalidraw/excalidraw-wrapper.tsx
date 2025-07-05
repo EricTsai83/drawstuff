@@ -195,6 +195,7 @@ export default function ExcalidrawWrapper() {
           theme={appTheme}
           setTheme={(theme) => setAppTheme(theme)}
           handleLangCodeChange={handleLangCodeChange}
+          excalidrawAPI={excalidrawAPI}
         />
         <AppWelcomeScreen />
       </Excalidraw>
