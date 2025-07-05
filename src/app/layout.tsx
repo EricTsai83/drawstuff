@@ -1,9 +1,11 @@
 import "@/styles/globals.css";
-
 import { type Metadata } from "next";
 import { Geist } from "next/font/google";
-
 import { TRPCReactProvider } from "@/trpc/react";
+import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
+import { extractRouterConfig } from "uploadthing/server";
+import { ourFileRouter } from "@/app/api/uploadthing/core";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -22,7 +24,20 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${geist.variable} antialiased`}>
       <body>
-        <TRPCReactProvider>{children}</TRPCReactProvider>
+        <TRPCReactProvider>
+          <NextSSRPlugin
+            /**
+             * The `extractRouterConfig` will extract **only** the route configs
+             * from the router to prevent additional information from being
+             * leaked to the client. The data passed to the client is the same
+             * as if you were to fetch `/api/uploadthing` directly.
+             */
+            routerConfig={extractRouterConfig(ourFileRouter)}
+          />
+
+          {children}
+        </TRPCReactProvider>
+        <SpeedInsights />
       </body>
     </html>
   );

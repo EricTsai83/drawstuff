@@ -1,9 +1,5 @@
-import { HydrateClient } from "@/trpc/server";
+import ExcalidrawClientWrapper from "@/components/excalidraw/excalidraw-client-wrapper";
 
 export default async function Home() {
-  return (
-    <HydrateClient>
-      <main className="">home page</main>
-    </HydrateClient>
-  );
+  return <ExcalidrawClientWrapper />;
 }
