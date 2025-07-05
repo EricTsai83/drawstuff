@@ -1,7 +1,7 @@
 import { useI18n } from "@excalidraw/excalidraw";
 import { WelcomeScreen } from "@excalidraw/excalidraw";
 import React from "react";
-import { LogIn } from "lucide-react";
+import { Github } from "lucide-react";
 
 function AppWelcomeScreen() {
   const { t } = useI18n();
@@ -26,9 +26,9 @@ function AppWelcomeScreen() {
           <WelcomeScreen.Center.MenuItemLink
             href="/login"
             shortcut={null}
-            icon={<LogIn size={16} />}
+            icon={<Github size={16} />}
           >
-            Sign up
+            GitHub Repository
           </WelcomeScreen.Center.MenuItemLink>
         </WelcomeScreen.Center.Menu>
       </WelcomeScreen.Center>

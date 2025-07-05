@@ -3,7 +3,7 @@
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw } from "@excalidraw/excalidraw";
 import { useEffect, useRef, useState } from "react";
-import {
+import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
