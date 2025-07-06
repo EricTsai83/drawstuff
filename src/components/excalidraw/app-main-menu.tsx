@@ -32,8 +32,8 @@ function AppMainMenu(props: AppMainMenuProps) {
   });
 
   return (
-    <div ref={menuRef}>
-      <MainMenu>
+    <MainMenu>
+      <div ref={menuRef}>
         <MainMenu.DefaultItems.LoadScene />
         <MainMenu.DefaultItems.SaveToActiveFile />
         <MainMenu.DefaultItems.Export />
@@ -85,8 +85,8 @@ function AppMainMenu(props: AppMainMenuProps) {
             </div>
           </Link>
         </div>
-      </MainMenu>
-    </div>
+      </div>
+    </MainMenu>
   );
 }
 
