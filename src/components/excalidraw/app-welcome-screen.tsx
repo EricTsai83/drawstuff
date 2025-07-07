@@ -24,7 +24,7 @@ function AppWelcomeScreen() {
           <WelcomeScreen.Center.MenuItemHelp />
 
           <WelcomeScreen.Center.MenuItemLink
-            href="/login"
+            href="https://github.com/EricTsai83/excalidraw-ericts"
             shortcut={null}
             icon={<Github size={16} />}
           >

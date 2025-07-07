@@ -55,7 +55,7 @@ function AppMainMenu(props: AppMainMenuProps) {
         <MainMenu.Separator />
         <div className="flex flex-row gap-2">
           <Link
-            href="https://github.com/EricTsai83/draw-stuff"
+            href="https://github.com/EricTsai83/excalidraw-ericts"
             target="_blank"
             rel="noopener"
             className="dropdown-menu-item dropdown-menu-item-base"
