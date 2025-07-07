@@ -48,32 +48,6 @@ export default function ExcalidrawWrapper() {
     }
   }, 30000);
 
-  // // 監聽 excalidrawAPI 的變化
-  // useEffect(() => {
-  //   if (excalidrawAPI) {
-  //     // 保存原始的 resetScene 方法
-  //     const originalResetScene = excalidrawAPI.resetScene;
-
-  //     // 重寫 resetScene 方法
-  //     excalidrawAPI.resetScene = (
-  //       ...args: Parameters<typeof originalResetScene>
-  //     ) => {
-  //       // 調用原始方法
-  //       const result = originalResetScene.apply(excalidrawAPI, args);
-
-  //       // 清除 files
-  //       try {
-  //         localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_FILES);
-  //         console.log("Reset Scene: 已清除 files 數據");
-  //       } catch (error) {
-  //         console.error("清除 files 數據失敗:", error);
-  //       }
-
-  //       return result;
-  //     };
-  //   }
-  // }, [excalidrawAPI]);
-
   const onChange = (
     excalidrawElements: readonly OrderedExcalidrawElement[],
     appState: AppState,
@@ -88,40 +62,6 @@ export default function ExcalidrawWrapper() {
 
     debouncedSave(dataToSave);
   };
-
-  // // 頁面卸載前保存數據
-  // useEffect(() => {
-  //   const handleBeforeUnload = () => {
-  //     if (excalidrawAPI) {
-  //       const elements = excalidrawAPI.getSceneElements();
-  //       const appState = excalidrawAPI.getAppState();
-  //       const files = excalidrawAPI.getFiles();
-
-  //       try {
-  //         // 分別保存到對應的 key
-  //         localStorage.setItem(
-  //           STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
-  //           JSON.stringify(elements),
-  //         );
-  //         localStorage.setItem(
-  //           STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
-  //           JSON.stringify(appState),
-  //         );
-  //         localStorage.setItem(
-  //           STORAGE_KEYS.LOCAL_STORAGE_FILES,
-  //           JSON.stringify(files),
-  //         );
-  //       } catch (error) {
-  //         console.error("beforeunload 儲存數據失敗:", error);
-  //       }
-  //     }
-  //   };
-
-  //   window.addEventListener("beforeunload", handleBeforeUnload);
-  //   return () => {
-  //     window.removeEventListener("beforeunload", handleBeforeUnload);
-  //   };
-  // }, [excalidrawAPI]);
 
   function handleLangCodeChange(langCode: string) {
     setLangCode(langCode);
