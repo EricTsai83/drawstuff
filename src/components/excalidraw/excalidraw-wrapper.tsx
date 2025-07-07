@@ -2,7 +2,7 @@
 
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw } from "@excalidraw/excalidraw";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import type {
   AppState,
   BinaryFiles,
