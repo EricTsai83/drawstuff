@@ -35,7 +35,7 @@ export default function ExcalidrawWrapper() {
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    const data: ExcalidrawInitialDataState = {
+    const data = {
       elements: excalidrawElements,
       appState: appState,
       files: files,
