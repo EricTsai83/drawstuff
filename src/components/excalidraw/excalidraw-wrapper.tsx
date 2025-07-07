@@ -7,6 +7,7 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
+  ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
@@ -17,10 +18,7 @@ import AppMainMenu from "./app-main-menu";
 import { useHandleAppTheme } from "@/hooks/use-handle-app-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
-import {
-  createInitialDataPromise,
-  saveDataToLocalStorage,
-} from "@/lib/excalidraw";
+import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
 
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -30,18 +28,17 @@ export default function ExcalidrawWrapper() {
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
   useBeforeUnload(excalidrawAPI);
 
-  const [debouncedSave] = useDebounce(saveDataToLocalStorage, 300);
+  const [debouncedSave] = useDebounce(saveData, 300);
 
   const onChange = (
     excalidrawElements: readonly OrderedExcalidrawElement[],
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    const data = {
+    const data: ExcalidrawInitialDataState = {
       elements: excalidrawElements,
       appState: appState,
       files: files,
-      timestamp: Date.now(),
     };
 
     debouncedSave(data);
