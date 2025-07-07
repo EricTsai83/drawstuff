@@ -1,5 +1,6 @@
 import type { ExcalidrawInitialDataState } from "@excalidraw/excalidraw/types";
 import { importFromLocalStorage } from "@/data/local-storage";
+import { STORAGE_KEYS } from "@/config/app-constants";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
@@ -25,4 +26,23 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
       resolve(null);
     }
   });
+}
+
+export function saveDataToLocalStorage(data: ExcalidrawInitialDataState) {
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
+      JSON.stringify(data.elements),
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
+      JSON.stringify(data.appState),
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_FILES,
+      JSON.stringify(data.files),
+    );
+  } catch (error) {
+    console.error("保存數據失敗:", error);
+  }
 }

@@ -17,7 +17,10 @@ import AppMainMenu from "./app-main-menu";
 import { useHandleAppTheme } from "@/hooks/use-handle-app-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
-import { createInitialDataPromise } from "@/lib/excalidraw";
+import {
+  createInitialDataPromise,
+  saveDataToLocalStorage,
+} from "@/lib/excalidraw";
 
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -27,40 +30,21 @@ export default function ExcalidrawWrapper() {
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
   useBeforeUnload(excalidrawAPI);
 
-  const [debouncedSave] = useDebounce((dataToSave) => {
-    try {
-      // 直接保存所有數據，不進行 files 清理
-      localStorage.setItem(
-        STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
-        JSON.stringify(dataToSave.elements),
-      );
-      localStorage.setItem(
-        STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
-        JSON.stringify(dataToSave.appState),
-      );
-      localStorage.setItem(
-        STORAGE_KEYS.LOCAL_STORAGE_FILES,
-        JSON.stringify(dataToSave.files),
-      );
-      console.log("數據已保存到本地存儲");
-    } catch (error) {
-      console.error("保存數據失敗:", error);
-    }
-  }, 30000);
+  const [debouncedSave] = useDebounce(saveDataToLocalStorage, 300);
 
   const onChange = (
     excalidrawElements: readonly OrderedExcalidrawElement[],
     appState: AppState,
     files: BinaryFiles,
   ) => {
-    const dataToSave = {
+    const data = {
       elements: excalidrawElements,
       appState: appState,
       files: files,
       timestamp: Date.now(),
     };
 
-    debouncedSave(dataToSave);
+    debouncedSave(data);
   };
 
   function handleLangCodeChange(langCode: string) {
