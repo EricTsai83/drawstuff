@@ -2,10 +2,17 @@ import { useI18n } from "@excalidraw/excalidraw";
 import { WelcomeScreen } from "@excalidraw/excalidraw";
 import React from "react";
 import { Github } from "lucide-react";
+import type { Theme } from "@excalidraw/excalidraw/element/types";
 
-function AppWelcomeScreen() {
+type AppWelcomeScreenProps = {
+  theme: Theme;
+};
+function AppWelcomeScreen({ theme }: AppWelcomeScreenProps) {
   const { t } = useI18n();
   const headingContent = t("welcomeScreen.app.center_heading");
+
+  // 根據主題調整樣式
+  const isDark = theme === "dark";
 
   return (
     <WelcomeScreen>
@@ -15,7 +22,14 @@ function AppWelcomeScreen() {
       <WelcomeScreen.Hints.ToolbarHint />
       <WelcomeScreen.Hints.HelpHint />
       <WelcomeScreen.Center>
-        <WelcomeScreen.Center.Logo />
+        <WelcomeScreen.Center.Logo>
+          <h1
+            className={`animate-flash-once inline-block ${isDark ? "text-gray-300" : "text-indigo-500"}`}
+          >
+            EXcalidraw x Ericts
+          </h1>
+        </WelcomeScreen.Center.Logo>
+
         <WelcomeScreen.Center.Heading>
           {headingContent}
         </WelcomeScreen.Center.Heading>

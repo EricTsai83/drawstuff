@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "uploadthing/tw/v4";
+@source "../../node_modules/@uploadthing/react/dist";
 
 @theme {
   --font-sans:
@@ -6,5 +8,25 @@
     "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
 }
 
-@import "uploadthing/tw/v4";
-@source "../../node_modules/@uploadthing/react/dist"; /** <-- depends on your project structure */
+@keyframes flash-once {
+  0% {
+    opacity: 0.2;
+    transform: scale(0.95);
+  }
+  25% {
+    opacity: 0.8;
+    transform: scale(1.02);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.animate-flash-once {
+  animation: flash-once 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}

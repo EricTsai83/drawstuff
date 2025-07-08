@@ -7,7 +7,6 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
-  ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
@@ -24,7 +23,7 @@ export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
   const savedLang = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE);
-  const [langCode, setLangCode] = useState(savedLang || getPreferredLanguage());
+  const [langCode, setLangCode] = useState(savedLang ?? getPreferredLanguage());
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
   useBeforeUnload(excalidrawAPI);
 
@@ -69,7 +68,7 @@ export default function ExcalidrawWrapper() {
           handleLangCodeChange={handleLangCodeChange}
           excalidrawAPI={excalidrawAPI}
         />
-        <AppWelcomeScreen />
+        <AppWelcomeScreen theme={editorTheme} />
       </Excalidraw>
     </div>
   );
