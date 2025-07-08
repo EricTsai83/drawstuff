@@ -3,10 +3,7 @@ import type {
   BinaryFiles,
   ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types";
-import type {
-  ExcalidrawElement,
-  OrderedExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
+import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 
@@ -22,9 +19,9 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
         Object.keys(localDataState.files).length > 0
       ) {
         resolve({
-          elements: localDataState.elements || [],
-          appState: localDataState.appState || {},
-          files: localDataState.files || {},
+          elements: localDataState.elements ?? [],
+          appState: localDataState.appState ?? {},
+          files: localDataState.files ?? {},
         });
       } else {
         resolve(null);
@@ -104,8 +101,8 @@ export function cleanUnusedFiles(
 // 將 excalidraw 狀態存入 localStorage
 export function saveToLocalStorage(
   elements: readonly OrderedExcalidrawElement[],
-  appState: any,
-  files: Record<string, any> | undefined,
+  appState: AppState,
+  files: BinaryFiles,
 ) {
   try {
     localStorage.setItem(
