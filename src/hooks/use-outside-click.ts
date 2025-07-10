@@ -55,7 +55,7 @@ export function useOutsideClick<T extends HTMLElement>(
       }
 
       const isClickOnRadixPortal =
-        _event.target.closest("[data-radix-portal]") ||
+        _event.target.closest("[data-radix-portal]") ??
         // when radix popup is in "modal" mode, it disables pointer events on
         // the `body` element, so the target element is going to be the `html`
         // (note: this won't work if we selectively re-enable pointer events on

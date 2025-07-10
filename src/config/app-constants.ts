@@ -46,9 +46,6 @@ export const STORAGE_KEYS = {
   LOCAL_STORAGE_FILES: "excalidraw-files",
   IDB_LIBRARY: "excalidraw-library",
   LOCAL_STORAGE_LANGUAGE: "i18nextLng",
-
-  // do not use apart from migrations
-  __LEGACY_LOCAL_STORAGE_LIBRARY: "excalidraw-library",
 } as const;
 
 export const COOKIES = {

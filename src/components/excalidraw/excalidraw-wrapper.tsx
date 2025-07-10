@@ -18,6 +18,7 @@ import { useHandleAppTheme } from "@/hooks/use-handle-app-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
 import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
+import { ShareLinkDialog } from "@/components/share-link-dialog";
 
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -26,7 +27,6 @@ export default function ExcalidrawWrapper() {
   const [langCode, setLangCode] = useState(savedLang ?? getPreferredLanguage());
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
   useBeforeUnload(excalidrawAPI);
-
   const [debouncedSave] = useDebounce(saveData, 300);
 
   const onChange = (
@@ -61,6 +61,7 @@ export default function ExcalidrawWrapper() {
         }}
         langCode={langCode}
         theme={editorTheme}
+        renderTopRightUI={() => <ShareLinkDialog editorTheme={editorTheme} />}
       >
         <AppMainMenu
           theme={appTheme}

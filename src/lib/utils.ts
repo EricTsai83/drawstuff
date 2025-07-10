@@ -1,3 +1,10 @@
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export function cn(...inputs: ClassValue[]) {
+  return twMerge(clsx(inputs));
+}
+
 // 定義可解析 Promise 的介面
 interface ResolvablePromise<T> extends Promise<T> {
   resolve: (value: T | PromiseLike<T>) => void;
