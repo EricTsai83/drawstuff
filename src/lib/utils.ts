@@ -26,3 +26,54 @@ export const resolvablePromise = <T>(): ResolvablePromise<T> => {
     reject,
   }) as ResolvablePromise<T>;
 };
+
+export const debounce = <T extends unknown[]>(
+  fn: (...args: T) => void,
+  timeout: number,
+) => {
+  let handle = 0;
+  let lastArgs: T | null = null;
+  const ret = (...args: T) => {
+    lastArgs = args;
+    clearTimeout(handle);
+    handle = window.setTimeout(() => {
+      lastArgs = null;
+      fn(...args);
+    }, timeout);
+  };
+  ret.flush = () => {
+    clearTimeout(handle);
+    if (lastArgs) {
+      const _lastArgs = lastArgs;
+      lastArgs = null;
+      fn(..._lastArgs);
+    }
+  };
+  ret.cancel = () => {
+    lastArgs = null;
+    clearTimeout(handle);
+  };
+  return ret;
+};
+
+//https://stackoverflow.com/a/9462382/8418
+export const nFormatter = (num: number, digits: number): string => {
+  const si: { value: number; symbol: string }[] = [
+    { value: 1, symbol: "b" },
+    { value: 1e3, symbol: "k" },
+    { value: 1e6, symbol: "M" },
+    { value: 1e9, symbol: "G" },
+  ];
+  const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
+  let index;
+  for (index = si.length - 1; index > 0; index--) {
+    // @ts-expect-error - index is guaranteed to be valid after loop initialization
+    if (num >= si[index].value) {
+      break;
+    }
+  }
+  return (
+    // @ts-expect-error - index is guaranteed to be valid after loop initialization
+    (num / si[index].value).toFixed(digits).replace(rx, "$1") + si[index].symbol
+  );
+};

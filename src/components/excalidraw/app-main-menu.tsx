@@ -1,7 +1,7 @@
 "use client";
 
 import { MainMenu } from "@excalidraw/excalidraw";
-import React, { useRef } from "react";
+import { useRef, memo } from "react";
 import { LanguageList } from "./app-language/language-list";
 import type { Theme } from "@excalidraw/excalidraw/element/types";
 import Link from "next/link";
@@ -90,4 +90,4 @@ function AppMainMenu(props: AppMainMenuProps) {
   );
 }
 
-export default React.memo(AppMainMenu);
+export default memo(AppMainMenu);
