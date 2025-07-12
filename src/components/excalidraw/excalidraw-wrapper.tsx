@@ -1,7 +1,7 @@
 "use client";
 
 import "@excalidraw/excalidraw/index.css";
-import { Excalidraw, useDevice } from "@excalidraw/excalidraw";
+import { Excalidraw } from "@excalidraw/excalidraw";
 import { useState } from "react";
 import type {
   AppState,
@@ -24,6 +24,7 @@ import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
 import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
 import { ShareLinkDialog } from "@/components/share-link-dialog";
 import CustomStats from "./custom-stats";
+import { cn } from "@/lib/utils";
 
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -33,7 +34,6 @@ export default function ExcalidrawWrapper() {
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
-  const device = useDevice();
 
   const onChange = (
     excalidrawElements: readonly OrderedExcalidrawElement[],
@@ -95,12 +95,18 @@ export default function ExcalidrawWrapper() {
           handleLangCodeChange={handleLangCodeChange}
           excalidrawAPI={excalidrawAPI}
         />
-
-        {device.editor.isMobile ? null : (
-          <div className="fixed top-5 left-20 z-10 text-lg font-medium text-white dark:text-gray-300">
-            {excalidrawAPI?.getName()}
-          </div>
-        )}
+        <div
+          className={cn(
+            "fixed top-5 left-20 z-10 hidden w-40 text-lg font-medium",
+            "overflow-hidden leading-none text-ellipsis lg:line-clamp-2",
+            {
+              "text-white": editorTheme === "dark",
+              "text-black": editorTheme === "light",
+            },
+          )}
+        >
+          {excalidrawAPI?.getName()}
+        </div>
 
         <AppWelcomeScreen theme={editorTheme} />
       </Excalidraw>

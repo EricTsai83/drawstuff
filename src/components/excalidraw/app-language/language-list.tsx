@@ -1,5 +1,4 @@
 import { useI18n, languages } from "@excalidraw/excalidraw";
-import React from "react";
 
 export const LanguageList = ({
   handleLangCodeChange,
