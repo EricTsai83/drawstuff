@@ -30,10 +30,10 @@ export function CopyButton({ textToCopy, editorTheme }: CopyButtonProps) {
       onClick={handleCopy}
       className={cn(
         "cursor-pointer overflow-hidden rounded-full px-4 py-1.5 backdrop-blur transition-all duration-300",
-        editorTheme === THEME.DARK ? "bg-[#474492] text-white" : "bg-[#c2bdfd]",
+        editorTheme === THEME.DARK ? "bg-[#4e4c89] text-white" : "bg-[#d5d1ff]",
         {
-          "bg-[#726cb4]": copied && editorTheme === THEME.DARK,
-          "bg-[#b9b6fe]": copied && editorTheme === THEME.LIGHT,
+          "bg-[#59588b]": copied && editorTheme === THEME.DARK,
+          "bg-[#d9d8fe]": copied && editorTheme === THEME.LIGHT,
         },
       )}
     >
@@ -51,7 +51,10 @@ export function CopyButton({ textToCopy, editorTheme }: CopyButtonProps) {
         }`}
       >
         <svg
-          className="size-7 text-white"
+          className={cn("size-7 text-black/80", {
+            "text-white": copied && editorTheme === THEME.DARK,
+            "text-black/80": copied && editorTheme === THEME.LIGHT,
+          })}
           viewBox="0 0 20 20"
           fill="none"
           stroke="currentColor"

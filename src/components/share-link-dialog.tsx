@@ -27,8 +27,8 @@ export function ShareLinkDialog({ editorTheme }: { editorTheme: Theme }) {
           className={cn(
             "border-none font-normal text-black/90",
             editorTheme === THEME.DARK
-              ? "bg-[#474492] text-white hover:bg-[#726cb4] hover:text-white"
-              : "bg-[#c2bdfd] hover:bg-[#b9b6fe]",
+              ? "bg-[#4e4c89] text-white hover:bg-[#59588b] hover:text-white"
+              : "bg-[#d5d1ff] hover:bg-[#d9d8fe]",
           )}
         >
           {t("labels.share")}
