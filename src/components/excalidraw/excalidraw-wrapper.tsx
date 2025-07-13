@@ -29,6 +29,7 @@ import { cn } from "@/lib/utils";
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
+  const [sceneName, setSceneName] = useState("");
   const savedLang = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE);
   const [langCode, setLangCode] = useState(savedLang ?? getPreferredLanguage());
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
@@ -45,6 +46,9 @@ export default function ExcalidrawWrapper() {
       appState: appState,
       files: files,
     };
+
+    // 更新名字狀態
+    setSceneName(appState.name ?? "");
 
     debouncedSave(data);
   };
@@ -105,7 +109,7 @@ export default function ExcalidrawWrapper() {
             },
           )}
         >
-          {excalidrawAPI?.getName()}
+          {sceneName}
         </div>
 
         <AppWelcomeScreen theme={editorTheme} />

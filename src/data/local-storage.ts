@@ -9,6 +9,7 @@ function getDefaultAppState(): Partial<AppState> {
     theme: "light",
     viewBackgroundColor: "#ffffff",
     gridSize: undefined,
+    name: "", // 新增預設的 name 欄位
     // 可依需求補充預設值
   };
 }
@@ -21,9 +22,10 @@ function clearAppStateForLocalStorage(
     theme,
     viewBackgroundColor,
     gridSize,
+    name, // 新增 name 欄位
     // ...其他你想保留的欄位
   } = appState;
-  return { theme, viewBackgroundColor, gridSize };
+  return { theme, viewBackgroundColor, gridSize, name }; // 返回時包含 name
 }
 
 function clearElementsForLocalStorage(
@@ -50,7 +52,9 @@ export const importFromLocalStorage = () => {
   let elements: OrderedExcalidrawElement[] = [];
   if (savedElements) {
     try {
-      elements = clearElementsForLocalStorage(JSON.parse(savedElements));
+      elements = clearElementsForLocalStorage(
+        JSON.parse(savedElements) as OrderedExcalidrawElement[],
+      );
     } catch (error: unknown) {
       console.error(error);
       // Do nothing because elements array is already empty
@@ -75,7 +79,7 @@ export const importFromLocalStorage = () => {
   let files: BinaryFiles = {};
   if (savedFiles) {
     try {
-      files = JSON.parse(savedFiles);
+      files = JSON.parse(savedFiles) as BinaryFiles;
     } catch (error: unknown) {
       console.error(error);
       // Do nothing because files is already empty object
@@ -88,7 +92,7 @@ export const importFromLocalStorage = () => {
 export const getElementsStorageSize = () => {
   try {
     const elements = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS);
-    const elementsSize = elements?.length || 0;
+    const elementsSize = elements?.length ?? 0;
     return elementsSize;
   } catch (error: unknown) {
     console.error(error);
@@ -101,8 +105,8 @@ export const getTotalStorageSize = () => {
     const appState = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_APP_STATE);
     const collab = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_COLLAB);
 
-    const appStateSize = appState?.length || 0;
-    const collabSize = collab?.length || 0;
+    const appStateSize = appState?.length ?? 0;
+    const collabSize = collab?.length ?? 0;
 
     return appStateSize + collabSize + getElementsStorageSize();
   } catch (error: unknown) {

@@ -1,3 +1,5 @@
+"use client";
+
 import {
   Dialog,
   DialogContent,
@@ -9,10 +11,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MainMenu, THEME, useI18n } from "@excalidraw/excalidraw";
-import { useRef } from "react";
 import type { Theme } from "@excalidraw/excalidraw/element/types";
 import { Pencil } from "lucide-react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import { useState } from "react";
 
 export function RenameSceneDialog({
   editorTheme,
@@ -22,18 +24,44 @@ export function RenameSceneDialog({
   excalidrawAPI: ExcalidrawImperativeAPI | null;
 }) {
   const { t } = useI18n();
-  const inputRef = useRef<HTMLInputElement>(null);
+  const [isOpen, setIsOpen] = useState(false);
+  const [name, setName] = useState("");
+
+  const handleOpen = () => {
+    const currentName = excalidrawAPI?.getName() ?? "";
+    setName(currentName);
+    setIsOpen(true);
+  };
+
+  const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const newName = event.target.value;
+    setName(newName);
+
+    const currentAppState = excalidrawAPI?.getAppState();
+    if (currentAppState) {
+      excalidrawAPI?.updateScene({
+        appState: {
+          ...currentAppState,
+          name: newName,
+        },
+      });
+    }
+  };
+
+  const handleClose = () => {
+    setIsOpen(false);
+  };
 
   return (
-    <Dialog>
+    <Dialog open={isOpen} onOpenChange={setIsOpen}>
       <DialogTrigger asChild>
         <MainMenu.Item
           className="!mt-0"
           data-testid="rename-scene-menu-item"
-          icon={<Pencil />}
+          icon={<Pencil strokeWidth={1.5} />}
           onSelect={(event) => {
             event.preventDefault();
-            console.log("Rename");
+            handleOpen();
           }}
           aria-label={t("labels.fileTitle")}
         >
@@ -48,6 +76,8 @@ export function RenameSceneDialog({
         }`}
         onOpenAutoFocus={(e) => e.preventDefault()}
         data-prevent-outside-click="true"
+        onEscapeKeyDown={handleClose}
+        onInteractOutside={handleClose}
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
@@ -63,35 +93,23 @@ export function RenameSceneDialog({
             {t("labels.fileTitle")}
           </Label>
           <Input
-            ref={inputRef}
             id="link"
-            defaultValue={excalidrawAPI?.getName()}
-            readOnly
             className={
               editorTheme === THEME.DARK
                 ? "border-[#393943] bg-[#232329] text-white"
                 : "border-[#e5e5ea] bg-white text-gray-900"
             }
+            value={name}
+            onChange={handleNameChange}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                handleClose();
+              }
+            }}
+            autoFocus
           />
         </div>
       </DialogContent>
     </Dialog>
   );
 }
-
-// export function RenameScene() {
-//   const { t } = useI18n();
-
-//   return (
-//     <MainMenu.Item
-//       data-testid="rename-scene-menu-item"
-//       icon={<Pencil />}
-//       onSelect={() => {
-//         console.log("Rename");
-//       }}
-//       aria-label={t("labels.fileTitle")}
-//     >
-//       {t("labels.fileTitle")}
-//     </MainMenu.Item>
-//   );
-// }
