@@ -6,6 +6,7 @@ import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
 import { extractRouterConfig } from "uploadthing/server";
 import { ourFileRouter } from "@/app/api/uploadthing/core";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -19,8 +20,12 @@ const geist = Geist({
 });
 
 export default function RootLayout({
+  auth,
   children,
-}: Readonly<{ children: React.ReactNode }>) {
+}: Readonly<{
+  auth: React.ReactNode;
+  children: React.ReactNode;
+}>) {
   return (
     <html lang="en" className={`${geist.variable} antialiased`}>
       <body>
@@ -34,7 +39,10 @@ export default function RootLayout({
              */
             routerConfig={extractRouterConfig(ourFileRouter)}
           />
-
+          <nav>
+            <Link href="/login">Open modal</Link>
+          </nav>
+          <div>{auth}</div>
           {children}
         </TRPCReactProvider>
         <SpeedInsights />
