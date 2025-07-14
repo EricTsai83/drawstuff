@@ -26,6 +26,8 @@ import { ShareLinkDialog } from "@/components/share-link-dialog";
 import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
+import { LayoutDashboard } from "lucide-react";
+import { THEME } from "@excalidraw/excalidraw";
 
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -105,8 +107,8 @@ export default function ExcalidrawWrapper() {
             "fixed top-5 left-20 z-10 hidden w-40 text-lg font-medium",
             "overflow-hidden leading-none text-ellipsis lg:line-clamp-2",
             {
-              "text-white": editorTheme === "dark",
-              "text-black": editorTheme === "light",
+              "text-white": editorTheme === THEME.DARK,
+              "text-black": editorTheme === THEME.LIGHT,
             },
           )}
         >
@@ -114,8 +116,15 @@ export default function ExcalidrawWrapper() {
         </div>
 
         <Footer>
-          <Link href="/login" className="custom-footer">
-            Login
+          <Link href="/login">
+            <LayoutDashboard
+              className={cn(
+                "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg p-2.5",
+                editorTheme === THEME.DARK
+                  ? "bg-[#232329] text-neutral-200 hover:bg-[#2e2e2e]"
+                  : "bg-[#e9ecef] text-[#39393e] hover:bg-[#f1f0ff]",
+              )}
+            />
           </Link>
         </Footer>
 

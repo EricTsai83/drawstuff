@@ -9,6 +9,7 @@ import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { RenameSceneDialog } from "@/components/rename-scene-dialog";
+import { LogIn } from "lucide-react";
 
 type AppMainMenuProps = {
   theme: Theme | "system";
@@ -46,6 +47,16 @@ function AppMainMenu(props: AppMainMenuProps) {
         <MainMenu.DefaultItems.SearchMenu />
         <MainMenu.DefaultItems.Help />
         <MainMenu.DefaultItems.ClearCanvas />
+        <Link href="/login" className="!no-underline">
+          <MainMenu.Item
+            className="!mt-0"
+            data-testid="rename-scene-menu-item"
+            icon={<LogIn strokeWidth={1.5} />}
+            aria-label="Sign in"
+          >
+            Sign in
+          </MainMenu.Item>
+        </Link>
 
         <MainMenu.Separator />
         <MainMenu.DefaultItems.ToggleTheme
