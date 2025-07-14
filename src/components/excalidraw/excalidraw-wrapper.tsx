@@ -1,7 +1,7 @@
 "use client";
 
 import "@excalidraw/excalidraw/index.css";
-import { Excalidraw } from "@excalidraw/excalidraw";
+import { Excalidraw, Footer } from "@excalidraw/excalidraw";
 import { useState } from "react";
 import type {
   AppState,
@@ -25,6 +25,7 @@ import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
 import { ShareLinkDialog } from "@/components/share-link-dialog";
 import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
+import Link from "next/link";
 
 export default function ExcalidrawWrapper() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -111,6 +112,12 @@ export default function ExcalidrawWrapper() {
         >
           {sceneName}
         </div>
+
+        <Footer>
+          <Link href="/login" className="custom-footer">
+            Login
+          </Link>
+        </Footer>
 
         <AppWelcomeScreen theme={editorTheme} />
       </Excalidraw>

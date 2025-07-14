@@ -6,7 +6,6 @@ import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
 import { extractRouterConfig } from "uploadthing/server";
 import { ourFileRouter } from "@/app/api/uploadthing/core";
 import { SpeedInsights } from "@vercel/speed-insights/next";
-import Link from "next/link";
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -39,9 +38,6 @@ export default function RootLayout({
              */
             routerConfig={extractRouterConfig(ourFileRouter)}
           />
-          <nav>
-            <Link href="/login">Open modal</Link>
-          </nav>
           <div>{auth}</div>
           {children}
         </TRPCReactProvider>
