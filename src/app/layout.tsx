@@ -6,6 +6,7 @@ import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
 import { extractRouterConfig } from "uploadthing/server";
 import { ourFileRouter } from "@/app/api/uploadthing/core";
 import { SpeedInsights } from "@vercel/speed-insights/next";
+import { ThemeProvider } from "next-themes";
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -26,22 +27,28 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${geist.variable} antialiased`}>
+    <html
+      lang="en"
+      className={`${geist.variable} antialiased`}
+      suppressHydrationWarning
+    >
       <body>
-        <TRPCReactProvider>
-          <NextSSRPlugin
-            /**
-             * The `extractRouterConfig` will extract **only** the route configs
-             * from the router to prevent additional information from being
-             * leaked to the client. The data passed to the client is the same
-             * as if you were to fetch `/api/uploadthing` directly.
-             */
-            routerConfig={extractRouterConfig(ourFileRouter)}
-          />
-          <div>{auth}</div>
-          {children}
-        </TRPCReactProvider>
-        <SpeedInsights />
+        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          <TRPCReactProvider>
+            <NextSSRPlugin
+              /**
+               * The `extractRouterConfig` will extract **only** the route configs
+               * from the router to prevent additional information from being
+               * leaked to the client. The data passed to the client is the same
+               * as if you were to fetch `/api/uploadthing` directly.
+               */
+              routerConfig={extractRouterConfig(ourFileRouter)}
+            />
+            <div>{auth}</div>
+            {children}
+          </TRPCReactProvider>
+          <SpeedInsights />
+        </ThemeProvider>
       </body>
     </html>
   );

@@ -18,7 +18,7 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import { getPreferredLanguage } from "./app-language/language-detector";
 import AppMainMenu from "./app-main-menu";
-import { useHandleAppTheme } from "@/hooks/use-handle-app-theme";
+import { useSyncTheme } from "@/hooks/use-sync-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
 import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
@@ -35,7 +35,7 @@ export default function ExcalidrawWrapper() {
   const [sceneName, setSceneName] = useState("");
   const savedLang = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE);
   const [langCode, setLangCode] = useState(savedLang ?? getPreferredLanguage());
-  const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
+  const { theme: editorTheme, appTheme, setAppTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
 

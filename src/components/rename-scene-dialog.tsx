@@ -11,18 +11,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { MainMenu, THEME, useI18n } from "@excalidraw/excalidraw";
-import type { Theme } from "@excalidraw/excalidraw/element/types";
+import { MainMenu, useI18n } from "@excalidraw/excalidraw";
 import { Pencil } from "lucide-react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useState, useRef, useEffect } from "react";
-import { cn } from "@/lib/utils";
 
 export function RenameSceneDialog({
-  editorTheme,
   excalidrawAPI,
 }: {
-  editorTheme: Theme | "system";
   excalidrawAPI: ExcalidrawImperativeAPI | null;
 }) {
   const { t } = useI18n();
@@ -102,12 +98,7 @@ export function RenameSceneDialog({
       </DialogTrigger>
 
       <DialogContent
-        className={cn(
-          "rounded-xl border px-6 py-5 sm:max-w-md",
-          editorTheme === THEME.DARK
-            ? "border-[#393943] bg-[#232329] text-white"
-            : "border-[#e5e5ea] bg-white text-gray-900",
-        )}
+        className="rounded-xl px-6 py-5 sm:max-w-md"
         onOpenAutoFocus={(e) => e.preventDefault()}
         data-prevent-outside-click="true"
         onEscapeKeyDown={handleClose}
@@ -130,11 +121,6 @@ export function RenameSceneDialog({
             <Input
               ref={inputRef}
               id="scene-name-input"
-              className={cn(
-                editorTheme === THEME.DARK
-                  ? "border-[#393943] bg-[#232329] text-white selection:bg-indigo-400 selection:text-white"
-                  : "border-[#e5e5ea] bg-white text-gray-900 selection:bg-blue-200 selection:text-gray-900",
-              )}
               value={name}
               onChange={handleNameChange}
               onKeyDown={handleKeyDown}
@@ -148,27 +134,10 @@ export function RenameSceneDialog({
           </div>
 
           <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={handleClose}
-              className={cn(
-                editorTheme === THEME.DARK
-                  ? "border-[#393943] bg-[#232329] text-white hover:bg-[#2a2a32]"
-                  : "border-[#e5e5ea] bg-white text-gray-900 hover:bg-gray-50",
-              )}
-            >
+            <Button variant="outline" onClick={handleClose}>
               {t("buttons.cancel")}
             </Button>
-            <Button
-              onClick={handleConfirm}
-              className={cn(
-                editorTheme === THEME.DARK
-                  ? "bg-[#7a78b5] text-white hover:bg-[#726cb4]"
-                  : "bg-[#6a5ef7] text-white hover:bg-[#b9b6fe]",
-              )}
-            >
-              {t("buttons.confirm")}
-            </Button>
+            <Button onClick={handleConfirm}>{t("buttons.confirm")}</Button>
           </div>
         </div>
       </DialogContent>

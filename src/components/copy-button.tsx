@@ -3,17 +3,17 @@
 import { useState } from "react";
 import { CopyIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { THEME, useI18n } from "@excalidraw/excalidraw";
-import type { Theme } from "@excalidraw/excalidraw/element/types";
+import { useI18n } from "@excalidraw/excalidraw";
+import { Button } from "@/components/ui/button";
 
-interface CopyButtonProps {
+type CopyButtonProps = {
   textToCopy: string;
-  editorTheme: Theme;
-}
+};
 
-export function CopyButton({ textToCopy, editorTheme }: CopyButtonProps) {
+export function CopyButton({ textToCopy }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
   const { t } = useI18n();
+
   const handleCopy = async () => {
     try {
       await navigator.clipboard.writeText(textToCopy);
@@ -25,17 +25,11 @@ export function CopyButton({ textToCopy, editorTheme }: CopyButtonProps) {
   };
 
   return (
-    <button
+    <Button
       type="button"
       onClick={handleCopy}
-      className={cn(
-        "cursor-pointer overflow-hidden rounded-full px-4 py-1.5 backdrop-blur transition-all duration-300",
-        editorTheme === THEME.DARK ? "bg-[#4e4c89] text-white" : "bg-[#d5d1ff]",
-        {
-          "bg-[#59588b]": copied && editorTheme === THEME.DARK,
-          "bg-[#d9d8fe]": copied && editorTheme === THEME.LIGHT,
-        },
-      )}
+      size="sm"
+      className="relative overflow-hidden"
     >
       <span
         className={`pointer-events-none flex items-center gap-1 text-sm transition duration-300 ${
@@ -51,10 +45,7 @@ export function CopyButton({ textToCopy, editorTheme }: CopyButtonProps) {
         }`}
       >
         <svg
-          className={cn("size-7 text-black/80", {
-            "text-white": copied && editorTheme === THEME.DARK,
-            "text-black/80": copied && editorTheme === THEME.LIGHT,
-          })}
+          className="size-7"
           viewBox="0 0 20 20"
           fill="none"
           stroke="currentColor"
@@ -73,6 +64,6 @@ export function CopyButton({ textToCopy, editorTheme }: CopyButtonProps) {
           />
         </svg>
       </span>
-    </button>
+    </Button>
   );
 }
