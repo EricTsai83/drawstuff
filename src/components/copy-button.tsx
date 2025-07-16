@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { CopyIcon } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useI18n } from "@excalidraw/excalidraw";
 import { Button } from "@/components/ui/button";
 

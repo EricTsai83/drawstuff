@@ -22,10 +22,7 @@ export function ShareLinkDialog() {
       <DialogTrigger asChild>
         <Button className="font-normal">{t("labels.share")}</Button>
       </DialogTrigger>
-      <DialogContent
-        className="rounded-xl px-6 py-5 sm:max-w-md"
-        onOpenAutoFocus={(e) => e.preventDefault()}
-      >
+      <DialogContent onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
             {t("labels.share")}
