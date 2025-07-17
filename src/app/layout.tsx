@@ -21,9 +21,11 @@ const geist = Geist({
 
 export default function RootLayout({
   auth,
+  dashboard,
   children,
 }: Readonly<{
   auth: React.ReactNode;
+  dashboard: React.ReactNode;
   children: React.ReactNode;
 }>) {
   return (
@@ -45,6 +47,7 @@ export default function RootLayout({
               routerConfig={extractRouterConfig(ourFileRouter)}
             />
             <div>{auth}</div>
+            <div>{dashboard}</div>
             {children}
           </TRPCReactProvider>
           <SpeedInsights />

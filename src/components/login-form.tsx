@@ -15,7 +15,11 @@ export function LoginForm({
             </h1>
           </div>
 
-          <Button type="button" className="w-64 text-lg">
+          <Button
+            size="lg"
+            variant="secondary"
+            className="w-64 border border-zinc-400 text-base font-bold"
+          >
             <svg
               version="1.1"
               xmlns="http://www.w3.org/2000/svg"

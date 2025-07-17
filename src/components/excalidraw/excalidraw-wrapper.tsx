@@ -88,11 +88,7 @@ export default function ExcalidrawWrapper() {
         langCode={langCode}
         theme={editorTheme}
         renderTopRightUI={(isMobile) => {
-          // 同步 Excalidraw 內部的設備狀態
-          // setIsMobileFromExcalidraw(isMobile);
-          return isMobile ? null : (
-            <ShareLinkDialog editorTheme={editorTheme} />
-          );
+          return isMobile ? null : <ShareLinkDialog />;
         }}
         renderCustomStats={renderCustomStats}
       >
@@ -116,7 +112,7 @@ export default function ExcalidrawWrapper() {
         </div>
 
         <Footer>
-          <Link href="/login">
+          <Link href="/dashboard">
             <LayoutDashboard
               className={cn(
                 "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg p-2.5",
