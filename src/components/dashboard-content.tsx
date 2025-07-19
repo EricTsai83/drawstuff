@@ -164,11 +164,11 @@ export function DashboardContent() {
               )}
             </div>
           ) : (
-            <div className="flex flex-wrap gap-4">
+            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
               {filteredDrawings.map((drawing) => (
                 <Card
                   key={drawing.id}
-                  className="max-w-[320px] min-w-[280px] flex-1 transition-shadow hover:shadow-md"
+                  className="w-full transition-shadow hover:shadow-md"
                 >
                   <CardHeader>
                     <div className="flex items-center justify-between">
