@@ -1,9 +1,10 @@
-import { DashboardContent } from "@/components/dashboard-content";
+import { DashboardOverlayModal } from "@/components/dashboard-overlay-modal";
+import { ProjectSearchList } from "@/components/project-search-list";
 
-export default async function DashboardPage({
-  searchParams,
-}: {
-  searchParams: { q?: string };
-}) {
-  return <DashboardContent searchParams={searchParams} />;
+export default async function DashboardPage() {
+  return (
+    <DashboardOverlayModal>
+      <ProjectSearchList />
+    </DashboardOverlayModal>
+  );
 }
