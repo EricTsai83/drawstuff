@@ -1,10 +1,10 @@
-import { DashboardModal } from "@/components/dashboard-modal";
-import { DashboardContent } from "@/components/dashboard-content";
+import { DashboardOverlayModal } from "@/components/dashboard-overlay-modal";
+import { ProjectSearchList } from "@/components/project-search-list";
 
-export default function Page() {
+export default function DashboardModalPage() {
   return (
-    <DashboardModal>
-      <DashboardContent />
-    </DashboardModal>
+    <DashboardOverlayModal>
+      <ProjectSearchList />
+    </DashboardOverlayModal>
   );
 }

@@ -22,14 +22,14 @@ import { useSyncTheme } from "@/hooks/use-sync-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
 import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
-import { ShareLinkDialog } from "@/components/share-link-dialog";
+import { DrawingShareDialog } from "@/components/drawing-share-dialog";
 import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { LayoutDashboard } from "lucide-react";
 import { THEME } from "@excalidraw/excalidraw";
 
-export default function ExcalidrawWrapper() {
+export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
   const [sceneName, setSceneName] = useState("");
@@ -88,7 +88,7 @@ export default function ExcalidrawWrapper() {
         langCode={langCode}
         theme={editorTheme}
         renderTopRightUI={(isMobile) => {
-          return isMobile ? null : <ShareLinkDialog />;
+          return isMobile ? null : <DrawingShareDialog />;
         }}
         renderCustomStats={renderCustomStats}
       >

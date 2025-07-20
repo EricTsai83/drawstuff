@@ -1,10 +1,10 @@
-import { Modal } from "@/components/modal";
+import { RouteModal } from "@/components/modal";
 import { LoginForm } from "@/components/login-form";
 
-export default function Page() {
+export default function LoginModalPage() {
   return (
-    <Modal>
+    <RouteModal>
       <LoginForm />
-    </Modal>
+    </RouteModal>
   );
 }

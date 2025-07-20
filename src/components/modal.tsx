@@ -9,12 +9,12 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 
-type ModalProps = {
+type RouteModalProps = {
   children: React.ReactNode;
   title?: string;
 };
 
-export function Modal({ children, title }: ModalProps) {
+export function RouteModal({ children, title }: RouteModalProps) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
 

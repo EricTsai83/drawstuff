@@ -7,25 +7,109 @@ import { Input } from "@/components/ui/input";
 import { Search, Calendar, FileText } from "lucide-react";
 import Link from "next/link";
 
-interface SavedDrawing {
+type DrawingItem = {
   id: string;
   name: string;
   createdAt: string;
   updatedAt: string;
   thumbnail?: string;
-}
+};
+
+type DrawingGridProps = {
+  drawings: DrawingItem[];
+};
+
+type SearchBarProps = {
+  searchTerm: string;
+  onSearchChange: (value: string) => void;
+};
+
+type EmptyStateProps = {
+  hasSearchTerm: boolean;
+};
+
+const SearchBar = ({ searchTerm, onSearchChange }: SearchBarProps) => (
+  <div className="relative">
+    <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+    <Input
+      placeholder="搜尋圖表..."
+      value={searchTerm}
+      onChange={(e) => onSearchChange(e.target.value)}
+      className="pl-10"
+    />
+  </div>
+);
+
+const EmptyState = ({ hasSearchTerm }: EmptyStateProps) => (
+  <div className="py-12 text-center">
+    <FileText className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
+    <h3 className="mb-2 text-lg font-medium">
+      {hasSearchTerm ? "沒有找到符合的圖表" : "還沒有圖表"}
+    </h3>
+    <p className="text-muted-foreground mb-4">
+      {hasSearchTerm
+        ? "嘗試使用不同的搜尋關鍵字"
+        : "開始創建你的第一個圖表吧！"}
+    </p>
+    {!hasSearchTerm && (
+      <Button asChild>
+        <Link href="/">開始繪製</Link>
+      </Button>
+    )}
+  </div>
+);
+
+const DrawingGrid = ({ drawings }: DrawingGridProps) => {
+  const formatDate = (dateString: string) => {
+    return new Date(dateString).toLocaleDateString("zh-TW", {
+      year: "numeric",
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
+  return (
+    <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {drawings.map((drawing) => (
+        <Card
+          key={drawing.id}
+          className="w-full transition-shadow hover:shadow-md"
+        >
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">{drawing.name}</CardTitle>
+              <div className="text-muted-foreground flex items-center text-sm">
+                <Calendar className="mr-1 h-4 w-4" />
+                {formatDate(drawing.updatedAt)}
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-center justify-between">
+              <div className="text-muted-foreground text-sm">
+                最後編輯：{formatDate(drawing.updatedAt)}
+              </div>
+              <Button asChild variant="outline">
+                <Link href={`/?scene=${drawing.id}`}>開啟</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ))}
+    </div>
+  );
+};
 
 export function DashboardContent() {
-  const [drawings, setDrawings] = useState<SavedDrawing[]>([]);
+  const [drawings, setDrawings] = useState<DrawingItem[]>([]);
   const [searchTerm, setSearchTerm] = useState("");
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    // 模擬從 localStorage 或 API 獲取保存的圖表
-
     const loadDrawings = () => {
-      // 直接使用 mock data
-      const mockDrawings: SavedDrawing[] = [
+      const mockDrawings: DrawingItem[] = [
         {
           id: "1",
           name: "範例圖表一",
@@ -107,16 +191,6 @@ export function DashboardContent() {
     drawing.name.toLowerCase().includes(searchTerm.toLowerCase()),
   );
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString("zh-TW", {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
-
   if (loading) {
     return (
       <div className="flex items-center justify-center p-8">
@@ -136,62 +210,12 @@ export function DashboardContent() {
             </Button>
           </div>
 
-          <div className="relative">
-            <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-            <Input
-              placeholder="搜尋圖表..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="pl-10"
-            />
-          </div>
+          <SearchBar searchTerm={searchTerm} onSearchChange={setSearchTerm} />
 
           {filteredDrawings.length === 0 ? (
-            <div className="py-12 text-center">
-              <FileText className="text-muted-foreground mx-auto mb-4 h-12 w-12" />
-              <h3 className="mb-2 text-lg font-medium">
-                {searchTerm ? "沒有找到符合的圖表" : "還沒有圖表"}
-              </h3>
-              <p className="text-muted-foreground mb-4">
-                {searchTerm
-                  ? "嘗試使用不同的搜尋關鍵字"
-                  : "開始創建你的第一個圖表吧！"}
-              </p>
-              {!searchTerm && (
-                <Button asChild>
-                  <Link href="/">開始繪製</Link>
-                </Button>
-              )}
-            </div>
+            <EmptyState hasSearchTerm={!!searchTerm} />
           ) : (
-            <div className="grid grid-cols-2 gap-4 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-              {filteredDrawings.map((drawing) => (
-                <Card
-                  key={drawing.id}
-                  className="w-full transition-shadow hover:shadow-md"
-                >
-                  <CardHeader>
-                    <div className="flex items-center justify-between">
-                      <CardTitle className="text-lg">{drawing.name}</CardTitle>
-                      <div className="text-muted-foreground flex items-center text-sm">
-                        <Calendar className="mr-1 h-4 w-4" />
-                        {formatDate(drawing.updatedAt)}
-                      </div>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    <div className="flex items-center justify-between">
-                      <div className="text-muted-foreground text-sm">
-                        最後編輯：{formatDate(drawing.updatedAt)}
-                      </div>
-                      <Button asChild variant="outline">
-                        <Link href={`/?scene=${drawing.id}`}>開啟</Link>
-                      </Button>
-                    </div>
-                  </CardContent>
-                </Card>
-              ))}
-            </div>
+            <DrawingGrid drawings={filteredDrawings} />
           )}
         </div>
       </div>

@@ -2,7 +2,7 @@
 
 import dynamic from "next/dynamic";
 
-const ExcalidrawWrapper = dynamic(
+const ExcalidrawEditor = dynamic(
   async () =>
     (await import("@/components/excalidraw/excalidraw-wrapper")).default,
   {
@@ -10,6 +10,6 @@ const ExcalidrawWrapper = dynamic(
   },
 );
 
-export default function ExcalidrawClientWrapper() {
-  return <ExcalidrawWrapper />;
+export default function ExcalidrawClientSideWrapper() {
+  return <ExcalidrawEditor />;
 }

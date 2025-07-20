@@ -1,5 +1,9 @@
 import { DashboardContent } from "@/components/dashboard-content";
 
-export default function DashboardPage() {
-  return <DashboardContent />;
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: { q?: string };
+}) {
+  return <DashboardContent searchParams={searchParams} />;
 }

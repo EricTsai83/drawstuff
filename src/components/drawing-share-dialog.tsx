@@ -13,7 +13,13 @@ import { useI18n } from "@excalidraw/excalidraw";
 import { CopyButton } from "@/components/copy-button";
 import { useRef } from "react";
 
-export function ShareLinkDialog() {
+interface DrawingShareDialogProps {
+  drawingUrl?: string;
+}
+
+export function DrawingShareDialog({
+  drawingUrl = "https://excalidraw-ericts.vercel.app",
+}: DrawingShareDialogProps) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -40,15 +46,11 @@ export function ShareLinkDialog() {
             <Input
               ref={inputRef}
               id="link"
-              defaultValue="https://excalidraw-ericts.vercel.app"
+              defaultValue={drawingUrl}
               readOnly
             />
           </div>
-          <CopyButton
-            textToCopy={
-              inputRef.current?.value ?? "https://excalidraw-ericts.vercel.app"
-            }
-          />
+          <CopyButton textToCopy={inputRef.current?.value ?? drawingUrl} />
         </div>
         <div className="mt-2 flex items-center gap-2 text-xs">
           <span role="img" aria-label="lock" className="text-yellow-400">

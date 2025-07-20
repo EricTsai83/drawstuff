@@ -4,6 +4,7 @@ import { useState } from "react";
 import { CopyIcon } from "lucide-react";
 import { useI18n } from "@excalidraw/excalidraw";
 import { Button } from "@/components/ui/button";
+import { copyTextToSystemClipboard } from "@/lib/clipboard";
 
 type CopyButtonProps = {
   textToCopy: string;
@@ -14,13 +15,9 @@ export function CopyButton({ textToCopy }: CopyButtonProps) {
   const { t } = useI18n();
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(textToCopy);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch (err) {
-      console.error("複製失敗:", err);
-    }
+    await copyTextToSystemClipboard(textToCopy);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   return (

@@ -16,31 +16,33 @@ import { Pencil } from "lucide-react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useState, useRef, useEffect } from "react";
 
-export function RenameSceneDialog({
-  excalidrawAPI,
-}: {
+interface DrawingRenameDialogProps {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
-}) {
+}
+
+export function DrawingRenameDialog({
+  excalidrawAPI,
+}: DrawingRenameDialogProps) {
   const { t } = useI18n();
   const [isOpen, setIsOpen] = useState(false);
-  const [name, setName] = useState("");
+  const [drawingName, setDrawingName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const handleOpen = () => {
     try {
       const currentName = excalidrawAPI?.getName() ?? "";
-      setName(currentName);
+      setDrawingName(currentName);
       setIsOpen(true);
     } catch (error) {
-      console.error("Failed to get current scene name:", error);
-      setName("");
+      console.error("Failed to get current drawing name:", error);
+      setDrawingName("");
       setIsOpen(true);
     }
   };
 
   const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newName = event.target.value;
-    setName(newName);
+    setDrawingName(newName);
   };
 
   const handleConfirm = () => {
@@ -49,13 +51,13 @@ export function RenameSceneDialog({
       if (currentAppState && excalidrawAPI) {
         excalidrawAPI.updateScene({
           appState: {
-            name: name,
+            name: drawingName,
           },
         });
       }
       handleClose();
     } catch (error) {
-      console.error("Failed to update scene name:", error);
+      console.error("Failed to update drawing name:", error);
     }
   };
 
@@ -76,7 +78,6 @@ export function RenameSceneDialog({
     handleOpen();
   };
 
-  // 當對話框開啟時，自動選取輸入框中的文字
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.select();
@@ -88,7 +89,7 @@ export function RenameSceneDialog({
       <DialogTrigger asChild>
         <MainMenu.Item
           className="!mt-0"
-          data-testid="rename-scene-menu-item"
+          data-testid="rename-drawing-menu-item"
           icon={<Pencil strokeWidth={1.5} />}
           onSelect={handleMenuSelect}
           aria-label={t("labels.fileTitle")}
@@ -115,13 +116,13 @@ export function RenameSceneDialog({
 
         <div className="grid flex-1 gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="scene-name-input" className="sr-only">
+            <Label htmlFor="drawing-name-input" className="sr-only">
               {t("labels.fileTitle")}
             </Label>
             <Input
               ref={inputRef}
-              id="scene-name-input"
-              value={name}
+              id="drawing-name-input"
+              value={drawingName}
               onChange={handleNameChange}
               onKeyDown={handleKeyDown}
               autoFocus

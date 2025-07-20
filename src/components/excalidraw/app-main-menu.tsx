@@ -8,7 +8,7 @@ import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { RenameSceneDialog } from "@/components/rename-scene-dialog";
+import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
 import { LogIn } from "lucide-react";
 
 type AppMainMenuProps = {
@@ -36,10 +36,7 @@ function AppMainMenu(props: AppMainMenuProps) {
   return (
     <MainMenu>
       <div ref={menuRef}>
-        <RenameSceneDialog
-          editorTheme={props.theme}
-          excalidrawAPI={props.excalidrawAPI}
-        />
+        <DrawingRenameDialog excalidrawAPI={props.excalidrawAPI} />
         <MainMenu.DefaultItems.LoadScene />
         <MainMenu.DefaultItems.SaveToActiveFile />
         <MainMenu.DefaultItems.Export />

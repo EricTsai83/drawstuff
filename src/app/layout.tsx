@@ -7,6 +7,7 @@ import { extractRouterConfig } from "uploadthing/server";
 import { ourFileRouter } from "@/app/api/uploadthing/core";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "next-themes";
+import { NuqsAdapter } from "nuqs/adapters/next/app";
 
 export const metadata: Metadata = {
   title: "Create T3 App",
@@ -46,9 +47,11 @@ export default function RootLayout({
                */
               routerConfig={extractRouterConfig(ourFileRouter)}
             />
-            <div>{auth}</div>
-            <div>{dashboard}</div>
-            {children}
+            <NuqsAdapter>
+              <div>{auth}</div>
+              <div>{dashboard}</div>
+              {children}
+            </NuqsAdapter>
           </TRPCReactProvider>
           <SpeedInsights />
         </ThemeProvider>

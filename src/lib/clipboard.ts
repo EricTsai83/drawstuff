@@ -1,4 +1,4 @@
-import { MIME_TYPES } from "@excalidraw/excalidraw/constants";
+import { MIME_TYPES } from "@excalidraw/excalidraw";
 
 export const probablySupportsClipboardWriteText =
   "clipboard" in navigator && "writeText" in navigator.clipboard;
