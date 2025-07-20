@@ -8,39 +8,39 @@ import { ProjectCard } from "./project-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { useRouter } from "next/navigation";
 
-interface ProjectItem {
+type DrawingItem = {
   id: string;
   name: string;
   description: string;
   image: string;
   lastUpdated: Date;
   category: string;
-}
+};
 
-interface ProjectSearchBarProps {
+type DrawingSearchBarProps = {
   searchQuery: string;
   onSearchChange: (value: string) => void;
-}
+};
 
-interface ProjectResultsCountProps {
+type DrawingResultsCountProps = {
   totalItems: number;
   filteredCount: number;
   searchQuery: string;
-}
+};
 
-interface ProjectGridProps {
-  items: ProjectItem[];
-}
+type DrawingGridProps = {
+  items: DrawingItem[];
+};
 
-const ProjectSearchBar = ({
+const DrawingSearchBar = ({
   searchQuery,
   onSearchChange,
-}: ProjectSearchBarProps) => (
+}: DrawingSearchBarProps) => (
   <div className="relative">
     <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
     <Input
       type="text"
-      placeholder="Search projects by name, description, or category..."
+      placeholder="Search drawings by name, description, or category..."
       value={searchQuery}
       onChange={(e) => onSearchChange(e.target.value)}
       className="h-10 pl-10 text-base"
@@ -48,11 +48,11 @@ const ProjectSearchBar = ({
   </div>
 );
 
-const ProjectResultsCount = ({
+const DrawingResultsCount = ({
   totalItems,
   filteredCount,
   searchQuery,
-}: ProjectResultsCountProps) => (
+}: DrawingResultsCountProps) => (
   <div className="text-muted-foreground text-sm">
     {searchQuery ? (
       <>
@@ -61,12 +61,12 @@ const ProjectResultsCount = ({
         {searchQuery && ` for "${searchQuery}"`}
       </>
     ) : (
-      `Showing ${totalItems} projects`
+      `Showing ${totalItems} drawings`
     )}
   </div>
 );
 
-const ProjectGrid = ({ items }: ProjectGridProps) => (
+const DrawingGrid = ({ items }: DrawingGridProps) => (
   <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
     {items.map((item) => (
       <ProjectCard key={item.id} item={item} />
@@ -74,7 +74,7 @@ const ProjectGrid = ({ items }: ProjectGridProps) => (
   </div>
 );
 
-export function ProjectSearchList() {
+export function DrawingSearchList() {
   const router = useRouter();
   const [searchQuery, setSearchQuery] = useQueryState("search", {
     defaultValue: "",
@@ -84,9 +84,9 @@ export function ProjectSearchList() {
   useEscapeKey(() => router.back());
 
   const filteredItems = useMemo(() => {
-    if (!searchQuery) return sampleProjectItems;
+    if (!searchQuery) return sampleDrawingItems;
 
-    return sampleProjectItems.filter(
+    return sampleDrawingItems.filter(
       (item) =>
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -97,29 +97,29 @@ export function ProjectSearchList() {
   return (
     <div className="w-full space-y-5 p-6 pt-0">
       <h2 className="pt-12 pb-8 text-center text-2xl font-semibold lg:text-3xl">
-        Project Dashboard
+        Drawing Dashboard
       </h2>
 
-      <ProjectSearchBar
+      <DrawingSearchBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
 
-      <ProjectResultsCount
-        totalItems={sampleProjectItems.length}
+      <DrawingResultsCount
+        totalItems={sampleDrawingItems.length}
         filteredCount={filteredItems.length}
         searchQuery={searchQuery}
       />
 
       {filteredItems.length > 0 ? (
-        <ProjectGrid items={filteredItems} />
+        <DrawingGrid items={filteredItems} />
       ) : (
         <div className="py-12 text-center">
           <div className="text-muted-foreground mb-2 text-lg">
-            No projects found
+            No drawings found
           </div>
           <div className="text-muted-foreground text-sm">
-            Try adjusting your search terms or browse all projects
+            Try adjusting your search terms or browse all drawings
           </div>
         </div>
       )}
@@ -127,7 +127,7 @@ export function ProjectSearchList() {
   );
 }
 
-const sampleProjectItems: ProjectItem[] = [
+const sampleDrawingItems: DrawingItem[] = [
   {
     id: "1",
     name: "Modern Dashboard Design",

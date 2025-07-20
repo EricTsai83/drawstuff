@@ -2,7 +2,7 @@
 
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw, Footer } from "@excalidraw/excalidraw";
-import { useState } from "react";
+import { useState, useCallback } from "react";
 import type {
   AppState,
   BinaryFiles,
@@ -39,22 +39,25 @@ export default function ExcalidrawEditor() {
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
 
-  const onChange = (
-    excalidrawElements: readonly OrderedExcalidrawElement[],
-    appState: AppState,
-    files: BinaryFiles,
-  ) => {
-    const data = {
-      elements: excalidrawElements,
-      appState: appState,
-      files: files,
-    };
+  const onChange = useCallback(
+    (
+      excalidrawElements: readonly OrderedExcalidrawElement[],
+      appState: AppState,
+      files: BinaryFiles,
+    ) => {
+      const data = {
+        elements: excalidrawElements,
+        appState: appState,
+        files: files,
+      };
 
-    // 更新名字狀態
-    setSceneName(appState.name ?? "");
+      // 更新名字狀態
+      setSceneName(appState.name ?? "");
 
-    debouncedSave(data);
-  };
+      debouncedSave(data);
+    },
+    [debouncedSave],
+  );
 
   function handleLangCodeChange(langCode: string) {
     setLangCode(langCode);

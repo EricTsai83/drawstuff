@@ -1,10 +1,10 @@
 import { DashboardOverlayModal } from "@/components/dashboard-overlay-modal";
-import { ProjectSearchList } from "@/components/project-search-list";
+import { DrawingSearchList } from "@/components/drawing-search-list";
 
 export default async function DashboardPage() {
   return (
     <DashboardOverlayModal>
-      <ProjectSearchList />
+      <DrawingSearchList />
     </DashboardOverlayModal>
   );
 }

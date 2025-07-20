@@ -3,9 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-interface DashboardOverlayModalProps {
+type DashboardOverlayModalProps = {
   children: React.ReactNode;
-}
+};
 
 export function DashboardOverlayModal({
   children,
