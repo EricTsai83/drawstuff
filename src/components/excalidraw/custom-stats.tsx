@@ -1,45 +1,11 @@
 import { Stats } from "@excalidraw/excalidraw";
-import { debounce, nFormatter } from "@/lib/utils";
+import { nFormatter } from "@/lib/utils";
 import { useI18n } from "@excalidraw/excalidraw";
-import { useEffect, useState } from "react";
+import { useStorageWarning } from "@/hooks/use-storage-warning";
 
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { UIAppState } from "@excalidraw/excalidraw/types";
-
-import {
-  getElementsStorageSize,
-  getTotalStorageSize,
-} from "@/data/local-storage";
-
-type StorageSizes = { scene: number; total: number };
-
-const STORAGE_SIZE_TIMEOUT = 500;
-
-const getStorageSizes = debounce((cb: (sizes: StorageSizes) => void) => {
-  cb({
-    scene: getElementsStorageSize(),
-    total: getTotalStorageSize(),
-  });
-}, STORAGE_SIZE_TIMEOUT);
-
-type Props = {
-  setToast: (message: string) => void;
-  elements: readonly NonDeletedExcalidrawElement[];
-  appState: UIAppState;
-};
-export default function CustomStats(props: Props) {
+export default function CustomStats() {
   const { t } = useI18n();
-  const [storageSizes, setStorageSizes] = useState<StorageSizes>({
-    scene: 0,
-    total: 0,
-  });
-
-  useEffect(() => {
-    getStorageSizes((sizes) => {
-      setStorageSizes(sizes);
-    });
-  }, [props.elements, props.appState]);
-  useEffect(() => () => getStorageSizes.cancel(), []);
+  const { storageSizes } = useStorageWarning();
 
   return (
     <Stats.StatsRows order={-1}>

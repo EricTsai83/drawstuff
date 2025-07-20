@@ -4,7 +4,7 @@ import dynamic from "next/dynamic";
 
 const ExcalidrawEditor = dynamic(
   async () =>
-    (await import("@/components/excalidraw/excalidraw-wrapper")).default,
+    (await import("@/components/excalidraw/excalidraw-editor")).default,
   {
     ssr: false,
   },

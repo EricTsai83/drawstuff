@@ -7,12 +7,8 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
-  UIAppState,
 } from "@excalidraw/excalidraw/types";
-import type {
-  NonDeletedExcalidrawElement,
-  OrderedExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
+import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
 import { useDebounce } from "@/hooks/use-debounce";
 import { STORAGE_KEYS } from "@/config/app-constants";
@@ -23,6 +19,7 @@ import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
 import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
 import { DrawingShareDialog } from "@/components/drawing-share-dialog";
+import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
@@ -38,6 +35,7 @@ export default function ExcalidrawEditor() {
   const { theme: editorTheme, appTheme, setAppTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
+  const [initialDataPromise] = useState(() => createInitialDataPromise());
 
   const onChange = useCallback(
     (
@@ -59,40 +57,33 @@ export default function ExcalidrawEditor() {
     [debouncedSave],
   );
 
-  function handleLangCodeChange(langCode: string) {
+  const handleLangCodeChange = useCallback((langCode: string) => {
     setLangCode(langCode);
     localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, langCode);
-  }
+  }, []);
 
-  function renderCustomStats(
-    elements: readonly NonDeletedExcalidrawElement[],
-    appState: UIAppState,
-  ) {
-    return (
-      <CustomStats
-        setToast={(message) => excalidrawAPI!.setToast({ message })}
-        appState={appState}
-        elements={elements}
-      />
-    );
-  }
+  const renderCustomStats = useCallback(() => <CustomStats />, []);
+
+  const uiOptions = {
+    canvasActions: {
+      toggleTheme: true,
+    },
+  };
+
+  const renderTopRightUI = (isMobile: boolean) => {
+    return isMobile ? null : <DrawingShareDialog />;
+  };
 
   return (
     <div className="h-screen w-screen">
       <Excalidraw
         excalidrawAPI={excalidrawRefCallback}
-        initialData={createInitialDataPromise}
+        initialData={initialDataPromise}
         onChange={onChange}
-        UIOptions={{
-          canvasActions: {
-            toggleTheme: true,
-          },
-        }}
+        UIOptions={uiOptions}
         langCode={langCode}
         theme={editorTheme}
-        renderTopRightUI={(isMobile) => {
-          return isMobile ? null : <DrawingShareDialog />;
-        }}
+        renderTopRightUI={renderTopRightUI}
         renderCustomStats={renderCustomStats}
       >
         <AppMainMenu
@@ -115,16 +106,26 @@ export default function ExcalidrawEditor() {
         </div>
 
         <Footer>
-          <Link href="/dashboard">
-            <LayoutDashboard
+          <div className="flex items-center gap-2.5">
+            <Link href="/dashboard">
+              <LayoutDashboard
+                className={cn(
+                  "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2.5",
+                  editorTheme === THEME.DARK
+                    ? "bg-[#232329] text-neutral-200 hover:bg-[#2d2d38]"
+                    : "bg-[#e9ecef] text-[#39393e] hover:bg-[#f1f0ff]",
+                )}
+              />
+            </Link>
+            <StorageWarning
               className={cn(
-                "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-lg p-2.5",
+                "flex h-9 items-center justify-center rounded-[10px] p-2.5",
                 editorTheme === THEME.DARK
-                  ? "bg-[#232329] text-neutral-200 hover:bg-[#2e2e2e]"
+                  ? "bg-[#232329] text-neutral-200 hover:bg-[#2d2d38]"
                   : "bg-[#e9ecef] text-[#39393e] hover:bg-[#f1f0ff]",
               )}
             />
-          </Link>
+          </div>
         </Footer>
 
         <AppWelcomeScreen theme={editorTheme} />

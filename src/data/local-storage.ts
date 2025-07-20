@@ -102,13 +102,30 @@ export const getElementsStorageSize = () => {
 
 export const getTotalStorageSize = () => {
   try {
-    const appState = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_APP_STATE);
-    const collab = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_COLLAB);
+    // 根據實際的 STORAGE_KEYS 配置計算
+    const excalidrawKeys = [
+      STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS, // "excalidraw"
+      STORAGE_KEYS.LOCAL_STORAGE_APP_STATE, // "excalidraw-state"
+      STORAGE_KEYS.LOCAL_STORAGE_FILES, // "excalidraw-files"
+      STORAGE_KEYS.LOCAL_STORAGE_THEME, // "theme"
+      STORAGE_KEYS.VERSION_DATA_STATE, // "version-dataState"
+      STORAGE_KEYS.VERSION_FILES, // "version-files"
+      STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, // "i18nextLng"
+      STORAGE_KEYS.IDB_LIBRARY, // "excalidraw-library"
+    ];
 
-    const appStateSize = appState?.length ?? 0;
-    const collabSize = collab?.length ?? 0;
+    let totalSize = 0;
 
-    return appStateSize + collabSize + getElementsStorageSize();
+    excalidrawKeys.forEach((key) => {
+      const value = localStorage.getItem(key);
+      if (value) {
+        // 使用 UTF-16 編碼計算（每字符 2 字節）
+        const itemSize = (key.length + value.length) * 2;
+        totalSize += itemSize;
+      }
+    });
+
+    return totalSize;
   } catch (error: unknown) {
     console.error(error);
     return 0;

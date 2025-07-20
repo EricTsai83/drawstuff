@@ -56,24 +56,26 @@ export const debounce = <T extends unknown[]>(
   return ret;
 };
 
-//https://stackoverflow.com/a/9462382/8418
-export const nFormatter = (num: number, digits: number): string => {
-  const si: { value: number; symbol: string }[] = [
-    { value: 1, symbol: "b" },
-    { value: 1e3, symbol: "k" },
-    { value: 1e6, symbol: "M" },
-    { value: 1e9, symbol: "G" },
+// https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria
+// Browsers can store up to 5 MiB of local storage, and 5 MiB of session storage per origin.
+type Unit = { value: number; symbol: string };
+
+export function nFormatter(num: number, digits: number): string {
+  const units: Unit[] = [
+    { value: 1, symbol: "B" },
+    { value: 2 ** 10, symbol: "KiB" },
+    { value: 2 ** 20, symbol: "MiB" },
+    { value: 2 ** 30, symbol: "GiB" },
+    { value: 2 ** 40, symbol: "TiB" },
   ];
   const rx = /\.0+$|(\.[0-9]*[1-9])0+$/;
-  let index;
-  for (index = si.length - 1; index > 0; index--) {
+  let idx: number;
+  for (idx = units.length - 1; idx > 0; idx--) {
     // @ts-expect-error - index is guaranteed to be valid after loop initialization
-    if (num >= si[index].value) {
-      break;
-    }
+    if (num >= units[idx].value) break;
   }
-  return (
-    // @ts-expect-error - index is guaranteed to be valid after loop initialization
-    (num / si[index].value).toFixed(digits).replace(rx, "$1") + si[index].symbol
-  );
-};
+  // @ts-expect-error - index is guaranteed to be valid after loop initialization
+  const formatted = (num / units[idx].value).toFixed(digits).replace(rx, "$1");
+  // @ts-expect-error - index is guaranteed to be valid after loop initialization
+  return `${formatted}${units[idx].symbol}`;
+}

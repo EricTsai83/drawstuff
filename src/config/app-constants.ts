@@ -38,9 +38,7 @@ export const ROOM_ID_BYTES = 10;
 export const STORAGE_KEYS = {
   LOCAL_STORAGE_ELEMENTS: "excalidraw",
   LOCAL_STORAGE_APP_STATE: "excalidraw-state",
-  LOCAL_STORAGE_COLLAB: "excalidraw-collab",
-  LOCAL_STORAGE_THEME: "excalidraw-theme",
-  LOCAL_STORAGE_DEBUG: "excalidraw-debug",
+  LOCAL_STORAGE_THEME: "theme",
   VERSION_DATA_STATE: "version-dataState",
   VERSION_FILES: "version-files",
   LOCAL_STORAGE_FILES: "excalidraw-files",
@@ -55,3 +53,6 @@ export const COOKIES = {
 export const isExcalidrawPlusSignedUser = document.cookie.includes(
   COOKIES.AUTH_STATE_COOKIE,
 );
+
+// storage warning
+export const STORAGE_MAX_CAPACITY = 4.5 * 1024 * 1024; // 4.5MB
