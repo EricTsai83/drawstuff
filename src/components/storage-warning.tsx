@@ -53,7 +53,7 @@ export function StorageWarning({ className }: StorageWarningProps) {
         unoptimized // 禁用 Next.js 圖片優化以避免快取問題
       />
 
-      <div className="ml-2 text-xs text-gray-600 dark:text-gray-400">
+      <div className="ml-2 text-xs text-[#39393e] dark:text-[#b8b8b8]">
         Used Storage: {usagePercent.toFixed(1)}% (
         {nFormatter(STORAGE_MAX_CAPACITY, 1)})
       </div>

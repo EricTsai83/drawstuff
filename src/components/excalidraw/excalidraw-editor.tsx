@@ -23,7 +23,7 @@ import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
-import { LayoutDashboard } from "lucide-react";
+import { PanelsTopLeft } from "lucide-react";
 import { THEME } from "@excalidraw/excalidraw";
 
 export default function ExcalidrawEditor() {
@@ -108,12 +108,12 @@ export default function ExcalidrawEditor() {
         <Footer>
           <div className="flex items-center gap-2.5">
             <Link href="/dashboard">
-              <LayoutDashboard
+              <PanelsTopLeft
                 className={cn(
-                  "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2.5",
+                  "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2",
                   editorTheme === THEME.DARK
-                    ? "bg-[#232329] text-neutral-200 hover:bg-[#2d2d38]"
-                    : "bg-[#e9ecef] text-[#39393e] hover:bg-[#f1f0ff]",
+                    ? "bg-[#232329] text-[#b8b8b8] hover:bg-[#2d2d38]"
+                    : "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
                 )}
               />
             </Link>
@@ -121,8 +121,8 @@ export default function ExcalidrawEditor() {
               className={cn(
                 "flex h-9 items-center justify-center rounded-[10px] p-2.5",
                 editorTheme === THEME.DARK
-                  ? "bg-[#232329] text-neutral-200 hover:bg-[#2d2d38]"
-                  : "bg-[#e9ecef] text-[#39393e] hover:bg-[#f1f0ff]",
+                  ? "bg-[#232329] hover:bg-[#2d2d38]"
+                  : "bg-[#e9ecef] hover:bg-[#f1f0ff]",
               )}
             />
           </div>
