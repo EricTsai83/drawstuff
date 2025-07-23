@@ -11,32 +11,40 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { MainMenu, useI18n } from "@excalidraw/excalidraw";
-import { Pencil } from "lucide-react";
+import { useI18n } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 
 interface DrawingRenameDialogProps {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
+  trigger?: ReactNode;
+  open?: boolean;
 }
 
 export function DrawingRenameDialog({
   excalidrawAPI,
+  trigger,
+  open,
 }: DrawingRenameDialogProps) {
   const { t } = useI18n();
-  const [isOpen, setIsOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
   const [drawingName, setDrawingName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const handleOpen = () => {
-    try {
-      const currentName = excalidrawAPI?.getName() ?? "";
-      setDrawingName(currentName);
-      setIsOpen(true);
-    } catch (error) {
-      console.error("Failed to get current drawing name:", error);
-      setDrawingName("");
-      setIsOpen(true);
+  // 使用外部控制的 open 狀態，如果沒有提供則使用內部狀態
+  const isOpen = open ?? internalOpen;
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setInternalOpen(newOpen);
+
+    if (newOpen) {
+      try {
+        const currentName = excalidrawAPI?.getName() ?? "";
+        setDrawingName(currentName);
+      } catch (error) {
+        console.error("Failed to get current drawing name:", error);
+        setDrawingName("");
+      }
     }
   };
 
@@ -55,14 +63,14 @@ export function DrawingRenameDialog({
           },
         });
       }
-      handleClose();
+      handleOpenChange(false);
     } catch (error) {
       console.error("Failed to update drawing name:", error);
     }
   };
 
   const handleClose = () => {
-    setIsOpen(false);
+    handleOpenChange(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -73,11 +81,6 @@ export function DrawingRenameDialog({
     }
   };
 
-  const handleMenuSelect = (event: Event) => {
-    event.preventDefault();
-    handleOpen();
-  };
-
   useEffect(() => {
     if (isOpen && inputRef.current) {
       inputRef.current.select();
@@ -85,18 +88,8 @@ export function DrawingRenameDialog({
   }, [isOpen]);
 
   return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      <DialogTrigger asChild>
-        <MainMenu.Item
-          className="!mt-0"
-          data-testid="rename-drawing-menu-item"
-          icon={<Pencil strokeWidth={1.5} />}
-          onSelect={handleMenuSelect}
-          aria-label={t("labels.fileTitle")}
-        >
-          {t("labels.fileTitle")}
-        </MainMenu.Item>
-      </DialogTrigger>
+    <Dialog open={isOpen} onOpenChange={handleOpenChange}>
+      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
 
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-md"

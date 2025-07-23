@@ -19,11 +19,13 @@ import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
 import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
 import { DrawingShareDialog } from "@/components/drawing-share-dialog";
+import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
 import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { PanelsTopLeft } from "lucide-react";
+import { DrawingNameTrigger } from "@/components/drawing-name-trigger";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -73,6 +75,7 @@ export default function ExcalidrawEditor() {
     return isMobile ? null : <DrawingShareDialog />;
   };
 
+  // 2. 使用組件
   return (
     <div className="h-screen w-screen">
       <Excalidraw
@@ -91,15 +94,11 @@ export default function ExcalidrawEditor() {
           handleLangCodeChange={handleLangCodeChange}
           excalidrawAPI={excalidrawAPI}
         />
-        <div
-          className={cn(
-            "fixed top-5 left-20 z-10 hidden w-40 text-lg font-medium",
-            "overflow-hidden leading-none text-ellipsis text-black lg:line-clamp-2",
-            "dark:text-white",
-          )}
-        >
-          {sceneName}
-        </div>
+
+        <DrawingRenameDialog
+          excalidrawAPI={excalidrawAPI}
+          trigger={<DrawingNameTrigger sceneName={sceneName} />}
+        />
 
         <Footer>
           <div className="flex items-center gap-2.5">
