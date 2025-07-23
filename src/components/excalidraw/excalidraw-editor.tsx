@@ -24,7 +24,6 @@ import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { PanelsTopLeft } from "lucide-react";
-import { THEME } from "@excalidraw/excalidraw";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -32,7 +31,7 @@ export default function ExcalidrawEditor() {
   const [sceneName, setSceneName] = useState("");
   const savedLang = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE);
   const [langCode, setLangCode] = useState(savedLang ?? getPreferredLanguage());
-  const { theme: editorTheme, appTheme, setAppTheme } = useSyncTheme();
+  const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
   const [initialDataPromise] = useState(() => createInitialDataPromise());
@@ -82,24 +81,21 @@ export default function ExcalidrawEditor() {
         onChange={onChange}
         UIOptions={uiOptions}
         langCode={langCode}
-        theme={editorTheme}
+        theme={browserActiveTheme}
         renderTopRightUI={renderTopRightUI}
         renderCustomStats={renderCustomStats}
       >
         <AppMainMenu
-          theme={appTheme}
-          setTheme={(theme) => setAppTheme(theme)}
+          userChosenTheme={userChosenTheme}
+          setTheme={setTheme}
           handleLangCodeChange={handleLangCodeChange}
           excalidrawAPI={excalidrawAPI}
         />
         <div
           className={cn(
             "fixed top-5 left-20 z-10 hidden w-40 text-lg font-medium",
-            "overflow-hidden leading-none text-ellipsis lg:line-clamp-2",
-            {
-              "text-white": editorTheme === THEME.DARK,
-              "text-black": editorTheme === THEME.LIGHT,
-            },
+            "overflow-hidden leading-none text-ellipsis text-black lg:line-clamp-2",
+            "dark:text-white",
           )}
         >
           {sceneName}
@@ -111,24 +107,22 @@ export default function ExcalidrawEditor() {
               <PanelsTopLeft
                 className={cn(
                   "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2",
-                  editorTheme === THEME.DARK
-                    ? "bg-[#232329] text-[#b8b8b8] hover:bg-[#2d2d38]"
-                    : "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
+                  "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
+                  "dark:bg-[#232329] dark:text-[#b8b8b8] dark:hover:bg-[#2d2d38]",
                 )}
               />
             </Link>
             <StorageWarning
               className={cn(
                 "flex h-9 items-center justify-center rounded-[10px] p-2.5",
-                editorTheme === THEME.DARK
-                  ? "bg-[#232329] hover:bg-[#2d2d38]"
-                  : "bg-[#e9ecef] hover:bg-[#f1f0ff]",
+                "bg-[#e9ecef] hover:bg-[#f1f0ff]",
+                "dark:bg-[#232329] dark:hover:bg-[#2d2d38]",
               )}
             />
           </div>
         </Footer>
 
-        <AppWelcomeScreen theme={editorTheme} />
+        <AppWelcomeScreen />
       </Excalidraw>
     </div>
   );

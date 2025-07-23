@@ -1,19 +1,19 @@
 "use client";
 
 import { MainMenu } from "@excalidraw/excalidraw";
-import { useRef, memo } from "react";
+import { useRef, memo, type Dispatch, type SetStateAction } from "react";
 import { LanguageList } from "./app-language/language-list";
-import type { Theme } from "@excalidraw/excalidraw/element/types";
 import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
 import { LogIn } from "lucide-react";
+import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 
 type AppMainMenuProps = {
-  theme: Theme | "system";
-  setTheme: (theme: Theme | "system") => void;
+  userChosenTheme: UserChosenTheme;
+  setTheme: Dispatch<SetStateAction<UserChosenTheme>>;
   handleLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
 };
@@ -58,7 +58,7 @@ function AppMainMenu(props: AppMainMenuProps) {
         <MainMenu.Separator />
         <MainMenu.DefaultItems.ToggleTheme
           allowSystemTheme
-          theme={props.theme}
+          theme={props.userChosenTheme}
           onSelect={props.setTheme}
         />
         <MainMenu.ItemCustom>

@@ -1,6 +1,6 @@
 import ExcalidrawClientSideWrapper from "@/components/excalidraw/excalidraw-client-wrapper";
 
-export default function DashboardLayout({
+export default function WorkspaceLayout({
   children,
 }: {
   children: React.ReactNode;
