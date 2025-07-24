@@ -8,8 +8,9 @@ import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
-import { LogIn } from "lucide-react";
+import { LogIn, FilePenLine } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
+import { useI18n } from "@excalidraw/excalidraw";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -18,13 +19,19 @@ type AppMainMenuProps = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
 };
 
-function AppMainMenu(props: AppMainMenuProps) {
+function AppMainMenu({
+  userChosenTheme,
+  setTheme,
+  handleLangCodeChange,
+  excalidrawAPI,
+}: AppMainMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const { t } = useI18n();
 
   useOutsideClick(menuRef, () => {
-    const currentAppState = props.excalidrawAPI?.getAppState();
+    const currentAppState = excalidrawAPI?.getAppState();
     if (currentAppState) {
-      props.excalidrawAPI?.updateScene({
+      excalidrawAPI?.updateScene({
         appState: {
           ...currentAppState,
           openMenu: null,
@@ -36,7 +43,15 @@ function AppMainMenu(props: AppMainMenuProps) {
   return (
     <MainMenu>
       <div ref={menuRef}>
-        <DrawingRenameDialog excalidrawAPI={props.excalidrawAPI} />
+        <DrawingRenameDialog
+          excalidrawAPI={excalidrawAPI}
+          trigger={
+            <div className="ml-2 flex cursor-pointer items-center gap-2.5 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-800">
+              <FilePenLine strokeWidth={1.5} className="h-3.5 w-3.5" />
+              {t("labels.fileTitle")}
+            </div>
+          }
+        />
         <MainMenu.DefaultItems.LoadScene />
         <MainMenu.DefaultItems.SaveToActiveFile />
         <MainMenu.DefaultItems.Export />
@@ -58,11 +73,11 @@ function AppMainMenu(props: AppMainMenuProps) {
         <MainMenu.Separator />
         <MainMenu.DefaultItems.ToggleTheme
           allowSystemTheme
-          theme={props.userChosenTheme}
-          onSelect={props.setTheme}
+          theme={userChosenTheme}
+          onSelect={setTheme}
         />
         <MainMenu.ItemCustom>
-          <LanguageList handleLangCodeChange={props.handleLangCodeChange} />
+          <LanguageList handleLangCodeChange={handleLangCodeChange} />
         </MainMenu.ItemCustom>
         <MainMenu.DefaultItems.ChangeCanvasBackground />
         <MainMenu.Separator />
