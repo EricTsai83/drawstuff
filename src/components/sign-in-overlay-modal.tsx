@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
-export function DashboardOverlayModal({
+export function SignInOverlayModal({
   children,
 }: {
   children: React.ReactNode;
@@ -26,11 +26,11 @@ export function DashboardOverlayModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/50 pt-6"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/50"
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-background mx-auto min-h-full w-4/5 rounded-none border-0"
+        className="bg-background border-border mx-auto flex w-full max-w-sm flex-col items-center justify-center rounded-lg border px-4 py-8"
         onClick={(e) => e.stopPropagation()}
       >
         {children}
