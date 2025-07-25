@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { PanelsTopLeft } from "lucide-react";
 import { DrawingNameTrigger } from "@/components/drawing-name-trigger";
+import { authClient } from "@/lib/auth/client";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -37,6 +38,7 @@ export default function ExcalidrawEditor() {
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
   const [initialDataPromise] = useState(() => createInitialDataPromise());
+  const { data: session } = authClient.useSession();
 
   const onChange = useCallback(
     (
@@ -101,16 +103,18 @@ export default function ExcalidrawEditor() {
         />
 
         <Footer>
-          <div className="flex items-center gap-2.5">
-            <Link href="/dashboard">
-              <PanelsTopLeft
-                className={cn(
-                  "ml-2.5 flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2",
-                  "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
-                  "dark:bg-[#232329] dark:text-[#b8b8b8] dark:hover:bg-[#2d2d38]",
-                )}
-              />
-            </Link>
+          <div className="ml-2.5 flex items-center gap-2.5">
+            {session && (
+              <Link href="/dashboard">
+                <PanelsTopLeft
+                  className={cn(
+                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2",
+                    "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
+                    "dark:bg-[#232329] dark:text-[#b8b8b8] dark:hover:bg-[#2d2d38]",
+                  )}
+                />
+              </Link>
+            )}
             <StorageWarning
               className={cn(
                 "flex h-9 items-center justify-center rounded-[10px] p-2.5",

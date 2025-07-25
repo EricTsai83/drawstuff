@@ -8,9 +8,11 @@ import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
-import { LogIn, FilePenLine } from "lucide-react";
+import { LogIn, FilePenLine, LogOut } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { useI18n } from "@excalidraw/excalidraw";
+import { authClient } from "@/lib/auth/client";
+import { useRouter } from "next/navigation";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -25,8 +27,10 @@ function AppMainMenu({
   handleLangCodeChange,
   excalidrawAPI,
 }: AppMainMenuProps) {
+  const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
   const { t } = useI18n();
+  const { data: session } = authClient.useSession();
 
   useOutsideClick(menuRef, () => {
     const currentAppState = excalidrawAPI?.getAppState();
@@ -39,6 +43,16 @@ function AppMainMenu({
       });
     }
   });
+
+  const handleSignOut = async () => {
+    await authClient.signOut({
+      fetchOptions: {
+        onSuccess: () => {
+          router.push("/"); // redirect to login page
+        },
+      },
+    });
+  };
 
   return (
     <MainMenu>
@@ -59,16 +73,29 @@ function AppMainMenu({
         <MainMenu.DefaultItems.SearchMenu />
         <MainMenu.DefaultItems.Help />
         <MainMenu.DefaultItems.ClearCanvas />
-        <Link href="/login" className="!no-underline">
+
+        {session ? (
           <MainMenu.Item
             className="!mt-0"
             data-testid="rename-scene-menu-item"
-            icon={<LogIn strokeWidth={1.5} />}
-            aria-label="Sign in"
+            icon={<LogOut strokeWidth={1.5} />}
+            aria-label="Sign out"
+            onClick={handleSignOut}
           >
-            Sign in
+            Sign out
           </MainMenu.Item>
-        </Link>
+        ) : (
+          <Link href="/login" className="!no-underline">
+            <MainMenu.Item
+              className="!mt-0"
+              data-testid="rename-scene-menu-item"
+              icon={<LogIn strokeWidth={1.5} />}
+              aria-label="Sign in"
+            >
+              Sign in
+            </MainMenu.Item>
+          </Link>
+        )}
 
         <MainMenu.Separator />
         <MainMenu.DefaultItems.ToggleTheme

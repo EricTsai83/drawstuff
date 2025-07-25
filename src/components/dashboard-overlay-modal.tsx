@@ -2,11 +2,14 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
+import { cn } from "@/lib/utils";
 
 export function DashboardOverlayModal({
   children,
+  centerContent = false,
 }: {
   children: React.ReactNode;
+  centerContent?: boolean;
 }) {
   const router = useRouter();
   const [isOpen, setIsOpen] = useState(false);
@@ -30,7 +33,10 @@ export function DashboardOverlayModal({
       onClick={handleBackdropClick}
     >
       <div
-        className="bg-background mx-auto min-h-full w-4/5 rounded-none border-0"
+        className={cn(
+          "bg-background mx-auto min-h-full w-4/5 rounded-none border-0",
+          centerContent && "flex items-center justify-center",
+        )}
         onClick={(e) => e.stopPropagation()}
       >
         {children}
