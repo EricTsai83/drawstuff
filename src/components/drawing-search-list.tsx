@@ -7,72 +7,8 @@ import { Input } from "@/components/ui/input";
 import { ProjectCard } from "./project-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { useRouter } from "next/navigation";
-
-type DrawingItem = {
-  id: string;
-  name: string;
-  description: string;
-  image: string;
-  lastUpdated: Date;
-  category: string;
-};
-
-type DrawingSearchBarProps = {
-  searchQuery: string;
-  onSearchChange: (value: string) => void;
-};
-
-type DrawingResultsCountProps = {
-  totalItems: number;
-  filteredCount: number;
-  searchQuery: string;
-};
-
-type DrawingGridProps = {
-  items: DrawingItem[];
-};
-
-const DrawingSearchBar = ({
-  searchQuery,
-  onSearchChange,
-}: DrawingSearchBarProps) => (
-  <div className="relative">
-    <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
-    <Input
-      type="text"
-      placeholder="Search drawings by name, description, or category..."
-      value={searchQuery}
-      onChange={(e) => onSearchChange(e.target.value)}
-      className="h-10 pl-10 text-base"
-    />
-  </div>
-);
-
-const DrawingResultsCount = ({
-  totalItems,
-  filteredCount,
-  searchQuery,
-}: DrawingResultsCountProps) => (
-  <div className="text-muted-foreground text-sm">
-    {searchQuery ? (
-      <>
-        Found {filteredCount} result
-        {filteredCount !== 1 ? "s" : ""}
-        {searchQuery && ` for "${searchQuery}"`}
-      </>
-    ) : (
-      `Showing ${totalItems} drawings`
-    )}
-  </div>
-);
-
-const DrawingGrid = ({ items }: DrawingGridProps) => (
-  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
-    {items.map((item) => (
-      <ProjectCard key={item.id} item={item} />
-    ))}
-  </div>
-);
+import { mockDrawingItems, type DrawingItem } from "@/lib/mock-data";
+import { ProjectDropdown } from "@/components/project-dropdown";
 
 export function DrawingSearchList() {
   const router = useRouter();
@@ -84,96 +20,149 @@ export function DrawingSearchList() {
   useEscapeKey(() => router.back());
 
   const filteredItems = useMemo(() => {
-    if (!searchQuery) return sampleDrawingItems;
+    if (!searchQuery) return mockDrawingItems;
 
-    return sampleDrawingItems.filter(
+    return mockDrawingItems.filter(
       (item) =>
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.category.toLowerCase().includes(searchQuery.toLowerCase()),
+        item.category.some((cat) =>
+          cat.toLowerCase().includes(searchQuery.toLowerCase()),
+        ) ||
+        item.projectName.toLowerCase().includes(searchQuery.toLowerCase()),
     );
   }, [searchQuery]);
 
+  // Split items into "Recently modified by you" and "Your drawing" sections
+  const recentlyModifiedItems = filteredItems.slice(0, 6); // First 6 items
+  const yourDrawingItems = filteredItems.slice(6, 18); // Next 12 items
+
   return (
     <div className="w-full space-y-5 p-6 pt-0">
-      <h2 className="pt-12 pb-8 text-center text-2xl font-semibold lg:text-3xl">
-        Drawing Dashboard
-      </h2>
+      {/* Header Section */}
+      <div className="pt-12 pb-8">
+        <div className="relative">
+          <h1 className="text-center text-2xl font-semibold lg:text-3xl">
+            Dashboard
+          </h1>
+          <div className="absolute right-0 w-64">
+            <ProjectDropdown />
+          </div>
+        </div>
+      </div>
 
+      {/* Search Bar */}
       <DrawingSearchBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
 
-      <DrawingResultsCount
-        totalItems={sampleDrawingItems.length}
-        filteredCount={filteredItems.length}
-        searchQuery={searchQuery}
-      />
-
-      {filteredItems.length > 0 ? (
-        <DrawingGrid items={filteredItems} />
-      ) : (
-        <div className="py-12 text-center">
-          <div className="text-muted-foreground mb-2 text-lg">
-            No drawings found
-          </div>
-          <div className="text-muted-foreground text-sm">
-            Try adjusting your search terms or browse all drawings
-          </div>
+      {/* Recently modified by you Section */}
+      <section className="space-y-4">
+        <div className="border-t border-gray-200 pt-4">
+          <h2 className="text-lg font-medium">Recently modified by you</h2>
         </div>
+        {recentlyModifiedItems.length > 0 ? (
+          <DrawingGrid items={recentlyModifiedItems} />
+        ) : (
+          <div className="py-8 text-center">
+            <div className="text-muted-foreground text-lg">
+              No recently modified drawings
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Your drawing Section */}
+      <section className="space-y-4">
+        <div className="border-t border-gray-200 pt-4">
+          <h2 className="text-lg font-medium">Your drawing</h2>
+        </div>
+        {yourDrawingItems.length > 0 ? (
+          <DrawingGrid items={yourDrawingItems} />
+        ) : (
+          <div className="py-8 text-center">
+            <div className="text-muted-foreground text-lg">
+              No drawings found
+            </div>
+            <div className="text-muted-foreground mt-2 text-sm">
+              Try adjusting your search terms or browse all drawings
+            </div>
+          </div>
+        )}
+      </section>
+
+      {/* Show results count if searching */}
+      {searchQuery && (
+        <DrawingResultsCount
+          totalItems={mockDrawingItems.length}
+          filteredCount={filteredItems.length}
+          searchQuery={searchQuery}
+        />
       )}
     </div>
   );
 }
 
-const sampleDrawingItems: DrawingItem[] = [
-  {
-    id: "1",
-    name: "Modern Dashboard Design",
-    description: "A clean and intuitive dashboard interface for analytics",
-    image: "/placeholder.svg",
-    lastUpdated: new Date("2024-01-15T10:30:00Z"),
-    category: "Design",
-  },
-  {
-    id: "2",
-    name: "React Component Library",
-    description: "Reusable components built with TypeScript and Tailwind",
-    image: "/placeholder.svg",
-    lastUpdated: new Date("2024-01-14T14:22:00Z"),
-    category: "Development",
-  },
-  {
-    id: "3",
-    name: "Mobile App Prototype",
-    description: "iOS and Android app design with smooth animations",
-    image: "/placeholder.svg",
-    lastUpdated: new Date("2024-01-13T09:15:00Z"),
-    category: "Mobile",
-  },
-  {
-    id: "4",
-    name: "E-commerce Platform",
-    description: "Full-stack e-commerce solution with payment integration",
-    image: "/placeholder.svg",
-    lastUpdated: new Date("2024-01-12T16:45:00Z"),
-    category: "E-commerce",
-  },
-  {
-    id: "5",
-    name: "Data Visualization Tool",
-    description: "Interactive charts and graphs for business analytics",
-    image: "/placeholder.svg",
-    lastUpdated: new Date("2024-01-11T11:20:00Z"),
-    category: "Analytics",
-  },
-  {
-    id: "6",
-    name: "Social Media Manager",
-    description: "Tool for scheduling and managing social media posts",
-    image: "/placeholder.svg",
-    lastUpdated: new Date("2024-01-10T13:30:00Z"),
-    category: "Social",
-  },
-];
+type DrawingSearchBarProps = {
+  searchQuery: string;
+  onSearchChange: (value: string) => void;
+};
+
+function DrawingSearchBar({
+  searchQuery,
+  onSearchChange,
+}: DrawingSearchBarProps) {
+  return (
+    <div className="relative">
+      <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
+      <Input
+        type="text"
+        placeholder="Search drawings by name, description, category, or project..."
+        value={searchQuery}
+        onChange={(e) => onSearchChange(e.target.value)}
+        className="h-10 pl-10 text-base"
+      />
+    </div>
+  );
+}
+
+type DrawingResultsCountProps = {
+  totalItems: number;
+  filteredCount: number;
+  searchQuery: string;
+};
+
+function DrawingResultsCount({
+  totalItems,
+  filteredCount,
+  searchQuery,
+}: DrawingResultsCountProps) {
+  return (
+    <div className="text-muted-foreground text-sm">
+      {searchQuery ? (
+        <>
+          Found {filteredCount} result
+          {filteredCount !== 1 ? "s" : ""}
+          {searchQuery && ` for "${searchQuery}"`}
+        </>
+      ) : (
+        `Showing ${totalItems} drawings`
+      )}
+    </div>
+  );
+}
+
+type DrawingGridProps = {
+  items: DrawingItem[];
+};
+
+function DrawingGrid({ items }: DrawingGridProps) {
+  return (
+    <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
+      {items.map((item) => (
+        <ProjectCard key={item.id} item={item} />
+      ))}
+    </div>
+  );
+}

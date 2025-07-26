@@ -10,19 +10,11 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import type { DrawingItem } from "@/lib/mock-data";
 
-interface ProjectItem {
-  id: string;
-  name: string;
-  description: string;
-  image: string;
-  lastUpdated: Date;
-  category: string;
-}
-
-interface ProjectCardProps {
-  item: ProjectItem;
-}
+type ProjectCardProps = {
+  item: DrawingItem;
+};
 
 export function ProjectCard({ item }: ProjectCardProps) {
   const timeAgo = formatDistanceToNow(item.lastUpdated, { addSuffix: true });
@@ -43,7 +35,7 @@ export function ProjectCard({ item }: ProjectCardProps) {
               className="bg-background/80 backdrop-blur-sm"
             >
               <Tag className="mr-1 h-3 w-3" />
-              {item.category}
+              {item.projectName}
             </Badge>
           </div>
         </div>
@@ -53,6 +45,13 @@ export function ProjectCard({ item }: ProjectCardProps) {
         <h3 className="group-hover:text-primary line-clamp-1 text-lg font-semibold transition-colors">
           {item.name}
         </h3>
+        <div className="mb-2 flex flex-wrap gap-1">
+          {item.category.map((cat) => (
+            <Badge key={cat} variant="secondary" className="text-xs">
+              {cat}
+            </Badge>
+          ))}
+        </div>
         <p className="text-muted-foreground line-clamp-2 text-sm">
           {item.description}
         </p>
