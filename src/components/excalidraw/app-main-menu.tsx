@@ -8,11 +8,12 @@ import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
-import { LogIn, FilePenLine, LogOut } from "lucide-react";
+import { LogIn, FilePenLine } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { useI18n } from "@excalidraw/excalidraw";
 import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
+import { Avatar } from "@/components/avatar";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -48,7 +49,7 @@ function AppMainMenu({
     await authClient.signOut({
       fetchOptions: {
         onSuccess: () => {
-          router.push("/"); // redirect to login page
+          router.refresh();
         },
       },
     });
@@ -73,12 +74,17 @@ function AppMainMenu({
         <MainMenu.DefaultItems.SearchMenu />
         <MainMenu.DefaultItems.Help />
         <MainMenu.DefaultItems.ClearCanvas />
-
+        <MainMenu.Separator />
         {session ? (
           <MainMenu.Item
             className="!mt-0"
             data-testid="rename-scene-menu-item"
-            icon={<LogOut strokeWidth={1.5} />}
+            icon={
+              <Avatar
+                src={session.user.image ?? ""}
+                fallback={session.user.name ?? ""}
+              />
+            }
             aria-label="Sign out"
             onClick={handleSignOut}
           >

@@ -3,7 +3,7 @@
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth/client";
 import { GoogleSignInButton } from "./gooogle-sign-in-button";
-import { Card, CardContent } from "./ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 
 type AuthRequiredProps = {
   className?: string;
@@ -68,17 +68,3 @@ export function AuthRequired({
     </div>
   );
 }
-
-// Hook for checking authentication status
-export function useAuthStatus() {
-  const { data: session, isPending } = authClient.useSession();
-
-  return {
-    isAuthenticated: !!session,
-    isLoading: isPending,
-    session,
-  };
-}
-
-// Alias for backward compatibility
-export const useIsAuthenticated = useAuthStatus;
