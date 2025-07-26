@@ -27,6 +27,7 @@
 .animate-flash-once {
   animation: flash-once 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
+
 :root {
   --background: oklch(0.994 0 0);
   --foreground: oklch(0 0 0);

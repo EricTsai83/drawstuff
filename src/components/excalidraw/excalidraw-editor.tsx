@@ -27,6 +27,10 @@ import Link from "next/link";
 import { PanelsTopLeft } from "lucide-react";
 import { DrawingNameTrigger } from "@/components/drawing-name-trigger";
 import { authClient } from "@/lib/auth/client";
+import {
+  CloudUploadStatus,
+  type UploadStatus,
+} from "@/components/excalidraw/cloud-upload-status";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -39,6 +43,7 @@ export default function ExcalidrawEditor() {
   const [debouncedSave] = useDebounce(saveData, 300);
   const [initialDataPromise] = useState(() => createInitialDataPromise());
   const { data: session } = authClient.useSession();
+  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("pending");
 
   const onChange = useCallback(
     (
@@ -73,8 +78,30 @@ export default function ExcalidrawEditor() {
     },
   };
 
+  const handleRetry = () => {
+    setUploadStatus("uploading");
+    // 模擬上傳完成
+    setTimeout(() => {
+      setUploadStatus("success");
+    }, 2000);
+  };
+
+  const handleSuccess = () => {
+    setUploadStatus("idle");
+  };
+
   const renderTopRightUI = (isMobile: boolean) => {
-    return isMobile ? null : <DrawingShareDialog />;
+    return isMobile ? null : (
+      <>
+        <CloudUploadStatus
+          status={uploadStatus}
+          errorMessage="網路連線失敗"
+          onClick={handleRetry}
+          onSuccess={handleSuccess}
+        />
+        <DrawingShareDialog />
+      </>
+    );
   };
 
   // 2. 使用組件
