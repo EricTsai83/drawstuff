@@ -136,6 +136,9 @@ export const drawing = createTable(
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
+    isArchived: boolean("is_archived")
+      .$defaultFn(() => false)
+      .notNull(), // 新增：是否已封存
   },
   (table) => [
     index("drawing_user_id_idx").on(table.userId),
