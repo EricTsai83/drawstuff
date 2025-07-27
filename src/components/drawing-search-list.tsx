@@ -40,14 +40,12 @@ export function DrawingSearchList() {
   return (
     <div className="w-full space-y-5 p-6 pt-0">
       {/* Header Section */}
-      <div className="pt-12 pb-8">
-        <div className="relative">
-          <h1 className="text-center text-2xl font-semibold lg:text-3xl">
-            Dashboard
-          </h1>
-          <div className="absolute right-0 w-64">
-            <ProjectDropdown />
-          </div>
+      <div className="relative pt-12 pb-16">
+        <h1 className="text-center text-2xl font-semibold lg:text-3xl">
+          Dashboard
+        </h1>
+        <div className="absolute right-0 bottom-0 w-64">
+          <ProjectDropdown />
         </div>
       </div>
 

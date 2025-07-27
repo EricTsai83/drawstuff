@@ -34,8 +34,6 @@ export function CloudUploadStatus({
   onClick,
   onSuccess,
 }: CloudUploadStatusProps) {
-  const config = getStatusConfig(status);
-
   // 監聽 success 狀態，1秒後自動變回 idle
   useEffect(() => {
     if (status === "success" && onSuccess) {
@@ -47,12 +45,30 @@ export function CloudUploadStatus({
     }
   }, [status, onSuccess]);
 
-  // 如果是 idle 狀態或沒有配置，則不渲染
-  if (!config) {
+  // 如果是 idle 狀態，則不渲染
+  if (status === "idle") {
     return null;
   }
 
-  const Icon = config.icon;
+  // 根據狀態獲取對應的圖標
+  function getStatusIcon() {
+    switch (status) {
+      case "pending":
+        return CloudUpload;
+      case "uploading":
+        return Loader2;
+      case "success":
+        return CheckCircle2;
+      case "error":
+        return AlertCircle;
+      case "offline":
+        return CloudOff;
+      default:
+        return CloudUpload;
+    }
+  }
+
+  const Icon = getStatusIcon();
 
   return (
     <div
@@ -62,14 +78,16 @@ export function CloudUploadStatus({
         "h-9 w-9 rounded-lg backdrop-blur-sm",
         "transition-all duration-300 ease-out",
         "shadow-xs hover:shadow-sm",
-
-        // 顏色配置
-        config.bgColor,
-        config.borderColor,
-
+        // 背景顏色 - 根據狀態條件設定
+        status === "pending" && "bg-primary",
+        status === "uploading" && "bg-primary/85 dark:bg-secondary",
+        status === "success" && "bg-primary",
+        status === "error" && "bg-destructive/85",
+        status === "offline" && "bg-muted/30 dark:bg-muted/20",
+        // 邊框顏色 - 只有錯誤狀態需要
+        status === "error" && "border-destructive/30",
         // 互動效果
         onClick && "cursor-pointer",
-
         className,
       )}
       title={getTooltipText(status, errorMessage)}
@@ -78,8 +96,14 @@ export function CloudUploadStatus({
       <Icon
         className={cn(
           "h-4 w-4 transition-all duration-300",
-          config.iconColor,
-          config.animation,
+          // 圖標顏色 - 根據狀態條件設定
+          status === "pending" && "text-white",
+          status === "uploading" && "text-white",
+          status === "success" && "text-white",
+          status === "error" && "text-white",
+          status === "offline" && "text-[#39393e] dark:text-[#b8b8b8]",
+          // 動畫效果 - 只有上傳中狀態需要旋轉
+          status === "uploading" && "animate-spin",
         )}
       />
     </div>
@@ -101,53 +125,5 @@ function getTooltipText(status: UploadStatus, errorMessage?: string): string {
       return "目前離線";
     default:
       return "";
-  }
-}
-
-function getStatusConfig(status: UploadStatus) {
-  switch (status) {
-    case "idle":
-      // 隱藏狀態，不顯示任何內容
-      return null;
-
-    case "pending":
-      return {
-        icon: CloudUpload,
-        bgColor: "bg-primary",
-        iconColor: "text-white",
-      };
-
-    case "uploading":
-      return {
-        icon: Loader2,
-        bgColor: "bg-primary/85 dark:bg-secondary",
-        iconColor: "text-white",
-        animation: "animate-spin",
-      };
-
-    case "success":
-      return {
-        icon: CheckCircle2,
-        bgColor: "bg-primary",
-        iconColor: "text-white",
-      };
-
-    case "error":
-      return {
-        icon: AlertCircle,
-        bgColor: "bg-destructive/85",
-        iconColor: "text-white",
-        borderColor: "border-destructive/30",
-      };
-
-    case "offline":
-      return {
-        icon: CloudOff,
-        bgColor: "bg-muted/30 dark:bg-muted/20",
-        iconColor: "text-[#39393e] dark:text-[#b8b8b8]",
-      };
-
-    default:
-      return null;
   }
 }
