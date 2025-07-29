@@ -83,6 +83,9 @@ importers:
       nuqs:
         specifier: ^2.4.3
         version: 2.4.3(next@15.3.5(react-dom@19.1.0(react@19.1.0))(react@19.1.0)(sass@1.51.0))(react@19.1.0)
+      pako:
+        specifier: ^2.1.0
+        version: 2.1.0
       postgres:
         specifier: ^3.4.4
         version: 3.4.7
@@ -120,6 +123,9 @@ importers:
       '@types/node':
         specifier: ^20.14.10
         version: 20.19.4
+      '@types/pako':
+        specifier: ^2.0.3
+        version: 2.0.3
       '@types/react':
         specifier: ^19.0.0
         version: 19.1.8
@@ -1591,6 +1597,9 @@ packages:
 
   '@types/node@20.19.4':
     resolution: {integrity: sha512-OP+We5WV8Xnbuvw0zC2m4qfB/BJvjyCwtNjhHdJxV1639SGSKrLmJkc3fMnp2Qy8nJyHp8RO6umxELN/dS1/EA==}
+
+  '@types/pako@2.0.3':
+    resolution: {integrity: sha512-bq0hMV9opAcrmE0Byyo0fY3Ew4tgOevJmQ9grUhpXQhYfyLJ1Kqg3P33JT5fdbT2AjeAjR51zqqVjAL/HMkx7Q==}
 
   '@types/react-dom@19.1.6':
     resolution: {integrity: sha512-4hOiT/dwO8Ko0gV1m/TJZYk3y0KBnY9vzDh7W+DH17b2HFSOGgdj33dhihPeuy3l0q23+4e+hoXHV6hCC4dCXw==}
@@ -3323,6 +3332,9 @@ packages:
 
   pako@2.0.3:
     resolution: {integrity: sha512-WjR1hOeg+kki3ZIOjaf4b5WVcay1jaliKSYiEaB1XzwhMQZJxRdQRv0V31EKBYlxb4T7SK3hjfc/jxyU64BoSw==}
+
+  pako@2.1.0:
+    resolution: {integrity: sha512-w+eufiZ1WuJYgPXbV/PO3NCMEc3xqylkKHzp8bxp1uW4qaSNQUkwmLLEc3kKsfz8lpV1F8Ht3U1Cm+9Srog2ug==}
 
   parent-module@1.0.1:
     resolution: {integrity: sha512-GQ2EWRpQV8/o+Aw8YqtfZZPfNRWZYkbidE9k5rpl/hC3vtHHBfGm2Ifi6qWV+coDGkrUKZAxE3Lot5kcsRlh+g==}
@@ -5182,6 +5194,8 @@ snapshots:
   '@types/node@20.19.4':
     dependencies:
       undici-types: 6.21.0
+
+  '@types/pako@2.0.3': {}
 
   '@types/react-dom@19.1.6(@types/react@19.1.8)':
     dependencies:
@@ -7132,6 +7146,8 @@ snapshots:
       p-limit: 3.1.0
 
   pako@2.0.3: {}
+
+  pako@2.1.0: {}
 
   parent-module@1.0.1:
     dependencies:

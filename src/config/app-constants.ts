@@ -56,3 +56,18 @@ export const isExcalidrawPlusSignedUser = document.cookie.includes(
 
 // storage warning
 export const STORAGE_MAX_CAPACITY = 4.5 * 1024 * 1024; // 4.5MB
+
+// excalidraw constants
+export const ENCRYPTION_KEY_BITS = 128;
+
+export const EXPORT_DATA_TYPES = {
+  excalidraw: "excalidraw",
+  excalidrawClipboard: "excalidraw/clipboard",
+  excalidrawLibrary: "excalidrawlib",
+  excalidrawClipboardWithAPI: "excalidraw-api/clipboard",
+} as const;
+
+export const VERSIONS = {
+  excalidraw: 2,
+  excalidrawLibrary: 2,
+} as const;

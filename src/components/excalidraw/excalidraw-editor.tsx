@@ -31,6 +31,7 @@ import {
   CloudUploadStatus,
   type UploadStatus,
 } from "@/components/excalidraw/cloud-upload-status";
+import { exportToBackend } from "@/lib/export-data-to-db";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -72,12 +73,6 @@ export default function ExcalidrawEditor() {
 
   const renderCustomStats = useCallback(() => <CustomStats />, []);
 
-  const uiOptions = {
-    canvasActions: {
-      toggleTheme: true,
-    },
-  };
-
   const handleRetry = () => {
     setUploadStatus("uploading");
     // 模擬上傳完成
@@ -104,14 +99,30 @@ export default function ExcalidrawEditor() {
     );
   };
 
-  // 2. 使用組件
   return (
     <div className="h-screen w-screen">
       <Excalidraw
         excalidrawAPI={excalidrawRefCallback}
         initialData={initialDataPromise}
         onChange={onChange}
-        UIOptions={uiOptions}
+        UIOptions={{
+          canvasActions: {
+            toggleTheme: true,
+            export: {
+              saveFileToDisk: true,
+              onExportToBackend: (elements, appState, files) => {
+                void exportToBackend(elements, appState, files);
+              },
+              renderCustomUI: (elements, appState, files, canvas) => {
+                console.log("elements", elements);
+                console.log("appState", appState);
+                console.log("files", files);
+                console.log("canvas", canvas);
+                return <div>Hello</div>;
+              },
+            },
+          },
+        }}
         langCode={langCode}
         theme={browserActiveTheme}
         renderTopRightUI={renderTopRightUI}
