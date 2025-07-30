@@ -1,64 +1,16 @@
 import type {
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
-  LibraryItems_anyVersion,
 } from "@excalidraw/excalidraw/types";
 import type { RestoredDataState } from "@excalidraw/excalidraw/data/restore";
 import { restore } from "@excalidraw/excalidraw";
-import type { LegacyAppState } from "@excalidraw/excalidraw/data/types";
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import { importDataFromBackend } from "./import-data-from-db";
-
-// 自定義類型定義
-export interface ImportedDataState {
-  type?: string;
-  version?: number;
-  source?: string;
-  elements?: readonly ExcalidrawElement[] | null;
-  appState?: Readonly<
-    Partial<
-      AppState & {
-        [T in keyof LegacyAppState]: LegacyAppState[T][0];
-      }
-    >
-  > | null;
-  scrollToContent?: boolean;
-  libraryItems?: LibraryItems_anyVersion;
-  files?: BinaryFiles;
-}
+import { importFromLocalStorage } from "@/data/local-storage";
+import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 
 // 需要你自定義實現的函數
-interface CustomImplementations {
-  openConfirmModal: (dialog: {
-    title: string;
-    description: React.ReactNode;
-    actionLabel: string;
-    color: "danger" | "warning";
-  }) => Promise<boolean>;
 
-  importFromLocalStorage: () => {
-    elements: any[];
-    appState: any | null;
-  };
-
-  loadScene: (
-    id: string | null,
-    privateKey: string | null,
-    localDataState: ImportedDataState | undefined | null,
-  ) => Promise<RestoredDataState>;
-
-  t: (key: string) => string;
-
-  APP_NAME: string;
-}
-
-export const createInitializeScene = (
-  implementations: CustomImplementations,
-) => {
-  const { openConfirmModal, importFromLocalStorage, loadScene, t, APP_NAME } =
-    implementations;
-
+export function InitializeScene(t: (key: string) => string) {
   const shareableLinkConfirmDialog = {
     title: t("overwriteConfirm.modal.shareableLink.title"),
     description: t("overwriteConfirm.modal.shareableLink.description"),
@@ -74,15 +26,15 @@ export const createInitializeScene = (
       | { isExternalScene: false; id?: null; key?: null }
     )
   > => {
-    const jsonBackendMatch = window.location.hash.match(
-      /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/,
+    const jsonBackendMatch = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
+      window.location.hash,
     );
 
     const localDataState = importFromLocalStorage();
 
     let scene: RestoredDataState & {
       scrollToContent?: boolean;
-    } = await loadScene(null, null, localDataState);
+    } = await loadScene(undefined, undefined, localDataState);
 
     // 移除協作相關邏輯，只檢查 id 和 jsonBackendMatch
     const isExternalScene = !!jsonBackendMatch;
@@ -96,14 +48,18 @@ export const createInitializeScene = (
       ) {
         if (jsonBackendMatch) {
           scene = await loadScene(
-            jsonBackendMatch[1] ?? null, // scene id
-            jsonBackendMatch[2] ?? null, // scene key
+            jsonBackendMatch[1], // scene id
+            jsonBackendMatch[2], // scene key
             localDataState,
           );
         }
         scene.scrollToContent = true;
         // 清除加密資訊，避免加密資訊一直存在在url 上
-        window.history.replaceState({}, APP_NAME, window.location.origin);
+        window.history.replaceState(
+          {},
+          "我先隨便取的APP_NAME",
+          window.location.origin,
+        );
       } else {
         // https://github.com/excalidraw/excalidraw/issues/1919
         if (document.hidden) {
@@ -111,9 +67,7 @@ export const createInitializeScene = (
             window.addEventListener(
               "focus",
               () => {
-                createInitializeScene(implementations)(opts)
-                  .then(resolve)
-                  .catch(reject);
+                InitializeScene(t)(opts).then(resolve).catch(reject);
               },
               {
                 once: true,
@@ -122,7 +76,11 @@ export const createInitializeScene = (
           });
         }
 
-        window.history.replaceState({}, APP_NAME, window.location.origin);
+        window.history.replaceState(
+          {},
+          "我先隨便取的APP_NAME",
+          window.location.origin,
+        );
       }
     }
 
@@ -138,11 +96,11 @@ export const createInitializeScene = (
     }
     return { scene: null, isExternalScene: false };
   };
-};
+}
 
 export async function loadScene(
-  id: string | null,
-  privateKey: string | null,
+  id: string | undefined,
+  privateKey: string | undefined,
   // Supply local state even if importing from backend to ensure we restore
   // localStorage user settings which we do not persist on server.
   // Non-optional so we don't forget to pass it even if `undefined`.
@@ -172,4 +130,22 @@ export async function loadScene(
     // from a different database
     files: data.files,
   };
+}
+
+export async function openConfirmModal({
+  title,
+  description,
+  actionLabel,
+  color,
+}: {
+  title: string;
+  description: React.ReactNode;
+  actionLabel: string;
+  color: "danger" | "warning";
+}) {
+  console.log(`Confirm Modal: ${title} - ${actionLabel} (${color})`);
+  console.log("Description:", description);
+
+  // 簡單的確認對話框，總是返回 true
+  return window.confirm(`${title}\n\n點擊確定繼續，取消返回。`);
 }
