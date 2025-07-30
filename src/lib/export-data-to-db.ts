@@ -42,32 +42,40 @@ export async function exportToBackend(
       maxBytes: FILE_UPLOAD_MAX_BYTES,
     });
 
-    const response = await fetch("這裡要放入儲存檔案的 API endpoint", {
-      method: "POST",
-      body: payload.buffer,
-    });
+    // const response = await fetch("這裡要放入儲存檔案的 API endpoint", {
+    //   method: "POST",
+    //   body: payload.buffer,
+    // });
 
     // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    const json = await response.json();
+    // const response = await response.json();
+
+    // TODO: 測試用之後要刪除
+    const response = {
+      id: "123",
+      status: "success",
+      error_class: null,
+    };
+
     // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    if (json.id) {
+    if (response.id) {
       const url = new URL(window.location.href);
       // We need to store the key (and less importantly the id) as hash instead
       // of queryParam in order to never send it to the server
       // https://developer.mozilla.org/en-US/docs/Web/API/URL/hash
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      url.hash = `json=${json.id},${encryptionKey}`;
+      url.hash = `json=${response.id},${encryptionKey}`;
       const urlString = url.toString();
 
       await saveFilesToUploadthing({
         // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        prefix: `/files/shareLinks/${json.id}`,
+        prefix: `/files/shareLinks/${response.id}`,
         files: filesToUpload,
       });
 
       return { url: urlString, errorMessage: null };
       // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    } else if (json.error_class === "RequestTooLargeError") {
+    } else if (response.error_class === "RequestTooLargeError") {
       return {
         url: null,
         // errorMessage: t("alerts.couldNotCreateShareableLinkTooBig"),
@@ -196,5 +204,5 @@ async function saveFilesToUploadthing({
   prefix: string;
   files: { id: string; buffer: Uint8Array }[];
 }) {
-  console.log("saveFilesToUploadthing", prefix, files);
+  console.log("save files to uploadthing", prefix, files);
 }

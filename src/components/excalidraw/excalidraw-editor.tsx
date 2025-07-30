@@ -114,10 +114,10 @@ export default function ExcalidrawEditor() {
                 void exportToBackend(elements, appState, files);
               },
               renderCustomUI: (elements, appState, files, canvas) => {
-                console.log("elements", elements);
-                console.log("appState", appState);
-                console.log("files", files);
-                console.log("canvas", canvas);
+                // console.log("elements", elements);
+                // console.log("appState", appState);
+                // console.log("files", files);
+                // console.log("canvas", canvas);
                 return <div>Hello</div>;
               },
             },
