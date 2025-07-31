@@ -1,4 +1,4 @@
-import { drawingRouter } from "@/server/api/routers/drawing";
+import { sceneRouter } from "@/server/api/routers/scene";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
 /**
@@ -7,7 +7,7 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
-  drawing: drawingRouter,
+  scene: sceneRouter,
 });
 
 // export type definition of API

@@ -1,8 +1,6 @@
 import type {
   ExcalidrawElement,
   FileId,
-  InitializedExcalidrawImageElement,
-  NonDeleted,
   NonDeletedExcalidrawElement,
 } from "@excalidraw/excalidraw/element/types";
 import type {
@@ -10,20 +8,23 @@ import type {
   BinaryFileData,
   BinaryFileMetadata,
   BinaryFiles,
-  ElementOrToolType,
 } from "@excalidraw/excalidraw/types";
 import { generateEncryptionKey } from "./encryption";
 import { compressData } from "./encode";
 import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
+import {
+  isInitializedImageElement,
+  clearElementsForDatabase,
+} from "@/lib/excalidraw";
 
-export async function exportToBackend(
+export async function exportSceneToBackend(
   elements: readonly NonDeletedExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
 ) {
   const encryptionKey = await generateEncryptionKey("string");
   const payload = await compressData(
-    new TextEncoder().encode(serializeAsJSON(elements, appState, files)),
+    new TextEncoder().encode(serializeAsJSON(elements, appState)),
     { encryptionKey },
   );
 
@@ -42,40 +43,30 @@ export async function exportToBackend(
       maxBytes: FILE_UPLOAD_MAX_BYTES,
     });
 
-    // const response = await fetch("這裡要放入儲存檔案的 API endpoint", {
-    //   method: "POST",
-    //   body: payload.buffer,
-    // });
-
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
-    // const response = await response.json();
-
-    // TODO: 測試用之後要刪除
-    const response = {
-      id: "123",
-      status: "success",
-      error_class: null,
+    const response = await fetch("/api/trpc/scene.saveScene", {
+      method: "POST",
+      body: payload.buffer,
+    });
+    const json = (await response.json()) as {
+      id: string;
+      error_class: string | null;
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    if (response.id) {
+    if (json.id) {
       const url = new URL(window.location.href);
       // We need to store the key (and less importantly the id) as hash instead
       // of queryParam in order to never send it to the server
       // https://developer.mozilla.org/en-US/docs/Web/API/URL/hash
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-      url.hash = `json=${response.id},${encryptionKey}`;
+      url.hash = `json=${json.id},${encryptionKey}`;
       const urlString = url.toString();
 
       await saveFilesToUploadthing({
-        // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-        prefix: `/files/shareLinks/${response.id}`,
+        prefix: `/files/shareLinks/${json.id}`,
         files: filesToUpload,
       });
 
       return { url: urlString, errorMessage: null };
-      // eslint-disable-next-line @typescript-eslint/no-unsafe-member-access
-    } else if (response.error_class === "RequestTooLargeError") {
+    } else if (json.error_class === "RequestTooLargeError") {
       return {
         url: null,
         // errorMessage: t("alerts.couldNotCreateShareableLinkTooBig"),
@@ -99,65 +90,19 @@ export async function exportToBackend(
   }
 }
 
-const filterOutDeletedFiles = (
-  elements: readonly ExcalidrawElement[],
-  files: BinaryFiles,
-) => {
-  const nextFiles: BinaryFiles = {};
-  for (const element of elements) {
-    if (
-      !element.isDeleted &&
-      "fileId" in element &&
-      element.fileId &&
-      files[element.fileId]
-    ) {
-      // @ts-expect-error - fileId is not typed
-      nextFiles[element.fileId] = files[element.fileId];
-    }
-  }
-  return nextFiles;
-};
-export function serializeAsJSON(
+function serializeAsJSON(
   elements: readonly NonDeletedExcalidrawElement[],
   appState: Partial<AppState>,
-  files: BinaryFiles,
 ): string {
   const data = {
     elements: clearElementsForDatabase(elements),
     appState,
-    files: filterOutDeletedFiles(elements, files),
   };
 
   return JSON.stringify(data, null, 2);
 }
 
-const clearElementsForDatabase = (
-  elements: readonly ExcalidrawElement[],
-): ExcalidrawElement[] =>
-  getNonDeletedElements(elements).map((element) =>
-    isLinearElementType(element.type)
-      ? { ...element, lastCommittedPoint: null }
-      : element,
-  );
-
-const getNonDeletedElements = <T extends ExcalidrawElement>(
-  elements: readonly T[],
-) =>
-  elements.filter((element) => !element.isDeleted) as readonly NonDeleted<T>[];
-
-const isLinearElementType = (elementType: ElementOrToolType): boolean => {
-  return (
-    elementType === "arrow" || elementType === "line" // || elementType === "freedraw"
-  );
-};
-
-export const isInitializedImageElement = (
-  element: ExcalidrawElement | null,
-): element is InitializedExcalidrawImageElement => {
-  return !!element && element.type === "image" && !!element.fileId;
-};
-
-export const encodeFilesForUpload = async ({
+async function encodeFilesForUpload({
   files,
   maxBytes,
   encryptionKey,
@@ -165,7 +110,7 @@ export const encodeFilesForUpload = async ({
   files: Map<FileId, BinaryFileData>;
   maxBytes: number;
   encryptionKey: string;
-}) => {
+}) {
   const processedFiles: {
     id: FileId;
     buffer: Uint8Array;
@@ -195,7 +140,7 @@ export const encodeFilesForUpload = async ({
   }
 
   return processedFiles;
-};
+}
 
 async function saveFilesToUploadthing({
   prefix,

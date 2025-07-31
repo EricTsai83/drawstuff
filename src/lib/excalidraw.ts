@@ -2,10 +2,16 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawInitialDataState,
+  ElementOrToolType,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
+import type {
+  ExcalidrawElement,
+  InitializedExcalidrawImageElement,
+  NonDeleted,
+} from "@excalidraw/excalidraw/element/types";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
@@ -120,4 +126,28 @@ export function saveToLocalStorage(
   } catch (error) {
     console.error("beforeunload 儲存數據失敗:", error);
   }
+}
+
+export const clearElementsForDatabase = (
+  elements: readonly ExcalidrawElement[],
+): ExcalidrawElement[] =>
+  getNonDeletedElements(elements).map((element) =>
+    isLinearElementType(element.type)
+      ? { ...element, lastCommittedPoint: null }
+      : element,
+  );
+
+const getNonDeletedElements = <T extends ExcalidrawElement>(
+  elements: readonly T[],
+) =>
+  elements.filter((element) => !element.isDeleted) as readonly NonDeleted<T>[];
+
+function isLinearElementType(elementType: ElementOrToolType): boolean {
+  return elementType === "arrow" || elementType === "line"; // || elementType === "freedraw"
+}
+
+export function isInitializedImageElement(
+  element: ExcalidrawElement | null,
+): element is InitializedExcalidrawImageElement {
+  return !!element && element.type === "image" && !!element.fileId;
 }

@@ -31,7 +31,7 @@ import {
   CloudUploadStatus,
   type UploadStatus,
 } from "@/components/excalidraw/cloud-upload-status";
-import { exportToBackend } from "@/lib/export-data-to-db";
+import { exportSceneToBackend } from "@/lib/export-scene-to-backend";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -111,7 +111,7 @@ export default function ExcalidrawEditor() {
             export: {
               saveFileToDisk: true,
               onExportToBackend: (elements, appState, files) => {
-                void exportToBackend(elements, appState, files);
+                void exportSceneToBackend(elements, appState, files);
               },
               renderCustomUI: (elements, appState, files, canvas) => {
                 // console.log("elements", elements);

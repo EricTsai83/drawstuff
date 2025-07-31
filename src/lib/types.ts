@@ -1,82 +1,95 @@
-import type { InferSelectModel, InferInsertModel } from "drizzle-orm";
+import { type InferInsertModel, type InferSelectModel } from "drizzle-orm";
 import type {
   user,
+  session,
+  account,
+  verification,
   project,
   category,
-  drawing,
-  drawingCategory,
+  scene,
+  sceneCategory,
 } from "@/server/db/schema";
 
-// 從 schema 推導出的類型
+// User types
 export type User = InferSelectModel<typeof user>;
 export type NewUser = InferInsertModel<typeof user>;
 
+// Session types
+export type Session = InferSelectModel<typeof session>;
+export type NewSession = InferInsertModel<typeof session>;
+
+// Account types
+export type Account = InferSelectModel<typeof account>;
+export type NewAccount = InferInsertModel<typeof account>;
+
+// Verification types
+export type Verification = InferSelectModel<typeof verification>;
+export type NewVerification = InferInsertModel<typeof verification>;
+
+// Project types
 export type Project = InferSelectModel<typeof project>;
 export type NewProject = InferInsertModel<typeof project>;
 
+// Category types
 export type Category = InferSelectModel<typeof category>;
 export type NewCategory = InferInsertModel<typeof category>;
 
-export type Drawing = InferSelectModel<typeof drawing>;
-export type NewDrawing = InferInsertModel<typeof drawing>;
+// Scene types
+export type Scene = InferSelectModel<typeof scene>;
+export type NewScene = InferInsertModel<typeof scene>;
 
-export type DrawingCategory = InferSelectModel<typeof drawingCategory>;
-export type NewDrawingCategory = InferInsertModel<typeof drawingCategory>;
+export type SceneCategory = InferSelectModel<typeof sceneCategory>;
+export type NewSceneCategory = InferInsertModel<typeof sceneCategory>;
 
-// 擴展的類型，包含關聯資料
-export type DrawingWithRelations = Drawing & {
-  project?: Project;
-  categories?: Category[];
+// Relations
+export type SceneWithRelations = Scene & {
   user?: User;
+  project?: Project;
+  sceneCategories?: SceneCategory[];
+};
+
+export type UserWithRelations = User & {
+  sessions?: Session[];
+  accounts?: Account[];
+  projects?: Project[];
+  scenes?: Scene[];
 };
 
 export type ProjectWithRelations = Project & {
-  drawings?: Drawing[];
   user?: User;
+  scenes?: Scene[];
 };
 
 export type CategoryWithRelations = Category & {
-  drawings?: Drawing[];
+  sceneCategories?: SceneCategory[];
 };
 
-// 與 mock-data.ts 相容的類型
-export type DrawingItem = {
+// UI types
+export type SceneItem = {
   id: string;
   name: string;
-  description: string;
-  image: string;
-  lastUpdated: Date;
-  category: string[];
-  projectName: string;
-};
-
-// API 響應類型
-export type ApiResponse<T> = {
-  success: boolean;
-  data?: T;
-  error?: string;
-};
-
-// 查詢參數類型
-export type DrawingFilters = {
-  search?: string;
-  categories?: string[];
+  description?: string;
+  createdAt: Date;
+  updatedAt: Date;
   projectId?: string;
-  userId?: string;
-  sortBy?: "name" | "lastUpdated" | "createdAt";
-  sortOrder?: "asc" | "desc";
-  limit?: number;
-  offset?: number;
+  projectName?: string;
+  thumbnail?: string;
+  isArchived: boolean;
 };
 
-// 統計資料類型
-export type DrawingStats = {
-  totalDrawings: number;
-  totalProjects: number;
-  totalCategories: number;
-  recentDrawings: Drawing[];
-  popularCategories: Array<{
-    category: Category;
-    count: number;
-  }>;
+// Filter types
+export type SceneFilters = {
+  search?: string;
+  projectId?: string;
+  categoryId?: string;
+  isArchived?: boolean;
+  sortBy?: "name" | "createdAt" | "updatedAt";
+  sortOrder?: "asc" | "desc";
+};
+
+// Stats types
+export type SceneStats = {
+  totalScenes: number;
+  archivedScenes: number;
+  recentScenes: Scene[];
 };

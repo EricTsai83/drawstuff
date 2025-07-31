@@ -112,8 +112,8 @@ export const category = createTable(
   (table) => [index("category_name_idx").on(table.name)],
 );
 
-export const drawing = createTable(
-  "drawing",
+export const scene = createTable(
+  "scene",
   {
     id: uuid("id")
       .primaryKey()
@@ -141,22 +141,22 @@ export const drawing = createTable(
       .notNull(), // 新增：是否已封存
   },
   (table) => [
-    index("drawing_user_id_idx").on(table.userId),
-    index("drawing_project_id_idx").on(table.projectId),
-    index("drawing_name_idx").on(table.name),
-    index("drawing_last_updated_idx").on(table.lastUpdated),
+    index("scene_user_id_idx").on(table.userId),
+    index("scene_project_id_idx").on(table.projectId),
+    index("scene_name_idx").on(table.name),
+    index("scene_last_updated_idx").on(table.lastUpdated),
   ],
 );
 
-export const drawingCategory = createTable(
-  "drawing_category",
+export const sceneCategory = createTable(
+  "scene_category",
   {
     id: uuid("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    drawingId: uuid("drawing_id")
+    sceneId: uuid("scene_id")
       .notNull()
-      .references(() => drawing.id, { onDelete: "cascade" }),
+      .references(() => scene.id, { onDelete: "cascade" }),
     categoryId: uuid("category_id")
       .notNull()
       .references(() => category.id, { onDelete: "cascade" }),
@@ -165,9 +165,9 @@ export const drawingCategory = createTable(
       .notNull(),
   },
   (table) => [
-    index("drawing_category_drawing_id_idx").on(table.drawingId),
-    index("drawing_category_category_id_idx").on(table.categoryId),
-    index("unique_drawing_category_idx").on(table.drawingId, table.categoryId),
+    index("scene_category_scene_id_idx").on(table.sceneId),
+    index("scene_category_category_id_idx").on(table.categoryId),
+    index("unique_scene_category_idx").on(table.sceneId, table.categoryId),
   ],
 );
 
@@ -176,7 +176,7 @@ export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
   projects: many(project),
-  drawings: many(drawing),
+  scenes: many(scene),
 }));
 
 export const projectRelations = relations(project, ({ one, many }) => ({
@@ -184,38 +184,35 @@ export const projectRelations = relations(project, ({ one, many }) => ({
     fields: [project.userId],
     references: [user.id],
   }),
-  drawings: many(drawing),
+  scenes: many(scene),
 }));
 
-export const drawingRelations = relations(drawing, ({ one, many }) => ({
+export const sceneRelations = relations(scene, ({ one, many }) => ({
   user: one(user, {
-    fields: [drawing.userId],
+    fields: [scene.userId],
     references: [user.id],
   }),
   project: one(project, {
-    fields: [drawing.projectId],
+    fields: [scene.projectId],
     references: [project.id],
   }),
-  drawingCategories: many(drawingCategory),
+  sceneCategories: many(sceneCategory),
 }));
 
 export const categoryRelations = relations(category, ({ many }) => ({
-  drawingCategories: many(drawingCategory),
+  sceneCategories: many(sceneCategory),
 }));
 
-export const drawingCategoryRelations = relations(
-  drawingCategory,
-  ({ one }) => ({
-    drawing: one(drawing, {
-      fields: [drawingCategory.drawingId],
-      references: [drawing.id],
-    }),
-    category: one(category, {
-      fields: [drawingCategory.categoryId],
-      references: [category.id],
-    }),
+export const sceneCategoryRelations = relations(sceneCategory, ({ one }) => ({
+  scene: one(scene, {
+    fields: [sceneCategory.sceneId],
+    references: [scene.id],
   }),
-);
+  category: one(category, {
+    fields: [sceneCategory.categoryId],
+    references: [category.id],
+  }),
+}));
 
 export const schema = {
   user,
@@ -224,6 +221,6 @@ export const schema = {
   verification,
   project,
   category,
-  drawing,
-  drawingCategory,
+  scene,
+  sceneCategory,
 };
