@@ -1,5 +1,5 @@
-import { InferSelectModel, InferInsertModel } from "drizzle-orm";
-import {
+import type { InferSelectModel, InferInsertModel } from "drizzle-orm";
+import type {
   user,
   project,
   category,
