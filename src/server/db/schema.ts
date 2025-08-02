@@ -171,6 +171,24 @@ export const sceneCategory = createTable(
   ],
 );
 
+export const sharedScene = createTable(
+  "shared_scene",
+  {
+    id: text("id").primaryKey(), // 分享的 ID，如 "DpUOmthWKbgAHav1Ajtdd"
+    data: text("data").notNull(), // 加密後的 scene 資料
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("shared_scene_id_idx").on(table.id),
+    index("shared_scene_created_at_idx").on(table.createdAt),
+  ],
+);
+
 // 定義表格關聯
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
@@ -223,4 +241,5 @@ export const schema = {
   category,
   scene,
   sceneCategory,
+  sharedScene,
 };

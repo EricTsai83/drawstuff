@@ -1,5 +1,4 @@
 import type {
-  ExcalidrawElement,
   FileId,
   NonDeletedExcalidrawElement,
 } from "@excalidraw/excalidraw/element/types";
@@ -16,81 +15,73 @@ import {
   isInitializedImageElement,
   clearElementsForDatabase,
 } from "@/lib/excalidraw";
+import { handleSceneSave } from "@/server/actions";
 
-export async function exportSceneToBackend(
+// 主函數：組合瀏覽器端處理並直接發送到伺服器
+export async function handleSceneExport(
   elements: readonly NonDeletedExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
 ) {
-  const encryptionKey = await generateEncryptionKey("string");
-  const payload = await compressData(
-    new TextEncoder().encode(serializeAsJSON(elements, appState)),
-    { encryptionKey },
-  );
+  const { compressedSceneData, filesToUpload, encryptionKey } =
+    await prepareSceneData(elements, appState, files);
 
   try {
-    const filesMap = new Map<FileId, BinaryFileData>();
-    for (const element of elements) {
-      if (isInitializedImageElement(element) && files[element.fileId]) {
-        // @ts-expect-error - fileId is not typed
-        filesMap.set(element.fileId, files[element.fileId]);
-      }
-    }
-
-    const filesToUpload = await encodeFilesForUpload({
-      files: filesMap,
+    // 直接使用 server action
+    const result = await handleSceneSave(
+      compressedSceneData,
+      filesToUpload,
       encryptionKey,
-      maxBytes: FILE_UPLOAD_MAX_BYTES,
-    });
+    );
 
-    const response = await fetch("/api/trpc/scene.saveScene", {
-      method: "POST",
-      body: payload.buffer,
-    });
-    const json = (await response.json()) as {
-      id: string;
-      error_class: string | null;
-    };
-
-    if (json.id) {
-      const url = new URL(window.location.href);
-      // We need to store the key (and less importantly the id) as hash instead
-      // of queryParam in order to never send it to the server
-      // https://developer.mozilla.org/en-US/docs/Web/API/URL/hash
-      url.hash = `json=${json.id},${encryptionKey}`;
-      const urlString = url.toString();
-
-      await saveFilesToUploadthing({
-        prefix: `/files/shareLinks/${json.id}`,
-        files: filesToUpload,
-      });
-
-      return { url: urlString, errorMessage: null };
-    } else if (json.error_class === "RequestTooLargeError") {
-      return {
-        url: null,
-        // errorMessage: t("alerts.couldNotCreateShareableLinkTooBig"),
-        errorMessage: "Could not create shareable link: Too big",
-      };
-    }
-
-    return {
-      url: null,
-      // errorMessage: t("alerts.couldNotCreateShareableLink")
-      errorMessage: "Could not create shareable link",
-    };
+    return result as { url: string | null; errorMessage: string | null };
   } catch (error: unknown) {
     console.error(error);
-
     return {
       url: null,
-      // errorMessage: t("alerts.couldNotCreateShareableLink")
       errorMessage: "Could not create shareable link",
     };
   }
 }
 
-function serializeAsJSON(
+// 瀏覽器端處理：準備數據和加密
+export async function prepareSceneData(
+  elements: readonly NonDeletedExcalidrawElement[],
+  appState: Partial<AppState>,
+  files: BinaryFiles,
+) {
+  const encryptionKey = await generateEncryptionKey("string");
+
+  // 準備場景數據
+  const compressedSceneData = await compressData(
+    new TextEncoder().encode(serializeSceneData(elements, appState)),
+    { encryptionKey },
+  );
+
+  // 準備文件數據
+  const imageFilesMap = new Map<FileId, BinaryFileData>();
+  for (const element of elements) {
+    if (isInitializedImageElement(element) && files[element.fileId]) {
+      // Record 類型的屬性訪問總是返回 T | undefined，即
+      // 使我們在邏輯上已經確保了該屬性存在。最簡潔的解決方案就是使用非空斷言操作符 "!"
+      imageFilesMap.set(element.fileId, files[element.fileId]!);
+    }
+  }
+
+  const filesToUpload = await processFilesForUpload({
+    files: imageFilesMap,
+    encryptionKey,
+    maxBytes: FILE_UPLOAD_MAX_BYTES,
+  });
+
+  return {
+    compressedSceneData,
+    filesToUpload,
+    encryptionKey,
+  };
+}
+
+function serializeSceneData(
   elements: readonly NonDeletedExcalidrawElement[],
   appState: Partial<AppState>,
 ): string {
@@ -102,7 +93,7 @@ function serializeAsJSON(
   return JSON.stringify(data, null, 2);
 }
 
-async function encodeFilesForUpload({
+async function processFilesForUpload({
   files,
   maxBytes,
   encryptionKey,
@@ -111,7 +102,7 @@ async function encodeFilesForUpload({
   maxBytes: number;
   encryptionKey: string;
 }) {
-  const processedFiles: {
+  const encodedFiles: {
     id: FileId;
     buffer: Uint8Array;
   }[] = [];
@@ -133,21 +124,11 @@ async function encodeFilesForUpload({
       throw new Error(`File too big: ${Math.trunc(maxBytes / 1024 / 1024)}MB`);
     }
 
-    processedFiles.push({
+    encodedFiles.push({
       id,
       buffer: encodedFile,
     });
   }
 
-  return processedFiles;
-}
-
-async function saveFilesToUploadthing({
-  prefix,
-  files,
-}: {
-  prefix: string;
-  files: { id: string; buffer: Uint8Array }[];
-}) {
-  console.log("save files to uploadthing", prefix, files);
+  return encodedFiles;
 }
