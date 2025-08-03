@@ -79,3 +79,34 @@ export function nFormatter(num: number, digits: number): string {
   // @ts-expect-error - index is guaranteed to be valid after loop initialization
   return `${formatted}${units[idx].symbol}`;
 }
+
+// Convert bytes to MB string for UploadThing
+export const getMaxFileSizeString = (
+  bytes: number,
+):
+  | "1MB"
+  | "2MB"
+  | "4MB"
+  | "8MB"
+  | "16MB"
+  | "32MB"
+  | "64MB"
+  | "128MB"
+  | "256MB"
+  | "512MB"
+  | "1GB" => {
+  const mb = Math.round(bytes / (1024 * 1024));
+
+  // Map to supported UploadThing values
+  if (mb <= 1) return "1MB";
+  if (mb <= 2) return "2MB";
+  if (mb <= 4) return "4MB";
+  if (mb <= 8) return "8MB";
+  if (mb <= 16) return "16MB";
+  if (mb <= 32) return "32MB";
+  if (mb <= 64) return "64MB";
+  if (mb <= 128) return "128MB";
+  if (mb <= 256) return "256MB";
+  if (mb <= 512) return "512MB";
+  return "1GB"; // Default fallback
+};

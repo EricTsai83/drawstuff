@@ -9,7 +9,6 @@ import { revalidatePath } from "next/cache";
 // Server Action: 處理場景保存
 export async function handleSceneSave(
   compressedSceneData: Uint8Array,
-  files: { id: string; buffer: Uint8Array }[],
   encryptionKey: string,
 ) {
   const session = await auth.api.getSession({
@@ -39,12 +38,6 @@ export async function handleSceneSave(
       // 重新驗證路徑以更新 UI
       revalidatePath("/dashboard");
 
-      // 保存文件到存儲服務
-      await uploadFilesToStorage({
-        prefix: `/files/shareLinks/${sceneId}`,
-        files,
-      });
-
       // 生成分享鏈接
       const shareableUrl = new URL(
         process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
@@ -69,17 +62,4 @@ export async function handleSceneSave(
       errorMessage: "Could not create shareable link",
     };
   }
-}
-
-// 輔助函數：上傳文件到存儲服務
-async function uploadFilesToStorage({
-  prefix,
-  files,
-}: {
-  prefix: string;
-  files: { id: string; buffer: Uint8Array }[];
-}) {
-  console.log("upload files to storage", prefix, files);
-  // TODO: 實現實際的文件上傳邏輯
-  // 例如：await uploadToUploadThing(files, prefix);
 }

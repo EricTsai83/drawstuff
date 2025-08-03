@@ -4,7 +4,7 @@ import { Geist } from "next/font/google";
 import { TRPCReactProvider } from "@/trpc/react";
 import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
 import { extractRouterConfig } from "uploadthing/server";
-import { ourFileRouter } from "@/app/api/uploadthing/core";
+import { uploadRouter } from "@/app/api/uploadthing/core";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
@@ -45,7 +45,7 @@ export default function RootLayout({
                * leaked to the client. The data passed to the client is the same
                * as if you were to fetch `/api/uploadthing` directly.
                */
-              routerConfig={extractRouterConfig(ourFileRouter)}
+              routerConfig={extractRouterConfig(uploadRouter)}
             />
             <NuqsAdapter>
               <div>{auth}</div>

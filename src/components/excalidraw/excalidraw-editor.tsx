@@ -31,7 +31,11 @@ import {
   CloudUploadStatus,
   type UploadStatus,
 } from "@/components/excalidraw/cloud-upload-status";
-import { handleSceneExport } from "@/lib/export-scene-to-backend";
+import {
+  exportSceneToBackend,
+  prepareSceneDataForExport,
+} from "@/lib/export-scene-to-backend";
+import { useUploadThing } from "@/lib/uploadthing";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -45,6 +49,26 @@ export default function ExcalidrawEditor() {
   const [initialDataPromise] = useState(() => createInitialDataPromise());
   const { data: session } = authClient.useSession();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("pending");
+
+  // 文件上傳 hook
+  const { startUpload } = useUploadThing("sceneFileUploader", {
+    onClientUploadComplete: (res) => {
+      console.log("Files uploaded successfully!", res);
+      setUploadStatus("success");
+
+      // TODO: 實作檔案 URL 儲存邏輯
+      // 這裡可以根據實際的 UploadThing 回應格式來處理
+      console.log("Upload response:", res);
+    },
+    onUploadError: (error) => {
+      console.error("Error occurred while uploading files", error);
+      setUploadStatus("error");
+    },
+    onUploadBegin: (fileName) => {
+      console.log("Upload has begun for", fileName);
+      setUploadStatus("uploading");
+    },
+  });
 
   const onChange = useCallback(
     (
@@ -111,7 +135,48 @@ export default function ExcalidrawEditor() {
             export: {
               saveFileToDisk: true,
               onExportToBackend: (elements, appState, files) => {
-                void handleSceneExport(elements, appState, files);
+                void (async () => {
+                  try {
+                    // 先準備場景數據
+                    const sceneData = await prepareSceneDataForExport(
+                      elements,
+                      appState,
+                      files,
+                    );
+
+                    // 如果有文件需要上傳，先上傳文件
+                    if (sceneData.compressedFilesData.length > 0) {
+                      // 將 Uint8Array 直接轉換為 File 對象用於上傳
+                      const filesToUpload = sceneData.compressedFilesData.map(
+                        (file) => {
+                          return new File([file.buffer], `${file.id}.bin`, {
+                            type: "application/octet-stream",
+                          });
+                        },
+                      );
+
+                      await startUpload(filesToUpload);
+                    }
+
+                    // 然後導出場景到後端
+                    const result = await exportSceneToBackend(
+                      elements,
+                      appState,
+                      files,
+                    );
+
+                    if (result.url) {
+                      console.log("Scene exported successfully:", result.url);
+                    } else {
+                      console.error(
+                        "Failed to export scene:",
+                        result.errorMessage,
+                      );
+                    }
+                  } catch (error) {
+                    console.error("Error during scene export:", error);
+                  }
+                })();
               },
               renderCustomUI: (elements, appState, files, canvas) => {
                 // console.log("elements", elements);

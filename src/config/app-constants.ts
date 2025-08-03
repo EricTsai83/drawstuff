@@ -50,10 +50,6 @@ export const COOKIES = {
   AUTH_STATE_COOKIE: "excplus-auth",
 } as const;
 
-export const isExcalidrawPlusSignedUser = document.cookie.includes(
-  COOKIES.AUTH_STATE_COOKIE,
-);
-
 // storage warning
 export const STORAGE_MAX_CAPACITY = 4.5 * 1024 * 1024; // 4.5MB
 

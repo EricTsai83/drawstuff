@@ -1,38 +1,24 @@
-import type {
-  FileId,
-  NonDeletedExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
-import type {
-  AppState,
-  BinaryFileData,
-  BinaryFileMetadata,
-  BinaryFiles,
-} from "@excalidraw/excalidraw/types";
+import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import { generateEncryptionKey } from "./encryption";
 import { compressData } from "./encode";
 import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
-import {
-  isInitializedImageElement,
-  clearElementsForDatabase,
-} from "@/lib/excalidraw";
+import { clearElementsForDatabase } from "@/lib/excalidraw";
 import { handleSceneSave } from "@/server/actions";
+import { extractImageFiles, processFilesForUpload } from "./file-processor";
 
-// 主函數：組合瀏覽器端處理並直接發送到伺服器
-export async function handleSceneExport(
+// 主函數：處理場景導出到後端
+export async function exportSceneToBackend(
   elements: readonly NonDeletedExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
 ) {
-  const { compressedSceneData, filesToUpload, encryptionKey } =
-    await prepareSceneData(elements, appState, files);
+  const { compressedSceneData, encryptionKey } =
+    await prepareSceneDataForExport(elements, appState, files);
 
   try {
     // 直接使用 server action
-    const result = await handleSceneSave(
-      compressedSceneData,
-      filesToUpload,
-      encryptionKey,
-    );
+    const result = await handleSceneSave(compressedSceneData, encryptionKey);
 
     return result as { url: string | null; errorMessage: string | null };
   } catch (error: unknown) {
@@ -44,8 +30,8 @@ export async function handleSceneExport(
   }
 }
 
-// 瀏覽器端處理：準備數據和加密
-export async function prepareSceneData(
+// 準備場景數據用於導出
+export async function prepareSceneDataForExport(
   elements: readonly NonDeletedExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
@@ -58,17 +44,10 @@ export async function prepareSceneData(
     { encryptionKey },
   );
 
-  // 準備文件數據
-  const imageFilesMap = new Map<FileId, BinaryFileData>();
-  for (const element of elements) {
-    if (isInitializedImageElement(element) && files[element.fileId]) {
-      // Record 類型的屬性訪問總是返回 T | undefined，即
-      // 使我們在邏輯上已經確保了該屬性存在。最簡潔的解決方案就是使用非空斷言操作符 "!"
-      imageFilesMap.set(element.fileId, files[element.fileId]!);
-    }
-  }
+  // 提取並處理圖片文件
+  const imageFilesMap = extractImageFiles(elements, files);
 
-  const filesToUpload = await processFilesForUpload({
+  const compressedFilesData = await processFilesForUpload({
     files: imageFilesMap,
     encryptionKey,
     maxBytes: FILE_UPLOAD_MAX_BYTES,
@@ -76,7 +55,7 @@ export async function prepareSceneData(
 
   return {
     compressedSceneData,
-    filesToUpload,
+    compressedFilesData,
     encryptionKey,
   };
 }
@@ -91,44 +70,4 @@ function serializeSceneData(
   };
 
   return JSON.stringify(data, null, 2);
-}
-
-async function processFilesForUpload({
-  files,
-  maxBytes,
-  encryptionKey,
-}: {
-  files: Map<FileId, BinaryFileData>;
-  maxBytes: number;
-  encryptionKey: string;
-}) {
-  const encodedFiles: {
-    id: FileId;
-    buffer: Uint8Array;
-  }[] = [];
-
-  for (const [id, fileData] of files) {
-    const buffer = new TextEncoder().encode(fileData.dataURL);
-
-    const encodedFile = await compressData<BinaryFileMetadata>(buffer, {
-      encryptionKey,
-      metadata: {
-        id,
-        mimeType: fileData.mimeType,
-        created: Date.now(),
-        lastRetrieved: Date.now(),
-      },
-    });
-
-    if (buffer.byteLength > maxBytes) {
-      throw new Error(`File too big: ${Math.trunc(maxBytes / 1024 / 1024)}MB`);
-    }
-
-    encodedFiles.push({
-      id,
-      buffer: encodedFile,
-    });
-  }
-
-  return encodedFiles;
 }
