@@ -31,10 +31,8 @@ import {
   CloudUploadStatus,
   type UploadStatus,
 } from "@/components/excalidraw/cloud-upload-status";
-import {
-  exportSceneToBackend,
-  prepareSceneDataForExport,
-} from "@/lib/export-scene-to-backend";
+import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
+import { handleSceneSave } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 
 export default function ExcalidrawEditor() {
@@ -137,7 +135,7 @@ export default function ExcalidrawEditor() {
               onExportToBackend: (elements, appState, files) => {
                 void (async () => {
                   try {
-                    // 先準備場景數據
+                    // 準備場景數據（只處理一次）
                     const sceneData = await prepareSceneDataForExport(
                       elements,
                       appState,
@@ -162,11 +160,10 @@ export default function ExcalidrawEditor() {
                       await startUpload(filesToUpload);
                     }
 
-                    // 然後導出場景到後端
-                    const result = await exportSceneToBackend(
-                      elements,
-                      appState,
-                      files,
+                    // 直接使用 server action 保存場景，避免重複處理
+                    const result = await handleSceneSave(
+                      sceneData.compressedSceneData,
+                      sceneData.encryptionKey,
                     );
 
                     if (result.url) {

@@ -8,6 +8,20 @@ import {
   index,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
+import { customType } from "drizzle-orm/pg-core";
+
+// 自定義 bytea 類型用於儲存二進位資料
+const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+  toDriver(value: Uint8Array): Buffer {
+    return Buffer.from(value);
+  },
+  fromDriver(value: Buffer): Uint8Array {
+    return new Uint8Array(value);
+  },
+});
 
 export const createTable = pgTableCreator(
   (name) => `excalidraw-ericts_${name}`,
@@ -175,7 +189,7 @@ export const sharedScene = createTable(
   "shared_scene",
   {
     id: text("id").primaryKey(), // 分享的 ID，如 "DpUOmthWKbgAHav1Ajtdd"
-    data: text("data").notNull(), // 加密後的 scene 資料
+    compressedData: bytea("compressed_data"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -195,6 +209,22 @@ export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   projects: many(project),
   scenes: many(scene),
+}));
+
+// 新增 session 關聯定義
+export const sessionRelations = relations(session, ({ one }) => ({
+  user: one(user, {
+    fields: [session.userId],
+    references: [user.id],
+  }),
+}));
+
+// 新增 account 關聯定義
+export const accountRelations = relations(account, ({ one }) => ({
+  user: one(user, {
+    fields: [account.userId],
+    references: [user.id],
+  }),
 }));
 
 export const projectRelations = relations(project, ({ one, many }) => ({

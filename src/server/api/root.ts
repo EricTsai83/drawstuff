@@ -1,4 +1,5 @@
 import { sceneRouter } from "@/server/api/routers/scene";
+import { sharedSceneRouter } from "@/server/api/routers/shared-scene";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
 /**
@@ -8,6 +9,7 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  */
 export const appRouter = createTRPCRouter({
   scene: sceneRouter,
+  sharedScene: sharedSceneRouter,
 });
 
 // export type definition of API
