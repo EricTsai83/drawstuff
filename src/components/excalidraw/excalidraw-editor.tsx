@@ -149,9 +149,13 @@ export default function ExcalidrawEditor() {
                       // 將 Uint8Array 直接轉換為 File 對象用於上傳
                       const filesToUpload = sceneData.compressedFilesData.map(
                         (file) => {
-                          return new File([file.buffer], `${file.id}.bin`, {
-                            type: "application/octet-stream",
-                          });
+                          return new File(
+                            [file.buffer],
+                            `${file.id}.encrypted.bin`,
+                            {
+                              type: "application/octet-stream",
+                            },
+                          );
                         },
                       );
 

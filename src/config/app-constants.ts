@@ -28,13 +28,6 @@ export enum WS_SUBTYPES {
   USER_VISIBLE_SCENE_BOUNDS = "USER_VISIBLE_SCENE_BOUNDS",
 }
 
-export const FIREBASE_STORAGE_PREFIXES = {
-  shareLinkFiles: `/files/shareLinks`,
-  collabFiles: `/files/rooms`,
-};
-
-export const ROOM_ID_BYTES = 10;
-
 export const STORAGE_KEYS = {
   LOCAL_STORAGE_ELEMENTS: "excalidraw",
   LOCAL_STORAGE_APP_STATE: "excalidraw-state",
@@ -67,3 +60,5 @@ export const VERSIONS = {
   excalidraw: 2,
   excalidrawLibrary: 2,
 } as const;
+
+export const FILE_UPLOAD_MAX_COUNT = 50;

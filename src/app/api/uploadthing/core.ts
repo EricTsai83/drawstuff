@@ -2,7 +2,10 @@ import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { UploadThingError } from "uploadthing/server";
 import { auth } from "@/lib/auth";
 import { headers } from "next/headers";
-import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
+import {
+  FILE_UPLOAD_MAX_BYTES,
+  FILE_UPLOAD_MAX_COUNT,
+} from "@/config/app-constants";
 import { getMaxFileSizeString } from "@/lib/utils";
 
 const f = createUploadthing();
@@ -13,7 +16,7 @@ export const uploadRouter = {
   sceneFileUploader: f({
     blob: {
       maxFileSize: getMaxFileSizeString(FILE_UPLOAD_MAX_BYTES),
-      maxFileCount: 10,
+      maxFileCount: FILE_UPLOAD_MAX_COUNT,
     },
   })
     .middleware(async ({ req }) => {
