@@ -7,6 +7,8 @@ import {
   FILE_UPLOAD_MAX_COUNT,
 } from "@/config/app-constants";
 import { getMaxFileSizeString } from "@/lib/utils";
+import { QUERIES } from "@/server/db/queries";
+import { z } from "zod";
 
 const f = createUploadthing();
 
@@ -19,7 +21,12 @@ export const uploadRouter = {
       maxFileCount: FILE_UPLOAD_MAX_COUNT,
     },
   })
-    .middleware(async ({ req }) => {
+    .input(
+      z.object({
+        sceneId: z.string().optional(),
+      }),
+    )
+    .middleware(async ({ req, input }) => {
       // This code runs on your server before upload
       const session = await auth.api.getSession({
         headers: await headers(),
@@ -29,16 +36,44 @@ export const uploadRouter = {
       // eslint-disable-next-line @typescript-eslint/only-throw-error
       if (!session) throw new UploadThingError("Unauthorized");
 
+      // 從 input 中獲取 scene ID
+      const sceneId = input?.sceneId;
+
       // Whatever is returned here is accessible in onUploadComplete as `metadata`
-      return { userId: session.user.id };
+      return {
+        userId: session.user.id,
+        sceneId: sceneId,
+      };
     })
     .onUploadComplete(async ({ metadata, file }) => {
       // This code RUNS ON YOUR SERVER after upload
       console.log("Scene file upload complete for userId:", metadata.userId);
       console.log("file url", file.ufsUrl);
 
+      // 如果有 sceneId，保存文件記錄到資料庫
+      if (metadata.sceneId) {
+        try {
+          await QUERIES.createFileRecord({
+            sharedSceneId: metadata.sceneId,
+            ownerId: metadata.userId,
+            utFileKey: file.key,
+            name: file.name,
+            size: file.size,
+            url: file.ufsUrl,
+          });
+          console.log("File record saved to database:", file.key);
+        } catch (error) {
+          console.error("Error saving file record to database:", error);
+        }
+      }
+
+      // 對齊參考程式碼：返回檔案 ID 和 URL
       // !!! Whatever is returned here is sent to the clientside `onClientUploadComplete` callback
-      return { uploadedBy: metadata.userId, fileUrl: file.ufsUrl };
+      return {
+        uploadedBy: metadata.userId,
+        fileUrl: file.ufsUrl,
+        fileKey: file.key,
+      };
     }),
 } satisfies FileRouter;
 

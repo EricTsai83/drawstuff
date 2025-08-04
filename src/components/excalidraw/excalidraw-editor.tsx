@@ -34,6 +34,7 @@ import {
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
+import { nanoid } from "nanoid";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -50,13 +51,15 @@ export default function ExcalidrawEditor() {
 
   // 文件上傳 hook
   const { startUpload } = useUploadThing("sceneFileUploader", {
-    onClientUploadComplete: (res) => {
+    onClientUploadComplete: async (res) => {
       console.log("Files uploaded successfully!", res);
       setUploadStatus("success");
 
-      // TODO: 實作檔案 URL 儲存邏輯
-      // 這裡可以根據實際的 UploadThing 回應格式來處理
-      console.log("Upload response:", res);
+      // 對齊參考程式碼：處理上傳完成後的邏輯
+      // 參考程式碼返回格式：{ id, data: url }
+      if (Array.isArray(res)) {
+        console.log("Files uploaded successfully:", res.length, "files");
+      }
     },
     onUploadError: (error) => {
       console.error("Error occurred while uploading files", error);
@@ -144,12 +147,14 @@ export default function ExcalidrawEditor() {
 
                     // 如果有文件需要上傳，先上傳文件
                     if (sceneData.compressedFilesData.length > 0) {
-                      // 將 Uint8Array 直接轉換為 File 對象用於上傳
+                      // 將加密後的 Uint8Array 直接轉換為 File 對象用於上傳
+                      // 使用 nanoid 生成唯一 ID，對齊參考程式碼邏輯
                       const filesToUpload = sceneData.compressedFilesData.map(
                         (file) => {
+                          const uniqueId = nanoid(); // 使用 nanoid 生成唯一 ID
                           return new File(
-                            [file.buffer],
-                            `${file.id}.encrypted.bin`,
+                            [file.buffer], // 這裡的 buffer 已經是加密後的資料
+                            uniqueId, // 直接使用 nanoid ID 作為檔名
                             {
                               type: "application/octet-stream",
                             },
@@ -157,7 +162,39 @@ export default function ExcalidrawEditor() {
                         },
                       );
 
-                      await startUpload(filesToUpload);
+                      // 先保存場景，獲取 scene ID
+                      const result = await handleSceneSave(
+                        sceneData.compressedSceneData,
+                        sceneData.encryptionKey,
+                      );
+
+                      if (result.url) {
+                        // 從 URL 中提取 scene ID
+                        const urlParams = new URL(result.url);
+                        const hashParams = urlParams.hash.substring(1);
+                        const jsonParam = hashParams.split(",")[0];
+                        const sceneId = jsonParam?.split("=")[1];
+
+                        if (sceneId) {
+                          // 使用 scene ID 作為 input 參數上傳文件
+                          await startUpload(filesToUpload, { sceneId });
+                        }
+                      }
+                    } else {
+                      // 沒有文件需要上傳，直接保存場景
+                      const result = await handleSceneSave(
+                        sceneData.compressedSceneData,
+                        sceneData.encryptionKey,
+                      );
+
+                      if (result.url) {
+                        console.log("Scene exported successfully:", result.url);
+                      } else {
+                        console.error(
+                          "Failed to export scene:",
+                          result.errorMessage,
+                        );
+                      }
                     }
 
                     // 直接使用 server action 保存場景，避免重複處理

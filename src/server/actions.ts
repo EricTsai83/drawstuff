@@ -4,7 +4,6 @@ import { auth } from "@/lib/auth";
 import { db } from "@/server/db";
 import { sharedScene } from "@/server/db/schema";
 import { headers } from "next/headers";
-import { revalidatePath } from "next/cache";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 
@@ -30,7 +29,7 @@ export async function handleSceneSave(
       .insert(sharedScene)
       .values({
         id: nanoid(),
-        compressedData: compressedSceneData, // 直接傳入 Uint8Array，自定義類型會處理轉換
+        compressedData: compressedSceneData,
       })
       .returning({ id: sharedScene.id });
 

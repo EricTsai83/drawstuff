@@ -1,4 +1,5 @@
 import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
+import { decompressData } from "./encode";
 
 export async function importDataFromBackend(
   id: string,

@@ -6,6 +6,7 @@ import {
   uuid,
   varchar,
   index,
+  integer,
 } from "drizzle-orm/pg-core";
 import { relations } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
@@ -203,6 +204,43 @@ export const sharedScene = createTable(
   ],
 );
 
+// 新增：文件記錄表
+export const fileRecord = createTable(
+  "file_record",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    // 關聯到 scene 或 sharedScene（二選一）
+    sceneId: uuid("scene_id").references(() => scene.id, {
+      onDelete: "cascade",
+    }),
+    sharedSceneId: text("shared_scene_id").references(() => sharedScene.id, {
+      onDelete: "cascade",
+    }),
+    // 文件相關信息
+    ownerId: varchar("owner_id", { length: 256 }).notNull(),
+    utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
+    name: varchar("name", { length: 256 }).notNull(),
+    size: integer("size").notNull(),
+    url: varchar("url", { length: 256 }).notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("file_record_scene_id_idx").on(table.sceneId),
+    index("file_record_shared_scene_id_idx").on(table.sharedSceneId),
+    index("file_record_owner_id_idx").on(table.ownerId),
+    index("file_record_ut_file_key_idx").on(table.utFileKey),
+    // 確保 sceneId 和 sharedSceneId 不能同時為空或同時有值
+    // 這需要在應用層面進行驗證
+  ],
+);
+
 // 定義表格關聯
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
@@ -245,6 +283,7 @@ export const sceneRelations = relations(scene, ({ one, many }) => ({
     references: [project.id],
   }),
   sceneCategories: many(sceneCategory),
+  fileRecords: many(fileRecord), // 新增：文件記錄關聯
 }));
 
 export const categoryRelations = relations(category, ({ many }) => ({
@@ -262,6 +301,25 @@ export const sceneCategoryRelations = relations(sceneCategory, ({ one }) => ({
   }),
 }));
 
+export const sharedSceneRelations = relations(sharedScene, ({ many }) => ({
+  fileRecords: many(fileRecord), // 新增：文件記錄關聯
+}));
+
+export const fileRecordRelations = relations(fileRecord, ({ one }) => ({
+  scene: one(scene, {
+    fields: [fileRecord.sceneId],
+    references: [scene.id],
+  }),
+  sharedScene: one(sharedScene, {
+    fields: [fileRecord.sharedSceneId],
+    references: [sharedScene.id],
+  }),
+  owner: one(user, {
+    fields: [fileRecord.ownerId],
+    references: [user.id],
+  }),
+}));
+
 export const schema = {
   user,
   session,
@@ -272,4 +330,5 @@ export const schema = {
   scene,
   sceneCategory,
   sharedScene,
+  fileRecord, // 新增：文件記錄表
 };
