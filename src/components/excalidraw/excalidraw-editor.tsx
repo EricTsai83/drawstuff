@@ -146,10 +146,11 @@ export default function ExcalidrawEditor() {
                     );
 
                     // 如果有文件需要上傳，先上傳文件
+                    let filesToUpload: File[] = [];
                     if (sceneData.compressedFilesData.length > 0) {
                       // 將加密後的 Uint8Array 直接轉換為 File 對象用於上傳
                       // 使用 nanoid 生成唯一 ID，對齊參考程式碼邏輯
-                      const filesToUpload = sceneData.compressedFilesData.map(
+                      filesToUpload = sceneData.compressedFilesData.map(
                         (file) => {
                           const uniqueId = nanoid(); // 使用 nanoid 生成唯一 ID
                           return new File(
@@ -161,50 +162,30 @@ export default function ExcalidrawEditor() {
                           );
                         },
                       );
-
-                      // 先保存場景，獲取 scene ID
-                      const result = await handleSceneSave(
-                        sceneData.compressedSceneData,
-                        sceneData.encryptionKey,
-                      );
-
-                      if (result.url) {
-                        // 從 URL 中提取 scene ID
-                        const urlParams = new URL(result.url);
-                        const hashParams = urlParams.hash.substring(1);
-                        const jsonParam = hashParams.split(",")[0];
-                        const sceneId = jsonParam?.split("=")[1];
-
-                        if (sceneId) {
-                          // 使用 scene ID 作為 input 參數上傳文件
-                          await startUpload(filesToUpload, { sceneId });
-                        }
-                      }
-                    } else {
-                      // 沒有文件需要上傳，直接保存場景
-                      const result = await handleSceneSave(
-                        sceneData.compressedSceneData,
-                        sceneData.encryptionKey,
-                      );
-
-                      if (result.url) {
-                        console.log("Scene exported successfully:", result.url);
-                      } else {
-                        console.error(
-                          "Failed to export scene:",
-                          result.errorMessage,
-                        );
-                      }
                     }
 
                     // 直接使用 server action 保存場景，避免重複處理
                     const result = await handleSceneSave(
                       sceneData.compressedSceneData,
-                      sceneData.encryptionKey,
                     );
 
-                    if (result.url) {
-                      console.log("Scene exported successfully:", result.url);
+                    // 生成分享鏈接
+                    const shareableUrl = new URL(
+                      process.env.NEXT_PUBLIC_APP_URL ??
+                        "http://localhost:3000",
+                    );
+                    shareableUrl.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
+
+                    // 使用 scene ID 作為 input 參數上傳文件
+                    await startUpload(filesToUpload, {
+                      sceneId: result.sharedSceneId,
+                    });
+
+                    if (result.sharedSceneId) {
+                      console.log(
+                        "Scene exported successfully:",
+                        result.sharedSceneId,
+                      );
                     } else {
                       console.error(
                         "Failed to export scene:",

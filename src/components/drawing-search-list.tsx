@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { ProjectCard } from "./project-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { useRouter } from "next/navigation";
-import { mockDrawingItems, type DrawingItem } from "@/lib/mock-data";
+import { mockSceneItems, type SceneItem } from "@/lib/mock-data";
 import { ProjectDropdown } from "@/components/project-dropdown";
 
 export function DrawingSearchList() {
@@ -20,9 +20,9 @@ export function DrawingSearchList() {
   useEscapeKey(() => router.back());
 
   const filteredItems = useMemo(() => {
-    if (!searchQuery) return mockDrawingItems;
+    if (!searchQuery) return mockSceneItems;
 
-    return mockDrawingItems.filter(
+    return mockSceneItems.filter(
       (item) =>
         item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
         item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -93,7 +93,7 @@ export function DrawingSearchList() {
       {/* Show results count if searching */}
       {searchQuery && (
         <DrawingResultsCount
-          totalItems={mockDrawingItems.length}
+          totalItems={mockSceneItems.length}
           filteredCount={filteredItems.length}
           searchQuery={searchQuery}
         />
@@ -152,7 +152,7 @@ function DrawingResultsCount({
 }
 
 type DrawingGridProps = {
-  items: DrawingItem[];
+  items: SceneItem[];
 };
 
 function DrawingGrid({ items }: DrawingGridProps) {

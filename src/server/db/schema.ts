@@ -189,7 +189,7 @@ export const sceneCategory = createTable(
 export const sharedScene = createTable(
   "shared_scene",
   {
-    id: text("id").primaryKey(), // 分享的 ID，如 "DpUOmthWKbgAHav1Ajtdd"
+    sharedSceneId: text("shared_scene_id").primaryKey(), // 分享的 ID，如 "DpUOmthWKbgAHav1Ajtdd"
     compressedData: bytea("compressed_data"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
@@ -199,7 +199,7 @@ export const sharedScene = createTable(
       .notNull(),
   },
   (table) => [
-    index("shared_scene_id_idx").on(table.id),
+    index("shared_scene_id_idx").on(table.sharedSceneId),
     index("shared_scene_created_at_idx").on(table.createdAt),
   ],
 );
@@ -215,9 +215,12 @@ export const fileRecord = createTable(
     sceneId: uuid("scene_id").references(() => scene.id, {
       onDelete: "cascade",
     }),
-    sharedSceneId: text("shared_scene_id").references(() => sharedScene.id, {
-      onDelete: "cascade",
-    }),
+    sharedSceneId: text("shared_scene_id").references(
+      () => sharedScene.sharedSceneId,
+      {
+        onDelete: "cascade",
+      },
+    ),
     // 文件相關信息
     ownerId: varchar("owner_id", { length: 256 }).notNull(),
     utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
@@ -312,7 +315,7 @@ export const fileRecordRelations = relations(fileRecord, ({ one }) => ({
   }),
   sharedScene: one(sharedScene, {
     fields: [fileRecord.sharedSceneId],
-    references: [sharedScene.id],
+    references: [sharedScene.sharedSceneId],
   }),
   owner: one(user, {
     fields: [fileRecord.ownerId],

@@ -8,10 +8,7 @@ import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 
 // Server Action: 處理場景保存
-export async function handleSceneSave(
-  compressedSceneData: Uint8Array,
-  encryptionKey: string,
-) {
+export async function handleSceneSave(compressedSceneData: Uint8Array) {
   const session = await auth.api.getSession({
     headers: await headers(),
   });
@@ -28,23 +25,16 @@ export async function handleSceneSave(
     const result = await db
       .insert(sharedScene)
       .values({
-        id: nanoid(),
+        sharedSceneId: nanoid(),
         compressedData: compressedSceneData,
       })
-      .returning({ id: sharedScene.id });
+      .returning({ sharedSceneId: sharedScene.sharedSceneId });
 
-    if (result.length > 0 && result[0]?.id) {
-      const sceneId = result[0].id;
-
-      // 生成分享鏈接
-      const shareableUrl = new URL(
-        process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000",
-      );
-      shareableUrl.hash = `json=${sceneId},${encryptionKey}`;
-      const urlString = shareableUrl.toString();
+    if (result.length > 0 && result[0]?.sharedSceneId) {
+      const sharedSceneId = result[0].sharedSceneId;
 
       return {
-        url: urlString,
+        sharedSceneId,
         errorMessage: null,
       };
     }
@@ -79,12 +69,12 @@ export async function getSceneData(sceneId: string) {
     // 從資料庫讀取場景資料
     const result = await db
       .select({
-        id: sharedScene.id,
+        sharedSceneId: sharedScene.sharedSceneId,
         compressedData: sharedScene.compressedData,
         createdAt: sharedScene.createdAt,
       })
       .from(sharedScene)
-      .where(eq(sharedScene.id, sceneId))
+      .where(eq(sharedScene.sharedSceneId, sceneId))
       .limit(1);
 
     if (result.length === 0) {
@@ -108,7 +98,7 @@ export async function getSceneData(sceneId: string) {
 
     return {
       data: {
-        id: sceneData.id,
+        sharedSceneId: sceneData.sharedSceneId,
         compressedData: compressedData, // 這是 Uint8Array 類型
         createdAt: sceneData.createdAt,
       },
