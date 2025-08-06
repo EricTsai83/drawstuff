@@ -31,10 +31,10 @@ import {
   CloudUploadStatus,
   type UploadStatus,
 } from "@/components/excalidraw/cloud-upload-status";
-import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
-import { handleSceneSave } from "@/server/actions";
-import { useUploadThing } from "@/lib/uploadthing";
-import { nanoid } from "nanoid";
+import { useSceneExport } from "@/hooks/use-scene-export";
+import { Button } from "@/components/ui/button";
+import { Loader2, Share } from "lucide-react";
+import { toast } from "sonner";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -48,28 +48,10 @@ export default function ExcalidrawEditor() {
   const [initialDataPromise] = useState(() => createInitialDataPromise());
   const { data: session } = authClient.useSession();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("pending");
+  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
 
-  // 文件上傳 hook
-  const { startUpload } = useUploadThing("sceneFileUploader", {
-    onClientUploadComplete: async (res) => {
-      console.log("Files uploaded successfully!", res);
-      setUploadStatus("success");
-
-      // 對齊參考程式碼：處理上傳完成後的邏輯
-      // 參考程式碼返回格式：{ id, data: url }
-      if (Array.isArray(res)) {
-        console.log("Files uploaded successfully:", res.length, "files");
-      }
-    },
-    onUploadError: (error) => {
-      console.error("Error occurred while uploading files", error);
-      setUploadStatus("error");
-    },
-    onUploadBegin: (fileName) => {
-      console.log("Upload has begun for", fileName);
-      setUploadStatus("uploading");
-    },
-  });
+  // 使用場景導出 hook
+  const { exportScene, exportStatus, latestShareableLink } = useSceneExport();
 
   const onChange = useCallback(
     (
@@ -110,7 +92,48 @@ export default function ExcalidrawEditor() {
     setUploadStatus("idle");
   };
 
+  // 根據 exportStatus 獲取按鈕配置
+  const getShareButtonConfig = useCallback(() => {
+    switch (exportStatus) {
+      case "exporting":
+        return {
+          icon: <Loader2 className="h-4 w-4 animate-spin" />,
+          text: "Exporting...",
+          disabled: true,
+          variant: "secondary" as const,
+        };
+      default:
+        return {
+          icon: <Share className="h-4 w-4" />,
+          text: "Share",
+          disabled: false,
+          variant: "default" as const,
+        };
+    }
+  }, [exportStatus]);
+
+  const handleShareClick = useCallback(async () => {
+    if (!excalidrawAPI) return;
+
+    const elements = excalidrawAPI.getSceneElements();
+    const appState = excalidrawAPI.getAppState();
+    const files = excalidrawAPI.getFiles();
+
+    const shareableUrl = await exportScene(
+      elements,
+      appState as Partial<AppState>,
+      files,
+    );
+    if (shareableUrl) {
+      setIsShareDialogOpen(true);
+    } else {
+      toast.error("Failed to export scene. Please try again.");
+    }
+  }, [excalidrawAPI, exportScene]);
+
   const renderTopRightUI = (isMobile: boolean) => {
+    const buttonConfig = getShareButtonConfig();
+
     return isMobile ? null : (
       <>
         <CloudUploadStatus
@@ -119,7 +142,16 @@ export default function ExcalidrawEditor() {
           onClick={handleRetry}
           onSuccess={handleSuccess}
         />
-        <DrawingShareDialog />
+
+        <Button
+          className="flex items-center gap-2 font-normal"
+          variant={buttonConfig.variant}
+          disabled={buttonConfig.disabled}
+          onClick={handleShareClick}
+        >
+          {buttonConfig.icon}
+          {buttonConfig.text}
+        </Button>
       </>
     );
   };
@@ -137,73 +169,21 @@ export default function ExcalidrawEditor() {
               saveFileToDisk: true,
               onExportToBackend: (elements, appState, files) => {
                 void (async () => {
-                  try {
-                    // 準備場景數據（只處理一次）
-                    const sceneData = await prepareSceneDataForExport(
-                      elements,
-                      appState,
-                      files,
-                    );
-
-                    // 如果有文件需要上傳，先上傳文件
-                    let filesToUpload: File[] = [];
-                    if (sceneData.compressedFilesData.length > 0) {
-                      // 將加密後的 Uint8Array 直接轉換為 File 對象用於上傳
-                      // 使用 nanoid 生成唯一 ID，對齊參考程式碼邏輯
-                      filesToUpload = sceneData.compressedFilesData.map(
-                        (file) => {
-                          const uniqueId = nanoid(); // 使用 nanoid 生成唯一 ID
-                          return new File(
-                            [file.buffer], // 這裡的 buffer 已經是加密後的資料
-                            uniqueId, // 直接使用 nanoid ID 作為檔名
-                            {
-                              type: "application/octet-stream",
-                            },
-                          );
-                        },
-                      );
-                    }
-
-                    // 直接使用 server action 保存場景，避免重複處理
-                    const result = await handleSceneSave(
-                      sceneData.compressedSceneData,
-                    );
-
-                    // 生成分享鏈接
-                    const shareableUrl = new URL(
-                      process.env.NEXT_PUBLIC_APP_URL ??
-                        "http://localhost:3000",
-                    );
-                    shareableUrl.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
-
-                    // 使用 scene ID 作為 input 參數上傳文件
-                    await startUpload(filesToUpload, {
-                      sceneId: result.sharedSceneId,
-                    });
-
-                    if (result.sharedSceneId) {
-                      console.log(
-                        "Scene exported successfully:",
-                        result.sharedSceneId,
-                      );
-                    } else {
-                      console.error(
-                        "Failed to export scene:",
-                        result.errorMessage,
-                      );
-                    }
-                  } catch (error) {
-                    console.error("Error during scene export:", error);
+                  const shareableUrl = await exportScene(
+                    elements,
+                    appState as Partial<AppState>,
+                    files,
+                  );
+                  if (shareableUrl) {
+                    setIsShareDialogOpen(true);
+                  } else {
+                    toast.error("Failed to export scene. Please try again.");
                   }
                 })();
               },
-              renderCustomUI: (elements, appState, files, canvas) => {
-                // console.log("elements", elements);
-                // console.log("appState", appState);
-                // console.log("files", files);
-                // console.log("canvas", canvas);
-                return <div>Hello</div>;
-              },
+              // renderCustomUI: (elements, appState, files, canvas) => {
+              //   return undefined;
+              // },
             },
           },
         }}
@@ -245,6 +225,13 @@ export default function ExcalidrawEditor() {
               )}
             />
           </div>
+          {latestShareableLink && (
+            <DrawingShareDialog
+              drawingUrl={latestShareableLink}
+              open={isShareDialogOpen}
+              onOpenChange={setIsShareDialogOpen}
+            />
+          )}
         </Footer>
 
         <AppWelcomeScreen />

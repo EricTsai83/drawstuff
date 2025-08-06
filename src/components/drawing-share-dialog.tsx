@@ -1,11 +1,9 @@
-import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
   DialogDescription,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,21 +11,22 @@ import { useI18n } from "@excalidraw/excalidraw";
 import { CopyButton } from "@/components/copy-button";
 import { useRef } from "react";
 
-interface DrawingShareDialogProps {
-  drawingUrl?: string;
-}
+type DrawingShareDialogProps = {
+  drawingUrl: string;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+};
 
 export function DrawingShareDialog({
-  drawingUrl = "https://excalidraw-ericts.vercel.app",
+  drawingUrl,
+  open,
+  onOpenChange,
 }: DrawingShareDialogProps) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button className="font-normal">{t("labels.share")}</Button>
-      </DialogTrigger>
+    <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent onOpenAutoFocus={(e) => e.preventDefault()}>
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
