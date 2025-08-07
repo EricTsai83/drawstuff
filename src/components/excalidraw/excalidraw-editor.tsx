@@ -23,8 +23,7 @@ import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
 import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
 import { cn } from "@/lib/utils";
-import Link from "next/link";
-import { PanelsTopLeft } from "lucide-react";
+import { Download, FileDown, PanelsTopLeft } from "lucide-react";
 import { DrawingNameTrigger } from "@/components/drawing-name-trigger";
 import { authClient } from "@/lib/auth/client";
 import {
@@ -33,8 +32,9 @@ import {
 } from "@/components/excalidraw/cloud-upload-status";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { Button } from "@/components/ui/button";
-import { Loader2, Share } from "lucide-react";
+import { Loader2, Share, Link } from "lucide-react";
 import { toast } from "sonner";
+import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -79,6 +79,142 @@ export default function ExcalidrawEditor() {
   }, []);
 
   const renderCustomStats = useCallback(() => <CustomStats />, []);
+
+  // 自定義 export UI
+  const renderCustomExportUI = useCallback(
+    (
+      elements: readonly NonDeletedExcalidrawElement[],
+      appState: Partial<AppState>,
+      files: BinaryFiles,
+      canvas: unknown,
+    ) => {
+      const isExporting = exportStatus === "exporting";
+
+      // 處理儲存到磁碟的功能
+      const handleSaveToDisk = () => {
+        try {
+          // 創建 Excalidraw 檔案內容
+          const sceneData = {
+            type: "excalidraw",
+            version: 2,
+            source: "https://excalidraw.com",
+            elements: elements,
+            appState: appState,
+            files: files,
+          };
+
+          // 創建 Blob
+          const blob = new Blob([JSON.stringify(sceneData)], {
+            type: "application/json",
+          });
+
+          // 創建下載連結
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = `${appState.name ?? "drawing"}.excalidraw`;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+
+          toast.success("File saved to disk successfully!");
+        } catch (error) {
+          console.error("Save failed:", error);
+          toast.error("Failed to save file. Please try again.");
+        }
+      };
+
+      return (
+        <div className="flex flex-col items-center justify-center gap-6 p-8 text-center">
+          {/* 大圖標 */}
+          <div className="bg-primary/10 border-primary/20 flex h-20 w-20 items-center justify-center rounded-full border">
+            <FileDown className="text-primary h-10 w-10" />
+          </div>
+
+          {/* 標題文字 */}
+          <div className="space-y-2">
+            <h3 className="text-foreground text-lg font-semibold">
+              Export Options
+            </h3>
+            <p className="text-muted-foreground text-sm">
+              Choose export method
+            </p>
+          </div>
+
+          {/* 按鈕容器 - 響應式佈局 */}
+          <div className="flex w-full max-w-md flex-col gap-4 sm:flex-row">
+            {/* Save to Disk 按鈕 */}
+            <Button
+              className="flex h-12 flex-1 items-center justify-center gap-3"
+              variant="default"
+              size="lg"
+              onClick={handleSaveToDisk}
+            >
+              <Download className="h-4 w-4" />
+              Save to Disk
+            </Button>
+
+            {/* Export to Link 按鈕 */}
+            <Button
+              className="flex h-12 flex-1 items-center justify-center gap-3 bg-pink-500/90 text-white hover:bg-pink-600 disabled:opacity-50"
+              variant="default"
+              size="lg"
+              disabled={isExporting}
+              onClick={() => {
+                if (isExporting) return;
+
+                void (async () => {
+                  try {
+                    const shareableUrl = await exportScene(
+                      elements,
+                      appState,
+                      files,
+                    );
+                    if (shareableUrl) {
+                      // 關閉 export 對話框，然後顯示 ShareableLinkDialog
+                      if (excalidrawAPI) {
+                        const currentAppState = excalidrawAPI.getAppState();
+                        if (currentAppState) {
+                          excalidrawAPI.updateScene({
+                            appState: {
+                              ...currentAppState,
+                              openDialog: null,
+                            },
+                          });
+                        }
+                      }
+                      setTimeout(() => {
+                        setIsShareDialogOpen(true);
+                      }, 200);
+                    } else {
+                      toast.error("Failed to export scene. Please try again.");
+                    }
+                  } catch (error) {
+                    console.error("Export error:", error);
+                    toast.error("Failed to export scene. Please try again.");
+                  }
+                })();
+              }}
+            >
+              {isExporting ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Exporting...
+                </>
+              ) : (
+                <>
+                  <Link className="h-4 w-4" />
+                  Export to Link
+                </>
+              )}
+            </Button>
+          </div>
+        </div>
+      );
+    },
+    [exportStatus, exportScene, setIsShareDialogOpen, excalidrawAPI],
+  );
 
   const handleRetry = () => {
     setUploadStatus("uploading");
@@ -166,24 +302,8 @@ export default function ExcalidrawEditor() {
           canvasActions: {
             toggleTheme: true,
             export: {
-              saveFileToDisk: true,
-              onExportToBackend: (elements, appState, files) => {
-                void (async () => {
-                  const shareableUrl = await exportScene(
-                    elements,
-                    appState as Partial<AppState>,
-                    files,
-                  );
-                  if (shareableUrl) {
-                    setIsShareDialogOpen(true);
-                  } else {
-                    toast.error("Failed to export scene. Please try again.");
-                  }
-                })();
-              },
-              // renderCustomUI: (elements, appState, files, canvas) => {
-              //   return undefined;
-              // },
+              saveFileToDisk: false, // 移除預設的「儲存到磁碟」按鈕
+              renderCustomUI: renderCustomExportUI,
             },
           },
         }}
