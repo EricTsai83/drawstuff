@@ -29,7 +29,6 @@ export function TopRightControls({
         onClick={onClick}
         onSuccess={onSuccess}
       />
-
       <ShareSceneButton exportStatus={exportStatus} onClick={onShareClick} />
     </>
   );

@@ -2,7 +2,8 @@
 
 import { Button } from "@/components/ui/button";
 import type { ExportStatus } from "@/hooks/use-scene-export";
-import { Loader2, Share } from "lucide-react";
+import { Loader2, Link } from "lucide-react";
+import { cn } from "@/lib/utils";
 
 type ShareSceneButtonProps = {
   exportStatus: ExportStatus;
@@ -19,7 +20,7 @@ function getShareButtonConfig(status: ExportStatus) {
     };
   }
   return {
-    icon: <Share className="h-4 w-4" />,
+    icon: <Link className="h-3 w-3" />,
     label: "Share",
     disabled: false,
     variant: "default" as const,
@@ -31,9 +32,18 @@ export function ShareSceneButton({
   onClick,
 }: ShareSceneButtonProps) {
   const cfg = getShareButtonConfig(exportStatus);
+
   return (
     <Button
-      className="flex min-w-[12ch] items-center justify-center gap-2 font-normal"
+      className={cn(
+        "flex items-center justify-center gap-2 font-normal whitespace-nowrap",
+        "w-[12ch] transition-[width] duration-300 ease-in-out",
+        // Enforce exact height 36px regardless of Button size variants
+        "h-[36px] rounded-[8px]",
+        {
+          "w-[16ch]": exportStatus === "exporting",
+        },
+      )}
       variant={cfg.variant}
       disabled={cfg.disabled}
       onClick={onClick}

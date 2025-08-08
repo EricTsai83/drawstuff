@@ -75,7 +75,7 @@ export function CloudUploadStatus({
       className={cn(
         // 基本樣式 - 使用專案的設計系統
         "flex items-center justify-center",
-        "h-9 w-9 rounded-lg backdrop-blur-sm",
+        "h-[36px] w-[36px] rounded-lg backdrop-blur-sm",
         "transition-all duration-300 ease-out",
         "shadow-xs hover:shadow-sm",
         // 背景顏色 - 根據狀態條件設定
