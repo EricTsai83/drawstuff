@@ -1,7 +1,7 @@
 import { forwardRef } from "react";
 import { cn } from "@/lib/utils";
 
-export const DrawingNameTrigger = forwardRef<
+export const SceneNameTrigger = forwardRef<
   HTMLDivElement,
   { sceneName: string } & React.HTMLAttributes<HTMLDivElement>
 >(({ sceneName, ...props }, ref) => {
@@ -23,4 +23,4 @@ export const DrawingNameTrigger = forwardRef<
   );
 });
 
-DrawingNameTrigger.displayName = "DrawingNameTrigger";
+SceneNameTrigger.displayName = "SceneNameTrigger";

@@ -11,17 +11,17 @@ import { useI18n } from "@excalidraw/excalidraw";
 import { CopyButton } from "@/components/copy-button";
 import { useRef } from "react";
 
-type DrawingShareDialogProps = {
-  drawingUrl: string;
+type SceneShareDialogProps = {
+  sceneUrl: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 };
 
-export function DrawingShareDialog({
-  drawingUrl,
+export function SceneShareDialog({
+  sceneUrl,
   open,
   onOpenChange,
-}: DrawingShareDialogProps) {
+}: SceneShareDialogProps) {
   const { t } = useI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -33,7 +33,7 @@ export function DrawingShareDialog({
             {t("labels.share")}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Link to this drawing. Anyone who has this link will be able to view
+            Link to this scene. Anyone who has this link will be able to view
             it.
           </DialogDescription>
         </DialogHeader>
@@ -42,14 +42,9 @@ export function DrawingShareDialog({
             <Label htmlFor="link" className="sr-only">
               Link
             </Label>
-            <Input
-              ref={inputRef}
-              id="link"
-              defaultValue={drawingUrl}
-              readOnly
-            />
+            <Input ref={inputRef} id="link" defaultValue={sceneUrl} readOnly />
           </div>
-          <CopyButton textToCopy={inputRef.current?.value ?? drawingUrl} />
+          <CopyButton textToCopy={inputRef.current?.value ?? sceneUrl} />
         </div>
         <div className="mt-2 flex items-center gap-2 text-xs">
           <span role="img" aria-label="lock" className="text-yellow-400">

@@ -3,6 +3,7 @@ import type {
   BinaryFiles,
   ExcalidrawInitialDataState,
   ElementOrToolType,
+  ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { importFromLocalStorage } from "@/data/local-storage";
@@ -11,6 +12,7 @@ import type {
   ExcalidrawElement,
   InitializedExcalidrawImageElement,
   NonDeleted,
+  NonDeletedExcalidrawElement,
 } from "@excalidraw/excalidraw/element/types";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
@@ -150,4 +152,61 @@ export function isInitializedImageElement(
   element: ExcalidrawElement | null,
 ): element is InitializedExcalidrawImageElement {
   return !!element && element.type === "image" && !!element.fileId;
+}
+
+export type ExcalidrawSceneData = {
+  type: "excalidraw";
+  version: 2;
+  source: string;
+  elements:
+    | readonly NonDeletedExcalidrawElement[]
+    | readonly OrderedExcalidrawElement[];
+  appState: Partial<AppState>;
+  files: BinaryFiles;
+};
+
+// 建立標準 Excalidraw 場景資料物件
+export function createExcalidrawSceneData(
+  elements:
+    | readonly NonDeletedExcalidrawElement[]
+    | readonly OrderedExcalidrawElement[],
+  appState: Partial<AppState>,
+  files: BinaryFiles,
+): ExcalidrawSceneData {
+  return {
+    type: "excalidraw" as const,
+    version: 2 as const,
+    source: "https://excalidraw-ericts.vercel.app",
+    elements,
+    appState,
+    files,
+  };
+}
+
+// 關閉 Excalidraw 內建對話框（如 Export 對話框）
+export function closeExcalidrawDialog(
+  excalidrawAPI?: ExcalidrawImperativeAPI | null,
+): void {
+  if (!excalidrawAPI) return;
+  const currentAppState = excalidrawAPI.getAppState();
+  if (!currentAppState) return;
+  excalidrawAPI.updateScene({
+    appState: {
+      ...currentAppState,
+      openDialog: null,
+    },
+  });
+}
+
+// 從 API 取目前場景 snapshot
+export function getCurrentSceneSnapshot(api?: ExcalidrawImperativeAPI | null): {
+  elements: readonly OrderedExcalidrawElement[];
+  appState: Partial<AppState>;
+  files: BinaryFiles;
+} | null {
+  if (!api) return null;
+  const elements = api.getSceneElements();
+  const appState = api.getAppState();
+  const files = api.getFiles();
+  return { elements, appState: appState as Partial<AppState>, files };
 }

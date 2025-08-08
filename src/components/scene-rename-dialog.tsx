@@ -15,20 +15,20 @@ import { useI18n } from "@excalidraw/excalidraw";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useState, useRef, useEffect, type ReactNode } from "react";
 
-interface DrawingRenameDialogProps {
+type SceneRenameDialogProps = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   trigger?: ReactNode;
   open?: boolean;
-}
+};
 
-export function DrawingRenameDialog({
+export function SceneRenameDialog({
   excalidrawAPI,
   trigger,
   open,
-}: DrawingRenameDialogProps) {
+}: SceneRenameDialogProps) {
   const { t } = useI18n();
   const [internalOpen, setInternalOpen] = useState(false);
-  const [drawingName, setDrawingName] = useState("");
+  const [sceneName, setSceneName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // 使用外部控制的 open 狀態，如果沒有提供則使用內部狀態
@@ -40,46 +40,46 @@ export function DrawingRenameDialog({
     if (newOpen) {
       try {
         const currentName = excalidrawAPI?.getName() ?? "";
-        setDrawingName(currentName);
+        setSceneName(currentName);
       } catch (error) {
-        console.error("Failed to get current drawing name:", error);
-        setDrawingName("");
+        console.error("Failed to get current scene name:", error);
+        setSceneName("");
       }
     }
   };
 
-  const handleNameChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+  function handleNameChange(event: React.ChangeEvent<HTMLInputElement>) {
     const newName = event.target.value;
-    setDrawingName(newName);
-  };
+    setSceneName(newName);
+  }
 
-  const handleConfirm = () => {
+  function handleConfirm() {
     try {
       const currentAppState = excalidrawAPI?.getAppState();
       if (currentAppState && excalidrawAPI) {
         excalidrawAPI.updateScene({
           appState: {
-            name: drawingName,
+            name: sceneName,
           },
         });
       }
       handleOpenChange(false);
     } catch (error) {
-      console.error("Failed to update drawing name:", error);
+      console.error("Failed to update scene name:", error);
     }
-  };
+  }
 
-  const handleClose = () => {
+  function handleClose() {
     handleOpenChange(false);
-  };
+  }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+  function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "Enter") {
       handleConfirm();
     } else if (e.key === "Escape") {
       handleClose();
     }
-  };
+  }
 
   useEffect(() => {
     if (isOpen && inputRef.current) {
@@ -109,13 +109,13 @@ export function DrawingRenameDialog({
 
         <div className="grid flex-1 gap-4">
           <div className="grid gap-2">
-            <Label htmlFor="drawing-name-input" className="sr-only">
+            <Label htmlFor="scene-name-input" className="sr-only">
               {t("labels.fileTitle")}
             </Label>
             <Input
               ref={inputRef}
-              id="drawing-name-input"
-              value={drawingName}
+              id="scene-name-input"
+              value={sceneName}
               onChange={handleNameChange}
               onKeyDown={handleKeyDown}
               autoFocus

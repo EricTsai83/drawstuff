@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { DrawingRenameDialog } from "@/components/drawing-rename-dialog";
+import { SceneRenameDialog } from "@/components/scene-rename-dialog";
 import { LogIn, FilePenLine } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { useI18n } from "@excalidraw/excalidraw";
@@ -58,7 +58,7 @@ function AppMainMenu({
   return (
     <MainMenu>
       <div ref={menuRef}>
-        <DrawingRenameDialog
+        <SceneRenameDialog
           excalidrawAPI={excalidrawAPI}
           trigger={
             <div className="ml-2 flex cursor-pointer items-center gap-2.5 py-1 text-sm hover:bg-gray-100 dark:hover:bg-gray-800">

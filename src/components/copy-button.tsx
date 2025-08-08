@@ -4,7 +4,7 @@ import { useState } from "react";
 import { CopyIcon } from "lucide-react";
 import { useI18n } from "@excalidraw/excalidraw";
 import { Button } from "@/components/ui/button";
-import { copyTextToSystemClipboard } from "@/lib/clipboard";
+import { copyTextToSystemClipboard } from "@/lib/utils";
 
 type CopyButtonProps = {
   textToCopy: string;
