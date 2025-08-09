@@ -32,7 +32,10 @@ import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { toast } from "sonner";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { CustomExportUI, type CustomExportUIProps } from "./custom-export-ui";
+import {
+  ExportSceneActions,
+  type ExportSceneActionsProps,
+} from "./export-scene-actions";
 import type { ExcalidrawSceneData } from "@/lib/excalidraw";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import {
@@ -41,9 +44,6 @@ import {
 } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
 import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
-// overwrite confirm handler is managed inside useOverwriteConfirm
-// import { useOverwriteConfirm } from "@/hooks/excalidraw/use-overwrite-confirm";
-// Hash 載入已內置於 createInitialDataPromise。若要改回 effect 載入可再引入 InitializeScene。
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -64,7 +64,6 @@ export default function ExcalidrawEditor() {
     uploadSceneToCloud,
     resetStatus,
   } = useCloudUpload();
-  // overwrite confirm UI will be connected inline at render via OverwriteConfirmDialogConnected
 
   const exportAndMaybeOpenShareDialog = useCallback(
     async function exportAndMaybeOpenShareDialog(
@@ -131,7 +130,7 @@ export default function ExcalidrawEditor() {
       files: BinaryFiles,
       _canvas: unknown,
     ) {
-      const handlers: CustomExportUIProps["handlers"] = {
+      const handlers: ExportSceneActionsProps["handlers"] = {
         handleSaveToDisk: function handleSaveToDisk(
           els: readonly NonDeletedExcalidrawElement[],
           state: Partial<AppState>,
@@ -191,7 +190,7 @@ export default function ExcalidrawEditor() {
       };
 
       return (
-        <CustomExportUI
+        <ExportSceneActions
           elements={elements}
           appState={appState}
           files={files}

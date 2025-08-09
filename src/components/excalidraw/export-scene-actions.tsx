@@ -27,7 +27,7 @@ export type ExportUIHandlers = {
   ) => Promise<void> | void;
 };
 
-export type CustomExportUIProps = {
+export type ExportSceneActionsProps = {
   elements: readonly NonDeletedExcalidrawElement[];
   appState: Partial<AppState>;
   files: BinaryFiles;
@@ -36,14 +36,14 @@ export type CustomExportUIProps = {
   handlers: ExportUIHandlers;
 };
 
-export function CustomExportUI({
+export function ExportSceneActions({
   elements,
   appState,
   files,
   uploadStatus = "pending",
   isLinkExporting = false,
   handlers,
-}: CustomExportUIProps) {
+}: ExportSceneActionsProps) {
   const { t } = useAppI18n();
 
   const configs: ExportActionConfig[] = [
