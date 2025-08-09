@@ -8,7 +8,8 @@ import { createJsonBlob } from "@/lib/download";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-status";
 
 export function useCloudUpload() {
-  const [status, setStatus] = useState<UploadStatus>("idle");
+  // 與舊行為一致，預設顯示為 pending 狀態
+  const [status, setStatus] = useState<UploadStatus>("pending");
 
   const { startUpload } = useUploadThing("sceneFileUploader", {
     onClientUploadComplete: () => {
@@ -16,6 +17,9 @@ export function useCloudUpload() {
     },
     onUploadError: () => {
       setStatus("error");
+    },
+    onUploadBegin: () => {
+      setStatus("uploading");
     },
   });
 
@@ -44,7 +48,7 @@ export function useCloudUpload() {
         );
 
         await startUpload([file], {});
-        // onClientUploadComplete 會設置為 success
+        // onClientUploadComplete 會設為 success
         return true;
       } catch {
         setStatus("error");
@@ -56,5 +60,6 @@ export function useCloudUpload() {
 
   const resetStatus = useCallback(() => setStatus("idle"), []);
 
-  return { uploadSceneToCloud, status, setStatus, resetStatus } as const;
+  // 僅暴露受控 API，避免外部直接改狀態造成混亂
+  return { uploadSceneToCloud, status, resetStatus } as const;
 }

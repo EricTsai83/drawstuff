@@ -2,7 +2,7 @@
 
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw, Footer } from "@excalidraw/excalidraw";
-import { useState, useCallback, useEffect, useRef } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type {
   AppState,
   BinaryFiles,
@@ -28,7 +28,6 @@ import { PanelsTopLeft } from "lucide-react";
 import Link from "next/link";
 import { SceneNameTrigger } from "@/components/scene-name-trigger";
 import { authClient } from "@/lib/auth/client";
-import { type UploadStatus } from "@/components/excalidraw/cloud-upload-status";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { toast } from "sonner";
@@ -36,17 +35,14 @@ import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element
 import { CustomExportUI, type CustomExportUIProps } from "./custom-export-ui";
 import type { ExcalidrawSceneData } from "@/lib/excalidraw";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
-import { exportToBlob } from "@excalidraw/excalidraw";
 import {
   closeExcalidrawDialog,
   getCurrentSceneSnapshot,
 } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
 import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
-import {
-  type OverwriteConfirmRequest,
-  setOverwriteConfirmHandler,
-} from "@/lib/initialize-scene";
+// overwrite confirm handler is managed inside useOverwriteConfirm
+// import { useOverwriteConfirm } from "@/hooks/excalidraw/use-overwrite-confirm";
 // Hash 載入已內置於 createInitialDataPromise。若要改回 effect 載入可再引入 InitializeScene。
 
 export default function ExcalidrawEditor() {
@@ -61,26 +57,15 @@ export default function ExcalidrawEditor() {
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
-  const [uploadStatus, setUploadStatus] = useState<UploadStatus>("pending");
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-  const [isLinkExporting, setIsLinkExporting] = useState(false);
-  const [isOverwriteDialogOpen, setIsOverwriteDialogOpen] = useState(false);
-  const [overwriteDialogRequest, setOverwriteDialogRequest] =
-    useState<OverwriteConfirmRequest | null>(null);
-  const [overwriteDialogResolve, setOverwriteDialogResolve] = useState<
-    ((value: boolean) => void) | null
-  >(null);
-  const overwriteResolvedRef = useRef(false);
-
-  // 使用場景導出 hook
   const { exportScene, exportStatus, latestShareableLink } = useSceneExport();
-  const { uploadSceneToCloud } = useCloudUpload();
+  const {
+    status: uploadStatus,
+    uploadSceneToCloud,
+    resetStatus,
+  } = useCloudUpload();
+  // overwrite confirm UI will be connected inline at render via OverwriteConfirmDialogConnected
 
-  // 使用 lib/excalidraw 純函式封裝重複邏輯
-
-  // Hash 載入改在 createInitialDataPromise 內處理，這裡移除 effect。
-
-  // 共用：導出並（可選）顯示分享對話框
   const exportAndMaybeOpenShareDialog = useCallback(
     async function exportAndMaybeOpenShareDialog(
       elements: readonly NonDeletedExcalidrawElement[],
@@ -132,128 +117,12 @@ export default function ExcalidrawEditor() {
     return <CustomStats />;
   }, []);
 
-  useEffect(function installOverwriteConfirmHandler() {
-    setOverwriteConfirmHandler(async (request) => {
-      return await new Promise<boolean>((resolve) => {
-        setOverwriteDialogRequest(request);
-        setOverwriteDialogResolve(() => resolve);
-        overwriteResolvedRef.current = false;
-        setIsOverwriteDialogOpen(true);
-      });
-    });
+  useEffect(function initializeInitialDataPromise() {
     // 註冊 handler 後再建立 initialDataPromise，避免 race
     setInitialDataPromise(createInitialDataPromise());
-    return () => setOverwriteConfirmHandler(null);
   }, []);
 
-  function handleOverwriteDialogClose(): void {
-    if (!overwriteResolvedRef.current) {
-      overwriteDialogResolve?.(false);
-      overwriteResolvedRef.current = true;
-    }
-    setIsOverwriteDialogOpen(false);
-    setOverwriteDialogResolve(null);
-    setOverwriteDialogRequest(null);
-  }
-
-  function handleOverwriteDialogConfirm(): void {
-    if (!overwriteResolvedRef.current) {
-      overwriteDialogResolve?.(true);
-      overwriteResolvedRef.current = true;
-    }
-    setIsOverwriteDialogOpen(false);
-    setOverwriteDialogResolve(null);
-    setOverwriteDialogRequest(null);
-  }
-
-  function handleOverwriteDialogOpenChange(nextOpen: boolean): void {
-    if (!nextOpen) {
-      handleOverwriteDialogClose();
-    } else {
-      setIsOverwriteDialogOpen(true);
-    }
-  }
-
-  async function handleOverwriteExportImage(): Promise<void> {
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
-    if (!scene) return;
-    try {
-      const exportToBlobFn = exportToBlob as (args: {
-        elements: readonly NonDeletedExcalidrawElement[];
-        appState: Partial<AppState>;
-        files: BinaryFiles;
-        mimeType: "image/png";
-        quality: number;
-      }) => Promise<Blob>;
-      const blob = await exportToBlobFn({
-        elements: scene.elements as readonly NonDeletedExcalidrawElement[],
-        appState: scene.appState,
-        files: scene.files,
-        mimeType: "image/png",
-        quality: 1,
-      });
-      const fileName = `${(scene.appState.name as string | undefined) ?? "scene"}.png`;
-      triggerBlobDownload(fileName, blob);
-    } catch (err: unknown) {
-      const errorObj = err instanceof Error ? err : new Error(String(err));
-      console.error("Export image failed:", errorObj);
-      toast.error("Failed to export image. Please try again.");
-    } finally {
-      handleOverwriteDialogClose();
-    }
-  }
-
-  function handleOverwriteSaveToDisk(): void {
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
-    if (!scene) return;
-    try {
-      const sceneData: ExcalidrawSceneData = {
-        type: "excalidraw",
-        version: 2,
-        source: "https://excalidraw.com",
-        elements: scene.elements as readonly NonDeletedExcalidrawElement[],
-        appState: scene.appState,
-        files: scene.files,
-      };
-      const blob = createJsonBlob(sceneData);
-      triggerBlobDownload(
-        `${(scene.appState.name as string | undefined) ?? "scene"}.excalidraw`,
-        blob,
-      );
-      toast.success("File saved to disk successfully!");
-    } catch (err: unknown) {
-      console.error("Save failed:", err as Error);
-      toast.error("Failed to save file. Please try again.");
-    } finally {
-      handleOverwriteDialogClose();
-    }
-  }
-
-  async function handleOverwriteUploadToCloud(): Promise<void> {
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
-    if (!scene) return;
-    try {
-      setUploadStatus("uploading");
-      const ok = await uploadSceneToCloud(
-        scene.elements as readonly NonDeletedExcalidrawElement[],
-        scene.appState,
-        scene.files,
-      );
-      if (ok) {
-        setUploadStatus("success");
-        toast.success("Successfully uploaded to cloud!");
-      } else {
-        setUploadStatus("error");
-        toast.error("Failed to upload to cloud. Please try again.");
-      }
-    } catch (err: unknown) {
-      console.error("Cloud upload error:", err as Error);
-      setUploadStatus("error");
-      toast.error("Failed to upload to cloud. Please try again.");
-    } finally {
-      handleOverwriteDialogClose();
-    }
-  }
+  // overwrite dialog actions are provided by the hook
 
   const renderCustomExportUI = useCallback(
     function renderCustomExportUI(
@@ -291,18 +160,14 @@ export default function ExcalidrawEditor() {
           fls: BinaryFiles,
         ) {
           try {
-            setUploadStatus("uploading");
             const ok = await uploadSceneToCloud(els, state, fls);
             if (ok) {
-              setUploadStatus("success");
               toast.success("Successfully uploaded to cloud!");
             } else {
-              setUploadStatus("error");
               toast.error("Failed to upload to cloud. Please try again.");
             }
           } catch (err: unknown) {
             console.error("Cloud upload error:", err);
-            setUploadStatus("error");
             toast.error("Failed to upload to cloud. Please try again.");
           }
         },
@@ -311,20 +176,16 @@ export default function ExcalidrawEditor() {
           state: Partial<AppState>,
           fls: BinaryFiles,
         ) {
-          if (isLinkExporting || uploadStatus === "uploading") return;
-          setIsLinkExporting(true);
-          try {
-            const shareableUrl = await exportAndMaybeOpenShareDialog(
-              els,
-              state,
-              fls,
-              { openShareDialog: true },
-            );
-            if (!shareableUrl) {
-              toast.error("Failed to export scene. Please try again.");
-            }
-          } finally {
-            setIsLinkExporting(false);
+          if (exportStatus === "exporting" || uploadStatus === "uploading")
+            return;
+          const shareableUrl = await exportAndMaybeOpenShareDialog(
+            els,
+            state,
+            fls,
+            { openShareDialog: true },
+          );
+          if (!shareableUrl) {
+            toast.error("Failed to export scene. Please try again.");
           }
         },
       };
@@ -335,30 +196,42 @@ export default function ExcalidrawEditor() {
           appState={appState}
           files={files}
           uploadStatus={uploadStatus}
-          isLinkExporting={isLinkExporting}
+          isLinkExporting={exportStatus === "exporting"}
           handlers={handlers}
         />
       );
     },
     [
       exportAndMaybeOpenShareDialog,
+      exportStatus,
       uploadStatus,
-      isLinkExporting,
       uploadSceneToCloud,
     ],
   );
 
-  const handleRetry = useCallback(function handleRetry(): void {
-    setUploadStatus("uploading");
-    // 模擬上傳完成
-    setTimeout(() => {
-      setUploadStatus("success");
-    }, 2000);
-  }, []);
+  const handleRetry = useCallback(
+    async function handleRetry(): Promise<void> {
+      const scene = getCurrentSceneSnapshot(excalidrawAPI);
+      if (!scene) return;
+      try {
+        await uploadSceneToCloud(
+          scene.elements as readonly NonDeletedExcalidrawElement[],
+          scene.appState,
+          scene.files,
+        );
+      } catch {
+        // 已在 hook 內處理狀態
+      }
+    },
+    [uploadSceneToCloud, excalidrawAPI],
+  );
 
-  const handleSuccess = useCallback(function handleSuccess(): void {
-    setUploadStatus("idle");
-  }, []);
+  const handleSuccess = useCallback(
+    function handleSuccess(): void {
+      resetStatus();
+    },
+    [resetStatus],
+  );
 
   const handleShareClick = useCallback(
     async function handleShareClick(): Promise<void> {
@@ -460,20 +333,7 @@ export default function ExcalidrawEditor() {
         </Excalidraw>
       )}
 
-      {overwriteDialogRequest ? (
-        <OverwriteConfirmDialog
-          open={isOverwriteDialogOpen}
-          onOpenChange={handleOverwriteDialogOpenChange}
-          title={overwriteDialogRequest.title}
-          description={overwriteDialogRequest.description}
-          actionLabel={overwriteDialogRequest.actionLabel}
-          onConfirm={handleOverwriteDialogConfirm}
-          onClose={handleOverwriteDialogClose}
-          onExportImage={handleOverwriteExportImage}
-          onSaveToDisk={handleOverwriteSaveToDisk}
-          onUploadToCloud={handleOverwriteUploadToCloud}
-        />
-      ) : null}
+      <OverwriteConfirmDialog excalidrawAPI={excalidrawAPI} />
     </div>
   );
 }
