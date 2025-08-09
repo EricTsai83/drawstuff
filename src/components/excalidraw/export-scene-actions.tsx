@@ -48,7 +48,7 @@ export function ExportSceneActions({
 
   const configs: ExportActionConfig[] = [
     {
-      title: t("app.export.disk.title"),
+      title: t("exportDialog.disk_title"),
       subtitle: t("exportDialog.disk_details"),
       buttonLabel: t("exportDialog.disk_title"),
       icon: <Download className="h-4 w-4" />,
@@ -72,7 +72,7 @@ export function ExportSceneActions({
       iconWrapperClassName: "bg-blue-500/10 border-blue-500/20",
     },
     {
-      title: t("app.export.link.title"),
+      title: t("exportDialog.link_title"),
       subtitle: t("exportDialog.link_details"),
       buttonLabel: t("exportDialog.link_title"),
       icon: <LinkIcon className="h-4 w-4" />,

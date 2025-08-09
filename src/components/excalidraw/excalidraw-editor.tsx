@@ -121,8 +121,6 @@ export default function ExcalidrawEditor() {
     setInitialDataPromise(createInitialDataPromise());
   }, []);
 
-  // overwrite dialog actions are provided by the hook
-
   const renderCustomExportUI = useCallback(
     function renderCustomExportUI(
       elements: readonly NonDeletedExcalidrawElement[],
@@ -329,10 +327,9 @@ export default function ExcalidrawEditor() {
           </Footer>
 
           <AppWelcomeScreen />
+          <OverwriteConfirmDialog excalidrawAPI={excalidrawAPI} />
         </Excalidraw>
       )}
-
-      <OverwriteConfirmDialog excalidrawAPI={excalidrawAPI} />
     </div>
   );
 }
