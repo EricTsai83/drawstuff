@@ -14,6 +14,7 @@ import type {
   NonDeleted,
   NonDeletedExcalidrawElement,
 } from "@excalidraw/excalidraw/element/types";
+import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
@@ -21,11 +22,102 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
     try {
       const localDataState = importFromLocalStorage();
 
-      if (
+      // 先檢查 URL hash 是否包含外部場景連結
+      const jsonBackendMatch = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
+        window.location.hash,
+      );
+
+      const hasLocalSavedScene =
         localDataState.elements.length > 0 ||
-        localDataState.appState ||
-        Object.keys(localDataState.files).length > 0
-      ) {
+        !!localDataState.appState ||
+        Object.keys(localDataState.files).length > 0;
+
+      if (jsonBackendMatch) {
+        // 若本地有資料，提示是否覆蓋
+        const shareableLinkConfirmDialog = {
+          title: "載入分享連結內容？",
+          description: "此操作將覆蓋目前畫布內容。",
+          actionLabel: "覆蓋並載入",
+        };
+
+        const proceed = !hasLocalSavedScene ? true : undefined;
+
+        const doResolve = async () => {
+          try {
+            if (hasLocalSavedScene) {
+              const ok = await openConfirmModal(shareableLinkConfirmDialog);
+              if (!ok) {
+                // 使用者取消，清理 URL hash 後回退到本地資料
+                window.history.replaceState(
+                  {},
+                  "我先隨便取的APP_NAME",
+                  window.location.origin,
+                );
+                resolve(
+                  hasLocalSavedScene
+                    ? {
+                        elements: localDataState.elements ?? [],
+                        appState: localDataState.appState ?? {},
+                        files: localDataState.files ?? {},
+                      }
+                    : null,
+                );
+                return;
+              }
+            }
+
+            const scene = await loadScene(
+              jsonBackendMatch[1],
+              jsonBackendMatch[2],
+              localDataState,
+            );
+
+            // 初始化渲染時自動置中
+            const initialData: ExcalidrawInitialDataState = {
+              elements: scene.elements ?? [],
+              appState: {
+                ...(scene.appState ?? {}),
+                // @ts-expect-error: scrollToContent is supported in initialData appState at runtime
+                scrollToContent: true,
+              },
+              files: scene.files ?? {},
+            };
+
+            // 清除加密資訊，避免資訊殘留在 URL 上
+            window.history.replaceState(
+              {},
+              "我先隨便取的APP_NAME",
+              window.location.origin,
+            );
+
+            resolve(initialData);
+          } catch (e) {
+            console.error("透過 URL 載入場景失敗，回退至本地資料:", e);
+            resolve(
+              hasLocalSavedScene
+                ? {
+                    elements: localDataState.elements ?? [],
+                    appState: localDataState.appState ?? {},
+                    files: localDataState.files ?? {},
+                  }
+                : null,
+            );
+          }
+        };
+
+        // 若本地無資料直接載入，否則等確認對話
+        if (proceed) {
+          // 直接進行
+          void doResolve();
+        } else {
+          void doResolve();
+        }
+
+        return;
+      }
+
+      // 沒有外部場景，直接回傳本地資料或 null
+      if (hasLocalSavedScene) {
         resolve({
           elements: localDataState.elements ?? [],
           appState: localDataState.appState ?? {},

@@ -2,11 +2,12 @@
 
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw, Footer } from "@excalidraw/excalidraw";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
+  ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
@@ -35,11 +36,18 @@ import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element
 import { CustomExportUI, type CustomExportUIProps } from "./custom-export-ui";
 import type { ExcalidrawSceneData } from "@/lib/excalidraw";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
+import { exportToBlob } from "@excalidraw/excalidraw";
 import {
   closeExcalidrawDialog,
   getCurrentSceneSnapshot,
 } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
+import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
+import {
+  type OverwriteConfirmRequest,
+  setOverwriteConfirmHandler,
+} from "@/lib/initialize-scene";
+// Hash 載入已內置於 createInitialDataPromise。若要改回 effect 載入可再引入 InitializeScene。
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -50,17 +58,27 @@ export default function ExcalidrawEditor() {
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
-  const [initialDataPromise] = useState(() => createInitialDataPromise());
+  const [initialDataPromise, setInitialDataPromise] =
+    useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
   const [uploadStatus, setUploadStatus] = useState<UploadStatus>("pending");
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const [isLinkExporting, setIsLinkExporting] = useState(false);
+  const [isOverwriteDialogOpen, setIsOverwriteDialogOpen] = useState(false);
+  const [overwriteDialogRequest, setOverwriteDialogRequest] =
+    useState<OverwriteConfirmRequest | null>(null);
+  const [overwriteDialogResolve, setOverwriteDialogResolve] = useState<
+    ((value: boolean) => void) | null
+  >(null);
+  const overwriteResolvedRef = useRef(false);
 
   // 使用場景導出 hook
   const { exportScene, exportStatus, latestShareableLink } = useSceneExport();
   const { uploadSceneToCloud } = useCloudUpload();
 
   // 使用 lib/excalidraw 純函式封裝重複邏輯
+
+  // Hash 載入改在 createInitialDataPromise 內處理，這裡移除 effect。
 
   // 共用：導出並（可選）顯示分享對話框
   const exportAndMaybeOpenShareDialog = useCallback(
@@ -113,6 +131,129 @@ export default function ExcalidrawEditor() {
   const renderCustomStats = useCallback(function renderCustomStats() {
     return <CustomStats />;
   }, []);
+
+  useEffect(function installOverwriteConfirmHandler() {
+    setOverwriteConfirmHandler(async (request) => {
+      return await new Promise<boolean>((resolve) => {
+        setOverwriteDialogRequest(request);
+        setOverwriteDialogResolve(() => resolve);
+        overwriteResolvedRef.current = false;
+        setIsOverwriteDialogOpen(true);
+      });
+    });
+    // 註冊 handler 後再建立 initialDataPromise，避免 race
+    setInitialDataPromise(createInitialDataPromise());
+    return () => setOverwriteConfirmHandler(null);
+  }, []);
+
+  function handleOverwriteDialogClose(): void {
+    if (!overwriteResolvedRef.current) {
+      overwriteDialogResolve?.(false);
+      overwriteResolvedRef.current = true;
+    }
+    setIsOverwriteDialogOpen(false);
+    setOverwriteDialogResolve(null);
+    setOverwriteDialogRequest(null);
+  }
+
+  function handleOverwriteDialogConfirm(): void {
+    if (!overwriteResolvedRef.current) {
+      overwriteDialogResolve?.(true);
+      overwriteResolvedRef.current = true;
+    }
+    setIsOverwriteDialogOpen(false);
+    setOverwriteDialogResolve(null);
+    setOverwriteDialogRequest(null);
+  }
+
+  function handleOverwriteDialogOpenChange(nextOpen: boolean): void {
+    if (!nextOpen) {
+      handleOverwriteDialogClose();
+    } else {
+      setIsOverwriteDialogOpen(true);
+    }
+  }
+
+  async function handleOverwriteExportImage(): Promise<void> {
+    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    if (!scene) return;
+    try {
+      const exportToBlobFn = exportToBlob as (args: {
+        elements: readonly NonDeletedExcalidrawElement[];
+        appState: Partial<AppState>;
+        files: BinaryFiles;
+        mimeType: "image/png";
+        quality: number;
+      }) => Promise<Blob>;
+      const blob = await exportToBlobFn({
+        elements: scene.elements as readonly NonDeletedExcalidrawElement[],
+        appState: scene.appState,
+        files: scene.files,
+        mimeType: "image/png",
+        quality: 1,
+      });
+      const fileName = `${(scene.appState.name as string | undefined) ?? "scene"}.png`;
+      triggerBlobDownload(fileName, blob);
+    } catch (err: unknown) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      console.error("Export image failed:", errorObj);
+      toast.error("Failed to export image. Please try again.");
+    } finally {
+      handleOverwriteDialogClose();
+    }
+  }
+
+  function handleOverwriteSaveToDisk(): void {
+    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    if (!scene) return;
+    try {
+      const sceneData: ExcalidrawSceneData = {
+        type: "excalidraw",
+        version: 2,
+        source: "https://excalidraw.com",
+        elements: scene.elements as readonly NonDeletedExcalidrawElement[],
+        appState: scene.appState,
+        files: scene.files,
+      };
+      const blob = createJsonBlob(sceneData);
+      triggerBlobDownload(
+        `${(scene.appState.name as string | undefined) ?? "scene"}.excalidraw`,
+        blob,
+      );
+      toast.success("File saved to disk successfully!");
+    } catch (err: unknown) {
+      console.error("Save failed:", err as Error);
+      toast.error("Failed to save file. Please try again.");
+    } finally {
+      handleOverwriteDialogClose();
+    }
+  }
+
+  async function handleOverwriteUploadToCloud(): Promise<void> {
+    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    if (!scene) return;
+    try {
+      setUploadStatus("uploading");
+      const ok = await uploadSceneToCloud(
+        scene.elements as readonly NonDeletedExcalidrawElement[],
+        scene.appState,
+        scene.files,
+      );
+      if (ok) {
+        setUploadStatus("success");
+        toast.success("Successfully uploaded to cloud!");
+      } else {
+        setUploadStatus("error");
+        toast.error("Failed to upload to cloud. Please try again.");
+      }
+    } catch (err: unknown) {
+      console.error("Cloud upload error:", err as Error);
+      setUploadStatus("error");
+      toast.error("Failed to upload to cloud. Please try again.");
+    } finally {
+      handleOverwriteDialogClose();
+    }
+  }
 
   const renderCustomExportUI = useCallback(
     function renderCustomExportUI(
@@ -254,68 +395,85 @@ export default function ExcalidrawEditor() {
 
   return (
     <div className="h-screen w-screen">
-      <Excalidraw
-        excalidrawAPI={excalidrawRefCallback}
-        initialData={initialDataPromise}
-        onChange={handleSceneChange}
-        UIOptions={{
-          canvasActions: {
-            toggleTheme: true,
-            export: {
-              saveFileToDisk: false, // 移除預設的「儲存到磁碟」按鈕
-              renderCustomUI: renderCustomExportUI,
+      {initialDataPromise && (
+        <Excalidraw
+          excalidrawAPI={excalidrawRefCallback}
+          initialData={initialDataPromise}
+          onChange={handleSceneChange}
+          UIOptions={{
+            canvasActions: {
+              toggleTheme: true,
+              export: {
+                saveFileToDisk: false, // 移除預設的「儲存到磁碟」按鈕
+                renderCustomUI: renderCustomExportUI,
+              },
             },
-          },
-        }}
-        langCode={langCode}
-        theme={browserActiveTheme}
-        renderTopRightUI={renderTopRightUI}
-        renderCustomStats={renderCustomStats}
-      >
-        <AppMainMenu
-          userChosenTheme={userChosenTheme}
-          setTheme={setTheme}
-          handleLangCodeChange={handleLangCodeChange}
-          excalidrawAPI={excalidrawAPI}
-        />
+          }}
+          langCode={langCode}
+          theme={browserActiveTheme}
+          renderTopRightUI={renderTopRightUI}
+          renderCustomStats={renderCustomStats}
+        >
+          <AppMainMenu
+            userChosenTheme={userChosenTheme}
+            setTheme={setTheme}
+            handleLangCodeChange={handleLangCodeChange}
+            excalidrawAPI={excalidrawAPI}
+          />
 
-        <SceneRenameDialog
-          excalidrawAPI={excalidrawAPI}
-          trigger={<SceneNameTrigger sceneName={sceneName} />}
-        />
+          <SceneRenameDialog
+            excalidrawAPI={excalidrawAPI}
+            trigger={<SceneNameTrigger sceneName={sceneName} />}
+          />
 
-        <Footer>
-          <div className="ml-2.5 flex items-center gap-2.5">
-            {session && (
-              <Link href="/dashboard">
-                <PanelsTopLeft
-                  className={cn(
-                    "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2",
-                    "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
-                    "dark:bg-[#232329] dark:text-[#b8b8b8] dark:hover:bg-[#2d2d38]",
-                  )}
-                />
-              </Link>
-            )}
-            <StorageWarning
-              className={cn(
-                "flex h-9 items-center justify-center rounded-[10px] p-2.5",
-                "bg-[#e9ecef] hover:bg-[#f1f0ff]",
-                "dark:bg-[#232329] dark:hover:bg-[#2d2d38]",
+          <Footer>
+            <div className="ml-2.5 flex items-center gap-2.5">
+              {session && (
+                <Link href="/dashboard">
+                  <PanelsTopLeft
+                    className={cn(
+                      "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2",
+                      "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
+                      "dark:bg-[#232329] dark:text-[#b8b8b8] dark:hover:bg-[#2d2d38]",
+                    )}
+                  />
+                </Link>
               )}
-            />
-          </div>
-          {latestShareableLink && (
-            <SceneShareDialog
-              sceneUrl={latestShareableLink}
-              open={isShareDialogOpen}
-              onOpenChange={setIsShareDialogOpen}
-            />
-          )}
-        </Footer>
+              <StorageWarning
+                className={cn(
+                  "flex h-9 items-center justify-center rounded-[10px] p-2.5",
+                  "bg-[#e9ecef] hover:bg-[#f1f0ff]",
+                  "dark:bg-[#232329] dark:hover:bg-[#2d2d38]",
+                )}
+              />
+            </div>
+            {latestShareableLink && (
+              <SceneShareDialog
+                sceneUrl={latestShareableLink}
+                open={isShareDialogOpen}
+                onOpenChange={setIsShareDialogOpen}
+              />
+            )}
+          </Footer>
 
-        <AppWelcomeScreen />
-      </Excalidraw>
+          <AppWelcomeScreen />
+        </Excalidraw>
+      )}
+
+      {overwriteDialogRequest ? (
+        <OverwriteConfirmDialog
+          open={isOverwriteDialogOpen}
+          onOpenChange={handleOverwriteDialogOpenChange}
+          title={overwriteDialogRequest.title}
+          description={overwriteDialogRequest.description}
+          actionLabel={overwriteDialogRequest.actionLabel}
+          onConfirm={handleOverwriteDialogConfirm}
+          onClose={handleOverwriteDialogClose}
+          onExportImage={handleOverwriteExportImage}
+          onSaveToDisk={handleOverwriteSaveToDisk}
+          onUploadToCloud={handleOverwriteUploadToCloud}
+        />
+      ) : null}
     </div>
   );
 }

@@ -7,7 +7,7 @@ import { headers } from "next/headers";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 
-// Server Action: 處理場景保存
+// 處理場景保存
 export async function handleSceneSave(compressedSceneData: Uint8Array) {
   const session = await auth.api.getSession({
     headers: await headers(),
@@ -52,7 +52,7 @@ export async function handleSceneSave(compressedSceneData: Uint8Array) {
   }
 }
 
-// Server Action: 讀取場景資料
+// 讀取場景資料
 export async function getSceneData(sceneId: string) {
   const session = await auth.api.getSession({
     headers: await headers(),

@@ -1,3 +1,4 @@
+import type React from "react";
 import type {
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
@@ -15,7 +16,6 @@ export function InitializeScene(t: (key: string) => string) {
     title: t("overwriteConfirm.modal.shareableLink.title"),
     description: t("overwriteConfirm.modal.shareableLink.description"),
     actionLabel: t("overwriteConfirm.modal.shareableLink.button"),
-    color: "danger" as const,
   };
 
   return async (opts: {
@@ -26,6 +26,7 @@ export function InitializeScene(t: (key: string) => string) {
       | { isExternalScene: false; id?: null; key?: null }
     )
   > => {
+    // 第一部分是 scene id，第二部分是 scene hash key
     const jsonBackendMatch = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
       window.location.hash,
     );
@@ -36,7 +37,6 @@ export function InitializeScene(t: (key: string) => string) {
       scrollToContent?: boolean;
     } = await loadScene(undefined, undefined, localDataState);
 
-    // 移除協作相關邏輯，只檢查 id 和 jsonBackendMatch
     const isExternalScene = !!jsonBackendMatch;
 
     if (isExternalScene) {
@@ -132,20 +132,45 @@ export async function loadScene(
   };
 }
 
-export async function openConfirmModal({
-  title,
-  description,
-  actionLabel,
-  color,
-}: {
+export type OverwriteConfirmRequest = {
   title: string;
   description: React.ReactNode;
   actionLabel: string;
-  color: "danger" | "warning";
-}) {
-  console.log(`Confirm Modal: ${title} - ${actionLabel} (${color})`);
-  console.log("Description:", description);
+};
 
-  // 簡單的確認對話框，總是返回 true
-  return window.confirm(`${title}\n\n點擊確定繼續，取消返回。`);
+type OverwriteConfirmHandler = (
+  request: OverwriteConfirmRequest,
+) => Promise<boolean>;
+
+let overwriteConfirmHandler: OverwriteConfirmHandler | null = null;
+const pendingOverwriteConfirmRequests: Array<{
+  request: OverwriteConfirmRequest;
+  resolve: (value: boolean) => void;
+}> = [];
+
+export function setOverwriteConfirmHandler(
+  handler: OverwriteConfirmHandler | null,
+): void {
+  overwriteConfirmHandler = handler;
+  if (!handler) return;
+  // flush pending requests if any
+  while (pendingOverwriteConfirmRequests.length > 0) {
+    const { request, resolve } = pendingOverwriteConfirmRequests.shift()!;
+    handler(request)
+      .then(resolve)
+      .catch(() => resolve(false));
+  }
+}
+
+export async function openConfirmModal(request: OverwriteConfirmRequest) {
+  return new Promise<boolean>((resolve) => {
+    if (overwriteConfirmHandler) {
+      overwriteConfirmHandler(request)
+        .then(resolve)
+        .catch(() => resolve(false));
+      return;
+    }
+    // if handler not yet registered (e.g., early during initial render), queue it
+    pendingOverwriteConfirmRequests.push({ request, resolve });
+  });
 }
