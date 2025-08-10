@@ -73,10 +73,12 @@ export function CloudUploadStatus({
   return (
     <div
       className={cn(
+        // desktop 和 mobile 的 visibility 設定
+        "min-[728px]:pointer-events-none min-[728px]:invisible min-[1072px]:pointer-events-auto min-[1072px]:visible",
         // 基本樣式 - 使用專案的設計系統
         "flex items-center justify-center",
         "h-[36px] w-[36px] rounded-lg backdrop-blur-sm",
-        "transition-all duration-300 ease-out",
+        "transition-colors duration-300 ease-out",
         "shadow-xs hover:shadow-sm",
         // 背景顏色 - 根據狀態條件設定
         status === "pending" && "bg-primary",
@@ -95,7 +97,7 @@ export function CloudUploadStatus({
     >
       <Icon
         className={cn(
-          "h-4 w-4 transition-all duration-300",
+          "h-4 w-4",
           // 圖標顏色 - 根據狀態條件設定
           status === "pending" && "text-white",
           status === "uploading" && "text-white",

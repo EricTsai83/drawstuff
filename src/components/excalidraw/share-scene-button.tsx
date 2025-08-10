@@ -36,6 +36,8 @@ export function ShareSceneButton({
   return (
     <Button
       className={cn(
+        // desktop 和 mobile 的 visibility 設定
+        "min-[728px]:pointer-events-none min-[728px]:invisible min-[1072px]:pointer-events-auto min-[1072px]:visible",
         "flex items-center justify-center gap-2 font-normal whitespace-nowrap",
         "w-[12ch] transition-[width] duration-300 ease-in-out",
         // Enforce exact height 36px regardless of Button size variants

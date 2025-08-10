@@ -8,6 +8,7 @@ import type {
   BinaryFiles,
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
+  UIAppState,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
@@ -248,7 +249,7 @@ export default function ExcalidrawEditor() {
   );
 
   const renderTopRightUI = useCallback(
-    function renderTopRightUI(isMobile: boolean) {
+    (isMobile: boolean, _appState: UIAppState) => {
       if (isMobile) return null;
       return (
         <TopRightControls

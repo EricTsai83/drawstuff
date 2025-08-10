@@ -9,11 +9,13 @@ export const SceneNameTrigger = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "fixed top-5 left-20 z-10 w-40 text-lg font-medium",
-        "overflow-hidden leading-5 text-ellipsis text-black lg:line-clamp-2",
-        "cursor-pointer select-none focus:outline-none dark:text-white",
+        "z-10 cursor-pointer overflow-hidden text-lg leading-5 font-medium text-ellipsis text-black select-none focus:outline-none dark:text-white",
+        //mobile
+        "fixed bottom-6 left-1/2 z-10 w-56 -translate-x-1/2 whitespace-nowrap",
+        //desktop
+        "min-[728px]:pointer-events-none min-[728px]:invisible min-[728px]:top-8 min-[728px]:bottom-auto min-[728px]:left-16 min-[728px]:w-36 min-[728px]:translate-x-0 min-[728px]:-translate-y-1/2 min-[728px]:whitespace-normal min-[1072px]:pointer-events-auto min-[1072px]:visible min-[1072px]:line-clamp-2",
       )}
-      title="雙擊重新命名"
+      title="Click to rename scene"
       role="button"
       tabIndex={0}
       {...props}
