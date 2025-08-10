@@ -7,8 +7,9 @@ import {
   varchar,
   index,
   integer,
+  check,
 } from "drizzle-orm/pg-core";
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
 
 // 自定義 bytea 類型用於儲存二進位資料
@@ -222,7 +223,7 @@ export const fileRecord = createTable(
       },
     ),
     // 文件相關信息
-    ownerId: varchar("owner_id", { length: 256 }).notNull(),
+    ownerId: varchar("owner_id", { length: 256 }),
     utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
     name: varchar("name", { length: 256 }).notNull(),
     size: integer("size").notNull(),
@@ -239,8 +240,11 @@ export const fileRecord = createTable(
     index("file_record_shared_scene_id_idx").on(table.sharedSceneId),
     index("file_record_owner_id_idx").on(table.ownerId),
     index("file_record_ut_file_key_idx").on(table.utFileKey),
-    // 確保 sceneId 和 sharedSceneId 不能同時為空或同時有值
-    // 這需要在應用層面進行驗證
+    // DB 層 XOR 約束：scene_id 與 shared_scene_id 必須且只能有一個有值
+    check(
+      "file_record_scene_or_shared_xor",
+      sql`num_nonnulls(${table.sceneId}, ${table.sharedSceneId}) = 1`,
+    ),
   ],
 );
 

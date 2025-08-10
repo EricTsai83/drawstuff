@@ -48,7 +48,7 @@ export async function handleSceneSave(
 }
 
 // 讀取場景資料
-export async function getSceneData(sceneId: string) {
+export async function getSharedSceneData(sharedSceneId: string) {
   const session = await getServerSession();
 
   if (!session) {
@@ -67,7 +67,7 @@ export async function getSceneData(sceneId: string) {
         createdAt: sharedScene.createdAt,
       })
       .from(sharedScene)
-      .where(eq(sharedScene.sharedSceneId, sceneId))
+      .where(eq(sharedScene.sharedSceneId, sharedSceneId))
       .limit(1);
 
     if (result.length === 0) {

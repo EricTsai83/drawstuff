@@ -1,5 +1,5 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
-import { UploadThingError } from "uploadthing/server";
+// import { UploadThingError } from "uploadthing/server";
 import {
   FILE_UPLOAD_MAX_BYTES,
   FILE_UPLOAD_MAX_COUNT,
@@ -20,26 +20,22 @@ export const uploadRouter = {
       maxFileCount: FILE_UPLOAD_MAX_COUNT,
     },
   })
-    .input(
-      z.object({
-        sceneId: z.string().optional(),
-      }),
-    )
-    .middleware(async ({ req, input }) => {
+    .input(z.object({ sharedSceneId: z.string().optional() }))
+    .middleware(async ({ input }) => {
       // This code runs on your server before upload
       const session = await getServerSession();
 
       // If you throw, the user will not be able to upload
       // eslint-disable-next-line @typescript-eslint/only-throw-error
-      if (!session) throw new UploadThingError("Unauthorized");
+      // if (!session) throw new UploadThingError("Unauthorized");
 
-      // 從 input 中獲取 scene ID
-      const sceneId = input?.sceneId;
+      // 從 input 中獲取 shared scene ID
+      const sharedSceneId = input?.sharedSceneId;
 
       // Whatever is returned here is accessible in onUploadComplete as `metadata`
       return {
-        userId: session.user.id,
-        sceneId: sceneId,
+        userId: session?.user.id ?? null,
+        sharedSceneId,
       };
     })
     .onUploadComplete(async ({ metadata, file }) => {
@@ -47,11 +43,11 @@ export const uploadRouter = {
       console.log("Scene file upload complete for userId:", metadata.userId);
       console.log("file url", file.ufsUrl);
 
-      // 如果有 sceneId，保存文件記錄到資料庫
-      if (metadata.sceneId) {
+      // 如果有 sharedSceneId，保存文件記錄到資料庫
+      if (metadata.sharedSceneId) {
         try {
           await QUERIES.createFileRecord({
-            sharedSceneId: metadata.sceneId,
+            sharedSceneId: metadata.sharedSceneId,
             ownerId: metadata.userId,
             utFileKey: file.key,
             name: file.name,

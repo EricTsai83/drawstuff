@@ -87,7 +87,7 @@ export function useSceneExport() {
         // 有檔案才上傳
         if (filesToUpload.length > 0) {
           await startUpload(filesToUpload, {
-            sceneId: result.sharedSceneId,
+            sharedSceneId: result.sharedSceneId,
           });
         }
 

@@ -82,35 +82,35 @@ export const QUERIES = {
   },
 
   // SharedScene 相關查詢
-  getSharedSceneById: async function (id: string) {
+  getSharedSceneById: async function (sharedSceneId: string) {
     const [sharedSceneData] = await db
       .select()
       .from(sharedScene)
-      .where(eq(sharedScene.id, id));
+      .where(eq(sharedScene.sharedSceneId, sharedSceneId));
     return sharedSceneData;
   },
 
   createSharedScene: async function ({
-    id,
+    sharedSceneId,
     compressedData,
   }: {
-    id: string;
+    sharedSceneId: string;
     compressedData: Uint8Array;
   }) {
     return await db
       .insert(sharedScene)
       .values({
-        id,
+        sharedSceneId,
         compressedData,
       })
       .returning();
   },
 
   updateSharedScene: async function ({
-    id,
+    sharedSceneId,
     compressedData,
   }: {
-    id: string;
+    sharedSceneId: string;
     compressedData: Uint8Array;
   }) {
     return await db
@@ -119,14 +119,14 @@ export const QUERIES = {
         compressedData,
         updatedAt: new Date(),
       })
-      .where(eq(sharedScene.id, id))
+      .where(eq(sharedScene.sharedSceneId, sharedSceneId))
       .returning();
   },
 
-  deleteSharedScene: async function (id: string) {
+  deleteSharedScene: async function (sharedSceneId: string) {
     return await db
       .delete(sharedScene)
-      .where(eq(sharedScene.id, id))
+      .where(eq(sharedScene.sharedSceneId, sharedSceneId))
       .returning();
   },
 
@@ -142,7 +142,7 @@ export const QUERIES = {
   }: {
     sceneId?: string;
     sharedSceneId?: string;
-    ownerId: string;
+    ownerId: string | null;
     utFileKey: string;
     name: string;
     size: number;
@@ -161,7 +161,7 @@ export const QUERIES = {
       .values({
         sceneId: sceneId ?? null,
         sharedSceneId: sharedSceneId ?? null,
-        ownerId,
+        ownerId: ownerId ?? null,
         utFileKey,
         name,
         size,
