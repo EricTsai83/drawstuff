@@ -1,5 +1,5 @@
 import { cn } from "@/lib/utils";
-import { GoogleSignInButton } from "./gooogle-sign-in-button";
+import { GoogleSignInButton } from "./google-sign-in-button";
 
 export function LoginForm({
   className,

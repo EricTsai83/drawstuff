@@ -2,7 +2,7 @@
 
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth/client";
-import { GoogleSignInButton } from "./gooogle-sign-in-button";
+import { GoogleSignInButton } from "./google-sign-in-button";
 import { Card, CardContent } from "@/components/ui/card";
 
 type AuthRequiredProps = {
