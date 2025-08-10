@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useState, forwardRef, useEffect } from "react";
+import { useCallback, useState, forwardRef, useEffect } from "react";
 import {
   Command,
   CommandEmpty,

@@ -1,4 +1,4 @@
-import type React from "react";
+import { type ReactNode } from "react";
 import type {
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
@@ -134,7 +134,7 @@ export async function loadScene(
 
 export type OverwriteConfirmRequest = {
   title: string;
-  description: React.ReactNode;
+  description: ReactNode;
   actionLabel: string;
 };
 

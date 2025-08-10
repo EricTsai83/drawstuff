@@ -1,7 +1,5 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
 import { UploadThingError } from "uploadthing/server";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import {
   FILE_UPLOAD_MAX_BYTES,
   FILE_UPLOAD_MAX_COUNT,
@@ -9,6 +7,7 @@ import {
 import { getMaxFileSizeString } from "@/lib/utils";
 import { QUERIES } from "@/server/db/queries";
 import { z } from "zod";
+import { getServerSession } from "@/lib/auth/server";
 
 const f = createUploadthing();
 
@@ -28,9 +27,7 @@ export const uploadRouter = {
     )
     .middleware(async ({ req, input }) => {
       // This code runs on your server before upload
-      const session = await auth.api.getSession({
-        headers: await headers(),
-      });
+      const session = await getServerSession();
 
       // If you throw, the user will not be able to upload
       // eslint-disable-next-line @typescript-eslint/only-throw-error

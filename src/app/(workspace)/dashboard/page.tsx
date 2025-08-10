@@ -1,13 +1,10 @@
 import { DashboardOverlayModal } from "@/components/dashboard-overlay-modal";
 import { SceneSearchList } from "@/components/scene-search-list";
-import { auth } from "@/lib/auth";
-import { headers } from "next/headers";
 import { AuthRequired } from "@/components/auth-required";
+import { getServerSession } from "@/lib/auth/server";
 
 export default async function DashboardPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const session = await getServerSession();
 
   const isAuthenticated = !!session;
 

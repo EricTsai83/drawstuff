@@ -1,17 +1,14 @@
 "use server";
 
-import { auth } from "@/lib/auth";
 import { db } from "@/server/db";
 import { sharedScene } from "@/server/db/schema";
-import { headers } from "next/headers";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
+import { getServerSession } from "@/lib/auth/server";
 
 // 處理場景保存
 export async function handleSceneSave(compressedSceneData: Uint8Array) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const session = await getServerSession();
 
   if (!session) {
     return {
@@ -54,9 +51,7 @@ export async function handleSceneSave(compressedSceneData: Uint8Array) {
 
 // 讀取場景資料
 export async function getSceneData(sceneId: string) {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+  const session = await getServerSession();
 
   if (!session) {
     return {

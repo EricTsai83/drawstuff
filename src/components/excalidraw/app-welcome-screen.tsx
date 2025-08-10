@@ -1,6 +1,6 @@
 import { useI18n } from "@excalidraw/excalidraw";
 import { WelcomeScreen } from "@excalidraw/excalidraw";
-import React from "react";
+import { memo } from "react";
 import { Github } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -47,4 +47,4 @@ function AppWelcomeScreen() {
   );
 }
 
-export default React.memo(AppWelcomeScreen);
+export default memo(AppWelcomeScreen);
