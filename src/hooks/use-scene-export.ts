@@ -24,6 +24,7 @@ export function useSceneExport() {
     },
     onUploadError: (error) => {
       console.error("Error occurred while uploading files", error);
+      toast.error("Error occurred while uploading files");
       setExportStatus("error");
     },
     onUploadBegin: (fileName) => {
@@ -32,14 +33,19 @@ export function useSceneExport() {
   });
 
   const exportScene = useCallback(
-    async (
+    async function exportScene(
       elements: readonly NonDeletedExcalidrawElement[],
       appState: Partial<AppState>,
       files: BinaryFiles,
-    ) => {
+    ): Promise<string | null> {
+      if (exportStatus === "exporting") {
+        toast.error("Export already in progress");
+        return null;
+      }
+
       if (elements.length === 0) {
         toast.error("Cannot export empty canvas");
-        return;
+        return null;
       }
 
       setExportStatus("exporting");
@@ -52,52 +58,51 @@ export function useSceneExport() {
           files,
         );
 
-        // 如果有文件需要上傳，先上傳文件
+        // 如果有文件需要上傳，先整理檔案
         let filesToUpload: File[] = [];
         if (sceneData.compressedFilesData.length > 0) {
-          // 將加密後的 Uint8Array 直接轉換為 File 對象用於上傳
-          // 使用 nanoid 生成唯一 ID，對齊參考程式碼邏輯
           filesToUpload = sceneData.compressedFilesData.map((file) => {
-            const uniqueId = nanoid(); // 使用 nanoid 生成唯一 ID
-            return new File(
-              [file.buffer], // 這裡的 buffer 已經是加密後的資料
-              uniqueId, // 直接使用 nanoid ID 作為檔名
-              {
-                type: "application/octet-stream",
-              },
-            );
+            const uniqueId = nanoid();
+            return new File([file.buffer], uniqueId, {
+              type: "application/octet-stream",
+            });
           });
         }
 
-        // 直接使用 server action 保存場景，避免重複處理
+        // 使用 server action 保存場景
         const result = await handleSceneSave(sceneData.compressedSceneData);
+
+        // 若未取得 sceneId，直接回報錯誤
+        if (!result?.sharedSceneId) {
+          console.error("Failed to export scene:", result?.errorMessage);
+          toast.error(result?.errorMessage ?? "Failed to export scene");
+          setExportStatus("error");
+          return null;
+        }
 
         // 生成分享鏈接
         const shareableUrl = new URL(env.NEXT_PUBLIC_BASE_URL);
         shareableUrl.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
 
-        // 使用 scene ID 作為 input 參數上傳文件
-        await startUpload(filesToUpload, {
-          sceneId: result.sharedSceneId,
-        });
-
-        if (result.sharedSceneId) {
-          setLatestShareableLink(shareableUrl.toString());
-          setExportStatus("success");
-          console.log("Scene exported successfully:", result.sharedSceneId);
-          return shareableUrl.toString();
-        } else {
-          console.error("Failed to export scene:", result.errorMessage);
-          setExportStatus("error");
-          return null;
+        // 有檔案才上傳
+        if (filesToUpload.length > 0) {
+          await startUpload(filesToUpload, {
+            sceneId: result.sharedSceneId,
+          });
         }
+
+        setLatestShareableLink(shareableUrl.toString());
+        setExportStatus("success");
+        console.log("Scene exported successfully:", result.sharedSceneId);
+        return shareableUrl.toString();
       } catch (error) {
         console.error("Error during scene export:", error);
+        toast.error("Error during scene export");
         setExportStatus("error");
         return null;
       }
     },
-    [startUpload],
+    [startUpload, exportStatus],
   );
 
   const resetExportStatus = useCallback(() => {
