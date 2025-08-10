@@ -6,15 +6,19 @@ import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/server";
 
+export type HandleSceneSaveResult = {
+  sharedSceneId: string | null;
+  errorMessage: string | null;
+};
+
 // 處理場景保存
-export async function handleSceneSave(compressedSceneData: Uint8Array) {
+export async function handleSceneSave(
+  compressedSceneData: Uint8Array,
+): Promise<HandleSceneSaveResult> {
   const session = await getServerSession();
 
   if (!session) {
-    return {
-      url: null,
-      errorMessage: "Unauthorized",
-    };
+    return { sharedSceneId: null, errorMessage: "Unauthorized" };
   }
 
   try {
@@ -30,20 +34,14 @@ export async function handleSceneSave(compressedSceneData: Uint8Array) {
     if (result.length > 0 && result[0]?.sharedSceneId) {
       const sharedSceneId = result[0].sharedSceneId;
 
-      return {
-        sharedSceneId,
-        errorMessage: null,
-      };
+      return { sharedSceneId, errorMessage: null };
     }
 
-    return {
-      url: null,
-      errorMessage: "Failed to save scene",
-    };
+    return { sharedSceneId: null, errorMessage: "Failed to save scene" };
   } catch (error) {
     console.error("Error in handleSceneSave:", error);
     return {
-      url: null,
+      sharedSceneId: null,
       errorMessage: "Could not create shareable link",
     };
   }
