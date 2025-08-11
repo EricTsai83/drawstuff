@@ -48,7 +48,10 @@ export function OverwriteConfirmDialog({
       const match = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
         window.location.hash,
       );
-      if (!match) return;
+      const id = match?.[1];
+      const privateKey = match?.[2];
+
+      if (!id || !privateKey) return;
 
       const current = getCurrentSceneSnapshot(excalidrawAPI);
       const hasCurrentScene = !!current && current.elements.length > 0;
@@ -76,7 +79,7 @@ export function OverwriteConfirmDialog({
 
           try {
             const localDataState = importFromLocalStorage();
-            const scene = await loadScene(match[1], match[2], localDataState);
+            const scene = await loadScene(id, privateKey, localDataState);
 
             if (excalidrawAPI) {
               excalidrawAPI.updateScene({
