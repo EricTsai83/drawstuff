@@ -53,15 +53,20 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
                   "我先隨便取的APP_NAME",
                   window.location.origin,
                 );
-                resolve(
-                  hasLocalSavedScene
-                    ? {
-                        elements: localDataState.elements ?? [],
-                        appState: localDataState.appState ?? {},
-                        files: localDataState.files ?? {},
-                      }
-                    : null,
-                );
+                if (hasLocalSavedScene) {
+                  const restored = await loadScene(
+                    undefined,
+                    undefined,
+                    localDataState,
+                  );
+                  resolve({
+                    elements: restored.elements ?? [],
+                    appState: restored.appState ?? {},
+                    files: restored.files ?? {},
+                  });
+                } else {
+                  resolve(null);
+                }
                 return;
               }
             }
@@ -76,7 +81,7 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
             const initialData: ExcalidrawInitialDataState = {
               elements: scene.elements ?? [],
               appState: {
-                ...(scene.appState ?? {}),
+                ...ensureInitialAppState(scene.appState ?? {}),
                 // @ts-expect-error: scrollToContent is supported in initialData appState at runtime
                 scrollToContent: true,
               },
@@ -93,15 +98,20 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
             resolve(initialData);
           } catch (e) {
             console.error("透過 URL 載入場景失敗，回退至本地資料:", e);
-            resolve(
-              hasLocalSavedScene
-                ? {
-                    elements: localDataState.elements ?? [],
-                    appState: localDataState.appState ?? {},
-                    files: localDataState.files ?? {},
-                  }
-                : null,
-            );
+            if (hasLocalSavedScene) {
+              const restored = await loadScene(
+                undefined,
+                undefined,
+                localDataState,
+              );
+              resolve({
+                elements: restored.elements ?? [],
+                appState: ensureInitialAppState(restored.appState ?? {}),
+                files: restored.files ?? {},
+              });
+            } else {
+              resolve(null);
+            }
           }
         };
 
@@ -118,11 +128,21 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
 
       // 沒有外部場景，直接回傳本地資料或 null
       if (hasLocalSavedScene) {
-        resolve({
-          elements: localDataState.elements ?? [],
-          appState: localDataState.appState ?? {},
-          files: localDataState.files ?? {},
-        });
+        loadScene(undefined, undefined, localDataState)
+          .then((restored) => {
+            resolve({
+              elements: restored.elements ?? [],
+              appState: ensureInitialAppState(restored.appState ?? {}),
+              files: restored.files ?? {},
+            });
+          })
+          .catch(() => {
+            resolve({
+              elements: localDataState.elements ?? [],
+              appState: localDataState.appState ?? {},
+              files: localDataState.files ?? {},
+            });
+          });
       } else {
         resolve(null);
       }
@@ -301,4 +321,11 @@ export function getCurrentSceneSnapshot(api?: ExcalidrawImperativeAPI | null): {
   const appState = api.getAppState();
   const files = api.getFiles();
   return { elements, appState: appState as Partial<AppState>, files };
+}
+
+function ensureInitialAppState(appState: Partial<AppState>): Partial<AppState> {
+  // Excalidraw 會期望一些欄位為特定形狀。這裡清掉可能造成型別/結構問題的欄位
+  // 例如 collaborators 若為物件或其他型別，會導致 forEach 失敗。
+  const { theme, viewBackgroundColor, gridSize, name } = appState;
+  return { theme, viewBackgroundColor, gridSize, name };
 }
