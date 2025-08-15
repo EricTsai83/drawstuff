@@ -24,7 +24,7 @@ import { SceneShareDialog } from "@/components/scene-share-dialog";
 import { SceneRenameDialog } from "@/components/scene-rename-dialog";
 import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
-import { cn } from "@/lib/utils";
+import { cn, parseSharedSceneHash } from "@/lib/utils";
 import { PanelsTopLeft } from "lucide-react";
 import Link from "next/link";
 import { SceneNameTrigger } from "@/components/scene-name-trigger";
@@ -127,12 +127,7 @@ export default function ExcalidrawEditor() {
   }, []);
 
   // 解析分享 hash
-  const parsedShare = useMemo(() => {
-    const m = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
-      window.location.hash,
-    );
-    return m ? { id: m[1]!, key: m[2]! } : null;
-  }, []);
+  const parsedShare = useMemo(() => parseSharedSceneHash(), []);
 
   // 取得該分享場景相關檔案清單（UploadThing）
   const filesListQuery = api.sharedScene.getFileRecordsBySharedSceneId.useQuery(
@@ -140,60 +135,58 @@ export default function ExcalidrawEditor() {
     { enabled: !!parsedShare?.id },
   );
 
-  // 後載雲端檔案，並在載入後逐步加進 Excalidraw（改善首屏）
-  useEffect(
-    function loadCloudFilesAfterMount() {
-      if (!excalidrawAPI || !parsedShare?.key) return;
-      const files = filesListQuery.data?.files ?? [];
-      if (!files.length) return;
+  // 載入雲端檔案，並在載入後逐步加進 Excalidraw
+  useEffect(() => {
+    if (!excalidrawAPI || !parsedShare) return;
+    const decryptionKey = parsedShare.key;
 
-      let cancelled = false;
+    const files = filesListQuery.data?.files ?? [];
+    if (!files.length) return;
 
-      async function load() {
-        const loaded: BinaryFiles = {};
-        const decryptionKey = parsedShare!.key;
-        // const errored = new Map<FileId, true>(); // 若要標示錯誤，可啟用
+    let cancelled = false;
 
-        for (const f of files) {
-          try {
-            const resp = await fetch(f.url);
-            if (!resp.ok) continue;
-            const buf = new Uint8Array(await resp.arrayBuffer());
-            const { metadata, data } = await decompressData<{
-              id: string;
-              mimeType: string;
-              created: number;
-              lastRetrieved: number;
-            }>(buf, { decryptionKey });
+    async function load() {
+      const loaded: BinaryFiles = {};
+      // const errored = new Map<FileId, true>(); // 若要標示錯誤，可啟用
 
-            const id = metadata.id as unknown as FileId;
-            loaded[id] = {
-              id,
-              dataURL: new TextDecoder().decode(data) as DataURL,
-              mimeType: metadata.mimeType as BinaryFileData["mimeType"],
-              created: metadata.created,
-              lastRetrieved: metadata.lastRetrieved,
-            };
-          } catch {
-            // 若要：errored.set(fileId, true);
-          }
+      for (const f of files) {
+        try {
+          const resp = await fetch(f.url);
+          if (!resp.ok) continue;
+          const buf = new Uint8Array(await resp.arrayBuffer());
+          const { metadata, data } = await decompressData<{
+            id: string;
+            mimeType: string;
+            created: number;
+            lastRetrieved: number;
+          }>(buf, { decryptionKey });
+
+          const id = metadata.id as unknown as FileId;
+          loaded[id] = {
+            id,
+            dataURL: new TextDecoder().decode(data) as DataURL,
+            mimeType: metadata.mimeType as BinaryFileData["mimeType"],
+            created: metadata.created,
+            lastRetrieved: metadata.lastRetrieved,
+          };
+        } catch {
+          // 若要：errored.set(fileId, true);
         }
-
-        if (cancelled) return;
-        if (Object.keys(loaded).length && excalidrawAPI) {
-          const loadedArray = Object.values(loaded);
-          excalidrawAPI.addFiles(loadedArray);
-        }
-        // 若要：updateStaleImageStatuses(...)
       }
 
-      void load();
-      return () => {
-        cancelled = true;
-      };
-    },
-    [excalidrawAPI, filesListQuery.data, parsedShare],
-  );
+      if (cancelled) return;
+      if (Object.keys(loaded).length && excalidrawAPI) {
+        const loadedArray = Object.values(loaded);
+        excalidrawAPI.addFiles(loadedArray);
+      }
+      // 若要：updateStaleImageStatuses(...)
+    }
+
+    void load();
+    return () => {
+      cancelled = true;
+    };
+  }, [excalidrawAPI, filesListQuery.data, parsedShare]);
 
   const renderCustomExportUI = useCallback(
     function renderCustomExportUI(

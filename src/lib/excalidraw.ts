@@ -15,6 +15,7 @@ import type {
   NonDeletedExcalidrawElement,
 } from "@excalidraw/excalidraw/element/types";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
+import { parseSharedSceneHash } from "@/lib/utils";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
@@ -23,9 +24,7 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
       const localDataState = importFromLocalStorage();
 
       // 先檢查 URL hash 是否包含外部場景連結
-      const jsonBackendMatch = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
-        window.location.hash,
-      );
+      const jsonBackendMatch = parseSharedSceneHash();
 
       const hasLocalSavedScene =
         localDataState.elements.length > 0 ||
@@ -72,8 +71,8 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
             }
 
             const scene = await loadScene(
-              jsonBackendMatch[1],
-              jsonBackendMatch[2],
+              jsonBackendMatch.id,
+              jsonBackendMatch.key,
               localDataState,
             );
 

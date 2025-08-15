@@ -14,6 +14,7 @@ import { useAppI18n } from "@/lib/i18n";
 import { getCurrentSceneSnapshot } from "@/lib/excalidraw";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
+import { parseSharedSceneHash } from "@/lib/utils";
 
 export function OverwriteConfirmDialog({
   excalidrawAPI,
@@ -45,13 +46,11 @@ export function OverwriteConfirmDialog({
   // Listen for #json=... hash changes so we can prompt using i18n within Excalidraw context
   useEffect(() => {
     function onHashChange() {
-      const match = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
-        window.location.hash,
-      );
-      const id = match?.[1];
-      const privateKey = match?.[2];
+      const parsed = parseSharedSceneHash();
+      if (!parsed) return;
 
-      if (!id || !privateKey) return;
+      const id = parsed.id;
+      const privateKey = parsed.key;
 
       const current = getCurrentSceneSnapshot(excalidrawAPI);
       const hasCurrentScene = !!current && current.elements.length > 0;
@@ -97,7 +96,7 @@ export function OverwriteConfirmDialog({
           } finally {
             window.history.replaceState(
               {},
-              "我先隨便取的APP_NAME",
+              "Excalidraw X Ericts",
               window.location.origin,
             );
           }
@@ -105,7 +104,7 @@ export function OverwriteConfirmDialog({
         .catch(() => {
           window.history.replaceState(
             {},
-            "我先隨便取的APP_NAME",
+            "Excalidraw X Ericts",
             window.location.origin,
           );
         });
