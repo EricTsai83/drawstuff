@@ -2,7 +2,7 @@
 
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw, Footer } from "@excalidraw/excalidraw";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import type {
   AppState,
   BinaryFiles,
@@ -45,6 +45,10 @@ import {
 } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
 import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
+import { api } from "@/trpc/react";
+import { decompressData } from "@/lib/encode";
+import type { DataURL, BinaryFileData } from "@excalidraw/excalidraw/types";
+import type { FileId } from "@excalidraw/excalidraw/element/types";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -121,6 +125,75 @@ export default function ExcalidrawEditor() {
     // 註冊 handler 後再建立 initialDataPromise，避免 race
     setInitialDataPromise(createInitialDataPromise());
   }, []);
+
+  // 解析分享 hash
+  const parsedShare = useMemo(() => {
+    const m = /^#json=([a-zA-Z0-9_-]+),([a-zA-Z0-9_-]+)$/.exec(
+      window.location.hash,
+    );
+    return m ? { id: m[1]!, key: m[2]! } : null;
+  }, []);
+
+  // 取得該分享場景相關檔案清單（UploadThing）
+  const filesListQuery = api.sharedScene.getFileRecordsBySharedSceneId.useQuery(
+    { sharedSceneId: parsedShare?.id ?? "" },
+    { enabled: !!parsedShare?.id },
+  );
+
+  // 後載雲端檔案，並在載入後逐步加進 Excalidraw（改善首屏）
+  useEffect(
+    function loadCloudFilesAfterMount() {
+      if (!excalidrawAPI || !parsedShare?.key) return;
+      const files = filesListQuery.data?.files ?? [];
+      if (!files.length) return;
+
+      let cancelled = false;
+
+      async function load() {
+        const loaded: BinaryFiles = {};
+        const decryptionKey = parsedShare!.key;
+        // const errored = new Map<FileId, true>(); // 若要標示錯誤，可啟用
+
+        for (const f of files) {
+          try {
+            const resp = await fetch(f.url);
+            if (!resp.ok) continue;
+            const buf = new Uint8Array(await resp.arrayBuffer());
+            const { metadata, data } = await decompressData<{
+              id: string;
+              mimeType: string;
+              created: number;
+              lastRetrieved: number;
+            }>(buf, { decryptionKey });
+
+            const id = metadata.id as unknown as FileId;
+            loaded[id] = {
+              id,
+              dataURL: new TextDecoder().decode(data) as DataURL,
+              mimeType: metadata.mimeType as BinaryFileData["mimeType"],
+              created: metadata.created,
+              lastRetrieved: metadata.lastRetrieved,
+            };
+          } catch {
+            // 若要：errored.set(fileId, true);
+          }
+        }
+
+        if (cancelled) return;
+        if (Object.keys(loaded).length && excalidrawAPI) {
+          const loadedArray = Object.values(loaded);
+          excalidrawAPI.addFiles(loadedArray);
+        }
+        // 若要：updateStaleImageStatuses(...)
+      }
+
+      void load();
+      return () => {
+        cancelled = true;
+      };
+    },
+    [excalidrawAPI, filesListQuery.data, parsedShare],
+  );
 
   const renderCustomExportUI = useCallback(
     function renderCustomExportUI(

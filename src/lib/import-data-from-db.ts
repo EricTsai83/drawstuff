@@ -1,30 +1,15 @@
 import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 import { decompressData, base64ToArrayBuffer } from "./encode";
-import { createTRPCProxyClient, httpBatchStreamLink } from "@trpc/client";
-import SuperJSON from "superjson";
-import type { AppRouter } from "@/server/api/root";
+import { getTrpcClient } from "@/trpc/client";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState } from "@excalidraw/excalidraw/types";
-import { getBaseUrl } from "@/lib/base-url";
 
 export async function importDataFromBackend(
   id: string,
   decryptionKey: string,
 ): Promise<ImportedDataState> {
   try {
-    const client = createTRPCProxyClient<AppRouter>({
-      links: [
-        httpBatchStreamLink({
-          transformer: SuperJSON,
-          url: getBaseUrl() + "/api/trpc",
-          headers() {
-            const headers = new Headers();
-            headers.set("x-trpc-source", "importDataFromBackend");
-            return headers;
-          },
-        }),
-      ],
-    });
+    const client = getTrpcClient();
 
     const result = await client.sharedScene.getCompressedBySharedSceneId.query({
       sharedSceneId: id,
@@ -59,6 +44,30 @@ export async function importDataFromBackend(
     console.error("importFromBackend error", error);
     console.error(error);
     return {};
+  }
+}
+
+export type CloudFileRecord = {
+  utFileKey: string;
+  url: string;
+  name: string;
+  size: number;
+};
+
+export async function getFileRecordsBySharedSceneId(
+  sharedSceneId: string,
+): Promise<CloudFileRecord[]> {
+  try {
+    const client = getTrpcClient();
+
+    const res = await client.sharedScene.getFileRecordsBySharedSceneId.query({
+      sharedSceneId,
+    });
+
+    return Array.isArray(res?.files) ? res.files : [];
+  } catch (error: unknown) {
+    console.error("getFileRecordsBySharedSceneId error", error);
+    return [];
   }
 }
 
