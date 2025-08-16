@@ -71,7 +71,6 @@ function AppMainMenu({
           onConfirmName={handleSetSceneName}
         />
         <MainMenu.DefaultItems.LoadScene />
-        <MainMenu.DefaultItems.SaveToActiveFile />
         <MainMenu.DefaultItems.Export />
         <MainMenu.DefaultItems.SaveAsImage />
         <MainMenu.DefaultItems.SearchMenu />

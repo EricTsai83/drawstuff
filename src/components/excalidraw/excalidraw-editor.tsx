@@ -16,25 +16,17 @@ import { useSyncTheme } from "@/hooks/use-sync-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
 import { createInitialDataPromise } from "@/lib/excalidraw";
-import { SceneShareDialog } from "@/components/scene-share-dialog";
 import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
-import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
-import { cn } from "@/lib/utils";
-import { PanelsTopLeft } from "lucide-react";
-import Link from "next/link";
 import { SceneNameTrigger } from "@/components/scene-name-trigger";
 import { authClient } from "@/lib/auth/client";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
-import { toast } from "sonner";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import {
   ExportSceneActions,
   type ExportSceneActionsProps,
 } from "./export-scene-actions";
-import type { ExcalidrawSceneData } from "@/lib/excalidraw";
-import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import {
   closeExcalidrawDialog,
   getCurrentSceneSnapshot,
@@ -44,14 +36,14 @@ import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confir
 import { useFetchAndInjectSharedSceneFiles } from "@/hooks/excalidraw/use-fetch-and-inject-shared-scene-files";
 import { useLanguagePreference } from "@/hooks/use-language-preference";
 import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
+import { useExportHandlers } from "@/hooks/excalidraw/use-export-handlers";
+import { EditorFooter } from "@/components/excalidraw/editor-footer";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
-  // const [sceneName, setSceneName] = useState("");
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
-  // const [debouncedSave] = useDebounce(saveData, 300);
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
@@ -66,33 +58,17 @@ export default function ExcalidrawEditor() {
   const { sceneName, handleSceneChange, handleSetSceneName } =
     useScenePersistence(excalidrawAPI);
 
-  const exportAndMaybeOpenShareDialog = useCallback(
-    async function exportAndMaybeOpenShareDialog(
-      elements: readonly NonDeletedExcalidrawElement[],
-      appState: Partial<AppState>,
-      files: BinaryFiles,
-      options?: { openShareDialog?: boolean },
-    ): Promise<string | null> {
-      try {
-        const shareableUrl = await exportScene(elements, appState, files);
-        if (!shareableUrl) return null;
-
+  const { handleSaveToDisk, handleCloudUpload, handleExportLink } =
+    useExportHandlers({
+      exportScene,
+      uploadSceneToCloud,
+      onShareSuccess: () => {
         closeExcalidrawDialog(excalidrawAPI);
-
-        if (options?.openShareDialog) {
-          // 略延遲讓 Excalidraw 關閉動畫更順暢
-          setTimeout(() => setIsShareDialogOpen(true), 200);
-        }
-
-        return shareableUrl;
-      } catch (error: unknown) {
-        console.error("Export error:", error);
-        toast.error("Failed to export scene. Please try again.");
-        return null;
-      }
-    },
-    [exportScene, excalidrawAPI],
-  );
+        setTimeout(() => setIsShareDialogOpen(true), 200);
+      },
+      isExporting: exportStatus === "exporting",
+      isUploading: uploadStatus === "uploading",
+    });
 
   const renderCustomStats = useCallback(function renderCustomStats() {
     return <CustomStats />;
@@ -114,62 +90,9 @@ export default function ExcalidrawEditor() {
       _canvas: unknown,
     ) {
       const handlers: ExportSceneActionsProps["handlers"] = {
-        handleSaveToDisk: function handleSaveToDisk(
-          els: readonly NonDeletedExcalidrawElement[],
-          state: Partial<AppState>,
-          fls: BinaryFiles,
-        ) {
-          try {
-            const sceneData: ExcalidrawSceneData = {
-              type: "excalidraw",
-              version: 2,
-              source: "https://excalidraw.com",
-              elements: els,
-              appState: state,
-              files: fls,
-            };
-            const blob = createJsonBlob(sceneData);
-            triggerBlobDownload(`${state.name ?? "scene"}.excalidraw`, blob);
-            toast.success("File saved to disk successfully!");
-          } catch (err: unknown) {
-            console.error("Save failed:", err);
-            toast.error("Failed to save file. Please try again.");
-          }
-        },
-        handleCloudUpload: async function handleCloudUpload(
-          els: readonly NonDeletedExcalidrawElement[],
-          state: Partial<AppState>,
-          fls: BinaryFiles,
-        ) {
-          try {
-            const ok = await uploadSceneToCloud(els, state, fls);
-            if (ok) {
-              toast.success("Successfully uploaded to cloud!");
-            } else {
-              toast.error("Failed to upload to cloud. Please try again.");
-            }
-          } catch (err: unknown) {
-            console.error("Cloud upload error:", err);
-            toast.error("Failed to upload to cloud. Please try again.");
-          }
-        },
-        handleExportLink: async function handleExportLink(
-          els: readonly NonDeletedExcalidrawElement[],
-          state: Partial<AppState>,
-          fls: BinaryFiles,
-        ) {
-          if (exportStatus === "exporting" || uploadStatus === "uploading")
-            return;
-          const shareableUrl = await exportAndMaybeOpenShareDialog(
-            els,
-            state,
-            fls,
-            { openShareDialog: true },
-          );
-          if (!shareableUrl) {
-            toast.error("Failed to export scene. Please try again.");
-          }
-        },
+        handleSaveToDisk,
+        handleCloudUpload,
+        handleExportLink,
       };
 
       return (
@@ -184,10 +107,11 @@ export default function ExcalidrawEditor() {
       );
     },
     [
-      exportAndMaybeOpenShareDialog,
-      exportStatus,
+      handleSaveToDisk,
+      handleCloudUpload,
+      handleExportLink,
       uploadStatus,
-      uploadSceneToCloud,
+      exportStatus,
     ],
   );
 
@@ -219,17 +143,13 @@ export default function ExcalidrawEditor() {
     async function handleShareClick(): Promise<void> {
       const scene = getCurrentSceneSnapshot(excalidrawAPI);
       if (!scene) return;
-      const result = await exportAndMaybeOpenShareDialog(
+      await handleExportLink(
         scene.elements as readonly NonDeletedExcalidrawElement[],
         scene.appState,
         scene.files,
-        { openShareDialog: true },
       );
-      if (!result) {
-        toast.error("Failed to export scene. Please try again.");
-      }
     },
-    [exportAndMaybeOpenShareDialog, excalidrawAPI],
+    [handleExportLink, excalidrawAPI],
   );
 
   const renderTopRightUI = useCallback(
@@ -284,33 +204,12 @@ export default function ExcalidrawEditor() {
           />
 
           <Footer>
-            <div className="ml-2.5 flex items-center gap-2.5">
-              {session && (
-                <Link href="/dashboard">
-                  <PanelsTopLeft
-                    className={cn(
-                      "flex h-9 w-9 cursor-pointer items-center justify-center rounded-full p-2",
-                      "bg-[#e9ecef] text-[#5c5c5c] hover:bg-[#f1f0ff]",
-                      "dark:bg-[#232329] dark:text-[#b8b8b8] dark:hover:bg-[#2d2d38]",
-                    )}
-                  />
-                </Link>
-              )}
-              <StorageWarning
-                className={cn(
-                  "flex h-9 items-center justify-center rounded-[10px] p-2.5",
-                  "bg-[#e9ecef] hover:bg-[#f1f0ff]",
-                  "dark:bg-[#232329] dark:hover:bg-[#2d2d38]",
-                )}
-              />
-            </div>
-            {latestShareableLink && (
-              <SceneShareDialog
-                sceneUrl={latestShareableLink}
-                open={isShareDialogOpen}
-                onOpenChange={setIsShareDialogOpen}
-              />
-            )}
+            <EditorFooter
+              showDashboardShortcut={!!session}
+              latestShareableLink={latestShareableLink}
+              isShareDialogOpen={isShareDialogOpen}
+              onShareDialogOpenChange={setIsShareDialogOpen}
+            />
           </Footer>
 
           <AppWelcomeScreen />
