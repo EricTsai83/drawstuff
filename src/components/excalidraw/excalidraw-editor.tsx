@@ -13,8 +13,6 @@ import type {
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
 import { useDebounce } from "@/hooks/use-debounce";
-import { STORAGE_KEYS } from "@/config/app-constants";
-import { getPreferredLanguage } from "./app-language/language-detector";
 import AppMainMenu from "./app-main-menu";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
@@ -49,13 +47,12 @@ import { api } from "@/trpc/react";
 import { decompressData } from "@/lib/encode";
 import type { DataURL, BinaryFileData } from "@excalidraw/excalidraw/types";
 import type { FileId } from "@excalidraw/excalidraw/element/types";
+import { useLanguagePreference } from "@/hooks/use-language-preference";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
   const [sceneName, setSceneName] = useState("");
-  const savedLang = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE);
-  const [langCode, setLangCode] = useState(savedLang ?? getPreferredLanguage());
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
   const [debouncedSave] = useDebounce(saveData, 300);
@@ -69,6 +66,7 @@ export default function ExcalidrawEditor() {
     uploadSceneToCloud,
     resetStatus,
   } = useCloudUpload();
+  const { langCode, handleLangCodeChange } = useLanguagePreference();
 
   const exportAndMaybeOpenShareDialog = useCallback(
     async function exportAndMaybeOpenShareDialog(
@@ -110,12 +108,12 @@ export default function ExcalidrawEditor() {
     [debouncedSave],
   );
 
-  const handleLangCodeChange = useCallback(function handleLangCodeChange(
-    lang: string,
-  ): void {
-    setLangCode(lang);
-    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, lang);
-  }, []);
+  // const handleLangCodeChange = useCallback(function handleLangCodeChange(
+  //   lang: string,
+  // ): void {
+  //   setLangCode(lang);
+  //   localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, lang);
+  // }, []);
 
   const renderCustomStats = useCallback(function renderCustomStats() {
     return <CustomStats />;
