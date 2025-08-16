@@ -2,7 +2,7 @@
 
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw, Footer } from "@excalidraw/excalidraw";
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect } from "react";
 import type {
   AppState,
   BinaryFiles,
@@ -20,7 +20,7 @@ import { SceneShareDialog } from "@/components/scene-share-dialog";
 import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
 import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
-import { cn, parseSharedSceneHash } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import { PanelsTopLeft } from "lucide-react";
 import Link from "next/link";
 import { SceneNameTrigger } from "@/components/scene-name-trigger";
@@ -41,10 +41,7 @@ import {
 } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
 import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
-import { api } from "@/trpc/react";
-import { decompressData } from "@/lib/encode";
-import type { DataURL, BinaryFileData } from "@excalidraw/excalidraw/types";
-import type { FileId } from "@excalidraw/excalidraw/element/types";
+import { useFetchAndInjectSharedSceneFiles } from "@/hooks/excalidraw/use-fetch-and-inject-shared-scene-files";
 import { useLanguagePreference } from "@/hooks/use-language-preference";
 import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
 
@@ -97,18 +94,6 @@ export default function ExcalidrawEditor() {
     [exportScene, excalidrawAPI],
   );
 
-  // const handleSceneChange = useCallback(
-  //   function handleSceneChange(
-  //     excalidrawElements: readonly OrderedExcalidrawElement[],
-  //     appState: AppState,
-  //     files: BinaryFiles,
-  //   ): void {
-  //     setSceneName(appState.name ?? "");
-  //     debouncedSave({ elements: excalidrawElements, appState, files });
-  //   },
-  //   [debouncedSave],
-  // );
-
   const renderCustomStats = useCallback(function renderCustomStats() {
     return <CustomStats />;
   }, []);
@@ -118,67 +103,8 @@ export default function ExcalidrawEditor() {
     setInitialDataPromise(createInitialDataPromise());
   }, []);
 
-  // 解析分享 hash
-  const parsedShare = useMemo(() => parseSharedSceneHash(), []);
-
-  // 取得該分享場景相關檔案清單（UploadThing）
-  const filesListQuery = api.sharedScene.getFileRecordsBySharedSceneId.useQuery(
-    { sharedSceneId: parsedShare?.id ?? "" },
-    { enabled: !!parsedShare?.id },
-  );
-
-  // 載入雲端檔案，並在載入後逐步加進 Excalidraw
-  useEffect(() => {
-    if (!excalidrawAPI || !parsedShare) return;
-    const decryptionKey = parsedShare.key;
-
-    const files = filesListQuery.data?.files ?? [];
-    if (!files.length) return;
-
-    let cancelled = false;
-
-    async function load() {
-      const loaded: BinaryFiles = {};
-      // const errored = new Map<FileId, true>(); // 若要標示錯誤，可啟用
-
-      for (const f of files) {
-        try {
-          const resp = await fetch(f.url);
-          if (!resp.ok) continue;
-          const buf = new Uint8Array(await resp.arrayBuffer());
-          const { metadata, data } = await decompressData<{
-            id: string;
-            mimeType: string;
-            created: number;
-            lastRetrieved: number;
-          }>(buf, { decryptionKey });
-
-          const id = metadata.id as unknown as FileId;
-          loaded[id] = {
-            id,
-            dataURL: new TextDecoder().decode(data) as DataURL,
-            mimeType: metadata.mimeType as BinaryFileData["mimeType"],
-            created: metadata.created,
-            lastRetrieved: metadata.lastRetrieved,
-          };
-        } catch {
-          // 若要：errored.set(fileId, true);
-        }
-      }
-
-      if (cancelled) return;
-      if (Object.keys(loaded).length && excalidrawAPI) {
-        const loadedArray = Object.values(loaded);
-        excalidrawAPI.addFiles(loadedArray);
-      }
-      // 若要：updateStaleImageStatuses(...)
-    }
-
-    void load();
-    return () => {
-      cancelled = true;
-    };
-  }, [excalidrawAPI, filesListQuery.data, parsedShare]);
+  // 解析分享資訊、取檔並注入 Excalidraw
+  useFetchAndInjectSharedSceneFiles(excalidrawAPI);
 
   const renderCustomExportUI = useCallback(
     function renderCustomExportUI(
