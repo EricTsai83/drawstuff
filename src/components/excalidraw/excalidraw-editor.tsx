@@ -115,22 +115,16 @@ export default function ExcalidrawEditor() {
     ],
   );
 
-  const handleRetry = useCallback(
-    async function handleRetry(): Promise<void> {
-      const scene = getCurrentSceneSnapshot(excalidrawAPI);
-      if (!scene) return;
-      try {
-        await uploadSceneToCloud(
-          scene.elements as readonly NonDeletedExcalidrawElement[],
-          scene.appState,
-          scene.files,
-        );
-      } catch {
-        // 已在 hook 內處理狀態
-      }
-    },
-    [uploadSceneToCloud, excalidrawAPI],
-  );
+  const handleRetry = useCallback(async (): Promise<void> => {
+    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    if (!scene) return;
+
+    await uploadSceneToCloud(
+      scene.elements as readonly NonDeletedExcalidrawElement[],
+      scene.appState,
+      scene.files,
+    );
+  }, [uploadSceneToCloud, excalidrawAPI]);
 
   const handleSuccess = useCallback(
     function handleSuccess(): void {
