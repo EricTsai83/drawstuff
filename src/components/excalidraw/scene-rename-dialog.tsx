@@ -19,12 +19,14 @@ type SceneRenameDialogProps = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   trigger?: ReactNode;
   open?: boolean;
+  onConfirmName: (name: string) => void;
 };
 
 export function SceneRenameDialog({
   excalidrawAPI,
   trigger,
   open,
+  onConfirmName,
 }: SceneRenameDialogProps) {
   const { t } = useI18n();
   const [internalOpen, setInternalOpen] = useState(false);
@@ -36,16 +38,9 @@ export function SceneRenameDialog({
 
   const handleOpenChange = (newOpen: boolean) => {
     setInternalOpen(newOpen);
-
-    if (newOpen) {
-      try {
-        const currentName = excalidrawAPI?.getName() ?? "";
-        setSceneName(currentName);
-      } catch (error) {
-        console.error("Failed to get current scene name:", error);
-        setSceneName("");
-      }
-    }
+    if (!newOpen) return;
+    const currentName = excalidrawAPI?.getName?.() ?? "";
+    setSceneName(currentName);
   };
 
   function handleNameChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -54,19 +49,8 @@ export function SceneRenameDialog({
   }
 
   function handleConfirm() {
-    try {
-      const currentAppState = excalidrawAPI?.getAppState();
-      if (currentAppState && excalidrawAPI) {
-        excalidrawAPI.updateScene({
-          appState: {
-            name: sceneName,
-          },
-        });
-      }
-      handleOpenChange(false);
-    } catch (error) {
-      console.error("Failed to update scene name:", error);
-    }
+    onConfirmName(sceneName);
+    handleOpenChange(false);
   }
 
   function handleClose() {
@@ -74,6 +58,13 @@ export function SceneRenameDialog({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    // 組字中（中文輸入等）時，忽略 Enter
+    if (
+      e.nativeEvent.isComposing ||
+      (e as unknown as { keyCode?: number }).keyCode === 229
+    )
+      return;
+
     if (e.key === "Enter") {
       handleConfirm();
     } else if (e.key === "Escape") {

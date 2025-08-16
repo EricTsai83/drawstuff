@@ -7,7 +7,7 @@ import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { SceneRenameDialog } from "@/components/scene-rename-dialog";
+import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
 import { LogIn, FilePenLine } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { useI18n } from "@excalidraw/excalidraw";
@@ -20,6 +20,7 @@ type AppMainMenuProps = {
   setTheme: Dispatch<SetStateAction<UserChosenTheme>>;
   handleLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
+  handleSetSceneName: (name: string) => void;
 };
 
 function AppMainMenu({
@@ -27,6 +28,7 @@ function AppMainMenu({
   setTheme,
   handleLangCodeChange,
   excalidrawAPI,
+  handleSetSceneName,
 }: AppMainMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -66,6 +68,7 @@ function AppMainMenu({
               {t("labels.fileTitle")}
             </div>
           }
+          onConfirmName={handleSetSceneName}
         />
         <MainMenu.DefaultItems.LoadScene />
         <MainMenu.DefaultItems.SaveToActiveFile />

@@ -10,16 +10,14 @@ import type {
   ExcalidrawInitialDataState,
   UIAppState,
 } from "@excalidraw/excalidraw/types";
-import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
-import { useDebounce } from "@/hooks/use-debounce";
 import AppMainMenu from "./app-main-menu";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
 import { useBeforeUnload } from "@/hooks/excalidraw/use-before-unload";
-import { createInitialDataPromise, saveData } from "@/lib/excalidraw";
+import { createInitialDataPromise } from "@/lib/excalidraw";
 import { SceneShareDialog } from "@/components/scene-share-dialog";
-import { SceneRenameDialog } from "@/components/scene-rename-dialog";
+import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
 import { StorageWarning } from "@/components/storage-warning";
 import CustomStats from "./custom-stats";
 import { cn, parseSharedSceneHash } from "@/lib/utils";
@@ -48,14 +46,15 @@ import { decompressData } from "@/lib/encode";
 import type { DataURL, BinaryFileData } from "@excalidraw/excalidraw/types";
 import type { FileId } from "@excalidraw/excalidraw/element/types";
 import { useLanguagePreference } from "@/hooks/use-language-preference";
+import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
-  const [sceneName, setSceneName] = useState("");
+  // const [sceneName, setSceneName] = useState("");
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
-  const [debouncedSave] = useDebounce(saveData, 300);
+  // const [debouncedSave] = useDebounce(saveData, 300);
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
@@ -67,6 +66,8 @@ export default function ExcalidrawEditor() {
     resetStatus,
   } = useCloudUpload();
   const { langCode, handleLangCodeChange } = useLanguagePreference();
+  const { sceneName, handleSceneChange, handleSetSceneName } =
+    useScenePersistence(excalidrawAPI);
 
   const exportAndMaybeOpenShareDialog = useCallback(
     async function exportAndMaybeOpenShareDialog(
@@ -96,24 +97,17 @@ export default function ExcalidrawEditor() {
     [exportScene, excalidrawAPI],
   );
 
-  const handleSceneChange = useCallback(
-    function handleSceneChange(
-      excalidrawElements: readonly OrderedExcalidrawElement[],
-      appState: AppState,
-      files: BinaryFiles,
-    ): void {
-      setSceneName(appState.name ?? "");
-      debouncedSave({ elements: excalidrawElements, appState, files });
-    },
-    [debouncedSave],
-  );
-
-  // const handleLangCodeChange = useCallback(function handleLangCodeChange(
-  //   lang: string,
-  // ): void {
-  //   setLangCode(lang);
-  //   localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, lang);
-  // }, []);
+  // const handleSceneChange = useCallback(
+  //   function handleSceneChange(
+  //     excalidrawElements: readonly OrderedExcalidrawElement[],
+  //     appState: AppState,
+  //     files: BinaryFiles,
+  //   ): void {
+  //     setSceneName(appState.name ?? "");
+  //     debouncedSave({ elements: excalidrawElements, appState, files });
+  //   },
+  //   [debouncedSave],
+  // );
 
   const renderCustomStats = useCallback(function renderCustomStats() {
     return <CustomStats />;
@@ -354,11 +348,13 @@ export default function ExcalidrawEditor() {
             setTheme={setTheme}
             handleLangCodeChange={handleLangCodeChange}
             excalidrawAPI={excalidrawAPI}
+            handleSetSceneName={handleSetSceneName}
           />
 
           <SceneRenameDialog
             excalidrawAPI={excalidrawAPI}
             trigger={<SceneNameTrigger sceneName={sceneName} />}
+            onConfirmName={handleSetSceneName}
           />
 
           <Footer>
