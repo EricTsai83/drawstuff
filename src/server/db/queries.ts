@@ -87,12 +87,16 @@ export const QUERIES = {
     return await db.delete(scene).where(eq(scene.id, id)).returning();
   },
 
-  // 僅更新場景縮圖 URL（避免覆蓋其他欄位）
-  updateSceneThumbnailUrl: async function (id: string, thumbnailUrl: string) {
+  // 更新場景縮圖（URL 與 file key）
+  updateSceneThumbnail: async function (
+    id: string,
+    args: { thumbnailUrl: string; thumbnailFileKey: string },
+  ) {
     return await db
       .update(scene)
       .set({
-        thumbnailUrl,
+        thumbnailUrl: args.thumbnailUrl,
+        thumbnailFileKey: args.thumbnailFileKey,
         lastUpdated: new Date(),
         updatedAt: new Date(),
       })
@@ -203,6 +207,8 @@ export const QUERIES = {
       .where(eq(fileRecord.sceneId, sceneId))
       .returning();
   },
+
+  // 已移除 fileKind 相關查詢（縮圖直接存在 scene）
 
   getFileRecordsBySharedSceneId: async function (sharedSceneId: string) {
     return await db

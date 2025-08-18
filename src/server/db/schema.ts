@@ -138,6 +138,7 @@ export const scene = createTable(
     description: text("description"),
     sceneData: text("scene_data"), // 場景資料（壓縮/加密後的 base64 或 JSON 字串）
     thumbnailUrl: text("thumbnail_url"), // 新增：縮圖 URL
+    thumbnailFileKey: varchar("thumbnail_file_key", { length: 256 }),
     projectId: uuid("project_id").references(() => project.id, {
       onDelete: "cascade",
     }),

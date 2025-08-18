@@ -85,7 +85,10 @@ export function useCloudUpload() {
             const thumbnailFile = new File([pngBlob], "thumbnail.png", {
               type: "image/png",
             });
-            await startUpload([thumbnailFile], { sceneId: id });
+            await startUpload([thumbnailFile], {
+              sceneId: id,
+              fileKind: "thumbnail",
+            });
           } catch (thumbErr) {
             console.error(
               "Failed to generate/upload thumbnail after cloud upload:",

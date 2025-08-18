@@ -25,6 +25,7 @@ export const uploadRouter = {
       z.object({
         sharedSceneId: z.string().optional(),
         sceneId: z.string().uuid().optional(),
+        fileKind: z.enum(["thumbnail", "asset"]).optional(),
       }),
     )
     .middleware(async ({ input }) => {
@@ -32,7 +33,6 @@ export const uploadRouter = {
       const session = await getServerSession();
 
       // If you throw, the user will not be able to upload
-      // eslint-disable-next-line @typescript-eslint/only-throw-error
       // if (!session) throw new UploadThingError("Unauthorized");
 
       // 從 input 中獲取 shared scene ID
@@ -44,6 +44,7 @@ export const uploadRouter = {
         userId: session?.user.id ?? null,
         sharedSceneId,
         sceneId,
+        fileKind: input?.fileKind,
       };
     })
     .onUploadComplete(async ({ metadata, file }) => {
@@ -51,56 +52,45 @@ export const uploadRouter = {
       console.log("Scene file upload complete for userId:", metadata.userId);
       console.log("file url", file.ufsUrl);
 
-      // 如果有 sceneId 或 sharedSceneId，保存文件記錄到資料庫
+      // 如果有 sceneId 或 sharedSceneId，保存文件或更新場景縮圖
       if (metadata.sceneId) {
         try {
-          // 視為場景縮圖上傳：
-          // 1) 先刪除舊的 UploadThing 檔案（若存在）
-          // 2) 刪除舊的資料庫 file_record 紀錄
-          // 3) 建立新的 file_record 與更新 scene.thumbnailUrl
+          // 依 fileKind 處理不同類型
           const sceneId = metadata.sceneId;
+          const kind = metadata.fileKind ?? "asset";
 
-          // 取回現有紀錄
-          const existing = await QUERIES.getFileRecordsBySceneId(sceneId);
-          const keysToDelete = existing
-            .map((r) => r.utFileKey)
-            .filter((k): k is string => Boolean(k));
-
-          if (keysToDelete.length > 0) {
-            try {
-              const utapi = new UTApi();
-              await utapi.deleteFiles(keysToDelete);
-              console.log(
-                `Deleted old thumbnail files from UploadThing: ${keysToDelete.join(", ")}`,
-              );
-            } catch (delErr) {
-              console.error("Failed to delete old UploadThing files", delErr);
-              // 不阻斷流程
-            }
-            try {
-              await QUERIES.deleteFileRecordsBySceneId(sceneId);
-              console.log("Deleted old file_record rows for scene", sceneId);
-            } catch (delDbErr) {
-              console.error("Failed to delete old file_record rows", delDbErr);
-              // 不阻斷流程
+          if (kind === "thumbnail") {
+            // 由 scene 上的舊縮圖 key 刪除舊檔
+            const s = await QUERIES.getSceneById(sceneId);
+            const oldKey = (s as unknown as { thumbnailFileKey?: string })
+              ?.thumbnailFileKey;
+            if (oldKey) {
+              try {
+                const utapi = new UTApi();
+                await utapi.deleteFiles([oldKey]);
+              } catch (delErr) {
+                console.error("Failed to delete old thumbnail file", delErr);
+              }
             }
           }
 
-          // 新增最新縮圖紀錄
-          await QUERIES.createFileRecord({
-            sceneId,
-            ownerId: metadata.userId,
-            utFileKey: file.key,
-            name: file.name,
-            size: file.size,
-            url: file.ufsUrl,
-          });
-          // 更新 scene.thumbnailUrl 指向最新 URL
-          await QUERIES.updateSceneThumbnailUrl(sceneId, file.ufsUrl);
-          console.log(
-            "Scene thumbnail updated and file record saved:",
-            file.key,
-          );
+          if (kind === "thumbnail") {
+            // 直接更新 scene 的縮圖資訊
+            await QUERIES.updateSceneThumbnail(sceneId, {
+              thumbnailUrl: file.ufsUrl,
+              thumbnailFileKey: file.key,
+            });
+          } else {
+            // 一般資產仍建立檔案紀錄
+            await QUERIES.createFileRecord({
+              sceneId,
+              ownerId: metadata.userId,
+              utFileKey: file.key,
+              name: file.name,
+              size: file.size,
+              url: file.ufsUrl,
+            });
+          }
         } catch (error) {
           console.error("Error saving scene file record:", error);
         }
