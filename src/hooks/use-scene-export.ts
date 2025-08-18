@@ -1,14 +1,17 @@
 "use client";
 
 import { useState, useCallback } from "react";
+import { exportToBlob } from "@excalidraw/excalidraw";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { nanoid } from "nanoid";
-import { env } from "@/env";
+import { getBaseUrl } from "@/lib/base-url";
 import { toast } from "sonner";
+import { api } from "@/trpc/react";
+import { stringToBase64, toByteString } from "@/lib/encode";
 
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
@@ -17,6 +20,8 @@ export function useSceneExport() {
   const [latestShareableLink, setLatestShareableLink] = useState<string | null>(
     null,
   );
+
+  const saveSceneMutation = api.scene.saveScene.useMutation();
 
   const { startUpload } = useUploadThing("sceneFileUploader", {
     onClientUploadComplete: async (res) => {
@@ -69,7 +74,7 @@ export function useSceneExport() {
           });
         }
 
-        // 使用 server action 保存場景
+        // 使用 server action 保存場景（共享連結）
         const result = await handleSceneSave(sceneData.compressedSceneData);
 
         // 若未取得 sceneId，直接回報錯誤
@@ -80,21 +85,78 @@ export function useSceneExport() {
           return null;
         }
 
-        // 生成分享鏈接
-        const shareableUrl = new URL(env.NEXT_PUBLIC_BASE_URL);
-        shareableUrl.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
+        // 生成分享鏈接（使用安全的 base URL，避免 Invalid URL 錯誤）
+        const base = getBaseUrl();
+        let shareableUrlString = "";
+        try {
+          const u = new URL(base);
+          u.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
+          shareableUrlString = u.toString();
+        } catch {
+          const origin =
+            typeof window !== "undefined"
+              ? window.location.origin
+              : "http://localhost:3000";
+          const u = new URL(origin);
+          u.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
+          shareableUrlString = u.toString();
+        }
 
-        // 有檔案才上傳
+        // 有檔案才上傳（與 sharedSceneId 關聯的二進位素材）
         if (filesToUpload.length > 0) {
           await startUpload(filesToUpload, {
             sharedSceneId: result.sharedSceneId,
           });
         }
 
-        setLatestShareableLink(shareableUrl.toString());
+        // 將場景儲存到使用者的 scene 表，供 Dashboard 搜尋/顯示
+        try {
+          const base64Data = stringToBase64(
+            toByteString(sceneData.compressedSceneData),
+            true,
+          );
+          const safeName = (appState.name ?? "Untitled").trim() || "Untitled";
+          const { id } = await saveSceneMutation.mutateAsync({
+            name: safeName,
+            description: "",
+            projectId: undefined,
+            data: base64Data,
+          });
+
+          // 產生 PNG 縮圖，並上傳到 UploadThing，與 sceneId 關聯
+          try {
+            const pngBlob = await (
+              exportToBlob as unknown as (args: {
+                elements: readonly NonDeletedExcalidrawElement[];
+                appState: Partial<AppState>;
+                files: BinaryFiles;
+                mimeType: "image/png";
+                quality: number;
+              }) => Promise<Blob>
+            )({
+              elements,
+              appState,
+              files,
+              mimeType: "image/png",
+              quality: 1,
+            });
+            const thumbnailFile = new File([pngBlob], "thumbnail.png", {
+              type: "image/png",
+            });
+            await startUpload([thumbnailFile], { sceneId: id });
+          } catch (thumbErr) {
+            console.error("Failed to generate/upload thumbnail:", thumbErr);
+          }
+        } catch (e) {
+          console.error("Failed to save scene record:", e);
+          // 不阻斷分享流程，但提示失敗
+          toast.error("Scene saved to dashboard failed");
+        }
+
+        setLatestShareableLink(shareableUrlString);
         setExportStatus("success");
         console.log("Scene exported successfully:", result.sharedSceneId);
-        return shareableUrl.toString();
+        return shareableUrlString;
       } catch (error) {
         console.error("Error during scene export:", error);
         toast.error("Error during scene export");
@@ -102,7 +164,7 @@ export function useSceneExport() {
         return null;
       }
     },
-    [startUpload, exportStatus],
+    [startUpload, exportStatus, saveSceneMutation],
   );
 
   const resetExportStatus = useCallback(() => {

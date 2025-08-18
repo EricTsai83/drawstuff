@@ -28,13 +28,15 @@ export const QUERIES = {
   createScene: async function ({
     name,
     description,
-    image,
+    sceneData,
+    thumbnailUrl,
     projectId,
     userId,
   }: {
     name: string;
     description?: string;
-    image?: string;
+    sceneData?: string;
+    thumbnailUrl?: string;
     projectId?: string;
     userId: string;
   }) {
@@ -43,7 +45,8 @@ export const QUERIES = {
       .values({
         name,
         description,
-        image,
+        sceneData,
+        thumbnailUrl,
         projectId: projectId ?? null,
         userId,
       })
@@ -54,13 +57,15 @@ export const QUERIES = {
     id,
     name,
     description,
-    image,
+    sceneData,
+    thumbnailUrl,
     projectId,
   }: {
     id: string;
     name?: string;
     description?: string;
-    image?: string;
+    sceneData?: string;
+    thumbnailUrl?: string;
     projectId?: string;
   }) {
     return await db
@@ -68,7 +73,8 @@ export const QUERIES = {
       .set({
         name,
         description,
-        image,
+        sceneData,
+        thumbnailUrl,
         projectId: projectId ?? null,
         lastUpdated: new Date(),
         updatedAt: new Date(),
@@ -79,6 +85,19 @@ export const QUERIES = {
 
   deleteScene: async function (id: string) {
     return await db.delete(scene).where(eq(scene.id, id)).returning();
+  },
+
+  // 僅更新場景縮圖 URL（避免覆蓋其他欄位）
+  updateSceneThumbnailUrl: async function (id: string, thumbnailUrl: string) {
+    return await db
+      .update(scene)
+      .set({
+        thumbnailUrl,
+        lastUpdated: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(scene.id, id))
+      .returning();
   },
 
   // SharedScene 相關查詢
@@ -175,6 +194,14 @@ export const QUERIES = {
       .select()
       .from(fileRecord)
       .where(eq(fileRecord.sceneId, sceneId));
+  },
+
+  // 依 sceneId 批次刪除 file_record（回傳被刪除的筆數）
+  deleteFileRecordsBySceneId: async function (sceneId: string) {
+    return await db
+      .delete(fileRecord)
+      .where(eq(fileRecord.sceneId, sceneId))
+      .returning();
   },
 
   getFileRecordsBySharedSceneId: async function (sharedSceneId: string) {

@@ -68,13 +68,14 @@ export type CategoryWithRelations = Category & {
 export type SceneItem = {
   id: string;
   name: string;
-  description?: string;
+  description: string;
   createdAt: Date;
   updatedAt: Date;
   projectId?: string;
   projectName?: string;
   thumbnail?: string;
   isArchived: boolean;
+  categories: string[];
 };
 
 // Filter types

@@ -22,7 +22,7 @@ export const sceneRouter = createTRPCRouter({
           .set({
             name: input.name,
             description: input.description,
-            image: input.data,
+            sceneData: input.data,
             updatedAt: new Date(),
           })
           .where(eq(scene.id, input.id))
@@ -38,7 +38,7 @@ export const sceneRouter = createTRPCRouter({
             description: input.description,
             projectId: input.projectId,
             userId: ctx.auth.user.id,
-            image: input.data, // 儲存加密的繪圖資料
+            sceneData: input.data, // 儲存加密的繪圖資料
           })
           .returning();
 
@@ -62,6 +62,62 @@ export const sceneRouter = createTRPCRouter({
     });
     return scenes;
   }),
+
+  // Enriched list for dashboard/search: include project name and category names
+  getUserScenesList: protectedProcedure
+    .output(
+      z.array(
+        z.object({
+          id: z.string(),
+          name: z.string(),
+          description: z.string(),
+          createdAt: z.date(),
+          updatedAt: z.date(),
+          projectId: z.string().uuid().optional(),
+          projectName: z.string().optional(),
+          thumbnail: z.string().optional(),
+          sceneData: z.string().optional(),
+          isArchived: z.boolean(),
+          categories: z.array(z.string()),
+        }),
+      ),
+    )
+    .query(async ({ ctx }) => {
+      const scenes = await ctx.db.query.scene.findMany({
+        where: eq(scene.userId, ctx.auth.user.id),
+        orderBy: (sceneTbl, { desc }) => [desc(sceneTbl.updatedAt)],
+        with: {
+          project: true,
+          sceneCategories: {
+            with: {
+              category: true,
+            },
+          },
+          // 不再依賴 fileRecords 推導縮圖，直接使用 scene.thumbnailUrl
+        },
+      });
+
+      return scenes.map((s) => {
+        return {
+          id: s.id,
+          name: s.name,
+          description: s.description ?? "",
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          projectId: s.projectId ?? undefined,
+          projectName: s.project?.name ?? undefined,
+          thumbnail:
+            (s as unknown as { thumbnailUrl?: string }).thumbnailUrl ??
+            undefined,
+          sceneData:
+            (s as unknown as { sceneData?: string }).sceneData ?? undefined,
+          isArchived: s.isArchived,
+          categories: (s.sceneCategories ?? [])
+            .map((sc) => sc.category?.name)
+            .filter((name): name is string => Boolean(name)),
+        };
+      });
+    }),
 
   deleteScene: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))

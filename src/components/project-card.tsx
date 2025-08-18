@@ -10,24 +10,20 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import type { SceneItem } from "@/lib/mock-data";
+import type { SceneItem } from "@/lib/types";
 
-type ProjectCardProps = {
-  item: SceneItem;
-};
-
-export function ProjectCard({ item }: ProjectCardProps) {
-  const timeAgo = formatDistanceToNow(item.lastUpdated, { addSuffix: true });
-
+export function ProjectCard({ item }: { item: SceneItem }) {
+  const timeAgo = formatDistanceToNow(item.updatedAt, { addSuffix: true });
+  console.log("============item.thumbnail============", item.thumbnail);
   return (
-    <Card className="group cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg">
+    <Card className="cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg">
       <CardHeader className="p-0">
         <div className="relative aspect-video overflow-hidden">
           <Image
-            src={item.image || "/placeholder.svg"}
+            src={"/placeholder.svg"}
             alt={item.name}
             fill
-            className="object-cover transition-transform duration-200 group-hover:scale-105"
+            className="object-cover transition-transform duration-200"
           />
           <div className="absolute top-3 right-3">
             <Badge
@@ -35,18 +31,16 @@ export function ProjectCard({ item }: ProjectCardProps) {
               className="bg-background/80 backdrop-blur-sm"
             >
               <Tag className="mr-1 h-3 w-3" />
-              {item.projectName}
+              {item.projectName ?? ""}
             </Badge>
           </div>
         </div>
       </CardHeader>
 
       <CardContent>
-        <h3 className="group-hover:text-primary line-clamp-1 text-lg font-semibold transition-colors">
-          {item.name}
-        </h3>
+        <h3 className="line-clamp-1 text-lg font-semibold">{item.name}</h3>
         <div className="mb-2 flex flex-wrap gap-1">
-          {item.category.map((cat) => (
+          {item.categories.map((cat) => (
             <Badge key={cat} variant="secondary" className="text-xs">
               {cat}
             </Badge>

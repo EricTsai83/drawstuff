@@ -7,7 +7,8 @@ import { Input } from "@/components/ui/input";
 import { ProjectCard } from "./project-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { useRouter } from "next/navigation";
-import { mockSceneItems, type SceneItem } from "@/lib/mock-data";
+import type { SceneItem as UISceneItem } from "@/lib/types";
+import { api, type RouterOutputs } from "@/trpc/react";
 import { ProjectDropdown } from "@/components/project-dropdown";
 
 export function SceneSearchList() {
@@ -19,23 +20,45 @@ export function SceneSearchList() {
 
   useEscapeKey(() => router.back());
 
-  const filteredItems = useMemo(() => {
-    if (!searchQuery) return mockSceneItems;
+  const { data, isLoading } = api.scene.getUserScenesList.useQuery();
+  console.log("============data============", data);
+  const scenes = useMemo<UISceneItem[]>(() => {
+    const list: RouterOutputs["scene"]["getUserScenesList"] = data ?? [];
+    return list.map((s) => ({
+      id: s.id,
+      name: s.name,
+      description: s.description,
+      createdAt: s.createdAt,
+      updatedAt: s.updatedAt,
+      projectId: s.projectId,
+      projectName: s.projectName,
+      thumbnail: s.thumbnail,
+      isArchived: s.isArchived,
+      categories: s.categories,
+    }));
+  }, [data]);
 
-    return mockSceneItems.filter(
-      (item) =>
-        item.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        item.category.some((cat) =>
-          cat.toLowerCase().includes(searchQuery.toLowerCase()),
-        ) ||
-        item.projectName.toLowerCase().includes(searchQuery.toLowerCase()),
+  function doesSceneMatchQuery(item: UISceneItem, q: string): boolean {
+    const inName = item.name.toLowerCase().includes(q);
+    const inDesc = item.description.toLowerCase().includes(q);
+    const inCats = item.categories.some((cat) => cat.toLowerCase().includes(q));
+    const inProject = item.projectName?.toLowerCase().includes(q) ?? false;
+    const matches = [inName, inDesc, inCats, inProject].some(
+      (v: boolean) => v === true,
     );
-  }, [searchQuery]);
+    return matches;
+  }
+
+  const filteredItems = useMemo<UISceneItem[]>(() => {
+    if (!searchQuery) return scenes;
+
+    const q = searchQuery.toLowerCase();
+    return scenes.filter((item) => doesSceneMatchQuery(item, q));
+  }, [searchQuery, scenes]);
 
   // Split items into "Recently modified by you" and "Your scenes" sections
-  const recentlyModifiedItems = filteredItems.slice(0, 6); // First 6 items
-  const yourSceneItems = filteredItems.slice(6, 18); // Next 12 items
+  const recentlyModifiedItems = filteredItems.slice(0, 6);
+  const yourSceneItems = filteredItems.slice(6, 18);
 
   return (
     <div className="w-full space-y-5 p-6 pt-0">
@@ -60,7 +83,11 @@ export function SceneSearchList() {
         <div className="border-t border-gray-200 pt-4">
           <h2 className="text-lg font-medium">Recently modified by you</h2>
         </div>
-        {recentlyModifiedItems.length > 0 ? (
+        {isLoading ? (
+          <div className="py-8 text-center">
+            <div className="text-muted-foreground text-lg">Loading...</div>
+          </div>
+        ) : recentlyModifiedItems.length > 0 ? (
           <SceneGrid items={recentlyModifiedItems} />
         ) : (
           <div className="py-8 text-center">
@@ -76,7 +103,11 @@ export function SceneSearchList() {
         <div className="border-t border-gray-200 pt-4">
           <h2 className="text-lg font-medium">Your scenes</h2>
         </div>
-        {yourSceneItems.length > 0 ? (
+        {isLoading ? (
+          <div className="py-8 text-center">
+            <div className="text-muted-foreground text-lg">Loading...</div>
+          </div>
+        ) : yourSceneItems.length > 0 ? (
           <SceneGrid items={yourSceneItems} />
         ) : (
           <div className="py-8 text-center">
@@ -91,7 +122,7 @@ export function SceneSearchList() {
       {/* Show results count if searching */}
       {searchQuery && (
         <SceneResultsCount
-          totalItems={mockSceneItems.length}
+          totalItems={scenes.length}
           filteredCount={filteredItems.length}
           searchQuery={searchQuery}
         />
@@ -147,7 +178,7 @@ function SceneResultsCount({
 }
 
 type SceneGridProps = {
-  items: SceneItem[];
+  items: UISceneItem[];
 };
 
 function SceneGrid({ items }: SceneGridProps) {

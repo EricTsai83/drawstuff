@@ -136,7 +136,8 @@ export const scene = createTable(
       .$defaultFn(() => crypto.randomUUID()),
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
-    image: text("image"), // 圖片 URL 或 base64 資料
+    sceneData: text("scene_data"), // 場景資料（壓縮/加密後的 base64 或 JSON 字串）
+    thumbnailUrl: text("thumbnail_url"), // 新增：縮圖 URL
     projectId: uuid("project_id").references(() => project.id, {
       onDelete: "cascade",
     }),
