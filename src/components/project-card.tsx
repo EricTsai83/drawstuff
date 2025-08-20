@@ -14,13 +14,13 @@ import type { SceneItem } from "@/lib/types";
 
 export function ProjectCard({ item }: { item: SceneItem }) {
   const timeAgo = formatDistanceToNow(item.updatedAt, { addSuffix: true });
-  console.log("============item.thumbnail============", item.thumbnail);
+
   return (
     <Card className="cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg">
       <CardHeader className="p-0">
         <div className="relative aspect-video overflow-hidden">
           <Image
-            src={"/placeholder.svg"}
+            src={item.thumbnail ?? "/placeholder.svg"}
             alt={item.name}
             fill
             className="object-cover transition-transform duration-200"

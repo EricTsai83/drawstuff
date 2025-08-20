@@ -7,7 +7,7 @@ import { api } from "@/trpc/react";
 import { stringToBase64, toByteString } from "@/lib/encode";
 import {
   getCurrentSceneSnapshot,
-  exportSceneToPngBlob,
+  exportSceneThumbnail,
 } from "@/lib/excalidraw";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
@@ -17,6 +17,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
   // 與舊行為一致，預設顯示為 pending 狀態
   const [status, setStatus] = useState<UploadStatus>("pending");
   const saveSceneMutation = api.scene.saveScene.useMutation();
+  const utils = api.useUtils();
   const { startUpload } = useUploadThing("sceneFileUploader", {
     onClientUploadComplete: () => {
       setStatus("success");
@@ -97,11 +98,10 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             uploadTasks.push(
               (async () => {
                 try {
-                  const pngBlob = await exportSceneToPngBlob(
+                  const pngBlob = await exportSceneThumbnail(
                     elements as readonly NonDeletedExcalidrawElement[],
                     appState,
                     files,
-                    1,
                   );
                   const thumbnailFile = new File([pngBlob], "thumbnail.png", {
                     type: "image/png",
@@ -121,6 +121,9 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             );
 
             await Promise.all(uploadTasks);
+
+            // 完成雲端上傳後，讓清單失效以取得最新資料
+            void utils.scene.getUserScenesList.invalidate();
           } else {
             console.error("No scene id returned from saveScene mutation");
             setStatus("error");
@@ -138,7 +141,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
         return false;
       }
     },
-    [saveSceneMutation, startUpload, excalidrawAPI],
+    [saveSceneMutation, startUpload, excalidrawAPI, utils],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);

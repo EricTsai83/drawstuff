@@ -21,7 +21,6 @@ export function SceneSearchList() {
   useEscapeKey(() => router.back());
 
   const { data, isLoading } = api.scene.getUserScenesList.useQuery();
-  console.log("============data============", data);
   const scenes = useMemo<UISceneItem[]>(() => {
     const list: RouterOutputs["scene"]["getUserScenesList"] = data ?? [];
     return list.map((s) => ({

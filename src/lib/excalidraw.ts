@@ -6,7 +6,6 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { exportToBlob } from "@excalidraw/excalidraw";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import type {
@@ -14,10 +13,12 @@ import type {
   InitializedExcalidrawImageElement,
   NonDeleted,
   NonDeletedExcalidrawElement,
+  ExcalidrawFrameLikeElement,
 } from "@excalidraw/excalidraw/element/types";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import { parseSharedSceneHash } from "@/lib/utils";
+import { exportToBlob, MIME_TYPES } from "@excalidraw/excalidraw";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
@@ -349,23 +350,78 @@ export async function exportSceneToPngBlob(
     | readonly OrderedExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
-  quality = 1,
+  options?: {
+    quality?: number;
+    exportPadding?: number;
+    maxWidthOrHeight?: number;
+    getDimensions?: (
+      width: number,
+      height: number,
+    ) => {
+      width: number;
+      height: number;
+      scale?: number;
+    };
+  },
 ): Promise<Blob> {
-  const exportToBlobFn = exportToBlob as unknown as (args: {
-    elements:
-      | readonly NonDeletedExcalidrawElement[]
-      | readonly OrderedExcalidrawElement[];
-    appState: Partial<AppState>;
-    files: BinaryFiles;
-    mimeType: "image/png";
-    quality: number;
+  const elementsForExport = getNonDeletedElements(
+    elements as readonly ExcalidrawElement[],
+  );
+
+  // Ensure export respects current theme and includes background by default
+  const appStateForExport: Partial<AppState> = {
+    ...appState,
+    exportWithDarkMode:
+      appState?.exportWithDarkMode ?? appState?.theme === "dark",
+    exportBackground: appState?.exportBackground ?? true,
+  };
+
+  type ExportToBlobFn = (opts: {
+    elements: readonly NonDeletedExcalidrawElement[];
+    appState?: Partial<Omit<AppState, "offsetTop" | "offsetLeft">>;
+    files: BinaryFiles | null;
+    maxWidthOrHeight?: number;
+    exportingFrame?: ExcalidrawFrameLikeElement | null;
+    getDimensions?: (
+      width: number,
+      height: number,
+    ) => { width: number; height: number; scale?: number };
+    mimeType?: string;
+    quality?: number;
+    exportPadding?: number;
   }) => Promise<Blob>;
 
-  return await exportToBlobFn({
-    elements,
-    appState,
+  const exportToBlobTyped: ExportToBlobFn =
+    exportToBlob as unknown as ExportToBlobFn;
+
+  return await exportToBlobTyped({
+    elements: elementsForExport,
+    appState: appStateForExport,
     files,
-    mimeType: "image/png",
+    mimeType: MIME_TYPES.png,
+    quality: options?.quality ?? 1,
+    exportPadding: options?.exportPadding,
+    maxWidthOrHeight: options?.maxWidthOrHeight,
+    getDimensions: options?.getDimensions,
+  });
+}
+
+// 產生用於列表或預覽的縮圖（預設最大邊 800px，含適度邊距）
+export async function exportSceneThumbnail(
+  elements:
+    | readonly NonDeletedExcalidrawElement[]
+    | readonly OrderedExcalidrawElement[],
+  appState: Partial<AppState>,
+  files: BinaryFiles,
+  opts?: { maxSize?: number; padding?: number; quality?: number },
+): Promise<Blob> {
+  const maxSize = opts?.maxSize ?? 800;
+  const padding = opts?.padding ?? 12;
+  const quality = opts?.quality ?? 1;
+
+  return await exportSceneToPngBlob(elements, appState, files, {
+    maxWidthOrHeight: maxSize,
+    exportPadding: padding,
     quality,
   });
 }

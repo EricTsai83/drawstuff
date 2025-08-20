@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { exportToBlob } from "@excalidraw/excalidraw";
+import { exportSceneThumbnail } from "@/lib/excalidraw";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
@@ -22,6 +22,7 @@ export function useSceneExport() {
   );
 
   const saveSceneMutation = api.scene.saveScene.useMutation();
+  const utils = api.useUtils();
 
   const { startUpload } = useUploadThing("sceneFileUploader", {
     onClientUploadComplete: async (res) => {
@@ -123,23 +124,14 @@ export function useSceneExport() {
             data: base64Data,
           });
 
-          // 產生 PNG 縮圖，並上傳到 UploadThing，與 sceneId 關聯
+          // 產生 PNG 縮圖（遵循目前 theme），並上傳到 UploadThing，與 sceneId 關聯
           try {
-            const pngBlob = await (
-              exportToBlob as unknown as (args: {
-                elements: readonly NonDeletedExcalidrawElement[];
-                appState: Partial<AppState>;
-                files: BinaryFiles;
-                mimeType: "image/png";
-                quality: number;
-              }) => Promise<Blob>
-            )({
+            const pngBlob = await exportSceneThumbnail(
               elements,
               appState,
               files,
-              mimeType: "image/png",
-              quality: 1,
-            });
+              { quality: 1 },
+            );
             const thumbnailFile = new File([pngBlob], "thumbnail.png", {
               type: "image/png",
             });
@@ -150,6 +142,9 @@ export function useSceneExport() {
           } catch (thumbErr) {
             console.error("Failed to generate/upload thumbnail:", thumbErr);
           }
+
+          // 讓使用者場景清單失效，確保下一次讀取是最新資料
+          void utils.scene.getUserScenesList.invalidate();
         } catch (e) {
           console.error("Failed to save scene record:", e);
           // 不阻斷分享流程，但提示失敗
@@ -167,7 +162,7 @@ export function useSceneExport() {
         return null;
       }
     },
-    [startUpload, exportStatus, saveSceneMutation],
+    [startUpload, exportStatus, saveSceneMutation, utils],
   );
 
   const resetExportStatus = useCallback(() => {

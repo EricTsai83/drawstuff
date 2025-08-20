@@ -86,7 +86,6 @@ export function useOverwriteConfirm(
         scene.elements,
         scene.appState,
         scene.files,
-        1,
       );
       const fileName = `${(scene.appState.name as string | undefined) ?? "scene"}.png`;
       triggerBlobDownload(fileName, blob);
