@@ -371,9 +371,8 @@ export async function exportSceneToPngBlob(
   // Ensure export respects current theme and includes background by default
   const appStateForExport: Partial<AppState> = {
     ...appState,
-    exportWithDarkMode:
-      appState?.exportWithDarkMode ?? appState?.theme === "dark",
-    exportBackground: appState?.exportBackground ?? true,
+    exportWithDarkMode: appState.theme === "dark",
+    exportBackground: true,
   };
 
   type ExportToBlobFn = (opts: {
