@@ -38,11 +38,11 @@ export function useSceneExport() {
   });
 
   const exportScene = useCallback(
-    async function exportScene(
+    async (
       elements: readonly NonDeletedExcalidrawElement[],
       appState: Partial<AppState>,
       files: BinaryFiles,
-    ): Promise<string | null> {
+    ): Promise<string | null> => {
       if (exportStatus === "exporting") {
         toast.error("Export already in progress");
         return null;
@@ -77,7 +77,7 @@ export function useSceneExport() {
         // 使用 server action 保存場景（共享連結）
         const result = await handleSceneSave(sceneData.compressedSceneData);
 
-        // 若未取得 sceneId，直接回報錯誤
+        // 若未取得 sharedSceneId，直接回報錯誤
         if (!result?.sharedSceneId) {
           console.error("Failed to export scene:", result?.errorMessage);
           toast.error(result?.errorMessage ?? "Failed to export scene");

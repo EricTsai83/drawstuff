@@ -177,11 +177,7 @@ function SceneResultsCount({
   );
 }
 
-type SceneGridProps = {
-  items: UISceneItem[];
-};
-
-function SceneGrid({ items }: SceneGridProps) {
+function SceneGrid({ items }: { items: UISceneItem[] }) {
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (

@@ -6,6 +6,7 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import { exportToBlob } from "@excalidraw/excalidraw";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import type {
@@ -15,6 +16,7 @@ import type {
   NonDeletedExcalidrawElement,
 } from "@excalidraw/excalidraw/element/types";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
+import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import { parseSharedSceneHash } from "@/lib/utils";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
@@ -160,19 +162,10 @@ export function saveData(data: {
   const timestamp = Date.now();
 
   try {
-    // 檢查 version-files 時間是否小於現在時間 10 天
-    const versionFilesStr = localStorage.getItem(STORAGE_KEYS.VERSION_FILES);
-    const versionFiles = versionFilesStr ? parseInt(versionFilesStr, 10) : 0;
-    const tenDaysAgo = Date.now() - 10 * 24 * 60 * 60 * 1000; // 10 天前
+    // 永遠以「非刪除元素」作為依據，過濾未被使用或僅被暫刪元素引用的檔案
+    const cleanedFiles = cleanUnusedFiles(data.elements, data.files);
 
-    let cleanedFiles = data.files;
-
-    if (versionFiles < tenDaysAgo) {
-      // 使用 cleanUnusedFiles 函數清理未使用的檔案
-      cleanedFiles = cleanUnusedFiles(data.elements, data.files);
-    }
-
-    // 使用 saveToLocalStorage 函數儲存數據
+    // 使用 saveToLocalStorage 函數儲存數據（避免暫刪元素引用的檔案殘留）
     saveToLocalStorage(data.elements, data.appState, cleanedFiles);
 
     // 更新版本時間戳
@@ -193,9 +186,11 @@ export function cleanUnusedFiles(
   }
 
   const fileIdsInFiles = Object.keys(files);
+  // 僅考慮非刪除元素，確保暫刪元素不會讓其引用的檔案被儲存
+  const nonDeletedElements = getNonDeletedElements(elements);
   const fileIdsInElements = new Set<string>();
 
-  elements.forEach((element) => {
+  nonDeletedElements.forEach((element) => {
     if ("fileId" in element && element.fileId) {
       fileIdsInElements.add(element.fileId);
     }
@@ -294,6 +289,22 @@ export function createExcalidrawSceneData(
   };
 }
 
+// 以標準格式將場景儲存為 .excalidraw 並下載
+export function saveSceneJsonToDisk(
+  elements:
+    | readonly NonDeletedExcalidrawElement[]
+    | readonly OrderedExcalidrawElement[],
+  appState: Partial<AppState>,
+  files: BinaryFiles,
+  fileName?: string,
+): void {
+  const sceneData = createExcalidrawSceneData(elements, appState, files);
+  const blob = createJsonBlob(sceneData);
+  const baseName =
+    ((appState.name as string | undefined) ?? "scene").trim() || "scene";
+  triggerBlobDownload(`${fileName ?? baseName}.excalidraw`, blob);
+}
+
 // 關閉 Excalidraw 內建對話框（如 Export 對話框）
 export function closeExcalidrawDialog(
   excalidrawAPI?: ExcalidrawImperativeAPI | null,
@@ -310,15 +321,17 @@ export function closeExcalidrawDialog(
 }
 
 // 從 API 取目前場景 snapshot
-export function getCurrentSceneSnapshot(api?: ExcalidrawImperativeAPI | null): {
+export function getCurrentSceneSnapshot(
+  excalidrawAPI?: ExcalidrawImperativeAPI | null,
+): {
   elements: readonly OrderedExcalidrawElement[];
   appState: Partial<AppState>;
   files: BinaryFiles;
 } | null {
-  if (!api) return null;
-  const elements = api.getSceneElements();
-  const appState = api.getAppState();
-  const files = api.getFiles();
+  if (!excalidrawAPI) return null;
+  const elements = excalidrawAPI.getSceneElements();
+  const appState = excalidrawAPI.getAppState();
+  const files = excalidrawAPI.getFiles();
   return { elements, appState: appState as Partial<AppState>, files };
 }
 
@@ -327,4 +340,32 @@ function ensureInitialAppState(appState: Partial<AppState>): Partial<AppState> {
   // 例如 collaborators 若為物件或其他型別，會導致 forEach 失敗。
   const { theme, viewBackgroundColor, gridSize, name } = appState;
   return { theme, viewBackgroundColor, gridSize, name };
+}
+
+// 匯出場景為 PNG Blob（抽共用）
+export async function exportSceneToPngBlob(
+  elements:
+    | readonly NonDeletedExcalidrawElement[]
+    | readonly OrderedExcalidrawElement[],
+  appState: Partial<AppState>,
+  files: BinaryFiles,
+  quality = 1,
+): Promise<Blob> {
+  const exportToBlobFn = exportToBlob as unknown as (args: {
+    elements:
+      | readonly NonDeletedExcalidrawElement[]
+      | readonly OrderedExcalidrawElement[];
+    appState: Partial<AppState>;
+    files: BinaryFiles;
+    mimeType: "image/png";
+    quality: number;
+  }) => Promise<Blob>;
+
+  return await exportToBlobFn({
+    elements,
+    appState,
+    files,
+    mimeType: "image/png",
+    quality,
+  });
 }

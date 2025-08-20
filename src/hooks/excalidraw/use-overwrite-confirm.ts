@@ -1,16 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  AppState,
-  BinaryFiles,
-  ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { exportToBlob } from "@excalidraw/excalidraw";
 import { toast } from "sonner";
 import { setOverwriteConfirmHandler } from "@/lib/initialize-scene";
-import { getCurrentSceneSnapshot } from "@/lib/excalidraw";
-import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
-import type { ExcalidrawSceneData } from "@/lib/excalidraw";
+import {
+  getCurrentSceneSnapshot,
+  saveSceneJsonToDisk,
+  exportSceneToPngBlob,
+} from "@/lib/excalidraw";
+import { triggerBlobDownload } from "@/lib/download";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 
 export type UseOverwriteConfirmArgs = {
@@ -32,7 +30,7 @@ export function useOverwriteConfirm(
   props: UseOverwriteConfirmArgs,
 ): UseOverwriteConfirmResult {
   const { excalidrawAPI } = props;
-  const cloudUpload = useCloudUpload();
+  const cloudUpload = useCloudUpload(excalidrawAPI);
 
   const [isOpen, setIsOpen] = useState(false);
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
@@ -84,20 +82,12 @@ export function useOverwriteConfirm(
     const scene = getCurrentSceneSnapshot(excalidrawAPI);
     if (!scene) return;
     try {
-      const exportToBlobFn = exportToBlob as (args: {
-        elements: readonly NonDeletedExcalidrawElement[];
-        appState: Partial<AppState>;
-        files: BinaryFiles;
-        mimeType: "image/png";
-        quality: number;
-      }) => Promise<Blob>;
-      const blob = await exportToBlobFn({
-        elements: scene.elements as readonly NonDeletedExcalidrawElement[],
-        appState: scene.appState,
-        files: scene.files,
-        mimeType: "image/png",
-        quality: 1,
-      });
+      const blob = await exportSceneToPngBlob(
+        scene.elements,
+        scene.appState,
+        scene.files,
+        1,
+      );
       const fileName = `${(scene.appState.name as string | undefined) ?? "scene"}.png`;
       triggerBlobDownload(fileName, blob);
     } catch (err: unknown) {
@@ -113,22 +103,15 @@ export function useOverwriteConfirm(
     const scene = getCurrentSceneSnapshot(excalidrawAPI);
     if (!scene) return;
     try {
-      const sceneData: ExcalidrawSceneData = {
-        type: "excalidraw",
-        version: 2,
-        source: "https://excalidraw.com",
-        elements: scene.elements as readonly NonDeletedExcalidrawElement[],
-        appState: scene.appState,
-        files: scene.files,
-      };
-      const blob = createJsonBlob(sceneData);
-      triggerBlobDownload(
-        `${(scene.appState.name as string | undefined) ?? "scene"}.excalidraw`,
-        blob,
+      saveSceneJsonToDisk(
+        scene.elements as readonly NonDeletedExcalidrawElement[],
+        scene.appState,
+        scene.files,
       );
       toast.success("File saved to disk successfully!");
     } catch (err: unknown) {
-      console.error("Save failed:", err as Error);
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      console.error("Save failed:", errorObj);
       toast.error("Failed to save file. Please try again.");
     } finally {
       handleClose();
@@ -136,26 +119,21 @@ export function useOverwriteConfirm(
   }, [excalidrawAPI, handleClose]);
 
   const handleUploadToCloud = useCallback(async () => {
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
-    if (!scene) return;
     try {
-      const ok = await cloudUpload.uploadSceneToCloud(
-        scene.elements as readonly NonDeletedExcalidrawElement[],
-        scene.appState,
-        scene.files,
-      );
+      const ok = await cloudUpload.uploadSceneToCloud();
       if (ok) {
         toast.success("Successfully uploaded to cloud!");
       } else {
         toast.error("Failed to upload to cloud. Please try again.");
       }
     } catch (err: unknown) {
-      console.error("Cloud upload error:", err as Error);
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      console.error("Cloud upload error:", errorObj);
       toast.error("Failed to upload to cloud. Please try again.");
     } finally {
       handleClose();
     }
-  }, [excalidrawAPI, cloudUpload, handleClose]);
+  }, [cloudUpload, handleClose]);
 
   return {
     open: isOpen,

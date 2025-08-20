@@ -1,9 +1,12 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
-import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
+import { getCurrentSceneSnapshot, saveSceneJsonToDisk } from "@/lib/excalidraw";
+import type {
+  AppState,
+  BinaryFiles,
+  ExcalidrawImperativeAPI,
+} from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { ExcalidrawSceneData } from "@/lib/excalidraw";
 
 type ExportDeps = {
   exportScene: (
@@ -11,14 +14,11 @@ type ExportDeps = {
     state: Partial<AppState>,
     fls: BinaryFiles,
   ) => Promise<string | null>;
-  uploadSceneToCloud: (
-    els: readonly NonDeletedExcalidrawElement[],
-    state: Partial<AppState>,
-    fls: BinaryFiles,
-  ) => Promise<boolean>;
+  uploadSceneToCloud: () => Promise<boolean>;
   onShareSuccess?: (url: string) => void;
   isExporting: boolean;
   isUploading: boolean;
+  excalidrawAPI?: ExcalidrawImperativeAPI | null;
 };
 
 export function useExportHandlers({
@@ -27,67 +27,53 @@ export function useExportHandlers({
   onShareSuccess,
   isExporting,
   isUploading,
+  excalidrawAPI,
 }: ExportDeps) {
   const handleSaveToDisk = useCallback(function handleSaveToDisk(
-    els: readonly NonDeletedExcalidrawElement[],
-    state: Partial<AppState>,
-    fls: BinaryFiles,
+    elements: readonly NonDeletedExcalidrawElement[],
+    appState: Partial<AppState>,
+    files: BinaryFiles,
   ): void {
     try {
-      const sceneData: ExcalidrawSceneData = {
-        type: "excalidraw",
-        version: 2,
-        source: "https://excalidraw.com",
-        elements: els,
-        appState: state,
-        files: fls,
-      };
-      const blob = createJsonBlob(sceneData);
-      triggerBlobDownload(`${state.name ?? "scene"}.excalidraw`, blob);
+      saveSceneJsonToDisk(elements, appState, files);
       toast.success("File saved to disk successfully!");
-    } catch (err) {
-      console.error(err);
+    } catch (err: unknown) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      console.error(errorObj);
       toast.error("Failed to save file. Please try again.");
     }
   }, []);
 
-  const handleCloudUpload = useCallback(
-    async function handleCloudUpload(
-      els: readonly NonDeletedExcalidrawElement[],
-      state: Partial<AppState>,
-      fls: BinaryFiles,
-    ): Promise<void> {
-      try {
-        const ok = await uploadSceneToCloud(els, state, fls);
-        toast[ok ? "success" : "error"](
-          ok
-            ? "Successfully uploaded to cloud!"
-            : "Failed to upload to cloud. Please try again.",
-        );
-      } catch (err) {
-        console.error(err);
+  const handleCloudUpload = useCallback(async (): Promise<void> => {
+    try {
+      const ok = await uploadSceneToCloud();
+      if (ok) {
+        toast.success("Successfully uploaded to cloud!");
+      } else {
         toast.error("Failed to upload to cloud. Please try again.");
       }
-    },
-    [uploadSceneToCloud],
-  );
+    } catch (err: unknown) {
+      const errorObj = err instanceof Error ? err : new Error(String(err));
+      console.error(errorObj);
+      toast.error("Failed to upload to cloud. Please try again.");
+    }
+  }, [uploadSceneToCloud]);
 
-  const handleExportLink = useCallback(
-    async function handleExportLink(
-      els: readonly NonDeletedExcalidrawElement[],
-      state: Partial<AppState>,
-      fls: BinaryFiles,
-    ): Promise<void> {
-      if (isExporting || isUploading) return;
-      const url = await exportScene(els, state, fls);
-      if (!url) {
-        toast.error("Failed to export scene. Please try again.");
-        return;
-      }
-      onShareSuccess?.(url);
-    },
-    [exportScene, onShareSuccess, isExporting, isUploading],
-  );
+  const handleExportLink = useCallback(async (): Promise<void> => {
+    if (isExporting || isUploading) return;
+    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    if (!scene) return;
+    const url = await exportScene(
+      scene.elements as readonly NonDeletedExcalidrawElement[],
+      scene.appState,
+      scene.files,
+    );
+    if (!url) {
+      toast.error("Failed to export scene. Please try again.");
+      return;
+    }
+    onShareSuccess?.(url);
+  }, [exportScene, onShareSuccess, isExporting, isUploading, excalidrawAPI]);
 
   return { handleSaveToDisk, handleCloudUpload, handleExportLink };
 }

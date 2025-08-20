@@ -27,10 +27,7 @@ import {
   ExportSceneActions,
   type ExportSceneActionsProps,
 } from "./export-scene-actions";
-import {
-  closeExcalidrawDialog,
-  getCurrentSceneSnapshot,
-} from "@/lib/excalidraw";
+import { closeExcalidrawDialog } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
 import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
 import { useFetchAndInjectSharedSceneFiles } from "@/hooks/excalidraw/use-fetch-and-inject-shared-scene-files";
@@ -53,7 +50,7 @@ export default function ExcalidrawEditor() {
     status: uploadStatus,
     uploadSceneToCloud,
     resetStatus,
-  } = useCloudUpload();
+  } = useCloudUpload(excalidrawAPI);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const { sceneName, handleSceneChange, handleSetSceneName } =
     useScenePersistence(excalidrawAPI);
@@ -68,6 +65,7 @@ export default function ExcalidrawEditor() {
       },
       isExporting: exportStatus === "exporting",
       isUploading: uploadStatus === "uploading",
+      excalidrawAPI,
     });
 
   const renderCustomStats = useCallback(function renderCustomStats() {
@@ -116,15 +114,8 @@ export default function ExcalidrawEditor() {
   );
 
   const handleRetry = useCallback(async (): Promise<void> => {
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
-    if (!scene) return;
-
-    await uploadSceneToCloud(
-      scene.elements as readonly NonDeletedExcalidrawElement[],
-      scene.appState,
-      scene.files,
-    );
-  }, [uploadSceneToCloud, excalidrawAPI]);
+    await uploadSceneToCloud();
+  }, [uploadSceneToCloud]);
 
   const handleSuccess = useCallback(
     function handleSuccess(): void {
@@ -133,18 +124,9 @@ export default function ExcalidrawEditor() {
     [resetStatus],
   );
 
-  const handleShareClick = useCallback(
-    async function handleShareClick(): Promise<void> {
-      const scene = getCurrentSceneSnapshot(excalidrawAPI);
-      if (!scene) return;
-      await handleExportLink(
-        scene.elements as readonly NonDeletedExcalidrawElement[],
-        scene.appState,
-        scene.files,
-      );
-    },
-    [handleExportLink, excalidrawAPI],
-  );
+  const handleShareClick = useCallback(async (): Promise<void> => {
+    await handleExportLink();
+  }, [handleExportLink]);
 
   const renderTopRightUI = useCallback(
     (isMobile: boolean, _appState: UIAppState) => {

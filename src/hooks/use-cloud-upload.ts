@@ -1,20 +1,22 @@
 "use client";
 
 import { useCallback, useState } from "react";
-import { exportToBlob } from "@excalidraw/excalidraw";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { useUploadThing } from "@/lib/uploadthing";
-import { createJsonBlob } from "@/lib/download";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-status";
 import { api } from "@/trpc/react";
 import { stringToBase64, toByteString } from "@/lib/encode";
+import {
+  getCurrentSceneSnapshot,
+  exportSceneToPngBlob,
+} from "@/lib/excalidraw";
+import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
+import { useUploadThing } from "@/lib/uploadthing";
+import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 
-export function useCloudUpload() {
+export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
   // 與舊行為一致，預設顯示為 pending 狀態
   const [status, setStatus] = useState<UploadStatus>("pending");
   const saveSceneMutation = api.scene.saveScene.useMutation();
-
   const { startUpload } = useUploadThing("sceneFileUploader", {
     onClientUploadComplete: () => {
       setStatus("success");
@@ -28,84 +30,115 @@ export function useCloudUpload() {
   });
 
   const uploadSceneToCloud = useCallback(
-    async (
-      elements: readonly NonDeletedExcalidrawElement[],
-      appState: Partial<AppState>,
-      files: BinaryFiles,
-    ): Promise<boolean> => {
+    async (existingSceneId?: string): Promise<boolean> => {
       setStatus("uploading");
 
       try {
-        const sceneData = {
-          type: "excalidraw" as const,
-          version: 2 as const,
-          source: "https://excalidraw-ericts.vercel.app",
-          elements,
-          appState,
-          files,
-        };
-        const blob = createJsonBlob(sceneData);
-        const file = new File(
-          [blob],
-          `${appState.name ?? "scene"}.excalidraw`,
-          { type: "application/json" },
-        );
+        const scene = getCurrentSceneSnapshot(excalidrawAPI);
+        if (!scene) {
+          setStatus("error");
+          return false;
+        }
 
-        await startUpload([file], {});
+        const elements = scene.elements;
+        const appState = scene.appState;
+        const files = scene.files;
 
-        // 上傳成功後，寫入 scene 表供 Dashboard 使用
+        // 準備資料（場景 JSON 與檔案皆壓縮；不加密）並存 DB
         try {
-          const buffer = new Uint8Array(await blob.arrayBuffer());
-          const base64Data = stringToBase64(toByteString(buffer), true);
+          // 利用與 export 相同的序列化流程，但不加密
+          const prepared = await prepareSceneDataForExport(
+            elements,
+            appState,
+            files,
+            { encrypt: false },
+          );
+          const base64Data = stringToBase64(
+            toByteString(prepared.compressedSceneData),
+            true,
+          );
           const safeName = (appState.name ?? "Untitled").trim() || "Untitled";
           const { id } = await saveSceneMutation.mutateAsync({
+            id: existingSceneId,
             name: safeName,
             description: "",
             projectId: undefined,
             data: base64Data,
           });
 
-          // 產生 PNG 縮圖並上傳，與 sceneId 關聯
-          try {
-            const pngBlob = await (
-              exportToBlob as unknown as (args: {
-                elements: readonly NonDeletedExcalidrawElement[];
-                appState: Partial<AppState>;
-                files: BinaryFiles;
-                mimeType: "image/png";
-                quality: number;
-              }) => Promise<Blob>
-            )({
-              elements,
-              appState,
-              files,
-              mimeType: "image/png",
-              quality: 1,
-            });
-            const thumbnailFile = new File([pngBlob], "thumbnail.png", {
-              type: "image/png",
-            });
-            await startUpload([thumbnailFile], {
-              sceneId: id,
-              fileKind: "thumbnail",
-            });
-          } catch (thumbErr) {
-            console.error(
-              "Failed to generate/upload thumbnail after cloud upload:",
-              thumbErr,
+          // 上傳壓縮檔案（不加密），與 sceneId 關聯
+          const filesToUpload: File[] =
+            prepared.compressedFilesData.length > 0
+              ? prepared.compressedFilesData.map(
+                  (f) =>
+                    new File(
+                      [f.buffer],
+                      String((f as { id?: string }).id ?? "asset"),
+                      {
+                        type: "application/octet-stream",
+                      },
+                    ),
+                )
+              : [];
+
+          if (id) {
+            const uploadTasks: Promise<unknown>[] = [];
+
+            if (filesToUpload.length > 0) {
+              uploadTasks.push(
+                startUpload(filesToUpload, {
+                  sceneId: id,
+                  fileKind: "asset",
+                }),
+              );
+            }
+
+            // 產生 PNG 縮圖並上傳（與 sceneId 關聯）— 與資產上傳並行
+            uploadTasks.push(
+              (async () => {
+                try {
+                  const pngBlob = await exportSceneToPngBlob(
+                    elements as readonly NonDeletedExcalidrawElement[],
+                    appState,
+                    files,
+                    1,
+                  );
+                  const thumbnailFile = new File([pngBlob], "thumbnail.png", {
+                    type: "image/png",
+                  });
+                  await startUpload([thumbnailFile], {
+                    sceneId: id,
+                    fileKind: "thumbnail",
+                  });
+                } catch (thumbErr) {
+                  // 縮圖失敗不影響整體流程
+                  console.error(
+                    "Failed to generate/upload thumbnail after cloud upload:",
+                    thumbErr,
+                  );
+                }
+              })(),
             );
+
+            await Promise.all(uploadTasks);
+          } else {
+            console.error("No scene id returned from saveScene mutation");
+            setStatus("error");
+            return false;
           }
         } catch (e) {
-          console.error("Failed to save scene record after cloud upload:", e);
+          console.error("Failed to save scene record to DB:", e);
+          setStatus("error");
+          return false;
         }
-        // onClientUploadComplete 會設為 success
+
         return true;
       } catch {
         setStatus("error");
         return false;
       }
     },
-    [startUpload, saveSceneMutation],
+    [saveSceneMutation, startUpload, excalidrawAPI],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);

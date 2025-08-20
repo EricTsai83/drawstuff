@@ -14,7 +14,7 @@ import { isInitializedImageElement } from "@/lib/excalidraw";
 export type FileProcessingOptions = {
   files: Map<FileId, BinaryFileData>;
   maxBytes: number;
-  encryptionKey: string;
+  encryptionKey?: string | null;
 };
 
 // 處理後的文件類型
@@ -86,7 +86,7 @@ async function processSingleFile({
   id: FileId;
   fileData: BinaryFileData;
   maxBytes: number;
-  encryptionKey: string;
+  encryptionKey?: string | null;
 }): Promise<ProcessedFile> {
   const buffer = new TextEncoder().encode(fileData.dataURL);
 

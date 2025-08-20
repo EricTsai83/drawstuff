@@ -11,18 +11,22 @@ export async function prepareSceneDataForExport(
   elements: readonly NonDeletedExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
+  options?: { encrypt?: boolean },
 ) {
-  const encryptionKey = await generateEncryptionKey("string");
+  const shouldEncrypt = options?.encrypt ?? true;
 
-  // 準備場景數據
+  const encryptionKey = shouldEncrypt
+    ? await generateEncryptionKey("string")
+    : null;
+
+  // 場景資料：壓縮，視需要加密
   const compressedSceneData = await compressData(
     new TextEncoder().encode(serializeSceneData(elements, appState)),
     { encryptionKey },
   );
 
-  // 提取並處理圖片文件
+  // 檔案資料：永遠壓縮，根據選項加/不加密
   const imageFilesMap = extractImageFiles(elements, files);
-
   const compressedFilesData = await processFilesForUpload({
     files: imageFilesMap,
     encryptionKey,
@@ -32,8 +36,8 @@ export async function prepareSceneDataForExport(
   return {
     compressedSceneData,
     compressedFilesData,
-    encryptionKey,
-  };
+    encryptionKey: (encryptionKey ?? undefined) as unknown as string,
+  } as const;
 }
 
 function serializeSceneData(
