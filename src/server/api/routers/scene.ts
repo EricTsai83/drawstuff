@@ -93,7 +93,6 @@ export const sceneRouter = createTRPCRouter({
               category: true,
             },
           },
-          // 不再依賴 fileRecords 推導縮圖，直接使用 scene.thumbnailUrl
         },
       });
 

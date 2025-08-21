@@ -5,7 +5,7 @@ import { exportSceneThumbnail } from "@/lib/excalidraw";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
-import { handleSceneSave } from "@/server/actions";
+import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { nanoid } from "nanoid";
 import { getBaseUrl } from "@/lib/base-url";
@@ -24,19 +24,30 @@ export function useSceneExport() {
   const saveSceneMutation = api.scene.saveScene.useMutation();
   const utils = api.useUtils();
 
-  const { startUpload } = useUploadThing("sceneFileUploader", {
-    onClientUploadComplete: async (res) => {
-      console.log("Files uploaded successfully!", res);
+  const { startUpload: startSharedUpload } = useUploadThing(
+    "sharedSceneFileUploader",
+    {
+      onClientUploadComplete: async (res) => {
+        console.log("Files uploaded successfully!", res);
+      },
+      onUploadError: (error) => {
+        console.error("Error occurred while uploading files", error);
+        toast.error("Error occurred while uploading files");
+        setExportStatus("error");
+      },
+      onUploadBegin: (fileName) => {
+        console.log("Upload has begun for", fileName);
+      },
     },
-    onUploadError: (error) => {
-      console.error("Error occurred while uploading files", error);
-      toast.error("Error occurred while uploading files");
-      setExportStatus("error");
+  );
+  const { startUpload: startThumbnailUpload } = useUploadThing(
+    "sceneThumbnailUploader",
+    {
+      onUploadBegin: () => console.log("thumbnail upload begin"),
+      onClientUploadComplete: () => console.log("thumbnail uploaded"),
+      onUploadError: (e) => console.log("thumbnail upload error", e),
     },
-    onUploadBegin: (fileName) => {
-      console.log("Upload has begun for", fileName);
-    },
-  });
+  );
 
   const exportScene = useCallback(
     async (
@@ -79,9 +90,9 @@ export function useSceneExport() {
         const result = await handleSceneSave(sceneData.compressedSceneData);
 
         // 若未取得 sharedSceneId，直接回報錯誤
-        if (!result?.sharedSceneId) {
-          console.error("Failed to export scene:", result?.errorMessage);
-          toast.error(result?.errorMessage ?? "Failed to export scene");
+        if (!result.sharedSceneId) {
+          console.error("Failed to export scene:", result.errorMessage);
+          toast.error(result.errorMessage ?? "Failed to export scene");
           setExportStatus("error");
           return null;
         }
@@ -103,11 +114,30 @@ export function useSceneExport() {
           shareableUrlString = u.toString();
         }
 
-        // 有檔案才上傳（與 sharedSceneId 關聯的二進位素材）
+        // 有檔案才上傳（與 sharedSceneId 關聯的二進位素材）。
+        // 若上傳失敗，回滾 sharedScene 並中止流程，不儲存 scene data。
         if (filesToUpload.length > 0) {
-          await startUpload(filesToUpload, {
-            sharedSceneId: result.sharedSceneId,
-          });
+          try {
+            const uploadResults = await startSharedUpload(filesToUpload, {
+              sharedSceneId: result.sharedSceneId,
+            });
+
+            // startUpload 可能不會丟錯，但回傳筆數小於欲上傳數量時視為失敗
+            const isUploadFailed =
+              !uploadResults || uploadResults.length < filesToUpload.length;
+            if (isUploadFailed) {
+              toast.error("Some files failed to upload. Export canceled.");
+              await rollbackSharedScene(result.sharedSceneId);
+              setExportStatus("error");
+              return null;
+            }
+          } catch (uploadErr) {
+            console.error("File upload failed:", uploadErr);
+            toast.error("File upload failed. Export canceled.");
+            await rollbackSharedScene(result.sharedSceneId);
+            setExportStatus("error");
+            return null;
+          }
         }
 
         // 將場景儲存到使用者的 scene 表，供 Dashboard 搜尋/顯示
@@ -124,6 +154,13 @@ export function useSceneExport() {
             data: base64Data,
           });
 
+          if (!id) {
+            console.error("No scene id returned from saveScene mutation");
+            toast.error("Failed to save scene");
+            setExportStatus("error");
+            return null;
+          }
+
           // 產生 PNG 縮圖（遵循目前 theme），並上傳到 UploadThing，與 sceneId 關聯
           try {
             const pngBlob = await exportSceneThumbnail(
@@ -135,10 +172,7 @@ export function useSceneExport() {
             const thumbnailFile = new File([pngBlob], "thumbnail.png", {
               type: "image/png",
             });
-            await startUpload([thumbnailFile], {
-              sceneId: id,
-              fileKind: "thumbnail",
-            });
+            await startThumbnailUpload([thumbnailFile], { sceneId: id });
           } catch (thumbErr) {
             console.error("Failed to generate/upload thumbnail:", thumbErr);
           }
@@ -162,7 +196,13 @@ export function useSceneExport() {
         return null;
       }
     },
-    [startUpload, exportStatus, saveSceneMutation, utils],
+    [
+      startSharedUpload,
+      startThumbnailUpload,
+      exportStatus,
+      saveSceneMutation,
+      utils,
+    ],
   );
 
   const resetExportStatus = useCallback(() => {

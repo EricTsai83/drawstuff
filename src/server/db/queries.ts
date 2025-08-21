@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, and, lte } from "drizzle-orm";
 import { db } from "./index";
 import {
   scene,
@@ -8,6 +8,7 @@ import {
   project,
   category,
   sceneCategory,
+  deferredFileCleanup,
 } from "./schema";
 
 export const QUERIES = {
@@ -15,6 +16,26 @@ export const QUERIES = {
   getSceneById: async function (id: string) {
     const [sceneData] = await db.select().from(scene).where(eq(scene.id, id));
     return sceneData;
+  },
+
+  // 精簡查詢：只取擁有者 userId
+  getSceneOwnerId: async function (id: string): Promise<string | undefined> {
+    const [row] = await db
+      .select({ ownerId: scene.userId })
+      .from(scene)
+      .where(eq(scene.id, id));
+    return row?.ownerId;
+  },
+
+  // 精簡查詢：只取當前 thumbnailFileKey
+  getSceneThumbnailKey: async function (
+    id: string,
+  ): Promise<string | undefined> {
+    const [row] = await db
+      .select({ thumbnailFileKey: scene.thumbnailFileKey })
+      .from(scene)
+      .where(eq(scene.id, id));
+    return row?.thumbnailFileKey ?? undefined;
   },
 
   getScenesByUserId: async function (userId: string) {
@@ -159,6 +180,7 @@ export const QUERIES = {
     sharedSceneId,
     ownerId,
     utFileKey,
+    contentHash,
     name,
     size,
     url,
@@ -167,6 +189,7 @@ export const QUERIES = {
     sharedSceneId?: string;
     ownerId: string | null;
     utFileKey: string;
+    contentHash?: string | null;
     name: string;
     size: number;
     url: string;
@@ -179,18 +202,66 @@ export const QUERIES = {
       throw new Error("Cannot provide both sceneId and sharedSceneId");
     }
 
+    // 冪等：sceneId 存在時，(sceneId, utFileKey) 唯一，重試不會重複寫入
+    if (sceneId) {
+      // 內容去重：若提供 contentHash，檢查同 scene 是否已存在
+      if (contentHash) {
+        const existing = await QUERIES.getFileRecordBySceneAndContentHash(
+          sceneId,
+          contentHash,
+        );
+        if (existing) {
+          return [] as const;
+        }
+      }
+      return await db
+        .insert(fileRecord)
+        .values({
+          sceneId,
+          sharedSceneId: null,
+          ownerId: ownerId ?? null,
+          utFileKey,
+          contentHash: contentHash ?? null,
+          name,
+          size,
+          url,
+        })
+        .onConflictDoNothing({
+          target: [fileRecord.sceneId, fileRecord.utFileKey],
+        })
+        .returning();
+    }
+
+    // sharedSceneId 路徑不做唯一約束（允許相同 utFileKey 在不同分享）
     return await db
       .insert(fileRecord)
       .values({
-        sceneId: sceneId ?? null,
+        sceneId: null,
         sharedSceneId: sharedSceneId ?? null,
         ownerId: ownerId ?? null,
         utFileKey,
+        contentHash: null,
         name,
         size,
         url,
       })
       .returning();
+  },
+
+  getFileRecordBySceneAndContentHash: async function (
+    sceneId: string,
+    contentHash: string,
+  ) {
+    const [row] = await db
+      .select()
+      .from(fileRecord)
+      .where(
+        and(
+          eq(fileRecord.sceneId, sceneId),
+          eq(fileRecord.contentHash, contentHash),
+        ),
+      );
+    return row;
   },
 
   getFileRecordsBySceneId: async function (sceneId: string) {
@@ -336,6 +407,88 @@ export const QUERIES = {
         eq(sceneCategory.sceneId, sceneId) &&
           eq(sceneCategory.categoryId, categoryId),
       )
+      .returning();
+  },
+
+  // 延遲清理任務相關
+  enqueueDeferredCleanup: async function ({
+    utFileKey,
+    reason,
+    context,
+  }: {
+    utFileKey: string;
+    reason: string;
+    context?: unknown;
+  }) {
+    const payload = {
+      utFileKey,
+      reason,
+      context: context ? JSON.stringify(context) : null,
+      attempts: 0,
+      nextAttemptAt: new Date(),
+      status: "pending" as const,
+    };
+    return await db.insert(deferredFileCleanup).values(payload).returning();
+  },
+
+  getDueDeferredCleanups: async function (limit = 50) {
+    const now = new Date();
+    return await db
+      .select()
+      .from(deferredFileCleanup)
+      .where(
+        and(
+          eq(deferredFileCleanup.status, "pending"),
+          lte(deferredFileCleanup.nextAttemptAt, now),
+        ),
+      )
+      .limit(limit);
+  },
+
+  markDeferredCleanupDone: async function (id: string) {
+    return await db
+      .update(deferredFileCleanup)
+      .set({ status: "done", updatedAt: new Date() })
+      .where(eq(deferredFileCleanup.id, id))
+      .returning();
+  },
+
+  rescheduleDeferredCleanup: async function (
+    id: string,
+    attempts: number,
+    lastError?: unknown,
+  ) {
+    const nextDelayMs = Math.min(60_000, 1_000 * 2 ** attempts); // 指數退避，上限 60s
+    const next = new Date(Date.now() + nextDelayMs);
+    return await db
+      .update(deferredFileCleanup)
+      .set({
+        attempts: attempts + 1,
+        lastError: lastError
+          ? typeof lastError === "string"
+            ? lastError
+            : JSON.stringify(lastError)
+          : null,
+        nextAttemptAt: next,
+        updatedAt: new Date(),
+      })
+      .where(eq(deferredFileCleanup.id, id))
+      .returning();
+  },
+
+  markDeferredCleanupFailed: async function (id: string, lastError?: unknown) {
+    return await db
+      .update(deferredFileCleanup)
+      .set({
+        status: "failed",
+        lastError: lastError
+          ? typeof lastError === "string"
+            ? lastError
+            : JSON.stringify(lastError)
+          : null,
+        updatedAt: new Date(),
+      })
+      .where(eq(deferredFileCleanup.id, id))
       .returning();
   },
 };

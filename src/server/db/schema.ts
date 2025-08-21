@@ -8,6 +8,7 @@ import {
   index,
   integer,
   check,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
@@ -227,6 +228,7 @@ export const fileRecord = createTable(
     // 文件相關信息
     ownerId: varchar("owner_id", { length: 256 }),
     utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
+    contentHash: varchar("content_hash", { length: 64 }),
     name: varchar("name", { length: 256 }).notNull(),
     size: integer("size").notNull(),
     url: varchar("url", { length: 256 }).notNull(),
@@ -242,11 +244,55 @@ export const fileRecord = createTable(
     index("file_record_shared_scene_id_idx").on(table.sharedSceneId),
     index("file_record_owner_id_idx").on(table.ownerId),
     index("file_record_ut_file_key_idx").on(table.utFileKey),
+    // 內容去重：同一 scene 內同內容只保留一筆
+    uniqueIndex("file_record_scene_content_hash_unique").on(
+      table.sceneId,
+      table.contentHash,
+    ),
+    // 唯一性：(scene_id, ut_file_key) 必須唯一，支援前端重試冪等
+    uniqueIndex("file_record_scene_ut_key_unique").on(
+      table.sceneId,
+      table.utFileKey,
+    ),
     // DB 層 XOR 約束：scene_id 與 shared_scene_id 必須且只能有一個有值
     check(
       "file_record_scene_or_shared_xor",
       sql`num_nonnulls(${table.sceneId}, ${table.sharedSceneId}) = 1`,
     ),
+  ],
+);
+
+// 延遲清理任務表：記錄無法即時刪除的檔案
+export const deferredFileCleanup = createTable(
+  "deferred_file_cleanup",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
+    reason: varchar("reason", { length: 64 }).notNull(),
+    context: text("context"), // JSON 字串
+    attempts: integer("attempts")
+      .notNull()
+      .$defaultFn(() => 0),
+    nextAttemptAt: timestamp("next_attempt_at")
+      .notNull()
+      .$defaultFn(() => new Date()),
+    lastError: text("last_error"),
+    status: varchar("status", { length: 16 })
+      .notNull()
+      .$defaultFn(() => "pending"), // pending | done | failed
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("deferred_cleanup_key_idx").on(table.utFileKey),
+    index("deferred_cleanup_next_attempt_idx").on(table.nextAttemptAt),
+    index("deferred_cleanup_status_idx").on(table.status),
   ],
 );
 
@@ -340,4 +386,8 @@ export const schema = {
   sceneCategory,
   sharedScene,
   fileRecord, // 新增：文件記錄表
+  deferredFileCleanup,
 };
+
+// 導出常用型別
+export type SceneRow = typeof scene.$inferSelect;

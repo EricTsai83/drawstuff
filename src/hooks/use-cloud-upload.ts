@@ -18,7 +18,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
   const [status, setStatus] = useState<UploadStatus>("pending");
   const saveSceneMutation = api.scene.saveScene.useMutation();
   const utils = api.useUtils();
-  const { startUpload } = useUploadThing("sceneFileUploader", {
+  const assetUpload = useUploadThing("sceneAssetUploader", {
     onClientUploadComplete: () => {
       setStatus("success");
     },
@@ -29,6 +29,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
       setStatus("uploading");
     },
   });
+  const thumbnailUpload = useUploadThing("sceneThumbnailUploader");
 
   const uploadSceneToCloud = useCallback(
     async (existingSceneId?: string): Promise<boolean> => {
@@ -86,12 +87,20 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             const uploadTasks: Promise<unknown>[] = [];
 
             if (filesToUpload.length > 0) {
-              uploadTasks.push(
-                startUpload(filesToUpload, {
+              // 逐檔計算 SHA-256 並帶入 contentHash，並行上傳
+              const perFileUploads = filesToUpload.map(async (file) => {
+                const buf = await file.arrayBuffer();
+                const digest = await crypto.subtle.digest("SHA-256", buf);
+                const hashArray = Array.from(new Uint8Array(digest));
+                const contentHash = hashArray
+                  .map((b) => b.toString(16).padStart(2, "0"))
+                  .join("");
+                return assetUpload.startUpload([file], {
                   sceneId: id,
-                  fileKind: "asset",
-                }),
-              );
+                  contentHash,
+                });
+              });
+              uploadTasks.push(Promise.all(perFileUploads));
             }
 
             // 產生 PNG 縮圖並上傳（與 sceneId 關聯）— 與資產上傳並行
@@ -106,9 +115,8 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
                   const thumbnailFile = new File([pngBlob], "thumbnail.png", {
                     type: "image/png",
                   });
-                  await startUpload([thumbnailFile], {
+                  await thumbnailUpload.startUpload([thumbnailFile], {
                     sceneId: id,
-                    fileKind: "thumbnail",
                   });
                 } catch (thumbErr) {
                   // 縮圖失敗不影響整體流程
@@ -121,6 +129,8 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             );
 
             await Promise.all(uploadTasks);
+            // 若沒有資產需要上傳，或所有並行任務皆已完成，明確標記為成功
+            setStatus("success");
 
             // 完成雲端上傳後，讓清單失效以取得最新資料
             void utils.scene.getUserScenesList.invalidate();
@@ -141,7 +151,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
         return false;
       }
     },
-    [saveSceneMutation, startUpload, excalidrawAPI, utils],
+    [saveSceneMutation, assetUpload, thumbnailUpload, excalidrawAPI, utils],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);
