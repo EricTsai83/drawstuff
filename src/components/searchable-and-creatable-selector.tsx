@@ -43,15 +43,15 @@ function SearchableAndCreatableSelector({
         onSearch={handleSearch}
         defaultOptions={[]}
         creatable
-        placeholder="自由填寫類別"
+        placeholder="Type or create a category"
         loadingIndicator={
           <p className="text-muted-foreground py-2 text-center text-lg leading-10">
-            搜尋中...
+            Searching...
           </p>
         }
         emptyIndicator={
           <p className="text-muted-foreground w-full text-center text-lg leading-10">
-            沒有找到相符結果。
+            No matching results.
           </p>
         }
       />

@@ -36,14 +36,16 @@ export function SceneSaveDialog({
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
-  const [tagsOptions, setTagsOptions] = useState<Option[]>([]);
+  const [categoryOptions, setCategoryOptions] = useState<Option[]>([]);
 
-  const parsedTags = useMemo<string[]>(
-    function parseTags() {
-      if (!tagsOptions || tagsOptions.length === 0) return [];
-      return tagsOptions.map((opt) => opt.value).filter((t) => t.length > 0);
+  const parsedCategories = useMemo<string[]>(
+    function parseCategories() {
+      if (!categoryOptions || categoryOptions.length === 0) return [];
+      return categoryOptions
+        .map((opt) => opt.value)
+        .filter((t) => t.length > 0);
     },
-    [tagsOptions],
+    [categoryOptions],
   );
 
   useEffect(
@@ -51,9 +53,9 @@ export function SceneSaveDialog({
       if (!open) return;
       const currentName = excalidrawAPI?.getName?.() ?? "";
       setName(currentName ?? "");
-      // description 與 tags 預設留空，由使用者填寫
+      // description 與 categories 預設留空，由使用者填寫
       setDescription((prev) => prev);
-      setTagsOptions((prev) => prev);
+      setCategoryOptions((prev) => prev);
     },
     [open, excalidrawAPI],
   );
@@ -83,7 +85,7 @@ export function SceneSaveDialog({
     onConfirm({
       name: finalName,
       description: description ?? "",
-      categories: parsedTags,
+      categories: parsedCategories,
     });
     onOpenChange(false);
   }
@@ -137,11 +139,11 @@ export function SceneSaveDialog({
           </div>
 
           <div className="grid gap-3">
-            <Label id="scene-tags-label">Tags</Label>
-            <div aria-labelledby="scene-tags-label">
+            <Label id="scene-categories-label">Categories</Label>
+            <div aria-labelledby="scene-categories-label">
               <SearchableAndCreatableSelector
-                value={tagsOptions}
-                onChange={setTagsOptions}
+                value={categoryOptions}
+                onChange={setCategoryOptions}
               />
             </div>
           </div>

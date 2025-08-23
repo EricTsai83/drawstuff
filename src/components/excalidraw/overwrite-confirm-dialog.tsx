@@ -85,8 +85,6 @@ export function OverwriteConfirmDialog({
                 elements: scene.elements,
                 appState: {
                   ...(scene.appState ?? {}),
-                  // @ts-expect-error: supported at runtime
-                  scrollToContent: true,
                 },
                 files: scene.files,
               });

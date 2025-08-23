@@ -19,8 +19,7 @@ import {
 } from "@/data/local-storage";
 
 export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
-  // 與舊行為一致，預設顯示為 pending 狀態
-  const [status, setStatus] = useState<UploadStatus>("pending");
+  const [status, setStatus] = useState<UploadStatus>("idle");
   const [currentSceneId, setCurrentSceneId] = useState<string | undefined>(
     undefined,
   );

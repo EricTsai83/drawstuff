@@ -9,7 +9,6 @@ import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { nanoid } from "nanoid";
 import { getBaseUrl } from "@/lib/base-url";
-import { toast } from "sonner";
 import { api } from "@/trpc/react";
 import { stringToBase64, toByteString } from "@/lib/encode";
 
@@ -17,6 +16,9 @@ export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
 export function useSceneExport() {
   const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
+  const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(
+    null,
+  );
   const [latestShareableLink, setLatestShareableLink] = useState<string | null>(
     null,
   );
@@ -32,7 +34,7 @@ export function useSceneExport() {
       },
       onUploadError: (error) => {
         console.error("Error occurred while uploading files", error);
-        toast.error("Error occurred while uploading files");
+        setExportErrorMessage("Error occurred while uploading files");
         setExportStatus("error");
       },
       onUploadBegin: (fileName) => {
@@ -56,12 +58,14 @@ export function useSceneExport() {
       files: BinaryFiles,
     ): Promise<string | null> => {
       if (exportStatus === "exporting") {
-        toast.error("Export already in progress");
+        setExportErrorMessage("Export already in progress");
+        setExportStatus("error");
         return null;
       }
 
       if (elements.length === 0) {
-        toast.error("Cannot export empty canvas");
+        setExportErrorMessage("Cannot export empty canvas");
+        setExportStatus("error");
         return null;
       }
 
@@ -92,7 +96,9 @@ export function useSceneExport() {
         // 若未取得 sharedSceneId，直接回報錯誤
         if (!result.sharedSceneId) {
           console.error("Failed to export scene:", result.errorMessage);
-          toast.error(result.errorMessage ?? "Failed to export scene");
+          setExportErrorMessage(
+            result.errorMessage ?? "Failed to export scene",
+          );
           setExportStatus("error");
           return null;
         }
@@ -126,14 +132,16 @@ export function useSceneExport() {
             const isUploadFailed =
               !uploadResults || uploadResults.length < filesToUpload.length;
             if (isUploadFailed) {
-              toast.error("Some files failed to upload. Export canceled.");
+              setExportErrorMessage(
+                "Some files failed to upload. Export canceled.",
+              );
               await rollbackSharedScene(result.sharedSceneId);
               setExportStatus("error");
               return null;
             }
           } catch (uploadErr) {
             console.error("File upload failed:", uploadErr);
-            toast.error("File upload failed. Export canceled.");
+            setExportErrorMessage("File upload failed. Export canceled.");
             await rollbackSharedScene(result.sharedSceneId);
             setExportStatus("error");
             return null;
@@ -156,7 +164,7 @@ export function useSceneExport() {
 
           if (!id) {
             console.error("No scene id returned from saveScene mutation");
-            toast.error("Failed to save scene");
+            setExportErrorMessage("Failed to save scene");
             setExportStatus("error");
             return null;
           }
@@ -182,7 +190,7 @@ export function useSceneExport() {
         } catch (e) {
           console.error("Failed to save scene record:", e);
           // 不阻斷分享流程，但提示失敗
-          toast.error("Scene saved to dashboard failed");
+          // 將錯誤記錄於 console，不改變匯出流程狀態
         }
 
         setLatestShareableLink(shareableUrlString);
@@ -191,7 +199,7 @@ export function useSceneExport() {
         return shareableUrlString;
       } catch (error) {
         console.error("Error during scene export:", error);
-        toast.error("Error during scene export");
+        setExportErrorMessage("Error during scene export");
         setExportStatus("error");
         return null;
       }
@@ -207,11 +215,13 @@ export function useSceneExport() {
 
   const resetExportStatus = useCallback(() => {
     setExportStatus("idle");
+    setExportErrorMessage(null);
   }, []);
 
   return {
     exportScene,
     exportStatus,
+    exportErrorMessage,
     latestShareableLink,
     setLatestShareableLink,
     resetExportStatus,

@@ -65,6 +65,7 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
                     elements: restored.elements ?? [],
                     appState: restored.appState ?? {},
                     files: restored.files ?? {},
+                    scrollToContent: true,
                   });
                 } else {
                   resolve(null);
@@ -84,10 +85,9 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
               elements: scene.elements ?? [],
               appState: {
                 ...ensureInitialAppState(scene.appState ?? {}),
-                // @ts-expect-error: scrollToContent is supported in initialData appState at runtime
-                scrollToContent: true,
               },
               files: scene.files ?? {},
+              scrollToContent: true,
             };
 
             // 清除加密資訊，避免資訊殘留在 URL 上
@@ -110,6 +110,7 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
                 elements: restored.elements ?? [],
                 appState: ensureInitialAppState(restored.appState ?? {}),
                 files: restored.files ?? {},
+                scrollToContent: true,
               });
             } else {
               resolve(null);
@@ -136,6 +137,7 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
               elements: restored.elements ?? [],
               appState: ensureInitialAppState(restored.appState ?? {}),
               files: restored.files ?? {},
+              scrollToContent: true,
             });
           })
           .catch(() => {
@@ -143,6 +145,7 @@ export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState |
               elements: localDataState.elements ?? [],
               appState: localDataState.appState ?? {},
               files: localDataState.files ?? {},
+              scrollToContent: true,
             });
           });
       } else {

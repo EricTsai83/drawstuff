@@ -1,4 +1,5 @@
 "use client";
+
 import {
   CloudUploadButton,
   type UploadStatus,
@@ -10,7 +11,6 @@ type TopRightControlsProps = {
   linkExportStatus: ExportStatus;
   cloudUploadStatus: UploadStatus;
   onUploadClick: () => void;
-  onUploadSuccess: () => void;
   onShareLinkClick: () => void;
 };
 
@@ -18,7 +18,6 @@ export function TopRightControls({
   linkExportStatus,
   cloudUploadStatus,
   onUploadClick,
-  onUploadSuccess,
   onShareLinkClick,
 }: TopRightControlsProps) {
   return (
@@ -27,7 +26,6 @@ export function TopRightControls({
         status={cloudUploadStatus}
         errorMessage="網路連線失敗"
         onClick={onUploadClick}
-        onSuccess={onUploadSuccess}
       />
       <ShareSceneButton
         exportStatus={linkExportStatus}

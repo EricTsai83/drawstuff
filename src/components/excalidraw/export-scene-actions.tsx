@@ -40,7 +40,7 @@ export function ExportSceneActions({
   elements,
   appState,
   files,
-  uploadStatus = "pending",
+  uploadStatus = "idle",
   isLinkExporting = false,
   handlers,
 }: ExportSceneActionsProps) {

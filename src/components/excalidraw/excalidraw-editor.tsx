@@ -3,6 +3,7 @@
 import "@excalidraw/excalidraw/index.css";
 import { Excalidraw, Footer } from "@excalidraw/excalidraw";
 import { useState, useCallback, useEffect } from "react";
+import { toast } from "sonner";
 import type {
   AppState,
   BinaryFiles,
@@ -22,7 +23,10 @@ import { SceneNameTrigger } from "@/components/scene-name-trigger";
 import { authClient } from "@/lib/auth/client";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type {
+  NonDeletedExcalidrawElement,
+  ExcalidrawElement,
+} from "@excalidraw/excalidraw/element/types";
 import {
   ExportSceneActions,
   type ExportSceneActionsProps,
@@ -46,7 +50,13 @@ export default function ExcalidrawEditor() {
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
-  const { exportScene, exportStatus, latestShareableLink } = useSceneExport();
+  const {
+    exportScene,
+    exportStatus,
+    exportErrorMessage,
+    latestShareableLink,
+    resetExportStatus,
+  } = useSceneExport();
   const {
     status: uploadStatus,
     uploadSceneToCloud,
@@ -82,6 +92,45 @@ export default function ExcalidrawEditor() {
 
   // 解析分享資訊、取檔並注入 Excalidraw
   useFetchAndInjectSharedSceneFiles(excalidrawAPI);
+
+  // 初始掛載後置中（若有內容），避免首次渲染未置中的情況
+  const [hasAutoCentered, setHasAutoCentered] = useState(false);
+  useEffect(() => {
+    if (!excalidrawAPI || hasAutoCentered) return;
+
+    let attempts = 0;
+    let timer: number | undefined;
+
+    const tryCenter = () => {
+      attempts += 1;
+      const els =
+        excalidrawAPI.getSceneElements() as readonly ExcalidrawElement[];
+      const hasContent = Array.isArray(els)
+        ? els.some((el: ExcalidrawElement) => !el.isDeleted)
+        : false;
+
+      if (hasContent) {
+        // 使用官方 API 置中內容到視窗
+        // https://docs.excalidraw.com/docs
+        excalidrawAPI.scrollToContent(undefined, {
+          fitToViewport: true,
+          viewportZoomFactor: 0.7,
+          animate: false,
+        });
+        setHasAutoCentered(true);
+        return;
+      }
+
+      if (attempts < 10) {
+        timer = window.setTimeout(tryCenter, 80);
+      }
+    };
+
+    tryCenter();
+    return () => {
+      if (timer) window.clearTimeout(timer);
+    };
+  }, [excalidrawAPI, hasAutoCentered]);
 
   const renderCustomUiForExport = useCallback(
     (
@@ -133,12 +182,43 @@ export default function ExcalidrawEditor() {
     await uploadSceneToCloud();
   }, [uploadSceneToCloud, currentSceneId]);
 
-  const handleUploadSuccess = useCallback(
-    function handleUploadSuccess(): void {
-      resetStatus();
-    },
-    [resetStatus],
-  );
+  useEffect(() => {
+    if (uploadStatus === "success") {
+      const timer = setTimeout(() => {
+        resetStatus();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    if (uploadStatus === "error") {
+      toast.error("Failed to upload to cloud. Please try again.");
+      const timer = setTimeout(() => {
+        resetStatus();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    return;
+  }, [uploadStatus, resetStatus]);
+
+  useEffect(() => {
+    if (exportStatus === "success") {
+      const timer = setTimeout(() => {
+        resetExportStatus();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    if (exportStatus === "error") {
+      const message =
+        typeof exportErrorMessage === "string"
+          ? exportErrorMessage
+          : "Failed to export scene. Please try again.";
+      toast.error(message);
+      const timer = setTimeout(() => {
+        resetExportStatus();
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+    return;
+  }, [exportStatus, exportErrorMessage, resetExportStatus]);
 
   const handleShareLinkClick = useCallback(async (): Promise<void> => {
     await handleExportLink();
@@ -152,18 +232,11 @@ export default function ExcalidrawEditor() {
           linkExportStatus={exportStatus}
           cloudUploadStatus={uploadStatus}
           onUploadClick={handleUploadRetry}
-          onUploadSuccess={handleUploadSuccess}
           onShareLinkClick={handleShareLinkClick}
         />
       );
     },
-    [
-      exportStatus,
-      uploadStatus,
-      handleUploadRetry,
-      handleUploadSuccess,
-      handleShareLinkClick,
-    ],
+    [exportStatus, uploadStatus, handleUploadRetry, handleShareLinkClick],
   );
 
   return (

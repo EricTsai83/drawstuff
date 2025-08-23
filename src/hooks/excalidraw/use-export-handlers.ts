@@ -50,12 +50,12 @@ export function useExportHandlers({
       if (ok) {
         toast.success("Successfully uploaded to cloud!");
       } else {
-        toast.error("Failed to upload to cloud. Please try again.");
+        // 交由上層（Editor）統一處理錯誤 toast 與狀態重置
       }
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       console.error(errorObj);
-      toast.error("Failed to upload to cloud. Please try again.");
+      // 交由上層（Editor）統一處理錯誤 toast 與狀態重置
     }
   }, [uploadSceneToCloud]);
 
@@ -68,10 +68,7 @@ export function useExportHandlers({
       scene.appState,
       scene.files,
     );
-    if (!url) {
-      toast.error("Failed to export scene. Please try again.");
-      return;
-    }
+    if (!url) return;
     onShareSuccess?.(url);
   }, [exportScene, onShareSuccess, isExporting, isUploading, excalidrawAPI]);
 

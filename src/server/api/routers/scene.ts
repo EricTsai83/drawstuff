@@ -205,7 +205,13 @@ export const sceneRouter = createTRPCRouter({
           project: true,
           sceneCategories: {
             with: {
-              category: true,
+              // Limit selected columns to avoid referencing non-existent columns on older DBs
+              category: {
+                columns: {
+                  id: true,
+                  name: true,
+                },
+              },
             },
           },
         },

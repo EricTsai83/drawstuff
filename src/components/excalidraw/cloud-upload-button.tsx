@@ -8,11 +8,9 @@ import {
   AlertCircle,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useEffect } from "react";
 
 export type UploadStatus =
   | "idle"
-  | "pending"
   | "uploading"
   | "success"
   | "error"
@@ -24,7 +22,6 @@ type CloudUploadStatusProps = {
   errorMessage?: string;
   className?: string;
   onClick?: () => void;
-  onSuccess?: () => void; // 成功後的回調函數
 };
 
 export function CloudUploadButton({
@@ -32,28 +29,11 @@ export function CloudUploadButton({
   errorMessage,
   className,
   onClick,
-  onSuccess,
 }: CloudUploadStatusProps) {
-  // 監聽 success 狀態，1秒後自動變回 idle
-  useEffect(() => {
-    if (status === "success" && onSuccess) {
-      const timer = setTimeout(() => {
-        onSuccess();
-      }, 1500);
-
-      return () => clearTimeout(timer);
-    }
-  }, [status, onSuccess]);
-
-  // 如果是 idle 狀態，則不渲染
-  if (status === "idle") {
-    return null;
-  }
-
   // 根據狀態獲取對應的圖標
   function getStatusIcon() {
     switch (status) {
-      case "pending":
+      case "idle":
         return CloudUpload;
       case "uploading":
         return Loader2;
@@ -80,8 +60,8 @@ export function CloudUploadButton({
         "h-[36px] w-[36px] rounded-lg backdrop-blur-sm",
         "transition-colors duration-300 ease-out",
         "shadow-xs hover:shadow-sm",
-        // 背景顏色 - 根據狀態條件設定
-        status === "pending" && "bg-primary",
+        // 背景顏色 - 根據狀態條件設定（idle 使用原本 pending 的樣式）
+        status === "idle" && "bg-primary",
         status === "uploading" && "bg-primary/85 dark:bg-secondary",
         status === "success" && "bg-primary",
         status === "error" && "bg-destructive/85",
@@ -99,7 +79,7 @@ export function CloudUploadButton({
         className={cn(
           "h-4 w-4",
           // 圖標顏色 - 根據狀態條件設定
-          status === "pending" && "text-white",
+          status === "idle" && "text-white",
           status === "uploading" && "text-white",
           status === "success" && "text-white",
           status === "error" && "text-white",
@@ -115,7 +95,7 @@ export function CloudUploadButton({
 // 輔助函數：獲取tooltip文字
 function getTooltipText(status: UploadStatus, errorMessage?: string): string {
   switch (status) {
-    case "pending":
+    case "idle":
       return "等待上傳到雲端";
     case "uploading":
       return "正在上傳到雲端";
