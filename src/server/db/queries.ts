@@ -362,8 +362,14 @@ export const QUERIES = {
     return await db.select().from(category).orderBy(category.name);
   },
 
-  createCategory: async function ({ name }: { name: string }) {
-    return await db.insert(category).values({ name }).returning();
+  createCategory: async function ({
+    name,
+    userId,
+  }: {
+    name: string;
+    userId: string;
+  }) {
+    return await db.insert(category).values({ name, userId }).returning();
   },
 
   // 場景分類關聯查詢

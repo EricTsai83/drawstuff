@@ -86,7 +86,6 @@ export function OverwriteConfirmDialog({
                 appState: {
                   ...(scene.appState ?? {}),
                 },
-                files: scene.files,
               });
             }
           } catch (e) {
