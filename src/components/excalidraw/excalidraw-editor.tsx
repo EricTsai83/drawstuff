@@ -29,6 +29,7 @@ import {
 } from "./export-scene-actions";
 import { closeExcalidrawDialog } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
+import { SceneSaveDialog } from "@/components/excalidraw/scene-save-dialog";
 import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
 import { useFetchAndInjectSharedSceneFiles } from "@/hooks/excalidraw/use-fetch-and-inject-shared-scene-files";
 import { useLanguagePreference } from "@/hooks/use-language-preference";
@@ -50,7 +51,9 @@ export default function ExcalidrawEditor() {
     status: uploadStatus,
     uploadSceneToCloud,
     resetStatus,
+    currentSceneId,
   } = useCloudUpload(excalidrawAPI);
+  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const { sceneName, handleSceneChange, handleSetSceneName } =
     useScenePersistence(excalidrawAPI);
@@ -89,7 +92,14 @@ export default function ExcalidrawEditor() {
     ) => {
       const handlers: ExportSceneActionsProps["handlers"] = {
         handleSaveToDisk,
-        handleCloudUpload,
+        // 第一次需開 dialog 命名與標籤，之後直接儲存
+        handleCloudUpload: (_els, _state, _files) => {
+          if (!currentSceneId) {
+            setIsSaveDialogOpen(true);
+            return;
+          }
+          return handleCloudUpload();
+        },
         handleExportLink,
       };
 
@@ -110,12 +120,18 @@ export default function ExcalidrawEditor() {
       handleExportLink,
       uploadStatus,
       exportStatus,
+      currentSceneId,
     ],
   );
 
   const handleUploadRetry = useCallback(async (): Promise<void> => {
+    // 若尚未儲存過，先開啟命名/標籤/描述 Dialog
+    if (!currentSceneId) {
+      setIsSaveDialogOpen(true);
+      return;
+    }
     await uploadSceneToCloud();
-  }, [uploadSceneToCloud]);
+  }, [uploadSceneToCloud, currentSceneId]);
 
   const handleUploadSuccess = useCallback(
     function handleUploadSuccess(): void {
@@ -196,6 +212,28 @@ export default function ExcalidrawEditor() {
 
           <AppWelcomeScreen />
           <OverwriteConfirmDialog excalidrawAPI={excalidrawAPI} />
+          <SceneSaveDialog
+            open={isSaveDialogOpen}
+            onOpenChange={setIsSaveDialogOpen}
+            excalidrawAPI={excalidrawAPI}
+            onConfirm={({
+              name,
+              description,
+              categories,
+            }: {
+              name: string;
+              description: string;
+              categories: string[];
+            }) => {
+              // 先把名稱寫回 Excalidraw appState（透過既有 helper）
+              handleSetSceneName(name);
+              void uploadSceneToCloud({
+                name,
+                description,
+                categories,
+              });
+            }}
+          />
         </Excalidraw>
       )}
     </div>

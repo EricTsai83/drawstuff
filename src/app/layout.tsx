@@ -9,6 +9,7 @@ import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "@/components/ui/sonner";
+import { TailwindIndicator } from "@/components/tailwind-indicator";
 
 export const metadata: Metadata = {
   title: "Excalidraw X Ericts",
@@ -53,6 +54,7 @@ export default function RootLayout({
               <div>{dashboard}</div>
               {children}
               <Toaster />
+              <TailwindIndicator />
             </NuqsAdapter>
           </TRPCReactProvider>
           <SpeedInsights />

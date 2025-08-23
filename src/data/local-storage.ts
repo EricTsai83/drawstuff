@@ -131,3 +131,31 @@ export const getTotalStorageSize = () => {
     return 0;
   }
 };
+
+// ====== Scene ID helpers (local-first) ======
+
+export function loadCurrentSceneIdFromStorage(): string | undefined {
+  try {
+    const id = localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_ID);
+    return id ?? undefined;
+  } catch (error: unknown) {
+    console.error(error);
+    return undefined;
+  }
+}
+
+export function saveCurrentSceneIdToStorage(id: string): void {
+  try {
+    localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_ID, id);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+export function clearCurrentSceneIdFromStorage(): void {
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}

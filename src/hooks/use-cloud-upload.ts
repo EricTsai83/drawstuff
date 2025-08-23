@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
@@ -12,10 +12,18 @@ import {
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import {
+  loadCurrentSceneIdFromStorage,
+  saveCurrentSceneIdToStorage,
+  clearCurrentSceneIdFromStorage,
+} from "@/data/local-storage";
 
 export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
   // 與舊行為一致，預設顯示為 pending 狀態
   const [status, setStatus] = useState<UploadStatus>("pending");
+  const [currentSceneId, setCurrentSceneId] = useState<string | undefined>(
+    undefined,
+  );
   const saveSceneMutation = api.scene.saveScene.useMutation();
   const utils = api.useUtils();
   const assetUpload = useUploadThing("sceneAssetUploader", {
@@ -31,8 +39,21 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
   });
   const thumbnailUpload = useUploadThing("sceneThumbnailUploader");
 
+  // 初始化從 localStorage 載入 sceneId（local-first）
+  useEffect(() => {
+    const stored = loadCurrentSceneIdFromStorage();
+    if (stored) setCurrentSceneId(stored);
+  }, []);
+
+  type UploadOptions = {
+    existingSceneId?: string;
+    name?: string;
+    description?: string;
+    categories?: string[];
+  };
+
   const uploadSceneToCloud = useCallback(
-    async (existingSceneId?: string): Promise<boolean> => {
+    async (options?: UploadOptions): Promise<boolean> => {
       setStatus("uploading");
 
       try {
@@ -59,14 +80,29 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             toByteString(prepared.compressedSceneData),
             true,
           );
-          const safeName = (appState.name ?? "Untitled").trim() || "Untitled";
-          const { id } = await saveSceneMutation.mutateAsync({
-            id: existingSceneId,
-            name: safeName,
-            description: "",
-            projectId: undefined,
-            data: base64Data,
-          });
+          const safeNameFromState =
+            (appState.name ?? "Untitled").trim() || "Untitled";
+          let id: string | undefined;
+          try {
+            const result = await saveSceneMutation.mutateAsync({
+              id: options?.existingSceneId ?? currentSceneId,
+              name: options?.name ?? safeNameFromState,
+              description: options?.description ?? "",
+              projectId: undefined,
+              data: base64Data,
+              categories: options?.categories,
+            });
+            id = result.id;
+          } catch (err: unknown) {
+            const errorObj =
+              err instanceof Error ? err : new Error(String(err));
+            // 若是無效或無權限的 sceneId，清除本地 sceneId，讓後續走首次儲存流程
+            if (errorObj.message?.includes("SCENE_NOT_FOUND_OR_FORBIDDEN")) {
+              clearCurrentSceneIdFromStorage();
+              setCurrentSceneId(undefined);
+            }
+            throw errorObj;
+          }
 
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
@@ -84,6 +120,8 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
               : [];
 
           if (id) {
+            setCurrentSceneId(id);
+            saveCurrentSceneIdToStorage(String(id));
             const uploadTasks: Promise<unknown>[] = [];
 
             if (filesToUpload.length > 0) {
@@ -151,11 +189,29 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
         return false;
       }
     },
-    [saveSceneMutation, assetUpload, thumbnailUpload, excalidrawAPI, utils],
+    [
+      saveSceneMutation,
+      assetUpload,
+      thumbnailUpload,
+      excalidrawAPI,
+      utils,
+      currentSceneId,
+    ],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);
 
+  const clearCurrentSceneId = useCallback(() => {
+    setCurrentSceneId(undefined);
+    clearCurrentSceneIdFromStorage();
+  }, []);
+
   // 僅暴露受控 API，避免外部直接改狀態造成混亂
-  return { uploadSceneToCloud, status, resetStatus } as const;
+  return {
+    uploadSceneToCloud,
+    status,
+    resetStatus,
+    currentSceneId,
+    clearCurrentSceneId,
+  } as const;
 }

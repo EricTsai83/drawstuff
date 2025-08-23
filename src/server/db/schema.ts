@@ -121,12 +121,19 @@ export const category = createTable(
     id: uuid("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    name: varchar("name", { length: 100 }).notNull().unique(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    name: varchar("name", { length: 100 }).notNull(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
   },
-  (table) => [index("category_name_idx").on(table.name)],
+  (table) => [
+    index("category_user_id_idx").on(table.userId),
+    index("category_name_idx").on(table.name),
+    uniqueIndex("category_user_name_unique").on(table.userId, table.name),
+  ],
 );
 
 export const scene = createTable(
