@@ -80,13 +80,13 @@ export default function ExcalidrawEditor() {
   // 解析分享資訊、取檔並注入 Excalidraw
   useFetchAndInjectSharedSceneFiles(excalidrawAPI);
 
-  const renderCustomExportUI = useCallback(
-    function renderCustomExportUI(
+  const renderCustomUiForExport = useCallback(
+    (
       elements: readonly NonDeletedExcalidrawElement[],
       appState: Partial<AppState>,
       files: BinaryFiles,
       _canvas: unknown,
-    ) {
+    ) => {
       const handlers: ExportSceneActionsProps["handlers"] = {
         handleSaveToDisk,
         handleCloudUpload,
@@ -113,18 +113,18 @@ export default function ExcalidrawEditor() {
     ],
   );
 
-  const handleRetry = useCallback(async (): Promise<void> => {
+  const handleUploadRetry = useCallback(async (): Promise<void> => {
     await uploadSceneToCloud();
   }, [uploadSceneToCloud]);
 
-  const handleSuccess = useCallback(
-    function handleSuccess(): void {
+  const handleUploadSuccess = useCallback(
+    function handleUploadSuccess(): void {
       resetStatus();
     },
     [resetStatus],
   );
 
-  const handleShareClick = useCallback(async (): Promise<void> => {
+  const handleShareLinkClick = useCallback(async (): Promise<void> => {
     await handleExportLink();
   }, [handleExportLink]);
 
@@ -133,15 +133,21 @@ export default function ExcalidrawEditor() {
       if (isMobile) return null;
       return (
         <TopRightControls
-          exportStatus={exportStatus}
-          uploadStatus={uploadStatus}
-          onClick={handleRetry}
-          onSuccess={handleSuccess}
-          onShareClick={handleShareClick}
+          linkExportStatus={exportStatus}
+          cloudUploadStatus={uploadStatus}
+          onUploadClick={handleUploadRetry}
+          onUploadSuccess={handleUploadSuccess}
+          onShareLinkClick={handleShareLinkClick}
         />
       );
     },
-    [exportStatus, uploadStatus, handleRetry, handleSuccess, handleShareClick],
+    [
+      exportStatus,
+      uploadStatus,
+      handleUploadRetry,
+      handleUploadSuccess,
+      handleShareLinkClick,
+    ],
   );
 
   return (
@@ -156,7 +162,7 @@ export default function ExcalidrawEditor() {
               toggleTheme: true,
               export: {
                 saveFileToDisk: false, // 移除預設的「儲存到磁碟」按鈕
-                renderCustomUI: renderCustomExportUI,
+                renderCustomUI: renderCustomUiForExport,
               },
             },
           }}

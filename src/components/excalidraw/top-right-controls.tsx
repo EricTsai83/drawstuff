@@ -1,35 +1,38 @@
 "use client";
 import {
-  CloudUploadStatus,
+  CloudUploadButton,
   type UploadStatus,
-} from "@/components/excalidraw/cloud-upload-status";
+} from "@/components/excalidraw/cloud-upload-button";
 import type { ExportStatus } from "@/hooks/use-scene-export";
 import { ShareSceneButton } from "./share-scene-button";
 
 type TopRightControlsProps = {
-  exportStatus: ExportStatus;
-  uploadStatus: UploadStatus;
-  onClick: () => void;
-  onSuccess: () => void;
-  onShareClick: () => void;
+  linkExportStatus: ExportStatus;
+  cloudUploadStatus: UploadStatus;
+  onUploadClick: () => void;
+  onUploadSuccess: () => void;
+  onShareLinkClick: () => void;
 };
 
 export function TopRightControls({
-  exportStatus,
-  uploadStatus,
-  onClick,
-  onSuccess,
-  onShareClick,
+  linkExportStatus,
+  cloudUploadStatus,
+  onUploadClick,
+  onUploadSuccess,
+  onShareLinkClick,
 }: TopRightControlsProps) {
   return (
     <>
-      <CloudUploadStatus
-        status={uploadStatus}
+      <CloudUploadButton
+        status={cloudUploadStatus}
         errorMessage="網路連線失敗"
-        onClick={onClick}
-        onSuccess={onSuccess}
+        onClick={onUploadClick}
+        onSuccess={onUploadSuccess}
       />
-      <ShareSceneButton exportStatus={exportStatus} onClick={onShareClick} />
+      <ShareSceneButton
+        exportStatus={linkExportStatus}
+        onClick={onShareLinkClick}
+      />
     </>
   );
 }

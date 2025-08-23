@@ -2,7 +2,7 @@
 
 import { useCallback, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import type { UploadStatus } from "@/components/excalidraw/cloud-upload-status";
+import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
 import { stringToBase64, toByteString } from "@/lib/encode";
 import {

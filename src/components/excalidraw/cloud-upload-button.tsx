@@ -27,7 +27,7 @@ type CloudUploadStatusProps = {
   onSuccess?: () => void; // 成功後的回調函數
 };
 
-export function CloudUploadStatus({
+export function CloudUploadButton({
   status,
   errorMessage,
   className,
