@@ -53,7 +53,7 @@ export const workspaceRouter = createTRPCRouter({
 
   getOrCreateDefault: protectedProcedure.query(async ({ ctx }) => {
     const userName = ctx.auth.user.name?.trim();
-    const displayName = userName && userName.length > 0 ? userName : "Personal";
+    const displayName = userName && userName.length > 0 ? userName : "Guest";
     const defaultName = `${displayName}'s workspace`;
 
     const existing = await ctx.db

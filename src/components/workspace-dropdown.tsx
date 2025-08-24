@@ -15,7 +15,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { CheckIcon, CircleSmall } from "lucide-react";
+import { CheckIcon } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
 import { Dropdown } from "./icons";
 
@@ -123,7 +123,7 @@ function WorkspaceDropdownComponent(
       <PopoverContent
         collisionPadding={10}
         side="bottom"
-        className="min-w-[--radix-popper-anchor-width] p-0"
+        className="w-auto min-w-[var(--radix-popper-anchor-width)] p-0"
       >
         <Command className="max-h-[200px] w-full sm:max-h-[270px]">
           <CommandList>
@@ -141,12 +141,6 @@ function WorkspaceDropdownComponent(
                     onSelect={() => handleSelect(option)}
                   >
                     <div className="flex w-0 flex-grow space-x-2 overflow-hidden">
-                      <div className="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full">
-                        <CircleSmall
-                          size={20}
-                          className="text-muted-foreground"
-                        />
-                      </div>
                       <div className="flex flex-col overflow-hidden">
                         <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
                           {option.name}

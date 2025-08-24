@@ -96,12 +96,22 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
           } catch (err: unknown) {
             const errorObj =
               err instanceof Error ? err : new Error(String(err));
-            // 若是無效或無權限的 sceneId，清除本地 sceneId，讓後續走首次儲存流程
+            // 若是無效或無權限的 sceneId，清除本地 sceneId 並改為建立新場景
             if (errorObj.message?.includes("SCENE_NOT_FOUND_OR_FORBIDDEN")) {
               clearCurrentSceneIdFromStorage();
               setCurrentSceneId(undefined);
+              const retry = await saveSceneAction({
+                id: undefined,
+                name: options?.name ?? safeNameFromState,
+                description: options?.description ?? "",
+                workspaceId: options?.workspaceId,
+                data: base64Data,
+                categories: options?.categories,
+              });
+              id = retry.id;
+            } else {
+              throw errorObj;
             }
-            throw errorObj;
           }
 
           // 上傳壓縮檔案（不加密），與 sceneId 關聯

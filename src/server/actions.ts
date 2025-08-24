@@ -297,5 +297,6 @@ export async function saveSceneAction(raw: unknown): Promise<{ id: string }> {
     }
   }
 
-  return { id: sceneId! };
+  if (!sceneId) throw new Error("FAILED_TO_SAVE_SCENE");
+  return { id: sceneId };
 }
