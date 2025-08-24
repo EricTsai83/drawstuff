@@ -72,11 +72,9 @@ export function WorkspaceSelector() {
   );
 
   return (
-    <div className="w-64" aria-label="Workspace selector">
-      <WorkspaceDropdown
-        options={workspaceOption}
-        defaultValue={defaultWorkspaceId}
-      />
-    </div>
+    <WorkspaceDropdown
+      options={workspaceOption}
+      defaultValue={defaultWorkspaceId}
+    />
   );
 }

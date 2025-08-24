@@ -60,13 +60,11 @@ function AppMainMenu({
 
   return (
     <MainMenu>
-      <div ref={menuRef}>
+      <div ref={menuRef} className="max-w-full overflow-x-hidden">
         {session && (
-          <MainMenu.ItemCustom>
-            <div className="px-2 pb-3">
-              <WorkspaceSelector />
-            </div>
-          </MainMenu.ItemCustom>
+          <div className="px-2 pb-3">
+            <WorkspaceSelector />
+          </div>
         )}
         <SceneRenameDialog
           excalidrawAPI={excalidrawAPI}

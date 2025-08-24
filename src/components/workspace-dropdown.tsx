@@ -15,8 +15,9 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { ChevronDown, CheckIcon, CircleSmall } from "lucide-react";
+import { CheckIcon, CircleSmall } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
+import { Dropdown } from "./icons";
 
 export type Workspace = {
   id: string;
@@ -107,13 +108,17 @@ function WorkspaceDropdownComponent(
       >
         <div className="flex w-0 flex-grow items-center gap-2 overflow-hidden">
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-            {selectedWorkspace?.name ??
-              sessionDefaultLabel ??
-              options[0]?.name ??
-              ""}
+            {selectedWorkspace?.name ?? sessionDefaultLabel ?? ""}
           </span>
         </div>
-        <ChevronDown size={16} />
+
+        <Dropdown
+          className={cn(
+            "w-2 transition-transform duration-300 ease-in-out",
+            open && "rotate-180",
+          )}
+          aria-hidden="true"
+        />
       </PopoverTrigger>
       <PopoverContent
         collisionPadding={10}
