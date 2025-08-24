@@ -16,7 +16,7 @@ import SearchableAndCreatableSelector from "@/components/searchable-and-creatabl
 import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
 
-type SceneSaveDialogProps = {
+type SceneCloudUploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   excalidrawAPI?: ExcalidrawImperativeAPI | null;
@@ -27,12 +27,12 @@ type SceneSaveDialogProps = {
   }) => void;
 };
 
-export function SceneSaveDialog({
+export function SceneCloudUploadDialog({
   open,
   onOpenChange,
   excalidrawAPI,
   onConfirm,
-}: SceneSaveDialogProps) {
+}: SceneCloudUploadDialogProps) {
   const nameInputRef = useRef<HTMLInputElement>(null);
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");

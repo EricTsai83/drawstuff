@@ -33,7 +33,7 @@ import {
 } from "./export-scene-actions";
 import { closeExcalidrawDialog } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
-import { SceneSaveDialog } from "@/components/excalidraw/scene-save-dialog";
+import { SceneCloudUploadDialog } from "@/components/excalidraw/scene-cloud-upload-dialog";
 import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
 import { useFetchAndInjectSharedSceneFiles } from "@/hooks/excalidraw/use-fetch-and-inject-shared-scene-files";
 import { useLanguagePreference } from "@/hooks/use-language-preference";
@@ -63,7 +63,7 @@ export default function ExcalidrawEditor() {
     resetStatus,
     currentSceneId,
   } = useCloudUpload(excalidrawAPI);
-  const [isSaveDialogOpen, setIsSaveDialogOpen] = useState(false);
+  const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const { sceneName, handleSceneChange, handleSetSceneName } =
     useScenePersistence(excalidrawAPI);
@@ -147,7 +147,7 @@ export default function ExcalidrawEditor() {
         // 第一次需開 dialog 命名與標籤，之後直接儲存
         handleCloudUpload: (_els, _state, _files) => {
           if (!currentSceneId) {
-            setIsSaveDialogOpen(true);
+            setIsCloudUploadDialogOpen(true);
             return;
           }
           return triggerCloudUpload();
@@ -179,7 +179,7 @@ export default function ExcalidrawEditor() {
   const handleCloudUpload = useCallback(async (): Promise<void> => {
     // 若尚未儲存過，先開啟命名/標籤/描述 Dialog
     if (!currentSceneId) {
-      setIsSaveDialogOpen(true);
+      setIsCloudUploadDialogOpen(true);
       return;
     }
     await uploadSceneToCloud();
@@ -232,8 +232,8 @@ export default function ExcalidrawEditor() {
       if (isMobile) return null;
       return (
         <TopRightControls
-          linkExportStatus={exportStatus}
           cloudUploadStatus={uploadStatus}
+          linkExportStatus={exportStatus}
           onCloudUploadClick={handleCloudUpload}
           onShareLinkClick={handleShareLinkClick}
         />
@@ -288,9 +288,9 @@ export default function ExcalidrawEditor() {
 
           <AppWelcomeScreen />
           <OverwriteConfirmDialog excalidrawAPI={excalidrawAPI} />
-          <SceneSaveDialog
-            open={isSaveDialogOpen}
-            onOpenChange={setIsSaveDialogOpen}
+          <SceneCloudUploadDialog
+            open={isCloudUploadDialogOpen}
+            onOpenChange={setIsCloudUploadDialogOpen}
             excalidrawAPI={excalidrawAPI}
             onConfirm={({
               name,
