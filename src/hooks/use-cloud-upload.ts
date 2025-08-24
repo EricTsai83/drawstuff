@@ -87,7 +87,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
               id: options?.existingSceneId ?? currentSceneId,
               name: options?.name ?? safeNameFromState,
               description: options?.description ?? "",
-              projectId: undefined,
+              workspaceId: undefined,
               data: base64Data,
               categories: options?.categories,
             });

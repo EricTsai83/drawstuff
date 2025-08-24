@@ -158,7 +158,7 @@ export function useSceneExport() {
           const { id } = await saveSceneMutation.mutateAsync({
             name: safeName,
             description: "",
-            projectId: undefined,
+            workspaceId: undefined,
             data: base64Data,
           });
 

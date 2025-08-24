@@ -91,8 +91,8 @@ export const verification = createTable("verification", {
 });
 
 // 新增的繪圖相關表格
-export const project = createTable(
-  "project",
+export const workspace = createTable(
+  "workspace",
   {
     id: uuid("id")
       .primaryKey()
@@ -110,8 +110,8 @@ export const project = createTable(
       .notNull(),
   },
   (table) => [
-    index("project_user_id_idx").on(table.userId),
-    index("project_name_idx").on(table.name),
+    index("workspace_user_id_idx").on(table.userId),
+    index("workspace_name_idx").on(table.name),
   ],
 );
 
@@ -147,7 +147,7 @@ export const scene = createTable(
     sceneData: text("scene_data"), // 場景資料（壓縮/加密後的 base64 或 JSON 字串）
     thumbnailUrl: text("thumbnail_url"), // 新增：縮圖 URL
     thumbnailFileKey: varchar("thumbnail_file_key", { length: 256 }),
-    projectId: uuid("project_id").references(() => project.id, {
+    workspaceId: uuid("workspace_id").references(() => workspace.id, {
       onDelete: "cascade",
     }),
     userId: text("user_id")
@@ -168,7 +168,7 @@ export const scene = createTable(
   },
   (table) => [
     index("scene_user_id_idx").on(table.userId),
-    index("scene_project_id_idx").on(table.projectId),
+    index("scene_workspace_id_idx").on(table.workspaceId),
     index("scene_name_idx").on(table.name),
     index("scene_last_updated_idx").on(table.lastUpdated),
   ],
@@ -307,7 +307,7 @@ export const deferredFileCleanup = createTable(
 export const userRelations = relations(user, ({ many }) => ({
   sessions: many(session),
   accounts: many(account),
-  projects: many(project),
+  workspaces: many(workspace),
   scenes: many(scene),
 }));
 
@@ -327,9 +327,9 @@ export const accountRelations = relations(account, ({ one }) => ({
   }),
 }));
 
-export const projectRelations = relations(project, ({ one, many }) => ({
+export const workspaceRelations = relations(workspace, ({ one, many }) => ({
   user: one(user, {
-    fields: [project.userId],
+    fields: [workspace.userId],
     references: [user.id],
   }),
   scenes: many(scene),
@@ -340,9 +340,9 @@ export const sceneRelations = relations(scene, ({ one, many }) => ({
     fields: [scene.userId],
     references: [user.id],
   }),
-  project: one(project, {
-    fields: [scene.projectId],
-    references: [project.id],
+  workspace: one(workspace, {
+    fields: [scene.workspaceId],
+    references: [workspace.id],
   }),
   sceneCategories: many(sceneCategory),
   fileRecords: many(fileRecord), // 新增：文件記錄關聯
@@ -387,7 +387,7 @@ export const schema = {
   session,
   account,
   verification,
-  project,
+  workspace,
   category,
   scene,
   sceneCategory,

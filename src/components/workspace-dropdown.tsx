@@ -17,7 +17,7 @@ import {
 import { cn } from "@/lib/utils";
 import { ChevronDown, CheckIcon, FolderOpen } from "lucide-react";
 
-export type Project = {
+export type Workspace = {
   id: string;
   name: string;
   description?: string;
@@ -25,54 +25,50 @@ export type Project = {
   updatedAt: string;
 };
 
-type ProjectDropdownProps = {
-  options?: Project[];
-  onChange?: (project: Project) => void;
+type WorkspaceDropdownProps = {
+  options?: Workspace[];
+  onChange?: (workspace: Workspace) => void;
   defaultValue?: string;
   disabled?: boolean;
   placeholder?: string;
   slim?: boolean;
 };
 
-function ProjectDropdownComponent(
+function WorkspaceDropdownComponent(
   {
     options = [],
     onChange,
     defaultValue,
     disabled = false,
-    placeholder = "Select a project",
+    placeholder = "Select a workspace",
     slim = false,
     ...props
-  }: ProjectDropdownProps,
+  }: WorkspaceDropdownProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
   const [open, setOpen] = useState(false);
-  const [selectedProject, setSelectedProject] = useState<Project | undefined>(
-    undefined,
-  );
+  const [selectedWorkspace, setSelectedWorkspace] = useState<
+    Workspace | undefined
+  >(undefined);
 
   useEffect(() => {
     if (defaultValue) {
-      const initialProject = options.find(
-        (project) => project.id === defaultValue,
-      );
-      if (initialProject) {
-        setSelectedProject(initialProject);
+      const initial = options.find((it) => it.id === defaultValue);
+      if (initial) {
+        setSelectedWorkspace(initial);
       } else {
-        // Reset selected project if defaultValue is not found
-        setSelectedProject(undefined);
+        setSelectedWorkspace(undefined);
       }
     } else {
-      // Reset selected project if defaultValue is undefined or null
-      setSelectedProject(undefined);
+      setSelectedWorkspace(undefined);
     }
   }, [defaultValue, options]);
 
   const handleSelect = useCallback(
-    (project: Project) => {
-      console.log("📁 ProjectDropdown value: ", project);
-      setSelectedProject(project);
-      onChange?.(project);
+    (workspace: Workspace) => {
+      console.log("📁 WorkspaceDropdown value: ", workspace);
+      setSelectedWorkspace(workspace);
+      onChange?.(workspace);
       setOpen(false);
     },
     [onChange],
@@ -91,14 +87,14 @@ function ProjectDropdownComponent(
         disabled={disabled}
         {...props}
       >
-        {selectedProject ? (
+        {selectedWorkspace ? (
           <div className="flex w-0 flex-grow items-center gap-2 overflow-hidden">
             <div className="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full">
               <FolderOpen size={20} className="text-muted-foreground" />
             </div>
             {slim === false && (
               <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-                {selectedProject.name}
+                {selectedWorkspace.name}
               </span>
             )}
           </div>
@@ -121,9 +117,9 @@ function ProjectDropdownComponent(
         <Command className="max-h-[200px] w-full sm:max-h-[270px]">
           <CommandList>
             <div className="bg-popover sticky top-0 z-10">
-              <CommandInput placeholder="Search project..." />
+              <CommandInput placeholder="Search workspace..." />
             </div>
-            <CommandEmpty>No project found.</CommandEmpty>
+            <CommandEmpty>No workspace found.</CommandEmpty>
             <CommandGroup>
               {options
                 .filter((x) => x.name)
@@ -154,7 +150,7 @@ function ProjectDropdownComponent(
                     <CheckIcon
                       className={cn(
                         "ml-auto h-4 w-4 shrink-0",
-                        option.id === selectedProject?.id
+                        option.id === selectedWorkspace?.id
                           ? "opacity-100"
                           : "opacity-0",
                       )}
@@ -169,6 +165,6 @@ function ProjectDropdownComponent(
   );
 }
 
-ProjectDropdownComponent.displayName = "ProjectDropdownComponent";
+WorkspaceDropdownComponent.displayName = "WorkspaceDropdownComponent";
 
-export const ProjectDropdown = forwardRef(ProjectDropdownComponent);
+export const WorkspaceDropdown = forwardRef(WorkspaceDropdownComponent);

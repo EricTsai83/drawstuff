@@ -1,7 +1,13 @@
 "use client";
 
 import { MainMenu } from "@excalidraw/excalidraw";
-import { useRef, memo, type Dispatch, type SetStateAction } from "react";
+import {
+  useRef,
+  memo,
+  useMemo,
+  type Dispatch,
+  type SetStateAction,
+} from "react";
 import { LanguageList } from "./app-language/language-list";
 import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
@@ -14,6 +20,11 @@ import { useI18n } from "@excalidraw/excalidraw";
 import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
+import {
+  WorkspaceDropdown,
+  type Workspace as WorkspaceOption,
+} from "@/components/workspace-dropdown";
+import { api, type UserScenesList } from "@/trpc/react";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -22,6 +33,47 @@ type AppMainMenuProps = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   handleSetSceneName: (name: string) => void;
 };
+
+function WorkspaceSelector() {
+  const { data } = api.scene.getUserScenesList.useQuery();
+
+  const projectOptions = useMemo<WorkspaceOption[]>(() => {
+    const list: UserScenesList = data ?? [];
+    if (list.length === 0) return [];
+    const seen = new Map<string, WorkspaceOption>();
+    const items: Array<Record<string, unknown>> = Array.isArray(list)
+      ? (list as Array<Record<string, unknown>>)
+      : [];
+    for (const item of items) {
+      const wsIdVal = (item as { workspaceId?: unknown }).workspaceId;
+      const wsNameVal = (item as { workspaceName?: unknown }).workspaceName;
+      if (typeof wsIdVal !== "string" || typeof wsNameVal !== "string") {
+        continue;
+      }
+      if (!seen.has(wsIdVal)) {
+        seen.set(wsIdVal, {
+          id: wsIdVal,
+          name: wsNameVal,
+          description: "",
+          createdAt: "",
+          updatedAt: "",
+        });
+      }
+    }
+    return Array.from(seen.values()).sort((a, b) =>
+      a.name.localeCompare(b.name),
+    );
+  }, [data]);
+
+  return (
+    <div className="w-64" aria-label="Workspace selector">
+      <WorkspaceDropdown
+        options={projectOptions}
+        placeholder="Select workspace"
+      />
+    </div>
+  );
+}
 
 function AppMainMenu({
   userChosenTheme,
@@ -60,6 +112,11 @@ function AppMainMenu({
   return (
     <MainMenu>
       <div ref={menuRef}>
+        <MainMenu.ItemCustom>
+          <div className="px-2 py-1">
+            <WorkspaceSelector />
+          </div>
+        </MainMenu.ItemCustom>
         <SceneRenameDialog
           excalidrawAPI={excalidrawAPI}
           trigger={

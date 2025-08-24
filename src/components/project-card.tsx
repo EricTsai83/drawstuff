@@ -12,7 +12,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import type { SceneItem } from "@/lib/types";
 
-export function ProjectCard({ item }: { item: SceneItem }) {
+export function WorkspaceCard({ item }: { item: SceneItem }) {
   const timeAgo = formatDistanceToNow(item.updatedAt, { addSuffix: true });
 
   return (
@@ -31,7 +31,7 @@ export function ProjectCard({ item }: { item: SceneItem }) {
               className="bg-background/80 backdrop-blur-sm"
             >
               <Tag className="mr-1 h-3 w-3" />
-              {item.projectName ?? ""}
+              {item.workspaceName ?? ""}
             </Badge>
           </div>
         </div>

@@ -4,12 +4,12 @@ import { useMemo } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { ProjectCard } from "./project-card";
+import { WorkspaceCard } from "./project-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { useRouter } from "next/navigation";
 import type { SceneItem as UISceneItem } from "@/lib/types";
 import { api, type RouterOutputs } from "@/trpc/react";
-import { ProjectDropdown } from "@/components/project-dropdown";
+import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 
 export function SceneSearchList() {
   const router = useRouter();
@@ -29,8 +29,8 @@ export function SceneSearchList() {
       description: s.description,
       createdAt: s.createdAt,
       updatedAt: s.updatedAt,
-      projectId: s.projectId,
-      projectName: s.projectName,
+      workspaceId: s.workspaceId,
+      workspaceName: s.workspaceName,
       thumbnail: s.thumbnail,
       isArchived: s.isArchived,
       categories: s.categories,
@@ -41,8 +41,8 @@ export function SceneSearchList() {
     const inName = item.name.toLowerCase().includes(q);
     const inDesc = item.description.toLowerCase().includes(q);
     const inCats = item.categories.some((cat) => cat.toLowerCase().includes(q));
-    const inProject = item.projectName?.toLowerCase().includes(q) ?? false;
-    const matches = [inName, inDesc, inCats, inProject].some(
+    const inWorkspace = item.workspaceName?.toLowerCase().includes(q) ?? false;
+    const matches = [inName, inDesc, inCats, inWorkspace].some(
       (v: boolean) => v === true,
     );
     return matches;
@@ -67,7 +67,7 @@ export function SceneSearchList() {
           Dashboard
         </h1>
         <div className="absolute right-0 bottom-0 w-64">
-          <ProjectDropdown />
+          <WorkspaceDropdown />
         </div>
       </div>
 
@@ -180,7 +180,7 @@ function SceneGrid({ items }: { items: UISceneItem[] }) {
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (
-        <ProjectCard key={item.id} item={item} />
+        <WorkspaceCard key={item.id} item={item} />
       ))}
     </div>
   );

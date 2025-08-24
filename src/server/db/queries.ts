@@ -5,7 +5,7 @@ import {
   sharedScene,
   fileRecord,
   user,
-  project,
+  workspace,
   category,
   sceneCategory,
   deferredFileCleanup,
@@ -51,14 +51,14 @@ export const QUERIES = {
     description,
     sceneData,
     thumbnailUrl,
-    projectId,
+    workspaceId,
     userId,
   }: {
     name: string;
     description?: string;
     sceneData?: string;
     thumbnailUrl?: string;
-    projectId?: string;
+    workspaceId?: string;
     userId: string;
   }) {
     return await db
@@ -68,7 +68,7 @@ export const QUERIES = {
         description,
         sceneData,
         thumbnailUrl,
-        projectId: projectId ?? null,
+        workspaceId: workspaceId ?? null,
         userId,
       })
       .returning();
@@ -80,14 +80,14 @@ export const QUERIES = {
     description,
     sceneData,
     thumbnailUrl,
-    projectId,
+    workspaceId,
   }: {
     id: string;
     name?: string;
     description?: string;
     sceneData?: string;
     thumbnailUrl?: string;
-    projectId?: string;
+    workspaceId?: string;
   }) {
     return await db
       .update(scene)
@@ -96,7 +96,7 @@ export const QUERIES = {
         description,
         sceneData,
         thumbnailUrl,
-        projectId: projectId ?? null,
+        workspaceId: workspaceId ?? null,
         lastUpdated: new Date(),
         updatedAt: new Date(),
       })
@@ -330,7 +330,7 @@ export const QUERIES = {
   },
 
   // 項目相關查詢
-  createProject: async function ({
+  createWorkspace: async function ({
     name,
     description,
     userId,
@@ -340,7 +340,7 @@ export const QUERIES = {
     userId: string;
   }) {
     return await db
-      .insert(project)
+      .insert(workspace)
       .values({
         name,
         description,
@@ -349,12 +349,12 @@ export const QUERIES = {
       .returning();
   },
 
-  getProjectsByUserId: async function (userId: string) {
+  getWorkspacesByUserId: async function (userId: string) {
     return await db
       .select()
-      .from(project)
-      .where(eq(project.userId, userId))
-      .orderBy(project.updatedAt);
+      .from(workspace)
+      .where(eq(workspace.userId, userId))
+      .orderBy(workspace.updatedAt);
   },
 
   // 分類相關查詢

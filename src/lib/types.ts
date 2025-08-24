@@ -4,7 +4,7 @@ import type {
   session,
   account,
   verification,
-  project,
+  workspace,
   category,
   scene,
   sceneCategory,
@@ -26,9 +26,9 @@ export type NewAccount = InferInsertModel<typeof account>;
 export type Verification = InferSelectModel<typeof verification>;
 export type NewVerification = InferInsertModel<typeof verification>;
 
-// Project types
-export type Project = InferSelectModel<typeof project>;
-export type NewProject = InferInsertModel<typeof project>;
+// Workspace types
+export type Workspace = InferSelectModel<typeof workspace>;
+export type NewWorkspace = InferInsertModel<typeof workspace>;
 
 // Category types
 export type Category = InferSelectModel<typeof category>;
@@ -44,18 +44,18 @@ export type NewSceneCategory = InferInsertModel<typeof sceneCategory>;
 // Relations
 export type SceneWithRelations = Scene & {
   user?: User;
-  project?: Project;
+  workspace?: Workspace;
   sceneCategories?: SceneCategory[];
 };
 
 export type UserWithRelations = User & {
   sessions?: Session[];
   accounts?: Account[];
-  projects?: Project[];
+  workspaces?: Workspace[];
   scenes?: Scene[];
 };
 
-export type ProjectWithRelations = Project & {
+export type WorkspaceWithRelations = Workspace & {
   user?: User;
   scenes?: Scene[];
 };
@@ -71,8 +71,8 @@ export type SceneItem = {
   description: string;
   createdAt: Date;
   updatedAt: Date;
-  projectId?: string;
-  projectName?: string;
+  workspaceId?: string;
+  workspaceName?: string;
   thumbnail?: string;
   isArchived: boolean;
   categories: string[];
@@ -81,7 +81,7 @@ export type SceneItem = {
 // Filter types
 export type SceneFilters = {
   search?: string;
-  projectId?: string;
+  workspaceId?: string;
   categoryId?: string;
   isArchived?: boolean;
   sortBy?: "name" | "createdAt" | "updatedAt";

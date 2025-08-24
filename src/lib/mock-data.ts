@@ -5,7 +5,7 @@ export type SceneItem = {
   image: string;
   lastUpdated: Date;
   category: string[];
-  projectName: string;
+  workspaceName: string;
 };
 
 export const mockSceneItems: SceneItem[] = [
@@ -16,7 +16,7 @@ export const mockSceneItems: SceneItem[] = [
     image: "/placeholder.svg",
     lastUpdated: new Date("2024-01-15"),
     category: ["Design", "Wireframe"],
-    projectName: "Website Redesign",
+    workspaceName: "Website Redesign",
   },
   {
     id: "2",
@@ -25,7 +25,7 @@ export const mockSceneItems: SceneItem[] = [
     image: "/placeholder.svg",
     lastUpdated: new Date("2024-01-14"),
     category: ["UX", "Flow"],
-    projectName: "Mobile App",
+    workspaceName: "Mobile App",
   },
   {
     id: "3",
@@ -34,7 +34,7 @@ export const mockSceneItems: SceneItem[] = [
     image: "/placeholder.svg",
     lastUpdated: new Date("2024-01-13"),
     category: ["Architecture", "Database"],
-    projectName: "Backend System",
+    workspaceName: "Backend System",
   },
   {
     id: "4",
@@ -43,7 +43,7 @@ export const mockSceneItems: SceneItem[] = [
     image: "/placeholder.svg",
     lastUpdated: new Date("2024-01-15"),
     category: ["Design", "Wireframe"],
-    projectName: "Website Redesign",
+    workspaceName: "Website Redesign",
   },
   {
     id: "5",
@@ -52,7 +52,7 @@ export const mockSceneItems: SceneItem[] = [
     image: "/placeholder.svg",
     lastUpdated: new Date("2024-01-14"),
     category: ["UX", "Flow"],
-    projectName: "Mobile App",
+    workspaceName: "Mobile App",
   },
   {
     id: "6",
@@ -61,6 +61,6 @@ export const mockSceneItems: SceneItem[] = [
     image: "/placeholder.svg",
     lastUpdated: new Date("2024-01-13"),
     category: ["Architecture", "Database"],
-    projectName: "Backend System",
+    workspaceName: "Backend System",
   },
 ];
