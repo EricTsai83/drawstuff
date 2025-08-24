@@ -10,6 +10,7 @@ import { useUploadThing } from "@/lib/uploadthing";
 import { nanoid } from "nanoid";
 import { getBaseUrl } from "@/lib/base-url";
 import { api } from "@/trpc/react";
+import { saveSceneAction } from "@/server/actions";
 import { stringToBase64, toByteString } from "@/lib/encode";
 
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
@@ -23,7 +24,6 @@ export function useSceneExport() {
     null,
   );
 
-  const saveSceneMutation = api.scene.saveScene.useMutation();
   const utils = api.useUtils();
 
   const { startUpload: startSharedUpload } = useUploadThing(
@@ -155,7 +155,7 @@ export function useSceneExport() {
             true,
           );
           const safeName = (appState.name ?? "Untitled").trim() || "Untitled";
-          const { id } = await saveSceneMutation.mutateAsync({
+          const { id } = await saveSceneAction({
             name: safeName,
             description: "",
             workspaceId: undefined,
@@ -204,13 +204,7 @@ export function useSceneExport() {
         return null;
       }
     },
-    [
-      startSharedUpload,
-      startThumbnailUpload,
-      exportStatus,
-      saveSceneMutation,
-      utils,
-    ],
+    [startSharedUpload, startThumbnailUpload, exportStatus, utils],
   );
 
   const resetExportStatus = useCallback(() => {

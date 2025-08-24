@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
+import { saveSceneAction } from "@/server/actions";
 import { stringToBase64, toByteString } from "@/lib/encode";
 import {
   getCurrentSceneSnapshot,
@@ -23,7 +24,6 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
   const [currentSceneId, setCurrentSceneId] = useState<string | undefined>(
     undefined,
   );
-  const saveSceneMutation = api.scene.saveScene.useMutation();
   const utils = api.useUtils();
   const assetUpload = useUploadThing("sceneAssetUploader", {
     onClientUploadComplete: () => {
@@ -49,6 +49,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
     name?: string;
     description?: string;
     categories?: string[];
+    workspaceId?: string;
   };
 
   const uploadSceneToCloud = useCallback(
@@ -83,11 +84,11 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             (appState.name ?? "Untitled").trim() || "Untitled";
           let id: string | undefined;
           try {
-            const result = await saveSceneMutation.mutateAsync({
+            const result = await saveSceneAction({
               id: options?.existingSceneId ?? currentSceneId,
               name: options?.name ?? safeNameFromState,
               description: options?.description ?? "",
-              workspaceId: undefined,
+              workspaceId: options?.workspaceId,
               data: base64Data,
               categories: options?.categories,
             });
@@ -188,14 +189,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
         return false;
       }
     },
-    [
-      saveSceneMutation,
-      assetUpload,
-      thumbnailUpload,
-      excalidrawAPI,
-      utils,
-      currentSceneId,
-    ],
+    [assetUpload, thumbnailUpload, excalidrawAPI, utils, currentSceneId],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);

@@ -15,6 +15,11 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import SearchableAndCreatableSelector from "@/components/searchable-and-creatable-selector";
 import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
+import {
+  WorkspaceDropdown,
+  type Workspace,
+} from "@/components/workspace-dropdown";
+import { api } from "@/trpc/react";
 
 type SceneCloudUploadDialogProps = {
   open: boolean;
@@ -24,6 +29,7 @@ type SceneCloudUploadDialogProps = {
     name: string;
     description: string;
     categories: string[];
+    workspaceId?: string;
   }) => void;
 };
 
@@ -37,6 +43,36 @@ export function SceneCloudUploadDialog({
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
   const [categoryOptions, setCategoryOptions] = useState<Option[]>([]);
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
+    string | undefined
+  >(undefined);
+  const { data: workspaces } = api.workspace.list.useQuery(undefined, {
+    staleTime: 60_000,
+    enabled: open,
+  });
+  const { data: defaultWorkspace } = api.workspace.getOrCreateDefault.useQuery(
+    undefined,
+    {
+      staleTime: 60_000,
+      enabled: open,
+    },
+  );
+  const workspaceOptions = useMemo<Workspace[]>(() => {
+    const rows = Array.isArray(workspaces) ? workspaces : [];
+    return rows.map((w) => ({
+      id: w.id,
+      name: w.name,
+      description: w.description ?? "",
+      createdAt:
+        w.createdAt instanceof Date
+          ? w.createdAt.toISOString()
+          : String(w.createdAt),
+      updatedAt:
+        w.updatedAt instanceof Date
+          ? w.updatedAt.toISOString()
+          : String(w.updatedAt),
+    }));
+  }, [workspaces]);
 
   const parsedCategories = useMemo<string[]>(
     function parseCategories() {
@@ -56,8 +92,10 @@ export function SceneCloudUploadDialog({
       // description 與 categories 預設留空，由使用者填寫
       setDescription((prev) => prev);
       setCategoryOptions((prev) => prev);
+      // default to user's default workspace on first save
+      setSelectedWorkspaceId((prev) => prev ?? defaultWorkspace?.id);
     },
-    [open, excalidrawAPI],
+    [open, excalidrawAPI, defaultWorkspace?.id],
   );
 
   useEffect(
@@ -86,6 +124,7 @@ export function SceneCloudUploadDialog({
       name: finalName,
       description: description ?? "",
       categories: parsedCategories,
+      workspaceId: selectedWorkspaceId,
     });
     onOpenChange(false);
   }
@@ -125,6 +164,18 @@ export function SceneCloudUploadDialog({
               autoCapitalize="off"
               spellCheck={false}
             />
+          </div>
+
+          <div className="grid gap-3">
+            <Label id="scene-workspace-label">Workspace</Label>
+            <div aria-labelledby="scene-workspace-label">
+              <WorkspaceDropdown
+                options={workspaceOptions}
+                placeholder="Select a workspace"
+                defaultValue={selectedWorkspaceId}
+                onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
+              />
+            </div>
           </div>
 
           <div className="grid gap-3">

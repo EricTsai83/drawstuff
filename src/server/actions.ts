@@ -8,10 +8,11 @@ import {
   category,
 } from "@/server/db/schema";
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/server";
 import { QUERIES } from "@/server/db/queries";
 import { UTApi } from "uploadthing/server";
+import { z } from "zod";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -197,4 +198,104 @@ export async function rollbackSharedScene(sharedSceneId: string) {
       errorMessage: "Failed to rollback shared scene",
     } as const;
   }
+}
+
+// 將場景儲存到使用者的 scene 表（mutation → Server Action）
+const SaveSceneInput = z.object({
+  id: z.string().uuid().optional(),
+  name: z.string().min(1),
+  description: z.string().optional(),
+  workspaceId: z.string().uuid().optional(),
+  data: z.string(), // 加密或壓縮後的 base64 字串
+  categories: z.array(z.string().min(1)).optional(),
+});
+
+export async function saveSceneAction(raw: unknown): Promise<{ id: string }> {
+  const input = SaveSceneInput.parse(raw);
+  const session = await getServerSession();
+  if (!session) throw new Error("Unauthorized");
+
+  const now = new Date();
+  let sceneId: string | undefined;
+
+  if (input.id) {
+    // 更新現有場景（僅限本人場景）
+    const updated = await db
+      .update(scene)
+      .set({
+        name: input.name,
+        description: input.description,
+        sceneData: input.data,
+        updatedAt: now,
+      })
+      .where(and(eq(scene.id, input.id), eq(scene.userId, session.user.id)))
+      .returning({ id: scene.id });
+
+    if (!updated[0]?.id) {
+      // 與現有 client 偵錯字串對齊，讓前端能清空無效的 local scene id
+      throw new Error("SCENE_NOT_FOUND_OR_FORBIDDEN");
+    }
+    sceneId = updated[0].id;
+  } else {
+    // 建立新場景
+    const created = await db
+      .insert(scene)
+      .values({
+        name: input.name,
+        description: input.description,
+        workspaceId: input.workspaceId,
+        userId: session.user.id,
+        sceneData: input.data,
+      })
+      .returning({ id: scene.id });
+
+    if (!created[0]?.id) throw new Error("CREATE_FAILED");
+    sceneId = created[0].id;
+  }
+
+  // 分類同步（可選）
+  if (input.categories) {
+    const names = input.categories;
+    if (names.length === 0) {
+      await db.delete(sceneCategory).where(eq(sceneCategory.sceneId, sceneId));
+    } else {
+      // 取得既有分類；不在既有清單中的會即時新增
+      const existing = await db
+        .select()
+        .from(category)
+        .where(
+          and(
+            eq(category.userId, session.user.id),
+            inArray(category.name, names),
+          ),
+        );
+
+      const nameToId = new Map(existing.map((c) => [c.name, c.id] as const));
+      const ensuredCategoryIds: string[] = [];
+      for (const name of names) {
+        const existingId = nameToId.get(name);
+        if (existingId) {
+          ensuredCategoryIds.push(existingId);
+        } else {
+          const created = await db
+            .insert(category)
+            .values({ name, userId: session.user.id })
+            .returning({ id: category.id });
+          if (created[0]?.id) ensuredCategoryIds.push(created[0].id);
+        }
+      }
+
+      // 以 input 為權威來源做完整同步
+      await db.delete(sceneCategory).where(eq(sceneCategory.sceneId, sceneId));
+      if (ensuredCategoryIds.length > 0) {
+        await db
+          .insert(sceneCategory)
+          .values(
+            ensuredCategoryIds.map((cid) => ({ sceneId, categoryId: cid })),
+          );
+      }
+    }
+  }
+
+  return { id: sceneId! };
 }

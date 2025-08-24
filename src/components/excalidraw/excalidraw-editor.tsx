@@ -296,10 +296,12 @@ export default function ExcalidrawEditor() {
               name,
               description,
               categories,
+              workspaceId,
             }: {
               name: string;
               description: string;
               categories: string[];
+              workspaceId?: string;
             }) => {
               // 先把名稱寫回 Excalidraw appState（透過既有 helper）
               handleSetSceneName(name);
@@ -307,6 +309,7 @@ export default function ExcalidrawEditor() {
                 name,
                 description,
                 categories,
+                workspaceId,
               });
             }}
           />

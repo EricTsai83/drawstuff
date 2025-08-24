@@ -15,7 +15,8 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { ChevronDown, CheckIcon, FolderOpen } from "lucide-react";
+import { ChevronDown, CheckIcon, CircleSmall } from "lucide-react";
+import { authClient } from "@/lib/auth/client";
 
 export type Workspace = {
   id: string;
@@ -40,7 +41,6 @@ function WorkspaceDropdownComponent(
     onChange,
     defaultValue,
     disabled = false,
-    placeholder = "Select a workspace",
     slim = false,
     ...props
   }: WorkspaceDropdownProps,
@@ -50,18 +50,32 @@ function WorkspaceDropdownComponent(
   const [selectedWorkspace, setSelectedWorkspace] = useState<
     Workspace | undefined
   >(undefined);
+  const { data: session } = authClient.useSession();
+  const sessionDisplayName = (session?.user?.name ?? "").trim();
+  const sessionDefaultLabel = sessionDisplayName
+    ? `${sessionDisplayName}'s workspace`
+    : undefined;
 
   useEffect(() => {
-    if (defaultValue) {
-      const initial = options.find((it) => it.id === defaultValue);
-      if (initial) {
-        setSelectedWorkspace(initial);
-      } else {
-        setSelectedWorkspace(undefined);
-      }
-    } else {
+    if (options.length === 0) {
       setSelectedWorkspace(undefined);
+      return;
     }
+
+    if (defaultValue) {
+      const match = options.find((it) => it.id === defaultValue);
+      if (match) {
+        setSelectedWorkspace((prev) => (prev?.id === match.id ? prev : match));
+        return;
+      }
+    }
+
+    // 預設不自動選第一個，保留 undefined 讓 Trigger 顯示 session 名稱
+    setSelectedWorkspace((prev) => {
+      if (!prev) return undefined;
+      const stillExists = options.some((o) => o.id === prev.id);
+      return stillExists ? prev : undefined;
+    });
   }, [defaultValue, options]);
 
   const handleSelect = useCallback(
@@ -74,39 +88,31 @@ function WorkspaceDropdownComponent(
     [onChange],
   );
 
-  const triggerClasses = cn(
-    "flex h-9 w-full items-center justify-between whitespace-nowrap rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
-    slim === true && "w-20",
-  );
-
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         ref={ref}
-        className={triggerClasses}
+        className={cn(
+          "border-input ring-offset-background placeholder:text-muted-foreground flex h-8 w-full items-center justify-between border-b-2 bg-transparent px-3 py-2 text-sm whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+          slim === true && "w-20",
+        )}
         disabled={disabled}
+        aria-label={`Current workspace: ${
+          selectedWorkspace?.name ??
+          sessionDefaultLabel ??
+          options[0]?.name ??
+          "None"
+        }`}
         {...props}
       >
-        {selectedWorkspace ? (
-          <div className="flex w-0 flex-grow items-center gap-2 overflow-hidden">
-            <div className="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full">
-              <FolderOpen size={20} className="text-muted-foreground" />
-            </div>
-            {slim === false && (
-              <span className="overflow-hidden text-ellipsis whitespace-nowrap">
-                {selectedWorkspace.name}
-              </span>
-            )}
-          </div>
-        ) : (
-          <span>
-            {slim === false ? (
-              placeholder
-            ) : (
-              <FolderOpen size={20} className="text-muted-foreground" />
-            )}
+        <div className="flex w-0 flex-grow items-center gap-2 overflow-hidden">
+          <span className="overflow-hidden text-ellipsis whitespace-nowrap">
+            {selectedWorkspace?.name ??
+              sessionDefaultLabel ??
+              options[0]?.name ??
+              ""}
           </span>
-        )}
+        </div>
         <ChevronDown size={16} />
       </PopoverTrigger>
       <PopoverContent
@@ -131,7 +137,7 @@ function WorkspaceDropdownComponent(
                   >
                     <div className="flex w-0 flex-grow space-x-2 overflow-hidden">
                       <div className="inline-flex h-5 w-5 shrink-0 items-center justify-center overflow-hidden rounded-full">
-                        <FolderOpen
+                        <CircleSmall
                           size={20}
                           className="text-muted-foreground"
                         />
