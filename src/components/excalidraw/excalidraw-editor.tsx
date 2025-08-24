@@ -68,18 +68,21 @@ export default function ExcalidrawEditor() {
   const { sceneName, handleSceneChange, handleSetSceneName } =
     useScenePersistence(excalidrawAPI);
 
-  const { handleSaveToDisk, handleCloudUpload, handleExportLink } =
-    useExportHandlers({
-      exportScene,
-      uploadSceneToCloud,
-      onShareSuccess: () => {
-        closeExcalidrawDialog(excalidrawAPI);
-        setTimeout(() => setIsShareDialogOpen(true), 200);
-      },
-      isExporting: exportStatus === "exporting",
-      isUploading: uploadStatus === "uploading",
-      excalidrawAPI,
-    });
+  const {
+    handleSaveToDisk,
+    handleCloudUpload: triggerCloudUpload,
+    handleExportLink,
+  } = useExportHandlers({
+    exportScene,
+    uploadSceneToCloud,
+    onShareSuccess: () => {
+      closeExcalidrawDialog(excalidrawAPI);
+      setTimeout(() => setIsShareDialogOpen(true), 200);
+    },
+    isExporting: exportStatus === "exporting",
+    isUploading: uploadStatus === "uploading",
+    excalidrawAPI,
+  });
 
   const renderCustomStats = useCallback(function renderCustomStats() {
     return <CustomStats />;
@@ -147,7 +150,7 @@ export default function ExcalidrawEditor() {
             setIsSaveDialogOpen(true);
             return;
           }
-          return handleCloudUpload();
+          return triggerCloudUpload();
         },
         handleExportLink,
       };
@@ -165,7 +168,7 @@ export default function ExcalidrawEditor() {
     },
     [
       handleSaveToDisk,
-      handleCloudUpload,
+      triggerCloudUpload,
       handleExportLink,
       uploadStatus,
       exportStatus,
@@ -173,7 +176,7 @@ export default function ExcalidrawEditor() {
     ],
   );
 
-  const handleUploadRetry = useCallback(async (): Promise<void> => {
+  const handleCloudUpload = useCallback(async (): Promise<void> => {
     // 若尚未儲存過，先開啟命名/標籤/描述 Dialog
     if (!currentSceneId) {
       setIsSaveDialogOpen(true);
@@ -231,12 +234,12 @@ export default function ExcalidrawEditor() {
         <TopRightControls
           linkExportStatus={exportStatus}
           cloudUploadStatus={uploadStatus}
-          onUploadClick={handleUploadRetry}
+          onCloudUploadClick={handleCloudUpload}
           onShareLinkClick={handleShareLinkClick}
         />
       );
     },
-    [exportStatus, uploadStatus, handleUploadRetry, handleShareLinkClick],
+    [exportStatus, uploadStatus, handleCloudUpload, handleShareLinkClick],
   );
 
   return (
