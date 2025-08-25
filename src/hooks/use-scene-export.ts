@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import { exportSceneThumbnail } from "@/lib/excalidraw";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
@@ -9,9 +8,6 @@ import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { nanoid } from "nanoid";
 import { getBaseUrl } from "@/lib/base-url";
-import { api } from "@/trpc/react";
-import { saveSceneAction } from "@/server/actions";
-import { stringToBase64, toByteString } from "@/lib/encode";
 
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
@@ -23,8 +19,6 @@ export function useSceneExport() {
   const [latestShareableLink, setLatestShareableLink] = useState<string | null>(
     null,
   );
-
-  const utils = api.useUtils();
 
   const { startUpload: startSharedUpload } = useUploadThing(
     "sharedSceneFileUploader",
@@ -40,14 +34,6 @@ export function useSceneExport() {
       onUploadBegin: (fileName) => {
         console.log("Upload has begun for", fileName);
       },
-    },
-  );
-  const { startUpload: startThumbnailUpload } = useUploadThing(
-    "sceneThumbnailUploader",
-    {
-      onUploadBegin: () => console.log("thumbnail upload begin"),
-      onClientUploadComplete: () => console.log("thumbnail uploaded"),
-      onUploadError: (e) => console.log("thumbnail upload error", e),
     },
   );
 
@@ -148,49 +134,9 @@ export function useSceneExport() {
           }
         }
 
-        // 將場景儲存到使用者的 scene 表，供 Dashboard 搜尋/顯示
-        try {
-          const base64Data = stringToBase64(
-            toByteString(sceneData.compressedSceneData),
-            true,
-          );
-          const safeName = (appState.name ?? "Untitled").trim() || "Untitled";
-          const { id } = await saveSceneAction({
-            name: safeName,
-            description: "",
-            workspaceId: undefined,
-            data: base64Data,
-          });
-
-          if (!id) {
-            setExportErrorMessage("Failed to save scene");
-            setExportStatus("error");
-            return null;
-          }
-
-          // 產生 PNG 縮圖（遵循目前 theme），並上傳到 UploadThing，與 sceneId 關聯
-          try {
-            const pngBlob = await exportSceneThumbnail(
-              elements,
-              appState,
-              files,
-              { quality: 1 },
-            );
-            const thumbnailFile = new File([pngBlob], "thumbnail.png", {
-              type: "image/png",
-            });
-            await startThumbnailUpload([thumbnailFile], { sceneId: id });
-          } catch (thumbErr) {
-            console.error("Failed to generate/upload thumbnail:", thumbErr);
-          }
-
-          // 讓使用者場景清單失效，確保下一次讀取是最新資料
-          void utils.scene.getUserScenesList.invalidate();
-        } catch (e) {
-          console.error("Failed to save scene record:", e);
-          // 不阻斷分享流程，但提示失敗
-          // 將錯誤記錄於 console，不改變匯出流程狀態
-        }
+        // 移除重複的場景儲存邏輯，因為分享連結功能主要目的是建立共享連結
+        // 而不是儲存到使用者的個人場景列表
+        // 如果需要儲存到個人場景列表，應該使用 useCloudUpload hook
 
         setLatestShareableLink(shareableUrlString);
         setExportStatus("success");
@@ -203,7 +149,7 @@ export function useSceneExport() {
         return null;
       }
     },
-    [startSharedUpload, startThumbnailUpload, exportStatus, utils],
+    [startSharedUpload, exportStatus],
   );
 
   const resetExportStatus = useCallback(() => {
