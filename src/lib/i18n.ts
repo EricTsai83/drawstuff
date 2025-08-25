@@ -1,4 +1,6 @@
 import { useI18n as useExcalidrawI18n } from "@excalidraw/excalidraw";
+import { useState } from "react";
+import { STORAGE_KEYS } from "@/config/app-constants";
 
 type PlaceholderValues = Record<string, string | number>;
 
@@ -19,6 +21,15 @@ const appTranslations: AppTranslations = {
     "app.cloudUpload.tooltip.success": "Synced to cloud",
     "app.cloudUpload.tooltip.error": "Upload failed, click to retry",
     "app.cloudUpload.tooltip.offline": "Currently offline",
+    "app.cloudUpload.toast.success": "Scene successfully uploaded to cloud!",
+    "app.cloudUpload.toast.error.sceneData":
+      "Unable to get current scene data, please try again.",
+    "app.cloudUpload.toast.error.saveScene":
+      "Error occurred while saving scene, please try again.",
+    "app.cloudUpload.toast.error.upload":
+      "Error occurred while uploading scene to cloud, please try again.",
+    "app.cloudUpload.toast.error.unknown":
+      "Unknown error occurred while uploading scene to cloud, please try again.",
   },
   "zh-TW": {
     "app.export.cloud.title": "上傳雲端",
@@ -33,6 +44,12 @@ const appTranslations: AppTranslations = {
     "app.cloudUpload.tooltip.success": "已同步到雲端",
     "app.cloudUpload.tooltip.error": "上傳失敗，點擊重試",
     "app.cloudUpload.tooltip.offline": "目前離線",
+    "app.cloudUpload.toast.success": "場景已成功上傳至雲端！",
+    "app.cloudUpload.toast.error.sceneData": "無法取得當前場景資料，請重試。",
+    "app.cloudUpload.toast.error.saveScene": "儲存場景時發生錯誤，請重試。",
+    "app.cloudUpload.toast.error.upload": "上傳場景至雲端時發生錯誤，請重試。",
+    "app.cloudUpload.toast.error.unknown":
+      "上傳場景至雲端時發生未知錯誤，請重試。",
   },
 };
 
@@ -57,4 +74,23 @@ export function useAppI18n() {
   }
 
   return { t, langCode } as const;
+}
+
+// Standalone i18n hook for use outside Excalidraw context
+export function useStandaloneI18n() {
+  // Get language from localStorage or default to English
+  const [langCode, setLangCode] = useState(() => {
+    if (typeof window !== "undefined") {
+      return localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE) ?? "en";
+    }
+    return "en";
+  });
+
+  function t(key: string, values?: PlaceholderValues): string {
+    const local = appTranslations[langCode]?.[key] ?? appTranslations.en?.[key];
+    const raw = local ?? key;
+    return formatPlaceholders(raw, values);
+  }
+
+  return { t, langCode, setLangCode } as const;
 }

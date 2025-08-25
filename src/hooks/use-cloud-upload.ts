@@ -18,6 +18,8 @@ import {
   saveCurrentSceneIdToStorage,
   clearCurrentSceneIdFromStorage,
 } from "@/data/local-storage";
+import { toast } from "sonner";
+import { useStandaloneI18n } from "@/lib/i18n";
 
 export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
   const [status, setStatus] = useState<UploadStatus>("idle");
@@ -25,6 +27,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
     undefined,
   );
   const utils = api.useUtils();
+  const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
     onClientUploadComplete: () => {
       setStatus("success");
@@ -60,6 +63,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
         const scene = getCurrentSceneSnapshot(excalidrawAPI);
         if (!scene) {
           setStatus("error");
+          toast.error(t("app.cloudUpload.toast.error.sceneData"));
           return false;
         }
 
@@ -180,26 +184,32 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             // 若沒有資產需要上傳，或所有並行任務皆已完成，明確標記為成功
             setStatus("success");
 
+            // 顯示成功 toast
+            toast.success(t("app.cloudUpload.toast.success"));
+
             // 完成雲端上傳後，讓清單失效以取得最新資料
             void utils.scene.getUserScenesList.invalidate();
           } else {
             console.error("No scene id returned from saveScene mutation");
             setStatus("error");
+            toast.error(t("app.cloudUpload.toast.error.saveScene"));
             return false;
           }
         } catch (e) {
           console.error("Failed to save scene record to DB:", e);
           setStatus("error");
+          toast.error(t("app.cloudUpload.toast.error.upload"));
           return false;
         }
 
         return true;
       } catch {
         setStatus("error");
+        toast.error(t("app.cloudUpload.toast.error.unknown"));
         return false;
       }
     },
-    [assetUpload, thumbnailUpload, excalidrawAPI, utils, currentSceneId],
+    [assetUpload, thumbnailUpload, excalidrawAPI, utils, currentSceneId, t],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);
