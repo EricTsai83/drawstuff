@@ -163,7 +163,6 @@ export function useSceneExport() {
           });
 
           if (!id) {
-            console.error("No scene id returned from saveScene mutation");
             setExportErrorMessage("Failed to save scene");
             setExportStatus("error");
             return null;

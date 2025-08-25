@@ -23,6 +23,7 @@ import { SceneNameTrigger } from "@/components/scene-name-trigger";
 import { authClient } from "@/lib/auth/client";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
+import { useCurrentSceneId } from "@/hooks/use-current-scene-id";
 import type {
   NonDeletedExcalidrawElement,
   ExcalidrawElement,
@@ -57,16 +58,23 @@ export default function ExcalidrawEditor() {
     latestShareableLink,
     resetExportStatus,
   } = useSceneExport();
+  const { sceneName, handleSceneChange, handleSetSceneName } =
+    useScenePersistence(excalidrawAPI);
+  const { currentSceneId, clearCurrentSceneId } = useCurrentSceneId();
+
   const {
     status: uploadStatus,
     uploadSceneToCloud,
     resetStatus,
+  } = useCloudUpload(
+    () => {
+      setIsCloudUploadDialogOpen(true);
+    },
+    excalidrawAPI,
     currentSceneId,
-  } = useCloudUpload(excalidrawAPI);
+  );
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
-  const { sceneName, handleSceneChange, handleSetSceneName } =
-    useScenePersistence(excalidrawAPI);
 
   const {
     handleSaveToDisk,
@@ -287,7 +295,13 @@ export default function ExcalidrawEditor() {
           </Footer>
 
           <AppWelcomeScreen />
-          <OverwriteConfirmDialog excalidrawAPI={excalidrawAPI} />
+          <OverwriteConfirmDialog
+            excalidrawAPI={excalidrawAPI}
+            clearCurrentSceneId={clearCurrentSceneId}
+            onSceneNotFoundError={() => {
+              setIsCloudUploadDialogOpen(true);
+            }}
+          />
           <SceneCloudUploadDialog
             open={isCloudUploadDialogOpen}
             onOpenChange={setIsCloudUploadDialogOpen}

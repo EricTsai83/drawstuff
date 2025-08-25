@@ -63,34 +63,3 @@ export type WorkspaceWithRelations = Workspace & {
 export type CategoryWithRelations = Category & {
   sceneCategories?: SceneCategory[];
 };
-
-// UI types
-export type SceneItem = {
-  id: string;
-  name: string;
-  description: string;
-  createdAt: Date;
-  updatedAt: Date;
-  workspaceId?: string;
-  workspaceName?: string;
-  thumbnail?: string;
-  isArchived: boolean;
-  categories: string[];
-};
-
-// Filter types
-export type SceneFilters = {
-  search?: string;
-  workspaceId?: string;
-  categoryId?: string;
-  isArchived?: boolean;
-  sortBy?: "name" | "createdAt" | "updatedAt";
-  sortOrder?: "asc" | "desc";
-};
-
-// Stats types
-export type SceneStats = {
-  totalScenes: number;
-  archivedScenes: number;
-  recentScenes: Scene[];
-};

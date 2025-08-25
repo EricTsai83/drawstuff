@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
@@ -13,19 +13,17 @@ import {
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import {
-  loadCurrentSceneIdFromStorage,
-  saveCurrentSceneIdToStorage,
-  clearCurrentSceneIdFromStorage,
-} from "@/data/local-storage";
+import { useCurrentSceneId } from "@/hooks/use-current-scene-id";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/lib/i18n";
 
-export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
+export function useCloudUpload(
+  onSceneNotFoundError: () => void,
+  excalidrawAPI?: ExcalidrawImperativeAPI | null,
+  currentSceneId?: string,
+) {
   const [status, setStatus] = useState<UploadStatus>("idle");
-  const [currentSceneId, setCurrentSceneId] = useState<string | undefined>(
-    undefined,
-  );
+  const { saveCurrentSceneId, clearCurrentSceneId } = useCurrentSceneId();
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
@@ -40,12 +38,6 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
     },
   });
   const thumbnailUpload = useUploadThing("sceneThumbnailUploader");
-
-  // 初始化從 localStorage 載入 sceneId（local-first）
-  useEffect(() => {
-    const stored = loadCurrentSceneIdFromStorage();
-    if (stored) setCurrentSceneId(stored);
-  }, []);
 
   type UploadOptions = {
     existingSceneId?: string;
@@ -100,19 +92,13 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
           } catch (err: unknown) {
             const errorObj =
               err instanceof Error ? err : new Error(String(err));
-            // 若是無效或無權限的 sceneId，清除本地 sceneId 並改為建立新場景
-            if (errorObj.message?.includes("SCENE_NOT_FOUND_OR_FORBIDDEN")) {
-              clearCurrentSceneIdFromStorage();
-              setCurrentSceneId(undefined);
-              const retry = await saveSceneAction({
-                id: undefined,
-                name: options?.name ?? safeNameFromState,
-                description: options?.description ?? "",
-                workspaceId: options?.workspaceId,
-                data: base64Data,
-                categories: options?.categories,
-              });
-              id = retry.id;
+            // 場景找不到或是已經刪除，清除本地 sceneId 並改為建立新場景
+            if (errorObj.message?.includes("SCENE_NOT_FOUND")) {
+              clearCurrentSceneId();
+              setStatus("idle"); // 重置狀態，避免顯示錯誤
+              onSceneNotFoundError();
+              // 場景找不到時，直接返回 false，避免顯示額外的錯誤 toast
+              return false;
             } else {
               throw errorObj;
             }
@@ -134,8 +120,7 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
               : [];
 
           if (id) {
-            setCurrentSceneId(id);
-            saveCurrentSceneIdToStorage(String(id));
+            saveCurrentSceneId(String(id));
             const uploadTasks: Promise<unknown>[] = [];
 
             if (filesToUpload.length > 0) {
@@ -190,7 +175,6 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
             // 完成雲端上傳後，讓清單失效以取得最新資料
             void utils.scene.getUserScenesList.invalidate();
           } else {
-            console.error("No scene id returned from saveScene mutation");
             setStatus("error");
             toast.error(t("app.cloudUpload.toast.error.saveScene"));
             return false;
@@ -209,15 +193,22 @@ export function useCloudUpload(excalidrawAPI?: ExcalidrawImperativeAPI | null) {
         return false;
       }
     },
-    [assetUpload, thumbnailUpload, excalidrawAPI, utils, currentSceneId, t],
+    [
+      assetUpload,
+      thumbnailUpload,
+      excalidrawAPI,
+      utils,
+      currentSceneId,
+      t,
+      onSceneNotFoundError,
+      saveCurrentSceneId,
+      clearCurrentSceneId,
+    ],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);
 
-  const clearCurrentSceneId = useCallback(() => {
-    setCurrentSceneId(undefined);
-    clearCurrentSceneIdFromStorage();
-  }, []);
+  // 移除重複的 clearCurrentSceneId 函數，因為已經從 useCurrentSceneId hook 中獲取
 
   // 僅暴露受控 API，避免外部直接改狀態造成混亂
   return {

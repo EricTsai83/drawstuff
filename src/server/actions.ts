@@ -233,7 +233,7 @@ export async function saveSceneAction(raw: unknown): Promise<{ id: string }> {
 
     if (!updated[0]?.id) {
       // 與現有 client 偵錯字串對齊，讓前端能清空無效的 local scene id
-      throw new Error("SCENE_NOT_FOUND_OR_FORBIDDEN");
+      throw new Error("SCENE_NOT_FOUND");
     }
     sceneId = updated[0].id;
   } else {

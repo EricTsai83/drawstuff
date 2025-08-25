@@ -18,8 +18,12 @@ import { parseSharedSceneHash } from "@/lib/utils";
 
 export function OverwriteConfirmDialog({
   excalidrawAPI,
+  clearCurrentSceneId,
+  onSceneNotFoundError,
 }: {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
+  clearCurrentSceneId: () => void;
+  onSceneNotFoundError?: () => void;
 }) {
   const {
     open,
@@ -29,7 +33,10 @@ export function OverwriteConfirmDialog({
     handleExportImage,
     handleSaveToDisk,
     handleUploadToCloud,
-  } = useOverwriteConfirm({ excalidrawAPI });
+  } = useOverwriteConfirm({
+    excalidrawAPI,
+    onSceneNotFoundError,
+  });
   const { t, langCode } = useAppI18n();
 
   function handleDialogOpenChange(nextOpen: boolean) {
@@ -40,6 +47,8 @@ export function OverwriteConfirmDialog({
   }
 
   function handlePrimaryConfirm() {
+    // 清除 localStorage 中的當前場景 ID，讓場景視為完全新的場景
+    clearCurrentSceneId();
     handleConfirm();
   }
 
@@ -77,6 +86,9 @@ export function OverwriteConfirmDialog({
           }
 
           try {
+            // 清除 localStorage 中的當前場景 ID，讓導入的場景視為完全新的場景
+            clearCurrentSceneId();
+
             const localDataState = importFromLocalStorage();
             const scene = await loadScene(id, privateKey, localDataState);
 
@@ -109,7 +121,7 @@ export function OverwriteConfirmDialog({
 
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [excalidrawAPI, t, langCode]);
+  }, [excalidrawAPI, t, langCode, clearCurrentSceneId]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>

@@ -37,7 +37,7 @@ export const sceneRouter = createTRPCRouter({
           .returning();
 
         if (!updatedScene[0]?.id) {
-          throw new Error("SCENE_NOT_FOUND_OR_FORBIDDEN");
+          throw new Error("SCENE_NOT_FOUND");
         }
 
         sceneId = updatedScene[0]?.id;

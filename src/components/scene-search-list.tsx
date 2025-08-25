@@ -4,12 +4,14 @@ import { useMemo } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { WorkspaceCard } from "./project-card";
+import { WorkspaceCard } from "./workspace-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { useRouter } from "next/navigation";
-import type { SceneItem as UISceneItem } from "@/lib/types";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
+
+// 直接使用 tRPC 的輸出類型
+type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
 
 export function SceneSearchList() {
   const router = useRouter();
@@ -20,24 +22,10 @@ export function SceneSearchList() {
 
   useEscapeKey(() => router.back());
 
-  const { data, isLoading } = api.scene.getUserScenesList.useQuery();
-  const scenes = useMemo<UISceneItem[]>(() => {
-    const list: RouterOutputs["scene"]["getUserScenesList"] = data ?? [];
-    return list.map((s) => ({
-      id: s.id,
-      name: s.name,
-      description: s.description,
-      createdAt: s.createdAt,
-      updatedAt: s.updatedAt,
-      workspaceId: s.workspaceId,
-      workspaceName: s.workspaceName,
-      thumbnail: s.thumbnail,
-      isArchived: s.isArchived,
-      categories: s.categories,
-    }));
-  }, [data]);
+  const { data: scenes = [], isLoading } =
+    api.scene.getUserScenesList.useQuery();
 
-  function doesSceneMatchQuery(item: UISceneItem, q: string): boolean {
+  function doesSceneMatchQuery(item: SceneListItem, q: string): boolean {
     const inName = item.name.toLowerCase().includes(q);
     const inDesc = item.description.toLowerCase().includes(q);
     const inCats = item.categories.some((cat) => cat.toLowerCase().includes(q));
@@ -48,7 +36,7 @@ export function SceneSearchList() {
     return matches;
   }
 
-  const filteredItems = useMemo<UISceneItem[]>(() => {
+  const filteredItems = useMemo<SceneListItem[]>(() => {
     if (!searchQuery) return scenes;
 
     const q = searchQuery.toLowerCase();
@@ -176,7 +164,7 @@ function SceneResultsCount({
   );
 }
 
-function SceneGrid({ items }: { items: UISceneItem[] }) {
+function SceneGrid({ items }: { items: SceneListItem[] }) {
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (

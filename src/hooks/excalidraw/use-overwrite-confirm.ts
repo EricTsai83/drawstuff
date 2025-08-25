@@ -13,6 +13,7 @@ import { useCloudUpload } from "@/hooks/use-cloud-upload";
 
 export type UseOverwriteConfirmArgs = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
+  onSceneNotFoundError?: () => void;
 };
 
 export type UseOverwriteConfirmResult = {
@@ -29,8 +30,12 @@ export type UseOverwriteConfirmResult = {
 export function useOverwriteConfirm(
   props: UseOverwriteConfirmArgs,
 ): UseOverwriteConfirmResult {
-  const { excalidrawAPI } = props;
-  const cloudUpload = useCloudUpload(excalidrawAPI);
+  const { excalidrawAPI, onSceneNotFoundError } = props;
+  const cloudUpload = useCloudUpload(() => {
+    // 當場景找不到時，關閉當前 dialog 並通知上層
+    handleClose();
+    onSceneNotFoundError?.();
+  }, excalidrawAPI);
 
   const [isOpen, setIsOpen] = useState(false);
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
