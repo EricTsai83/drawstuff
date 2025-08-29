@@ -6,6 +6,7 @@
 * 在存檔中，要阻止用戶離開
 * dashboard 的 workspace selector 要能夠選擇 workspace
 * 要註明 default workspace 不能刪
+* 做完整測試
 
 
 [Reference](https://plus.excalidraw.com/blog/redesigning-editor-api)
