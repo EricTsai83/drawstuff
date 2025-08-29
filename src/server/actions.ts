@@ -12,7 +12,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/server";
 import { QUERIES } from "@/server/db/queries";
 import { UTApi } from "uploadthing/server";
-import { z } from "zod";
+import { saveSceneSchema } from "@/lib/schemas/scene";
 import type { AppErrorCode } from "@/lib/errors";
 import { APP_ERROR } from "@/lib/errors";
 
@@ -203,14 +203,7 @@ export async function rollbackSharedScene(sharedSceneId: string) {
 }
 
 // 將場景儲存到使用者的 scene 表（mutation → Server Action）
-const SaveSceneInput = z.object({
-  id: z.string().uuid().optional(),
-  name: z.string().min(1),
-  description: z.string().optional(),
-  workspaceId: z.string().uuid().optional(),
-  data: z.string(), // 加密或壓縮後的 base64 字串
-  categories: z.array(z.string().min(1)).optional(),
-});
+const SaveSceneInput = saveSceneSchema;
 
 export type SaveSceneResult =
   | { ok: true; data: { id: string } }

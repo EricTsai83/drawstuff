@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -8,7 +8,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
@@ -19,6 +18,21 @@ import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
+import { useForm } from "react-hook-form";
+import { z } from "zod";
+import { zodResolver } from "@hookform/resolvers/zod";
+import {
+  workspaceNameSchema,
+  workspaceDescriptionSchema,
+} from "@/lib/schemas/workspace";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form";
 
 type SceneCloudUploadDialogProps = {
   open: boolean;
@@ -38,9 +52,17 @@ export function SceneCloudUploadDialog({
   excalidrawAPI,
   onConfirm,
 }: SceneCloudUploadDialogProps) {
-  const nameInputRef = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
+  const schema = z.object({
+    name: workspaceNameSchema.optional(),
+    description: workspaceDescriptionSchema,
+  });
+  type FormValues = z.infer<typeof schema>;
+  const form = useForm<FormValues>({
+    resolver: zodResolver(schema),
+    defaultValues: { name: "", description: "" },
+    mode: "onSubmit",
+    reValidateMode: "onSubmit",
+  });
   const [categoryOptions, setCategoryOptions] = useState<Option[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
     string | undefined
@@ -83,9 +105,12 @@ export function SceneCloudUploadDialog({
       // 背景刷新，不阻塞 UI
       void refetchWorkspaces();
       const currentName = excalidrawAPI?.getName?.() ?? "";
-      setName(currentName ?? "");
-      // description 與 categories 預設留空，由使用者填寫
-      setDescription((prev) => prev);
+      // 以 RHF 控制欄位值
+      form.reset({
+        name: currentName ?? "",
+        description: form.getValues("description") ?? "",
+      });
+      setTimeout(() => form.setFocus("name"), 0);
       setCategoryOptions((prev) => prev);
       // 每次開啟以最後啟用的 workspace 為預設，若無則退回預設 workspace
       setSelectedWorkspaceId(lastActiveWorkspaceId ?? defaultWorkspaceId);
@@ -96,38 +121,18 @@ export function SceneCloudUploadDialog({
       defaultWorkspaceId,
       lastActiveWorkspaceId,
       refetchWorkspaces,
+      form,
     ],
   );
 
-  useEffect(
-    function focusName() {
-      if (!open) return;
-      if (nameInputRef.current) nameInputRef.current.select();
-    },
-    [open],
-  );
+  // focus handled by RHF setFocus when needed
 
-  function handleKeyDownForName(e: React.KeyboardEvent<HTMLInputElement>) {
-    // 組字中（中文輸入等）時，忽略 Enter
-    if (
-      e.nativeEvent.isComposing ||
-      (e as unknown as { keyCode?: number }).keyCode === 229
-    )
-      return;
-    if (e.key === "Enter") {
-      void handleConfirm();
-    }
-  }
+  // form handles submit via onSubmit
 
-  async function handleConfirm(): Promise<void> {
-    const finalName = (name ?? "").trim() || "Untitled";
+  async function handleConfirm(values: FormValues): Promise<void> {
+    const finalName = (values.name ?? "").trim() || "Untitled";
     let workspaceIdToUse: string | undefined = selectedWorkspaceId;
-
-    const isTempSelected =
-      typeof selectedWorkspaceId === "string" &&
-      selectedWorkspaceId.startsWith("temp:");
-
-    if (isTempSelected && pendingNewWorkspaceName?.trim()) {
+    if (!workspaceIdToUse && pendingNewWorkspaceName?.trim()) {
       try {
         const created = await createWorkspaceMutation.mutateAsync({
           name: pendingNewWorkspaceName.trim(),
@@ -143,7 +148,7 @@ export function SceneCloudUploadDialog({
 
     onConfirm({
       name: finalName,
-      description: description ?? "",
+      description: (values.description ?? "").trim(),
       categories: parsedCategories,
       workspaceId: workspaceIdToUse,
     });
@@ -170,75 +175,96 @@ export function SceneCloudUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
-          <div className="grid gap-3">
-            <Label htmlFor="scene-name-input">Scene name</Label>
-            <Input
-              ref={nameInputRef}
-              id="scene-name-input"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              onKeyDown={handleKeyDownForName}
-              placeholder="Enter a scene name"
-              autoComplete="off"
-              autoCorrect="off"
-              autoCapitalize="off"
-              spellCheck={false}
+        <Form {...form}>
+          <form
+            onSubmit={form.handleSubmit((vals) => void handleConfirm(vals))}
+            noValidate
+            className="grid gap-4"
+          >
+            <FormField
+              control={form.control}
+              name="name"
+              rules={{ required: false }}
+              render={() => (
+                <FormItem>
+                  <FormLabel>Scene name</FormLabel>
+                  <FormControl>
+                    <Input
+                      placeholder="Enter a scene name"
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      {...form.register("name")}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-          </div>
 
-          <div className="grid gap-3">
-            <Label id="scene-workspace-label">Workspace</Label>
-            <div aria-labelledby="scene-workspace-label">
-              <WorkspaceDropdown
-                options={workspaceOptions}
-                placeholder="Select a workspace"
-                defaultValue={selectedWorkspaceId}
-                onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
-                onCreate={(name: string) => {
-                  setPendingNewWorkspaceName(name);
-                }}
-              />
+            <div className="grid gap-3">
+              <FormLabel id="scene-workspace-label">Workspace</FormLabel>
+              <div aria-labelledby="scene-workspace-label">
+                <WorkspaceDropdown
+                  options={workspaceOptions}
+                  placeholder="Select a workspace"
+                  defaultValue={selectedWorkspaceId}
+                  onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
+                  onCreate={(name: string) => {
+                    setPendingNewWorkspaceName(name);
+                  }}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="grid gap-3">
-            <Label htmlFor="scene-description-input">Description</Label>
-            <Textarea
-              id="scene-description-input"
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add a short description"
-              className="h-24 resize-none"
+            <FormField
+              control={form.control}
+              name="description"
+              rules={{ required: false }}
+              render={() => (
+                <FormItem>
+                  <FormLabel htmlFor="scene-description-input">
+                    Description
+                  </FormLabel>
+                  <FormControl>
+                    <Textarea
+                      id="scene-description-input"
+                      placeholder="Add a short description"
+                      className="h-24 resize-none"
+                      {...form.register("description")}
+                    />
+                  </FormControl>
+                  <FormMessage />
+                </FormItem>
+              )}
             />
-          </div>
 
-          <div className="grid gap-3">
-            <Label id="scene-categories-label">Categories</Label>
-            <div aria-labelledby="scene-categories-label">
-              <SearchableAndCreatableSelector
-                value={categoryOptions}
-                onChange={setCategoryOptions}
-              />
+            <div className="grid gap-3">
+              <FormLabel id="scene-categories-label">Categories</FormLabel>
+              <div aria-labelledby="scene-categories-label">
+                <SearchableAndCreatableSelector
+                  value={categoryOptions}
+                  onChange={setCategoryOptions}
+                />
+              </div>
             </div>
-          </div>
 
-          <div className="flex justify-end gap-2">
-            <Button
-              variant="outline"
-              onClick={handleCancel}
-              aria-label="Cancel save"
-            >
-              Cancel
-            </Button>
-            <Button
-              onClick={() => void handleConfirm()}
-              aria-label="Confirm save"
-            >
-              Save
-            </Button>
-          </div>
-        </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handleCancel}
+                aria-label="Cancel save"
+              >
+                Cancel
+              </Button>
+              <Button type="submit" aria-label="Confirm save">
+                Save
+              </Button>
+            </div>
+          </form>
+        </Form>
       </DialogContent>
     </Dialog>
   );

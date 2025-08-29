@@ -79,14 +79,6 @@ function WorkspaceDropdownComponent(
     setSelectedWorkspace((prev) => {
       if (!prev) return undefined;
       const stillExists = options.some((o) => o.id === prev.id);
-      // 保留暫存（temp:）選項，避免被清除
-      if (
-        !stillExists &&
-        typeof prev.id === "string" &&
-        prev.id.startsWith("temp:")
-      ) {
-        return prev;
-      }
       return stillExists ? prev : undefined;
     });
   }, [defaultValue, options]);
@@ -102,26 +94,18 @@ function WorkspaceDropdownComponent(
 
   const handleCreate = useCallback(() => {
     const name = searchValue.trim();
-    if (!name) return;
-    // 建立暫存 Workspace（以 temp: 開頭的 id 區分）
-    const tempWorkspace: Workspace = {
-      id: `temp:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-      name,
-      description: null,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString(),
-    };
-    handleSelect(tempWorkspace);
-    void onCreate?.(name);
+    if (!name || !onCreate) return;
+    void onCreate(name);
     setSearchValue("");
-  }, [handleSelect, onCreate, searchValue]);
+    setOpen(false);
+  }, [onCreate, searchValue]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger
         ref={ref}
         className={cn(
-          "border-input ring-offset-background placeholder:text-muted-foreground flex h-8 w-full items-center justify-between border-b-2 bg-transparent px-3 py-2 text-sm whitespace-nowrap disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
+          "border-input ring-offset-background placeholder:text-muted-foreground flex h-8 w-full items-center justify-between border-b-2 bg-transparent px-3 py-2 text-sm whitespace-nowrap hover:cursor-pointer disabled:cursor-not-allowed disabled:opacity-50 [&>span]:line-clamp-1",
           slim === true && "w-20",
         )}
         disabled={disabled}
@@ -151,6 +135,7 @@ function WorkspaceDropdownComponent(
         collisionPadding={10}
         side="bottom"
         className="w-auto min-w-[var(--radix-popper-anchor-width)] p-0"
+        data-prevent-outside-click
       >
         <Command className="max-h-[200px] w-full sm:max-h-[270px]">
           <CommandList>

@@ -3,16 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { and, eq, inArray } from "drizzle-orm";
 import { category, scene, sceneCategory } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
-
-const saveSceneSchema = z.object({
-  id: z.string().uuid().optional(), // 可選，有 ID 就更新，沒有就建立
-  name: z.string().min(1, "Name is required"),
-  description: z.string().optional(),
-  workspaceId: z.string().uuid().optional(),
-  data: z.string(), // 加密後的繪圖資料
-  // 允許同時提交分類標籤（以名稱為主）
-  categories: z.array(z.string().min(1)).optional(),
-});
+import { saveSceneSchema } from "@/lib/schemas/scene";
 
 export const sceneRouter = createTRPCRouter({
   saveScene: protectedProcedure

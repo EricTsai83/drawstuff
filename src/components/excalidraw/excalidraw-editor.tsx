@@ -23,7 +23,6 @@ import { SceneNameTrigger } from "@/components/scene-name-trigger";
 import { authClient } from "@/lib/auth/client";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
-import { useCurrentSceneId } from "@/hooks/use-current-scene-id";
 import type {
   NonDeletedExcalidrawElement,
   ExcalidrawElement,
@@ -63,19 +62,15 @@ export default function ExcalidrawEditor() {
   } = useSceneExport();
   const { sceneName, handleSceneChange, handleSetSceneName } =
     useScenePersistence(excalidrawAPI);
-  const { currentSceneId, clearCurrentSceneId } = useCurrentSceneId();
-
   const {
     status: uploadStatus,
     uploadSceneToCloud,
     resetStatus,
-  } = useCloudUpload(
-    () => {
-      setIsCloudUploadDialogOpen(true);
-    },
-    excalidrawAPI,
     currentSceneId,
-  );
+    clearCurrentSceneId,
+  } = useCloudUpload(() => {
+    setIsCloudUploadDialogOpen(true);
+  }, excalidrawAPI);
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
 

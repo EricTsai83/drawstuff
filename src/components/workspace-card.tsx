@@ -1,7 +1,7 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
-import { Clock, Trash2, EllipsisVertical, Download, Edit } from "lucide-react";
+import { Clock } from "lucide-react";
 import Image from "next/image";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -11,7 +11,6 @@ import {
   CardHeader,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -22,13 +21,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { SceneCardMenu } from "@/components/scene-card-menu";
 import { api } from "@/trpc/react";
 import type { RouterOutputs } from "@/trpc/react";
 
@@ -97,41 +90,20 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
               fill
               className="object-cover transition-transform duration-200"
             />
-            <div className="absolute top-3 right-3 flex gap-2">
-              <Badge variant="secondary" className="bg-primary">
+            <div className="absolute bottom-0 left-0 flex gap-2">
+              <Badge
+                variant="secondary"
+                className="bg-primary text-primary-foreground/85 rounded-l-none rounded-tr-[10px] rounded-br-none"
+              >
                 {item.workspaceName ?? ""}
               </Badge>
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    variant="secondary"
-                    size="icon"
-                    className="bg-background/80 hover:bg-background h-6 w-6"
-                    onClick={(e) => e.stopPropagation()}
-                    aria-label="更多選項"
-                  >
-                    <EllipsisVertical className="h-3 w-3" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="end" className="w-48">
-                  <DropdownMenuItem onClick={handleImportScene}>
-                    <Download className="mr-2 h-4 w-4" />
-                    導入場景
-                  </DropdownMenuItem>
-                  <DropdownMenuItem onClick={handleEditScene}>
-                    <Edit className="mr-2 h-4 w-4" />
-                    編輯
-                  </DropdownMenuItem>
-                  <DropdownMenuSeparator />
-                  <DropdownMenuItem
-                    variant="destructive"
-                    onClick={handleDeleteClick}
-                  >
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    刪除
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+            </div>
+            <div className="absolute top-3 right-3 flex gap-2">
+              <SceneCardMenu
+                onImport={handleImportScene}
+                onEdit={handleEditScene}
+                onDelete={handleDeleteClick}
+              />
             </div>
           </div>
         </CardHeader>

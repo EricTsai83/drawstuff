@@ -14,6 +14,7 @@ import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useCurrentSceneId } from "@/hooks/use-current-scene-id";
+import { loadCurrentSceneIdFromStorage } from "@/data/local-storage";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/lib/i18n";
 import { APP_ERROR } from "@/lib/errors";
@@ -21,10 +22,10 @@ import { APP_ERROR } from "@/lib/errors";
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
   excalidrawAPI?: ExcalidrawImperativeAPI | null,
-  currentSceneId?: string,
 ) {
   const [status, setStatus] = useState<UploadStatus>("idle");
-  const { saveCurrentSceneId, clearCurrentSceneId } = useCurrentSceneId();
+  const { currentSceneId, saveCurrentSceneId, clearCurrentSceneId } =
+    useCurrentSceneId();
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
@@ -46,6 +47,7 @@ export function useCloudUpload(
     description?: string;
     categories?: string[];
     workspaceId?: string;
+    suppressSuccessToast?: boolean;
   };
 
   const uploadSceneToCloud = useCallback(
@@ -79,8 +81,13 @@ export function useCloudUpload(
           );
           const safeNameFromState =
             (appState.name ?? "Untitled").trim() || "Untitled";
+          // 重要：避免在同一事件中先 clear 再存時仍拿到舊的閉包值，
+          // 優先即時從 localStorage 讀取最新的 sceneId。
+          const effectiveSceneId =
+            options?.existingSceneId ?? loadCurrentSceneIdFromStorage();
+
           const result = await saveSceneAction({
-            id: options?.existingSceneId ?? currentSceneId,
+            id: effectiveSceneId,
             name: options?.name ?? safeNameFromState,
             description: options?.description ?? "",
             workspaceId: options?.workspaceId,
@@ -163,8 +170,10 @@ export function useCloudUpload(
             // 若沒有資產需要上傳，或所有並行任務皆已完成，明確標記為成功
             setStatus("success");
 
-            // 顯示成功 toast
-            toast.success(t("app.cloudUpload.toast.success"));
+            // 可選地顯示成功 toast（由呼叫端統一顯示避免重複）
+            if (!options?.suppressSuccessToast) {
+              toast.success(t("app.cloudUpload.toast.success"));
+            }
 
             // 完成雲端上傳後，讓清單失效以取得最新資料
             void utils.scene.getUserScenesList.invalidate();
@@ -192,7 +201,6 @@ export function useCloudUpload(
       thumbnailUpload,
       excalidrawAPI,
       utils,
-      currentSceneId,
       t,
       onSceneNotFoundError,
       saveCurrentSceneId,

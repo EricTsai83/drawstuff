@@ -10,7 +10,6 @@ import { useRouter } from "next/navigation";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 
-// 直接使用 tRPC 的輸出類型
 type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
 
 export function SceneSearchList() {

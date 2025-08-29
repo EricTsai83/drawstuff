@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { workspaceCreateSchema } from "@/lib/schemas/workspace";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { eq } from "drizzle-orm";
 import {
@@ -51,12 +52,7 @@ export const workspaceRouter = createTRPCRouter({
   }),
 
   create: protectedProcedure
-    .input(
-      z.object({
-        name: z.string().min(1, "Name is required"),
-        description: z.string().optional(),
-      }),
-    )
+    .input(workspaceCreateSchema)
     .mutation(async ({ ctx, input }) => {
       const [createdWorkspace] = await ctx.db
         .insert(workspace)
