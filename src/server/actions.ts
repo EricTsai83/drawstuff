@@ -13,6 +13,8 @@ import { getServerSession } from "@/lib/auth/server";
 import { QUERIES } from "@/server/db/queries";
 import { UTApi } from "uploadthing/server";
 import { z } from "zod";
+import type { AppErrorCode } from "@/lib/errors";
+import { APP_ERROR } from "@/lib/errors";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -210,17 +212,34 @@ const SaveSceneInput = z.object({
   categories: z.array(z.string().min(1)).optional(),
 });
 
-export async function saveSceneAction(raw: unknown): Promise<{ id: string }> {
-  const input = SaveSceneInput.parse(raw);
+export type SaveSceneResult =
+  | { ok: true; data: { id: string } }
+  | { ok: false; error: AppErrorCode; message?: string };
+
+export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
+  const parsed = SaveSceneInput.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: APP_ERROR.VALIDATION_FAILED,
+      message: "Invalid input",
+    };
+  }
+  const input = parsed.data;
   const session = await getServerSession();
-  if (!session) throw new Error("Unauthorized");
+  if (!session)
+    return {
+      ok: false,
+      error: APP_ERROR.UNAUTHORIZED,
+      message: "Unauthorized",
+    };
 
   const now = new Date();
   let sceneId: string | undefined;
 
   if (input.id) {
     // 更新現有場景（僅限本人場景）
-    const updated = await db
+    const [updatedScene] = await db
       .update(scene)
       .set({
         name: input.name,
@@ -231,11 +250,15 @@ export async function saveSceneAction(raw: unknown): Promise<{ id: string }> {
       .where(and(eq(scene.id, input.id), eq(scene.userId, session.user.id)))
       .returning({ id: scene.id });
 
-    if (!updated[0]?.id) {
-      // 與現有 client 偵錯字串對齊，讓前端能清空無效的 local scene id
-      throw new Error("SCENE_NOT_FOUND");
+    if (!updatedScene?.id) {
+      // 與前端協議的錯誤語意對齊，讓前端能清空無效的 local scene id
+      return {
+        ok: false,
+        error: APP_ERROR.SCENE_NOT_FOUND,
+        message: "Scene not found",
+      };
     }
-    sceneId = updated[0].id;
+    sceneId = updatedScene.id;
   } else {
     // 建立新場景
     const created = await db
@@ -249,7 +272,12 @@ export async function saveSceneAction(raw: unknown): Promise<{ id: string }> {
       })
       .returning({ id: scene.id });
 
-    if (!created[0]?.id) throw new Error("CREATE_FAILED");
+    if (!created[0]?.id)
+      return {
+        ok: false,
+        error: APP_ERROR.CREATE_FAILED,
+        message: "Failed to create scene",
+      };
     sceneId = created[0].id;
   }
 
@@ -297,6 +325,11 @@ export async function saveSceneAction(raw: unknown): Promise<{ id: string }> {
     }
   }
 
-  if (!sceneId) throw new Error("FAILED_TO_SAVE_SCENE");
-  return { id: sceneId };
+  if (!sceneId)
+    return {
+      ok: false,
+      error: APP_ERROR.SAVE_FAILED,
+      message: "Failed to save scene",
+    };
+  return { ok: true, data: { id: sceneId } };
 }

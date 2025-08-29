@@ -16,6 +16,7 @@ import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element
 import { useCurrentSceneId } from "@/hooks/use-current-scene-id";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/lib/i18n";
+import { APP_ERROR } from "@/lib/errors";
 
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
@@ -78,31 +79,24 @@ export function useCloudUpload(
           );
           const safeNameFromState =
             (appState.name ?? "Untitled").trim() || "Untitled";
-          let id: string | undefined;
-          try {
-            const result = await saveSceneAction({
-              id: options?.existingSceneId ?? currentSceneId,
-              name: options?.name ?? safeNameFromState,
-              description: options?.description ?? "",
-              workspaceId: options?.workspaceId,
-              data: base64Data,
-              categories: options?.categories,
-            });
-            id = result.id;
-          } catch (err: unknown) {
-            const errorObj =
-              err instanceof Error ? err : new Error(String(err));
-            // 場景找不到或是已經刪除，清除本地 sceneId 並改為建立新場景
-            if (errorObj.message?.includes("SCENE_NOT_FOUND")) {
+          const result = await saveSceneAction({
+            id: options?.existingSceneId ?? currentSceneId,
+            name: options?.name ?? safeNameFromState,
+            description: options?.description ?? "",
+            workspaceId: options?.workspaceId,
+            data: base64Data,
+            categories: options?.categories,
+          });
+          if (!result.ok) {
+            if (result.error === APP_ERROR.SCENE_NOT_FOUND) {
               clearCurrentSceneId();
-              setStatus("idle"); // 重置狀態，避免顯示錯誤
+              setStatus("idle");
               onSceneNotFoundError();
-              // 場景找不到時，直接返回 false，避免顯示額外的錯誤 toast
               return false;
-            } else {
-              throw errorObj;
             }
+            throw new Error(result.message ?? result.error);
           }
+          const id = result.data.id;
 
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
