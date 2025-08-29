@@ -7,6 +7,8 @@
 * dashboard 的 workspace selector 要能夠選擇 workspace
 * 要註明 default workspace 不能刪
 * 做完整測試
+* i18n 改成只有中英文，並寫補足新的文字轉換文檔
+* scene 要能跨 workspace 移動
 
 
 [Reference](https://plus.excalidraw.com/blog/redesigning-editor-api)

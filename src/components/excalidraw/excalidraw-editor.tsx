@@ -41,6 +41,7 @@ import { useLanguagePreference } from "@/hooks/use-language-preference";
 import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
 import { useExportHandlers } from "@/hooks/excalidraw/use-export-handlers";
 import { EditorFooter } from "@/components/excalidraw/editor-footer";
+import { useDashboardShortcut } from "@/hooks/use-dashboard-shortcut";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -50,6 +51,8 @@ export default function ExcalidrawEditor() {
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
+  // 只在編輯器中、且使用者已登入時啟用 Dashboard 快捷鍵
+  useDashboardShortcut(!!session);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const {
     exportScene,
