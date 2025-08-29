@@ -22,7 +22,7 @@ import { Dropdown } from "./icons";
 export type Workspace = {
   id: string;
   name: string;
-  description?: string;
+  description: string | null;
   createdAt: string;
   updatedAt: string;
 };

@@ -1,11 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
 import { authClient } from "@/lib/auth/client";
-import {
-  WorkspaceDropdown,
-  type Workspace as WorkspaceOption,
-} from "@/components/workspace-dropdown";
+import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { api } from "@/trpc/react";
 
 export function WorkspaceSelector() {
@@ -25,28 +21,9 @@ export function WorkspaceSelector() {
     },
   );
 
-  const workspaceOption = useMemo<WorkspaceOption[]>(() => {
-    const rows = Array.isArray(workspaces) ? workspaces : [];
-    return rows
-      .map((w) => ({
-        id: w.id,
-        name: w.name,
-        description: w.description ?? "",
-        createdAt:
-          w.createdAt instanceof Date
-            ? w.createdAt.toISOString()
-            : String(w.createdAt),
-        updatedAt:
-          w.updatedAt instanceof Date
-            ? w.updatedAt.toISOString()
-            : String(w.updatedAt),
-      }))
-      .sort((a, b) => a.name.localeCompare(b.name));
-  }, [workspaces]);
-
   return (
     <WorkspaceDropdown
-      options={workspaceOption}
+      options={workspaces}
       defaultValue={defaultWorkspace?.id}
     />
   );

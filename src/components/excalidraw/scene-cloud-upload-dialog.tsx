@@ -62,15 +62,9 @@ export function SceneCloudUploadDialog({
     return rows.map((w) => ({
       id: w.id,
       name: w.name,
-      description: w.description ?? "",
-      createdAt:
-        w.createdAt instanceof Date
-          ? w.createdAt.toISOString()
-          : String(w.createdAt),
-      updatedAt:
-        w.updatedAt instanceof Date
-          ? w.updatedAt.toISOString()
-          : String(w.updatedAt),
+      description: w.description,
+      createdAt: w.createdAt,
+      updatedAt: w.updatedAt,
     }));
   }, [workspaces]);
 

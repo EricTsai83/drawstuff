@@ -14,9 +14,9 @@ export const workspaceRouter = createTRPCRouter({
     return rows.map((w) => ({
       id: w.id,
       name: w.name,
-      description: w.description ?? "",
-      createdAt: w.createdAt,
-      updatedAt: w.updatedAt,
+      description: w.description,
+      createdAt: w.createdAt.toISOString(),
+      updatedAt: w.updatedAt.toISOString(),
     }));
   }),
 
@@ -45,9 +45,9 @@ export const workspaceRouter = createTRPCRouter({
       return {
         id: row.id,
         name: row.name,
-        description: row.description ?? "",
-        createdAt: row.createdAt,
-        updatedAt: row.updatedAt,
+        description: row.description,
+        createdAt: row.createdAt.toISOString(),
+        updatedAt: row.updatedAt.toISOString(),
       };
     }),
 
@@ -71,9 +71,9 @@ export const workspaceRouter = createTRPCRouter({
       return {
         id: w.id,
         name: w.name,
-        description: w.description ?? "",
-        createdAt: w.createdAt,
-        updatedAt: w.updatedAt,
+        description: w.description,
+        createdAt: w.createdAt.toISOString(),
+        updatedAt: w.updatedAt.toISOString(),
       };
     }
 
@@ -95,9 +95,9 @@ export const workspaceRouter = createTRPCRouter({
     return {
       id: row.id,
       name: row.name,
-      description: row.description ?? "",
-      createdAt: row.createdAt,
-      updatedAt: row.updatedAt,
+      description: row.description,
+      createdAt: row.createdAt.toISOString(),
+      updatedAt: row.updatedAt.toISOString(),
     };
   }),
 });
