@@ -23,7 +23,7 @@ export function useDashboardShortcut(enabled = true) {
         return;
       }
       // 僅在我們要處理時才阻止預設行為（例如瀏覽器書籤）
-
+      event.preventDefault();
       router.push("/dashboard");
       return;
     }
