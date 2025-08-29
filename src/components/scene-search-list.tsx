@@ -8,7 +8,7 @@ import { WorkspaceCard } from "./workspace-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { useRouter } from "next/navigation";
 import { api, type RouterOutputs } from "@/trpc/react";
-import { WorkspaceDropdown } from "@/components/workspace-dropdown";
+import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 
 // 直接使用 tRPC 的輸出類型
 type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
@@ -55,7 +55,7 @@ export function SceneSearchList() {
           Dashboard
         </h1>
         <div className="absolute right-0 bottom-0 w-64">
-          <WorkspaceDropdown />
+          <WorkspaceSelector />
         </div>
       </div>
 

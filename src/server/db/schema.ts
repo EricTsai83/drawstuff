@@ -115,6 +115,46 @@ export const workspace = createTable(
   ],
 );
 
+// 使用者預設 workspace 對應表：每位使用者僅一筆
+export const userDefaultWorkspace = createTable(
+  "user_default_workspace",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("user_default_workspace_user_id_idx").on(table.userId),
+    index("user_default_workspace_workspace_id_idx").on(table.workspaceId),
+  ],
+);
+
+// 使用者最後啟用的 workspace（後端持久化 isActive）
+export const userLastActiveWorkspace = createTable(
+  "user_last_active_workspace",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspace.id, { onDelete: "restrict" }),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("user_last_active_workspace_user_id_idx").on(table.userId),
+    index("user_last_active_workspace_workspace_id_idx").on(table.workspaceId),
+  ],
+);
+
 export const category = createTable(
   "category",
   {
@@ -335,6 +375,34 @@ export const workspaceRelations = relations(workspace, ({ one, many }) => ({
   scenes: many(scene),
 }));
 
+export const userDefaultWorkspaceRelations = relations(
+  userDefaultWorkspace,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [userDefaultWorkspace.userId],
+      references: [user.id],
+    }),
+    workspace: one(workspace, {
+      fields: [userDefaultWorkspace.workspaceId],
+      references: [workspace.id],
+    }),
+  }),
+);
+
+export const userLastActiveWorkspaceRelations = relations(
+  userLastActiveWorkspace,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [userLastActiveWorkspace.userId],
+      references: [user.id],
+    }),
+    workspace: one(workspace, {
+      fields: [userLastActiveWorkspace.workspaceId],
+      references: [workspace.id],
+    }),
+  }),
+);
+
 export const sceneRelations = relations(scene, ({ one, many }) => ({
   user: one(user, {
     fields: [scene.userId],
@@ -394,6 +462,8 @@ export const schema = {
   sharedScene,
   fileRecord, // 新增：文件記錄表
   deferredFileCleanup,
+  userDefaultWorkspace,
+  userLastActiveWorkspace,
 };
 
 // 導出常用型別

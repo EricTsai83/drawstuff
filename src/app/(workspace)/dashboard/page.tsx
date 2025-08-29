@@ -11,7 +11,8 @@ export default async function DashboardPage() {
 
   if (isAuthenticated) {
     // 預取 Dashboard 初始清單資料（RSC）
-    await api.scene.getUserScenesList.prefetch();
+    void api.scene.getUserScenesList.prefetch();
+    void api.workspace.list.prefetch();
   }
 
   return (

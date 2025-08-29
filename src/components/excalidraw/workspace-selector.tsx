@@ -1,30 +1,12 @@
 "use client";
 
-import { authClient } from "@/lib/auth/client";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
-import { api } from "@/trpc/react";
+import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 
 export function WorkspaceSelector() {
-  const { data: session } = authClient.useSession();
-  const isAuthenticated = !!session;
-
-  const { data: workspaces } = api.workspace.list.useQuery(undefined, {
-    enabled: isAuthenticated,
-    staleTime: 60_000,
-  });
-
-  const { data: defaultWorkspace } = api.workspace.getOrCreateDefault.useQuery(
-    undefined,
-    {
-      enabled: isAuthenticated,
-      staleTime: 60_000,
-    },
-  );
+  const { workspaces, activeWorkspaceId } = useWorkspaceOptions();
 
   return (
-    <WorkspaceDropdown
-      options={workspaces}
-      defaultValue={defaultWorkspace?.id}
-    />
+    <WorkspaceDropdown options={workspaces} defaultValue={activeWorkspaceId} />
   );
 }

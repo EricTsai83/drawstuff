@@ -10,7 +10,7 @@ export default async function WorkspaceLayout({
   // Ensure the user's default workspace exists as soon as they access the workspace area
   const session = await getServerSession();
   if (session) {
-    await api.workspace.getOrCreateDefault();
+    await api.workspace.ensureDefault();
   }
 
   return (

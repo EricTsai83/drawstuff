@@ -81,7 +81,6 @@ function WorkspaceDropdownComponent(
 
   const handleSelect = useCallback(
     (workspace: Workspace) => {
-      console.log("📁 WorkspaceDropdown value: ", workspace);
       setSelectedWorkspace(workspace);
       onChange?.(workspace);
       setOpen(false);

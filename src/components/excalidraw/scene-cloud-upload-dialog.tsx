@@ -15,11 +15,8 @@ import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import SearchableAndCreatableSelector from "@/components/searchable-and-creatable-selector";
 import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  WorkspaceDropdown,
-  type Workspace,
-} from "@/components/workspace-dropdown";
-import { api } from "@/trpc/react";
+import { WorkspaceDropdown } from "@/components/workspace-dropdown";
+import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 
 type SceneCloudUploadDialogProps = {
   open: boolean;
@@ -46,27 +43,11 @@ export function SceneCloudUploadDialog({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
     string | undefined
   >(undefined);
-  const { data: workspaces } = api.workspace.list.useQuery(undefined, {
-    staleTime: 60_000,
-    enabled: open,
-  });
-  const { data: defaultWorkspace } = api.workspace.getOrCreateDefault.useQuery(
-    undefined,
-    {
-      staleTime: 60_000,
-      enabled: open,
-    },
-  );
-  const workspaceOptions = useMemo<Workspace[]>(() => {
-    const rows = Array.isArray(workspaces) ? workspaces : [];
-    return rows.map((w) => ({
-      id: w.id,
-      name: w.name,
-      description: w.description,
-      createdAt: w.createdAt,
-      updatedAt: w.updatedAt,
-    }));
-  }, [workspaces]);
+  const {
+    workspaces: workspaceOptions,
+    defaultWorkspaceId,
+    refetchWorkspaces,
+  } = useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
 
   const parsedCategories = useMemo<string[]>(
     function parseCategories() {
@@ -81,15 +62,17 @@ export function SceneCloudUploadDialog({
   useEffect(
     function syncDefaultsWhenOpen() {
       if (!open) return;
+      // 背景刷新，不阻塞 UI
+      void refetchWorkspaces();
       const currentName = excalidrawAPI?.getName?.() ?? "";
       setName(currentName ?? "");
       // description 與 categories 預設留空，由使用者填寫
       setDescription((prev) => prev);
       setCategoryOptions((prev) => prev);
       // default to user's default workspace on first save
-      setSelectedWorkspaceId((prev) => prev ?? defaultWorkspace?.id);
+      setSelectedWorkspaceId((prev) => prev ?? defaultWorkspaceId);
     },
-    [open, excalidrawAPI, defaultWorkspace?.id],
+    [open, excalidrawAPI, defaultWorkspaceId, refetchWorkspaces],
   );
 
   useEffect(
