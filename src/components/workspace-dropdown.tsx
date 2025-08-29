@@ -34,6 +34,8 @@ type WorkspaceDropdownProps = {
   disabled?: boolean;
   placeholder?: string;
   slim?: boolean;
+  // 若提供，將顯示「建立新 Workspace」的選項，並在建立完成後自動選取
+  onCreate?: (name: string) => Promise<Workspace | void> | Workspace | void;
 };
 
 function WorkspaceDropdownComponent(
@@ -43,7 +45,8 @@ function WorkspaceDropdownComponent(
     defaultValue,
     disabled = false,
     slim = false,
-    ...props
+    onCreate,
+    ...restProps
   }: WorkspaceDropdownProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
@@ -51,6 +54,7 @@ function WorkspaceDropdownComponent(
   const [selectedWorkspace, setSelectedWorkspace] = useState<
     Workspace | undefined
   >(undefined);
+  const [searchValue, setSearchValue] = useState("");
   const { data: session } = authClient.useSession();
   const sessionDisplayName = (session?.user?.name ?? "").trim();
   const sessionDefaultLabel = sessionDisplayName
@@ -75,6 +79,14 @@ function WorkspaceDropdownComponent(
     setSelectedWorkspace((prev) => {
       if (!prev) return undefined;
       const stillExists = options.some((o) => o.id === prev.id);
+      // 保留暫存（temp:）選項，避免被清除
+      if (
+        !stillExists &&
+        typeof prev.id === "string" &&
+        prev.id.startsWith("temp:")
+      ) {
+        return prev;
+      }
       return stillExists ? prev : undefined;
     });
   }, [defaultValue, options]);
@@ -87,6 +99,22 @@ function WorkspaceDropdownComponent(
     },
     [onChange],
   );
+
+  const handleCreate = useCallback(() => {
+    const name = searchValue.trim();
+    if (!name) return;
+    // 建立暫存 Workspace（以 temp: 開頭的 id 區分）
+    const tempWorkspace: Workspace = {
+      id: `temp:${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      name,
+      description: null,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    handleSelect(tempWorkspace);
+    void onCreate?.(name);
+    setSearchValue("");
+  }, [handleSelect, onCreate, searchValue]);
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -103,7 +131,7 @@ function WorkspaceDropdownComponent(
           options[0]?.name ??
           "None"
         }`}
-        {...props}
+        {...restProps}
       >
         <div className="flex w-0 flex-grow items-center gap-2 overflow-hidden">
           <span className="overflow-hidden text-ellipsis whitespace-nowrap">
@@ -127,15 +155,52 @@ function WorkspaceDropdownComponent(
         <Command className="max-h-[200px] w-full sm:max-h-[270px]">
           <CommandList>
             <div className="bg-popover sticky top-0 z-10">
-              <CommandInput placeholder="Search workspace..." />
+              <CommandInput
+                placeholder="Search workspace..."
+                value={searchValue}
+                onValueChange={setSearchValue}
+              />
             </div>
             <CommandEmpty>No workspace found.</CommandEmpty>
             <CommandGroup>
+              {onCreate &&
+                searchValue.trim().length > 0 &&
+                !options.some(
+                  (o) =>
+                    o.name.toLowerCase() === searchValue.trim().toLowerCase(),
+                ) && (
+                  <CommandItem
+                    className={cn(
+                      "flex w-full items-center gap-2",
+                      "hover:bg-muted hover:text-foreground",
+                      "data-[selected=true]:text-foreground data-[selected=true]:bg-transparent",
+                      "data-[selected=true]:hover:bg-muted data-[selected=true]:hover:text-foreground",
+                    )}
+                    onSelect={() => void handleCreate()}
+                  >
+                    <div className="flex w-0 flex-grow space-x-2 overflow-hidden">
+                      <div className="flex flex-col overflow-hidden">
+                        <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
+                          Create &quot;{searchValue.trim()}&quot;
+                        </span>
+                      </div>
+                    </div>
+                  </CommandItem>
+                )}
               {options
                 .filter((x) => x.name)
                 .map((option, key: number) => (
                   <CommandItem
-                    className="flex w-full items-center gap-2"
+                    className={cn(
+                      "flex w-full items-center gap-2",
+                      option.id === selectedWorkspace?.id
+                        ? "bg-accent text-primary-foreground hover:bg-accent hover:text-primary-foreground data-[selected=true]:bg-accent data-[selected=true]:text-primary-foreground"
+                        : cn(
+                            "hover:bg-muted hover:text-foreground",
+                            "data-[selected=true]:text-foreground data-[selected=true]:bg-transparent",
+                            "data-[selected=true]:hover:bg-muted data-[selected=true]:hover:text-foreground",
+                          ),
+                    )}
                     key={key}
                     onSelect={() => handleSelect(option)}
                   >

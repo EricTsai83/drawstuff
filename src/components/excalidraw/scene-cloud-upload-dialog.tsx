@@ -17,6 +17,8 @@ import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { api } from "@/trpc/react";
+import { toast } from "sonner";
 
 type SceneCloudUploadDialogProps = {
   open: boolean;
@@ -43,11 +45,27 @@ export function SceneCloudUploadDialog({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
     string | undefined
   >(undefined);
+  const [pendingNewWorkspaceName, setPendingNewWorkspaceName] = useState<
+    string | undefined
+  >(undefined);
   const {
     workspaces: workspaceOptions,
     defaultWorkspaceId,
+    lastActiveWorkspaceId,
     refetchWorkspaces,
   } = useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
+
+  const utils = api.useUtils();
+  const createWorkspaceMutation = api.workspace.create.useMutation({
+    onSuccess: async () => {
+      // 背景刷新 workspace 列表
+      await Promise.allSettled([utils.workspace.listWithMeta.invalidate()]);
+      void refetchWorkspaces();
+    },
+    onError: (err) => {
+      toast.error(err.message ?? "Failed to create workspace");
+    },
+  });
 
   const parsedCategories = useMemo<string[]>(
     function parseCategories() {
@@ -69,10 +87,16 @@ export function SceneCloudUploadDialog({
       // description 與 categories 預設留空，由使用者填寫
       setDescription((prev) => prev);
       setCategoryOptions((prev) => prev);
-      // default to user's default workspace on first save
-      setSelectedWorkspaceId((prev) => prev ?? defaultWorkspaceId);
+      // 每次開啟以最後啟用的 workspace 為預設，若無則退回預設 workspace
+      setSelectedWorkspaceId(lastActiveWorkspaceId ?? defaultWorkspaceId);
     },
-    [open, excalidrawAPI, defaultWorkspaceId, refetchWorkspaces],
+    [
+      open,
+      excalidrawAPI,
+      defaultWorkspaceId,
+      lastActiveWorkspaceId,
+      refetchWorkspaces,
+    ],
   );
 
   useEffect(
@@ -91,17 +115,37 @@ export function SceneCloudUploadDialog({
     )
       return;
     if (e.key === "Enter") {
-      handleConfirm();
+      void handleConfirm();
     }
   }
 
-  function handleConfirm(): void {
+  async function handleConfirm(): Promise<void> {
     const finalName = (name ?? "").trim() || "Untitled";
+    let workspaceIdToUse: string | undefined = selectedWorkspaceId;
+
+    const isTempSelected =
+      typeof selectedWorkspaceId === "string" &&
+      selectedWorkspaceId.startsWith("temp:");
+
+    if (isTempSelected && pendingNewWorkspaceName?.trim()) {
+      try {
+        const created = await createWorkspaceMutation.mutateAsync({
+          name: pendingNewWorkspaceName.trim(),
+        });
+        workspaceIdToUse = created.id;
+        await Promise.allSettled([utils.workspace.listWithMeta.invalidate()]);
+        setPendingNewWorkspaceName(undefined);
+      } catch (err) {
+        toast.error((err as Error)?.message ?? "Failed to create workspace");
+        return;
+      }
+    }
+
     onConfirm({
       name: finalName,
       description: description ?? "",
       categories: parsedCategories,
-      workspaceId: selectedWorkspaceId,
+      workspaceId: workspaceIdToUse,
     });
     onOpenChange(false);
   }
@@ -151,6 +195,9 @@ export function SceneCloudUploadDialog({
                 placeholder="Select a workspace"
                 defaultValue={selectedWorkspaceId}
                 onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
+                onCreate={(name: string) => {
+                  setPendingNewWorkspaceName(name);
+                }}
               />
             </div>
           </div>
@@ -184,7 +231,10 @@ export function SceneCloudUploadDialog({
             >
               Cancel
             </Button>
-            <Button onClick={handleConfirm} aria-label="Confirm save">
+            <Button
+              onClick={() => void handleConfirm()}
+              aria-label="Confirm save"
+            >
               Save
             </Button>
           </div>

@@ -10,9 +10,9 @@ export default async function DashboardPage() {
   const isAuthenticated = !!session;
 
   if (isAuthenticated) {
-    // 預取 Dashboard 初始清單資料（RSC）
+    // 預取 Dashboard 初始資料
     void api.scene.getUserScenesList.prefetch();
-    void api.workspace.list.prefetch();
+    void api.workspace.listWithMeta.prefetch();
   }
 
   return (

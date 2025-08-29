@@ -9,27 +9,6 @@ import {
 import { TRPCError } from "@trpc/server";
 
 export const workspaceRouter = createTRPCRouter({
-  list: protectedProcedure.query(async ({ ctx }) => {
-    const workspaceRows = await ctx.db
-      .select({
-        id: workspace.id,
-        name: workspace.name,
-        description: workspace.description,
-        createdAt: workspace.createdAt,
-        updatedAt: workspace.updatedAt,
-      })
-      .from(workspace)
-      .where(eq(workspace.userId, ctx.auth.user.id))
-      .orderBy(workspace.updatedAt);
-    return workspaceRows.map((workspaceRow) => ({
-      id: workspaceRow.id,
-      name: workspaceRow.name,
-      description: workspaceRow.description,
-      createdAt: workspaceRow.createdAt.toISOString(),
-      updatedAt: workspaceRow.updatedAt.toISOString(),
-    }));
-  }),
-
   // 一次回傳清單與 meta（default / lastActive）
   listWithMeta: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.auth.user.id;
