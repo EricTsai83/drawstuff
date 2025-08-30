@@ -23,6 +23,7 @@ import { SceneNameTrigger } from "@/components/scene-name-trigger";
 import { authClient } from "@/lib/auth/client";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
+import { useConfirmBeforeUnload } from "@/hooks/use-confirm-before-unload";
 import type {
   NonDeletedExcalidrawElement,
   ExcalidrawElement,
@@ -74,6 +75,9 @@ export default function ExcalidrawEditor() {
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
 
+  // 當雲端上傳進行中時，阻止關閉視窗/重整，直到使用者確認
+  useConfirmBeforeUnload(uploadStatus === "uploading");
+
   const {
     handleSaveToDisk,
     handleCloudUpload: triggerCloudUpload,
@@ -94,7 +98,7 @@ export default function ExcalidrawEditor() {
     return <CustomStats />;
   }, []);
 
-  useEffect(function initializeInitialDataPromise() {
+  useEffect(() => {
     // 註冊 handler 後再建立 initialDataPromise，避免 race
     setInitialDataPromise(createInitialDataPromise());
   }, []);
@@ -123,7 +127,7 @@ export default function ExcalidrawEditor() {
         // https://docs.excalidraw.com/docs
         excalidrawAPI.scrollToContent(undefined, {
           fitToViewport: true,
-          viewportZoomFactor: 0.7,
+          viewportZoomFactor: 0.5,
           animate: false,
         });
         setHasAutoCentered(true);
