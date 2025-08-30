@@ -19,6 +19,7 @@ type SceneRenameDialogProps = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   trigger?: ReactNode;
   open?: boolean;
+  onOpenChange?: (open: boolean) => void;
   onConfirmName: (name: string) => void;
 };
 
@@ -26,11 +27,13 @@ export function SceneRenameDialog({
   excalidrawAPI,
   trigger,
   open,
+  onOpenChange,
   onConfirmName,
 }: SceneRenameDialogProps) {
   const { t } = useI18n();
   const [internalOpen, setInternalOpen] = useState(false);
   const [sceneName, setSceneName] = useState("");
+  const [initialName, setInitialName] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   // 使用外部控制的 open 狀態，如果沒有提供則使用內部狀態
@@ -38,9 +41,8 @@ export function SceneRenameDialog({
 
   const handleOpenChange = (newOpen: boolean) => {
     setInternalOpen(newOpen);
-    if (!newOpen) return;
-    const currentName = excalidrawAPI?.getName?.() ?? "";
-    setSceneName(currentName);
+    onOpenChange?.(newOpen);
+    // 名稱初始化與焦點處理交由 useEffect 以避免重複
   };
 
   function handleNameChange(event: React.ChangeEvent<HTMLInputElement>) {
@@ -73,10 +75,29 @@ export function SceneRenameDialog({
   }
 
   useEffect(() => {
-    if (isOpen && inputRef.current) {
-      inputRef.current.select();
+    if (isOpen) {
+      const currentName = excalidrawAPI?.getName?.() ?? "";
+      setInitialName(currentName);
+      setSceneName(currentName);
+      // 在開啟時聚焦並全選輸入框
+      requestAnimationFrame(() => {
+        const inputElement = inputRef.current;
+        if (!inputElement) return;
+        inputElement.focus();
+        try {
+          inputElement.setSelectionRange(0, inputElement.value.length);
+        } catch {
+          inputElement.select();
+        }
+      });
     }
-  }, [isOpen]);
+  }, [isOpen, excalidrawAPI]);
+
+  function canConfirmName(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return false;
+    return trimmed !== initialName.trim();
+  }
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
@@ -84,17 +105,14 @@ export function SceneRenameDialog({
 
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-md"
-        onOpenAutoFocus={(e) => e.preventDefault()}
         data-prevent-outside-click="true"
         onEscapeKeyDown={handleClose}
         onInteractOutside={handleClose}
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
-            {t("labels.fileTitle")}
-          </DialogTitle>
+          <DialogTitle className="text-xl font-bold">Rename scene</DialogTitle>
           <DialogDescription className="sr-only">
-            {t("labels.fileTitle")}
+            Rename scene
           </DialogDescription>
         </DialogHeader>
 
@@ -109,7 +127,6 @@ export function SceneRenameDialog({
               value={sceneName}
               onChange={handleNameChange}
               onKeyDown={handleKeyDown}
-              autoFocus
               placeholder={t("labels.fileTitle")}
               autoComplete="off"
               autoCorrect="off"
@@ -122,7 +139,20 @@ export function SceneRenameDialog({
             <Button variant="outline" onClick={handleClose}>
               {t("buttons.cancel")}
             </Button>
-            <Button onClick={handleConfirm}>{t("buttons.confirm")}</Button>
+            <Button
+              onClick={() => {
+                const trimmed = sceneName.trim();
+                if (!canConfirmName(sceneName)) {
+                  handleClose();
+                  return;
+                }
+                onConfirmName(trimmed);
+                handleOpenChange(false);
+              }}
+              disabled={!canConfirmName(sceneName)}
+            >
+              {t("buttons.confirm")}
+            </Button>
           </div>
         </div>
       </DialogContent>

@@ -5,6 +5,7 @@ import {
   useRef,
   memo,
   useCallback,
+  useState,
   type Dispatch,
   type SetStateAction,
 } from "react";
@@ -14,13 +15,14 @@ import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
-import { LogIn, FilePenLine, FilePlus2 } from "lucide-react";
+import { LogIn, FilePenLine, FilePlus2, Settings2 } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { WorkspaceSelector } from "./workspace-selector";
 import NewSceneDialog from "@/components/excalidraw/new-scene-dialog";
+import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
@@ -42,6 +44,11 @@ function AppMainMenu({
 }: AppMainMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
+  // 控制 Settings Dialog（渲染在主選單外，避免被一起卸載）
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  // 控制 Rename / New Scene（渲染在主選單外）
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [newSceneOpen, setNewSceneOpen] = useState(false);
   const { data: session } = authClient.useSession();
   const { uploadSceneToCloud, clearCurrentSceneId } = useCloudUpload(() => {
     // 若找不到場景（理論上新建時不會），忽略
@@ -76,6 +83,14 @@ function AppMainMenu({
     });
   };
 
+  type CreateNewSceneParams = {
+    name: string;
+    description?: string;
+    workspaceId?: string;
+    newWorkspaceName?: string;
+    keepCurrentContent: boolean;
+  };
+
   const handleCreateNewScene = useCallback(
     async ({
       name,
@@ -83,13 +98,7 @@ function AppMainMenu({
       workspaceId,
       newWorkspaceName,
       keepCurrentContent,
-    }: {
-      name: string;
-      description?: string;
-      workspaceId?: string;
-      newWorkspaceName?: string;
-      keepCurrentContent: boolean;
-    }) => {
+    }: CreateNewSceneParams) => {
       try {
         // 更新場景名稱（不論保留或重置）
         handleSetSceneName(name);
@@ -189,110 +198,162 @@ function AppMainMenu({
   );
 
   return (
-    <MainMenu>
-      <div ref={menuRef} className="max-w-full overflow-x-hidden">
-        {session && (
-          <div className="px-2 pb-3">
-            <WorkspaceSelector />
-          </div>
-        )}
-        <SceneRenameDialog
-          excalidrawAPI={excalidrawAPI}
-          trigger={
-            <div className="dropdown-menu-item dropdown-menu-item-base">
-              <FilePenLine strokeWidth={1.5} className="h-3.5 w-3.5" />
-              Rename Scene
+    <>
+      <MainMenu>
+        <div ref={menuRef} className="max-w-full overflow-x-hidden">
+          {session && (
+            <div className="px-2 pb-3">
+              <WorkspaceSelector />
             </div>
-          }
-          onConfirmName={handleSetSceneName}
-        />
-        <NewSceneDialog
-          trigger={
-            <div className="dropdown-menu-item dropdown-menu-item-base">
-              <FilePlus2 strokeWidth={1.5} className="h-3.5 w-3.5" />
-              New Scene
-            </div>
-          }
-          onConfirm={handleCreateNewScene}
-        />
-        <MainMenu.DefaultItems.LoadScene />
-        <MainMenu.DefaultItems.Export />
-        <MainMenu.DefaultItems.SaveAsImage />
-        <MainMenu.DefaultItems.SearchMenu />
-        <MainMenu.DefaultItems.Help />
-        <MainMenu.DefaultItems.ClearCanvas />
-        <MainMenu.Separator />
-        {session ? (
-          <MainMenu.Item
-            className="!mt-0"
-            icon={
-              <Avatar
-                src={session.user.image ?? ""}
-                fallback={session.user.name ?? ""}
-              />
-            }
-            aria-label="Sign out"
-            onClick={handleSignOut}
+          )}
+          <div
+            className="dropdown-menu-item dropdown-menu-item-base"
+            onClick={() => {
+              setRenameOpen(true);
+              const currentAppState = excalidrawAPI?.getAppState();
+              if (currentAppState) {
+                excalidrawAPI?.updateScene({
+                  appState: { ...currentAppState, openMenu: null },
+                });
+              }
+            }}
           >
-            Sign out
-          </MainMenu.Item>
-        ) : (
-          <Link href="/login" className="!no-underline">
+            <FilePenLine strokeWidth={1.5} className="h-3.5 w-3.5" />
+            Rename scene
+          </div>
+          <div
+            className="dropdown-menu-item dropdown-menu-item-base"
+            onClick={() => {
+              setNewSceneOpen(true);
+              const currentAppState = excalidrawAPI?.getAppState();
+              if (currentAppState) {
+                excalidrawAPI?.updateScene({
+                  appState: { ...currentAppState, openMenu: null },
+                });
+              }
+            }}
+          >
+            <FilePlus2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+            New scene
+          </div>
+
+          <MainMenu.DefaultItems.LoadScene />
+          <MainMenu.DefaultItems.Export />
+          <MainMenu.DefaultItems.SaveAsImage />
+          <MainMenu.DefaultItems.SearchMenu />
+          <MainMenu.DefaultItems.Help />
+          <MainMenu.DefaultItems.ClearCanvas />
+          {session && (
+            <div
+              className="dropdown-menu-item dropdown-menu-item-base"
+              onClick={() => {
+                // 先打開 Dialog（渲染於主選單外），再關閉主選單
+                setSettingsOpen(true);
+                const currentAppState = excalidrawAPI?.getAppState();
+                if (currentAppState) {
+                  excalidrawAPI?.updateScene({
+                    appState: { ...currentAppState, openMenu: null },
+                  });
+                }
+              }}
+            >
+              <Settings2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+              Settings
+            </div>
+          )}
+          <MainMenu.Separator />
+          {session ? (
             <MainMenu.Item
               className="!mt-0"
-              icon={<LogIn strokeWidth={1.5} />}
-              aria-label="Sign in"
+              icon={
+                <Avatar
+                  src={session.user.image ?? ""}
+                  fallback={session.user.name ?? ""}
+                />
+              }
+              aria-label="Sign out"
+              onClick={handleSignOut}
             >
-              Sign in
+              Sign out
             </MainMenu.Item>
-          </Link>
-        )}
+          ) : (
+            <Link href="/login" className="!no-underline">
+              <MainMenu.Item
+                className="!mt-0"
+                icon={<LogIn strokeWidth={1.5} />}
+                aria-label="Sign in"
+              >
+                Sign in
+              </MainMenu.Item>
+            </Link>
+          )}
 
-        <MainMenu.Separator />
-        <MainMenu.DefaultItems.ToggleTheme
-          allowSystemTheme
-          theme={userChosenTheme}
-          onSelect={setTheme}
-        />
-        <MainMenu.ItemCustom>
-          <LanguageList handleLangCodeChange={handleLangCodeChange} />
-        </MainMenu.ItemCustom>
-        <MainMenu.DefaultItems.ChangeCanvasBackground />
-        <MainMenu.Separator />
-        <div className="flex flex-row gap-2">
-          <Link
-            href="https://github.com/EricTsai83/excalidraw-ericts"
-            target="_blank"
-            rel="noopener"
-            className="dropdown-menu-item dropdown-menu-item-base"
-          >
-            <div className="flex w-full justify-center">
-              <Github />
-            </div>
-          </Link>
-          <Link
-            href="https://bsky.app/profile/ericts.com"
-            target="_blank"
-            rel="noopener"
-            className="dropdown-menu-item dropdown-menu-item-base"
-          >
-            <div className="flex w-full justify-center">
-              <Bluesky />
-            </div>
-          </Link>
-          <Link
-            href="https://ericts.com"
-            target="_blank"
-            rel="noopener"
-            className="dropdown-menu-item dropdown-menu-item-base"
-          >
-            <div className="flex w-full justify-center">
-              <Blog />
-            </div>
-          </Link>
+          <MainMenu.Separator />
+          <MainMenu.DefaultItems.ToggleTheme
+            allowSystemTheme
+            theme={userChosenTheme}
+            onSelect={setTheme}
+          />
+          <MainMenu.ItemCustom>
+            <LanguageList handleLangCodeChange={handleLangCodeChange} />
+          </MainMenu.ItemCustom>
+          <MainMenu.DefaultItems.ChangeCanvasBackground />
+          <MainMenu.Separator />
+          <div className="flex flex-row gap-2">
+            <Link
+              href="https://github.com/EricTsai83/excalidraw-ericts"
+              target="_blank"
+              rel="noopener"
+              className="dropdown-menu-item dropdown-menu-item-base"
+            >
+              <div className="flex w-full justify-center">
+                <Github />
+              </div>
+            </Link>
+            <Link
+              href="https://bsky.app/profile/ericts.com"
+              target="_blank"
+              rel="noopener"
+              className="dropdown-menu-item dropdown-menu-item-base"
+            >
+              <div className="flex w-full justify-center">
+                <Bluesky />
+              </div>
+            </Link>
+            <Link
+              href="https://ericts.com"
+              target="_blank"
+              rel="noopener"
+              className="dropdown-menu-item dropdown-menu-item-base"
+            >
+              <div className="flex w-full justify-center">
+                <Blog />
+              </div>
+            </Link>
+          </div>
         </div>
-      </div>
-    </MainMenu>
+      </MainMenu>
+      {/* 將 Dialog 渲染在主選單外，避免關閉主選單時一併卸載 */}
+
+      <SceneRenameDialog
+        excalidrawAPI={excalidrawAPI}
+        open={renameOpen}
+        onOpenChange={setRenameOpen}
+        onConfirmName={(name) => {
+          handleSetSceneName(name);
+          setRenameOpen(false);
+        }}
+      />
+      <NewSceneDialog
+        open={newSceneOpen}
+        onOpenChange={setNewSceneOpen}
+        onConfirm={handleCreateNewScene}
+      />
+      <WorkspaceSettingsDialog
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
+    </>
   );
 }
 

@@ -1,5 +1,8 @@
 import { z } from "zod";
-import { workspaceCreateSchema } from "@/lib/schemas/workspace";
+import {
+  workspaceCreateSchema,
+  workspaceUpdateSchema,
+} from "@/lib/schemas/workspace";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { eq } from "drizzle-orm";
 import {
@@ -226,5 +229,122 @@ export const workspaceRouter = createTRPCRouter({
           target: userLastActiveWorkspace.userId,
           set: { workspaceId: input.workspaceId, updatedAt: new Date() },
         });
+    }),
+
+  // 更新 workspace 名稱/描述（僅限本人）
+  update: protectedProcedure
+    .input(workspaceUpdateSchema)
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.auth.user.id;
+
+      const [owned] = await ctx.db
+        .select({ userId: workspace.userId })
+        .from(workspace)
+        .where(eq(workspace.id, input.id))
+        .limit(1);
+      if (!owned || owned.userId !== userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Invalid workspace",
+        });
+      }
+
+      const [updated] = await ctx.db
+        .update(workspace)
+        .set({
+          name: input.name,
+          description: input.description,
+          updatedAt: new Date(),
+        })
+        .where(eq(workspace.id, input.id))
+        .returning();
+
+      if (!updated) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to update workspace",
+        });
+      }
+
+      return {
+        id: updated.id,
+        name: updated.name,
+        description: updated.description,
+        createdAt: updated.createdAt.toISOString(),
+        updatedAt: updated.updatedAt.toISOString(),
+      };
+    }),
+
+  // 刪除 workspace（禁止刪除預設 workspace）。同時處理 lastActive 指向。
+  delete: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const userId = ctx.auth.user.id;
+
+      // 驗證歸屬
+      const [target] = await ctx.db
+        .select({ id: workspace.id, userId: workspace.userId })
+        .from(workspace)
+        .where(eq(workspace.id, input.id))
+        .limit(1);
+      if (!target || target.userId !== userId) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Invalid workspace",
+        });
+      }
+
+      // 取預設與最後啟用對應
+      const [defaultMapping] = await ctx.db
+        .select({ workspaceId: userDefaultWorkspace.workspaceId })
+        .from(userDefaultWorkspace)
+        .where(eq(userDefaultWorkspace.userId, userId))
+        .limit(1);
+      const [lastActiveMapping] = await ctx.db
+        .select({ workspaceId: userLastActiveWorkspace.workspaceId })
+        .from(userLastActiveWorkspace)
+        .where(eq(userLastActiveWorkspace.userId, userId))
+        .limit(1);
+
+      // 禁止刪除預設 workspace
+      if (defaultMapping?.workspaceId === input.id) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Cannot delete default workspace",
+        });
+      }
+
+      // 若 lastActive 指向此 workspace，事先調整
+      if (lastActiveMapping?.workspaceId === input.id) {
+        if (
+          defaultMapping?.workspaceId &&
+          defaultMapping.workspaceId !== input.id
+        ) {
+          await ctx.db
+            .insert(userLastActiveWorkspace)
+            .values({
+              userId,
+              workspaceId: defaultMapping.workspaceId,
+              updatedAt: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: userLastActiveWorkspace.userId,
+              set: {
+                workspaceId: defaultMapping.workspaceId,
+                updatedAt: new Date(),
+              },
+            });
+        } else {
+          // 若沒有 default 映射，直接刪除 lastActive 記錄以解除限制
+          await ctx.db
+            .delete(userLastActiveWorkspace)
+            .where(eq(userLastActiveWorkspace.userId, userId));
+        }
+      }
+
+      // 刪除 workspace（會因 scene 的 FK 連動刪除其場景）
+      await ctx.db.delete(workspace).where(eq(workspace.id, input.id));
+
+      return { success: true } as const;
     }),
 });

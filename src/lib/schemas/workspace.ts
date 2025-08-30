@@ -18,3 +18,11 @@ export const workspaceCreateSchema = z.object({
 });
 
 export type WorkspaceCreateInput = z.infer<typeof workspaceCreateSchema>;
+
+export const workspaceUpdateSchema = z.object({
+  id: z.string().uuid(),
+  name: workspaceNameSchema.optional(),
+  description: workspaceDescriptionSchema,
+});
+
+export type WorkspaceUpdateInput = z.infer<typeof workspaceUpdateSchema>;
