@@ -30,6 +30,12 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 type WorkspaceSettingsDialogProps = {
   trigger?: React.ReactNode;
@@ -236,17 +242,34 @@ export default function WorkspaceSettingsDialog({
               </p>
             </div>
             {!confirmInline ? (
-              <Button
-                variant="destructive"
-                disabled={!active || disableDelete || deleting}
-                onClick={() => {
-                  if (!active || disableDelete || deleting) return;
-                  setConfirmInline(true);
-                }}
-                className="transition-[width] duration-300 ease-in-out"
-              >
-                Delete this workspace
-              </Button>
+              disableDelete ? (
+                <TooltipProvider>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <span className="inline-block">
+                        <Button variant="destructive" disabled>
+                          Delete this workspace
+                        </Button>
+                      </span>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" variant="secondary">
+                      Default workspace cannot be deleted.
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              ) : (
+                <Button
+                  variant="destructive"
+                  disabled={!active || deleting}
+                  onClick={() => {
+                    if (!active || deleting) return;
+                    setConfirmInline(true);
+                  }}
+                  className="transition-[width] duration-300 ease-in-out"
+                >
+                  Delete this workspace
+                </Button>
+              )
             ) : (
               <div
                 className={cn(
@@ -305,11 +328,6 @@ export default function WorkspaceSettingsDialog({
                   </Button>
                 </div>
               </div>
-            )}
-            {disableDelete && (
-              <p className="text-muted-foreground mt-2 text-xs">
-                Default workspace cannot be deleted.
-              </p>
             )}
           </div>
         </div>
