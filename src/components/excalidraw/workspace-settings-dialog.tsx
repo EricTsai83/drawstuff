@@ -10,17 +10,7 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
+// Removed alert-dialog in favor of inline confirmation UI
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
@@ -63,8 +53,14 @@ export default function WorkspaceSettingsDialog({
 
   const [internalOpen, setInternalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmInline, setConfirmInline] = useState(false);
+  const [confirmText, setConfirmText] = useState("");
+  const isNameConfirmed = useMemo(() => {
+    const typed = confirmText.trim();
+    const original = (active?.name ?? "").trim();
+    return typed.length > 0 && typed === original;
+  }, [confirmText, active?.name]);
   // no measuring; we'll animate width using fixed ch units like ShareSceneButton
 
   // 當 active 變動時，同步名稱輸入
@@ -100,7 +96,8 @@ export default function WorkspaceSettingsDialog({
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesList.invalidate();
       toast.success("Workspace deleted");
-      setConfirmOpen(false);
+      setConfirmInline(false);
+      setConfirmText("");
       handleOpenChange(false);
     },
     onError: (err) => {
@@ -136,6 +133,10 @@ export default function WorkspaceSettingsDialog({
     setInternalOpen(v);
     onOpenChange?.(v);
     if (v) form.reset({ name: active?.name ?? "" });
+    if (!v) {
+      setConfirmInline(false);
+      setConfirmText("");
+    }
   };
 
   useEffect(() => {
@@ -234,49 +235,62 @@ export default function WorkspaceSettingsDialog({
                 Deleting a workspace will permanently remove all its scenes.
               </p>
             </div>
-            <AlertDialog
-              open={confirmOpen}
-              onOpenChange={(open) => {
-                if (deleting) return;
-                setConfirmOpen(open);
-              }}
-            >
-              <AlertDialogTrigger asChild>
-                <Button
-                  variant="destructive"
-                  disabled={!active || disableDelete || deleting}
-                >
-                  Delete this workspace
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Delete workspace?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    This action cannot be undone. All scenes in{" "}
-                    <span className="font-medium">{active?.name}</span> will be
-                    permanently deleted. Are you sure?
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel disabled={deleting}>
+            {!confirmInline ? (
+              <Button
+                variant="destructive"
+                disabled={!active || disableDelete || deleting}
+                onClick={() => {
+                  if (!active || disableDelete || deleting) return;
+                  setConfirmInline(true);
+                }}
+                className="transition-[width] duration-300 ease-in-out"
+              >
+                Delete this workspace
+              </Button>
+            ) : (
+              <div
+                className={cn(
+                  "flex flex-col gap-2",
+                  "transition-all duration-300 ease-in-out",
+                )}
+              >
+                <Input
+                  placeholder={
+                    active?.name
+                      ? `Type "${active.name}" to confirm`
+                      : "Type workspace name to confirm"
+                  }
+                  value={confirmText}
+                  onChange={(e) => setConfirmText(e.target.value)}
+                  disabled={deleting}
+                  autoFocus
+                />
+
+                <div className="flex justify-end gap-2">
+                  <Button
+                    variant="outline"
+                    disabled={deleting}
+                    onClick={() => {
+                      if (deleting) return;
+                      setConfirmInline(false);
+                      setConfirmText("");
+                    }}
+                  >
                     Cancel
-                  </AlertDialogCancel>
-                  <AlertDialogAction
+                  </Button>
+                  <Button
                     className={cn(
                       "bg-destructive text-destructive-foreground hover:bg-destructive/90",
                       "flex items-center justify-center gap-2 font-normal whitespace-nowrap",
-                      "w-[12ch] transition-[width] duration-300 ease-in-out",
+                      "w-[14ch] transition-[width] duration-300 ease-in-out",
                       "h-[36px] rounded-[8px]",
                       { "w-[16ch]": deleting },
                     )}
-                    disabled={deleting}
+                    disabled={deleting || !isNameConfirmed}
                     aria-busy={deleting}
-                    aria-label={deleting ? "Deleting..." : "Delete"}
-                    onClick={(e) => {
-                      // prevent the dialog from auto-closing; we will close on success
-                      e.preventDefault();
-                      if (!active || deleting) return;
+                    aria-label={deleting ? "Deleting..." : "Confirm delete"}
+                    onClick={() => {
+                      if (!active || deleting || !isNameConfirmed) return;
                       setDeleting(true);
                       deleteMutation.mutate({ id: active.id });
                     }}
@@ -286,12 +300,12 @@ export default function WorkspaceSettingsDialog({
                         <Loader2 className="h-4 w-4 animate-spin" /> Deleting...
                       </>
                     ) : (
-                      "Delete"
+                      "Confirm delete"
                     )}
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
+                  </Button>
+                </div>
+              </div>
+            )}
             {disableDelete && (
               <p className="text-muted-foreground mt-2 text-xs">
                 Default workspace cannot be deleted.
