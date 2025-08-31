@@ -30,7 +30,7 @@ export function SceneCardMenu({
           size="icon"
           className="bg-background/80 hover:bg-background h-6 w-6"
           onClick={(e) => e.stopPropagation()}
-          aria-label="更多選項"
+          aria-label="More options"
         >
           <EllipsisVertical className="h-3 w-3" />
         </Button>
@@ -38,16 +38,16 @@ export function SceneCardMenu({
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem onClick={onImport}>
           <Download className="hover:text-accent-foreground mr-2 h-4 w-4" />
-          導入場景
+          Import scene
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onEdit}>
           <Edit className="hover:text-accent-foreground mr-2 h-4 w-4" />
-          編輯
+          Edit
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={onDelete}>
           <Trash2 className="hover:text-destructive-foreground mr-2 h-4 w-4" />
-          刪除
+          Delete
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
