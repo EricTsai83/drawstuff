@@ -1,19 +1,27 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useEffect } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { WorkspaceCard } from "./workspace-card";
 import { useEscapeKey } from "@/hooks/use-escape-key";
-import { useRouter } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
+import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { useSearchParams } from "next/navigation";
 
 type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
 
 export function SceneSearchList() {
   const router = useRouter();
+  const pathname = usePathname();
+  const { lastActiveWorkspaceId } = useWorkspaceOptions();
+  const params = useSearchParams();
+
+  const paramWorkspaceId = params.get("workspaceId") ?? undefined;
+  console.log("paramWorkspaceId", paramWorkspaceId);
   const [searchQuery, setSearchQuery] = useQueryState("search", {
     defaultValue: "",
     clearOnDefault: true,
@@ -23,6 +31,16 @@ export function SceneSearchList() {
 
   const { data: scenes = [], isLoading } =
     api.scene.getUserScenesList.useQuery();
+
+  // 若 URL 上帶有 workspaceId，取得後即從 URL 移除（保留其他參數）
+  useEffect(() => {
+    if (!paramWorkspaceId) return;
+    const next = new URLSearchParams(params.toString());
+    next.delete("workspaceId");
+    const qs = next.toString();
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [paramWorkspaceId, pathname, router]);
 
   function doesSceneMatchQuery(item: SceneListItem, q: string): boolean {
     const inName = item.name.toLowerCase().includes(q);
@@ -36,11 +54,14 @@ export function SceneSearchList() {
   }
 
   const filteredItems = useMemo<SceneListItem[]>(() => {
-    if (!searchQuery) return scenes;
-
+    const effectiveId = paramWorkspaceId ?? lastActiveWorkspaceId;
+    const list = effectiveId
+      ? scenes.filter((s) => s.workspaceId === effectiveId)
+      : scenes;
+    if (!searchQuery) return list;
     const q = searchQuery.toLowerCase();
-    return scenes.filter((item) => doesSceneMatchQuery(item, q));
-  }, [searchQuery, scenes]);
+    return list.filter((item) => doesSceneMatchQuery(item, q));
+  }, [searchQuery, scenes, lastActiveWorkspaceId, paramWorkspaceId]);
 
   // Split items into "Recently modified by you" and "Your scenes" sections
   const recentlyModifiedItems = filteredItems.slice(0, 6);

@@ -20,8 +20,10 @@ import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
-import { WorkspaceSelector } from "./workspace-selector";
+import SceneSwitchConfirmDialog from "@/components/excalidraw/scene-switch-confirm-dialog";
 import NewSceneDialog from "@/components/excalidraw/new-scene-dialog";
+import { WorkspaceDropdown } from "@/components/workspace-dropdown";
+import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { api } from "@/trpc/react";
@@ -49,6 +51,13 @@ function AppMainMenu({
   // 控制 Rename / New Scene（渲染在主選單外）
   const [renameOpen, setRenameOpen] = useState(false);
   const [newSceneOpen, setNewSceneOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [confirmWorkspaceId, setConfirmWorkspaceId] = useState<
+    string | undefined
+  >(undefined);
+  const [confirmWorkspaceName, setConfirmWorkspaceName] = useState<
+    string | undefined
+  >(undefined);
   const { data: session } = authClient.useSession();
   const { uploadSceneToCloud, clearCurrentSceneId } = useCloudUpload(() => {
     // 若找不到場景（理論上新建時不會），忽略
@@ -60,6 +69,7 @@ function AppMainMenu({
       await utils.workspace.listWithMeta.invalidate();
     },
   });
+  const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
 
   useOutsideClick(menuRef, () => {
     const currentAppState = excalidrawAPI?.getAppState();
@@ -203,7 +213,15 @@ function AppMainMenu({
         <div ref={menuRef} className="max-w-full overflow-x-hidden">
           {session && (
             <div className="px-2 pb-3">
-              <WorkspaceSelector />
+              <WorkspaceDropdown
+                options={workspaces}
+                defaultValue={lastActiveWorkspaceId}
+                onChange={(ws) => {
+                  setConfirmWorkspaceId(ws.id);
+                  setConfirmWorkspaceName(ws.name);
+                  setConfirmOpen(true);
+                }}
+              />
             </div>
           )}
           <div
@@ -347,7 +365,23 @@ function AppMainMenu({
       <NewSceneDialog
         open={newSceneOpen}
         onOpenChange={setNewSceneOpen}
+        presetWorkspaceId={confirmWorkspaceId}
+        presetContentMode={"reset"}
         onConfirm={handleCreateNewScene}
+      />
+      <SceneSwitchConfirmDialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        workspaceName={confirmWorkspaceName}
+        onChoose={(choice) => {
+          setConfirmOpen(false);
+          if (!confirmWorkspaceId) return;
+          if (choice === "openExisting") {
+            router.push(`/dashboard?workspaceId=${confirmWorkspaceId}`);
+          } else if (choice === "newEmpty") {
+            setNewSceneOpen(true);
+          }
+        }}
       />
       <WorkspaceSettingsDialog
         open={settingsOpen}

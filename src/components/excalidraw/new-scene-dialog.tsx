@@ -32,6 +32,8 @@ type NewSceneDialogProps = {
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  presetWorkspaceId?: string;
+  presetContentMode?: "keep" | "reset";
   onConfirm: (payload: {
     name: string;
     description?: string;
@@ -45,6 +47,8 @@ export function NewSceneDialog({
   trigger,
   open,
   onOpenChange,
+  presetWorkspaceId,
+  presetContentMode,
   onConfirm,
 }: NewSceneDialogProps) {
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
@@ -90,8 +94,14 @@ export function NewSceneDialog({
     function syncDefaultsWhenOpen() {
       if (!isOpen) return;
       void refetchWorkspaces();
-      setSelectedWorkspaceId(lastActiveWorkspaceId ?? defaultWorkspaceId);
-      form.reset({ name: "", description: "", contentMode: "reset" });
+      const nextWorkspaceId =
+        presetWorkspaceId ?? lastActiveWorkspaceId ?? defaultWorkspaceId;
+      setSelectedWorkspaceId(nextWorkspaceId);
+      form.reset({
+        name: "",
+        description: "",
+        contentMode: presetContentMode ?? "reset",
+      });
       setPendingNewWorkspaceName(undefined);
       setTimeout(() => form.setFocus("name"), 0);
     },
@@ -101,6 +111,8 @@ export function NewSceneDialog({
       lastActiveWorkspaceId,
       refetchWorkspaces,
       form,
+      presetWorkspaceId,
+      presetContentMode,
     ],
   );
 

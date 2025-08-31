@@ -94,3 +94,34 @@ function sanitizeImportedAppState(
   const { theme, viewBackgroundColor, gridSize, name } = appState;
   return { theme, viewBackgroundColor, gridSize, name };
 }
+
+// 非分享模式：直接以 sceneId 讀取壓縮過的 sceneData，解壓並回傳
+export async function importSceneDataBySceneId(
+  sceneId: string,
+): Promise<ImportedDataState> {
+  try {
+    const client = getTrpcClient();
+    const result = await client.scene.getScene.query({ id: sceneId });
+    const compressed = result?.sceneData;
+    if (!compressed) return {};
+    const compressedBuffer = new Uint8Array(base64ToArrayBuffer(compressed));
+    const { data } = await decompressData<{ id?: string }>(compressedBuffer, {
+      // 未加密情況下，此值不會被使用
+      decryptionKey: "",
+    });
+    const parsed = JSON.parse(new TextDecoder().decode(data)) as {
+      elements?: ExcalidrawElement[];
+      appState?: Partial<AppState>;
+    };
+    const sanitizedAppState = parsed.appState
+      ? sanitizeImportedAppState(parsed.appState)
+      : null;
+    return {
+      elements: parsed.elements ?? null,
+      appState: sanitizedAppState,
+    };
+  } catch (error: unknown) {
+    console.error("importSceneDataBySceneId error", error);
+    return {};
+  }
+}
