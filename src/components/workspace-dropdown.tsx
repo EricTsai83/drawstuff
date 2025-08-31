@@ -292,7 +292,7 @@ function WorkspaceDropdownComponent(
                       className={cn(
                         "flex w-full items-center gap-2 hover:cursor-pointer",
                         option.id === selectedWorkspace?.id
-                          ? "bg-accent text-primary-foreground hover:bg-accent hover:text-primary-foreground data-[selected=true]:bg-accent data-[selected=true]:text-primary-foreground"
+                          ? "bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
                           : cn(
                               "hover:bg-muted hover:text-foreground",
                               "data-[selected=true]:text-foreground data-[selected=true]:bg-transparent",

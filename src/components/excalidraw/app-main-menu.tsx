@@ -20,7 +20,7 @@ import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
-import SceneSwitchConfirmDialog from "@/components/excalidraw/scene-switch-confirm-dialog";
+import { SceneSwitchConfirmDialog } from "@/components/excalidraw/scene-switch-confirm-dialog";
 import NewSceneDialog from "@/components/excalidraw/new-scene-dialog";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
@@ -376,7 +376,11 @@ function AppMainMenu({
       <SceneSwitchConfirmDialog
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
-        workspaceName={confirmWorkspaceName}
+        fromWorkspaceName={
+          workspaces.find((workspace) => workspace.id === lastActiveWorkspaceId)
+            ?.name
+        }
+        toWorkspaceName={confirmWorkspaceName}
         onChoose={(choice) => {
           setConfirmOpen(false);
           if (!confirmWorkspaceId) return;

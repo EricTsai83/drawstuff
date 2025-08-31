@@ -12,14 +12,16 @@ import { Button } from "@/components/ui/button";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  workspaceName?: string;
+  fromWorkspaceName?: string;
+  toWorkspaceName?: string;
   onChoose: (choice: "openExisting" | "newEmpty") => void;
 };
 
 export function SceneSwitchConfirmDialog({
   open,
   onOpenChange,
-  workspaceName,
+  fromWorkspaceName,
+  toWorkspaceName,
   onChoose,
 }: Props) {
   return (
@@ -27,10 +29,18 @@ export function SceneSwitchConfirmDialog({
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold">
-            切換 Workspace
+            Switch Workspace
           </DialogTitle>
           <DialogDescription>
-            在「{workspaceName ?? "選擇的 Workspace"}」要進行哪種操作？
+            Switch from{" "}
+            <span className="text-foreground text-base font-semibold">
+              {fromWorkspaceName ?? "current workspace"}
+            </span>{" "}
+            to{" "}
+            <span className="text-foreground text-base font-semibold">
+              {toWorkspaceName ?? "selected workspace"}
+            </span>
+            .
           </DialogDescription>
         </DialogHeader>
 
@@ -38,21 +48,19 @@ export function SceneSwitchConfirmDialog({
           <Button
             variant="default"
             onClick={() => onChoose("openExisting")}
-            aria-label="在該 Workspace 打開舊場景"
+            aria-label="Open existing scene in this workspace"
           >
-            在該 Workspace 打開舊場景
+            Open existing scene in this workspace
           </Button>
           <Button
             variant="outline"
             onClick={() => onChoose("newEmpty")}
-            aria-label="開一個新的空白場景"
+            aria-label="Create a new empty scene"
           >
-            開一個新的空白場景
+            Create a new empty scene
           </Button>
         </div>
       </DialogContent>
     </Dialog>
   );
 }
-
-export default SceneSwitchConfirmDialog;
