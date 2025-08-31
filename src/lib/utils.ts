@@ -208,3 +208,17 @@ export function parseSharedSceneHash(
   if (!match?.[1] || !match?.[2]) return null;
   return { id: match[1], key: match[2] };
 }
+
+// 解析場景清單雙擊觸發的 URL hash：#loadScene=<sceneId>[,<workspaceId>]
+const LOAD_SCENE_HASH_RE = /^#loadScene=([^,]+?)(?:,([^,]+))?$/;
+export type ParsedLoadSceneHash = { sceneId: string; workspaceId?: string };
+
+export function parseLoadSceneHash(hash?: string): ParsedLoadSceneHash | null {
+  if (hash === undefined) {
+    if (typeof window === "undefined") return null;
+    hash = window.location.hash;
+  }
+  const match = LOAD_SCENE_HASH_RE.exec(hash);
+  if (!match?.[1]) return null;
+  return { sceneId: match[1], workspaceId: match?.[2] };
+}

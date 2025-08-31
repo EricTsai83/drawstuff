@@ -3,6 +3,7 @@
 * 阻止除了我以外的其他人用雲端相關的功能，包含創建 workspace
 * scene 要能跨 workspace 移動
 * 需實作無限滾動機制
+* 寫完整的 README.md
 * 完整refactor
 * 做完整測試
 * i18n 改成只有中英文，並寫補足新的文字轉換文檔

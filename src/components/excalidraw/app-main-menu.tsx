@@ -63,7 +63,11 @@ function AppMainMenu({
     // 若找不到場景（理論上新建時不會），忽略
   }, excalidrawAPI);
   const utils = api.useUtils();
-  const setLastActiveMutation = api.workspace.setLastActive.useMutation();
+  const setLastActiveMutation = api.workspace.setLastActive.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.listWithMeta.invalidate();
+    },
+  });
   const createWorkspaceMutation = api.workspace.create.useMutation({
     onSuccess: async () => {
       await utils.workspace.listWithMeta.invalidate();

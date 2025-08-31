@@ -25,6 +25,7 @@ import { SceneCardMenu } from "@/components/scene-card-menu";
 import { api } from "@/trpc/react";
 import type { RouterOutputs } from "@/trpc/react";
 import { useRouter } from "next/navigation";
+import { dispatchLoadSceneRequest } from "@/lib/events";
 
 type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
 
@@ -47,11 +48,6 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
   });
 
   const utils = api.useUtils();
-  const setLastActiveMutation = api.workspace.setLastActive.useMutation({
-    onSuccess: async () => {
-      await utils.workspace.listWithMeta.invalidate();
-    },
-  });
 
   // 確保 AlertDialog 關閉時重置載入狀態
   useEffect(() => {
@@ -86,26 +82,11 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
     console.log("Edit scene:", item.id);
   };
 
-  // 雙擊卡片：
-  // - 若目前畫布為空白（由編輯器處理 hash 事件），直接導入舊場景
-  // - 若非空白，觸發覆蓋確認流程（由編輯器註冊的 hash 事件處理）
+  // 雙擊卡片：透過事件傳遞 sceneId/workspaceId，交由編輯器處理導入與切換邏輯
   const handleDoubleClickCard = () => {
     const id = item.id;
     const workspaceId = item.workspaceId;
-    // 將目前 workspace 設為最後啟用
-    if (workspaceId) {
-      void setLastActiveMutation.mutateAsync({ workspaceId });
-    }
-    // 為了讓編輯器在不同 workspace 載入正確舊場景，先帶 workspaceId 到 Dashboard
-    // 並在 URL hash 放入 shareable json 參數（若你的後端支援），
-    // 這裡簡化為導向編輯器主畫面，並由其他 UI 觸發匯入。
-    // 若已有分享流程，這裡可改為：window.location.hash = `#json=${sharedId},${key}`;
-    // 將欲載入的 sceneId 與 workspaceId 放入 hash，讓編輯器的流程接手
-    // 這裡約定 hash 形如 #loadScene={sceneId},{workspaceId}
-    const hash = workspaceId
-      ? `loadScene=${id},${workspaceId}`
-      : `loadScene=${id}`;
-    window.location.hash = hash;
+    dispatchLoadSceneRequest({ sceneId: id, workspaceId });
     // 關閉 Dashboard 視窗
     router.back();
   };

@@ -42,6 +42,12 @@ import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
 import { useExportHandlers } from "@/hooks/excalidraw/use-export-handlers";
 import { EditorFooter } from "@/components/excalidraw/editor-footer";
 import { useDashboardShortcut } from "@/hooks/use-dashboard-shortcut";
+import { LOAD_SCENE_EVENT, type LoadSceneRequestDetail } from "@/lib/events";
+import { SceneChangeConfirmDialog } from "./scene-change-confirm-dialog";
+import { api } from "@/trpc/react";
+// import { STORAGE_KEYS } from "@/config/app-constants";
+import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-pre-overwrite-confirm";
+import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-confirm";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -74,6 +80,18 @@ export default function ExcalidrawEditor() {
   }, excalidrawAPI);
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
+  const setLastActiveMutation = api.workspace.setLastActive.useMutation();
+  const utils = api.useUtils();
+  // 取得換場景確認 Dialog 控制方法（語意清楚的鍵名）
+  const {
+    isSceneChangeDialogOpen,
+    isSceneChangeDialogLoading,
+    handleSceneChangeDialogOpenChange,
+    requestSceneChangeDecision,
+    resolveSceneChangeDecision,
+    setSceneChangeDialogLoading,
+    closeSceneChangeDialog,
+  } = useSceneChangeConfirm();
 
   // 當雲端上傳進行中時，阻止關閉視窗/重整，直到使用者確認
   useConfirmBeforeUnload(uploadStatus === "uploading");
@@ -117,7 +135,8 @@ export default function ExcalidrawEditor() {
     const tryCenter = () => {
       attempts += 1;
       const els =
-        excalidrawAPI.getSceneElements() as readonly ExcalidrawElement[];
+        (excalidrawAPI.getSceneElements() as readonly ExcalidrawElement[]) ??
+        [];
       const hasContent = Array.isArray(els)
         ? els.some((el: ExcalidrawElement) => !el.isDeleted)
         : false;
@@ -144,6 +163,58 @@ export default function ExcalidrawEditor() {
       if (timer) window.clearTimeout(timer);
     };
   }, [excalidrawAPI, hasAutoCentered]);
+
+  // 建立帶確認的載入動作
+  const { loadSceneWithConfirm } = useLoadSceneWithConfirm({
+    excalidrawAPI,
+    hasCurrentContent: () => {
+      const els =
+        (excalidrawAPI?.getSceneElements() as readonly ExcalidrawElement[]) ??
+        [];
+      return Array.isArray(els)
+        ? els.some((el: ExcalidrawElement) => !el.isDeleted)
+        : false;
+    },
+    requestSceneChangeDecision,
+    setSceneChangeLoading: setSceneChangeDialogLoading,
+    closeSceneChangeConfirm: closeSceneChangeDialog,
+    uploadSceneToCloud,
+    setLastActive: async (workspaceId: string) => {
+      await setLastActiveMutation.mutateAsync({ workspaceId });
+    },
+    invalidate: async () => {
+      try {
+        await Promise.all([
+          utils.workspace.listWithMeta.invalidate(),
+          utils.scene.getUserScenesList.invalidate(),
+        ]);
+      } catch {
+        // ignore
+      }
+    },
+  });
+
+  // 處理從 Dashboard 雙擊卡片觸發的載入事件（事件驅動，不用 URL hash）
+  useEffect(() => {
+    function onLoadSceneEvent(ev: Event): void {
+      const e = ev as CustomEvent<LoadSceneRequestDetail>;
+      if (!e?.detail?.sceneId) return;
+      void loadSceneWithConfirm({
+        sceneId: e.detail.sceneId,
+        workspaceId: e.detail.workspaceId,
+      });
+    }
+
+    window.addEventListener(
+      LOAD_SCENE_EVENT,
+      onLoadSceneEvent as EventListener,
+    );
+    return () =>
+      window.removeEventListener(
+        LOAD_SCENE_EVENT,
+        onLoadSceneEvent as EventListener,
+      );
+  }, [loadSceneWithConfirm]);
 
   const renderCustomUiForExport = useCallback(
     (
@@ -297,6 +368,12 @@ export default function ExcalidrawEditor() {
           </Footer>
 
           <AppWelcomeScreen />
+          <SceneChangeConfirmDialog
+            open={isSceneChangeDialogOpen}
+            onOpenChange={handleSceneChangeDialogOpenChange}
+            onChoose={resolveSceneChangeDecision}
+            isLoading={Boolean(isSceneChangeDialogLoading)}
+          />
           <OverwriteConfirmDialog
             excalidrawAPI={excalidrawAPI}
             clearCurrentSceneId={clearCurrentSceneId}
