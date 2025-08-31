@@ -47,6 +47,11 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
   });
 
   const utils = api.useUtils();
+  const setLastActiveMutation = api.workspace.setLastActive.useMutation({
+    onSuccess: async () => {
+      await utils.workspace.listWithMeta.invalidate();
+    },
+  });
 
   // 確保 AlertDialog 關閉時重置載入狀態
   useEffect(() => {
@@ -87,6 +92,10 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
   const handleDoubleClickCard = () => {
     const id = item.id;
     const workspaceId = item.workspaceId;
+    // 將目前 workspace 設為最後啟用
+    if (workspaceId) {
+      void setLastActiveMutation.mutateAsync({ workspaceId });
+    }
     // 為了讓編輯器在不同 workspace 載入正確舊場景，先帶 workspaceId 到 Dashboard
     // 並在 URL hash 放入 shareable json 參數（若你的後端支援），
     // 這裡簡化為導向編輯器主畫面，並由其他 UI 觸發匯入。

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect } from "react";
+import { useMemo, useEffect, useState } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -21,7 +21,9 @@ export function SceneSearchList() {
   const params = useSearchParams();
 
   const paramWorkspaceId = params.get("workspaceId") ?? undefined;
-  console.log("paramWorkspaceId", paramWorkspaceId);
+  const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
+    string | undefined
+  >(paramWorkspaceId);
   const [searchQuery, setSearchQuery] = useQueryState("search", {
     defaultValue: "",
     clearOnDefault: true,
@@ -32,9 +34,13 @@ export function SceneSearchList() {
   const { data: scenes = [], isLoading } =
     api.scene.getUserScenesList.useQuery();
 
-  // 若 URL 上帶有 workspaceId，取得後即從 URL 移除（保留其他參數）
+  // 若 URL 上帶有 workspaceId，取得後即從 URL 移除（保留其他參數），
+  // 並以本地覆蓋值維持當前 workspace 過濾，避免畫面閃爍。
   useEffect(() => {
     if (!paramWorkspaceId) return;
+    setOverrideWorkspaceId(
+      (prev: string | undefined) => prev ?? paramWorkspaceId,
+    );
     const next = new URLSearchParams(params.toString());
     next.delete("workspaceId");
     const qs = next.toString();
@@ -54,14 +60,14 @@ export function SceneSearchList() {
   }
 
   const filteredItems = useMemo<SceneListItem[]>(() => {
-    const effectiveId = paramWorkspaceId ?? lastActiveWorkspaceId;
+    const effectiveId = overrideWorkspaceId ?? lastActiveWorkspaceId;
     const list = effectiveId
       ? scenes.filter((s) => s.workspaceId === effectiveId)
       : scenes;
     if (!searchQuery) return list;
     const q = searchQuery.toLowerCase();
     return list.filter((item) => doesSceneMatchQuery(item, q));
-  }, [searchQuery, scenes, lastActiveWorkspaceId, paramWorkspaceId]);
+  }, [searchQuery, scenes, lastActiveWorkspaceId, overrideWorkspaceId]);
 
   // Split items into "Recently modified by you" and "Your scenes" sections
   const recentlyModifiedItems = filteredItems.slice(0, 6);
@@ -75,7 +81,10 @@ export function SceneSearchList() {
           Dashboard
         </h1>
         <div className="absolute right-0 bottom-0 w-64">
-          <WorkspaceSelector />
+          <WorkspaceSelector
+            value={overrideWorkspaceId ?? lastActiveWorkspaceId}
+            onChange={(id: string) => setOverrideWorkspaceId(id)}
+          />
         </div>
       </div>
 
