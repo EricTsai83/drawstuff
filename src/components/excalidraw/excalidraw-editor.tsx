@@ -192,6 +192,7 @@ export default function ExcalidrawEditor() {
         // ignore
       }
     },
+    getActiveTheme: () => browserActiveTheme,
   });
 
   // 處理從 Dashboard 雙擊卡片觸發的載入事件（事件驅動，不用 URL hash）
@@ -282,6 +283,17 @@ export default function ExcalidrawEditor() {
     }
     return;
   }, [uploadStatus, resetStatus]);
+
+  useEffect(() => {
+    // 同步 Excalidraw appState.theme 與目前主題，避免載入/初始狀態殘留舊主題
+    if (!excalidrawAPI) return;
+    const current = excalidrawAPI.getAppState();
+    if (current && current.theme !== browserActiveTheme) {
+      excalidrawAPI.updateScene({
+        appState: { ...current, theme: browserActiveTheme },
+      });
+    }
+  }, [excalidrawAPI, browserActiveTheme]);
 
   useEffect(() => {
     if (exportStatus === "success") {

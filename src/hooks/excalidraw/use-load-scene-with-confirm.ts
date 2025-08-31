@@ -26,6 +26,8 @@ export type UseLoadSceneWithConfirmParams = {
   }) => Promise<boolean>;
   setLastActive?: (workspaceId: string) => Promise<void>;
   invalidate?: () => Promise<void>;
+  // 擷取目前啟用的主題（避免載入場景時套用舊主題）
+  getActiveTheme?: () => "dark" | "light";
 };
 
 export function useLoadSceneWithConfirm({
@@ -37,6 +39,7 @@ export function useLoadSceneWithConfirm({
   uploadSceneToCloud,
   setLastActive,
   invalidate,
+  getActiveTheme,
 }: UseLoadSceneWithConfirmParams) {
   const loadSceneWithConfirm = useCallback(
     async ({ sceneId, workspaceId }: LoadSceneParams) => {
@@ -79,7 +82,8 @@ export function useLoadSceneWithConfirm({
         const mergedAppState: AppState = {
           ...(baseAppState ?? ({} as AppState)),
           ...(imported.appState ?? {}),
-          theme: imported.appState?.theme ?? baseAppState?.theme ?? "light",
+          // 強制使用目前的主題，而不是導入資料內保存的主題
+          theme: getActiveTheme?.() ?? baseAppState?.theme ?? "light",
         };
 
         excalidrawAPI?.updateScene({
@@ -117,6 +121,7 @@ export function useLoadSceneWithConfirm({
       uploadSceneToCloud,
       setLastActive,
       invalidate,
+      getActiveTheme,
     ],
   );
 
