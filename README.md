@@ -8,6 +8,8 @@
 * 做完整測試
 * i18n 改成只有中英文，並寫補足新的文字轉換文檔
 * 檢查整個mobile view 的佈局
+* 透過 View Transition API 美化 dashboard 介面
+* 阻止在 dashboard page 導入同個場景
 
 
 

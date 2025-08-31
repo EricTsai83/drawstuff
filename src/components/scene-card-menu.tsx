@@ -42,7 +42,7 @@ export function SceneCardMenu({
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onEdit}>
           <Edit className="hover:text-accent-foreground mr-2 h-4 w-4" />
-          Edit
+          Scene settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem variant="destructive" onClick={onDelete}>

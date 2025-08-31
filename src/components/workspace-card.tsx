@@ -26,6 +26,7 @@ import { api } from "@/trpc/react";
 import type { RouterOutputs } from "@/trpc/react";
 import { useRouter } from "next/navigation";
 import { dispatchLoadSceneRequest } from "@/lib/events";
+import { SceneEditDialog } from "@/components/scene-edit-dialog";
 
 type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
 
@@ -33,6 +34,7 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
   const timeAgo = formatDistanceToNow(item.updatedAt, { addSuffix: true });
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
+  const [isEditOpen, setIsEditOpen] = useState(false);
   const router = useRouter();
 
   const deleteSceneMutation = api.scene.deleteScene.useMutation({
@@ -48,6 +50,7 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
   });
 
   const utils = api.useUtils();
+  const saveSceneMutation = api.scene.saveScene.useMutation();
 
   // 確保 AlertDialog 關閉時重置載入狀態
   useEffect(() => {
@@ -72,14 +75,52 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
 
   const handleImportScene = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // TODO: 實現導入場景功能
-    console.log("Import scene:", item.id);
+    const id = item.id;
+    const workspaceId = item.workspaceId;
+    dispatchLoadSceneRequest({ sceneId: id, workspaceId });
+    router.back();
   };
 
   const handleEditScene = (e: React.MouseEvent) => {
     e.stopPropagation();
-    // TODO: 實現編輯場景功能
-    console.log("Edit scene:", item.id);
+    // 延遲一個 tick，避免與 DropdownMenu 的點擊事件衝突導致 Dialog 立即關閉
+    setTimeout(() => setIsEditOpen(true), 0);
+  };
+
+  const handleConfirmEdit = async (payload: {
+    name: string;
+    description: string;
+    categories: string[];
+    workspaceId?: string;
+  }) => {
+    try {
+      let dataString = item.sceneData;
+      if (!dataString) {
+        const full = await utils.scene.getScene.fetch({ id: item.id });
+        dataString = full?.sceneData ?? undefined;
+      }
+      if (!dataString) {
+        console.error("Failed to edit: missing scene data");
+        return;
+      }
+      await saveSceneMutation.mutateAsync({
+        id: item.id,
+        name: payload.name,
+        description: payload.description,
+        workspaceId: payload.workspaceId,
+        data: dataString,
+        categories: payload.categories,
+      });
+      setIsEditOpen(false);
+      await Promise.allSettled([
+        utils.scene.getUserScenesList.invalidate(),
+        utils.scene.getUserScenes.invalidate(),
+        utils.scene.getScene.invalidate({ id: item.id }),
+        utils.workspace.listWithMeta.invalidate(),
+      ]);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   // 雙擊卡片：透過事件傳遞 sceneId/workspaceId，交由編輯器處理導入與切換邏輯
@@ -165,6 +206,18 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <SceneEditDialog
+        open={isEditOpen}
+        onOpenChange={setIsEditOpen}
+        initial={{
+          name: item.name,
+          description: item.description,
+          categories: item.categories,
+          workspaceId: item.workspaceId,
+        }}
+        onConfirm={handleConfirmEdit}
+      />
     </>
   );
 }

@@ -61,7 +61,10 @@ export function SceneChangeConfirmDialog({
               type="button"
               variant="ghost"
               disabled={isLoading}
-              onClick={() => onChoose("cancel")}
+              onClick={() => {
+                onChoose("cancel");
+                onOpenChange(false);
+              }}
               aria-label="Cancel"
             >
               Cancel
