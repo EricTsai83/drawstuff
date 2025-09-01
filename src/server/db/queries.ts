@@ -1,4 +1,4 @@
-import { eq, and, lte, ne, lt, inArray } from "drizzle-orm";
+import { eq, and, lte, ne, lt, inArray, isNull } from "drizzle-orm";
 import { db } from "./index";
 import {
   scene,
@@ -526,6 +526,27 @@ export const QUERIES = {
     return await db
       .delete(sharedScene)
       .where(lt(sharedScene.createdAt, cutoff))
+      .returning();
+  },
+
+  // 清理：取得沒有任何場景使用的孤兒分類 IDs（可選擇限制筆數）
+  getOrphanCategoryIds: async function (limit = 1000) {
+    const rows = await db
+      .select({ id: category.id })
+      .from(category)
+      .leftJoin(sceneCategory, eq(sceneCategory.categoryId, category.id))
+      .where(isNull(sceneCategory.categoryId))
+      .limit(limit);
+    return rows.map((r) => r.id);
+  },
+
+  // 清理：依 IDs 批次刪除分類
+  deleteCategoriesByIds: async function (categoryIds: string[]) {
+    if (categoryIds.length === 0)
+      return [] as Array<typeof category.$inferSelect>;
+    return await db
+      .delete(category)
+      .where(inArray(category.id, categoryIds))
       .returning();
   },
 };

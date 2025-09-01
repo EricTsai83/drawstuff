@@ -40,15 +40,24 @@ export async function POST(request: Request) {
         });
       }
     }
-    const deletedShared = await QUERIES.deleteSharedScenesOlderThan(cutoff);
+    const deletedSharedCount = (
+      await QUERIES.deleteSharedScenesOlderThan(cutoff)
+    ).length;
+
+    // 3) 刪除無場景使用的孤兒分類（批次）
+    const orphanIds = await QUERIES.getOrphanCategoryIds(1000);
+    const deletedCategoriesCount = (
+      await QUERIES.deleteCategoriesByIds(orphanIds)
+    ).length;
 
     const tasks = await QUERIES.getDueDeferredCleanups(50);
     if (tasks.length === 0) {
       return NextResponse.json({
         processed: 0,
         deletedUsers,
-        deletedExpiredSharedScenes: deletedShared.length,
+        deletedExpiredSharedScenes: deletedSharedCount,
         deletedRemoteFiles: deletedRemote,
+        deletedOrphanCategories: deletedCategoriesCount,
       });
     }
 
@@ -58,7 +67,7 @@ export async function POST(request: Request) {
         await utapi.deleteFiles([task.utFileKey]);
         await QUERIES.markDeferredCleanupDone(task.id);
         processed += 1;
-      } catch (err) {
+      } catch (err: unknown) {
         const attempts = task.attempts ?? 0;
         if (attempts >= 5) {
           await QUERIES.markDeferredCleanupFailed(task.id, err);
@@ -72,8 +81,9 @@ export async function POST(request: Request) {
       processed,
       total: tasks.length,
       deletedUsers,
-      deletedExpiredSharedScenes: deletedShared.length,
+      deletedExpiredSharedScenes: deletedSharedCount,
       deletedRemoteFiles: deletedRemote,
+      deletedOrphanCategories: deletedCategoriesCount,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });
