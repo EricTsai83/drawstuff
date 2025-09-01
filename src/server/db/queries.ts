@@ -1,4 +1,4 @@
-import { eq, and, lte } from "drizzle-orm";
+import { eq, and, lte, ne, lt, inArray } from "drizzle-orm";
 import { db } from "./index";
 import {
   scene,
@@ -495,6 +495,37 @@ export const QUERIES = {
         updatedAt: new Date(),
       })
       .where(eq(deferredFileCleanup.id, id))
+      .returning();
+  },
+  // 清理：刪除除了擁有者之外的所有使用者（連鎖刪除其關聯資料）
+  deleteUsersExceptEmail: async function (ownerEmail: string) {
+    return await db.delete(user).where(ne(user.email, ownerEmail)).returning();
+  },
+
+  // 清理：取得早於指定時間的 sharedScene IDs
+  getSharedSceneIdsOlderThan: async function (cutoff: Date) {
+    const rows = await db
+      .select({ id: sharedScene.sharedSceneId })
+      .from(sharedScene)
+      .where(lt(sharedScene.createdAt, cutoff));
+    return rows.map((r) => r.id);
+  },
+
+  // 清理：批次查詢 sharedSceneIds 對應的檔案紀錄
+  getFileRecordsBySharedSceneIds: async function (sharedSceneIds: string[]) {
+    if (sharedSceneIds.length === 0)
+      return [] as Array<typeof fileRecord.$inferSelect>;
+    return await db
+      .select()
+      .from(fileRecord)
+      .where(inArray(fileRecord.sharedSceneId, sharedSceneIds));
+  },
+
+  // 清理：刪除早於指定時間的 sharedScene（連鎖刪除其檔案紀錄）
+  deleteSharedScenesOlderThan: async function (cutoff: Date) {
+    return await db
+      .delete(sharedScene)
+      .where(lt(sharedScene.createdAt, cutoff))
       .returning();
   },
 };

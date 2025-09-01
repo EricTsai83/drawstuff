@@ -13,19 +13,6 @@ import {
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
 
-// 自定義 bytea 類型用於儲存二進位資料
-const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
-  dataType() {
-    return "bytea";
-  },
-  toDriver(value: Uint8Array): Buffer {
-    return Buffer.from(value);
-  },
-  fromDriver(value: Buffer): Uint8Array {
-    return new Uint8Array(value);
-  },
-});
-
 export const createTable = pgTableCreator(
   (name) => `excalidraw-ericts_${name}`,
 );
@@ -236,6 +223,19 @@ export const sceneCategory = createTable(
     index("unique_scene_category_idx").on(table.sceneId, table.categoryId),
   ],
 );
+
+// 自定義 bytea 類型用於儲存二進位資料
+const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+  toDriver(value: Uint8Array): Buffer {
+    return Buffer.from(value);
+  },
+  fromDriver(value: Buffer): Uint8Array {
+    return new Uint8Array(value);
+  },
+});
 
 export const sharedScene = createTable(
   "shared_scene",
