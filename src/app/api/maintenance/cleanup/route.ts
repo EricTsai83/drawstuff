@@ -51,6 +51,10 @@ export async function POST(request: Request) {
     ).length;
 
     const tasks = await QUERIES.getDueDeferredCleanups(50);
+    // 4) 刪除過期 sessions（含你的，因為與 user 無關）
+    const deletedExpiredSessionsCount = (
+      await QUERIES.deleteExpiredSessions(new Date())
+    ).length;
     if (tasks.length === 0) {
       return NextResponse.json({
         processed: 0,
@@ -58,6 +62,7 @@ export async function POST(request: Request) {
         deletedExpiredSharedScenes: deletedSharedCount,
         deletedRemoteFiles: deletedRemote,
         deletedOrphanCategories: deletedCategoriesCount,
+        deletedExpiredSessions: deletedExpiredSessionsCount,
       });
     }
 
@@ -84,6 +89,7 @@ export async function POST(request: Request) {
       deletedExpiredSharedScenes: deletedSharedCount,
       deletedRemoteFiles: deletedRemote,
       deletedOrphanCategories: deletedCategoriesCount,
+      deletedExpiredSessions: deletedExpiredSessionsCount,
     });
   } catch (error) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

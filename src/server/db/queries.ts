@@ -9,6 +9,7 @@ import {
   category,
   sceneCategory,
   deferredFileCleanup,
+  session,
 } from "./schema";
 
 export const QUERIES = {
@@ -526,6 +527,14 @@ export const QUERIES = {
     return await db
       .delete(sharedScene)
       .where(lt(sharedScene.createdAt, cutoff))
+      .returning();
+  },
+
+  // 清理：刪除已過期的 sessions（expiresAt < now）
+  deleteExpiredSessions: async function (now = new Date()) {
+    return await db
+      .delete(session)
+      .where(lt(session.expiresAt, now))
       .returning();
   },
 
