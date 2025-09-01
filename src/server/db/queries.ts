@@ -10,6 +10,7 @@ import {
   sceneCategory,
   deferredFileCleanup,
   session,
+  verification,
 } from "./schema";
 
 export const QUERIES = {
@@ -503,6 +504,55 @@ export const QUERIES = {
     return await db.delete(user).where(ne(user.email, ownerEmail)).returning();
   },
 
+  // 清理前置：取得除了擁有者之外的所有使用者 ID
+  getUserIdsExceptEmail: async function (ownerEmail: string) {
+    const rows = await db
+      .select({ id: user.id })
+      .from(user)
+      .where(ne(user.email, ownerEmail));
+    return rows.map((r) => r.id);
+  },
+
+  // 清理前置：取得屬於多位使用者的場景 ID
+  getSceneIdsByUserIds: async function (userIds: string[]) {
+    if (userIds.length === 0) return [] as string[];
+    const rows = await db
+      .select({ id: scene.id })
+      .from(scene)
+      .where(inArray(scene.userId, userIds));
+    return rows.map((r) => r.id);
+  },
+
+  // 清理前置：取得多位使用者的場景縮圖 key（非空）
+  getSceneThumbnailKeysByUserIds: async function (userIds: string[]) {
+    if (userIds.length === 0) return [] as string[];
+    const rows = await db
+      .select({ key: scene.thumbnailFileKey })
+      .from(scene)
+      .where(inArray(scene.userId, userIds));
+    return rows.map((r) => r.key).filter((k): k is string => !!k);
+  },
+
+  // 清理前置：依 ownerIds 取得 file_record 的 utFileKey
+  getFileKeysByOwnerIds: async function (ownerIds: string[]) {
+    if (ownerIds.length === 0) return [] as string[];
+    const rows = await db
+      .select({ key: fileRecord.utFileKey })
+      .from(fileRecord)
+      .where(inArray(fileRecord.ownerId, ownerIds as unknown as string[]));
+    return rows.map((r) => r.key);
+  },
+
+  // 清理前置：依 sceneIds 取得 file_record 的 utFileKey
+  getFileKeysBySceneIds: async function (sceneIds: string[]) {
+    if (sceneIds.length === 0) return [] as string[];
+    const rows = await db
+      .select({ key: fileRecord.utFileKey })
+      .from(fileRecord)
+      .where(inArray(fileRecord.sceneId, sceneIds));
+    return rows.map((r) => r.key);
+  },
+
   // 清理：取得早於指定時間的 sharedScene IDs
   getSharedSceneIdsOlderThan: async function (cutoff: Date) {
     const rows = await db
@@ -535,6 +585,30 @@ export const QUERIES = {
     return await db
       .delete(session)
       .where(lt(session.expiresAt, now))
+      .returning();
+  },
+
+  // 清理：刪除已過期的驗證碼（verification.expiresAt < now）
+  deleteExpiredVerifications: async function (now = new Date()) {
+    return await db
+      .delete(verification)
+      .where(lt(verification.expiresAt, now))
+      .returning();
+  },
+
+  // 清理：刪除已完成/失敗且早於 cutoff 的延遲清理任務
+  purgeDeferredFileCleanupOlderThan: async function (
+    cutoff: Date,
+    statuses: Array<"done" | "failed"> = ["done", "failed"],
+  ) {
+    return await db
+      .delete(deferredFileCleanup)
+      .where(
+        and(
+          inArray(deferredFileCleanup.status, statuses),
+          lt(deferredFileCleanup.updatedAt, cutoff),
+        ),
+      )
       .returning();
   },
 
