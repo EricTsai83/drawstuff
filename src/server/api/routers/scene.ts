@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { and, eq, inArray } from "drizzle-orm";
-import { category, scene, sceneCategory } from "@/server/db/schema";
+import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { saveSceneSchema } from "@/lib/schemas/scene";
 
@@ -13,6 +13,21 @@ export const sceneRouter = createTRPCRouter({
       let sceneId: string | undefined;
       let action: "created" | "updated" = "created";
 
+      // 若有指定 workspace，需要驗證所有權
+      if (input.workspaceId !== undefined) {
+        const [owned] = await ctx.db
+          .select({ userId: workspace.userId })
+          .from(workspace)
+          .where(eq(workspace.id, input.workspaceId))
+          .limit(1);
+        if (!owned || owned.userId !== ctx.auth.user.id) {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Invalid workspace",
+          });
+        }
+      }
+
       if (input.id) {
         // 更新現有場景（僅限本人場景）
         const updatedScene = await ctx.db
@@ -21,6 +36,10 @@ export const sceneRouter = createTRPCRouter({
             name: input.name,
             description: input.description,
             sceneData: input.data,
+            // 僅在有提供 workspaceId 時才更新，避免不小心清空
+            ...(input.workspaceId !== undefined
+              ? { workspaceId: input.workspaceId }
+              : {}),
             updatedAt: now,
           })
           .where(
