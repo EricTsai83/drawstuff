@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, lt, or, type SQL } from "drizzle-orm";
 import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { saveSceneSchema } from "@/lib/schemas/scene";
@@ -253,6 +253,123 @@ export const sceneRouter = createTRPCRouter({
             .filter((name): name is string => Boolean(name)),
         };
       });
+    }),
+
+  // Infinite list for dashboard/search
+  getUserScenesInfinite: protectedProcedure
+    .input(
+      z.object({
+        limit: z.number().min(1).max(100).optional(),
+        cursor: z
+          .object({
+            updatedAt: z.date(),
+            id: z.string().uuid(),
+          })
+          .optional(),
+        workspaceId: z.string().uuid().optional(),
+        // 用於重置查詢 key（後端暫不進行全文搜尋）
+        search: z.string().optional(),
+      }),
+    )
+    .output(
+      z.object({
+        items: z.array(
+          z.object({
+            id: z.string(),
+            name: z.string(),
+            description: z.string(),
+            createdAt: z.date(),
+            updatedAt: z.date(),
+            workspaceId: z.string().uuid().optional(),
+            workspaceName: z.string().optional(),
+            thumbnail: z.string().optional(),
+            sceneData: z.string().optional(),
+            isArchived: z.boolean(),
+            categories: z.array(z.string()),
+          }),
+        ),
+        nextCursor: z
+          .object({ updatedAt: z.date(), id: z.string().uuid() })
+          .optional(),
+      }),
+    )
+    .query(async ({ ctx, input }) => {
+      const limit = input.limit ?? 6;
+
+      // 型別安全的條件累加（使用非空 tuple，避免 undefined 聯集）
+      const whereClauses: [SQL, ...SQL[]] = [
+        eq(scene.userId, ctx.auth.user.id),
+      ];
+      if (input.workspaceId) {
+        whereClauses.push(eq(scene.workspaceId, input.workspaceId));
+      }
+
+      if (input.cursor) {
+        // (updatedAt < cursor.updatedAt) OR (updatedAt = cursor.updatedAt AND id < cursor.id)
+        const left: SQL = lt(scene.updatedAt, input.cursor.updatedAt);
+        const right: SQL = and(
+          eq(scene.updatedAt, input.cursor.updatedAt),
+          lt(scene.id, input.cursor.id),
+        )!;
+        const cursorCond: SQL = or(left, right)!;
+        whereClauses.push(cursorCond);
+      }
+
+      const rows = await ctx.db.query.scene.findMany({
+        where: and(...whereClauses),
+        orderBy: (sceneTbl, { desc }) => [
+          desc(sceneTbl.updatedAt),
+          desc(sceneTbl.id),
+        ],
+        limit: limit + 1,
+        with: {
+          workspace: {
+            columns: {
+              id: true,
+              name: true,
+            },
+          },
+          sceneCategories: {
+            with: {
+              category: {
+                columns: { id: true, name: true },
+              },
+            },
+          },
+        },
+      });
+
+      let hasMore = false;
+      let items = rows;
+      if (rows.length > limit) {
+        hasMore = true;
+        items = rows.slice(0, limit);
+      }
+
+      const mapped = items.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description ?? "",
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        workspaceId: s.workspaceId ?? undefined,
+        workspaceName: s.workspace?.name ?? undefined,
+        thumbnail: s.thumbnailUrl ?? undefined,
+        sceneData: s.sceneData ?? undefined,
+        isArchived: s.isArchived,
+        categories: (s.sceneCategories ?? [])
+          .map((sc) => sc.category?.name)
+          .filter((name): name is string => Boolean(name)),
+      }));
+
+      const nextCursor = hasMore
+        ? {
+            updatedAt: items[items.length - 1]!.updatedAt,
+            id: items[items.length - 1]!.id,
+          }
+        : undefined;
+
+      return { items: mapped, nextCursor };
     }),
 
   deleteScene: protectedProcedure

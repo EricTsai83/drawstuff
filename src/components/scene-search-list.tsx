@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useEffect, useState } from "react";
+import { useMemo, useEffect, useState, useRef } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,9 @@ import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useSearchParams } from "next/navigation";
 
-type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
+type SceneListItem =
+  RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
+type SceneInfinitePage = RouterOutputs["scene"]["getUserScenesInfinite"];
 
 export function SceneSearchList() {
   const router = useRouter();
@@ -31,8 +33,28 @@ export function SceneSearchList() {
 
   useEscapeKey(() => router.back());
 
-  const { data: scenes = [], isLoading } =
-    api.scene.getUserScenesList.useQuery();
+  const effectiveWorkspaceId = overrideWorkspaceId ?? lastActiveWorkspaceId;
+
+  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
+    api.scene.getUserScenesInfinite.useInfiniteQuery(
+      {
+        limit: 6,
+        workspaceId: effectiveWorkspaceId,
+        search: searchQuery || undefined,
+      },
+      {
+        getNextPageParam: (last: SceneInfinitePage) => last.nextCursor,
+        refetchOnWindowFocus: true,
+        refetchOnReconnect: true,
+      },
+    );
+
+  // 當 workspace 或搜尋字串變動時，React Query 會依 key 自動重置/重新抓取。
+  // 這裡同步確保 overrideWorkspaceId 是由使用者操作後立即生效的。
+  useEffect(() => {
+    // 變動時滾回頂部，避免 UX 不連貫
+    window?.scrollTo?.({ top: 0, behavior: "instant" as ScrollBehavior });
+  }, [effectiveWorkspaceId, searchQuery]);
 
   // 若 URL 上帶有 workspaceId，取得後即從 URL 移除（保留其他參數），
   // 並以本地覆蓋值維持當前 workspace 過濾，避免畫面閃爍。
@@ -59,19 +81,59 @@ export function SceneSearchList() {
     return matches;
   }
 
+  const allItems = useMemo<SceneListItem[]>(() => {
+    const pages: SceneInfinitePage[] = data?.pages ?? [];
+    const aggregated: SceneListItem[] = [];
+    for (const p of pages) {
+      aggregated.push(...p.items);
+    }
+    return aggregated;
+  }, [data]);
+
   const filteredItems = useMemo<SceneListItem[]>(() => {
-    const effectiveId = overrideWorkspaceId ?? lastActiveWorkspaceId;
-    const list = effectiveId
-      ? scenes.filter((s) => s.workspaceId === effectiveId)
-      : scenes;
-    if (!searchQuery) return list;
+    if (!searchQuery) return allItems;
     const q = searchQuery.toLowerCase();
-    return list.filter((item) => doesSceneMatchQuery(item, q));
-  }, [searchQuery, scenes, lastActiveWorkspaceId, overrideWorkspaceId]);
+    return allItems.filter((item) => doesSceneMatchQuery(item, q));
+  }, [searchQuery, allItems]);
+
+  // 若上方已佔用前 6 筆，且 Your scenes 暫時為空，但還有下一頁，就主動抓下一頁避免空白
+  useEffect(() => {
+    const needPrefetch =
+      filteredItems.length > 0 && hasNextPage && !isFetchingNextPage;
+    const yourHasNone = filteredItems.length <= 6;
+    if (yourHasNone && needPrefetch) {
+      void fetchNextPage();
+    }
+  }, [filteredItems.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+
+  // IntersectionObserver sentinel
+  const sentinelRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = sentinelRef.current;
+    if (!el) return;
+    if (!hasNextPage) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const first = entries[0];
+        if (
+          first &&
+          first.isIntersecting &&
+          hasNextPage &&
+          !isFetchingNextPage
+        ) {
+          void fetchNextPage();
+        }
+      },
+      { root: null, rootMargin: "200px", threshold: 0 },
+    );
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Split items into "Recently modified by you" and "Your scenes" sections
   const recentlyModifiedItems = filteredItems.slice(0, 6);
-  const yourSceneItems = filteredItems.slice(6, 18);
+  const yourSceneItems = filteredItems.slice(6);
 
   return (
     <div className="w-full space-y-5 p-6 pt-0">
@@ -124,7 +186,24 @@ export function SceneSearchList() {
             <div className="text-muted-foreground text-lg">Loading...</div>
           </div>
         ) : yourSceneItems.length > 0 ? (
-          <SceneGrid items={yourSceneItems} />
+          <>
+            <SceneGrid items={yourSceneItems} />
+            <div ref={sentinelRef} />
+            {isFetchingNextPage && (
+              <div className="text-muted-foreground py-6 text-center text-sm">
+                Loading more...
+              </div>
+            )}
+            {!hasNextPage && !isFetchingNextPage && (
+              <div className="text-muted-foreground py-6 text-center text-sm">
+                You have reached the end.
+              </div>
+            )}
+          </>
+        ) : hasNextPage ? (
+          <div className="py-8 text-center">
+            <div className="text-muted-foreground text-lg">Loading...</div>
+          </div>
         ) : (
           <div className="py-8 text-center">
             <div className="text-muted-foreground text-lg">No scenes found</div>
@@ -138,7 +217,7 @@ export function SceneSearchList() {
       {/* Show results count if searching */}
       {searchQuery && (
         <SceneResultsCount
-          totalItems={scenes.length}
+          totalItems={allItems.length}
           filteredCount={filteredItems.length}
           searchQuery={searchQuery}
         />

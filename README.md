@@ -1,4 +1,3 @@
-* workspace 的 dropdown menu 要有一個選項是顯示所有 scene
 * 需實作無限滾動機制
 * 寫完整的 README.md
 * 完整 refactor
