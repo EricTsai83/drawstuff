@@ -82,6 +82,7 @@ export default function ExcalidrawEditor() {
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
   const utils = api.useUtils();
+  const renameSceneMutation = api.scene.renameScene.useMutation();
   // 取得換場景確認 Dialog 控制方法（語意清楚的鍵名）
   const {
     isSceneChangeDialogOpen,
@@ -367,7 +368,29 @@ export default function ExcalidrawEditor() {
           <SceneRenameDialog
             excalidrawAPI={excalidrawAPI}
             trigger={<SceneNameTrigger sceneName={sceneName} />}
-            onConfirmName={handleSetSceneName}
+            onConfirmName={(newName) => {
+              // 先同步更新到 Excalidraw appState
+              handleSetSceneName(newName);
+              // 若已有雲端場景 ID，直接更新 DB 名稱
+              if (currentSceneId) {
+                renameSceneMutation.mutate(
+                  { id: currentSceneId, name: newName },
+                  {
+                    onSuccess: () => {
+                      void Promise.all([
+                        utils.scene.getUserScenesList.invalidate(),
+                        utils.scene.getUserScenesInfinite.invalidate(),
+                      ]);
+                    },
+                    onError: () => {
+                      toast.error(
+                        "Failed to update scene name. Please try again.",
+                      );
+                    },
+                  },
+                );
+              }
+            }}
           />
 
           <Footer>

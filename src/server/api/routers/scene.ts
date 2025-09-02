@@ -3,7 +3,7 @@ import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { and, eq, inArray, lt, or, type SQL } from "drizzle-orm";
 import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
-import { saveSceneSchema } from "@/lib/schemas/scene";
+import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
 
 export const sceneRouter = createTRPCRouter({
   saveScene: protectedProcedure
@@ -377,5 +377,21 @@ export const sceneRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       await ctx.db.delete(scene).where(eq(scene.id, input.id));
       return { success: true };
+    }),
+
+  renameScene: protectedProcedure
+    .input(z.object({ id: z.string().uuid(), name: sceneNameSchema }))
+    .mutation(async ({ ctx, input }) => {
+      const updated = await ctx.db
+        .update(scene)
+        .set({ name: input.name, updatedAt: new Date() })
+        .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)))
+        .returning({ id: scene.id });
+
+      if (!updated[0]?.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
+      }
+
+      return { id: updated[0].id };
     }),
 });

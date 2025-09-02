@@ -59,10 +59,12 @@ function AppMainMenu({
     string | undefined
   >(undefined);
   const { data: session } = authClient.useSession();
-  const { uploadSceneToCloud, clearCurrentSceneId } = useCloudUpload(() => {
-    // 若找不到場景（理論上新建時不會），忽略
-  }, excalidrawAPI);
+  const { uploadSceneToCloud, clearCurrentSceneId, currentSceneId } =
+    useCloudUpload(() => {
+      // 若找不到場景（理論上新建時不會），忽略
+    }, excalidrawAPI);
   const utils = api.useUtils();
+  const renameSceneMutation = api.scene.renameScene.useMutation();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation({
     onSuccess: async () => {
       await utils.workspace.listWithMeta.invalidate();
@@ -220,9 +222,9 @@ function AppMainMenu({
               <WorkspaceDropdown
                 options={workspaces}
                 defaultValue={lastActiveWorkspaceId}
-                onChange={(ws) => {
-                  setConfirmWorkspaceId(ws.id);
-                  setConfirmWorkspaceName(ws.name);
+                onChange={(workspace) => {
+                  setConfirmWorkspaceId(workspace.id);
+                  setConfirmWorkspaceName(workspace.name);
                   setConfirmOpen(true);
                 }}
               />
@@ -363,6 +365,22 @@ function AppMainMenu({
         onOpenChange={setRenameOpen}
         onConfirmName={(name) => {
           handleSetSceneName(name);
+          if (currentSceneId) {
+            renameSceneMutation.mutate(
+              { id: currentSceneId, name },
+              {
+                onSuccess: () => {
+                  void Promise.all([
+                    utils.scene.getUserScenesList.invalidate(),
+                    utils.scene.getUserScenesInfinite.invalidate(),
+                  ]);
+                },
+                onError: () => {
+                  toast.error("Failed to update scene name. Please try again.");
+                },
+              },
+            );
+          }
           setRenameOpen(false);
         }}
       />
