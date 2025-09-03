@@ -25,7 +25,7 @@
 - [tRPC](https://github.com/trpc/trpc) v11, @tanstack/react-query v5, superjson
 - [Drizzle ORM](https://github.com/drizzle-team/drizzle-orm) + [Neon](https://github.com/neondatabase/neon) (PostgreSQL)
 - [Better Auth](https://github.com/better-auth/better-auth) (Google OAuth)
-- [uploadThing](https://github.com/pingdotgg/uploadthing) (@uploadthing/react, server SDK)
+- [uploadThing](https://github.com/pingdotgg/uploadthing)
 - [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) v4
 - [create-t3-app](https://github.com/t3-oss/create-t3-app)
 
