@@ -1,48 +1,40 @@
 # drawstuff
+ ![drawstuff](/assets/drawstuff.png)
 
-- A modern Excalidraw-powered drawing app built with Next.js 15, React 19, tRPC v11, Drizzle ORM, Tailwind CSS v4, and UploadThing. Heavily inspired by the original Excalidraw repository, this project re-architects the experience on Next.js and completes a full cloud-sync workflow. It re-implements end-to-end encrypted sharing links, adds a dedicated import-scenes page, and introduces workspace segmentation to help users better organize their saved scenes.
-
-- **Framework**: Next.js App Router, React Server Components, Turbopack (dev)
-- **API**: tRPC v11 on the server; client uses React Query
-- **DB**: PostgreSQL + Drizzle ORM (table prefix: `excalidraw-ericts_`)
-- **Auth**: better-auth (Google OAuth)
-- **Uploads**: UploadThing (files and thumbnails)
-- **Styling**: Tailwind CSS v4
-- **i18n**: lightweight hooks for app/editor language
-- **Deployment**: Vercel (includes weekly Cron job for cleanup)
-
+- A Next.js–based, cloud‑synced whiteboard powered by [Excalidraw]((https://github.com/excalidraw/excalidraw)). Drawstuff introduces a new design for end-to-end encrypted share links, a dedicated scene import flow, and workspace segmentation for more organized storage.
 
 ## Features
 
-- **Google Sign-In** using better-auth
-- **Workspaces** per user with segmentation, plus last-active and default workspace tracking for better organization
-- **Cloud sync**: persist scenes, file attachments, and thumbnails via Postgres/UploadThing
+- **Google Sign-In** via Better Auth
+- **Workspaces** per user with segmentation; tracks last-active and default workspace
+- **Cloud sync**: persist scenes, attachments, and thumbnails via Neon Postgres + UploadThing
 - **Scenes**: create, save, rename, delete, archive, list, and query
 - **Categories**: auto-create and sync scene categories; automatic orphan cleanup
-- **Sharing (E2E)**: end-to-end encrypted sharing links (client-side), with compressed payloads and short IDs
-- **Import scenes page**: bring external or shared scenes into your workspace in one step
+- **Sharing (E2E)**: end-to-end encrypted share links (client-side), with compressed payloads and short IDs
+- **Scene import**: bring external or shared scenes into your workspace in one step
 - **Thumbnails**: optional scene thumbnails stored via UploadThing
 - **Dashboard**: search/list scenes with pagination (infinite and regular)
-- **Editor**: Excalidraw integration with custom toolbar and export/upload flows
+- **Editor**: Excalidraw integration with custom main menu and export/upload flows
 - **Maintenance**: weekly cleanup endpoint for pruning demo data and old shares
 
 
 ## Tech Stack
 
-- Next.js 15, React 19
-- tRPC v11, @tanstack/react-query v5, superjson
-- Drizzle ORM + PostgreSQL
-- better-auth (Google OAuth)
-- UploadThing (@uploadthing/react, server SDK)
-- Tailwind CSS v4
-- TypeScript, ESLint, Prettier
+- [Next.js](https://github.com/vercel/next.js) 15, [React](https://github.com/facebook/react) 19
+- [Excalidraw](https://github.com/excalidraw/excalidraw)
+- [tRPC](https://github.com/trpc/trpc) v11, @tanstack/react-query v5, superjson
+- [Drizzle ORM](https://github.com/drizzle-team/drizzle-orm) + [Neon](https://github.com/neondatabase/neon) (PostgreSQL)
+- [Better Auth](https://github.com/better-auth/better-auth) (Google OAuth)
+- [uploadThing](https://github.com/pingdotgg/uploadthing) (@uploadthing/react, server SDK)
+- [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) v4
+- [create-t3-app](https://github.com/t3-oss/create-t3-app)
 
 
 ## Requirements
 
 - Node.js 20+ (recommend LTS)
 - pnpm 10+
-- A PostgreSQL database (local or hosted)
+- A Neon PostgreSQL database (hosted)
 - UploadThing account/token for file storage
 - Google OAuth credentials (Client ID/Secret)
 
@@ -81,7 +73,7 @@ NEXT_PUBLIC_BASE_URL=http://localhost:3000
 
 3) Database setup (Drizzle)
 
-- Drizzle is configured in `drizzle.config.ts` and uses tables prefixed with `excalidraw-ericts_`.
+- Drizzle is configured in `drizzle.config.ts`; tables are prefixed with `excalidraw-ericts_` by default, and you can change the prefix to whatever you prefer.
 - Run migrations/generate/studio with:
 
 ```bash
@@ -99,64 +91,6 @@ pnpm dev
 ```
 
 Then open `http://localhost:3000`.
-
-
-## Scripts
-
-From `package.json`:
-
-- `dev`: start Next.js dev server (Turbopack)
-- `build`: production build
-- `start`: start production server
-- `preview`: build then start
-- `lint` / `lint:fix`: run ESLint
-- `typecheck`: TypeScript check
-- `format:check` / `format:write`: Prettier check/write
-- `db:generate` / `db:migrate` / `db:push` / `db:studio`: Drizzle workflows
-
-
-## Environment Variables
-
-Validated via `@t3-oss/env-nextjs` in `src/env.js`.
-
-Server-side:
-- `NODE_ENV` (development | test | production)
-- `UPLOADTHING_TOKEN`
-- `POSTGRES_URL`
-- `POSTGRES_URL_NON_POOLING`
-- `POSTGRES_USER`
-- `POSTGRES_HOST`
-- `POSTGRES_PASSWORD`
-- `POSTGRES_DATABASE`
-- `POSTGRES_URL_NO_SSL`
-- `POSTGRES_PRISMA_URL`
-- `BETTER_AUTH_SECRET`
-- `BETTER_AUTH_URL`
-- `GOOGLE_CLIENT_ID`
-- `GOOGLE_CLIENT_SECRET`
-- `CRON_SECRET` (used by cleanup endpoint auth)
-- `CLEANUP_OWNER_EMAIL` (data owner to keep when cleaning up)
-
-Client-side:
-- `NEXT_PUBLIC_BASE_URL`
-
-Tip: set `SKIP_ENV_VALIDATION=1` for containers if you must bypass env validation (not recommended).
-
-
-## API Overview
-
-The app uses tRPC v11 for server APIs (see `src/server/api`). Main routers:
-
-- `sceneRouter` (`src/server/api/routers/scene.ts`)
-  - `saveScene` (create/update + category sync)
-  - `getScene`, `getUserScenes`, `getUserScenesList`, `getUserScenesInfinite`
-  - `renameScene`, `deleteScene`
-- `sharedSceneRouter` (`src/server/api/routers/shared-scene.ts`)
-  - `getCompressedBySharedSceneId` (public)
-  - `getFileRecordsBySharedSceneId` (public)
-- `workspaceRouter` (in `src/server/api/routers/workspace.ts`)
-
-The root router is in `src/server/api/root.ts`.
 
 
 ## Maintenance / Weekly Cleanup (Vercel Cron)
@@ -225,38 +159,6 @@ pnpm db:push
 - Uploads use UploadThing. Ensure `UPLOADTHING_TOKEN` is configured.
 - File metadata is stored in `file_record`. For deletions, the system attempts to remove remote files and falls back to deferred cleanup when necessary.
 - Scenes may include an optional `thumbnail_url` and `thumbnail_file_key` for previews.
-
-
-## Project Structure (Selected)
-
-```
-src/
-  app/                    # Next.js App Router routes
-    api/                  # Route handlers (REST-style), e.g., maintenance/cleanup
-  components/             # UI components, Excalidraw integrations, dialogs
-  hooks/                  # React hooks (i18n, editor, dashboard, etc.)
-  lib/                    # Utilities (encryption, export/import, schemas)
-  server/
-    api/                  # tRPC routers and context
-    db/                   # Drizzle schema and queries
-  styles/                 # Tailwind CSS globals
-  trpc/                   # Client bindings, React Query setup
-```
-
-
-## Development Tips
-
-- Prefer running `pnpm check` before commits (`next lint` + `tsc --noEmit`).
-- For local DB: ensure your Postgres connection string matches SSL settings (`POSTGRES_URL_NO_SSL` is available if needed).
-- The app expects `NEXT_PUBLIC_BASE_URL` to reflect the current origin.
-
-
-## Troubleshooting
-
-- Auth callback URL mismatch: ensure `BETTER_AUTH_URL` and your OAuth client settings match the deployment URL.
-- UploadThing failures: verify `UPLOADTHING_TOKEN`; check CORS/origin configuration in your UploadThing dashboard.
-- Drizzle connection issues: double-check `POSTGRES_URL` and SSL options; try `POSTGRES_URL_NO_SSL` locally.
-- 401 on cleanup endpoint: confirm `CRON_SECRET` and that you are passing `Authorization: Bearer <CRON_SECRET>`.
 
 
 ## License

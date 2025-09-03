@@ -329,7 +329,7 @@ function AppMainMenu({
           <MainMenu.Separator />
           <div className="flex flex-row gap-2">
             <Link
-              href="https://github.com/EricTsai83/excalidraw-ericts"
+              href="https://github.com/EricTsai83/drawstuff"
               target="_blank"
               rel="noopener"
               className="dropdown-menu-item dropdown-menu-item-base"
