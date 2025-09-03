@@ -244,12 +244,13 @@ type SceneSearchBarProps = {
 };
 
 function SceneSearchBar({ searchQuery, onSearchChange }: SceneSearchBarProps) {
+  const { t } = useStandaloneI18n();
   return (
     <div className="relative">
       <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
       <Input
         type="text"
-        placeholder="Search scenes by name, description, category, or project..."
+        placeholder={t("search.placeholder")}
         value={searchQuery}
         onChange={(e) => onSearchChange(e.target.value)}
         className="h-10 pl-10 text-base"

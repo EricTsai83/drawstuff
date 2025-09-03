@@ -337,7 +337,7 @@ export default function ExcalidrawEditor() {
   );
 
   return (
-    <div className="h-screen w-screen">
+    <div className="h-dvh w-full">
       {initialDataPromise && (
         <Excalidraw
           excalidrawAPI={excalidrawRefCallback}

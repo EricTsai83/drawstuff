@@ -177,7 +177,7 @@ const appTranslations: AppTranslations = {
     "menu.settings": "設定",
     "auth.signIn": "登入",
     "auth.signOut": "登出",
-    "labels.openDashboard": "開啟主控台",
+    "labels.openDashboard": "開啟場景列表",
 
     // 提示與錯誤
     "toasts.newScene.localOnly": "已建立新場景（僅本機）。登入即可同步到雲端。",
@@ -188,7 +188,7 @@ const appTranslations: AppTranslations = {
     "errors.failedToUpdateSceneName": "更新場景名稱失敗，請再試一次。",
 
     // 儀表板與搜尋
-    "dashboard.title": "主控台",
+    "dashboard.title": "場景列表",
     "dashboard.recentlyModified": "您最近修改的項目",
     "dashboard.yourScenes": "您的場景",
     "dashboard.loading": "載入中...",
@@ -197,7 +197,7 @@ const appTranslations: AppTranslations = {
     "dashboard.reachedEnd": "已到清單底部。",
     "dashboard.noScenesFound": "找不到場景",
     "dashboard.noScenesFound.hint": "嘗試調整搜尋關鍵字，或瀏覽全部場景",
-    "search.placeholder": "以名稱、描述、分類或專案搜尋場景...",
+    "search.placeholder": "以名稱、描述、分類或專案名稱搜尋場景...",
     "search.resultsCount": '找到 {count} 筆結果，關鍵字："{query}"',
     "search.showingCount": "共顯示 {total} 個場景",
 
