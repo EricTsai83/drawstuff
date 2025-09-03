@@ -23,7 +23,7 @@ function AppWelcomeScreen() {
               "text-indigo-500 dark:text-gray-300",
             )}
           >
-            DrawStuff
+            drawstuff
           </h1>
         </WelcomeScreen.Center.Logo>
 
