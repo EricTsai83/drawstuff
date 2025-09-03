@@ -1,10 +1,5 @@
-import { LoginForm } from "@/components/login-form";
-import { SignInOverlayModal } from "@/components/sign-in-overlay-modal";
+import LoginPageContent from "@/components/modal-pages/login-page-content";
 
 export default function LoginPage() {
-  return (
-    <SignInOverlayModal>
-      <LoginForm />
-    </SignInOverlayModal>
-  );
+  return <LoginPageContent />;
 }

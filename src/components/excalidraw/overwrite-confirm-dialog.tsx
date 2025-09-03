@@ -10,7 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Download, Image as ImageIcon, CloudUpload } from "lucide-react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useOverwriteConfirm } from "@/hooks/excalidraw/use-overwrite-confirm";
-import { useAppI18n } from "@/lib/i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { getCurrentSceneSnapshot } from "@/lib/excalidraw";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";

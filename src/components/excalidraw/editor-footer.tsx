@@ -3,7 +3,7 @@ import { PanelsTopLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StorageWarning } from "@/components/storage-warning";
 import { SceneShareDialog } from "@/components/scene-share-dialog";
-import { useStandaloneI18n } from "@/lib/i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type Props = {
   showDashboardShortcut: boolean;

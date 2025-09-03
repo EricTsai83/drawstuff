@@ -1,13 +1,8 @@
-import { useI18n as useExcalidrawI18n } from "@excalidraw/excalidraw";
-import { useState } from "react";
-import { STORAGE_KEYS } from "@/config/app-constants";
+export type PlaceholderValues = Record<string, string | number>;
 
-type PlaceholderValues = Record<string, string | number>;
+export type AppTranslations = Record<string, Record<string, string>>;
 
-type AppTranslations = Record<string, Record<string, string>>;
-
-// App-level i18n dictionary for keys not provided by Excalidraw
-const appTranslations: AppTranslations = {
+export const appTranslations: AppTranslations = {
   en: {
     "app.export.cloud.title": "Cloud Upload",
     "app.export.cloud.subtitle": "Save the scene to cloud storage.",
@@ -73,6 +68,7 @@ const appTranslations: AppTranslations = {
     "menu.settings": "Settings",
     "auth.signIn": "Sign in",
     "auth.signOut": "Sign out",
+    "auth.loading": "Loading sign-in page...",
     "labels.openDashboard": "Open dashboard",
 
     // Toasts & Errors
@@ -177,6 +173,7 @@ const appTranslations: AppTranslations = {
     "menu.settings": "設定",
     "auth.signIn": "登入",
     "auth.signOut": "登出",
+    "auth.loading": "正在載入登入頁面…",
     "labels.openDashboard": "開啟場景列表",
 
     // 提示與錯誤
@@ -220,7 +217,7 @@ const appTranslations: AppTranslations = {
   },
 };
 
-function formatPlaceholders(
+export function formatPlaceholders(
   template: string,
   values?: PlaceholderValues,
 ): string {
@@ -229,35 +226,4 @@ function formatPlaceholders(
     const value = values[key];
     return value === undefined || value === null ? "" : String(value);
   });
-}
-
-export function useAppI18n() {
-  const { t: baseT, langCode } = useExcalidrawI18n();
-
-  function t(key: string, values?: PlaceholderValues): string {
-    const local = appTranslations[langCode]?.[key] ?? appTranslations.en?.[key];
-    const raw = local ?? baseT(key);
-    return formatPlaceholders(raw, values);
-  }
-
-  return { t, langCode } as const;
-}
-
-// Standalone i18n hook for use outside Excalidraw context
-export function useStandaloneI18n() {
-  // Get language from localStorage or default to English
-  const [langCode, setLangCode] = useState(() => {
-    if (typeof window !== "undefined") {
-      return localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE) ?? "en";
-    }
-    return "en";
-  });
-
-  function t(key: string, values?: PlaceholderValues): string {
-    const local = appTranslations[langCode]?.[key] ?? appTranslations.en?.[key];
-    const raw = local ?? key;
-    return formatPlaceholders(raw, values);
-  }
-
-  return { t, langCode, setLangCode } as const;
 }

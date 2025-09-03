@@ -4,7 +4,7 @@ import { Button } from "@/components/ui/button";
 import type { ExportStatus } from "@/hooks/use-scene-export";
 import { Loader2, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAppI18n } from "@/lib/i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 type ShareSceneButtonProps = {
   exportStatus: ExportStatus;

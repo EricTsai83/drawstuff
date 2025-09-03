@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CopyIcon } from "lucide-react";
-import { useAppI18n } from "@/lib/i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { Button } from "@/components/ui/button";
 import { copyTextToSystemClipboard } from "@/lib/utils";
 

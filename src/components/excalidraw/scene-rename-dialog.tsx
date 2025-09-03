@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { useAppI18n } from "@/lib/i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useState, useRef, useEffect, type ReactNode } from "react";
 

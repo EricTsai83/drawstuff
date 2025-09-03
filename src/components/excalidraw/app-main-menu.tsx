@@ -28,7 +28,7 @@ import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
-import { useAppI18n } from "@/lib/i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;

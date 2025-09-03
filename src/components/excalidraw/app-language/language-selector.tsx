@@ -1,4 +1,4 @@
-import { useAppI18n } from "@/lib/i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { allowedLanguages } from "./allowed-languages";
 import { useState } from "react";
 import {

@@ -16,7 +16,7 @@ import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element
 import { useCurrentSceneId } from "@/hooks/use-current-scene-id";
 import { loadCurrentSceneIdFromStorage } from "@/data/local-storage";
 import { toast } from "sonner";
-import { useStandaloneI18n } from "@/lib/i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
 
 export function useCloudUpload(

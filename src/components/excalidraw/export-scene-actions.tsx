@@ -7,7 +7,7 @@ import { Download, CloudUpload, Link as LinkIcon } from "lucide-react";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
-import { useAppI18n } from "@/lib/i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 export type ExportUIHandlers = {
   handleSaveToDisk: (

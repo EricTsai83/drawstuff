@@ -1,10 +1,5 @@
-import { DashboardOverlayModal } from "@/components/dashboard-overlay-modal";
-import { SceneSearchList } from "@/components/scene-search-list";
+import DashboardPageContent from "@/components/modal-pages/dashboard-page-content";
 
 export default function DashboardModalPage() {
-  return (
-    <DashboardOverlayModal>
-      <SceneSearchList />
-    </DashboardOverlayModal>
-  );
+  return <DashboardPageContent />;
 }

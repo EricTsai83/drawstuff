@@ -28,7 +28,7 @@ import type { RouterOutputs } from "@/trpc/react";
 import { useRouter } from "next/navigation";
 import { dispatchLoadSceneRequest } from "@/lib/events";
 import { SceneEditDialog } from "@/components/scene-edit-dialog";
-import { useStandaloneI18n } from "@/lib/i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
 

@@ -11,7 +11,7 @@ import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useSearchParams } from "next/navigation";
-import { useStandaloneI18n } from "@/lib/i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
@@ -40,7 +40,7 @@ export function SceneSearchList() {
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     api.scene.getUserScenesInfinite.useInfiniteQuery(
       {
-        limit: 6,
+        limit: 12,
         workspaceId: effectiveWorkspaceId,
         search: searchQuery || undefined,
       },
@@ -115,6 +115,7 @@ export function SceneSearchList() {
     if (!el) return;
     if (!hasNextPage) return;
 
+    const bottomMarginPx = Math.max(600, Math.round(window.innerHeight * 0.8));
     const observer = new IntersectionObserver(
       (entries) => {
         const first = entries[0];
@@ -127,7 +128,11 @@ export function SceneSearchList() {
           void fetchNextPage();
         }
       },
-      { root: null, rootMargin: "200px", threshold: 0 },
+      {
+        root: null,
+        rootMargin: `0px 0px ${bottomMarginPx}px 0px`,
+        threshold: 0,
+      },
     );
     observer.observe(el);
     return () => observer.disconnect();
