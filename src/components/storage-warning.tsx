@@ -4,6 +4,7 @@ import { useStorageWarning } from "@/hooks/use-storage-warning";
 import Image from "next/image";
 import { STORAGE_MAX_CAPACITY } from "@/config/app-constants";
 import { nFormatter } from "@/lib/utils";
+import { useStandaloneI18n } from "@/lib/i18n";
 
 type StorageWarningProps = {
   className?: string;
@@ -11,6 +12,7 @@ type StorageWarningProps = {
 
 export function StorageWarning({ className }: StorageWarningProps) {
   const { storageSizes } = useStorageWarning();
+  const { t } = useStandaloneI18n();
 
   const usagePercent = Math.min(
     (storageSizes.total / STORAGE_MAX_CAPACITY) * 100,
@@ -46,7 +48,13 @@ export function StorageWarning({ className }: StorageWarningProps) {
     <div className={className}>
       <Image
         src={bunImage.src}
-        alt={bunImage.alt}
+        alt={
+          bunImage.state === "critical"
+            ? t("images.bun.crying")
+            : bunImage.state === "warning"
+              ? t("images.bun.worried")
+              : t("images.bun.happy")
+        }
         width={24}
         height={24}
         key={`${bunImage.src}-${usagePercent.toFixed(0)}`} // 添加 key 來強制重新渲染
@@ -54,8 +62,10 @@ export function StorageWarning({ className }: StorageWarningProps) {
       />
 
       <div className="ml-2 text-xs text-[#39393e] dark:text-[#b8b8b8]">
-        Used Storage: {usagePercent.toFixed(1)}% (
-        {nFormatter(STORAGE_MAX_CAPACITY, 1)})
+        {t("stats.usedStorage", {
+          percent: usagePercent.toFixed(1),
+          capacity: nFormatter(STORAGE_MAX_CAPACITY, 1),
+        })}
       </div>
     </div>
   );

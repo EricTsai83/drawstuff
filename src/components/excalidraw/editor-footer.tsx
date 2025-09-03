@@ -3,6 +3,7 @@ import { PanelsTopLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StorageWarning } from "@/components/storage-warning";
 import { SceneShareDialog } from "@/components/scene-share-dialog";
+import { useStandaloneI18n } from "@/lib/i18n";
 
 type Props = {
   showDashboardShortcut: boolean;
@@ -19,13 +20,14 @@ export function EditorFooter(props: Props) {
     onShareDialogOpenChange,
   } = props;
 
+  const { t } = useStandaloneI18n();
   return (
     <>
       <div className="ml-2.5 flex items-center gap-2.5">
         {showDashboardShortcut && (
           <Link
             href="/dashboard"
-            aria-label="Open dashboard"
+            aria-label={t("labels.openDashboard")}
             className="focus-visible:outline-none"
           >
             <PanelsTopLeft

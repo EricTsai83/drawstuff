@@ -1,10 +1,10 @@
 import { Stats } from "@excalidraw/excalidraw";
 import { nFormatter } from "@/lib/utils";
-import { useI18n } from "@excalidraw/excalidraw";
+import { useAppI18n } from "@/lib/i18n";
 import { useStorageWarning } from "@/hooks/use-storage-warning";
 
 export default function CustomStats() {
-  const { t } = useI18n();
+  const { t } = useAppI18n();
   const { storageSizes } = useStorageWarning();
 
   return (

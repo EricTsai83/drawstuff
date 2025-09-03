@@ -11,6 +11,7 @@ import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useSearchParams } from "next/navigation";
+import { useStandaloneI18n } from "@/lib/i18n";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
@@ -21,6 +22,7 @@ export function SceneSearchList() {
   const pathname = usePathname();
   const { lastActiveWorkspaceId } = useWorkspaceOptions();
   const params = useSearchParams();
+  const { t } = useStandaloneI18n();
 
   const paramWorkspaceId = params.get("workspaceId") ?? undefined;
   const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
@@ -140,7 +142,7 @@ export function SceneSearchList() {
       {/* Header Section */}
       <div className="relative pt-12 pb-16">
         <h1 className="text-center text-2xl font-semibold lg:text-3xl">
-          Dashboard
+          {t("dashboard.title")}
         </h1>
         <div className="absolute right-0 bottom-0 w-64">
           <WorkspaceSelector
@@ -159,18 +161,22 @@ export function SceneSearchList() {
       {/* Recently modified by you Section */}
       <section className="space-y-4">
         <div className="border-t border-gray-200 pt-4">
-          <h2 className="text-lg font-medium">Recently modified by you</h2>
+          <h2 className="text-lg font-medium">
+            {t("dashboard.recentlyModified")}
+          </h2>
         </div>
         {isLoading ? (
           <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">Loading...</div>
+            <div className="text-muted-foreground text-lg">
+              {t("dashboard.loading")}
+            </div>
           </div>
         ) : recentlyModifiedItems.length > 0 ? (
           <SceneGrid items={recentlyModifiedItems} />
         ) : (
           <div className="py-8 text-center">
             <div className="text-muted-foreground text-lg">
-              No recently modified scenes
+              {t("dashboard.noRecentlyModifiedScenes")}
             </div>
           </div>
         )}
@@ -179,11 +185,13 @@ export function SceneSearchList() {
       {/* Your scenes Section */}
       <section className="space-y-4">
         <div className="border-t border-gray-200 pt-4">
-          <h2 className="text-lg font-medium">Your scenes</h2>
+          <h2 className="text-lg font-medium">{t("dashboard.yourScenes")}</h2>
         </div>
         {isLoading ? (
           <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">Loading...</div>
+            <div className="text-muted-foreground text-lg">
+              {t("dashboard.loading")}
+            </div>
           </div>
         ) : yourSceneItems.length > 0 ? (
           <>
@@ -191,24 +199,28 @@ export function SceneSearchList() {
             <div ref={sentinelRef} />
             {isFetchingNextPage && (
               <div className="text-muted-foreground py-6 text-center text-sm">
-                Loading more...
+                {t("dashboard.loadingMore")}
               </div>
             )}
             {!hasNextPage && !isFetchingNextPage && (
               <div className="text-muted-foreground py-6 text-center text-sm">
-                You have reached the end.
+                {t("dashboard.reachedEnd")}
               </div>
             )}
           </>
         ) : hasNextPage ? (
           <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">Loading...</div>
+            <div className="text-muted-foreground text-lg">
+              {t("dashboard.loading")}
+            </div>
           </div>
         ) : (
           <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">No scenes found</div>
+            <div className="text-muted-foreground text-lg">
+              {t("dashboard.noScenesFound")}
+            </div>
             <div className="text-muted-foreground mt-2 text-sm">
-              Try adjusting your search terms or browse all scenes
+              {t("dashboard.noScenesFound.hint")}
             </div>
           </div>
         )}
@@ -257,17 +269,12 @@ function SceneResultsCount({
   filteredCount,
   searchQuery,
 }: SceneResultsCountProps) {
+  const { t } = useStandaloneI18n();
   return (
     <div className="text-muted-foreground text-sm">
-      {searchQuery ? (
-        <>
-          Found {filteredCount} result
-          {filteredCount !== 1 ? "s" : ""}
-          {searchQuery && ` for "${searchQuery}"`}
-        </>
-      ) : (
-        `Showing ${totalItems} scenes`
-      )}
+      {searchQuery
+        ? t("search.resultsCount", { count: filteredCount, query: searchQuery })
+        : t("search.showingCount", { total: totalItems })}
     </div>
   );
 }

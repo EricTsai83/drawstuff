@@ -4,24 +4,25 @@ import { Button } from "@/components/ui/button";
 import type { ExportStatus } from "@/hooks/use-scene-export";
 import { Loader2, Link } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppI18n } from "@/lib/i18n";
 
 type ShareSceneButtonProps = {
   exportStatus: ExportStatus;
   onClick: () => void;
 };
 
-function getShareButtonConfig(status: ExportStatus) {
+function getShareButtonConfig(status: ExportStatus, t: (k: string) => string) {
   if (status === "exporting") {
     return {
       icon: <Loader2 className="h-4 w-4 animate-spin" />,
-      label: "Exporting...",
+      label: t("app.export.link.loading"),
       disabled: true,
       variant: "secondary" as const,
     };
   }
   return {
     icon: <Link className="h-3 w-3" />,
-    label: "Share",
+    label: t("labels.share"),
     disabled: false,
     variant: "default" as const,
   };
@@ -31,7 +32,8 @@ export function ShareSceneButton({
   exportStatus,
   onClick,
 }: ShareSceneButtonProps) {
-  const cfg = getShareButtonConfig(exportStatus);
+  const { t } = useAppI18n();
+  const buttonConfig = getShareButtonConfig(exportStatus, t);
 
   return (
     <Button
@@ -46,14 +48,14 @@ export function ShareSceneButton({
           "w-[16ch]": exportStatus === "exporting",
         },
       )}
-      variant={cfg.variant}
-      disabled={cfg.disabled}
+      variant={buttonConfig.variant}
+      disabled={buttonConfig.disabled}
       onClick={onClick}
-      aria-label={cfg.label}
-      aria-busy={cfg.disabled}
+      aria-label={buttonConfig.label}
+      aria-busy={buttonConfig.disabled}
     >
-      {cfg.icon}
-      {cfg.label}
+      {buttonConfig.icon}
+      {buttonConfig.label}
     </Button>
   );
 }

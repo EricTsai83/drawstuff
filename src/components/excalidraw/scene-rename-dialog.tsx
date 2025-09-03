@@ -11,7 +11,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { useI18n } from "@excalidraw/excalidraw";
+import { useAppI18n } from "@/lib/i18n";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import { useState, useRef, useEffect, type ReactNode } from "react";
 
@@ -30,7 +30,7 @@ export function SceneRenameDialog({
   onOpenChange,
   onConfirmName,
 }: SceneRenameDialogProps) {
-  const { t } = useI18n();
+  const { t } = useAppI18n();
   const [internalOpen, setInternalOpen] = useState(false);
   const [sceneName, setSceneName] = useState("");
   const [initialName, setInitialName] = useState("");

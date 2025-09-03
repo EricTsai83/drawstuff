@@ -1,6 +1,7 @@
 "use client";
 
 import { formatDistanceToNow } from "date-fns";
+import { zhTW } from "date-fns/locale";
 import { Clock } from "lucide-react";
 import Image from "next/image";
 import { useState, useEffect, useCallback } from "react";
@@ -27,11 +28,16 @@ import type { RouterOutputs } from "@/trpc/react";
 import { useRouter } from "next/navigation";
 import { dispatchLoadSceneRequest } from "@/lib/events";
 import { SceneEditDialog } from "@/components/scene-edit-dialog";
+import { useStandaloneI18n } from "@/lib/i18n";
 
 type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
 
 export function WorkspaceCard({ item }: { item: SceneListItem }) {
-  const timeAgo = formatDistanceToNow(item.updatedAt, { addSuffix: true });
+  const { t, langCode } = useStandaloneI18n();
+  const timeAgo = formatDistanceToNow(item.updatedAt, {
+    addSuffix: true,
+    locale: langCode === "zh-TW" ? zhTW : undefined,
+  });
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
   const [isDeleting, setIsDeleting] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
@@ -181,7 +187,7 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
         <CardFooter>
           <div className="text-muted-foreground flex items-center text-xs">
             <Clock className="mr-1 h-3 w-3" />
-            <span>Updated {timeAgo}</span>
+            <span>{t("labels.updatedTimeAgo", { time: timeAgo })}</span>
           </div>
         </CardFooter>
       </Card>
@@ -189,19 +195,21 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Confirm delete</AlertDialogTitle>
+            <AlertDialogTitle>{t("dialog.delete.title")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {`Are you sure you want to delete the scene "${item.name}"? This action cannot be undone.`}
+              {t("dialog.delete.description", { name: item.name })}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+            <AlertDialogCancel disabled={isDeleting}>
+              {t("buttons.cancel")}
+            </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleConfirmDelete}
               disabled={isDeleting}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
-              {isDeleting ? "Deleting..." : "Delete"}
+              {isDeleting ? t("buttons.deleting") : t("buttons.delete")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -1,4 +1,4 @@
-import { useI18n } from "@excalidraw/excalidraw";
+import { useAppI18n } from "@/lib/i18n";
 import { allowedLanguages } from "./allowed-languages";
 import { useState } from "react";
 import {
@@ -22,7 +22,7 @@ export const LanguageSelector = ({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) => {
-  const { t } = useI18n();
+  const { t } = useAppI18n();
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
   const handleOpenChange = (nextOpen: boolean) => {

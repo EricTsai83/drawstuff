@@ -1,11 +1,11 @@
-import { useI18n } from "@excalidraw/excalidraw";
 import { WelcomeScreen } from "@excalidraw/excalidraw";
 import { memo } from "react";
 import { Github } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAppI18n } from "@/lib/i18n";
 
 function AppWelcomeScreen() {
-  const { t } = useI18n();
+  const { t } = useAppI18n();
   const headingContent = t("welcomeScreen.app.center_heading");
 
   return (
@@ -23,7 +23,7 @@ function AppWelcomeScreen() {
               "text-indigo-500 dark:text-gray-300",
             )}
           >
-            EXcalidraw x Ericts
+            DrawStuff
           </h1>
         </WelcomeScreen.Center.Logo>
 

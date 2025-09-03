@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { CopyIcon } from "lucide-react";
-import { useI18n } from "@excalidraw/excalidraw";
+import { useAppI18n } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { copyTextToSystemClipboard } from "@/lib/utils";
 
@@ -12,7 +12,7 @@ type CopyButtonProps = {
 
 export function CopyButton({ textToCopy }: CopyButtonProps) {
   const [copied, setCopied] = useState(false);
-  const { t } = useI18n();
+  const { t } = useAppI18n();
 
   const handleCopy = async () => {
     await copyTextToSystemClipboard(textToCopy);

@@ -28,6 +28,7 @@ import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
+import { useAppI18n } from "@/lib/i18n";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -46,6 +47,7 @@ function AppMainMenu({
   excalidrawAPI,
   handleSetSceneName,
 }: AppMainMenuProps) {
+  const { t } = useAppI18n();
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
   // 控制 Settings Dialog（渲染在主選單外，避免被一起卸載）
@@ -154,9 +156,7 @@ function AppMainMenu({
 
         if (keepCurrentContent) {
           if (!session) {
-            toast.info(
-              "New scene ready (local only). Sign in to save to cloud.",
-            );
+            toast.info(t("toasts.newScene.localOnly"));
             return;
           }
           // 直接以目前內容建立新雲端場景，並自動關聯縮圖與資產
@@ -167,7 +167,7 @@ function AppMainMenu({
             suppressSuccessToast: true,
           });
           if (!ok) return;
-          toast.success("New scene created");
+          toast.success(t("toasts.newSceneCreated"));
         } else {
           // 重置畫布為空
           const currentAppState = excalidrawAPI?.getAppState();
@@ -184,9 +184,7 @@ function AppMainMenu({
           }
           // 需求：Create 時立即做第一次儲存
           if (!session) {
-            toast.info(
-              "New empty scene ready (local only). Sign in to save to cloud.",
-            );
+            toast.info(t("toasts.newEmptyScene.localOnly"));
             return;
           }
           const ok = await uploadSceneToCloud({
@@ -196,11 +194,11 @@ function AppMainMenu({
             suppressSuccessToast: true,
           });
           if (!ok) return;
-          toast.success("New scene created");
+          toast.success(t("toasts.newSceneCreated"));
         }
       } catch (err) {
         console.error(err);
-        toast.error((err as Error)?.message ?? "Failed to create scene");
+        toast.error((err as Error)?.message ?? t("errors.failedToCreateScene"));
       }
     },
     [
@@ -212,6 +210,7 @@ function AppMainMenu({
       createWorkspaceMutation,
       uploadSceneToCloud,
       session,
+      t,
     ],
   );
 
@@ -245,7 +244,7 @@ function AppMainMenu({
             }}
           >
             <FilePenLine strokeWidth={1.5} className="h-3.5 w-3.5" />
-            Rename scene
+            {t("menu.renameScene")}
           </div>
           <div
             className="dropdown-menu-item dropdown-menu-item-base"
@@ -260,7 +259,7 @@ function AppMainMenu({
             }}
           >
             <FilePlus2 strokeWidth={1.5} className="h-3.5 w-3.5" />
-            New scene
+            {t("menu.newScene")}
           </div>
 
           <MainMenu.DefaultItems.LoadScene />
@@ -284,7 +283,7 @@ function AppMainMenu({
               }}
             >
               <Settings2 strokeWidth={1.5} className="h-3.5 w-3.5" />
-              Settings
+              {t("menu.settings")}
             </div>
           )}
           <MainMenu.Separator />
@@ -297,19 +296,19 @@ function AppMainMenu({
                   fallback={session.user.name ?? ""}
                 />
               }
-              aria-label="Sign out"
+              aria-label={t("auth.signOut")}
               onClick={handleSignOut}
             >
-              Sign out
+              {t("auth.signOut")}
             </MainMenu.Item>
           ) : (
             <Link href="/login" className="!no-underline">
               <MainMenu.Item
                 className="!mt-0"
                 icon={<LogIn strokeWidth={1.5} />}
-                aria-label="Sign in"
+                aria-label={t("auth.signIn")}
               >
-                Sign in
+                {t("auth.signIn")}
               </MainMenu.Item>
             </Link>
           )}

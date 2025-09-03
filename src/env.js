@@ -23,7 +23,7 @@ export const env = createEnv({
     BETTER_AUTH_URL: z.string().url(),
     GOOGLE_CLIENT_ID: z.string(),
     GOOGLE_CLIENT_SECRET: z.string(),
-    CRON_SECRET: z.string().min(16),
+    CRON_SECRET: z.string().min(1),
     CLEANUP_OWNER_EMAIL: z.string().email(),
   },
 
