@@ -9,7 +9,7 @@ import {
   type Dispatch,
   type SetStateAction,
 } from "react";
-import { LanguageList } from "./app-language/language-list";
+import { LanguageSelector } from "./app-language/language-selector";
 import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
@@ -32,7 +32,8 @@ import { toast } from "sonner";
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
   setTheme: Dispatch<SetStateAction<UserChosenTheme>>;
-  handleLangCodeChange: (langCode: string) => void;
+  langCode: string;
+  onLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   handleSetSceneName: (name: string) => void;
 };
@@ -40,7 +41,8 @@ type AppMainMenuProps = {
 function AppMainMenu({
   userChosenTheme,
   setTheme,
-  handleLangCodeChange,
+  langCode,
+  onLangCodeChange,
   excalidrawAPI,
   handleSetSceneName,
 }: AppMainMenuProps) {
@@ -319,7 +321,10 @@ function AppMainMenu({
             onSelect={setTheme}
           />
           <MainMenu.ItemCustom>
-            <LanguageList handleLangCodeChange={handleLangCodeChange} />
+            <LanguageSelector
+              value={langCode}
+              onValueChange={onLangCodeChange}
+            />
           </MainMenu.ItemCustom>
           <MainMenu.DefaultItems.ChangeCanvasBackground />
           <MainMenu.Separator />

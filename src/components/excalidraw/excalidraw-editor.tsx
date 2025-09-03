@@ -360,7 +360,8 @@ export default function ExcalidrawEditor() {
           <AppMainMenu
             userChosenTheme={userChosenTheme}
             setTheme={setTheme}
-            handleLangCodeChange={handleLangCodeChange}
+            langCode={langCode}
+            onLangCodeChange={handleLangCodeChange}
             excalidrawAPI={excalidrawAPI}
             handleSetSceneName={handleSetSceneName}
           />
