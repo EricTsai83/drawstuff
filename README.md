@@ -64,7 +64,7 @@ BETTER_AUTH_SECRET=generate-a-strong-random-string
 BETTER_AUTH_URL=https://your-domain.example
 GOOGLE_CLIENT_ID=your-google-client-id
 GOOGLE_CLIENT_SECRET=your-google-client-secret
-CRON_SECRET=strong-random-string-16+
+CRON_SECRET=strong-random-string
 CLEANUP_OWNER_EMAIL=your.email@example.com
 
 # Required (client)

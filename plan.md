@@ -1,0 +1,7 @@
+- Add favicon (.ico)
+- Refactor the codebase
+- Perform full manual testing
+- Check the entire mobile view layout
+- Enhance the dashboard interface using the View Transition API
+- Prevent importing the same scene on the dashboard page
+- Add rate limiting
