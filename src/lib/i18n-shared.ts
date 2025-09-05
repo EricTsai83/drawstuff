@@ -50,6 +50,7 @@ export const appTranslations: AppTranslations = {
     "buttons.cancel": "Cancel",
     "buttons.confirm": "Confirm",
     "labels.fileTitle": "File title",
+    "labels.description": "Description",
     "labels.copy": "Copy",
     "labels.share": "Share",
 
@@ -156,6 +157,7 @@ export const appTranslations: AppTranslations = {
     "buttons.cancel": "取消",
     "buttons.confirm": "確認",
     "labels.fileTitle": "檔案名稱",
+    "labels.description": "描述",
     "labels.copy": "複製",
     "labels.share": "分享",
 

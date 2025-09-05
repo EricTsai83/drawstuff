@@ -2,7 +2,7 @@
 
 import { formatDistanceToNow } from "date-fns";
 import { zhTW } from "date-fns/locale";
-import { Clock } from "lucide-react";
+import { Clock, Info } from "lucide-react";
 import Image from "next/image";
 import { useState, useEffect, useCallback } from "react";
 import {
@@ -29,11 +29,17 @@ import { useRouter } from "next/navigation";
 import { dispatchLoadSceneRequest } from "@/lib/events";
 import { SceneEditDialog } from "@/components/scene-edit-dialog";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { OverflowTooltip } from "@/components/overflow-tooltip";
+import {
+  Tooltip,
+  TooltipTrigger,
+  TooltipContent,
+} from "@/components/ui/tooltip";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
 
-export function WorkspaceCard({ item }: { item: SceneListItem }) {
+export function SceneCard({ item }: { item: SceneListItem }) {
   const { t, langCode } = useStandaloneI18n();
   const timeAgo = formatDistanceToNow(item.updatedAt, {
     addSuffix: true,
@@ -176,7 +182,36 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
         </CardHeader>
 
         <CardContent>
-          <h3 className="line-clamp-1 text-lg font-semibold">{item.name}</h3>
+          <div className="flex min-w-0 items-center gap-2">
+            <OverflowTooltip
+              delayDuration={600}
+              variant="secondary"
+              sideOffset={6}
+              contentClassName="max-w-[320px] text-xs leading-relaxed"
+              content={item.name}
+            >
+              <h3 className="truncate text-lg font-semibold">{item.name}</h3>
+            </OverflowTooltip>
+            {item.description ? (
+              <Tooltip delayDuration={300}>
+                <TooltipTrigger asChild>
+                  <span className="text-muted-foreground hover:text-foreground shrink-0">
+                    <Info className="h-4 w-4" />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent
+                  variant="secondary"
+                  sideOffset={6}
+                  className="max-w-[280px] text-xs leading-relaxed"
+                >
+                  <div className="mb-1 text-sm font-semibold">
+                    {t("labels.description")}
+                  </div>
+                  <div>{item.description}</div>
+                </TooltipContent>
+              </Tooltip>
+            ) : null}
+          </div>
           <div className="mb-2 flex flex-wrap gap-1">
             {item.categories.map((cat) => (
               <Badge key={cat} variant="secondary" className="text-xs">
@@ -184,9 +219,6 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
               </Badge>
             ))}
           </div>
-          <p className="text-muted-foreground line-clamp-2 text-sm">
-            {item.description}
-          </p>
         </CardContent>
 
         <CardFooter>

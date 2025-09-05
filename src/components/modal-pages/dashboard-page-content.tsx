@@ -4,6 +4,8 @@ import { SceneSearchList } from "@/components/scene-search-list";
 import { getServerSession } from "@/lib/auth/server";
 import { cn } from "@/lib/utils";
 import { HydrateClient, api } from "@/trpc/server";
+import { Suspense } from "react";
+import { DashboardListFallback } from "@/components/skeleton/dashboard-list-fallback";
 
 export default async function DashboardPageContent() {
   const session = await getServerSession();
@@ -24,9 +26,11 @@ export default async function DashboardPageContent() {
       )}
     >
       {isAuthenticated ? (
-        <HydrateClient>
-          <SceneSearchList />
-        </HydrateClient>
+        <Suspense fallback={<DashboardListFallback />}>
+          <HydrateClient>
+            <SceneSearchList />
+          </HydrateClient>
+        </Suspense>
       ) : (
         <AuthRequired />
       )}

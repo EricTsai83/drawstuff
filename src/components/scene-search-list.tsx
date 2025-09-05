@@ -4,7 +4,8 @@ import { useMemo, useEffect, useState, useRef } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { WorkspaceCard } from "./workspace-card";
+import { SceneCard } from "./scene-card";
+import { SceneGridSkeleton } from "@/components/skeleton/scene-grid-skeleton";
 import { useEscapeKey } from "@/hooks/use-escape-key";
 import { usePathname, useRouter } from "next/navigation";
 import { api, type RouterOutputs } from "@/trpc/react";
@@ -170,11 +171,7 @@ export function SceneSearchList() {
           </h2>
         </div>
         {isLoading ? (
-          <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">
-              {t("dashboard.loading")}
-            </div>
-          </div>
+          <SceneGridSkeleton count={6} />
         ) : recentlyModifiedItems.length > 0 ? (
           <SceneGrid items={recentlyModifiedItems} />
         ) : (
@@ -192,20 +189,12 @@ export function SceneSearchList() {
           <h2 className="text-lg font-medium">{t("dashboard.yourScenes")}</h2>
         </div>
         {isLoading ? (
-          <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">
-              {t("dashboard.loading")}
-            </div>
-          </div>
+          <SceneGridSkeleton count={6} />
         ) : yourSceneItems.length > 0 ? (
           <>
             <SceneGrid items={yourSceneItems} />
             <div ref={sentinelRef} />
-            {isFetchingNextPage && (
-              <div className="text-muted-foreground py-6 text-center text-sm">
-                {t("dashboard.loadingMore")}
-              </div>
-            )}
+            {isFetchingNextPage && <SceneGridSkeleton count={6} />}
             {!hasNextPage && !isFetchingNextPage && (
               <div className="text-muted-foreground py-6 text-center text-sm">
                 {t("dashboard.reachedEnd")}
@@ -288,7 +277,7 @@ function SceneGrid({ items }: { items: SceneListItem[] }) {
   return (
     <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5">
       {items.map((item) => (
-        <WorkspaceCard key={item.id} item={item} />
+        <SceneCard key={item.id} item={item} />
       ))}
     </div>
   );
