@@ -12,8 +12,9 @@ import { Toaster } from "@/components/ui/sonner";
 import { TailwindIndicator } from "@/components/tailwind-indicator";
 
 export const metadata: Metadata = {
-  title: "Excalidraw X Ericts",
-  description: "Excalidraw X Ericts",
+  title: "drawstuff",
+  description:
+    "Drawstuff is a virtual collaborative whiteboard tool that lets you easily sketch diagrams that have a hand-drawn feel to them. It's powered by Excalidraw and built with Next.js and Tailwind CSS.",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 
