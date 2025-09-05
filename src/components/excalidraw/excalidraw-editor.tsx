@@ -48,6 +48,8 @@ import { api } from "@/trpc/react";
 // import { STORAGE_KEYS } from "@/config/app-constants";
 import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confirm";
 import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-confirm";
+import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm";
+import GlobalConfirmDialog from "@/components/confirm-dialog";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -96,6 +98,14 @@ export default function ExcalidrawEditor() {
 
   // 當雲端上傳進行中時，阻止關閉視窗/重整，直到使用者確認
   useConfirmBeforeUnload(uploadStatus === "uploading");
+
+  const {
+    workspaceCreateConfirmOpen,
+    setWorkspaceCreateConfirmOpen,
+    workspaceCreateConfirmLoading,
+    workspaceCreateConfirmOptions,
+    showWorkspaceCreateConfirm,
+  } = useWorkspaceCreateConfirm();
 
   const {
     handleSaveToDisk,
@@ -338,6 +348,12 @@ export default function ExcalidrawEditor() {
 
   return (
     <div className="h-dvh w-full">
+      <GlobalConfirmDialog
+        open={workspaceCreateConfirmOpen}
+        onOpenChange={setWorkspaceCreateConfirmOpen}
+        loading={workspaceCreateConfirmLoading}
+        options={workspaceCreateConfirmOptions}
+      />
       {initialDataPromise && (
         <Excalidraw
           excalidrawAPI={excalidrawRefCallback}
@@ -364,6 +380,7 @@ export default function ExcalidrawEditor() {
             onLangCodeChange={handleLangCodeChange}
             excalidrawAPI={excalidrawAPI}
             handleSetSceneName={handleSetSceneName}
+            showConfirmDialog={showWorkspaceCreateConfirm}
           />
 
           <SceneRenameDialog

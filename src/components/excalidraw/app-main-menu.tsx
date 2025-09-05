@@ -29,6 +29,7 @@ import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -37,6 +38,7 @@ type AppMainMenuProps = {
   onLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   handleSetSceneName: (name: string) => void;
+  showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
 
 function AppMainMenu({
@@ -46,6 +48,7 @@ function AppMainMenu({
   onLangCodeChange,
   excalidrawAPI,
   handleSetSceneName,
+  showConfirmDialog,
 }: AppMainMenuProps) {
   const { t } = useAppI18n();
   const router = useRouter();
@@ -228,6 +231,19 @@ function AppMainMenu({
                   setConfirmWorkspaceName(workspace.name);
                   setConfirmOpen(true);
                 }}
+                onCreateSuccess={(workspace) => {
+                  void setLastActiveMutation.mutateAsync({
+                    workspaceId: workspace.id,
+                  });
+                  // 直接建立新場景，避免打開 Dialog 造成畫布不可點
+                  void handleCreateNewScene({
+                    name: "Untitled",
+                    description: "",
+                    workspaceId: workspace.id,
+                    keepCurrentContent: false,
+                  });
+                }}
+                showConfirmDialog={showConfirmDialog}
               />
             </div>
           )}

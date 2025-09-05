@@ -15,23 +15,14 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
-import { CheckIcon, Plus, Loader2 } from "lucide-react";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { CheckIcon, Plus } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
 import { Dropdown } from "./icons";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 
 export type Workspace = {
   id: string;
@@ -65,21 +56,26 @@ function getSortedOptions(
 type WorkspaceDropdownProps = {
   options?: Workspace[];
   onChange?: (workspace: Workspace) => void;
+  onCreateSuccess?: (workspace: Workspace) => void;
   defaultValue?: string;
   disabled?: boolean;
   slim?: boolean;
   // 若提供，將顯示「建立新 Workspace」的選項，並在建立完成後自動選取
   onCreate?: (name: string) => Promise<Workspace | void> | Workspace | void;
+  // 外部注入的確認對話框觸發器
+  showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
 
 function WorkspaceDropdownComponent(
   {
     options = [],
     onChange,
+    onCreateSuccess,
     defaultValue,
     disabled = false,
     slim = false,
     onCreate: _onCreate,
+    showConfirmDialog,
     ...restProps
   }: WorkspaceDropdownProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
@@ -91,10 +87,6 @@ function WorkspaceDropdownComponent(
   >(undefined);
   const [searchValue, setSearchValue] = useState("");
   const [creating, setCreating] = useState(false);
-  const [confirmCreateOpen, setConfirmCreateOpen] = useState(false);
-  const [pendingCreateName, setPendingCreateName] = useState<string | null>(
-    null,
-  );
   const { data: session } = authClient.useSession();
   const utils = api.useUtils();
   const createWorkspaceMutation = api.workspace.create.useMutation({
@@ -163,7 +155,11 @@ function WorkspaceDropdownComponent(
         const created = await createWorkspaceMutation.mutateAsync({ name });
         if (created?.id) {
           setSelectedWorkspace(created as Workspace);
-          onChange?.(created as Workspace);
+          if (onCreateSuccess) {
+            onCreateSuccess(created as Workspace);
+          } else {
+            onChange?.(created as Workspace);
+          }
         }
       } catch (err) {
         toast.error((err as Error)?.message ?? "Failed to create workspace");
@@ -174,7 +170,13 @@ function WorkspaceDropdownComponent(
         setOpen(false);
       }
     },
-    [createWorkspaceMutation, onChange, normalizedQuery, creating],
+    [
+      createWorkspaceMutation,
+      onChange,
+      onCreateSuccess,
+      normalizedQuery,
+      creating,
+    ],
   );
 
   return (
@@ -259,8 +261,28 @@ function WorkspaceDropdownComponent(
                     )}
                     onSelect={() => {
                       if (creating) return;
-                      setPendingCreateName(normalizedQuery);
-                      setConfirmCreateOpen(true);
+                      const name = normalizedQuery;
+                      if (showConfirmDialog) {
+                        showConfirmDialog({
+                          title: "Create workspace?",
+                          description: (
+                            <>
+                              This will create a new workspace named{" "}
+                              <span className="text-base font-medium">
+                                {name}
+                              </span>
+                              .
+                            </>
+                          ),
+                          confirmText: "Create",
+                          cancelText: "Cancel",
+                          onConfirm: async () => {
+                            await handleCreate(name);
+                          },
+                        });
+                      } else {
+                        void handleCreate(name);
+                      }
                     }}
                   >
                     <div className="flex w-0 flex-grow space-x-2 overflow-hidden">
@@ -329,45 +351,6 @@ function WorkspaceDropdownComponent(
           </Command>
         </PopoverContent>
       </Popover>
-      <AlertDialog open={confirmCreateOpen} onOpenChange={setConfirmCreateOpen}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Create workspace?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will create a new workspace named{" "}
-              <span className="text-base font-medium">{pendingCreateName}</span>
-              .
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={creating}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              className={cn(
-                "bg-primary text-primary-foreground hover:bg-primary/90",
-                "flex items-center gap-2",
-              )}
-              autoFocus
-              disabled={creating}
-              aria-busy={creating}
-              onClick={async (e) => {
-                e.preventDefault();
-                if (!pendingCreateName) return;
-                await handleCreate(pendingCreateName);
-                setConfirmCreateOpen(false);
-                setPendingCreateName(null);
-              }}
-            >
-              {creating ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" /> Creating...
-                </>
-              ) : (
-                "Create"
-              )}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </>
   );
 }
