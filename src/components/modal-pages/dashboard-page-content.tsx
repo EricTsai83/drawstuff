@@ -14,7 +14,7 @@ export default async function DashboardPageContent() {
 
   if (isAuthenticated) {
     void api.workspace.listWithMeta.prefetch();
-    void api.scene.getUserScenesInfinite.prefetch({ limit: 12 });
+    void api.scene.getUserScenesInfinite.prefetch({ limit: 10 });
   }
 
   return (

@@ -41,7 +41,7 @@ export function SceneSearchList() {
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     api.scene.getUserScenesInfinite.useInfiniteQuery(
       {
-        limit: 12,
+        limit: 10,
         workspaceId: effectiveWorkspaceId,
         search: searchQuery || undefined,
       },
@@ -98,11 +98,11 @@ export function SceneSearchList() {
     return allItems.filter((item) => doesSceneMatchQuery(item, q));
   }, [searchQuery, allItems]);
 
-  // 若上方已佔用前 6 筆，且 Your scenes 暫時為空，但還有下一頁，就主動抓下一頁避免空白
+  // 若上方已佔用前 5 筆，且 Your scenes 暫時為空，但還有下一頁，就主動抓下一頁避免空白
   useEffect(() => {
     const needPrefetch =
       filteredItems.length > 0 && hasNextPage && !isFetchingNextPage;
-    const yourHasNone = filteredItems.length <= 6;
+    const yourHasNone = filteredItems.length <= 5;
     if (yourHasNone && needPrefetch) {
       void fetchNextPage();
     }
@@ -139,8 +139,8 @@ export function SceneSearchList() {
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Split items into "Recently modified by you" and "Your scenes" sections
-  const recentlyModifiedItems = filteredItems.slice(0, 6);
-  const yourSceneItems = filteredItems.slice(6);
+  const recentlyModifiedItems = filteredItems.slice(0, 5);
+  const yourSceneItems = filteredItems.slice(5);
 
   return (
     <div className="w-full space-y-5 p-6 pt-0">
@@ -171,7 +171,7 @@ export function SceneSearchList() {
           </h2>
         </div>
         {isLoading ? (
-          <SceneGridSkeleton count={6} />
+          <SceneGridSkeleton count={5} />
         ) : recentlyModifiedItems.length > 0 ? (
           <SceneGrid items={recentlyModifiedItems} />
         ) : (
@@ -189,12 +189,12 @@ export function SceneSearchList() {
           <h2 className="text-lg font-medium">{t("dashboard.yourScenes")}</h2>
         </div>
         {isLoading ? (
-          <SceneGridSkeleton count={6} />
+          <SceneGridSkeleton count={5} />
         ) : yourSceneItems.length > 0 ? (
           <>
             <SceneGrid items={yourSceneItems} />
             <div ref={sentinelRef} />
-            {isFetchingNextPage && <SceneGridSkeleton count={6} />}
+            {isFetchingNextPage && <SceneGridSkeleton count={5} />}
             {!hasNextPage && !isFetchingNextPage && (
               <div className="text-muted-foreground py-6 text-center text-sm">
                 {t("dashboard.reachedEnd")}
