@@ -1,4 +1,5 @@
-- improve performance
+- enhance memory management.
+  - Fix the issue where dragging a large Excalidraw file causes the memory limit to be exceeded.
 - Add favicon (.ico)
 - Refactor the codebase
 - Perform full manual testing
