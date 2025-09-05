@@ -31,7 +31,7 @@ import { Dropdown } from "./icons";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
-import { useAppI18n } from "@/hooks/use-app-i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 export type Workspace = {
   id: string;
@@ -84,7 +84,7 @@ function WorkspaceDropdownComponent(
   }: WorkspaceDropdownProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
-  const { t } = useAppI18n();
+  const { t } = useStandaloneI18n();
   const [open, setOpen] = useState(false);
   const [selectedWorkspace, setSelectedWorkspace] = useState<
     Workspace | undefined

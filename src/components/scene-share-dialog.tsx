@@ -7,7 +7,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAppI18n } from "@/hooks/use-app-i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { CopyButton } from "@/components/copy-button";
 import { useRef } from "react";
 
@@ -22,7 +22,7 @@ export function SceneShareDialog({
   open,
   onOpenChange,
 }: SceneShareDialogProps) {
-  const { t } = useAppI18n();
+  const { t } = useStandaloneI18n();
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (

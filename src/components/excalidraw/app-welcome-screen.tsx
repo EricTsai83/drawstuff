@@ -2,10 +2,10 @@ import { WelcomeScreen } from "@excalidraw/excalidraw";
 import { memo } from "react";
 import { Github } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useAppI18n } from "@/hooks/use-app-i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 function AppWelcomeScreen() {
-  const { t } = useAppI18n();
+  const { t } = useStandaloneI18n();
   const headingContent = t("welcomeScreen.app.center_heading");
 
   return (

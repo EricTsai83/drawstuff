@@ -4,7 +4,7 @@ import { useStorageWarning } from "@/hooks/use-storage-warning";
 import Image from "next/image";
 import { STORAGE_MAX_CAPACITY } from "@/config/app-constants";
 import { nFormatter } from "@/lib/utils";
-import { useAppI18n } from "@/hooks/use-app-i18n";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type StorageWarningProps = {
   className?: string;
@@ -12,7 +12,7 @@ type StorageWarningProps = {
 
 export function StorageWarning({ className }: StorageWarningProps) {
   const { storageSizes } = useStorageWarning();
-  const { t } = useAppI18n();
+  const { t } = useStandaloneI18n();
 
   const usagePercent = Math.min(
     (storageSizes.total / STORAGE_MAX_CAPACITY) * 100,
