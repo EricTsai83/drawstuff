@@ -4,6 +4,8 @@ import { and, eq, inArray, lt, or, type SQL } from "drizzle-orm";
 import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
+import { QUERIES } from "@/server/db/queries";
+import { UTApi } from "uploadthing/server";
 
 export const sceneRouter = createTRPCRouter({
   saveScene: protectedProcedure
@@ -312,7 +314,44 @@ export const sceneRouter = createTRPCRouter({
   deleteScene: protectedProcedure
     .input(z.object({ id: z.string().uuid() }))
     .mutation(async ({ ctx, input }) => {
-      await ctx.db.delete(scene).where(eq(scene.id, input.id));
+      // 1) 擁有者驗證，同時取縮圖 key
+      const ownerId = await QUERIES.getSceneOwnerId(input.id);
+      if (!ownerId || ownerId !== ctx.auth.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
+      }
+
+      const thumbnailKey = await QUERIES.getSceneThumbnailKey(input.id);
+
+      // 2) 收集此場景所有 UploadThing 檔案的 key（場景資產 + 縮圖）
+      const assetKeys = await QUERIES.getFileKeysBySceneIds([input.id]);
+      const allKeys = Array.from(
+        new Set<string>([
+          ...assetKeys,
+          ...(thumbnailKey ? [thumbnailKey] : []),
+        ]),
+      );
+
+      // 3) 嘗試刪除遠端檔案（逐一刪除，錯誤則入延遲清理）
+      if (allKeys.length > 0) {
+        const utapi = new UTApi();
+        for (const key of allKeys) {
+          try {
+            await utapi.deleteFiles([key]);
+          } catch {
+            await QUERIES.enqueueDeferredCleanup({
+              utFileKey: key,
+              reason: "delete-scene",
+              context: { sceneId: input.id },
+            });
+          }
+        }
+      }
+
+      // 4) 刪除場景（連鎖刪除 scene_categories 與 file_record）
+      await ctx.db
+        .delete(scene)
+        .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)));
+
       return { success: true };
     }),
 
