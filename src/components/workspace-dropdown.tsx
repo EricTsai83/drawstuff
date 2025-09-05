@@ -31,6 +31,7 @@ import { Dropdown } from "./icons";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 export type Workspace = {
   id: string;
@@ -66,7 +67,6 @@ type WorkspaceDropdownProps = {
   onChange?: (workspace: Workspace) => void;
   defaultValue?: string;
   disabled?: boolean;
-  placeholder?: string;
   slim?: boolean;
   // 若提供，將顯示「建立新 Workspace」的選項，並在建立完成後自動選取
   onCreate?: (name: string) => Promise<Workspace | void> | Workspace | void;
@@ -80,11 +80,11 @@ function WorkspaceDropdownComponent(
     disabled = false,
     slim = false,
     onCreate: _onCreate,
-    placeholder = "Search workspace...",
     ...restProps
   }: WorkspaceDropdownProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
+  const { t } = useAppI18n();
   const [open, setOpen] = useState(false);
   const [selectedWorkspace, setSelectedWorkspace] = useState<
     Workspace | undefined
@@ -221,7 +221,7 @@ function WorkspaceDropdownComponent(
           >
             <div className="bg-popover">
               <CommandInput
-                placeholder={placeholder}
+                placeholder={t("workspace.placeholder.searchOrCreate")}
                 value={searchValue}
                 onValueChange={(val) => setSearchValue(val)}
                 autoFocus
@@ -335,7 +335,8 @@ function WorkspaceDropdownComponent(
             <AlertDialogTitle>Create workspace?</AlertDialogTitle>
             <AlertDialogDescription>
               This will create a new workspace named{" "}
-              <span className="font-medium">{pendingCreateName}</span>.
+              <span className="text-base font-medium">{pendingCreateName}</span>
+              .
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

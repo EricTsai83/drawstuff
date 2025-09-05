@@ -115,6 +115,8 @@ export const appTranslations: AppTranslations = {
       'Are you sure you want to delete the scene "{name}"? This action cannot be undone.',
     "buttons.delete": "Delete",
     "buttons.deleting": "Deleting...",
+    // Workspace
+    "workspace.placeholder.searchOrCreate": "Find/create workspace",
   },
   "zh-TW": {
     "app.export.cloud.title": "上傳雲端",
@@ -216,6 +218,8 @@ export const appTranslations: AppTranslations = {
     "dialog.delete.description": "確定要刪除場景「{name}」嗎？此操作無法復原。",
     "buttons.delete": "刪除",
     "buttons.deleting": "刪除中...",
+    // Workspace
+    "workspace.placeholder.searchOrCreate": "搜尋或建立工作空間",
   },
 };
 

@@ -20,14 +20,15 @@
 
 ## Tech Stack
 
-- [Next.js](https://github.com/vercel/next.js) 15, [React](https://github.com/facebook/react) 19
+- [Next.js 15](https://github.com/vercel/next.js), [React 19](https://github.com/facebook/react)
 - [Excalidraw](https://github.com/excalidraw/excalidraw)
-- [tRPC](https://github.com/trpc/trpc) v11, @tanstack/react-query v5, superjson
-- [Drizzle ORM](https://github.com/drizzle-team/drizzle-orm) + [Neon](https://github.com/neondatabase/neon) (PostgreSQL)
+- [tRPC v11](https://github.com/trpc/trpc)
+- [Drizzle ORM](https://github.com/drizzle-team/drizzle-orm)
+- [Neon](https://github.com/neondatabase/neon) (PostgreSQL)
 - [Better Auth](https://github.com/better-auth/better-auth) (Google OAuth)
 - [uploadThing](https://github.com/pingdotgg/uploadthing)
 - [Tailwind CSS](https://github.com/tailwindlabs/tailwindcss) v4
-- [create-t3-app](https://github.com/t3-oss/create-t3-app)
+- [Create T3 APP](https://github.com/t3-oss/create-t3-app)
 
 
 ## Requirements

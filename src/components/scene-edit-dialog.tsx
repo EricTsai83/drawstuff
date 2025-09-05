@@ -155,7 +155,6 @@ export function SceneEditDialog({
             <div aria-labelledby="scene-workspace-label">
               <WorkspaceDropdown
                 options={workspaces}
-                placeholder="Select a workspace"
                 defaultValue={selectedWorkspaceId}
                 onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
                 onCreate={(name: string) => setPendingNewWorkspaceName(name)}
