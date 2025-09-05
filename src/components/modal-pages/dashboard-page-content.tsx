@@ -1,6 +1,6 @@
 import { AuthRequired } from "@/components/auth-required";
 import { OverlayModal } from "@/components/overlay-modal";
-import SceneSearchListNoSSR from "../scene-search-list.no-ssr";
+import { SceneSearchList } from "@/components/scene-search-list";
 import { getServerSession } from "@/lib/auth/server";
 import { cn } from "@/lib/utils";
 import { HydrateClient, api } from "@/trpc/server";
@@ -25,7 +25,7 @@ export default async function DashboardPageContent() {
     >
       {isAuthenticated ? (
         <HydrateClient>
-          <SceneSearchListNoSSR />
+          <SceneSearchList />
         </HydrateClient>
       ) : (
         <AuthRequired />

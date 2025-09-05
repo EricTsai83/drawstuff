@@ -176,7 +176,7 @@ export function useCloudUpload(
             }
 
             // 完成雲端上傳後，讓清單失效以取得最新資料
-            void utils.scene.getUserScenesList.invalidate();
+            void utils.scene.getUserScenesInfinite.invalidate();
           } else {
             setStatus("error");
             toast.error(t("app.cloudUpload.toast.error.saveScene"));

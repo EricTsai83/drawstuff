@@ -71,12 +71,3 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
     </QueryClientProvider>
   );
 }
-
-// Typed helpers for commonly used queries to avoid type-widening in app code
-export type UserScenesList = RouterOutputs["scene"]["getUserScenesList"];
-export type UseUserScenesListResult = ReturnType<
-  typeof api.scene.getUserScenesList.useQuery
->;
-export function useUserScenesList(): UseUserScenesListResult {
-  return api.scene.getUserScenesList.useQuery();
-}

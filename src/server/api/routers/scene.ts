@@ -192,69 +192,6 @@ export const sceneRouter = createTRPCRouter({
     return scenes;
   }),
 
-  // Enriched list for dashboard/search: include project name and category names
-  getUserScenesList: protectedProcedure
-    .output(
-      z.array(
-        z.object({
-          id: z.string(),
-          name: z.string(),
-          description: z.string(),
-          createdAt: z.date(),
-          updatedAt: z.date(),
-          workspaceId: z.string().uuid().optional(),
-          workspaceName: z.string().optional(),
-          thumbnail: z.string().optional(),
-          sceneData: z.string().optional(),
-          isArchived: z.boolean(),
-          categories: z.array(z.string()),
-        }),
-      ),
-    )
-    .query(async ({ ctx }) => {
-      const scenes = await ctx.db.query.scene.findMany({
-        where: eq(scene.userId, ctx.auth.user.id),
-        orderBy: (sceneTbl, { desc }) => [desc(sceneTbl.updatedAt)],
-        with: {
-          workspace: {
-            columns: {
-              id: true,
-              name: true,
-            },
-          },
-          sceneCategories: {
-            with: {
-              // Limit selected columns to avoid referencing non-existent columns on older DBs
-              category: {
-                columns: {
-                  id: true,
-                  name: true,
-                },
-              },
-            },
-          },
-        },
-      });
-
-      return scenes.map((s) => {
-        return {
-          id: s.id,
-          name: s.name,
-          description: s.description ?? "",
-          createdAt: s.createdAt,
-          updatedAt: s.updatedAt,
-          workspaceId: s.workspaceId ?? undefined,
-          workspaceName: s.workspace?.name ?? undefined,
-          thumbnail: s.thumbnailUrl ?? undefined,
-          sceneData: s.sceneData ?? undefined,
-          isArchived: s.isArchived,
-          categories: (s.sceneCategories ?? [])
-            .map((sc) => sc.category?.name)
-            .filter((name): name is string => Boolean(name)),
-        };
-      });
-    }),
-
   // Infinite list for dashboard/search
   getUserScenesInfinite: protectedProcedure
     .input(

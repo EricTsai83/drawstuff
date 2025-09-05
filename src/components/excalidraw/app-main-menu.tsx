@@ -375,7 +375,6 @@ function AppMainMenu({
               {
                 onSuccess: () => {
                   void Promise.all([
-                    utils.scene.getUserScenesList.invalidate(),
                     utils.scene.getUserScenesInfinite.invalidate(),
                   ]);
                 },

@@ -30,7 +30,8 @@ import { dispatchLoadSceneRequest } from "@/lib/events";
 import { SceneEditDialog } from "@/components/scene-edit-dialog";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
-type SceneListItem = RouterOutputs["scene"]["getUserScenesList"][number];
+type SceneListItem =
+  RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
 
 export function WorkspaceCard({ item }: { item: SceneListItem }) {
   const { t, langCode } = useStandaloneI18n();
@@ -44,10 +45,14 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
   const router = useRouter();
 
   const deleteSceneMutation = api.scene.deleteScene.useMutation({
-    onSuccess: () => {
+    onSuccess: async () => {
       setShowDeleteDialog(false);
-      // 重新獲取場景列表以更新 UI
-      void utils.scene.getUserScenesList.invalidate();
+      // 重新獲取相關列表以更新 UI（含 infinite 列表）
+      await Promise.allSettled([
+        utils.scene.getUserScenesInfinite.invalidate(),
+        utils.scene.getUserScenes.invalidate(),
+        utils.workspace.listWithMeta.invalidate(),
+      ]);
     },
     onError: (error) => {
       console.error("Failed to delete scene:", error);
@@ -119,7 +124,7 @@ export function WorkspaceCard({ item }: { item: SceneListItem }) {
       });
       setIsEditOpen(false);
       await Promise.allSettled([
-        utils.scene.getUserScenesList.invalidate(),
+        utils.scene.getUserScenesInfinite.invalidate(),
         utils.scene.getUserScenes.invalidate(),
         utils.scene.getScene.invalidate({ id: item.id }),
         utils.workspace.listWithMeta.invalidate(),

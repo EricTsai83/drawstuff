@@ -69,8 +69,7 @@ export function SceneSearchList() {
     next.delete("workspaceId");
     const qs = next.toString();
     router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [paramWorkspaceId, pathname, router]);
+  }, [paramWorkspaceId, pathname, router, params]);
 
   function doesSceneMatchQuery(item: SceneListItem, q: string): boolean {
     const inName = item.name.toLowerCase().includes(q);

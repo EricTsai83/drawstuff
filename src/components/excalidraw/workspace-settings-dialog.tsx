@@ -87,7 +87,7 @@ export default function WorkspaceSettingsDialog({
   const updateMutation = api.workspace.update.useMutation({
     onSuccess: async () => {
       await utils.workspace.listWithMeta.invalidate();
-      await utils.scene.getUserScenesList.invalidate();
+      await utils.scene.getUserScenesInfinite.invalidate();
       toast.success("Workspace updated");
       handleOpenChange(false);
     },
@@ -100,7 +100,7 @@ export default function WorkspaceSettingsDialog({
   const deleteMutation = api.workspace.delete.useMutation({
     onSuccess: async () => {
       await utils.workspace.listWithMeta.invalidate();
-      await utils.scene.getUserScenesList.invalidate();
+      await utils.scene.getUserScenesInfinite.invalidate();
       toast.success("Workspace deleted");
       setConfirmInline(false);
       setConfirmText("");

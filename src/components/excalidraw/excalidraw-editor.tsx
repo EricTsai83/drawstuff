@@ -187,7 +187,7 @@ export default function ExcalidrawEditor() {
       try {
         await Promise.all([
           utils.workspace.listWithMeta.invalidate(),
-          utils.scene.getUserScenesList.invalidate(),
+          utils.scene.getUserScenesInfinite.invalidate(),
         ]);
       } catch {
         // ignore
@@ -378,10 +378,7 @@ export default function ExcalidrawEditor() {
                   { id: currentSceneId, name: newName },
                   {
                     onSuccess: () => {
-                      void Promise.all([
-                        utils.scene.getUserScenesList.invalidate(),
-                        utils.scene.getUserScenesInfinite.invalidate(),
-                      ]);
+                      void utils.scene.getUserScenesInfinite.invalidate();
                     },
                     onError: () => {
                       toast.error(
