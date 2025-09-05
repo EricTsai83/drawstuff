@@ -1,3 +1,4 @@
+- improve performance
 - Add favicon (.ico)
 - Refactor the codebase
 - Perform full manual testing
