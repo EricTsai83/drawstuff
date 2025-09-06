@@ -29,6 +29,7 @@ import { useRouter } from "next/navigation";
 import { dispatchLoadSceneRequest } from "@/lib/events";
 import { SceneEditDialog } from "@/components/scene-edit-dialog";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useSceneSession } from "@/hooks/scene-session-context";
 import { OverflowTooltip } from "@/components/overflow-tooltip";
 import {
   Tooltip,
@@ -41,6 +42,7 @@ type SceneListItem =
 
 export function SceneCard({ item }: { item: SceneListItem }) {
   const { t, langCode } = useStandaloneI18n();
+  const { currentSceneId, clearCurrentSceneId } = useSceneSession();
   const timeAgo = formatDistanceToNow(item.updatedAt, {
     addSuffix: true,
     locale: langCode === "zh-TW" ? zhTW : undefined,
@@ -53,6 +55,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   const deleteSceneMutation = api.scene.deleteScene.useMutation({
     onSuccess: async () => {
       setShowDeleteDialog(false);
+      // 若刪除的場景正是當前正在編輯的雲端場景，清除 currentSceneId，避免之後上傳以不存在的 ID 儲存而出錯
+      if (currentSceneId === item.id) {
+        clearCurrentSceneId();
+      }
       // 重新獲取相關列表以更新 UI（含 infinite 列表）
       await Promise.allSettled([
         utils.scene.getUserScenesInfinite.invalidate(),
