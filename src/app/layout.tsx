@@ -10,6 +10,7 @@ import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "@/components/ui/sonner";
 import { TailwindIndicator } from "@/components/tailwind-indicator";
+import { SceneSessionProvider } from "@/hooks/scene-session-context";
 
 export const metadata: Metadata = {
   title: "drawstuff",
@@ -51,11 +52,13 @@ export default function RootLayout({
               routerConfig={extractRouterConfig(uploadRouter)}
             />
             <NuqsAdapter>
-              <div>{auth}</div>
-              <div>{dashboard}</div>
-              {children}
-              <Toaster />
-              <TailwindIndicator />
+              <SceneSessionProvider>
+                <div>{auth}</div>
+                <div>{dashboard}</div>
+                {children}
+                <Toaster />
+                <TailwindIndicator />
+              </SceneSessionProvider>
             </NuqsAdapter>
           </TRPCReactProvider>
           <SpeedInsights />

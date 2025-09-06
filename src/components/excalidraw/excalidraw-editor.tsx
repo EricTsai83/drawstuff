@@ -394,14 +394,12 @@ export default function ExcalidrawEditor() {
                 renameSceneMutation.mutate(
                   { id: currentSceneId, name: newName },
                   {
-                    onSuccess: () => {
-                      void utils.scene.getUserScenesInfinite.invalidate();
-                    },
-                    onError: () => {
+                    onSuccess: () =>
+                      void utils.scene.getUserScenesInfinite.invalidate(),
+                    onError: () =>
                       toast.error(
                         "Failed to update scene name. Please try again.",
-                      );
-                    },
+                      ),
                   },
                 );
               }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
@@ -13,8 +13,7 @@ import {
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { useCurrentSceneId } from "@/hooks/use-current-scene-id";
-import { loadCurrentSceneIdFromStorage } from "@/data/local-storage";
+import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
@@ -25,7 +24,11 @@ export function useCloudUpload(
 ) {
   const [status, setStatus] = useState<UploadStatus>("idle");
   const { currentSceneId, saveCurrentSceneId, clearCurrentSceneId } =
-    useCurrentSceneId();
+    useSceneSession();
+  const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
+  useEffect(() => {
+    currentSceneIdRef.current = currentSceneId;
+  }, [currentSceneId]);
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
@@ -81,10 +84,9 @@ export function useCloudUpload(
           );
           const safeNameFromState =
             (appState.name ?? "Untitled").trim() || "Untitled";
-          // 重要：避免在同一事件中先 clear 再存時仍拿到舊的閉包值，
-          // 優先即時從 localStorage 讀取最新的 sceneId。
+          // 使用 Context 記憶體中的最新 sceneId，避免多 hook/閉包不同步
           const effectiveSceneId =
-            options?.existingSceneId ?? loadCurrentSceneIdFromStorage();
+            options?.existingSceneId ?? currentSceneIdRef.current;
 
           const result = await saveSceneAction({
             id: effectiveSceneId,
