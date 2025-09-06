@@ -1,5 +1,6 @@
 - enhance memory management.
   - Fix the issue where dragging a large Excalidraw file causes the memory limit to be exceeded.
+- Wait for the scene to finish creating before closing the dialog.
 - Add favicon (.ico)
 - Refactor the codebase
 - Perform full manual testing
