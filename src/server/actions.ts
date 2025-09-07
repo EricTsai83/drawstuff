@@ -232,14 +232,19 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
 
   if (input.id) {
     // 更新現有場景（僅限本人場景）
+    const updatePayload: Partial<typeof scene.$inferInsert> = {
+      name: input.name,
+      description: input.description,
+      sceneData: input.data,
+      updatedAt: now,
+      ...(input.workspaceId !== undefined
+        ? { workspaceId: input.workspaceId }
+        : {}),
+    };
+
     const [updatedScene] = await db
       .update(scene)
-      .set({
-        name: input.name,
-        description: input.description,
-        sceneData: input.data,
-        updatedAt: now,
-      })
+      .set(updatePayload)
       .where(and(eq(scene.id, input.id), eq(scene.userId, session.user.id)))
       .returning({ id: scene.id });
 

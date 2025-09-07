@@ -128,10 +128,16 @@ export function NewSceneDialog({
     const finalName = nameTrimmed; // schema 已保證非空白
     const descTrimmed = (values.description ?? "").trim();
     const finalDescription = descTrimmed.length > 0 ? descTrimmed : undefined;
+    // 若未選擇，回退到預設/最後啟用，避免誤用舊 workspace 或存成 null
+    const fallbackWorkspaceId =
+      selectedWorkspaceId ??
+      presetWorkspaceId ??
+      lastActiveWorkspaceId ??
+      defaultWorkspaceId;
     onConfirm({
       name: finalName,
       description: finalDescription,
-      workspaceId: selectedWorkspaceId,
+      workspaceId: fallbackWorkspaceId,
       newWorkspaceName: pendingNewWorkspaceName?.trim() ?? undefined,
       keepCurrentContent: values.contentMode === "keep",
     });

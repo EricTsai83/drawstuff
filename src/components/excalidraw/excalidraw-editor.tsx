@@ -50,6 +50,7 @@ import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confi
 import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-confirm";
 import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm";
 import GlobalConfirmDialog from "@/components/confirm-dialog";
+import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 
 export default function ExcalidrawEditor() {
   const [excalidrawAPI, excalidrawRefCallback] =
@@ -80,6 +81,7 @@ export default function ExcalidrawEditor() {
   } = useCloudUpload(() => {
     setIsCloudUploadDialogOpen(true);
   }, excalidrawAPI);
+  const { activeWorkspaceId } = useWorkspaceOptions();
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
@@ -113,7 +115,8 @@ export default function ExcalidrawEditor() {
     handleExportLink,
   } = useExportHandlers({
     exportScene,
-    uploadSceneToCloud,
+    uploadSceneToCloud: () =>
+      uploadSceneToCloud({ workspaceId: activeWorkspaceId }),
     onShareSuccess: () => {
       closeExcalidrawDialog(excalidrawAPI);
       setTimeout(() => setIsShareDialogOpen(true), 200);
@@ -275,8 +278,8 @@ export default function ExcalidrawEditor() {
       setIsCloudUploadDialogOpen(true);
       return;
     }
-    await uploadSceneToCloud();
-  }, [uploadSceneToCloud, currentSceneId]);
+    await uploadSceneToCloud({ workspaceId: activeWorkspaceId });
+  }, [uploadSceneToCloud, currentSceneId, activeWorkspaceId]);
 
   useEffect(() => {
     if (uploadStatus === "success") {

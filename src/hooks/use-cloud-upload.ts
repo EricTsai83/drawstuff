@@ -51,6 +51,11 @@ export function useCloudUpload(
     categories?: string[];
     workspaceId?: string;
     suppressSuccessToast?: boolean;
+    // 指定上傳模式：
+    // - "create": 強制建立新場景（忽略 existingSceneId 與 currentSceneId）
+    // - "update": 更新既有場景（若未提供 existingSceneId，會回退到目前 context 的 sceneId）
+    // 若未指定，將自動依據 existingSceneId 或目前 context 決定行為（向下相容）
+    mode?: "create" | "update";
   };
 
   const uploadSceneToCloud = useCallback(
@@ -84,15 +89,41 @@ export function useCloudUpload(
           );
           const safeNameFromState =
             (appState.name ?? "Untitled").trim() || "Untitled";
-          // 使用 Context 記憶體中的最新 sceneId，避免多 hook/閉包不同步
-          const effectiveSceneId =
-            options?.existingSceneId ?? currentSceneIdRef.current;
+
+          // 依據 mode 推導有效的 sceneId 與行為
+          const mode = options?.mode;
+          let effectiveSceneId: string | undefined;
+          if (mode === "create") {
+            // 明確要求建立，不帶 id
+            effectiveSceneId = undefined;
+          } else if (mode === "update") {
+            // 明確要求更新，若未提供則回退到 context 的 sceneId
+            effectiveSceneId =
+              options?.existingSceneId ?? currentSceneIdRef.current;
+            if (!effectiveSceneId) {
+              setStatus("error");
+              toast.error(t("app.cloudUpload.toast.error.noSceneToUpdate"));
+              return false;
+            }
+          } else {
+            // 未指定 mode：向下相容，依 existingSceneId 或 context 判斷
+            effectiveSceneId =
+              options?.existingSceneId ?? currentSceneIdRef.current;
+          }
+
+          // 嚴格要求 workspaceId
+          const effectiveWorkspaceId = options?.workspaceId;
+          if (!effectiveWorkspaceId) {
+            setStatus("error");
+            toast.error("Workspace is required to upload");
+            return false;
+          }
 
           const result = await saveSceneAction({
             id: effectiveSceneId,
             name: options?.name ?? safeNameFromState,
             description: options?.description ?? "",
-            workspaceId: options?.workspaceId,
+            workspaceId: effectiveWorkspaceId,
             data: base64Data,
             categories: options?.categories,
           });

@@ -219,6 +219,7 @@ function AppMainMenu({
             name,
             description,
             workspaceId: workspaceIdToUse,
+            mode: "create",
             suppressSuccessToast: true,
           });
           if (!ok) return;
@@ -246,6 +247,7 @@ function AppMainMenu({
             name,
             description,
             workspaceId: workspaceIdToUse,
+            mode: "create",
             suppressSuccessToast: true,
           });
           if (!ok) return;
@@ -462,7 +464,12 @@ function AppMainMenu({
           if (choice === "openExisting") {
             router.push(`/dashboard?workspaceId=${confirmWorkspaceId}`);
           } else if (choice === "newEmpty") {
-            setNewSceneOpen(true);
+            // 先更新最後啟用的 workspace，避免 Dialog 預設讀到舊值
+            void setLastActiveMutation
+              .mutateAsync({ workspaceId: confirmWorkspaceId })
+              .finally(() => {
+                setNewSceneOpen(true);
+              });
           }
         }}
       />
