@@ -90,12 +90,19 @@ export function NewSceneDialog({
     setInternalOpen(nextOpen);
   };
 
-  useEffect(
-    function syncDefaultsWhenOpen() {
-      if (!isOpen) return;
-      void refetchWorkspaces();
+  useEffect(() => {
+    if (!isOpen) return;
+    async function syncDefaultsWhenOpen() {
+      // 先取用最新的 workspace 清單與 lastActive，避免初開時出現過期值
+      const result = await refetchWorkspaces();
+      const latestDefaultWorkspaceId = result.data?.defaultWorkspaceId;
+      const latestLastActiveWorkspaceId = result.data?.lastActiveWorkspaceId;
       const nextWorkspaceId =
-        presetWorkspaceId ?? lastActiveWorkspaceId ?? defaultWorkspaceId;
+        presetWorkspaceId ??
+        latestLastActiveWorkspaceId ??
+        latestDefaultWorkspaceId ??
+        lastActiveWorkspaceId ??
+        defaultWorkspaceId;
       setSelectedWorkspaceId(nextWorkspaceId);
       form.reset({
         name: "",
@@ -104,17 +111,17 @@ export function NewSceneDialog({
       });
       setPendingNewWorkspaceName(undefined);
       setTimeout(() => form.setFocus("name"), 0);
-    },
-    [
-      isOpen,
-      defaultWorkspaceId,
-      lastActiveWorkspaceId,
-      refetchWorkspaces,
-      form,
-      presetWorkspaceId,
-      presetContentMode,
-    ],
-  );
+    }
+    void syncDefaultsWhenOpen();
+  }, [
+    isOpen,
+    defaultWorkspaceId,
+    lastActiveWorkspaceId,
+    refetchWorkspaces,
+    form,
+    presetWorkspaceId,
+    presetContentMode,
+  ]);
 
   async function handleConfirm(values: FormValues): Promise<void> {
     const nameTrimmed = (values.name ?? "").trim();
