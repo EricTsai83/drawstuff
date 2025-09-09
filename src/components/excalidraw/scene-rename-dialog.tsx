@@ -83,7 +83,7 @@ export function SceneRenameDialog({
       requestAnimationFrame(() => {
         const inputElement = inputRef.current;
         if (!inputElement) return;
-        inputElement.focus();
+        inputElement.focus({ preventScroll: true });
         try {
           inputElement.setSelectionRange(0, inputElement.value.length);
         } catch {

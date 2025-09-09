@@ -4,6 +4,13 @@ import { STORAGE_KEYS } from "@/config/app-constants";
 
 // ====== 自行實作 Excalidraw 狀態相關 helper ======
 
+// SSR/Node 環境保護：只有在瀏覽器且存在 localStorage 才進行存取
+function canUseLocalStorage(): boolean {
+  return (
+    typeof window !== "undefined" && typeof window.localStorage !== "undefined"
+  );
+}
+
 function getDefaultAppState(): Partial<AppState> {
   return {
     theme: "light",
@@ -36,6 +43,13 @@ function clearElementsForLocalStorage(
 }
 
 export const importFromLocalStorage = () => {
+  if (!canUseLocalStorage()) {
+    return {
+      elements: [] as OrderedExcalidrawElement[],
+      appState: null as Partial<AppState> | null,
+      files: {} as BinaryFiles,
+    };
+  }
   let savedElements: string | null = null;
   let savedState: string | null = null;
   let savedFiles: string | null = null;
@@ -90,6 +104,7 @@ export const importFromLocalStorage = () => {
 };
 
 export const getElementsStorageSize = () => {
+  if (!canUseLocalStorage()) return 0;
   try {
     const elements = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS);
     const elementsSize = elements?.length ?? 0;
@@ -101,6 +116,7 @@ export const getElementsStorageSize = () => {
 };
 
 export const getTotalStorageSize = () => {
+  if (!canUseLocalStorage()) return 0;
   try {
     // 根據實際的 STORAGE_KEYS 配置計算
     const excalidrawKeys = [
@@ -135,6 +151,7 @@ export const getTotalStorageSize = () => {
 // ====== Scene ID helpers (local-first) ======
 
 export function loadCurrentSceneIdFromStorage(): string | undefined {
+  if (!canUseLocalStorage()) return undefined;
   try {
     const id = localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_ID);
     return id ?? undefined;
@@ -145,6 +162,7 @@ export function loadCurrentSceneIdFromStorage(): string | undefined {
 }
 
 export function saveCurrentSceneIdToStorage(id: string): void {
+  if (!canUseLocalStorage()) return;
   try {
     localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_ID, id);
   } catch (error: unknown) {
@@ -153,6 +171,7 @@ export function saveCurrentSceneIdToStorage(id: string): void {
 }
 
 export function clearCurrentSceneIdFromStorage(): void {
+  if (!canUseLocalStorage()) return;
   try {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
   } catch (error: unknown) {

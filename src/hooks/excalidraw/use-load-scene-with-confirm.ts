@@ -5,7 +5,10 @@ import type {
   AppState,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
-import { importSceneDataBySceneId } from "@/lib/import-data-from-db";
+import {
+  importSceneDataBySceneId,
+  getFileRecordsBySceneId,
+} from "@/lib/import-data-from-db";
 import { toast } from "sonner";
 import { STORAGE_KEYS } from "@/config/app-constants";
 
@@ -90,6 +93,57 @@ export function useLoadSceneWithConfirm({
           elements: imported.elements ?? [],
           appState: mergedAppState,
         });
+
+        // 並行抓取並注入資產（雲端場景）
+        try {
+          const decoder = new TextDecoder();
+          const records = await getFileRecordsBySceneId(sceneId);
+          if (Array.isArray(records) && records.length > 0) {
+            const existing = excalidrawAPI?.getFiles?.() ?? {};
+            const toAdd: Array<{
+              id: string;
+              dataURL: string;
+              mimeType: string;
+              created: number;
+              lastRetrieved: number;
+            }> = [];
+            await Promise.allSettled(
+              records.map(async (r) => {
+                try {
+                  const resp = await fetch(r.url);
+                  if (!resp.ok) return;
+                  const buf = new Uint8Array(await resp.arrayBuffer());
+                  const { metadata, data } = await import("@/lib/encode").then(
+                    (m) =>
+                      m.decompressData<{
+                        id: string;
+                        mimeType: string;
+                        created: number;
+                        lastRetrieved: number;
+                      }>(buf, { decryptionKey: "" }),
+                  );
+                  const id = metadata.id;
+                  if (!existing[id]) {
+                    toAdd.push({
+                      id,
+                      dataURL: decoder.decode(data),
+                      mimeType: metadata.mimeType,
+                      created: metadata.created,
+                      lastRetrieved: metadata.lastRetrieved,
+                    });
+                  }
+                } catch {
+                  // 忽略單檔失敗
+                }
+              }),
+            );
+            if (toAdd.length > 0) {
+              excalidrawAPI?.addFiles?.(toAdd as unknown as any);
+            }
+          }
+        } catch {
+          // 忽略資產回填失敗，不阻斷導入
+        }
 
         try {
           localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_ID, sceneId);

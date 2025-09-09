@@ -71,6 +71,23 @@ export async function getFileRecordsBySharedSceneId(
   }
 }
 
+export async function getFileRecordsBySceneId(
+  sceneId: string,
+): Promise<CloudFileRecord[]> {
+  try {
+    const client = getTrpcClient();
+
+    const res = await client.scene.getFileRecordsBySceneId.query({
+      id: sceneId,
+    });
+
+    return Array.isArray(res?.files) ? res.files : [];
+  } catch (error: unknown) {
+    console.error("getFileRecordsBySceneId error", error);
+    return [];
+  }
+}
+
 function toUint8Array(input: unknown): Uint8Array {
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);

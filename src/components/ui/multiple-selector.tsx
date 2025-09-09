@@ -220,7 +220,7 @@ const MultipleSelector = React.forwardRef<
       () => ({
         selectedValue: [...selected],
         input: inputRef.current!,
-        focus: () => inputRef?.current?.focus(),
+        focus: () => inputRef?.current?.focus({ preventScroll: true }),
         reset: () => setSelected([]),
       }),
       [selected],
@@ -458,7 +458,7 @@ const MultipleSelector = React.forwardRef<
           )}
           onClick={() => {
             if (disabled) return;
-            inputRef?.current?.focus();
+            inputRef?.current?.focus({ preventScroll: true });
           }}
         >
           <div className="relative flex flex-wrap gap-1">

@@ -1,10 +1,16 @@
 import { z } from "zod";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { and, eq, inArray, lt, or, type SQL } from "drizzle-orm";
-import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
+import {
+  category,
+  scene,
+  sceneCategory,
+  workspace,
+  fileRecord,
+} from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
-import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
 import { QUERIES } from "@/server/db/queries";
+import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
 import { UTApi } from "uploadthing/server";
 
 export const sceneRouter = createTRPCRouter({
@@ -369,5 +375,36 @@ export const sceneRouter = createTRPCRouter({
       }
 
       return { id: updated[0].id };
+    }),
+
+  // 依 sceneId 取得雲端資產記錄（僅限擁有者）
+  getFileRecordsBySceneId: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const ownerId = await QUERIES.getSceneOwnerId(input.id);
+      if (!ownerId || ownerId !== ctx.auth.user.id) {
+        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
+      }
+
+      const results = await ctx.db.query.fileRecord.findMany({
+        where: eq(fileRecord.sceneId, input.id),
+        columns: {
+          utFileKey: true,
+          url: true,
+          name: true,
+          size: true,
+          contentHash: true,
+        },
+      });
+
+      return {
+        files: results.map((r) => ({
+          utFileKey: r.utFileKey,
+          url: r.url,
+          name: r.name,
+          size: r.size,
+          contentHash: r.contentHash ?? undefined,
+        })),
+      } as const;
     }),
 });
