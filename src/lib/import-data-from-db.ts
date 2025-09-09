@@ -108,8 +108,9 @@ function sanitizeImportedAppState(
   appState: Partial<AppState>,
 ): Partial<AppState> {
   // 僅保留可序列化且安全的欄位，避免像 collaborators 這類需要特殊型別的欄位破壞型態
-  const { theme, viewBackgroundColor, gridSize, name } = appState;
-  return { theme, viewBackgroundColor, gridSize, name };
+  const { theme, viewBackgroundColor, gridSize, name, scrollX, scrollY, zoom } =
+    appState;
+  return { theme, viewBackgroundColor, gridSize, name, scrollX, scrollY, zoom };
 }
 
 // 非分享模式：直接以 sceneId 讀取壓縮過的 sceneData，解壓並回傳

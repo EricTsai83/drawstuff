@@ -4,13 +4,17 @@ import { useCallback } from "react";
 import type {
   AppState,
   ExcalidrawImperativeAPI,
+  BinaryFileData,
+  DataURL,
 } from "@excalidraw/excalidraw/types";
+import type { FileId } from "@excalidraw/excalidraw/element/types";
+import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import {
   importSceneDataBySceneId,
   getFileRecordsBySceneId,
 } from "@/lib/import-data-from-db";
 import { toast } from "sonner";
-import { STORAGE_KEYS } from "@/config/app-constants";
+import { useSceneSession } from "@/hooks/scene-session-context";
 
 export type LoadSceneParams = {
   sceneId: string;
@@ -44,6 +48,7 @@ export function useLoadSceneWithConfirm({
   invalidate,
   getActiveTheme,
 }: UseLoadSceneWithConfirmParams) {
+  const { saveCurrentSceneId } = useSceneSession();
   const loadSceneWithConfirm = useCallback(
     async ({ sceneId, workspaceId }: LoadSceneParams) => {
       try {
@@ -94,19 +99,53 @@ export function useLoadSceneWithConfirm({
           appState: mergedAppState,
         });
 
+        // 若匯入資料包含 viewport（scrollX/scrollY/zoom），則尊重它並略過自動置中
+        const hasViewportFromImported = Boolean(
+          imported.appState &&
+            (typeof imported.appState.scrollX === "number" ||
+              typeof imported.appState.scrollY === "number" ||
+              typeof (imported.appState as Partial<AppState>).zoom ===
+                "object"),
+        );
+
+        if (!hasViewportFromImported) {
+          // 更新場景後嘗試置中到內容（避免載入後視圖停在舊位置）
+          try {
+            let attempts = 0;
+            const tryCenter = () => {
+              attempts += 1;
+              const els =
+                (excalidrawAPI?.getSceneElements() as readonly ExcalidrawElement[]) ??
+                [];
+              const hasContent = Array.isArray(els)
+                ? els.some((el: ExcalidrawElement) => !el.isDeleted)
+                : false;
+              if (hasContent) {
+                excalidrawAPI?.scrollToContent(undefined, {
+                  fitToViewport: true,
+                  viewportZoomFactor: 0.5,
+                  animate: false,
+                });
+                return;
+              }
+              if (attempts < 10) {
+                window.setTimeout(tryCenter, 80);
+              }
+            };
+            // 延後到下一個 tick，等 Excalidraw 套用新場景再置中
+            window.setTimeout(tryCenter, 0);
+          } catch {
+            // 忽略置中失敗，不影響載入流程
+          }
+        }
+
         // 並行抓取並注入資產（雲端場景）
         try {
           const decoder = new TextDecoder();
           const records = await getFileRecordsBySceneId(sceneId);
           if (Array.isArray(records) && records.length > 0) {
             const existing = excalidrawAPI?.getFiles?.() ?? {};
-            const toAdd: Array<{
-              id: string;
-              dataURL: string;
-              mimeType: string;
-              created: number;
-              lastRetrieved: number;
-            }> = [];
+            const filesToInject: BinaryFileData[] = [];
             await Promise.allSettled(
               records.map(async (r) => {
                 try {
@@ -116,17 +155,21 @@ export function useLoadSceneWithConfirm({
                   const { metadata, data } = await import("@/lib/encode").then(
                     (m) =>
                       m.decompressData<{
-                        id: string;
-                        mimeType: string;
+                        id: FileId;
+                        mimeType: BinaryFileData["mimeType"];
                         created: number;
                         lastRetrieved: number;
                       }>(buf, { decryptionKey: "" }),
                   );
                   const id = metadata.id;
                   if (!existing[id]) {
-                    toAdd.push({
+                    const rawDataURL = decoder.decode(data);
+                    if (!rawDataURL.startsWith("data:")) {
+                      return; // 非合法 DataURL，略過
+                    }
+                    filesToInject.push({
                       id,
-                      dataURL: decoder.decode(data),
+                      dataURL: rawDataURL as DataURL,
                       mimeType: metadata.mimeType,
                       created: metadata.created,
                       lastRetrieved: metadata.lastRetrieved,
@@ -137,8 +180,8 @@ export function useLoadSceneWithConfirm({
                 }
               }),
             );
-            if (toAdd.length > 0) {
-              excalidrawAPI?.addFiles?.(toAdd as unknown as any);
+            if (filesToInject.length > 0) {
+              excalidrawAPI?.addFiles?.(filesToInject);
             }
           }
         } catch {
@@ -146,7 +189,8 @@ export function useLoadSceneWithConfirm({
         }
 
         try {
-          localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_ID, sceneId);
+          // 以 Context 同步當前場景 ID，避免後續儲存誤用舊 ID 覆蓋
+          saveCurrentSceneId(String(sceneId));
         } catch {}
 
         if (workspaceId && setLastActive) {
@@ -176,6 +220,7 @@ export function useLoadSceneWithConfirm({
       setLastActive,
       invalidate,
       getActiveTheme,
+      saveCurrentSceneId,
     ],
   );
 
