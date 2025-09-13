@@ -22,7 +22,7 @@ export default async function DashboardPageContent() {
       overlayClassName="pt-6"
       closeDelayMs={0}
       contentClassName={cn(
-        "bg-background mx-auto min-h-full w-4/5 rounded-none border-0 flex items-center justify-center",
+        "bg-background mx-auto min-h-full w-4/5 rounded-none border-0 flex justify-center",
       )}
     >
       {isAuthenticated ? (

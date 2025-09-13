@@ -9,9 +9,9 @@ import {
 
 export function SceneCardSkeleton() {
   return (
-    <Card className="h-[240px] overflow-hidden pt-0">
+    <Card className="h-[252px] overflow-hidden pt-0">
       <CardHeader className="p-0">
-        <div className="bg-muted relative h-[120px]" />
+        <div className="bg-muted relative h-[150px]" />
       </CardHeader>
       <CardContent>
         <div className="space-y-2">
