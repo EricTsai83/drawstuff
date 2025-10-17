@@ -18,6 +18,19 @@ export type NewUser = InferInsertModel<typeof user>;
 export type Session = InferSelectModel<typeof session>;
 export type NewSession = InferInsertModel<typeof session>;
 
+// Client-safe auth shapes (match authClient.useSession().data)
+export type ClientUser = Omit<User, "image"> & {
+  readonly image?: string | null;
+};
+export type ClientSession = Omit<Session, "ipAddress" | "userAgent"> & {
+  readonly ipAddress?: string | null;
+  readonly userAgent?: string | null;
+};
+export type AuthSessionData = {
+  readonly user: ClientUser;
+  readonly session: ClientSession;
+} | null;
+
 // Account types
 export type Account = InferSelectModel<typeof account>;
 export type NewAccount = InferInsertModel<typeof account>;

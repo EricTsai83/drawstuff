@@ -301,36 +301,40 @@ function AppMainMenu({
               />
             </div>
           )}
-          <div
-            className="dropdown-menu-item dropdown-menu-item-base"
-            onClick={() => {
-              setRenameOpen(true);
-              const currentAppState = excalidrawAPI?.getAppState();
-              if (currentAppState) {
-                excalidrawAPI?.updateScene({
-                  appState: { ...currentAppState, openMenu: null },
-                });
-              }
-            }}
-          >
-            <FilePenLine strokeWidth={1.5} className="h-3.5 w-3.5" />
-            {t("menu.renameScene")}
-          </div>
-          <div
-            className="dropdown-menu-item dropdown-menu-item-base"
-            onClick={() => {
-              setNewSceneOpen(true);
-              const currentAppState = excalidrawAPI?.getAppState();
-              if (currentAppState) {
-                excalidrawAPI?.updateScene({
-                  appState: { ...currentAppState, openMenu: null },
-                });
-              }
-            }}
-          >
-            <FilePlus2 strokeWidth={1.5} className="h-3.5 w-3.5" />
-            {t("menu.newScene")}
-          </div>
+          {session && (
+            <div
+              className="dropdown-menu-item dropdown-menu-item-base"
+              onClick={() => {
+                setRenameOpen(true);
+                const currentAppState = excalidrawAPI?.getAppState();
+                if (currentAppState) {
+                  excalidrawAPI?.updateScene({
+                    appState: { ...currentAppState, openMenu: null },
+                  });
+                }
+              }}
+            >
+              <FilePenLine strokeWidth={1.5} className="h-3.5 w-3.5" />
+              {t("menu.renameScene")}
+            </div>
+          )}
+          {session && (
+            <div
+              className="dropdown-menu-item dropdown-menu-item-base"
+              onClick={() => {
+                setNewSceneOpen(true);
+                const currentAppState = excalidrawAPI?.getAppState();
+                if (currentAppState) {
+                  excalidrawAPI?.updateScene({
+                    appState: { ...currentAppState, openMenu: null },
+                  });
+                }
+              }}
+            >
+              <FilePlus2 strokeWidth={1.5} className="h-3.5 w-3.5" />
+              {t("menu.newScene")}
+            </div>
+          )}
 
           <MainMenu.DefaultItems.LoadScene />
           <MainMenu.DefaultItems.Export />

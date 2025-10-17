@@ -28,7 +28,10 @@ export async function handleSceneSave(
   const session = await getServerSession();
 
   if (!session) {
-    return { sharedSceneId: null, errorMessage: "Unauthorized" };
+    return {
+      sharedSceneId: null,
+      errorMessage: "Please sign in and try again",
+    };
   }
 
   try {
@@ -47,12 +50,15 @@ export async function handleSceneSave(
       return { sharedSceneId, errorMessage: null };
     }
 
-    return { sharedSceneId: null, errorMessage: "Failed to save scene" };
+    return {
+      sharedSceneId: null,
+      errorMessage: "Failed to save scene. Please try again later",
+    };
   } catch (error) {
     console.error("Error in handleSceneSave:", error);
     return {
       sharedSceneId: null,
-      errorMessage: "Could not create shareable link",
+      errorMessage: "Failed to create shareable link. Please try again later",
     };
   }
 }
@@ -69,7 +75,10 @@ export async function getCourseCategory(
   const userId = session?.user?.id ?? null;
 
   if (!userId) {
-    return { status: "failed", message: "Unauthorized" } as const;
+    return {
+      status: "failed",
+      message: "Please sign in and try again",
+    } as const;
   }
 
   try {
@@ -98,7 +107,10 @@ export async function getCourseCategory(
     return { status: "success", data: options } as const;
   } catch (error) {
     console.error("Error in getCourseCategory:", error);
-    return { status: "failed", message: "Failed to fetch categories" } as const;
+    return {
+      status: "failed",
+      message: "Unable to fetch categories. Please try again later",
+    } as const;
   }
 }
 
@@ -109,7 +121,7 @@ export async function getSharedSceneData(sharedSceneId: string) {
   if (!session) {
     return {
       data: null,
-      errorMessage: "Unauthorized",
+      errorMessage: "Please sign in and try again",
     };
   }
 
@@ -128,7 +140,8 @@ export async function getSharedSceneData(sharedSceneId: string) {
     if (result.length === 0) {
       return {
         data: null,
-        errorMessage: "Scene not found",
+        errorMessage:
+          "Scene not found. It may have been deleted or you lack permission",
       };
     }
 
@@ -137,7 +150,8 @@ export async function getSharedSceneData(sharedSceneId: string) {
     if (!sceneData?.compressedData) {
       return {
         data: null,
-        errorMessage: "Scene data is corrupted",
+        errorMessage:
+          "Scene data appears corrupted. Please re-share the scene or contact support",
       };
     }
 
@@ -156,7 +170,7 @@ export async function getSharedSceneData(sharedSceneId: string) {
     console.error("Error in getSceneData:", error);
     return {
       data: null,
-      errorMessage: "Could not retrieve scene data",
+      errorMessage: "Failed to load scene data. Please try again later",
     };
   }
 }
@@ -166,7 +180,10 @@ export async function rollbackSharedScene(sharedSceneId: string) {
   const session = await getServerSession();
 
   if (!session) {
-    return { success: false, errorMessage: "Unauthorized" } as const;
+    return {
+      success: false,
+      errorMessage: "Please sign in and try again",
+    } as const;
   }
 
   try {
@@ -197,7 +214,7 @@ export async function rollbackSharedScene(sharedSceneId: string) {
     console.error("Error during rollbackSharedScene:", error);
     return {
       success: false,
-      errorMessage: "Failed to rollback shared scene",
+      errorMessage: "Failed to rollback shared scene. Please try again later",
     } as const;
   }
 }
@@ -215,7 +232,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
     return {
       ok: false,
       error: APP_ERROR.VALIDATION_FAILED,
-      message: "Invalid input",
+      message: "The submitted data format is invalid",
     };
   }
   const input = parsed.data;
@@ -224,7 +241,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
     return {
       ok: false,
       error: APP_ERROR.UNAUTHORIZED,
-      message: "Unauthorized",
+      message: "Please sign in and try again",
     };
 
   const now = new Date();
@@ -249,11 +266,12 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       .returning({ id: scene.id });
 
     if (!updatedScene?.id) {
-      // 與前端協議的錯誤語意對齊，讓前端能清空無效的 local scene id
+      // Align with frontend error semantics to clear invalid local scene id
       return {
         ok: false,
         error: APP_ERROR.SCENE_NOT_FOUND,
-        message: "Scene not found",
+        message:
+          "Scene not found. It may have been deleted or you lack permission",
       };
     }
     sceneId = updatedScene.id;
@@ -274,7 +292,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       return {
         ok: false,
         error: APP_ERROR.CREATE_FAILED,
-        message: "Failed to create scene",
+        message: "Failed to create scene. Please try again later",
       };
     sceneId = created[0].id;
   }
@@ -327,7 +345,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
     return {
       ok: false,
       error: APP_ERROR.SAVE_FAILED,
-      message: "Failed to save scene",
+      message: "Failed to save scene. Please try again later",
     };
   return { ok: true, data: { id: sceneId } };
 }

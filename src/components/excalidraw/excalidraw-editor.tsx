@@ -253,6 +253,7 @@ export default function ExcalidrawEditor() {
 
       return (
         <ExportSceneActions
+          session={session}
           elements={elements}
           appState={appState}
           files={files}
@@ -269,6 +270,7 @@ export default function ExcalidrawEditor() {
       uploadStatus,
       exportStatus,
       currentSceneId,
+      session,
     ],
   );
 

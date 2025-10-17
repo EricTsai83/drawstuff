@@ -8,6 +8,7 @@ import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { AuthSessionData } from "@/lib/types";
 
 export type ExportUIHandlers = {
   handleSaveToDisk: (
@@ -28,6 +29,7 @@ export type ExportUIHandlers = {
 };
 
 export type ExportSceneActionsProps = {
+  session: AuthSessionData;
   elements: readonly NonDeletedExcalidrawElement[];
   appState: Partial<AppState>;
   files: BinaryFiles;
@@ -37,6 +39,7 @@ export type ExportSceneActionsProps = {
 };
 
 export function ExportSceneActions({
+  session,
   elements,
   appState,
   files,
@@ -56,6 +59,7 @@ export function ExportSceneActions({
         void handlers.handleSaveToDisk(elements, appState, files);
       },
       iconWrapperClassName: "bg-primary/10 border-primary/20",
+      needLogin: false,
     },
     {
       title: t("app.export.cloud.title"),
@@ -70,6 +74,7 @@ export function ExportSceneActions({
       loadingLabel: t("app.export.cloud.loading"),
       buttonClassName: "bg-blue-500/90 text-white hover:bg-blue-600",
       iconWrapperClassName: "bg-blue-500/10 border-blue-500/20",
+      needLogin: true,
     },
     {
       title: t("exportDialog.link_title"),
@@ -85,29 +90,32 @@ export function ExportSceneActions({
       loadingLabel: t("app.export.link.loading"),
       buttonClassName: "bg-pink-500/90 text-white hover:bg-pink-600",
       iconWrapperClassName: "bg-pink-500/10 border-pink-500/20",
+      needLogin: false,
     },
   ];
 
   return (
     <div className="flex w-full max-w-2xl flex-col items-stretch gap-4 sm:flex-row">
-      {configs.map((c) => (
-        <div
-          key={`top-icon-${c.title}`}
-          className="flex flex-1 flex-col items-stretch justify-start gap-4 rounded-xl p-6 text-left sm:text-center"
-        >
+      {configs
+        .filter((config) => config.needLogin === !!session)
+        .map((config) => (
           <div
-            className={cn(
-              "flex h-20 w-20 items-center justify-center self-center rounded-full border [&_svg]:h-10 [&_svg]:w-10",
-              c.iconWrapperClassName ??
-                "bg-primary/10 border-primary/20 text-primary",
-            )}
-            aria-hidden="true"
+            key={`top-icon-${config.title}`}
+            className="flex flex-1 flex-col items-stretch justify-start gap-4 rounded-xl p-6 text-left sm:text-center"
           >
-            {c.icon}
+            <div
+              className={cn(
+                "flex h-20 w-20 items-center justify-center self-center rounded-full border [&_svg]:h-10 [&_svg]:w-10",
+                config.iconWrapperClassName ??
+                  "bg-primary/10 border-primary/20 text-primary",
+              )}
+              aria-hidden="true"
+            >
+              {config.icon}
+            </div>
+            <ExportAction key={config.title} config={config} />
           </div>
-          <ExportAction key={c.title} config={c} />
-        </div>
-      ))}
+        ))}
     </div>
   );
 }
@@ -123,6 +131,7 @@ export type ExportActionConfig = {
   loadingLabel?: string;
   buttonClassName?: string;
   iconWrapperClassName?: string;
+  needLogin: boolean;
 };
 
 function ExportAction({ config }: { config: ExportActionConfig }) {
