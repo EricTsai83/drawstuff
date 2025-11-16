@@ -1,7 +1,6 @@
 - enhance memory management.
-  - Fix the issue where dragging a large Excalidraw file causes the memory limit to be exceeded.
+  - Implement an out-of-memory guard for localStorage.
 - Wait for the scene to finish creating before closing the dialog.
-- Add favicon (.ico)
 - Refactor the codebase
 - Perform full manual testing
 - Check the entire mobile view layout
