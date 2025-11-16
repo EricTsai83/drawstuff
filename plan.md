@@ -1,3 +1,4 @@
+- enhance image loading animation
 - enhance memory management.
   - Implement an out-of-memory guard for localStorage.
 - Wait for the scene to finish creating before closing the dialog.
