@@ -51,8 +51,10 @@ import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-
 import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm";
 import GlobalConfirmDialog from "@/components/confirm-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { useSceneImportFileGuard } from "@/hooks/excalidraw/use-scene-import-file-guard";
 
 export default function ExcalidrawEditor() {
+  useSceneImportFileGuard();
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();

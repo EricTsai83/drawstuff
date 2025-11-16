@@ -8,5 +8,3 @@
 - Enhance the dashboard interface using the View Transition API
 - Prevent importing the same scene on the dashboard page
 - Add rate limiting
-- load scene 和 save scene 後的 toast 出現時間會比畫面顯現還慢一點
-- 新增 ico

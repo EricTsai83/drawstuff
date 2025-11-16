@@ -46,6 +46,7 @@ export const COOKIES = {
 
 // storage warning
 export const STORAGE_MAX_CAPACITY = 4.5 * 1024 * 1024; // 4.5MB
+export const SCENE_FILE_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 
 // excalidraw constants
 export const ENCRYPTION_KEY_BITS = 128;
