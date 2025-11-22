@@ -322,9 +322,11 @@ function AppMainMenu({
     <>
       <MainMenu>
         <div ref={menuRef} className="max-w-full overflow-x-hidden">
-          <div className="mx-2 mb-2 flex items-center justify-center gap-2 pt-1 text-center text-xl font-semibold min-[728px]:hidden">
-            <DrawstuffLogo className="h-4 w-4" />
-            {sceneName}
+          <div className="mx-2 mb-2 flex w-full items-center justify-center gap-2 truncate px-2 pt-1 text-center text-xl font-bold min-[728px]:hidden">
+            <div className="h-4 w-4">
+              <DrawstuffLogo className="h-4 w-4" />
+            </div>
+            <span className="block max-w-full truncate">{sceneName}</span>
           </div>
           {session && (
             <div className="px-2 pb-3">
