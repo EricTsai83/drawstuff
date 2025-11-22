@@ -1,7 +1,6 @@
 import { WelcomeScreen } from "@excalidraw/excalidraw";
 import { memo } from "react";
 import { Github } from "lucide-react";
-import { cn } from "@/lib/utils";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { LogoIcon } from "@/components/logo-icon";
 
@@ -20,12 +19,7 @@ function AppWelcomeScreen() {
         <WelcomeScreen.Center.Logo>
           <div className="flex items-center gap-2">
             <LogoIcon className="animate-flash-once inline-block h-8 w-8 text-indigo-500 dark:text-gray-300" />
-            <h1
-              className={cn(
-                "animate-flash-once inline-block",
-                "text-indigo-500 dark:text-gray-300",
-              )}
-            >
+            <h1 className="animate-flash-once inline-block pt-1 text-indigo-500 dark:text-gray-300">
               drawstuff
             </h1>
           </div>

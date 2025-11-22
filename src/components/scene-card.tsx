@@ -167,7 +167,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   return (
     <>
       <Card
-        className="cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg"
+        className="h-72 cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg"
         onDoubleClick={handleDoubleClickCard}
       >
         <CardHeader className="p-0">
@@ -196,7 +196,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
           </div>
         </CardHeader>
 
-        <CardContent>
+        <CardContent className="h-24">
           <div className="flex min-w-0 items-center gap-2">
             <OverflowTooltip
               delayDuration={600}
@@ -227,7 +227,12 @@ export function SceneCard({ item }: { item: SceneListItem }) {
               </Tooltip>
             ) : null}
           </div>
-          <div className="mb-2 flex flex-wrap gap-1">
+          <div className="mt-1 h-[2.5rem] overflow-hidden">
+            <p className="text-muted-foreground line-clamp-2 text-sm">
+              {item.description || t("dashboard.descriptionPlaceholder")}
+            </p>
+          </div>
+          <div className="mb-2 flex h-[2.5rem] flex-wrap gap-1 overflow-hidden">
             {item.categories.map((cat) => (
               <Badge key={cat} variant="secondary" className="text-xs">
                 {cat}
