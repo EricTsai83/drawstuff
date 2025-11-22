@@ -9,9 +9,9 @@ import {
 
 export function SceneCardSkeleton() {
   return (
-    <Card className="h-72 cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200">
+    <Card className="h-64 cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200">
       <CardHeader className="p-0">
-        <div className="relative aspect-video overflow-hidden">
+        <div className="relative h-32 overflow-hidden">
           <div
             className="bg-muted/80 absolute inset-0 animate-pulse"
             aria-hidden="true"
@@ -24,7 +24,7 @@ export function SceneCardSkeleton() {
           </div>
         </div>
       </CardHeader>
-      <CardContent className="h-24">
+      <CardContent className="h-18">
         <div className="flex min-w-0 items-center gap-2">
           <div className="bg-muted/80 h-5 w-3/4 animate-pulse rounded" />
         </div>

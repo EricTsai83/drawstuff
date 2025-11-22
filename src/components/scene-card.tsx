@@ -167,11 +167,11 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   return (
     <>
       <Card
-        className="h-72 cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg"
+        className="h-64 cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg"
         onDoubleClick={handleDoubleClickCard}
       >
         <CardHeader className="p-0">
-          <div className="relative aspect-video overflow-hidden">
+          <div className="relative h-32 overflow-hidden">
             <Image
               src={item.thumbnail ?? "/placeholder.svg"}
               alt={item.name}
@@ -196,7 +196,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
           </div>
         </CardHeader>
 
-        <CardContent className="h-24">
+        <CardContent className="h-18">
           <div className="flex min-w-0 items-center gap-2">
             <OverflowTooltip
               delayDuration={600}
