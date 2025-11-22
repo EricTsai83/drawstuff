@@ -9,6 +9,14 @@ import { useUploadThing } from "@/lib/uploadthing";
 import { nanoid } from "nanoid";
 import { getBaseUrl } from "@/lib/base-url";
 
+function cloneToArrayBuffer(
+  fileBuffer: Uint8Array<ArrayBufferLike>,
+): ArrayBuffer {
+  const clonedBuffer = new Uint8Array(fileBuffer.length);
+  clonedBuffer.set(fileBuffer);
+  return clonedBuffer.buffer;
+}
+
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
 export function useSceneExport() {
@@ -70,7 +78,8 @@ export function useSceneExport() {
         if (sceneData.compressedFilesData.length > 0) {
           filesToUpload = sceneData.compressedFilesData.map((file) => {
             const uniqueId = nanoid();
-            return new File([file.buffer], uniqueId, {
+            const safeBuffer = cloneToArrayBuffer(file.buffer);
+            return new File([safeBuffer], uniqueId, {
               type: "application/octet-stream",
             });
           });

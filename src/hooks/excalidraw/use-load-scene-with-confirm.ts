@@ -15,6 +15,7 @@ import {
 } from "@/lib/import-data-from-db";
 import { toast } from "sonner";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 export type LoadSceneParams = {
   sceneId: string;
@@ -48,10 +49,15 @@ export function useLoadSceneWithConfirm({
   invalidate,
   getActiveTheme,
 }: UseLoadSceneWithConfirmParams) {
-  const { saveCurrentSceneId } = useSceneSession();
+  const { currentSceneId, saveCurrentSceneId } = useSceneSession();
+  const { t } = useStandaloneI18n();
   const loadSceneWithConfirm = useCallback(
     async ({ sceneId, workspaceId }: LoadSceneParams) => {
       try {
+        if (sceneId === currentSceneId) {
+          toast.info(t("dashboard.sceneAlreadyOpen"));
+          return;
+        }
         if (hasCurrentContent()) {
           const choice = await requestSceneChangeDecision();
           if (choice === "cancel") return;
@@ -220,7 +226,9 @@ export function useLoadSceneWithConfirm({
       setLastActive,
       invalidate,
       getActiveTheme,
+      currentSceneId,
       saveCurrentSceneId,
+      t,
     ],
   );
 

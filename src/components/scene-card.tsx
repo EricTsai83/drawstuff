@@ -5,6 +5,7 @@ import { zhTW } from "date-fns/locale";
 import { Clock, Info } from "lucide-react";
 import Image from "next/image";
 import { useState, useEffect, useCallback } from "react";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -98,6 +99,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
 
   const handleImportScene = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (item.id === currentSceneId) {
+      toast.info(t("dashboard.sceneAlreadyOpen"));
+      return;
+    }
     const id = item.id;
     const workspaceId = item.workspaceId;
     dispatchLoadSceneRequest({ sceneId: id, workspaceId });
@@ -148,6 +153,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
 
   // 雙擊卡片：透過事件傳遞 sceneId/workspaceId，交由編輯器處理導入與切換邏輯
   const handleDoubleClickCard = () => {
+    if (item.id === currentSceneId) {
+      toast.info(t("dashboard.sceneAlreadyOpen"));
+      return;
+    }
     const id = item.id;
     const workspaceId = item.workspaceId;
     dispatchLoadSceneRequest({ sceneId: id, workspaceId });

@@ -339,11 +339,39 @@ export function getCurrentSceneSnapshot(
   return { elements, appState: appState as Partial<AppState>, files };
 }
 
-function ensureInitialAppState(appState: Partial<AppState>): Partial<AppState> {
+export function ensureInitialAppState(
+  appState: Partial<AppState>,
+): Partial<AppState> {
   // Excalidraw 會期望一些欄位為特定形狀。這裡清掉可能造成型別/結構問題的欄位
-  // 例如 collaborators 若為物件或其他型別，會導致 forEach 失敗。
   const { theme, viewBackgroundColor, gridSize, name } = appState;
-  return { theme, viewBackgroundColor, gridSize, name };
+  const sanitizedScrollX = sanitizeViewportCoordinate(appState.scrollX);
+  const sanitizedScrollY = sanitizeViewportCoordinate(appState.scrollY);
+  const sanitizedZoom = sanitizeZoomState(appState.zoom);
+
+  return {
+    theme,
+    viewBackgroundColor,
+    gridSize,
+    name,
+    ...(sanitizedScrollX !== undefined ? { scrollX: sanitizedScrollX } : {}),
+    ...(sanitizedScrollY !== undefined ? { scrollY: sanitizedScrollY } : {}),
+    ...(sanitizedZoom ? { zoom: sanitizedZoom } : {}),
+  };
+}
+
+function sanitizeViewportCoordinate(value: unknown): number | undefined {
+  if (typeof value !== "number") return undefined;
+  if (!Number.isFinite(value)) return undefined;
+  return value;
+}
+
+function sanitizeZoomState(
+  zoom: AppState["zoom"] | undefined,
+): AppState["zoom"] | undefined {
+  if (!zoom) return undefined;
+  if (typeof zoom.value !== "number") return undefined;
+  if (!Number.isFinite(zoom.value)) return undefined;
+  return { ...zoom, value: zoom.value };
 }
 
 // 匯出場景為 PNG Blob（抽共用）

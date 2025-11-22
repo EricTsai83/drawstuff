@@ -93,6 +93,7 @@ export const appTranslations: AppTranslations = {
     "dashboard.noScenesFound": "No scenes found",
     "dashboard.noScenesFound.hint":
       "Try adjusting your search terms or browse all scenes",
+    "dashboard.sceneAlreadyOpen": "You're already editing this scene.",
     "search.placeholder":
       "Search scenes by name, description, category, or project...",
     "search.resultsCount": 'Found {count} results for "{query}"',
@@ -198,6 +199,7 @@ export const appTranslations: AppTranslations = {
     "dashboard.reachedEnd": "已到清單底部。",
     "dashboard.noScenesFound": "找不到場景",
     "dashboard.noScenesFound.hint": "嘗試調整搜尋關鍵字，或瀏覽全部場景",
+    "dashboard.sceneAlreadyOpen": "您已正在編輯此場景。",
     "search.placeholder": "以名稱、描述、分類或專案名稱搜尋場景...",
     "search.resultsCount": '找到 {count} 筆結果，關鍵字："{query}"',
     "search.showingCount": "共顯示 {total} 個場景",

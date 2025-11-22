@@ -13,7 +13,10 @@ import { LanguageSelector } from "./app-language/language-selector";
 import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type {
+  AppState,
+  ExcalidrawImperativeAPI,
+} from "@excalidraw/excalidraw/types";
 import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
 import { LogIn, FilePenLine, FilePlus2, Settings2 } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
@@ -41,6 +44,21 @@ type AppMainMenuProps = {
   handleSetSceneName: (name: string) => void;
   showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
+
+const DEFAULT_ZOOM_VALUE = 1 as AppState["zoom"]["value"];
+
+function createResetZoomState(
+  currentZoom: AppState["zoom"] | undefined,
+): AppState["zoom"] {
+  if (
+    currentZoom &&
+    typeof currentZoom.value === "number" &&
+    Number.isFinite(currentZoom.value)
+  ) {
+    return { ...currentZoom, value: DEFAULT_ZOOM_VALUE };
+  }
+  return { value: DEFAULT_ZOOM_VALUE };
+}
 
 function AppMainMenu({
   userChosenTheme,
@@ -226,14 +244,16 @@ function AppMainMenu({
           toast.success(t("toasts.newSceneCreated"));
         } else {
           // 重置畫布為空
-          const currentAppState = excalidrawAPI?.getAppState();
+          const currentAppState = excalidrawAPI?.getAppState() as
+            | AppState
+            | undefined;
           if (currentAppState) {
+            const resetZoom = createResetZoomState(currentAppState.zoom);
             excalidrawAPI?.updateScene({
               elements: [],
               appState: {
-                // 明確帶入必填 zoom 結構，避免型別不相容
                 ...currentAppState,
-                zoom: currentAppState.zoom,
+                zoom: resetZoom,
                 name,
               },
             });

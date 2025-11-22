@@ -3,6 +3,7 @@ import { decompressData, base64ToArrayBuffer } from "./encode";
 import { getTrpcClient } from "@/trpc/client";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState } from "@excalidraw/excalidraw/types";
+import { ensureInitialAppState } from "@/lib/excalidraw";
 
 export async function importDataFromBackend(
   id: string,
@@ -107,10 +108,7 @@ function toUint8Array(input: unknown): Uint8Array {
 function sanitizeImportedAppState(
   appState: Partial<AppState>,
 ): Partial<AppState> {
-  // 僅保留可序列化且安全的欄位，避免像 collaborators 這類需要特殊型別的欄位破壞型態
-  const { theme, viewBackgroundColor, gridSize, name, scrollX, scrollY, zoom } =
-    appState;
-  return { theme, viewBackgroundColor, gridSize, name, scrollX, scrollY, zoom };
+  return ensureInitialAppState(appState);
 }
 
 // 非分享模式：直接以 sceneId 讀取壓縮過的 sceneData，解壓並回傳
