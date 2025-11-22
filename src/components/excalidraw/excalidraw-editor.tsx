@@ -387,6 +387,7 @@ export default function ExcalidrawEditor() {
             onLangCodeChange={handleLangCodeChange}
             excalidrawAPI={excalidrawAPI}
             handleSetSceneName={handleSetSceneName}
+            sceneName={sceneName}
             showConfirmDialog={showWorkspaceCreateConfirm}
           />
 

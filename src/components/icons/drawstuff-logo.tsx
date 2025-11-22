@@ -2,7 +2,7 @@ type LogoIconProps = {
   readonly className: string | undefined;
 };
 
-export function LogoIcon({ className }: LogoIconProps) {
+export function DrawstuffLogo({ className }: LogoIconProps) {
   return (
     <svg
       className={className}

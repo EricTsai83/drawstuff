@@ -2,7 +2,7 @@ import { WelcomeScreen } from "@excalidraw/excalidraw";
 import { memo } from "react";
 import { Github } from "lucide-react";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
-import { LogoIcon } from "@/components/logo-icon";
+import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 
 function AppWelcomeScreen() {
   const { t } = useStandaloneI18n();
@@ -18,7 +18,7 @@ function AppWelcomeScreen() {
       <WelcomeScreen.Center>
         <WelcomeScreen.Center.Logo>
           <div className="flex items-center gap-2">
-            <LogoIcon className="animate-flash-once inline-block h-8 w-8 text-indigo-500 dark:text-gray-300" />
+            <DrawstuffLogo className="animate-flash-once inline-block h-8 w-8 text-indigo-500 dark:text-gray-300" />
             <h1 className="animate-flash-once inline-block pt-1 text-indigo-500 dark:text-gray-300">
               drawstuff
             </h1>

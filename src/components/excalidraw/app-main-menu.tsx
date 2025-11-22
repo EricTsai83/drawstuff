@@ -18,7 +18,13 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
-import { LogIn, FilePenLine, FilePlus2, Settings2 } from "lucide-react";
+import {
+  LogIn,
+  FilePenLine,
+  FilePlus2,
+  Settings2,
+  PanelsTopLeft,
+} from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
 import { authClient } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
@@ -34,6 +40,7 @@ import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 import { loadCurrentSceneIdFromStorage } from "@/data/local-storage";
+import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -42,6 +49,7 @@ type AppMainMenuProps = {
   onLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   handleSetSceneName: (name: string) => void;
+  sceneName: string;
   showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
 
@@ -67,6 +75,7 @@ function AppMainMenu({
   onLangCodeChange,
   excalidrawAPI,
   handleSetSceneName,
+  sceneName,
   showConfirmDialog,
 }: AppMainMenuProps) {
   const { t } = useAppI18n();
@@ -104,17 +113,35 @@ function AppMainMenu({
   });
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
 
-  useOutsideClick(menuRef, () => {
+  const closeMenu = useCallback(() => {
     const currentAppState = excalidrawAPI?.getAppState();
-    if (currentAppState) {
-      excalidrawAPI?.updateScene({
-        appState: {
-          ...currentAppState,
-          openMenu: null,
-        },
-      });
+    if (!currentAppState) {
+      return;
     }
-  });
+    excalidrawAPI?.updateScene({
+      appState: {
+        ...currentAppState,
+        openMenu: null,
+      },
+    });
+  }, [excalidrawAPI]);
+
+  useOutsideClick(menuRef, closeMenu);
+
+  const handleOpenRename = useCallback(() => {
+    setRenameOpen(true);
+    closeMenu();
+  }, [closeMenu]);
+
+  const handleOpenNewSceneDialog = useCallback(() => {
+    setNewSceneOpen(true);
+    closeMenu();
+  }, [closeMenu]);
+
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true);
+    closeMenu();
+  }, [closeMenu]);
 
   const triggerRename = useCallback(
     (nextName: string) => {
@@ -295,6 +322,10 @@ function AppMainMenu({
     <>
       <MainMenu>
         <div ref={menuRef} className="max-w-full overflow-x-hidden">
+          <div className="mx-2 mb-2 flex items-center justify-center gap-2 pt-1 text-center text-xl font-semibold min-[728px]:hidden">
+            <DrawstuffLogo className="h-4 w-4" />
+            {sceneName}
+          </div>
           {session && (
             <div className="px-2 pb-3">
               <WorkspaceDropdown
@@ -322,16 +353,28 @@ function AppMainMenu({
             </div>
           )}
           {session && (
+            <MainMenu.ItemCustom>
+              <Link
+                href="/dashboard"
+                className="dropdown-menu-item dropdown-menu-item-base"
+                onClick={closeMenu}
+              >
+                <PanelsTopLeft strokeWidth={1.5} className="h-3.5 w-3.5" />
+
+                {t("labels.openDashboard")}
+              </Link>
+            </MainMenu.ItemCustom>
+          )}
+          {session && (
             <div
               className="dropdown-menu-item dropdown-menu-item-base"
-              onClick={() => {
-                setRenameOpen(true);
-                const currentAppState = excalidrawAPI?.getAppState();
-                if (currentAppState) {
-                  excalidrawAPI?.updateScene({
-                    appState: { ...currentAppState, openMenu: null },
-                  });
+              onClick={handleOpenRename}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") {
+                  return;
                 }
+                event.preventDefault();
+                handleOpenRename();
               }}
             >
               <FilePenLine strokeWidth={1.5} className="h-3.5 w-3.5" />
@@ -341,14 +384,13 @@ function AppMainMenu({
           {session && (
             <div
               className="dropdown-menu-item dropdown-menu-item-base"
-              onClick={() => {
-                setNewSceneOpen(true);
-                const currentAppState = excalidrawAPI?.getAppState();
-                if (currentAppState) {
-                  excalidrawAPI?.updateScene({
-                    appState: { ...currentAppState, openMenu: null },
-                  });
+              onClick={handleOpenNewSceneDialog}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") {
+                  return;
                 }
+                event.preventDefault();
+                handleOpenNewSceneDialog();
               }}
             >
               <FilePlus2 strokeWidth={1.5} className="h-3.5 w-3.5" />
@@ -365,15 +407,13 @@ function AppMainMenu({
           {session && (
             <div
               className="dropdown-menu-item dropdown-menu-item-base"
-              onClick={() => {
-                // 先打開 Dialog（渲染於主選單外），再關閉主選單
-                setSettingsOpen(true);
-                const currentAppState = excalidrawAPI?.getAppState();
-                if (currentAppState) {
-                  excalidrawAPI?.updateScene({
-                    appState: { ...currentAppState, openMenu: null },
-                  });
+              onClick={handleOpenSettings}
+              onKeyDown={(event) => {
+                if (event.key !== "Enter" && event.key !== " ") {
+                  return;
                 }
+                event.preventDefault();
+                handleOpenSettings();
               }}
             >
               <Settings2 strokeWidth={1.5} className="h-3.5 w-3.5" />
