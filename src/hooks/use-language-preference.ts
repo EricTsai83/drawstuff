@@ -1,6 +1,7 @@
 import { useState, useCallback } from "react";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import { getPreferredLanguage } from "@/components/excalidraw/app-language/language-detector";
+import { dispatchLanguageChange } from "@/lib/events";
 
 export function useLanguagePreference() {
   const [langCode, setLangCode] = useState<string>(() => {
@@ -16,6 +17,7 @@ export function useLanguagePreference() {
   ): void {
     setLangCode(lang);
     localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, lang);
+    dispatchLanguageChange({ langCode: lang });
   }, []);
 
   return { langCode, handleLangCodeChange };
