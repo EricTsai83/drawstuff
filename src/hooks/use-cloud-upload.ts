@@ -18,6 +18,30 @@ import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
 
+/**
+ * 將 TypedArray 轉為安全的 ArrayBuffer，避免 SharedArrayBuffer 造成型別不符。
+ * 若可重用原緩衝區則避免複製以降低效能成本。
+ */
+function normalizeToArrayBuffer(bufferView: Uint8Array): ArrayBuffer {
+  const underlyingBuffer = bufferView.buffer;
+  if (underlyingBuffer instanceof ArrayBuffer) {
+    const sliceNeeded =
+      bufferView.byteOffset !== 0 ||
+      bufferView.byteLength !== underlyingBuffer.byteLength;
+    if (sliceNeeded) {
+      return underlyingBuffer.slice(
+        bufferView.byteOffset,
+        bufferView.byteOffset + bufferView.byteLength,
+      );
+    }
+    return underlyingBuffer;
+  }
+
+  const copy = new ArrayBuffer(bufferView.byteLength);
+  new Uint8Array(copy).set(bufferView);
+  return copy;
+}
+
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
   excalidrawAPI?: ExcalidrawImperativeAPI | null,
@@ -141,16 +165,16 @@ export function useCloudUpload(
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
             prepared.compressedFilesData.length > 0
-              ? prepared.compressedFilesData.map(
-                  (f) =>
-                    new File(
-                      [f.buffer],
-                      String((f as { id?: string }).id ?? "asset"),
-                      {
-                        type: "application/octet-stream",
-                      },
-                    ),
-                )
+              ? prepared.compressedFilesData.map((f) => {
+                  const bufferForFile = normalizeToArrayBuffer(f.buffer);
+                  return new File(
+                    [bufferForFile],
+                    String((f as { id?: string }).id ?? "asset"),
+                    {
+                      type: "application/octet-stream",
+                    },
+                  );
+                })
               : [];
 
           if (id) {
