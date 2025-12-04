@@ -1,5 +1,7 @@
 import { ENCRYPTION_KEY_BITS } from "@/config/app-constants";
 
+import type { ArrayBufferInput, Uint8ArrayLike } from "./array-buffer";
+import { normalizeToArrayBuffer } from "./array-buffer";
 import { blobToArrayBuffer } from "./blob";
 
 export const IV_LENGTH_BYTES = 12;
@@ -47,12 +49,13 @@ export const getCryptoKey = (key: string, usage: KeyUsage) =>
 
 export const encryptData = async (
   key: string | CryptoKey,
-  data: Uint8Array | ArrayBuffer | Blob | File | string,
+  data: Uint8ArrayLike | ArrayBuffer | Blob | File | string,
 ): Promise<{ encryptedBuffer: ArrayBuffer; iv: Uint8Array }> => {
   const importedKey =
     typeof key === "string" ? await getCryptoKey(key, "encrypt") : key;
   const iv = createIV();
-  const buffer: ArrayBuffer | Uint8Array =
+  const ivBuffer: ArrayBuffer = normalizeToArrayBuffer(iv);
+  const rawBuffer: ArrayBufferInput =
     typeof data === "string"
       ? new TextEncoder().encode(data)
       : data instanceof Uint8Array
@@ -60,16 +63,17 @@ export const encryptData = async (
         : data instanceof Blob
           ? await blobToArrayBuffer(data)
           : data;
+  const buffer: ArrayBuffer = normalizeToArrayBuffer(rawBuffer);
 
   // We use symmetric encryption. AES-GCM is the recommended algorithm and
   // includes checks that the ciphertext has not been modified by an attacker.
   const encryptedBuffer = await window.crypto.subtle.encrypt(
     {
       name: "AES-GCM",
-      iv,
+      iv: ivBuffer,
     },
     importedKey,
-    buffer as ArrayBuffer | Uint8Array,
+    buffer,
   );
 
   return { encryptedBuffer, iv };
@@ -77,16 +81,18 @@ export const encryptData = async (
 
 export const decryptData = async (
   iv: Uint8Array,
-  encrypted: Uint8Array | ArrayBuffer,
+  encrypted: Uint8ArrayLike | ArrayBuffer,
   privateKey: string,
 ): Promise<ArrayBuffer> => {
   const key = await getCryptoKey(privateKey, "decrypt");
+  const ivBuffer: ArrayBuffer = normalizeToArrayBuffer(iv);
+  const encryptedBuffer: ArrayBuffer = normalizeToArrayBuffer(encrypted);
   return window.crypto.subtle.decrypt(
     {
       name: "AES-GCM",
-      iv,
+      iv: ivBuffer,
     },
     key,
-    encrypted,
+    encryptedBuffer,
   );
 };
