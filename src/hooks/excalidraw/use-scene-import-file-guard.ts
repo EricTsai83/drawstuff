@@ -83,13 +83,15 @@ export function useSceneImportFileGuard(
     }
 
     function handleFileInputChange(event: Event): void {
-      const input = event.target as HTMLInputElement | null;
-      if (!input || input.type !== "file") return;
-      const shouldBlock = guardFiles(input.files);
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.type !== "file") {
+        return;
+      }
+      const shouldBlock = guardFiles(target.files ?? null);
       if (!shouldBlock) return;
       event.preventDefault();
       event.stopPropagation();
-      input.value = "";
+      target.value = "";
     }
 
     window.addEventListener("drop", handleDrop, true);
