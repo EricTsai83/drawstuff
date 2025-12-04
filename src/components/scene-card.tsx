@@ -227,12 +227,12 @@ export function SceneCard({ item }: { item: SceneListItem }) {
               </Tooltip>
             ) : null}
           </div>
-          <div className="mt-1 h-[2.5rem] overflow-hidden">
+          <div className="mt-1 h-10 overflow-hidden">
             <p className="text-muted-foreground line-clamp-2 text-sm">
               {item.description || t("dashboard.descriptionPlaceholder")}
             </p>
           </div>
-          <div className="mb-2 flex h-[2.5rem] flex-wrap gap-1 overflow-hidden">
+          <div className="mb-2 flex h-10 flex-wrap gap-1 overflow-hidden">
             {item.categories.map((cat) => (
               <Badge key={cat} variant="secondary" className="text-xs">
                 {cat}
