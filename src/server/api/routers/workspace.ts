@@ -210,7 +210,7 @@ export const workspaceRouter = createTRPCRouter({
         .from(workspace)
         .where(eq(workspace.id, input.workspaceId))
         .limit(1);
-      if (!owned || owned.userId !== userId) {
+      if (owned?.userId !== userId) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Invalid workspace",
@@ -242,7 +242,7 @@ export const workspaceRouter = createTRPCRouter({
         .from(workspace)
         .where(eq(workspace.id, input.id))
         .limit(1);
-      if (!owned || owned.userId !== userId) {
+      if (owned?.userId !== userId) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Invalid workspace",
@@ -287,7 +287,7 @@ export const workspaceRouter = createTRPCRouter({
         .from(workspace)
         .where(eq(workspace.id, input.id))
         .limit(1);
-      if (!target || target.userId !== userId) {
+      if (target?.userId !== userId) {
         throw new TRPCError({
           code: "FORBIDDEN",
           message: "Invalid workspace",

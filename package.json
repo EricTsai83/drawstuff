@@ -6,7 +6,6 @@
   "type": "module",
   "scripts": {
     "build": "next build",
-    "check": "next lint && tsc --noEmit",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
@@ -14,9 +13,9 @@
     "dev": "next dev --turbo",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
-    "lint": "next lint",
-    "lint:fix": "next lint --fix",
     "preview": "next build && next start",
+    "lint": "eslint . --ext .ts,.tsx",
+    "lint:fix": "eslint . --ext .ts,.tsx --fix",
     "start": "next start",
     "typecheck": "tsc --noEmit"
   },
