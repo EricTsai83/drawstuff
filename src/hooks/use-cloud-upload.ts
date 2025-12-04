@@ -6,6 +6,7 @@ import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
 import { saveSceneAction } from "@/server/actions";
 import { stringToBase64, toByteString } from "@/lib/encode";
+import { normalizeToArrayBuffer } from "@/lib/array-buffer";
 import {
   getCurrentSceneSnapshot,
   exportSceneThumbnail,
@@ -17,30 +18,6 @@ import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
-
-/**
- * 將 TypedArray 轉為安全的 ArrayBuffer，避免 SharedArrayBuffer 造成型別不符。
- * 若可重用原緩衝區則避免複製以降低效能成本。
- */
-function normalizeToArrayBuffer(bufferView: Uint8Array): ArrayBuffer {
-  const underlyingBuffer = bufferView.buffer;
-  if (underlyingBuffer instanceof ArrayBuffer) {
-    const sliceNeeded =
-      bufferView.byteOffset !== 0 ||
-      bufferView.byteLength !== underlyingBuffer.byteLength;
-    if (sliceNeeded) {
-      return underlyingBuffer.slice(
-        bufferView.byteOffset,
-        bufferView.byteOffset + bufferView.byteLength,
-      );
-    }
-    return underlyingBuffer;
-  }
-
-  const copy = new ArrayBuffer(bufferView.byteLength);
-  new Uint8Array(copy).set(bufferView);
-  return copy;
-}
 
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
