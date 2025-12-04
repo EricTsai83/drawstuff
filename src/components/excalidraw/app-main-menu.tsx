@@ -425,7 +425,7 @@ function AppMainMenu({
           <MainMenu.Separator />
           {session ? (
             <MainMenu.Item
-              className="!mt-0"
+              className="mt-0!"
               icon={
                 <Avatar
                   src={session.user.image ?? ""}
@@ -438,9 +438,9 @@ function AppMainMenu({
               {t("auth.signOut")}
             </MainMenu.Item>
           ) : (
-            <Link href="/login" className="!no-underline">
+            <Link href="/login" className="no-underline!">
               <MainMenu.Item
-                className="!mt-0"
+                className="mt-0!"
                 icon={<LogIn strokeWidth={1.5} />}
                 aria-label={t("auth.signIn")}
               >
