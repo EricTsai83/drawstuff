@@ -286,6 +286,27 @@ export default function ExcalidrawEditor() {
   }, [uploadSceneToCloud, currentSceneId, activeWorkspaceId]);
 
   useEffect(() => {
+    if (!session) return;
+
+    function onKeyDown(event: KeyboardEvent): void {
+      if (event.isComposing || event.repeat) return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      if (event.shiftKey || event.altKey) return;
+      if (event.key.toLowerCase() !== "s" && event.code !== "KeyS") return;
+
+      // 攔截瀏覽器原生儲存快捷鍵，改走專案的雲端儲存流程。
+      event.preventDefault();
+      event.stopPropagation();
+      void handleCloudUpload();
+    }
+
+    // 用 capture phase 盡量比瀏覽器/元件內部快捷鍵更早接手 Cmd/Ctrl+S。
+    window.addEventListener("keydown", onKeyDown, { capture: true });
+    return () =>
+      window.removeEventListener("keydown", onKeyDown, { capture: true });
+  }, [session, handleCloudUpload]);
+
+  useEffect(() => {
     if (uploadStatus === "success") {
       const timer = setTimeout(() => {
         resetStatus();
