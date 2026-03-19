@@ -192,12 +192,17 @@ export const scene = createTable(
     isArchived: boolean("is_archived")
       .$defaultFn(() => false)
       .notNull(), // 新增：是否已封存
+    isPublished: boolean("is_published").default(false).notNull(),
+    publishedSlug: varchar("published_slug", { length: 64 }),
+    publishedAt: timestamp("published_at"),
   },
   (table) => [
     index("scene_user_id_idx").on(table.userId),
     index("scene_workspace_id_idx").on(table.workspaceId),
     index("scene_name_idx").on(table.name),
     index("scene_last_updated_idx").on(table.lastUpdated),
+    index("scene_published_idx").on(table.isPublished),
+    uniqueIndex("scene_published_slug_unique").on(table.publishedSlug),
   ],
 );
 

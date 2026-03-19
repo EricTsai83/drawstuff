@@ -4,6 +4,7 @@ import { useMemo, useEffect, useState, useRef } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { SceneCard } from "./scene-card";
 import { SceneGridSkeleton } from "@/components/skeleton/scene-grid-skeleton";
 import { useEscapeKey } from "@/hooks/use-escape-key";
@@ -17,6 +18,7 @@ import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
 type SceneInfinitePage = RouterOutputs["scene"]["getUserScenesInfinite"];
+type PublishFilter = "all" | "published" | "unpublished";
 
 export function SceneSearchList() {
   const router = useRouter();
@@ -33,6 +35,7 @@ export function SceneSearchList() {
     defaultValue: "",
     clearOnDefault: true,
   });
+  const [publishFilter, setPublishFilter] = useState<PublishFilter>("all");
 
   useEscapeKey(() => router.back());
 
@@ -93,10 +96,20 @@ export function SceneSearchList() {
   }, [data]);
 
   const filteredItems = useMemo<SceneListItem[]>(() => {
-    if (!searchQuery) return allItems;
-    const q = searchQuery.toLowerCase();
-    return allItems.filter((item) => doesSceneMatchQuery(item, q));
-  }, [searchQuery, allItems]);
+    return allItems.filter((item) => {
+      const matchesSearch = searchQuery
+        ? doesSceneMatchQuery(item, searchQuery.toLowerCase())
+        : true;
+      const matchesPublishFilter =
+        publishFilter === "all"
+          ? true
+          : publishFilter === "published"
+            ? item.isPublished
+            : !item.isPublished;
+
+      return matchesSearch && matchesPublishFilter;
+    });
+  }, [searchQuery, allItems, publishFilter]);
 
   // 若上方已佔用前 5 筆，且 Your scenes 暫時為空，但還有下一頁，就主動抓下一頁避免空白
   useEffect(() => {
@@ -161,6 +174,10 @@ export function SceneSearchList() {
       <SceneSearchBar
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+      />
+      <PublishFilterBar
+        value={publishFilter}
+        onChange={setPublishFilter}
       />
 
       {/* Recently modified by you Section */}
@@ -227,6 +244,37 @@ export function SceneSearchList() {
           searchQuery={searchQuery}
         />
       )}
+    </div>
+  );
+}
+
+type PublishFilterBarProps = {
+  value: PublishFilter;
+  onChange: (value: PublishFilter) => void;
+};
+
+function PublishFilterBar({ value, onChange }: PublishFilterBarProps) {
+  const { t } = useStandaloneI18n();
+
+  const options: Array<{ value: PublishFilter; label: string }> = [
+    { value: "all", label: t("dashboard.filter.all") },
+    { value: "published", label: t("dashboard.filter.published") },
+    { value: "unpublished", label: t("dashboard.filter.unpublished") },
+  ];
+
+  return (
+    <div className="flex flex-wrap gap-2">
+      {options.map((option) => (
+        <Button
+          key={option.value}
+          type="button"
+          variant={value === option.value ? "default" : "outline"}
+          size="sm"
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </Button>
+      ))}
     </div>
   );
 }

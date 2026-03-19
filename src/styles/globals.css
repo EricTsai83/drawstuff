@@ -193,3 +193,10 @@
   --tracking-wider: calc(var(--tracking-normal) + 0.05em);
   --tracking-widest: calc(var(--tracking-normal) + 0.1em);
 }
+
+/* Hide Excalidraw native UI in published viewer */
+.published-viewer .excalidraw .layer-ui__wrapper .disable-zen-mode,
+.published-viewer .excalidraw .layer-ui__wrapper .disable-zen-mode--visible,
+.published-viewer .excalidraw .layer-ui__wrapper__footer {
+  display: none !important;
+}

@@ -37,6 +37,8 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
+import { copyTextToSystemClipboard } from "@/lib/utils";
+import { getPublishedSceneUrl } from "@/lib/published-scene";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
@@ -53,28 +55,34 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   const [isEditOpen, setIsEditOpen] = useState(false);
   const router = useRouter();
 
+  const utils = api.useUtils();
+  const saveSceneMutation = api.scene.saveScene.useMutation();
+  const publishSceneMutation = api.scene.publish.useMutation();
+  const unpublishSceneMutation = api.scene.unpublish.useMutation();
+
+  const invalidateSceneQueries = useCallback(
+    (sceneId?: string) =>
+      Promise.allSettled([
+        utils.scene.getUserScenesInfinite.invalidate(),
+        utils.scene.getUserScenes.invalidate(),
+        ...(sceneId ? [utils.scene.getScene.invalidate({ id: sceneId })] : []),
+        utils.workspace.listWithMeta.invalidate(),
+      ]),
+    [utils],
+  );
+
   const deleteSceneMutation = api.scene.deleteScene.useMutation({
     onSuccess: async () => {
       setShowDeleteDialog(false);
-      // 若刪除的場景正是當前正在編輯的雲端場景，清除 currentSceneId，避免之後上傳以不存在的 ID 儲存而出錯
       if (currentSceneId === item.id) {
         clearCurrentSceneId();
       }
-      // 重新獲取相關列表以更新 UI（含 infinite 列表）
-      await Promise.allSettled([
-        utils.scene.getUserScenesInfinite.invalidate(),
-        utils.scene.getUserScenes.invalidate(),
-        utils.workspace.listWithMeta.invalidate(),
-      ]);
+      await invalidateSceneQueries();
     },
     onError: (error) => {
       console.error("Failed to delete scene:", error);
-      // 這裡可以添加 toast 通知
     },
   });
-
-  const utils = api.useUtils();
-  const saveSceneMutation = api.scene.saveScene.useMutation();
 
   // 確保 AlertDialog 關閉時重置載入狀態
   useEffect(() => {
@@ -83,8 +91,17 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     }
   }, [showDeleteDialog]);
 
+  const loadScene = useCallback(() => {
+    if (item.id === currentSceneId) {
+      toast.info(t("dashboard.sceneAlreadyOpen"));
+      return;
+    }
+    dispatchLoadSceneRequest({ sceneId: item.id, workspaceId: item.workspaceId });
+    router.back();
+  }, [item.id, item.workspaceId, currentSceneId, t, router]);
+
   const handleDeleteClick = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation(); // 防止觸發卡片的點擊事件
+    e.stopPropagation();
     setShowDeleteDialog(true);
   }, []);
 
@@ -97,17 +114,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     }
   }, [deleteSceneMutation, item.id]);
 
-  const handleImportScene = (e: React.MouseEvent) => {
+  const handleImportScene = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
-    if (item.id === currentSceneId) {
-      toast.info(t("dashboard.sceneAlreadyOpen"));
-      return;
-    }
-    const id = item.id;
-    const workspaceId = item.workspaceId;
-    dispatchLoadSceneRequest({ sceneId: id, workspaceId });
-    router.back();
-  };
+    loadScene();
+  }, [loadScene]);
 
   const handleEditScene = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -140,29 +150,80 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         categories: payload.categories,
       });
       setIsEditOpen(false);
-      await Promise.allSettled([
-        utils.scene.getUserScenesInfinite.invalidate(),
-        utils.scene.getUserScenes.invalidate(),
-        utils.scene.getScene.invalidate({ id: item.id }),
-        utils.workspace.listWithMeta.invalidate(),
-      ]);
+      await invalidateSceneQueries(item.id);
     } catch (err) {
       console.error(err);
     }
   };
 
-  // 雙擊卡片：透過事件傳遞 sceneId/workspaceId，交由編輯器處理導入與切換邏輯
-  const handleDoubleClickCard = () => {
-    if (item.id === currentSceneId) {
-      toast.info(t("dashboard.sceneAlreadyOpen"));
-      return;
-    }
-    const id = item.id;
-    const workspaceId = item.workspaceId;
-    dispatchLoadSceneRequest({ sceneId: id, workspaceId });
-    // 關閉 Dashboard 視窗
-    router.back();
-  };
+  const handlePublishScene = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+
+      try {
+        const result = await publishSceneMutation.mutateAsync({ id: item.id });
+        await invalidateSceneQueries(item.id);
+        await copyTextToSystemClipboard(getPublishedSceneUrl(result.slug));
+        toast.success(
+          t(
+            result.alreadyPublished
+              ? "publish.toast.copied"
+              : "publish.toast.published",
+          ),
+        );
+      } catch (error) {
+        console.error("Failed to publish scene:", error);
+        toast.error(t("publish.toast.failed"));
+      }
+    },
+    [item.id, publishSceneMutation, t, invalidateSceneQueries],
+  );
+
+  const handleCopyPublicLink = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!item.publishedSlug) {
+        toast.error(t("publish.toast.failed"));
+        return;
+      }
+
+      try {
+        await copyTextToSystemClipboard(getPublishedSceneUrl(item.publishedSlug));
+        toast.success(t("publish.toast.copied"));
+      } catch (error) {
+        console.error("Failed to copy public link:", error);
+        toast.error(t("publish.toast.failed"));
+      }
+    },
+    [item.publishedSlug, t],
+  );
+
+  const handleOpenPublicLink = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!item.publishedSlug) return;
+      window.open(getPublishedSceneUrl(item.publishedSlug), "_blank");
+    },
+    [item.publishedSlug],
+  );
+
+  const handleUnpublishScene = useCallback(
+    async (e: React.MouseEvent) => {
+      e.stopPropagation();
+
+      try {
+        await unpublishSceneMutation.mutateAsync({ id: item.id });
+        await invalidateSceneQueries(item.id);
+        toast.success(t("publish.toast.unpublished"));
+      } catch (error) {
+        console.error("Failed to unpublish scene:", error);
+        toast.error(t("publish.toast.failed"));
+      }
+    },
+    [item.id, t, unpublishSceneMutation, invalidateSceneQueries],
+  );
+
+  const handleDoubleClickCard = loadScene;
 
   return (
     <>
@@ -178,6 +239,11 @@ export function SceneCard({ item }: { item: SceneListItem }) {
               fill
               className="object-cover transition-transform duration-200"
             />
+            {item.isPublished ? (
+              <div className="absolute top-3 left-3">
+                <Badge>{t("publish.badge")}</Badge>
+              </div>
+            ) : null}
             <div className="absolute bottom-0 left-0 flex gap-2">
               <Badge
                 variant="secondary"
@@ -191,6 +257,11 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                 onImport={handleImportScene}
                 onEdit={handleEditScene}
                 onDelete={handleDeleteClick}
+                onPublish={handlePublishScene}
+                onUnpublish={handleUnpublishScene}
+                onCopyPublicLink={handleCopyPublicLink}
+                onOpenPublicLink={handleOpenPublicLink}
+                isPublished={item.isPublished}
               />
             </div>
           </div>

@@ -9,19 +9,40 @@ import {
   DropdownMenuItem,
   DropdownMenuSeparator,
 } from "@/components/ui/dropdown-menu";
-import { EllipsisVertical, Download, Edit, Trash2 } from "lucide-react";
+import {
+  EllipsisVertical,
+  Download,
+  Edit,
+  Trash2,
+  Globe,
+  Copy,
+  ExternalLink,
+} from "lucide-react";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type SceneCardMenuProps = {
   onImport: (e: React.MouseEvent) => void;
   onEdit: (e: React.MouseEvent) => void;
   onDelete: (e: React.MouseEvent) => void;
+  onPublish: (e: React.MouseEvent) => void;
+  onUnpublish: (e: React.MouseEvent) => void;
+  onCopyPublicLink: (e: React.MouseEvent) => void;
+  onOpenPublicLink: (e: React.MouseEvent) => void;
+  isPublished: boolean;
 };
 
 export function SceneCardMenu({
   onImport,
   onEdit,
   onDelete,
+  onPublish,
+  onUnpublish,
+  onCopyPublicLink,
+  onOpenPublicLink,
+  isPublished,
 }: SceneCardMenuProps) {
+  const { t } = useStandaloneI18n();
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -38,16 +59,41 @@ export function SceneCardMenu({
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem onClick={onImport}>
           <Download className="hover:text-accent-foreground mr-2 h-4 w-4" />
-          Import scene
+          {t("menu.importScene")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onEdit}>
           <Edit className="hover:text-accent-foreground mr-2 h-4 w-4" />
-          Scene settings
+          {t("menu.sceneSettings")}
         </DropdownMenuItem>
         <DropdownMenuSeparator />
+        {isPublished ? (
+          <>
+            <DropdownMenuItem onClick={onOpenPublicLink}>
+              <ExternalLink className="mr-2 h-4 w-4" />
+              {t("publish.menu.openLink")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onCopyPublicLink}>
+              <Copy className="mr-2 h-4 w-4" />
+              {t("publish.menu.copyLink")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onUnpublish}>
+              <Globe className="mr-2 h-4 w-4" />
+              {t("publish.menu.unpublish")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        ) : (
+          <>
+            <DropdownMenuItem onClick={onPublish}>
+              <Globe className="mr-2 h-4 w-4" />
+              {t("publish.menu.publish")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem variant="destructive" onClick={onDelete}>
           <Trash2 className="hover:text-destructive-foreground mr-2 h-4 w-4" />
-          Delete
+          {t("buttons.delete")}
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
