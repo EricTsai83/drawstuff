@@ -1,7 +1,7 @@
 "use client";
 
 import "@excalidraw/excalidraw/index.css";
-import { Excalidraw, restore } from "@excalidraw/excalidraw";
+import { Excalidraw, MainMenu, restore } from "@excalidraw/excalidraw";
 import {
   Eye,
   EyeOff,
@@ -27,7 +27,7 @@ import type {
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
 import { ensureInitialAppState } from "@/lib/excalidraw";
 import Link from "next/link";
-import { DrawstuffLogo } from "@/components/icons";
+import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
@@ -282,7 +282,7 @@ export function PublishedSceneViewer({
       {uiVisible && (
         <header className="border-border bg-background flex h-12 shrink-0 items-center justify-between border-b px-3 sm:px-5">
           <Link href="/" className="flex items-center gap-1.5 px-2">
-            <DrawstuffLogo className="h-4 w-4" />
+            <DrawstuffLogo className="h-4 w-4 text-indigo-500 dark:text-gray-300" />
             <span className="hidden text-lg font-medium sm:inline">
               drawstuff
             </span>
@@ -382,7 +382,46 @@ export function PublishedSceneViewer({
                     export: false,
                   },
                 }}
-              />
+              >
+                <MainMenu>
+                  <MainMenu.DefaultItems.SearchMenu />
+                  <MainMenu.DefaultItems.Help />
+                  <MainMenu.Separator />
+                  <MainMenu.ItemCustom>
+                    <Link
+                      href="https://github.com/EricTsai83/drawstuff"
+                      target="_blank"
+                      rel="noopener"
+                      className="dropdown-menu-item dropdown-menu-item-base"
+                    >
+                      <Github className="h-4 w-4" />
+                      GitHub
+                    </Link>
+                  </MainMenu.ItemCustom>
+                  <MainMenu.ItemCustom>
+                    <Link
+                      href="https://bsky.app/profile/ericts.com"
+                      target="_blank"
+                      rel="noopener"
+                      className="dropdown-menu-item dropdown-menu-item-base"
+                    >
+                      <Bluesky className="h-4 w-4" />
+                      Bluesky
+                    </Link>
+                  </MainMenu.ItemCustom>
+                  <MainMenu.ItemCustom>
+                    <Link
+                      href="https://ericts.com"
+                      target="_blank"
+                      rel="noopener"
+                      className="dropdown-menu-item dropdown-menu-item-base"
+                    >
+                      <Blog className="h-4 w-4" />
+                      Website
+                    </Link>
+                  </MainMenu.ItemCustom>
+                </MainMenu>
+              </Excalidraw>
             )}
           </div>
         )}
