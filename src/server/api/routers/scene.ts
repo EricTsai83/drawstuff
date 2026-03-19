@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
+import {
+  createTRPCRouter,
+  protectedProcedure,
+  publicProcedure,
+} from "@/server/api/trpc";
 import { and, eq, inArray, lt, or, type SQL } from "drizzle-orm";
 import {
   category,
@@ -12,6 +16,30 @@ import { TRPCError } from "@trpc/server";
 import { QUERIES } from "@/server/db/queries";
 import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
 import { UTApi } from "uploadthing/server";
+import { nanoid } from "nanoid";
+
+const publishMutationOutput = z.object({
+  slug: z.string(),
+  alreadyPublished: z.boolean(),
+});
+
+const publicSceneOutput = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  description: z.string(),
+  sceneData: z.string(),
+  thumbnailUrl: z.string().optional(),
+  updatedAt: z.date(),
+  publishedAt: z.date().optional(),
+  authorName: z.string().optional(),
+  files: z.array(
+    z.object({
+      url: z.string(),
+      name: z.string(),
+      size: z.number(),
+    }),
+  ),
+});
 
 export const sceneRouter = createTRPCRouter({
   saveScene: protectedProcedure
@@ -28,7 +56,7 @@ export const sceneRouter = createTRPCRouter({
           .from(workspace)
           .where(eq(workspace.id, input.workspaceId))
           .limit(1);
-        if (!owned || owned.userId !== ctx.auth.user.id) {
+        if (owned?.userId !== ctx.auth.user.id) {
           throw new TRPCError({
             code: "FORBIDDEN",
             message: "Invalid workspace",
@@ -187,7 +215,7 @@ export const sceneRouter = createTRPCRouter({
     .input(z.object({ id: z.string().uuid() }))
     .query(async ({ ctx, input }) => {
       const sceneData = await ctx.db.query.scene.findFirst({
-        where: eq(scene.id, input.id),
+        where: and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
       });
       return sceneData;
     }),
@@ -230,6 +258,9 @@ export const sceneRouter = createTRPCRouter({
             thumbnail: z.string().optional(),
             sceneData: z.string().optional(),
             isArchived: z.boolean(),
+            isPublished: z.boolean(),
+            publishedSlug: z.string().optional(),
+            publishedAt: z.date().optional(),
             categories: z.array(z.string()),
           }),
         ),
@@ -302,6 +333,9 @@ export const sceneRouter = createTRPCRouter({
         thumbnail: s.thumbnailUrl ?? undefined,
         sceneData: s.sceneData ?? undefined,
         isArchived: s.isArchived,
+        isPublished: s.isPublished,
+        publishedSlug: s.publishedSlug ?? undefined,
+        publishedAt: s.publishedAt ?? undefined,
         categories: (s.sceneCategories ?? [])
           .map((sc) => sc.category?.name)
           .filter((name): name is string => Boolean(name)),
@@ -375,6 +409,158 @@ export const sceneRouter = createTRPCRouter({
       }
 
       return { id: updated[0].id };
+    }),
+
+  publish: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .output(publishMutationOutput)
+    .mutation(async ({ ctx, input }) => {
+      const ownedScene = await ctx.db.query.scene.findFirst({
+        where: and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
+        columns: {
+          id: true,
+          publishedSlug: true,
+          isPublished: true,
+        },
+      });
+
+      if (!ownedScene) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
+      }
+
+      if (ownedScene.isPublished && ownedScene.publishedSlug) {
+        return {
+          slug: ownedScene.publishedSlug,
+          alreadyPublished: true,
+        };
+      }
+
+      const MAX_SLUG_ATTEMPTS = 5;
+      for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
+        const nextSlug = nanoid(12);
+
+        try {
+          const [updated] = await ctx.db
+            .update(scene)
+            .set({
+              isPublished: true,
+              publishedSlug: nextSlug,
+              publishedAt: new Date(),
+              updatedAt: new Date(),
+            })
+            .where(
+              and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
+            )
+            .returning({
+              publishedSlug: scene.publishedSlug,
+            });
+
+          if (!updated?.publishedSlug) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "Scene not found",
+            });
+          }
+
+          return {
+            slug: updated.publishedSlug,
+            alreadyPublished: false,
+          };
+        } catch (error) {
+          const isUniqueViolation =
+            error instanceof Error &&
+            "cause" in error &&
+            typeof error.cause === "object" &&
+            error.cause !== null &&
+            "code" in error.cause &&
+            (error.cause as { code?: string }).code === "23505";
+
+          if (!isUniqueViolation) {
+            throw error;
+          }
+        }
+      }
+
+      throw new TRPCError({
+        code: "INTERNAL_SERVER_ERROR",
+        message: "Failed to publish scene",
+      });
+    }),
+
+  unpublish: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .mutation(async ({ ctx, input }) => {
+      const [updated] = await ctx.db
+        .update(scene)
+        .set({
+          isPublished: false,
+          publishedSlug: null,
+          publishedAt: null,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)))
+        .returning({ id: scene.id });
+
+      if (!updated?.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
+      }
+
+      return { id: updated.id };
+    }),
+
+  getPublishedSceneBySlug: publicProcedure
+    .input(z.object({ slug: z.string().min(1).max(64) }))
+    .output(publicSceneOutput.nullable())
+    .query(async ({ ctx, input }) => {
+      const publishedScene = await ctx.db.query.scene.findFirst({
+        where: and(
+          eq(scene.publishedSlug, input.slug),
+          eq(scene.isPublished, true),
+        ),
+        columns: {
+          id: true,
+          name: true,
+          description: true,
+          sceneData: true,
+          thumbnailUrl: true,
+          updatedAt: true,
+          publishedAt: true,
+        },
+        with: {
+          user: {
+            columns: {
+              name: true,
+            },
+          },
+          fileRecords: {
+            columns: {
+              url: true,
+              name: true,
+              size: true,
+            },
+          },
+        },
+      });
+
+      if (!publishedScene?.sceneData) {
+        return null;
+      }
+
+      return {
+        id: publishedScene.id,
+        name: publishedScene.name,
+        description: publishedScene.description ?? "",
+        sceneData: publishedScene.sceneData,
+        thumbnailUrl: publishedScene.thumbnailUrl ?? undefined,
+        updatedAt: publishedScene.updatedAt,
+        publishedAt: publishedScene.publishedAt ?? undefined,
+        authorName: publishedScene.user?.name ?? undefined,
+        files: (publishedScene.fileRecords ?? []).map((file) => ({
+          url: file.url,
+          name: file.name,
+          size: file.size,
+        })),
+      };
     }),
 
   // 依 sceneId 取得雲端資產記錄（僅限擁有者）
