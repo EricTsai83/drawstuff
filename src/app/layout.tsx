@@ -5,7 +5,6 @@ import { TRPCReactProvider } from "@/trpc/react";
 import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
 import { extractRouterConfig } from "uploadthing/server";
 import { uploadRouter } from "@/app/api/uploadthing/core";
-import { SpeedInsights } from "@vercel/speed-insights/next";
 import { ThemeProvider } from "next-themes";
 import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "@/components/ui/sonner";
@@ -61,7 +60,6 @@ export default function RootLayout({
               </SceneSessionProvider>
             </NuqsAdapter>
           </TRPCReactProvider>
-          <SpeedInsights />
         </ThemeProvider>
       </body>
     </html>
