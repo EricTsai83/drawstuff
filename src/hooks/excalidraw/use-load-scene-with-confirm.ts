@@ -63,21 +63,22 @@ export function useLoadSceneWithConfirm({
           if (choice === "cancel") return;
           if (choice === "save") {
             setSceneChangeLoading?.(true);
+            let saveOk = false;
             try {
-              const ok = await uploadSceneToCloud({
+              saveOk = await uploadSceneToCloud({
                 workspaceId,
                 suppressSuccessToast: true,
               });
-              if (!ok) {
-                // 保持對話框開啟，讓使用者可重試或取消
-                return;
-              }
             } catch {
-              // 儲存失敗也繼續嘗試導入
+              // 與 !ok 相同：未成功寫入雲端前不可切場景（避免違反「先存再換」）
+              saveOk = false;
             } finally {
               setSceneChangeLoading?.(false);
             }
-            // 儲存成功，關閉對話框
+            if (!saveOk) {
+              // 保持對話框開啟，讓使用者可重試或改選「不存就換」
+              return;
+            }
             closeSceneChangeConfirm?.();
           } else if (choice === "switch") {
             // 直接覆蓋，先關閉對話框
