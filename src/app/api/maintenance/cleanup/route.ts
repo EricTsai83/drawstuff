@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { env } from "@/env";
 import { QUERIES } from "@/server/db/queries";
 import { UTApi } from "uploadthing/server";
 
@@ -6,7 +7,7 @@ import { UTApi } from "uploadthing/server";
 export async function POST(request: Request) {
   // 授權：僅接受 Authorization: Bearer <CRON_SECRET>
   const authHeader = request.headers.get("authorization");
-  const expected = `Bearer ${process.env.CRON_SECRET}`;
+  const expected = `Bearer ${env.CRON_SECRET}`;
   if (authHeader !== expected) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
@@ -15,7 +16,7 @@ export async function POST(request: Request) {
 
   try {
     // 1) 針對「非擁有者」先清 UploadThing 檔案，然後再刪除使用者（cascade 刪 DB）
-    const ownerEmail = process.env.CLEANUP_OWNER_EMAIL;
+    const ownerEmail = env.CLEANUP_OWNER_EMAIL;
     let deletedUsers = 0;
     if (ownerEmail) {
       // 收集非擁有者 userIds、其 scenes、以及所有相關檔案 keys
