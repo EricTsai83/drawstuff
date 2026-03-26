@@ -1,6 +1,6 @@
 import { createTRPCProxyClient, httpBatchStreamLink } from "@trpc/client";
 import SuperJSON from "superjson";
-import type { AppRouter } from "@/server/api/root";
+import type { AppRouter } from "./types";
 import { getBaseUrl } from "@/lib/base-url";
 
 function createClient() {
