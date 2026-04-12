@@ -165,11 +165,11 @@ export function useLoadSceneWithConfirm({
         }
 
         try {
+          saveCurrentSceneId(String(sceneId), imported.updatedAt);
           if (
             hasCompleteSceneFileHydration(imported.elements ?? [], importedFiles)
           ) {
-            // 只有在檔案水合完整時才標記為最新，避免下次啟動跳過重試
-            saveCurrentSceneId(String(sceneId), imported.updatedAt);
+            // 只有在檔案水合完整時才寫入本地快照，避免下次啟動跳過重試
             saveToLocalStorage(
               imported.elements ?? [],
               mergedAppState,

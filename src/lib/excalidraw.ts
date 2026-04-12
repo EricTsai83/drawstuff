@@ -261,6 +261,9 @@ export function getReferencedFileIds(
   }
 
   elements.forEach((element: ExcalidrawElement) => {
+    if (element.isDeleted) {
+      return;
+    }
     if (isInitializedImageElement(element)) {
       fileIds.add(element.fileId);
     }
