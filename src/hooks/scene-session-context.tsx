@@ -12,13 +12,12 @@ import {
 import {
   loadCurrentSceneIdFromStorage,
   saveCurrentSceneIdToStorage,
-  clearCurrentSceneIdFromStorage,
+  clearCurrentSceneSessionFromStorage,
   loadCurrentSceneRevisionFromStorage,
   saveCurrentSceneRevisionToStorage,
   clearCurrentSceneRevisionFromStorage,
   loadCurrentSceneDirtyFromStorage,
   saveCurrentSceneDirtyToStorage,
-  clearCurrentSceneDirtyFromStorage,
 } from "@/data/local-storage";
 
 /** Safety-net timeout: auto-resumes dirty tracking if a caller forgets to
@@ -120,9 +119,7 @@ export function SceneSessionProvider({
     isDirtyRef.current = false;
     doResume();
     try {
-      clearCurrentSceneIdFromStorage();
-      clearCurrentSceneRevisionFromStorage();
-      clearCurrentSceneDirtyFromStorage();
+      clearCurrentSceneSessionFromStorage();
     } catch {
       // ignore storage errors
     }

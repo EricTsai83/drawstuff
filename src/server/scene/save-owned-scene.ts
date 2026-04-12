@@ -126,18 +126,6 @@ export async function saveOwnedScene({
       } as const;
     }
 
-    if (existingScene.revision !== input.expectedRevision) {
-      return {
-        status: "conflict",
-        message: "Scene has been updated elsewhere",
-        data: {
-          id: existingScene.id,
-          revision: existingScene.revision,
-          updatedAt: existingScene.updatedAt,
-        },
-      } as const;
-    }
-
     const nextRevision = existingScene.revision + 1;
     const [updatedScene] = await tx
       .update(scene)

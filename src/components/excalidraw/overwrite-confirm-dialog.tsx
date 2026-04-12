@@ -79,7 +79,7 @@ export function OverwriteConfirmDialog({
           if (!ok) {
             window.history.replaceState(
               {},
-              "我先隨便取的APP_NAME",
+              document.title,
               window.location.origin,
             );
             return;

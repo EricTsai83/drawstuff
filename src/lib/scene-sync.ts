@@ -11,8 +11,10 @@ export function resolveSceneSyncAction({
   remoteRevision,
   isDirty,
 }: ResolveSceneSyncActionParams): SceneSyncAction {
+  // Remote revision unavailable (e.g. scene deleted or API error) — nothing
+  // actionable; the caller should not attempt a blind refresh.
   if (remoteRevision === undefined) {
-    return "refresh_remote";
+    return "noop";
   }
 
   if (localRevision === undefined) {

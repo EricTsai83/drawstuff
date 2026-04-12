@@ -186,6 +186,16 @@ export function clearCurrentSceneIdFromStorage(): void {
   if (!canUseLocalStorage()) return;
   try {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+/** Clear all scene-session keys (ID + revision + dirty) at once. */
+export function clearCurrentSceneSessionFromStorage(): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);
   } catch (error: unknown) {

@@ -12,8 +12,8 @@ import {
   saveCurrentSceneDirtyToStorage,
   saveCurrentSceneIdToStorage,
   saveCurrentSceneRevisionToStorage,
-  clearCurrentSceneIdFromStorage,
   clearCurrentSceneRevisionFromStorage,
+  clearCurrentSceneSessionFromStorage,
 } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import type {
@@ -55,7 +55,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
           if (!ok) {
             window.history.replaceState(
               {},
-              "我先隨便取的APP_NAME",
+              document.title,
               window.location.origin,
             );
             return await restoreInitialDataFromLocal(
@@ -74,7 +74,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
         // 清除加密資訊，避免資訊殘留在 URL 上
         window.history.replaceState(
           {},
-          "我先隨便取的APP_NAME",
+          document.title,
           window.location.origin,
         );
 
@@ -182,9 +182,7 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
     // Clear persisted session markers so the app doesn't remain attached
     // to a dead remote scene on next load.
     try {
-      clearCurrentSceneIdFromStorage();
-      saveCurrentSceneDirtyToStorage(false);
-      clearCurrentSceneRevisionFromStorage();
+      clearCurrentSceneSessionFromStorage();
     } catch {
       // ignore storage errors
     }

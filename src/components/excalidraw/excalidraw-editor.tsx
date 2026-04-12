@@ -45,7 +45,6 @@ import { useDashboardShortcut } from "@/hooks/use-dashboard-shortcut";
 import { LOAD_SCENE_EVENT, type LoadSceneRequestDetail } from "@/lib/events";
 import { SceneChangeConfirmDialog } from "./scene-change-confirm-dialog";
 import { api } from "@/trpc/react";
-// import { STORAGE_KEYS } from "@/config/app-constants";
 import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confirm";
 import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-confirm";
 import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm";

@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
 import { resolveSceneSyncAction } from "@/lib/scene-sync";
+import { isApplyResultAcceptable } from "@/hooks/excalidraw/use-apply-remote-scene";
 import type { SceneConflictInfo } from "@/hooks/use-cloud-upload";
 
 // ---------------------------------------------------------------------------
@@ -123,10 +124,7 @@ export function useSceneRemoteRevisionCheck({
           sceneId: currentSceneId,
           getActiveTheme,
         });
-        // With progressive loading the canvas is updated even when some image
-        // assets are missing (reason: "incomplete_files"). Only treat
-        // "scene_data_missing" as a true failure.
-        const applied = result.ok || result.reason === "incomplete_files";
+        const applied = isApplyResultAcceptable(result);
         if (applied) {
           ignoredConflictKeyRef.current = undefined;
           if (!suppressToast) {
@@ -169,7 +167,7 @@ export function useSceneRemoteRevisionCheck({
             sceneId: pendingConflict.sceneId,
             getActiveTheme,
           });
-          const applied = result.ok || result.reason === "incomplete_files";
+          const applied = isApplyResultAcceptable(result);
           if (applied) {
             ignoredConflictKeyRef.current = undefined;
             clearConflict();

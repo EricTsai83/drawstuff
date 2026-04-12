@@ -27,6 +27,11 @@ type ApplyRemoteSceneResult =
   | { ok: true; revision?: number }
   | { ok: false; reason: "scene_data_missing" | "incomplete_files" };
 
+/** The canvas was updated — true even when some image assets are still missing. */
+export function isApplyResultAcceptable(result: ApplyRemoteSceneResult): boolean {
+  return result.ok || result.reason === "incomplete_files";
+}
+
 export function useApplyRemoteScene(
   excalidrawAPI: ExcalidrawImperativeAPI | null,
 ) {
