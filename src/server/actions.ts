@@ -279,7 +279,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       const conflictData = saveResult.data;
       return {
         ok: false,
-        error: "SCENE_CONFLICT" as AppErrorCode,
+        error: APP_ERROR.SCENE_CONFLICT,
         message: saveResult.message,
         data: {
           id: conflictData.id,

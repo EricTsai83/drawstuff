@@ -18,6 +18,7 @@ import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
+import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
 
 export type SceneConflictInfo = {
   sceneId: string;
@@ -123,24 +124,38 @@ export function useCloudUpload(
               toast.error(t("app.cloudUpload.toast.error.noSceneToUpdate"));
               return false;
             }
-            if (lastSyncedRevisionRef.current === undefined) {
-              setStatus("error");
-              toast.error("Scene version is unavailable. Please reload and try again.");
-              return false;
-            }
           } else {
             // 未指定 mode：向下相容，依 existingSceneId 或 context 判斷
             effectiveSceneId =
               options?.existingSceneId ?? currentSceneIdRef.current;
           }
 
+          // Auto-recover missing revision: fetch from remote before saving.
+          // Only the ref is updated here — we intentionally avoid calling
+          // syncCurrentScene() because it would reset isDirty to false while
+          // we are in the middle of uploading dirty content.
+          // The server-side optimistic lock is the real safety net — if another
+          // client updated in between, the server rejects with SCENE_CONFLICT.
           if (
             effectiveSceneId !== undefined &&
             lastSyncedRevisionRef.current === undefined
           ) {
-            setStatus("error");
-            toast.error("Scene version is unavailable. Please reload and try again.");
-            return false;
+            try {
+              const remoteMeta =
+                await getSceneMetaBySceneId(effectiveSceneId);
+              if (remoteMeta?.revision !== undefined) {
+                lastSyncedRevisionRef.current = remoteMeta.revision;
+              }
+            } catch {
+              // ignore fetch errors — will proceed without revision
+            }
+            if (lastSyncedRevisionRef.current === undefined) {
+              setStatus("error");
+              toast.error(
+                "Unable to verify scene version. Please reload and try again.",
+              );
+              return false;
+            }
           }
 
           // 嚴格要求 workspaceId

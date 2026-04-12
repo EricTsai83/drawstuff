@@ -24,7 +24,7 @@ export type UseLoadSceneWithConfirmParams = {
   applyRemoteScene: (params: {
     sceneId: string;
     getActiveTheme?: () => "dark" | "light";
-  }) => Promise<{ ok: boolean }>;
+  }) => Promise<{ ok: boolean; reason?: string }>;
   // 擷取目前啟用的主題（避免載入場景時套用舊主題）
   getActiveTheme?: () => "dark" | "light";
 };
@@ -81,8 +81,10 @@ export function useLoadSceneWithConfirm({
           sceneId,
           getActiveTheme,
         });
-        if (!applyResult.ok) {
-          throw new Error("Failed to apply remote scene");
+        // "incomplete_files" means the canvas was updated (elements visible)
+        // but some image assets are missing — not a blocking failure.
+        if (!applyResult.ok && applyResult.reason === "scene_data_missing") {
+          throw new Error("Failed to load scene data");
         }
 
         if (workspaceId && setLastActive) {
