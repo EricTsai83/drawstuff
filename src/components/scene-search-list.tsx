@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useEffect, useState, useRef } from "react";
+import { useMemo, useEffect, useState, useRef, type FormEvent } from "react";
 import { useQueryState } from "nuqs";
-import { Search } from "lucide-react";
+import { Loader2, Pencil, Plus, Search, Settings2, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { StatefulButton } from "@/components/stateful-button";
 import { SceneCard } from "./scene-card";
@@ -11,26 +11,49 @@ import { useEscapeKey } from "@/hooks/use-escape-key";
 import { usePathname, useRouter } from "next/navigation";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
+import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useSearchParams } from "next/navigation";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { workspaceNameSchema } from "@/lib/schemas/workspace";
+import { toast } from "sonner";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
 type SceneInfinitePage = RouterOutputs["scene"]["getUserScenesInfinite"];
-type PublishFilter = "all" | "published" | "unpublished";
+type PublishFilter = "all" | "public" | "private";
 
 export function SceneSearchList() {
   const router = useRouter();
   const pathname = usePathname();
-  const { lastActiveWorkspaceId } = useWorkspaceOptions();
+  const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
   const params = useSearchParams();
   const { t } = useStandaloneI18n();
+  const utils = api.useUtils();
 
   const paramWorkspaceId = params.get("workspaceId") ?? undefined;
   const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
     string | undefined
   >(paramWorkspaceId);
+  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
+  const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useQueryState("search", {
     defaultValue: "",
     clearOnDefault: true,
@@ -40,6 +63,10 @@ export function SceneSearchList() {
   useEscapeKey(() => router.back());
 
   const effectiveWorkspaceId = overrideWorkspaceId ?? lastActiveWorkspaceId;
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === effectiveWorkspaceId),
+    [workspaces, effectiveWorkspaceId],
+  );
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     api.scene.getUserScenesInfinite.useInfiniteQuery(
@@ -103,7 +130,7 @@ export function SceneSearchList() {
       const matchesPublishFilter =
         publishFilter === "all"
           ? true
-          : publishFilter === "published"
+          : publishFilter === "public"
             ? item.isPublished
             : !item.isPublished;
 
@@ -158,17 +185,94 @@ export function SceneSearchList() {
   return (
     <div className="w-full space-y-5 p-6 pt-0">
       {/* Header Section */}
-      <div className="relative pt-12 pb-16">
+      <div className="flex flex-col gap-4 pt-12 pb-6">
         <h1 className="text-center text-2xl font-semibold lg:text-3xl">
           {t("dashboard.title")}
         </h1>
-        <div className="absolute right-0 bottom-0 w-64">
-          <WorkspaceSelector
-            value={overrideWorkspaceId ?? lastActiveWorkspaceId}
-            onChange={(id: string) => setOverrideWorkspaceId(id)}
-          />
+        <div className="flex items-center justify-end gap-2">
+          <div className="w-48 sm:w-64">
+            <WorkspaceSelector
+              value={overrideWorkspaceId ?? lastActiveWorkspaceId}
+              onChange={(id: string) => setOverrideWorkspaceId(id)}
+            />
+          </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("dashboard.workspace.manage")}
+              >
+                <Settings2 className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => setCreateWorkspaceOpen(true)}
+              >
+                <Plus className="size-4" />
+                {t("dashboard.workspace.create")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!selectedWorkspace}
+                onSelect={() => setRenameWorkspaceOpen(true)}
+              >
+                <Pencil className="size-4" />
+                {t("dashboard.workspace.rename")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={!selectedWorkspace}
+                onSelect={() => setDeleteWorkspaceOpen(true)}
+              >
+                <Trash2 className="size-4" />
+                {t("dashboard.workspace.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
+
+      <CreateWorkspaceDialog
+        open={createWorkspaceOpen}
+        onOpenChange={setCreateWorkspaceOpen}
+        onCreated={(workspaceId) => {
+          setOverrideWorkspaceId(workspaceId);
+        }}
+      />
+      <WorkspaceSettingsDialog
+        open={renameWorkspaceOpen}
+        onOpenChange={setRenameWorkspaceOpen}
+        workspaceId={selectedWorkspace?.id}
+        mode="rename"
+        onRenamed={(workspaceId: string, newName: string) => {
+          utils.workspace.listWithMeta.setData(undefined, (current) => {
+            if (!current) return current;
+
+            return {
+              ...current,
+              workspaces: current.workspaces.map((workspace) =>
+                workspace.id === workspaceId
+                  ? { ...workspace, name: newName }
+                  : workspace,
+              ),
+            };
+          });
+          setOverrideWorkspaceId(workspaceId);
+          setRenameWorkspaceOpen(false);
+        }}
+      />
+      <WorkspaceSettingsDialog
+        open={deleteWorkspaceOpen}
+        onOpenChange={setDeleteWorkspaceOpen}
+        workspaceId={selectedWorkspace?.id}
+        mode="delete"
+        onDeleted={() => {
+          setOverrideWorkspaceId(undefined);
+        }}
+      />
 
       {/* Search Bar */}
       <SceneSearchBar
@@ -255,8 +359,8 @@ function PublishFilterBar({ value, onChange }: PublishFilterBarProps) {
 
   const options: Array<{ value: PublishFilter; label: string }> = [
     { value: "all", label: t("dashboard.filter.all") },
-    { value: "published", label: t("dashboard.filter.published") },
-    { value: "unpublished", label: t("dashboard.filter.unpublished") },
+    { value: "public", label: t("dashboard.filter.public") },
+    { value: "private", label: t("dashboard.filter.private") },
   ];
 
   return (
@@ -299,6 +403,115 @@ function SceneSearchBar({ searchQuery, onSearchChange }: SceneSearchBarProps) {
         className="h-10 pl-10 text-base"
       />
     </div>
+  );
+}
+
+type CreateWorkspaceDialogProps = {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  onCreated: (workspaceId: string) => void;
+};
+
+function CreateWorkspaceDialog({
+  open,
+  onOpenChange,
+  onCreated,
+}: CreateWorkspaceDialogProps) {
+  const { t } = useStandaloneI18n();
+  const utils = api.useUtils();
+  const [name, setName] = useState("");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const createWorkspaceMutation = api.workspace.create.useMutation({
+    onSuccess: async (workspace) => {
+      await utils.workspace.listWithMeta.invalidate();
+      onCreated(workspace.id);
+      toast.success(
+        t("dashboard.workspace.created", { name: workspace.name }),
+      );
+      onOpenChange(false);
+    },
+    onError: (error) => {
+      toast.error(
+        error.message ?? t("dashboard.workspace.createFailed"),
+      );
+    },
+  });
+
+  useEffect(() => {
+    if (!open) {
+      setName("");
+      setErrorMessage(null);
+    }
+  }, [open]);
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const parsed = workspaceNameSchema.safeParse(name);
+    if (!parsed.success) {
+      setErrorMessage(
+        parsed.error.issues[0]?.message ?? t("dashboard.workspace.nameInvalid"),
+      );
+      return;
+    }
+
+    setErrorMessage(null);
+    try {
+      await createWorkspaceMutation.mutateAsync({ name: parsed.data });
+    } catch {
+      // The mutation onError handler already shows a user-facing toast.
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{t("dashboard.workspace.create")}</DialogTitle>
+          <DialogDescription>
+            {t("dashboard.workspace.createDialog.description")}
+          </DialogDescription>
+        </DialogHeader>
+        <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+          <div className="space-y-2">
+            <Input
+              value={name}
+              onChange={(event) => {
+                setName(event.target.value);
+                if (errorMessage) {
+                  setErrorMessage(null);
+                }
+              }}
+              placeholder={t("dashboard.workspace.namePlaceholder")}
+              autoFocus
+            />
+            {errorMessage ? (
+              <p className="text-destructive text-sm">{errorMessage}</p>
+            ) : null}
+          </div>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onOpenChange(false)}
+              disabled={createWorkspaceMutation.isPending}
+            >
+              {t("buttons.cancel")}
+            </Button>
+            <Button type="submit" disabled={createWorkspaceMutation.isPending}>
+              {createWorkspaceMutation.isPending ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  {t("dashboard.workspace.creating")}
+                </>
+              ) : (
+                t("buttons.create")
+              )}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 

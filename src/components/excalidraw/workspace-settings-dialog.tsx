@@ -36,25 +36,36 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type WorkspaceSettingsDialogProps = {
   trigger?: React.ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  workspaceId?: string;
+  mode?: "full" | "rename" | "delete";
+  onDeleted?: (workspaceId: string) => void;
+  onRenamed?: (workspaceId: string, newName: string) => void;
 };
 
 export default function WorkspaceSettingsDialog({
   trigger,
   open,
   onOpenChange,
+  workspaceId,
+  mode = "full",
+  onDeleted,
+  onRenamed,
 }: WorkspaceSettingsDialogProps) {
+  const { t } = useStandaloneI18n();
   const { workspaces, lastActiveWorkspaceId, defaultWorkspaceId } =
     useWorkspaceOptions();
   const utils = api.useUtils();
+  const targetWorkspaceId = workspaceId ?? lastActiveWorkspaceId;
 
   const active = useMemo(
-    () => workspaces.find((w) => w.id === lastActiveWorkspaceId),
-    [workspaces, lastActiveWorkspaceId],
+    () => workspaces.find((w) => w.id === targetWorkspaceId),
+    [workspaces, targetWorkspaceId],
   );
 
   const [internalOpen, setInternalOpen] = useState(false);
@@ -85,10 +96,13 @@ export default function WorkspaceSettingsDialog({
   // no-op; using CSS class-based width animation instead
 
   const updateMutation = api.workspace.update.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (updated) => {
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesInfinite.invalidate();
       toast.success("Workspace updated");
+      if (updated?.id) {
+        onRenamed?.(updated.id, updated.name ?? "");
+      }
       handleOpenChange(false);
     },
     onError: (err) => {
@@ -102,6 +116,9 @@ export default function WorkspaceSettingsDialog({
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesInfinite.invalidate();
       toast.success("Workspace deleted");
+      if (active?.id) {
+        onDeleted?.(active.id);
+      }
       setConfirmInline(false);
       setConfirmText("");
       handleOpenChange(false);
@@ -162,78 +179,91 @@ export default function WorkspaceSettingsDialog({
         onInteractOutside={() => handleOpenChange(false)}
       >
         <DialogHeader>
-          <DialogTitle>Settings</DialogTitle>
+          <DialogTitle>
+            {mode === "delete"
+              ? t("workspace.settings.title.delete")
+              : mode === "rename"
+                ? t("workspace.settings.title.rename")
+                : t("workspace.settings.title")}
+          </DialogTitle>
           <DialogDescription>
-            Edit workspace information and manage dangerous actions.
+            {mode === "delete"
+              ? t("workspace.settings.description.delete")
+              : mode === "rename"
+                ? t("workspace.settings.description.rename")
+                : t("workspace.settings.description")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="space-y-6">
-          <Form {...form}>
-            <form
-              onSubmit={form.handleSubmit((values) => {
-                if (!active) return;
-                const trimmed = (values.name ?? "").trim();
-                if (!trimmed) return;
-                setSaving(true);
-                updateMutation.mutate({ id: active.id, name: trimmed });
-              })}
-              noValidate
-              className="space-y-2"
-            >
-              <FormField
-                control={form.control}
-                name="name"
-                rules={{ required: false }}
-                render={() => (
-                  <FormItem>
-                    <FormLabel htmlFor="ws-name">Workspace Name</FormLabel>
-                    <FormControl>
-                      <Input
-                        id="ws-name"
-                        placeholder="Workspace name"
-                        disabled={!canEdit}
-                        autoComplete="off"
-                        autoCorrect="off"
-                        autoCapitalize="off"
-                        spellCheck={false}
-                        {...form.register("name")}
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
+          {mode !== "delete" && (
+            <Form {...form}>
+              <form
+                onSubmit={form.handleSubmit((values) => {
+                  if (!active) return;
+                  const trimmed = (values.name ?? "").trim();
+                  if (!trimmed) return;
+                  setSaving(true);
+                  updateMutation.mutate({ id: active.id, name: trimmed });
+                })}
+                noValidate
+                className="space-y-2"
+              >
+                <FormField
+                  control={form.control}
+                  name="name"
+                  rules={{ required: false }}
+                  render={() => (
+                    <FormItem>
+                      <FormLabel htmlFor="ws-name">Workspace Name</FormLabel>
+                      <FormControl>
+                        <Input
+                          id="ws-name"
+                          placeholder="Workspace name"
+                          disabled={!canEdit}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          {...form.register("name")}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {!canEdit && (
+                  <p className="text-muted-foreground text-xs">
+                    Select an active workspace first.
+                  </p>
                 )}
-              />
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    type="submit"
+                    className={cn(
+                      "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
+                      { "w-[16ch]": saving },
+                    )}
+                    // 依據規則決定是否禁用 Save
+                    disabled={isSaveButtonDisabled()}
+                    aria-busy={saving}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" /> Saving...
+                      </>
+                    ) : (
+                      "Save"
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </Form>
+          )}
 
-              {!canEdit && (
-                <p className="text-muted-foreground text-xs">
-                  Select an active workspace first.
-                </p>
-              )}
-              <div className="flex justify-end">
-                <Button
-                  size="sm"
-                  type="submit"
-                  className={cn(
-                    "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
-                    { "w-[16ch]": saving },
-                  )}
-                  // 依據規則決定是否禁用 Save
-                  disabled={isSaveButtonDisabled()}
-                  aria-busy={saving}
-                >
-                  {saving ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" /> Saving...
-                    </>
-                  ) : (
-                    "Save"
-                  )}
-                </Button>
-              </div>
-            </form>
-          </Form>
-
+          {mode !== "rename" && (
           <div className="border-destructive/30 rounded-md border p-4">
             <div className="mb-2">
               <h4 className="text-destructive font-semibold">Danger Zone</h4>
@@ -330,6 +360,7 @@ export default function WorkspaceSettingsDialog({
               </div>
             )}
           </div>
+          )}
         </div>
 
         <DialogFooter />

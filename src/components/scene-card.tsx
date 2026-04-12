@@ -96,7 +96,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
       toast.info(t("dashboard.sceneAlreadyOpen"));
       return;
     }
-    dispatchLoadSceneRequest({ sceneId: item.id, workspaceId: item.workspaceId });
+    dispatchLoadSceneRequest({
+      sceneId: item.id,
+      workspaceId: item.workspaceId,
+    });
     router.back();
   }, [item.id, item.workspaceId, currentSceneId, t, router]);
 
@@ -114,10 +117,13 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     }
   }, [deleteSceneMutation, item.id]);
 
-  const handleImportScene = useCallback((e: React.MouseEvent) => {
-    e.stopPropagation();
-    loadScene();
-  }, [loadScene]);
+  const handleImportScene = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      loadScene();
+    },
+    [loadScene],
+  );
 
   const handleEditScene = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -188,7 +194,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
       }
 
       try {
-        await copyTextToSystemClipboard(getPublishedSceneUrl(item.publishedSlug));
+        await copyTextToSystemClipboard(
+          getPublishedSceneUrl(item.publishedSlug),
+        );
         toast.success(t("publish.toast.copied"));
       } catch (error) {
         console.error("Failed to copy public link:", error);
@@ -240,11 +248,15 @@ export function SceneCard({ item }: { item: SceneListItem }) {
               sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, (max-width: 1536px) 25vw, 20vw"
               className="object-cover transition-transform duration-200"
             />
-            {item.isPublished ? (
-              <div className="absolute top-3 left-3">
-                <Badge>{t("publish.badge")}</Badge>
-              </div>
-            ) : null}
+            <div className="absolute top-3 left-3">
+              <Badge variant={item.isPublished ? "default" : "secondary"}>
+                {t(
+                  item.isPublished
+                    ? "publish.badge.public"
+                    : "publish.badge.private",
+                )}
+              </Badge>
+            </div>
             <div className="absolute bottom-0 left-0 flex gap-2">
               <Badge
                 variant="secondary"
