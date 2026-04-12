@@ -174,6 +174,7 @@ export function useSceneRemoteRevisionCheck({
       applyRemoteScene,
       getActiveTheme,
       openConflict,
+      shouldSuppressDirtyTracking,
     ],
   );
 
@@ -215,6 +216,8 @@ export function useSceneRemoteRevisionCheck({
           ignoredConflictKeyRef.current = undefined;
           clearConflict();
           toast.success("Saved local changes as a new scene.");
+        } else {
+          toast.error("Failed to save local changes as a new scene.");
         }
       } finally {
         setIsConflictLoading(false);

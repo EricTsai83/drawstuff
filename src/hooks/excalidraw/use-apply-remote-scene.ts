@@ -138,6 +138,9 @@ export function useApplyRemoteScene(
           ok: true,
           revision: imported.revision,
         };
+      } catch (error) {
+        console.error("Failed to apply remote scene to canvas:", error);
+        return { ok: false, reason: "scene_data_missing" };
       } finally {
         // Resume after one frame so Excalidraw's synchronous onChange events
         // (triggered by updateScene / addFiles) are still suppressed, but
