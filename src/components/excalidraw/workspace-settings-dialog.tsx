@@ -36,6 +36,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type WorkspaceSettingsDialogProps = {
   trigger?: React.ReactNode;
@@ -56,6 +57,7 @@ export default function WorkspaceSettingsDialog({
   onDeleted,
   onRenamed,
 }: WorkspaceSettingsDialogProps) {
+  const { t } = useStandaloneI18n();
   const { workspaces, lastActiveWorkspaceId, defaultWorkspaceId } =
     useWorkspaceOptions();
   const utils = api.useUtils();
@@ -179,17 +181,17 @@ export default function WorkspaceSettingsDialog({
         <DialogHeader>
           <DialogTitle>
             {mode === "delete"
-              ? "Delete Workspace"
+              ? t("workspace.settings.title.delete")
               : mode === "rename"
-                ? "Rename Workspace"
-                : "Settings"}
+                ? t("workspace.settings.title.rename")
+                : t("workspace.settings.title")}
           </DialogTitle>
           <DialogDescription>
             {mode === "delete"
-              ? "Delete the selected workspace after confirming its name."
+              ? t("workspace.settings.description.delete")
               : mode === "rename"
-                ? "Change the name of the current workspace."
-                : "Edit workspace information and manage dangerous actions."}
+                ? t("workspace.settings.description.rename")
+                : t("workspace.settings.description")}
           </DialogDescription>
         </DialogHeader>
 

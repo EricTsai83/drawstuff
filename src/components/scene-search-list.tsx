@@ -45,6 +45,7 @@ export function SceneSearchList() {
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
   const params = useSearchParams();
   const { t } = useStandaloneI18n();
+  const utils = api.useUtils();
 
   const paramWorkspaceId = params.get("workspaceId") ?? undefined;
   const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
@@ -246,6 +247,22 @@ export function SceneSearchList() {
         onOpenChange={setRenameWorkspaceOpen}
         workspaceId={selectedWorkspace?.id}
         mode="rename"
+        onRenamed={(workspaceId: string, newName: string) => {
+          utils.workspace.listWithMeta.setData(undefined, (current) => {
+            if (!current) return current;
+
+            return {
+              ...current,
+              workspaces: current.workspaces.map((workspace) =>
+                workspace.id === workspaceId
+                  ? { ...workspace, name: newName }
+                  : workspace,
+              ),
+            };
+          });
+          setOverrideWorkspaceId(workspaceId);
+          setRenameWorkspaceOpen(false);
+        }}
       />
       <WorkspaceSettingsDialog
         open={deleteWorkspaceOpen}
@@ -439,7 +456,11 @@ function CreateWorkspaceDialog({
     }
 
     setErrorMessage(null);
-    await createWorkspaceMutation.mutateAsync({ name: parsed.data });
+    try {
+      await createWorkspaceMutation.mutateAsync({ name: parsed.data });
+    } catch {
+      // The mutation onError handler already shows a user-facing toast.
+    }
   }
 
   return (
