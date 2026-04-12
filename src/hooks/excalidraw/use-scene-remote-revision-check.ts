@@ -15,7 +15,10 @@ type UseSceneRemoteRevisionCheckParams = {
   applyRemoteScene: (params: {
     sceneId: string;
     getActiveTheme?: () => "dark" | "light";
-  }) => Promise<{ ok: boolean; reason?: string }>;
+  }) => Promise<
+    | { ok: true; revision?: number }
+    | { ok: false; reason: "scene_data_missing" | "incomplete_files" }
+  >;
   uploadSceneToCloud: (opts?: {
     workspaceId?: string;
     suppressSuccessToast?: boolean;

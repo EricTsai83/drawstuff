@@ -4,7 +4,7 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "@/server/api/trpc";
-import { and, eq, lt, or, type SQL } from "drizzle-orm";
+import { and, eq, lt, or, sql, type SQL } from "drizzle-orm";
 import {
   scene,
   fileRecord,
@@ -308,15 +308,19 @@ export const sceneRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const updated = await ctx.db
         .update(scene)
-        .set({ name: input.name, updatedAt: new Date() })
+        .set({
+          name: input.name,
+          updatedAt: new Date(),
+          revision: sql`${scene.revision} + 1`,
+        })
         .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)))
-        .returning({ id: scene.id });
+        .returning({ id: scene.id, revision: scene.revision });
 
       if (!updated[0]?.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
       }
 
-      return { id: updated[0].id };
+      return { id: updated[0].id, revision: updated[0].revision };
     }),
 
   publish: protectedProcedure

@@ -46,3 +46,6 @@ yarn-error.log*
 .idea
 
 .pnpm-store/
+
+# claude code local settings
+.claude/settings.local.json

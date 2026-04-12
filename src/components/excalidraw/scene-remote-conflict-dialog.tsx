@@ -24,7 +24,13 @@ export function SceneRemoteConflictDialog({
   isLoading = false,
 }: Props) {
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && isLoading) return;
+        onOpenChange(next);
+      }}
+    >
       <DialogContent className="sm:max-w-lg">
         <DialogHeader className="pr-8">
           <DialogTitle className="text-lg font-semibold">

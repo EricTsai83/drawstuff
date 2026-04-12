@@ -165,7 +165,12 @@ export function SceneCard({ item }: { item: SceneListItem }) {
       await invalidateSceneQueries(item.id);
     } catch (err) {
       console.error(err);
-      toast.error("Scene was updated elsewhere. Refresh and try again.");
+      const trpcCode = (err as { data?: { code?: string } })?.data?.code;
+      if (trpcCode === "CONFLICT") {
+        toast.error("Scene was updated elsewhere. Refresh and try again.");
+      } else {
+        toast.error("Failed to save scene. Please try again.");
+      }
     }
   };
 
