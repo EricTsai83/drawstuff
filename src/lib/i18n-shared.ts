@@ -100,6 +100,9 @@ export const appTranslations: AppTranslations = {
     "dashboard.filter.public": "Public",
     "dashboard.filter.private": "Private",
     "dashboard.workspace.create": "Create workspace",
+    "dashboard.workspace.rename": "Rename workspace",
+    "dashboard.workspace.delete": "Delete workspace",
+    "dashboard.workspace.manage": "Workspace settings",
     "dashboard.workspace.createDialog.description":
       "Create a new workspace directly from the dashboard.",
     "dashboard.workspace.namePlaceholder": "Enter a workspace name",
@@ -246,6 +249,9 @@ export const appTranslations: AppTranslations = {
     "dashboard.filter.public": "公開",
     "dashboard.filter.private": "私人",
     "dashboard.workspace.create": "建立工作空間",
+    "dashboard.workspace.rename": "重新命名工作空間",
+    "dashboard.workspace.delete": "刪除工作空間",
+    "dashboard.workspace.manage": "工作空間設定",
     "dashboard.workspace.createDialog.description":
       "直接從場景列表建立新的工作空間。",
     "dashboard.workspace.namePlaceholder": "輸入工作空間名稱",

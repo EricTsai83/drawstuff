@@ -2,7 +2,7 @@
 
 import { useMemo, useEffect, useState, useRef, type FormEvent } from "react";
 import { useQueryState } from "nuqs";
-import { Loader2, Plus, Search } from "lucide-react";
+import { Loader2, Pencil, Plus, Search, Settings2, Trash2 } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { StatefulButton } from "@/components/stateful-button";
 import { SceneCard } from "./scene-card";
@@ -11,6 +11,7 @@ import { useEscapeKey } from "@/hooks/use-escape-key";
 import { usePathname, useRouter } from "next/navigation";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
+import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useSearchParams } from "next/navigation";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
@@ -23,6 +24,13 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { workspaceNameSchema } from "@/lib/schemas/workspace";
 import { toast } from "sonner";
 
@@ -34,7 +42,7 @@ type PublishFilter = "all" | "public" | "private";
 export function SceneSearchList() {
   const router = useRouter();
   const pathname = usePathname();
-  const { lastActiveWorkspaceId } = useWorkspaceOptions();
+  const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
   const params = useSearchParams();
   const { t } = useStandaloneI18n();
 
@@ -43,6 +51,8 @@ export function SceneSearchList() {
     string | undefined
   >(paramWorkspaceId);
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
+  const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
+  const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useQueryState("search", {
     defaultValue: "",
     clearOnDefault: true,
@@ -52,6 +62,10 @@ export function SceneSearchList() {
   useEscapeKey(() => router.back());
 
   const effectiveWorkspaceId = overrideWorkspaceId ?? lastActiveWorkspaceId;
+  const selectedWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === effectiveWorkspaceId),
+    [workspaces, effectiveWorkspaceId],
+  );
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     api.scene.getUserScenesInfinite.useInfiniteQuery(
@@ -174,22 +188,49 @@ export function SceneSearchList() {
         <h1 className="text-center text-2xl font-semibold lg:text-3xl">
           {t("dashboard.title")}
         </h1>
-        <div className="flex flex-col items-stretch gap-2 sm:flex-row sm:items-center sm:justify-end">
-          <Button
-            type="button"
-            variant="outline"
-            className="sm:ml-auto"
-            onClick={() => setCreateWorkspaceOpen(true)}
-          >
-            <Plus className="size-4" />
-            {t("dashboard.workspace.create")}
-          </Button>
-          <div className="w-full sm:w-64">
+        <div className="flex items-center justify-end gap-2">
+          <div className="w-48 sm:w-64">
             <WorkspaceSelector
               value={overrideWorkspaceId ?? lastActiveWorkspaceId}
               onChange={(id: string) => setOverrideWorkspaceId(id)}
             />
           </div>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                aria-label={t("dashboard.workspace.manage")}
+              >
+                <Settings2 className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end">
+              <DropdownMenuItem
+                onSelect={() => setCreateWorkspaceOpen(true)}
+              >
+                <Plus className="size-4" />
+                {t("dashboard.workspace.create")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                disabled={!selectedWorkspace}
+                onSelect={() => setRenameWorkspaceOpen(true)}
+              >
+                <Pencil className="size-4" />
+                {t("dashboard.workspace.rename")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                variant="destructive"
+                disabled={!selectedWorkspace}
+                onSelect={() => setDeleteWorkspaceOpen(true)}
+              >
+                <Trash2 className="size-4" />
+                {t("dashboard.workspace.delete")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
       </div>
 
@@ -198,6 +239,21 @@ export function SceneSearchList() {
         onOpenChange={setCreateWorkspaceOpen}
         onCreated={(workspaceId) => {
           setOverrideWorkspaceId(workspaceId);
+        }}
+      />
+      <WorkspaceSettingsDialog
+        open={renameWorkspaceOpen}
+        onOpenChange={setRenameWorkspaceOpen}
+        workspaceId={selectedWorkspace?.id}
+        mode="rename"
+      />
+      <WorkspaceSettingsDialog
+        open={deleteWorkspaceOpen}
+        onOpenChange={setDeleteWorkspaceOpen}
+        workspaceId={selectedWorkspace?.id}
+        mode="delete"
+        onDeleted={() => {
+          setOverrideWorkspaceId(undefined);
         }}
       />
 
