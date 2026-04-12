@@ -48,7 +48,10 @@ type AppMainMenuProps = {
   langCode: string;
   onLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
-  handleSetSceneName: (name: string) => void;
+  handleSetSceneName: (
+    name: string,
+    options?: { suppressDirtyTracking?: boolean },
+  ) => void;
   sceneName: string;
   showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
@@ -94,7 +97,7 @@ function AppMainMenu({
     string | undefined
   >(undefined);
   const { data: session } = authClient.useSession();
-  const { uploadSceneToCloud, clearCurrentSceneId, currentSceneId } =
+  const { uploadSceneToCloud, clearCurrentScene, currentSceneId } =
     useCloudUpload(() => {
       // 若找不到場景（理論上新建時不會），忽略
     }, excalidrawAPI);
@@ -221,7 +224,7 @@ function AppMainMenu({
     }: CreateNewSceneParams) => {
       try {
         // 更新場景名稱（不論保留或重置）
-        handleSetSceneName(name);
+        handleSetSceneName(name, { suppressDirtyTracking: true });
 
         // 先決定要使用的 workspaceId（若有 newWorkspaceName，避免重複名稱）
         let workspaceIdToUse: string | undefined = workspaceId;
@@ -252,7 +255,7 @@ function AppMainMenu({
         }
 
         // 新建場景的語義：清除 currentSceneId，避免覆寫既有場景
-        clearCurrentSceneId();
+        clearCurrentScene();
 
         if (keepCurrentContent) {
           if (!session) {
@@ -306,7 +309,7 @@ function AppMainMenu({
       }
     },
     [
-      clearCurrentSceneId,
+      clearCurrentScene,
       excalidrawAPI,
       handleSetSceneName,
       setLastActiveMutation,
@@ -504,7 +507,9 @@ function AppMainMenu({
         open={renameOpen}
         onOpenChange={setRenameOpen}
         onConfirmName={(name) => {
-          handleSetSceneName(name);
+          handleSetSceneName(name, {
+            suppressDirtyTracking: Boolean(currentSceneId),
+          });
           triggerRename(name);
           setRenameOpen(false);
         }}

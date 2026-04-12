@@ -7,6 +7,7 @@ import type {
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useDebounce } from "@/hooks/use-debounce";
 import { saveData } from "@/lib/excalidraw";
+import { useSceneSession } from "@/hooks/scene-session-context";
 
 export type UseScenePersistenceResult = {
   sceneName: string;
@@ -15,7 +16,10 @@ export type UseScenePersistenceResult = {
     appState: AppState,
     files: BinaryFiles,
   ) => void;
-  handleSetSceneName: (newName: string) => void;
+  handleSetSceneName: (
+    newName: string,
+    options?: { suppressDirtyTracking?: boolean },
+  ) => void;
 };
 
 export function useScenePersistence(
@@ -23,6 +27,12 @@ export function useScenePersistence(
 ): UseScenePersistenceResult {
   const [sceneName, setSceneName] = useState<string>("");
   const [debouncedSave] = useDebounce(saveData, 300);
+  const {
+    currentSceneId,
+    markCurrentSceneDirty,
+    suppressDirtyTracking,
+    shouldSuppressDirtyTracking,
+  } = useSceneSession();
 
   // 初始同步一次目前名稱
   useEffect(
@@ -48,15 +58,24 @@ export function useScenePersistence(
       files: BinaryFiles,
     ): void => {
       setSceneName(appState.name ?? "");
+      if (currentSceneId && !shouldSuppressDirtyTracking()) {
+        markCurrentSceneDirty();
+      }
       debouncedSave({ elements, appState, files });
     },
-    [debouncedSave],
+    [currentSceneId, debouncedSave, markCurrentSceneDirty, shouldSuppressDirtyTracking],
   );
 
   const handleSetSceneName = useCallback(
-    (newName: string): void => {
+    (
+      newName: string,
+      options?: { suppressDirtyTracking?: boolean },
+    ): void => {
       if (!excalidrawAPI) return;
       try {
+        if (options?.suppressDirtyTracking) {
+          suppressDirtyTracking();
+        }
         const currentAppState = excalidrawAPI.getAppState();
         excalidrawAPI.updateScene({
           appState: { ...currentAppState, name: newName },
@@ -65,7 +84,7 @@ export function useScenePersistence(
         console.error("Failed to update scene name:", error);
       }
     },
-    [excalidrawAPI],
+    [excalidrawAPI, suppressDirtyTracking],
   );
 
   return { sceneName, handleSceneChange, handleSetSceneName };

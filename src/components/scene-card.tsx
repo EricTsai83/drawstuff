@@ -45,7 +45,7 @@ type SceneListItem =
 
 export function SceneCard({ item }: { item: SceneListItem }) {
   const { t, langCode } = useStandaloneI18n();
-  const { currentSceneId, clearCurrentSceneId } = useSceneSession();
+  const { currentSceneId, clearCurrentScene } = useSceneSession();
   const timeAgo = formatDistanceToNow(item.updatedAt, {
     addSuffix: true,
     locale: langCode === "zh-TW" ? zhTW : undefined,
@@ -75,7 +75,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     onSuccess: async () => {
       setShowDeleteDialog(false);
       if (currentSceneId === item.id) {
-        clearCurrentSceneId();
+        clearCurrentScene();
       }
       await invalidateSceneQueries();
     },
@@ -139,11 +139,16 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   }) => {
     try {
       let dataString = item.sceneData;
+      let expectedRevision = item.revision;
       if (!dataString) {
-        const full = await utils.scene.getScene.fetch({ id: item.id });
+        const full: RouterOutputs["scene"]["getScene"] =
+          await utils.scene.getScene.fetch({ id: item.id });
         dataString = full?.sceneData ?? undefined;
+        const fetchedRevision: unknown = full?.revision;
+        expectedRevision =
+          typeof fetchedRevision === "number" ? fetchedRevision : expectedRevision;
       }
-      if (!dataString) {
+      if (!dataString || expectedRevision === undefined) {
         console.error("Failed to edit: missing scene data");
         return;
       }
@@ -154,11 +159,13 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         workspaceId: payload.workspaceId,
         data: dataString,
         categories: payload.categories,
+        expectedRevision,
       });
       setIsEditOpen(false);
       await invalidateSceneQueries(item.id);
     } catch (err) {
       console.error(err);
+      toast.error("Scene was updated elsewhere. Refresh and try again.");
     }
   };
 

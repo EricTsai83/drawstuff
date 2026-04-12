@@ -189,6 +189,9 @@ export const scene = createTable(
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
+    revision: integer("revision")
+      .default(1)
+      .notNull(),
     isArchived: boolean("is_archived")
       .$defaultFn(() => false)
       .notNull(), // 新增：是否已封存
