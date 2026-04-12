@@ -15,7 +15,7 @@ type UseSceneRemoteRevisionCheckParams = {
   applyRemoteScene: (params: {
     sceneId: string;
     getActiveTheme?: () => "dark" | "light";
-  }) => Promise<{ ok: boolean }>;
+  }) => Promise<{ ok: boolean; reason?: string }>;
   uploadSceneToCloud: (opts?: {
     workspaceId?: string;
     suppressSuccessToast?: boolean;
@@ -119,7 +119,11 @@ export function useSceneRemoteRevisionCheck({
           sceneId: currentSceneId,
           getActiveTheme,
         });
-        if (result.ok) {
+        // With progressive loading the canvas is updated even when some image
+        // assets are missing (reason: "incomplete_files"). Only treat
+        // "scene_data_missing" as a true failure.
+        const applied = result.ok || result.reason === "incomplete_files";
+        if (applied) {
           ignoredConflictKeyRef.current = undefined;
           if (!suppressToast) {
             toast.success("Loaded the latest remote scene.");
@@ -161,9 +165,12 @@ export function useSceneRemoteRevisionCheck({
             sceneId: pendingConflict.sceneId,
             getActiveTheme,
           });
-          if (result.ok) {
+          const applied = result.ok || result.reason === "incomplete_files";
+          if (applied) {
             ignoredConflictKeyRef.current = undefined;
             clearConflict();
+          } else {
+            toast.error("Failed to load the remote scene. Please try again.");
           }
           return;
         }
@@ -216,13 +223,20 @@ export function useSceneRemoteRevisionCheck({
     void checkRemoteRevision({ suppressToast: true });
   }, [isReady, currentSceneId, checkRemoteRevision]);
 
+  // Stable ref so the focus/visibility listeners don't re-register on every
+  // state change (checkRemoteRevision has many reactive dependencies).
+  const checkRemoteRevisionRef = useRef(checkRemoteRevision);
+  useEffect(() => {
+    checkRemoteRevisionRef.current = checkRemoteRevision;
+  }, [checkRemoteRevision]);
+
   // Focus / visibility checks (ongoing, debounced)
   useEffect(() => {
     if (!isReady) return;
 
     function debouncedCheck() {
       if (Date.now() - lastCheckAtRef.current < 750) return;
-      void checkRemoteRevision();
+      void checkRemoteRevisionRef.current();
     }
 
     function handleFocus() {
@@ -239,7 +253,7 @@ export function useSceneRemoteRevisionCheck({
       window.removeEventListener("focus", handleFocus);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
-  }, [isReady, checkRemoteRevision]);
+  }, [isReady]);
 
   // ---- Return ---------------------------------------------------------------
   return {

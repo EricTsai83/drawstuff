@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AppState,
   BinaryFiles,
@@ -16,10 +16,7 @@ export type UseScenePersistenceResult = {
     appState: AppState,
     files: BinaryFiles,
   ) => void;
-  handleSetSceneName: (
-    newName: string,
-    options?: { suppressDirtyTracking?: boolean },
-  ) => void;
+  handleSetSceneName: (newName: string) => void;
 };
 
 export function useScenePersistence(
@@ -30,9 +27,13 @@ export function useScenePersistence(
   const {
     currentSceneId,
     markCurrentSceneDirty,
-    suppressDirtyTracking,
     shouldSuppressDirtyTracking,
   } = useSceneSession();
+
+  // Local flag for synchronous programmatic updates (e.g. handleSetSceneName).
+  // Set to true before updateScene, reset immediately after — no timers needed
+  // because updateScene triggers onChange synchronously within the same call stack.
+  const skipDirtyRef = useRef(false);
 
   // 初始同步一次目前名稱
   useEffect(
@@ -58,7 +59,7 @@ export function useScenePersistence(
       files: BinaryFiles,
     ): void => {
       setSceneName(appState.name ?? "");
-      if (currentSceneId && !shouldSuppressDirtyTracking()) {
+      if (currentSceneId && !skipDirtyRef.current && !shouldSuppressDirtyTracking()) {
         markCurrentSceneDirty();
       }
       debouncedSave({ elements, appState, files });
@@ -67,24 +68,21 @@ export function useScenePersistence(
   );
 
   const handleSetSceneName = useCallback(
-    (
-      newName: string,
-      options?: { suppressDirtyTracking?: boolean },
-    ): void => {
+    (newName: string): void => {
       if (!excalidrawAPI) return;
+      skipDirtyRef.current = true;
       try {
-        if (options?.suppressDirtyTracking) {
-          suppressDirtyTracking();
-        }
         const currentAppState = excalidrawAPI.getAppState();
         excalidrawAPI.updateScene({
           appState: { ...currentAppState, name: newName },
         });
       } catch (error) {
         console.error("Failed to update scene name:", error);
+      } finally {
+        skipDirtyRef.current = false;
       }
     },
-    [excalidrawAPI, suppressDirtyTracking],
+    [excalidrawAPI],
   );
 
   return { sceneName, handleSceneChange, handleSetSceneName };

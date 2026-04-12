@@ -63,8 +63,12 @@ export default function ExcalidrawEditor() {
     useCallbackRefState<ExcalidrawImperativeAPI>();
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
-  const { reloadSceneSession, suppressDirtyTracking, isSessionReady } =
-    useSceneSession();
+  const {
+    reloadSceneSession,
+    suppressDirtyTracking,
+    resumeDirtyTracking,
+    isSessionReady,
+  } = useSceneSession();
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
@@ -143,13 +147,22 @@ export default function ExcalidrawEditor() {
 
   useEffect(() => {
     // 註冊 handler 後再建立 initialDataPromise，避免 race
-    suppressDirtyTracking(1500);
+    suppressDirtyTracking();
     const nextInitialDataPromise = createInitialDataPromise();
     setInitialDataPromise(nextInitialDataPromise);
     void nextInitialDataPromise.finally(() => {
-      reloadSceneSession();
+      try {
+        reloadSceneSession();
+      } finally {
+        // Excalidraw may fire onChange after receiving initialData;
+        // resume after a frame so those events don't mark dirty.
+        // Placed in finally so suppression never leaks if reload throws.
+        requestAnimationFrame(() => {
+          resumeDirtyTracking();
+        });
+      }
     });
-  }, [reloadSceneSession, suppressDirtyTracking]);
+  }, [reloadSceneSession, suppressDirtyTracking, resumeDirtyTracking]);
 
   // 解析分享資訊、取檔並注入 Excalidraw
   useFetchAndInjectSharedSceneFiles(excalidrawAPI);
@@ -409,9 +422,7 @@ export default function ExcalidrawEditor() {
             trigger={<SceneNameTrigger sceneName={sceneName} />}
             onConfirmName={(newName) => {
               // 先同步更新到 Excalidraw appState
-            handleSetSceneName(newName, {
-              suppressDirtyTracking: Boolean(currentSceneId),
-            });
+            handleSetSceneName(newName);
               // 若已有雲端場景 ID，直接更新 DB 名稱
               if (currentSceneId) {
                 renameSceneMutation.mutate(
@@ -469,7 +480,7 @@ export default function ExcalidrawEditor() {
               workspaceId?: string;
             }) => {
               // 先把名稱寫回 Excalidraw appState（透過既有 helper）
-              handleSetSceneName(name, { suppressDirtyTracking: true });
+              handleSetSceneName(name);
               void uploadSceneToCloud({
                 name,
                 description,

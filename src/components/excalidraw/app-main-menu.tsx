@@ -48,10 +48,7 @@ type AppMainMenuProps = {
   langCode: string;
   onLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
-  handleSetSceneName: (
-    name: string,
-    options?: { suppressDirtyTracking?: boolean },
-  ) => void;
+  handleSetSceneName: (name: string) => void;
   sceneName: string;
   showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
@@ -224,7 +221,7 @@ function AppMainMenu({
     }: CreateNewSceneParams) => {
       try {
         // 更新場景名稱（不論保留或重置）
-        handleSetSceneName(name, { suppressDirtyTracking: true });
+        handleSetSceneName(name);
 
         // 先決定要使用的 workspaceId（若有 newWorkspaceName，避免重複名稱）
         let workspaceIdToUse: string | undefined = workspaceId;
@@ -507,9 +504,7 @@ function AppMainMenu({
         open={renameOpen}
         onOpenChange={setRenameOpen}
         onConfirmName={(name) => {
-          handleSetSceneName(name, {
-            suppressDirtyTracking: Boolean(currentSceneId),
-          });
+          handleSetSceneName(name);
           triggerRename(name);
           setRenameOpen(false);
         }}

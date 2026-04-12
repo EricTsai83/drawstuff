@@ -233,9 +233,11 @@ async function syncSceneCategories(
     ),
   );
 
+  // Resolve all category names → IDs in a single pass.
+  let targetCategoryIds: string[] = [];
   if (trimmedCategoryNames.length > 0) {
     const existingCategories = await tx
-      .select()
+      .select({ id: category.id, name: category.name })
       .from(category)
       .where(
         and(
@@ -243,32 +245,28 @@ async function syncSceneCategories(
           inArray(category.name, trimmedCategoryNames),
         ),
       );
-    const existingCategoryNames = new Set(
-      existingCategories.map((existingCategory) => existingCategory.name),
+
+    const nameToId = new Map(
+      existingCategories.map((c) => [c.name, c.id] as const),
     );
     const namesToCreate = trimmedCategoryNames.filter(
-      (name) => !existingCategoryNames.has(name),
+      (name) => !nameToId.has(name),
     );
-    if (namesToCreate.length > 0) {
-      await tx
-        .insert(category)
-        .values(namesToCreate.map((name) => ({ name, userId })));
-    }
-  }
 
-  const targetCategoryIds = trimmedCategoryNames.length
-    ? (
-        await tx
-          .select()
-          .from(category)
-          .where(
-            and(
-              eq(category.userId, userId),
-              inArray(category.name, trimmedCategoryNames),
-            ),
-          )
-      ).map((categoryRow) => categoryRow.id)
-    : [];
+    if (namesToCreate.length > 0) {
+      const created = await tx
+        .insert(category)
+        .values(namesToCreate.map((name) => ({ name, userId })))
+        .returning({ id: category.id, name: category.name });
+      for (const c of created) {
+        nameToId.set(c.name, c.id);
+      }
+    }
+
+    targetCategoryIds = trimmedCategoryNames
+      .map((name) => nameToId.get(name))
+      .filter((id): id is string => id !== undefined);
+  }
 
   await tx.delete(sceneCategory).where(eq(sceneCategory.sceneId, sceneId));
 

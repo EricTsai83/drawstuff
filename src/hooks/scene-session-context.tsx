@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -20,6 +21,11 @@ import {
   clearCurrentSceneDirtyFromStorage,
 } from "@/data/local-storage";
 
+/** Safety-net timeout: auto-resumes dirty tracking if a caller forgets to
+ *  call `resumeDirtyTracking()`. Placed at module level so it is never
+ *  re-created on render. */
+const SUPPRESS_SAFETY_NET_MS = 5_000;
+
 type SceneSessionContextValue = {
   currentSceneId: string | undefined;
   lastSyncedRevision: number | undefined;
@@ -30,7 +36,11 @@ type SceneSessionContextValue = {
   reloadSceneSession: () => void;
   markCurrentSceneDirty: () => void;
   markCurrentSceneClean: () => void;
-  suppressDirtyTracking: (durationMs?: number) => void;
+  /** Suppress dirty tracking. Call resumeDirtyTracking() when the operation
+   *  is done. A time-based safety net (default 5s) auto-resumes if the
+   *  caller forgets. */
+  suppressDirtyTracking: (safetyNetMs?: number) => void;
+  resumeDirtyTracking: () => void;
   shouldSuppressDirtyTracking: () => boolean;
 };
 
@@ -52,15 +62,38 @@ export function SceneSessionProvider({
   const [isDirty, setIsDirty] = useState<boolean>(() =>
     loadCurrentSceneDirtyFromStorage(),
   );
+  // Mirror of isDirty readable synchronously without triggering re-renders.
+  // Used to skip redundant localStorage writes on the high-frequency onChange path.
+  const isDirtyRef = useRef(isDirty);
   const [isSessionReady, setIsSessionReady] = useState(false);
-  const suppressDirtyTrackingUntilRef = useRef(0);
+  // Dirty-tracking suppression: a boolean flag is the primary mechanism;
+  // a time-based expiry acts as a safety net so suppression never leaks.
+  const suppressedRef = useRef(false);
+  const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const doSuppress = useCallback((safetyNetMs: number = SUPPRESS_SAFETY_NET_MS) => {
+    suppressedRef.current = true;
+    if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
+    suppressTimerRef.current = setTimeout(() => {
+      suppressedRef.current = false;
+      suppressTimerRef.current = null;
+    }, safetyNetMs);
+  }, []);
+
+  const doResume = useCallback(() => {
+    suppressedRef.current = false;
+    if (suppressTimerRef.current) {
+      clearTimeout(suppressTimerRef.current);
+      suppressTimerRef.current = null;
+    }
+  }, []);
 
   const syncCurrentScene = useCallback(
     ({ id, revision }: { id: string; revision?: number }) => {
       setCurrentSceneId(id);
       setLastSyncedRevision(revision);
       setIsDirty(false);
-      suppressDirtyTrackingUntilRef.current = Date.now() + 1200;
+      isDirtyRef.current = false;
       try {
         saveCurrentSceneIdToStorage(id);
         if (revision !== undefined) {
@@ -73,14 +106,15 @@ export function SceneSessionProvider({
         // ignore storage errors
       }
     },
-    [suppressDirtyTrackingUntilRef],
+    [],
   );
 
   const clearCurrentScene = useCallback(() => {
     setCurrentSceneId(undefined);
     setLastSyncedRevision(undefined);
     setIsDirty(false);
-    suppressDirtyTrackingUntilRef.current = 0;
+    isDirtyRef.current = false;
+    doResume();
     try {
       clearCurrentSceneIdFromStorage();
       clearCurrentSceneRevisionFromStorage();
@@ -88,22 +122,29 @@ export function SceneSessionProvider({
     } catch {
       // ignore storage errors
     }
-  }, [suppressDirtyTrackingUntilRef]);
+  }, [doResume]);
 
   const reloadSceneSession = useCallback(() => {
     try {
+      const dirty = loadCurrentSceneDirtyFromStorage();
       setCurrentSceneId(loadCurrentSceneIdFromStorage());
       setLastSyncedRevision(loadCurrentSceneRevisionFromStorage());
-      setIsDirty(loadCurrentSceneDirtyFromStorage());
+      setIsDirty(dirty);
+      isDirtyRef.current = dirty;
     } catch {
       setCurrentSceneId(undefined);
       setLastSyncedRevision(undefined);
       setIsDirty(false);
+      isDirtyRef.current = false;
     }
     setIsSessionReady(true);
   }, []);
 
   const markCurrentSceneDirty = useCallback(() => {
+    // Skip if already dirty — avoids redundant localStorage.setItem calls
+    // on the high-frequency Excalidraw onChange path.
+    if (isDirtyRef.current) return;
+    isDirtyRef.current = true;
     setIsDirty(true);
     try {
       saveCurrentSceneDirtyToStorage(true);
@@ -113,6 +154,8 @@ export function SceneSessionProvider({
   }, []);
 
   const markCurrentSceneClean = useCallback(() => {
+    if (!isDirtyRef.current) return;
+    isDirtyRef.current = false;
     setIsDirty(false);
     try {
       saveCurrentSceneDirtyToStorage(false);
@@ -122,16 +165,29 @@ export function SceneSessionProvider({
   }, []);
 
   const suppressDirtyTracking = useCallback(
-    (durationMs = 1200) => {
-      suppressDirtyTrackingUntilRef.current = Date.now() + durationMs;
+    (safetyNetMs?: number) => {
+      doSuppress(safetyNetMs);
     },
-    [suppressDirtyTrackingUntilRef],
+    [doSuppress],
   );
 
+  const resumeDirtyTracking = useCallback(() => {
+    doResume();
+  }, [doResume]);
+
   const shouldSuppressDirtyTracking = useCallback(
-    () => suppressDirtyTrackingUntilRef.current > Date.now(),
-    [suppressDirtyTrackingUntilRef],
+    () => suppressedRef.current,
+    [],
   );
+
+  // Clean up the safety-net timer on unmount to avoid firing into a stale ref.
+  useEffect(() => {
+    return () => {
+      if (suppressTimerRef.current) {
+        clearTimeout(suppressTimerRef.current);
+      }
+    };
+  }, []);
 
   const value = useMemo<SceneSessionContextValue>(
     () => ({
@@ -145,6 +201,7 @@ export function SceneSessionProvider({
       markCurrentSceneDirty,
       markCurrentSceneClean,
       suppressDirtyTracking,
+      resumeDirtyTracking,
       shouldSuppressDirtyTracking,
     }),
     [
@@ -158,6 +215,7 @@ export function SceneSessionProvider({
       markCurrentSceneDirty,
       markCurrentSceneClean,
       suppressDirtyTracking,
+      resumeDirtyTracking,
       shouldSuppressDirtyTracking,
     ],
   );

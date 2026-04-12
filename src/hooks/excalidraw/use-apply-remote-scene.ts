@@ -30,7 +30,8 @@ type ApplyRemoteSceneResult =
 export function useApplyRemoteScene(
   excalidrawAPI: ExcalidrawImperativeAPI | null,
 ) {
-  const { suppressDirtyTracking, syncCurrentScene } = useSceneSession();
+  const { suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene } =
+    useSceneSession();
 
   const applyRemoteScene = useCallback(
     async ({
@@ -42,11 +43,19 @@ export function useApplyRemoteScene(
         return { ok: false, reason: "scene_data_missing" };
       }
 
-      const imported = await importSceneDataBySceneId(sceneId);
+      // 1. Fetch scene data and files in parallel for faster perceived load
+      const [imported, fetchedFiles] = await Promise.all([
+        importSceneDataBySceneId(sceneId),
+        importSceneFilesBySceneId(sceneId).catch(
+          (): BinaryFiles => ({}),
+        ),
+      ]);
+
       if (!imported?.elements && !imported?.appState) {
         return { ok: false, reason: "scene_data_missing" };
       }
 
+      // 2. Prepare merged appState
       const baseAppState = excalidrawAPI.getAppState() as AppState | undefined;
       const mergedAppState: AppState = {
         ...(baseAppState ?? ({} as AppState)),
@@ -54,54 +63,79 @@ export function useApplyRemoteScene(
         theme: getActiveTheme?.() ?? baseAppState?.theme ?? "light",
       };
 
+      const elements = imported.elements ?? [];
+
+      // --- Begin scene mutation (suppress dirty tracking) ---
+      // All canvas writes happen inside this try block; the finally block
+      // guarantees tracking is resumed even if an unexpected error occurs.
       suppressDirtyTracking();
-      excalidrawAPI.updateScene({
-        elements: imported.elements ?? [],
-        appState: mergedAppState,
-      });
-
-      const hasViewportFromImported = Boolean(
-        imported.appState &&
-          (typeof imported.appState.scrollX === "number" ||
-            typeof imported.appState.scrollY === "number" ||
-            typeof (imported.appState as Partial<AppState>).zoom === "object"),
-      );
-
-      if (shouldCenter && !hasViewportFromImported) {
-        queueCenterToContent(excalidrawAPI);
-      }
-
-      let importedFiles: BinaryFiles = {};
       try {
-        importedFiles = await importSceneFilesBySceneId(sceneId);
-        const filesToInject = Object.values(importedFiles);
+        // 3. Update canvas — elements are shown immediately.
+        //    If the scene has images, Excalidraw renders placeholder boxes for
+        //    any fileIds not yet in its file store; we inject files right after.
+        excalidrawAPI.updateScene({
+          elements,
+          appState: mergedAppState,
+        });
+
+        // 4. Center viewport before file injection so the user sees content ASAP
+        const hasViewportFromImported = Boolean(
+          imported.appState &&
+            (typeof imported.appState.scrollX === "number" ||
+              typeof imported.appState.scrollY === "number" ||
+              typeof (imported.appState as Partial<AppState>).zoom ===
+                "object"),
+        );
+
+        if (shouldCenter && !hasViewportFromImported) {
+          queueCenterToContent(excalidrawAPI);
+        }
+
+        // 5. Inject files (already fetched in parallel, so this is instant)
+        const filesToInject = Object.values(fetchedFiles);
         if (filesToInject.length > 0) {
-          suppressDirtyTracking();
           const existingFiles = excalidrawAPI.getFiles?.() ?? {};
           excalidrawAPI.addFiles?.(
             filesToInject.filter((file) => !existingFiles[file.id]),
           );
         }
-      } catch {
-        importedFiles = {};
+
+        // 6. Validate file completeness — determines whether we can trust
+        //    the local snapshot as a reliable cache for next startup.
+        const filesComplete = hasCompleteSceneFileHydration(
+          elements,
+          fetchedFiles,
+        );
+
+        if (filesComplete) {
+          // Full hydration: persist to localStorage so next cold-start is instant.
+          saveToLocalStorage(elements, mergedAppState, fetchedFiles);
+        }
+        // Always sync the session (id + revision) regardless of file completeness,
+        // so the revision check keeps working.
+        syncCurrentScene({
+          id: sceneId,
+          revision: imported.revision,
+        });
+
+        if (!filesComplete) {
+          return { ok: false, reason: "incomplete_files" };
+        }
+
+        return {
+          ok: true,
+          revision: imported.revision,
+        };
+      } finally {
+        // Resume after one frame so Excalidraw's synchronous onChange events
+        // (triggered by updateScene / addFiles) are still suppressed, but
+        // subsequent user edits are tracked normally.
+        requestAnimationFrame(() => {
+          resumeDirtyTracking();
+        });
       }
-
-      if (!hasCompleteSceneFileHydration(imported.elements ?? [], importedFiles)) {
-        return { ok: false, reason: "incomplete_files" };
-      }
-
-      saveToLocalStorage(imported.elements ?? [], mergedAppState, importedFiles);
-      syncCurrentScene({
-        id: sceneId,
-        revision: imported.revision,
-      });
-
-      return {
-        ok: true,
-        revision: imported.revision,
-      };
     },
-    [excalidrawAPI, suppressDirtyTracking, syncCurrentScene],
+    [excalidrawAPI, suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene],
   );
 
   return { applyRemoteScene } as const;
