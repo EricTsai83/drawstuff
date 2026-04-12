@@ -19,17 +19,33 @@ import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
 
+export type SceneConflictInfo = {
+  sceneId: string;
+  remoteRevision?: number;
+};
+
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
   excalidrawAPI?: ExcalidrawImperativeAPI | null,
 ) {
   const [status, setStatus] = useState<UploadStatus>("idle");
-  const { currentSceneId, saveCurrentSceneId, clearCurrentSceneId } =
-    useSceneSession();
+  const [lastConflict, setLastConflict] = useState<SceneConflictInfo | null>(
+    null,
+  );
+  const {
+    currentSceneId,
+    lastSyncedRevision,
+    syncCurrentScene,
+    clearCurrentScene,
+  } = useSceneSession();
   const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
+  const lastSyncedRevisionRef = useRef<number | undefined>(lastSyncedRevision);
   useEffect(() => {
     currentSceneIdRef.current = currentSceneId;
   }, [currentSceneId]);
+  useEffect(() => {
+    lastSyncedRevisionRef.current = lastSyncedRevision;
+  }, [lastSyncedRevision]);
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
@@ -62,6 +78,7 @@ export function useCloudUpload(
   const uploadSceneToCloud = useCallback(
     async (options?: UploadOptions): Promise<boolean> => {
       setStatus("uploading");
+      setLastConflict(null);
 
       try {
         const scene = getCurrentSceneSnapshot(excalidrawAPI);
@@ -106,10 +123,24 @@ export function useCloudUpload(
               toast.error(t("app.cloudUpload.toast.error.noSceneToUpdate"));
               return false;
             }
+            if (lastSyncedRevisionRef.current === undefined) {
+              setStatus("error");
+              toast.error("Scene version is unavailable. Please reload and try again.");
+              return false;
+            }
           } else {
             // 未指定 mode：向下相容，依 existingSceneId 或 context 判斷
             effectiveSceneId =
               options?.existingSceneId ?? currentSceneIdRef.current;
+          }
+
+          if (
+            effectiveSceneId !== undefined &&
+            lastSyncedRevisionRef.current === undefined
+          ) {
+            setStatus("error");
+            toast.error("Scene version is unavailable. Please reload and try again.");
+            return false;
           }
 
           // 嚴格要求 workspaceId
@@ -127,17 +158,33 @@ export function useCloudUpload(
             workspaceId: effectiveWorkspaceId,
             data: base64Data,
             categories: options?.categories,
+            expectedRevision:
+              effectiveSceneId !== undefined
+                ? lastSyncedRevisionRef.current
+                : undefined,
           });
           if (!result.ok) {
             if (result.error === APP_ERROR.SCENE_NOT_FOUND) {
-              clearCurrentSceneId();
+              clearCurrentScene();
               setStatus("idle");
               onSceneNotFoundError();
               return false;
             }
+            if (result.error === APP_ERROR.SCENE_CONFLICT) {
+              setStatus("idle");
+              setLastConflict({
+                sceneId:
+                  result.data?.id ??
+                  effectiveSceneId ??
+                  currentSceneIdRef.current ??
+                  "",
+                remoteRevision: result.data?.revision,
+              });
+              return false;
+            }
             throw new Error(result.message ?? result.error);
           }
-          const { id, updatedAt } = result.data;
+          const { id, revision } = result.data;
 
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
@@ -155,7 +202,7 @@ export function useCloudUpload(
               : [];
 
           if (id) {
-            saveCurrentSceneId(String(id), updatedAt);
+            syncCurrentScene({ id: String(id), revision });
             const uploadTasks: Promise<unknown>[] = [];
 
             if (filesToUpload.length > 0) {
@@ -237,14 +284,13 @@ export function useCloudUpload(
       utils,
       t,
       onSceneNotFoundError,
-      saveCurrentSceneId,
-      clearCurrentSceneId,
+      syncCurrentScene,
+      clearCurrentScene,
     ],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);
-
-  // 移除重複的 clearCurrentSceneId 函數，因為已經從 useCurrentSceneId hook 中獲取
+  const clearLastConflict = useCallback(() => setLastConflict(null), []);
 
   // 僅暴露受控 API，避免外部直接改狀態造成混亂
   return {
@@ -252,6 +298,8 @@ export function useCloudUpload(
     status,
     resetStatus,
     currentSceneId,
-    clearCurrentSceneId,
+    clearCurrentScene,
+    lastConflict,
+    clearLastConflict,
   } as const;
 }

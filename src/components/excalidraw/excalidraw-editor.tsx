@@ -52,6 +52,10 @@ import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm"
 import GlobalConfirmDialog from "@/components/confirm-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useSceneImportFileGuard } from "@/hooks/excalidraw/use-scene-import-file-guard";
+import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
+import { useSceneRemoteRevisionCheck } from "@/hooks/excalidraw/use-scene-remote-revision-check";
+import { SceneRemoteConflictDialog } from "@/components/excalidraw/scene-remote-conflict-dialog";
+import { useSceneSession } from "@/hooks/scene-session-context";
 
 export default function ExcalidrawEditor() {
   useSceneImportFileGuard();
@@ -59,6 +63,8 @@ export default function ExcalidrawEditor() {
     useCallbackRefState<ExcalidrawImperativeAPI>();
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
+  const { reloadSceneSession, suppressDirtyTracking, isSessionReady } =
+    useSceneSession();
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session } = authClient.useSession();
@@ -79,10 +85,13 @@ export default function ExcalidrawEditor() {
     uploadSceneToCloud,
     resetStatus,
     currentSceneId,
-    clearCurrentSceneId,
+    clearCurrentScene,
+    lastConflict,
+    clearLastConflict,
   } = useCloudUpload(() => {
     setIsCloudUploadDialogOpen(true);
   }, excalidrawAPI);
+  const { applyRemoteScene } = useApplyRemoteScene(excalidrawAPI);
   const { activeWorkspaceId } = useWorkspaceOptions();
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
@@ -134,55 +143,19 @@ export default function ExcalidrawEditor() {
 
   useEffect(() => {
     // 註冊 handler 後再建立 initialDataPromise，避免 race
-    setInitialDataPromise(createInitialDataPromise());
-  }, []);
+    suppressDirtyTracking(1500);
+    const nextInitialDataPromise = createInitialDataPromise();
+    setInitialDataPromise(nextInitialDataPromise);
+    void nextInitialDataPromise.finally(() => {
+      reloadSceneSession();
+    });
+  }, [reloadSceneSession, suppressDirtyTracking]);
 
   // 解析分享資訊、取檔並注入 Excalidraw
   useFetchAndInjectSharedSceneFiles(excalidrawAPI);
 
-  // 初始掛載後置中（若有內容），避免首次渲染未置中的情況
-  const [hasAutoCentered, setHasAutoCentered] = useState(false);
-  useEffect(() => {
-    if (!excalidrawAPI || hasAutoCentered) return;
-
-    let attempts = 0;
-    let timer: number | undefined;
-
-    const tryCenter = () => {
-      attempts += 1;
-      const els =
-        (excalidrawAPI.getSceneElements() as readonly ExcalidrawElement[]) ??
-        [];
-      const hasContent = Array.isArray(els)
-        ? els.some((el: ExcalidrawElement) => !el.isDeleted)
-        : false;
-
-      if (hasContent) {
-        // 使用官方 API 置中內容到視窗
-        // https://docs.excalidraw.com/docs
-        excalidrawAPI.scrollToContent(undefined, {
-          fitToViewport: true,
-          viewportZoomFactor: 0.5,
-          animate: false,
-        });
-        setHasAutoCentered(true);
-        return;
-      }
-
-      if (attempts < 10) {
-        timer = window.setTimeout(tryCenter, 80);
-      }
-    };
-
-    tryCenter();
-    return () => {
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [excalidrawAPI, hasAutoCentered]);
-
   // 建立帶確認的載入動作
   const { loadSceneWithConfirm } = useLoadSceneWithConfirm({
-    excalidrawAPI,
     hasCurrentContent: () => {
       const els =
         (excalidrawAPI?.getSceneElements() as readonly ExcalidrawElement[]) ??
@@ -208,7 +181,21 @@ export default function ExcalidrawEditor() {
         // ignore
       }
     },
+    applyRemoteScene,
     getActiveTheme: () => browserActiveTheme,
+  });
+
+  const { conflictDialog } = useSceneRemoteRevisionCheck({
+    applyRemoteScene,
+    uploadSceneToCloud,
+    getActiveTheme: () => browserActiveTheme,
+    workspaceId: activeWorkspaceId,
+    isReady: !!excalidrawAPI && isSessionReady,
+    isUploadInProgress: uploadStatus === "uploading",
+    isBlockingDialogOpen:
+      isSceneChangeDialogOpen || isCloudUploadDialogOpen || workspaceCreateConfirmOpen,
+    externalConflict: lastConflict,
+    onExternalConflictHandled: clearLastConflict,
   });
 
   // 處理從 Dashboard 雙擊卡片觸發的載入事件（事件驅動，不用 URL hash）
@@ -232,6 +219,11 @@ export default function ExcalidrawEditor() {
         onLoadSceneEvent as EventListener,
       );
   }, [loadSceneWithConfirm]);
+
+  useEffect(() => {
+    if (!lastConflict) return;
+    closeSceneChangeDialog();
+  }, [lastConflict, closeSceneChangeDialog]);
 
   const renderCustomUiForExport = useCallback(
     (
@@ -417,7 +409,9 @@ export default function ExcalidrawEditor() {
             trigger={<SceneNameTrigger sceneName={sceneName} />}
             onConfirmName={(newName) => {
               // 先同步更新到 Excalidraw appState
-              handleSetSceneName(newName);
+            handleSetSceneName(newName, {
+              suppressDirtyTracking: Boolean(currentSceneId),
+            });
               // 若已有雲端場景 ID，直接更新 DB 名稱
               if (currentSceneId) {
                 renameSceneMutation.mutate(
@@ -453,11 +447,12 @@ export default function ExcalidrawEditor() {
           />
           <OverwriteConfirmDialog
             excalidrawAPI={excalidrawAPI}
-            clearCurrentSceneId={clearCurrentSceneId}
+            clearCurrentSceneId={clearCurrentScene}
             onSceneNotFoundError={() => {
               setIsCloudUploadDialogOpen(true);
             }}
           />
+          <SceneRemoteConflictDialog {...conflictDialog} />
           <SceneCloudUploadDialog
             open={isCloudUploadDialogOpen}
             onOpenChange={setIsCloudUploadDialogOpen}
@@ -474,7 +469,7 @@ export default function ExcalidrawEditor() {
               workspaceId?: string;
             }) => {
               // 先把名稱寫回 Excalidraw appState（透過既有 helper）
-              handleSetSceneName(name);
+              handleSetSceneName(name, { suppressDirtyTracking: true });
               void uploadSceneToCloud({
                 name,
                 description,

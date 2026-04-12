@@ -3,8 +3,8 @@ import {
   loadCurrentSceneIdFromStorage,
   saveCurrentSceneIdToStorage,
   clearCurrentSceneIdFromStorage,
-  saveCurrentSceneUpdatedAtToStorage,
-  clearCurrentSceneUpdatedAtFromStorage,
+  saveCurrentSceneRevisionToStorage,
+  clearCurrentSceneRevisionFromStorage,
 } from "@/data/local-storage";
 
 export function useCurrentSceneId() {
@@ -19,12 +19,12 @@ export function useCurrentSceneId() {
   }, []);
 
   // 保存到 localStorage 並更新 state
-  const saveCurrentSceneId = useCallback((id: string, updatedAt?: string) => {
+  const saveCurrentSceneId = useCallback((id: string, revision?: number) => {
     saveCurrentSceneIdToStorage(id);
-    if (updatedAt) {
-      saveCurrentSceneUpdatedAtToStorage(updatedAt);
+    if (revision !== undefined) {
+      saveCurrentSceneRevisionToStorage(revision);
     } else {
-      clearCurrentSceneUpdatedAtFromStorage();
+      clearCurrentSceneRevisionFromStorage();
     }
     setCurrentSceneId(id);
   }, []);

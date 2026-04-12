@@ -8,13 +8,17 @@ import {
   category,
 } from "@/server/db/schema";
 import { nanoid } from "nanoid";
-import { and, eq, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/server";
 import { QUERIES } from "@/server/db/queries";
 import { UTApi } from "uploadthing/server";
 import { saveSceneSchema } from "@/lib/schemas/scene";
 import type { AppErrorCode } from "@/lib/errors";
 import { APP_ERROR } from "@/lib/errors";
+import {
+  saveOwnedScene,
+  type SaveOwnedSceneResult,
+} from "@/server/scene/save-owned-scene";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -223,8 +227,13 @@ export async function rollbackSharedScene(sharedSceneId: string) {
 const SaveSceneInput = saveSceneSchema;
 
 export type SaveSceneResult =
-  | { ok: true; data: { id: string; updatedAt: string } }
-  | { ok: false; error: AppErrorCode; message?: string };
+  | { ok: true; data: { id: string; revision: number; updatedAt: string } }
+  | {
+      ok: false;
+      error: AppErrorCode;
+      message?: string;
+      data?: { id: string; revision: number; updatedAt: string };
+    };
 
 export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
   const parsed = SaveSceneInput.safeParse(raw);
@@ -244,117 +253,58 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       message: "Please sign in and try again",
     };
 
-  const now = new Date();
-  let sceneId: string | undefined;
-  let sceneUpdatedAt: Date | undefined;
+  const saveResult: SaveOwnedSceneResult = await saveOwnedScene({
+    userId: session.user.id,
+    input,
+  });
 
-  if (input.id) {
-    // 更新現有場景（僅限本人場景）
-    const updatePayload: Partial<typeof scene.$inferInsert> = {
-      name: input.name,
-      description: input.description,
-      sceneData: input.data,
-      updatedAt: now,
-      ...(input.workspaceId !== undefined
-        ? { workspaceId: input.workspaceId }
-        : {}),
-    };
-
-    const [updatedScene] = await db
-      .update(scene)
-      .set(updatePayload)
-      .where(and(eq(scene.id, input.id), eq(scene.userId, session.user.id)))
-      .returning({ id: scene.id, updatedAt: scene.updatedAt });
-
-    if (!updatedScene?.id) {
-      // Align with frontend error semantics to clear invalid local scene id
+  switch (saveResult.status) {
+    case "success":
+      return {
+        ok: true,
+        data: {
+          id: saveResult.data.id,
+          revision: saveResult.data.revision,
+          updatedAt: saveResult.data.updatedAt.toISOString(),
+        },
+      };
+    case "not_found":
       return {
         ok: false,
         error: APP_ERROR.SCENE_NOT_FOUND,
         message:
           "Scene not found. It may have been deleted or you lack permission",
       };
-    }
-    sceneId = updatedScene.id;
-    sceneUpdatedAt = updatedScene.updatedAt ?? now;
-  } else {
-    // 建立新場景
-    const created = await db
-      .insert(scene)
-      .values({
-        name: input.name,
-        description: input.description,
-        workspaceId: input.workspaceId,
-        userId: session.user.id,
-        sceneData: input.data,
-      })
-      .returning({ id: scene.id, updatedAt: scene.updatedAt });
-
-    if (!created[0]?.id)
+    case "conflict": {
+      const conflictData = saveResult.data;
       return {
         ok: false,
-        error: APP_ERROR.CREATE_FAILED,
-        message: "Failed to create scene. Please try again later",
+        error: "SCENE_CONFLICT" as AppErrorCode,
+        message: saveResult.message,
+        data: {
+          id: conflictData.id,
+          revision: conflictData.revision,
+          updatedAt: conflictData.updatedAt.toISOString(),
+        },
       };
-    sceneId = created[0].id;
-    sceneUpdatedAt = created[0].updatedAt ?? now;
-  }
-
-  // 分類同步（可選）
-  if (input.categories) {
-    const names = input.categories;
-    if (names.length === 0) {
-      await db.delete(sceneCategory).where(eq(sceneCategory.sceneId, sceneId));
-    } else {
-      // 取得既有分類；不在既有清單中的會即時新增
-      const existing = await db
-        .select()
-        .from(category)
-        .where(
-          and(
-            eq(category.userId, session.user.id),
-            inArray(category.name, names),
-          ),
-        );
-
-      const nameToId = new Map(existing.map((c) => [c.name, c.id] as const));
-      const ensuredCategoryIds: string[] = [];
-      for (const name of names) {
-        const existingId = nameToId.get(name);
-        if (existingId) {
-          ensuredCategoryIds.push(existingId);
-        } else {
-          const created = await db
-            .insert(category)
-            .values({ name, userId: session.user.id })
-            .returning({ id: category.id });
-          if (created[0]?.id) ensuredCategoryIds.push(created[0].id);
-        }
-      }
-
-      // 以 input 為權威來源做完整同步
-      await db.delete(sceneCategory).where(eq(sceneCategory.sceneId, sceneId));
-      if (ensuredCategoryIds.length > 0) {
-        await db
-          .insert(sceneCategory)
-          .values(
-            ensuredCategoryIds.map((cid) => ({ sceneId, categoryId: cid })),
-          );
-      }
     }
+    case "forbidden":
+      return {
+        ok: false,
+        error: APP_ERROR.UNAUTHORIZED,
+        message: saveResult.message,
+      };
+    case "validation_failed":
+      return {
+        ok: false,
+        error: APP_ERROR.VALIDATION_FAILED,
+        message: saveResult.message,
+      };
+    default:
+      return {
+        ok: false,
+        error: APP_ERROR.SAVE_FAILED,
+        message: "Failed to save scene. Please try again later",
+      };
   }
-
-  if (!sceneId)
-    return {
-      ok: false,
-      error: APP_ERROR.SAVE_FAILED,
-      message: "Failed to save scene. Please try again later",
-    };
-  return {
-    ok: true,
-    data: {
-      id: sceneId,
-      updatedAt: (sceneUpdatedAt ?? now).toISOString(),
-    },
-  };
 }
