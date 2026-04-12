@@ -68,6 +68,7 @@ export default function ExcalidrawEditor() {
     suppressDirtyTracking,
     resumeDirtyTracking,
     isSessionReady,
+    updateLastSyncedRevision,
   } = useSceneSession();
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
@@ -428,8 +429,12 @@ export default function ExcalidrawEditor() {
                 renameSceneMutation.mutate(
                   { id: currentSceneId, name: newName },
                   {
-                    onSuccess: () =>
-                      void utils.scene.getUserScenesInfinite.invalidate(),
+                    onSuccess: (data) => {
+                      void utils.scene.getUserScenesInfinite.invalidate();
+                      if (data.revision != null) {
+                        updateLastSyncedRevision(data.revision);
+                      }
+                    },
                     onError: () =>
                       toast.error(
                         "Failed to update scene name. Please try again.",

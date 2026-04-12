@@ -212,6 +212,11 @@ export async function importSceneDataBySceneId(
     const sanitizedAppState = parsed.appState
       ? sanitizeImportedAppState(parsed.appState)
       : null;
+    // DB name 欄位是權威來源（rename 只更新 DB name，不重寫 sceneData），
+    // 用它覆蓋壓縮資料中可能過時的 appState.name
+    if (sanitizedAppState && result?.name) {
+      sanitizedAppState.name = result.name;
+    }
     return {
       elements: parsed.elements ?? null,
       appState: sanitizedAppState,

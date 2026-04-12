@@ -56,7 +56,7 @@ export function useSceneRemoteRevisionCheck({
   externalConflict,
   onExternalConflictHandled,
 }: UseSceneRemoteRevisionCheckParams) {
-  const { currentSceneId, lastSyncedRevision, isDirty } = useSceneSession();
+  const { currentSceneId, lastSyncedRevision, isDirty, shouldSuppressDirtyTracking } = useSceneSession();
 
   // ---- Conflict dialog state ------------------------------------------------
   const [pendingConflict, setPendingConflict] =
@@ -90,6 +90,7 @@ export function useSceneRemoteRevisionCheck({
     async ({ suppressToast = false }: { suppressToast?: boolean } = {}) => {
       if (!currentSceneId || !isReady) return;
       if (isUploadInProgress || isBlockingDialogOpen || pendingConflict) return;
+      if (shouldSuppressDirtyTracking()) return;
       if (inFlightRef.current) return;
 
       inFlightRef.current = true;

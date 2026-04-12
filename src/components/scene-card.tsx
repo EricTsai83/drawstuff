@@ -45,7 +45,7 @@ type SceneListItem =
 
 export function SceneCard({ item }: { item: SceneListItem }) {
   const { t, langCode } = useStandaloneI18n();
-  const { currentSceneId, clearCurrentScene } = useSceneSession();
+  const { currentSceneId, clearCurrentScene, updateLastSyncedRevision } = useSceneSession();
   const timeAgo = formatDistanceToNow(item.updatedAt, {
     addSuffix: true,
     locale: langCode === "zh-TW" ? zhTW : undefined,
@@ -152,7 +152,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         console.error("Failed to edit: missing scene data");
         return;
       }
-      await saveSceneMutation.mutateAsync({
+      const saveResult = await saveSceneMutation.mutateAsync({
         id: item.id,
         name: payload.name,
         description: payload.description,
@@ -161,6 +161,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         categories: payload.categories,
         expectedRevision,
       });
+      if (item.id === currentSceneId && saveResult.revision != null) {
+        updateLastSyncedRevision(saveResult.revision);
+      }
       setIsEditOpen(false);
       await invalidateSceneQueries(item.id);
     } catch (err) {

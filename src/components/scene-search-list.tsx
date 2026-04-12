@@ -209,14 +209,18 @@ export function SceneSearchList() {
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
               <DropdownMenuItem
-                onSelect={() => setCreateWorkspaceOpen(true)}
+                onSelect={() =>
+                  requestAnimationFrame(() => setCreateWorkspaceOpen(true))
+                }
               >
                 <Plus className="size-4" />
                 {t("dashboard.workspace.create")}
               </DropdownMenuItem>
               <DropdownMenuItem
                 disabled={!selectedWorkspace}
-                onSelect={() => setRenameWorkspaceOpen(true)}
+                onSelect={() =>
+                  requestAnimationFrame(() => setRenameWorkspaceOpen(true))
+                }
               >
                 <Pencil className="size-4" />
                 {t("dashboard.workspace.rename")}
@@ -225,7 +229,9 @@ export function SceneSearchList() {
               <DropdownMenuItem
                 variant="destructive"
                 disabled={!selectedWorkspace}
-                onSelect={() => setDeleteWorkspaceOpen(true)}
+                onSelect={() =>
+                  requestAnimationFrame(() => setDeleteWorkspaceOpen(true))
+                }
               >
                 <Trash2 className="size-4" />
                 {t("dashboard.workspace.delete")}

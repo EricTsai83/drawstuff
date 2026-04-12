@@ -4,11 +4,11 @@ import {
   Dialog,
   DialogContent,
   DialogDescription,
-  DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { CloudDownload, CopyPlus, Pause } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -31,7 +31,12 @@ export function SceneRemoteConflictDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent
+        className="sm:max-w-md"
+        showCloseButton={false}
+        onInteractOutside={(e) => e.preventDefault()}
+        onEscapeKeyDown={(e) => e.preventDefault()}
+      >
         <DialogHeader className="pr-8">
           <DialogTitle className="text-lg font-semibold">
             Remote changes detected
@@ -39,36 +44,57 @@ export function SceneRemoteConflictDialog({
           <DialogDescription>
             {isLoading
               ? "Processing..."
-              : "This scene was updated elsewhere while you still have local changes. Choose how to resolve the conflict."}
+              : "This scene was updated elsewhere while you still have local changes."}
           </DialogDescription>
         </DialogHeader>
 
-        <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-start">
+        <div className="grid gap-2">
           <Button
             type="button"
             variant="default"
+            className="h-auto whitespace-normal justify-start gap-3 px-4 py-3"
             disabled={isLoading}
             onClick={() => onChoose("loadRemote")}
           >
-            Load remote version
+            <CloudDownload className="size-4 shrink-0" />
+            <div className="min-w-0 text-left">
+              <div className="text-sm font-medium">Load remote version</div>
+              <div className="text-xs font-normal opacity-80">
+                Discard local changes and use the latest remote version
+              </div>
+            </div>
           </Button>
           <Button
             type="button"
             variant="outline"
+            className="h-auto whitespace-normal justify-start gap-3 px-4 py-3"
             disabled={isLoading}
             onClick={() => onChoose("saveAsNew")}
           >
-            Save local as new scene
+            <CopyPlus className="size-4 shrink-0" />
+            <div className="min-w-0 text-left">
+              <div className="text-sm font-medium">Save local as new scene</div>
+              <div className="text-muted-foreground text-xs font-normal">
+                Keep both versions by saving your local changes as a new scene
+              </div>
+            </div>
           </Button>
           <Button
             type="button"
-            variant="ghost"
+            variant="outline"
+            className="h-auto whitespace-normal justify-start gap-3 px-4 py-3"
             disabled={isLoading}
             onClick={() => onChoose("keepLocal")}
           >
-            Keep local for now
+            <Pause className="size-4 shrink-0" />
+            <div className="min-w-0 text-left">
+              <div className="text-sm font-medium">Keep local for now</div>
+              <div className="text-muted-foreground text-xs font-normal">
+                Continue editing locally; you can sync later
+              </div>
+            </div>
           </Button>
-        </DialogFooter>
+        </div>
       </DialogContent>
     </Dialog>
   );

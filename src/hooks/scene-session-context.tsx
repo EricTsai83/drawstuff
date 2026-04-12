@@ -36,6 +36,10 @@ type SceneSessionContextValue = {
   reloadSceneSession: () => void;
   markCurrentSceneDirty: () => void;
   markCurrentSceneClean: () => void;
+  /** Update only the synced revision without touching dirty state.
+   *  Useful after operations that bump the server revision without
+   *  changing scene content (e.g. rename). */
+  updateLastSyncedRevision: (revision: number) => void;
   /** Suppress dirty tracking. Call resumeDirtyTracking() when the operation
    *  is done. A time-based safety net (default 5s) auto-resumes if the
    *  caller forgets. */
@@ -164,6 +168,15 @@ export function SceneSessionProvider({
     }
   }, []);
 
+  const updateLastSyncedRevision = useCallback((revision: number) => {
+    setLastSyncedRevision(revision);
+    try {
+      saveCurrentSceneRevisionToStorage(revision);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   const suppressDirtyTracking = useCallback(
     (safetyNetMs?: number) => {
       doSuppress(safetyNetMs);
@@ -200,6 +213,7 @@ export function SceneSessionProvider({
       reloadSceneSession,
       markCurrentSceneDirty,
       markCurrentSceneClean,
+      updateLastSyncedRevision,
       suppressDirtyTracking,
       resumeDirtyTracking,
       shouldSuppressDirtyTracking,
@@ -214,6 +228,7 @@ export function SceneSessionProvider({
       reloadSceneSession,
       markCurrentSceneDirty,
       markCurrentSceneClean,
+      updateLastSyncedRevision,
       suppressDirtyTracking,
       resumeDirtyTracking,
       shouldSuppressDirtyTracking,

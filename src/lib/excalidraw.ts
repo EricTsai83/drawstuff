@@ -12,6 +12,7 @@ import {
   saveCurrentSceneDirtyToStorage,
   saveCurrentSceneIdToStorage,
   saveCurrentSceneRevisionToStorage,
+  clearCurrentSceneIdFromStorage,
   clearCurrentSceneRevisionFromStorage,
 } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
@@ -178,6 +179,15 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
     };
   } catch (error) {
     console.error("初始化遠端場景失敗:", error);
+    // Clear persisted session markers so the app doesn't remain attached
+    // to a dead remote scene on next load.
+    try {
+      clearCurrentSceneIdFromStorage();
+      saveCurrentSceneDirtyToStorage(false);
+      clearCurrentSceneRevisionFromStorage();
+    } catch {
+      // ignore storage errors
+    }
     return null;
   }
 }
