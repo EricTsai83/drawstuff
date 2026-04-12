@@ -24,20 +24,17 @@ export function StorageWarning({ className }: StorageWarningProps) {
     if (percent > 90) {
       return {
         src: "/crying-bun.png",
-        alt: "哭泣小包子",
         state: "critical",
       };
     }
     if (percent > 70) {
       return {
         src: "/worried-bun.png",
-        alt: "擔心小包子",
         state: "warning",
       };
     }
     return {
       src: "/happy-bun.png",
-      alt: "開心小包子",
       state: "normal",
     };
   }
@@ -46,20 +43,23 @@ export function StorageWarning({ className }: StorageWarningProps) {
 
   return (
     <div className={className}>
-      <Image
-        src={bunImage.src}
-        alt={
-          bunImage.state === "critical"
-            ? t("images.bun.crying")
-            : bunImage.state === "warning"
-              ? t("images.bun.worried")
-              : t("images.bun.happy")
-        }
-        width={24}
-        height={24}
-        key={`${bunImage.src}-${usagePercent.toFixed(0)}`} // 添加 key 來強制重新渲染
-        unoptimized // 禁用 Next.js 圖片優化以避免快取問題
-      />
+      <div className="relative size-6 shrink-0">
+        <Image
+          src={bunImage.src}
+          alt={
+            bunImage.state === "critical"
+              ? t("images.bun.crying")
+              : bunImage.state === "warning"
+                ? t("images.bun.worried")
+                : t("images.bun.happy")
+          }
+          fill
+          sizes="24px"
+          className="object-contain"
+          key={`${bunImage.src}-${usagePercent.toFixed(0)}`} // 添加 key 來強制重新渲染
+          unoptimized // 禁用 Next.js 圖片優化以避免快取問題
+        />
+      </div>
 
       <div className="ml-2 text-xs text-[#39393e] dark:text-[#b8b8b8]">
         {t("stats.usedStorage", {

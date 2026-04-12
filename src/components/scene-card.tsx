@@ -237,6 +237,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
               src={item.thumbnail ?? "/placeholder.svg"}
               alt={item.name}
               fill
+              sizes="(max-width: 768px) 100vw, (max-width: 1024px) 50vw, (max-width: 1280px) 33vw, (max-width: 1536px) 25vw, 20vw"
               className="object-cover transition-transform duration-200"
             />
             {item.isPublished ? (
