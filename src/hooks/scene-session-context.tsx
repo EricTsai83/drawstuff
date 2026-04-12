@@ -11,11 +11,13 @@ import {
   loadCurrentSceneIdFromStorage,
   saveCurrentSceneIdToStorage,
   clearCurrentSceneIdFromStorage,
+  saveCurrentSceneUpdatedAtToStorage,
+  clearCurrentSceneUpdatedAtFromStorage,
 } from "@/data/local-storage";
 
 type SceneSessionContextValue = {
   currentSceneId: string | undefined;
-  saveCurrentSceneId: (id: string) => void;
+  saveCurrentSceneId: (id: string, updatedAt?: string) => void;
   clearCurrentSceneId: () => void;
   reloadCurrentSceneId: () => void;
 };
@@ -33,10 +35,15 @@ export function SceneSessionProvider({
     loadCurrentSceneIdFromStorage(),
   );
 
-  const saveCurrentSceneId = useCallback((id: string) => {
+  const saveCurrentSceneId = useCallback((id: string, updatedAt?: string) => {
     setCurrentSceneId(id);
     try {
       saveCurrentSceneIdToStorage(id);
+      if (updatedAt) {
+        saveCurrentSceneUpdatedAtToStorage(updatedAt);
+      } else {
+        clearCurrentSceneUpdatedAtFromStorage();
+      }
     } catch {
       // ignore storage errors
     }
