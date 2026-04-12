@@ -35,6 +35,7 @@ import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
+import { useSceneSession } from "@/hooks/scene-session-context";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
@@ -112,6 +113,7 @@ function AppMainMenu({
     },
   });
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
+  const { updateLastSyncedRevision } = useSceneSession();
 
   const closeMenu = useCallback(() => {
     const currentAppState = excalidrawAPI?.getAppState();
@@ -153,8 +155,11 @@ function AppMainMenu({
       renameSceneMutation.mutate(
         { id: effectiveId, name: nextName },
         {
-          onSuccess: () => {
+          onSuccess: (data) => {
             void utils.scene.getUserScenesInfinite.invalidate();
+            if (data.revision != null) {
+              updateLastSyncedRevision(data.revision);
+            }
           },
           onError: (err) => {
             const code = (err as unknown as { data?: { code?: string } })?.data
@@ -170,8 +175,11 @@ function AppMainMenu({
                 renameSceneMutation.mutate(
                   { id: retryId, name: nextName },
                   {
-                    onSuccess: () => {
+                    onSuccess: (data) => {
                       void utils.scene.getUserScenesInfinite.invalidate();
+                      if (data.revision != null) {
+                        updateLastSyncedRevision(data.revision);
+                      }
                     },
                   },
                 );
@@ -183,7 +191,7 @@ function AppMainMenu({
         },
       );
     },
-    [renameSceneMutation, utils],
+    [renameSceneMutation, utils, updateLastSyncedRevision],
   );
 
   // 若剛拿到新 id，且有待辦改名，補送 rename
