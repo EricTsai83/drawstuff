@@ -151,6 +151,11 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
     const elements = imported.elements;
 
     if (!Array.isArray(elements)) {
+      try {
+        clearCurrentSceneSessionFromStorage();
+      } catch {
+        // ignore storage errors
+      }
       return null;
     }
 

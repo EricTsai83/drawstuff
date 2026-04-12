@@ -59,6 +59,16 @@ export function useSceneRemoteRevisionCheck({
 }: UseSceneRemoteRevisionCheckParams) {
   const { currentSceneId, lastSyncedRevision, isDirty, shouldSuppressDirtyTracking } = useSceneSession();
 
+  // Refs for stale-closure detection: after each async gap in
+  // checkRemoteRevision we compare against the latest values to bail out
+  // if the session changed while we were waiting.
+  const currentSceneIdRef = useRef(currentSceneId);
+  currentSceneIdRef.current = currentSceneId;
+  const lastSyncedRevisionRef = useRef(lastSyncedRevision);
+  lastSyncedRevisionRef.current = lastSyncedRevision;
+  const isDirtyRef = useRef(isDirty);
+  isDirtyRef.current = isDirty;
+
   // ---- Conflict dialog state ------------------------------------------------
   const [pendingConflict, setPendingConflict] =
     useState<PendingSceneConflict | null>(null);
@@ -96,23 +106,27 @@ export function useSceneRemoteRevisionCheck({
 
       inFlightRef.current = true;
       lastCheckAtRef.current = Date.now();
+      const capturedSceneId = currentSceneId;
       try {
         const remoteMeta = await getSceneMetaBySceneId(currentSceneId);
         if (!remoteMeta?.id) return;
 
+        // Guard: bail if scene changed during the await
+        if (currentSceneIdRef.current !== capturedSceneId) return;
+
         const action = resolveSceneSyncAction({
-          localRevision: lastSyncedRevision,
+          localRevision: lastSyncedRevisionRef.current,
           remoteRevision: remoteMeta.revision,
-          isDirty,
+          isDirty: isDirtyRef.current,
         });
 
         if (action === "noop") return;
 
         if (action === "prompt_conflict") {
-          const key = buildConflictKey(currentSceneId, remoteMeta.revision);
+          const key = buildConflictKey(capturedSceneId, remoteMeta.revision);
           if (ignoredConflictKeyRef.current !== key) {
             openConflict({
-              sceneId: currentSceneId,
+              sceneId: capturedSceneId,
               remoteRevision: remoteMeta.revision,
             });
           }
@@ -120,16 +134,30 @@ export function useSceneRemoteRevisionCheck({
         }
 
         // action === "refresh_remote"
+        // Guard: bail if scene changed before applying
+        if (currentSceneIdRef.current !== capturedSceneId) return;
+
         const result = await applyRemoteScene({
-          sceneId: currentSceneId,
+          sceneId: capturedSceneId,
           getActiveTheme,
         });
+
+        // Guard: bail if scene changed during apply
+        if (currentSceneIdRef.current !== capturedSceneId) return;
+
         const applied = isApplyResultAcceptable(result);
         if (applied) {
           ignoredConflictKeyRef.current = undefined;
           if (!suppressToast) {
             toast.success("Loaded the latest remote scene.");
           }
+        }
+      } catch (error) {
+        console.error("Failed to check remote revision:", error);
+        if (!suppressToast) {
+          toast.error(
+            `Failed to load remote scene: ${error instanceof Error ? error.message : "unknown error"}`,
+          );
         }
       } finally {
         inFlightRef.current = false;

@@ -49,12 +49,19 @@ export function useApplyRemoteScene(
       }
 
       // 1. Fetch scene data and files in parallel for faster perceived load
-      const [imported, fetchedFiles] = await Promise.all([
-        importSceneDataBySceneId(sceneId),
-        importSceneFilesBySceneId(sceneId).catch(
-          (): BinaryFiles => ({}),
-        ),
-      ]);
+      let imported: Awaited<ReturnType<typeof importSceneDataBySceneId>>;
+      let fetchedFiles: BinaryFiles;
+      try {
+        [imported, fetchedFiles] = await Promise.all([
+          importSceneDataBySceneId(sceneId),
+          importSceneFilesBySceneId(sceneId).catch(
+            (): BinaryFiles => ({}),
+          ),
+        ]);
+      } catch (error) {
+        console.error("Failed to import remote scene data:", error);
+        return { ok: false, reason: "scene_data_missing" };
+      }
 
       if (!imported?.elements && !imported?.appState) {
         return { ok: false, reason: "scene_data_missing" };
