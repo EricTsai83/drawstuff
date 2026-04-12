@@ -110,6 +110,15 @@ export const appTranslations: AppTranslations = {
     "dashboard.workspace.created": 'Workspace "{name}" created',
     "dashboard.workspace.createFailed": "Failed to create workspace",
     "dashboard.workspace.nameInvalid": "Please enter a valid workspace name",
+    "workspace.settings.title": "Settings",
+    "workspace.settings.title.rename": "Rename Workspace",
+    "workspace.settings.title.delete": "Delete Workspace",
+    "workspace.settings.description":
+      "Edit workspace information and manage dangerous actions.",
+    "workspace.settings.description.rename":
+      "Change the name of the current workspace.",
+    "workspace.settings.description.delete":
+      "Delete the selected workspace after confirming its name.",
     "search.placeholder":
       "Search scenes by name, description, category, or project...",
     "search.resultsCount": 'Found {count} results for "{query}"',
@@ -259,6 +268,13 @@ export const appTranslations: AppTranslations = {
     "dashboard.workspace.created": '已建立工作空間「{name}」',
     "dashboard.workspace.createFailed": "建立工作空間失敗",
     "dashboard.workspace.nameInvalid": "請輸入有效的工作空間名稱",
+    "workspace.settings.title": "設定",
+    "workspace.settings.title.rename": "重新命名工作空間",
+    "workspace.settings.title.delete": "刪除工作空間",
+    "workspace.settings.description": "編輯工作空間資訊並管理高風險操作。",
+    "workspace.settings.description.rename": "變更目前工作空間的名稱。",
+    "workspace.settings.description.delete":
+      "確認名稱後即可刪除所選工作空間。",
     "search.placeholder": "以名稱、描述、分類或專案名稱搜尋場景...",
     "search.resultsCount": '找到 {count} 筆結果，關鍵字："{query}"',
     "search.showingCount": "共顯示 {total} 個場景",
