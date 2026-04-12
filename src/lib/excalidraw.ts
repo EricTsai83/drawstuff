@@ -6,7 +6,13 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import { importFromLocalStorage } from "@/data/local-storage";
+import {
+  importFromLocalStorage,
+  loadCurrentSceneIdFromStorage,
+  loadCurrentSceneUpdatedAtFromStorage,
+  saveCurrentSceneIdToStorage,
+  saveCurrentSceneUpdatedAtToStorage,
+} from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import type {
   ExcalidrawElement,
@@ -21,141 +27,161 @@ import { parseSharedSceneHash } from "@/lib/utils";
 import { exportToBlob, MIME_TYPES } from "@excalidraw/excalidraw";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
-export function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
-  return new Promise((resolve) => {
-    try {
-      const localDataState = importFromLocalStorage();
+export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
+  try {
+    const localDataState = importFromLocalStorage();
 
-      // 先檢查 URL hash 是否包含外部場景連結
-      const jsonBackendMatch = parseSharedSceneHash();
+    // 先檢查 URL hash 是否包含外部場景連結
+    const jsonBackendMatch = parseSharedSceneHash();
 
-      const hasLocalSavedScene =
-        localDataState.elements.length > 0 ||
-        !!localDataState.appState ||
-        Object.keys(localDataState.files).length > 0;
+    const hasLocalSavedScene =
+      localDataState.elements.length > 0 ||
+      !!localDataState.appState ||
+      Object.keys(localDataState.files).length > 0;
 
-      if (jsonBackendMatch) {
-        // 若本地有資料，提示是否覆蓋
-        const shareableLinkConfirmDialog = {
-          title: "載入分享連結內容？",
-          description: "此操作將覆蓋目前畫布內容。",
-          actionLabel: "覆蓋並載入",
-        };
+    if (jsonBackendMatch) {
+      // 若本地有資料，提示是否覆蓋
+      const shareableLinkConfirmDialog = {
+        title: "載入分享連結內容？",
+        description: "此操作將覆蓋目前畫布內容。",
+        actionLabel: "覆蓋並載入",
+      };
 
-        const proceed = !hasLocalSavedScene ? true : undefined;
-
-        const doResolve = async () => {
-          try {
-            if (hasLocalSavedScene) {
-              const ok = await openConfirmModal(shareableLinkConfirmDialog);
-              if (!ok) {
-                // 使用者取消，清理 URL hash 後回退到本地資料
-                window.history.replaceState(
-                  {},
-                  "我先隨便取的APP_NAME",
-                  window.location.origin,
-                );
-                if (hasLocalSavedScene) {
-                  const restored = await loadScene(
-                    undefined,
-                    undefined,
-                    localDataState,
-                  );
-                  resolve({
-                    elements: restored.elements ?? [],
-                    appState: restored.appState ?? {},
-                    files: restored.files ?? {},
-                    scrollToContent: true,
-                  });
-                } else {
-                  resolve(null);
-                }
-                return;
-              }
-            }
-
-            const scene = await loadScene(
-              jsonBackendMatch.id,
-              jsonBackendMatch.key,
-              localDataState,
-            );
-
-            // 初始化渲染時自動置中
-            const initialData: ExcalidrawInitialDataState = {
-              elements: scene.elements ?? [],
-              appState: {
-                ...ensureInitialAppState(scene.appState ?? {}),
-              },
-              files: scene.files ?? {},
-              scrollToContent: true,
-            };
-
-            // 清除加密資訊，避免資訊殘留在 URL 上
+      try {
+        if (hasLocalSavedScene) {
+          const ok = await openConfirmModal(shareableLinkConfirmDialog);
+          if (!ok) {
             window.history.replaceState(
               {},
               "我先隨便取的APP_NAME",
               window.location.origin,
             );
-
-            resolve(initialData);
-          } catch (e) {
-            console.error("透過 URL 載入場景失敗，回退至本地資料:", e);
-            if (hasLocalSavedScene) {
-              const restored = await loadScene(
-                undefined,
-                undefined,
-                localDataState,
-              );
-              resolve({
-                elements: restored.elements ?? [],
-                appState: ensureInitialAppState(restored.appState ?? {}),
-                files: restored.files ?? {},
-                scrollToContent: true,
-              });
-            } else {
-              resolve(null);
-            }
+            return await restoreInitialDataFromLocal(
+              localDataState,
+              hasLocalSavedScene,
+            );
           }
-        };
-
-        // 若本地無資料直接載入，否則等確認對話
-        if (proceed) {
-          // 直接進行
-          void doResolve();
-        } else {
-          void doResolve();
         }
 
-        return;
-      }
+        const scene = await loadScene(
+          jsonBackendMatch.id,
+          jsonBackendMatch.key,
+          localDataState,
+        );
 
-      // 沒有外部場景，直接回傳本地資料或 null
-      if (hasLocalSavedScene) {
-        loadScene(undefined, undefined, localDataState)
-          .then((restored) => {
-            resolve({
-              elements: restored.elements ?? [],
-              appState: ensureInitialAppState(restored.appState ?? {}),
-              files: restored.files ?? {},
-              scrollToContent: true,
-            });
-          })
-          .catch(() => {
-            resolve({
-              elements: localDataState.elements ?? [],
-              appState: localDataState.appState ?? {},
-              files: localDataState.files ?? {},
-              scrollToContent: true,
-            });
-          });
-      } else {
-        resolve(null);
+        // 清除加密資訊，避免資訊殘留在 URL 上
+        window.history.replaceState(
+          {},
+          "我先隨便取的APP_NAME",
+          window.location.origin,
+        );
+
+        return {
+          elements: scene.elements ?? [],
+          appState: {
+            ...ensureInitialAppState(scene.appState ?? {}),
+          },
+          files: scene.files ?? {},
+          scrollToContent: true,
+        };
+      } catch (e) {
+        console.error("透過 URL 載入場景失敗，回退至本地資料:", e);
+        return await restoreInitialDataFromLocal(
+          localDataState,
+          hasLocalSavedScene,
+        );
       }
-    } catch (error) {
-      console.error("初始化場景失敗:", error);
-      resolve(null);
     }
-  });
+
+    const syncedRemoteData = await loadRemoteSceneIfOutdated(
+      hasLocalSavedScene,
+    );
+    if (syncedRemoteData) {
+      return syncedRemoteData;
+    }
+
+    return await restoreInitialDataFromLocal(localDataState, hasLocalSavedScene);
+  } catch (error) {
+    console.error("初始化場景失敗:", error);
+    return null;
+  }
+}
+
+async function restoreInitialDataFromLocal(
+  localDataState: ReturnType<typeof importFromLocalStorage>,
+  hasLocalSavedScene: boolean,
+): Promise<ExcalidrawInitialDataState | null> {
+  if (!hasLocalSavedScene) {
+    return null;
+  }
+
+  try {
+    const restored = await loadScene(undefined, undefined, localDataState);
+    return {
+      elements: restored.elements ?? [],
+      appState: ensureInitialAppState(restored.appState ?? {}),
+      files: restored.files ?? {},
+      scrollToContent: true,
+    };
+  } catch {
+    return {
+      elements: localDataState.elements ?? [],
+      appState: ensureInitialAppState(localDataState.appState ?? {}),
+      files: localDataState.files ?? {},
+      scrollToContent: true,
+    };
+  }
+}
+
+async function loadRemoteSceneIfOutdated(
+  hasLocalSavedScene: boolean,
+): Promise<ExcalidrawInitialDataState | null> {
+  const sceneId = loadCurrentSceneIdFromStorage();
+  if (!sceneId) {
+    return null;
+  }
+
+  try {
+    const localUpdatedAt = loadCurrentSceneUpdatedAtFromStorage();
+    const {
+      getSceneMetaBySceneId,
+      importSceneDataBySceneId,
+      importSceneFilesBySceneId,
+    } = await import("@/lib/import-data-from-db");
+    const meta = await getSceneMetaBySceneId(sceneId);
+    const remoteUpdatedAt = meta?.updatedAt;
+    const shouldRefreshFromRemote =
+      !hasLocalSavedScene ||
+      !localUpdatedAt ||
+      !remoteUpdatedAt ||
+      localUpdatedAt !== remoteUpdatedAt;
+
+    if (!shouldRefreshFromRemote) {
+      return null;
+    }
+
+    const imported = await importSceneDataBySceneId(sceneId);
+    const files = await importSceneFilesBySceneId(sceneId);
+    const appState = ensureInitialAppState(imported.appState ?? {});
+    const elements = imported.elements ?? [];
+    const updatedAt = imported.updatedAt ?? remoteUpdatedAt;
+
+    saveToLocalStorage(elements, appState, files);
+    saveCurrentSceneIdToStorage(sceneId);
+    if (updatedAt) {
+      saveCurrentSceneUpdatedAtToStorage(updatedAt);
+    }
+
+    return {
+      elements,
+      appState,
+      files,
+      scrollToContent: true,
+    };
+  } catch (error) {
+    console.error("同步遠端場景到 localStorage 失敗:", error);
+    return null;
+  }
 }
 
 export function saveData(data: {
@@ -218,8 +244,8 @@ export function cleanUnusedFiles(
 
 // 將 excalidraw 狀態存入 localStorage
 export function saveToLocalStorage(
-  elements: readonly OrderedExcalidrawElement[],
-  appState: AppState,
+  elements: readonly ExcalidrawElement[],
+  appState: Partial<AppState>,
   files: BinaryFiles,
 ) {
   try {

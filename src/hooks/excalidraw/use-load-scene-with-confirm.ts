@@ -3,19 +3,18 @@
 import { useCallback } from "react";
 import type {
   AppState,
+  BinaryFiles,
   ExcalidrawImperativeAPI,
-  BinaryFileData,
-  DataURL,
 } from "@excalidraw/excalidraw/types";
-import type { FileId } from "@excalidraw/excalidraw/element/types";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import {
   importSceneDataBySceneId,
-  getFileRecordsBySceneId,
+  importSceneFilesBySceneId,
 } from "@/lib/import-data-from-db";
 import { toast } from "sonner";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { saveToLocalStorage } from "@/lib/excalidraw";
 
 export type LoadSceneParams = {
   sceneId: string;
@@ -146,50 +145,17 @@ export function useLoadSceneWithConfirm({
           }
         }
 
+        let importedFiles: BinaryFiles = {};
+
         // 並行抓取並注入資產（雲端場景）
         try {
-          const decoder = new TextDecoder();
-          const records = await getFileRecordsBySceneId(sceneId);
-          if (Array.isArray(records) && records.length > 0) {
+          importedFiles = await importSceneFilesBySceneId(sceneId);
+          const filesToInject = Object.values(importedFiles);
+          if (filesToInject.length > 0) {
             const existing = excalidrawAPI?.getFiles?.() ?? {};
-            const filesToInject: BinaryFileData[] = [];
-            await Promise.allSettled(
-              records.map(async (r) => {
-                try {
-                  const resp = await fetch(r.url);
-                  if (!resp.ok) return;
-                  const buf = new Uint8Array(await resp.arrayBuffer());
-                  const { metadata, data } = await import("@/lib/encode").then(
-                    (m) =>
-                      m.decompressData<{
-                        id: FileId;
-                        mimeType: BinaryFileData["mimeType"];
-                        created: number;
-                        lastRetrieved: number;
-                      }>(buf, { decryptionKey: "" }),
-                  );
-                  const id = metadata.id;
-                  if (!existing[id]) {
-                    const rawDataURL = decoder.decode(data);
-                    if (!rawDataURL.startsWith("data:")) {
-                      return; // 非合法 DataURL，略過
-                    }
-                    filesToInject.push({
-                      id,
-                      dataURL: rawDataURL as DataURL,
-                      mimeType: metadata.mimeType,
-                      created: metadata.created,
-                      lastRetrieved: metadata.lastRetrieved,
-                    });
-                  }
-                } catch {
-                  // 忽略單檔失敗
-                }
-              }),
+            excalidrawAPI?.addFiles?.(
+              filesToInject.filter((file) => !existing[file.id]),
             );
-            if (filesToInject.length > 0) {
-              excalidrawAPI?.addFiles?.(filesToInject);
-            }
           }
         } catch {
           // 忽略資產回填失敗，不阻斷導入
@@ -197,7 +163,12 @@ export function useLoadSceneWithConfirm({
 
         try {
           // 以 Context 同步當前場景 ID，避免後續儲存誤用舊 ID 覆蓋
-          saveCurrentSceneId(String(sceneId));
+          saveCurrentSceneId(String(sceneId), imported.updatedAt);
+          saveToLocalStorage(
+            imported.elements ?? [],
+            mergedAppState,
+            importedFiles,
+          );
         } catch {}
 
         if (workspaceId && setLastActive) {
