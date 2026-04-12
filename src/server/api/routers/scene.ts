@@ -24,7 +24,7 @@ const publishMutationOutput = z.object({
 });
 
 const publicSceneOutput = z.object({
-  id: z.string().uuid(),
+  id: z.uuid(),
   name: z.string(),
   description: z.string(),
   sceneData: z.string(),
@@ -212,12 +212,33 @@ export const sceneRouter = createTRPCRouter({
     }),
 
   getScene: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .query(async ({ ctx, input }) => {
       const sceneData = await ctx.db.query.scene.findFirst({
         where: and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
       });
       return sceneData;
+    }),
+
+  getSceneMeta: protectedProcedure
+    .input(z.object({ id: z.uuid() }))
+    .output(
+      z
+        .object({
+          id: z.uuid(),
+          updatedAt: z.date(),
+        })
+        .nullable(),
+    )
+    .query(async ({ ctx, input }) => {
+      const sceneMeta = await ctx.db.query.scene.findFirst({
+        where: and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
+        columns: {
+          id: true,
+          updatedAt: true,
+        },
+      });
+      return sceneMeta ?? null;
     }),
 
   getUserScenes: protectedProcedure.query(async ({ ctx }) => {
@@ -236,10 +257,10 @@ export const sceneRouter = createTRPCRouter({
         cursor: z
           .object({
             updatedAt: z.date(),
-            id: z.string().uuid(),
+            id: z.uuid(),
           })
           .optional(),
-        workspaceId: z.string().uuid().optional(),
+        workspaceId: z.uuid().optional(),
         // 用於重置查詢 key（後端暫不進行全文搜尋）
         search: z.string().optional(),
       }),
@@ -253,7 +274,7 @@ export const sceneRouter = createTRPCRouter({
             description: z.string(),
             createdAt: z.date(),
             updatedAt: z.date(),
-            workspaceId: z.string().uuid().optional(),
+            workspaceId: z.uuid().optional(),
             workspaceName: z.string().optional(),
             thumbnail: z.string().optional(),
             sceneData: z.string().optional(),
@@ -265,7 +286,7 @@ export const sceneRouter = createTRPCRouter({
           }),
         ),
         nextCursor: z
-          .object({ updatedAt: z.date(), id: z.string().uuid() })
+          .object({ updatedAt: z.date(), id: z.uuid() })
           .optional(),
       }),
     )
@@ -352,7 +373,7 @@ export const sceneRouter = createTRPCRouter({
     }),
 
   deleteScene: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       // 1) 擁有者驗證，同時取縮圖 key
       const ownerId = await QUERIES.getSceneOwnerId(input.id);
@@ -396,7 +417,7 @@ export const sceneRouter = createTRPCRouter({
     }),
 
   renameScene: protectedProcedure
-    .input(z.object({ id: z.string().uuid(), name: sceneNameSchema }))
+    .input(z.object({ id: z.uuid(), name: sceneNameSchema }))
     .mutation(async ({ ctx, input }) => {
       const updated = await ctx.db
         .update(scene)
@@ -412,7 +433,7 @@ export const sceneRouter = createTRPCRouter({
     }),
 
   publish: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .output(publishMutationOutput)
     .mutation(async ({ ctx, input }) => {
       const ownedScene = await ctx.db.query.scene.findFirst({
@@ -488,7 +509,7 @@ export const sceneRouter = createTRPCRouter({
     }),
 
   unpublish: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       const [updated] = await ctx.db
         .update(scene)
@@ -565,7 +586,7 @@ export const sceneRouter = createTRPCRouter({
 
   // 依 sceneId 取得雲端資產記錄（僅限擁有者）
   getFileRecordsBySceneId: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .query(async ({ ctx, input }) => {
       const ownerId = await QUERIES.getSceneOwnerId(input.id);
       if (!ownerId || ownerId !== ctx.auth.user.id) {
