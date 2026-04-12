@@ -14,7 +14,10 @@ import {
 import { toast } from "sonner";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
-import { saveToLocalStorage } from "@/lib/excalidraw";
+import {
+  hasCompleteSceneFileHydration,
+  saveToLocalStorage,
+} from "@/lib/excalidraw";
 
 export type LoadSceneParams = {
   sceneId: string;
@@ -162,13 +165,17 @@ export function useLoadSceneWithConfirm({
         }
 
         try {
-          // 以 Context 同步當前場景 ID，避免後續儲存誤用舊 ID 覆蓋
-          saveCurrentSceneId(String(sceneId), imported.updatedAt);
-          saveToLocalStorage(
-            imported.elements ?? [],
-            mergedAppState,
-            importedFiles,
-          );
+          if (
+            hasCompleteSceneFileHydration(imported.elements ?? [], importedFiles)
+          ) {
+            // 只有在檔案水合完整時才標記為最新，避免下次啟動跳過重試
+            saveCurrentSceneId(String(sceneId), imported.updatedAt);
+            saveToLocalStorage(
+              imported.elements ?? [],
+              mergedAppState,
+              importedFiles,
+            );
+          }
         } catch {}
 
         if (workspaceId && setLastActive) {
