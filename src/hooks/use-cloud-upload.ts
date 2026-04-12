@@ -137,7 +137,7 @@ export function useCloudUpload(
             }
             throw new Error(result.message ?? result.error);
           }
-          const id = result.data.id;
+          const { id, updatedAt } = result.data;
 
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
@@ -155,7 +155,7 @@ export function useCloudUpload(
               : [];
 
           if (id) {
-            saveCurrentSceneId(String(id));
+            saveCurrentSceneId(String(id), updatedAt);
             const uploadTasks: Promise<unknown>[] = [];
 
             if (filesToUpload.length > 0) {

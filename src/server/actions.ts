@@ -223,7 +223,7 @@ export async function rollbackSharedScene(sharedSceneId: string) {
 const SaveSceneInput = saveSceneSchema;
 
 export type SaveSceneResult =
-  | { ok: true; data: { id: string } }
+  | { ok: true; data: { id: string; updatedAt: string } }
   | { ok: false; error: AppErrorCode; message?: string };
 
 export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
@@ -246,6 +246,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
 
   const now = new Date();
   let sceneId: string | undefined;
+  let sceneUpdatedAt: Date | undefined;
 
   if (input.id) {
     // 更新現有場景（僅限本人場景）
@@ -263,7 +264,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       .update(scene)
       .set(updatePayload)
       .where(and(eq(scene.id, input.id), eq(scene.userId, session.user.id)))
-      .returning({ id: scene.id });
+      .returning({ id: scene.id, updatedAt: scene.updatedAt });
 
     if (!updatedScene?.id) {
       // Align with frontend error semantics to clear invalid local scene id
@@ -275,6 +276,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       };
     }
     sceneId = updatedScene.id;
+    sceneUpdatedAt = updatedScene.updatedAt ?? now;
   } else {
     // 建立新場景
     const created = await db
@@ -286,7 +288,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
         userId: session.user.id,
         sceneData: input.data,
       })
-      .returning({ id: scene.id });
+      .returning({ id: scene.id, updatedAt: scene.updatedAt });
 
     if (!created[0]?.id)
       return {
@@ -295,6 +297,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
         message: "Failed to create scene. Please try again later",
       };
     sceneId = created[0].id;
+    sceneUpdatedAt = created[0].updatedAt ?? now;
   }
 
   // 分類同步（可選）
@@ -347,5 +350,11 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       error: APP_ERROR.SAVE_FAILED,
       message: "Failed to save scene. Please try again later",
     };
-  return { ok: true, data: { id: sceneId } };
+  return {
+    ok: true,
+    data: {
+      id: sceneId,
+      updatedAt: (sceneUpdatedAt ?? now).toISOString(),
+    },
+  };
 }

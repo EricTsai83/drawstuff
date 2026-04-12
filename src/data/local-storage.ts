@@ -174,6 +174,36 @@ export function clearCurrentSceneIdFromStorage(): void {
   if (!canUseLocalStorage()) return;
   try {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+export function loadCurrentSceneUpdatedAtFromStorage(): string | undefined {
+  if (!canUseLocalStorage()) return undefined;
+  try {
+    const updatedAt = localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT);
+    return updatedAt ?? undefined;
+  } catch (error: unknown) {
+    console.error(error);
+    return undefined;
+  }
+}
+
+export function saveCurrentSceneUpdatedAtToStorage(updatedAt: string): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT, updatedAt);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+export function clearCurrentSceneUpdatedAtFromStorage(): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT);
   } catch (error: unknown) {
     console.error(error);
   }

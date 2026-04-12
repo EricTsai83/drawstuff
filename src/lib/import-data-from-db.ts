@@ -1,8 +1,16 @@
 import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 import { decompressData, base64ToArrayBuffer } from "./encode";
 import { getTrpcClient } from "@/trpc/client";
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState } from "@excalidraw/excalidraw/types";
+import type {
+  ExcalidrawElement,
+  FileId,
+} from "@excalidraw/excalidraw/element/types";
+import type {
+  AppState,
+  BinaryFiles,
+  BinaryFileData,
+  DataURL,
+} from "@excalidraw/excalidraw/types";
 import { ensureInitialAppState } from "@/lib/excalidraw";
 
 export async function importDataFromBackend(
@@ -55,6 +63,17 @@ export type CloudFileRecord = {
   size: number;
 };
 
+type SceneFileMetadata = {
+  id: FileId;
+  mimeType: BinaryFileData["mimeType"];
+  created: number;
+  lastRetrieved: number;
+};
+
+export type ImportedSceneData = ImportedDataState & {
+  updatedAt?: string;
+};
+
 export async function getFileRecordsBySharedSceneId(
   sharedSceneId: string,
 ): Promise<CloudFileRecord[]> {
@@ -89,6 +108,61 @@ export async function getFileRecordsBySceneId(
   }
 }
 
+export async function importSceneFilesBySceneId(
+  sceneId: string,
+): Promise<BinaryFiles> {
+  try {
+    const records = await getFileRecordsBySceneId(sceneId);
+    if (records.length === 0) {
+      return {};
+    }
+
+    const decoder = new TextDecoder();
+    const entries = await Promise.allSettled(
+      records.map(async (record) => {
+        const response = await fetch(record.url);
+        if (!response.ok) {
+          return null;
+        }
+
+        const compressed = new Uint8Array(await response.arrayBuffer());
+        const { metadata, data } = await decompressData<SceneFileMetadata>(
+          compressed,
+          {
+            decryptionKey: "",
+          },
+        );
+        const dataURL = decoder.decode(data);
+        if (!dataURL.startsWith("data:")) {
+          return null;
+        }
+
+        const file: BinaryFileData = {
+          id: metadata.id,
+          dataURL: dataURL as DataURL,
+          mimeType: metadata.mimeType,
+          created: metadata.created,
+          lastRetrieved: metadata.lastRetrieved,
+        };
+
+        return [metadata.id, file] as const;
+      }),
+    );
+
+    const files: BinaryFiles = {};
+    for (const entry of entries) {
+      if (entry.status !== "fulfilled" || !entry.value) continue;
+      const [fileId, file] = entry.value;
+      files[fileId] = file;
+    }
+
+    return files;
+  } catch (error: unknown) {
+    console.error("importSceneFilesBySceneId error", error);
+    return {};
+  }
+}
+
 function toUint8Array(input: unknown): Uint8Array {
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
@@ -114,12 +188,16 @@ function sanitizeImportedAppState(
 // 非分享模式：直接以 sceneId 讀取壓縮過的 sceneData，解壓並回傳
 export async function importSceneDataBySceneId(
   sceneId: string,
-): Promise<ImportedDataState> {
+): Promise<ImportedSceneData> {
   try {
     const client = getTrpcClient();
     const result = await client.scene.getScene.query({ id: sceneId });
     const compressed = result?.sceneData;
-    if (!compressed) return {};
+    if (!compressed) {
+      return {
+        updatedAt: normalizeUpdatedAt(result?.updatedAt),
+      };
+    }
     const compressedBuffer = new Uint8Array(base64ToArrayBuffer(compressed));
     const { data } = await decompressData<{ id?: string }>(compressedBuffer, {
       // 未加密情況下，此值不會被使用
@@ -135,9 +213,39 @@ export async function importSceneDataBySceneId(
     return {
       elements: parsed.elements ?? null,
       appState: sanitizedAppState,
+      updatedAt: normalizeUpdatedAt(result?.updatedAt),
     };
   } catch (error: unknown) {
     console.error("importSceneDataBySceneId error", error);
     return {};
   }
+}
+
+export async function getSceneMetaBySceneId(
+  sceneId: string,
+): Promise<{ id: string; updatedAt?: string } | null> {
+  try {
+    const client = getTrpcClient();
+    const result = await client.scene.getSceneMeta.query({ id: sceneId });
+    if (!result?.id) {
+      return null;
+    }
+    return {
+      id: result.id,
+      updatedAt: normalizeUpdatedAt(result.updatedAt),
+    };
+  } catch (error: unknown) {
+    console.error("getSceneMetaBySceneId error", error);
+    return null;
+  }
+}
+
+function normalizeUpdatedAt(value: unknown): string | undefined {
+  if (value instanceof Date) {
+    return value.toISOString();
+  }
+  if (typeof value === "string" && value.length > 0) {
+    return value;
+  }
+  return undefined;
 }
