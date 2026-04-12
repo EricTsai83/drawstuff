@@ -94,6 +94,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
     }
 
     const syncedRemoteData = await loadRemoteSceneIfOutdated(
+      localDataState,
       hasLocalSavedScene,
     );
     if (syncedRemoteData) {
@@ -134,6 +135,7 @@ async function restoreInitialDataFromLocal(
 }
 
 async function loadRemoteSceneIfOutdated(
+  localDataState: ReturnType<typeof importFromLocalStorage>,
   hasLocalSavedScene: boolean,
 ): Promise<ExcalidrawInitialDataState | null> {
   const sceneId = loadCurrentSceneIdFromStorage();
@@ -150,8 +152,13 @@ async function loadRemoteSceneIfOutdated(
     } = await import("@/lib/import-data-from-db");
     const meta = await getSceneMetaBySceneId(sceneId);
     const remoteUpdatedAt = meta?.updatedAt;
+    const hasCompleteLocalFileHydration = hasCompleteSceneFileHydration(
+      localDataState.elements,
+      localDataState.files,
+    );
     const shouldRefreshFromRemote =
       !hasLocalSavedScene ||
+      !hasCompleteLocalFileHydration ||
       !localUpdatedAt ||
       !remoteUpdatedAt ||
       localUpdatedAt !== remoteUpdatedAt;
