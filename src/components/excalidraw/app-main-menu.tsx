@@ -251,14 +251,15 @@ function AppMainMenu({
           });
         }
 
-        // 新建場景的語義：清除 currentSceneId，避免覆寫既有場景
-        clearCurrentScene();
-
         if (keepCurrentContent) {
           if (!session) {
+            // 本地模式：直接清除場景 session（無雲端操作）
+            clearCurrentScene();
             toast.info(t("toasts.newScene.localOnly"));
             return;
           }
+          // 先清除再上傳；若上傳失敗，場景仍在畫布上（只是失去 id）
+          clearCurrentScene();
           // 直接以目前內容建立新雲端場景，並自動關聯縮圖與資產
           const ok = await uploadSceneToCloud({
             name,
@@ -270,6 +271,8 @@ function AppMainMenu({
           if (!ok) return;
           toast.success(t("toasts.newSceneCreated"));
         } else {
+          // 新建場景的語義：清除 currentSceneId，避免覆寫既有場景
+          clearCurrentScene();
           // 重置畫布為空
           const currentAppState = excalidrawAPI?.getAppState() as
             | AppState

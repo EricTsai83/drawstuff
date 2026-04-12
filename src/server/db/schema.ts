@@ -206,6 +206,7 @@ export const scene = createTable(
     index("scene_last_updated_idx").on(table.lastUpdated),
     index("scene_published_idx").on(table.isPublished),
     uniqueIndex("scene_published_slug_unique").on(table.publishedSlug),
+    check("scene_revision_positive", sql`${table.revision} >= 1`),
   ],
 );
 

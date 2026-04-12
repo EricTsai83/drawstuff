@@ -24,7 +24,10 @@ export type UseLoadSceneWithConfirmParams = {
   applyRemoteScene: (params: {
     sceneId: string;
     getActiveTheme?: () => "dark" | "light";
-  }) => Promise<{ ok: boolean; reason?: string }>;
+  }) => Promise<
+    | { ok: true; revision?: number }
+    | { ok: false; reason: "scene_data_missing" | "incomplete_files" }
+  >;
   // 擷取目前啟用的主題（避免載入場景時套用舊主題）
   getActiveTheme?: () => "dark" | "light";
 };

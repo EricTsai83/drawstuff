@@ -12,6 +12,7 @@ import {
   saveCurrentSceneDirtyToStorage,
   saveCurrentSceneIdToStorage,
   saveCurrentSceneRevisionToStorage,
+  clearCurrentSceneRevisionFromStorage,
 } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import type {
@@ -151,11 +152,11 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
     if (!Array.isArray(elements)) {
       return null;
     }
-    if (!hasCompleteSceneFileHydration(elements, files)) {
-      return null;
-    }
 
-    saveToLocalStorage(elements, appState, files);
+    const filesComplete = hasCompleteSceneFileHydration(elements, files);
+    if (filesComplete) {
+      saveToLocalStorage(elements, appState, files);
+    }
     saveCurrentSceneIdToStorage(sceneId);
     saveCurrentSceneDirtyToStorage(false);
     const importedRevisionValue: unknown = imported.revision;
@@ -165,6 +166,8 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
         : undefined;
     if (importedRevision !== undefined) {
       saveCurrentSceneRevisionToStorage(importedRevision);
+    } else {
+      clearCurrentSceneRevisionFromStorage();
     }
 
     return {
