@@ -38,7 +38,8 @@ export const STORAGE_KEYS = {
   IDB_LIBRARY: "excalidraw-library",
   LOCAL_STORAGE_LANGUAGE: "i18nextLng",
   CURRENT_SCENE_ID: "excalidraw-current-scene-id",
-  CURRENT_SCENE_UPDATED_AT: "excalidraw-current-scene-updated-at",
+  CURRENT_SCENE_REVISION: "excalidraw-current-scene-revision",
+  CURRENT_SCENE_IS_DIRTY: "excalidraw-current-scene-is-dirty",
 } as const;
 
 export const COOKIES = {

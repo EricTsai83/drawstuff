@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
@@ -18,18 +18,31 @@ import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
+import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
+
+export type SceneConflictInfo = {
+  sceneId: string;
+  remoteRevision?: number;
+};
 
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
   excalidrawAPI?: ExcalidrawImperativeAPI | null,
 ) {
   const [status, setStatus] = useState<UploadStatus>("idle");
-  const { currentSceneId, saveCurrentSceneId, clearCurrentSceneId } =
-    useSceneSession();
+  const [lastConflict, setLastConflict] = useState<SceneConflictInfo | null>(
+    null,
+  );
+  const {
+    currentSceneId,
+    lastSyncedRevision,
+    syncCurrentScene,
+    clearCurrentScene,
+  } = useSceneSession();
   const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
-  useEffect(() => {
-    currentSceneIdRef.current = currentSceneId;
-  }, [currentSceneId]);
+  currentSceneIdRef.current = currentSceneId;
+  const lastSyncedRevisionRef = useRef<number | undefined>(lastSyncedRevision);
+  lastSyncedRevisionRef.current = lastSyncedRevision;
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
@@ -62,6 +75,7 @@ export function useCloudUpload(
   const uploadSceneToCloud = useCallback(
     async (options?: UploadOptions): Promise<boolean> => {
       setStatus("uploading");
+      setLastConflict(null);
 
       try {
         const scene = getCurrentSceneSnapshot(excalidrawAPI);
@@ -112,6 +126,34 @@ export function useCloudUpload(
               options?.existingSceneId ?? currentSceneIdRef.current;
           }
 
+          // Auto-recover missing revision: fetch from remote before saving.
+          // Only the ref is updated here — we intentionally avoid calling
+          // syncCurrentScene() because it would reset isDirty to false while
+          // we are in the middle of uploading dirty content.
+          // The server-side optimistic lock is the real safety net — if another
+          // client updated in between, the server rejects with SCENE_CONFLICT.
+          if (
+            effectiveSceneId !== undefined &&
+            lastSyncedRevisionRef.current === undefined
+          ) {
+            try {
+              const remoteMeta =
+                await getSceneMetaBySceneId(effectiveSceneId);
+              if (remoteMeta?.revision !== undefined) {
+                lastSyncedRevisionRef.current = remoteMeta.revision;
+              }
+            } catch {
+              // ignore fetch errors — will proceed without revision
+            }
+            if (lastSyncedRevisionRef.current === undefined) {
+              setStatus("error");
+              toast.error(
+                "Unable to verify scene version. Please reload and try again.",
+              );
+              return false;
+            }
+          }
+
           // 嚴格要求 workspaceId
           const effectiveWorkspaceId = options?.workspaceId;
           if (!effectiveWorkspaceId) {
@@ -127,17 +169,33 @@ export function useCloudUpload(
             workspaceId: effectiveWorkspaceId,
             data: base64Data,
             categories: options?.categories,
+            expectedRevision:
+              effectiveSceneId !== undefined
+                ? lastSyncedRevisionRef.current
+                : undefined,
           });
           if (!result.ok) {
             if (result.error === APP_ERROR.SCENE_NOT_FOUND) {
-              clearCurrentSceneId();
+              clearCurrentScene();
               setStatus("idle");
               onSceneNotFoundError();
               return false;
             }
+            if (result.error === APP_ERROR.SCENE_CONFLICT) {
+              setStatus("idle");
+              setLastConflict({
+                sceneId:
+                  result.data?.id ??
+                  effectiveSceneId ??
+                  currentSceneIdRef.current ??
+                  "",
+                remoteRevision: result.data?.revision,
+              });
+              return false;
+            }
             throw new Error(result.message ?? result.error);
           }
-          const { id, updatedAt } = result.data;
+          const { id, revision } = result.data;
 
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
@@ -155,7 +213,6 @@ export function useCloudUpload(
               : [];
 
           if (id) {
-            saveCurrentSceneId(String(id), updatedAt);
             const uploadTasks: Promise<unknown>[] = [];
 
             if (filesToUpload.length > 0) {
@@ -201,6 +258,9 @@ export function useCloudUpload(
             );
 
             await Promise.all(uploadTasks);
+            // Sync session (id + revision) only after all uploads succeed,
+            // so isDirty remains true if uploads fail.
+            syncCurrentScene({ id: String(id), revision });
             // 若沒有資產需要上傳，或所有並行任務皆已完成，明確標記為成功
             setStatus("success");
 
@@ -237,14 +297,13 @@ export function useCloudUpload(
       utils,
       t,
       onSceneNotFoundError,
-      saveCurrentSceneId,
-      clearCurrentSceneId,
+      syncCurrentScene,
+      clearCurrentScene,
     ],
   );
 
   const resetStatus = useCallback(() => setStatus("idle"), []);
-
-  // 移除重複的 clearCurrentSceneId 函數，因為已經從 useCurrentSceneId hook 中獲取
+  const clearLastConflict = useCallback(() => setLastConflict(null), []);
 
   // 僅暴露受控 API，避免外部直接改狀態造成混亂
   return {
@@ -252,6 +311,8 @@ export function useCloudUpload(
     status,
     resetStatus,
     currentSceneId,
-    clearCurrentSceneId,
+    clearCurrentScene,
+    lastConflict,
+    clearLastConflict,
   } as const;
 }

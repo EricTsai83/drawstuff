@@ -24,15 +24,24 @@ function getDefaultAppState(): Partial<AppState> {
 function clearAppStateForLocalStorage(
   appState: Partial<AppState>,
 ): Partial<AppState> {
-  // 只保留你想存的欄位
   const {
     theme,
     viewBackgroundColor,
     gridSize,
-    name, // 新增 name 欄位
-    // ...其他你想保留的欄位
+    name,
+    scrollX,
+    scrollY,
+    zoom,
   } = appState;
-  return { theme, viewBackgroundColor, gridSize, name }; // 返回時包含 name
+  return {
+    theme,
+    viewBackgroundColor,
+    gridSize,
+    name,
+    scrollX,
+    scrollY,
+    zoom,
+  };
 }
 
 function clearElementsForLocalStorage(
@@ -128,6 +137,9 @@ export const getTotalStorageSize = () => {
       STORAGE_KEYS.VERSION_FILES, // "version-files"
       STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, // "i18nextLng"
       STORAGE_KEYS.IDB_LIBRARY, // "excalidraw-library"
+      STORAGE_KEYS.CURRENT_SCENE_ID,
+      STORAGE_KEYS.CURRENT_SCENE_REVISION,
+      STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY,
     ];
 
     let totalSize = 0;
@@ -174,36 +186,80 @@ export function clearCurrentSceneIdFromStorage(): void {
   if (!canUseLocalStorage()) return;
   try {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT);
   } catch (error: unknown) {
     console.error(error);
   }
 }
 
-export function loadCurrentSceneUpdatedAtFromStorage(): string | undefined {
+/** Clear all scene-session keys (ID + revision + dirty) at once. */
+export function clearCurrentSceneSessionFromStorage(): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+export function loadCurrentSceneRevisionFromStorage(): number | undefined {
   if (!canUseLocalStorage()) return undefined;
   try {
-    const updatedAt = localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT);
-    return updatedAt ?? undefined;
+    const rawRevision = localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
+    if (!rawRevision) return undefined;
+    const revision = Number(rawRevision);
+    return Number.isInteger(revision) && revision > 0 ? revision : undefined;
   } catch (error: unknown) {
     console.error(error);
     return undefined;
   }
 }
 
-export function saveCurrentSceneUpdatedAtToStorage(updatedAt: string): void {
+export function saveCurrentSceneRevisionToStorage(revision: number): void {
   if (!canUseLocalStorage()) return;
   try {
-    localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT, updatedAt);
+    localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_REVISION, revision.toString());
   } catch (error: unknown) {
     console.error(error);
   }
 }
 
-export function clearCurrentSceneUpdatedAtFromStorage(): void {
+export function clearCurrentSceneRevisionFromStorage(): void {
   if (!canUseLocalStorage()) return;
   try {
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_UPDATED_AT);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+export function loadCurrentSceneDirtyFromStorage(): boolean {
+  if (!canUseLocalStorage()) return false;
+  try {
+    return localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY) === "true";
+  } catch (error: unknown) {
+    console.error(error);
+    return false;
+  }
+}
+
+export function saveCurrentSceneDirtyToStorage(isDirty: boolean): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY,
+      isDirty ? "true" : "false",
+    );
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+export function clearCurrentSceneDirtyFromStorage(): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);
   } catch (error: unknown) {
     console.error(error);
   }

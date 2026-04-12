@@ -17,8 +17,9 @@ function StatefulButton({
       data-active={active ? "true" : undefined}
       aria-pressed={active}
       className={cn(
+        "border-2",
         active &&
-          "shadow-inner border-primary bg-accent text-foreground hover:bg-accent hover:text-foreground dark:border-primary/60 dark:bg-input/50 dark:hover:bg-input/50",
+          "border-primary bg-accent text-foreground hover:bg-accent hover:text-foreground dark:border-primary/60 dark:bg-input/50 dark:hover:bg-input/50 shadow-inner",
         !active && "hover:text-foreground",
         className,
       )}
