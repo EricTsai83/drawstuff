@@ -4,7 +4,7 @@ import { useMemo, useEffect, useState, useRef } from "react";
 import { useQueryState } from "nuqs";
 import { Search } from "lucide-react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
+import { StatefulButton } from "@/components/stateful-button";
 import { SceneCard } from "./scene-card";
 import { SceneGridSkeleton } from "@/components/skeleton/scene-grid-skeleton";
 import { useEscapeKey } from "@/hooks/use-escape-key";
@@ -175,10 +175,7 @@ export function SceneSearchList() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
       />
-      <PublishFilterBar
-        value={publishFilter}
-        onChange={setPublishFilter}
-      />
+      <PublishFilterBar value={publishFilter} onChange={setPublishFilter} />
 
       {/* Recently modified by you Section */}
       <section className="space-y-4">
@@ -264,17 +261,22 @@ function PublishFilterBar({ value, onChange }: PublishFilterBarProps) {
 
   return (
     <div className="flex flex-wrap gap-2">
-      {options.map((option) => (
-        <Button
-          key={option.value}
-          type="button"
-          variant={value === option.value ? "default" : "outline"}
-          size="sm"
-          onClick={() => onChange(option.value)}
-        >
-          {option.label}
-        </Button>
-      ))}
+      {options.map((option) => {
+        const isActive = value === option.value;
+
+        return (
+          <StatefulButton
+            key={option.value}
+            type="button"
+            variant="outline"
+            active={isActive}
+            size="sm"
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </StatefulButton>
+        );
+      })}
     </div>
   );
 }
