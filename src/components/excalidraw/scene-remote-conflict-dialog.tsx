@@ -34,8 +34,12 @@ export function SceneRemoteConflictDialog({
       <DialogContent
         className="sm:max-w-md"
         showCloseButton={false}
-        onInteractOutside={(e) => e.preventDefault()}
-        onEscapeKeyDown={(e) => e.preventDefault()}
+        onInteractOutside={(e) => {
+          if (isLoading) e.preventDefault();
+        }}
+        onEscapeKeyDown={(e) => {
+          if (isLoading) e.preventDefault();
+        }}
       >
         <DialogHeader className="pr-8">
           <DialogTitle className="text-lg font-semibold">

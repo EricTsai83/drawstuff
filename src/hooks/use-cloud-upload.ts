@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
@@ -40,13 +40,9 @@ export function useCloudUpload(
     clearCurrentScene,
   } = useSceneSession();
   const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
+  currentSceneIdRef.current = currentSceneId;
   const lastSyncedRevisionRef = useRef<number | undefined>(lastSyncedRevision);
-  useEffect(() => {
-    currentSceneIdRef.current = currentSceneId;
-  }, [currentSceneId]);
-  useEffect(() => {
-    lastSyncedRevisionRef.current = lastSyncedRevision;
-  }, [lastSyncedRevision]);
+  lastSyncedRevisionRef.current = lastSyncedRevision;
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
