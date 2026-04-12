@@ -56,7 +56,6 @@ export function StorageWarning({ className }: StorageWarningProps) {
           fill
           sizes="24px"
           className="object-contain"
-          key={`${bunImage.src}-${usagePercent.toFixed(0)}`} // 添加 key 來強制重新渲染
           unoptimized // 禁用 Next.js 圖片優化以避免快取問題
         />
       </div>

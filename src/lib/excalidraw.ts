@@ -163,7 +163,17 @@ async function loadRemoteSceneIfOutdated(
     const imported = await importSceneDataBySceneId(sceneId);
     const files = await importSceneFilesBySceneId(sceneId);
     const appState = ensureInitialAppState(imported.appState ?? {});
-    const elements = imported.elements ?? [];
+    const hasImportedAppState =
+      imported.appState != null || Object.keys(appState).length > 0;
+
+    if (!Array.isArray(imported.elements) || !hasImportedAppState) {
+      throw new Error("Remote scene payload is incomplete");
+    }
+    if (!hasCompleteSceneFileHydration(imported.elements, files)) {
+      throw new Error("Remote scene files are incomplete");
+    }
+
+    const elements = imported.elements;
     const updatedAt = imported.updatedAt ?? remoteUpdatedAt;
 
     saveToLocalStorage(elements, appState, files);
@@ -240,6 +250,38 @@ export function cleanUnusedFiles(
   }
 
   return filteredFiles;
+}
+
+export function getReferencedFileIds(
+  elements: readonly ExcalidrawElement[] | null | undefined,
+): Set<string> {
+  const fileIds = new Set<string>();
+  if (!Array.isArray(elements)) {
+    return fileIds;
+  }
+
+  elements.forEach((element: ExcalidrawElement) => {
+    if (isInitializedImageElement(element)) {
+      fileIds.add(element.fileId);
+    }
+  });
+
+  return fileIds;
+}
+
+export function hasCompleteSceneFileHydration(
+  elements: readonly ExcalidrawElement[] | null | undefined,
+  files: BinaryFiles | null | undefined,
+): boolean {
+  const referencedFileIds = getReferencedFileIds(elements);
+  if (referencedFileIds.size === 0) {
+    return true;
+  }
+  if (!files) {
+    return false;
+  }
+
+  return [...referencedFileIds].every((fileId) => Boolean(files[fileId]));
 }
 
 // 將 excalidraw 狀態存入 localStorage
