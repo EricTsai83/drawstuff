@@ -71,6 +71,7 @@ type SceneFileMetadata = {
 };
 
 export type ImportedSceneData = ImportedDataState & {
+  revision?: number;
   updatedAt?: string;
 };
 
@@ -195,6 +196,7 @@ export async function importSceneDataBySceneId(
     const compressed = result?.sceneData;
     if (!compressed) {
       return {
+        revision: normalizeRevision(result?.revision),
         updatedAt: normalizeUpdatedAt(result?.updatedAt),
       };
     }
@@ -210,9 +212,15 @@ export async function importSceneDataBySceneId(
     const sanitizedAppState = parsed.appState
       ? sanitizeImportedAppState(parsed.appState)
       : null;
+    // DB name 欄位是權威來源（rename 只更新 DB name，不重寫 sceneData），
+    // 用它覆蓋壓縮資料中可能過時的 appState.name
+    if (sanitizedAppState && result?.name) {
+      sanitizedAppState.name = result.name;
+    }
     return {
       elements: parsed.elements ?? null,
       appState: sanitizedAppState,
+      revision: normalizeRevision(result?.revision),
       updatedAt: normalizeUpdatedAt(result?.updatedAt),
     };
   } catch (error: unknown) {
@@ -223,7 +231,7 @@ export async function importSceneDataBySceneId(
 
 export async function getSceneMetaBySceneId(
   sceneId: string,
-): Promise<{ id: string; updatedAt?: string } | null> {
+): Promise<{ id: string; revision?: number; updatedAt?: string } | null> {
   try {
     const client = getTrpcClient();
     const result = await client.scene.getSceneMeta.query({ id: sceneId });
@@ -232,6 +240,7 @@ export async function getSceneMetaBySceneId(
     }
     return {
       id: result.id,
+      revision: normalizeRevision(result.revision),
       updatedAt: normalizeUpdatedAt(result.updatedAt),
     };
   } catch (error: unknown) {
@@ -248,4 +257,11 @@ function normalizeUpdatedAt(value: unknown): string | undefined {
     return value;
   }
   return undefined;
+}
+
+function normalizeRevision(value: unknown): number | undefined {
+  if (typeof value !== "number") {
+    return undefined;
+  }
+  return Number.isInteger(value) && value > 0 ? value : undefined;
 }

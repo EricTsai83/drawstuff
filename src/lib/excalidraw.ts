@@ -9,9 +9,11 @@ import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/ty
 import {
   importFromLocalStorage,
   loadCurrentSceneIdFromStorage,
-  loadCurrentSceneUpdatedAtFromStorage,
+  saveCurrentSceneDirtyToStorage,
   saveCurrentSceneIdToStorage,
-  saveCurrentSceneUpdatedAtToStorage,
+  saveCurrentSceneRevisionToStorage,
+  clearCurrentSceneRevisionFromStorage,
+  clearCurrentSceneSessionFromStorage,
 } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import type {
@@ -53,7 +55,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
           if (!ok) {
             window.history.replaceState(
               {},
-              "我先隨便取的APP_NAME",
+              document.title,
               window.location.origin,
             );
             return await restoreInitialDataFromLocal(
@@ -72,7 +74,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
         // 清除加密資訊，避免資訊殘留在 URL 上
         window.history.replaceState(
           {},
-          "我先隨便取的APP_NAME",
+          document.title,
           window.location.origin,
         );
 
@@ -93,15 +95,11 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
       }
     }
 
-    const syncedRemoteData = await loadRemoteSceneIfOutdated(
-      localDataState,
-      hasLocalSavedScene,
-    );
-    if (syncedRemoteData) {
-      return syncedRemoteData;
+    if (hasLocalSavedScene) {
+      return await restoreInitialDataFromLocal(localDataState, hasLocalSavedScene);
     }
 
-    return await restoreInitialDataFromLocal(localDataState, hasLocalSavedScene);
+    return await loadInitialRemoteScene();
   } catch (error) {
     console.error("初始化場景失敗:", error);
     return null;
@@ -118,85 +116,81 @@ async function restoreInitialDataFromLocal(
 
   try {
     const restored = await loadScene(undefined, undefined, localDataState);
+    const appState = ensureInitialAppState(restored.appState ?? {});
     return {
       elements: restored.elements ?? [],
-      appState: ensureInitialAppState(restored.appState ?? {}),
+      appState,
       files: restored.files ?? {},
-      scrollToContent: true,
+      scrollToContent: !hasViewportData(appState),
     };
   } catch {
+    const appState = ensureInitialAppState(localDataState.appState ?? {});
     return {
       elements: localDataState.elements ?? [],
-      appState: ensureInitialAppState(localDataState.appState ?? {}),
+      appState,
       files: localDataState.files ?? {},
-      scrollToContent: true,
+      scrollToContent: !hasViewportData(appState),
     };
   }
 }
 
-async function loadRemoteSceneIfOutdated(
-  localDataState: ReturnType<typeof importFromLocalStorage>,
-  hasLocalSavedScene: boolean,
-): Promise<ExcalidrawInitialDataState | null> {
+async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | null> {
   const sceneId = loadCurrentSceneIdFromStorage();
   if (!sceneId) {
     return null;
   }
 
   try {
-    const localUpdatedAt = loadCurrentSceneUpdatedAtFromStorage();
     const {
-      getSceneMetaBySceneId,
       importSceneDataBySceneId,
       importSceneFilesBySceneId,
     } = await import("@/lib/import-data-from-db");
-    const meta = await getSceneMetaBySceneId(sceneId);
-    const remoteUpdatedAt = meta?.updatedAt;
-    const hasCompleteLocalFileHydration = hasCompleteSceneFileHydration(
-      localDataState.elements,
-      localDataState.files,
-    );
-    const shouldRefreshFromRemote =
-      !hasLocalSavedScene ||
-      !hasCompleteLocalFileHydration ||
-      !localUpdatedAt ||
-      !remoteUpdatedAt ||
-      localUpdatedAt !== remoteUpdatedAt;
-
-    if (!shouldRefreshFromRemote) {
-      return null;
-    }
-
     const imported = await importSceneDataBySceneId(sceneId);
     const files = await importSceneFilesBySceneId(sceneId);
     const appState = ensureInitialAppState(imported.appState ?? {});
-    const hasImportedAppState =
-      imported.appState != null || Object.keys(appState).length > 0;
-
-    if (!Array.isArray(imported.elements) || !hasImportedAppState) {
-      throw new Error("Remote scene payload is incomplete");
-    }
-    if (!hasCompleteSceneFileHydration(imported.elements, files)) {
-      throw new Error("Remote scene files are incomplete");
-    }
-
     const elements = imported.elements;
-    const updatedAt = imported.updatedAt ?? remoteUpdatedAt;
 
-    saveToLocalStorage(elements, appState, files);
+    if (!Array.isArray(elements)) {
+      try {
+        clearCurrentSceneSessionFromStorage();
+      } catch {
+        // ignore storage errors
+      }
+      return null;
+    }
+
+    const filesComplete = hasCompleteSceneFileHydration(elements, files);
+    if (filesComplete) {
+      saveToLocalStorage(elements, appState, files);
+    }
     saveCurrentSceneIdToStorage(sceneId);
-    if (updatedAt) {
-      saveCurrentSceneUpdatedAtToStorage(updatedAt);
+    saveCurrentSceneDirtyToStorage(false);
+    const importedRevisionValue: unknown = imported.revision;
+    const importedRevision =
+      typeof importedRevisionValue === "number"
+        ? importedRevisionValue
+        : undefined;
+    if (importedRevision !== undefined) {
+      saveCurrentSceneRevisionToStorage(importedRevision);
+    } else {
+      clearCurrentSceneRevisionFromStorage();
     }
 
     return {
       elements,
       appState,
       files,
-      scrollToContent: true,
+      scrollToContent: !hasViewportData(appState),
     };
   } catch (error) {
-    console.error("同步遠端場景到 localStorage 失敗:", error);
+    console.error("初始化遠端場景失敗:", error);
+    // Clear persisted session markers so the app doesn't remain attached
+    // to a dead remote scene on next load.
+    try {
+      clearCurrentSceneSessionFromStorage();
+    } catch {
+      // ignore storage errors
+    }
     return null;
   }
 }
@@ -415,6 +409,15 @@ export function getCurrentSceneSnapshot(
   const appState = excalidrawAPI.getAppState();
   const files = excalidrawAPI.getFiles();
   return { elements, appState: appState as Partial<AppState>, files };
+}
+
+/** Whether the appState contains saved viewport position (scrollX/scrollY/zoom). */
+function hasViewportData(appState: Partial<AppState>): boolean {
+  return (
+    typeof appState.scrollX === "number" ||
+    typeof appState.scrollY === "number" ||
+    appState.zoom !== undefined
+  );
 }
 
 export function ensureInitialAppState(

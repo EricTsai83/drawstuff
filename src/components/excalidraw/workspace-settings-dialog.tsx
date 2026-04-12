@@ -21,7 +21,7 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { workspaceNameSchema } from "@/lib/schemas/workspace";
-import { Loader2 } from "lucide-react";
+import { Loader2, TriangleAlert } from "lucide-react";
 import {
   Form,
   FormControl,
@@ -176,7 +176,6 @@ export default function WorkspaceSettingsDialog({
         onOpenAutoFocus={(e) => e.preventDefault()}
         data-prevent-outside-click="true"
         onEscapeKeyDown={() => handleOpenChange(false)}
-        onInteractOutside={() => handleOpenChange(false)}
       >
         <DialogHeader>
           <DialogTitle>
@@ -195,175 +194,262 @@ export default function WorkspaceSettingsDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="space-y-6">
-          {mode !== "delete" && (
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit((values) => {
-                  if (!active) return;
-                  const trimmed = (values.name ?? "").trim();
-                  if (!trimmed) return;
-                  setSaving(true);
-                  updateMutation.mutate({ id: active.id, name: trimmed });
-                })}
-                noValidate
-                className="space-y-2"
-              >
-                <FormField
-                  control={form.control}
-                  name="name"
-                  rules={{ required: false }}
-                  render={() => (
-                    <FormItem>
-                      <FormLabel htmlFor="ws-name">Workspace Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          id="ws-name"
-                          placeholder="Workspace name"
-                          disabled={!canEdit}
-                          autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          spellCheck={false}
-                          {...form.register("name")}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {!canEdit && (
-                  <p className="text-muted-foreground text-xs">
-                    Select an active workspace first.
-                  </p>
-                )}
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    type="submit"
-                    className={cn(
-                      "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
-                      { "w-[16ch]": saving },
-                    )}
-                    // 依據規則決定是否禁用 Save
-                    disabled={isSaveButtonDisabled()}
-                    aria-busy={saving}
-                  >
-                    {saving ? (
-                      <>
-                        <Loader2 className="size-4 animate-spin" /> Saving...
-                      </>
-                    ) : (
-                      "Save"
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </Form>
-          )}
-
-          {mode !== "rename" && (
-          <div className="border-destructive/30 rounded-md border p-4">
-            <div className="mb-2">
-              <h4 className="text-destructive font-semibold">Danger Zone</h4>
-              <p className="text-muted-foreground text-sm">
-                Deleting a workspace will permanently remove all its scenes.
-              </p>
-            </div>
-            {!confirmInline ? (
-              disableDelete ? (
-                <TooltipProvider>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <span className="inline-block">
-                        <Button variant="destructive" disabled>
-                          Delete this workspace
-                        </Button>
-                      </span>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" variant="secondary">
-                      Default workspace cannot be deleted.
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ) : (
+        {mode === "delete" ? (
+          /* ── Delete-mode: purpose-built layout ── */
+          disableDelete ? (
+            <>
+              <div className="bg-muted/50 flex items-start gap-3 rounded-lg p-4">
+                <TriangleAlert className="text-muted-foreground mt-0.5 size-5 shrink-0" />
+                <p className="text-muted-foreground text-sm">
+                  {t("workspace.settings.defaultCannotDelete")}
+                </p>
+              </div>
+              <DialogFooter>
                 <Button
-                  variant="destructive"
-                  disabled={!active || deleting}
-                  onClick={() => {
-                    if (!active || deleting) return;
-                    setConfirmInline(true);
-                  }}
-                  className="transition-[width] duration-300 ease-in-out"
+                  variant="outline"
+                  onClick={() => handleOpenChange(false)}
                 >
-                  Delete this workspace
+                  {t("workspace.settings.close")}
                 </Button>
-              )
-            ) : (
-              <div
-                className={cn(
-                  "flex flex-col gap-2",
-                  "transition-all duration-300 ease-in-out",
-                )}
-              >
+              </DialogFooter>
+            </>
+          ) : (
+            <>
+              <div className="bg-destructive/5 flex items-start gap-3 rounded-lg border border-destructive/20 p-4">
+                <TriangleAlert className="text-destructive mt-0.5 size-5 shrink-0" />
+                <div className="space-y-1">
+                  <p className="text-sm font-medium">
+                    {t("workspace.settings.deleteWarningTitle", {
+                      name: active?.name ?? "",
+                    })}
+                  </p>
+                  <p className="text-muted-foreground text-sm">
+                    {t("workspace.settings.deleteWarningBody")}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label
+                  htmlFor="ws-delete-confirm"
+                  className="text-muted-foreground text-sm"
+                >
+                  {t("workspace.settings.typeToConfirm", {
+                    name: active?.name ?? "",
+                  })}
+                </label>
                 <Input
-                  placeholder={
-                    active?.name
-                      ? `Type "${active.name}" to confirm`
-                      : "Type workspace name to confirm"
-                  }
+                  id="ws-delete-confirm"
+                  placeholder={active?.name ?? ""}
                   value={confirmText}
                   onChange={(e) => setConfirmText(e.target.value)}
                   disabled={deleting}
                   autoFocus
+                  autoComplete="off"
+                  autoCorrect="off"
+                  spellCheck={false}
                 />
+              </div>
 
-                <div className="flex justify-end gap-2">
-                  <Button
-                    variant="outline"
-                    disabled={deleting}
-                    onClick={() => {
-                      if (deleting) return;
-                      setConfirmInline(false);
-                      setConfirmText("");
-                    }}
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    className={cn(
-                      "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-                      "flex items-center justify-center gap-2 font-normal whitespace-nowrap",
-                      "w-[14ch] transition-[width] duration-300 ease-in-out",
-                      "h-[36px] rounded-[8px]",
-                      { "w-[16ch]": deleting },
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  disabled={deleting}
+                  onClick={() => handleOpenChange(false)}
+                >
+                  {t("workspace.settings.cancel")}
+                </Button>
+                <Button
+                  variant="destructive"
+                  disabled={deleting || !isNameConfirmed}
+                  aria-busy={deleting}
+                  onClick={() => {
+                    if (!active || deleting || !isNameConfirmed) return;
+                    setDeleting(true);
+                    deleteMutation.mutate({ id: active.id });
+                  }}
+                >
+                  {deleting ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      {t("workspace.settings.deleting")}
+                    </>
+                  ) : (
+                    t("workspace.settings.confirmDelete")
+                  )}
+                </Button>
+              </DialogFooter>
+            </>
+          )
+        ) : (
+          /* ── Rename / Full mode ── */
+          <div className="space-y-6">
+            <Form {...form}>
+                <form
+                  onSubmit={form.handleSubmit((values) => {
+                    if (!active) return;
+                    const trimmed = (values.name ?? "").trim();
+                    if (!trimmed) return;
+                    setSaving(true);
+                    updateMutation.mutate({ id: active.id, name: trimmed });
+                  })}
+                  noValidate
+                  className="space-y-2"
+                >
+                  <FormField
+                    control={form.control}
+                    name="name"
+                    rules={{ required: false }}
+                    render={() => (
+                      <FormItem>
+                        <FormLabel htmlFor="ws-name">Workspace Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            id="ws-name"
+                            placeholder="Workspace name"
+                            disabled={!canEdit}
+                            autoComplete="off"
+                            autoCorrect="off"
+                            autoCapitalize="off"
+                            spellCheck={false}
+                            {...form.register("name")}
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
                     )}
-                    disabled={deleting || !isNameConfirmed}
-                    aria-busy={deleting}
-                    aria-label={deleting ? "Deleting..." : "Confirm delete"}
-                    onClick={() => {
-                      if (!active || deleting || !isNameConfirmed) return;
-                      setDeleting(true);
-                      deleteMutation.mutate({ id: active.id });
-                    }}
-                  >
-                    {deleting ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" /> Deleting...
-                      </>
-                    ) : (
-                      "Confirm delete"
-                    )}
-                  </Button>
+                  />
+
+                  {!canEdit && (
+                    <p className="text-muted-foreground text-xs">
+                      Select an active workspace first.
+                    </p>
+                  )}
+                  <div className="flex justify-end">
+                    <Button
+                      size="sm"
+                      type="submit"
+                      className={cn(
+                        "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
+                        { "w-[16ch]": saving },
+                      )}
+                      disabled={isSaveButtonDisabled()}
+                      aria-busy={saving}
+                    >
+                      {saving ? (
+                        <>
+                          <Loader2 className="size-4 animate-spin" /> Saving...
+                        </>
+                      ) : (
+                        "Save"
+                      )}
+                    </Button>
+                  </div>
+                </form>
+              </Form>
+
+            {mode !== "rename" && (
+              <div className="border-destructive/30 rounded-md border p-4">
+                <div className="mb-2">
+                  <h4 className="text-destructive font-semibold">Danger Zone</h4>
+                  <p className="text-muted-foreground text-sm">
+                    Deleting a workspace will permanently remove all its scenes.
+                  </p>
                 </div>
+                {!confirmInline ? (
+                  disableDelete ? (
+                    <TooltipProvider>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <span className="inline-block">
+                            <Button variant="destructive" disabled>
+                              Delete this workspace
+                            </Button>
+                          </span>
+                        </TooltipTrigger>
+                        <TooltipContent side="right" variant="secondary">
+                          Default workspace cannot be deleted.
+                        </TooltipContent>
+                      </Tooltip>
+                    </TooltipProvider>
+                  ) : (
+                    <Button
+                      variant="destructive"
+                      disabled={!active || deleting}
+                      onClick={() => {
+                        if (!active || deleting) return;
+                        setConfirmInline(true);
+                      }}
+                      className="transition-[width] duration-300 ease-in-out"
+                    >
+                      Delete this workspace
+                    </Button>
+                  )
+                ) : (
+                  <div
+                    className={cn(
+                      "flex flex-col gap-2",
+                      "transition-all duration-300 ease-in-out",
+                    )}
+                  >
+                    <Input
+                      placeholder={
+                        active?.name
+                          ? `Type "${active.name}" to confirm`
+                          : "Type workspace name to confirm"
+                      }
+                      value={confirmText}
+                      onChange={(e) => setConfirmText(e.target.value)}
+                      disabled={deleting}
+                      autoFocus
+                    />
+
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        disabled={deleting}
+                        onClick={() => {
+                          if (deleting) return;
+                          setConfirmInline(false);
+                          setConfirmText("");
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        className={cn(
+                          "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+                          "flex items-center justify-center gap-2 font-normal whitespace-nowrap",
+                          "w-[14ch] transition-[width] duration-300 ease-in-out",
+                          "h-[36px] rounded-[8px]",
+                          { "w-[16ch]": deleting },
+                        )}
+                        disabled={deleting || !isNameConfirmed}
+                        aria-busy={deleting}
+                        aria-label={deleting ? "Deleting..." : "Confirm delete"}
+                        onClick={() => {
+                          if (!active || deleting || !isNameConfirmed) return;
+                          setDeleting(true);
+                          deleteMutation.mutate({ id: active.id });
+                        }}
+                      >
+                        {deleting ? (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin" /> Deleting...
+                          </>
+                        ) : (
+                          "Confirm delete"
+                        )}
+                      </Button>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
-          )}
-        </div>
+        )}
 
-        <DialogFooter />
+        {mode !== "delete" && <DialogFooter />}
       </DialogContent>
     </Dialog>
   );

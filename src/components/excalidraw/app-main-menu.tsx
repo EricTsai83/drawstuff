@@ -35,6 +35,7 @@ import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
+import { useSceneSession } from "@/hooks/scene-session-context";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
@@ -94,7 +95,7 @@ function AppMainMenu({
     string | undefined
   >(undefined);
   const { data: session } = authClient.useSession();
-  const { uploadSceneToCloud, clearCurrentSceneId, currentSceneId } =
+  const { uploadSceneToCloud, clearCurrentScene, currentSceneId } =
     useCloudUpload(() => {
       // 若找不到場景（理論上新建時不會），忽略
     }, excalidrawAPI);
@@ -112,6 +113,7 @@ function AppMainMenu({
     },
   });
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
+  const { updateLastSyncedRevision } = useSceneSession();
 
   const closeMenu = useCallback(() => {
     const currentAppState = excalidrawAPI?.getAppState();
@@ -153,8 +155,11 @@ function AppMainMenu({
       renameSceneMutation.mutate(
         { id: effectiveId, name: nextName },
         {
-          onSuccess: () => {
+          onSuccess: (data) => {
             void utils.scene.getUserScenesInfinite.invalidate();
+            if (data.revision != null) {
+              updateLastSyncedRevision(data.revision);
+            }
           },
           onError: (err) => {
             const code = (err as unknown as { data?: { code?: string } })?.data
@@ -170,8 +175,11 @@ function AppMainMenu({
                 renameSceneMutation.mutate(
                   { id: retryId, name: nextName },
                   {
-                    onSuccess: () => {
+                    onSuccess: (data) => {
                       void utils.scene.getUserScenesInfinite.invalidate();
+                      if (data.revision != null) {
+                        updateLastSyncedRevision(data.revision);
+                      }
                     },
                   },
                 );
@@ -183,7 +191,7 @@ function AppMainMenu({
         },
       );
     },
-    [renameSceneMutation, utils],
+    [renameSceneMutation, utils, updateLastSyncedRevision],
   );
 
   // 若剛拿到新 id，且有待辦改名，補送 rename
@@ -251,14 +259,15 @@ function AppMainMenu({
           });
         }
 
-        // 新建場景的語義：清除 currentSceneId，避免覆寫既有場景
-        clearCurrentSceneId();
-
         if (keepCurrentContent) {
           if (!session) {
+            // 本地模式：直接清除場景 session（無雲端操作）
+            clearCurrentScene();
             toast.info(t("toasts.newScene.localOnly"));
             return;
           }
+          // 先清除再上傳；若上傳失敗，場景仍在畫布上（只是失去 id）
+          clearCurrentScene();
           // 直接以目前內容建立新雲端場景，並自動關聯縮圖與資產
           const ok = await uploadSceneToCloud({
             name,
@@ -270,6 +279,8 @@ function AppMainMenu({
           if (!ok) return;
           toast.success(t("toasts.newSceneCreated"));
         } else {
+          // 新建場景的語義：清除 currentSceneId，避免覆寫既有場景
+          clearCurrentScene();
           // 重置畫布為空
           const currentAppState = excalidrawAPI?.getAppState() as
             | AppState
@@ -306,7 +317,7 @@ function AppMainMenu({
       }
     },
     [
-      clearCurrentSceneId,
+      clearCurrentScene,
       excalidrawAPI,
       handleSetSceneName,
       setLastActiveMutation,

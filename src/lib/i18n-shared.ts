@@ -118,7 +118,19 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.description.rename":
       "Change the name of the current workspace.",
     "workspace.settings.description.delete":
-      "Delete the selected workspace after confirming its name.",
+      "This action is permanent and cannot be undone.",
+    "workspace.settings.defaultCannotDelete":
+      "The default workspace cannot be deleted. Please select a different workspace.",
+    "workspace.settings.deleteWarningTitle":
+      'You are about to delete "{name}" and all of its scenes.',
+    "workspace.settings.deleteWarningBody":
+      "This action is permanent. All scenes in this workspace will be lost.",
+    "workspace.settings.typeToConfirm":
+      'Type "{name}" to confirm deletion:',
+    "workspace.settings.cancel": "Cancel",
+    "workspace.settings.close": "Close",
+    "workspace.settings.confirmDelete": "Delete workspace",
+    "workspace.settings.deleting": "Deleting...",
     "search.placeholder":
       "Search scenes by name, description, category, or project...",
     "search.resultsCount": 'Found {count} results for "{query}"',
@@ -274,7 +286,19 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.description": "編輯工作空間資訊並管理高風險操作。",
     "workspace.settings.description.rename": "變更目前工作空間的名稱。",
     "workspace.settings.description.delete":
-      "確認名稱後即可刪除所選工作空間。",
+      "此操作不可復原，請謹慎操作。",
+    "workspace.settings.defaultCannotDelete":
+      "預設工作空間無法刪除，請選擇其他工作空間。",
+    "workspace.settings.deleteWarningTitle":
+      '即將刪除「{name}」及其所有場景。',
+    "workspace.settings.deleteWarningBody":
+      "此操作不可復原，該工作空間中的所有場景都將永久消失。",
+    "workspace.settings.typeToConfirm":
+      '請輸入「{name}」以確認刪除：',
+    "workspace.settings.cancel": "取消",
+    "workspace.settings.close": "關閉",
+    "workspace.settings.confirmDelete": "刪除工作空間",
+    "workspace.settings.deleting": "刪除中...",
     "search.placeholder": "以名稱、描述、分類或專案名稱搜尋場景...",
     "search.resultsCount": '找到 {count} 筆結果，關鍵字："{query}"',
     "search.showingCount": "共顯示 {total} 個場景",

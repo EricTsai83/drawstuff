@@ -4,12 +4,9 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "@/server/api/trpc";
-import { and, eq, inArray, lt, or, type SQL } from "drizzle-orm";
+import { and, eq, lt, or, sql, type SQL } from "drizzle-orm";
 import {
-  category,
   scene,
-  sceneCategory,
-  workspace,
   fileRecord,
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
@@ -17,6 +14,10 @@ import { QUERIES } from "@/server/db/queries";
 import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
 import { UTApi } from "uploadthing/server";
 import { nanoid } from "nanoid";
+import {
+  saveOwnedScene,
+  type SaveOwnedSceneResult,
+} from "@/server/scene/save-owned-scene";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -45,170 +46,46 @@ export const sceneRouter = createTRPCRouter({
   saveScene: protectedProcedure
     .input(saveSceneSchema)
     .mutation(async ({ ctx, input }) => {
-      const now = new Date();
-      let sceneId: string | undefined;
-      let action: "created" | "updated" = "created";
+      const saveResult: SaveOwnedSceneResult = await saveOwnedScene({
+        userId: ctx.auth.user.id,
+        input,
+      });
 
-      // 若有指定 workspace，需要驗證所有權
-      if (input.workspaceId !== undefined) {
-        const [owned] = await ctx.db
-          .select({ userId: workspace.userId })
-          .from(workspace)
-          .where(eq(workspace.id, input.workspaceId))
-          .limit(1);
-        if (owned?.userId !== ctx.auth.user.id) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "Invalid workspace",
-          });
-        }
+      if (saveResult.status === "success") {
+        return {
+          id: saveResult.data.id,
+          action: saveResult.data.action,
+          revision: saveResult.data.revision,
+          updatedAt: saveResult.data.updatedAt,
+        };
       }
 
-      if (input.id) {
-        // 更新現有場景（僅限本人場景）
-        const updatedScene = await ctx.db
-          .update(scene)
-          .set({
-            name: input.name,
-            description: input.description,
-            sceneData: input.data,
-            // 僅在有提供 workspaceId 時才更新，避免不小心清空
-            ...(input.workspaceId !== undefined
-              ? { workspaceId: input.workspaceId }
-              : {}),
-            updatedAt: now,
-          })
-          .where(
-            and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
-          )
-          .returning();
-
-        if (!updatedScene[0]?.id) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Scene not found",
-          });
-        }
-
-        sceneId = updatedScene[0]?.id;
-        action = "updated";
-      } else {
-        // 建立新場景
-        const newScene = await ctx.db
-          .insert(scene)
-          .values({
-            name: input.name,
-            description: input.description,
-            workspaceId: input.workspaceId,
-            userId: ctx.auth.user.id,
-            sceneData: input.data, // 儲存加密的繪圖資料
-          })
-          .returning();
-
-        sceneId = newScene[0]?.id;
-        action = "created";
+      if (saveResult.status === "forbidden") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: saveResult.message,
+        });
       }
 
-      // 分類同步（可選）：
-      // - input.categories === undefined -> 不變更分類
-      // - input.categories 提供（可為空陣列）-> 當作權威來源，執行完整同步（空陣列會清空所有分類）
-      if (sceneId && input.categories !== undefined) {
-        const trimmed = Array.from(
-          new Set(
-            input.categories
-              .map((n) => n.trim())
-              .filter((n): n is string => n.length > 0),
-          ),
-        );
-
-        // 建立缺失的 category（若有）
-        if (trimmed.length > 0) {
-          const existing = await ctx.db
-            .select()
-            .from(category)
-            .where(
-              and(
-                eq(category.userId, ctx.auth.user.id),
-                inArray(category.name, trimmed),
-              ),
-            );
-          const existingNames = new Set(existing.map((c) => c.name));
-          const toCreate = trimmed.filter((n) => !existingNames.has(n));
-          if (toCreate.length > 0) {
-            await ctx.db
-              .insert(category)
-              .values(
-                toCreate.map((name) => ({ name, userId: ctx.auth.user.id })),
-              );
-          }
-        }
-
-        // 計算目標分類 IDs（可為空）
-        const targetIds = trimmed.length
-          ? (
-              await ctx.db
-                .select()
-                .from(category)
-                .where(
-                  and(
-                    eq(category.userId, ctx.auth.user.id),
-                    inArray(category.name, trimmed),
-                  ),
-                )
-            ).map((c) => c.id)
-          : [];
-
-        // 取得目前場景的分類 id
-        const current = await ctx.db
-          .select({ categoryId: sceneCategory.categoryId })
-          .from(sceneCategory)
-          .where(eq(sceneCategory.sceneId, sceneId));
-        const currentIds = new Set(current.map((c) => c.categoryId));
-
-        const targetIdSet = new Set(targetIds);
-
-        // 要新增的關聯
-        const toAdd = targetIds.filter((id) => !currentIds.has(id));
-        if (toAdd.length > 0) {
-          await ctx.db
-            .insert(sceneCategory)
-            .values(toAdd.map((cid) => ({ sceneId, categoryId: cid })));
-        }
-
-        // 要移除的關聯（當 trimmed 為空時，這裡會移除所有現有分類）
-        const toRemove = Array.from(currentIds).filter(
-          (id) => !targetIdSet.has(id),
-        );
-        if (toRemove.length > 0) {
-          await ctx.db
-            .delete(sceneCategory)
-            .where(
-              and(
-                eq(sceneCategory.sceneId, sceneId),
-                inArray(sceneCategory.categoryId, toRemove),
-              ),
-            );
-
-          // 立即清理：移除剛剛解除關聯且不再被任何場景引用的分類
-          const stillReferenced = await ctx.db
-            .select({ categoryId: sceneCategory.categoryId })
-            .from(sceneCategory)
-            .where(inArray(sceneCategory.categoryId, toRemove));
-          const stillReferencedSet = new Set(
-            stillReferenced.map((r) => r.categoryId),
-          );
-          const noLongerUsed = toRemove.filter(
-            (id) => !stillReferencedSet.has(id),
-          );
-          if (noLongerUsed.length > 0) {
-            await ctx.db
-              .delete(category)
-              .where(inArray(category.id, noLongerUsed));
-          }
-        }
+      if (saveResult.status === "not_found") {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: saveResult.message,
+        });
       }
 
-      return { id: sceneId, action };
+      if (saveResult.status === "conflict") {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: saveResult.message,
+          cause: saveResult.data,
+        });
+      }
+
+      throw new TRPCError({
+        code: "BAD_REQUEST",
+        message: saveResult.message,
+      });
     }),
 
   getScene: protectedProcedure
@@ -226,6 +103,7 @@ export const sceneRouter = createTRPCRouter({
       z
         .object({
           id: z.uuid(),
+          revision: z.number().int().min(1),
           updatedAt: z.date(),
         })
         .nullable(),
@@ -235,6 +113,7 @@ export const sceneRouter = createTRPCRouter({
         where: and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
         columns: {
           id: true,
+          revision: true,
           updatedAt: true,
         },
       });
@@ -274,6 +153,7 @@ export const sceneRouter = createTRPCRouter({
             description: z.string(),
             createdAt: z.date(),
             updatedAt: z.date(),
+            revision: z.number().int().min(1),
             workspaceId: z.uuid().optional(),
             workspaceName: z.string().optional(),
             thumbnail: z.string().optional(),
@@ -343,24 +223,31 @@ export const sceneRouter = createTRPCRouter({
         items = rows.slice(0, limit);
       }
 
-      const mapped = items.map((s) => ({
-        id: s.id,
-        name: s.name,
-        description: s.description ?? "",
-        createdAt: s.createdAt,
-        updatedAt: s.updatedAt,
-        workspaceId: s.workspaceId ?? undefined,
-        workspaceName: s.workspace?.name ?? undefined,
-        thumbnail: s.thumbnailUrl ?? undefined,
-        sceneData: s.sceneData ?? undefined,
-        isArchived: s.isArchived,
-        isPublished: s.isPublished,
-        publishedSlug: s.publishedSlug ?? undefined,
-        publishedAt: s.publishedAt ?? undefined,
-        categories: (s.sceneCategories ?? [])
-          .map((sc) => sc.category?.name)
-          .filter((name): name is string => Boolean(name)),
-      }));
+      const mapped = items.map((s) => {
+        const revisionValue: unknown = s.revision;
+        return {
+          id: s.id,
+          name: s.name,
+          description: s.description ?? "",
+          createdAt: s.createdAt,
+          updatedAt: s.updatedAt,
+          revision:
+            typeof revisionValue === "number" && Number.isInteger(revisionValue)
+              ? revisionValue
+              : 1,
+          workspaceId: s.workspaceId ?? undefined,
+          workspaceName: s.workspace?.name ?? undefined,
+          thumbnail: s.thumbnailUrl ?? undefined,
+          sceneData: s.sceneData ?? undefined,
+          isArchived: s.isArchived,
+          isPublished: s.isPublished,
+          publishedSlug: s.publishedSlug ?? undefined,
+          publishedAt: s.publishedAt ?? undefined,
+          categories: (s.sceneCategories ?? [])
+            .map((sc) => sc.category?.name)
+            .filter((name): name is string => Boolean(name)),
+        };
+      });
 
       const nextCursor = hasMore
         ? {
@@ -421,15 +308,19 @@ export const sceneRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const updated = await ctx.db
         .update(scene)
-        .set({ name: input.name, updatedAt: new Date() })
+        .set({
+          name: input.name,
+          updatedAt: new Date(),
+          revision: sql`${scene.revision} + 1`,
+        })
         .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)))
-        .returning({ id: scene.id });
+        .returning({ id: scene.id, revision: scene.revision });
 
       if (!updated[0]?.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
       }
 
-      return { id: updated[0].id };
+      return { id: updated[0].id, revision: updated[0].revision };
     }),
 
   publish: protectedProcedure
