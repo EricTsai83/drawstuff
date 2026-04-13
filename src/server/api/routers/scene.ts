@@ -333,15 +333,16 @@ export const sceneRouter = createTRPCRouter({
         .set({
           workspaceId: input.workspaceId,
           updatedAt: new Date(),
+          revision: sql`${scene.revision} + 1`,
         })
         .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)))
-        .returning({ id: scene.id });
+        .returning({ id: scene.id, revision: scene.revision });
 
       if (!updated?.id) {
         throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
       }
 
-      return { id: updated.id };
+      return { id: updated.id, revision: updated.revision };
     }),
 
   renameScene: protectedProcedure

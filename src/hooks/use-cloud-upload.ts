@@ -263,9 +263,13 @@ export function useCloudUpload(
             );
 
             await Promise.all(uploadTasks);
-            // Sync session (id + revision) only after all uploads succeed,
+            // Sync session (id + revision + workspaceId) only after all uploads succeed,
             // so isDirty remains true if uploads fail.
-            syncCurrentScene({ id: String(id), revision });
+            syncCurrentScene({
+              id: String(id),
+              revision,
+              workspaceId: effectiveWorkspaceId,
+            });
             // 若沒有資產需要上傳，或所有並行任務皆已完成，明確標記為成功
             setStatus("success");
 

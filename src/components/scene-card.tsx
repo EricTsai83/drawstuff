@@ -257,12 +257,15 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   const handleMoveToWorkspace = useCallback(
     async (workspaceId: string) => {
       try {
-        await moveToWorkspaceMutation.mutateAsync({
+        const result = await moveToWorkspaceMutation.mutateAsync({
           id: item.id,
           workspaceId,
         });
         // 若被移動的場景正在編輯中，同步更新 session 的 workspaceId
         if (item.id === currentSceneId) {
+          if (result.revision != null) {
+            updateLastSyncedRevision(result.revision);
+          }
           updateCurrentWorkspaceId(workspaceId);
         }
         const targetWorkspace = workspaces.find((ws) => ws.id === workspaceId);
@@ -280,6 +283,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     [
       item.id,
       currentSceneId,
+      updateLastSyncedRevision,
       updateCurrentWorkspaceId,
       moveToWorkspaceMutation,
       workspaces,
