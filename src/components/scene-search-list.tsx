@@ -13,6 +13,7 @@ import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { loadCurrentSceneWorkspaceIdFromStorage } from "@/data/local-storage";
 import { useSearchParams } from "next/navigation";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { Button } from "@/components/ui/button";
@@ -42,7 +43,8 @@ type PublishFilter = "all" | "public" | "private";
 export function SceneSearchList() {
   const router = useRouter();
   const pathname = usePathname();
-  const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
+  const { workspaces, lastActiveWorkspaceId, isLoading: isLoadingWorkspaces } =
+    useWorkspaceOptions();
   const params = useSearchParams();
   const { t } = useStandaloneI18n();
   const utils = api.useUtils();
@@ -50,7 +52,7 @@ export function SceneSearchList() {
   const paramWorkspaceId = params.get("workspaceId") ?? undefined;
   const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
     string | undefined
-  >(paramWorkspaceId);
+  >(() => paramWorkspaceId ?? loadCurrentSceneWorkspaceIdFromStorage());
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
   const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);
@@ -67,6 +69,14 @@ export function SceneSearchList() {
     () => workspaces.find((workspace) => workspace.id === effectiveWorkspaceId),
     [workspaces, effectiveWorkspaceId],
   );
+
+  useEffect(() => {
+    if (!overrideWorkspaceId || isLoadingWorkspaces) return;
+    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+    if (!workspaceIds.has(overrideWorkspaceId)) {
+      setOverrideWorkspaceId(undefined);
+    }
+  }, [overrideWorkspaceId, workspaces, isLoadingWorkspaces]);
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     api.scene.getUserScenesInfinite.useInfiniteQuery(

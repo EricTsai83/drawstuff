@@ -18,6 +18,9 @@ import {
   clearCurrentSceneRevisionFromStorage,
   loadCurrentSceneDirtyFromStorage,
   saveCurrentSceneDirtyToStorage,
+  loadCurrentSceneWorkspaceIdFromStorage,
+  saveCurrentSceneWorkspaceIdToStorage,
+  clearCurrentSceneWorkspaceIdFromStorage,
 } from "@/data/local-storage";
 
 /** Safety-net timeout: auto-resumes dirty tracking if a caller forgets to
@@ -27,10 +30,15 @@ const SUPPRESS_SAFETY_NET_MS = 5_000;
 
 type SceneSessionContextValue = {
   currentSceneId: string | undefined;
+  currentWorkspaceId: string | undefined;
   lastSyncedRevision: number | undefined;
   isDirty: boolean;
   isSessionReady: boolean;
-  syncCurrentScene: (params: { id: string; revision?: number }) => void;
+  syncCurrentScene: (params: {
+    id: string;
+    revision?: number;
+    workspaceId?: string;
+  }) => void;
   clearCurrentScene: () => void;
   reloadSceneSession: () => void;
   markCurrentSceneDirty: () => void;
@@ -39,6 +47,9 @@ type SceneSessionContextValue = {
    *  Useful after operations that bump the server revision without
    *  changing scene content (e.g. rename). */
   updateLastSyncedRevision: (revision: number) => void;
+  /** Update only the workspace ID without touching dirty state.
+   *  Useful when a scene is moved to another workspace from the dashboard. */
+  updateCurrentWorkspaceId: (workspaceId: string) => void;
   /** Suppress dirty tracking. Call resumeDirtyTracking() when the operation
    *  is done. A time-based safety net (default 5s) auto-resumes if the
    *  caller forgets. */
@@ -59,6 +70,9 @@ export function SceneSessionProvider({
   const [currentSceneId, setCurrentSceneId] = useState<string | undefined>(() =>
     loadCurrentSceneIdFromStorage(),
   );
+  const [currentWorkspaceId, setCurrentWorkspaceId] = useState<
+    string | undefined
+  >(() => loadCurrentSceneWorkspaceIdFromStorage());
   const [lastSyncedRevision, setLastSyncedRevision] = useState<
     number | undefined
   >(() => loadCurrentSceneRevisionFromStorage());
@@ -92,9 +106,20 @@ export function SceneSessionProvider({
   }, []);
 
   const syncCurrentScene = useCallback(
-    ({ id, revision }: { id: string; revision?: number }) => {
+    ({
+      id,
+      revision,
+      workspaceId,
+    }: {
+      id: string;
+      revision?: number;
+      workspaceId?: string;
+    }) => {
       setCurrentSceneId(id);
       setLastSyncedRevision(revision);
+      if (workspaceId !== undefined) {
+        setCurrentWorkspaceId(workspaceId);
+      }
       setIsDirty(false);
       isDirtyRef.current = false;
       try {
@@ -103,6 +128,9 @@ export function SceneSessionProvider({
           saveCurrentSceneRevisionToStorage(revision);
         } else {
           clearCurrentSceneRevisionFromStorage();
+        }
+        if (workspaceId !== undefined) {
+          saveCurrentSceneWorkspaceIdToStorage(workspaceId);
         }
         saveCurrentSceneDirtyToStorage(false);
       } catch {
@@ -114,6 +142,7 @@ export function SceneSessionProvider({
 
   const clearCurrentScene = useCallback(() => {
     setCurrentSceneId(undefined);
+    setCurrentWorkspaceId(undefined);
     setLastSyncedRevision(undefined);
     setIsDirty(false);
     isDirtyRef.current = false;
@@ -129,11 +158,13 @@ export function SceneSessionProvider({
     try {
       const dirty = loadCurrentSceneDirtyFromStorage();
       setCurrentSceneId(loadCurrentSceneIdFromStorage());
+      setCurrentWorkspaceId(loadCurrentSceneWorkspaceIdFromStorage());
       setLastSyncedRevision(loadCurrentSceneRevisionFromStorage());
       setIsDirty(dirty);
       isDirtyRef.current = dirty;
     } catch {
       setCurrentSceneId(undefined);
+      setCurrentWorkspaceId(undefined);
       setLastSyncedRevision(undefined);
       setIsDirty(false);
       isDirtyRef.current = false;
@@ -174,6 +205,15 @@ export function SceneSessionProvider({
     }
   }, []);
 
+  const updateCurrentWorkspaceId = useCallback((workspaceId: string) => {
+    setCurrentWorkspaceId(workspaceId);
+    try {
+      saveCurrentSceneWorkspaceIdToStorage(workspaceId);
+    } catch {
+      // ignore storage errors
+    }
+  }, []);
+
   const suppressDirtyTracking = useCallback(
     (safetyNetMs?: number) => {
       doSuppress(safetyNetMs);
@@ -202,6 +242,7 @@ export function SceneSessionProvider({
   const value = useMemo<SceneSessionContextValue>(
     () => ({
       currentSceneId,
+      currentWorkspaceId,
       lastSyncedRevision,
       isDirty,
       isSessionReady,
@@ -211,12 +252,14 @@ export function SceneSessionProvider({
       markCurrentSceneDirty,
       markCurrentSceneClean,
       updateLastSyncedRevision,
+      updateCurrentWorkspaceId,
       suppressDirtyTracking,
       resumeDirtyTracking,
       shouldSuppressDirtyTracking,
     }),
     [
       currentSceneId,
+      currentWorkspaceId,
       lastSyncedRevision,
       isDirty,
       isSessionReady,
@@ -226,6 +269,7 @@ export function SceneSessionProvider({
       markCurrentSceneDirty,
       markCurrentSceneClean,
       updateLastSyncedRevision,
+      updateCurrentWorkspaceId,
       suppressDirtyTracking,
       resumeDirtyTracking,
       shouldSuppressDirtyTracking,
