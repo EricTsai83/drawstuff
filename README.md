@@ -1,91 +1,113 @@
-# drawstuff
+<p align="center">
+  <img src="./assets/og-readme.png" width="600" alt="Logo for drawstuff">
+</p>
 
-Drawstuff is a full-screen whiteboard app built with [Excalidraw](https://github.com/excalidraw/excalidraw), [Next.js](https://github.com/vercel/next.js), and [tRPC](https://github.com/trpc/trpc). It combines a cloud-backed editor, workspace-based organization, encrypted share links, and published public pages for read-only scene viewing.
+<p align="center">
+  A cloud-backed whiteboard built on top of Excalidraw.
+</p>
 
-## What It Does
+<div align="center">
+  <a href="https://github.com/EricTsai83/drawstuff">GitHub</a> |
+  <a href="https://bsky.app/profile/ericts.com">Bluesky</a> |
+  <a href="https://ericts.com">Blog</a>
+</div>
 
-- Edit diagrams in a customized Excalidraw workspace
-- Save scenes to the cloud with thumbnails and attached binary assets
-- Organize work by workspace, category, search, and dashboard filters
-- Share scenes through end-to-end encrypted links
-- Publish scenes to public, read-only pages at `/p/[slug]`
+## What is drawstuff?
 
-## Highlights
+drawstuff is an open-source whiteboard app built with [Excalidraw](https://github.com/excalidraw/excalidraw), [Next.js](https://github.com/vercel/next.js), and [tRPC](https://github.com/trpc/trpc). It combines a full-screen drawing experience with cloud persistence, workspace-based organization, encrypted sharing, and published public pages for read-only scene viewing.
 
-- **Excalidraw editor** with custom export, upload, import, and scene-management flows
-- **Google sign-in** through Better Auth
-- **Workspace-aware storage** with default and last-active workspace tracking
-- **Cloud persistence** for scene data, images, and thumbnails via Neon Postgres + UploadThing
-- **Dashboard search** by name, description, category, workspace, and publish state
-- **Categories** that are auto-created, synced, and cleaned up when orphaned
-- **Scene lifecycle** support for create, rename, update, archive, delete, and import
-- **Bilingual UI copy** for English and Traditional Chinese
-- **Maintenance endpoint** for scheduled demo-data cleanup and deferred file deletion retries
+## Key Features
 
-## Two Sharing Modes
+- **Excalidraw-first editing** with import, export, autosave, and custom scene-management flows
+- **Cloud-backed scenes** with thumbnails and attached binary assets
+- **Workspace organization** with default and last-active workspace tracking
+- **Search and filtering** by scene name, description, category, workspace, and publish state
+- **Encrypted share links** using client-side compression and AES-GCM encryption
+- **Published public pages** at `/p/[slug]` for clean, read-only scene presentation
+- **Bilingual UI** with English and Traditional Chinese support
+- **Maintenance tooling** for scheduled cleanup and deferred file deletion retries
 
-### 1. Encrypted share links
+## Sharing Modes
+
+### Private share links
 
 Use the regular share flow when you want a private link.
 
-- Scene payloads are compressed client-side
-- Shared links use client-side AES-GCM encryption
-- The decryption key lives in the URL hash
+- Scene payloads are compressed client-side before upload
+- Shared links are encrypted in the browser with AES-GCM
+- The decryption key stays in the URL hash
 - Imported shared scenes can be brought back into a personal workspace
 
-### 2. Published public pages
+### Published public pages
 
-Use the publish flow when you want a clean, read-only page that can be opened directly by URL.
+Use publishing when you want a stable, read-only page that can be opened directly by URL.
 
 - Publish and unpublish from the dashboard
-- Each published scene gets a unique slug and a public URL at `/p/[slug]`
-- The dashboard can filter scenes by `All`, `Published`, and `Unpublished`
-- Public pages include metadata for Open Graph and Twitter cards
-- The public viewer is read-only and includes theme toggle, zoom, fit-to-screen, and reset controls
-- Public links can be copied or opened directly from the scene card menu
-
-> Published public pages are not the same as encrypted share links. They are intended for presentation and read-only access, not end-to-end encrypted sharing.
-
-## Core Routes
-
-- `/` - the main editor workspace
-- `/dashboard` - scene dashboard overlay
-- `/login` - sign-in overlay
-- `/p/[slug]` - public published-scene viewer
-- `/api/maintenance/cleanup` - scheduled cleanup endpoint
+- Each published scene gets a unique slug and public URL at `/p/[slug]`
+- Public pages include Open Graph and Twitter metadata
+- The viewer is read-only and includes theme, zoom, fit-to-screen, and reset controls
 
 ## Tech Stack
 
-- [Next.js 16](https://github.com/vercel/next.js)
-- [React 19](https://github.com/facebook/react)
-- [Excalidraw](https://github.com/excalidraw/excalidraw)
-- [tRPC v11](https://github.com/trpc/trpc)
-- [Drizzle ORM](https://github.com/drizzle-team/drizzle-orm)
-- [Neon PostgreSQL](https://github.com/neondatabase/neon)
-- [Better Auth](https://github.com/better-auth/better-auth)
-- [UploadThing](https://github.com/pingdotgg/uploadthing)
-- [Tailwind CSS v4](https://github.com/tailwindlabs/tailwindcss)
-- [nuqs](https://github.com/47ng/nuqs), [Zod](https://github.com/colinhacks/zod), [Sonner](https://github.com/emilkowalski/sonner)
+| Layer | Technology |
+| --- | --- |
+| Framework | Next.js 16, React 19 |
+| Drawing Engine | Excalidraw |
+| API Layer | tRPC v11 |
+| Database | PostgreSQL, Drizzle ORM |
+| Auth | Better Auth, Google OAuth |
+| File Storage | UploadThing |
+| UI | Tailwind CSS v4, Radix UI, Sonner |
+| Utilities | Zod, nuqs, date-fns |
 
-## Requirements
+## Project Structure
+
+```text
+src/
+  app/                 # App Router pages, API routes, published pages
+  components/          # UI, dashboard, auth, and Excalidraw integrations
+  hooks/               # Client-side hooks for editor and app behavior
+  lib/                 # Shared utilities, encryption, export/import helpers
+  server/
+    api/               # tRPC routers and server context
+    db/                # Drizzle schema and database access
+```
+
+## Getting Started
+
+### Prerequisites
 
 - Node.js 20+
 - pnpm 10+
-- A PostgreSQL database, typically Neon
-- An UploadThing token for file storage
-- Google OAuth credentials for Better Auth
+- PostgreSQL database
+- UploadThing token
+- Google OAuth credentials
 
-## Local Development
-
-### 1. Install dependencies
+### Setup
 
 ```bash
+# Clone the repository
+git clone https://github.com/EricTsai83/drawstuff.git
+cd drawstuff
+
+# Install dependencies
 pnpm install
+
+# Copy environment variables
+cp .env.example .env
+
+# Push database schema
+pnpm db:push
+
+# Start development server
+pnpm dev
 ```
 
-### 2. Create `.env.local`
+Open `http://localhost:3000`.
 
-All of the variables below are validated by `src/env.js`.
+## Environment Variables
+
+The app validates its environment variables in `src/env.js`.
 
 ```bash
 # Database
@@ -106,89 +128,37 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 
 # Storage and app config
 UPLOADTHING_TOKEN=your-uploadthing-token
+NEXT_PUBLIC_BASE_URL=http://localhost:3000
+
+# Maintenance
 CRON_SECRET=strong-random-string
 CLEANUP_OWNER_EMAIL=your.email@example.com
-NEXT_PUBLIC_BASE_URL=http://localhost:3000
 ```
-
-### 3. Set up the database
-
-`drizzle.config.ts` reads `POSTGRES_URL` and targets tables prefixed with `excalidraw-ericts_`.
-
-```bash
-pnpm db:generate
-pnpm db:migrate
-```
-
-If you prefer pushing the schema directly during local development:
-
-```bash
-pnpm db:push
-```
-
-To inspect the database with Drizzle Studio:
-
-```bash
-pnpm db:studio
-```
-
-### 4. Start the app
-
-```bash
-pnpm dev
-```
-
-Open `http://localhost:3000`.
 
 ## Useful Scripts
 
 ```bash
 pnpm dev
 pnpm build
+pnpm preview
 pnpm start
 pnpm lint
+pnpm lint:fix
 pnpm typecheck
 pnpm format:check
 pnpm format:write
-pnpm db:generate
-pnpm db:migrate
 pnpm db:push
 pnpm db:studio
 ```
 
-## Data Model Overview
+## Maintenance Endpoint
 
-The main tables live in `src/server/db/schema.ts`.
-
-- `scene`: cloud-saved scenes, descriptions, thumbnails, workspace assignment, and publish state
-- `shared_scene`: encrypted share-link payloads
-- `file_record`: UploadThing metadata for assets tied to either a saved scene or a shared scene
-- `workspace`, `user_default_workspace`, `user_last_active_workspace`: workspace management
-- `category`, `scene_category`: scene categorization
-- `deferred_file_cleanup`: retry queue for failed remote deletions
-
-## Public Pages
-
-The public-page feature is separate from the encrypted sharing flow.
-
-- Publishing sets `isPublished`, stores a `publishedSlug`, and records `publishedAt`
-- Public scene data is resolved server-side from the saved `scene` record
-- Metadata is generated from the scene title, description, thumbnail, author name, and timestamps
-- The public viewer loads the stored scene and related files into a stripped-down Excalidraw renderer
-- Unpublishing removes the slug and makes the page unavailable
-
-This makes public pages suitable for portfolio-style scene presentation while keeping the main editor workflow intact.
-
-## Maintenance Cron
-
-This project includes an opinionated cleanup endpoint intended for demo or controlled deployments.
+This project includes a cleanup endpoint intended for demo or controlled deployments.
 
 - Endpoint: `POST /api/maintenance/cleanup`
 - Also accepts `GET` for convenience
 - Auth: `Authorization: Bearer <CRON_SECRET>`
-- Default Vercel schedule: `30 3 * * 1` in `vercel.json`
-
-Example:
+- Default Vercel schedule: `30 3 * * 1`
 
 ```bash
 curl -X POST \
@@ -196,23 +166,8 @@ curl -X POST \
   -H "Authorization: Bearer $CRON_SECRET"
 ```
 
-What it does:
-
-- Deletes all users except the account whose email matches `CLEANUP_OWNER_EMAIL`
-- Deletes expired `shared_scene` records older than 30 days
-- Removes orphan categories
-- Cleans expired sessions and verifications
-- Deletes UploadThing files when possible and queues failed deletions for retry
-- Purges old completed or failed deferred-cleanup tasks
-
-Review this behavior carefully before enabling it in production.
-
-## Notes
-
-- `NEXT_PUBLIC_BASE_URL` must point to the deployed origin so copied public links and metadata resolve correctly
-- `BETTER_AUTH_URL` should match your local or deployed app origin
-- Scene data saved to the personal cloud library is compressed for storage; encrypted sharing is handled by the dedicated share-link flow
+Review the cleanup behavior carefully before enabling it in production.
 
 ## License
 
-MIT. See `LICENSE`.
+MIT
