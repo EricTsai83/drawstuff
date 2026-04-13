@@ -49,7 +49,6 @@ import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confi
 import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-confirm";
 import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm";
 import GlobalConfirmDialog from "@/components/confirm-dialog";
-import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useSceneImportFileGuard } from "@/hooks/excalidraw/use-scene-import-file-guard";
 import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
 import { useSceneRemoteRevisionCheck } from "@/hooks/excalidraw/use-scene-remote-revision-check";
@@ -68,6 +67,7 @@ export default function ExcalidrawEditor() {
     resumeDirtyTracking,
     isSessionReady,
     updateLastSyncedRevision,
+    currentWorkspaceId,
   } = useSceneSession();
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
@@ -96,7 +96,6 @@ export default function ExcalidrawEditor() {
     setIsCloudUploadDialogOpen(true);
   }, excalidrawAPI);
   const { applyRemoteScene } = useApplyRemoteScene(excalidrawAPI);
-  const { activeWorkspaceId } = useWorkspaceOptions();
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
@@ -131,7 +130,7 @@ export default function ExcalidrawEditor() {
   } = useExportHandlers({
     exportScene,
     uploadSceneToCloud: () =>
-      uploadSceneToCloud({ workspaceId: activeWorkspaceId }),
+      uploadSceneToCloud({ workspaceId: currentWorkspaceId }),
     onShareSuccess: () => {
       closeExcalidrawDialog(excalidrawAPI);
       setTimeout(() => setIsShareDialogOpen(true), 200);
@@ -202,7 +201,7 @@ export default function ExcalidrawEditor() {
     applyRemoteScene,
     uploadSceneToCloud,
     getActiveTheme: () => browserActiveTheme,
-    workspaceId: activeWorkspaceId,
+    workspaceId: currentWorkspaceId,
     isReady: !!excalidrawAPI && isSessionReady,
     isUploadInProgress: uploadStatus === "uploading",
     isBlockingDialogOpen:
@@ -287,8 +286,8 @@ export default function ExcalidrawEditor() {
       setIsCloudUploadDialogOpen(true);
       return;
     }
-    await uploadSceneToCloud({ workspaceId: activeWorkspaceId });
-  }, [uploadSceneToCloud, currentSceneId, activeWorkspaceId]);
+    await uploadSceneToCloud({ workspaceId: currentWorkspaceId });
+  }, [uploadSceneToCloud, currentSceneId, currentWorkspaceId]);
 
   useEffect(() => {
     if (!session) return;

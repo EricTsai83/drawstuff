@@ -113,7 +113,7 @@ function AppMainMenu({
     },
   });
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
-  const { updateLastSyncedRevision } = useSceneSession();
+  const { updateLastSyncedRevision, currentWorkspaceId } = useSceneSession();
 
   const closeMenu = useCallback(() => {
     const currentAppState = excalidrawAPI?.getAppState();
@@ -343,7 +343,7 @@ function AppMainMenu({
             <div className="px-2 pb-3">
               <WorkspaceDropdown
                 options={workspaces}
-                defaultValue={lastActiveWorkspaceId}
+                defaultValue={currentWorkspaceId ?? lastActiveWorkspaceId}
                 onChange={(workspace) => {
                   setConfirmWorkspaceId(workspace.id);
                   setConfirmWorkspaceName(workspace.name);
@@ -531,8 +531,10 @@ function AppMainMenu({
         open={confirmOpen}
         onOpenChange={setConfirmOpen}
         fromWorkspaceName={
-          workspaces.find((workspace) => workspace.id === lastActiveWorkspaceId)
-            ?.name
+          workspaces.find(
+            (workspace) =>
+              workspace.id === (currentWorkspaceId ?? lastActiveWorkspaceId),
+          )?.name
         }
         toWorkspaceName={confirmWorkspaceName}
         onChoose={(choice) => {

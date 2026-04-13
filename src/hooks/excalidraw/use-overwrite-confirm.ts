@@ -10,7 +10,6 @@ import {
 } from "@/lib/excalidraw";
 import { triggerBlobDownload } from "@/lib/download";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
-import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 
 export type UseOverwriteConfirmArgs = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
@@ -37,7 +36,6 @@ export function useOverwriteConfirm(
     handleClose();
     onSceneNotFoundError?.();
   }, excalidrawAPI);
-  const { activeWorkspaceId } = useWorkspaceOptions();
 
   const [isOpen, setIsOpen] = useState(false);
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
@@ -126,9 +124,7 @@ export function useOverwriteConfirm(
 
   const handleUploadToCloud = useCallback(async () => {
     try {
-      const ok = await cloudUpload.uploadSceneToCloud({
-        workspaceId: activeWorkspaceId,
-      });
+      const ok = await cloudUpload.uploadSceneToCloud();
       if (ok) {
         toast.success("Successfully uploaded to cloud!");
       } else {
@@ -141,7 +137,7 @@ export function useOverwriteConfirm(
     } finally {
       handleClose();
     }
-  }, [cloudUpload, handleClose, activeWorkspaceId]);
+  }, [cloudUpload, handleClose]);
 
   return {
     open: isOpen,
