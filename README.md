@@ -6,12 +6,6 @@
   A cloud-backed whiteboard built on top of Excalidraw.
 </p>
 
-<div align="center">
-  <a href="https://github.com/EricTsai83/drawstuff">GitHub</a> |
-  <a href="https://bsky.app/profile/ericts.com">Bluesky</a> |
-  <a href="https://ericts.com">Blog</a>
-</div>
-
 ## What is drawstuff?
 
 drawstuff is an open-source whiteboard app built with [Excalidraw](https://github.com/excalidraw/excalidraw), [Next.js](https://github.com/vercel/next.js), and [tRPC](https://github.com/trpc/trpc). It combines a full-screen drawing experience with cloud persistence, workspace-based organization, encrypted sharing, and published public pages for read-only scene viewing.
