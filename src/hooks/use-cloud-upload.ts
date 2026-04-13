@@ -35,12 +35,15 @@ export function useCloudUpload(
   );
   const {
     currentSceneId,
+    currentWorkspaceId,
     lastSyncedRevision,
     syncCurrentScene,
     clearCurrentScene,
   } = useSceneSession();
   const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
   currentSceneIdRef.current = currentSceneId;
+  const currentWorkspaceIdRef = useRef<string | undefined>(currentWorkspaceId);
+  currentWorkspaceIdRef.current = currentWorkspaceId;
   const lastSyncedRevisionRef = useRef<number | undefined>(lastSyncedRevision);
   lastSyncedRevisionRef.current = lastSyncedRevision;
   const utils = api.useUtils();
@@ -154,8 +157,10 @@ export function useCloudUpload(
             }
           }
 
-          // 嚴格要求 workspaceId
-          const effectiveWorkspaceId = options?.workspaceId;
+          // 優先使用呼叫端顯式傳入的 workspaceId（例如首次上傳 Dialog），
+          // 其次使用 session 記錄的場景所屬 workspaceId
+          const effectiveWorkspaceId =
+            options?.workspaceId ?? currentWorkspaceIdRef.current;
           if (!effectiveWorkspaceId) {
             setStatus("error");
             toast.error("Workspace is required to upload");
@@ -258,9 +263,13 @@ export function useCloudUpload(
             );
 
             await Promise.all(uploadTasks);
-            // Sync session (id + revision) only after all uploads succeed,
+            // Sync session (id + revision + workspaceId) only after all uploads succeed,
             // so isDirty remains true if uploads fail.
-            syncCurrentScene({ id: String(id), revision });
+            syncCurrentScene({
+              id: String(id),
+              revision,
+              workspaceId: effectiveWorkspaceId,
+            });
             // 若沒有資產需要上傳，或所有並行任務皆已完成，明確標記為成功
             setStatus("success");
 

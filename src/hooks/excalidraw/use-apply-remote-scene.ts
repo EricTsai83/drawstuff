@@ -128,6 +128,7 @@ export function useApplyRemoteScene(
         syncCurrentScene({
           id: sceneId,
           revision: imported.revision,
+          workspaceId: imported.workspaceId,
         });
 
         if (!filesComplete) {
