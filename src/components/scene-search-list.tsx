@@ -43,7 +43,8 @@ type PublishFilter = "all" | "public" | "private";
 export function SceneSearchList() {
   const router = useRouter();
   const pathname = usePathname();
-  const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
+  const { workspaces, lastActiveWorkspaceId, isLoading: isLoadingWorkspaces } =
+    useWorkspaceOptions();
   const params = useSearchParams();
   const { t } = useStandaloneI18n();
   const utils = api.useUtils();
@@ -68,6 +69,14 @@ export function SceneSearchList() {
     () => workspaces.find((workspace) => workspace.id === effectiveWorkspaceId),
     [workspaces, effectiveWorkspaceId],
   );
+
+  useEffect(() => {
+    if (!overrideWorkspaceId || isLoadingWorkspaces) return;
+    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
+    if (!workspaceIds.has(overrideWorkspaceId)) {
+      setOverrideWorkspaceId(undefined);
+    }
+  }, [overrideWorkspaceId, workspaces, isLoadingWorkspaces]);
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     api.scene.getUserScenesInfinite.useInfiniteQuery(
