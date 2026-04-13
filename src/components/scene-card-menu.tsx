@@ -8,6 +8,9 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import {
   EllipsisVertical,
@@ -17,8 +20,14 @@ import {
   Globe,
   Copy,
   ExternalLink,
+  ArrowRightLeft,
 } from "lucide-react";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+
+type WorkspaceOption = {
+  id: string;
+  name: string;
+};
 
 type SceneCardMenuProps = {
   onImport: (e: React.MouseEvent) => void;
@@ -29,6 +38,9 @@ type SceneCardMenuProps = {
   onCopyPublicLink: (e: React.MouseEvent) => void;
   onOpenPublicLink: (e: React.MouseEvent) => void;
   isPublished: boolean;
+  currentWorkspaceId?: string;
+  workspaces?: WorkspaceOption[];
+  onMoveToWorkspace?: (workspaceId: string) => void;
 };
 
 export function SceneCardMenu({
@@ -40,8 +52,17 @@ export function SceneCardMenu({
   onCopyPublicLink,
   onOpenPublicLink,
   isPublished,
+  currentWorkspaceId,
+  workspaces,
+  onMoveToWorkspace,
 }: SceneCardMenuProps) {
   const { t } = useStandaloneI18n();
+
+  const otherWorkspaces = workspaces?.filter(
+    (ws) => ws.id !== currentWorkspaceId,
+  );
+  const showMoveSubmenu =
+    onMoveToWorkspace && otherWorkspaces && otherWorkspaces.length > 0;
 
   return (
     <DropdownMenu>
@@ -65,6 +86,30 @@ export function SceneCardMenu({
           <Edit className="hover:text-accent-foreground mr-2 h-4 w-4" />
           {t("menu.sceneSettings")}
         </DropdownMenuItem>
+        {showMoveSubmenu && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger
+              onClick={(e) => e.stopPropagation()}
+              className="gap-0"
+            >
+              <ArrowRightLeft className="hover:text-accent-foreground mr-2 h-4 w-4" />
+              {t("menu.moveToWorkspace")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+              {otherWorkspaces.map((ws) => (
+                <DropdownMenuItem
+                  key={ws.id}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onMoveToWorkspace(ws.id);
+                  }}
+                >
+                  <span className="truncate">{ws.name}</span>
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
         <DropdownMenuSeparator />
         {isPublished ? (
           <>

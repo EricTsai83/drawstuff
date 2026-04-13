@@ -13,6 +13,7 @@ import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { loadCurrentSceneWorkspaceIdFromStorage } from "@/data/local-storage";
 import { useSearchParams } from "next/navigation";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { Button } from "@/components/ui/button";
@@ -50,7 +51,7 @@ export function SceneSearchList() {
   const paramWorkspaceId = params.get("workspaceId") ?? undefined;
   const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
     string | undefined
-  >(paramWorkspaceId);
+  >(() => paramWorkspaceId ?? loadCurrentSceneWorkspaceIdFromStorage());
   const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
   const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
   const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);

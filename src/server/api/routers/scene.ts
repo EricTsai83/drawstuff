@@ -8,6 +8,7 @@ import { and, eq, lt, or, sql, type SQL } from "drizzle-orm";
 import {
   scene,
   fileRecord,
+  workspace,
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { QUERIES } from "@/server/db/queries";
@@ -301,6 +302,46 @@ export const sceneRouter = createTRPCRouter({
         .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)));
 
       return { success: true };
+    }),
+
+  moveToWorkspace: protectedProcedure
+    .input(
+      z.object({
+        id: z.uuid(),
+        workspaceId: z.uuid(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      // Verify the target workspace belongs to the user
+      const targetWorkspace = await ctx.db.query.workspace.findFirst({
+        where: and(
+          eq(workspace.id, input.workspaceId),
+          eq(workspace.userId, ctx.auth.user.id),
+        ),
+        columns: { id: true },
+      });
+
+      if (!targetWorkspace) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Target workspace not found or not owned by user",
+        });
+      }
+
+      const [updated] = await ctx.db
+        .update(scene)
+        .set({
+          workspaceId: input.workspaceId,
+          updatedAt: new Date(),
+        })
+        .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)))
+        .returning({ id: scene.id });
+
+      if (!updated?.id) {
+        throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
+      }
+
+      return { id: updated.id };
     }),
 
   renameScene: protectedProcedure

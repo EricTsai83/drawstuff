@@ -73,6 +73,7 @@ type SceneFileMetadata = {
 export type ImportedSceneData = ImportedDataState & {
   revision?: number;
   updatedAt?: string;
+  workspaceId?: string;
 };
 
 export async function getFileRecordsBySharedSceneId(
@@ -198,6 +199,7 @@ export async function importSceneDataBySceneId(
       return {
         revision: normalizeRevision(result?.revision),
         updatedAt: normalizeUpdatedAt(result?.updatedAt),
+        workspaceId: result?.workspaceId ?? undefined,
       };
     }
     const compressedBuffer = new Uint8Array(base64ToArrayBuffer(compressed));
@@ -222,6 +224,7 @@ export async function importSceneDataBySceneId(
       appState: sanitizedAppState,
       revision: normalizeRevision(result?.revision),
       updatedAt: normalizeUpdatedAt(result?.updatedAt),
+      workspaceId: result?.workspaceId ?? undefined,
     };
   } catch (error: unknown) {
     console.error("importSceneDataBySceneId error", error);

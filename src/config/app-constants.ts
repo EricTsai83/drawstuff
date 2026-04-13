@@ -40,6 +40,7 @@ export const STORAGE_KEYS = {
   CURRENT_SCENE_ID: "excalidraw-current-scene-id",
   CURRENT_SCENE_REVISION: "excalidraw-current-scene-revision",
   CURRENT_SCENE_IS_DIRTY: "excalidraw-current-scene-is-dirty",
+  CURRENT_SCENE_WORKSPACE_ID: "excalidraw-current-scene-workspace-id",
 } as const;
 
 export const COOKIES = {

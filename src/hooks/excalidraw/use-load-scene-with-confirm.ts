@@ -59,8 +59,8 @@ export function useLoadSceneWithConfirm({
             setSceneChangeLoading?.(true);
             let saveOk = false;
             try {
+              // 不傳 workspaceId — useCloudUpload 會從 session 取得當前場景的 workspace
               saveOk = await uploadSceneToCloud({
-                workspaceId,
                 suppressSuccessToast: true,
               });
             } catch {

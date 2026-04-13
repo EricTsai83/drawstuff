@@ -39,13 +39,14 @@ import {
 } from "@/components/ui/tooltip";
 import { copyTextToSystemClipboard } from "@/lib/utils";
 import { getPublishedSceneUrl } from "@/lib/published-scene";
+import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
 
 export function SceneCard({ item }: { item: SceneListItem }) {
   const { t, langCode } = useStandaloneI18n();
-  const { currentSceneId, clearCurrentScene, updateLastSyncedRevision } = useSceneSession();
+  const { currentSceneId, clearCurrentScene, updateLastSyncedRevision, updateCurrentWorkspaceId } = useSceneSession();
   const timeAgo = formatDistanceToNow(item.updatedAt, {
     addSuffix: true,
     locale: langCode === "zh-TW" ? zhTW : undefined,
@@ -57,8 +58,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
 
   const utils = api.useUtils();
   const saveSceneMutation = api.scene.saveScene.useMutation();
+  const moveToWorkspaceMutation = api.scene.moveToWorkspace.useMutation();
   const publishSceneMutation = api.scene.publish.useMutation();
   const unpublishSceneMutation = api.scene.unpublish.useMutation();
+  const { workspaces } = useWorkspaceOptions();
 
   const invalidateSceneQueries = useCallback(
     (sceneId?: string) =>
@@ -161,8 +164,13 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         categories: payload.categories,
         expectedRevision,
       });
-      if (item.id === currentSceneId && saveResult.revision != null) {
-        updateLastSyncedRevision(saveResult.revision);
+      if (item.id === currentSceneId) {
+        if (saveResult.revision != null) {
+          updateLastSyncedRevision(saveResult.revision);
+        }
+        if (payload.workspaceId) {
+          updateCurrentWorkspaceId(payload.workspaceId);
+        }
       }
       setIsEditOpen(false);
       await invalidateSceneQueries(item.id);
@@ -246,6 +254,40 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     [item.id, t, unpublishSceneMutation, invalidateSceneQueries],
   );
 
+  const handleMoveToWorkspace = useCallback(
+    async (workspaceId: string) => {
+      try {
+        await moveToWorkspaceMutation.mutateAsync({
+          id: item.id,
+          workspaceId,
+        });
+        // 若被移動的場景正在編輯中，同步更新 session 的 workspaceId
+        if (item.id === currentSceneId) {
+          updateCurrentWorkspaceId(workspaceId);
+        }
+        const targetWorkspace = workspaces.find((ws) => ws.id === workspaceId);
+        toast.success(
+          t("menu.moveToWorkspace.success", {
+            name: targetWorkspace?.name ?? "",
+          }),
+        );
+        await invalidateSceneQueries(item.id);
+      } catch (error) {
+        console.error("Failed to move scene:", error);
+        toast.error(t("menu.moveToWorkspace.failed"));
+      }
+    },
+    [
+      item.id,
+      currentSceneId,
+      updateCurrentWorkspaceId,
+      moveToWorkspaceMutation,
+      workspaces,
+      t,
+      invalidateSceneQueries,
+    ],
+  );
+
   const handleDoubleClickCard = loadScene;
 
   return (
@@ -290,6 +332,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                 onCopyPublicLink={handleCopyPublicLink}
                 onOpenPublicLink={handleOpenPublicLink}
                 isPublished={item.isPublished}
+                currentWorkspaceId={item.workspaceId}
+                workspaces={workspaces}
+                onMoveToWorkspace={handleMoveToWorkspace}
               />
             </div>
           </div>

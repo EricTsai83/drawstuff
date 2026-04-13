@@ -140,6 +140,7 @@ export const getTotalStorageSize = () => {
       STORAGE_KEYS.CURRENT_SCENE_ID,
       STORAGE_KEYS.CURRENT_SCENE_REVISION,
       STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY,
+      STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID,
     ];
 
     let totalSize = 0;
@@ -191,13 +192,14 @@ export function clearCurrentSceneIdFromStorage(): void {
   }
 }
 
-/** Clear all scene-session keys (ID + revision + dirty) at once. */
+/** Clear all scene-session keys (ID + revision + dirty + workspaceId) at once. */
 export function clearCurrentSceneSessionFromStorage(): void {
   if (!canUseLocalStorage()) return;
   try {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID);
   } catch (error: unknown) {
     console.error(error);
   }
@@ -260,6 +262,37 @@ export function clearCurrentSceneDirtyFromStorage(): void {
   if (!canUseLocalStorage()) return;
   try {
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+// ====== Scene Workspace ID helpers ======
+
+export function loadCurrentSceneWorkspaceIdFromStorage(): string | undefined {
+  if (!canUseLocalStorage()) return undefined;
+  try {
+    const id = localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID);
+    return id ?? undefined;
+  } catch (error: unknown) {
+    console.error(error);
+    return undefined;
+  }
+}
+
+export function saveCurrentSceneWorkspaceIdToStorage(id: string): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID, id);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+export function clearCurrentSceneWorkspaceIdFromStorage(): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID);
   } catch (error: unknown) {
     console.error(error);
   }
