@@ -74,7 +74,7 @@ export const uploadRouter = {
       maxFileCount: FILE_UPLOAD_MAX_COUNT,
     },
   })
-    .input(z.object({ sharedSceneId: z.string() }))
+    .input(z.object({ sharedSceneId: z.string().min(1).max(128) }))
     .middleware(async ({ input }) => {
       // This code runs on your server before upload
       const session = await getServerSession();
@@ -82,6 +82,10 @@ export const uploadRouter = {
       // If you throw, the user will not be able to upload
       if (!session) throw new Error("Unauthorized");
       const sharedSceneId = input.sharedSceneId;
+      const ownerId = await QUERIES.getSharedSceneOwnerId(sharedSceneId);
+      if (!ownerId || ownerId !== session.user.id) {
+        throw new Error("Forbidden");
+      }
 
       // Whatever is returned here is accessible in onUploadComplete as `metadata`
       return {
@@ -96,7 +100,7 @@ export const uploadRouter = {
       // 僅處理 sharedScene 檔案紀錄（不處理縮圖、也不處理 scene 資產）
       if (metadata.sharedSceneId) {
         try {
-          await QUERIES.createFileRecord({
+          const result = await QUERIES.createFileRecord({
             sharedSceneId: metadata.sharedSceneId,
             ownerId: metadata.userId,
             utFileKey: file.key,
@@ -104,6 +108,22 @@ export const uploadRouter = {
             size: file.size,
             url: file.ufsUrl,
           });
+          if ((result as unknown[]).length === 0) {
+            const ok = await deleteFileWithRetry(file.key, {
+              sharedSceneId: metadata.sharedSceneId,
+              reason: "duplicate-shared-file",
+            });
+            if (!ok) {
+              await enqueueDeferredCleanup(file.key, "duplicate-shared-file", {
+                sharedSceneId: metadata.sharedSceneId,
+              });
+            }
+            return {
+              uploadedBy: metadata.userId,
+              fileUrl: file.ufsUrl,
+              fileKey: file.key,
+            };
+          }
           console.log("File record saved to database:", file.key);
         } catch (error) {
           console.error("Error saving file record to database:", error);
@@ -117,6 +137,7 @@ export const uploadRouter = {
               sharedSceneId: metadata.sharedSceneId,
             });
           }
+          throw new Error("Failed to save uploaded file record");
         }
       }
 
@@ -191,6 +212,7 @@ export const uploadRouter = {
             sceneId,
           });
         }
+        throw new Error("Failed to save scene asset record");
       }
       return {
         uploadedBy: metadata.userId,
@@ -248,6 +270,7 @@ export const uploadRouter = {
             sceneId,
           });
         }
+        throw new Error("Failed to update scene thumbnail");
       }
       return {
         uploadedBy: metadata.userId,

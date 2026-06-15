@@ -15,6 +15,7 @@ import { getCurrentSceneSnapshot } from "@/lib/excalidraw";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { parseSharedSceneHash } from "@/lib/utils";
+import { importSharedSceneFilesBySharedSceneId } from "@/lib/import-data-from-db";
 
 export function OverwriteConfirmDialog({
   excalidrawAPI,
@@ -90,7 +91,10 @@ export function OverwriteConfirmDialog({
             clearCurrentSceneId();
 
             const localDataState = importFromLocalStorage();
-            const scene = await loadScene(id, privateKey, localDataState);
+            const [scene, files] = await Promise.all([
+              loadScene(id, privateKey, localDataState),
+              importSharedSceneFilesBySharedSceneId(id, privateKey),
+            ]);
 
             if (excalidrawAPI) {
               excalidrawAPI.updateScene({
@@ -99,6 +103,10 @@ export function OverwriteConfirmDialog({
                   ...(scene.appState ?? {}),
                 },
               });
+              const filesToAdd = Object.values(files);
+              if (filesToAdd.length > 0) {
+                excalidrawAPI.addFiles(filesToAdd);
+              }
             }
           } catch (e) {
             console.error("透過 URL 載入場景失敗:", e);

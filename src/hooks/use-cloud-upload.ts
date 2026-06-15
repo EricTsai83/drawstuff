@@ -39,6 +39,8 @@ export function useCloudUpload(
     lastSyncedRevision,
     syncCurrentScene,
     clearCurrentScene,
+    markCurrentSceneDirty,
+    updateLastSyncedRevision,
   } = useSceneSession();
   const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
   currentSceneIdRef.current = currentSceneId;
@@ -60,6 +62,7 @@ export function useCloudUpload(
     },
   });
   const thumbnailUpload = useUploadThing("sceneThumbnailUploader");
+  const { mutateAsync: deleteSceneAsync } = api.scene.deleteScene.useMutation();
 
   type UploadOptions = {
     existingSceneId?: string;
@@ -140,8 +143,7 @@ export function useCloudUpload(
             lastSyncedRevisionRef.current === undefined
           ) {
             try {
-              const remoteMeta =
-                await getSceneMetaBySceneId(effectiveSceneId);
+              const remoteMeta = await getSceneMetaBySceneId(effectiveSceneId);
               if (remoteMeta?.revision !== undefined) {
                 lastSyncedRevisionRef.current = remoteMeta.revision;
               }
@@ -201,6 +203,7 @@ export function useCloudUpload(
             throw new Error(result.message ?? result.error);
           }
           const { id, revision } = result.data;
+          const createdNewScene = effectiveSceneId === undefined;
 
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
@@ -218,7 +221,7 @@ export function useCloudUpload(
               : [];
 
           if (id) {
-            const uploadTasks: Promise<unknown>[] = [];
+            const uploadTasks: Promise<void>[] = [];
 
             if (filesToUpload.length > 0) {
               // 逐檔計算 SHA-256 並帶入 contentHash，並行上傳
@@ -229,12 +232,17 @@ export function useCloudUpload(
                 const contentHash = hashArray
                   .map((b) => b.toString(16).padStart(2, "0"))
                   .join("");
-                return assetUpload.startUpload([file], {
+                const uploadResult = await assetUpload.startUpload([file], {
                   sceneId: id,
                   contentHash,
                 });
+                if (uploadResult?.length !== 1) {
+                  throw new Error(`Asset upload failed for ${file.name}`);
+                }
               });
-              uploadTasks.push(Promise.all(perFileUploads));
+              uploadTasks.push(
+                Promise.all(perFileUploads).then(() => undefined),
+              );
             }
 
             // 產生 PNG 縮圖並上傳（與 sceneId 關聯）— 與資產上傳並行
@@ -262,7 +270,27 @@ export function useCloudUpload(
               })(),
             );
 
-            await Promise.all(uploadTasks);
+            try {
+              await Promise.all(uploadTasks);
+            } catch (uploadErr) {
+              console.error("Asset upload failed after scene save:", uploadErr);
+              markCurrentSceneDirty();
+              if (createdNewScene) {
+                try {
+                  await deleteSceneAsync({ id });
+                } catch (rollbackErr) {
+                  console.error(
+                    "Failed to rollback newly-created scene after asset upload failure:",
+                    rollbackErr,
+                  );
+                }
+              } else {
+                updateLastSyncedRevision(revision);
+              }
+              setStatus("error");
+              toast.error(t("app.cloudUpload.toast.error.upload"));
+              return false;
+            }
             // Sync session (id + revision + workspaceId) only after all uploads succeed,
             // so isDirty remains true if uploads fail.
             syncCurrentScene({
@@ -302,12 +330,15 @@ export function useCloudUpload(
     [
       assetUpload,
       thumbnailUpload,
+      deleteSceneAsync,
       excalidrawAPI,
       utils,
       t,
       onSceneNotFoundError,
       syncCurrentScene,
       clearCurrentScene,
+      markCurrentSceneDirty,
+      updateLastSyncedRevision,
     ],
   );
 

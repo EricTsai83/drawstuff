@@ -4,6 +4,9 @@ import tseslint from "typescript-eslint";
 import drizzle from "eslint-plugin-drizzle";
 
 export default tseslint.config(
+  {
+    ignores: [".deepsec/**"],
+  },
   ...nextLintConfig,
   {
     files: ["**/*.ts", "**/*.tsx"],

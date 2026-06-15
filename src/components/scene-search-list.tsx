@@ -43,8 +43,11 @@ type PublishFilter = "all" | "public" | "private";
 export function SceneSearchList() {
   const router = useRouter();
   const pathname = usePathname();
-  const { workspaces, lastActiveWorkspaceId, isLoading: isLoadingWorkspaces } =
-    useWorkspaceOptions();
+  const {
+    workspaces,
+    lastActiveWorkspaceId,
+    isLoading: isLoadingWorkspaces,
+  } = useWorkspaceOptions();
   const params = useSearchParams();
   const { t } = useStandaloneI18n();
   const utils = api.useUtils();
@@ -148,15 +151,25 @@ export function SceneSearchList() {
     });
   }, [searchQuery, allItems, publishFilter]);
 
-  // 若上方已佔用前 5 筆，且 Your scenes 暫時為空，但還有下一頁，就主動抓下一頁避免空白
+  // 若目前篩選後還不足以填滿兩個區塊，就主動抓下一頁避免空白或卡在 loading。
   useEffect(() => {
+    const filteringActive = Boolean(searchQuery || publishFilter !== "all");
     const needPrefetch =
-      filteredItems.length > 0 && hasNextPage && !isFetchingNextPage;
-    const yourHasNone = filteredItems.length <= 5;
-    if (yourHasNone && needPrefetch) {
+      hasNextPage &&
+      !isFetchingNextPage &&
+      (filteredItems.length <= 5 ||
+        (filteringActive && filteredItems.length === 0));
+    if (needPrefetch) {
       void fetchNextPage();
     }
-  }, [filteredItems.length, hasNextPage, isFetchingNextPage, fetchNextPage]);
+  }, [
+    filteredItems.length,
+    hasNextPage,
+    isFetchingNextPage,
+    fetchNextPage,
+    searchQuery,
+    publishFilter,
+  ]);
 
   // IntersectionObserver sentinel
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -441,15 +454,11 @@ function CreateWorkspaceDialog({
     onSuccess: async (workspace) => {
       await utils.workspace.listWithMeta.invalidate();
       onCreated(workspace.id);
-      toast.success(
-        t("dashboard.workspace.created", { name: workspace.name }),
-      );
+      toast.success(t("dashboard.workspace.created", { name: workspace.name }));
       onOpenChange(false);
     },
     onError: (error) => {
-      toast.error(
-        error.message ?? t("dashboard.workspace.createFailed"),
-      );
+      toast.error(error.message ?? t("dashboard.workspace.createFailed"));
     },
   });
 
@@ -488,7 +497,10 @@ function CreateWorkspaceDialog({
             {t("dashboard.workspace.createDialog.description")}
           </DialogDescription>
         </DialogHeader>
-        <form className="space-y-4" onSubmit={(event) => void handleSubmit(event)}>
+        <form
+          className="space-y-4"
+          onSubmit={(event) => void handleSubmit(event)}
+        >
           <div className="space-y-2">
             <Input
               value={name}

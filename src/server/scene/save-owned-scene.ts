@@ -1,13 +1,8 @@
-"use server";
+import "server-only";
 
 import { and, eq, inArray } from "drizzle-orm";
 import { db } from "@/server/db";
-import {
-  category,
-  scene,
-  sceneCategory,
-  workspace,
-} from "@/server/db/schema";
+import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
 import type { SaveSceneInput } from "@/lib/schemas/scene";
 
 type SaveOwnedSceneParams = {
