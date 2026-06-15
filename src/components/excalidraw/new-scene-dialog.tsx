@@ -129,11 +129,13 @@ export function NewSceneDialog({
     const descTrimmed = (values.description ?? "").trim();
     const finalDescription = descTrimmed.length > 0 ? descTrimmed : undefined;
     // 若未選擇，回退到預設/最後啟用，避免誤用舊 workspace 或存成 null
-    const fallbackWorkspaceId =
-      selectedWorkspaceId ??
-      presetWorkspaceId ??
-      lastActiveWorkspaceId ??
-      defaultWorkspaceId;
+    const hasPendingWorkspace = Boolean(pendingNewWorkspaceName?.trim());
+    const fallbackWorkspaceId = hasPendingWorkspace
+      ? undefined
+      : (selectedWorkspaceId ??
+        presetWorkspaceId ??
+        lastActiveWorkspaceId ??
+        defaultWorkspaceId);
     onConfirm({
       name: finalName,
       description: finalDescription,
@@ -222,8 +224,12 @@ export function NewSceneDialog({
                 <WorkspaceDropdown
                   options={workspaceOptions}
                   defaultValue={selectedWorkspaceId}
-                  onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
+                  onChange={(ws) => {
+                    setSelectedWorkspaceId(ws?.id);
+                    setPendingNewWorkspaceName(undefined);
+                  }}
                   onCreate={(name: string) => {
+                    setSelectedWorkspaceId(undefined);
                     setPendingNewWorkspaceName(name);
                   }}
                 />

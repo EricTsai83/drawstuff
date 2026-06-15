@@ -4,7 +4,7 @@ import {
   workspaceUpdateSchema,
 } from "@/lib/schemas/workspace";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import {
   workspace,
   userDefaultWorkspace,
@@ -118,44 +118,68 @@ export const workspaceRouter = createTRPCRouter({
   ensureDefault: protectedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.auth.user.id;
 
-    // 取得或建立 default workspace 對應
-    const defaultWorkspaceMapping = await ctx.db
-      .select({ workspaceId: userDefaultWorkspace.workspaceId })
-      .from(userDefaultWorkspace)
-      .where(eq(userDefaultWorkspace.userId, userId))
-      .limit(1);
+    await ctx.db.transaction(async (tx) => {
+      const [existingMapping] = await tx
+        .select({ workspaceId: userDefaultWorkspace.workspaceId })
+        .from(userDefaultWorkspace)
+        .where(eq(userDefaultWorkspace.userId, userId))
+        .limit(1);
 
-    let defaultWorkspaceId: string | undefined =
-      defaultWorkspaceMapping[0]?.workspaceId;
-    if (!defaultWorkspaceId) {
-      const userName = ctx.auth.user.name?.trim() ?? "";
-      const defaultName =
-        userName.length > 0 ? `${userName}'s workspace` : "Default workspace";
+      let defaultWorkspaceId = existingMapping?.workspaceId;
 
-      const [createdWorkspace] = await ctx.db
-        .insert(workspace)
-        .values({
-          name: defaultName,
-          description: "Default workspace",
-          userId,
-        })
-        .returning();
-      if (!createdWorkspace) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to create default workspace",
-        });
+      if (!defaultWorkspaceId) {
+        const userName = ctx.auth.user.name?.trim() ?? "";
+        const defaultName =
+          userName.length > 0 ? `${userName}'s workspace` : "Default workspace";
+
+        const [createdWorkspace] = await tx
+          .insert(workspace)
+          .values({
+            name: defaultName,
+            description: "Default workspace",
+            userId,
+          })
+          .returning({ id: workspace.id });
+        if (!createdWorkspace) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to create default workspace",
+          });
+        }
+
+        await tx
+          .insert(userDefaultWorkspace)
+          .values({ userId, workspaceId: createdWorkspace.id })
+          .onConflictDoNothing({ target: userDefaultWorkspace.userId });
+
+        const [winningMapping] = await tx
+          .select({ workspaceId: userDefaultWorkspace.workspaceId })
+          .from(userDefaultWorkspace)
+          .where(eq(userDefaultWorkspace.userId, userId))
+          .limit(1);
+
+        defaultWorkspaceId = winningMapping?.workspaceId;
+
+        if (!defaultWorkspaceId) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to create default workspace",
+          });
+        }
+
+        if (defaultWorkspaceId !== createdWorkspace.id) {
+          await tx
+            .delete(workspace)
+            .where(
+              and(
+                eq(workspace.id, createdWorkspace.id),
+                eq(workspace.userId, userId),
+              ),
+            );
+        }
       }
 
-      await ctx.db
-        .insert(userDefaultWorkspace)
-        .values({ userId, workspaceId: createdWorkspace.id });
-      defaultWorkspaceId = createdWorkspace.id;
-    }
-
-    // 若尚未有 lastActive，預設為 default workspace（避免競態，使用 DoNothing）
-    if (defaultWorkspaceId) {
-      await ctx.db
+      await tx
         .insert(userLastActiveWorkspace)
         .values({
           userId,
@@ -163,7 +187,7 @@ export const workspaceRouter = createTRPCRouter({
           updatedAt: new Date(),
         })
         .onConflictDoNothing({ target: userLastActiveWorkspace.userId });
-    }
+    });
   }),
 
   // 取得最後啟用的 workspace（若不存在回傳 null）
