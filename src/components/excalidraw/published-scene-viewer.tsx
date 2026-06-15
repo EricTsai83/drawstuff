@@ -11,7 +11,7 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BinaryFileData,
   BinaryFiles,
@@ -114,6 +114,10 @@ export function PublishedSceneViewer({
     useState<ExcalidrawImperativeAPI | null>(null);
   const [hasAutoCentered, setHasAutoCentered] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const headerLeftRef = useRef<HTMLAnchorElement | null>(null);
+  const headerRightRef = useRef<HTMLDivElement | null>(null);
+  const [titleMaxWidth, setTitleMaxWidth] = useState<number | undefined>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -250,6 +254,33 @@ export function PublishedSceneViewer({
     };
   }, [excalidrawAPI, hasAutoCentered, initialData]);
 
+  useEffect(() => {
+    if (!uiVisible) return;
+
+    const updateTitleMaxWidth = () => {
+      const headerWidth = headerRef.current?.getBoundingClientRect().width ?? 0;
+      const leftWidth =
+        headerLeftRef.current?.getBoundingClientRect().width ?? 0;
+      const rightWidth =
+        headerRightRef.current?.getBoundingClientRect().width ?? 0;
+      const sideWidth = Math.max(leftWidth, rightWidth);
+      const horizontalPadding = 24;
+
+      setTitleMaxWidth(
+        Math.max(0, headerWidth - sideWidth * 2 - horizontalPadding),
+      );
+    };
+
+    updateTitleMaxWidth();
+
+    const observer = new ResizeObserver(updateTitleMaxWidth);
+    if (headerRef.current) observer.observe(headerRef.current);
+    if (headerLeftRef.current) observer.observe(headerLeftRef.current);
+    if (headerRightRef.current) observer.observe(headerRightRef.current);
+
+    return () => observer.disconnect();
+  }, [uiVisible]);
+
   const fitToScreen = useCallback(() => {
     if (!excalidrawAPI) return;
     excalidrawAPI.scrollToContent(undefined, FIT_TO_VIEWPORT_OPTIONS);
@@ -309,29 +340,44 @@ export function PublishedSceneViewer({
     <div className="published-viewer flex h-full w-full flex-col">
       {/* ── Header ── */}
       {uiVisible && (
-        <header className="border-border bg-background flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-5">
-          <Link href="/" className="flex shrink-0 items-center gap-1.5 px-2">
+        <header
+          ref={headerRef}
+          className="border-border bg-background relative flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-5"
+        >
+          <Link
+            ref={headerLeftRef}
+            href="/"
+            className="z-10 flex shrink-0 items-center gap-1.5 px-2"
+          >
             <DrawstuffLogo className="h-4 w-4 text-indigo-500 dark:text-gray-300" />
             <span className="hidden text-lg font-medium sm:inline">
               drawstuff
             </span>
           </Link>
 
-          <div className="flex min-w-0 flex-1 items-center justify-center gap-2 px-2">
-            <h1 className="truncate text-sm font-medium sm:text-base">
+          <div
+            className="pointer-events-none absolute left-1/2 flex max-w-[calc(100vw-8rem)] min-w-0 -translate-x-1/2 items-center justify-center gap-2 px-2 sm:max-w-[40vw]"
+            style={{ maxWidth: titleMaxWidth }}
+          >
+            <h1 className="min-w-0 truncate text-sm font-medium sm:text-base">
               {sceneName}
             </h1>
             {authorName && (
-              <div className="hidden space-x-1 sm:inline">
-                <span className="text-muted-foreground text-xs">·</span>
-                <span className="text-muted-foreground text-xs">
+              <div className="hidden min-w-0 items-center gap-1 sm:flex">
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  ·
+                </span>
+                <span className="text-muted-foreground min-w-0 truncate text-xs">
                   {authorName}
                 </span>
               </div>
             )}
           </div>
 
-          <div className="flex shrink-0 items-center gap-0.5">
+          <div
+            ref={headerRightRef}
+            className="z-10 flex shrink-0 items-center gap-0.5"
+          >
             <div className="hidden items-center gap-0.5 sm:flex">
               <button
                 type="button"
