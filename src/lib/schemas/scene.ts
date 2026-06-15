@@ -34,6 +34,12 @@ export const sceneCategoriesSchema = z
 
 export const sceneRevisionSchema = z.number().int().min(1);
 
+export const createSceneDraftSchema = z.object({
+  name: sceneNameSchema,
+  description: sceneDescriptionSchema,
+  workspaceId: sceneWorkspaceIdSchema,
+});
+
 export const saveSceneSchema = z
   .object({
     id: sceneIdSchema.optional(),
@@ -50,4 +56,5 @@ export const saveSceneSchema = z
     path: ["expectedRevision"],
   });
 
+export type CreateSceneDraftInput = z.infer<typeof createSceneDraftSchema>;
 export type SaveSceneInput = z.infer<typeof saveSceneSchema>;

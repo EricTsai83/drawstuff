@@ -53,7 +53,6 @@ export function SceneRenameDialog({
   function handleConfirm() {
     const trimmed = sceneName.trim();
     if (!canConfirmName(sceneName)) {
-      handleClose();
       return;
     }
     onConfirmName(trimmed);

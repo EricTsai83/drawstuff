@@ -12,11 +12,14 @@ import { eq } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/server";
 import { QUERIES } from "@/server/db/queries";
 import { UTApi } from "uploadthing/server";
-import { saveSceneSchema } from "@/lib/schemas/scene";
+import { z } from "zod";
+import { createSceneDraftSchema, saveSceneSchema } from "@/lib/schemas/scene";
 import type { AppErrorCode } from "@/lib/errors";
 import { APP_ERROR } from "@/lib/errors";
 import {
+  createOwnedSceneDraft,
   saveOwnedScene,
+  type CreateOwnedSceneDraftResult,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 
@@ -234,7 +237,16 @@ export async function rollbackSharedScene(sharedSceneId: string) {
 }
 
 // 將場景儲存到使用者的 scene 表（mutation → Server Action）
+const CreateSceneDraftInput = createSceneDraftSchema;
 const SaveSceneInput = saveSceneSchema;
+const CleanupSceneAssetUploadsInput = z.object({
+  sceneId: z.uuid(),
+  fileKeys: z.array(z.string().min(1).max(256)).max(100),
+});
+
+export type CreateSceneDraftResult =
+  | { ok: true; data: { id: string; revision: number; updatedAt: string } }
+  | { ok: false; error: AppErrorCode; message?: string };
 
 export type SaveSceneResult =
   | { ok: true; data: { id: string; revision: number; updatedAt: string } }
@@ -244,6 +256,56 @@ export type SaveSceneResult =
       message?: string;
       data?: { id: string; revision: number; updatedAt: string };
     };
+
+export async function createSceneDraftAction(
+  raw: unknown,
+): Promise<CreateSceneDraftResult> {
+  const session = await getServerSession();
+  if (!session)
+    return {
+      ok: false,
+      error: APP_ERROR.UNAUTHORIZED,
+      message: "Please sign in and try again",
+    };
+
+  const parsed = CreateSceneDraftInput.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      ok: false,
+      error: APP_ERROR.VALIDATION_FAILED,
+      message: "The submitted data format is invalid",
+    };
+  }
+
+  const draftResult: CreateOwnedSceneDraftResult = await createOwnedSceneDraft({
+    userId: session.user.id,
+    input: parsed.data,
+  });
+
+  switch (draftResult.status) {
+    case "success":
+      return {
+        ok: true,
+        data: {
+          id: draftResult.data.id,
+          revision: draftResult.data.revision,
+          updatedAt: draftResult.data.updatedAt.toISOString(),
+        },
+      };
+    case "forbidden":
+      return {
+        ok: false,
+        error: APP_ERROR.UNAUTHORIZED,
+        message: draftResult.message,
+      };
+    case "validation_failed":
+      return {
+        ok: false,
+        error: APP_ERROR.VALIDATION_FAILED,
+        message: draftResult.message,
+      };
+  }
+}
 
 export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
   const session = await getServerSession();
@@ -317,5 +379,66 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
         error: APP_ERROR.SAVE_FAILED,
         message: "Failed to save scene. Please try again later",
       };
+  }
+}
+
+export async function cleanupSceneAssetUploadsAction(raw: unknown) {
+  const session = await getServerSession();
+  if (!session)
+    return {
+      success: false,
+      errorMessage: "Please sign in and try again",
+    } as const;
+
+  const parsed = CleanupSceneAssetUploadsInput.safeParse(raw);
+  if (!parsed.success) {
+    return {
+      success: false,
+      errorMessage: "The submitted data format is invalid",
+    } as const;
+  }
+
+  const { sceneId, fileKeys } = parsed.data;
+  if (fileKeys.length === 0) {
+    return { success: true } as const;
+  }
+
+  try {
+    const ownerId = await QUERIES.getSceneOwnerId(sceneId);
+    if (!ownerId || ownerId !== session.user.id) {
+      return {
+        success: false,
+        errorMessage:
+          "Scene not found. It may have been deleted or you lack permission",
+      } as const;
+    }
+
+    const uniqueFileKeys = Array.from(new Set(fileKeys));
+    await QUERIES.deleteFileRecordsBySceneIdAndFileKeys(
+      sceneId,
+      uniqueFileKeys,
+    );
+
+    const utapi = new UTApi();
+    for (const fileKey of uniqueFileKeys) {
+      try {
+        await utapi.deleteFiles([fileKey]);
+      } catch (deleteErr) {
+        console.error("Failed to delete uploaded scene asset:", deleteErr);
+        await QUERIES.enqueueDeferredCleanup({
+          utFileKey: fileKey,
+          reason: "scene-save-aborted",
+          context: { sceneId },
+        });
+      }
+    }
+
+    return { success: true } as const;
+  } catch (error) {
+    console.error("Error during cleanupSceneAssetUploadsAction:", error);
+    return {
+      success: false,
+      errorMessage: "Failed to cleanup uploaded assets. Please try again later",
+    } as const;
   }
 }

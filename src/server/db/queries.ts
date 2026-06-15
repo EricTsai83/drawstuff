@@ -297,6 +297,23 @@ export const QUERIES = {
       .returning();
   },
 
+  deleteFileRecordsBySceneIdAndFileKeys: async function (
+    sceneId: string,
+    fileKeys: string[],
+  ) {
+    if (fileKeys.length === 0)
+      return [] as Array<typeof fileRecord.$inferSelect>;
+    return await db
+      .delete(fileRecord)
+      .where(
+        and(
+          eq(fileRecord.sceneId, sceneId),
+          inArray(fileRecord.utFileKey, fileKeys),
+        ),
+      )
+      .returning();
+  },
+
   // 已移除 fileKind 相關查詢（縮圖直接存在 scene）
 
   getFileRecordsBySharedSceneId: async function (sharedSceneId: string) {
