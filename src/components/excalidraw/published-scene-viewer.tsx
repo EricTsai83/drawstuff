@@ -69,7 +69,10 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const ICON_BTN =
-  "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+  "inline-flex h-[44px] w-[44px] items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+
+const TEXT_BTN =
+  "inline-flex h-[44px] min-w-[44px] items-center justify-center rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 export function PublishedSceneViewer({
   sceneData,
@@ -280,15 +283,15 @@ export function PublishedSceneViewer({
     <div className="published-viewer flex h-full w-full flex-col">
       {/* ── Header ── */}
       {uiVisible && (
-        <header className="border-border bg-background flex h-12 shrink-0 items-center justify-between border-b px-3 sm:px-5">
-          <Link href="/" className="flex items-center gap-1.5 px-2">
+        <header className="border-border bg-background flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-5">
+          <Link href="/" className="flex shrink-0 items-center gap-1.5 px-2">
             <DrawstuffLogo className="h-4 w-4 text-indigo-500 dark:text-gray-300" />
             <span className="hidden text-lg font-medium sm:inline">
               drawstuff
             </span>
           </Link>
 
-          <div className="flex min-w-0 items-center gap-2 px-4">
+          <div className="flex min-w-0 flex-1 items-center justify-center gap-2 px-2">
             <h1 className="truncate text-sm font-medium sm:text-base">
               {sceneName}
             </h1>
@@ -302,7 +305,47 @@ export function PublishedSceneViewer({
             )}
           </div>
 
-          <div className="flex items-center gap-0.5">
+          <div className="flex shrink-0 items-center gap-0.5">
+            <div className="hidden items-center gap-0.5 sm:flex">
+              <button
+                type="button"
+                onClick={() => zoomBy(1 / ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomOut")}
+                title={t("public.viewer.zoomOut")}
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomBy(ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomIn")}
+                title={t("public.viewer.zoomIn")}
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <div className="bg-border mx-1 h-4 w-px" />
+              <button
+                type="button"
+                onClick={fitToScreen}
+                className={TEXT_BTN}
+                aria-label={t("public.viewer.fit")}
+                title={t("public.viewer.fit")}
+              >
+                {t("public.viewer.fit")}
+              </button>
+              <button
+                type="button"
+                onClick={resetView}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.reset")}
+                title={t("public.viewer.reset")}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <div className="bg-border mx-1 h-4 w-px" />
+            </div>
             <button
               type="button"
               onClick={toggleTheme}
@@ -336,7 +379,7 @@ export function PublishedSceneViewer({
           <button
             type="button"
             onClick={() => setUiVisible(true)}
-            className="border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground absolute right-3 bottom-3 z-10 rounded-md border p-2 shadow-sm transition-colors sm:right-4 sm:bottom-4"
+            className={`${ICON_BTN} border-border bg-background absolute top-3 right-3 z-10 border shadow-sm sm:top-4 sm:right-4`}
             aria-label={t("public.viewer.showUI")}
             title={t("public.viewer.showUI")}
           >
@@ -426,44 +469,6 @@ export function PublishedSceneViewer({
           </div>
         )}
       </div>
-
-      {/* ── Bottom toolbar ── */}
-      {uiVisible && (
-        <div className="border-border bg-background hidden h-10 shrink-0 items-center justify-center gap-1 border-t sm:flex">
-          <button
-            type="button"
-            onClick={() => zoomBy(1 / ZOOM_STEP)}
-            className={ICON_BTN}
-            aria-label={t("public.viewer.zoomOut")}
-          >
-            <ZoomOut className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomBy(ZOOM_STEP)}
-            className={ICON_BTN}
-            aria-label={t("public.viewer.zoomIn")}
-          >
-            <ZoomIn className="h-4 w-4" />
-          </button>
-          <div className="bg-border mx-1 h-4 w-px" />
-          <button
-            type="button"
-            onClick={fitToScreen}
-            className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
-          >
-            {t("public.viewer.fit")}
-          </button>
-          <button
-            type="button"
-            onClick={resetView}
-            className={ICON_BTN}
-            aria-label={t("public.viewer.reset")}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }
