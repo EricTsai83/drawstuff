@@ -44,6 +44,7 @@ export async function handleSceneSave(
       .insert(sharedScene)
       .values({
         sharedSceneId: nanoid(),
+        ownerId: session.user.id,
         compressedData: compressedSceneData,
       })
       .returning({ sharedSceneId: sharedScene.sharedSceneId });
@@ -191,6 +192,15 @@ export async function rollbackSharedScene(sharedSceneId: string) {
   }
 
   try {
+    const ownerId = await QUERIES.getSharedSceneOwnerId(sharedSceneId);
+    if (!ownerId || ownerId !== session.user.id) {
+      return {
+        success: false,
+        errorMessage:
+          "Scene not found. It may have been deleted or you lack permission",
+      } as const;
+    }
+
     // 尋找該 sharedScene 已建立的檔案紀錄，準備刪除遠端檔案
     const records = await QUERIES.getFileRecordsBySharedSceneId(sharedSceneId);
     const fileKeys = records.map((r) => r.utFileKey).filter(Boolean);
@@ -236,6 +246,14 @@ export type SaveSceneResult =
     };
 
 export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
+  const session = await getServerSession();
+  if (!session)
+    return {
+      ok: false,
+      error: APP_ERROR.UNAUTHORIZED,
+      message: "Please sign in and try again",
+    };
+
   const parsed = SaveSceneInput.safeParse(raw);
   if (!parsed.success) {
     return {
@@ -245,13 +263,6 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
     };
   }
   const input = parsed.data;
-  const session = await getServerSession();
-  if (!session)
-    return {
-      ok: false,
-      error: APP_ERROR.UNAUTHORIZED,
-      message: "Please sign in and try again",
-    };
 
   const saveResult: SaveOwnedSceneResult = await saveOwnedScene({
     userId: session.user.id,

@@ -9,7 +9,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { CopyButton } from "@/components/copy-button";
-import { useRef } from "react";
 
 type SceneShareDialogProps = {
   sceneUrl: string;
@@ -23,7 +22,6 @@ export function SceneShareDialog({
   onOpenChange,
 }: SceneShareDialogProps) {
   const { t } = useStandaloneI18n();
-  const inputRef = useRef<HTMLInputElement>(null);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -42,9 +40,9 @@ export function SceneShareDialog({
             <Label htmlFor="link" className="sr-only">
               Link
             </Label>
-            <Input ref={inputRef} id="link" defaultValue={sceneUrl} readOnly />
+            <Input id="link" value={sceneUrl} readOnly />
           </div>
-          <CopyButton textToCopy={inputRef.current?.value ?? sceneUrl} />
+          <CopyButton textToCopy={sceneUrl} />
         </div>
         <div className="mt-2 flex items-center gap-2 text-xs">
           <span role="img" aria-label="lock" className="text-yellow-400">

@@ -21,10 +21,8 @@ import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import {
-  workspaceNameSchema,
-  workspaceDescriptionSchema,
-} from "@/lib/schemas/workspace";
+import { workspaceDescriptionSchema } from "@/lib/schemas/workspace";
+import { SCENE_NAME_MAX_LENGTH } from "@/lib/schemas/scene";
 import {
   Form,
   FormControl,
@@ -53,7 +51,11 @@ export function SceneCloudUploadDialog({
   onConfirm,
 }: SceneCloudUploadDialogProps) {
   const schema = z.object({
-    name: workspaceNameSchema.optional(),
+    name: z
+      .string()
+      .trim()
+      .max(SCENE_NAME_MAX_LENGTH, "Name is too long")
+      .optional(),
     description: workspaceDescriptionSchema,
   });
   type FormValues = z.infer<typeof schema>;
@@ -114,6 +116,7 @@ export function SceneCloudUploadDialog({
       setCategoryOptions((prev) => prev);
       // 每次開啟以最後啟用的 workspace 為預設，若無則退回預設 workspace
       setSelectedWorkspaceId(lastActiveWorkspaceId ?? defaultWorkspaceId);
+      setPendingNewWorkspaceName(undefined);
     },
     [
       open,
@@ -132,7 +135,7 @@ export function SceneCloudUploadDialog({
   async function handleConfirm(values: FormValues): Promise<void> {
     const finalName = (values.name ?? "").trim() || "Untitled";
     let workspaceIdToUse: string | undefined = selectedWorkspaceId;
-    if (!workspaceIdToUse && pendingNewWorkspaceName?.trim()) {
+    if (pendingNewWorkspaceName?.trim()) {
       try {
         const created = await createWorkspaceMutation.mutateAsync({
           name: pendingNewWorkspaceName.trim(),
@@ -211,6 +214,7 @@ export function SceneCloudUploadDialog({
                   defaultValue={selectedWorkspaceId}
                   onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
                   onCreate={(name: string) => {
+                    setSelectedWorkspaceId(undefined);
                     setPendingNewWorkspaceName(name);
                   }}
                 />

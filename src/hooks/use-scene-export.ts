@@ -6,7 +6,6 @@ import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
-import { nanoid } from "nanoid";
 import { getBaseUrl } from "@/lib/base-url";
 
 function cloneToArrayBuffer(
@@ -77,9 +76,8 @@ export function useSceneExport() {
         let filesToUpload: File[] = [];
         if (sceneData.compressedFilesData.length > 0) {
           filesToUpload = sceneData.compressedFilesData.map((file) => {
-            const uniqueId = nanoid();
             const safeBuffer = cloneToArrayBuffer(file.buffer);
-            return new File([safeBuffer], uniqueId, {
+            return new File([safeBuffer], String(file.id), {
               type: "application/octet-stream",
             });
           });
@@ -123,9 +121,9 @@ export function useSceneExport() {
               sharedSceneId: result.sharedSceneId,
             });
 
-            // startUpload 可能不會丟錯，但回傳筆數小於欲上傳數量時視為失敗
+            // startUpload 可能不會丟錯，但回傳筆數不符合預期時視為失敗
             const isUploadFailed =
-              !uploadResults || uploadResults.length < filesToUpload.length;
+              uploadResults?.length !== filesToUpload.length;
             if (isUploadFailed) {
               setExportErrorMessage(
                 "Some files failed to upload. Export canceled.",

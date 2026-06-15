@@ -74,7 +74,7 @@ function WorkspaceDropdownComponent(
     defaultValue,
     disabled = false,
     slim = false,
-    onCreate: _onCreate,
+    onCreate,
     showConfirmDialog,
     ...restProps
   }: WorkspaceDropdownProps,
@@ -86,6 +86,9 @@ function WorkspaceDropdownComponent(
     Workspace | undefined
   >(undefined);
   const [searchValue, setSearchValue] = useState("");
+  const [pendingCreatedName, setPendingCreatedName] = useState<
+    string | undefined
+  >(undefined);
   const [creating, setCreating] = useState(false);
   const { data: session } = authClient.useSession();
   const utils = api.useUtils();
@@ -113,7 +116,8 @@ function WorkspaceDropdownComponent(
     [options, selectedWorkspace?.id, lastActiveWorkspaceId],
   );
 
-  const triggerLabel = selectedWorkspace?.name ?? sessionDefaultLabel ?? "";
+  const triggerLabel =
+    selectedWorkspace?.name ?? pendingCreatedName ?? sessionDefaultLabel ?? "";
 
   useEffect(() => {
     if (options.length === 0) {
@@ -124,6 +128,7 @@ function WorkspaceDropdownComponent(
     if (defaultValue) {
       const match = options.find((it) => it.id === defaultValue);
       if (match) {
+        setPendingCreatedName(undefined);
         setSelectedWorkspace((prev) => (prev?.id === match.id ? prev : match));
         return;
       }
@@ -139,6 +144,7 @@ function WorkspaceDropdownComponent(
 
   const handleSelect = useCallback(
     (workspace: Workspace) => {
+      setPendingCreatedName(undefined);
       setSelectedWorkspace(workspace);
       onChange?.(workspace);
       setOpen(false);
@@ -152,14 +158,20 @@ function WorkspaceDropdownComponent(
       if (!name || creating) return;
       try {
         setCreating(true);
-        const created = await createWorkspaceMutation.mutateAsync({ name });
+        const created = onCreate
+          ? await onCreate(name)
+          : await createWorkspaceMutation.mutateAsync({ name });
         if (created?.id) {
           setSelectedWorkspace(created as Workspace);
+          setPendingCreatedName(undefined);
           if (onCreateSuccess) {
             onCreateSuccess(created as Workspace);
           } else {
             onChange?.(created as Workspace);
           }
+        } else if (onCreate) {
+          setSelectedWorkspace(undefined);
+          setPendingCreatedName(name);
         }
       } catch (err) {
         toast.error((err as Error)?.message ?? "Failed to create workspace");
@@ -172,6 +184,7 @@ function WorkspaceDropdownComponent(
     },
     [
       createWorkspaceMutation,
+      onCreate,
       onChange,
       onCreateSuccess,
       normalizedQuery,
