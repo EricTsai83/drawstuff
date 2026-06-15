@@ -5,13 +5,14 @@ import { Excalidraw, MainMenu, restore } from "@excalidraw/excalidraw";
 import {
   Eye,
   EyeOff,
+  Menu,
   Moon,
   RefreshCw,
   Sun,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   BinaryFileData,
   BinaryFiles,
@@ -68,8 +69,38 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function getCenteredZoomState(
+  appState: AppState,
+  nextZoom: AppState["zoom"]["value"],
+): Pick<AppState, "scrollX" | "scrollY" | "zoom"> {
+  const viewportCenterX = appState.offsetLeft + appState.width / 2;
+  const viewportCenterY = appState.offsetTop + appState.height / 2;
+  const appLayerX = viewportCenterX - appState.offsetLeft;
+  const appLayerY = viewportCenterY - appState.offsetTop;
+  const currentZoom = appState.zoom.value;
+  const baseScrollX = appState.scrollX + appLayerX - appLayerX / currentZoom;
+  const baseScrollY = appState.scrollY + appLayerY - appLayerY / currentZoom;
+  const zoomOffsetScrollX = -(appLayerX - appLayerX / nextZoom);
+  const zoomOffsetScrollY = -(appLayerY - appLayerY / nextZoom);
+
+  return {
+    scrollX: baseScrollX + zoomOffsetScrollX,
+    scrollY: baseScrollY + zoomOffsetScrollY,
+    zoom: {
+      ...appState.zoom,
+      value: nextZoom,
+    },
+  };
+}
+
 const ICON_BTN =
-  "rounded-md p-2 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+  "inline-flex h-10 w-10 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+
+const TEXT_BTN =
+  "inline-flex h-10 min-w-10 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+
+const CONTROLS_MENU =
+  "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
 
 export function PublishedSceneViewer({
   sceneData,
@@ -87,6 +118,11 @@ export function PublishedSceneViewer({
     useState<ExcalidrawImperativeAPI | null>(null);
   const [hasAutoCentered, setHasAutoCentered] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
+  const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  const headerRef = useRef<HTMLElement | null>(null);
+  const headerLeftRef = useRef<HTMLAnchorElement | null>(null);
+  const headerRightRef = useRef<HTMLDivElement | null>(null);
+  const [titleMaxWidth, setTitleMaxWidth] = useState<number | undefined>();
 
   useEffect(() => {
     const controller = new AbortController();
@@ -223,6 +259,63 @@ export function PublishedSceneViewer({
     };
   }, [excalidrawAPI, hasAutoCentered, initialData]);
 
+  useEffect(() => {
+    if (!uiVisible) return;
+
+    const updateTitleMaxWidth = () => {
+      const headerWidth = headerRef.current?.getBoundingClientRect().width ?? 0;
+      const leftWidth =
+        headerLeftRef.current?.getBoundingClientRect().width ?? 0;
+      const rightWidth =
+        headerRightRef.current?.getBoundingClientRect().width ?? 0;
+      const sideWidth = Math.max(leftWidth, rightWidth);
+      const horizontalPadding = 24;
+
+      setTitleMaxWidth(
+        Math.max(0, headerWidth - sideWidth * 2 - horizontalPadding),
+      );
+    };
+
+    updateTitleMaxWidth();
+
+    const observer = new ResizeObserver(updateTitleMaxWidth);
+    if (headerRef.current) observer.observe(headerRef.current);
+    if (headerLeftRef.current) observer.observe(headerLeftRef.current);
+    if (headerRightRef.current) observer.observe(headerRightRef.current);
+
+    return () => observer.disconnect();
+  }, [uiVisible]);
+
+  useEffect(() => {
+    if (!uiVisible) {
+      setControlsMenuOpen(false);
+    }
+  }, [uiVisible]);
+
+  useEffect(() => {
+    if (!controlsMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!headerRightRef.current?.contains(event.target as Node)) {
+        setControlsMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setControlsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [controlsMenuOpen]);
+
   const fitToScreen = useCallback(() => {
     if (!excalidrawAPI) return;
     excalidrawAPI.scrollToContent(undefined, FIT_TO_VIEWPORT_OPTIONS);
@@ -233,13 +326,15 @@ export function PublishedSceneViewer({
       if (!excalidrawAPI) return;
       const current = excalidrawAPI.getAppState();
       const nextZoom = clamp(current.zoom.value * factor, MIN_ZOOM, MAX_ZOOM);
+      if (nextZoom === current.zoom.value) return;
+
       excalidrawAPI.updateScene({
         appState: {
           ...current,
-          zoom: {
-            ...current.zoom,
-            value: nextZoom as AppState["zoom"]["value"],
-          },
+          ...getCenteredZoomState(
+            current,
+            nextZoom as AppState["zoom"]["value"],
+          ),
         },
       });
     },
@@ -280,51 +375,168 @@ export function PublishedSceneViewer({
     <div className="published-viewer flex h-full w-full flex-col">
       {/* ── Header ── */}
       {uiVisible && (
-        <header className="border-border bg-background flex h-12 shrink-0 items-center justify-between border-b px-3 sm:px-5">
-          <Link href="/" className="flex items-center gap-1.5 px-2">
+        <header
+          ref={headerRef}
+          className="border-border bg-background relative flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-5"
+        >
+          <Link
+            ref={headerLeftRef}
+            href="/"
+            className="z-10 flex shrink-0 items-center gap-1.5 px-2"
+          >
             <DrawstuffLogo className="h-4 w-4 text-indigo-500 dark:text-gray-300" />
             <span className="hidden text-lg font-medium sm:inline">
               drawstuff
             </span>
           </Link>
 
-          <div className="flex min-w-0 items-center gap-2 px-4">
-            <h1 className="truncate text-sm font-medium sm:text-base">
+          <div
+            className="pointer-events-none absolute left-1/2 flex max-w-[calc(100vw-8rem)] min-w-0 -translate-x-1/2 items-center justify-center gap-2 px-2 sm:max-w-[40vw]"
+            style={{ maxWidth: titleMaxWidth }}
+          >
+            <h1 className="min-w-0 truncate text-sm font-medium sm:text-base">
               {sceneName}
             </h1>
             {authorName && (
-              <div className="hidden space-x-1 sm:inline">
-                <span className="text-muted-foreground text-xs">·</span>
-                <span className="text-muted-foreground text-xs">
+              <div className="hidden min-w-0 items-center gap-1 sm:flex">
+                <span className="text-muted-foreground shrink-0 text-xs">
+                  ·
+                </span>
+                <span className="text-muted-foreground min-w-0 truncate text-xs">
                   {authorName}
                 </span>
               </div>
             )}
           </div>
 
-          <div className="flex items-center gap-0.5">
+          <div
+            ref={headerRightRef}
+            className="relative z-10 flex shrink-0 items-center gap-0.5"
+          >
             <button
               type="button"
-              onClick={toggleTheme}
-              className={ICON_BTN}
-              aria-label={themeLabel}
-              title={themeLabel}
+              onClick={() => setControlsMenuOpen((open) => !open)}
+              className={`${ICON_BTN} lg:hidden`}
+              aria-label="Menu"
+              aria-controls="published-viewer-controls-menu"
+              aria-expanded={controlsMenuOpen}
+              title="Menu"
             >
-              {browserActiveTheme === "light" ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
+              <Menu className="h-4 w-4" />
             </button>
-            <button
-              type="button"
-              onClick={() => setUiVisible(false)}
-              className={ICON_BTN}
-              aria-label={t("public.viewer.hideUI")}
-              title={t("public.viewer.hideUI")}
+
+            <div
+              id="published-viewer-controls-menu"
+              className={`${CONTROLS_MENU} lg:hidden ${
+                controlsMenuOpen
+                  ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
+                  : "pointer-events-none -translate-y-1 scale-95 opacity-0"
+              }`}
+              aria-hidden={!controlsMenuOpen}
+              inert={!controlsMenuOpen}
             >
-              <EyeOff className="h-4 w-4" />
-            </button>
+              <button
+                type="button"
+                onClick={() => zoomBy(1 / ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomOut")}
+                title={t("public.viewer.zoomOut")}
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomBy(ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomIn")}
+                title={t("public.viewer.zoomIn")}
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <div className="bg-border my-1 h-px w-4" />
+              <button
+                type="button"
+                onClick={fitToScreen}
+                className={TEXT_BTN}
+                aria-label={t("public.viewer.fit")}
+                title={t("public.viewer.fit")}
+              >
+                {t("public.viewer.fit")}
+              </button>
+              <button
+                type="button"
+                onClick={resetView}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.reset")}
+                title={t("public.viewer.reset")}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <div className="bg-border my-1 h-px w-4" />
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className={ICON_BTN}
+                aria-label={themeLabel}
+                title={themeLabel}
+              >
+                {browserActiveTheme === "light" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setUiVisible(false)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.hideUI")}
+                title={t("public.viewer.hideUI")}
+              >
+                <EyeOff className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="hidden items-center gap-0.5 lg:flex">
+              <button
+                type="button"
+                onClick={() => zoomBy(1 / ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomOut")}
+                title={t("public.viewer.zoomOut")}
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomBy(ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomIn")}
+                title={t("public.viewer.zoomIn")}
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <div className="bg-border mx-1 h-4 w-px" />
+              <button
+                type="button"
+                onClick={fitToScreen}
+                className={TEXT_BTN}
+                aria-label={t("public.viewer.fit")}
+                title={t("public.viewer.fit")}
+              >
+                {t("public.viewer.fit")}
+              </button>
+              <button
+                type="button"
+                onClick={resetView}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.reset")}
+                title={t("public.viewer.reset")}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <div className="bg-border mx-1 h-4 w-px" />
+            </div>
           </div>
         </header>
       )}
@@ -336,7 +548,7 @@ export function PublishedSceneViewer({
           <button
             type="button"
             onClick={() => setUiVisible(true)}
-            className="border-border bg-background text-muted-foreground hover:bg-muted hover:text-foreground absolute right-3 bottom-3 z-10 rounded-md border p-2 shadow-sm transition-colors sm:right-4 sm:bottom-4"
+            className={`${ICON_BTN} border-border bg-background absolute top-3 right-3 z-10 border shadow-sm sm:top-4 sm:right-4`}
             aria-label={t("public.viewer.showUI")}
             title={t("public.viewer.showUI")}
           >
@@ -426,44 +638,6 @@ export function PublishedSceneViewer({
           </div>
         )}
       </div>
-
-      {/* ── Bottom toolbar ── */}
-      {uiVisible && (
-        <div className="border-border bg-background hidden h-10 shrink-0 items-center justify-center gap-1 border-t sm:flex">
-          <button
-            type="button"
-            onClick={() => zoomBy(1 / ZOOM_STEP)}
-            className={ICON_BTN}
-            aria-label={t("public.viewer.zoomOut")}
-          >
-            <ZoomOut className="h-4 w-4" />
-          </button>
-          <button
-            type="button"
-            onClick={() => zoomBy(ZOOM_STEP)}
-            className={ICON_BTN}
-            aria-label={t("public.viewer.zoomIn")}
-          >
-            <ZoomIn className="h-4 w-4" />
-          </button>
-          <div className="bg-border mx-1 h-4 w-px" />
-          <button
-            type="button"
-            onClick={fitToScreen}
-            className="text-muted-foreground hover:bg-muted hover:text-foreground rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors"
-          >
-            {t("public.viewer.fit")}
-          </button>
-          <button
-            type="button"
-            onClick={resetView}
-            className={ICON_BTN}
-            aria-label={t("public.viewer.reset")}
-          >
-            <RefreshCw className="h-3.5 w-3.5" />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

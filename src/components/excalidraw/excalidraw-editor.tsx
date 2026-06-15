@@ -202,7 +202,7 @@ export default function ExcalidrawEditor() {
     uploadSceneToCloud,
     getActiveTheme: () => browserActiveTheme,
     workspaceId: currentWorkspaceId,
-    isReady: !!excalidrawAPI && isSessionReady,
+    isReady: !!excalidrawAPI && isSessionReady && !!session,
     isUploadInProgress: uploadStatus === "uploading",
     isBlockingDialogOpen:
       isSceneChangeDialogOpen || isCloudUploadDialogOpen || workspaceCreateConfirmOpen,
