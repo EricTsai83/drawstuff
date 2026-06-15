@@ -69,10 +69,10 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 const ICON_BTN =
-  "inline-flex h-[44px] w-[44px] items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+  "inline-flex h-10 w-10 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 const TEXT_BTN =
-  "inline-flex h-[44px] min-w-[44px] items-center justify-center rounded-md px-3 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+  "inline-flex h-10 min-w-10 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 export function PublishedSceneViewer({
   sceneData,
