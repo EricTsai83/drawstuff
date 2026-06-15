@@ -5,6 +5,7 @@ import { Excalidraw, MainMenu, restore } from "@excalidraw/excalidraw";
 import {
   Eye,
   EyeOff,
+  Menu,
   Moon,
   RefreshCw,
   Sun,
@@ -98,6 +99,9 @@ const ICON_BTN =
 const TEXT_BTN =
   "inline-flex h-10 min-w-10 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
+const CONTROLS_MENU =
+  "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
+
 export function PublishedSceneViewer({
   sceneData,
   fileRecords,
@@ -114,6 +118,7 @@ export function PublishedSceneViewer({
     useState<ExcalidrawImperativeAPI | null>(null);
   const [hasAutoCentered, setHasAutoCentered] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
+  const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
   const headerLeftRef = useRef<HTMLAnchorElement | null>(null);
   const headerRightRef = useRef<HTMLDivElement | null>(null);
@@ -281,6 +286,36 @@ export function PublishedSceneViewer({
     return () => observer.disconnect();
   }, [uiVisible]);
 
+  useEffect(() => {
+    if (!uiVisible) {
+      setControlsMenuOpen(false);
+    }
+  }, [uiVisible]);
+
+  useEffect(() => {
+    if (!controlsMenuOpen) return;
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!headerRightRef.current?.contains(event.target as Node)) {
+        setControlsMenuOpen(false);
+      }
+    };
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") {
+        setControlsMenuOpen(false);
+      }
+    };
+
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [controlsMenuOpen]);
+
   const fitToScreen = useCallback(() => {
     if (!excalidrawAPI) return;
     excalidrawAPI.scrollToContent(undefined, FIT_TO_VIEWPORT_OPTIONS);
@@ -376,9 +411,93 @@ export function PublishedSceneViewer({
 
           <div
             ref={headerRightRef}
-            className="z-10 flex shrink-0 items-center gap-0.5"
+            className="relative z-10 flex shrink-0 items-center gap-0.5"
           >
-            <div className="hidden items-center gap-0.5 sm:flex">
+            <button
+              type="button"
+              onClick={() => setControlsMenuOpen((open) => !open)}
+              className={`${ICON_BTN} lg:hidden`}
+              aria-label="Menu"
+              aria-controls="published-viewer-controls-menu"
+              aria-expanded={controlsMenuOpen}
+              title="Menu"
+            >
+              <Menu className="h-4 w-4" />
+            </button>
+
+            <div
+              id="published-viewer-controls-menu"
+              className={`${CONTROLS_MENU} lg:hidden ${
+                controlsMenuOpen
+                  ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
+                  : "pointer-events-none -translate-y-1 scale-95 opacity-0"
+              }`}
+              aria-hidden={!controlsMenuOpen}
+              inert={!controlsMenuOpen}
+            >
+              <button
+                type="button"
+                onClick={() => zoomBy(1 / ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomOut")}
+                title={t("public.viewer.zoomOut")}
+              >
+                <ZoomOut className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => zoomBy(ZOOM_STEP)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.zoomIn")}
+                title={t("public.viewer.zoomIn")}
+              >
+                <ZoomIn className="h-4 w-4" />
+              </button>
+              <div className="bg-border my-1 h-px w-4" />
+              <button
+                type="button"
+                onClick={fitToScreen}
+                className={TEXT_BTN}
+                aria-label={t("public.viewer.fit")}
+                title={t("public.viewer.fit")}
+              >
+                {t("public.viewer.fit")}
+              </button>
+              <button
+                type="button"
+                onClick={resetView}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.reset")}
+                title={t("public.viewer.reset")}
+              >
+                <RefreshCw className="h-3.5 w-3.5" />
+              </button>
+              <div className="bg-border my-1 h-px w-4" />
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className={ICON_BTN}
+                aria-label={themeLabel}
+                title={themeLabel}
+              >
+                {browserActiveTheme === "light" ? (
+                  <Sun className="h-4 w-4" />
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setUiVisible(false)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.hideUI")}
+                title={t("public.viewer.hideUI")}
+              >
+                <EyeOff className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="hidden items-center gap-0.5 lg:flex">
               <button
                 type="button"
                 onClick={() => zoomBy(1 / ZOOM_STEP)}
@@ -418,28 +537,6 @@ export function PublishedSceneViewer({
               </button>
               <div className="bg-border mx-1 h-4 w-px" />
             </div>
-            <button
-              type="button"
-              onClick={toggleTheme}
-              className={ICON_BTN}
-              aria-label={themeLabel}
-              title={themeLabel}
-            >
-              {browserActiveTheme === "light" ? (
-                <Sun className="h-4 w-4" />
-              ) : (
-                <Moon className="h-4 w-4" />
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setUiVisible(false)}
-              className={ICON_BTN}
-              aria-label={t("public.viewer.hideUI")}
-              title={t("public.viewer.hideUI")}
-            >
-              <EyeOff className="h-4 w-4" />
-            </button>
           </div>
         </header>
       )}
