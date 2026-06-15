@@ -51,7 +51,11 @@ export function SceneRenameDialog({
   }
 
   function handleConfirm() {
-    onConfirmName(sceneName);
+    const trimmed = sceneName.trim();
+    if (!canConfirmName(sceneName)) {
+      return;
+    }
+    onConfirmName(trimmed);
     handleOpenChange(false);
   }
 
@@ -140,15 +144,7 @@ export function SceneRenameDialog({
               {t("buttons.cancel")}
             </Button>
             <Button
-              onClick={() => {
-                const trimmed = sceneName.trim();
-                if (!canConfirmName(sceneName)) {
-                  handleClose();
-                  return;
-                }
-                onConfirmName(trimmed);
-                handleOpenChange(false);
-              }}
+              onClick={handleConfirm}
               disabled={!canConfirmName(sceneName)}
             >
               {t("buttons.confirm")}

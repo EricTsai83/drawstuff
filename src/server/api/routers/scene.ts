@@ -4,9 +4,11 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "@/server/api/trpc";
-import { and, eq, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, ilike, isNotNull, lt, or, sql, type SQL } from "drizzle-orm";
 import {
+  category,
   scene,
+  sceneCategory,
   fileRecord,
   workspace,
 } from "@/server/db/schema";
@@ -19,6 +21,7 @@ import {
   saveOwnedScene,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
+import { decompressData } from "@/lib/encode";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -37,11 +40,47 @@ const publicSceneOutput = z.object({
   files: z.array(
     z.object({
       url: z.string(),
-      name: z.string(),
-      size: z.number(),
     }),
   ),
 });
+
+type StoredSceneElement = {
+  isDeleted?: boolean;
+  type?: string;
+  fileId?: unknown;
+};
+
+function normalizeSearchTerm(search: string | undefined): string | null {
+  const trimmed = search?.trim();
+  return trimmed && trimmed.length > 0 ? trimmed.toLowerCase() : null;
+}
+
+async function getReferencedPublishedFileIds(
+  sceneData: string,
+): Promise<Set<string> | null> {
+  try {
+    const compressedBuffer = new Uint8Array(Buffer.from(sceneData, "base64"));
+    const { data } = await decompressData<Record<string, never>>(
+      compressedBuffer,
+      { decryptionKey: "" },
+    );
+    const parsed = JSON.parse(new TextDecoder().decode(data)) as {
+      elements?: StoredSceneElement[];
+    };
+    const ids = new Set<string>();
+    for (const element of parsed.elements ?? []) {
+      if (element.isDeleted) continue;
+      if (element.type !== "image") continue;
+      if (typeof element.fileId === "string" && element.fileId.length > 0) {
+        ids.add(element.fileId);
+      }
+    }
+    return ids;
+  } catch (error) {
+    console.error("Failed to parse published scene file references:", error);
+    return null;
+  }
+}
 
 export const sceneRouter = createTRPCRouter({
   saveScene: protectedProcedure
@@ -123,7 +162,10 @@ export const sceneRouter = createTRPCRouter({
 
   getUserScenes: protectedProcedure.query(async ({ ctx }) => {
     const scenes = await ctx.db.query.scene.findMany({
-      where: eq(scene.userId, ctx.auth.user.id),
+      where: and(
+        eq(scene.userId, ctx.auth.user.id),
+        isNotNull(scene.sceneData),
+      ),
       orderBy: (scene, { desc }) => [desc(scene.updatedAt)],
     });
     return scenes;
@@ -141,7 +183,6 @@ export const sceneRouter = createTRPCRouter({
           })
           .optional(),
         workspaceId: z.uuid().optional(),
-        // 用於重置查詢 key（後端暫不進行全文搜尋）
         search: z.string().optional(),
       }),
     )
@@ -166,9 +207,7 @@ export const sceneRouter = createTRPCRouter({
             categories: z.array(z.string()),
           }),
         ),
-        nextCursor: z
-          .object({ updatedAt: z.date(), id: z.uuid() })
-          .optional(),
+        nextCursor: z.object({ updatedAt: z.date(), id: z.uuid() }).optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -177,9 +216,35 @@ export const sceneRouter = createTRPCRouter({
       // 型別安全的條件累加（使用非空 tuple，避免 undefined 聯集）
       const whereClauses: [SQL, ...SQL[]] = [
         eq(scene.userId, ctx.auth.user.id),
+        isNotNull(scene.sceneData),
       ];
       if (input.workspaceId) {
         whereClauses.push(eq(scene.workspaceId, input.workspaceId));
+      }
+
+      const normalizedSearch = normalizeSearchTerm(input.search);
+      if (normalizedSearch) {
+        const pattern = `%${normalizedSearch}%`;
+        whereClauses.push(
+          or(
+            ilike(scene.name, pattern),
+            ilike(scene.description, pattern),
+            sql`exists (
+              select 1
+              from ${workspace}
+              where ${workspace.id} = ${scene.workspaceId}
+                and ${workspace.name} ilike ${pattern}
+            )`,
+            sql`exists (
+              select 1
+              from ${sceneCategory}
+              inner join ${category}
+                on ${sceneCategory.categoryId} = ${category.id}
+              where ${sceneCategory.sceneId} = ${scene.id}
+                and ${category.name} ilike ${pattern}
+            )`,
+          )!,
+        );
       }
 
       if (input.cursor) {
@@ -370,7 +435,11 @@ export const sceneRouter = createTRPCRouter({
     .output(publishMutationOutput)
     .mutation(async ({ ctx, input }) => {
       const ownedScene = await ctx.db.query.scene.findFirst({
-        where: and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
+        where: and(
+          eq(scene.id, input.id),
+          eq(scene.userId, ctx.auth.user.id),
+          isNotNull(scene.sceneData),
+        ),
         columns: {
           id: true,
           publishedSlug: true,
@@ -490,7 +559,6 @@ export const sceneRouter = createTRPCRouter({
             columns: {
               url: true,
               name: true,
-              size: true,
             },
           },
         },
@@ -499,6 +567,16 @@ export const sceneRouter = createTRPCRouter({
       if (!publishedScene?.sceneData) {
         return null;
       }
+
+      const referencedFileIds = await getReferencedPublishedFileIds(
+        publishedScene.sceneData,
+      );
+      const visibleFiles =
+        referencedFileIds === null
+          ? []
+          : (publishedScene.fileRecords ?? []).filter((file) =>
+              referencedFileIds.has(file.name),
+            );
 
       return {
         id: publishedScene.id,
@@ -509,10 +587,8 @@ export const sceneRouter = createTRPCRouter({
         updatedAt: publishedScene.updatedAt,
         publishedAt: publishedScene.publishedAt ?? undefined,
         authorName: publishedScene.user?.name ?? undefined,
-        files: (publishedScene.fileRecords ?? []).map((file) => ({
+        files: visibleFiles.map((file) => ({
           url: file.url,
-          name: file.name,
-          size: file.size,
         })),
       };
     }),

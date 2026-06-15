@@ -136,17 +136,30 @@ export const QUERIES = {
     return sharedSceneData;
   },
 
+  getSharedSceneOwnerId: async function (
+    sharedSceneId: string,
+  ): Promise<string | undefined> {
+    const [row] = await db
+      .select({ ownerId: sharedScene.ownerId })
+      .from(sharedScene)
+      .where(eq(sharedScene.sharedSceneId, sharedSceneId));
+    return row?.ownerId;
+  },
+
   createSharedScene: async function ({
     sharedSceneId,
+    ownerId,
     compressedData,
   }: {
     sharedSceneId: string;
+    ownerId: string;
     compressedData: Uint8Array;
   }) {
     return await db
       .insert(sharedScene)
       .values({
         sharedSceneId,
+        ownerId,
         compressedData,
       })
       .returning();
@@ -234,7 +247,7 @@ export const QUERIES = {
         .returning();
     }
 
-    // sharedSceneId 路徑不做唯一約束（允許相同 utFileKey 在不同分享）
+    // sharedSceneId 路徑以檔名保存 Excalidraw file id，支援重試冪等
     return await db
       .insert(fileRecord)
       .values({
@@ -246,6 +259,9 @@ export const QUERIES = {
         name,
         size,
         url,
+      })
+      .onConflictDoNothing({
+        target: [fileRecord.sharedSceneId, fileRecord.name],
       })
       .returning();
   },
@@ -278,6 +294,23 @@ export const QUERIES = {
     return await db
       .delete(fileRecord)
       .where(eq(fileRecord.sceneId, sceneId))
+      .returning();
+  },
+
+  deleteFileRecordsBySceneIdAndFileKeys: async function (
+    sceneId: string,
+    fileKeys: string[],
+  ) {
+    if (fileKeys.length === 0)
+      return [] as Array<typeof fileRecord.$inferSelect>;
+    return await db
+      .delete(fileRecord)
+      .where(
+        and(
+          eq(fileRecord.sceneId, sceneId),
+          inArray(fileRecord.utFileKey, fileKeys),
+        ),
+      )
       .returning();
   },
 
@@ -412,8 +445,10 @@ export const QUERIES = {
     return await db
       .delete(sceneCategory)
       .where(
-        eq(sceneCategory.sceneId, sceneId) &&
+        and(
+          eq(sceneCategory.sceneId, sceneId),
           eq(sceneCategory.categoryId, categoryId),
+        ),
       )
       .returning();
   },

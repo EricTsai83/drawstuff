@@ -189,9 +189,7 @@ export const scene = createTable(
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
-    revision: integer("revision")
-      .default(1)
-      .notNull(),
+    revision: integer("revision").default(1).notNull(),
     isArchived: boolean("is_archived")
       .$defaultFn(() => false)
       .notNull(), // 新增：是否已封存
@@ -229,7 +227,10 @@ export const sceneCategory = createTable(
   (table) => [
     index("scene_category_scene_id_idx").on(table.sceneId),
     index("scene_category_category_id_idx").on(table.categoryId),
-    index("unique_scene_category_idx").on(table.sceneId, table.categoryId),
+    uniqueIndex("unique_scene_category_idx").on(
+      table.sceneId,
+      table.categoryId,
+    ),
   ],
 );
 
@@ -250,6 +251,9 @@ export const sharedScene = createTable(
   "shared_scene",
   {
     sharedSceneId: text("shared_scene_id").primaryKey(), // 分享的 ID，如 "DpUOmthWKbgAHav1Ajtdd"
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
     compressedData: bytea("compressed_data"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
@@ -260,6 +264,7 @@ export const sharedScene = createTable(
   },
   (table) => [
     index("shared_scene_id_idx").on(table.sharedSceneId),
+    index("shared_scene_owner_id_idx").on(table.ownerId),
     index("shared_scene_created_at_idx").on(table.createdAt),
   ],
 );
@@ -310,6 +315,10 @@ export const fileRecord = createTable(
       table.sceneId,
       table.utFileKey,
     ),
+    uniqueIndex("file_record_shared_scene_name_unique").on(
+      table.sharedSceneId,
+      table.name,
+    ),
     // DB 層 XOR 約束：scene_id 與 shared_scene_id 必須且只能有一個有值
     check(
       "file_record_scene_or_shared_xor",
@@ -358,6 +367,7 @@ export const userRelations = relations(user, ({ many }) => ({
   accounts: many(account),
   workspaces: many(workspace),
   scenes: many(scene),
+  sharedScenes: many(sharedScene),
 }));
 
 // 新增 session 關聯定義
@@ -440,7 +450,11 @@ export const sceneCategoryRelations = relations(sceneCategory, ({ one }) => ({
   }),
 }));
 
-export const sharedSceneRelations = relations(sharedScene, ({ many }) => ({
+export const sharedSceneRelations = relations(sharedScene, ({ one, many }) => ({
+  owner: one(user, {
+    fields: [sharedScene.ownerId],
+    references: [user.id],
+  }),
   fileRecords: many(fileRecord), // 新增：文件記錄關聯
 }));
 
