@@ -4,7 +4,11 @@ import { useCallback, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
-import { saveSceneAction } from "@/server/actions";
+import {
+  cleanupSceneAssetUploadsAction,
+  createSceneDraftAction,
+  saveSceneAction,
+} from "@/server/actions";
 import { stringToBase64, toByteString } from "@/lib/encode";
 import { normalizeToArrayBuffer } from "@/lib/array-buffer";
 import {
@@ -25,6 +29,40 @@ export type SceneConflictInfo = {
   remoteRevision?: number;
 };
 
+function getUploadedFileKey(uploaded: unknown): string | undefined {
+  if (typeof uploaded !== "object" || uploaded === null) {
+    return undefined;
+  }
+
+  const item = uploaded as {
+    key?: unknown;
+    serverData?: { fileKey?: unknown };
+  };
+  const serverFileKey = item.serverData?.fileKey;
+  if (typeof serverFileKey === "string" && serverFileKey.length > 0) {
+    return serverFileKey;
+  }
+  return typeof item.key === "string" && item.key.length > 0
+    ? item.key
+    : undefined;
+}
+
+function assertSingleUploadResult(
+  uploadResult: unknown,
+  label: string,
+): string {
+  if (!Array.isArray(uploadResult) || uploadResult.length !== 1) {
+    throw new Error(`${label} upload did not return exactly one file`);
+  }
+
+  const fileKey = getUploadedFileKey(uploadResult[0]);
+  if (!fileKey) {
+    throw new Error(`${label} upload did not return a file key`);
+  }
+
+  return fileKey;
+}
+
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
   excalidrawAPI?: ExcalidrawImperativeAPI | null,
@@ -40,7 +78,6 @@ export function useCloudUpload(
     syncCurrentScene,
     clearCurrentScene,
     markCurrentSceneDirty,
-    updateLastSyncedRevision,
   } = useSceneSession();
   const currentSceneIdRef = useRef<string | undefined>(currentSceneId);
   currentSceneIdRef.current = currentSceneId;
@@ -51,9 +88,6 @@ export function useCloudUpload(
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
   const assetUpload = useUploadThing("sceneAssetUploader", {
-    onClientUploadComplete: () => {
-      setStatus("success");
-    },
     onUploadError: () => {
       setStatus("error");
     },
@@ -169,42 +203,6 @@ export function useCloudUpload(
             return false;
           }
 
-          const result = await saveSceneAction({
-            id: effectiveSceneId,
-            name: options?.name ?? safeNameFromState,
-            description: options?.description ?? "",
-            workspaceId: effectiveWorkspaceId,
-            data: base64Data,
-            categories: options?.categories,
-            expectedRevision:
-              effectiveSceneId !== undefined
-                ? lastSyncedRevisionRef.current
-                : undefined,
-          });
-          if (!result.ok) {
-            if (result.error === APP_ERROR.SCENE_NOT_FOUND) {
-              clearCurrentScene();
-              setStatus("idle");
-              onSceneNotFoundError();
-              return false;
-            }
-            if (result.error === APP_ERROR.SCENE_CONFLICT) {
-              setStatus("idle");
-              setLastConflict({
-                sceneId:
-                  result.data?.id ??
-                  effectiveSceneId ??
-                  currentSceneIdRef.current ??
-                  "",
-                remoteRevision: result.data?.revision,
-              });
-              return false;
-            }
-            throw new Error(result.message ?? result.error);
-          }
-          const { id, revision } = result.data;
-          const createdNewScene = effectiveSceneId === undefined;
-
           // 上傳壓縮檔案（不加密），與 sceneId 關聯
           const filesToUpload: File[] =
             prepared.compressedFilesData.length > 0
@@ -220,99 +218,190 @@ export function useCloudUpload(
                 })
               : [];
 
-          if (id) {
-            const uploadTasks: Promise<void>[] = [];
+          const sceneName = options?.name ?? safeNameFromState;
+          const sceneDescription = options?.description ?? "";
+          const createdNewScene = effectiveSceneId === undefined;
+          let targetSceneId = effectiveSceneId;
+          let expectedRevision = lastSyncedRevisionRef.current;
 
-            if (filesToUpload.length > 0) {
-              // 逐檔計算 SHA-256 並帶入 contentHash，並行上傳
-              const perFileUploads = filesToUpload.map(async (file) => {
-                const buf = await file.arrayBuffer();
-                const digest = await crypto.subtle.digest("SHA-256", buf);
-                const hashArray = Array.from(new Uint8Array(digest));
-                const contentHash = hashArray
-                  .map((b) => b.toString(16).padStart(2, "0"))
-                  .join("");
-                const uploadResult = await assetUpload.startUpload([file], {
-                  sceneId: id,
-                  contentHash,
-                });
-                if (uploadResult?.length !== 1) {
-                  throw new Error(`Asset upload failed for ${file.name}`);
-                }
-              });
-              uploadTasks.push(
-                Promise.all(perFileUploads).then(() => undefined),
-              );
+          if (!targetSceneId) {
+            const draftResult = await createSceneDraftAction({
+              name: sceneName,
+              description: sceneDescription,
+              workspaceId: effectiveWorkspaceId,
+            });
+
+            if (!draftResult.ok) {
+              throw new Error(draftResult.message ?? draftResult.error);
             }
 
-            // 產生 PNG 縮圖並上傳（與 sceneId 關聯）— 與資產上傳並行
-            uploadTasks.push(
-              (async () => {
-                try {
-                  const pngBlob = await exportSceneThumbnail(
-                    elements as readonly NonDeletedExcalidrawElement[],
-                    appState,
-                    files,
-                  );
-                  const thumbnailFile = new File([pngBlob], "thumbnail.png", {
-                    type: "image/png",
-                  });
-                  await thumbnailUpload.startUpload([thumbnailFile], {
-                    sceneId: id,
-                  });
-                } catch (thumbErr) {
-                  // 縮圖失敗不影響整體流程
-                  console.error(
-                    "Failed to generate/upload thumbnail after cloud upload:",
-                    thumbErr,
-                  );
-                }
-              })(),
-            );
+            targetSceneId = draftResult.data.id;
+            expectedRevision = draftResult.data.revision;
+          }
 
+          if (!targetSceneId || expectedRevision === undefined) {
+            throw new Error("Unable to prepare scene upload target");
+          }
+          const sceneIdForCommit = targetSceneId;
+          const expectedRevisionForCommit = expectedRevision;
+
+          const rollbackCreatedDraft = async () => {
+            if (!createdNewScene) {
+              return;
+            }
             try {
-              await Promise.all(uploadTasks);
-            } catch (uploadErr) {
-              console.error("Asset upload failed after scene save:", uploadErr);
-              markCurrentSceneDirty();
-              if (createdNewScene) {
-                try {
-                  await deleteSceneAsync({ id });
-                } catch (rollbackErr) {
-                  console.error(
-                    "Failed to rollback newly-created scene after asset upload failure:",
-                    rollbackErr,
-                  );
-                }
-              } else {
-                updateLastSyncedRevision(revision);
+              await deleteSceneAsync({ id: sceneIdForCommit });
+            } catch (rollbackErr) {
+              console.error(
+                "Failed to rollback newly-created scene draft:",
+                rollbackErr,
+              );
+            }
+          };
+
+          const cleanupUploadedAssetKeys = async (fileKeys: string[]) => {
+            if (fileKeys.length === 0) {
+              return;
+            }
+            try {
+              await cleanupSceneAssetUploadsAction({
+                sceneId: sceneIdForCommit,
+                fileKeys,
+              });
+            } catch (cleanupErr) {
+              console.error(
+                "Failed to cleanup uploaded scene assets:",
+                cleanupErr,
+              );
+            }
+          };
+
+          const uploadedAssetKeys: string[] = [];
+
+          if (filesToUpload.length > 0) {
+            const perFileUploads = filesToUpload.map(async (file) => {
+              const buf = await file.arrayBuffer();
+              const digest = await crypto.subtle.digest("SHA-256", buf);
+              const hashArray = Array.from(new Uint8Array(digest));
+              const contentHash = hashArray
+                .map((b) => b.toString(16).padStart(2, "0"))
+                .join("");
+              const uploadResult = await assetUpload.startUpload([file], {
+                sceneId: sceneIdForCommit,
+                contentHash,
+              });
+              return assertSingleUploadResult(
+                uploadResult,
+                `Asset ${file.name}`,
+              );
+            });
+
+            const settledUploads = await Promise.allSettled(perFileUploads);
+            for (const entry of settledUploads) {
+              if (entry.status === "fulfilled") {
+                uploadedAssetKeys.push(entry.value);
               }
+            }
+
+            const failedUpload = settledUploads.find(
+              (entry): entry is PromiseRejectedResult =>
+                entry.status === "rejected",
+            );
+            if (failedUpload) {
+              console.error(
+                "Asset upload failed before scene save:",
+                failedUpload.reason,
+              );
+              markCurrentSceneDirty();
+              await cleanupUploadedAssetKeys(uploadedAssetKeys);
+              await rollbackCreatedDraft();
               setStatus("error");
               toast.error(t("app.cloudUpload.toast.error.upload"));
               return false;
             }
-            // Sync session (id + revision + workspaceId) only after all uploads succeed,
-            // so isDirty remains true if uploads fail.
-            syncCurrentScene({
-              id: String(id),
-              revision,
-              workspaceId: effectiveWorkspaceId,
-            });
-            // 若沒有資產需要上傳，或所有並行任務皆已完成，明確標記為成功
-            setStatus("success");
-
-            // 可選地顯示成功 toast（由呼叫端統一顯示避免重複）
-            if (!options?.suppressSuccessToast) {
-              toast.success(t("app.cloudUpload.toast.success"));
-            }
-
-            // 完成雲端上傳後，讓清單失效以取得最新資料
-            void utils.scene.getUserScenesInfinite.invalidate();
-          } else {
-            setStatus("error");
-            toast.error(t("app.cloudUpload.toast.error.saveScene"));
-            return false;
           }
+
+          let result: Awaited<ReturnType<typeof saveSceneAction>>;
+          try {
+            result = await saveSceneAction({
+              id: sceneIdForCommit,
+              name: sceneName,
+              description: sceneDescription,
+              workspaceId: effectiveWorkspaceId,
+              data: base64Data,
+              categories: options?.categories,
+              expectedRevision: expectedRevisionForCommit,
+            });
+          } catch (saveErr) {
+            markCurrentSceneDirty();
+            await cleanupUploadedAssetKeys(uploadedAssetKeys);
+            await rollbackCreatedDraft();
+            throw saveErr;
+          }
+
+          if (!result.ok) {
+            markCurrentSceneDirty();
+            await cleanupUploadedAssetKeys(uploadedAssetKeys);
+            await rollbackCreatedDraft();
+
+            if (result.error === APP_ERROR.SCENE_NOT_FOUND) {
+              if (!createdNewScene) {
+                clearCurrentScene();
+                onSceneNotFoundError();
+              }
+              setStatus("idle");
+              return false;
+            }
+            if (result.error === APP_ERROR.SCENE_CONFLICT) {
+              setStatus("idle");
+              setLastConflict({
+                sceneId: result.data?.id ?? sceneIdForCommit,
+                remoteRevision: result.data?.revision,
+              });
+              return false;
+            }
+            throw new Error(result.message ?? result.error);
+          }
+          const { id, revision } = result.data;
+
+          try {
+            const pngBlob = await exportSceneThumbnail(
+              elements as readonly NonDeletedExcalidrawElement[],
+              appState,
+              files,
+            );
+            const thumbnailFile = new File([pngBlob], "thumbnail.png", {
+              type: "image/png",
+            });
+            const thumbnailResult = await thumbnailUpload.startUpload(
+              [thumbnailFile],
+              {
+                sceneId: id,
+              },
+            );
+            assertSingleUploadResult(thumbnailResult, "Thumbnail");
+          } catch (thumbErr) {
+            // 縮圖失敗不影響已完成的 scene + asset commit
+            console.error(
+              "Failed to generate/upload thumbnail after cloud upload:",
+              thumbErr,
+            );
+          }
+
+          syncCurrentScene({
+            id: String(id),
+            revision,
+            workspaceId: effectiveWorkspaceId,
+          });
+          setStatus("success");
+
+          // 可選地顯示成功 toast（由呼叫端統一顯示避免重複）
+          if (!options?.suppressSuccessToast) {
+            toast.success(t("app.cloudUpload.toast.success"));
+          }
+
+          // 完成雲端上傳後，讓清單失效以取得最新資料
+          void utils.scene.getUserScenesInfinite.invalidate();
         } catch (e) {
           console.error("Failed to save scene record to DB:", e);
           setStatus("error");
@@ -338,7 +427,6 @@ export function useCloudUpload(
       syncCurrentScene,
       clearCurrentScene,
       markCurrentSceneDirty,
-      updateLastSyncedRevision,
     ],
   );
 

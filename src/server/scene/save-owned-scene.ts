@@ -1,9 +1,12 @@
 import "server-only";
 
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/server/db";
 import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
-import type { SaveSceneInput } from "@/lib/schemas/scene";
+import type {
+  CreateSceneDraftInput,
+  SaveSceneInput,
+} from "@/lib/schemas/scene";
 
 type SaveOwnedSceneParams = {
   userId: string;
@@ -11,7 +14,25 @@ type SaveOwnedSceneParams = {
   now?: Date;
 };
 
+type CreateOwnedSceneDraftParams = {
+  userId: string;
+  input: CreateSceneDraftInput;
+  now?: Date;
+};
+
 type DbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
+
+export type CreateOwnedSceneDraftResult =
+  | {
+      status: "success";
+      data: {
+        id: string;
+        revision: number;
+        updatedAt: Date;
+      };
+    }
+  | { status: "forbidden"; message: string }
+  | { status: "validation_failed"; message: string };
 
 export type SaveOwnedSceneResult =
   | {
@@ -35,6 +56,61 @@ export type SaveOwnedSceneResult =
       };
     }
   | { status: "validation_failed"; message: string };
+
+export async function createOwnedSceneDraft({
+  userId,
+  input,
+  now = new Date(),
+}: CreateOwnedSceneDraftParams): Promise<CreateOwnedSceneDraftResult> {
+  return await db.transaction(async (tx) => {
+    if (input.workspaceId !== undefined) {
+      const [ownedWorkspace] = await tx
+        .select({ userId: workspace.userId })
+        .from(workspace)
+        .where(eq(workspace.id, input.workspaceId))
+        .limit(1);
+      if (ownedWorkspace?.userId !== userId) {
+        return {
+          status: "forbidden",
+          message: "Invalid workspace",
+        } as const;
+      }
+    }
+
+    const [createdScene] = await tx
+      .insert(scene)
+      .values({
+        name: input.name,
+        description: input.description,
+        workspaceId: input.workspaceId,
+        userId,
+        sceneData: null,
+        updatedAt: now,
+        lastUpdated: now,
+      })
+      .returning({
+        id: scene.id,
+        revision: scene.revision,
+        updatedAt: scene.updatedAt,
+      });
+
+    if (!createdScene?.id) {
+      return {
+        status: "validation_failed",
+        message: "Failed to create scene draft",
+      } as const;
+    }
+
+    return {
+      status: "success",
+      data: {
+        id: createdScene.id,
+        revision: createdScene.revision,
+        updatedAt: createdScene.updatedAt,
+      },
+    } as const;
+  });
+}
 
 export async function saveOwnedScene({
   userId,
@@ -103,6 +179,7 @@ export async function saveOwnedScene({
       columns: {
         id: true,
         revision: true,
+        sceneData: true,
         updatedAt: true,
       },
     });
@@ -121,7 +198,22 @@ export async function saveOwnedScene({
       } as const;
     }
 
-    const nextRevision = existingScene.revision + 1;
+    const isDraftFinalization = existingScene.sceneData === null;
+    const nextRevision = isDraftFinalization
+      ? existingScene.revision
+      : existingScene.revision + 1;
+    const updateWhere = isDraftFinalization
+      ? and(
+          eq(scene.id, input.id),
+          eq(scene.userId, userId),
+          eq(scene.revision, input.expectedRevision),
+          isNull(scene.sceneData),
+        )
+      : and(
+          eq(scene.id, input.id),
+          eq(scene.userId, userId),
+          eq(scene.revision, input.expectedRevision),
+        );
     const [updatedScene] = await tx
       .update(scene)
       .set({
@@ -135,13 +227,7 @@ export async function saveOwnedScene({
         lastUpdated: now,
         revision: nextRevision,
       })
-      .where(
-        and(
-          eq(scene.id, input.id),
-          eq(scene.userId, userId),
-          eq(scene.revision, input.expectedRevision),
-        ),
-      )
+      .where(updateWhere)
       .returning({
         id: scene.id,
         revision: scene.revision,

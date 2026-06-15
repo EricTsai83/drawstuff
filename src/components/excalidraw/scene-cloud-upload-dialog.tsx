@@ -212,7 +212,10 @@ export function SceneCloudUploadDialog({
                 <WorkspaceDropdown
                   options={workspaceOptions}
                   defaultValue={selectedWorkspaceId}
-                  onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
+                  onChange={(ws) => {
+                    setSelectedWorkspaceId(ws?.id);
+                    setPendingNewWorkspaceName(undefined);
+                  }}
                   onCreate={(name: string) => {
                     setSelectedWorkspaceId(undefined);
                     setPendingNewWorkspaceName(name);

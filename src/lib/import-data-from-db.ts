@@ -110,55 +110,62 @@ export async function getFileRecordsBySceneId(
   }
 }
 
+async function importSceneFilesFromRecords(
+  records: CloudFileRecord[],
+  decryptionKey: string,
+): Promise<BinaryFiles> {
+  if (records.length === 0) {
+    return {};
+  }
+
+  const decoder = new TextDecoder();
+  const entries = await Promise.allSettled(
+    records.map(async (record) => {
+      const response = await fetch(record.url);
+      if (!response.ok) {
+        return null;
+      }
+
+      const compressed = new Uint8Array(await response.arrayBuffer());
+      const { metadata, data } = await decompressData<SceneFileMetadata>(
+        compressed,
+        {
+          decryptionKey,
+        },
+      );
+      const dataURL = decoder.decode(data);
+      if (!dataURL.startsWith("data:")) {
+        return null;
+      }
+
+      const file: BinaryFileData = {
+        id: metadata.id,
+        dataURL: dataURL as DataURL,
+        mimeType: metadata.mimeType,
+        created: metadata.created,
+        lastRetrieved: metadata.lastRetrieved,
+      };
+
+      return [metadata.id, file] as const;
+    }),
+  );
+
+  const files: BinaryFiles = {};
+  for (const entry of entries) {
+    if (entry.status !== "fulfilled" || !entry.value) continue;
+    const [fileId, file] = entry.value;
+    files[fileId] = file;
+  }
+
+  return files;
+}
+
 export async function importSceneFilesBySceneId(
   sceneId: string,
 ): Promise<BinaryFiles> {
   try {
     const records = await getFileRecordsBySceneId(sceneId);
-    if (records.length === 0) {
-      return {};
-    }
-
-    const decoder = new TextDecoder();
-    const entries = await Promise.allSettled(
-      records.map(async (record) => {
-        const response = await fetch(record.url);
-        if (!response.ok) {
-          return null;
-        }
-
-        const compressed = new Uint8Array(await response.arrayBuffer());
-        const { metadata, data } = await decompressData<SceneFileMetadata>(
-          compressed,
-          {
-            decryptionKey: "",
-          },
-        );
-        const dataURL = decoder.decode(data);
-        if (!dataURL.startsWith("data:")) {
-          return null;
-        }
-
-        const file: BinaryFileData = {
-          id: metadata.id,
-          dataURL: dataURL as DataURL,
-          mimeType: metadata.mimeType,
-          created: metadata.created,
-          lastRetrieved: metadata.lastRetrieved,
-        };
-
-        return [metadata.id, file] as const;
-      }),
-    );
-
-    const files: BinaryFiles = {};
-    for (const entry of entries) {
-      if (entry.status !== "fulfilled" || !entry.value) continue;
-      const [fileId, file] = entry.value;
-      files[fileId] = file;
-    }
-
-    return files;
+    return importSceneFilesFromRecords(records, "");
   } catch (error: unknown) {
     console.error("importSceneFilesBySceneId error", error);
     return {};
@@ -171,50 +178,7 @@ export async function importSharedSceneFilesBySharedSceneId(
 ): Promise<BinaryFiles> {
   try {
     const records = await getFileRecordsBySharedSceneId(sharedSceneId);
-    if (records.length === 0) {
-      return {};
-    }
-
-    const decoder = new TextDecoder();
-    const entries = await Promise.allSettled(
-      records.map(async (record) => {
-        const response = await fetch(record.url);
-        if (!response.ok) {
-          return null;
-        }
-
-        const compressed = new Uint8Array(await response.arrayBuffer());
-        const { metadata, data } = await decompressData<SceneFileMetadata>(
-          compressed,
-          {
-            decryptionKey,
-          },
-        );
-        const dataURL = decoder.decode(data);
-        if (!dataURL.startsWith("data:")) {
-          return null;
-        }
-
-        const file: BinaryFileData = {
-          id: metadata.id,
-          dataURL: dataURL as DataURL,
-          mimeType: metadata.mimeType,
-          created: metadata.created,
-          lastRetrieved: metadata.lastRetrieved,
-        };
-
-        return [metadata.id, file] as const;
-      }),
-    );
-
-    const files: BinaryFiles = {};
-    for (const entry of entries) {
-      if (entry.status !== "fulfilled" || !entry.value) continue;
-      const [fileId, file] = entry.value;
-      files[fileId] = file;
-    }
-
-    return files;
+    return importSceneFilesFromRecords(records, decryptionKey);
   } catch (error: unknown) {
     console.error("importSharedSceneFilesBySharedSceneId error", error);
     return {};

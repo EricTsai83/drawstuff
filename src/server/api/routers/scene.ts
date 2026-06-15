@@ -4,7 +4,7 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "@/server/api/trpc";
-import { and, eq, ilike, lt, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, ilike, isNotNull, lt, or, sql, type SQL } from "drizzle-orm";
 import {
   category,
   scene,
@@ -162,7 +162,10 @@ export const sceneRouter = createTRPCRouter({
 
   getUserScenes: protectedProcedure.query(async ({ ctx }) => {
     const scenes = await ctx.db.query.scene.findMany({
-      where: eq(scene.userId, ctx.auth.user.id),
+      where: and(
+        eq(scene.userId, ctx.auth.user.id),
+        isNotNull(scene.sceneData),
+      ),
       orderBy: (scene, { desc }) => [desc(scene.updatedAt)],
     });
     return scenes;
@@ -213,6 +216,7 @@ export const sceneRouter = createTRPCRouter({
       // 型別安全的條件累加（使用非空 tuple，避免 undefined 聯集）
       const whereClauses: [SQL, ...SQL[]] = [
         eq(scene.userId, ctx.auth.user.id),
+        isNotNull(scene.sceneData),
       ];
       if (input.workspaceId) {
         whereClauses.push(eq(scene.workspaceId, input.workspaceId));
@@ -431,7 +435,11 @@ export const sceneRouter = createTRPCRouter({
     .output(publishMutationOutput)
     .mutation(async ({ ctx, input }) => {
       const ownedScene = await ctx.db.query.scene.findFirst({
-        where: and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
+        where: and(
+          eq(scene.id, input.id),
+          eq(scene.userId, ctx.auth.user.id),
+          isNotNull(scene.sceneData),
+        ),
         columns: {
           id: true,
           publishedSlug: true,
