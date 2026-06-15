@@ -9,6 +9,11 @@ function createClient() {
       httpBatchStreamLink({
         transformer: SuperJSON,
         url: getBaseUrl() + "/api/trpc",
+        fetch: (url, options) =>
+          fetch(url, {
+            ...options,
+            credentials: "include",
+          }),
       }),
     ],
   });
