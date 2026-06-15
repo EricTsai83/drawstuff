@@ -68,6 +68,30 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }
 
+function getCenteredZoomState(
+  appState: AppState,
+  nextZoom: AppState["zoom"]["value"],
+): Pick<AppState, "scrollX" | "scrollY" | "zoom"> {
+  const viewportCenterX = appState.offsetLeft + appState.width / 2;
+  const viewportCenterY = appState.offsetTop + appState.height / 2;
+  const appLayerX = viewportCenterX - appState.offsetLeft;
+  const appLayerY = viewportCenterY - appState.offsetTop;
+  const currentZoom = appState.zoom.value;
+  const baseScrollX = appState.scrollX + appLayerX - appLayerX / currentZoom;
+  const baseScrollY = appState.scrollY + appLayerY - appLayerY / currentZoom;
+  const zoomOffsetScrollX = -(appLayerX - appLayerX / nextZoom);
+  const zoomOffsetScrollY = -(appLayerY - appLayerY / nextZoom);
+
+  return {
+    scrollX: baseScrollX + zoomOffsetScrollX,
+    scrollY: baseScrollY + zoomOffsetScrollY,
+    zoom: {
+      ...appState.zoom,
+      value: nextZoom,
+    },
+  };
+}
+
 const ICON_BTN =
   "inline-flex h-10 w-10 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
@@ -236,13 +260,15 @@ export function PublishedSceneViewer({
       if (!excalidrawAPI) return;
       const current = excalidrawAPI.getAppState();
       const nextZoom = clamp(current.zoom.value * factor, MIN_ZOOM, MAX_ZOOM);
+      if (nextZoom === current.zoom.value) return;
+
       excalidrawAPI.updateScene({
         appState: {
           ...current,
-          zoom: {
-            ...current.zoom,
-            value: nextZoom as AppState["zoom"]["value"],
-          },
+          ...getCenteredZoomState(
+            current,
+            nextZoom as AppState["zoom"]["value"],
+          ),
         },
       });
     },
