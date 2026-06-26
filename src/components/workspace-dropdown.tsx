@@ -206,7 +206,7 @@ function WorkspaceDropdownComponent(
           aria-label={`Current workspace: ${triggerLabel ?? options[0]?.name ?? "None"}`}
           {...restProps}
         >
-          <div className="flex w-0 flex-grow items-center gap-2 overflow-hidden">
+          <div className="flex w-0 grow items-center gap-2 overflow-hidden">
             <span className="overflow-hidden text-ellipsis whitespace-nowrap">
               {triggerLabel}
             </span>
@@ -223,7 +223,7 @@ function WorkspaceDropdownComponent(
         <PopoverContent
           collisionPadding={10}
           side="bottom"
-          className="w-auto min-w-[var(--radix-popper-anchor-width)] p-0"
+          className="w-auto min-w-(--radix-popper-anchor-width) p-0"
           data-prevent-outside-click
         >
           <Command
@@ -298,7 +298,7 @@ function WorkspaceDropdownComponent(
                       }
                     }}
                   >
-                    <div className="flex w-0 flex-grow space-x-2 overflow-hidden">
+                    <div className="flex w-0 grow space-x-2 overflow-hidden">
                       <div className="flex flex-col overflow-hidden">
                         {creating ? (
                           <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
@@ -337,7 +337,7 @@ function WorkspaceDropdownComponent(
                       key={option.id}
                       onSelect={() => handleSelect(option)}
                     >
-                      <div className="flex w-0 flex-grow space-x-2 overflow-hidden">
+                      <div className="flex w-0 grow space-x-2 overflow-hidden">
                         <div className="flex flex-col overflow-hidden">
                           <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
                             {option.name}
