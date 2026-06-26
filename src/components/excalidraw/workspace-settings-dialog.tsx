@@ -97,20 +97,8 @@ export default function WorkspaceSettingsDialog({
 
   const updateMutation = api.workspace.update.useMutation({
     onSuccess: async (updated) => {
-      utils.workspace.listWithMeta.setData(undefined, (current) => {
-        if (!current) return current;
-
-        return {
-          ...current,
-          workspaces: current.workspaces.map((workspace) =>
-            workspace.id === updated.id
-              ? { ...workspace, ...updated }
-              : workspace,
-          ),
-        };
-      });
-      void utils.workspace.listWithMeta.invalidate();
-      void utils.scene.getUserScenesInfinite.invalidate();
+      await utils.workspace.listWithMeta.invalidate();
+      await utils.scene.getUserScenesInfinite.invalidate();
       toast.success("Workspace updated");
       onRenamed?.(updated.id, updated.name);
       handleOpenChange(false);

@@ -129,7 +129,7 @@ function WorkspaceDropdownComponent(
       const match = options.find((it) => it.id === defaultValue);
       if (match) {
         setPendingCreatedName(undefined);
-        setSelectedWorkspace((prev) => (prev?.id === match.id ? prev : match));
+        setSelectedWorkspace(match);
         return;
       }
     }
@@ -137,8 +137,7 @@ function WorkspaceDropdownComponent(
     // 預設不自動選第一個，保留 undefined 讓 Trigger 顯示 session 名稱
     setSelectedWorkspace((prev) => {
       if (!prev) return undefined;
-      const stillExists = options.some((o) => o.id === prev.id);
-      return stillExists ? prev : undefined;
+      return options.find((o) => o.id === prev.id);
     });
   }, [defaultValue, options]);
 

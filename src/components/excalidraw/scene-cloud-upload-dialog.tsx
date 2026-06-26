@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Dialog,
   DialogContent,
@@ -72,19 +72,17 @@ export function SceneCloudUploadDialog({
   const [pendingNewWorkspaceName, setPendingNewWorkspaceName] = useState<
     string | undefined
   >(undefined);
+  const didInitRef = useRef(false);
   const {
     workspaces: workspaceOptions,
     defaultWorkspaceId,
     lastActiveWorkspaceId,
-    refetchWorkspaces,
   } = useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
 
   const utils = api.useUtils();
   const createWorkspaceMutation = api.workspace.create.useMutation({
     onSuccess: async () => {
-      // 背景刷新 workspace 列表
-      await Promise.allSettled([utils.workspace.listWithMeta.invalidate()]);
-      void refetchWorkspaces();
+      await utils.workspace.listWithMeta.invalidate();
     },
     onError: (err) => {
       toast.error(err.message ?? "Failed to create workspace");
@@ -103,9 +101,12 @@ export function SceneCloudUploadDialog({
 
   useEffect(
     function syncDefaultsWhenOpen() {
-      if (!open) return;
-      // 背景刷新，不阻塞 UI
-      void refetchWorkspaces();
+      if (!open) {
+        didInitRef.current = false;
+        return;
+      }
+      if (didInitRef.current) return;
+      didInitRef.current = true;
       const currentName = excalidrawAPI?.getName?.() ?? "";
       // 以 RHF 控制欄位值
       form.reset({
@@ -118,15 +119,22 @@ export function SceneCloudUploadDialog({
       setSelectedWorkspaceId(lastActiveWorkspaceId ?? defaultWorkspaceId);
       setPendingNewWorkspaceName(undefined);
     },
-    [
-      open,
-      excalidrawAPI,
-      defaultWorkspaceId,
-      lastActiveWorkspaceId,
-      refetchWorkspaces,
-      form,
-    ],
+    [open, excalidrawAPI, defaultWorkspaceId, lastActiveWorkspaceId, form],
   );
+
+  useEffect(() => {
+    if (!open || selectedWorkspaceId || pendingNewWorkspaceName) return;
+    const nextWorkspaceId = lastActiveWorkspaceId ?? defaultWorkspaceId;
+    if (nextWorkspaceId) {
+      setSelectedWorkspaceId(nextWorkspaceId);
+    }
+  }, [
+    open,
+    selectedWorkspaceId,
+    pendingNewWorkspaceName,
+    lastActiveWorkspaceId,
+    defaultWorkspaceId,
+  ]);
 
   // focus handled by RHF setFocus when needed
 
@@ -141,7 +149,6 @@ export function SceneCloudUploadDialog({
           name: pendingNewWorkspaceName.trim(),
         });
         workspaceIdToUse = created.id;
-        await Promise.allSettled([utils.workspace.listWithMeta.invalidate()]);
         setPendingNewWorkspaceName(undefined);
       } catch (err) {
         toast.error((err as Error)?.message ?? "Failed to create workspace");

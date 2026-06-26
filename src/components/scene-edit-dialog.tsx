@@ -51,12 +51,8 @@ export function SceneEditDialog({
     string | undefined
   >(undefined);
 
-  const {
-    workspaces,
-    defaultWorkspaceId,
-    lastActiveWorkspaceId,
-    refetchWorkspaces,
-  } = useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
+  const { workspaces, defaultWorkspaceId, lastActiveWorkspaceId } =
+    useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
 
   const parsedCategories = useMemo<string[]>(
     function parseCategories() {
@@ -77,7 +73,6 @@ export function SceneEditDialog({
     }
     if (didInitRef.current) return;
     didInitRef.current = true;
-    void refetchWorkspaces();
     setName(initial.name ?? "");
     setDescription(initial.description ?? "");
     setCategoryOptions(
@@ -97,7 +92,28 @@ export function SceneEditDialog({
     initial.workspaceId,
     defaultWorkspaceId,
     lastActiveWorkspaceId,
-    refetchWorkspaces,
+  ]);
+
+  useEffect(() => {
+    if (
+      !open ||
+      initial.workspaceId ||
+      selectedWorkspaceId ||
+      pendingNewWorkspaceName
+    ) {
+      return;
+    }
+    const nextWorkspaceId = lastActiveWorkspaceId ?? defaultWorkspaceId;
+    if (nextWorkspaceId) {
+      setSelectedWorkspaceId(nextWorkspaceId);
+    }
+  }, [
+    open,
+    initial.workspaceId,
+    selectedWorkspaceId,
+    pendingNewWorkspaceName,
+    lastActiveWorkspaceId,
+    defaultWorkspaceId,
   ]);
 
   function handleConfirm(): void {
