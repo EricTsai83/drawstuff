@@ -69,10 +69,12 @@ export function SceneEditDialog({
   useEffect(() => {
     if (!open) {
       didInitRef.current = false;
+      setPendingNewWorkspaceName(undefined);
       return;
     }
     if (didInitRef.current) return;
     didInitRef.current = true;
+    setPendingNewWorkspaceName(undefined);
     setName(initial.name ?? "");
     setDescription(initial.description ?? "");
     setCategoryOptions(
@@ -172,7 +174,10 @@ export function SceneEditDialog({
               <WorkspaceDropdown
                 options={workspaces}
                 defaultValue={selectedWorkspaceId}
-                onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
+                onChange={(ws) => {
+                  setPendingNewWorkspaceName(undefined);
+                  setSelectedWorkspaceId(ws?.id);
+                }}
                 onCreate={(name: string) => setPendingNewWorkspaceName(name)}
               />
             </div>
