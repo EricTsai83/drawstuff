@@ -161,12 +161,13 @@ function WorkspaceDropdownComponent(
           ? await onCreate(name)
           : await createWorkspaceMutation.mutateAsync({ name });
         if (created?.id) {
-          setSelectedWorkspace(created as Workspace);
+          const createdWorkspace: Workspace = created;
+          setSelectedWorkspace(createdWorkspace);
           setPendingCreatedName(undefined);
           if (onCreateSuccess) {
-            onCreateSuccess(created as Workspace);
+            onCreateSuccess(createdWorkspace);
           } else {
-            onChange?.(created as Workspace);
+            onChange?.(createdWorkspace);
           }
         } else if (onCreate) {
           setSelectedWorkspace(undefined);
