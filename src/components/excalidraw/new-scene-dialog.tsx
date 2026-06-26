@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import {
   Dialog,
   DialogContent,
@@ -57,6 +57,7 @@ export function NewSceneDialog({
   const [pendingNewWorkspaceName, setPendingNewWorkspaceName] = useState<
     string | undefined
   >(undefined);
+  const didInitRef = useRef(false);
   // content selection is controlled by react-hook-form (contentMode)
 
   const schema = z.object({
@@ -77,7 +78,6 @@ export function NewSceneDialog({
     workspaces: workspaceOptions,
     defaultWorkspaceId,
     lastActiveWorkspaceId,
-    refetchWorkspaces,
   } = useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
 
   // 此元件不直接建立 workspace，僅回傳可能的名稱
@@ -91,36 +91,45 @@ export function NewSceneDialog({
   };
 
   useEffect(() => {
-    if (!isOpen) return;
-    async function syncDefaultsWhenOpen() {
-      // 先取用最新的 workspace 清單與 lastActive，避免初開時出現過期值
-      const result = await refetchWorkspaces();
-      const latestDefaultWorkspaceId = result.data?.defaultWorkspaceId;
-      const latestLastActiveWorkspaceId = result.data?.lastActiveWorkspaceId;
-      const nextWorkspaceId =
-        presetWorkspaceId ??
-        latestLastActiveWorkspaceId ??
-        latestDefaultWorkspaceId ??
-        lastActiveWorkspaceId ??
-        defaultWorkspaceId;
-      setSelectedWorkspaceId(nextWorkspaceId);
-      form.reset({
-        name: "",
-        description: "",
-        contentMode: presetContentMode ?? "reset",
-      });
-      setPendingNewWorkspaceName(undefined);
-      setTimeout(() => form.setFocus("name"), 0);
+    if (!isOpen) {
+      didInitRef.current = false;
+      return;
     }
-    void syncDefaultsWhenOpen();
+    if (didInitRef.current) return;
+    didInitRef.current = true;
+    const nextWorkspaceId =
+      presetWorkspaceId ?? lastActiveWorkspaceId ?? defaultWorkspaceId;
+    setSelectedWorkspaceId(nextWorkspaceId);
+    form.reset({
+      name: "",
+      description: "",
+      contentMode: presetContentMode ?? "reset",
+    });
+    setPendingNewWorkspaceName(undefined);
+    setTimeout(() => form.setFocus("name"), 0);
   }, [
     isOpen,
     defaultWorkspaceId,
     lastActiveWorkspaceId,
-    refetchWorkspaces,
     form,
     presetWorkspaceId,
     presetContentMode,
+  ]);
+
+  useEffect(() => {
+    if (!isOpen || selectedWorkspaceId || pendingNewWorkspaceName) return;
+    const nextWorkspaceId =
+      presetWorkspaceId ?? lastActiveWorkspaceId ?? defaultWorkspaceId;
+    if (nextWorkspaceId) {
+      setSelectedWorkspaceId(nextWorkspaceId);
+    }
+  }, [
+    isOpen,
+    selectedWorkspaceId,
+    pendingNewWorkspaceName,
+    presetWorkspaceId,
+    lastActiveWorkspaceId,
+    defaultWorkspaceId,
   ]);
 
   async function handleConfirm(values: FormValues): Promise<void> {

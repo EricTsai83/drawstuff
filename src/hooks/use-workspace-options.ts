@@ -2,7 +2,6 @@
 
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/trpc/react";
-import {} from "react";
 
 export type WorkspaceOption = {
   id: string;
@@ -27,7 +26,6 @@ export function useWorkspaceOptions(params: UseWorkspaceOptionsParams = {}) {
     data: workspacesData,
     isLoading: isLoadingList,
     isFetching: isFetchingList,
-    refetch: refetchWorkspaces,
   } = api.workspace.listWithMeta.useQuery(undefined, {
     enabled,
     staleTime,
@@ -48,6 +46,5 @@ export function useWorkspaceOptions(params: UseWorkspaceOptionsParams = {}) {
     activeWorkspaceId: lastActiveWorkspaceId,
     isLoading: isLoadingList,
     isFetchingWorkspaces: isFetchingList,
-    refetchWorkspaces,
   } as const;
 }

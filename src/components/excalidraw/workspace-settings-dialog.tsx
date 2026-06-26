@@ -99,32 +99,28 @@ export default function WorkspaceSettingsDialog({
     onSuccess: async (updated) => {
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesInfinite.invalidate();
-      toast.success("Workspace updated");
-      if (updated?.id) {
-        onRenamed?.(updated.id, updated.name ?? "");
-      }
+      toast.success(t("workspace.settings.toast.updated"));
+      onRenamed?.(updated.id, updated.name);
       handleOpenChange(false);
     },
     onError: (err) => {
-      toast.error(err.message ?? "Failed to update workspace");
+      toast.error(err.message ?? t("workspace.settings.toast.updateFailed"));
     },
     onSettled: () => setSaving(false),
   });
 
   const deleteMutation = api.workspace.delete.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_deletedWorkspace, variables) => {
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesInfinite.invalidate();
-      toast.success("Workspace deleted");
-      if (active?.id) {
-        onDeleted?.(active.id);
-      }
+      toast.success(t("workspace.settings.toast.deleted"));
+      onDeleted?.(variables.id);
       setConfirmInline(false);
       setConfirmText("");
       handleOpenChange(false);
     },
     onError: (err) => {
-      toast.error(err.message ?? "Failed to delete workspace");
+      toast.error(err.message ?? t("workspace.settings.toast.deleteFailed"));
     },
     onSettled: () => setDeleting(false),
   });
@@ -215,7 +211,7 @@ export default function WorkspaceSettingsDialog({
             </>
           ) : (
             <>
-              <div className="bg-destructive/5 flex items-start gap-3 rounded-lg border border-destructive/20 p-4">
+              <div className="bg-destructive/5 border-destructive/20 flex items-start gap-3 rounded-lg border p-4">
                 <TriangleAlert className="text-destructive mt-0.5 size-5 shrink-0" />
                 <div className="space-y-1">
                   <p className="text-sm font-medium">
@@ -285,75 +281,80 @@ export default function WorkspaceSettingsDialog({
           /* ── Rename / Full mode ── */
           <div className="space-y-6">
             <Form {...form}>
-                <form
-                  onSubmit={form.handleSubmit((values) => {
-                    if (!active) return;
-                    const trimmed = (values.name ?? "").trim();
-                    if (!trimmed) return;
-                    setSaving(true);
-                    updateMutation.mutate({ id: active.id, name: trimmed });
-                  })}
-                  noValidate
-                  className="space-y-2"
-                >
-                  <FormField
-                    control={form.control}
-                    name="name"
-                    rules={{ required: false }}
-                    render={() => (
-                      <FormItem>
-                        <FormLabel htmlFor="ws-name">Workspace Name</FormLabel>
-                        <FormControl>
-                          <Input
-                            id="ws-name"
-                            placeholder="Workspace name"
-                            disabled={!canEdit}
-                            autoComplete="off"
-                            autoCorrect="off"
-                            autoCapitalize="off"
-                            spellCheck={false}
-                            {...form.register("name")}
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {!canEdit && (
-                    <p className="text-muted-foreground text-xs">
-                      Select an active workspace first.
-                    </p>
+              <form
+                onSubmit={form.handleSubmit((values) => {
+                  if (!active) return;
+                  const trimmed = (values.name ?? "").trim();
+                  if (!trimmed) return;
+                  setSaving(true);
+                  updateMutation.mutate({ id: active.id, name: trimmed });
+                })}
+                noValidate
+                className="space-y-2"
+              >
+                <FormField
+                  control={form.control}
+                  name="name"
+                  rules={{ required: false }}
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel htmlFor="ws-name">
+                        {t("workspace.settings.nameLabel")}
+                      </FormLabel>
+                      <FormControl>
+                        <Input
+                          id="ws-name"
+                          placeholder={t("workspace.settings.namePlaceholder")}
+                          disabled={!canEdit}
+                          autoComplete="off"
+                          autoCorrect="off"
+                          autoCapitalize="off"
+                          spellCheck={false}
+                          {...field}
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                  <div className="flex justify-end">
-                    <Button
-                      size="sm"
-                      type="submit"
-                      className={cn(
-                        "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
-                        { "w-[16ch]": saving },
-                      )}
-                      disabled={isSaveButtonDisabled()}
-                      aria-busy={saving}
-                    >
-                      {saving ? (
-                        <>
-                          <Loader2 className="size-4 animate-spin" /> Saving...
-                        </>
-                      ) : (
-                        "Save"
-                      )}
-                    </Button>
-                  </div>
-                </form>
-              </Form>
+                />
+
+                {!canEdit && (
+                  <p className="text-muted-foreground text-xs">
+                    {t("workspace.settings.selectActiveFirst")}
+                  </p>
+                )}
+                <div className="flex justify-end">
+                  <Button
+                    size="sm"
+                    type="submit"
+                    className={cn(
+                      "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
+                      { "w-[16ch]": saving },
+                    )}
+                    disabled={isSaveButtonDisabled()}
+                    aria-busy={saving}
+                  >
+                    {saving ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" />
+                        {t("workspace.settings.saving")}
+                      </>
+                    ) : (
+                      t("workspace.settings.save")
+                    )}
+                  </Button>
+                </div>
+              </form>
+            </Form>
 
             {mode !== "rename" && (
               <div className="border-destructive/30 rounded-md border p-4">
                 <div className="mb-2">
-                  <h4 className="text-destructive font-semibold">Danger Zone</h4>
+                  <h4 className="text-destructive font-semibold">
+                    {t("workspace.settings.dangerZone")}
+                  </h4>
                   <p className="text-muted-foreground text-sm">
-                    Deleting a workspace will permanently remove all its scenes.
+                    {t("workspace.settings.dangerDescription")}
                   </p>
                 </div>
                 {!confirmInline ? (
@@ -363,12 +364,12 @@ export default function WorkspaceSettingsDialog({
                         <TooltipTrigger asChild>
                           <span className="inline-block">
                             <Button variant="destructive" disabled>
-                              Delete this workspace
+                              {t("workspace.settings.deleteThisWorkspace")}
                             </Button>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="right" variant="secondary">
-                          Default workspace cannot be deleted.
+                          {t("workspace.settings.defaultCannotDeleteShort")}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -382,7 +383,7 @@ export default function WorkspaceSettingsDialog({
                       }}
                       className="transition-[width] duration-300 ease-in-out"
                     >
-                      Delete this workspace
+                      {t("workspace.settings.deleteThisWorkspace")}
                     </Button>
                   )
                 ) : (
@@ -395,8 +396,10 @@ export default function WorkspaceSettingsDialog({
                     <Input
                       placeholder={
                         active?.name
-                          ? `Type "${active.name}" to confirm`
-                          : "Type workspace name to confirm"
+                          ? t("workspace.settings.typeNameToConfirm", {
+                              name: active.name,
+                            })
+                          : t("workspace.settings.typeWorkspaceNameToConfirm")
                       }
                       value={confirmText}
                       onChange={(e) => setConfirmText(e.target.value)}
@@ -414,7 +417,7 @@ export default function WorkspaceSettingsDialog({
                           setConfirmText("");
                         }}
                       >
-                        Cancel
+                        {t("workspace.settings.cancel")}
                       </Button>
                       <Button
                         className={cn(
@@ -426,7 +429,11 @@ export default function WorkspaceSettingsDialog({
                         )}
                         disabled={deleting || !isNameConfirmed}
                         aria-busy={deleting}
-                        aria-label={deleting ? "Deleting..." : "Confirm delete"}
+                        aria-label={
+                          deleting
+                            ? t("workspace.settings.deleting")
+                            : t("workspace.settings.confirmDeleteAction")
+                        }
                         onClick={() => {
                           if (!active || deleting || !isNameConfirmed) return;
                           setDeleting(true);
@@ -435,10 +442,11 @@ export default function WorkspaceSettingsDialog({
                       >
                         {deleting ? (
                           <>
-                            <Loader2 className="h-4 w-4 animate-spin" /> Deleting...
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {t("workspace.settings.deleting")}
                           </>
                         ) : (
-                          "Confirm delete"
+                          t("workspace.settings.confirmDeleteAction")
                         )}
                       </Button>
                     </div>
