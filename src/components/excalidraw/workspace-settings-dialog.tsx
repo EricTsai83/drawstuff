@@ -99,12 +99,12 @@ export default function WorkspaceSettingsDialog({
     onSuccess: async (updated) => {
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesInfinite.invalidate();
-      toast.success("Workspace updated");
+      toast.success(t("workspace.settings.toast.updated"));
       onRenamed?.(updated.id, updated.name);
       handleOpenChange(false);
     },
     onError: (err) => {
-      toast.error(err.message ?? "Failed to update workspace");
+      toast.error(err.message ?? t("workspace.settings.toast.updateFailed"));
     },
     onSettled: () => setSaving(false),
   });
@@ -113,7 +113,7 @@ export default function WorkspaceSettingsDialog({
     onSuccess: async () => {
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesInfinite.invalidate();
-      toast.success("Workspace deleted");
+      toast.success(t("workspace.settings.toast.deleted"));
       if (active?.id) {
         onDeleted?.(active.id);
       }
@@ -122,7 +122,7 @@ export default function WorkspaceSettingsDialog({
       handleOpenChange(false);
     },
     onError: (err) => {
-      toast.error(err.message ?? "Failed to delete workspace");
+      toast.error(err.message ?? t("workspace.settings.toast.deleteFailed"));
     },
     onSettled: () => setDeleting(false),
   });
@@ -298,19 +298,21 @@ export default function WorkspaceSettingsDialog({
                   control={form.control}
                   name="name"
                   rules={{ required: false }}
-                  render={() => (
+                  render={({ field }) => (
                     <FormItem>
-                      <FormLabel htmlFor="ws-name">Workspace Name</FormLabel>
+                      <FormLabel htmlFor="ws-name">
+                        {t("workspace.settings.nameLabel")}
+                      </FormLabel>
                       <FormControl>
                         <Input
                           id="ws-name"
-                          placeholder="Workspace name"
+                          placeholder={t("workspace.settings.namePlaceholder")}
                           disabled={!canEdit}
                           autoComplete="off"
                           autoCorrect="off"
                           autoCapitalize="off"
                           spellCheck={false}
-                          {...form.register("name")}
+                          {...field}
                         />
                       </FormControl>
                       <FormMessage />
@@ -320,7 +322,7 @@ export default function WorkspaceSettingsDialog({
 
                 {!canEdit && (
                   <p className="text-muted-foreground text-xs">
-                    Select an active workspace first.
+                    {t("workspace.settings.selectActiveFirst")}
                   </p>
                 )}
                 <div className="flex justify-end">
@@ -336,10 +338,11 @@ export default function WorkspaceSettingsDialog({
                   >
                     {saving ? (
                       <>
-                        <Loader2 className="size-4 animate-spin" /> Saving...
+                        <Loader2 className="size-4 animate-spin" />
+                        {t("workspace.settings.saving")}
                       </>
                     ) : (
-                      "Save"
+                      t("workspace.settings.save")
                     )}
                   </Button>
                 </div>
@@ -350,10 +353,10 @@ export default function WorkspaceSettingsDialog({
               <div className="border-destructive/30 rounded-md border p-4">
                 <div className="mb-2">
                   <h4 className="text-destructive font-semibold">
-                    Danger Zone
+                    {t("workspace.settings.dangerZone")}
                   </h4>
                   <p className="text-muted-foreground text-sm">
-                    Deleting a workspace will permanently remove all its scenes.
+                    {t("workspace.settings.dangerDescription")}
                   </p>
                 </div>
                 {!confirmInline ? (
@@ -363,12 +366,12 @@ export default function WorkspaceSettingsDialog({
                         <TooltipTrigger asChild>
                           <span className="inline-block">
                             <Button variant="destructive" disabled>
-                              Delete this workspace
+                              {t("workspace.settings.deleteThisWorkspace")}
                             </Button>
                           </span>
                         </TooltipTrigger>
                         <TooltipContent side="right" variant="secondary">
-                          Default workspace cannot be deleted.
+                          {t("workspace.settings.defaultCannotDeleteShort")}
                         </TooltipContent>
                       </Tooltip>
                     </TooltipProvider>
@@ -382,7 +385,7 @@ export default function WorkspaceSettingsDialog({
                       }}
                       className="transition-[width] duration-300 ease-in-out"
                     >
-                      Delete this workspace
+                      {t("workspace.settings.deleteThisWorkspace")}
                     </Button>
                   )
                 ) : (
@@ -395,8 +398,10 @@ export default function WorkspaceSettingsDialog({
                     <Input
                       placeholder={
                         active?.name
-                          ? `Type "${active.name}" to confirm`
-                          : "Type workspace name to confirm"
+                          ? t("workspace.settings.typeNameToConfirm", {
+                              name: active.name,
+                            })
+                          : t("workspace.settings.typeWorkspaceNameToConfirm")
                       }
                       value={confirmText}
                       onChange={(e) => setConfirmText(e.target.value)}
@@ -414,7 +419,7 @@ export default function WorkspaceSettingsDialog({
                           setConfirmText("");
                         }}
                       >
-                        Cancel
+                        {t("workspace.settings.cancel")}
                       </Button>
                       <Button
                         className={cn(
@@ -426,7 +431,11 @@ export default function WorkspaceSettingsDialog({
                         )}
                         disabled={deleting || !isNameConfirmed}
                         aria-busy={deleting}
-                        aria-label={deleting ? "Deleting..." : "Confirm delete"}
+                        aria-label={
+                          deleting
+                            ? t("workspace.settings.deleting")
+                            : t("workspace.settings.confirmDeleteAction")
+                        }
                         onClick={() => {
                           if (!active || deleting || !isNameConfirmed) return;
                           setDeleting(true);
@@ -435,11 +444,11 @@ export default function WorkspaceSettingsDialog({
                       >
                         {deleting ? (
                           <>
-                            <Loader2 className="h-4 w-4 animate-spin" />{" "}
-                            Deleting...
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            {t("workspace.settings.deleting")}
                           </>
                         ) : (
-                          "Confirm delete"
+                          t("workspace.settings.confirmDeleteAction")
                         )}
                       </Button>
                     </div>
