@@ -110,13 +110,11 @@ export default function WorkspaceSettingsDialog({
   });
 
   const deleteMutation = api.workspace.delete.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (_deletedWorkspace, variables) => {
       await utils.workspace.listWithMeta.invalidate();
       await utils.scene.getUserScenesInfinite.invalidate();
       toast.success(t("workspace.settings.toast.deleted"));
-      if (active?.id) {
-        onDeleted?.(active.id);
-      }
+      onDeleted?.(variables.id);
       setConfirmInline(false);
       setConfirmText("");
       handleOpenChange(false);
