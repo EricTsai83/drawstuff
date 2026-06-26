@@ -50,7 +50,6 @@ export function SceneSearchList() {
   } = useWorkspaceOptions();
   const params = useSearchParams();
   const { t } = useStandaloneI18n();
-  const utils = api.useUtils();
 
   const paramWorkspaceId = params.get("workspaceId") ?? undefined;
   const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
@@ -276,19 +275,7 @@ export function SceneSearchList() {
         onOpenChange={setRenameWorkspaceOpen}
         workspaceId={selectedWorkspace?.id}
         mode="rename"
-        onRenamed={(workspaceId: string, newName: string) => {
-          utils.workspace.listWithMeta.setData(undefined, (current) => {
-            if (!current) return current;
-
-            return {
-              ...current,
-              workspaces: current.workspaces.map((workspace) =>
-                workspace.id === workspaceId
-                  ? { ...workspace, name: newName }
-                  : workspace,
-              ),
-            };
-          });
+        onRenamed={(workspaceId: string) => {
           setOverrideWorkspaceId(workspaceId);
           setRenameWorkspaceOpen(false);
         }}
