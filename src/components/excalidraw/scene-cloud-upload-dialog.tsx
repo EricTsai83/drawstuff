@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { WhiteboardEngine } from "@/features/whiteboard";
 import SearchableAndCreatableSelector from "@/components/searchable-and-creatable-selector";
 import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
@@ -33,7 +33,7 @@ import {
 type SceneCloudUploadDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  excalidrawAPI?: ExcalidrawImperativeAPI | null;
+  engine?: WhiteboardEngine | null;
   onConfirm: (payload: {
     name: string;
     description: string;
@@ -45,7 +45,7 @@ type SceneCloudUploadDialogProps = {
 export function SceneCloudUploadDialog({
   open,
   onOpenChange,
-  excalidrawAPI,
+  engine,
   onConfirm,
 }: SceneCloudUploadDialogProps) {
   const schema = z.object({
@@ -105,7 +105,7 @@ export function SceneCloudUploadDialog({
       }
       if (didInitRef.current) return;
       didInitRef.current = true;
-      const currentName = excalidrawAPI?.getName?.() ?? "";
+      const currentName = engine?.getEditorState().name ?? "";
       // 以 RHF 控制欄位值
       form.reset({
         name: currentName ?? "",
@@ -117,7 +117,7 @@ export function SceneCloudUploadDialog({
       setSelectedWorkspaceId(lastActiveWorkspaceId ?? defaultWorkspaceId);
       setPendingNewWorkspaceName(undefined);
     },
-    [open, excalidrawAPI, defaultWorkspaceId, lastActiveWorkspaceId, form],
+    [open, engine, defaultWorkspaceId, lastActiveWorkspaceId, form],
   );
 
   useEffect(() => {

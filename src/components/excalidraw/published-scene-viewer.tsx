@@ -1,7 +1,5 @@
 "use client";
 
-import "@excalidraw/excalidraw/index.css";
-import { Excalidraw, MainMenu } from "@excalidraw/excalidraw";
 import {
   Eye,
   EyeOff,
@@ -13,16 +11,21 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  ExcalidrawImperativeAPI,
-  ExcalidrawInitialDataState,
-} from "@excalidraw/excalidraw/types";
-import type { AppState } from "@excalidraw/excalidraw/types";
 import Link from "next/link";
 import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";
+import type {
+  WhiteboardEngine,
+  WhiteboardViewport,
+} from "@/features/whiteboard";
+import {
+  ExcalidrawCanvas,
+  ExcalidrawMainMenu as MainMenu,
+  toWhiteboardDocument,
+  type WhiteboardInitialData,
+} from "@/features/whiteboard/adapters/excalidraw";
 
 type PublishedSceneViewerProps = {
   sceneData: string;
@@ -50,26 +53,23 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function getCenteredZoomState(
-  appState: AppState,
-  nextZoom: AppState["zoom"]["value"],
-): Pick<AppState, "scrollX" | "scrollY" | "zoom"> {
-  const viewportCenterX = appState.offsetLeft + appState.width / 2;
-  const viewportCenterY = appState.offsetTop + appState.height / 2;
-  const appLayerX = viewportCenterX - appState.offsetLeft;
-  const appLayerY = viewportCenterY - appState.offsetTop;
-  const currentZoom = appState.zoom.value;
-  const baseScrollX = appState.scrollX + appLayerX - appLayerX / currentZoom;
-  const baseScrollY = appState.scrollY + appLayerY - appLayerY / currentZoom;
+  viewport: WhiteboardViewport,
+  nextZoom: number,
+): Pick<WhiteboardViewport, "x" | "y" | "zoom"> {
+  const viewportCenterX = viewport.offsetX + viewport.width / 2;
+  const viewportCenterY = viewport.offsetY + viewport.height / 2;
+  const appLayerX = viewportCenterX - viewport.offsetX;
+  const appLayerY = viewportCenterY - viewport.offsetY;
+  const currentZoom = viewport.zoom;
+  const baseScrollX = viewport.x + appLayerX - appLayerX / currentZoom;
+  const baseScrollY = viewport.y + appLayerY - appLayerY / currentZoom;
   const zoomOffsetScrollX = -(appLayerX - appLayerX / nextZoom);
   const zoomOffsetScrollY = -(appLayerY - appLayerY / nextZoom);
 
   return {
-    scrollX: baseScrollX + zoomOffsetScrollX,
-    scrollY: baseScrollY + zoomOffsetScrollY,
-    zoom: {
-      ...appState.zoom,
-      value: nextZoom,
-    },
+    x: baseScrollX + zoomOffsetScrollX,
+    y: baseScrollY + zoomOffsetScrollY,
+    zoom: nextZoom,
   };
 }
 
@@ -90,12 +90,12 @@ export function PublishedSceneViewer({
 }: PublishedSceneViewerProps) {
   const { t } = useStandaloneI18n();
   const { setTheme, browserActiveTheme } = useSyncTheme();
-  const [initialData, setInitialData] =
-    useState<ExcalidrawInitialDataState | null>(null);
+  const [initialData, setInitialData] = useState<WhiteboardInitialData | null>(
+    null,
+  );
   const [loadError, setLoadError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [excalidrawAPI, setExcalidrawAPI] =
-    useState<ExcalidrawImperativeAPI | null>(null);
+  const [engine, setEngine] = useState<WhiteboardEngine | null>(null);
   const [hasAutoCentered, setHasAutoCentered] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
@@ -121,7 +121,14 @@ export function PublishedSceneViewer({
           signal: controller.signal,
         });
         if (!isActive) return;
-        setInitialData(loaded);
+        setInitialData({
+          ...toWhiteboardDocument(
+            loaded.elements ?? [],
+            loaded.appState ?? {},
+            loaded.files ?? {},
+          ),
+          scrollToContent: loaded.scrollToContent,
+        });
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;
@@ -147,28 +154,30 @@ export function PublishedSceneViewer({
   }, [fileRecords, sceneData]);
 
   useEffect(() => {
-    if (!excalidrawAPI) return;
-    const current = excalidrawAPI.getAppState();
-    if (current.theme !== browserActiveTheme) {
-      excalidrawAPI.updateScene({
-        appState: { ...current, theme: browserActiveTheme },
-      });
+    if (!engine) return;
+    if (engine.getEditorState().theme !== browserActiveTheme) {
+      engine.updateEditorState({ theme: browserActiveTheme });
     }
-  }, [browserActiveTheme, excalidrawAPI]);
+  }, [browserActiveTheme, engine]);
 
   useEffect(() => {
-    if (!excalidrawAPI || !initialData || hasAutoCentered) return;
+    if (!engine || !initialData || hasAutoCentered) return;
 
     let attempts = 0;
     let timer: number | undefined;
 
     const tryCenter = () => {
       attempts += 1;
-      const elements = excalidrawAPI.getSceneElements() ?? [];
+      let elements: ReturnType<WhiteboardEngine["getDocument"]>["elements"];
+      try {
+        elements = engine.getDocument().elements;
+      } catch {
+        return;
+      }
       const hasContent = elements.some((element) => !element.isDeleted);
 
       if (hasContent) {
-        excalidrawAPI.scrollToContent(undefined, FIT_TO_VIEWPORT_OPTIONS);
+        engine.fitToContent(FIT_TO_VIEWPORT_OPTIONS);
         setHasAutoCentered(true);
         return;
       }
@@ -183,7 +192,7 @@ export function PublishedSceneViewer({
     return () => {
       if (timer) window.clearTimeout(timer);
     };
-  }, [excalidrawAPI, hasAutoCentered, initialData]);
+  }, [engine, hasAutoCentered, initialData]);
 
   useEffect(() => {
     if (!uiVisible) return;
@@ -243,50 +252,31 @@ export function PublishedSceneViewer({
   }, [controlsMenuOpen]);
 
   const fitToScreen = useCallback(() => {
-    if (!excalidrawAPI) return;
-    excalidrawAPI.scrollToContent(undefined, FIT_TO_VIEWPORT_OPTIONS);
-  }, [excalidrawAPI]);
+    engine?.fitToContent(FIT_TO_VIEWPORT_OPTIONS);
+  }, [engine]);
 
   const zoomBy = useCallback(
     (factor: number) => {
-      if (!excalidrawAPI) return;
-      const current = excalidrawAPI.getAppState();
-      const nextZoom = clamp(current.zoom.value * factor, MIN_ZOOM, MAX_ZOOM);
-      if (nextZoom === current.zoom.value) return;
-
-      excalidrawAPI.updateScene({
-        appState: {
-          ...current,
-          ...getCenteredZoomState(
-            current,
-            nextZoom as AppState["zoom"]["value"],
-          ),
-        },
-      });
+      if (!engine) return;
+      const current = engine.getViewport();
+      const nextZoom = clamp(current.zoom * factor, MIN_ZOOM, MAX_ZOOM);
+      if (nextZoom === current.zoom) return;
+      engine.updateViewport(getCenteredZoomState(current, nextZoom));
     },
-    [excalidrawAPI],
+    [engine],
   );
 
   const resetView = useCallback(() => {
-    if (!excalidrawAPI) return;
-    const current = excalidrawAPI.getAppState();
-    excalidrawAPI.updateScene({
-      appState: {
-        ...current,
-        zoom: {
-          ...current.zoom,
-          value: 1 as AppState["zoom"]["value"],
-        },
-      },
-    });
+    if (!engine) return;
+    engine.updateViewport({ zoom: 1 });
 
     requestAnimationFrame(() => {
-      excalidrawAPI.scrollToContent(undefined, {
+      engine.fitToContent({
         fitToViewport: false,
         animate: false,
       });
     });
-  }, [excalidrawAPI]);
+  }, [engine]);
 
   const toggleTheme = useCallback(() => {
     setTheme(browserActiveTheme === "light" ? "dark" : "light");
@@ -503,8 +493,8 @@ export function PublishedSceneViewer({
             style={{ opacity: hasAutoCentered ? 1 : 0 }}
           >
             {initialData && (
-              <Excalidraw
-                excalidrawAPI={setExcalidrawAPI}
+              <ExcalidrawCanvas
+                onEngineReady={setEngine}
                 initialData={initialData}
                 theme={browserActiveTheme}
                 viewModeEnabled
@@ -559,7 +549,7 @@ export function PublishedSceneViewer({
                     </Link>
                   </MainMenu.ItemCustom>
                 </MainMenu>
-              </Excalidraw>
+              </ExcalidrawCanvas>
             )}
           </div>
         )}

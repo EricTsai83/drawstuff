@@ -1,26 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type {
-  AppState,
-  BinaryFiles,
-  ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { useDebounce } from "@/hooks/use-debounce";
 import { saveData } from "@/lib/excalidraw";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import type {
+  WhiteboardDocument,
+  WhiteboardEngine,
+} from "@/features/whiteboard";
 
 export type UseScenePersistenceResult = {
   sceneName: string;
-  handleSceneChange: (
-    elements: readonly OrderedExcalidrawElement[],
-    appState: AppState,
-    files: BinaryFiles,
-  ) => void;
   handleSetSceneName: (newName: string) => void;
 };
 
 export function useScenePersistence(
-  excalidrawAPI?: ExcalidrawImperativeAPI | null,
+  engine?: WhiteboardEngine | null,
 ): UseScenePersistenceResult {
   const [sceneName, setSceneName] = useState<string>("");
   const [debouncedSave] = useDebounce(saveData, 300);
@@ -35,27 +28,19 @@ export function useScenePersistence(
   // 初始同步一次目前名稱
   useEffect(
     function syncInitialNameFromAPI() {
-      if (!excalidrawAPI) return;
+      if (!engine) return;
       try {
-        const currentName =
-          (excalidrawAPI.getName?.() as string | undefined) ??
-          excalidrawAPI.getAppState()?.name ??
-          "";
-        setSceneName(currentName ?? "");
+        setSceneName(engine.getEditorState().name);
       } catch {
         setSceneName("");
       }
     },
-    [excalidrawAPI],
+    [engine],
   );
 
   const handleSceneChange = useCallback(
-    (
-      elements: readonly OrderedExcalidrawElement[],
-      appState: AppState,
-      files: BinaryFiles,
-    ): void => {
-      setSceneName(appState.name ?? "");
+    (document: WhiteboardDocument): void => {
+      setSceneName(document.state.name ?? "");
       if (
         currentSceneId &&
         !skipDirtyRef.current &&
@@ -63,7 +48,13 @@ export function useScenePersistence(
       ) {
         markCurrentSceneDirty();
       }
-      debouncedSave({ elements, appState, files });
+      debouncedSave({
+        elements: document.elements as Parameters<
+          typeof saveData
+        >[0]["elements"],
+        appState: document.state as Parameters<typeof saveData>[0]["appState"],
+        files: document.assets as Parameters<typeof saveData>[0]["files"],
+      });
     },
     [
       currentSceneId,
@@ -72,24 +63,30 @@ export function useScenePersistence(
       shouldSuppressDirtyTracking,
     ],
   );
+  const handleSceneChangeRef = useRef(handleSceneChange);
+  handleSceneChangeRef.current = handleSceneChange;
+
+  useEffect(() => {
+    if (!engine) return;
+    return engine.subscribeDocument((document) => {
+      handleSceneChangeRef.current(document);
+    });
+  }, [engine]);
 
   const handleSetSceneName = useCallback(
     (newName: string): void => {
-      if (!excalidrawAPI) return;
+      if (!engine) return;
       skipDirtyRef.current = true;
       try {
-        const currentAppState = excalidrawAPI.getAppState();
-        excalidrawAPI.updateScene({
-          appState: { ...currentAppState, name: newName },
-        });
+        engine.updateEditorState({ name: newName });
       } catch (error) {
         console.error("Failed to update scene name:", error);
       } finally {
         skipDirtyRef.current = false;
       }
     },
-    [excalidrawAPI],
+    [engine],
   );
 
-  return { sceneName, handleSceneChange, handleSetSceneName };
+  return { sceneName, handleSetSceneName };
 }

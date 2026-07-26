@@ -1,6 +1,6 @@
 "use client";
 
-import { MainMenu } from "@excalidraw/excalidraw";
+import { ExcalidrawMainMenu as MainMenu } from "@/features/whiteboard/adapters/excalidraw";
 import {
   useRef,
   memo,
@@ -13,10 +13,7 @@ import { LanguageSelector } from "./app-language/language-selector";
 import Link from "next/link";
 import { Bluesky, Github, Blog } from "@/components/icons";
 import { useOutsideClick } from "@/hooks/use-outside-click";
-import type {
-  AppState,
-  ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
+import type { WhiteboardEngine } from "@/features/whiteboard";
 import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
 import {
   LogIn,
@@ -48,33 +45,18 @@ type AppMainMenuProps = {
   setTheme: Dispatch<SetStateAction<UserChosenTheme>>;
   langCode: string;
   onLangCodeChange: (langCode: string) => void;
-  excalidrawAPI: ExcalidrawImperativeAPI | null;
+  engine: WhiteboardEngine | null;
   handleSetSceneName: (name: string) => void;
   sceneName: string;
   showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
-
-const DEFAULT_ZOOM_VALUE = 1 as AppState["zoom"]["value"];
-
-function createResetZoomState(
-  currentZoom: AppState["zoom"] | undefined,
-): AppState["zoom"] {
-  if (
-    currentZoom &&
-    typeof currentZoom.value === "number" &&
-    Number.isFinite(currentZoom.value)
-  ) {
-    return { ...currentZoom, value: DEFAULT_ZOOM_VALUE };
-  }
-  return { value: DEFAULT_ZOOM_VALUE };
-}
 
 function AppMainMenu({
   userChosenTheme,
   setTheme,
   langCode,
   onLangCodeChange,
-  excalidrawAPI,
+  engine,
   handleSetSceneName,
   sceneName,
   showConfirmDialog,
@@ -98,7 +80,7 @@ function AppMainMenu({
   const { uploadSceneToCloud, clearCurrentScene, currentSceneId } =
     useCloudUpload(() => {
       // 若找不到場景（理論上新建時不會），忽略
-    }, excalidrawAPI);
+    }, engine);
   const utils = api.useUtils();
   const renameSceneMutation = api.scene.renameScene.useMutation();
   const pendingRenameRef = useRef<string | undefined>(undefined);
@@ -116,17 +98,8 @@ function AppMainMenu({
   const { updateLastSyncedRevision, currentWorkspaceId } = useSceneSession();
 
   const closeMenu = useCallback(() => {
-    const currentAppState = excalidrawAPI?.getAppState();
-    if (!currentAppState) {
-      return;
-    }
-    excalidrawAPI?.updateScene({
-      appState: {
-        ...currentAppState,
-        openMenu: null,
-      },
-    });
-  }, [excalidrawAPI]);
+    engine?.updateEditorState({ openMenu: null });
+  }, [engine]);
 
   useOutsideClick(menuRef, closeMenu);
 
@@ -278,14 +251,14 @@ function AppMainMenu({
           // 新建場景的語義：清除 currentSceneId，避免覆寫既有場景
           clearCurrentScene();
           // 重置畫布為空
-          const currentAppState = excalidrawAPI?.getAppState();
-          if (currentAppState) {
-            const resetZoom = createResetZoomState(currentAppState.zoom);
-            excalidrawAPI?.updateScene({
+          if (engine) {
+            const currentDocument = engine.getDocument();
+            engine.loadDocument({
+              ...currentDocument,
               elements: [],
-              appState: {
-                ...currentAppState,
-                zoom: resetZoom,
+              state: {
+                ...currentDocument.state,
+                zoom: { value: 1 },
                 name,
               },
             });
@@ -312,7 +285,7 @@ function AppMainMenu({
     },
     [
       clearCurrentScene,
-      excalidrawAPI,
+      engine,
       handleSetSceneName,
       setLastActiveMutation,
       utils,
@@ -505,7 +478,7 @@ function AppMainMenu({
       {/* 將 Dialog 渲染在主選單外，避免關閉主選單時一併卸載 */}
 
       <SceneRenameDialog
-        excalidrawAPI={excalidrawAPI}
+        engine={engine}
         open={renameOpen}
         onOpenChange={setRenameOpen}
         onConfirmName={(name) => {

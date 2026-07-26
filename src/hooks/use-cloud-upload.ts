@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { WhiteboardEngine } from "@/features/whiteboard";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
 import {
@@ -64,7 +64,7 @@ function assertSingleUploadResult(
 
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
-  excalidrawAPI?: ExcalidrawImperativeAPI | null,
+  engine?: WhiteboardEngine | null,
 ) {
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [lastConflict, setLastConflict] = useState<SceneConflictInfo | null>(
@@ -117,7 +117,7 @@ export function useCloudUpload(
       setLastConflict(null);
 
       try {
-        const scene = getCurrentSceneSnapshot(excalidrawAPI);
+        const scene = getCurrentSceneSnapshot(engine);
         if (!scene) {
           setStatus("error");
           toast.error(t("app.cloudUpload.toast.error.sceneData"));
@@ -419,7 +419,7 @@ export function useCloudUpload(
       assetUpload,
       thumbnailUpload,
       deleteSceneAsync,
-      excalidrawAPI,
+      engine,
       utils,
       t,
       onSceneNotFoundError,

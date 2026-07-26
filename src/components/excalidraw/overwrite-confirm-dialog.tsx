@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Download, Image as ImageIcon, CloudUpload } from "lucide-react";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { WhiteboardEngine } from "@/features/whiteboard";
 import { useOverwriteConfirm } from "@/hooks/excalidraw/use-overwrite-confirm";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { getCurrentSceneSnapshot } from "@/lib/excalidraw";
@@ -18,11 +18,11 @@ import { parseSharedSceneHash } from "@/lib/utils";
 import { importSharedSceneFilesBySharedSceneId } from "@/lib/import-data-from-db";
 
 export function OverwriteConfirmDialog({
-  excalidrawAPI,
+  engine,
   clearCurrentSceneId,
   onSceneNotFoundError,
 }: {
-  excalidrawAPI: ExcalidrawImperativeAPI | null;
+  engine: WhiteboardEngine | null;
   clearCurrentSceneId: () => void;
   onSceneNotFoundError?: () => void;
 }) {
@@ -35,7 +35,7 @@ export function OverwriteConfirmDialog({
     handleSaveToDisk,
     handleUploadToCloud,
   } = useOverwriteConfirm({
-    excalidrawAPI,
+    engine,
     onSceneNotFoundError,
   });
   const { t, langCode } = useAppI18n();
@@ -62,7 +62,7 @@ export function OverwriteConfirmDialog({
       const id = parsed.id;
       const privateKey = parsed.key;
 
-      const current = getCurrentSceneSnapshot(excalidrawAPI);
+      const current = getCurrentSceneSnapshot(engine);
       const hasCurrentScene = !!current && current.elements.length > 0;
 
       const shareableLinkConfirmDialog = {
@@ -96,17 +96,14 @@ export function OverwriteConfirmDialog({
               importSharedSceneFilesBySharedSceneId(id, privateKey),
             ]);
 
-            if (excalidrawAPI) {
-              excalidrawAPI.updateScene({
+            if (engine) {
+              engine.loadDocument({
                 elements: scene.elements,
-                appState: {
-                  ...(scene.appState ?? {}),
+                state: {
+                  ...scene.appState,
                 },
+                assets: files,
               });
-              const filesToAdd = Object.values(files);
-              if (filesToAdd.length > 0) {
-                excalidrawAPI.addFiles(filesToAdd);
-              }
             }
           } catch (e) {
             console.error("透過 URL 載入場景失敗:", e);
@@ -129,7 +126,7 @@ export function OverwriteConfirmDialog({
 
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [excalidrawAPI, t, langCode, clearCurrentSceneId]);
+  }, [engine, t, langCode, clearCurrentSceneId]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>

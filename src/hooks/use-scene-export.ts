@@ -1,8 +1,11 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type {
+  WhiteboardAsset,
+  WhiteboardDocumentState,
+  WhiteboardElement,
+} from "@/features/whiteboard";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
@@ -46,9 +49,9 @@ export function useSceneExport() {
 
   const exportScene = useCallback(
     async (
-      elements: readonly NonDeletedExcalidrawElement[],
-      appState: Partial<AppState>,
-      files: BinaryFiles,
+      elements: readonly WhiteboardElement[],
+      appState: WhiteboardDocumentState,
+      files: Readonly<Record<string, WhiteboardAsset>>,
     ): Promise<string | null> => {
       if (exportStatus === "exporting") {
         setExportErrorMessage("Export already in progress");

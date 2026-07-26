@@ -1,12 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
-import type {
-  AppState,
-  BinaryFiles,
-  ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import { useCallback, useEffect, useRef } from "react";
 import {
   hasCompleteSceneFileHydration,
   saveToLocalStorage,
@@ -16,6 +10,11 @@ import {
   importSceneFilesBySceneId,
 } from "@/lib/import-data-from-db";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import type {
+  WhiteboardAsset,
+  WhiteboardDocumentState,
+  WhiteboardEngine,
+} from "@/features/whiteboard";
 
 type ApplyRemoteSceneParams = {
   sceneId: string;
@@ -34,11 +33,18 @@ export function isApplyResultAcceptable(
   return result.ok || result.reason === "incomplete_files";
 }
 
-export function useApplyRemoteScene(
-  excalidrawAPI: ExcalidrawImperativeAPI | null,
-) {
+export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
+  const cancelCenteringRef = useRef<(() => void) | null>(null);
   const { suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene } =
     useSceneSession();
+
+  useEffect(
+    () => () => {
+      cancelCenteringRef.current?.();
+      cancelCenteringRef.current = null;
+    },
+    [engine],
+  );
 
   const applyRemoteScene = useCallback(
     async ({
@@ -46,17 +52,21 @@ export function useApplyRemoteScene(
       getActiveTheme,
       shouldCenter = true,
     }: ApplyRemoteSceneParams): Promise<ApplyRemoteSceneResult> => {
-      if (!excalidrawAPI) {
+      if (!engine) {
         return { ok: false, reason: "scene_data_missing" };
       }
+      cancelCenteringRef.current?.();
+      cancelCenteringRef.current = null;
 
       // 1. Fetch scene data and files in parallel for faster perceived load
       let imported: Awaited<ReturnType<typeof importSceneDataBySceneId>>;
-      let fetchedFiles: BinaryFiles;
+      let fetchedFiles: Readonly<Record<string, WhiteboardAsset>>;
       try {
         [imported, fetchedFiles] = await Promise.all([
           importSceneDataBySceneId(sceneId),
-          importSceneFilesBySceneId(sceneId).catch((): BinaryFiles => ({})),
+          importSceneFilesBySceneId(sceneId).catch(
+            (): Readonly<Record<string, WhiteboardAsset>> => ({}),
+          ),
         ]);
       } catch (error) {
         console.error("Failed to import remote scene data:", error);
@@ -68,11 +78,11 @@ export function useApplyRemoteScene(
       }
 
       // 2. Prepare merged appState
-      const baseAppState = excalidrawAPI.getAppState() as AppState | undefined;
-      const mergedAppState: AppState = {
-        ...(baseAppState ?? ({} as AppState)),
-        ...(imported.appState ?? {}),
-        theme: getActiveTheme?.() ?? baseAppState?.theme ?? "light",
+      const baseAppState = engine.getDocument().state;
+      const mergedAppState: WhiteboardDocumentState = {
+        ...baseAppState,
+        ...(imported.appState as WhiteboardDocumentState | undefined),
+        theme: getActiveTheme?.() ?? baseAppState.theme ?? "light",
       };
 
       const elements = imported.elements ?? [];
@@ -85,9 +95,10 @@ export function useApplyRemoteScene(
         // 3. Update canvas — elements are shown immediately.
         //    If the scene has images, Excalidraw renders placeholder boxes for
         //    any fileIds not yet in its file store; we inject files right after.
-        excalidrawAPI.updateScene({
+        engine.loadDocument({
           elements,
-          appState: mergedAppState,
+          state: mergedAppState,
+          assets: fetchedFiles,
         });
 
         // 4. Center viewport before file injection so the user sees content ASAP
@@ -95,32 +106,28 @@ export function useApplyRemoteScene(
           imported.appState &&
           (typeof imported.appState.scrollX === "number" ||
             typeof imported.appState.scrollY === "number" ||
-            typeof (imported.appState as Partial<AppState>).zoom === "object"),
+            typeof imported.appState.zoom === "object"),
         );
 
         if (shouldCenter && !hasViewportFromImported) {
-          queueCenterToContent(excalidrawAPI);
+          cancelCenteringRef.current = queueCenterToContent(engine);
         }
 
         // 5. Inject files (already fetched in parallel, so this is instant)
-        const filesToInject = Object.values(fetchedFiles);
-        if (filesToInject.length > 0) {
-          const existingFiles = excalidrawAPI.getFiles?.() ?? {};
-          excalidrawAPI.addFiles?.(
-            filesToInject.filter((file) => !existingFiles[file.id]),
-          );
-        }
-
         // 6. Validate file completeness — determines whether we can trust
         //    the local snapshot as a reliable cache for next startup.
         const filesComplete = hasCompleteSceneFileHydration(
           elements,
-          fetchedFiles,
+          fetchedFiles as Parameters<typeof hasCompleteSceneFileHydration>[1],
         );
 
         if (filesComplete) {
           // Full hydration: persist to localStorage so next cold-start is instant.
-          saveToLocalStorage(elements, mergedAppState, fetchedFiles);
+          saveToLocalStorage(
+            elements,
+            mergedAppState as Parameters<typeof saveToLocalStorage>[1],
+            fetchedFiles as Parameters<typeof saveToLocalStorage>[2],
+          );
         }
         // Always sync the session (id + revision) regardless of file completeness,
         // so the revision check keeps working.
@@ -150,36 +157,43 @@ export function useApplyRemoteScene(
         });
       }
     },
-    [
-      excalidrawAPI,
-      suppressDirtyTracking,
-      resumeDirtyTracking,
-      syncCurrentScene,
-    ],
+    [engine, suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene],
   );
 
   return { applyRemoteScene } as const;
 }
 
-function queueCenterToContent(excalidrawAPI: ExcalidrawImperativeAPI) {
+function queueCenterToContent(engine: WhiteboardEngine): () => void {
   let attempts = 0;
+  let cancelled = false;
+  let timer: number | undefined;
   const tryCenter = () => {
+    if (cancelled) return;
     attempts += 1;
-    const elements =
-      (excalidrawAPI.getSceneElements() as readonly ExcalidrawElement[]) ?? [];
+    let elements: ReturnType<WhiteboardEngine["getDocument"]>["elements"];
+    try {
+      elements = engine.getDocument().elements;
+    } catch {
+      return;
+    }
     const hasContent = elements.some((element) => !element.isDeleted);
     if (hasContent) {
-      excalidrawAPI.scrollToContent(undefined, {
-        fitToViewport: true,
+      engine.fitToContent({
         viewportZoomFactor: 0.5,
         animate: false,
       });
       return;
     }
     if (attempts < 10) {
-      window.setTimeout(tryCenter, 80);
+      timer = window.setTimeout(tryCenter, 80);
     }
   };
 
-  window.setTimeout(tryCenter, 0);
+  timer = window.setTimeout(tryCenter, 0);
+  return () => {
+    cancelled = true;
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+    }
+  };
 }

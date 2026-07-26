@@ -2,23 +2,23 @@ import { useCallback } from "react";
 import { toast } from "sonner";
 import { getCurrentSceneSnapshot, saveSceneJsonToDisk } from "@/lib/excalidraw";
 import type {
-  AppState,
-  BinaryFiles,
-  ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+  WhiteboardAsset,
+  WhiteboardDocumentState,
+  WhiteboardElement,
+  WhiteboardEngine,
+} from "@/features/whiteboard";
 
 type ExportDeps = {
   exportScene: (
-    els: readonly NonDeletedExcalidrawElement[],
-    state: Partial<AppState>,
-    fls: BinaryFiles,
+    els: readonly WhiteboardElement[],
+    state: WhiteboardDocumentState,
+    fls: Readonly<Record<string, WhiteboardAsset>>,
   ) => Promise<string | null>;
   uploadSceneToCloud: () => Promise<boolean>;
   onShareSuccess?: (url: string) => void;
   isExporting: boolean;
   isUploading: boolean;
-  excalidrawAPI?: ExcalidrawImperativeAPI | null;
+  engine?: WhiteboardEngine | null;
 };
 
 export function useExportHandlers({
@@ -27,15 +27,19 @@ export function useExportHandlers({
   onShareSuccess,
   isExporting,
   isUploading,
-  excalidrawAPI,
+  engine,
 }: ExportDeps) {
   const handleSaveToDisk = useCallback(function handleSaveToDisk(
-    elements: readonly NonDeletedExcalidrawElement[],
-    appState: Partial<AppState>,
-    files: BinaryFiles,
+    elements: readonly WhiteboardElement[],
+    appState: WhiteboardDocumentState,
+    files: Readonly<Record<string, WhiteboardAsset>>,
   ): void {
     try {
-      saveSceneJsonToDisk(elements, appState, files);
+      saveSceneJsonToDisk(
+        elements as Parameters<typeof saveSceneJsonToDisk>[0],
+        appState as Parameters<typeof saveSceneJsonToDisk>[1],
+        files as Parameters<typeof saveSceneJsonToDisk>[2],
+      );
       toast.success("File saved to disk successfully!");
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
@@ -61,12 +65,12 @@ export function useExportHandlers({
 
   const handleExportLink = useCallback(async (): Promise<void> => {
     if (isExporting || isUploading) return;
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    const scene = getCurrentSceneSnapshot(engine);
     if (!scene) return;
     const url = await exportScene(scene.elements, scene.appState, scene.files);
     if (!url) return;
     onShareSuccess?.(url);
-  }, [exportScene, onShareSuccess, isExporting, isUploading, excalidrawAPI]);
+  }, [exportScene, onShareSuccess, isExporting, isUploading, engine]);
 
   return { handleSaveToDisk, handleCloudUpload, handleExportLink };
 }

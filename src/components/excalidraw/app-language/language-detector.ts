@@ -1,4 +1,7 @@
-import { defaultLang, languages } from "@excalidraw/excalidraw";
+import {
+  excalidrawDefaultLang as defaultLang,
+  excalidrawLanguages as languages,
+} from "@/features/whiteboard/adapters/excalidraw";
 import LanguageDetector from "i18next-browser-languagedetector";
 
 const languageDetector = new LanguageDetector();

@@ -12,11 +12,11 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { WhiteboardEngine } from "@/features/whiteboard";
 import { useState, useRef, useEffect, type ReactNode } from "react";
 
 type SceneRenameDialogProps = {
-  excalidrawAPI: ExcalidrawImperativeAPI | null;
+  engine: WhiteboardEngine | null;
   trigger?: ReactNode;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
@@ -24,7 +24,7 @@ type SceneRenameDialogProps = {
 };
 
 export function SceneRenameDialog({
-  excalidrawAPI,
+  engine,
   trigger,
   open,
   onOpenChange,
@@ -80,7 +80,7 @@ export function SceneRenameDialog({
 
   useEffect(() => {
     if (isOpen) {
-      const currentName = excalidrawAPI?.getName?.() ?? "";
+      const currentName = engine?.getEditorState().name ?? "";
       setInitialName(currentName);
       setSceneName(currentName);
       // 在開啟時聚焦並全選輸入框
@@ -95,7 +95,7 @@ export function SceneRenameDialog({
         }
       });
     }
-  }, [isOpen, excalidrawAPI]);
+  }, [isOpen, engine]);
 
   function canConfirmName(name: string) {
     const trimmed = name.trim();
