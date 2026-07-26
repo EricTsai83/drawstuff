@@ -17,19 +17,12 @@ import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { workspaceNameSchema } from "@/lib/schemas/workspace";
 import { Loader2, TriangleAlert } from "lucide-react";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Field, FieldError, FieldLabel } from "@/components/ui/field";
 import {
   Tooltip,
   TooltipContent,
@@ -279,72 +272,70 @@ export default function WorkspaceSettingsDialog({
         ) : (
           /* ── Rename / Full mode ── */
           <div className="space-y-6">
-            <Form {...form}>
-              <form
-                onSubmit={form.handleSubmit((values) => {
-                  if (!active) return;
-                  const trimmed = (values.name ?? "").trim();
-                  if (!trimmed) return;
-                  setSaving(true);
-                  updateMutation.mutate({ id: active.id, name: trimmed });
-                })}
-                noValidate
-                className="space-y-2"
-              >
-                <FormField
-                  control={form.control}
-                  name="name"
-                  rules={{ required: false }}
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel htmlFor="ws-name">
-                        {t("workspace.settings.nameLabel")}
-                      </FormLabel>
-                      <FormControl>
-                        <Input
-                          id="ws-name"
-                          placeholder={t("workspace.settings.namePlaceholder")}
-                          disabled={!canEdit}
-                          autoComplete="off"
-                          autoCorrect="off"
-                          autoCapitalize="off"
-                          spellCheck={false}
-                          {...field}
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                {!canEdit && (
-                  <p className="text-muted-foreground text-xs">
-                    {t("workspace.settings.selectActiveFirst")}
-                  </p>
+            <form
+              onSubmit={form.handleSubmit((values) => {
+                if (!active) return;
+                const trimmed = (values.name ?? "").trim();
+                if (!trimmed) return;
+                setSaving(true);
+                updateMutation.mutate({ id: active.id, name: trimmed });
+              })}
+              noValidate
+              className="space-y-2"
+            >
+              <Controller
+                control={form.control}
+                name="name"
+                render={({ field, fieldState }) => (
+                  <Field data-invalid={fieldState.invalid}>
+                    <FieldLabel htmlFor="ws-name">
+                      {t("workspace.settings.nameLabel")}
+                    </FieldLabel>
+                    <Input
+                      {...field}
+                      id="ws-name"
+                      placeholder={t("workspace.settings.namePlaceholder")}
+                      disabled={!canEdit}
+                      autoComplete="off"
+                      autoCorrect="off"
+                      autoCapitalize="off"
+                      spellCheck={false}
+                      aria-invalid={fieldState.invalid}
+                    />
+                    {fieldState.invalid && (
+                      <FieldError errors={[fieldState.error]} />
+                    )}
+                  </Field>
                 )}
-                <div className="flex justify-end">
-                  <Button
-                    size="sm"
-                    type="submit"
-                    className={cn(
-                      "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
-                      { "w-[16ch]": saving },
-                    )}
-                    disabled={isSaveButtonDisabled()}
-                    aria-busy={saving}
-                  >
-                    {saving ? (
-                      <>
-                        <Loader2 className="size-4 animate-spin" />
-                        {t("workspace.settings.saving")}
-                      </>
-                    ) : (
-                      t("workspace.settings.save")
-                    )}
-                  </Button>
-                </div>
-              </form>
-            </Form>
+              />
+
+              {!canEdit && (
+                <p className="text-muted-foreground text-xs">
+                  {t("workspace.settings.selectActiveFirst")}
+                </p>
+              )}
+              <div className="flex justify-end">
+                <Button
+                  size="sm"
+                  type="submit"
+                  className={cn(
+                    "w-[12ch] whitespace-nowrap transition-[width] duration-300 ease-in-out",
+                    { "w-[16ch]": saving },
+                  )}
+                  disabled={isSaveButtonDisabled()}
+                  aria-busy={saving}
+                >
+                  {saving ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" />
+                      {t("workspace.settings.saving")}
+                    </>
+                  ) : (
+                    t("workspace.settings.save")
+                  )}
+                </Button>
+              </div>
+            </form>
 
             {mode !== "rename" && (
               <div className="border-destructive/30 rounded-md border p-4">
@@ -367,7 +358,7 @@ export default function WorkspaceSettingsDialog({
                             {t("workspace.settings.deleteThisWorkspace")}
                           </Button>
                         </TooltipTrigger>
-                        <TooltipContent side="right" variant="secondary">
+                        <TooltipContent side="right">
                           {t("workspace.settings.defaultCannotDeleteShort")}
                         </TooltipContent>
                       </Tooltip>
