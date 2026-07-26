@@ -14,20 +14,22 @@
 fails CI. A finding disappearing from the registry is allowed and should be
 removed from the baseline during the next dependency phase.
 
-The baseline was reviewed on 2026-07-26 and contains 89 unique
-`GHSA:package` advisory keys. pnpm reports 93 vulnerability instances:
-2 critical, 38 high, 44 moderate, and 9 low. It is an inventory, not a claim
-that the findings are safe. Direct findings are scheduled for Phase 1 rather
-than hidden behind broad `pnpm.overrides`.
+The baseline was reviewed after the Phase 1 security patches on 2026-07-26
+and contains 26 unique `GHSA:package` advisory keys. pnpm reports 29
+vulnerability instances: 1 critical, 14 high, 12 moderate, and 2 low. It is
+an inventory, not a claim that the findings are safe. Findings against the
+Phase 1 direct dependencies are cleared; the remaining findings are pinned
+transitive packages and are tracked through their direct parent instead of
+being forced with broad `pnpm.overrides`.
 
-| Parent package           | Relationship                                                  | Baseline summary                      | Follow-up                                                    |
-| ------------------------ | ------------------------------------------------------------- | ------------------------------------- | ------------------------------------------------------------ |
-| `better-auth`            | Direct plus its `kysely`, `defu`, `esbuild` tree              | 16 advisory keys; includes 1 critical | Upgrade and run Google OAuth tests in Phase 1                |
-| `next`                   | Direct plus `postcss`, `sharp`, and `@babel/core`             | 28 advisory keys; includes 15 high    | Upgrade Next.js and verify build/server actions in Phase 1   |
-| `drizzle-orm`            | Direct plus `gel > shell-quote`                               | 3 advisory keys; includes 1 critical  | Upgrade Drizzle with database compatibility tests in Phase 1 |
-| `@excalidraw/excalidraw` | Direct plus Mermaid, DOMPurify, Sass, and utility packages    | 32 advisory keys; includes 4 high     | Covered by the legacy fixtures until the Phase 5 rewrite     |
-| `@uploadthing/react`     | Transitive `@uploadthing/shared > effect`                     | 1 high advisory key                   | Upgrade UploadThing with upload/restore smoke tests          |
-| `shadcn`                 | Transitive CLI-only tree (`brace-expansion`, `js-yaml`, Hono) | 9 advisory keys; includes 5 high      | Refresh the CLI dependency without runtime overrides         |
+| Parent package           | Remaining transitive relationship                                          | Baseline summary                     | Follow-up                                                        |
+| ------------------------ | -------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| `better-auth`            | `defu` and the `drizzle-kit > esbuild` tree                                | 3 advisory keys; includes 1 high     | Track Better Auth and Drizzle Kit releases; do not force esbuild |
+| `next`                   | `postcss`, `sharp`, and `styled-jsx > @babel/core`                         | 5 advisory keys; includes 3 high     | Track the Next.js-pinned build and image-processing packages     |
+| `drizzle-orm`            | Optional `gel > shell-quote` connector tree                                | 2 advisory keys; includes 1 critical | Track Drizzle/Gel; the application uses the PostgreSQL connector |
+| `@excalidraw/excalidraw` | `nanoid`, Sass (`immutable`, `picomatch`), and Mermaid (`lodash-es`) trees | 8 advisory keys; includes 4 high     | Track upstream until the Phase 5 whiteboard replacement          |
+| `@uploadthing/react`     | `@uploadthing/shared > effect`                                             | 1 high advisory key                  | Refresh UploadThing with upload/restore smoke tests              |
+| `shadcn`                 | CLI-only tree (`brace-expansion`, `js-yaml`, Hono)                         | 7 advisory keys; includes 3 high     | Refresh the CLI dependency without runtime overrides             |
 
 ## Automated workflow coverage
 
@@ -41,6 +43,9 @@ than hidden behind broad `pnpm.overrides`.
 - Image extraction, upload compression, binary metadata restoration, and
   completeness checks.
 - PNG export policy and native Excalidraw SVG rendering.
+- Mermaid-to-Excalidraw flowchart conversion and the patched sequence-label
+  XSS payload, including an assertion that the converter's temporary DOM
+  insertions never contain executable event handlers.
 - Published scene decoding with `viewModeEnabled`, cleared private viewport,
   and restored files.
 - Theme mapping plus language persistence and browser notification.
@@ -75,6 +80,9 @@ browser, commit, and result for each item.
 - [ ] Upload an image through UploadThing, save, reload, and confirm the binary
       renders; inspect the browser console for failed asset fetches.
 - [ ] Export the scene as `.excalidraw`, PNG, and SVG and open each artifact.
+- [ ] Open Text to diagram, insert both a flowchart and a sequence diagram,
+      confirm the generated shapes land on the canvas, and check the browser
+      console for conversion or dynamic-import errors.
 - [ ] Publish the scene, open `/p/[slug]` in a signed-out window, confirm it is
       read-only, then unpublish and confirm the URL no longer resolves.
 - [ ] Delete the scene and confirm its dashboard card and uploaded assets are
