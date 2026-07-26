@@ -163,3 +163,16 @@
 .published-viewer .excalidraw .layer-ui__wrapper__footer {
   display: none !important;
 }
+
+/*
+ * Excalidraw 0.18 has no supported headless-editor flag. Keep its canvas and
+ * interaction layer, but suppress the bundled chrome only inside our owned
+ * shell. The scoped class is also the rollback boundary for this exception.
+ */
+.owned-whiteboard-shell .excalidraw .layer-ui__wrapper,
+.owned-whiteboard-shell .excalidraw .App-top-bar,
+.owned-whiteboard-shell .excalidraw .App-bottom-bar,
+.owned-whiteboard-shell .excalidraw .sidebar,
+.owned-whiteboard-shell .excalidraw .excalidraw-contextMenuContainer {
+  display: none !important;
+}

@@ -5,6 +5,7 @@ import {
   useRef,
   memo,
   useCallback,
+  useEffect,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -39,6 +40,11 @@ import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 import { loadCurrentSceneIdFromStorage } from "@/data/local-storage";
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
+import {
+  OWNED_NEW_SCENE_EVENT,
+  OWNED_WORKSPACE_SWITCH_EVENT,
+  type OwnedWorkspaceSwitchDetail,
+} from "@/lib/events";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -295,6 +301,23 @@ function AppMainMenu({
       t,
     ],
   );
+
+  useEffect(() => {
+    const openNewScene = () => handleOpenNewSceneDialog();
+    const switchWorkspace = (event: Event) => {
+      const detail = (event as CustomEvent<OwnedWorkspaceSwitchDetail>).detail;
+      if (!detail?.workspaceId) return;
+      setConfirmWorkspaceId(detail.workspaceId);
+      setConfirmWorkspaceName(detail.workspaceName);
+      setConfirmOpen(true);
+    };
+    window.addEventListener(OWNED_NEW_SCENE_EVENT, openNewScene);
+    window.addEventListener(OWNED_WORKSPACE_SWITCH_EVENT, switchWorkspace);
+    return () => {
+      window.removeEventListener(OWNED_NEW_SCENE_EVENT, openNewScene);
+      window.removeEventListener(OWNED_WORKSPACE_SWITCH_EVENT, switchWorkspace);
+    };
+  }, [handleOpenNewSceneDialog]);
 
   return (
     <>
