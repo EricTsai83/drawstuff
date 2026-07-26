@@ -15,6 +15,37 @@ export interface WhiteboardAsset {
   readonly lastRetrieved?: number;
 }
 
+export type WhiteboardJsonValue =
+  | boolean
+  | number
+  | string
+  | null
+  | readonly WhiteboardJsonValue[]
+  | { readonly [key: string]: WhiteboardJsonValue };
+
+export interface WhiteboardLegacyEnvelope {
+  readonly format: "excalidraw";
+  readonly sourceVersion: number | null;
+  readonly migrationVersion: 1;
+  readonly originalPayload: string;
+  readonly unsupported: Readonly<Record<string, WhiteboardJsonValue>>;
+}
+
+export interface WhiteboardDocumentMetadata {
+  readonly name: string;
+  readonly theme: WhiteboardTheme;
+  readonly viewBackgroundColor: string;
+  readonly gridSize: number | null;
+  readonly legacy?: WhiteboardLegacyEnvelope;
+}
+
+export interface WhiteboardDocumentV1 {
+  readonly version: 1;
+  readonly elements: readonly WhiteboardElement[];
+  readonly assets: Readonly<Record<string, WhiteboardAsset>>;
+  readonly metadata: WhiteboardDocumentMetadata;
+}
+
 export interface WhiteboardViewport {
   readonly x: number;
   readonly y: number;
