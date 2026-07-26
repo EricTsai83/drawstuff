@@ -1,22 +1,24 @@
 # avatar
 
-2026-07-26, transformation engine for customized legacy `new-york`, migrated successfully to Base UI Avatar.
+2026-07-26, golden reference via a fresh shadcn Base Nova project and CLI replay, migrated successfully to the stock Base Nova Avatar.
 
 ## Changed
 
-- `src/components/ui/avatar.tsx:4` replaces `@radix-ui/react-avatar` with `@base-ui/react/avatar` and updates each part to Base UI prop types.
-- `.migration/avatar.md` records the migration.
+- `src/components/ui/avatar.tsx`: replaced the legacy-styled wrapper with the official `base-nova` Avatar implementation.
+- Added Nova size variants, badge support, fallback layering, and image-loading transitions.
+- `.migration/avatar.md`: replaced the previous transformation-engine report.
 - The leftover scan is clean: `grep -n "radix-ui\|@radix-ui" src/components/ui/avatar.tsx` returns no matches.
 
 ## Left alone
 
-- `src/components/avatar.tsx` uses only compatible Root, Image, and Fallback props, so no consumer changes were necessary.
+- Existing avatar consumers keep their current image and fallback values.
 
 ## Behavior changes
 
-- Base UI renames the optional Fallback `delayMs` prop to `delay`; no current consumer uses either prop.
+- Avatar dimensions and fallback presentation now follow Nova size variants.
 
 ## Verify by hand
 
-1. Open the account/avatar UI with a valid image and confirm it is cropped and rounded correctly.
-2. Use a broken image URL and confirm the fallback appears with the expected initials and colors.
+- Load an avatar successfully and confirm the image fills the frame.
+- Test a broken image and confirm the fallback remains visible.
+- Check any avatar badge at supported sizes.
