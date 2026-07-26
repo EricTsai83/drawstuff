@@ -1,7 +1,18 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type {
+  WhiteboardAsset,
+  WhiteboardDocument,
+  WhiteboardDocumentPersistence,
+  WhiteboardElement,
+  WhiteboardEngine,
+  WhiteboardEngineKind,
+} from "@/features/whiteboard";
+import {
+  parsePersistedWhiteboardPayload,
+  recordWhiteboardDiagnostic,
+} from "@/features/whiteboard";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
 import {
@@ -22,6 +33,7 @@ import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { APP_ERROR } from "@/lib/errors";
 import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
+import { SCENE_DATA_MAX_LENGTH } from "@/lib/schemas/scene";
 
 export type SceneConflictInfo = {
   sceneId: string;
@@ -65,6 +77,7 @@ function assertSingleUploadResult(
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
   engine?: WhiteboardEngine | null,
+  engineKind: WhiteboardEngineKind = "excalidraw",
 ) {
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [lastConflict, setLastConflict] = useState<SceneConflictInfo | null>(
@@ -121,6 +134,13 @@ export function useCloudUpload(
         if (!scene) {
           setStatus("error");
           toast.error(t("app.cloudUpload.toast.error.sceneData"));
+          recordWhiteboardDiagnostic({
+            operation: "save",
+            outcome: "blocked",
+            engine: engineKind,
+            documentVersion: null,
+            errorCode: "INVALID_DOCUMENT",
+          });
           return false;
         }
 
@@ -135,12 +155,37 @@ export function useCloudUpload(
             elements,
             appState,
             files,
-            { encrypt: false },
+            {
+              encrypt: false,
+              format:
+                engineKind === "owned" ? "whiteboard-v1" : "legacy-excalidraw",
+              persistence: scene.persistence,
+              includeInlineAssets: false,
+              retainLegacy: true,
+              compactLegacyAssets: true,
+              ...createRollbackAssetUploadSource(
+                scene.persistence,
+                elements,
+                files,
+              ),
+            },
           );
           const base64Data = stringToBase64(
             toByteString(prepared.compressedSceneData),
             true,
           );
+          if (base64Data.length > SCENE_DATA_MAX_LENGTH) {
+            setStatus("error");
+            toast.error(t("app.cloudUpload.toast.error.sceneTooLarge"));
+            recordWhiteboardDiagnostic({
+              operation: "save",
+              outcome: "blocked",
+              engine: engineKind,
+              documentVersion: scene.persistence?.documentVersion ?? null,
+              errorCode: "PAYLOAD_TOO_LARGE",
+            });
+            return false;
+          }
           const safeNameFromState =
             (appState.name ?? "Untitled").trim() || "Untitled";
 
@@ -316,8 +361,21 @@ export function useCloudUpload(
               await rollbackCreatedDraft();
               setStatus("error");
               toast.error(t("app.cloudUpload.toast.error.upload"));
+              recordWhiteboardDiagnostic({
+                operation: "asset",
+                outcome: "failure",
+                engine: engineKind,
+                documentVersion: scene.persistence?.documentVersion ?? null,
+                errorCode: "NETWORK",
+              });
               return false;
             }
+            recordWhiteboardDiagnostic({
+              operation: "asset",
+              outcome: "success",
+              engine: engineKind,
+              documentVersion: scene.persistence?.documentVersion ?? null,
+            });
           }
 
           let result: Awaited<ReturnType<typeof saveSceneAction>>;
@@ -357,6 +415,37 @@ export function useCloudUpload(
                 sceneId: result.data?.id ?? sceneIdForCommit,
                 remoteRevision: result.data?.revision,
               });
+              recordWhiteboardDiagnostic({
+                operation: "save",
+                outcome: "blocked",
+                engine: engineKind,
+                documentVersion: scene.persistence?.documentVersion ?? null,
+                errorCode: "CONFLICT",
+              });
+              return false;
+            }
+            if (result.error === APP_ERROR.UNSAFE_DOWNGRADE) {
+              setStatus("idle");
+              toast.error(t("app.cloudUpload.toast.error.unsafeDowngrade"));
+              recordWhiteboardDiagnostic({
+                operation: "save",
+                outcome: "blocked",
+                engine: engineKind,
+                documentVersion: scene.persistence?.documentVersion ?? null,
+                errorCode: "UNSAFE_DOWNGRADE",
+              });
+              return false;
+            }
+            if (result.error === APP_ERROR.SCENE_PAYLOAD_TOO_LARGE) {
+              setStatus("idle");
+              toast.error(t("app.cloudUpload.toast.error.sceneTooLarge"));
+              recordWhiteboardDiagnostic({
+                operation: "save",
+                outcome: "blocked",
+                engine: engineKind,
+                documentVersion: scene.persistence?.documentVersion ?? null,
+                errorCode: "PAYLOAD_TOO_LARGE",
+              });
               return false;
             }
             throw new Error(result.message ?? result.error);
@@ -393,6 +482,12 @@ export function useCloudUpload(
             workspaceId: effectiveWorkspaceId,
           });
           setStatus("success");
+          recordWhiteboardDiagnostic({
+            operation: "save",
+            outcome: "success",
+            engine: engineKind,
+            documentVersion: scene.persistence?.documentVersion ?? null,
+          });
 
           // 可選地顯示成功 toast（由呼叫端統一顯示避免重複）
           if (!options?.suppressSuccessToast) {
@@ -405,6 +500,13 @@ export function useCloudUpload(
           console.error("Failed to save scene record to DB:", e);
           setStatus("error");
           toast.error(t("app.cloudUpload.toast.error.upload"));
+          recordWhiteboardDiagnostic({
+            operation: "save",
+            outcome: "failure",
+            engine: engineKind,
+            documentVersion: scene.persistence?.documentVersion ?? null,
+            errorCode: "UNKNOWN",
+          });
           return false;
         }
 
@@ -420,6 +522,7 @@ export function useCloudUpload(
       thumbnailUpload,
       deleteSceneAsync,
       engine,
+      engineKind,
       utils,
       t,
       onSceneNotFoundError,
@@ -442,4 +545,35 @@ export function useCloudUpload(
     lastConflict,
     clearLastConflict,
   } as const;
+}
+
+function createRollbackAssetUploadSource(
+  persistence: WhiteboardDocumentPersistence | undefined,
+  elements: readonly WhiteboardElement[],
+  assets: Readonly<Record<string, WhiteboardAsset>>,
+): {
+  readonly assetUploadElements?: readonly WhiteboardElement[];
+  readonly assetUploadAssets?: Readonly<Record<string, WhiteboardAsset>>;
+} {
+  const rollback = parseLegacyRollbackDocument(persistence);
+  if (!rollback) return {};
+  return {
+    assetUploadElements: [...elements, ...rollback.elements],
+    assetUploadAssets: { ...rollback.assets, ...assets },
+  };
+}
+
+function parseLegacyRollbackDocument(
+  persistence: WhiteboardDocumentPersistence | undefined,
+): WhiteboardDocument | null {
+  const source = persistence?.legacyRollback?.originalPayload;
+  if (!source) return null;
+  try {
+    const persisted = parsePersistedWhiteboardPayload(source, {
+      allowMissingAssets: true,
+    });
+    return persisted.format === "legacy-excalidraw" ? persisted.document : null;
+  } catch {
+    return null;
+  }
 }

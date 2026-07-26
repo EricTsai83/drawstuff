@@ -62,3 +62,10 @@ before each production stage.
 
 Disable the owned-engine flag, load retained legacy payloads where safe, and
 route unsupported post-migration edits through the documented recovery flow.
+
+## Operational runbook
+
+Owners, thresholds, monitoring windows, rollout variables, the production
+rollback command, compatibility matrix, and the post-migration recovery
+procedure are defined in
+[`docs/whiteboard-rollout-runbook.md`](../docs/whiteboard-rollout-runbook.md).

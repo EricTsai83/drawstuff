@@ -7,12 +7,12 @@ import { clearElementsForDatabase } from "@/lib/excalidraw";
 import { extractImageFiles, processFilesForUpload } from "./file-processor";
 import type {
   WhiteboardAsset,
+  WhiteboardDocumentPersistence,
   WhiteboardDocumentState,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
-  createWhiteboardDocumentV1,
-  filterReferencedWhiteboardAssets,
+  createPersistedWhiteboardDocumentV1,
   serializeWhiteboardDocumentV1,
 } from "@/features/whiteboard";
 
@@ -26,6 +26,12 @@ export async function prepareSceneDataForExport(
   options?: {
     readonly encrypt?: boolean;
     readonly format?: ScenePersistenceFormat;
+    readonly persistence?: WhiteboardDocumentPersistence;
+    readonly includeInlineAssets?: boolean;
+    readonly retainLegacy?: boolean;
+    readonly compactLegacyAssets?: boolean;
+    readonly assetUploadElements?: readonly WhiteboardElement[];
+    readonly assetUploadAssets?: Readonly<Record<string, WhiteboardAsset>>;
   },
 ) {
   const shouldEncrypt = options?.encrypt ?? true;
@@ -38,15 +44,27 @@ export async function prepareSceneDataForExport(
   // 場景資料：壓縮，視需要加密
   const compressedSceneData = await compressData(
     new TextEncoder().encode(
-      serializeSceneData(elements, appState, files, format),
+      serializeSceneData(
+        elements,
+        appState,
+        files,
+        format,
+        options?.persistence,
+        {
+          includeInlineAssets: options?.includeInlineAssets,
+          retainLegacy: options?.retainLegacy,
+          compactLegacyAssets: options?.compactLegacyAssets,
+        },
+      ),
     ),
     { encryptionKey },
   );
 
   // 檔案資料：永遠壓縮，根據選項加/不加密
   const imageFilesMap = extractImageFiles(
-    elements as unknown as readonly NonDeletedExcalidrawElement[],
-    files as unknown as BinaryFiles,
+    (options?.assetUploadElements ??
+      elements) as unknown as readonly NonDeletedExcalidrawElement[],
+    (options?.assetUploadAssets ?? files) as unknown as BinaryFiles,
   );
   const compressedFilesData = await processFilesForUpload({
     files: imageFilesMap,
@@ -66,29 +84,28 @@ function serializeSceneData(
   appState: WhiteboardDocumentState,
   files: Readonly<Record<string, WhiteboardAsset>>,
   format: ScenePersistenceFormat,
+  persistence?: WhiteboardDocumentPersistence,
+  options?: {
+    readonly includeInlineAssets?: boolean;
+    readonly retainLegacy?: boolean;
+    readonly compactLegacyAssets?: boolean;
+  },
 ): string {
   const persistedElements = clearElementsForDatabase(
     elements as unknown as readonly NonDeletedExcalidrawElement[],
   );
   if (format === "whiteboard-v1") {
     return serializeWhiteboardDocumentV1(
-      createWhiteboardDocumentV1({
-        elements: persistedElements,
-        assets: filterReferencedWhiteboardAssets(persistedElements, files),
-        metadata: {
-          name: typeof appState.name === "string" ? appState.name : "",
-          theme: appState.theme === "dark" ? "dark" : "light",
-          viewBackgroundColor:
-            typeof appState.viewBackgroundColor === "string"
-              ? appState.viewBackgroundColor
-              : "#ffffff",
-          gridSize:
-            typeof appState.gridSize === "number" &&
-            Number.isFinite(appState.gridSize)
-              ? appState.gridSize
-              : null,
+      createPersistedWhiteboardDocumentV1(
+        {
+          elements: persistedElements,
+          assets: files,
+          state: appState,
+          persistence,
         },
-      }),
+        options,
+      ),
+      { allowMissingAssets: options?.includeInlineAssets === false },
     );
   }
 

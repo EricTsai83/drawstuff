@@ -76,4 +76,18 @@ describe("Pako server compatibility", () => {
     expect(restored.metadata).toEqual({ kind: "scene", schemaVersion: 2 });
     expect(Buffer.from(restored.data)).toEqual(source);
   });
+
+  it("rejects compressed output beyond the caller's limit", async () => {
+    const compressed = await compressData(
+      new TextEncoder().encode("x".repeat(10_000)),
+      {},
+    );
+
+    await expect(
+      decompressData<Record<string, never>>(compressed, {
+        decryptionKey: "",
+        maxDecompressedBytes: 1_000,
+      }),
+    ).rejects.toThrow("configured limit");
+  });
 });

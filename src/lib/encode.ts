@@ -1,4 +1,4 @@
-import { deflate, inflate } from "pako";
+import { deflate, inflate, Inflate } from "pako";
 
 import { encryptData, decryptData } from "./encryption";
 
@@ -361,6 +361,7 @@ const _decryptAndDecompress = async (
   decryptionKey: string,
   hasEncryption: boolean,
   isCompressed: boolean,
+  maxDecompressedBytes?: number,
 ) => {
   let processedBuffer = inputBuffer;
   if (hasEncryption) {
@@ -370,7 +371,9 @@ const _decryptAndDecompress = async (
   }
 
   if (isCompressed) {
-    return inflate(processedBuffer);
+    return maxDecompressedBytes === undefined
+      ? inflate(processedBuffer)
+      : inflateWithLimit(processedBuffer, maxDecompressedBytes);
   }
 
   return processedBuffer;
@@ -378,7 +381,10 @@ const _decryptAndDecompress = async (
 
 export const decompressData = async <T extends Record<string, unknown>>(
   bufferView: Uint8Array,
-  options: { decryptionKey: string },
+  options: {
+    decryptionKey: string;
+    maxDecompressedBytes?: number;
+  },
 ) => {
   // first chunk is encoding metadata (ignored for now)
   const [encodingMetadataBuffer, iv, buffer] = splitBuffers(bufferView);
@@ -399,6 +405,7 @@ export const decompressData = async <T extends Record<string, unknown>>(
         options.decryptionKey,
         !!encodingMetadata.encryption,
         !!encodingMetadata.compression,
+        options.maxDecompressedBytes,
       ),
     );
 
@@ -424,5 +431,46 @@ export const decompressData = async <T extends Record<string, unknown>>(
     throw error;
   }
 };
+
+export class DecompressionLimitError extends Error {
+  constructor() {
+    super("Decompressed data exceeds the configured limit");
+    this.name = "DecompressionLimitError";
+  }
+}
+
+function inflateWithLimit(
+  input: Uint8Array,
+  maxDecompressedBytes: number,
+): Uint8Array {
+  if (
+    !Number.isSafeInteger(maxDecompressedBytes) ||
+    maxDecompressedBytes <= 0
+  ) {
+    throw new Error("Invalid decompression limit");
+  }
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  const inflator = new Inflate();
+  inflator.onData = (chunk) => {
+    size += chunk.byteLength;
+    if (size > maxDecompressedBytes) {
+      throw new DecompressionLimitError();
+    }
+    chunks.push(chunk);
+  };
+  inflator.push(input, true);
+  if (inflator.err) {
+    throw new Error(inflator.msg || "Failed to decompress data");
+  }
+
+  const output = new Uint8Array(size);
+  let offset = 0;
+  for (const chunk of chunks) {
+    output.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return output;
+}
 
 // -----------------------------------------------------------------------------

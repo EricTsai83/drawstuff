@@ -17,6 +17,7 @@ import {
   parsePersistedWhiteboardPayload,
   toRuntimeWhiteboardDocument,
   type WhiteboardDocument,
+  type WhiteboardDocumentPersistence,
 } from "@/features/whiteboard";
 
 export async function importDataFromBackend(
@@ -79,6 +80,7 @@ export type ImportedSceneData = ImportedDataState & {
   revision?: number;
   updatedAt?: string;
   workspaceId?: string;
+  persistence?: WhiteboardDocumentPersistence;
 };
 
 export async function getFileRecordsBySharedSceneId(
@@ -245,6 +247,7 @@ export async function importSceneDataBySceneId(
       elements: parsed.elements as unknown as ExcalidrawElement[],
       appState: sanitizedAppState,
       files: parsed.assets as unknown as BinaryFiles,
+      persistence: parsed.persistence,
       revision: normalizeRevision(result?.revision),
       updatedAt: normalizeUpdatedAt(result?.updatedAt),
       workspaceId: result?.workspaceId ?? undefined,
@@ -256,7 +259,9 @@ export async function importSceneDataBySceneId(
 }
 
 function parseDecodedScenePayload(source: string): WhiteboardDocument {
-  const persisted = parsePersistedWhiteboardPayload(source);
+  const persisted = parsePersistedWhiteboardPayload(source, {
+    allowMissingAssets: true,
+  });
   const document =
     persisted.format === "whiteboard-v1"
       ? toRuntimeWhiteboardDocument(persisted.document)

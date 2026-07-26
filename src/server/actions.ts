@@ -373,6 +373,18 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
         error: APP_ERROR.VALIDATION_FAILED,
         message: saveResult.message,
       };
+    case "payload_too_large":
+      return {
+        ok: false,
+        error: APP_ERROR.SCENE_PAYLOAD_TOO_LARGE,
+        message: saveResult.message,
+      };
+    case "unsafe_downgrade":
+      return {
+        ok: false,
+        error: APP_ERROR.UNSAFE_DOWNGRADE,
+        message: saveResult.message,
+      };
     default:
       return {
         ok: false,

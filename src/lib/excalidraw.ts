@@ -12,6 +12,7 @@ import {
   saveCurrentSceneRevisionToStorage,
   clearCurrentSceneRevisionFromStorage,
   clearCurrentSceneSessionFromStorage,
+  markLegacyWhiteboardDocumentRevision,
   syncOwnedWhiteboardDocumentToLocalStorage,
 } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
@@ -27,12 +28,27 @@ import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import { parseSharedSceneHash } from "@/lib/utils";
 import { exportToBlob, MIME_TYPES } from "@excalidraw/excalidraw";
 import type { WhiteboardInitialData } from "@/features/whiteboard/adapters/excalidraw";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type {
+  WhiteboardDocumentPersistence,
+  WhiteboardEngine,
+  WhiteboardEngineKind,
+} from "@/features/whiteboard";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
-export async function createInitialDataPromise(): Promise<WhiteboardInitialData | null> {
+export async function createInitialDataPromise(
+  engineKind: WhiteboardEngineKind = "excalidraw",
+  options?: {
+    readonly preferRecovery?: boolean;
+    readonly onFailure?: (
+      errorCode: "INVALID_DOCUMENT" | "NETWORK" | "UNKNOWN",
+    ) => void;
+  },
+): Promise<WhiteboardInitialData | null> {
   try {
-    const localDataState = importFromLocalStorage();
+    const localDataState = importFromLocalStorage({
+      preferOwned: engineKind === "owned",
+      preferRecovery: options?.preferRecovery,
+    });
 
     // 先檢查 URL hash 是否包含外部場景連結
     const jsonBackendMatch = parseSharedSceneHash();
@@ -85,6 +101,7 @@ export async function createInitialDataPromise(): Promise<WhiteboardInitialData 
         };
       } catch (e) {
         console.error("透過 URL 載入場景失敗，回退至本地資料:", e);
+        options?.onFailure?.("NETWORK");
         return await restoreInitialDataFromLocal(
           localDataState,
           hasLocalSavedScene,
@@ -99,9 +116,10 @@ export async function createInitialDataPromise(): Promise<WhiteboardInitialData 
       );
     }
 
-    return await loadInitialRemoteScene();
+    return await loadInitialRemoteScene(engineKind, options?.onFailure);
   } catch (error) {
     console.error("初始化場景失敗:", error);
+    options?.onFailure?.("UNKNOWN");
     return null;
   }
 }
@@ -121,6 +139,7 @@ async function restoreInitialDataFromLocal(
       elements: restored.elements ?? [],
       state: appState,
       assets: restored.files ?? {},
+      persistence: localDataState.persistence,
       scrollToContent: !hasViewportData(appState),
     };
   } catch {
@@ -129,12 +148,16 @@ async function restoreInitialDataFromLocal(
       elements: localDataState.elements ?? [],
       state: appState,
       assets: localDataState.files ?? {},
+      persistence: localDataState.persistence,
       scrollToContent: !hasViewportData(appState),
     };
   }
 }
 
-async function loadInitialRemoteScene(): Promise<WhiteboardInitialData | null> {
+async function loadInitialRemoteScene(
+  engineKind: WhiteboardEngineKind,
+  onFailure?: (errorCode: "INVALID_DOCUMENT" | "NETWORK" | "UNKNOWN") => void,
+): Promise<WhiteboardInitialData | null> {
   const sceneId = loadCurrentSceneIdFromStorage();
   if (!sceneId) {
     return null;
@@ -161,8 +184,10 @@ async function loadInitialRemoteScene(): Promise<WhiteboardInitialData | null> {
     }
 
     const filesComplete = hasCompleteSceneFileHydration(elements, files);
-    if (filesComplete) {
-      saveToLocalStorage(elements, appState, files);
+    if (filesComplete && engineKind === "excalidraw") {
+      saveToLocalStorage(elements, appState, files, {
+        syncOwnedDocument: false,
+      });
     }
     saveCurrentSceneIdToStorage(sceneId);
     saveCurrentSceneDirtyToStorage(false);
@@ -181,10 +206,12 @@ async function loadInitialRemoteScene(): Promise<WhiteboardInitialData | null> {
       elements,
       state: appState,
       assets: files,
+      persistence: imported.persistence,
       scrollToContent: !hasViewportData(appState),
     };
   } catch (error) {
     console.error("初始化遠端場景失敗:", error);
+    onFailure?.("NETWORK");
     // Clear persisted session markers so the app doesn't remain attached
     // to a dead remote scene on next load.
     try {
@@ -196,11 +223,16 @@ async function loadInitialRemoteScene(): Promise<WhiteboardInitialData | null> {
   }
 }
 
-export function saveData(data: {
-  elements: readonly OrderedExcalidrawElement[];
-  appState: AppState;
-  files: BinaryFiles;
-}) {
+export function saveData(
+  data: {
+    elements: readonly OrderedExcalidrawElement[];
+    appState: AppState;
+    files: BinaryFiles;
+  },
+  options?: {
+    readonly syncOwnedDocument?: boolean;
+  },
+) {
   const timestamp = Date.now();
 
   try {
@@ -208,7 +240,7 @@ export function saveData(data: {
     const cleanedFiles = cleanUnusedFiles(data.elements, data.files);
 
     // 使用 saveToLocalStorage 函數儲存數據（避免暫刪元素引用的檔案殘留）
-    saveToLocalStorage(data.elements, data.appState, cleanedFiles);
+    saveToLocalStorage(data.elements, data.appState, cleanedFiles, options);
 
     // 更新版本時間戳
     localStorage.setItem(STORAGE_KEYS.VERSION_DATA_STATE, timestamp.toString());
@@ -294,6 +326,9 @@ export function saveToLocalStorage(
   elements: readonly ExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
+  options?: {
+    readonly syncOwnedDocument?: boolean;
+  },
 ) {
   try {
     localStorage.setItem(
@@ -308,11 +343,15 @@ export function saveToLocalStorage(
       STORAGE_KEYS.LOCAL_STORAGE_FILES,
       JSON.stringify(files),
     );
-    syncOwnedWhiteboardDocumentToLocalStorage({
-      elements,
-      state: appState,
-      assets: files,
-    });
+    if (options?.syncOwnedDocument !== false) {
+      syncOwnedWhiteboardDocumentToLocalStorage({
+        elements,
+        state: appState,
+        assets: files,
+      });
+    } else {
+      markLegacyWhiteboardDocumentRevision();
+    }
   } catch (error) {
     console.error("beforeunload 儲存數據失敗:", error);
   }
@@ -397,6 +436,7 @@ export function getCurrentSceneSnapshot(engine?: WhiteboardEngine | null): {
   elements: readonly OrderedExcalidrawElement[];
   appState: Partial<AppState>;
   files: BinaryFiles;
+  persistence?: WhiteboardDocumentPersistence;
 } | null {
   if (!engine) return null;
   const document = engine.getDocument();
@@ -406,6 +446,7 @@ export function getCurrentSceneSnapshot(engine?: WhiteboardEngine | null): {
     ) as unknown as readonly OrderedExcalidrawElement[],
     appState: document.state as unknown as Partial<AppState>,
     files: document.assets as unknown as BinaryFiles,
+    persistence: document.persistence,
   };
 }
 

@@ -5,7 +5,10 @@ import type {
   WhiteboardAsset,
   WhiteboardDocumentState,
   WhiteboardElement,
+  WhiteboardEngineKind,
+  WhiteboardDocumentPersistence,
 } from "@/features/whiteboard";
+import { recordWhiteboardDiagnostic } from "@/features/whiteboard";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
@@ -21,7 +24,9 @@ function cloneToArrayBuffer(
 
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
-export function useSceneExport() {
+export function useSceneExport(
+  engineKind: WhiteboardEngineKind = "excalidraw",
+) {
   const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(
     null,
@@ -52,6 +57,7 @@ export function useSceneExport() {
       elements: readonly WhiteboardElement[],
       appState: WhiteboardDocumentState,
       files: Readonly<Record<string, WhiteboardAsset>>,
+      persistence?: WhiteboardDocumentPersistence,
     ): Promise<string | null> => {
       if (exportStatus === "exporting") {
         setExportErrorMessage("Export already in progress");
@@ -62,6 +68,13 @@ export function useSceneExport() {
       if (elements.length === 0) {
         setExportErrorMessage("Cannot export empty canvas");
         setExportStatus("error");
+        recordWhiteboardDiagnostic({
+          operation: "export",
+          outcome: "blocked",
+          engine: engineKind,
+          documentVersion: persistence?.documentVersion ?? null,
+          errorCode: "INVALID_DOCUMENT",
+        });
         return null;
       }
 
@@ -73,6 +86,13 @@ export function useSceneExport() {
           elements,
           appState,
           files,
+          {
+            format:
+              engineKind === "owned" ? "whiteboard-v1" : "legacy-excalidraw",
+            persistence,
+            includeInlineAssets: false,
+            retainLegacy: false,
+          },
         );
 
         // 如果有文件需要上傳，先整理檔案
@@ -150,16 +170,29 @@ export function useSceneExport() {
 
         setLatestShareableLink(shareableUrlString);
         setExportStatus("success");
+        recordWhiteboardDiagnostic({
+          operation: "export",
+          outcome: "success",
+          engine: engineKind,
+          documentVersion: persistence?.documentVersion ?? null,
+        });
         console.log("Scene exported successfully:", result.sharedSceneId);
         return shareableUrlString;
       } catch (error) {
         console.error("Error during scene export:", error);
         setExportErrorMessage("Error during scene export");
         setExportStatus("error");
+        recordWhiteboardDiagnostic({
+          operation: "export",
+          outcome: "failure",
+          engine: engineKind,
+          documentVersion: persistence?.documentVersion ?? null,
+          errorCode: "UNKNOWN",
+        });
         return null;
       }
     },
-    [startSharedUpload, exportStatus],
+    [startSharedUpload, exportStatus, engineKind],
   );
 
   const resetExportStatus = useCallback(() => {

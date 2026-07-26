@@ -26,6 +26,8 @@ import {
   parsePersistedWhiteboardPayload,
   toRuntimeWhiteboardDocument,
 } from "@/features/whiteboard";
+import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
+import { MAX_DECOMPRESSED_SCENE_BYTES } from "@/server/whiteboard/persistence-guard";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -60,10 +62,14 @@ async function getReferencedPublishedFileIds(
     const compressedBuffer = new Uint8Array(Buffer.from(sceneData, "base64"));
     const { data } = await decompressData<Record<string, never>>(
       compressedBuffer,
-      { decryptionKey: "" },
+      {
+        decryptionKey: "",
+        maxDecompressedBytes: MAX_DECOMPRESSED_SCENE_BYTES,
+      },
     );
     const persisted = parsePersistedWhiteboardPayload(
       new TextDecoder().decode(data),
+      { allowMissingAssets: true },
     );
     const parsed =
       persisted.format === "whiteboard-v1"
@@ -121,6 +127,13 @@ export const sceneRouter = createTRPCRouter({
           code: "CONFLICT",
           message: saveResult.message,
           cause: saveResult.data,
+        });
+      }
+
+      if (saveResult.status === "unsafe_downgrade") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: saveResult.message,
         });
       }
 
@@ -579,12 +592,18 @@ export const sceneRouter = createTRPCRouter({
           : (publishedScene.fileRecords ?? []).filter((file) =>
               referencedFileIds.has(file.name),
             );
+      const publicSceneData = await createPublicWhiteboardPayload(
+        publishedScene.sceneData,
+      );
+      if (!publicSceneData) {
+        return null;
+      }
 
       return {
         id: publishedScene.id,
         name: publishedScene.name,
         description: publishedScene.description ?? "",
-        sceneData: publishedScene.sceneData,
+        sceneData: publicSceneData,
         thumbnailUrl: publishedScene.thumbnailUrl ?? undefined,
         updatedAt: publishedScene.updatedAt,
         publishedAt: publishedScene.publishedAt ?? undefined,

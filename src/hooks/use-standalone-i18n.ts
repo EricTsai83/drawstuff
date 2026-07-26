@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { Dispatch, SetStateAction } from "react";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import {
@@ -45,11 +45,15 @@ export function useStandaloneI18n(): StandaloneI18n {
     };
   }, []);
 
-  function t(key: string, values?: PlaceholderValues): string {
-    const local = appTranslations[langCode]?.[key] ?? appTranslations.en?.[key];
-    const raw = local ?? key;
-    return formatPlaceholders(raw, values);
-  }
+  const t = useCallback(
+    (key: string, values?: PlaceholderValues): string => {
+      const local =
+        appTranslations[langCode]?.[key] ?? appTranslations.en?.[key];
+      const raw = local ?? key;
+      return formatPlaceholders(raw, values);
+    },
+    [langCode],
+  );
 
   return { t, langCode, setLangCode } as const;
 }

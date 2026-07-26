@@ -25,6 +25,17 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: z.string(),
     CRON_SECRET: z.string().min(1),
     CLEANUP_OWNER_EMAIL: z.string().email(),
+    WHITEBOARD_ENGINE_ENABLED: z.enum(["true", "false"]).default("false"),
+    WHITEBOARD_ENGINE_ROLLBACK: z.enum(["true", "false"]).default("false"),
+    WHITEBOARD_ENGINE_PERCENTAGE: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(100)
+      .default(0),
+    WHITEBOARD_ENGINE_INTERNAL_EMAILS: z.string().default(""),
+    WHITEBOARD_ENGINE_FORCE_OWNED_SUBJECTS: z.string().default(""),
+    WHITEBOARD_ENGINE_FORCE_LEGACY_SUBJECTS: z.string().default(""),
   },
 
   /**
@@ -61,6 +72,15 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     CRON_SECRET: process.env.CRON_SECRET,
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
+    WHITEBOARD_ENGINE_ENABLED: process.env.WHITEBOARD_ENGINE_ENABLED,
+    WHITEBOARD_ENGINE_ROLLBACK: process.env.WHITEBOARD_ENGINE_ROLLBACK,
+    WHITEBOARD_ENGINE_PERCENTAGE: process.env.WHITEBOARD_ENGINE_PERCENTAGE,
+    WHITEBOARD_ENGINE_INTERNAL_EMAILS:
+      process.env.WHITEBOARD_ENGINE_INTERNAL_EMAILS,
+    WHITEBOARD_ENGINE_FORCE_OWNED_SUBJECTS:
+      process.env.WHITEBOARD_ENGINE_FORCE_OWNED_SUBJECTS,
+    WHITEBOARD_ENGINE_FORCE_LEGACY_SUBJECTS:
+      process.env.WHITEBOARD_ENGINE_FORCE_LEGACY_SUBJECTS,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
     NEXT_PUBLIC_USE_OWNED_WHITEBOARD_SHELL:
       process.env.NEXT_PUBLIC_USE_OWNED_WHITEBOARD_SHELL,

@@ -45,6 +45,11 @@ describe("owned whiteboard store", () => {
     expect(bottomRight.y).toBeLessThanOrEqual(
       viewport.offsetY + viewport.height,
     );
+    expect(store.getDocument().state).toMatchObject({
+      scrollX: viewport.x,
+      scrollY: viewport.y,
+      zoom: { value: viewport.zoom },
+    });
   });
 
   it("exposes selection as editor state without mutating or notifying the document", () => {

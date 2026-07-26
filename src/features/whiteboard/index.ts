@@ -2,6 +2,7 @@ export type {
   WhiteboardAsset,
   WhiteboardDocument,
   WhiteboardDocumentMetadata,
+  WhiteboardDocumentPersistence,
   WhiteboardDocumentState,
   WhiteboardDocumentV1,
   WhiteboardElementStyle,
@@ -15,6 +16,7 @@ export type {
   WhiteboardFillStyle,
   WhiteboardJsonValue,
   WhiteboardLegacyEnvelope,
+  WhiteboardPersistenceFormat,
   WhiteboardTheme,
   WhiteboardStrokeStyle,
   WhiteboardTool,
@@ -23,13 +25,16 @@ export type {
   WhiteboardViewerController,
 } from "./contracts";
 export {
+  createPersistedWhiteboardDocumentV1,
   createWhiteboardDocumentV1,
   detectWhiteboardDocumentFormat,
   filterReferencedWhiteboardAssets,
+  getWhiteboardDocumentVersion,
   LEGACY_MIGRATION_VERSION,
   migrateLegacyExcalidrawScene,
   parsePersistedWhiteboardPayload,
   parseWhiteboardDocumentV1,
+  prepareWhiteboardDocumentForOwnedEngine,
   serializeWhiteboardDocumentV1,
   toRuntimeWhiteboardDocument,
   WHITEBOARD_DOCUMENT_VERSION,
@@ -37,3 +42,21 @@ export {
   type PersistedWhiteboardPayload,
   type WhiteboardDocumentErrorCode,
 } from "./document-format";
+export {
+  evaluateWhiteboardRollout,
+  stablePercentageBucket,
+  type WhiteboardEngineKind,
+  type WhiteboardRolloutConfig,
+  type WhiteboardRolloutDecision,
+  type WhiteboardRolloutReason,
+  type WhiteboardRolloutTarget,
+} from "./rollout";
+export {
+  classifyWhiteboardWriteTransition,
+  type WhiteboardWriteTransition,
+} from "./persistence-transition";
+export {
+  recordWhiteboardDiagnostic,
+  whiteboardDiagnosticSchema,
+  type WhiteboardDiagnostic,
+} from "./diagnostics";

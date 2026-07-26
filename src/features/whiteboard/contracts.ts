@@ -59,6 +59,11 @@ export interface WhiteboardDocumentMetadata {
   readonly theme: WhiteboardTheme;
   readonly viewBackgroundColor: string;
   readonly gridSize: number | null;
+  readonly viewport?: {
+    readonly scrollX: number;
+    readonly scrollY: number;
+    readonly zoom: number;
+  };
   readonly legacy?: WhiteboardLegacyEnvelope;
 }
 
@@ -67,6 +72,16 @@ export interface WhiteboardDocumentV1 {
   readonly elements: readonly WhiteboardElement[];
   readonly assets: Readonly<Record<string, WhiteboardAsset>>;
   readonly metadata: WhiteboardDocumentMetadata;
+}
+
+export type WhiteboardPersistenceFormat = "legacy-excalidraw" | "whiteboard-v1";
+
+export interface WhiteboardDocumentPersistence {
+  readonly sourceFormat: WhiteboardPersistenceFormat;
+  readonly documentVersion: number | null;
+  readonly legacyRollback?: WhiteboardLegacyEnvelope;
+  readonly migratedFromLegacy?: boolean;
+  readonly loadedFromRecovery?: boolean;
 }
 
 export interface WhiteboardViewport {
@@ -129,6 +144,12 @@ export interface WhiteboardDocument {
   readonly elements: readonly WhiteboardElement[];
   readonly state: WhiteboardDocumentState;
   readonly assets: Readonly<Record<string, WhiteboardAsset>>;
+  /**
+   * Persistence-only provenance. Engines carry this through edits so an owned
+   * write can retain the pre-migration payload without exposing scene content
+   * to rollout diagnostics.
+   */
+  readonly persistence?: WhiteboardDocumentPersistence;
 }
 
 export interface WhiteboardEditorState {

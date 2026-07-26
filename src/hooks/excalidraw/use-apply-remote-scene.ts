@@ -14,6 +14,7 @@ import type {
   WhiteboardAsset,
   WhiteboardDocumentState,
   WhiteboardEngine,
+  WhiteboardEngineKind,
 } from "@/features/whiteboard";
 
 type ApplyRemoteSceneParams = {
@@ -33,7 +34,10 @@ export function isApplyResultAcceptable(
   return result.ok || result.reason === "incomplete_files";
 }
 
-export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
+export function useApplyRemoteScene(
+  engine: WhiteboardEngine | null,
+  engineKind: WhiteboardEngineKind = "excalidraw",
+) {
   const cancelCenteringRef = useRef<(() => void) | null>(null);
   const { suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene } =
     useSceneSession();
@@ -104,6 +108,7 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
           elements,
           state: mergedAppState,
           assets: hydratedFiles,
+          persistence: imported.persistence,
         });
 
         // 4. Center viewport before file injection so the user sees content ASAP
@@ -126,12 +131,13 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
           hydratedFiles as Parameters<typeof hasCompleteSceneFileHydration>[1],
         );
 
-        if (filesComplete) {
+        if (filesComplete && engineKind === "excalidraw") {
           // Full hydration: persist to localStorage so next cold-start is instant.
           saveToLocalStorage(
             elements,
             mergedAppState as Parameters<typeof saveToLocalStorage>[1],
             hydratedFiles as Parameters<typeof saveToLocalStorage>[2],
+            { syncOwnedDocument: false },
           );
         }
         // Always sync the session (id + revision) regardless of file completeness,
@@ -162,7 +168,13 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
         });
       }
     },
-    [engine, suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene],
+    [
+      engine,
+      engineKind,
+      suppressDirtyTracking,
+      resumeDirtyTracking,
+      syncCurrentScene,
+    ],
   );
 
   return { applyRemoteScene } as const;
