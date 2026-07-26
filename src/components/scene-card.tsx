@@ -365,7 +365,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                 <TooltipContent
                   variant="secondary"
                   sideOffset={6}
-                  className="max-w-[280px] text-xs leading-relaxed"
+                  className="max-w-70 text-xs leading-relaxed"
                 >
                   <div className="mb-1 text-sm font-semibold">
                     {t("labels.description")}
