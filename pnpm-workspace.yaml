@@ -1,0 +1,11 @@
+enableGlobalVirtualStore: false
+
+publicHoistPattern:
+  - "*eslint*"
+  - "*prettier*"
+
+allowBuilds:
+  esbuild: false
+  msgpackr-extract: false
+  sharp: false
+  unrs-resolver: false

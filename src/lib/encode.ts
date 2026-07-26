@@ -136,7 +136,7 @@ export const decode = (data: EncodedData): string => {
 
   if (data.compressed) {
     return inflate(new Uint8Array(byteStringToArrayBuffer(decoded)), {
-      to: "string",
+      toText: true,
     });
   }
 
@@ -401,6 +401,10 @@ export const decompressData = async <T extends Record<string, unknown>>(
         !!encodingMetadata.compression,
       ),
     );
+
+    if (!contentsMetadataBuffer || !contentsBuffer) {
+      throw new Error("Invalid buffer format: missing contents");
+    }
 
     const metadata = JSON.parse(
       new TextDecoder().decode(contentsMetadataBuffer),

@@ -64,7 +64,7 @@ development-only CLI tree and are outside the production-only CI audit gate.
 - Scene create, save, reload, rename, move, publish, delete, ownership
   rejection, and deferred UploadThing cleanup through the tRPC caller.
 - Local scene recovery, including deleted-element filtering and viewport data.
-- Existing compressed scene decoding.
+- Existing Pako 2 and zlib-compatible compressed scene decoding.
 - Image extraction, upload compression, binary metadata restoration, and
   completeness checks.
 - PNG export policy and native Excalidraw SVG rendering.
@@ -91,7 +91,9 @@ must not be regenerated as part of a dependency upgrade:
 - `images-and-binary-files.excalidraw`
 - `large-groups-and-viewport.excalidraw`
 - `pre-migration-bindings.excalidraw` (pre-index fields and legacy bindings)
-- `shapes-and-text.compressed.base64` (stable compressed representation)
+- `shapes-and-text.compressed.base64` (stable zlib-compatible representation)
+- `shapes-and-text.pako-2-compressed.base64` (Pako 2.1 scene envelope)
+- `utf8-text.pako-2-encoded.base64` (Pako 2.1 text encoding)
 
 ## Manual smoke checklist
 

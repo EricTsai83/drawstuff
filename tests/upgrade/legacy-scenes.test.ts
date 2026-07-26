@@ -13,7 +13,7 @@ import type {
 } from "@excalidraw/excalidraw/element/types";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import { importFromLocalStorage } from "@/data/local-storage";
-import { decompressData } from "@/lib/encode";
+import { decode, decompressData, encode } from "@/lib/encode";
 import {
   hasCompleteSceneFileHydration,
   ensureInitialAppState,
@@ -40,6 +40,41 @@ async function readFixture(name: string): Promise<SceneFixture> {
 }
 
 describe("legacy Excalidraw scenes", () => {
+  it("decodes UTF-8 scene text persisted by Pako 2", async () => {
+    const source = (
+      await readFile(
+        path.join(fixtureDirectory, "utf8-text.pako-2-encoded.base64"),
+        "utf8",
+      )
+    ).trim();
+    const encoded = Buffer.from(source, "base64").toString("latin1");
+
+    expect(
+      decode({
+        encoded,
+        encoding: "bstring",
+        compressed: true,
+        version: "1",
+      }),
+    ).toBe(
+      JSON.stringify({
+        name: "舊場景",
+        elements: [{ id: "shape-1", type: "rectangle" }],
+      }),
+    );
+  });
+
+  it("round-trips UTF-8 scene text through the browser compression path", () => {
+    const sceneText = JSON.stringify({
+      name: "舊場景",
+      elements: [{ id: "shape-1", type: "rectangle" }],
+    });
+    const encoded = encode({ text: sceneText });
+
+    expect(encoded.compressed).toBe(true);
+    expect(decode(encoded)).toBe(sceneText);
+  });
+
   it.each([
     ["shapes-and-text.excalidraw", 2],
     ["images-and-binary-files.excalidraw", 1],
@@ -95,7 +130,7 @@ describe("legacy Excalidraw scenes", () => {
   it("loads a stable compressed legacy payload", async () => {
     const source = (
       await readFile(
-        path.join(fixtureDirectory, "shapes-and-text.compressed.base64"),
+        path.join(fixtureDirectory, "shapes-and-text.pako-2-compressed.base64"),
         "utf8",
       )
     ).trim();

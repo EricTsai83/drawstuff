@@ -10,6 +10,7 @@ export function Github({ className }: { className?: string }) {
       strokeWidth="2"
       strokeLinecap="round"
       strokeLinejoin="round"
+      aria-hidden="true"
       className={className}
     >
       <path stroke="none" d="M0 0h24v24H0z" fill="none" />
