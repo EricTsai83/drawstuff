@@ -360,12 +360,12 @@ export default function WorkspaceSettingsDialog({
                   disableDelete ? (
                     <TooltipProvider>
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-block">
-                            <Button variant="destructive" disabled>
-                              {t("workspace.settings.deleteThisWorkspace")}
-                            </Button>
-                          </span>
+                        <TooltipTrigger
+                          render={<span className="inline-block" />}
+                        >
+                          <Button variant="destructive" disabled>
+                            {t("workspace.settings.deleteThisWorkspace")}
+                          </Button>
                         </TooltipTrigger>
                         <TooltipContent side="right" variant="secondary">
                           {t("workspace.settings.defaultCannotDeleteShort")}
