@@ -10,7 +10,6 @@ import type {
 import type {
   ExcalidrawElement,
   FileId,
-  NonDeletedExcalidrawElement,
 } from "@excalidraw/excalidraw/element/types";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import { importFromLocalStorage } from "@/data/local-storage";
@@ -147,10 +146,7 @@ describe("local recovery and binary files", () => {
 
   it("compresses an uploaded image and restores its binary metadata and data URL", async () => {
     const fixture = await readFixture("images-and-binary-files.excalidraw");
-    const imageFiles = extractImageFiles(
-      fixture.elements as NonDeletedExcalidrawElement[],
-      fixture.files,
-    );
+    const imageFiles = extractImageFiles(fixture.elements, fixture.files);
     const [processed] = await processFilesForUpload({
       files: imageFiles,
       maxBytes: 1024 * 1024,

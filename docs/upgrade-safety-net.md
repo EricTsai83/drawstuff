@@ -7,6 +7,27 @@
   for its build runtime.
 - `packageManager` remains pinned to pnpm `10.15.1` through Phases 0–3.
 
+## TypeScript 6 performance baseline
+
+Measured on 2026-07-26 with Node `24.18.0` and pnpm `10.15.1`. Each cold run
+started without `tsconfig.tsbuildinfo`; the incremental run immediately repeated
+`pnpm typecheck` against the generated cache.
+
+| Toolchain          |   Cold | Incremental |
+| ------------------ | -----: | ----------: |
+| TypeScript `5.9.3` | 5.88 s |      2.57 s |
+| TypeScript `6.0.3` | 5.55 s |      2.38 s |
+
+The TypeScript 6 run was 0.33 s faster cold and 0.19 s faster incrementally on
+this machine. Editor diagnostics startup was not recorded because there is no
+reproducible editor-performance harness in the repository.
+
+The production `skipLibCheck: true` setting remains in place. An investigative
+run with `skipLibCheck: false` reaches application sources but reports declaration
+errors in dependencies and duplicated Next.js generated global types; these
+upstream declaration failures are not suppressed with a TypeScript deprecation
+override.
+
 ## Production dependency audit baseline
 
 `pnpm audit:ci` runs a live production audit and compares every

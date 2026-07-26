@@ -574,7 +574,7 @@ export const QUERIES = {
     const rows = await db
       .select({ key: fileRecord.utFileKey })
       .from(fileRecord)
-      .where(inArray(fileRecord.ownerId, ownerIds as unknown as string[]));
+      .where(inArray(fileRecord.ownerId, ownerIds));
     return rows.map((r) => r.key);
   },
 
