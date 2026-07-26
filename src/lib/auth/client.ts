@@ -11,3 +11,11 @@ export const signInWithGoogle = async () => {
     callbackURL: "/",
   });
 };
+
+export const signOut = async (onSuccess: () => void) => {
+  await authClient.signOut({
+    fetchOptions: {
+      onSuccess,
+    },
+  });
+};

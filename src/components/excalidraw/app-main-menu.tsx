@@ -26,7 +26,7 @@ import {
   PanelsTopLeft,
 } from "lucide-react";
 import type { UserChosenTheme } from "@/hooks/use-sync-theme";
-import { authClient } from "@/lib/auth/client";
+import { authClient, signOut } from "@/lib/auth/client";
 import { useRouter } from "next/navigation";
 import { Avatar } from "@/components/avatar";
 import { SceneSwitchConfirmDialog } from "@/components/excalidraw/scene-switch-confirm-dialog";
@@ -202,12 +202,8 @@ function AppMainMenu({
   }
 
   const handleSignOut = async () => {
-    await authClient.signOut({
-      fetchOptions: {
-        onSuccess: () => {
-          router.refresh();
-        },
-      },
+    await signOut(() => {
+      router.refresh();
     });
   };
 

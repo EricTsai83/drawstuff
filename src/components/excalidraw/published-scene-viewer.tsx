@@ -1,7 +1,7 @@
 "use client";
 
 import "@excalidraw/excalidraw/index.css";
-import { Excalidraw, MainMenu, restore } from "@excalidraw/excalidraw";
+import { Excalidraw, MainMenu } from "@excalidraw/excalidraw";
 import {
   Eye,
   EyeOff,
@@ -14,23 +14,15 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import type {
-  BinaryFileData,
-  BinaryFiles,
-  DataURL,
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
 } from "@excalidraw/excalidraw/types";
 import type { AppState } from "@excalidraw/excalidraw/types";
-import type {
-  ExcalidrawElement,
-  FileId,
-} from "@excalidraw/excalidraw/element/types";
-import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
-import { ensureInitialAppState } from "@/lib/excalidraw";
 import Link from "next/link";
 import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { loadPublishedSceneData } from "@/lib/published-scene-data";
 
 type PublishedSceneViewerProps = {
   sceneData: string;
@@ -41,18 +33,6 @@ type PublishedSceneViewerProps = {
   sceneDescription: string;
   authorName?: string;
   updatedAt: string;
-};
-
-type StoredScenePayload = {
-  elements?: ExcalidrawElement[];
-  appState?: Partial<AppState>;
-};
-
-type DecompressedFileMetadata = {
-  id: string;
-  mimeType: string;
-  created: number;
-  lastRetrieved: number;
 };
 
 const MIN_ZOOM = 0.25;
@@ -135,67 +115,13 @@ export function PublishedSceneViewer({
 
     async function loadPublishedScene() {
       try {
-        const compressedBuffer = new Uint8Array(base64ToArrayBuffer(sceneData));
-        const { data } = await decompressData<Record<string, never>>(
-          compressedBuffer,
-          { decryptionKey: "" },
-        );
-        const parsed = JSON.parse(
-          new TextDecoder().decode(data),
-        ) as StoredScenePayload;
-
-        const files: BinaryFiles = {};
-
-        await Promise.allSettled(
-          fileRecords.map(async ({ url }) => {
-            const response = await fetch(url, {
-              signal: controller.signal,
-            });
-            if (!response.ok) return;
-
-            const fileBuffer = new Uint8Array(await response.arrayBuffer());
-            const { metadata, data: fileData } =
-              await decompressData<DecompressedFileMetadata>(fileBuffer, {
-                decryptionKey: "",
-              });
-
-            const id = metadata.id as FileId;
-            files[id] = {
-              id,
-              dataURL: new TextDecoder().decode(fileData) as DataURL,
-              mimeType: metadata.mimeType as BinaryFileData["mimeType"],
-              created: metadata.created,
-              lastRetrieved: metadata.lastRetrieved,
-            };
-          }),
-        );
-
-        if (!isActive) return;
-
-        const restored = restore(
-          {
-            elements: parsed.elements ?? null,
-            appState: parsed.appState ?? null,
-            files,
-          },
-          null,
-          null,
-          { repairBindings: true, refreshDimensions: false },
-        );
-
-        const cleanAppState = ensureInitialAppState(restored.appState ?? {});
-        setInitialData({
-          elements: restored.elements ?? [],
-          appState: {
-            ...cleanAppState,
-            scrollX: undefined,
-            scrollY: undefined,
-            zoom: undefined,
-            viewModeEnabled: true,
-            zenModeEnabled: true,
-          },
-          files: restored.files ?? files,
+        const loaded = await loadPublishedSceneData({
+          sceneData,
+          fileRecords,
+          signal: controller.signal,
         });
+        if (!isActive) return;
+        setInitialData(loaded);
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
           return;

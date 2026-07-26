@@ -72,11 +72,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
         );
 
         // 清除加密資訊，避免資訊殘留在 URL 上
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.origin,
-        );
+        window.history.replaceState({}, document.title, window.location.origin);
 
         return {
           elements: scene.elements ?? [],
@@ -96,7 +92,10 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
     }
 
     if (hasLocalSavedScene) {
-      return await restoreInitialDataFromLocal(localDataState, hasLocalSavedScene);
+      return await restoreInitialDataFromLocal(
+        localDataState,
+        hasLocalSavedScene,
+      );
     }
 
     return await loadInitialRemoteScene();
@@ -141,10 +140,8 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
   }
 
   try {
-    const {
-      importSceneDataBySceneId,
-      importSceneFilesBySceneId,
-    } = await import("@/lib/import-data-from-db");
+    const { importSceneDataBySceneId, importSceneFilesBySceneId } =
+      await import("@/lib/import-data-from-db");
     const imported = await importSceneDataBySceneId(sceneId);
     const files = await importSceneFilesBySceneId(sceneId);
     const appState = ensureInitialAppState(imported.appState ?? {});
@@ -502,9 +499,9 @@ export async function exportSceneToPngBlob(
     exportPadding?: number;
   }) => Promise<Blob>;
 
-  const exportToBlobTyped: ExportToBlobFn =
-    exportToBlob as unknown as ExportToBlobFn;
-
+  // @excalidraw/excalidraw 0.18.0 publishes this function's declaration
+  // through an unresolved internal @excalidraw/utils/export alias.
+  const exportToBlobTyped = exportToBlob as unknown as ExportToBlobFn;
   return await exportToBlobTyped({
     elements: elementsForExport,
     appState: appStateForExport,
