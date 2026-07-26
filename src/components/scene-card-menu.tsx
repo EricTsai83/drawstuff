@@ -66,16 +66,18 @@ export function SceneCardMenu({
 
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          variant="secondary"
-          size="icon"
-          className="bg-background/80 hover:bg-background h-6 w-6"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="More options"
-        >
-          <EllipsisVertical className="h-3 w-3" />
-        </Button>
+      <DropdownMenuTrigger
+        render={
+          <Button
+            variant="secondary"
+            size="icon"
+            className="bg-background/80 hover:bg-background h-6 w-6"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="More options"
+          />
+        }
+      >
+        <EllipsisVertical className="h-3 w-3" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
         <DropdownMenuItem onClick={onImport}>
