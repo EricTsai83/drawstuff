@@ -3,29 +3,35 @@
 import {
   Eye,
   EyeOff,
-  Menu,
+  Maximize,
+  Minimize,
   Moon,
   RefreshCw,
+  Scan,
   Sun,
   ZoomIn,
   ZoomOut,
+  type LucideIcon,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { DrawstuffLogo } from "@/components/icons";
+import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import type {
+  WhiteboardDocument,
+  WhiteboardViewerController,
+  WhiteboardViewport,
+} from "@/features/whiteboard";
+import { OwnedWhiteboardCanvas } from "@/features/whiteboard/owned";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";
-import type {
-  WhiteboardEngine,
-  WhiteboardViewport,
-} from "@/features/whiteboard";
-import {
-  ExcalidrawCanvas,
-  ExcalidrawMainMenu as MainMenu,
-  toWhiteboardDocument,
-  type WhiteboardInitialData,
-} from "@/features/whiteboard/adapters/excalidraw";
 
 type PublishedSceneViewerProps = {
   sceneData: string;
@@ -41,46 +47,10 @@ type PublishedSceneViewerProps = {
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.2;
-
 const FIT_TO_VIEWPORT_OPTIONS = {
   fitToViewport: true,
   viewportZoomFactor: 0.7,
-  animate: false,
 } as const;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function getCenteredZoomState(
-  viewport: WhiteboardViewport,
-  nextZoom: number,
-): Pick<WhiteboardViewport, "x" | "y" | "zoom"> {
-  const viewportCenterX = viewport.offsetX + viewport.width / 2;
-  const viewportCenterY = viewport.offsetY + viewport.height / 2;
-  const appLayerX = viewportCenterX - viewport.offsetX;
-  const appLayerY = viewportCenterY - viewport.offsetY;
-  const currentZoom = viewport.zoom;
-  const baseScrollX = viewport.x + appLayerX - appLayerX / currentZoom;
-  const baseScrollY = viewport.y + appLayerY - appLayerY / currentZoom;
-  const zoomOffsetScrollX = -(appLayerX - appLayerX / nextZoom);
-  const zoomOffsetScrollY = -(appLayerY - appLayerY / nextZoom);
-
-  return {
-    x: baseScrollX + zoomOffsetScrollX,
-    y: baseScrollY + zoomOffsetScrollY,
-    zoom: nextZoom,
-  };
-}
-
-const ICON_BTN =
-  "inline-flex h-10 w-10 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
-
-const TEXT_BTN =
-  "inline-flex h-10 min-w-10 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
-
-const CONTROLS_MENU =
-  "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
 
 export function PublishedSceneViewer({
   sceneData,
@@ -90,197 +60,87 @@ export function PublishedSceneViewer({
 }: PublishedSceneViewerProps) {
   const { t } = useStandaloneI18n();
   const { setTheme, browserActiveTheme } = useSyncTheme();
-  const [initialData, setInitialData] = useState<WhiteboardInitialData | null>(
+  const [sceneDocument, setSceneDocument] = useState<WhiteboardDocument | null>(
     null,
   );
   const [loadError, setLoadError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [engine, setEngine] = useState<WhiteboardEngine | null>(null);
-  const [hasAutoCentered, setHasAutoCentered] = useState(false);
+  const [viewer, setViewer] = useState<WhiteboardViewerController | null>(null);
+  const [documentReady, setDocumentReady] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
-  const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
-  const headerRef = useRef<HTMLElement | null>(null);
-  const headerLeftRef = useRef<HTMLAnchorElement | null>(null);
-  const headerRightRef = useRef<HTMLDivElement | null>(null);
-  const [titleMaxWidth, setTitleMaxWidth] = useState<number | undefined>();
+  const [fullscreen, setFullscreen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     const controller = new AbortController();
-    let isActive = true;
-
-    setInitialData(null);
+    let active = true;
+    setSceneDocument(null);
     setLoadError(false);
     setIsLoading(true);
-    setHasAutoCentered(false);
+    setDocumentReady(false);
 
-    async function loadPublishedScene() {
-      try {
-        const loaded = await loadPublishedSceneData({
-          sceneData,
-          fileRecords,
-          signal: controller.signal,
-        });
-        if (!isActive) return;
-        setInitialData({
-          ...toWhiteboardDocument(
-            loaded.elements ?? [],
-            loaded.appState ?? {},
-            loaded.files ?? {},
-          ),
-          scrollToContent: loaded.scrollToContent,
-        });
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          return;
-        }
-
+    void loadPublishedSceneData({
+      sceneData,
+      fileRecords,
+      signal: controller.signal,
+    })
+      .then((loaded) => {
+        if (active) setSceneDocument(loaded);
+      })
+      .catch((error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
         console.error("Failed to load published scene", error);
-        if (isActive) {
-          setLoadError(true);
-        }
-      } finally {
-        if (isActive) {
-          setIsLoading(false);
-        }
-      }
-    }
-
-    void loadPublishedScene();
+        if (active) setLoadError(true);
+      })
+      .finally(() => {
+        if (active) setIsLoading(false);
+      });
 
     return () => {
-      isActive = false;
+      active = false;
       controller.abort();
     };
   }, [fileRecords, sceneData]);
 
   useEffect(() => {
-    if (!engine) return;
-    if (engine.getEditorState().theme !== browserActiveTheme) {
-      engine.updateEditorState({ theme: browserActiveTheme });
-    }
-  }, [browserActiveTheme, engine]);
+    const onFullscreenChange = () =>
+      setFullscreen(document.fullscreenElement === rootRef.current);
+    document.addEventListener("fullscreenchange", onFullscreenChange);
+    return () =>
+      document.removeEventListener("fullscreenchange", onFullscreenChange);
+  }, []);
 
-  useEffect(() => {
-    if (!engine || !initialData || hasAutoCentered) return;
-
-    let attempts = 0;
-    let timer: number | undefined;
-
-    const tryCenter = () => {
-      attempts += 1;
-      let elements: ReturnType<WhiteboardEngine["getDocument"]>["elements"];
-      try {
-        elements = engine.getDocument().elements;
-      } catch {
-        return;
-      }
-      const hasContent = elements.some((element) => !element.isDeleted);
-
-      if (hasContent) {
-        engine.fitToContent(FIT_TO_VIEWPORT_OPTIONS);
-        setHasAutoCentered(true);
-        return;
-      }
-
-      if (attempts < 15) {
-        timer = window.setTimeout(tryCenter, 120);
-      }
-    };
-
-    tryCenter();
-
-    return () => {
-      if (timer) window.clearTimeout(timer);
-    };
-  }, [engine, hasAutoCentered, initialData]);
-
-  useEffect(() => {
-    if (!uiVisible) return;
-
-    const updateTitleMaxWidth = () => {
-      const headerWidth = headerRef.current?.getBoundingClientRect().width ?? 0;
-      const leftWidth =
-        headerLeftRef.current?.getBoundingClientRect().width ?? 0;
-      const rightWidth =
-        headerRightRef.current?.getBoundingClientRect().width ?? 0;
-      const sideWidth = Math.max(leftWidth, rightWidth);
-      const horizontalPadding = 24;
-
-      setTitleMaxWidth(
-        Math.max(0, headerWidth - sideWidth * 2 - horizontalPadding),
-      );
-    };
-
-    updateTitleMaxWidth();
-
-    const observer = new ResizeObserver(updateTitleMaxWidth);
-    if (headerRef.current) observer.observe(headerRef.current);
-    if (headerLeftRef.current) observer.observe(headerLeftRef.current);
-    if (headerRightRef.current) observer.observe(headerRightRef.current);
-
-    return () => observer.disconnect();
-  }, [uiVisible]);
-
-  useEffect(() => {
-    if (!uiVisible) {
-      setControlsMenuOpen(false);
-    }
-  }, [uiVisible]);
-
-  useEffect(() => {
-    if (!controlsMenuOpen) return;
-
-    const handlePointerDown = (event: PointerEvent) => {
-      if (!headerRightRef.current?.contains(event.target as Node)) {
-        setControlsMenuOpen(false);
-      }
-    };
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") {
-        setControlsMenuOpen(false);
-      }
-    };
-
-    document.addEventListener("pointerdown", handlePointerDown);
-    document.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      document.removeEventListener("pointerdown", handlePointerDown);
-      document.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [controlsMenuOpen]);
-
-  const fitToScreen = useCallback(() => {
-    engine?.fitToContent(FIT_TO_VIEWPORT_OPTIONS);
-  }, [engine]);
+  const handleViewerReady = useCallback(
+    (controller: WhiteboardViewerController | null) => setViewer(controller),
+    [],
+  );
+  const handleDocumentReady = useCallback(() => setDocumentReady(true), []);
 
   const zoomBy = useCallback(
     (factor: number) => {
-      if (!engine) return;
-      const current = engine.getViewport();
+      if (!viewer) return;
+      const current = viewer.getViewport();
       const nextZoom = clamp(current.zoom * factor, MIN_ZOOM, MAX_ZOOM);
-      if (nextZoom === current.zoom) return;
-      engine.updateViewport(getCenteredZoomState(current, nextZoom));
+      if (nextZoom !== current.zoom) {
+        viewer.updateViewport(centeredZoom(current, nextZoom));
+      }
     },
-    [engine],
+    [viewer],
   );
 
   const resetView = useCallback(() => {
-    if (!engine) return;
-    engine.updateViewport({ zoom: 1 });
+    if (!viewer) return;
+    viewer.updateViewport({ zoom: 1 });
+    requestAnimationFrame(() => viewer.fitToContent({ fitToViewport: false }));
+  }, [viewer]);
 
-    requestAnimationFrame(() => {
-      engine.fitToContent({
-        fitToViewport: false,
-        animate: false,
-      });
-    });
-  }, [engine]);
-
-  const toggleTheme = useCallback(() => {
-    setTheme(browserActiveTheme === "light" ? "dark" : "light");
-  }, [browserActiveTheme, setTheme]);
+  const toggleFullscreen = useCallback(async () => {
+    if (document.fullscreenElement) {
+      await document.exitFullscreen();
+    } else {
+      await rootRef.current?.requestFullscreen();
+    }
+  }, []);
 
   const themeLabel =
     browserActiveTheme === "light"
@@ -288,272 +148,166 @@ export function PublishedSceneViewer({
       : t("public.theme.dark");
 
   return (
-    <div className="published-viewer flex h-full w-full flex-col">
-      {/* ── Header ── */}
-      {uiVisible && (
-        <header
-          ref={headerRef}
-          className="border-border bg-background relative flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-5"
-        >
-          <Link
-            ref={headerLeftRef}
-            href="/"
-            className="z-10 flex shrink-0 items-center gap-1.5 px-2"
-          >
-            <DrawstuffLogo className="h-4 w-4 text-indigo-500 dark:text-gray-300" />
-            <span className="hidden text-lg font-medium sm:inline">
-              drawstuff
-            </span>
-          </Link>
+    <TooltipProvider>
+      <div
+        ref={rootRef}
+        className="published-viewer bg-background flex h-full w-full flex-col"
+      >
+        {uiVisible && (
+          <header className="border-border bg-background flex h-12 shrink-0 items-center gap-2 border-b px-3 sm:px-5">
+            <Link href="/" className="flex shrink-0 items-center gap-1.5 px-2">
+              <DrawstuffLogo className="text-primary size-4" />
+              <span className="hidden text-lg font-medium sm:inline">
+                drawstuff
+              </span>
+            </Link>
 
-          <div
-            className="pointer-events-none absolute left-1/2 flex max-w-[calc(100vw-8rem)] min-w-0 -translate-x-1/2 items-center justify-center gap-2 px-2 sm:max-w-[40vw]"
-            style={{ maxWidth: titleMaxWidth }}
-          >
-            <h1 className="min-w-0 truncate text-sm font-medium sm:text-base">
-              {sceneName}
-            </h1>
-            {authorName && (
-              <div className="hidden min-w-0 items-center gap-1 sm:flex">
-                <span className="text-muted-foreground shrink-0 text-xs">
-                  ·
-                </span>
-                <span className="text-muted-foreground min-w-0 truncate text-xs">
+            <div className="pointer-events-none min-w-0 flex-1 text-center">
+              <h1 className="truncate text-sm font-medium sm:text-base">
+                {sceneName}
+              </h1>
+              {authorName && (
+                <p className="text-muted-foreground hidden truncate text-xs sm:block">
                   {authorName}
-                </span>
-              </div>
-            )}
-          </div>
-
-          <div
-            ref={headerRightRef}
-            className="relative z-10 flex shrink-0 items-center gap-0.5"
-          >
-            <button
-              type="button"
-              onClick={() => setControlsMenuOpen((open) => !open)}
-              className={`${ICON_BTN} lg:hidden`}
-              aria-label="Menu"
-              aria-controls="published-viewer-controls-menu"
-              aria-expanded={controlsMenuOpen}
-              title="Menu"
-            >
-              <Menu className="h-4 w-4" />
-            </button>
+                </p>
+              )}
+            </div>
 
             <div
-              id="published-viewer-controls-menu"
-              className={`${CONTROLS_MENU} lg:hidden ${
-                controlsMenuOpen
-                  ? "pointer-events-auto translate-y-0 scale-100 opacity-100"
-                  : "pointer-events-none -translate-y-1 scale-95 opacity-0"
-              }`}
-              aria-hidden={!controlsMenuOpen}
-              inert={!controlsMenuOpen}
+              aria-label="Viewer controls"
+              className="flex shrink-0 items-center gap-0.5"
+              role="toolbar"
             >
-              <button
-                type="button"
+              <ViewerButton
+                icon={ZoomOut}
+                label={t("public.viewer.zoomOut")}
                 onClick={() => zoomBy(1 / ZOOM_STEP)}
-                className={ICON_BTN}
-                aria-label={t("public.viewer.zoomOut")}
-                title={t("public.viewer.zoomOut")}
-              >
-                <ZoomOut className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
+              />
+              <ViewerButton
+                icon={ZoomIn}
+                label={t("public.viewer.zoomIn")}
                 onClick={() => zoomBy(ZOOM_STEP)}
-                className={ICON_BTN}
-                aria-label={t("public.viewer.zoomIn")}
-                title={t("public.viewer.zoomIn")}
-              >
-                <ZoomIn className="h-4 w-4" />
-              </button>
-              <div className="bg-border my-1 h-px w-4" />
-              <button
-                type="button"
-                onClick={fitToScreen}
-                className={TEXT_BTN}
-                aria-label={t("public.viewer.fit")}
-                title={t("public.viewer.fit")}
-              >
-                {t("public.viewer.fit")}
-              </button>
-              <button
-                type="button"
+              />
+              <ViewerButton
+                icon={Scan}
+                label={t("public.viewer.fit")}
+                onClick={() => viewer?.fitToContent(FIT_TO_VIEWPORT_OPTIONS)}
+              />
+              <ViewerButton
+                icon={RefreshCw}
+                label={t("public.viewer.reset")}
                 onClick={resetView}
-                className={ICON_BTN}
-                aria-label={t("public.viewer.reset")}
-                title={t("public.viewer.reset")}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-              </button>
-              <div className="bg-border my-1 h-px w-4" />
-              <button
-                type="button"
-                onClick={toggleTheme}
-                className={ICON_BTN}
-                aria-label={themeLabel}
-                title={themeLabel}
-              >
-                {browserActiveTheme === "light" ? (
-                  <Sun className="h-4 w-4" />
-                ) : (
-                  <Moon className="h-4 w-4" />
-                )}
-              </button>
-              <button
-                type="button"
+              />
+              <ViewerButton
+                icon={browserActiveTheme === "light" ? Sun : Moon}
+                label={themeLabel}
+                onClick={() =>
+                  setTheme(browserActiveTheme === "light" ? "dark" : "light")
+                }
+              />
+              <ViewerButton
+                icon={fullscreen ? Minimize : Maximize}
+                label={fullscreen ? "Exit fullscreen" : "Enter fullscreen"}
+                onClick={() => void toggleFullscreen()}
+              />
+              <ViewerButton
+                icon={EyeOff}
+                label={t("public.viewer.hideUI")}
                 onClick={() => setUiVisible(false)}
-                className={ICON_BTN}
-                aria-label={t("public.viewer.hideUI")}
-                title={t("public.viewer.hideUI")}
-              >
-                <EyeOff className="h-4 w-4" />
-              </button>
+              />
             </div>
-
-            <div className="hidden items-center gap-0.5 lg:flex">
-              <button
-                type="button"
-                onClick={() => zoomBy(1 / ZOOM_STEP)}
-                className={ICON_BTN}
-                aria-label={t("public.viewer.zoomOut")}
-                title={t("public.viewer.zoomOut")}
-              >
-                <ZoomOut className="h-4 w-4" />
-              </button>
-              <button
-                type="button"
-                onClick={() => zoomBy(ZOOM_STEP)}
-                className={ICON_BTN}
-                aria-label={t("public.viewer.zoomIn")}
-                title={t("public.viewer.zoomIn")}
-              >
-                <ZoomIn className="h-4 w-4" />
-              </button>
-              <div className="bg-border mx-1 h-4 w-px" />
-              <button
-                type="button"
-                onClick={fitToScreen}
-                className={TEXT_BTN}
-                aria-label={t("public.viewer.fit")}
-                title={t("public.viewer.fit")}
-              >
-                {t("public.viewer.fit")}
-              </button>
-              <button
-                type="button"
-                onClick={resetView}
-                className={ICON_BTN}
-                aria-label={t("public.viewer.reset")}
-                title={t("public.viewer.reset")}
-              >
-                <RefreshCw className="h-3.5 w-3.5" />
-              </button>
-              <div className="bg-border mx-1 h-4 w-px" />
-            </div>
-          </div>
-        </header>
-      )}
-
-      {/* ── Canvas area ── */}
-      <div className="relative min-h-0 flex-1">
-        {/* Restore UI button — only when chrome is hidden */}
-        {!uiVisible && (
-          <button
-            type="button"
-            onClick={() => setUiVisible(true)}
-            className={`${ICON_BTN} border-border bg-background absolute top-3 right-3 z-10 border shadow-sm sm:top-4 sm:right-4`}
-            aria-label={t("public.viewer.showUI")}
-            title={t("public.viewer.showUI")}
-          >
-            <Eye className="h-4 w-4" />
-          </button>
+          </header>
         )}
 
-        {loadError ? (
-          <div className="flex h-full items-center justify-center">
-            <p className="text-muted-foreground text-sm">
-              {t("public.viewer.loadError")}
-            </p>
-          </div>
-        ) : !initialData && isLoading ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
-            <div className="flex h-10 w-10 items-center justify-center">
-              <div className="border-primary/30 border-t-primary h-7 w-7 animate-spin rounded-full border-2" />
+        <div className="relative min-h-0 flex-1">
+          {!uiVisible && (
+            <div className="absolute top-3 right-3 z-10">
+              <ViewerButton
+                icon={Eye}
+                label={t("public.viewer.showUI")}
+                onClick={() => setUiVisible(true)}
+                outline
+              />
             </div>
-            <p className="text-muted-foreground animate-pulse text-sm">
-              {t("public.viewer.loading")}
-            </p>
-          </div>
-        ) : (
-          <div
-            className="h-full w-full transition-opacity duration-200"
-            style={{ opacity: hasAutoCentered ? 1 : 0 }}
-          >
-            {initialData && (
-              <ExcalidrawCanvas
-                onEngineReady={setEngine}
-                initialData={initialData}
-                theme={browserActiveTheme}
-                viewModeEnabled
-                renderTopRightUI={() => null}
-                UIOptions={{
-                  canvasActions: {
-                    toggleTheme: false,
-                    clearCanvas: false,
-                    loadScene: false,
-                    saveAsImage: false,
-                    saveToActiveFile: false,
-                    changeViewBackgroundColor: false,
-                    export: false,
-                  },
-                }}
-              >
-                <MainMenu>
-                  <MainMenu.DefaultItems.SearchMenu />
-                  <MainMenu.DefaultItems.Help />
-                  <MainMenu.Separator />
-                  <MainMenu.ItemCustom>
-                    <Link
-                      href="https://github.com/EricTsai83/drawstuff"
-                      target="_blank"
-                      rel="noopener"
-                      className="dropdown-menu-item dropdown-menu-item-base"
-                    >
-                      <Github className="h-4 w-4" />
-                      GitHub
-                    </Link>
-                  </MainMenu.ItemCustom>
-                  <MainMenu.ItemCustom>
-                    <Link
-                      href="https://bsky.app/profile/ericts.com"
-                      target="_blank"
-                      rel="noopener"
-                      className="dropdown-menu-item dropdown-menu-item-base"
-                    >
-                      <Bluesky className="h-4 w-4" />
-                      Bluesky
-                    </Link>
-                  </MainMenu.ItemCustom>
-                  <MainMenu.ItemCustom>
-                    <Link
-                      href="https://ericts.com"
-                      target="_blank"
-                      rel="noopener"
-                      className="dropdown-menu-item dropdown-menu-item-base"
-                    >
-                      <Blog className="h-4 w-4" />
-                      Website
-                    </Link>
-                  </MainMenu.ItemCustom>
-                </MainMenu>
-              </ExcalidrawCanvas>
-            )}
-          </div>
-        )}
+          )}
+
+          {loadError ? (
+            <ViewerStatus>{t("public.viewer.loadError")}</ViewerStatus>
+          ) : isLoading || !sceneDocument ? (
+            <ViewerStatus>{t("public.viewer.loading")}</ViewerStatus>
+          ) : (
+            <div
+              className="h-full w-full transition-opacity duration-200"
+              style={{ opacity: documentReady ? 1 : 0 }}
+            >
+              <OwnedWhiteboardCanvas
+                ariaLabel="Published whiteboard"
+                document={sceneDocument}
+                editingEnabled={false}
+                onDocumentReady={handleDocumentReady}
+                onViewerReady={handleViewerReady}
+              />
+            </div>
+          )}
+        </div>
       </div>
+    </TooltipProvider>
+  );
+}
+
+function ViewerButton({
+  icon: Icon,
+  label,
+  onClick,
+  outline = false,
+}: {
+  readonly icon: LucideIcon;
+  readonly label: string;
+  readonly onClick: () => void;
+  readonly outline?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger
+        render={
+          <Button
+            aria-label={label}
+            onClick={onClick}
+            size="icon-sm"
+            variant={outline ? "outline" : "ghost"}
+          />
+        }
+      >
+        <Icon />
+      </TooltipTrigger>
+      <TooltipContent>{label}</TooltipContent>
+    </Tooltip>
+  );
+}
+
+function ViewerStatus({ children }: { readonly children: string }) {
+  return (
+    <div className="flex h-full items-center justify-center">
+      <p className="text-muted-foreground text-sm">{children}</p>
     </div>
   );
+}
+
+function centeredZoom(
+  viewport: WhiteboardViewport,
+  zoom: number,
+): Pick<WhiteboardViewport, "x" | "y" | "zoom"> {
+  const centerX = viewport.width / 2;
+  const centerY = viewport.height / 2;
+  const documentCenterX = centerX / viewport.zoom - viewport.x;
+  const documentCenterY = centerY / viewport.zoom - viewport.y;
+  return {
+    x: centerX / zoom - documentCenterX,
+    y: centerY / zoom - documentCenterY,
+    zoom,
+  };
+}
+
+function clamp(value: number, minimum: number, maximum: number): number {
+  return Math.min(maximum, Math.max(minimum, value));
 }

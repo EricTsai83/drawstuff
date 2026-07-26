@@ -82,6 +82,7 @@ function createTestEngine(initialState = INITIAL_STATE) {
   const undo = vi.fn();
   const clearDocument = vi.fn();
   const exportImage = vi.fn(async () => new Blob(["image"]));
+  const insertImage = vi.fn(async () => undefined);
   const importDocument = vi.fn(async () => ({ name: "Imported board" }));
 
   const engine: WhiteboardEngine = {
@@ -118,6 +119,7 @@ function createTestEngine(initialState = INITIAL_STATE) {
     clearDocument,
     addAssets: vi.fn(),
     getAssets: vi.fn(() => ({})),
+    insertImage,
     exportImage,
     exportDocument: vi.fn(async () => new Blob(["scene"])),
     importDocument,
@@ -131,6 +133,7 @@ function createTestEngine(initialState = INITIAL_STATE) {
       clearDocument,
       fitToContent,
       importDocument,
+      insertImage,
       setActiveTool,
       undo,
       updateElementStyle,
@@ -233,6 +236,22 @@ describe("owned whiteboard shell", () => {
     );
   });
 
+  it("opens the image picker and forwards the selected file to the engine", async () => {
+    const { engine, spies } = createTestEngine();
+    renderShell(engine);
+    const image = new File([new Uint8Array([1, 2, 3])], "asset.png", {
+      type: "image/png",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Image" }));
+    fireEvent.change(screen.getByLabelText("Import image"), {
+      target: { files: [image] },
+    });
+
+    await waitFor(() => expect(spies.insertImage).toHaveBeenCalledWith(image));
+    expect(spies.setActiveTool).not.toHaveBeenCalledWith({ type: "image" });
+  });
+
   it("sends property changes to the engine instead of canvas internals", () => {
     const { engine, spies } = createTestEngine();
     renderShell(engine);
@@ -316,8 +335,30 @@ describe("owned whiteboard shell", () => {
       within(exportDialog).getByRole("button", { name: "Export" }),
     );
     await waitFor(() =>
-      expect(spies.exportImage).toHaveBeenCalledWith({ format: "svg" }),
+      expect(spies.exportImage).toHaveBeenCalledWith({
+        format: "svg",
+        scale: 1,
+        background: true,
+        selectionOnly: false,
+      }),
     );
+  });
+
+  it("disables selection-only export when the scene has no selection", async () => {
+    const { engine } = createTestEngine({
+      ...INITIAL_STATE,
+      selectedElementIds: [],
+    });
+    renderShell(engine);
+
+    fireEvent.click(screen.getByRole("button", { name: "Main menu" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Export" }));
+
+    expect(
+      within(screen.getByRole("dialog", { name: "Export scene" }))
+        .getByRole("button", { name: "Selection only" })
+        .hasAttribute("disabled"),
+    ).toBe(true);
   });
 
   it("confirms an undoable clear through the engine", async () => {

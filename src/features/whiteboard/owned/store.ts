@@ -17,9 +17,13 @@ import {
   createWhiteboardDocumentV1,
   filterReferencedWhiteboardAssets,
   parsePersistedWhiteboardPayload,
-  serializeWhiteboardDocumentV1,
   toRuntimeWhiteboardDocument,
 } from "@/features/whiteboard/document-format";
+import { createWhiteboardImageElement, importWhiteboardImage } from "./assets";
+import {
+  exportOwnedWhiteboardDocument,
+  exportOwnedWhiteboardImage,
+} from "./export";
 import {
   getDocumentBounds,
   isElementSelectable,
@@ -408,40 +412,44 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     return this.documentSnapshot.assets;
   }
 
+  public async insertImage(blob: Blob): Promise<void> {
+    this.assertActive();
+    const imported = await importWhiteboardImage(blob, this.document.assets);
+    this.assertActive();
+    this.finalizeActiveElementGesture();
+    const element = createWhiteboardImageElement(imported, this.viewport);
+    const before = this.document;
+    this.document = {
+      ...this.document,
+      elements: [...this.document.elements, element],
+      assets: {
+        ...this.document.assets,
+        [imported.asset.id]: imported.asset,
+      },
+    };
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation("create", before);
+    this.selectedElementIds = [element.id];
+    this.activeTool = { type: "selection" };
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
   public async exportImage(
-    _options: WhiteboardImageExportOptions,
+    options: WhiteboardImageExportOptions,
   ): Promise<Blob> {
     this.assertActive();
-    throw new Error("Owned whiteboard image export is planned for Phase 5G");
+    return await exportOwnedWhiteboardImage(
+      this.documentSnapshot,
+      options,
+      this.selectedElementIds,
+    );
   }
 
   public async exportDocument(): Promise<Blob> {
     this.assertActive();
-    return new Blob(
-      [
-        serializeWhiteboardDocumentV1({
-          version: 1,
-          elements: this.documentSnapshot.elements,
-          assets: this.documentSnapshot.assets,
-          metadata: {
-            name:
-              typeof this.document.state.name === "string"
-                ? this.document.state.name
-                : "",
-            theme: this.document.state.theme === "dark" ? "dark" : "light",
-            viewBackgroundColor:
-              typeof this.document.state.viewBackgroundColor === "string"
-                ? this.document.state.viewBackgroundColor
-                : "#ffffff",
-            gridSize:
-              typeof this.document.state.gridSize === "number"
-                ? this.document.state.gridSize
-                : null,
-          },
-        }),
-      ],
-      { type: "application/json" },
-    );
+    return exportOwnedWhiteboardDocument(this.documentSnapshot);
   }
 
   public async importDocument(blob: Blob): Promise<WhiteboardImportResult> {

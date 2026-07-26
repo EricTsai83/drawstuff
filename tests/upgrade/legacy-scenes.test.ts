@@ -241,10 +241,10 @@ describe("local recovery and binary files", () => {
       fileRecords: [{ url: "https://files.example/legacy-image" }],
     });
 
-    expect(loaded.appState?.viewModeEnabled).toBe(true);
-    expect(loaded.appState?.zenModeEnabled).toBe(true);
-    expect(loaded.appState?.scrollX).toBeUndefined();
-    expect(loaded.files?.["legacy-image-file"]?.dataURL).toBe(binary.dataURL);
+    expect(loaded.state.viewModeEnabled).toBe(true);
+    expect(loaded.state.zenModeEnabled).toBe(true);
+    expect(loaded.state.scrollX).toBeUndefined();
+    expect(loaded.assets["legacy-image-file"]?.dataURL).toBe(binary.dataURL);
   });
 
   it("loads the unversioned legacy server shape at the published boundary", async () => {
@@ -271,8 +271,8 @@ describe("local recovery and binary files", () => {
     expect(loaded.elements?.map((element) => element.id)).toEqual([
       "server-legacy",
     ]);
-    expect(loaded.appState?.name).toBe("Unversioned server scene");
-    expect(loaded.appState?.viewModeEnabled).toBe(true);
+    expect(loaded.state.name).toBe("Unversioned server scene");
+    expect(loaded.state.viewModeEnabled).toBe(true);
   });
 
   it("detects and loads an owned published document with inline assets", async () => {
@@ -295,11 +295,153 @@ describe("local recovery and binary files", () => {
     expect(loaded.elements?.map((element) => element.id)).toEqual([
       "legacy-image",
     ]);
-    expect(loaded.appState?.name).toBe("Legacy image and binary file");
-    expect(loaded.appState?.viewModeEnabled).toBe(true);
-    expect(loaded.files?.["legacy-image-file"]?.dataURL).toBe(
+    expect(loaded.state.name).toBe("Legacy image and binary file");
+    expect(loaded.state.viewModeEnabled).toBe(true);
+    expect(loaded.assets["legacy-image-file"]?.dataURL).toBe(
       document.assets["legacy-image-file"]?.dataURL,
     );
+  });
+
+  it("hydrates an owned published document whose asset record is stored separately", async () => {
+    const { compressData } = await import("@/lib/encode");
+    const source = {
+      version: 1,
+      elements: [
+        {
+          id: "owned-published-image",
+          type: "image",
+          isDeleted: false,
+          fileId: "owned-published-file",
+        },
+      ],
+      assets: {},
+      metadata: {
+        name: "External owned image",
+        theme: "light",
+        viewBackgroundColor: "#ffffff",
+        gridSize: null,
+      },
+    };
+    const compressedScene = await compressData(
+      new TextEncoder().encode(JSON.stringify(source)),
+      {},
+    );
+    const dataURL = "data:image/png;base64,AA==";
+    const compressedFile = await compressData(
+      new TextEncoder().encode(dataURL),
+      {
+        metadata: {
+          id: "owned-published-file",
+          mimeType: "image/png",
+          created: 1,
+        },
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(Uint8Array.from(compressedFile).buffer, { status: 200 }),
+      ),
+    );
+
+    const loaded = await loadPublishedSceneData({
+      sceneData: Buffer.from(compressedScene).toString("base64"),
+      fileRecords: [{ url: "https://files.example/owned-image" }],
+    });
+
+    expect(loaded.assets["owned-published-file"]?.dataURL).toBe(dataURL);
+  });
+
+  it("prefers the separately published asset record over a stale inline copy", async () => {
+    const { compressData } = await import("@/lib/encode");
+    const id = "published-precedence-file";
+    const compressedScene = await compressData(
+      new TextEncoder().encode(
+        JSON.stringify({
+          version: 1,
+          elements: [
+            {
+              id: "published-precedence-image",
+              type: "image",
+              isDeleted: false,
+              fileId: id,
+            },
+          ],
+          assets: {
+            [id]: {
+              id,
+              dataURL: "data:image/png;base64,AA==",
+              mimeType: "image/png",
+              created: 1,
+            },
+          },
+          metadata: {
+            name: "Published precedence",
+            theme: "light",
+            viewBackgroundColor: "#ffffff",
+            gridSize: null,
+          },
+        }),
+      ),
+      {},
+    );
+    const publishedDataURL = "data:image/png;base64,AQ==";
+    const compressedFile = await compressData(
+      new TextEncoder().encode(publishedDataURL),
+      {
+        metadata: { id, mimeType: "image/png", created: 2 },
+      },
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(Uint8Array.from(compressedFile).buffer, { status: 200 }),
+      ),
+    );
+
+    const loaded = await loadPublishedSceneData({
+      sceneData: Buffer.from(compressedScene).toString("base64"),
+      fileRecords: [{ url: "https://files.example/newer-owned-image" }],
+    });
+
+    expect(loaded.assets[id]?.dataURL).toBe(publishedDataURL);
+  });
+
+  it("keeps an owned published document renderable when an asset record is missing", async () => {
+    const { compressData } = await import("@/lib/encode");
+    const compressedScene = await compressData(
+      new TextEncoder().encode(
+        JSON.stringify({
+          version: 1,
+          elements: [
+            {
+              id: "missing-owned-image",
+              type: "image",
+              isDeleted: false,
+              fileId: "missing-owned-file",
+            },
+          ],
+          assets: {},
+          metadata: {
+            name: "Missing owned image",
+            theme: "light",
+            viewBackgroundColor: "#ffffff",
+            gridSize: null,
+          },
+        }),
+      ),
+      {},
+    );
+
+    const loaded = await loadPublishedSceneData({
+      sceneData: Buffer.from(compressedScene).toString("base64"),
+      fileRecords: [],
+    });
+
+    expect(loaded.elements?.[0]?.fileId).toBe("missing-owned-file");
+    expect(loaded.assets).toEqual({});
   });
 
   it("does not hydrate inline assets referenced only by deleted elements", async () => {
@@ -338,6 +480,6 @@ describe("local recovery and binary files", () => {
       fileRecords: [],
     });
 
-    expect(loaded.files).toEqual({});
+    expect(loaded.assets).toEqual({});
   });
 });

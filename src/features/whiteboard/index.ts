@@ -20,6 +20,7 @@ export type {
   WhiteboardTool,
   WhiteboardUnsubscribe,
   WhiteboardViewport,
+  WhiteboardViewerController,
 } from "./contracts";
 export {
   createWhiteboardDocumentV1,

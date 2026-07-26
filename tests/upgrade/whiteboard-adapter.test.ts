@@ -312,9 +312,19 @@ describe("ExcalidrawEngineAdapter contract", () => {
     expect(harness.delegates.exportImage).toHaveBeenCalledWith(
       engine.getDocument(),
       { format: "png" },
+      [],
     );
     expect(harness.delegates.exportDocument).toHaveBeenCalledWith(
       engine.getDocument(),
+    );
+    harness.updateScene({
+      appState: { selectedElementIds: { [rectangle.id]: true } },
+    });
+    await engine.exportImage({ format: "svg", selectionOnly: true });
+    expect(harness.delegates.exportImage).toHaveBeenLastCalledWith(
+      engine.getDocument(),
+      { format: "svg", selectionOnly: true },
+      [rectangle.id],
     );
   });
 

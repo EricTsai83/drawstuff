@@ -13,6 +13,7 @@ import {
 } from "./geometry";
 import type { OwnedWhiteboardStore } from "./store";
 import { getSelectionBounds, OWNED_ROTATION_HANDLE_OFFSET } from "./editing";
+import { isSafeInlineImage } from "./assets";
 
 export interface OwnedAnimationScheduler {
   readonly request: (callback: FrameRequestCallback) => number;
@@ -28,6 +29,12 @@ export interface OwnedRenderStats {
 interface CachedImage {
   readonly image: HTMLImageElement;
   readonly source: string;
+  failed: boolean;
+}
+
+interface CachedAssetSafety {
+  readonly safe: boolean;
+  readonly source: string;
 }
 
 const DEFAULT_SCHEDULER: OwnedAnimationScheduler = {
@@ -41,6 +48,7 @@ export class OwnedWhiteboardRenderer {
   private readonly unsubscribeRender: () => void;
   private readonly unsubscribeDestroy: () => void;
   private readonly imageCache = new Map<string, CachedImage>();
+  private readonly assetSafetyCache = new Map<string, CachedAssetSafety>();
   private scheduledFrame: number | null = null;
   private marquee: WhiteboardBounds | null = null;
   private preview: WhiteboardElement | null = null;
@@ -163,6 +171,7 @@ export class OwnedWhiteboardRenderer {
       image.src = "";
     }
     this.imageCache.clear();
+    this.assetSafetyCache.clear();
     this.marquee = null;
     this.preview = null;
   }
@@ -392,14 +401,23 @@ export class OwnedWhiteboardRenderer {
     const asset = typeof fileId === "string" ? assets[fileId] : undefined;
     const geometry = getElementGeometry(element);
     if (!asset || !geometry) {
-      context.strokeRect(0, 0, geometry?.width ?? 0, geometry?.height ?? 0);
+      paintMissingAssetPlaceholder(
+        context,
+        geometry?.width ?? 0,
+        geometry?.height ?? 0,
+      );
       return;
     }
     const cached = this.getCachedImage(asset);
-    if (cached?.complete && cached.naturalWidth > 0) {
-      context.drawImage(cached, 0, 0, geometry.width, geometry.height);
+    if (
+      cached &&
+      !cached.failed &&
+      cached.image.complete &&
+      cached.image.naturalWidth > 0
+    ) {
+      context.drawImage(cached.image, 0, 0, geometry.width, geometry.height);
     } else {
-      context.strokeRect(0, 0, geometry.width, geometry.height);
+      paintMissingAssetPlaceholder(context, geometry.width, geometry.height);
     }
   }
 
@@ -486,10 +504,21 @@ export class OwnedWhiteboardRenderer {
     return selectedElements;
   }
 
-  private getCachedImage(asset: WhiteboardAsset): HTMLImageElement | null {
-    if (!isInlineImageAsset(asset)) return null;
+  private getCachedImage(asset: WhiteboardAsset): CachedImage | null {
     const existing = this.imageCache.get(asset.id);
-    if (existing?.source === asset.dataURL) return existing.image;
+    if (existing?.source === asset.dataURL) return existing;
+    const cachedSafety = this.assetSafetyCache.get(asset.id);
+    const safe =
+      cachedSafety?.source === asset.dataURL
+        ? cachedSafety.safe
+        : isSafeInlineImage(asset);
+    if (cachedSafety?.source !== asset.dataURL) {
+      this.assetSafetyCache.set(asset.id, {
+        safe,
+        source: asset.dataURL,
+      });
+    }
+    if (!safe) return null;
     if (existing) {
       existing.image.onload = null;
       existing.image.onerror = null;
@@ -501,12 +530,17 @@ export class OwnedWhiteboardRenderer {
       this.schedule();
     };
     image.onerror = () => {
+      const cached = this.imageCache.get(asset.id);
+      if (cached?.image === image) cached.failed = true;
       image.onload = null;
       image.onerror = null;
+      this.sceneDirty = true;
+      this.schedule();
     };
     image.src = asset.dataURL;
-    this.imageCache.set(asset.id, { image, source: asset.dataURL });
-    return image;
+    const cached = { image, source: asset.dataURL, failed: false };
+    this.imageCache.set(asset.id, cached);
+    return cached;
   }
 
   private releaseUnusedAssets(
@@ -518,6 +552,11 @@ export class OwnedWhiteboardRenderer {
       cached.image.onerror = null;
       cached.image.src = "";
       this.imageCache.delete(id);
+      this.assetSafetyCache.delete(id);
+    }
+    for (const [id, cached] of this.assetSafetyCache) {
+      if (assets[id]?.dataURL === cached.source) continue;
+      this.assetSafetyCache.delete(id);
     }
   }
 
@@ -539,14 +578,23 @@ function finiteNumber(value: number, fallback: number): number {
   return Number.isFinite(value) ? value : fallback;
 }
 
-function isInlineImageAsset(asset: WhiteboardAsset): boolean {
-  const separator = asset.dataURL.search(/[;,]/);
-  if (!asset.dataURL.startsWith("data:") || separator <= 5) return false;
-  const sourceMimeType = asset.dataURL.slice(5, separator).toLowerCase();
-  const declaredMimeType = asset.mimeType.toLowerCase();
-  return (
-    sourceMimeType.startsWith("image/") &&
-    (declaredMimeType === sourceMimeType ||
-      declaredMimeType === "application/octet-stream")
-  );
+function paintMissingAssetPlaceholder(
+  context: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): void {
+  context.save();
+  context.fillStyle = "#f1f3f5";
+  context.strokeStyle = "#868e96";
+  context.lineWidth = 1;
+  context.setLineDash([]);
+  context.fillRect(0, 0, width, height);
+  context.strokeRect(0, 0, width, height);
+  context.beginPath();
+  context.moveTo(0, 0);
+  context.lineTo(width, height);
+  context.moveTo(width, 0);
+  context.lineTo(0, height);
+  context.stroke();
+  context.restore();
 }
