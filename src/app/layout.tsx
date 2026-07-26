@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils";
 export const metadata: Metadata = {
   title: "drawstuff",
   description:
-    "Drawstuff is a virtual collaborative whiteboard tool that lets you easily sketch diagrams that have a hand-drawn feel to them. It's powered by Excalidraw and built with Next.js and Tailwind CSS.",
+    "Drawstuff is a collaborative whiteboard for sketching, organizing, and sharing visual ideas.",
   icons: [{ rel: "icon", url: "/favicon.ico" }],
 };
 

@@ -1,29 +1,20 @@
-import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 import { decompressData, base64ToArrayBuffer } from "./encode";
 import { getTrpcClient } from "@/trpc/client";
 import type {
-  ExcalidrawElement,
-  FileId,
-} from "@excalidraw/excalidraw/element/types";
-import type {
-  AppState,
-  BinaryFiles,
-  BinaryFileData,
-  DataURL,
-} from "@excalidraw/excalidraw/types";
-import { ensureInitialAppState } from "@/lib/excalidraw";
+  WhiteboardAsset,
+  WhiteboardDocument,
+} from "@/features/whiteboard";
+import { ensureInitialWhiteboardState } from "@/lib/whiteboard";
 import {
   filterReferencedWhiteboardAssets,
   parsePersistedWhiteboardPayload,
   toRuntimeWhiteboardDocument,
-  type WhiteboardDocument,
-  type WhiteboardDocumentPersistence,
 } from "@/features/whiteboard";
 
 export async function importDataFromBackend(
   id: string,
   decryptionKey: string,
-): Promise<ImportedDataState> {
+): Promise<WhiteboardDocument | null> {
   try {
     const client = getTrpcClient();
 
@@ -33,7 +24,7 @@ export async function importDataFromBackend(
 
     const compressed = result?.compressedData;
     if (!compressed) {
-      return {};
+      return null;
     }
 
     const compressedBuffer = toUint8Array(compressed);
@@ -46,19 +37,14 @@ export async function importDataFromBackend(
     const parsed = parseDecodedScenePayload(
       new TextDecoder().decode(decodedBuffer),
     );
-    const sanitizedAppState = parsed.state
-      ? sanitizeImportedAppState(parsed.state as unknown as Partial<AppState>)
-      : null;
-
     return {
-      elements: parsed.elements as unknown as ExcalidrawElement[],
-      appState: sanitizedAppState,
-      files: parsed.assets as unknown as BinaryFiles,
+      ...parsed,
+      state: ensureInitialWhiteboardState(parsed.state),
     };
   } catch (error: unknown) {
     console.error("importFromBackend error", error);
     console.error(error);
-    return {};
+    return null;
   }
 }
 
@@ -70,17 +56,17 @@ export type CloudFileRecord = {
 };
 
 type SceneFileMetadata = {
-  id: FileId;
-  mimeType: BinaryFileData["mimeType"];
+  id: string;
+  mimeType: string;
   created: number;
   lastRetrieved: number;
 };
 
-export type ImportedSceneData = ImportedDataState & {
+export type ImportedSceneData = {
+  document?: WhiteboardDocument;
   revision?: number;
   updatedAt?: string;
   workspaceId?: string;
-  persistence?: WhiteboardDocumentPersistence;
 };
 
 export async function getFileRecordsBySharedSceneId(
@@ -120,7 +106,7 @@ export async function getFileRecordsBySceneId(
 async function importSceneFilesFromRecords(
   records: CloudFileRecord[],
   decryptionKey: string,
-): Promise<BinaryFiles> {
+): Promise<Readonly<Record<string, WhiteboardAsset>>> {
   if (records.length === 0) {
     return {};
   }
@@ -145,9 +131,9 @@ async function importSceneFilesFromRecords(
         return null;
       }
 
-      const file: BinaryFileData = {
+      const file: WhiteboardAsset = {
         id: metadata.id,
-        dataURL: dataURL as DataURL,
+        dataURL,
         mimeType: metadata.mimeType,
         created: metadata.created,
         lastRetrieved: metadata.lastRetrieved,
@@ -157,7 +143,7 @@ async function importSceneFilesFromRecords(
     }),
   );
 
-  const files: BinaryFiles = {};
+  const files: Record<string, WhiteboardAsset> = {};
   for (const entry of entries) {
     if (entry.status !== "fulfilled" || !entry.value) continue;
     const [fileId, file] = entry.value;
@@ -169,7 +155,7 @@ async function importSceneFilesFromRecords(
 
 export async function importSceneFilesBySceneId(
   sceneId: string,
-): Promise<BinaryFiles> {
+): Promise<Readonly<Record<string, WhiteboardAsset>>> {
   try {
     const records = await getFileRecordsBySceneId(sceneId);
     return importSceneFilesFromRecords(records, "");
@@ -182,7 +168,7 @@ export async function importSceneFilesBySceneId(
 export async function importSharedSceneFilesBySharedSceneId(
   sharedSceneId: string,
   decryptionKey: string,
-): Promise<BinaryFiles> {
+): Promise<Readonly<Record<string, WhiteboardAsset>>> {
   try {
     const records = await getFileRecordsBySharedSceneId(sharedSceneId);
     return importSceneFilesFromRecords(records, decryptionKey);
@@ -208,12 +194,6 @@ function toUint8Array(input: unknown): Uint8Array {
   throw new Error("Unsupported compressed data format");
 }
 
-function sanitizeImportedAppState(
-  appState: Partial<AppState>,
-): Partial<AppState> {
-  return ensureInitialAppState(appState);
-}
-
 // 非分享模式：直接以 sceneId 讀取壓縮過的 sceneData，解壓並回傳
 export async function importSceneDataBySceneId(
   sceneId: string,
@@ -235,19 +215,15 @@ export async function importSceneDataBySceneId(
       decryptionKey: "",
     });
     const parsed = parseDecodedScenePayload(new TextDecoder().decode(data));
-    const sanitizedAppState = parsed.state
-      ? sanitizeImportedAppState(parsed.state as unknown as Partial<AppState>)
-      : null;
+    const state = ensureInitialWhiteboardState(parsed.state);
     // DB name 欄位是權威來源（rename 只更新 DB name，不重寫 sceneData），
     // 用它覆蓋壓縮資料中可能過時的 appState.name
-    if (sanitizedAppState && result?.name) {
-      sanitizedAppState.name = result.name;
-    }
+    const document = {
+      ...parsed,
+      state: result?.name ? { ...state, name: result.name } : state,
+    };
     return {
-      elements: parsed.elements as unknown as ExcalidrawElement[],
-      appState: sanitizedAppState,
-      files: parsed.assets as unknown as BinaryFiles,
-      persistence: parsed.persistence,
+      document,
       revision: normalizeRevision(result?.revision),
       updatedAt: normalizeUpdatedAt(result?.updatedAt),
       workspaceId: result?.workspaceId ?? undefined,

@@ -3,16 +3,16 @@
 </p>
 
 <p align="center">
-  A cloud-backed whiteboard built on top of Excalidraw.
+  A cloud-backed whiteboard with an owned drawing engine.
 </p>
 
 ## What is drawstuff?
 
-drawstuff is an open-source whiteboard app built with [Excalidraw](https://github.com/excalidraw/excalidraw), [Next.js](https://github.com/vercel/next.js), and [tRPC](https://github.com/trpc/trpc). It combines a full-screen drawing experience with cloud persistence, workspace-based organization, encrypted sharing, and published public pages for read-only scene viewing.
+drawstuff is an open-source whiteboard app built with an owned drawing engine, [Next.js](https://github.com/vercel/next.js), and [tRPC](https://github.com/trpc/trpc). It combines a full-screen drawing experience with cloud persistence, workspace-based organization, encrypted sharing, and published public pages for read-only scene viewing.
 
 ## Key Features
 
-- **Excalidraw-first editing** with import, export, autosave, and custom scene-management flows
+- **Owned whiteboard editing** with import, export, autosave, and custom scene-management flows
 - **Cloud-backed scenes** with thumbnails and attached binary assets
 - **Workspace organization** with default and last-active workspace tracking
 - **Search and filtering** by scene name, description, category, workspace, and publish state
@@ -43,23 +43,23 @@ Use publishing when you want a stable, read-only page that can be opened directl
 
 ## Tech Stack
 
-| Layer | Technology |
-| --- | --- |
-| Framework | Next.js 16, React 19 |
-| Drawing Engine | Excalidraw |
-| API Layer | tRPC v11 |
-| Database | PostgreSQL, Drizzle ORM |
-| Auth | Better Auth, Google OAuth |
-| File Storage | UploadThing |
-| UI | Tailwind CSS v4, Radix UI, Sonner |
-| Utilities | Zod, nuqs, date-fns |
+| Layer          | Technology                       |
+| -------------- | -------------------------------- |
+| Framework      | Next.js 16, React 19             |
+| Drawing Engine | Owned Drawstuff whiteboard       |
+| API Layer      | tRPC v11                         |
+| Database       | PostgreSQL, Drizzle ORM          |
+| Auth           | Better Auth, Google OAuth        |
+| File Storage   | UploadThing                      |
+| UI             | Tailwind CSS v4, Base UI, Sonner |
+| Utilities      | Zod, nuqs, date-fns              |
 
 ## Project Structure
 
 ```text
 src/
   app/                 # App Router pages, API routes, published pages
-  components/          # UI, dashboard, auth, and Excalidraw integrations
+  components/          # UI, dashboard, auth, and whiteboard integrations
   hooks/               # Client-side hooks for editor and app behavior
   lib/                 # Shared utilities, encryption, export/import helpers
   server/

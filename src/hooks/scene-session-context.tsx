@@ -176,7 +176,7 @@ export function SceneSessionProvider({
 
   const markCurrentSceneDirty = useCallback(() => {
     // Skip if already dirty — avoids redundant localStorage.setItem calls
-    // on the high-frequency Excalidraw onChange path.
+    // on the high-frequency whiteboard document-change path.
     if (isDirtyRef.current) return;
     isDirtyRef.current = true;
     setIsDirty(true);

@@ -10,9 +10,7 @@ export function LoginForm({
       <form>
         <div className="flex flex-col items-center gap-6">
           <div className="flex flex-col items-center gap-2">
-            <h1 className="text-xl font-bold">
-              Welcome to Excalidraw X Ericts
-            </h1>
+            <h1 className="text-xl font-bold">Welcome to Drawstuff</h1>
           </div>
 
           <GoogleSignInButton />

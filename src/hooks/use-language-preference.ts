@@ -1,6 +1,6 @@
 import { useState, useCallback } from "react";
 import { STORAGE_KEYS } from "@/config/app-constants";
-import { getPreferredLanguage } from "@/components/excalidraw/app-language/language-detector";
+import { getPreferredLanguage } from "@/components/whiteboard/language/language-detector";
 import { dispatchLanguageChange } from "@/lib/events";
 
 export function useLanguagePreference() {

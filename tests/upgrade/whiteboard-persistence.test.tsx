@@ -24,11 +24,7 @@ vi.mock("@/hooks/use-debounce", () => ({
   useDebounce: () => [persistenceMocks.debouncedSave],
 }));
 
-vi.mock("@/lib/excalidraw", () => ({
-  saveData: vi.fn(),
-}));
-
-import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
+import { useScenePersistence } from "@/hooks/whiteboard/use-scene-persistence";
 
 const document: WhiteboardDocument = {
   elements: [],

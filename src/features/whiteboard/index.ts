@@ -43,15 +43,6 @@ export {
   type WhiteboardDocumentErrorCode,
 } from "./document-format";
 export {
-  evaluateWhiteboardRollout,
-  stablePercentageBucket,
-  type WhiteboardEngineKind,
-  type WhiteboardRolloutConfig,
-  type WhiteboardRolloutDecision,
-  type WhiteboardRolloutReason,
-  type WhiteboardRolloutTarget,
-} from "./rollout";
-export {
   classifyWhiteboardWriteTransition,
   type WhiteboardWriteTransition,
 } from "./persistence-transition";

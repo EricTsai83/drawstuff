@@ -1,9 +1,7 @@
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { BinaryFiles } from "@excalidraw/excalidraw/types";
 import { generateEncryptionKey } from "./encryption";
 import { compressData } from "./encode";
 import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
-import { clearElementsForDatabase } from "@/lib/excalidraw";
+import { clearElementsForDatabase } from "@/lib/whiteboard";
 import { extractImageFiles, processFilesForUpload } from "./file-processor";
 import type {
   WhiteboardAsset,
@@ -16,8 +14,6 @@ import {
   serializeWhiteboardDocumentV1,
 } from "@/features/whiteboard";
 
-export type ScenePersistenceFormat = "legacy-excalidraw" | "whiteboard-v1";
-
 // 準備場景數據用於導出
 export async function prepareSceneDataForExport(
   elements: readonly WhiteboardElement[],
@@ -25,7 +21,6 @@ export async function prepareSceneDataForExport(
   files: Readonly<Record<string, WhiteboardAsset>>,
   options?: {
     readonly encrypt?: boolean;
-    readonly format?: ScenePersistenceFormat;
     readonly persistence?: WhiteboardDocumentPersistence;
     readonly includeInlineAssets?: boolean;
     readonly retainLegacy?: boolean;
@@ -35,8 +30,6 @@ export async function prepareSceneDataForExport(
   },
 ) {
   const shouldEncrypt = options?.encrypt ?? true;
-  const format = options?.format ?? "legacy-excalidraw";
-
   const encryptionKey = shouldEncrypt
     ? await generateEncryptionKey("string")
     : null;
@@ -44,27 +37,19 @@ export async function prepareSceneDataForExport(
   // 場景資料：壓縮，視需要加密
   const compressedSceneData = await compressData(
     new TextEncoder().encode(
-      serializeSceneData(
-        elements,
-        appState,
-        files,
-        format,
-        options?.persistence,
-        {
-          includeInlineAssets: options?.includeInlineAssets,
-          retainLegacy: options?.retainLegacy,
-          compactLegacyAssets: options?.compactLegacyAssets,
-        },
-      ),
+      serializeSceneData(elements, appState, files, options?.persistence, {
+        includeInlineAssets: options?.includeInlineAssets,
+        retainLegacy: options?.retainLegacy,
+        compactLegacyAssets: options?.compactLegacyAssets,
+      }),
     ),
     { encryptionKey },
   );
 
   // 檔案資料：永遠壓縮，根據選項加/不加密
   const imageFilesMap = extractImageFiles(
-    (options?.assetUploadElements ??
-      elements) as unknown as readonly NonDeletedExcalidrawElement[],
-    (options?.assetUploadAssets ?? files) as unknown as BinaryFiles,
+    options?.assetUploadElements ?? elements,
+    options?.assetUploadAssets ?? files,
   );
   const compressedFilesData = await processFilesForUpload({
     files: imageFilesMap,
@@ -83,7 +68,6 @@ function serializeSceneData(
   elements: readonly WhiteboardElement[],
   appState: WhiteboardDocumentState,
   files: Readonly<Record<string, WhiteboardAsset>>,
-  format: ScenePersistenceFormat,
   persistence?: WhiteboardDocumentPersistence,
   options?: {
     readonly includeInlineAssets?: boolean;
@@ -91,28 +75,17 @@ function serializeSceneData(
     readonly compactLegacyAssets?: boolean;
   },
 ): string {
-  const persistedElements = clearElementsForDatabase(
-    elements as unknown as readonly NonDeletedExcalidrawElement[],
+  const persistedElements = clearElementsForDatabase(elements);
+  return serializeWhiteboardDocumentV1(
+    createPersistedWhiteboardDocumentV1(
+      {
+        elements: persistedElements,
+        assets: files,
+        state: appState,
+        persistence,
+      },
+      options,
+    ),
+    { allowMissingAssets: options?.includeInlineAssets === false },
   );
-  if (format === "whiteboard-v1") {
-    return serializeWhiteboardDocumentV1(
-      createPersistedWhiteboardDocumentV1(
-        {
-          elements: persistedElements,
-          assets: files,
-          state: appState,
-          persistence,
-        },
-        options,
-      ),
-      { allowMissingAssets: options?.includeInlineAssets === false },
-    );
-  }
-
-  const data = {
-    elements: persistedElements,
-    appState,
-  };
-
-  return JSON.stringify(data, null, 2);
 }

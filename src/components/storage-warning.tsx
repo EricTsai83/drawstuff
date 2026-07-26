@@ -42,7 +42,7 @@ export function StorageWarning({ className }: StorageWarningProps) {
   const bunImage = getBunImage(usagePercent);
 
   return (
-    <div className={className}>
+    <div className={className} role="status">
       <div className="relative size-6 shrink-0">
         <Image
           src={bunImage.src}

@@ -1,23 +1,15 @@
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { restore } from "@excalidraw/excalidraw";
 import type {
-  AppState,
-  BinaryFiles,
-  DataURL,
-} from "@excalidraw/excalidraw/types";
-import type {
-  ExcalidrawElement,
-  FileId,
-} from "@excalidraw/excalidraw/element/types";
+  WhiteboardAsset,
+  WhiteboardDocumentState,
+  WhiteboardElement,
+} from "@/features/whiteboard";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { decode, decompressData, encode } from "@/lib/encode";
-import {
-  hasCompleteSceneFileHydration,
-  ensureInitialAppState,
-} from "@/lib/excalidraw";
+import { hasCompleteSceneAssetHydration } from "@/lib/whiteboard";
 import { extractImageFiles, processFilesForUpload } from "@/lib/file-processor";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";
 import {
@@ -29,9 +21,9 @@ import {
 type SceneFixture = {
   type: "excalidraw";
   version: 2;
-  elements: ExcalidrawElement[];
-  appState: Partial<AppState>;
-  files: BinaryFiles;
+  elements: WhiteboardElement[];
+  appState: WhiteboardDocumentState;
+  files: Record<string, WhiteboardAsset>;
 };
 
 const fixtureDirectory = path.join(
@@ -85,51 +77,52 @@ describe("legacy Excalidraw scenes", () => {
     ["images-and-binary-files.excalidraw", 1],
     ["large-groups-and-viewport.excalidraw", 5],
     ["pre-migration-bindings.excalidraw", 2],
-  ])("restores %s without dropping content", async (name, elementCount) => {
+  ])("migrates %s without dropping content", async (name, elementCount) => {
     const fixture = await readFixture(name);
-    const restored = restore(fixture, null, null, {
-      repairBindings: true,
-      refreshDimensions: false,
-    });
+    const migrated = migrateLegacyExcalidrawScene(fixture);
 
-    expect(restored.elements).toHaveLength(elementCount);
-    expect(restored.elements.every((element) => !element.isDeleted)).toBe(true);
+    expect(migrated.elements).toHaveLength(elementCount);
+    expect(migrated.elements.every((element) => !element.isDeleted)).toBe(true);
   });
 
   it("preserves arrows, groups, and saved viewport state", async () => {
     const fixture = await readFixture("large-groups-and-viewport.excalidraw");
-    const restored = restore(fixture, null, null, {
-      repairBindings: true,
-      refreshDimensions: false,
-    });
+    const migrated = migrateLegacyExcalidrawScene(fixture);
     const groupIds = new Set(
-      restored.elements.flatMap((element) => element.groupIds),
+      migrated.elements.flatMap((element) =>
+        "groupIds" in element && Array.isArray(element.groupIds)
+          ? (element.groupIds as string[])
+          : [],
+      ),
     );
 
-    expect(restored.elements.some((element) => element.type === "arrow")).toBe(
+    expect(migrated.elements.some((element) => element.type === "arrow")).toBe(
       true,
     );
     expect(groupIds).toContain("legacy-group-a");
-    expect(ensureInitialAppState(restored.appState).scrollX).toBe(315.5);
-    expect(ensureInitialAppState(restored.appState).zoom?.value).toBe(0.75);
+    expect(migrated.metadata.viewport).toEqual({
+      scrollX: 315.5,
+      scrollY: 188.25,
+      zoom: 0.75,
+    });
   });
 
-  it("migrates pre-index binding and roundness fields", async () => {
+  it("preserves pre-index binding data for the runtime-free importer", async () => {
     const fixture = await readFixture("pre-migration-bindings.excalidraw");
-    const restored = restore(fixture, null, null, {
-      repairBindings: true,
-      refreshDimensions: false,
-    });
-    const box = restored.elements.find(
+    const migrated = migrateLegacyExcalidrawScene(fixture);
+    const box = migrated.elements.find(
       (element) => element.id === "legacy-old-box",
     );
 
-    expect(box?.index).toEqual(expect.any(String));
-    expect(box?.frameId).toBeNull();
-    expect(typeof box?.roundness?.type).toBe("number");
-    expect(box?.boundElements).toEqual([
-      { id: "legacy-old-arrow", type: "arrow" },
-    ]);
+    expect(box).toMatchObject({
+      id: "legacy-old-box",
+      type: "rectangle",
+      x: 40,
+      y: 40,
+      width: 180,
+      height: 100,
+    });
+    expect(migrated.metadata.legacy?.unsupported).toBeDefined();
   });
 
   it("loads a stable compressed legacy payload", async () => {
@@ -195,20 +188,20 @@ describe("local recovery and binary files", () => {
 
     expect(processed?.id).toBe("legacy-image-file");
     const restored = await decompressData<{
-      id: FileId;
+      id: string;
       mimeType: string;
       created: number;
       lastRetrieved: number;
     }>(processed!.buffer, { decryptionKey: "" });
-    const dataURL = new TextDecoder().decode(restored.data) as DataURL;
+    const dataURL = new TextDecoder().decode(restored.data);
 
     expect(restored.metadata.id).toBe("legacy-image-file");
     expect(restored.metadata.mimeType).toBe("image/png");
     expect(dataURL).toBe(fixture.files["legacy-image-file"]?.dataURL);
-    expect(hasCompleteSceneFileHydration(fixture.elements, fixture.files)).toBe(
-      true,
-    );
-    expect(hasCompleteSceneFileHydration(fixture.elements, {})).toBe(false);
+    expect(
+      hasCompleteSceneAssetHydration(fixture.elements, fixture.files),
+    ).toBe(true);
+    expect(hasCompleteSceneAssetHydration(fixture.elements, {})).toBe(false);
   });
 
   it("loads published scene data in read-only mode with restored binary files", async () => {

@@ -552,12 +552,46 @@ function parseLegacySceneForRuntime(object: JsonObject): {
   readonly sourceVersion: number | null;
 } {
   validateLegacySourceVersion(object);
+  const reservedElementIds = new Set(
+    Array.isArray(object.elements)
+      ? object.elements.flatMap((element) =>
+          isObject(element) &&
+          typeof element.id === "string" &&
+          element.id.length > 0
+            ? [element.id]
+            : [],
+        )
+      : [],
+  );
+  const elementIds = new Set<string>();
   const elements = Array.isArray(object.elements)
-    ? object.elements.flatMap((element) => {
+    ? object.elements.flatMap((element, index) => {
         if (!isObject(element) || typeof element.type !== "string") return [];
         try {
           assertJsonValue(element, "$.elements");
-          return [cloneJson(element) as unknown as WhiteboardElement];
+          const requestedId =
+            typeof element.id === "string" && element.id.length > 0
+              ? element.id
+              : null;
+          const id =
+            requestedId && !elementIds.has(requestedId)
+              ? requestedId
+              : createUniqueLegacyElementId(
+                  index,
+                  reservedElementIds,
+                  elementIds,
+                );
+          elementIds.add(id);
+          return [
+            {
+              ...cloneJson(element),
+              id,
+              isDeleted:
+                typeof element.isDeleted === "boolean"
+                  ? element.isDeleted
+                  : false,
+            } as unknown as WhiteboardElement,
+          ];
         } catch {
           return [];
         }
@@ -586,8 +620,8 @@ function parseLegacySceneForRuntime(object: JsonObject): {
           ),
         );
       } catch {
-        // A bad legacy file must not prevent Excalidraw from restoring the
-        // remaining scene; unsafe file data is dropped at this boundary.
+        // A bad legacy file must not prevent the owned importer from loading
+        // the remaining scene; unsafe file data is dropped at this boundary.
       }
     }
   }
@@ -596,6 +630,20 @@ function parseLegacySceneForRuntime(object: JsonObject): {
     document: { elements, state, assets },
     sourceVersion: typeof object.version === "number" ? object.version : null,
   };
+}
+
+function createUniqueLegacyElementId(
+  index: number,
+  reservedIds: ReadonlySet<string>,
+  usedIds: ReadonlySet<string>,
+): string {
+  let suffix = index;
+  let id = `legacy-${suffix}`;
+  while (reservedIds.has(id) || usedIds.has(id)) {
+    suffix += 1;
+    id = `legacy-${suffix}`;
+  }
+  return id;
 }
 
 function parseElements(

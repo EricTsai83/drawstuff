@@ -22,7 +22,6 @@ import { api } from "@/trpc/react";
 import { toast } from "sonner";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
-import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 
 export type Workspace = {
   id: string;
@@ -62,8 +61,6 @@ type WorkspaceDropdownProps = {
   slim?: boolean;
   // 若提供，將顯示「建立新 Workspace」的選項，並在建立完成後自動選取
   onCreate?: (name: string) => Promise<Workspace | void> | Workspace | void;
-  // 外部注入的確認對話框觸發器
-  showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
 };
 
 function WorkspaceDropdownComponent(
@@ -75,7 +72,6 @@ function WorkspaceDropdownComponent(
     disabled = false,
     slim = false,
     onCreate,
-    showConfirmDialog,
     ...restProps
   }: WorkspaceDropdownProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
@@ -273,28 +269,7 @@ function WorkspaceDropdownComponent(
                     )}
                     onSelect={() => {
                       if (creating) return;
-                      const name = normalizedQuery;
-                      if (showConfirmDialog) {
-                        showConfirmDialog({
-                          title: "Create workspace?",
-                          description: (
-                            <>
-                              This will create a new workspace named{" "}
-                              <span className="text-base font-medium">
-                                {name}
-                              </span>
-                              .
-                            </>
-                          ),
-                          confirmText: "Create",
-                          cancelText: "Cancel",
-                          onConfirm: async () => {
-                            await handleCreate(name);
-                          },
-                        });
-                      } else {
-                        void handleCreate(name);
-                      }
+                      void handleCreate(normalizedQuery);
                     }}
                   >
                     <div className="flex w-0 grow space-x-2 overflow-hidden">

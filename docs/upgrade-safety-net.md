@@ -5,7 +5,7 @@
 - Local development and CI read Node major `24` from `.node-version`.
 - `package.json#engines.node` is `24.x`; Vercel uses this engine declaration
   for its build runtime.
-- `packageManager` remains pinned to pnpm `10.15.1` through Phases 0–3.
+- `packageManager` is pinned to pnpm `11.17.0`.
 
 ## TypeScript 6 performance baseline
 
@@ -35,21 +35,20 @@ override.
 fails CI. A finding disappearing from the registry is allowed and should be
 removed from the baseline during the next dependency phase.
 
-The baseline was reviewed after the Phase 3 same-major dependency batches on
-2026-07-26 and contains 19 unique `GHSA:package` advisory keys. pnpm reports 22
-vulnerability instances: 1 critical, 11 high, 8 moderate, and 2 low. It is
+The baseline was reviewed after the Phase 5I Excalidraw removal on 2026-07-27
+and contains 11 unique `GHSA:package` advisory keys. pnpm reports 11
+vulnerability instances: 1 critical, 6 high, 2 moderate, and 2 low. It is
 an inventory, not a claim that the findings are safe. Findings against the
 Phase 1 direct dependencies are cleared; the remaining findings are pinned
 transitive packages and are tracked through their direct parent instead of
 being forced with broad `pnpm.overrides`.
 
-| Parent package           | Remaining transitive relationship                                          | Baseline summary                     | Follow-up                                                        |
-| ------------------------ | -------------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
-| `better-auth`            | `defu` and the `drizzle-kit > esbuild` tree                                | 3 advisory keys; includes 1 high     | Track Better Auth and Drizzle Kit releases; do not force esbuild |
-| `next`                   | `postcss`, `sharp`, and `styled-jsx > @babel/core`                         | 5 advisory keys; includes 3 high     | Track the Next.js-pinned build and image-processing packages     |
-| `drizzle-orm`            | Optional `gel > shell-quote` connector tree                                | 2 advisory keys; includes 1 critical | Track Drizzle/Gel; the application uses the PostgreSQL connector |
-| `@excalidraw/excalidraw` | `nanoid`, Sass (`immutable`, `picomatch`), and Mermaid (`lodash-es`) trees | 8 advisory keys; includes 4 high     | Track upstream until the Phase 5 whiteboard replacement          |
-| `@hookform/resolvers`    | Optional `effect` peer, provided by the UploadThing dependency tree        | 1 high advisory key                  | Track Resolvers and UploadThing with form and upload smoke tests |
+| Parent package        | Remaining transitive relationship                                   | Baseline summary                     | Follow-up                                                        |
+| --------------------- | ------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
+| `better-auth`         | `defu` and the `drizzle-kit > esbuild` tree                         | 3 advisory keys; includes 1 high     | Track Better Auth and Drizzle Kit releases; do not force esbuild |
+| `next`                | `postcss`, `sharp`, and `styled-jsx > @babel/core`                  | 5 advisory keys; includes 3 high     | Track the Next.js-pinned build and image-processing packages     |
+| `drizzle-orm`         | Optional `gel > shell-quote` connector tree                         | 2 advisory keys; includes 1 critical | Track Drizzle/Gel; the application uses the PostgreSQL connector |
+| `@hookform/resolvers` | Optional `effect` peer, provided by the UploadThing dependency tree | 1 high advisory key                  | Track Resolvers and UploadThing with form and upload smoke tests |
 
 Moving the build-time `shadcn` CLI to `devDependencies` removed its
 `brace-expansion`, `js-yaml`, and Hono advisories from the production audit
@@ -67,10 +66,11 @@ development-only CLI tree and are outside the production-only CI audit gate.
 - Existing Pako 2 and zlib-compatible compressed scene decoding.
 - Image extraction, upload compression, binary metadata restoration, and
   completeness checks.
-- PNG export policy and native Excalidraw SVG rendering.
-- Mermaid-to-Excalidraw flowchart conversion and the patched sequence-label
-  XSS payload, including an assertion that the converter's temporary DOM
-  insertions never contain executable event handlers.
+- Owned PNG/SVG/document export, including selection-only export, asset
+  pruning, unsafe SVG/image handling, and dimension caps.
+- Runtime-free legacy scene migration, deterministic repair for missing or
+  duplicate IDs, and fixture assertions for elements, assets, groups, and
+  viewport metadata.
 - Published scene decoding with `viewModeEnabled`, cleared private viewport,
   and restored files.
 - Theme mapping plus language persistence and browser notification.
@@ -110,10 +110,9 @@ browser, commit, and result for each item.
       card and editor session reflect the destination.
 - [ ] Upload an image through UploadThing, save, reload, and confirm the binary
       renders; inspect the browser console for failed asset fetches.
-- [ ] Export the scene as `.excalidraw`, PNG, and SVG and open each artifact.
-- [ ] Open Text to diagram, insert both a flowchart and a sequence diagram,
-      confirm the generated shapes land on the canvas, and check the browser
-      console for conversion or dynamic-import errors.
+- [ ] Export the scene as `.drawstuff`, PNG, and SVG and open each artifact.
+- [ ] Import each supported legacy `.excalidraw` fixture and confirm its shapes,
+      text, viewport, and image assets render through the owned editor.
 - [ ] Publish the scene, open `/p/[slug]` in a signed-out window, confirm it is
       read-only, then unpublish and confirm the URL no longer resolves.
 - [ ] Delete the scene and confirm its dashboard card and uploaded assets are

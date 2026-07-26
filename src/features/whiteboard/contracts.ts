@@ -121,11 +121,7 @@ export interface WhiteboardImportResult {
   readonly name: string | null;
 }
 
-/**
- * The scene state remains an engine-native legacy payload in Phase 5A.
- * These shared fields let product code use it without defining the owned
- * persisted document format planned for Phase 5B.
- */
+/** State persisted by the owned whiteboard document format. */
 export interface WhiteboardDocumentState {
   readonly name?: string | null;
   readonly theme?: WhiteboardTheme;
@@ -147,7 +143,7 @@ export interface WhiteboardDocument {
   /**
    * Persistence-only provenance. Engines carry this through edits so an owned
    * write can retain the pre-migration payload without exposing scene content
-   * to rollout diagnostics.
+   * to operational diagnostics.
    */
   readonly persistence?: WhiteboardDocumentPersistence;
 }
