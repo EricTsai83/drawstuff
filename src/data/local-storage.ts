@@ -1,18 +1,15 @@
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
-import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import {
   createPersistedWhiteboardDocumentV1,
-  createWhiteboardDocumentV1,
-  filterReferencedWhiteboardAssets,
   parsePersistedWhiteboardPayload,
   serializeWhiteboardDocumentV1,
   toRuntimeWhiteboardDocument,
   type WhiteboardDocument,
+  type WhiteboardDocumentState,
   type WhiteboardDocumentV1,
+  type WhiteboardAsset,
+  type WhiteboardElement,
 } from "@/features/whiteboard";
-
-// ====== 自行實作 Excalidraw 狀態相關 helper ======
 
 // SSR/Node 環境保護：只有在瀏覽器且存在 localStorage 才進行存取
 function canUseLocalStorage(): boolean {
@@ -21,19 +18,18 @@ function canUseLocalStorage(): boolean {
   );
 }
 
-function getDefaultAppState(): Partial<AppState> {
+function getDefaultAppState(): WhiteboardDocumentState {
   return {
     theme: "light",
     viewBackgroundColor: "#ffffff",
-    gridSize: undefined,
-    name: "", // 新增預設的 name 欄位
-    // 可依需求補充預設值
+    gridSize: null,
+    name: "",
   };
 }
 
 function clearAppStateForLocalStorage(
-  appState: Partial<AppState>,
-): Partial<AppState> {
+  appState: WhiteboardDocumentState,
+): WhiteboardDocumentState {
   const { theme, viewBackgroundColor, gridSize, name, scrollX, scrollY, zoom } =
     appState;
   return {
@@ -48,8 +44,8 @@ function clearAppStateForLocalStorage(
 }
 
 function clearElementsForLocalStorage(
-  elements: OrderedExcalidrawElement[],
-): OrderedExcalidrawElement[] {
+  elements: WhiteboardElement[],
+): WhiteboardElement[] {
   // 過濾掉 isDeleted 的元素
   return Array.isArray(elements) ? elements.filter((el) => !el.isDeleted) : [];
 }
@@ -60,9 +56,9 @@ export const importFromLocalStorage = (options?: {
 }) => {
   if (!canUseLocalStorage()) {
     return {
-      elements: [] as OrderedExcalidrawElement[],
-      appState: null as Partial<AppState> | null,
-      files: {} as BinaryFiles,
+      elements: [] as WhiteboardElement[],
+      appState: null as WhiteboardDocumentState | null,
+      files: {} as Readonly<Record<string, WhiteboardAsset>>,
       persistence: undefined as WhiteboardDocument["persistence"],
     };
   }
@@ -113,11 +109,9 @@ export const importFromLocalStorage = (options?: {
       if (persisted.format === "whiteboard-v1") {
         const document = toRuntimeWhiteboardDocument(persisted.document);
         return {
-          elements: clearElementsForLocalStorage(
-            document.elements as unknown as OrderedExcalidrawElement[],
-          ),
-          appState: document.state as unknown as Partial<AppState>,
-          files: document.assets as unknown as BinaryFiles,
+          elements: clearElementsForLocalStorage([...document.elements]),
+          appState: document.state,
+          files: document.assets,
           persistence: document.persistence
             ? {
                 ...document.persistence,
@@ -133,11 +127,11 @@ export const importFromLocalStorage = (options?: {
     }
   }
 
-  let elements: OrderedExcalidrawElement[] = [];
+  let elements: WhiteboardElement[] = [];
   if (savedElements) {
     try {
       elements = clearElementsForLocalStorage(
-        JSON.parse(savedElements) as OrderedExcalidrawElement[],
+        JSON.parse(savedElements) as WhiteboardElement[],
       );
     } catch (error: unknown) {
       console.error(error);
@@ -145,13 +139,13 @@ export const importFromLocalStorage = (options?: {
     }
   }
 
-  let appState: Partial<AppState> | null = null;
+  let appState: WhiteboardDocumentState | null = null;
   if (savedState) {
     try {
       appState = {
         ...getDefaultAppState(),
         ...clearAppStateForLocalStorage(
-          JSON.parse(savedState) as Partial<AppState>,
+          JSON.parse(savedState) as WhiteboardDocumentState,
         ),
       };
     } catch (error: unknown) {
@@ -160,10 +154,12 @@ export const importFromLocalStorage = (options?: {
     }
   }
 
-  let files: BinaryFiles = {};
+  let files: Readonly<Record<string, WhiteboardAsset>> = {};
   if (savedFiles) {
     try {
-      files = JSON.parse(savedFiles) as BinaryFiles;
+      files = JSON.parse(savedFiles) as Readonly<
+        Record<string, WhiteboardAsset>
+      >;
     } catch (error: unknown) {
       console.error(error);
       // Do nothing because files is already empty object
@@ -178,10 +174,7 @@ export const importFromLocalStorage = (options?: {
   };
 };
 
-/**
- * Opt-in Phase 5B write path. Legacy localStorage keys are intentionally left
- * untouched so disabling owned-format reads restores the last legacy snapshot.
- */
+/** Writes the active owned document without touching retained legacy keys. */
 export function saveWhiteboardDocumentToLocalStorage(
   document: WhiteboardDocumentV1,
 ): boolean {
@@ -203,8 +196,8 @@ export function saveWhiteboardDocumentToLocalStorage(
 }
 
 /**
- * Owned cohorts update only the versioned document key. The legacy keys remain
- * a byte-for-byte rollback snapshot until the legacy adapter is retired.
+ * Owned sessions update only the versioned document key. Legacy keys remain a
+ * byte-for-byte recovery snapshot and are never rewritten by the active editor.
  */
 export function saveOwnedWhiteboardDocumentToLocalStorage(
   document: WhiteboardDocument,
@@ -234,6 +227,18 @@ function parkOwnedRecoverySnapshot(document: WhiteboardDocument): boolean {
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
     );
     if (current && !recovery) {
+      try {
+        const persistedCurrent = parsePersistedWhiteboardPayload(current);
+        if (
+          persistedCurrent.format === "whiteboard-v1" &&
+          persistedCurrent.document.metadata.legacy?.originalPayload ===
+            document.persistence?.legacyRollback?.originalPayload
+        ) {
+          return true;
+        }
+      } catch {
+        // Preserve an unreadable current document before replacing it.
+      }
       localStorage.setItem(
         STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
         current,
@@ -259,107 +264,11 @@ function clearOwnedRecoverySnapshot(): boolean {
   }
 }
 
-export function markLegacyWhiteboardDocumentRevision(): void {
-  if (!canUseLocalStorage()) return;
-  localStorage.setItem(
-    STORAGE_KEYS.LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION,
-    nextDocumentRevision().toString(),
-  );
-}
-
-/**
- * Once an owned snapshot has been opted into, keep it current alongside the
- * retained legacy keys. The original rollback envelope is never replaced.
- */
-export function syncOwnedWhiteboardDocumentToLocalStorage(
-  document: WhiteboardDocument,
-): boolean {
-  if (!canUseLocalStorage()) return false;
-  const revision = nextDocumentRevision();
-  try {
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION,
-      revision.toString(),
-    );
-    const source = localStorage.getItem(
-      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-    );
-    if (!source) return true;
-
-    const persisted = parsePersistedWhiteboardPayload(source);
-    if (persisted.format !== "whiteboard-v1") return true;
-    const currentMetadata = persisted.document.metadata;
-    const nextDocument = createWhiteboardDocumentV1({
-      elements: document.elements,
-      assets: filterReferencedWhiteboardAssets(
-        document.elements,
-        document.assets,
-      ),
-      metadata: {
-        name:
-          typeof document.state.name === "string"
-            ? document.state.name
-            : currentMetadata.name,
-        theme:
-          document.state.theme === "light" || document.state.theme === "dark"
-            ? document.state.theme
-            : currentMetadata.theme,
-        viewBackgroundColor:
-          typeof document.state.viewBackgroundColor === "string"
-            ? document.state.viewBackgroundColor
-            : currentMetadata.viewBackgroundColor,
-        gridSize:
-          typeof document.state.gridSize === "number" &&
-          Number.isFinite(document.state.gridSize)
-            ? document.state.gridSize
-            : null,
-        ...(currentMetadata.legacy ? { legacy: currentMetadata.legacy } : {}),
-        ...(currentMetadata.viewport
-          ? { viewport: currentMetadata.viewport }
-          : {}),
-      },
-    });
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-      serializeWhiteboardDocumentV1(nextDocument),
-    );
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_OWNED_DOCUMENT_REVISION,
-      revision.toString(),
-    );
-    return true;
-  } catch (error: unknown) {
-    // Legacy keys were already written by the caller and remain recoverable.
-    console.error("Failed to sync owned local whiteboard document", error);
-    try {
-      localStorage.removeItem(
-        STORAGE_KEYS.LOCAL_STORAGE_OWNED_DOCUMENT_REVISION,
-      );
-    } catch {
-      // Storage itself is unavailable; the next readable load still retains
-      // all legacy keys written before this sync attempt.
-    }
-    return false;
-  }
-}
-
-export const getElementsStorageSize = () => {
-  if (!canUseLocalStorage()) return 0;
-  try {
-    const elements = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS);
-    const elementsSize = elements?.length ?? 0;
-    return elementsSize;
-  } catch (error: unknown) {
-    console.error(error);
-    return 0;
-  }
-};
-
 export const getTotalStorageSize = () => {
   if (!canUseLocalStorage()) return 0;
   try {
     // 根據實際的 STORAGE_KEYS 配置計算
-    const excalidrawKeys = [
+    const storageKeys = [
       STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS, // "excalidraw"
       STORAGE_KEYS.LOCAL_STORAGE_APP_STATE, // "excalidraw-state"
       STORAGE_KEYS.LOCAL_STORAGE_FILES, // "excalidraw-files"
@@ -380,7 +289,7 @@ export const getTotalStorageSize = () => {
 
     let totalSize = 0;
 
-    excalidrawKeys.forEach((key) => {
+    storageKeys.forEach((key) => {
       const value = localStorage.getItem(key);
       if (value) {
         // 使用 UTF-16 編碼計算（每字符 2 字節）

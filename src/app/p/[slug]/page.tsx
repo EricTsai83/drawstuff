@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
-import PublishedSceneViewerWrapper from "@/components/excalidraw/published-scene-viewer-wrapper";
+import PublishedSceneViewerWrapper from "@/components/whiteboard/published-scene-viewer-wrapper";
 import { api } from "@/trpc/server";
 
 export const dynamic = "force-dynamic";

@@ -15,18 +15,25 @@
     "preview": "next build && next start",
     "lint": "eslint . --ext .ts,.tsx --max-warnings=0",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "knip": "SKIP_ENV_VALIDATION=1 knip --production --dependencies",
+    "knip": "SKIP_ENV_VALIDATION=1 knip --production --dependencies --files",
     "start": "next start",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
+  },
+  "knip": {
+    "ignore": [
+      ".deepsec/deepsec.config.ts",
+      "scripts/check-audit-baseline.mjs",
+      "tests/fixtures/owned-canvas/performance.ts",
+      "tests/setup.ts"
+    ]
   },
   "engines": {
     "node": "24.x"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
-    "@excalidraw/excalidraw": "^0.18.1",
     "@hookform/resolvers": "^5.5.7",
     "@t3-oss/env-nextjs": "^0.13.11",
     "@tanstack/react-query": "^5.101.4",

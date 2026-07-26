@@ -20,10 +20,5 @@ export default defineConfig({
       reporter: ["text", "json-summary"],
       include: ["src/**/*.{ts,tsx}"],
     },
-    server: {
-      deps: {
-        inline: [/@excalidraw/, "open-color"],
-      },
-    },
   },
 });

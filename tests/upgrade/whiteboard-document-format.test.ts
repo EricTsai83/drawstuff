@@ -21,7 +21,6 @@ import {
 } from "@/features/whiteboard";
 import { decompressData } from "@/lib/encode";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
-import { saveToLocalStorage } from "@/lib/excalidraw";
 
 const fixtureDirectory = path.join(
   process.cwd(),
@@ -488,96 +487,6 @@ describe("owned-format persistence opt-in", () => {
     ).toContain("Rollback copy");
   });
 
-  it("keeps an opted-in owned snapshot current with later legacy autosaves", () => {
-    const document = createOwnedDocument({
-      metadata: {
-        name: "Initial owned",
-        theme: "light",
-        viewBackgroundColor: "#ffffff",
-        gridSize: null,
-        legacy: {
-          format: "excalidraw",
-          sourceVersion: 2,
-          migrationVersion: 1,
-          originalPayload: '{"rollback":true}',
-          unsupported: {},
-        },
-      },
-    });
-    expect(saveWhiteboardDocumentToLocalStorage(document)).toBe(true);
-
-    const updatedElements = [createElement({ id: "updated-element" })];
-    saveToLocalStorage(
-      updatedElements as unknown as Parameters<typeof saveToLocalStorage>[0],
-      {
-        name: "Newer autosave",
-        theme: "dark",
-        viewBackgroundColor: "#222222",
-        gridSize: 24,
-        scrollX: 500,
-      },
-      {},
-    );
-
-    const loaded = importFromLocalStorage();
-    const ownedSource = localStorage.getItem(
-      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-    );
-    expect(loaded.elements.map((element) => element.id)).toEqual([
-      "updated-element",
-    ]);
-    expect(loaded.appState).toMatchObject({
-      name: "Newer autosave",
-      theme: "dark",
-      viewBackgroundColor: "#222222",
-      gridSize: 24,
-    });
-    expect(ownedSource).not.toContain("scrollX");
-    expect(ownedSource).toContain('{\\"rollback\\":true}');
-
-    saveToLocalStorage(
-      updatedElements as unknown as Parameters<typeof saveToLocalStorage>[0],
-      {
-        name: "Grid disabled",
-        theme: "dark",
-        viewBackgroundColor: "#222222",
-        gridSize: undefined,
-      },
-      {},
-    );
-    const gridDisabledSource = localStorage.getItem(
-      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-    );
-    const gridDisabled = parsePersistedWhiteboardPayload(gridDisabledSource);
-    expect(gridDisabled.format).toBe("whiteboard-v1");
-    if (gridDisabled.format === "whiteboard-v1") {
-      expect(gridDisabled.document.metadata.gridSize).toBeNull();
-    }
-  });
-
-  it("falls back to a newer legacy snapshot when owned sync cannot complete", () => {
-    expect(saveWhiteboardDocumentToLocalStorage(createOwnedDocument())).toBe(
-      true,
-    );
-    const incompleteImage = createElement({
-      id: "incomplete-image",
-      type: "image",
-      fileId: "missing-asset",
-    });
-
-    saveToLocalStorage(
-      [incompleteImage] as unknown as Parameters<typeof saveToLocalStorage>[0],
-      { name: "Newer incomplete legacy", theme: "light" },
-      {},
-    );
-    const loaded = importFromLocalStorage();
-
-    expect(loaded.elements.map((element) => element.id)).toEqual([
-      "incomplete-image",
-    ]);
-    expect(loaded.appState?.name).toBe("Newer incomplete legacy");
-  });
-
   it("reports local quota failures without throwing", () => {
     const consoleError = vi
       .spyOn(console, "error")
@@ -637,7 +546,7 @@ describe("owned-format persistence opt-in", () => {
         openDialog: { name: "export" },
       },
       { [asset.id]: asset },
-      { encrypt: false, format: "whiteboard-v1" },
+      { encrypt: false },
     );
     const decompressed = await decompressData<Record<string, never>>(
       prepared.compressedSceneData,
@@ -679,7 +588,6 @@ describe("owned-format persistence opt-in", () => {
       { [asset.id]: asset },
       {
         encrypt: false,
-        format: "whiteboard-v1",
         includeInlineAssets: false,
         retainLegacy: true,
         compactLegacyAssets: true,

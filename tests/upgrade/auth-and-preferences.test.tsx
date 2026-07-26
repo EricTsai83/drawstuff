@@ -37,7 +37,7 @@ vi.mock("next-themes", () => ({
   }),
 }));
 
-vi.mock("@/components/excalidraw/app-language/language-detector", () => ({
+vi.mock("@/components/whiteboard/language/language-detector", () => ({
   getPreferredLanguage: () => "en",
 }));
 

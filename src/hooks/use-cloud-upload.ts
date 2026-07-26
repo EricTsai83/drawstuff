@@ -7,13 +7,11 @@ import type {
   WhiteboardDocumentPersistence,
   WhiteboardElement,
   WhiteboardEngine,
-  WhiteboardEngineKind,
 } from "@/features/whiteboard";
 import {
   parsePersistedWhiteboardPayload,
   recordWhiteboardDiagnostic,
 } from "@/features/whiteboard";
-import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
 import {
   cleanupSceneAssetUploadsAction,
@@ -25,7 +23,7 @@ import { normalizeToArrayBuffer } from "@/lib/array-buffer";
 import {
   getCurrentSceneSnapshot,
   exportSceneThumbnail,
-} from "@/lib/excalidraw";
+} from "@/lib/whiteboard";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
 import { useSceneSession } from "@/hooks/scene-session-context";
@@ -39,6 +37,9 @@ export type SceneConflictInfo = {
   sceneId: string;
   remoteRevision?: number;
 };
+
+export type UploadStatus =
+  "idle" | "uploading" | "success" | "error" | "offline";
 
 function getUploadedFileKey(uploaded: unknown): string | undefined {
   if (typeof uploaded !== "object" || uploaded === null) {
@@ -77,7 +78,6 @@ function assertSingleUploadResult(
 export function useCloudUpload(
   onSceneNotFoundError: () => void,
   engine?: WhiteboardEngine | null,
-  engineKind: WhiteboardEngineKind = "excalidraw",
 ) {
   const [status, setStatus] = useState<UploadStatus>("idle");
   const [lastConflict, setLastConflict] = useState<SceneConflictInfo | null>(
@@ -137,7 +137,7 @@ export function useCloudUpload(
           recordWhiteboardDiagnostic({
             operation: "save",
             outcome: "blocked",
-            engine: engineKind,
+            engine: "owned",
             documentVersion: null,
             errorCode: "INVALID_DOCUMENT",
           });
@@ -145,8 +145,8 @@ export function useCloudUpload(
         }
 
         const elements = scene.elements;
-        const appState = scene.appState;
-        const files = scene.files;
+        const appState = scene.state;
+        const files = scene.assets;
 
         // 準備資料（場景 JSON 與檔案皆壓縮；不加密）並存 DB
         try {
@@ -157,8 +157,6 @@ export function useCloudUpload(
             files,
             {
               encrypt: false,
-              format:
-                engineKind === "owned" ? "whiteboard-v1" : "legacy-excalidraw",
               persistence: scene.persistence,
               includeInlineAssets: false,
               retainLegacy: true,
@@ -180,7 +178,7 @@ export function useCloudUpload(
             recordWhiteboardDiagnostic({
               operation: "save",
               outcome: "blocked",
-              engine: engineKind,
+              engine: "owned",
               documentVersion: scene.persistence?.documentVersion ?? null,
               errorCode: "PAYLOAD_TOO_LARGE",
             });
@@ -364,7 +362,7 @@ export function useCloudUpload(
               recordWhiteboardDiagnostic({
                 operation: "asset",
                 outcome: "failure",
-                engine: engineKind,
+                engine: "owned",
                 documentVersion: scene.persistence?.documentVersion ?? null,
                 errorCode: "NETWORK",
               });
@@ -373,7 +371,7 @@ export function useCloudUpload(
             recordWhiteboardDiagnostic({
               operation: "asset",
               outcome: "success",
-              engine: engineKind,
+              engine: "owned",
               documentVersion: scene.persistence?.documentVersion ?? null,
             });
           }
@@ -418,7 +416,7 @@ export function useCloudUpload(
               recordWhiteboardDiagnostic({
                 operation: "save",
                 outcome: "blocked",
-                engine: engineKind,
+                engine: "owned",
                 documentVersion: scene.persistence?.documentVersion ?? null,
                 errorCode: "CONFLICT",
               });
@@ -430,7 +428,7 @@ export function useCloudUpload(
               recordWhiteboardDiagnostic({
                 operation: "save",
                 outcome: "blocked",
-                engine: engineKind,
+                engine: "owned",
                 documentVersion: scene.persistence?.documentVersion ?? null,
                 errorCode: "UNSAFE_DOWNGRADE",
               });
@@ -442,7 +440,7 @@ export function useCloudUpload(
               recordWhiteboardDiagnostic({
                 operation: "save",
                 outcome: "blocked",
-                engine: engineKind,
+                engine: "owned",
                 documentVersion: scene.persistence?.documentVersion ?? null,
                 errorCode: "PAYLOAD_TOO_LARGE",
               });
@@ -485,7 +483,7 @@ export function useCloudUpload(
           recordWhiteboardDiagnostic({
             operation: "save",
             outcome: "success",
-            engine: engineKind,
+            engine: "owned",
             documentVersion: scene.persistence?.documentVersion ?? null,
           });
 
@@ -503,7 +501,7 @@ export function useCloudUpload(
           recordWhiteboardDiagnostic({
             operation: "save",
             outcome: "failure",
-            engine: engineKind,
+            engine: "owned",
             documentVersion: scene.persistence?.documentVersion ?? null,
             errorCode: "UNKNOWN",
           });
@@ -522,7 +520,6 @@ export function useCloudUpload(
       thumbnailUpload,
       deleteSceneAsync,
       engine,
-      engineKind,
       utils,
       t,
       onSceneNotFoundError,

@@ -97,19 +97,19 @@ describe("document loading boundaries", () => {
 
     const loaded = await importSceneDataBySceneId("scene-1");
 
-    expect(loaded.elements?.map((element) => element.id)).toEqual([
+    expect(loaded.document?.elements.map((element) => element.id)).toEqual([
       "owned-element",
     ]);
-    expect(loaded.appState).toMatchObject({
+    expect(loaded.document?.state).toMatchObject({
       name: "Renamed in database",
       theme: "dark",
       viewBackgroundColor: "#111111",
       gridSize: 16,
     });
-    expect(loaded.files?.["owned-asset"]?.dataURL).toBe(
+    expect(loaded.document?.assets["owned-asset"]?.dataURL).toBe(
       "data:image/png;base64,AA==",
     );
-    expect(loaded.files?.["deleted-asset"]).toBeUndefined();
+    expect(loaded.document?.assets["deleted-asset"]).toBeUndefined();
     expect(loaded).toMatchObject({
       revision: 7,
       updatedAt: "2026-01-02T03:04:05.000Z",
@@ -117,7 +117,7 @@ describe("document loading boundaries", () => {
     });
   });
 
-  it("detects owned shared data before the Excalidraw restore boundary", async () => {
+  it("detects owned shared data without a legacy runtime boundary", async () => {
     const compressed = await compressData(
       new TextEncoder().encode(createOwnedSource()),
       {},
@@ -128,15 +128,15 @@ describe("document loading boundaries", () => {
 
     const loaded = await importDataFromBackend("shared-1", "unused-key");
 
-    expect(loaded.elements?.map((element) => element.id)).toEqual([
+    expect(loaded?.elements.map((element) => element.id)).toEqual([
       "owned-element",
     ]);
-    expect(loaded.appState).toMatchObject({
+    expect(loaded?.state).toMatchObject({
       name: "Embedded name",
       theme: "dark",
     });
-    expect(loaded.files?.["owned-asset"]?.id).toBe("owned-asset");
-    expect(loaded.files?.["deleted-asset"]).toBeUndefined();
+    expect(loaded?.assets["owned-asset"]?.id).toBe("owned-asset");
+    expect(loaded?.assets["deleted-asset"]).toBeUndefined();
   });
 
   it("keeps reading the exact unversioned legacy database shape", async () => {
@@ -152,13 +152,14 @@ describe("document loading boundaries", () => {
 
     const loaded = await importSceneDataBySceneId("legacy-scene");
 
-    expect(loaded.elements).toEqual([
+    expect(loaded.document?.elements).toEqual([
       {
         id: "legacy-element",
         type: "ellipse",
+        isDeleted: false,
       },
     ]);
-    expect(loaded.appState).toMatchObject({
+    expect(loaded.document?.state).toMatchObject({
       name: "Database legacy name",
       theme: "light",
       viewBackgroundColor: "#fafafa",
@@ -177,16 +178,17 @@ describe("document loading boundaries", () => {
 
     const loaded = await importDataFromBackend("legacy-shared", "unused-key");
 
-    expect(loaded.elements).toEqual([
+    expect(loaded?.elements).toEqual([
       {
         id: "legacy-element",
         type: "ellipse",
+        isDeleted: false,
       },
     ]);
-    expect(loaded.appState?.name).toBe("Legacy server payload");
+    expect(loaded?.state.name).toBe("Legacy server payload");
   });
 
-  it("lets the runtime restore repair missing and duplicate legacy ids", async () => {
+  it("repairs missing and duplicate legacy ids without Excalidraw", async () => {
     const compressed = await compressData(
       new TextEncoder().encode(
         JSON.stringify({
@@ -194,6 +196,7 @@ describe("document loading boundaries", () => {
             { type: "rectangle" },
             { id: "duplicate", type: "ellipse" },
             { id: "duplicate", type: "diamond" },
+            { id: "legacy-0", type: "line" },
             null,
           ],
           appState: { name: "Repairable legacy" },
@@ -209,9 +212,12 @@ describe("document loading boundaries", () => {
 
     const loaded = await importSceneDataBySceneId("repairable");
 
-    expect(loaded.elements).toHaveLength(3);
-    expect(loaded.elements?.[0]?.id).toBeUndefined();
-    expect(loaded.elements?.[1]?.id).toBe("duplicate");
-    expect(loaded.elements?.[2]?.id).toBe("duplicate");
+    expect(loaded.document?.elements).toHaveLength(4);
+    expect(loaded.document?.elements.map((element) => element.id)).toEqual([
+      "legacy-1",
+      "duplicate",
+      "legacy-2",
+      "legacy-0",
+    ]);
   });
 });

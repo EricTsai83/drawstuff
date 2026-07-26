@@ -41,6 +41,7 @@ import {
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
+import { StorageWarning } from "@/components/storage-warning";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -363,7 +364,7 @@ export function WhiteboardShell({
     <TooltipProvider>
       <ContextMenu>
         <ContextMenuTrigger
-          className="owned-whiteboard-shell relative isolate h-full w-full"
+          className="relative isolate h-full w-full"
           onContextMenu={() =>
             engine?.updateEditorState({
               contextMenu: null,
@@ -580,6 +581,12 @@ function TopBar({
             {productMenuContent}
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
+              <div className="px-2 py-1.5" role="none">
+                <StorageWarning className="flex items-center" />
+              </div>
+            </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuGroup>
               <DropdownMenuItem disabled={!connected} onClick={onClear}>
                 Clear canvas
               </DropdownMenuItem>
@@ -610,7 +617,12 @@ function TopBar({
           label={isSaving ? "Saving" : "Save"}
           onClick={onSave}
         />
-        <Button disabled={!connected || isSharing} onClick={onShare} size="sm">
+        <Button
+          aria-label={isSharing ? "Sharing" : "Share"}
+          disabled={!connected || isSharing}
+          onClick={onShare}
+          size="sm"
+        >
           <Share2 data-icon="inline-start" />
           <span className="hidden sm:inline">
             {isSharing ? "Sharing" : "Share"}
@@ -1056,7 +1068,8 @@ function ImportDialog({
         <DialogHeader>
           <DialogTitle>Import scene</DialogTitle>
           <DialogDescription>
-            Choose an Excalidraw scene file to replace the current canvas.
+            Choose a Drawstuff or legacy Excalidraw scene file to replace the
+            current canvas.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>

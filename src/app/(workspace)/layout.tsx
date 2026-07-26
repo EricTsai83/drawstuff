@@ -1,7 +1,6 @@
-import ExcalidrawClientSideWrapper from "@/components/excalidraw/excalidraw-client-wrapper";
+import WhiteboardClientWrapper from "@/components/whiteboard/whiteboard-client-wrapper";
 import { api } from "@/trpc/server";
 import { getServerSession } from "@/lib/auth/server";
-import { resolveServerWhiteboardRollout } from "@/server/whiteboard/rollout";
 
 export default async function WorkspaceLayout({
   children,
@@ -13,14 +12,9 @@ export default async function WorkspaceLayout({
   if (session) {
     await api.workspace.ensureDefault();
   }
-  const rollout = resolveServerWhiteboardRollout({
-    subjectId: session?.user.id,
-    email: session?.user.email,
-  });
-
   return (
     <>
-      <ExcalidrawClientSideWrapper rollout={rollout} />
+      <WhiteboardClientWrapper />
       {children}
     </>
   );

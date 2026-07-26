@@ -56,20 +56,7 @@ export const COOKIES = {
 export const STORAGE_MAX_CAPACITY = 4.5 * 1024 * 1024; // 4.5MB
 export const SCENE_FILE_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 
-// excalidraw constants
 export const ENCRYPTION_KEY_BITS = 128;
-
-export const EXPORT_DATA_TYPES = {
-  excalidraw: "excalidraw",
-  excalidrawClipboard: "excalidraw/clipboard",
-  excalidrawLibrary: "excalidrawlib",
-  excalidrawClipboardWithAPI: "excalidraw-api/clipboard",
-} as const;
-
-export const VERSIONS = {
-  excalidraw: 2,
-  excalidrawLibrary: 2,
-} as const;
 
 export const FILE_UPLOAD_MAX_COUNT = 50;
 
@@ -89,12 +76,8 @@ export const MIME_TYPES = {
   text: "text/plain",
   html: "text/html",
   json: "application/json",
-  // excalidraw data
+  // Legacy scene import
   excalidraw: "application/vnd.excalidraw+json",
-  excalidrawlib: "application/vnd.excalidrawlib+json",
-  // image-encoded excalidraw data
-  "excalidraw.svg": "image/svg+xml",
-  "excalidraw.png": "image/png",
   // binary
   binary: "application/octet-stream",
   // image

@@ -1,25 +1,17 @@
-import type {
-  FileId,
-  NonDeletedExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
-import type {
-  BinaryFileData,
-  BinaryFileMetadata,
-  BinaryFiles,
-} from "@excalidraw/excalidraw/types";
 import { compressData } from "./encode";
-import { isInitializedImageElement } from "@/lib/excalidraw";
+import type { WhiteboardAsset, WhiteboardElement } from "@/features/whiteboard";
+import { isInitializedImageElement } from "@/lib/whiteboard";
 
 // 文件處理選項類型
 export type FileProcessingOptions = {
-  files: Map<FileId, BinaryFileData>;
+  files: Map<string, WhiteboardAsset>;
   maxBytes: number;
   encryptionKey?: string | null;
 };
 
 // 處理後的文件類型
 export type ProcessedFile = {
-  id: FileId;
+  id: string;
   buffer: Uint8Array;
 };
 
@@ -30,10 +22,10 @@ export type ProcessedFile = {
  * @returns 圖片文件映射
  */
 export function extractImageFiles(
-  elements: readonly NonDeletedExcalidrawElement[],
-  files: BinaryFiles,
-): Map<FileId, BinaryFileData> {
-  const imageFilesMap = new Map<FileId, BinaryFileData>();
+  elements: readonly WhiteboardElement[],
+  files: Readonly<Record<string, WhiteboardAsset>>,
+): Map<string, WhiteboardAsset> {
+  const imageFilesMap = new Map<string, WhiteboardAsset>();
 
   for (const element of elements) {
     if (isInitializedImageElement(element) && files[element.fileId]) {
@@ -83,8 +75,8 @@ async function processSingleFile({
   maxBytes,
   encryptionKey,
 }: {
-  id: FileId;
-  fileData: BinaryFileData;
+  id: string;
+  fileData: WhiteboardAsset;
   maxBytes: number;
   encryptionKey?: string | null;
 }): Promise<ProcessedFile> {
@@ -97,14 +89,14 @@ async function processSingleFile({
     );
   }
 
-  const metadata: BinaryFileMetadata = {
+  const metadata = {
     id,
     mimeType: fileData.mimeType,
     created: Date.now(),
     lastRetrieved: Date.now(),
   };
 
-  const encodedFile = await compressData<BinaryFileMetadata>(buffer, {
+  const encodedFile = await compressData(buffer, {
     encryptionKey,
     metadata,
   });

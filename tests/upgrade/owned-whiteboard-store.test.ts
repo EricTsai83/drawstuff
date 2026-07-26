@@ -218,7 +218,11 @@ describe("owned whiteboard store", () => {
 
     await store.importDocument(legacyBlob);
 
-    expect(store.getDocument().elements).toHaveLength(1);
+    expect(store.getDocument().elements).toHaveLength(2);
+    expect(store.getDocument().elements.map((element) => element.id)).toEqual([
+      "duplicate",
+      "legacy-1",
+    ]);
     expect(store.getDocument().elements[0]?.fileId).toBeNull();
     const exported = JSON.parse(
       await (await store.exportDocument()).text(),
@@ -228,7 +232,7 @@ describe("owned whiteboard store", () => {
       readonly assets: Readonly<Record<string, unknown>>;
     };
     expect(exported.version).toBe(1);
-    expect(exported.elements).toHaveLength(1);
+    expect(exported.elements).toHaveLength(2);
     expect(exported.assets).toEqual({});
 
     store.addAssets([

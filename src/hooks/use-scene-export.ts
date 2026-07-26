@@ -5,7 +5,6 @@ import type {
   WhiteboardAsset,
   WhiteboardDocumentState,
   WhiteboardElement,
-  WhiteboardEngineKind,
   WhiteboardDocumentPersistence,
 } from "@/features/whiteboard";
 import { recordWhiteboardDiagnostic } from "@/features/whiteboard";
@@ -24,9 +23,7 @@ function cloneToArrayBuffer(
 
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
-export function useSceneExport(
-  engineKind: WhiteboardEngineKind = "excalidraw",
-) {
+export function useSceneExport() {
   const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(
     null,
@@ -71,7 +68,7 @@ export function useSceneExport(
         recordWhiteboardDiagnostic({
           operation: "export",
           outcome: "blocked",
-          engine: engineKind,
+          engine: "owned",
           documentVersion: persistence?.documentVersion ?? null,
           errorCode: "INVALID_DOCUMENT",
         });
@@ -87,8 +84,6 @@ export function useSceneExport(
           appState,
           files,
           {
-            format:
-              engineKind === "owned" ? "whiteboard-v1" : "legacy-excalidraw",
             persistence,
             includeInlineAssets: false,
             retainLegacy: false,
@@ -173,7 +168,7 @@ export function useSceneExport(
         recordWhiteboardDiagnostic({
           operation: "export",
           outcome: "success",
-          engine: engineKind,
+          engine: "owned",
           documentVersion: persistence?.documentVersion ?? null,
         });
         console.log("Scene exported successfully:", result.sharedSceneId);
@@ -185,14 +180,14 @@ export function useSceneExport(
         recordWhiteboardDiagnostic({
           operation: "export",
           outcome: "failure",
-          engine: engineKind,
+          engine: "owned",
           documentVersion: persistence?.documentVersion ?? null,
           errorCode: "UNKNOWN",
         });
         return null;
       }
     },
-    [startSharedUpload, exportStatus, engineKind],
+    [startSharedUpload, exportStatus],
   );
 
   const resetExportStatus = useCallback(() => {

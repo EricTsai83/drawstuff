@@ -85,7 +85,7 @@ vi.mock("@/features/whiteboard/owned", async () => {
   };
 });
 
-import { PublishedSceneViewer } from "@/components/excalidraw/published-scene-viewer";
+import { PublishedSceneViewer } from "@/components/whiteboard/published-scene-viewer";
 
 const DOCUMENT: WhiteboardDocument = {
   elements: [

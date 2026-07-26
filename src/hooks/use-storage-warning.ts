@@ -1,47 +1,23 @@
 import { useEffect, useState, useCallback, useRef } from "react";
-import {
-  getElementsStorageSize,
-  getTotalStorageSize,
-} from "@/data/local-storage";
-import { nFormatter } from "@/lib/utils";
+import { getTotalStorageSize } from "@/data/local-storage";
 
-type StorageSizes = { scene: number; total: number };
-type FormattedStorageSizes = { scene: string; total: string };
+type StorageSizes = { total: number };
 
 export function useStorageWarning() {
   const [storageSizes, setStorageSizes] = useState<StorageSizes>({
-    scene: 0,
     total: 0,
   });
-  const [formattedStorageSizes, setFormattedStorageSizes] =
-    useState<FormattedStorageSizes>({
-      scene: "0b",
-      total: "0b",
-    });
 
-  const lastCalculatedRef = useRef<{ scene: number; total: number }>({
-    scene: 0,
-    total: 0,
-  });
+  const lastCalculatedRef = useRef(0);
 
   // 計算並格式化儲存空間
   const calculateAndFormatSizes = useCallback(() => {
-    const sizes = {
-      scene: getElementsStorageSize(),
-      total: getTotalStorageSize(),
-    };
+    const total = getTotalStorageSize();
 
     // 只有當值真正改變時才更新狀態
-    if (
-      sizes.scene !== lastCalculatedRef.current.scene ||
-      sizes.total !== lastCalculatedRef.current.total
-    ) {
-      lastCalculatedRef.current = sizes;
-      setStorageSizes(sizes);
-      setFormattedStorageSizes({
-        scene: nFormatter(sizes.scene, 1),
-        total: nFormatter(sizes.total, 1),
-      });
+    if (total !== lastCalculatedRef.current) {
+      lastCalculatedRef.current = total;
+      setStorageSizes({ total });
     }
   }, []);
 
@@ -60,8 +36,5 @@ export function useStorageWarning() {
     };
   }, [calculateAndFormatSizes]);
 
-  return {
-    storageSizes,
-    formattedStorageSizes,
-  };
+  return { storageSizes };
 }
