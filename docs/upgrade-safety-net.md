@@ -35,9 +35,9 @@ override.
 fails CI. A finding disappearing from the registry is allowed and should be
 removed from the baseline during the next dependency phase.
 
-The baseline was reviewed after the Phase 1 security patches on 2026-07-26
-and contains 26 unique `GHSA:package` advisory keys. pnpm reports 29
-vulnerability instances: 1 critical, 14 high, 12 moderate, and 2 low. It is
+The baseline was reviewed after the Phase 3 same-major dependency batches on
+2026-07-26 and contains 19 unique `GHSA:package` advisory keys. pnpm reports 22
+vulnerability instances: 1 critical, 11 high, 8 moderate, and 2 low. It is
 an inventory, not a claim that the findings are safe. Findings against the
 Phase 1 direct dependencies are cleared; the remaining findings are pinned
 transitive packages and are tracked through their direct parent instead of
@@ -49,8 +49,12 @@ being forced with broad `pnpm.overrides`.
 | `next`                   | `postcss`, `sharp`, and `styled-jsx > @babel/core`                         | 5 advisory keys; includes 3 high     | Track the Next.js-pinned build and image-processing packages     |
 | `drizzle-orm`            | Optional `gel > shell-quote` connector tree                                | 2 advisory keys; includes 1 critical | Track Drizzle/Gel; the application uses the PostgreSQL connector |
 | `@excalidraw/excalidraw` | `nanoid`, Sass (`immutable`, `picomatch`), and Mermaid (`lodash-es`) trees | 8 advisory keys; includes 4 high     | Track upstream until the Phase 5 whiteboard replacement          |
-| `@uploadthing/react`     | `@uploadthing/shared > effect`                                             | 1 high advisory key                  | Refresh UploadThing with upload/restore smoke tests              |
-| `shadcn`                 | CLI-only tree (`brace-expansion`, `js-yaml`, Hono)                         | 7 advisory keys; includes 3 high     | Refresh the CLI dependency without runtime overrides             |
+| `@hookform/resolvers`    | Optional `effect` peer, provided by the UploadThing dependency tree        | 1 high advisory key                  | Track Resolvers and UploadThing with form and upload smoke tests |
+
+Moving the build-time `shadcn` CLI to `devDependencies` removed its
+`brace-expansion`, `js-yaml`, and Hono advisories from the production audit
+without forcing transitive overrides. Those seven advisory keys remain in the
+development-only CLI tree and are outside the production-only CI audit gate.
 
 ## Automated workflow coverage
 
@@ -70,11 +74,15 @@ being forced with broad `pnpm.overrides`.
 - Published scene decoding with `viewModeEnabled`, cleared private viewport,
   and restored files.
 - Theme mapping plus language persistence and browser notification.
+- Streamed tRPC transport, SuperJSON authentication errors, React Query
+  hydration and cache invalidation, real scene-name resolver behavior, nuqs URL
+  state, localized relative timestamps, Tailwind class conflict resolution, and
+  valid/invalid environment parsing across the Phase 3 dependency groups.
 
 `pnpm knip` checks production dependencies on every push and pull request as
-part of `.github/workflows/ci.yaml`; the two already-known unused packages,
-`idb-keyval` and `use-debounce`, remain explicitly listed in `knip.json` for
-the planned Phase 3 removal, so any new unused production dependency fails.
+part of `.github/workflows/ci.yaml`. Phase 3 removed the unused `idb-keyval` and
+`use-debounce` packages along with their temporary `knip.json` exceptions, so
+any unused production dependency fails without a project-specific allowlist.
 
 The fixtures under `tests/fixtures/legacy-scenes` are compatibility inputs and
 must not be regenerated as part of a dependency upgrade:

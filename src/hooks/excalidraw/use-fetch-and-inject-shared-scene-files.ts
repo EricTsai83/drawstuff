@@ -153,14 +153,12 @@ export function useFetchAndInjectSharedSceneFiles(
               sceneRetryMap.delete(url);
             }
           } catch (err: unknown) {
-            if (
-              !(
-                err &&
-                typeof err === "object" &&
-                "name" in err &&
-                (err as { name?: string }).name === "AbortError"
-              )
-            ) {
+            if (!(
+              err &&
+              typeof err === "object" &&
+              "name" in err &&
+              (err as { name?: string }).name === "AbortError"
+            )) {
               // 例外但非中止：同樣按指數退避規則排定下一次嘗試
               const prev = sceneRetryMap.get(url);
               const attempts = (prev?.attempts ?? 0) + 1;

@@ -125,8 +125,7 @@ export const appTranslations: AppTranslations = {
       'You are about to delete "{name}" and all of its scenes.',
     "workspace.settings.deleteWarningBody":
       "This action is permanent. All scenes in this workspace will be lost.",
-    "workspace.settings.typeToConfirm":
-      'Type "{name}" to confirm deletion:',
+    "workspace.settings.typeToConfirm": 'Type "{name}" to confirm deletion:',
     "workspace.settings.cancel": "Cancel",
     "workspace.settings.close": "Close",
     "workspace.settings.confirmDelete": "Delete workspace",
@@ -168,7 +167,8 @@ export const appTranslations: AppTranslations = {
     "publish.toast.published": "Public link is ready.",
     "publish.toast.unpublished": "This scene is now private.",
     "publish.toast.copied": "Public link copied.",
-    "publish.toast.failed": "Unable to update publish status. Please try again.",
+    "publish.toast.failed":
+      "Unable to update publish status. Please try again.",
     "public.theme.system": "Use system theme",
     "public.theme.light": "Use light theme",
     "public.theme.dark": "Use dark theme",
@@ -299,7 +299,7 @@ export const appTranslations: AppTranslations = {
       "直接從場景列表建立新的工作空間。",
     "dashboard.workspace.namePlaceholder": "輸入工作空間名稱",
     "dashboard.workspace.creating": "建立中...",
-    "dashboard.workspace.created": '已建立工作空間「{name}」',
+    "dashboard.workspace.created": "已建立工作空間「{name}」",
     "dashboard.workspace.createFailed": "建立工作空間失敗",
     "dashboard.workspace.nameInvalid": "請輸入有效的工作空間名稱",
     "workspace.settings.title": "設定",
@@ -307,16 +307,13 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.title.delete": "刪除工作空間",
     "workspace.settings.description": "編輯工作空間資訊並管理高風險操作。",
     "workspace.settings.description.rename": "變更目前工作空間的名稱。",
-    "workspace.settings.description.delete":
-      "此操作不可復原，請謹慎操作。",
+    "workspace.settings.description.delete": "此操作不可復原，請謹慎操作。",
     "workspace.settings.defaultCannotDelete":
       "預設工作空間無法刪除，請選擇其他工作空間。",
-    "workspace.settings.deleteWarningTitle":
-      '即將刪除「{name}」及其所有場景。',
+    "workspace.settings.deleteWarningTitle": "即將刪除「{name}」及其所有場景。",
     "workspace.settings.deleteWarningBody":
       "此操作不可復原，該工作空間中的所有場景都將永久消失。",
-    "workspace.settings.typeToConfirm":
-      '請輸入「{name}」以確認刪除：',
+    "workspace.settings.typeToConfirm": "請輸入「{name}」以確認刪除：",
     "workspace.settings.cancel": "取消",
     "workspace.settings.close": "關閉",
     "workspace.settings.confirmDelete": "刪除工作空間",
@@ -344,7 +341,7 @@ export const appTranslations: AppTranslations = {
     "menu.importScene": "匯入場景",
     "menu.sceneSettings": "場景設定",
     "menu.moveToWorkspace": "移至工作空間",
-    "menu.moveToWorkspace.success": '已移至「{name}」',
+    "menu.moveToWorkspace.success": "已移至「{name}」",
     "menu.moveToWorkspace.failed": "移動場景失敗，請再試一次。",
     "publish.badge.public": "公開",
     "publish.badge.private": "私人",

@@ -4,9 +4,7 @@ import dynamic from "next/dynamic";
 
 const PublishedSceneViewer = dynamic(
   () =>
-    import("./published-scene-viewer").then(
-      (mod) => mod.PublishedSceneViewer,
-    ),
+    import("./published-scene-viewer").then((mod) => mod.PublishedSceneViewer),
   {
     ssr: false,
   },

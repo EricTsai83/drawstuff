@@ -3,7 +3,7 @@ import { cleanup } from "@testing-library/react";
 
 afterEach(() => {
   cleanup();
-  localStorage.clear();
+  globalThis.localStorage?.clear();
   vi.restoreAllMocks();
 });
 
@@ -23,13 +23,15 @@ Object.defineProperty(globalThis, "ResizeObserver", {
   configurable: true,
   value: ResizeObserverStub,
 });
-Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
-  configurable: true,
-  value: () =>
-    ({
-      filter: "none",
-    }) as unknown as CanvasRenderingContext2D,
-});
+if (typeof HTMLCanvasElement !== "undefined") {
+  Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+    configurable: true,
+    value: () =>
+      ({
+        filter: "none",
+      }) as unknown as CanvasRenderingContext2D,
+  });
+}
 
 class FontFaceStub {
   readonly status = "loaded";
@@ -49,14 +51,16 @@ Object.defineProperty(globalThis, "FontFace", {
   configurable: true,
   value: FontFaceStub,
 });
-Object.defineProperty(document, "fonts", {
-  configurable: true,
-  value: {
-    add: () => document.fonts,
-    check: () => true,
-    clear: () => undefined,
-    delete: () => true,
-    has: () => true,
-    ready: Promise.resolve(),
-  },
-});
+if (typeof document !== "undefined") {
+  Object.defineProperty(document, "fonts", {
+    configurable: true,
+    value: {
+      add: () => document.fonts,
+      check: () => true,
+      clear: () => undefined,
+      delete: () => true,
+      has: () => true,
+      ready: Promise.resolve(),
+    },
+  });
+}
