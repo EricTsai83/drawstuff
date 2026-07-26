@@ -55,5 +55,5 @@ function createFixtureElement(index: number): WhiteboardElement {
     strokeWidth: 1,
     strokeStyle: "solid",
     opacity: 100,
-  } as WhiteboardElement;
+  };
 }

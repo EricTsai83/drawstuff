@@ -4,10 +4,14 @@ import type {
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
+  beginOwnedDrawing,
+  createOwnedDrawingElement,
   OwnedWhiteboardRenderer,
   OwnedWhiteboardStore,
+  updateOwnedDrawing,
   type OwnedAnimationScheduler,
 } from "@/features/whiteboard/owned";
+import { migrateLegacyExcalidrawScene } from "@/features/whiteboard";
 import { OWNED_CANVAS_PERFORMANCE_FIXTURES } from "../fixtures/owned-canvas/performance";
 
 describe("owned whiteboard renderer", () => {
@@ -76,6 +80,117 @@ describe("owned whiteboard renderer", () => {
     expect(harness.sceneContext.clearRect).not.toHaveBeenCalled();
     expect(harness.overlayContext.clearRect).toHaveBeenCalledOnce();
     expect(harness.overlayContext.strokeRect).toHaveBeenCalled();
+  });
+
+  it("renders one shared selection box with resize and rotation handles", () => {
+    const harness = createRenderer();
+    harness.store.loadDocument(
+      createDocument([
+        rectangle("first"),
+        { ...rectangle("second"), x: 130, y: 40 },
+      ]),
+    );
+    harness.renderer.resize(400, 240, 1);
+    harness.renderer.renderNow();
+    harness.overlayContext.fillRect.mockClear();
+    harness.overlayContext.strokeRect.mockClear();
+    harness.store.setSelection(["first", "second"]);
+
+    expect(harness.renderer.renderNow().selectedElements).toBe(2);
+    expect(harness.overlayContext.strokeRect).toHaveBeenCalledWith(
+      10,
+      20,
+      220,
+      70,
+    );
+    expect(harness.overlayContext.fillRect).toHaveBeenCalledTimes(9);
+    expect(harness.overlayContext.moveTo).toHaveBeenCalledWith(120, 20);
+    expect(harness.overlayContext.lineTo).toHaveBeenCalledWith(120, -4);
+
+    harness.overlayContext.fillRect.mockClear();
+    harness.overlayContext.strokeRect.mockClear();
+    harness.renderer.setEditingEnabled(false);
+    harness.renderer.renderNow();
+    expect(harness.overlayContext.fillRect).not.toHaveBeenCalled();
+    expect(harness.overlayContext.strokeRect).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders transient previews only on the overlay canvas", () => {
+    const harness = createRenderer();
+    harness.renderer.resize(300, 200, 1);
+    harness.renderer.renderNow();
+    harness.sceneContext.clearRect.mockClear();
+    harness.overlayContext.clearRect.mockClear();
+    harness.overlayContext.rect.mockClear();
+
+    harness.renderer.setPreview(rectangle("preview"));
+    harness.renderer.renderNow();
+
+    expect(harness.sceneContext.clearRect).not.toHaveBeenCalled();
+    expect(harness.overlayContext.clearRect).toHaveBeenCalledOnce();
+    expect(harness.overlayContext.rect).toHaveBeenCalledWith(0, 0, 100, 50);
+    expect(harness.overlayContext.scale).toHaveBeenCalledWith(1, 1);
+    expect(harness.overlayContext.translate).toHaveBeenCalledWith(0, 0);
+  });
+
+  it("renders migrated and newly created rectangles through the same path", () => {
+    const migratedHarness = createRenderer();
+    const migrated = migrateLegacyExcalidrawScene({
+      type: "excalidraw",
+      version: 2,
+      elements: [
+        {
+          id: "legacy",
+          type: "rectangle",
+          isDeleted: false,
+          x: 10,
+          y: 20,
+          width: 100,
+          height: 50,
+          angle: 0,
+          strokeColor: "#1e1e1e",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          opacity: 100,
+        },
+      ],
+      appState: {},
+      files: {},
+    }).elements[0]!;
+    migratedHarness.store.loadDocument(createDocument([migrated]));
+    migratedHarness.renderer.renderNow();
+
+    const createdHarness = createRenderer();
+    const session = updateOwnedDrawing(
+      beginOwnedDrawing("rectangle", { x: 10, y: 20 }),
+      { x: 110, y: 70 },
+    );
+    const created = createOwnedDrawingElement(
+      session,
+      {
+        strokeColor: "#1e1e1e",
+        backgroundColor: "transparent",
+        fillStyle: "solid",
+        strokeWidth: 1,
+        strokeStyle: "solid",
+        opacity: 100,
+      },
+      "created",
+    )!;
+    createdHarness.store.loadDocument(createDocument([created]));
+    createdHarness.renderer.renderNow();
+
+    expect(createdHarness.sceneContext.rect.mock.calls).toEqual(
+      migratedHarness.sceneContext.rect.mock.calls,
+    );
+    expect(createdHarness.sceneContext.stroke.mock.calls).toEqual(
+      migratedHarness.sceneContext.stroke.mock.calls,
+    );
+    expect(createdHarness.sceneContext.fill.mock.calls).toEqual(
+      migratedHarness.sceneContext.fill.mock.calls,
+    );
   });
 
   it("does not create image requests for non-inline asset URLs", () => {

@@ -133,5 +133,5 @@ function element(update: Readonly<Record<string, unknown>>): WhiteboardElement {
     height: 60,
     angle: 0,
     ...update,
-  } as unknown as WhiteboardElement;
+  };
 }

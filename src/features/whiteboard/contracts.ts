@@ -5,6 +5,25 @@ export interface WhiteboardElement {
   readonly type: string;
   readonly isDeleted: boolean;
   readonly fileId?: string | null;
+  readonly x?: number;
+  readonly y?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly angle?: number;
+  readonly points?: readonly (readonly [number, number])[];
+  readonly text?: string;
+  readonly originalText?: string;
+  readonly fontSize?: number;
+  readonly lineHeight?: number;
+  readonly strokeColor?: string;
+  readonly backgroundColor?: string;
+  readonly fillStyle?: WhiteboardFillStyle;
+  readonly strokeWidth?: number;
+  readonly strokeStyle?: WhiteboardStrokeStyle;
+  readonly opacity?: number;
+  readonly roughness?: number;
+  readonly seed?: number;
+  readonly locked?: boolean;
 }
 
 export interface WhiteboardAsset {
@@ -74,6 +93,7 @@ export interface WhiteboardElementStyle {
   readonly strokeWidth: number;
   readonly strokeStyle: WhiteboardStrokeStyle;
   readonly opacity: number;
+  readonly roughness?: number;
 }
 
 export type WhiteboardElementStyleUpdate = Partial<WhiteboardElementStyle>;

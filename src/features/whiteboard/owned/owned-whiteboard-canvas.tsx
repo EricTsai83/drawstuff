@@ -8,6 +8,11 @@ import type {
 import { OwnedWhiteboardInput } from "./input";
 import { OwnedWhiteboardRenderer } from "./renderer";
 import { OwnedWhiteboardStore } from "./store";
+import { OwnedWhiteboardTextEditor } from "./text-editor";
+import {
+  DEFAULT_OWNED_DRAWING_CAPABILITIES,
+  type OwnedDrawingCapabilities,
+} from "./drawing";
 
 export interface OwnedWhiteboardCanvasProps {
   readonly document?:
@@ -15,6 +20,8 @@ export interface OwnedWhiteboardCanvasProps {
   readonly onEngineReady: (engine: WhiteboardEngine | null) => void;
   readonly className?: string;
   readonly ariaLabel?: string;
+  readonly drawingCapabilities?: Partial<OwnedDrawingCapabilities>;
+  readonly editingEnabled?: boolean;
 }
 
 type OwnedDocumentSource =
@@ -22,6 +29,8 @@ type OwnedDocumentSource =
 
 interface OwnedCanvasLifecycle {
   readonly store: OwnedWhiteboardStore;
+  readonly input: OwnedWhiteboardInput;
+  readonly renderer: OwnedWhiteboardRenderer;
   active: boolean;
   fitOnResize: boolean;
   request: number;
@@ -33,14 +42,25 @@ export function OwnedWhiteboardCanvas({
   onEngineReady,
   className,
   ariaLabel = "Whiteboard canvas",
+  drawingCapabilities,
+  editingEnabled = true,
 }: OwnedWhiteboardCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
   const overlayCanvasRef = useRef<HTMLCanvasElement>(null);
   const storeRef = useRef<OwnedWhiteboardStore | null>(null);
   const documentRef = useRef<OwnedDocumentSource>(document);
+  const drawingCapabilitiesRef = useRef<OwnedDrawingCapabilities>(
+    DEFAULT_OWNED_DRAWING_CAPABILITIES,
+  );
+  const editingEnabledRef = useRef(editingEnabled);
   const lifecycleRef = useRef<OwnedCanvasLifecycle | null>(null);
   documentRef.current = document;
+  drawingCapabilitiesRef.current = {
+    ...DEFAULT_OWNED_DRAWING_CAPABILITIES,
+    ...drawingCapabilities,
+  };
+  editingEnabledRef.current = editingEnabled;
 
   useEffect(() => {
     const root = rootRef.current;
@@ -54,9 +74,28 @@ export function OwnedWhiteboardCanvas({
       overlayCanvas,
       store,
     );
-    const input = new OwnedWhiteboardInput(root, store, renderer);
+    renderer.setEditingEnabled(editingEnabledRef.current);
+    const textEditor = new OwnedWhiteboardTextEditor(root, store);
+    const interactionSink = {
+      setMarquee: (bounds: Parameters<typeof renderer.setMarquee>[0]) =>
+        renderer.setMarquee(bounds),
+      setPreview: (element: Parameters<typeof renderer.setPreview>[0]) =>
+        renderer.setPreview(element),
+      beginTextEditing: (point: Parameters<typeof textEditor.begin>[0]) =>
+        textEditor.begin(point),
+    };
+    const input = new OwnedWhiteboardInput(
+      root,
+      store,
+      interactionSink,
+      drawingCapabilitiesRef.current,
+      undefined,
+      editingEnabledRef.current,
+    );
     const lifecycle: OwnedCanvasLifecycle = {
       store,
+      input,
+      renderer,
       active: true,
       fitOnResize: false,
       request: 0,
@@ -103,6 +142,7 @@ export function OwnedWhiteboardCanvas({
       unsubscribeDestroy();
       releaseEnvironment();
       input.destroy();
+      textEditor.destroy();
       renderer.destroy();
       store.destroy();
       if (storeRef.current === store) storeRef.current = null;
@@ -110,6 +150,16 @@ export function OwnedWhiteboardCanvas({
       onEngineReady(null);
     };
   }, [onEngineReady]);
+
+  useEffect(() => {
+    lifecycleRef.current?.input.setCapabilities(drawingCapabilitiesRef.current);
+  }, [drawingCapabilities]);
+
+  useEffect(() => {
+    const lifecycle = lifecycleRef.current;
+    lifecycle?.input.setEditingEnabled(editingEnabledRef.current);
+    lifecycle?.renderer.setEditingEnabled(editingEnabledRef.current);
+  }, [editingEnabled]);
 
   useEffect(() => {
     const lifecycle = lifecycleRef.current;

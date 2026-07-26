@@ -83,6 +83,39 @@ describe("owned whiteboard store", () => {
     expect(store.getViewport()).toMatchObject({ x: 20, y: 10 });
   });
 
+  it("undoes a selected-element style change before undoing its creation", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(document([]));
+    store.appendElement(rectangle("created", 0, 0, 10, 10));
+    store.updateElementStyle({ strokeColor: "#e03131", roughness: 2 });
+
+    expect(store.getDocument().elements[0]).toMatchObject({
+      strokeColor: "#e03131",
+      roughness: 2,
+    });
+    expect(store.getEditorState().elementStyle.roughness).toBe(2);
+    store.undo();
+    expect(store.getDocument().elements[0]).toMatchObject({
+      strokeColor: "#1e1e1e",
+    });
+    store.undo();
+    expect(store.getDocument().elements).toEqual([]);
+  });
+
+  it("does not add an undo entry for an identical selected-element style", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(document([]));
+    store.appendElement(rectangle("created", 0, 0, 10, 10));
+    const listener = vi.fn();
+    store.subscribeDocument(listener);
+
+    store.updateElementStyle({ strokeColor: "#1e1e1e" });
+
+    expect(listener).not.toHaveBeenCalled();
+    store.undo();
+    expect(store.getDocument().elements).toEqual([]);
+  });
+
   it("round-trips an owned document export through import", async () => {
     const source = new OwnedWhiteboardStore();
     source.loadDocument(

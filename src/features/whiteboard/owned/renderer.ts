@@ -12,6 +12,7 @@ import {
   type WhiteboardBounds,
 } from "./geometry";
 import type { OwnedWhiteboardStore } from "./store";
+import { getSelectionBounds, OWNED_ROTATION_HANDLE_OFFSET } from "./editing";
 
 export interface OwnedAnimationScheduler {
   readonly request: (callback: FrameRequestCallback) => number;
@@ -42,11 +43,13 @@ export class OwnedWhiteboardRenderer {
   private readonly imageCache = new Map<string, CachedImage>();
   private scheduledFrame: number | null = null;
   private marquee: WhiteboardBounds | null = null;
+  private preview: WhiteboardElement | null = null;
   private cssWidth = 0;
   private cssHeight = 0;
   private pixelRatio = 1;
   private sceneDirty = true;
   private overlayDirty = true;
+  private editingEnabled = true;
   private destroyed = false;
   private lastStats: OwnedRenderStats = {
     visitedElements: 0,
@@ -109,6 +112,20 @@ export class OwnedWhiteboardRenderer {
     this.schedule();
   }
 
+  public setPreview(element: WhiteboardElement | null): void {
+    if (this.destroyed) return;
+    this.preview = element;
+    this.overlayDirty = true;
+    this.schedule();
+  }
+
+  public setEditingEnabled(enabled: boolean): void {
+    if (this.destroyed || enabled === this.editingEnabled) return;
+    this.editingEnabled = enabled;
+    this.overlayDirty = true;
+    this.schedule();
+  }
+
   public renderNow(): OwnedRenderStats {
     this.assertActive();
     if (this.scheduledFrame !== null) {
@@ -147,6 +164,7 @@ export class OwnedWhiteboardRenderer {
     }
     this.imageCache.clear();
     this.marquee = null;
+    this.preview = null;
   }
 
   private schedule(): void {
@@ -309,6 +327,20 @@ export class OwnedWhiteboardRenderer {
   ): void {
     const points = readElementPoints(element);
     if (points.length === 0) return;
+    context.lineCap = "round";
+    context.lineJoin = "round";
+    if (element.type === "freedraw" && points.length === 1) {
+      const point = points[0]!;
+      const radius = Math.max(1, context.lineWidth / 2);
+      context.fillStyle = context.strokeStyle;
+      context.fillRect(
+        point.x - radius,
+        point.y - radius,
+        radius * 2,
+        radius * 2,
+      );
+      return;
+    }
     context.beginPath();
     context.moveTo(points[0]!.x, points[0]!.y);
     for (const point of points.slice(1)) context.lineTo(point.x, point.y);
@@ -376,32 +408,65 @@ export class OwnedWhiteboardRenderer {
     context.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
     context.clearRect(0, 0, this.cssWidth, this.cssHeight);
     const viewport = this.store.getViewport();
+    if (this.preview) {
+      context.save();
+      context.scale(viewport.zoom, viewport.zoom);
+      context.translate(viewport.x, viewport.y);
+      this.paintElement(context, this.preview, {});
+      context.restore();
+    }
     const selectedIds = new Set(selectedElementIds);
-    let selectedElements = 0;
+    const selected = this.store
+      .getDocument()
+      .elements.filter((element) => selectedIds.has(element.id));
+    const selectedElements = selected.filter(
+      (element) => getElementGeometry(element) !== null,
+    ).length;
     context.strokeStyle = "#4c6ef5";
     context.lineWidth = 1.5;
-    context.setLineDash([6, 4]);
-    for (const element of this.store.getDocument().elements) {
-      if (!selectedIds.has(element.id)) continue;
-      const geometry = getElementGeometry(element);
-      if (!geometry) continue;
+    context.setLineDash([]);
+    const selectionBounds = getSelectionBounds(selected);
+    if (selectionBounds) {
       const topLeft = documentToScreen(
-        { x: geometry.bounds.minX, y: geometry.bounds.minY },
+        { x: selectionBounds.minX, y: selectionBounds.minY },
         viewport,
       );
       const bottomRight = documentToScreen(
-        { x: geometry.bounds.maxX, y: geometry.bounds.maxY },
+        { x: selectionBounds.maxX, y: selectionBounds.maxY },
         viewport,
       );
-      context.strokeRect(
-        topLeft.x - viewport.offsetX,
-        topLeft.y - viewport.offsetY,
-        bottomRight.x - topLeft.x,
-        bottomRight.y - topLeft.y,
-      );
-      selectedElements += 1;
+      const left = topLeft.x - viewport.offsetX;
+      const top = topLeft.y - viewport.offsetY;
+      const right = bottomRight.x - viewport.offsetX;
+      const bottom = bottomRight.y - viewport.offsetY;
+      const centerX = (left + right) / 2;
+      const centerY = (top + bottom) / 2;
+      const rotationY = top - OWNED_ROTATION_HANDLE_OFFSET;
+      context.strokeRect(left, top, right - left, bottom - top);
+      if (this.editingEnabled) {
+        context.beginPath();
+        context.moveTo(centerX, top);
+        context.lineTo(centerX, rotationY);
+        context.stroke();
+        context.fillStyle = "#ffffff";
+        for (const point of [
+          { x: left, y: top },
+          { x: centerX, y: top },
+          { x: right, y: top },
+          { x: right, y: centerY },
+          { x: right, y: bottom },
+          { x: centerX, y: bottom },
+          { x: left, y: bottom },
+          { x: left, y: centerY },
+          { x: centerX, y: rotationY },
+        ]) {
+          context.fillRect(point.x - 4, point.y - 4, 8, 8);
+          context.strokeRect(point.x - 4, point.y - 4, 8, 8);
+        }
+      }
     }
     if (this.marquee) {
+      context.setLineDash([6, 4]);
       const topLeft = documentToScreen(
         { x: this.marquee.minX, y: this.marquee.minY },
         viewport,
