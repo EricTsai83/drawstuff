@@ -9,13 +9,7 @@ import { toast } from "sonner";
 import { api } from "@/trpc/react";
 import { parseSharedSceneHash } from "@/lib/utils";
 import { decompressData } from "@/lib/encode";
-import type {
-  BinaryFiles,
-  DataURL,
-  BinaryFileData,
-  ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { FileId } from "@excalidraw/excalidraw/element/types";
+import type { WhiteboardAsset, WhiteboardEngine } from "@/features/whiteboard";
 
 // 穩定的空陣列參考：避免在 useEffect 依賴上造成不必要的重跑
 const EMPTY_FILE_RECORDS: ReadonlyArray<{ url: string }> = [];
@@ -42,7 +36,7 @@ const JITTER_MS = 250;
 
 // 核心 Hook：載入分享場景的檔案並注入到 Excalidraw
 export function useFetchAndInjectSharedSceneFiles(
-  excalidrawAPI: ExcalidrawImperativeAPI | null,
+  engine: WhiteboardEngine | null,
 ) {
   const shareHashParams = useMemo(() => parseSharedSceneHash(), []);
 
@@ -65,7 +59,7 @@ export function useFetchAndInjectSharedSceneFiles(
   );
 
   useEffect(() => {
-    if (!excalidrawAPI) return;
+    if (!engine) return;
     if (!shareHashParams?.id || !shareHashParams.key) return;
     if (files.length === 0) return;
 
@@ -96,12 +90,12 @@ export function useFetchAndInjectSharedSceneFiles(
     // - 注入新檔案
     // - 若仍有待重試的檔案，排程下一次 load
     async function load(
-      apiParam: ExcalidrawImperativeAPI,
+      engineParam: WhiteboardEngine,
       decryptionKeyParam: string,
     ) {
       if (isRunning) return;
       isRunning = true;
-      const loaded: BinaryFiles = {};
+      const loaded: Record<string, WhiteboardAsset> = {};
       const now = Date.now();
       // 僅挑選：
       // 1) 尚未有重試紀錄（首次嘗試）
@@ -140,11 +134,11 @@ export function useFetchAndInjectSharedSceneFiles(
               });
 
             // 將解密後的資料轉為 Excalidraw 需要的 BinaryFileData
-            const id = metadata.id as unknown as FileId;
+            const id = metadata.id;
             loaded[id] = {
               id,
-              dataURL: decoder.decode(data) as DataURL,
-              mimeType: metadata.mimeType as BinaryFileData["mimeType"],
+              dataURL: decoder.decode(data),
+              mimeType: metadata.mimeType,
               created: metadata.created,
               lastRetrieved: metadata.lastRetrieved,
             };
@@ -179,10 +173,10 @@ export function useFetchAndInjectSharedSceneFiles(
         return;
       }
       // 避免重複注入：僅加入尚未存在於 Excalidraw 的檔案
-      const existing = apiParam.getFiles?.() ?? {};
+      const existing = engineParam.getAssets();
       const toAdd = Object.values(loaded).filter((file) => !existing[file.id]);
       if (toAdd.length) {
-        apiParam.addFiles(toAdd);
+        engineParam.addAssets(toAdd);
       }
 
       // 若仍有可重試的項目，找到最早的下一次允許時間，使用 setTimeout 排程
@@ -201,7 +195,7 @@ export function useFetchAndInjectSharedSceneFiles(
       if (nextAt !== null) {
         const delay = Math.max(0, nextAt - Date.now());
         timer = setTimeout(() => {
-          void load(apiParam, decryptionKeyParam);
+          void load(engineParam, decryptionKeyParam);
         }, delay);
       } else {
         // 所有 URL 都已成功或已用罄重試額度後才統一通知
@@ -227,14 +221,14 @@ export function useFetchAndInjectSharedSceneFiles(
       isRunning = false;
     }
 
-    void load(excalidrawAPI, decryptionKey);
+    void load(engine, decryptionKey);
 
     return () => {
       // 清理：中止進行中的請求，以及取消下一次排程
       controller.abort();
       if (timer) clearTimeout(timer);
     };
-  }, [excalidrawAPI, shareHashParams, files]);
+  }, [engine, shareHashParams, files]);
 
   return { shareHashParams, filesBySharedSceneIdQuery };
 }

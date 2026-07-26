@@ -1,4 +1,4 @@
-import { WelcomeScreen } from "@excalidraw/excalidraw";
+import { ExcalidrawWelcomeScreen as WelcomeScreen } from "@/features/whiteboard/adapters/excalidraw";
 import { memo } from "react";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { DrawstuffLogo, Github } from "@/components/icons";

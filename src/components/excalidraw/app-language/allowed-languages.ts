@@ -1,4 +1,7 @@
-import { languages, defaultLang } from "@excalidraw/excalidraw";
+import {
+  excalidrawDefaultLang as defaultLang,
+  excalidrawLanguages as languages,
+} from "@/features/whiteboard/adapters/excalidraw";
 
 // Only show two options: English and Chinese (Traditional)
 const allowedLanguageCodes = new Set(["en", "zh-TW"]);

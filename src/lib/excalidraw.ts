@@ -1,9 +1,7 @@
 import type {
   AppState,
   BinaryFiles,
-  ExcalidrawInitialDataState,
   ElementOrToolType,
-  ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import {
@@ -27,9 +25,11 @@ import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import { parseSharedSceneHash } from "@/lib/utils";
 import { exportToBlob, MIME_TYPES } from "@excalidraw/excalidraw";
+import type { WhiteboardInitialData } from "@/features/whiteboard/adapters/excalidraw";
+import type { WhiteboardEngine } from "@/features/whiteboard";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
-export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
+export async function createInitialDataPromise(): Promise<WhiteboardInitialData | null> {
   try {
     const localDataState = importFromLocalStorage();
 
@@ -76,10 +76,10 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
 
         return {
           elements: scene.elements ?? [],
-          appState: {
+          state: {
             ...ensureInitialAppState(scene.appState ?? {}),
           },
-          files: scene.files ?? {},
+          assets: scene.files ?? {},
           scrollToContent: true,
         };
       } catch (e) {
@@ -108,7 +108,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
 async function restoreInitialDataFromLocal(
   localDataState: ReturnType<typeof importFromLocalStorage>,
   hasLocalSavedScene: boolean,
-): Promise<ExcalidrawInitialDataState | null> {
+): Promise<WhiteboardInitialData | null> {
   if (!hasLocalSavedScene) {
     return null;
   }
@@ -118,22 +118,22 @@ async function restoreInitialDataFromLocal(
     const appState = ensureInitialAppState(restored.appState ?? {});
     return {
       elements: restored.elements ?? [],
-      appState,
-      files: restored.files ?? {},
+      state: appState,
+      assets: restored.files ?? {},
       scrollToContent: !hasViewportData(appState),
     };
   } catch {
     const appState = ensureInitialAppState(localDataState.appState ?? {});
     return {
       elements: localDataState.elements ?? [],
-      appState,
-      files: localDataState.files ?? {},
+      state: appState,
+      assets: localDataState.files ?? {},
       scrollToContent: !hasViewportData(appState),
     };
   }
 }
 
-async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | null> {
+async function loadInitialRemoteScene(): Promise<WhiteboardInitialData | null> {
   const sceneId = loadCurrentSceneIdFromStorage();
   if (!sceneId) {
     return null;
@@ -175,8 +175,8 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
 
     return {
       elements,
-      appState,
-      files,
+      state: appState,
+      assets: files,
       scrollToContent: !hasViewportData(appState),
     };
   } catch (error) {
@@ -379,33 +379,25 @@ export function saveSceneJsonToDisk(
 }
 
 // 關閉 Excalidraw 內建對話框（如 Export 對話框）
-export function closeExcalidrawDialog(
-  excalidrawAPI?: ExcalidrawImperativeAPI | null,
-): void {
-  if (!excalidrawAPI) return;
-  const currentAppState = excalidrawAPI.getAppState();
-  if (!currentAppState) return;
-  excalidrawAPI.updateScene({
-    appState: {
-      ...currentAppState,
-      openDialog: null,
-    },
-  });
+export function closeExcalidrawDialog(engine?: WhiteboardEngine | null): void {
+  engine?.updateEditorState({ openDialog: null });
 }
 
 // 從 API 取目前場景 snapshot
-export function getCurrentSceneSnapshot(
-  excalidrawAPI?: ExcalidrawImperativeAPI | null,
-): {
+export function getCurrentSceneSnapshot(engine?: WhiteboardEngine | null): {
   elements: readonly OrderedExcalidrawElement[];
   appState: Partial<AppState>;
   files: BinaryFiles;
 } | null {
-  if (!excalidrawAPI) return null;
-  const elements = excalidrawAPI.getSceneElements();
-  const appState = excalidrawAPI.getAppState();
-  const files = excalidrawAPI.getFiles();
-  return { elements, appState: appState, files };
+  if (!engine) return null;
+  const document = engine.getDocument();
+  return {
+    elements: document.elements.filter(
+      (element) => !element.isDeleted,
+    ) as unknown as readonly OrderedExcalidrawElement[],
+    appState: document.state as unknown as Partial<AppState>,
+    files: document.assets as unknown as BinaryFiles,
+  };
 }
 
 /** Whether the appState contains saved viewport position (scrollX/scrollY/zoom). */

@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { WhiteboardEngine } from "@/features/whiteboard";
 import { toast } from "sonner";
 import { setOverwriteConfirmHandler } from "@/lib/initialize-scene";
 import {
@@ -11,7 +11,7 @@ import { triggerBlobDownload } from "@/lib/download";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 
 export type UseOverwriteConfirmArgs = {
-  excalidrawAPI: ExcalidrawImperativeAPI | null;
+  engine: WhiteboardEngine | null;
   onSceneNotFoundError?: () => void;
 };
 
@@ -29,12 +29,12 @@ export type UseOverwriteConfirmResult = {
 export function useOverwriteConfirm(
   props: UseOverwriteConfirmArgs,
 ): UseOverwriteConfirmResult {
-  const { excalidrawAPI, onSceneNotFoundError } = props;
+  const { engine, onSceneNotFoundError } = props;
   const cloudUpload = useCloudUpload(() => {
     // 當場景找不到時，關閉當前 dialog 並通知上層
     handleClose();
     onSceneNotFoundError?.();
-  }, excalidrawAPI);
+  }, engine);
 
   const [isOpen, setIsOpen] = useState(false);
   const resolveRef = useRef<((value: boolean) => void) | null>(null);
@@ -83,7 +83,7 @@ export function useOverwriteConfirm(
   );
 
   const handleExportImage = useCallback(async () => {
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    const scene = getCurrentSceneSnapshot(engine);
     if (!scene) return;
     try {
       const blob = await exportSceneToPngBlob(
@@ -100,10 +100,10 @@ export function useOverwriteConfirm(
     } finally {
       handleClose();
     }
-  }, [excalidrawAPI, handleClose]);
+  }, [engine, handleClose]);
 
   const handleSaveToDisk = useCallback(() => {
-    const scene = getCurrentSceneSnapshot(excalidrawAPI);
+    const scene = getCurrentSceneSnapshot(engine);
     if (!scene) return;
     try {
       saveSceneJsonToDisk(scene.elements, scene.appState, scene.files);
@@ -115,7 +115,7 @@ export function useOverwriteConfirm(
     } finally {
       handleClose();
     }
-  }, [excalidrawAPI, handleClose]);
+  }, [engine, handleClose]);
 
   const handleUploadToCloud = useCallback(async () => {
     try {

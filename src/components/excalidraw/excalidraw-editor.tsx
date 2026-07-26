@@ -1,17 +1,7 @@
 "use client";
 
-import "@excalidraw/excalidraw/index.css";
-import { Excalidraw, Footer } from "@excalidraw/excalidraw";
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
-import type {
-  AppState,
-  BinaryFiles,
-  ExcalidrawImperativeAPI,
-  ExcalidrawInitialDataState,
-  UIAppState,
-} from "@excalidraw/excalidraw/types";
-import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
 import AppMainMenu from "./app-main-menu";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import AppWelcomeScreen from "./app-welcome-screen";
@@ -24,10 +14,6 @@ import { authClient } from "@/lib/auth/client";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { useConfirmBeforeUnload } from "@/hooks/use-confirm-before-unload";
-import type {
-  NonDeletedExcalidrawElement,
-  ExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
 import {
   ExportSceneActions,
   type ExportSceneActionsProps,
@@ -54,13 +40,23 @@ import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
 import { useSceneRemoteRevisionCheck } from "@/hooks/excalidraw/use-scene-remote-revision-check";
 import { SceneRemoteConflictDialog } from "@/components/excalidraw/scene-remote-conflict-dialog";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import type {
+  WhiteboardAsset,
+  WhiteboardDocumentState,
+  WhiteboardElement,
+  WhiteboardEngine,
+} from "@/features/whiteboard";
+import {
+  ExcalidrawCanvas,
+  ExcalidrawFooter,
+  type WhiteboardInitialData,
+} from "@/features/whiteboard/adapters/excalidraw";
 
 export default function ExcalidrawEditor() {
   useSceneImportFileGuard();
-  const [excalidrawAPI, excalidrawRefCallback] =
-    useCallbackRefState<ExcalidrawImperativeAPI>();
+  const [engine, setEngine] = useState<WhiteboardEngine | null>(null);
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
-  useBeforeUnload(excalidrawAPI);
+  useBeforeUnload(engine);
   const {
     reloadSceneSession,
     suppressDirtyTracking,
@@ -70,7 +66,7 @@ export default function ExcalidrawEditor() {
     currentWorkspaceId,
   } = useSceneSession();
   const [initialDataPromise, setInitialDataPromise] =
-    useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
+    useState<Promise<WhiteboardInitialData | null> | null>(null);
   const { data: session } = authClient.useSession();
   // 只在編輯器中、且使用者已登入時啟用 Dashboard 快捷鍵
   useDashboardShortcut(!!session);
@@ -82,8 +78,7 @@ export default function ExcalidrawEditor() {
     latestShareableLink,
     resetExportStatus,
   } = useSceneExport();
-  const { sceneName, handleSceneChange, handleSetSceneName } =
-    useScenePersistence(excalidrawAPI);
+  const { sceneName, handleSetSceneName } = useScenePersistence(engine);
   const {
     status: uploadStatus,
     uploadSceneToCloud,
@@ -94,8 +89,8 @@ export default function ExcalidrawEditor() {
     clearLastConflict,
   } = useCloudUpload(() => {
     setIsCloudUploadDialogOpen(true);
-  }, excalidrawAPI);
-  const { applyRemoteScene } = useApplyRemoteScene(excalidrawAPI);
+  }, engine);
+  const { applyRemoteScene } = useApplyRemoteScene(engine);
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
@@ -132,12 +127,12 @@ export default function ExcalidrawEditor() {
     uploadSceneToCloud: () =>
       uploadSceneToCloud({ workspaceId: currentWorkspaceId }),
     onShareSuccess: () => {
-      closeExcalidrawDialog(excalidrawAPI);
+      closeExcalidrawDialog(engine);
       setTimeout(() => setIsShareDialogOpen(true), 200);
     },
     isExporting: exportStatus === "exporting",
     isUploading: uploadStatus === "uploading",
-    excalidrawAPI,
+    engine,
   });
 
   const renderCustomStats = useCallback(function renderCustomStats() {
@@ -164,17 +159,13 @@ export default function ExcalidrawEditor() {
   }, [reloadSceneSession, suppressDirtyTracking, resumeDirtyTracking]);
 
   // 解析分享資訊、取檔並注入 Excalidraw
-  useFetchAndInjectSharedSceneFiles(excalidrawAPI);
+  useFetchAndInjectSharedSceneFiles(engine);
 
   // 建立帶確認的載入動作
   const { loadSceneWithConfirm } = useLoadSceneWithConfirm({
     hasCurrentContent: () => {
-      const els =
-        (excalidrawAPI?.getSceneElements() as readonly ExcalidrawElement[]) ??
-        [];
-      return Array.isArray(els)
-        ? els.some((el: ExcalidrawElement) => !el.isDeleted)
-        : false;
+      const els = engine?.getDocument().elements ?? [];
+      return els.some((element) => !element.isDeleted);
     },
     requestSceneChangeDecision,
     setSceneChangeLoading: setSceneChangeDialogLoading,
@@ -202,7 +193,7 @@ export default function ExcalidrawEditor() {
     uploadSceneToCloud,
     getActiveTheme: () => browserActiveTheme,
     workspaceId: currentWorkspaceId,
-    isReady: !!excalidrawAPI && isSessionReady && !!session,
+    isReady: !!engine && isSessionReady && !!session,
     isUploadInProgress: uploadStatus === "uploading",
     isBlockingDialogOpen:
       isSceneChangeDialogOpen ||
@@ -234,9 +225,9 @@ export default function ExcalidrawEditor() {
 
   const renderCustomUiForExport = useCallback(
     (
-      elements: readonly NonDeletedExcalidrawElement[],
-      appState: Partial<AppState>,
-      files: BinaryFiles,
+      elements: readonly WhiteboardElement[],
+      appState: WhiteboardDocumentState,
+      files: Readonly<Record<string, WhiteboardAsset>>,
       _canvas: unknown,
     ) => {
       const handlers: ExportSceneActionsProps["handlers"] = {
@@ -324,14 +315,11 @@ export default function ExcalidrawEditor() {
 
   useEffect(() => {
     // 同步 Excalidraw appState.theme 與目前主題，避免載入/初始狀態殘留舊主題
-    if (!excalidrawAPI) return;
-    const current = excalidrawAPI.getAppState();
-    if (current && current.theme !== browserActiveTheme) {
-      excalidrawAPI.updateScene({
-        appState: { ...current, theme: browserActiveTheme },
-      });
+    if (!engine) return;
+    if (engine.getEditorState().theme !== browserActiveTheme) {
+      engine.updateEditorState({ theme: browserActiveTheme });
     }
-  }, [excalidrawAPI, browserActiveTheme]);
+  }, [engine, browserActiveTheme]);
 
   useEffect(() => {
     if (exportStatus === "success") {
@@ -359,7 +347,7 @@ export default function ExcalidrawEditor() {
   }, [handleExportLink]);
 
   const renderTopRightUI = useCallback(
-    (isMobile: boolean, _appState: UIAppState) => {
+    (isMobile: boolean) => {
       if (isMobile) return null;
       return (
         <TopRightControls
@@ -382,10 +370,9 @@ export default function ExcalidrawEditor() {
         options={workspaceCreateConfirmOptions}
       />
       {initialDataPromise && (
-        <Excalidraw
-          excalidrawAPI={excalidrawRefCallback}
+        <ExcalidrawCanvas
+          onEngineReady={setEngine}
           initialData={initialDataPromise}
-          onChange={handleSceneChange}
           UIOptions={{
             canvasActions: {
               toggleTheme: true,
@@ -405,14 +392,14 @@ export default function ExcalidrawEditor() {
             setTheme={setTheme}
             langCode={langCode}
             onLangCodeChange={handleLangCodeChange}
-            excalidrawAPI={excalidrawAPI}
+            engine={engine}
             handleSetSceneName={handleSetSceneName}
             sceneName={sceneName}
             showConfirmDialog={showWorkspaceCreateConfirm}
           />
 
           <SceneRenameDialog
-            excalidrawAPI={excalidrawAPI}
+            engine={engine}
             trigger={<SceneNameTrigger sceneName={sceneName} />}
             onConfirmName={(newName) => {
               // 先同步更新到 Excalidraw appState
@@ -438,14 +425,14 @@ export default function ExcalidrawEditor() {
             }}
           />
 
-          <Footer>
+          <ExcalidrawFooter>
             <EditorFooter
               showDashboardShortcut={!!session}
               latestShareableLink={latestShareableLink}
               isShareDialogOpen={isShareDialogOpen}
               onShareDialogOpenChange={setIsShareDialogOpen}
             />
-          </Footer>
+          </ExcalidrawFooter>
 
           <AppWelcomeScreen />
           <SceneChangeConfirmDialog
@@ -455,7 +442,7 @@ export default function ExcalidrawEditor() {
             isLoading={Boolean(isSceneChangeDialogLoading)}
           />
           <OverwriteConfirmDialog
-            excalidrawAPI={excalidrawAPI}
+            engine={engine}
             clearCurrentSceneId={clearCurrentScene}
             onSceneNotFoundError={() => {
               setIsCloudUploadDialogOpen(true);
@@ -465,7 +452,7 @@ export default function ExcalidrawEditor() {
           <SceneCloudUploadDialog
             open={isCloudUploadDialogOpen}
             onOpenChange={setIsCloudUploadDialogOpen}
-            excalidrawAPI={excalidrawAPI}
+            engine={engine}
             onConfirm={({
               name,
               description,
@@ -487,7 +474,7 @@ export default function ExcalidrawEditor() {
               });
             }}
           />
-        </Excalidraw>
+        </ExcalidrawCanvas>
       )}
     </div>
   );

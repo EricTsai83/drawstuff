@@ -1,16 +1,21 @@
 import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
+import type { BinaryFiles } from "@excalidraw/excalidraw/types";
 import { generateEncryptionKey } from "./encryption";
 import { compressData } from "./encode";
 import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
 import { clearElementsForDatabase } from "@/lib/excalidraw";
 import { extractImageFiles, processFilesForUpload } from "./file-processor";
+import type {
+  WhiteboardAsset,
+  WhiteboardDocumentState,
+  WhiteboardElement,
+} from "@/features/whiteboard";
 
 // 準備場景數據用於導出
 export async function prepareSceneDataForExport(
-  elements: readonly NonDeletedExcalidrawElement[],
-  appState: Partial<AppState>,
-  files: BinaryFiles,
+  elements: readonly WhiteboardElement[],
+  appState: WhiteboardDocumentState,
+  files: Readonly<Record<string, WhiteboardAsset>>,
   options?: { encrypt?: boolean },
 ) {
   const shouldEncrypt = options?.encrypt ?? true;
@@ -26,7 +31,10 @@ export async function prepareSceneDataForExport(
   );
 
   // 檔案資料：永遠壓縮，根據選項加/不加密
-  const imageFilesMap = extractImageFiles(elements, files);
+  const imageFilesMap = extractImageFiles(
+    elements as unknown as readonly NonDeletedExcalidrawElement[],
+    files as unknown as BinaryFiles,
+  );
   const compressedFilesData = await processFilesForUpload({
     files: imageFilesMap,
     encryptionKey,
@@ -41,11 +49,13 @@ export async function prepareSceneDataForExport(
 }
 
 function serializeSceneData(
-  elements: readonly NonDeletedExcalidrawElement[],
-  appState: Partial<AppState>,
+  elements: readonly WhiteboardElement[],
+  appState: WhiteboardDocumentState,
 ): string {
   const data = {
-    elements: clearElementsForDatabase(elements),
+    elements: clearElementsForDatabase(
+      elements as unknown as readonly NonDeletedExcalidrawElement[],
+    ),
     appState,
   };
 
