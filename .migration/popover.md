@@ -1,26 +1,25 @@
 # popover
 
-2026-07-26, transformation engine for customized legacy `new-york`, migrated successfully to Base UI Popover.
+2026-07-26, golden reference via a fresh shadcn Base Nova project and CLI replay, migrated successfully to the stock Base Nova Popover.
 
 ## Changed
 
-- `src/components/ui/popover.tsx:4` replaces Radix Popover with `@base-ui/react/popover`.
-- PopoverContent now uses `Portal > Positioner > Popup`, explicitly forwards alignment, side, offsets, and collision padding, rewrites animations to Base UI transition hooks, and maps the transform-origin variable.
-- `src/components/workspace-dropdown.tsx` maps the anchor-width CSS variable to Base UI's `--anchor-width`.
-- `.migration/popover.md` records the migration.
+- `src/components/ui/popover.tsx`: replaced the legacy-styled wrapper with the official `base-nova` Popover composition.
+- Added stock `PopoverHeader`, `PopoverTitle`, and `PopoverDescription` exports.
+- `src/components/workspace-dropdown.tsx`: removed the obsolete custom collision-padding prop.
+- `.migration/popover.md`: replaced the previous transformation-engine report.
 - The leftover scan is clean: `grep -n "radix-ui\|@radix-ui" src/components/ui/popover.tsx` returns no matches.
 
 ## Left alone
 
-- The cmdk Command inside the workspace popover remains intentionally untouched because cmdk is not Radix.
+- The workspace popover retains its `data-prevent-outside-click` marker for drawstuff's own outside-click hook.
 
 ## Behavior changes
 
-- Base UI has no Popover Anchor part. The exported `PopoverAnchor` is retained as an inert span passthrough; there are no current consumers.
-- Base UI Portal renders a wrapper element in its portal container.
+- Popup size, surface, ring, spacing, and collision defaults now follow Nova.
 
 ## Verify by hand
 
-1. Open the workspace selector and confirm its width aligns to the trigger.
-2. Exercise search, keyboard navigation, outside click, Escape, and focus return.
-3. Check collision behavior near viewport edges.
+- Open the workspace selector near each viewport edge.
+- Confirm search, selection, creation, outside click, and Escape work.
+- Check popup width and dark-mode surface treatment.
