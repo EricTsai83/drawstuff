@@ -8,13 +8,20 @@ const authMocks = vi.hoisted(() => ({
   signOut: vi.fn(),
 }));
 
-const themeMocks = vi.hoisted(() => ({
-  state: {
-    theme: "system" as string | undefined,
-    resolvedTheme: "light" as string | undefined,
-  },
-  setTheme: vi.fn(),
-}));
+const themeMocks = vi.hoisted(() => {
+  const state: {
+    theme: string | undefined;
+    resolvedTheme: string | undefined;
+  } = {
+    theme: "system",
+    resolvedTheme: "light",
+  };
+
+  return {
+    state,
+    setTheme: vi.fn(),
+  };
+});
 
 vi.mock("better-auth/react", () => ({
   createAuthClient: () => ({
@@ -91,6 +98,15 @@ describe("theme and language preferences", () => {
 
     result.current.setTheme("light");
     expect(themeMocks.setTheme).toHaveBeenCalledWith("light");
+  });
+
+  it("uses system and light fallbacks before theme hydration", () => {
+    themeMocks.state.theme = undefined;
+    themeMocks.state.resolvedTheme = undefined;
+    const { result } = renderHook(() => useSyncTheme());
+
+    expect(result.current.userChosenTheme).toBe("system");
+    expect(result.current.browserActiveTheme).toBe("light");
   });
 
   it("persists a language change and broadcasts it to mounted consumers", () => {

@@ -405,7 +405,7 @@ export function getCurrentSceneSnapshot(
   const elements = excalidrawAPI.getSceneElements();
   const appState = excalidrawAPI.getAppState();
   const files = excalidrawAPI.getFiles();
-  return { elements, appState: appState as Partial<AppState>, files };
+  return { elements, appState: appState, files };
 }
 
 /** Whether the appState contains saved viewport position (scrollX/scrollY/zoom). */

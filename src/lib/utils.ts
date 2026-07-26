@@ -25,7 +25,7 @@ export const resolvablePromise = <T>(): ResolvablePromise<T> => {
   return Object.assign(promise, {
     resolve,
     reject,
-  }) as ResolvablePromise<T>;
+  });
 };
 
 export const debounce = <T extends unknown[]>(

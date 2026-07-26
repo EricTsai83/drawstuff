@@ -63,11 +63,7 @@ export function useExportHandlers({
     if (isExporting || isUploading) return;
     const scene = getCurrentSceneSnapshot(excalidrawAPI);
     if (!scene) return;
-    const url = await exportScene(
-      scene.elements as readonly NonDeletedExcalidrawElement[],
-      scene.appState,
-      scene.files,
-    );
+    const url = await exportScene(scene.elements, scene.appState, scene.files);
     if (!url) return;
     onShareSuccess?.(url);
   }, [exportScene, onShareSuccess, isExporting, isUploading, excalidrawAPI]);

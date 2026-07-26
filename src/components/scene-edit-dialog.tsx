@@ -81,7 +81,7 @@ export function SceneEditDialog({
       (initial.categories ?? []).map((c) => ({
         label: c,
         value: c,
-      })) as Option[],
+      })),
     );
     setSelectedWorkspaceId(
       initial.workspaceId ?? lastActiveWorkspaceId ?? defaultWorkspaceId,
