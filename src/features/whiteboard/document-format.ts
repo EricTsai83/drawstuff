@@ -115,11 +115,15 @@ const KNOWN_LEGACY_ELEMENT_FIELDS = new Set([
 ]);
 
 const KNOWN_LEGACY_ASSET_FIELDS = new Set([
+  "byteSize",
+  "contentHash",
   "created",
   "dataURL",
+  "height",
   "id",
   "lastRetrieved",
   "mimeType",
+  "width",
 ]);
 
 type JsonObject = Readonly<Record<string, unknown>>;
@@ -205,6 +209,9 @@ export function detectWhiteboardDocumentFormat(
 
 export function parsePersistedWhiteboardPayload(
   payload: unknown,
+  options?: {
+    readonly allowMissingAssets?: boolean;
+  },
 ): PersistedWhiteboardPayload {
   const originalPayload =
     typeof payload === "string" ? payload : stableStringify(payload);
@@ -214,7 +221,7 @@ export function parsePersistedWhiteboardPayload(
   if (format === "whiteboard-v1") {
     return {
       format,
-      document: parseWhiteboardDocumentV1(parsed),
+      document: parseWhiteboardDocumentV1(parsed, options),
     };
   }
 
@@ -229,6 +236,9 @@ export function parsePersistedWhiteboardPayload(
 
 export function parseWhiteboardDocumentV1(
   payload: unknown,
+  options?: {
+    readonly allowMissingAssets?: boolean;
+  },
 ): WhiteboardDocumentV1 {
   const object = expectObject(parseJsonInput(payload), "$");
   if (object.version !== WHITEBOARD_DOCUMENT_VERSION) {
@@ -246,7 +256,9 @@ export function parseWhiteboardDocumentV1(
   const elements = parseElements(object.elements, "$.elements");
   const assets = parseAssets(object.assets, "$.assets");
   const metadata = parseMetadata(object.metadata, "$.metadata");
-  assertReferencedAssetsExist(elements, assets);
+  if (!options?.allowMissingAssets) {
+    assertReferencedAssetsExist(elements, assets);
+  }
 
   return {
     version: WHITEBOARD_DOCUMENT_VERSION,
@@ -528,6 +540,38 @@ function parseAssets(
               lastRetrieved: expectFiniteNumber(
                 assetObject.lastRetrieved,
                 `${assetPath}.lastRetrieved`,
+              ),
+            }),
+        ...(assetObject.byteSize === undefined
+          ? {}
+          : {
+              byteSize: expectNonNegativeNumber(
+                assetObject.byteSize,
+                `${assetPath}.byteSize`,
+              ),
+            }),
+        ...(assetObject.contentHash === undefined
+          ? {}
+          : {
+              contentHash: expectString(
+                assetObject.contentHash,
+                `${assetPath}.contentHash`,
+              ),
+            }),
+        ...(assetObject.width === undefined
+          ? {}
+          : {
+              width: expectPositiveNumber(
+                assetObject.width,
+                `${assetPath}.width`,
+              ),
+            }),
+        ...(assetObject.height === undefined
+          ? {}
+          : {
+              height: expectPositiveNumber(
+                assetObject.height,
+                `${assetPath}.height`,
               ),
             }),
       };
@@ -824,6 +868,30 @@ function expectFiniteNumber(value: unknown, path: string): number {
     );
   }
   return value;
+}
+
+function expectNonNegativeNumber(value: unknown, path: string): number {
+  const number = expectFiniteNumber(value, path);
+  if (number < 0) {
+    throw new WhiteboardDocumentError(
+      "MALFORMED_DOCUMENT",
+      "Expected a non-negative number",
+      path,
+    );
+  }
+  return number;
+}
+
+function expectPositiveNumber(value: unknown, path: string): number {
+  const number = expectFiniteNumber(value, path);
+  if (number <= 0) {
+    throw new WhiteboardDocumentError(
+      "MALFORMED_DOCUMENT",
+      "Expected a positive number",
+      path,
+    );
+  }
+  return number;
 }
 
 function parseTheme(value: unknown, path: string): WhiteboardTheme {

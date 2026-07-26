@@ -134,6 +134,44 @@ describe("owned whiteboard store", () => {
     expect(target.getEditorState().theme).toBe("dark");
   });
 
+  it("inserts, deduplicates, selects, and undoes owned images", async () => {
+    const store = new OwnedWhiteboardStore();
+    store.resizeViewport(1000, 500, 0, 0);
+    const image = new Blob([pngBytes(320, 180)], { type: "image/png" });
+
+    await store.insertImage(image);
+    const first = store.getDocument();
+    expect(first.elements[0]).toMatchObject({
+      type: "image",
+      width: 320,
+      height: 180,
+      x: 340,
+      y: 160,
+    });
+    expect(Object.keys(first.assets)).toHaveLength(1);
+    expect(store.getEditorState().selectedElementIds).toEqual([
+      first.elements[0]?.id,
+    ]);
+
+    store.beginElementGesture("move");
+    store.updateElementGesture([
+      { ...first.elements[0]!, x: Number(first.elements[0]?.x) + 20 },
+    ]);
+    await store.insertImage(image);
+    expect(store.getDocument().elements).toHaveLength(2);
+    expect(Object.keys(store.getAssets())).toHaveLength(1);
+    expect(store.getDocument().elements[1]?.fileId).toBe(
+      first.elements[0]?.fileId,
+    );
+
+    store.undo();
+    expect(store.getDocument().elements).toHaveLength(1);
+    store.undo();
+    expect(store.getDocument().elements[0]?.x).toBe(340);
+    store.undo();
+    expect(store.getDocument().elements).toEqual([]);
+  });
+
   it("normalizes lenient legacy imports into an exportable snapshot while retaining late asset recovery", async () => {
     const store = new OwnedWhiteboardStore();
     const legacyBlob = new Blob([
@@ -252,4 +290,13 @@ function rectangle(
     opacity: 100,
     ...update,
   } as unknown as WhiteboardElement;
+}
+
+function pngBytes(width: number, height: number): ArrayBuffer {
+  const bytes = new Uint8Array(24);
+  bytes.set([137, 80, 78, 71, 13, 10, 26, 10], 0);
+  bytes.set([73, 72, 68, 82], 12);
+  new DataView(bytes.buffer).setUint32(16, width);
+  new DataView(bytes.buffer).setUint32(20, height);
+  return bytes.buffer;
 }

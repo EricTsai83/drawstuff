@@ -32,6 +32,10 @@ export interface WhiteboardAsset {
   readonly mimeType: string;
   readonly created: number;
   readonly lastRetrieved?: number;
+  readonly byteSize?: number;
+  readonly contentHash?: string;
+  readonly width?: number;
+  readonly height?: number;
 }
 
 export type WhiteboardJsonValue =
@@ -149,6 +153,9 @@ export interface WhiteboardImageExportOptions {
   readonly quality?: number;
   readonly exportPadding?: number;
   readonly maxWidthOrHeight?: number;
+  readonly scale?: number;
+  readonly background?: boolean;
+  readonly selectionOnly?: boolean;
 }
 
 export type WhiteboardUnsubscribe = () => void;
@@ -187,10 +194,25 @@ export interface WhiteboardEngine {
 
   addAssets(assets: readonly WhiteboardAsset[]): void;
   getAssets(): Readonly<Record<string, WhiteboardAsset>>;
+  insertImage?(blob: Blob): Promise<void>;
 
   exportImage(options: WhiteboardImageExportOptions): Promise<Blob>;
   exportDocument(): Promise<Blob>;
   importDocument(blob: Blob): Promise<WhiteboardImportResult>;
 
   destroy(): void;
+}
+
+export interface WhiteboardViewerController {
+  getViewport(): WhiteboardViewport;
+  subscribeViewport(
+    listener: (viewport: WhiteboardViewport) => void,
+  ): WhiteboardUnsubscribe;
+  updateViewport(
+    update: Partial<Pick<WhiteboardViewport, "x" | "y" | "zoom">>,
+  ): void;
+  fitToContent(options?: {
+    readonly fitToViewport?: boolean;
+    readonly viewportZoomFactor?: number;
+  }): void;
 }

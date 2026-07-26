@@ -4,6 +4,7 @@ import { useEffect, useRef } from "react";
 import type {
   WhiteboardDocument,
   WhiteboardEngine,
+  WhiteboardViewerController,
 } from "@/features/whiteboard/contracts";
 import { OwnedWhiteboardInput } from "./input";
 import { OwnedWhiteboardRenderer } from "./renderer";
@@ -17,7 +18,11 @@ import {
 export interface OwnedWhiteboardCanvasProps {
   readonly document?:
     WhiteboardDocument | Promise<WhiteboardDocument | null> | null;
-  readonly onEngineReady: (engine: WhiteboardEngine | null) => void;
+  readonly onEngineReady?: (engine: WhiteboardEngine | null) => void;
+  readonly onViewerReady?: (
+    controller: WhiteboardViewerController | null,
+  ) => void;
+  readonly onDocumentReady?: () => void;
   readonly className?: string;
   readonly ariaLabel?: string;
   readonly drawingCapabilities?: Partial<OwnedDrawingCapabilities>;
@@ -40,6 +45,8 @@ interface OwnedCanvasLifecycle {
 export function OwnedWhiteboardCanvas({
   document,
   onEngineReady,
+  onViewerReady,
+  onDocumentReady,
   className,
   ariaLabel = "Whiteboard canvas",
   drawingCapabilities,
@@ -74,7 +81,9 @@ export function OwnedWhiteboardCanvas({
       overlayCanvas,
       store,
     );
-    renderer.setEditingEnabled(editingEnabledRef.current);
+    const readOnly = Boolean(onViewerReady);
+    const inputEditingEnabled = editingEnabledRef.current && !readOnly;
+    renderer.setEditingEnabled(inputEditingEnabled);
     const textEditor = new OwnedWhiteboardTextEditor(root, store);
     const interactionSink = {
       setMarquee: (bounds: Parameters<typeof renderer.setMarquee>[0]) =>
@@ -90,7 +99,7 @@ export function OwnedWhiteboardCanvas({
       interactionSink,
       drawingCapabilitiesRef.current,
       undefined,
-      editingEnabledRef.current,
+      inputEditingEnabled,
     );
     const lifecycle: OwnedCanvasLifecycle = {
       store,
@@ -133,8 +142,9 @@ export function OwnedWhiteboardCanvas({
     window.addEventListener("resize", resize);
     resize();
     storeRef.current = store;
-    applyDocument(lifecycle, documentRef.current);
-    onEngineReady(store);
+    applyDocument(lifecycle, documentRef.current, onDocumentReady);
+    onEngineReady?.(store);
+    onViewerReady?.(createViewerController(store));
 
     return () => {
       lifecycle.active = false;
@@ -147,9 +157,10 @@ export function OwnedWhiteboardCanvas({
       store.destroy();
       if (storeRef.current === store) storeRef.current = null;
       if (lifecycleRef.current === lifecycle) lifecycleRef.current = null;
-      onEngineReady(null);
+      onEngineReady?.(null);
+      onViewerReady?.(null);
     };
-  }, [onEngineReady]);
+  }, [onDocumentReady, onEngineReady, onViewerReady]);
 
   useEffect(() => {
     lifecycleRef.current?.input.setCapabilities(drawingCapabilitiesRef.current);
@@ -157,15 +168,16 @@ export function OwnedWhiteboardCanvas({
 
   useEffect(() => {
     const lifecycle = lifecycleRef.current;
-    lifecycle?.input.setEditingEnabled(editingEnabledRef.current);
-    lifecycle?.renderer.setEditingEnabled(editingEnabledRef.current);
-  }, [editingEnabled]);
+    const enabled = editingEnabledRef.current && !onViewerReady;
+    lifecycle?.input.setEditingEnabled(enabled);
+    lifecycle?.renderer.setEditingEnabled(enabled);
+  }, [editingEnabled, onViewerReady]);
 
   useEffect(() => {
     const lifecycle = lifecycleRef.current;
     if (!lifecycle || lifecycle.source === document) return;
-    applyDocument(lifecycle, document);
-  }, [document]);
+    applyDocument(lifecycle, document, onDocumentReady);
+  }, [document, onDocumentReady]);
 
   return (
     <div
@@ -193,6 +205,7 @@ export function OwnedWhiteboardCanvas({
 function applyDocument(
   lifecycle: OwnedCanvasLifecycle,
   source: OwnedDocumentSource,
+  onDocumentReady?: () => void,
 ): void {
   lifecycle.source = source;
   const request = ++lifecycle.request;
@@ -216,12 +229,34 @@ function applyDocument(
           lifecycle.fitOnResize = true;
         }
       }
+      onDocumentReady?.();
     })
     .catch((error: unknown) => {
       if (lifecycle.active && request === lifecycle.request) {
         console.error("Failed to load owned whiteboard document", error);
       }
     });
+}
+
+function createViewerController(
+  store: OwnedWhiteboardStore,
+): WhiteboardViewerController {
+  const controller: WhiteboardViewerController = {
+    getViewport: () => store.getViewport(),
+    subscribeViewport: (
+      listener: Parameters<WhiteboardViewerController["subscribeViewport"]>[0],
+    ) => {
+      listener(store.getViewport());
+      return store.subscribeEditorState((state) => listener(state.viewport));
+    },
+    updateViewport: (
+      update: Parameters<WhiteboardViewerController["updateViewport"]>[0],
+    ) => store.updateViewport(update),
+    fitToContent: (
+      options: Parameters<WhiteboardViewerController["fitToContent"]>[0],
+    ) => store.fitToContent(options),
+  };
+  return Object.freeze(controller);
 }
 
 function hasSavedViewport(document: WhiteboardDocument): boolean {

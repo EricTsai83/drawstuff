@@ -225,6 +225,56 @@ describe("owned whiteboard renderer", () => {
     expect(harness.sceneContext.drawImage).not.toHaveBeenCalled();
   });
 
+  it("keeps a stable placeholder after an inline image fails to decode", async () => {
+    const createdSources: string[] = [];
+    class FailedImage {
+      public complete = false;
+      public naturalWidth = 0;
+      public onload: (() => void) | null = null;
+      public onerror: (() => void) | null = null;
+
+      public set src(value: string) {
+        if (!value) return;
+        createdSources.push(value);
+        queueMicrotask(() => this.onerror?.());
+      }
+    }
+    vi.stubGlobal("Image", FailedImage);
+    const harness = createRenderer();
+    harness.store.loadDocument({
+      elements: [
+        {
+          ...rectangle("failed-image"),
+          type: "image",
+          fileId: "failed",
+        },
+      ],
+      assets: {
+        failed: {
+          id: "failed",
+          dataURL: "data:image/png;base64,AA==",
+          mimeType: "image/png",
+          created: 1,
+        },
+      },
+      state: {
+        name: "",
+        theme: "light",
+        viewBackgroundColor: "#ffffff",
+        gridSize: null,
+      },
+    });
+
+    harness.renderer.renderNow();
+    await Promise.resolve();
+    harness.renderer.renderNow();
+
+    expect(createdSources).toEqual(["data:image/png;base64,AA=="]);
+    expect(harness.sceneContext.drawImage).not.toHaveBeenCalled();
+    expect(harness.sceneContext.fillRect).toHaveBeenCalledWith(0, 0, 100, 50);
+    expect(harness.sceneContext.strokeRect).toHaveBeenCalledWith(0, 0, 100, 50);
+  });
+
   it("cancels an outstanding render if the engine is destroyed first", () => {
     const harness = createRenderer();
     harness.store.destroy();

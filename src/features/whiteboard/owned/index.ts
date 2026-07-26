@@ -1,4 +1,20 @@
 export {
+  createWhiteboardImageElement,
+  importWhiteboardImage,
+  isSafeInlineImage,
+  OWNED_IMAGE_MAX_BYTES,
+  pruneUnreferencedWhiteboardAssets,
+  resolveWhiteboardAssets,
+  WhiteboardAssetError,
+  type ImportedWhiteboardImage,
+  type WhiteboardAssetErrorCode,
+} from "./assets";
+export {
+  exportOwnedWhiteboardDocument,
+  exportOwnedWhiteboardImage,
+  exportOwnedWhiteboardSvg,
+} from "./export";
+export {
   createOwnedClipboardPayload,
   isOwnedClipboardPayloadSizeAllowed,
   OWNED_CLIPBOARD_MIME,

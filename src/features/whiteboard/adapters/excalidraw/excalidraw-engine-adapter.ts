@@ -28,7 +28,10 @@ import {
   toExcalidrawTool,
   toWhiteboardDocument,
 } from "./conversions";
-import { exportExcalidrawDocument, exportExcalidrawImage } from "./exporters";
+import {
+  exportOwnedWhiteboardDocument,
+  exportOwnedWhiteboardImage,
+} from "@/features/whiteboard/owned/export";
 
 export interface ExcalidrawAdapterDelegates {
   readonly undo: () => void;
@@ -36,6 +39,7 @@ export interface ExcalidrawAdapterDelegates {
   readonly exportImage: (
     document: WhiteboardDocument,
     options: WhiteboardImageExportOptions,
+    selectedElementIds?: readonly string[],
   ) => Promise<Blob>;
   readonly exportDocument: (document: WhiteboardDocument) => Promise<Blob>;
 }
@@ -285,7 +289,11 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
     options: WhiteboardImageExportOptions,
   ): Promise<Blob> {
     this.assertActive();
-    return await this.delegates.exportImage(this.getDocument(), options);
+    return await this.delegates.exportImage(
+      this.getDocument(),
+      options,
+      this.getEditorState().selectedElementIds,
+    );
   }
 
   public async exportDocument(): Promise<Blob> {
@@ -490,7 +498,8 @@ export function createExcalidrawAdapterDelegates(
   return {
     undo: () => dispatchHistoryShortcut(getContainer, "undo"),
     redo: () => dispatchHistoryShortcut(getContainer, "redo"),
-    exportImage: exportExcalidrawImage,
-    exportDocument: exportExcalidrawDocument,
+    exportImage: exportOwnedWhiteboardImage,
+    exportDocument: (document) =>
+      Promise.resolve(exportOwnedWhiteboardDocument(document)),
   };
 }

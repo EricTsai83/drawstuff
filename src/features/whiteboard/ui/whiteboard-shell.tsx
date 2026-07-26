@@ -218,9 +218,14 @@ export function WhiteboardShell({
   const [exportOpen, setExportOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   const selectTool = useCallback(
     (type: string) => {
+      if (type === "image" && engine?.insertImage) {
+        imageInputRef.current?.click();
+        return;
+      }
       engine?.setActiveTool({ type });
     },
     [engine],
@@ -286,7 +291,7 @@ export function WhiteboardShell({
           (tool === "hand" || tool === "eraser") && activeTool === tool
             ? "selection"
             : tool;
-        engine.setActiveTool({ type: nextTool });
+        selectTool(nextTool);
         return;
       }
       if (key === "?") {
@@ -325,6 +330,7 @@ export function WhiteboardShell({
     importOpen,
     propertiesOpen,
     resetZoom,
+    selectTool,
     zoomBy,
   ]);
 
@@ -332,6 +338,26 @@ export function WhiteboardShell({
     engine?.clearDocument();
     setClearOpen(false);
   }, [engine]);
+
+  const importImage = useCallback(
+    async (file: File | null) => {
+      if (!engine?.insertImage || !file) return;
+      try {
+        await engine.insertImage(file);
+        toast.success("Image added");
+      } catch (error) {
+        console.error(error);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : "Could not import this image",
+        );
+      } finally {
+        if (imageInputRef.current) imageInputRef.current.value = "";
+      }
+    },
+    [engine],
+  );
 
   return (
     <TooltipProvider>
@@ -413,6 +439,7 @@ export function WhiteboardShell({
       />
       <ExportDialog
         engine={engine}
+        hasSelection={editorState.selectedElementIds.length > 0}
         sceneName={sceneName}
         open={exportOpen}
         onOpenChange={setExportOpen}
@@ -422,6 +449,17 @@ export function WhiteboardShell({
         open={clearOpen}
         onConfirm={clearCanvas}
         onOpenChange={setClearOpen}
+      />
+      <Input
+        ref={imageInputRef}
+        accept="image/avif,image/gif,image/jpeg,image/png,image/webp"
+        aria-label="Import image"
+        hidden
+        onChange={(event) =>
+          void importImage(event.currentTarget.files?.[0] ?? null)
+        }
+        tabIndex={-1}
+        type="file"
       />
     </TooltipProvider>
   );
@@ -1025,7 +1063,7 @@ function ImportDialog({
           <Field>
             <FieldLabel htmlFor="whiteboard-import-file">Scene file</FieldLabel>
             <Input
-              accept=".excalidraw,application/json,application/vnd.excalidraw+json"
+              accept=".drawstuff,.excalidraw,application/json,application/vnd.excalidraw+json"
               disabled={importing}
               id="whiteboard-import-file"
               onChange={(event) =>
@@ -1086,30 +1124,40 @@ function ClearCanvasDialog({
   );
 }
 
-type ExportFormat = "excalidraw" | "png" | "svg";
+type ExportFormat = "drawstuff" | "png" | "svg";
 
 function ExportDialog({
   engine,
+  hasSelection,
   sceneName,
   open,
   onOpenChange,
 }: {
   readonly engine: WhiteboardEngine | null;
+  readonly hasSelection: boolean;
   readonly sceneName: string;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }) {
-  const [format, setFormat] = useState<ExportFormat>("excalidraw");
+  const [format, setFormat] = useState<ExportFormat>("drawstuff");
   const [exporting, setExporting] = useState(false);
+  const [scale, setScale] = useState(1);
+  const [background, setBackground] = useState(true);
+  const [selectionOnly, setSelectionOnly] = useState(false);
 
   async function exportScene(): Promise<void> {
     if (!engine || exporting) return;
     setExporting(true);
     try {
       const blob =
-        format === "excalidraw"
+        format === "drawstuff"
           ? await engine.exportDocument()
-          : await engine.exportImage({ format });
+          : await engine.exportImage({
+              format,
+              scale,
+              background,
+              selectionOnly: selectionOnly && hasSelection,
+            });
       triggerBlobDownload(
         `${safeFileName(sceneName || "Untitled")}.${format}`,
         blob,
@@ -1146,9 +1194,48 @@ function ExportDialog({
             value={[format]}
             variant="outline"
           >
-            <ToggleGroupItem value="excalidraw">Excalidraw</ToggleGroupItem>
+            <ToggleGroupItem value="drawstuff">Document</ToggleGroupItem>
             <ToggleGroupItem value="png">PNG</ToggleGroupItem>
             <ToggleGroupItem value="svg">SVG</ToggleGroupItem>
+          </ToggleGroup>
+        </FieldSet>
+        <FieldSet disabled={format === "drawstuff" || exporting}>
+          <FieldLegend variant="label">Image scale</FieldLegend>
+          <ToggleGroup
+            aria-label="Image scale"
+            disabled={format === "drawstuff" || exporting}
+            onValueChange={(values) => {
+              const next = Number(values[0]);
+              if (Number.isFinite(next) && next > 0) setScale(next);
+            }}
+            spacing={0}
+            value={[String(scale)]}
+            variant="outline"
+          >
+            <ToggleGroupItem value="1">1×</ToggleGroupItem>
+            <ToggleGroupItem value="2">2×</ToggleGroupItem>
+            <ToggleGroupItem value="3">3×</ToggleGroupItem>
+          </ToggleGroup>
+        </FieldSet>
+        <FieldSet disabled={format === "drawstuff" || exporting}>
+          <FieldLegend variant="label">Image contents</FieldLegend>
+          <ToggleGroup
+            aria-label="Image contents"
+            disabled={format === "drawstuff" || exporting}
+            onValueChange={(values) => {
+              setBackground(values.includes("background"));
+              setSelectionOnly(values.includes("selection"));
+            }}
+            value={[
+              ...(background ? ["background"] : []),
+              ...(selectionOnly ? ["selection"] : []),
+            ]}
+            variant="outline"
+          >
+            <ToggleGroupItem value="background">Background</ToggleGroupItem>
+            <ToggleGroupItem disabled={!hasSelection} value="selection">
+              Selection only
+            </ToggleGroupItem>
           </ToggleGroup>
         </FieldSet>
         <DialogFooter>

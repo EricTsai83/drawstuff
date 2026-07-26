@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   WhiteboardDocument,
   WhiteboardEngine,
+  WhiteboardViewerController,
 } from "@/features/whiteboard";
 import { OwnedWhiteboardCanvas } from "@/features/whiteboard/owned";
 
@@ -146,6 +147,34 @@ describe("OwnedWhiteboardCanvas lifecycle", () => {
     expect(disconnect).toHaveBeenCalledTimes(2);
     expect(cancelAnimationFrame).toHaveBeenCalled();
     expect(callbacks.size).toBe(0);
+  });
+
+  it("exposes only navigation methods to read-only viewers", async () => {
+    let controller: WhiteboardViewerController | null = null;
+    const onViewerReady = vi.fn((next: WhiteboardViewerController | null) => {
+      controller = next;
+    });
+    const view = render(
+      <OwnedWhiteboardCanvas
+        document={ownedDocument()}
+        editingEnabled={false}
+        onViewerReady={onViewerReady}
+      />,
+    );
+
+    await waitFor(() => expect(controller).not.toBeNull());
+    expect(Object.keys(controller!)).toEqual([
+      "getViewport",
+      "subscribeViewport",
+      "updateViewport",
+      "fitToContent",
+    ]);
+    expect(controller).not.toHaveProperty("loadDocument");
+    expect(controller).not.toHaveProperty("clearDocument");
+    expect(controller).not.toHaveProperty("addAssets");
+
+    view.unmount();
+    expect(onViewerReady).toHaveBeenLastCalledWith(null);
   });
 });
 
