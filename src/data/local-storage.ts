@@ -24,15 +24,8 @@ function getDefaultAppState(): Partial<AppState> {
 function clearAppStateForLocalStorage(
   appState: Partial<AppState>,
 ): Partial<AppState> {
-  const {
-    theme,
-    viewBackgroundColor,
-    gridSize,
-    name,
-    scrollX,
-    scrollY,
-    zoom,
-  } = appState;
+  const { theme, viewBackgroundColor, gridSize, name, scrollX, scrollY, zoom } =
+    appState;
   return {
     theme,
     viewBackgroundColor,
@@ -208,7 +201,9 @@ export function clearCurrentSceneSessionFromStorage(): void {
 export function loadCurrentSceneRevisionFromStorage(): number | undefined {
   if (!canUseLocalStorage()) return undefined;
   try {
-    const rawRevision = localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
+    const rawRevision = localStorage.getItem(
+      STORAGE_KEYS.CURRENT_SCENE_REVISION,
+    );
     if (!rawRevision) return undefined;
     const revision = Number(rawRevision);
     return Number.isInteger(revision) && revision > 0 ? revision : undefined;
@@ -221,7 +216,10 @@ export function loadCurrentSceneRevisionFromStorage(): number | undefined {
 export function saveCurrentSceneRevisionToStorage(revision: number): void {
   if (!canUseLocalStorage()) return;
   try {
-    localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_REVISION, revision.toString());
+    localStorage.setItem(
+      STORAGE_KEYS.CURRENT_SCENE_REVISION,
+      revision.toString(),
+    );
   } catch (error: unknown) {
     console.error(error);
   }

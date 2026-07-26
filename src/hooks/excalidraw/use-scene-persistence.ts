@@ -24,11 +24,8 @@ export function useScenePersistence(
 ): UseScenePersistenceResult {
   const [sceneName, setSceneName] = useState<string>("");
   const [debouncedSave] = useDebounce(saveData, 300);
-  const {
-    currentSceneId,
-    markCurrentSceneDirty,
-    shouldSuppressDirtyTracking,
-  } = useSceneSession();
+  const { currentSceneId, markCurrentSceneDirty, shouldSuppressDirtyTracking } =
+    useSceneSession();
 
   // Local flag for synchronous programmatic updates (e.g. handleSetSceneName).
   // Set to true before updateScene, reset immediately after — no timers needed
@@ -59,12 +56,21 @@ export function useScenePersistence(
       files: BinaryFiles,
     ): void => {
       setSceneName(appState.name ?? "");
-      if (currentSceneId && !skipDirtyRef.current && !shouldSuppressDirtyTracking()) {
+      if (
+        currentSceneId &&
+        !skipDirtyRef.current &&
+        !shouldSuppressDirtyTracking()
+      ) {
         markCurrentSceneDirty();
       }
       debouncedSave({ elements, appState, files });
     },
-    [currentSceneId, debouncedSave, markCurrentSceneDirty, shouldSuppressDirtyTracking],
+    [
+      currentSceneId,
+      debouncedSave,
+      markCurrentSceneDirty,
+      shouldSuppressDirtyTracking,
+    ],
   );
 
   const handleSetSceneName = useCallback(

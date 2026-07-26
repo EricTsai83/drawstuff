@@ -12,11 +12,7 @@ import { authClient } from "@/lib/auth/client";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 
 export type UploadStatus =
-  | "idle"
-  | "uploading"
-  | "success"
-  | "error"
-  | "offline";
+  "idle" | "uploading" | "success" | "error" | "offline";
 
 type CloudUploadStatusProps = {
   status: UploadStatus;

@@ -11,8 +11,7 @@ export type AppErrorCode = (typeof APP_ERROR)[keyof typeof APP_ERROR];
 
 // Result helpers for non-throw control flow
 export type Result<T> =
-  | { ok: true; data: T }
-  | { ok: false; error: AppErrorCode; message?: string };
+  { ok: true; data: T } | { ok: false; error: AppErrorCode; message?: string };
 
 export function ok<T>(data: T): Result<T> {
   return { ok: true, data } as const;
