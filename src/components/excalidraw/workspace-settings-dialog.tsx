@@ -166,12 +166,11 @@ export default function WorkspaceSettingsDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+      {trigger && <DialogTrigger render={trigger as React.ReactElement} />}
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-lg"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        initialFocus={false}
         data-prevent-outside-click="true"
-        onEscapeKeyDown={() => handleOpenChange(false)}
       >
         <DialogHeader>
           <DialogTitle>

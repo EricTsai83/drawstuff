@@ -129,19 +129,10 @@ export function SceneEditDialog({
   }
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={onOpenChange} disablePointerDismissal>
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-lg"
-        onOpenAutoFocus={(e) => e.preventDefault()}
-        // 由外部控制 open 狀態，避免因為點擊菜單導致立刻關閉
-        onEscapeKeyDown={(e) => {
-          e.preventDefault();
-          onOpenChange(false);
-        }}
-        onInteractOutside={(e) => {
-          // 避免從 DropdownMenu 轉入 Dialog 的一次點擊被視為 outside-click
-          e.preventDefault();
-        }}
+        initialFocus={false}
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
