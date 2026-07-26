@@ -32,15 +32,21 @@ export const LanguageSelector = ({
 
   return (
     <Select
-      onValueChange={onValueChange}
+      items={allowedLanguages.map((lang) => ({
+        label: lang.label,
+        value: lang.code,
+      }))}
+      onValueChange={(nextValue) => {
+        if (nextValue !== null) onValueChange(nextValue);
+      }}
       value={value}
       open={isOpen}
       onOpenChange={handleOpenChange}
-      aria-label={t("buttons.selectLanguage")}
     >
       <SelectTrigger
         size="sm"
         className="h-7 w-full gap-1 px-2 py-1 text-[13px]"
+        aria-label={t("buttons.selectLanguage")}
         icon={
           <Dropdown
             className={cn(
