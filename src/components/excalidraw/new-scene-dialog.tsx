@@ -15,18 +15,18 @@ import { Button } from "@/components/ui/button";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { sceneDescriptionSchema, sceneNameSchema } from "@/lib/schemas/scene";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+  FieldLegend,
+  FieldSet,
+} from "@/components/ui/field";
 
 type NewSceneDialogProps = {
   trigger?: ReactNode;
@@ -161,13 +161,11 @@ export function NewSceneDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+      {trigger && <DialogTrigger render={trigger as React.ReactElement} />}
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-lg"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        initialFocus={false}
         data-prevent-outside-click="true"
-        onEscapeKeyDown={() => handleOpenChange(false)}
-        onInteractOutside={() => handleOpenChange(false)}
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">New Scene</DialogTitle>
@@ -176,59 +174,62 @@ export function NewSceneDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit((vals) => void handleConfirm(vals))}
-            noValidate
-            className="grid gap-4"
-          >
-            <FormField<FormValues, "name">
+        <form
+          onSubmit={form.handleSubmit((vals) => void handleConfirm(vals))}
+          noValidate
+        >
+          <FieldGroup>
+            <Controller
               control={form.control}
               name="name"
-              rules={{ required: false }}
-              render={() => (
-                <FormItem>
-                  <FormLabel>Scene name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Enter a scene name"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      {...form.register("name")}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor={field.name}>Scene name</FieldLabel>
+                  <Input
+                    {...field}
+                    id={field.name}
+                    placeholder="Enter a scene name"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    aria-invalid={fieldState.invalid}
+                  />
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
               )}
             />
 
-            <FormField<FormValues, "description">
+            <Controller
               control={form.control}
               name="description"
-              rules={{ required: false }}
-              render={() => (
-                <FormItem>
-                  <FormLabel>Description (optional)</FormLabel>
-                  <FormControl>
-                    <Textarea
-                      placeholder="Add a short description"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      rows={3}
-                      {...form.register("description")}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor={field.name}>
+                    Description (optional)
+                  </FieldLabel>
+                  <Textarea
+                    {...field}
+                    id={field.name}
+                    placeholder="Add a short description"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    rows={3}
+                    aria-invalid={fieldState.invalid}
+                  />
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
               )}
             />
 
-            <div className="grid gap-3">
-              <FormLabel id="new-scene-workspace-label">Workspace</FormLabel>
+            <Field>
+              <FieldLabel id="new-scene-workspace-label">Workspace</FieldLabel>
               <div aria-labelledby="new-scene-workspace-label">
                 <WorkspaceDropdown
                   options={workspaceOptions}
@@ -243,48 +244,48 @@ export function NewSceneDialog({
                   }}
                 />
               </div>
-            </div>
+            </Field>
 
-            <FormField<FormValues, "contentMode">
+            <Controller
               control={form.control}
               name="contentMode"
-              rules={{ required: true }}
-              render={() => (
-                <FormItem>
-                  <FormLabel>Content</FormLabel>
-                  <FormControl>
-                    <RadioGroup
-                      value={form.watch("contentMode")}
-                      onValueChange={(val) =>
-                        form.setValue("contentMode", val as "keep" | "reset", {
-                          shouldValidate: true,
-                        })
-                      }
-                    >
-                      <div className="flex items-center gap-2 text-sm">
+              render={({ field, fieldState }) => (
+                <FieldSet>
+                  <FieldLegend variant="label">Content</FieldLegend>
+                  <RadioGroup
+                    name={field.name}
+                    value={field.value}
+                    onValueChange={field.onChange}
+                  >
+                    <FieldGroup data-slot="radio-group">
+                      <Field orientation="horizontal">
                         <RadioGroupItem
                           value="reset"
                           id="new-scene-content-reset"
                           aria-label="Reset to empty canvas"
+                          aria-invalid={fieldState.invalid}
                         />
-                        <FormLabel htmlFor="new-scene-content-reset">
+                        <FieldLabel htmlFor="new-scene-content-reset">
                           Reset to empty canvas
-                        </FormLabel>
-                      </div>
-                      <div className="flex items-center gap-2 text-sm">
+                        </FieldLabel>
+                      </Field>
+                      <Field orientation="horizontal">
                         <RadioGroupItem
                           value="keep"
                           id="new-scene-content-keep"
                           aria-label="Keep current canvas content"
+                          aria-invalid={fieldState.invalid}
                         />
-                        <FormLabel htmlFor="new-scene-content-keep">
+                        <FieldLabel htmlFor="new-scene-content-keep">
                           Keep current canvas content
-                        </FormLabel>
-                      </div>
-                    </RadioGroup>
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+                        </FieldLabel>
+                      </Field>
+                    </FieldGroup>
+                  </RadioGroup>
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </FieldSet>
               )}
             />
 
@@ -301,8 +302,8 @@ export function NewSceneDialog({
                 Create
               </Button>
             </div>
-          </form>
-        </Form>
+          </FieldGroup>
+        </form>
       </DialogContent>
     </Dialog>
   );

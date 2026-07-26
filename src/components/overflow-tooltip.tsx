@@ -8,8 +8,6 @@ import {
   TooltipContent,
 } from "@/components/ui/tooltip";
 
-type TooltipVariant = "primary" | "destructive" | "default" | "secondary";
-
 type MouseEventsProps = {
   onMouseEnter?: (event: MouseEvent<HTMLElement>) => void;
   onMouseLeave?: (event: MouseEvent<HTMLElement>) => void;
@@ -19,7 +17,6 @@ type OverflowTooltipProps = {
   children: ReactElement<MouseEventsProps>;
   content: React.ReactNode;
   delayDuration?: number;
-  variant?: TooltipVariant;
   sideOffset?: number;
   contentClassName?: string;
 };
@@ -28,7 +25,6 @@ export function OverflowTooltip({
   children,
   content,
   delayDuration = 0,
-  variant = "primary",
   sideOffset = 0,
   contentClassName,
 }: OverflowTooltipProps) {
@@ -60,13 +56,9 @@ export function OverflowTooltip({
   }
 
   return (
-    <Tooltip delayDuration={delayDuration}>
-      <TooltipTrigger asChild>{enhancedChild}</TooltipTrigger>
-      <TooltipContent
-        variant={variant}
-        sideOffset={sideOffset}
-        className={contentClassName}
-      >
+    <Tooltip>
+      <TooltipTrigger delay={delayDuration} render={enhancedChild} />
+      <TooltipContent sideOffset={sideOffset} className={contentClassName}>
         {content}
       </TooltipContent>
     </Tooltip>
