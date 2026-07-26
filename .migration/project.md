@@ -1,31 +1,36 @@
 # Project Radix to Base UI migration
 
-2026-07-26, completed the project-wide migration of first-party React UI wrappers from Radix UI to Base UI.
+2026-07-26, completed the project-wide migration by replaying a fresh official Next.js + Base UI + Nova shadcn project as the golden reference.
 
 ## Result
 
-- Migrated all 12 affected first-party wrappers: alert dialog, avatar, badge, button, dialog, dropdown menu, form, label, popover, radio group, select, and tooltip.
-- Updated wrapper consumers for Base UI composition, event, positioning, focus, and value APIs.
-- Removed all 10 direct `@radix-ui/*` dependencies from `package.json` and refreshed `pnpm-lock.yaml`.
-- First-party source files now contain zero direct Radix imports and zero Radix CSS custom properties.
-- Added one component report per migrated wrapper under `.migration/`.
+- Created a temporary reference project with `shadcn create --template next --preset nova --base base`.
+- Drawstuff and the reference now resolve to the same shadcn preset code, `b2fA`.
+- `components.json` now reports `style: "base-nova"` and `base: "base"`.
+- Replayed the complete stock Base Nova implementations for all installed shadcn components.
+- Added the current `field`, `input-group`, and `separator` components.
+- Removed the retired legacy `form.tsx` wrapper and migrated all three React Hook Form consumers to `Controller` plus `Field`.
+- Aligned the app shell with the fresh scaffold's Geist fonts, theme provider, global tooltip provider, neutral theme, radius scale, and `shadcn/tailwind.css`.
+- Removed all direct `@radix-ui/*` dependencies. First-party source contains zero Radix imports, Radix CSS variables, obsolete `asChild`, or Radix state selectors.
 
 ## Configuration
 
-- `components.json` remains `style: "new-york"` because shadcn has no Base UI version of the legacy `new-york` style.
-- This means future `shadcn` CLI additions can still generate Radix-based source and must be reviewed or manually transformed before merging.
-- `@base-ui/react` remains the project's direct primitive dependency.
+- Future `pnpm dlx shadcn@latest add ...` commands now resolve Base UI variants automatically.
+- The installed shadcn state matches the fresh reference: `base-nova`, Base UI, neutral palette, Geist, Lucide, subtle menu accent, and default menu color.
+- `@base-ui/react` and `shadcn` are direct dependencies, matching the generated reference project.
+- Drawstuff retains its existing code-format convention; stock components were formatted equivalently instead of adopting the scaffold's repository-wide Prettier settings.
 
 ## Third-party dependencies
 
-- Excalidraw still brings `@radix-ui/react-tabs` transitively. It is third-party implementation detail, not a first-party wrapper or direct project dependency, and was intentionally left untouched.
-- `cmdk`, Sonner, and Excalidraw-specific component APIs were not rewritten where they only resembled Radix APIs.
+- Excalidraw `0.18.0` still brings `@radix-ui/react-tabs` and `@radix-ui/react-popover` transitively. They are required third-party internals and were intentionally retained.
+- `cmdk`, Sonner, and Excalidraw-specific APIs remain on their own supported libraries.
 
 ## Verification
 
-- Run `pnpm typecheck`.
-- Run `pnpm lint`.
-- Run `pnpm build`.
-- Search `src` and `package.json` for direct `@radix-ui` imports or dependencies.
-- Search first-party source for `--radix-`, obsolete `asChild`, and Radix state selectors.
-- Manually execute the verification checklist in each component report.
+- `pnpm typecheck`: passed.
+- `pnpm lint`: passed with two pre-existing warnings and zero errors.
+- `pnpm build`: passed.
+- `pnpm dlx shadcn@latest info --json`: reports `base-nova`, `base`, and preset code `b2fA`, matching the fresh reference project.
+- First-party Radix and legacy Form leftover scans: clean.
+- In-app browser: the login page renders successfully with the Base Nova shell and no component runtime errors. Authenticated dashboard interaction requires an authenticated browser session.
+- Manual family-specific checks remain listed in each component report.
