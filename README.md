@@ -71,8 +71,8 @@ src/
 
 ### Prerequisites
 
-- Node.js 20+
-- pnpm 10+
+- Node.js 24 (see `.node-version`)
+- pnpm 10.15.1 (see `packageManager` in `package.json`)
 - PostgreSQL database
 - UploadThing token
 - Google OAuth credentials
@@ -138,7 +138,10 @@ pnpm preview
 pnpm start
 pnpm lint
 pnpm lint:fix
+pnpm test
 pnpm typecheck
+pnpm audit:ci
+pnpm knip
 pnpm format:check
 pnpm format:write
 pnpm db:push

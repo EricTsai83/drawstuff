@@ -57,7 +57,12 @@ export function useSceneRemoteRevisionCheck({
   externalConflict,
   onExternalConflictHandled,
 }: UseSceneRemoteRevisionCheckParams) {
-  const { currentSceneId, lastSyncedRevision, isDirty, shouldSuppressDirtyTracking } = useSceneSession();
+  const {
+    currentSceneId,
+    lastSyncedRevision,
+    isDirty,
+    shouldSuppressDirtyTracking,
+  } = useSceneSession();
 
   // Refs for stale-closure detection: after each async gap in
   // checkRemoteRevision we compare against the latest values to bail out
@@ -78,7 +83,10 @@ export function useSceneRemoteRevisionCheck({
   const conflictKey = useMemo(
     () =>
       pendingConflict
-        ? buildConflictKey(pendingConflict.sceneId, pendingConflict.remoteRevision)
+        ? buildConflictKey(
+            pendingConflict.sceneId,
+            pendingConflict.remoteRevision,
+          )
         : undefined,
     [pendingConflict],
   );
@@ -169,8 +177,6 @@ export function useSceneRemoteRevisionCheck({
       isUploadInProgress,
       isBlockingDialogOpen,
       pendingConflict,
-      isDirty,
-      lastSyncedRevision,
       applyRemoteScene,
       getActiveTheme,
       openConflict,

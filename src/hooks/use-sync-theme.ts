@@ -1,7 +1,6 @@
 "use client";
 
 import { useTheme } from "next-themes";
-import { THEME } from "@excalidraw/excalidraw";
 import { type Dispatch, type SetStateAction } from "react";
 
 export type UserChosenTheme = "system" | "dark" | "light";
@@ -16,7 +15,7 @@ export function useSyncTheme() {
       : (theme ?? "system");
 
   const browserActiveTheme: BrowserActiveTheme =
-    resolvedTheme === "dark" ? THEME.DARK : THEME.LIGHT;
+    resolvedTheme === "dark" ? "dark" : "light";
 
   return {
     userChosenTheme,

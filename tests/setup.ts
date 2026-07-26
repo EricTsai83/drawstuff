@@ -1,0 +1,62 @@
+import { afterEach, vi } from "vitest";
+import { cleanup } from "@testing-library/react";
+
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+  vi.restoreAllMocks();
+});
+
+class ResizeObserverStub implements ResizeObserver {
+  observe(): void {
+    // Layout observation is not needed in jsdom contract tests.
+  }
+  unobserve(): void {
+    // Layout observation is not needed in jsdom contract tests.
+  }
+  disconnect(): void {
+    // Layout observation is not needed in jsdom contract tests.
+  }
+}
+
+Object.defineProperty(globalThis, "ResizeObserver", {
+  configurable: true,
+  value: ResizeObserverStub,
+});
+Object.defineProperty(HTMLCanvasElement.prototype, "getContext", {
+  configurable: true,
+  value: () =>
+    ({
+      filter: "none",
+    }) as unknown as CanvasRenderingContext2D,
+});
+
+class FontFaceStub {
+  readonly status = "loaded";
+  readonly loaded = Promise.resolve(this);
+
+  constructor(
+    readonly family: string,
+    readonly source: string | ArrayBuffer,
+  ) {}
+
+  async load(): Promise<FontFaceStub> {
+    return this;
+  }
+}
+
+Object.defineProperty(globalThis, "FontFace", {
+  configurable: true,
+  value: FontFaceStub,
+});
+Object.defineProperty(document, "fonts", {
+  configurable: true,
+  value: {
+    add: () => document.fonts,
+    check: () => true,
+    clear: () => undefined,
+    delete: () => true,
+    has: () => true,
+    ready: Promise.resolve(),
+  },
+});
