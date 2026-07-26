@@ -186,6 +186,8 @@ export function SceneCard({ item }: { item: SceneListItem }) {
       const trpcCode = (err as { data?: { code?: string } })?.data?.code;
       if (trpcCode === "CONFLICT") {
         toast.error("Scene was updated elsewhere. Refresh and try again.");
+      } else if (trpcCode === "PRECONDITION_FAILED") {
+        toast.error(t("app.cloudUpload.toast.error.unsafeDowngrade"));
       } else {
         toast.error("Failed to save scene. Please try again.");
       }

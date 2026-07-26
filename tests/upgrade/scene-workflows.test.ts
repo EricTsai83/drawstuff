@@ -99,6 +99,46 @@ describe("critical cloud scene workflow", () => {
     workflowMocks.enqueueDeferredCleanup.mockResolvedValue(undefined);
   });
 
+  it("exposes unsafe downgrade saves as a failed precondition", async () => {
+    workflowMocks.saveOwnedScene.mockResolvedValue({
+      status: "unsafe_downgrade",
+      message:
+        "Owned whiteboard edits cannot be overwritten by the legacy adapter",
+    });
+    const caller = createCaller({});
+
+    await expect(
+      caller.saveScene({
+        id: sceneId,
+        name: "Rolled back scene",
+        workspaceId,
+        expectedRevision: 2,
+        data: "legacy-payload",
+      }),
+    ).rejects.toMatchObject({
+      code: "PRECONDITION_FAILED",
+    });
+  });
+
+  it("exposes decompression safety limits as a bad request", async () => {
+    workflowMocks.saveOwnedScene.mockResolvedValue({
+      status: "payload_too_large",
+      message: "Scene payload exceeds the decompression safety limit",
+    });
+    const caller = createCaller({});
+
+    await expect(
+      caller.saveScene({
+        name: "Oversized scene",
+        workspaceId,
+        data: "compressed-payload",
+      }),
+    ).rejects.toMatchObject({
+      code: "BAD_REQUEST",
+      message: "Scene payload exceeds the decompression safety limit",
+    });
+  });
+
   it("creates, saves, reloads, renames, moves, publishes, and deletes an owned scene", async () => {
     const storedScene = {
       id: sceneId,

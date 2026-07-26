@@ -7,6 +7,7 @@ import type {
   CreateSceneDraftInput,
   SaveSceneInput,
 } from "@/lib/schemas/scene";
+import { validateStoredWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
 
 type SaveOwnedSceneParams = {
   userId: string;
@@ -55,7 +56,9 @@ export type SaveOwnedSceneResult =
         updatedAt: Date;
       };
     }
-  | { status: "validation_failed"; message: string };
+  | { status: "validation_failed"; message: string }
+  | { status: "payload_too_large"; message: string }
+  | { status: "unsafe_downgrade"; message: string };
 
 export async function createOwnedSceneDraft({
   userId,
@@ -133,6 +136,22 @@ export async function saveOwnedScene({
     }
 
     if (!input.id) {
+      const writeTransition = await validateStoredWhiteboardWrite(
+        null,
+        input.data,
+      );
+      if (writeTransition === "too-large") {
+        return {
+          status: "payload_too_large",
+          message: "Scene payload exceeds the decompression safety limit",
+        } as const;
+      }
+      if (writeTransition === "invalid") {
+        return {
+          status: "validation_failed",
+          message: "Unable to validate the scene persistence format",
+        } as const;
+      }
       const [createdScene] = await tx
         .insert(scene)
         .values({
@@ -195,6 +214,42 @@ export async function saveOwnedScene({
       return {
         status: "validation_failed",
         message: "expectedRevision is required when updating a scene",
+      } as const;
+    }
+
+    if (existingScene.revision !== input.expectedRevision) {
+      return {
+        status: "conflict",
+        message: "Scene has been updated elsewhere",
+        data: {
+          id: existingScene.id,
+          revision: existingScene.revision,
+          updatedAt: existingScene.updatedAt,
+        },
+      } as const;
+    }
+
+    const writeTransition = await validateStoredWhiteboardWrite(
+      existingScene.sceneData,
+      input.data,
+    );
+    if (writeTransition === "unsafe-downgrade") {
+      return {
+        status: "unsafe_downgrade",
+        message:
+          "Owned whiteboard edits cannot be overwritten by the legacy adapter",
+      } as const;
+    }
+    if (writeTransition === "too-large") {
+      return {
+        status: "payload_too_large",
+        message: "Scene payload exceeds the decompression safety limit",
+      } as const;
+    }
+    if (writeTransition === "invalid") {
+      return {
+        status: "validation_failed",
+        message: "Unable to validate the scene persistence format",
       } as const;
     }
 

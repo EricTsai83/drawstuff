@@ -47,6 +47,12 @@ import type {
   WhiteboardDocumentState,
   WhiteboardElement,
   WhiteboardEngine,
+  WhiteboardRolloutDecision,
+} from "@/features/whiteboard";
+import {
+  getWhiteboardDocumentVersion,
+  prepareWhiteboardDocumentForOwnedEngine,
+  recordWhiteboardDiagnostic,
 } from "@/features/whiteboard";
 import {
   ExcalidrawCanvas,
@@ -56,15 +62,25 @@ import {
 import { WhiteboardShell } from "@/features/whiteboard/ui";
 import { OwnedWhiteboardProductMenu } from "./owned-whiteboard-product-menu";
 import { env } from "@/env";
+import { OwnedWhiteboardCanvas } from "@/features/whiteboard/owned";
 
 const USE_OWNED_WHITEBOARD_SHELL =
   env.NEXT_PUBLIC_USE_OWNED_WHITEBOARD_SHELL === "true";
 
-export default function ExcalidrawEditor() {
+export default function ExcalidrawEditor({
+  rollout,
+}: {
+  readonly rollout: WhiteboardRolloutDecision;
+}) {
+  const [sessionRollout] = useState(rollout);
+  const engineKind = sessionRollout.engine;
+  const useOwnedShell = engineKind === "owned" || USE_OWNED_WHITEBOARD_SHELL;
+  const persistenceFormat =
+    engineKind === "owned" ? "whiteboard-v1" : "legacy-excalidraw";
   useSceneImportFileGuard();
   const [engine, setEngine] = useState<WhiteboardEngine | null>(null);
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
-  useBeforeUnload(engine);
+  useBeforeUnload(engine, engineKind);
   const {
     reloadSceneSession,
     suppressDirtyTracking,
@@ -87,8 +103,11 @@ export default function ExcalidrawEditor() {
     exportErrorMessage,
     latestShareableLink,
     resetExportStatus,
-  } = useSceneExport();
-  const { sceneName, handleSetSceneName } = useScenePersistence(engine);
+  } = useSceneExport(engineKind);
+  const { sceneName, handleSetSceneName } = useScenePersistence(
+    engine,
+    persistenceFormat,
+  );
   const {
     status: uploadStatus,
     uploadSceneToCloud,
@@ -97,10 +116,14 @@ export default function ExcalidrawEditor() {
     clearCurrentScene,
     lastConflict,
     clearLastConflict,
-  } = useCloudUpload(() => {
-    setIsCloudUploadDialogOpen(true);
-  }, engine);
-  const { applyRemoteScene } = useApplyRemoteScene(engine);
+  } = useCloudUpload(
+    () => {
+      setIsCloudUploadDialogOpen(true);
+    },
+    engine,
+    engineKind,
+  );
+  const { applyRemoteScene } = useApplyRemoteScene(engine, engineKind);
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
@@ -152,7 +175,56 @@ export default function ExcalidrawEditor() {
   useEffect(() => {
     // 註冊 handler 後再建立 initialDataPromise，避免 race
     suppressDirtyTracking();
-    const nextInitialDataPromise = createInitialDataPromise();
+    const nextInitialDataPromise = createInitialDataPromise(engineKind, {
+      preferRecovery: sessionRollout.reason === "explicit-owned",
+      onFailure: (errorCode) => {
+        recordWhiteboardDiagnostic({
+          operation: "load",
+          outcome: "failure",
+          engine: engineKind,
+          documentVersion: null,
+          errorCode,
+        });
+      },
+    }).then((document) => {
+      const isMigration =
+        engineKind === "owned" &&
+        document?.persistence?.sourceFormat !== "whiteboard-v1";
+      let prepared = document;
+      if (document && engineKind === "owned") {
+        try {
+          prepared = prepareWhiteboardDocumentForOwnedEngine(document);
+        } catch {
+          recordWhiteboardDiagnostic({
+            operation: "migration",
+            outcome: "failure",
+            engine: engineKind,
+            documentVersion: getWhiteboardDocumentVersion(document),
+            errorCode: "INVALID_DOCUMENT",
+          });
+        }
+      }
+      recordWhiteboardDiagnostic({
+        operation: "load",
+        outcome: "success",
+        engine: engineKind,
+        documentVersion: prepared
+          ? getWhiteboardDocumentVersion(prepared)
+          : null,
+      });
+      if (
+        isMigration &&
+        prepared?.persistence?.sourceFormat === "whiteboard-v1"
+      ) {
+        recordWhiteboardDiagnostic({
+          operation: "migration",
+          outcome: "success",
+          engine: engineKind,
+          documentVersion: getWhiteboardDocumentVersion(prepared),
+        });
+      }
+      return prepared;
+    });
     setInitialDataPromise(nextInitialDataPromise);
     void nextInitialDataPromise.finally(() => {
       try {
@@ -166,7 +238,13 @@ export default function ExcalidrawEditor() {
         });
       }
     });
-  }, [reloadSceneSession, suppressDirtyTracking, resumeDirtyTracking]);
+  }, [
+    engineKind,
+    sessionRollout.reason,
+    reloadSceneSession,
+    suppressDirtyTracking,
+    resumeDirtyTracking,
+  ]);
 
   // 解析分享資訊、取檔並注入 Excalidraw
   useFetchAndInjectSharedSceneFiles(engine);
@@ -371,60 +449,14 @@ export default function ExcalidrawEditor() {
     [exportStatus, uploadStatus, handleCloudUpload, handleShareLinkClick],
   );
 
-  const canvas = initialDataPromise ? (
-    <ExcalidrawCanvas
-      onEngineReady={setEngine}
-      initialData={initialDataPromise}
-      UIOptions={{
-        canvasActions: USE_OWNED_WHITEBOARD_SHELL
-          ? {
-              changeViewBackgroundColor: false,
-              clearCanvas: false,
-              export: false,
-              loadScene: false,
-              saveAsImage: false,
-              saveToActiveFile: false,
-              toggleTheme: false,
-            }
-          : {
-              toggleTheme: true,
-              export: {
-                saveFileToDisk: false,
-                renderCustomUI: renderCustomUiForExport,
-              },
-            },
-      }}
-      langCode={langCode}
-      theme={browserActiveTheme}
-      zenModeEnabled={USE_OWNED_WHITEBOARD_SHELL ? true : undefined}
-      renderTopRightUI={
-        USE_OWNED_WHITEBOARD_SHELL ? undefined : renderTopRightUI
-      }
-      renderCustomStats={
-        USE_OWNED_WHITEBOARD_SHELL ? undefined : renderCustomStats
-      }
-    >
-      <AppMainMenu
-        userChosenTheme={userChosenTheme}
-        setTheme={setTheme}
-        langCode={langCode}
-        onLangCodeChange={handleLangCodeChange}
-        engine={engine}
-        handleSetSceneName={handleSetSceneName}
-        sceneName={sceneName}
-        showConfirmDialog={showWorkspaceCreateConfirm}
-      />
-
+  const sceneDialogs = (
+    <>
       <SceneRenameDialog
         engine={engine}
-        open={USE_OWNED_WHITEBOARD_SHELL ? isRenameDialogOpen : undefined}
-        onOpenChange={
-          USE_OWNED_WHITEBOARD_SHELL ? setIsRenameDialogOpen : undefined
-        }
+        open={useOwnedShell ? isRenameDialogOpen : undefined}
+        onOpenChange={useOwnedShell ? setIsRenameDialogOpen : undefined}
         trigger={
-          USE_OWNED_WHITEBOARD_SHELL ? undefined : (
-            <SceneNameTrigger sceneName={sceneName} />
-          )
+          useOwnedShell ? undefined : <SceneNameTrigger sceneName={sceneName} />
         }
         onConfirmName={(newName) => {
           handleSetSceneName(newName);
@@ -445,19 +477,6 @@ export default function ExcalidrawEditor() {
           }
         }}
       />
-
-      {!USE_OWNED_WHITEBOARD_SHELL && (
-        <ExcalidrawFooter>
-          <EditorFooter
-            showDashboardShortcut={!!session}
-            latestShareableLink={latestShareableLink}
-            isShareDialogOpen={isShareDialogOpen}
-            onShareDialogOpenChange={setIsShareDialogOpen}
-          />
-        </ExcalidrawFooter>
-      )}
-
-      {!USE_OWNED_WHITEBOARD_SHELL && <AppWelcomeScreen />}
       <SceneChangeConfirmDialog
         open={isSceneChangeDialogOpen}
         onOpenChange={handleSceneChangeDialogOpenChange}
@@ -497,8 +516,68 @@ export default function ExcalidrawEditor() {
           });
         }}
       />
+    </>
+  );
+
+  const canvas = !initialDataPromise ? null : engineKind === "owned" ? (
+    <OwnedWhiteboardCanvas
+      ariaLabel="Whiteboard editor"
+      document={initialDataPromise}
+      onEngineReady={setEngine}
+    />
+  ) : (
+    <ExcalidrawCanvas
+      onEngineReady={setEngine}
+      initialData={initialDataPromise}
+      UIOptions={{
+        canvasActions: useOwnedShell
+          ? {
+              changeViewBackgroundColor: false,
+              clearCanvas: false,
+              export: false,
+              loadScene: false,
+              saveAsImage: false,
+              saveToActiveFile: false,
+              toggleTheme: false,
+            }
+          : {
+              toggleTheme: true,
+              export: {
+                saveFileToDisk: false,
+                renderCustomUI: renderCustomUiForExport,
+              },
+            },
+      }}
+      langCode={langCode}
+      theme={browserActiveTheme}
+      zenModeEnabled={useOwnedShell ? true : undefined}
+      renderTopRightUI={useOwnedShell ? undefined : renderTopRightUI}
+      renderCustomStats={useOwnedShell ? undefined : renderCustomStats}
+    >
+      <AppMainMenu
+        userChosenTheme={userChosenTheme}
+        setTheme={setTheme}
+        langCode={langCode}
+        onLangCodeChange={handleLangCodeChange}
+        engine={engine}
+        handleSetSceneName={handleSetSceneName}
+        sceneName={sceneName}
+        showConfirmDialog={showWorkspaceCreateConfirm}
+      />
+      {sceneDialogs}
+      {!useOwnedShell && (
+        <ExcalidrawFooter>
+          <EditorFooter
+            showDashboardShortcut={!!session}
+            latestShareableLink={latestShareableLink}
+            isShareDialogOpen={isShareDialogOpen}
+            onShareDialogOpenChange={setIsShareDialogOpen}
+          />
+        </ExcalidrawFooter>
+      )}
+      {!useOwnedShell && <AppWelcomeScreen />}
     </ExcalidrawCanvas>
-  ) : null;
+  );
 
   return (
     <div className="h-dvh w-full">
@@ -508,7 +587,7 @@ export default function ExcalidrawEditor() {
         loading={workspaceCreateConfirmLoading}
         options={workspaceCreateConfirmOptions}
       />
-      {USE_OWNED_WHITEBOARD_SHELL ? (
+      {useOwnedShell ? (
         <WhiteboardShell
           engine={engine}
           isSaving={uploadStatus === "uploading"}
@@ -531,7 +610,8 @@ export default function ExcalidrawEditor() {
       ) : (
         canvas
       )}
-      {USE_OWNED_WHITEBOARD_SHELL && (
+      {engineKind === "owned" && sceneDialogs}
+      {useOwnedShell && (
         <>
           <WorkspaceSettingsDialog
             open={isWorkspaceDialogOpen}

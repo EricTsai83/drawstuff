@@ -2,6 +2,7 @@ import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import {
+  createPersistedWhiteboardDocumentV1,
   createWhiteboardDocumentV1,
   filterReferencedWhiteboardAssets,
   parsePersistedWhiteboardPayload,
@@ -53,24 +54,32 @@ function clearElementsForLocalStorage(
   return Array.isArray(elements) ? elements.filter((el) => !el.isDeleted) : [];
 }
 
-export const importFromLocalStorage = () => {
+export const importFromLocalStorage = (options?: {
+  readonly preferOwned?: boolean;
+  readonly preferRecovery?: boolean;
+}) => {
   if (!canUseLocalStorage()) {
     return {
       elements: [] as OrderedExcalidrawElement[],
       appState: null as Partial<AppState> | null,
       files: {} as BinaryFiles,
+      persistence: undefined as WhiteboardDocument["persistence"],
     };
   }
   let savedElements: string | null = null;
   let savedState: string | null = null;
   let savedFiles: string | null = null;
   let savedWhiteboardDocument: string | null = null;
+  let savedRecoveryDocument: string | null = null;
   let legacyDocumentRevision = 0;
   let ownedDocumentRevision = 0;
 
   try {
     savedWhiteboardDocument = localStorage.getItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
+    );
+    savedRecoveryDocument = localStorage.getItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
     );
     savedElements = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS);
     savedState = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_APP_STATE);
@@ -86,15 +95,21 @@ export const importFromLocalStorage = () => {
     console.error(error);
   }
 
-  if (
-    savedWhiteboardDocument &&
+  const preferredOwnedDocument = options?.preferRecovery
+    ? (savedRecoveryDocument ?? savedWhiteboardDocument)
+    : savedWhiteboardDocument;
+  const loadedFromRecovery =
+    options?.preferRecovery === true && savedRecoveryDocument !== null;
+  const revisionAllowsOwnedDocument =
     ownedDocumentRevision > 0 &&
-    ownedDocumentRevision >= legacyDocumentRevision
-  ) {
+    ownedDocumentRevision >= legacyDocumentRevision;
+  const shouldLoadOwnedDocument =
+    options?.preferOwned !== false &&
+    preferredOwnedDocument &&
+    (options?.preferRecovery ? true : revisionAllowsOwnedDocument);
+  if (shouldLoadOwnedDocument) {
     try {
-      const persisted = parsePersistedWhiteboardPayload(
-        savedWhiteboardDocument,
-      );
+      const persisted = parsePersistedWhiteboardPayload(preferredOwnedDocument);
       if (persisted.format === "whiteboard-v1") {
         const document = toRuntimeWhiteboardDocument(persisted.document);
         return {
@@ -103,6 +118,12 @@ export const importFromLocalStorage = () => {
           ),
           appState: document.state as unknown as Partial<AppState>,
           files: document.assets as unknown as BinaryFiles,
+          persistence: document.persistence
+            ? {
+                ...document.persistence,
+                ...(loadedFromRecovery ? { loadedFromRecovery: true } : {}),
+              }
+            : undefined,
         };
       }
     } catch (error: unknown) {
@@ -149,7 +170,12 @@ export const importFromLocalStorage = () => {
     }
   }
 
-  return { elements, appState, files };
+  return {
+    elements,
+    appState,
+    files,
+    persistence: undefined as WhiteboardDocument["persistence"],
+  };
 };
 
 /**
@@ -174,6 +200,71 @@ export function saveWhiteboardDocumentToLocalStorage(
     console.error("Failed to save owned local whiteboard document", error);
     return false;
   }
+}
+
+/**
+ * Owned cohorts update only the versioned document key. The legacy keys remain
+ * a byte-for-byte rollback snapshot until the legacy adapter is retired.
+ */
+export function saveOwnedWhiteboardDocumentToLocalStorage(
+  document: WhiteboardDocument,
+): boolean {
+  if (!parkOwnedRecoverySnapshot(document)) return false;
+  const saved = saveWhiteboardDocumentToLocalStorage(
+    createPersistedWhiteboardDocumentV1(document),
+  );
+  if (!saved) return false;
+  return document.persistence?.loadedFromRecovery === true
+    ? clearOwnedRecoverySnapshot()
+    : true;
+}
+
+function parkOwnedRecoverySnapshot(document: WhiteboardDocument): boolean {
+  if (
+    !canUseLocalStorage() ||
+    document.persistence?.migratedFromLegacy !== true
+  ) {
+    return true;
+  }
+  try {
+    const current = localStorage.getItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
+    );
+    const recovery = localStorage.getItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
+    );
+    if (current && !recovery) {
+      localStorage.setItem(
+        STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
+        current,
+      );
+    }
+    return true;
+  } catch (error: unknown) {
+    console.error("Failed to preserve owned recovery snapshot", error);
+    return false;
+  }
+}
+
+function clearOwnedRecoverySnapshot(): boolean {
+  if (!canUseLocalStorage()) return false;
+  try {
+    localStorage.removeItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
+    );
+    return true;
+  } catch (error: unknown) {
+    console.error("Failed to clear consumed owned recovery snapshot", error);
+    return false;
+  }
+}
+
+export function markLegacyWhiteboardDocumentRevision(): void {
+  if (!canUseLocalStorage()) return;
+  localStorage.setItem(
+    STORAGE_KEYS.LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION,
+    nextDocumentRevision().toString(),
+  );
 }
 
 /**
@@ -223,6 +314,9 @@ export function syncOwnedWhiteboardDocumentToLocalStorage(
             ? document.state.gridSize
             : null,
         ...(currentMetadata.legacy ? { legacy: currentMetadata.legacy } : {}),
+        ...(currentMetadata.viewport
+          ? { viewport: currentMetadata.viewport }
+          : {}),
       },
     });
     localStorage.setItem(
@@ -270,6 +364,7 @@ export const getTotalStorageSize = () => {
       STORAGE_KEYS.LOCAL_STORAGE_APP_STATE, // "excalidraw-state"
       STORAGE_KEYS.LOCAL_STORAGE_FILES, // "excalidraw-files"
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
       STORAGE_KEYS.LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION,
       STORAGE_KEYS.LOCAL_STORAGE_OWNED_DOCUMENT_REVISION,
       STORAGE_KEYS.LOCAL_STORAGE_THEME, // "theme"

@@ -3,6 +3,7 @@ import { toast } from "sonner";
 import { getCurrentSceneSnapshot, saveSceneJsonToDisk } from "@/lib/excalidraw";
 import type {
   WhiteboardAsset,
+  WhiteboardDocumentPersistence,
   WhiteboardDocumentState,
   WhiteboardElement,
   WhiteboardEngine,
@@ -13,6 +14,7 @@ type ExportDeps = {
     els: readonly WhiteboardElement[],
     state: WhiteboardDocumentState,
     fls: Readonly<Record<string, WhiteboardAsset>>,
+    persistence?: WhiteboardDocumentPersistence,
   ) => Promise<string | null>;
   uploadSceneToCloud: () => Promise<boolean>;
   onShareSuccess?: (url: string) => void;
@@ -67,7 +69,12 @@ export function useExportHandlers({
     if (isExporting || isUploading) return;
     const scene = getCurrentSceneSnapshot(engine);
     if (!scene) return;
-    const url = await exportScene(scene.elements, scene.appState, scene.files);
+    const url = await exportScene(
+      scene.elements,
+      scene.appState,
+      scene.files,
+      scene.persistence,
+    );
     if (!url) return;
     onShareSuccess?.(url);
   }, [exportScene, onShareSuccess, isExporting, isUploading, engine]);

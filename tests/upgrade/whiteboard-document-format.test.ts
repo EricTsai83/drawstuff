@@ -43,7 +43,7 @@ const expectedMigrationHashes: Record<
   "images-and-binary-files.excalidraw":
     "f02f20fdbbff17bf521799edc7c7aef650713bc36dde8748f08adac0762c02e0",
   "large-groups-and-viewport.excalidraw":
-    "30de5859d97ee35cbca42b9941d4e7f2cbf1f4e746fa516f4b1ab52c89c00be3",
+    "640f3096df1da32df6a110a1c6dc1cd449d21c36774a6efd64603d5692d843c3",
   "pre-migration-bindings.excalidraw":
     "f71561bbce9f4c08a6dc44b6437503fd452f8a7f324b9813193d00e3604a38a6",
   "shapes-and-text.excalidraw":
@@ -113,7 +113,7 @@ describe("whiteboard document format", () => {
     },
   );
 
-  it("keeps viewport and unknown legacy data only in the rollback envelope", async () => {
+  it("promotes the saved viewport while retaining unknown legacy data in rollback", async () => {
     const source = await readFixtureSource(
       "large-groups-and-viewport.excalidraw",
     );
@@ -123,6 +123,11 @@ describe("whiteboard document format", () => {
       name: "Legacy grouped scene with viewport",
       theme: "dark",
       viewBackgroundColor: "#f8f9fa",
+      viewport: {
+        scrollX: 315.5,
+        scrollY: 188.25,
+        zoom: 0.75,
+      },
       legacy: {
         format: "excalidraw",
         sourceVersion: 2,
@@ -130,13 +135,9 @@ describe("whiteboard document format", () => {
         originalPayload: source,
       },
     });
-    expect(document.metadata).not.toHaveProperty("scrollX");
-    expect(document.metadata).not.toHaveProperty("zoom");
-    expect(document.metadata.legacy?.unsupported).toMatchObject({
-      "$.appState.scrollX": 315.5,
-      "$.appState.scrollY": 188.25,
-      "$.appState.zoom": { value: 0.75 },
-    });
+    expect(document.metadata.legacy?.unsupported).not.toHaveProperty(
+      "$.appState.scrollX",
+    );
   });
 
   it("covers every declared supported legacy element and asset MIME type", async () => {
@@ -631,6 +632,8 @@ describe("owned-format persistence opt-in", () => {
         viewBackgroundColor: "#101010",
         gridSize: 20,
         scrollX: 999,
+        scrollY: 333,
+        zoom: { value: 0.8 },
         openDialog: { name: "export" },
       },
       { [asset.id]: asset },
@@ -652,9 +655,64 @@ describe("owned-format persistence opt-in", () => {
         theme: "dark",
         viewBackgroundColor: "#101010",
         gridSize: 20,
+        viewport: {
+          scrollX: 999,
+          scrollY: 333,
+          zoom: 0.8,
+        },
       },
     });
-    expect(source).not.toContain("scrollX");
+    expect(source).toContain('"scrollX":999');
     expect(source).not.toContain("openDialog");
+  });
+
+  it("stores cloud assets separately and compacts rollback asset bytes", async () => {
+    const asset = createAsset();
+    const element = createElement({
+      id: "image-1",
+      type: "image",
+      fileId: asset.id,
+    });
+    const prepared = await prepareSceneDataForExport(
+      [element],
+      { name: "Compact cloud", theme: "light" },
+      { [asset.id]: asset },
+      {
+        encrypt: false,
+        format: "whiteboard-v1",
+        includeInlineAssets: false,
+        retainLegacy: true,
+        compactLegacyAssets: true,
+        persistence: {
+          sourceFormat: "whiteboard-v1",
+          documentVersion: 1,
+          legacyRollback: {
+            format: "excalidraw",
+            sourceVersion: 2,
+            migrationVersion: 1,
+            originalPayload: JSON.stringify({
+              type: "excalidraw",
+              version: 2,
+              elements: [element],
+              appState: {},
+              files: { [asset.id]: asset },
+            }),
+            unsupported: {},
+          },
+        },
+      },
+    );
+    const decompressed = await decompressData<Record<string, never>>(
+      prepared.compressedSceneData,
+      { decryptionKey: "" },
+    );
+    const source = new TextDecoder().decode(decompressed.data);
+    const document = parseWhiteboardDocumentV1(source, {
+      allowMissingAssets: true,
+    });
+
+    expect(document.assets).toEqual({});
+    expect(document.metadata.legacy?.originalPayload).toContain('"files":{}');
+    expect(source).not.toContain(asset.dataURL);
   });
 });

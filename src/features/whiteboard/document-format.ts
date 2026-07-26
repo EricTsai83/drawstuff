@@ -2,6 +2,7 @@ import type {
   WhiteboardAsset,
   WhiteboardDocument,
   WhiteboardDocumentMetadata,
+  WhiteboardDocumentPersistence,
   WhiteboardDocumentState,
   WhiteboardDocumentV1,
   WhiteboardElement,
@@ -52,8 +53,11 @@ const KNOWN_LEGACY_TOP_LEVEL_FIELDS = new Set([
 const KNOWN_LEGACY_APP_STATE_FIELDS = new Set([
   "gridSize",
   "name",
+  "scrollX",
+  "scrollY",
   "theme",
   "viewBackgroundColor",
+  "zoom",
 ]);
 
 const KNOWN_LEGACY_ELEMENT_FIELDS = new Set([
@@ -228,7 +232,17 @@ export function parsePersistedWhiteboardPayload(
   const legacy = parseLegacySceneForRuntime(expectObject(parsed, "$"));
   return {
     format,
-    document: legacy.document,
+    document: {
+      ...legacy.document,
+      persistence: {
+        sourceFormat: "legacy-excalidraw",
+        documentVersion: legacy.sourceVersion,
+        legacyRollback: createLegacyRollbackEnvelope({
+          originalPayload,
+          sourceVersion: legacy.sourceVersion,
+        }),
+      },
+    },
     originalPayload,
     sourceVersion: legacy.sourceVersion,
   };
@@ -317,27 +331,38 @@ export function migrateLegacyExcalidrawScene(
   };
 }
 
-export function createWhiteboardDocumentV1({
-  elements,
-  assets,
-  metadata,
-}: {
-  readonly elements: readonly WhiteboardElement[];
-  readonly assets: Readonly<Record<string, WhiteboardAsset>>;
-  readonly metadata: WhiteboardDocumentMetadata;
-}): WhiteboardDocumentV1 {
-  return parseWhiteboardDocumentV1({
-    version: WHITEBOARD_DOCUMENT_VERSION,
+export function createWhiteboardDocumentV1(
+  {
     elements,
     assets,
     metadata,
-  });
+  }: {
+    readonly elements: readonly WhiteboardElement[];
+    readonly assets: Readonly<Record<string, WhiteboardAsset>>;
+    readonly metadata: WhiteboardDocumentMetadata;
+  },
+  options?: {
+    readonly allowMissingAssets?: boolean;
+  },
+): WhiteboardDocumentV1 {
+  return parseWhiteboardDocumentV1(
+    {
+      version: WHITEBOARD_DOCUMENT_VERSION,
+      elements,
+      assets,
+      metadata,
+    },
+    options,
+  );
 }
 
 export function serializeWhiteboardDocumentV1(
   document: WhiteboardDocumentV1,
+  options?: {
+    readonly allowMissingAssets?: boolean;
+  },
 ): string {
-  return stableStringify(parseWhiteboardDocumentV1(document));
+  return stableStringify(parseWhiteboardDocumentV1(document, options));
 }
 
 export function filterReferencedWhiteboardAssets(
@@ -369,7 +394,136 @@ export function toRuntimeWhiteboardDocument(
       theme: document.metadata.theme,
       viewBackgroundColor: document.metadata.viewBackgroundColor,
       gridSize: document.metadata.gridSize,
+      ...(document.metadata.viewport
+        ? {
+            scrollX: document.metadata.viewport.scrollX,
+            scrollY: document.metadata.viewport.scrollY,
+            zoom: { value: document.metadata.viewport.zoom },
+          }
+        : {}),
     },
+    persistence: {
+      sourceFormat: "whiteboard-v1",
+      documentVersion: WHITEBOARD_DOCUMENT_VERSION,
+      ...(document.metadata.legacy
+        ? { legacyRollback: document.metadata.legacy }
+        : {}),
+    },
+  };
+}
+
+export function prepareWhiteboardDocumentForOwnedEngine(
+  document: WhiteboardDocument,
+): WhiteboardDocument {
+  if (document.persistence?.sourceFormat === "whiteboard-v1") {
+    return document;
+  }
+
+  const legacyRollback =
+    document.persistence?.legacyRollback ??
+    createLegacyRollbackEnvelope({
+      originalPayload: stableStringify({
+        type: "excalidraw",
+        version: 2,
+        source: "https://drawstuff.app/rollback",
+        elements: document.elements,
+        appState: document.state,
+        files: document.assets,
+      }),
+      sourceVersion: document.persistence?.documentVersion ?? 2,
+    });
+
+  return {
+    ...document,
+    persistence: {
+      sourceFormat: "whiteboard-v1",
+      documentVersion: WHITEBOARD_DOCUMENT_VERSION,
+      legacyRollback,
+      migratedFromLegacy: true,
+    },
+  };
+}
+
+export function createPersistedWhiteboardDocumentV1(
+  document: WhiteboardDocument,
+  options?: {
+    readonly includeInlineAssets?: boolean;
+    readonly retainLegacy?: boolean;
+    readonly compactLegacyAssets?: boolean;
+  },
+): WhiteboardDocumentV1 {
+  const legacyRollback =
+    options?.retainLegacy === false
+      ? undefined
+      : options?.compactLegacyAssets
+        ? compactLegacyRollback(document.persistence?.legacyRollback)
+        : document.persistence?.legacyRollback;
+  return createWhiteboardDocumentV1(
+    {
+      elements: document.elements,
+      assets:
+        options?.includeInlineAssets === false
+          ? {}
+          : filterReferencedWhiteboardAssets(
+              document.elements,
+              document.assets,
+            ),
+      metadata: {
+        name:
+          typeof document.state.name === "string" ? document.state.name : "",
+        theme: document.state.theme === "dark" ? "dark" : "light",
+        viewBackgroundColor:
+          typeof document.state.viewBackgroundColor === "string"
+            ? document.state.viewBackgroundColor
+            : "#ffffff",
+        gridSize:
+          typeof document.state.gridSize === "number" &&
+          Number.isFinite(document.state.gridSize)
+            ? document.state.gridSize
+            : null,
+        ...createPersistedViewport(document.state),
+        ...(legacyRollback ? { legacy: legacyRollback } : {}),
+      },
+    },
+    {
+      allowMissingAssets: options?.includeInlineAssets === false,
+    },
+  );
+}
+
+export function getWhiteboardDocumentVersion(
+  document: Pick<WhiteboardDocument, "persistence">,
+): number | null {
+  return document.persistence?.documentVersion ?? null;
+}
+
+function createLegacyRollbackEnvelope({
+  originalPayload,
+  sourceVersion,
+}: {
+  readonly originalPayload: string;
+  readonly sourceVersion: number | null;
+}): WhiteboardDocumentPersistence["legacyRollback"] {
+  return {
+    format: "excalidraw",
+    sourceVersion,
+    migrationVersion: LEGACY_MIGRATION_VERSION,
+    originalPayload,
+    unsupported: {},
+  };
+}
+
+function compactLegacyRollback(
+  rollback: WhiteboardDocumentPersistence["legacyRollback"],
+): WhiteboardDocumentPersistence["legacyRollback"] {
+  if (!rollback) return undefined;
+  const payload = expectObject(parseJsonInput(rollback.originalPayload), "$");
+  return {
+    ...rollback,
+    originalPayload: stableStringify({
+      ...payload,
+      files: {},
+    }),
   };
 }
 
@@ -590,6 +744,10 @@ function parseMetadata(
     object.legacy === undefined
       ? undefined
       : parseLegacyEnvelope(object.legacy, `${path}.legacy`);
+  const viewport =
+    object.viewport === undefined
+      ? undefined
+      : parsePersistedViewport(object.viewport, `${path}.viewport`);
 
   return {
     name: expectString(object.name, `${path}.name`),
@@ -599,6 +757,7 @@ function parseMetadata(
       `${path}.viewBackgroundColor`,
     ),
     gridSize: parseGridSize(object.gridSize, `${path}.gridSize`),
+    ...(viewport ? { viewport } : {}),
     ...(legacy ? { legacy } : {}),
   };
 }
@@ -672,6 +831,43 @@ function metadataFromState(
       typeof state.gridSize === "number" && Number.isFinite(state.gridSize)
         ? state.gridSize
         : null,
+    ...createPersistedViewport(state),
+  };
+}
+
+function createPersistedViewport(
+  state: WhiteboardDocumentState,
+): Pick<WhiteboardDocumentMetadata, "viewport"> {
+  const zoom = state.zoom?.value;
+  if (
+    typeof state.scrollX !== "number" ||
+    !Number.isFinite(state.scrollX) ||
+    typeof state.scrollY !== "number" ||
+    !Number.isFinite(state.scrollY) ||
+    typeof zoom !== "number" ||
+    !Number.isFinite(zoom) ||
+    zoom <= 0
+  ) {
+    return {};
+  }
+  return {
+    viewport: {
+      scrollX: state.scrollX,
+      scrollY: state.scrollY,
+      zoom,
+    },
+  };
+}
+
+function parsePersistedViewport(
+  value: unknown,
+  path: string,
+): NonNullable<WhiteboardDocumentMetadata["viewport"]> {
+  const object = expectObject(value, path);
+  return {
+    scrollX: expectFiniteNumber(object.scrollX, `${path}.scrollX`),
+    scrollY: expectFiniteNumber(object.scrollY, `${path}.scrollY`),
+    zoom: expectPositiveNumber(object.zoom, `${path}.zoom`),
   };
 }
 

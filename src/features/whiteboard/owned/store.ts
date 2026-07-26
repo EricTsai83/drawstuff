@@ -104,6 +104,7 @@ export type OwnedWhiteboardRenderListener = (
 export class OwnedWhiteboardStore implements WhiteboardEngine {
   private document: WhiteboardDocument = EMPTY_DOCUMENT;
   private documentSnapshot: WhiteboardDocument = EMPTY_DOCUMENT;
+  private documentWithViewportSnapshot: WhiteboardDocument = EMPTY_DOCUMENT;
   private viewport: WhiteboardViewport = DEFAULT_VIEWPORT;
   private activeTool: WhiteboardTool = { type: "selection" };
   private selectedElementIds: readonly string[] = [];
@@ -135,6 +136,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       y: finiteNumber(document.state.scrollY, 0),
       zoom: nextZoom,
     };
+    this.refreshViewportSnapshot();
     const selectableIds = new Set(
       this.documentSnapshot.elements
         .filter(isElementSelectable)
@@ -150,7 +152,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public getDocument(): WhiteboardDocument {
     this.assertActive();
-    return this.documentSnapshot;
+    return this.getDocumentWithViewport();
   }
 
   public subscribeDocument(
@@ -298,6 +300,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       y: finiteNumber(update.y, centered.y),
       zoom,
     };
+    this.refreshViewportSnapshot();
     this.emitEditor();
     this.emitRender("scene");
   }
@@ -330,6 +333,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       x: (this.viewport.width / zoom - contentWidth) / 2 - bounds.minX,
       y: (this.viewport.height / zoom - contentHeight) / 2 - bounds.minY,
     };
+    this.refreshViewportSnapshot();
     this.emitEditor();
     this.emitRender("scene");
   }
@@ -449,7 +453,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public async exportDocument(): Promise<Blob> {
     this.assertActive();
-    return exportOwnedWhiteboardDocument(this.documentSnapshot);
+    return exportOwnedWhiteboardDocument(this.getDocumentWithViewport());
   }
 
   public async importDocument(blob: Blob): Promise<WhiteboardImportResult> {
@@ -476,6 +480,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.renderListeners.clear();
     this.document = EMPTY_DOCUMENT;
     this.documentSnapshot = EMPTY_DOCUMENT;
+    this.documentWithViewportSnapshot = EMPTY_DOCUMENT;
     this.selectedElementIds = [];
     this.undoStack.length = 0;
     this.redoStack.length = 0;
@@ -660,6 +665,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       x: this.viewport.x + finiteNumber(deltaX, 0) / this.viewport.zoom,
       y: this.viewport.y + finiteNumber(deltaY, 0) / this.viewport.zoom,
     };
+    this.refreshViewportSnapshot();
     if (!transient) this.emitEditor();
     this.emitRender("scene");
   }
@@ -678,6 +684,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
         anchor,
       ),
     };
+    this.refreshViewportSnapshot();
     if (!transient) this.emitEditor();
     this.emitRender("scene");
   }
@@ -728,8 +735,8 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   }
 
   private emitDocument(): void {
-    for (const listener of this.documentListeners)
-      listener(this.documentSnapshot);
+    const document = this.getDocumentWithViewport();
+    for (const listener of this.documentListeners) listener(document);
   }
 
   private emitEditor(): void {
@@ -743,6 +750,23 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   private refreshDocumentSnapshot(): void {
     this.documentSnapshot = createSerializableSnapshot(this.document);
+    this.refreshViewportSnapshot();
+  }
+
+  private getDocumentWithViewport(): WhiteboardDocument {
+    return this.documentWithViewportSnapshot;
+  }
+
+  private refreshViewportSnapshot(): void {
+    this.documentWithViewportSnapshot = {
+      ...this.documentSnapshot,
+      state: {
+        ...this.documentSnapshot.state,
+        scrollX: this.viewport.x,
+        scrollY: this.viewport.y,
+        zoom: { value: this.viewport.zoom },
+      },
+    };
   }
 
   private recordDocumentMutation(
@@ -981,5 +1005,6 @@ function createSerializableSnapshot(
     elements: normalized.elements,
     assets: normalized.assets,
     state: document.state,
+    ...(document.persistence ? { persistence: document.persistence } : {}),
   };
 }

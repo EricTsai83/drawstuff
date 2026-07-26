@@ -6,6 +6,10 @@ import type {
   WhiteboardEngine,
   WhiteboardViewerController,
 } from "@/features/whiteboard/contracts";
+import {
+  getWhiteboardDocumentVersion,
+  recordWhiteboardDiagnostic,
+} from "@/features/whiteboard";
 import { OwnedWhiteboardInput } from "./input";
 import { OwnedWhiteboardRenderer } from "./renderer";
 import { OwnedWhiteboardStore } from "./store";
@@ -37,6 +41,7 @@ interface OwnedCanvasLifecycle {
   readonly input: OwnedWhiteboardInput;
   readonly renderer: OwnedWhiteboardRenderer;
   active: boolean;
+  diagnosticsEnabled: boolean;
   fitOnResize: boolean;
   request: number;
   source: OwnedDocumentSource;
@@ -106,6 +111,7 @@ export function OwnedWhiteboardCanvas({
       input,
       renderer,
       active: true,
+      diagnosticsEnabled: !readOnly,
       fitOnResize: false,
       request: 0,
       source: undefined,
@@ -221,6 +227,14 @@ function applyDocument(
         return;
       }
       lifecycle.store.loadDocument(document);
+      if (lifecycle.diagnosticsEnabled) {
+        recordWhiteboardDiagnostic({
+          operation: "render",
+          outcome: "success",
+          engine: "owned",
+          documentVersion: getWhiteboardDocumentVersion(document),
+        });
+      }
       if (!hasSavedViewport(document)) {
         const viewport = lifecycle.store.getViewport();
         if (viewport.width > 0 && viewport.height > 0) {
@@ -234,6 +248,18 @@ function applyDocument(
     .catch((error: unknown) => {
       if (lifecycle.active && request === lifecycle.request) {
         console.error("Failed to load owned whiteboard document", error);
+        if (lifecycle.diagnosticsEnabled) {
+          recordWhiteboardDiagnostic({
+            operation: "render",
+            outcome: "failure",
+            engine: "owned",
+            documentVersion:
+              source && !(source instanceof Promise)
+                ? getWhiteboardDocumentVersion(source)
+                : null,
+            errorCode: "INVALID_DOCUMENT",
+          });
+        }
       }
     });
 }
