@@ -62,6 +62,26 @@ export interface WhiteboardTool {
   readonly customType?: string | null;
 }
 
+export type WhiteboardFillStyle =
+  "hachure" | "cross-hatch" | "solid" | "zigzag";
+
+export type WhiteboardStrokeStyle = "solid" | "dashed" | "dotted";
+
+export interface WhiteboardElementStyle {
+  readonly strokeColor: string;
+  readonly backgroundColor: string;
+  readonly fillStyle: WhiteboardFillStyle;
+  readonly strokeWidth: number;
+  readonly strokeStyle: WhiteboardStrokeStyle;
+  readonly opacity: number;
+}
+
+export type WhiteboardElementStyleUpdate = Partial<WhiteboardElementStyle>;
+
+export interface WhiteboardImportResult {
+  readonly name: string | null;
+}
+
 /**
  * The scene state remains an engine-native legacy payload in Phase 5A.
  * These shared fields let product code use it without defining the owned
@@ -93,6 +113,7 @@ export interface WhiteboardEditorState {
   readonly name: string;
   readonly theme: WhiteboardTheme;
   readonly selectedElementIds: readonly string[];
+  readonly elementStyle: WhiteboardElementStyle;
 }
 
 export interface WhiteboardEditorStateUpdate {
@@ -100,6 +121,7 @@ export interface WhiteboardEditorStateUpdate {
   readonly theme?: WhiteboardTheme;
   readonly openDialog?: unknown;
   readonly openMenu?: unknown;
+  readonly contextMenu?: unknown;
 }
 
 export interface WhiteboardImageExportOptions {
@@ -127,6 +149,8 @@ export interface WhiteboardEngine {
   getActiveTool(): WhiteboardTool;
   setActiveTool(tool: WhiteboardTool): void;
 
+  updateElementStyle(update: WhiteboardElementStyleUpdate): void;
+
   getViewport(): WhiteboardViewport;
   updateViewport(
     update: Partial<Pick<WhiteboardViewport, "x" | "y" | "zoom">>,
@@ -139,12 +163,14 @@ export interface WhiteboardEngine {
 
   undo(): void;
   redo(): void;
+  clearDocument(): void;
 
   addAssets(assets: readonly WhiteboardAsset[]): void;
   getAssets(): Readonly<Record<string, WhiteboardAsset>>;
 
   exportImage(options: WhiteboardImageExportOptions): Promise<Blob>;
   exportDocument(): Promise<Blob>;
+  importDocument(blob: Blob): Promise<WhiteboardImportResult>;
 
   destroy(): void;
 }

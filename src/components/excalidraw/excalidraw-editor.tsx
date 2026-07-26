@@ -27,6 +27,8 @@ import { useLanguagePreference } from "@/hooks/use-language-preference";
 import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
 import { useExportHandlers } from "@/hooks/excalidraw/use-export-handlers";
 import { EditorFooter } from "@/components/excalidraw/editor-footer";
+import { SceneShareDialog } from "@/components/scene-share-dialog";
+import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useDashboardShortcut } from "@/hooks/use-dashboard-shortcut";
 import { LOAD_SCENE_EVENT, type LoadSceneRequestDetail } from "@/lib/events";
 import { SceneChangeConfirmDialog } from "./scene-change-confirm-dialog";
@@ -51,6 +53,12 @@ import {
   ExcalidrawFooter,
   type WhiteboardInitialData,
 } from "@/features/whiteboard/adapters/excalidraw";
+import { WhiteboardShell } from "@/features/whiteboard/ui";
+import { OwnedWhiteboardProductMenu } from "./owned-whiteboard-product-menu";
+import { env } from "@/env";
+
+const USE_OWNED_WHITEBOARD_SHELL =
+  env.NEXT_PUBLIC_USE_OWNED_WHITEBOARD_SHELL === "true";
 
 export default function ExcalidrawEditor() {
   useSceneImportFileGuard();
@@ -71,6 +79,8 @@ export default function ExcalidrawEditor() {
   // 只在編輯器中、且使用者已登入時啟用 Dashboard 快捷鍵
   useDashboardShortcut(!!session);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const [isRenameDialogOpen, setIsRenameDialogOpen] = useState(false);
+  const [isWorkspaceDialogOpen, setIsWorkspaceDialogOpen] = useState(false);
   const {
     exportScene,
     exportStatus,
@@ -361,6 +371,135 @@ export default function ExcalidrawEditor() {
     [exportStatus, uploadStatus, handleCloudUpload, handleShareLinkClick],
   );
 
+  const canvas = initialDataPromise ? (
+    <ExcalidrawCanvas
+      onEngineReady={setEngine}
+      initialData={initialDataPromise}
+      UIOptions={{
+        canvasActions: USE_OWNED_WHITEBOARD_SHELL
+          ? {
+              changeViewBackgroundColor: false,
+              clearCanvas: false,
+              export: false,
+              loadScene: false,
+              saveAsImage: false,
+              saveToActiveFile: false,
+              toggleTheme: false,
+            }
+          : {
+              toggleTheme: true,
+              export: {
+                saveFileToDisk: false,
+                renderCustomUI: renderCustomUiForExport,
+              },
+            },
+      }}
+      langCode={langCode}
+      theme={browserActiveTheme}
+      zenModeEnabled={USE_OWNED_WHITEBOARD_SHELL ? true : undefined}
+      renderTopRightUI={
+        USE_OWNED_WHITEBOARD_SHELL ? undefined : renderTopRightUI
+      }
+      renderCustomStats={
+        USE_OWNED_WHITEBOARD_SHELL ? undefined : renderCustomStats
+      }
+    >
+      <AppMainMenu
+        userChosenTheme={userChosenTheme}
+        setTheme={setTheme}
+        langCode={langCode}
+        onLangCodeChange={handleLangCodeChange}
+        engine={engine}
+        handleSetSceneName={handleSetSceneName}
+        sceneName={sceneName}
+        showConfirmDialog={showWorkspaceCreateConfirm}
+      />
+
+      <SceneRenameDialog
+        engine={engine}
+        open={USE_OWNED_WHITEBOARD_SHELL ? isRenameDialogOpen : undefined}
+        onOpenChange={
+          USE_OWNED_WHITEBOARD_SHELL ? setIsRenameDialogOpen : undefined
+        }
+        trigger={
+          USE_OWNED_WHITEBOARD_SHELL ? undefined : (
+            <SceneNameTrigger sceneName={sceneName} />
+          )
+        }
+        onConfirmName={(newName) => {
+          handleSetSceneName(newName);
+          if (currentSceneId) {
+            renameSceneMutation.mutate(
+              { id: currentSceneId, name: newName },
+              {
+                onSuccess: (data) => {
+                  void utils.scene.getUserScenesInfinite.invalidate();
+                  if (data.revision != null) {
+                    updateLastSyncedRevision(data.revision);
+                  }
+                },
+                onError: () =>
+                  toast.error("Failed to update scene name. Please try again."),
+              },
+            );
+          }
+        }}
+      />
+
+      {!USE_OWNED_WHITEBOARD_SHELL && (
+        <ExcalidrawFooter>
+          <EditorFooter
+            showDashboardShortcut={!!session}
+            latestShareableLink={latestShareableLink}
+            isShareDialogOpen={isShareDialogOpen}
+            onShareDialogOpenChange={setIsShareDialogOpen}
+          />
+        </ExcalidrawFooter>
+      )}
+
+      {!USE_OWNED_WHITEBOARD_SHELL && <AppWelcomeScreen />}
+      <SceneChangeConfirmDialog
+        open={isSceneChangeDialogOpen}
+        onOpenChange={handleSceneChangeDialogOpenChange}
+        onChoose={resolveSceneChangeDecision}
+        isLoading={Boolean(isSceneChangeDialogLoading)}
+      />
+      <OverwriteConfirmDialog
+        engine={engine}
+        clearCurrentSceneId={clearCurrentScene}
+        onSceneNotFoundError={() => {
+          setIsCloudUploadDialogOpen(true);
+        }}
+      />
+      <SceneRemoteConflictDialog {...conflictDialog} />
+      <SceneCloudUploadDialog
+        open={isCloudUploadDialogOpen}
+        onOpenChange={setIsCloudUploadDialogOpen}
+        engine={engine}
+        onConfirm={({
+          name,
+          description,
+          categories,
+          workspaceId,
+        }: {
+          name: string;
+          description: string;
+          categories: string[];
+          workspaceId?: string;
+        }) => {
+          // 先把名稱寫回 Excalidraw appState（透過既有 helper）
+          handleSetSceneName(name);
+          void uploadSceneToCloud({
+            name,
+            description,
+            categories,
+            workspaceId,
+          });
+        }}
+      />
+    </ExcalidrawCanvas>
+  ) : null;
+
   return (
     <div className="h-dvh w-full">
       <GlobalConfirmDialog
@@ -369,112 +508,43 @@ export default function ExcalidrawEditor() {
         loading={workspaceCreateConfirmLoading}
         options={workspaceCreateConfirmOptions}
       />
-      {initialDataPromise && (
-        <ExcalidrawCanvas
-          onEngineReady={setEngine}
-          initialData={initialDataPromise}
-          UIOptions={{
-            canvasActions: {
-              toggleTheme: true,
-              export: {
-                saveFileToDisk: false, // 移除預設的「儲存到磁碟」按鈕
-                renderCustomUI: renderCustomUiForExport,
-              },
-            },
+      {USE_OWNED_WHITEBOARD_SHELL ? (
+        <WhiteboardShell
+          engine={engine}
+          isSaving={uploadStatus === "uploading"}
+          isSharing={exportStatus === "exporting"}
+          onRename={() => setIsRenameDialogOpen(true)}
+          onImported={(name) => {
+            clearCurrentScene();
+            if (name) handleSetSceneName(name);
           }}
-          langCode={langCode}
-          theme={browserActiveTheme}
-          renderTopRightUI={renderTopRightUI}
-          renderCustomStats={renderCustomStats}
+          onSave={() => void handleCloudUpload()}
+          onShare={() => void handleShareLinkClick()}
+          onWorkspace={
+            session ? () => setIsWorkspaceDialogOpen(true) : undefined
+          }
+          productMenuContent={<OwnedWhiteboardProductMenu />}
+          sceneName={sceneName}
         >
-          <AppMainMenu
-            userChosenTheme={userChosenTheme}
-            setTheme={setTheme}
-            langCode={langCode}
-            onLangCodeChange={handleLangCodeChange}
-            engine={engine}
-            handleSetSceneName={handleSetSceneName}
-            sceneName={sceneName}
-            showConfirmDialog={showWorkspaceCreateConfirm}
+          {canvas}
+        </WhiteboardShell>
+      ) : (
+        canvas
+      )}
+      {USE_OWNED_WHITEBOARD_SHELL && (
+        <>
+          <WorkspaceSettingsDialog
+            open={isWorkspaceDialogOpen}
+            onOpenChange={setIsWorkspaceDialogOpen}
           />
-
-          <SceneRenameDialog
-            engine={engine}
-            trigger={<SceneNameTrigger sceneName={sceneName} />}
-            onConfirmName={(newName) => {
-              // 先同步更新到 Excalidraw appState
-              handleSetSceneName(newName);
-              // 若已有雲端場景 ID，直接更新 DB 名稱
-              if (currentSceneId) {
-                renameSceneMutation.mutate(
-                  { id: currentSceneId, name: newName },
-                  {
-                    onSuccess: (data) => {
-                      void utils.scene.getUserScenesInfinite.invalidate();
-                      if (data.revision != null) {
-                        updateLastSyncedRevision(data.revision);
-                      }
-                    },
-                    onError: () =>
-                      toast.error(
-                        "Failed to update scene name. Please try again.",
-                      ),
-                  },
-                );
-              }
-            }}
-          />
-
-          <ExcalidrawFooter>
-            <EditorFooter
-              showDashboardShortcut={!!session}
-              latestShareableLink={latestShareableLink}
-              isShareDialogOpen={isShareDialogOpen}
-              onShareDialogOpenChange={setIsShareDialogOpen}
+          {latestShareableLink && (
+            <SceneShareDialog
+              open={isShareDialogOpen}
+              onOpenChange={setIsShareDialogOpen}
+              sceneUrl={latestShareableLink}
             />
-          </ExcalidrawFooter>
-
-          <AppWelcomeScreen />
-          <SceneChangeConfirmDialog
-            open={isSceneChangeDialogOpen}
-            onOpenChange={handleSceneChangeDialogOpenChange}
-            onChoose={resolveSceneChangeDecision}
-            isLoading={Boolean(isSceneChangeDialogLoading)}
-          />
-          <OverwriteConfirmDialog
-            engine={engine}
-            clearCurrentSceneId={clearCurrentScene}
-            onSceneNotFoundError={() => {
-              setIsCloudUploadDialogOpen(true);
-            }}
-          />
-          <SceneRemoteConflictDialog {...conflictDialog} />
-          <SceneCloudUploadDialog
-            open={isCloudUploadDialogOpen}
-            onOpenChange={setIsCloudUploadDialogOpen}
-            engine={engine}
-            onConfirm={({
-              name,
-              description,
-              categories,
-              workspaceId,
-            }: {
-              name: string;
-              description: string;
-              categories: string[];
-              workspaceId?: string;
-            }) => {
-              // 先把名稱寫回 Excalidraw appState（透過既有 helper）
-              handleSetSceneName(name);
-              void uploadSceneToCloud({
-                name,
-                description,
-                categories,
-                workspaceId,
-              });
-            }}
-          />
-        </ExcalidrawCanvas>
+          )}
+        </>
       )}
     </div>
   );

@@ -2,9 +2,17 @@ import type {
   AppState,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
+import {
+  CaptureUpdateAction,
+  loadFromBlob,
+  newElementWith,
+} from "@excalidraw/excalidraw";
+import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type {
   WhiteboardAsset,
   WhiteboardDocument,
+  WhiteboardElementStyle,
+  WhiteboardElementStyleUpdate,
   WhiteboardEditorState,
   WhiteboardEditorStateUpdate,
   WhiteboardEngine,
@@ -114,6 +122,7 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
       selectedElementIds: Object.keys(appState.selectedElementIds ?? {}).filter(
         (id) => Boolean(appState.selectedElementIds[id]),
       ),
+      elementStyle: this.getElementStyleFromState(appState),
     };
   }
 
@@ -154,6 +163,42 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
     this.api.setActiveTool(toExcalidrawTool(tool));
   }
 
+  public updateElementStyle(update: WhiteboardElementStyleUpdate): void {
+    this.assertActive();
+    const appState = this.api.getAppState();
+    const selectedElementIds = appState.selectedElementIds ?? {};
+    const sceneElements = this.api.getSceneElementsIncludingDeleted();
+    const targetIds = new Set(
+      Object.keys(selectedElementIds).filter((id) => selectedElementIds[id]),
+    );
+    for (const element of sceneElements) {
+      if (!targetIds.has(element.id)) continue;
+      for (const boundElement of element.boundElements ?? []) {
+        if (boundElement.type === "text") targetIds.add(boundElement.id);
+      }
+    }
+    if (appState.editingTextElement) {
+      targetIds.add(appState.editingTextElement.id);
+    }
+    const elements =
+      targetIds.size > 0
+        ? sceneElements.map((element) =>
+            targetIds.has(element.id)
+              ? newElementWith(element, this.toExcalidrawStyleUpdate(update))
+              : element,
+          )
+        : undefined;
+
+    this.api.updateScene({
+      elements,
+      appState: {
+        ...appState,
+        ...this.toExcalidrawCurrentStyleUpdate(update),
+      },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+  }
+
   public getViewport(): WhiteboardViewport {
     this.assertActive();
     return this.getViewportFromState(this.api.getAppState());
@@ -166,11 +211,25 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
     const currentState = this.api.getAppState();
     const currentViewport = this.getViewportFromState(currentState);
     const viewport = { ...currentViewport, ...update };
+    const zoomChanged =
+      update.zoom !== undefined && update.zoom !== currentViewport.zoom;
+    const appLayerX = currentState.width / 2;
+    const appLayerY = currentState.height / 2;
+    const baseScrollX =
+      currentState.scrollX + (appLayerX - appLayerX / currentState.zoom.value);
+    const baseScrollY =
+      currentState.scrollY + (appLayerY - appLayerY / currentState.zoom.value);
+    const centeredScrollX =
+      baseScrollX - (appLayerX - appLayerX / viewport.zoom);
+    const centeredScrollY =
+      baseScrollY - (appLayerY - appLayerY / viewport.zoom);
     this.api.updateScene({
       appState: {
         ...currentState,
-        scrollX: viewport.x,
-        scrollY: viewport.y,
+        scrollX:
+          update.x ?? (zoomChanged ? centeredScrollX : currentState.scrollX),
+        scrollY:
+          update.y ?? (zoomChanged ? centeredScrollY : currentState.scrollY),
         zoom: {
           ...currentState.zoom,
           value: viewport.zoom as AppState["zoom"]["value"],
@@ -202,6 +261,14 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
     this.delegates.redo();
   }
 
+  public clearDocument(): void {
+    this.assertActive();
+    this.api.updateScene({
+      elements: [],
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+  }
+
   public addAssets(assets: readonly WhiteboardAsset[]): void {
     this.assertActive();
     if (assets.length > 0) {
@@ -226,6 +293,33 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
     return await this.delegates.exportDocument(this.getDocument());
   }
 
+  public async importDocument(
+    blob: Blob,
+  ): Promise<{ readonly name: string | null }> {
+    this.assertActive();
+    const importedName = await readImportedSceneName(blob);
+    const appState = this.api.getAppState();
+    const scene = await loadFromBlob(
+      blob,
+      appState,
+      this.api.getSceneElementsIncludingDeleted(),
+    );
+    this.api.updateScene({
+      elements: scene.elements,
+      appState: {
+        ...appState,
+        ...scene.appState,
+        isLoading: false,
+      },
+      captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+    });
+    const files = Object.values(scene.files ?? {});
+    if (files.length > 0) {
+      this.api.addFiles(files);
+    }
+    return { name: importedName };
+  }
+
   public destroy(): void {
     if (this.destroyed) return;
     this.destroyed = true;
@@ -243,6 +337,66 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
       type: tool.type,
       locked: tool.locked,
       customType: tool.customType,
+    };
+  }
+
+  private getElementStyleFromState(appState: AppState): WhiteboardElementStyle {
+    const selectedElement = this.api
+      .getSceneElements()
+      .find((element) => appState.selectedElementIds?.[element.id]);
+
+    return {
+      strokeColor:
+        selectedElement?.strokeColor ?? appState.currentItemStrokeColor,
+      backgroundColor:
+        selectedElement?.backgroundColor ?? appState.currentItemBackgroundColor,
+      fillStyle: selectedElement?.fillStyle ?? appState.currentItemFillStyle,
+      strokeWidth:
+        selectedElement?.strokeWidth ?? appState.currentItemStrokeWidth,
+      strokeStyle:
+        selectedElement?.strokeStyle ?? appState.currentItemStrokeStyle,
+      opacity: selectedElement?.opacity ?? appState.currentItemOpacity,
+    };
+  }
+
+  private toExcalidrawStyleUpdate(
+    update: WhiteboardElementStyleUpdate,
+  ): Partial<
+    Pick<
+      ExcalidrawElement,
+      | "strokeColor"
+      | "backgroundColor"
+      | "fillStyle"
+      | "strokeWidth"
+      | "strokeStyle"
+      | "opacity"
+    >
+  > {
+    return update;
+  }
+
+  private toExcalidrawCurrentStyleUpdate(
+    update: WhiteboardElementStyleUpdate,
+  ): Partial<AppState> {
+    return {
+      ...(update.strokeColor === undefined
+        ? {}
+        : { currentItemStrokeColor: update.strokeColor }),
+      ...(update.backgroundColor === undefined
+        ? {}
+        : { currentItemBackgroundColor: update.backgroundColor }),
+      ...(update.fillStyle === undefined
+        ? {}
+        : { currentItemFillStyle: update.fillStyle }),
+      ...(update.strokeWidth === undefined
+        ? {}
+        : { currentItemStrokeWidth: update.strokeWidth }),
+      ...(update.strokeStyle === undefined
+        ? {}
+        : { currentItemStrokeStyle: update.strokeStyle }),
+      ...(update.opacity === undefined
+        ? {}
+        : { currentItemOpacity: update.opacity }),
     };
   }
 
@@ -291,6 +445,21 @@ export class ExcalidrawEngineAdapter implements WhiteboardEngine {
       throw new Error("Whiteboard engine has been destroyed");
     }
   }
+}
+
+async function readImportedSceneName(blob: Blob): Promise<string | null> {
+  try {
+    const payload: unknown = JSON.parse(await blob.text());
+    if (!isRecord(payload) || !isRecord(payload.appState)) return null;
+    const name = payload.appState.name;
+    return typeof name === "string" && name.trim() ? name : null;
+  } catch {
+    return null;
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function dispatchHistoryShortcut(

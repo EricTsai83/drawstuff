@@ -9,6 +9,9 @@ export const LOAD_SCENE_EVENT = "exc:load-scene" as const;
  * 語言切換事件名稱，讓跨元件/分頁可以同步更新 i18n。
  */
 export const LANGUAGE_CHANGE_EVENT = "exc:language-change" as const;
+export const OWNED_NEW_SCENE_EVENT = "drawstuff:new-scene" as const;
+export const OWNED_WORKSPACE_SWITCH_EVENT =
+  "drawstuff:switch-workspace" as const;
 
 /**
  * 發送載入場景請求時所攜帶的資料。
@@ -25,6 +28,11 @@ export type LoadSceneRequestDetail = {
  */
 export type LanguageChangeDetail = {
   readonly langCode: string;
+};
+
+export type OwnedWorkspaceSwitchDetail = {
+  readonly workspaceId: string;
+  readonly workspaceName: string;
 };
 
 /**
@@ -45,4 +53,18 @@ export function dispatchLoadSceneRequest(detail: LoadSceneRequestDetail): void {
 export function dispatchLanguageChange(detail: LanguageChangeDetail): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(LANGUAGE_CHANGE_EVENT, { detail }));
+}
+
+export function dispatchOwnedNewScene(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new Event(OWNED_NEW_SCENE_EVENT));
+}
+
+export function dispatchOwnedWorkspaceSwitch(
+  detail: OwnedWorkspaceSwitchDetail,
+): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(OWNED_WORKSPACE_SWITCH_EVENT, { detail }),
+  );
 }

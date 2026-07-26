@@ -19,6 +19,15 @@ const rectangle = {
   id: "rectangle-1",
   type: "rectangle",
   isDeleted: false,
+  backgroundColor: "transparent",
+  fillStyle: "hachure",
+  opacity: 100,
+  strokeColor: "#1e1e1e",
+  strokeStyle: "solid",
+  strokeWidth: 1,
+  updated: 1,
+  version: 1,
+  versionNonce: 1,
 } as ExcalidrawElement;
 
 const deletedRectangle = {
@@ -49,6 +58,12 @@ function createHarness() {
     zoom: { value: 1 },
     activeTool: { type: "selection", locked: false, customType: null },
     selectedElementIds: {},
+    currentItemBackgroundColor: "transparent",
+    currentItemFillStyle: "hachure",
+    currentItemOpacity: 100,
+    currentItemStrokeColor: "#1e1e1e",
+    currentItemStrokeStyle: "solid",
+    currentItemStrokeWidth: 1,
   } as unknown as AppState;
   let files = { [imageAsset.id]: imageAsset } as unknown as BinaryFiles;
 
@@ -69,6 +84,7 @@ function createHarness() {
     (update: {
       elements?: readonly ExcalidrawElement[];
       appState?: Partial<AppState>;
+      captureUpdate?: string;
     }) => {
       elements = update.elements ?? elements;
       appState = { ...appState, ...update.appState };
@@ -255,15 +271,15 @@ describe("ExcalidrawEngineAdapter contract", () => {
     });
 
     engine.updateViewport({ x: 30, zoom: 1.5 });
-    expect(engine.getViewport()).toEqual({
+    expect(engine.getViewport()).toMatchObject({
       x: 30,
-      y: 20,
       zoom: 1.5,
       width: 1000,
       height: 800,
       offsetX: 0,
       offsetY: 0,
     });
+    expect(engine.getViewport().y).toBeCloseTo(-113.333);
     engine.fitToContent({ animate: true, viewportZoomFactor: 0.5 });
     expect(harness.scrollToContent).toHaveBeenCalledWith(undefined, {
       fitToViewport: true,
@@ -275,6 +291,12 @@ describe("ExcalidrawEngineAdapter contract", () => {
     engine.redo();
     expect(harness.delegates.undo).toHaveBeenCalledOnce();
     expect(harness.delegates.redo).toHaveBeenCalledOnce();
+
+    engine.clearDocument();
+    expect(harness.updateScene.mock.calls.at(-1)?.[0]).toMatchObject({
+      elements: [],
+      captureUpdate: "IMMEDIATELY",
+    });
 
     const secondAsset = { ...imageAsset, id: "asset-2" };
     engine.addAssets([secondAsset]);
@@ -294,6 +316,107 @@ describe("ExcalidrawEngineAdapter contract", () => {
     expect(harness.delegates.exportDocument).toHaveBeenCalledWith(
       engine.getDocument(),
     );
+  });
+
+  it("updates selected element styles through an undoable scene update", () => {
+    harness.updateScene({
+      appState: { selectedElementIds: { [rectangle.id]: true } },
+    });
+
+    engine.updateElementStyle({
+      backgroundColor: "#a5d8ff",
+      fillStyle: "solid",
+      opacity: 60,
+      strokeColor: "#1971c2",
+      strokeStyle: "dashed",
+      strokeWidth: 4,
+    });
+
+    const update = harness.updateScene.mock.calls.at(-1)?.[0];
+    expect(update?.captureUpdate).toBe("IMMEDIATELY");
+    expect(update?.elements?.[0]).toMatchObject({
+      backgroundColor: "#a5d8ff",
+      fillStyle: "solid",
+      opacity: 60,
+      strokeColor: "#1971c2",
+      strokeStyle: "dashed",
+      strokeWidth: 4,
+    });
+    expect(update?.appState).toMatchObject({
+      currentItemBackgroundColor: "#a5d8ff",
+      currentItemFillStyle: "solid",
+      currentItemOpacity: 60,
+      currentItemStrokeColor: "#1971c2",
+      currentItemStrokeStyle: "dashed",
+      currentItemStrokeWidth: 4,
+    });
+  });
+
+  it("updates bound text and editing text with the selected element", () => {
+    const boundRectangle = {
+      ...rectangle,
+      boundElements: [{ id: "text-1", type: "text" }],
+    } as ExcalidrawElement;
+    const text = {
+      ...rectangle,
+      id: "text-1",
+      type: "text",
+    } as ExcalidrawElement;
+    const editingText = {
+      ...text,
+      id: "editing-text",
+    } as ExcalidrawElement;
+    harness.updateScene({
+      elements: [boundRectangle, text, editingText],
+      appState: {
+        selectedElementIds: { [boundRectangle.id]: true },
+        editingTextElement: editingText,
+      },
+    });
+
+    engine.updateElementStyle({ opacity: 50 });
+
+    const elements = harness.updateScene.mock.calls.at(-1)?.[0].elements;
+    expect(elements).toHaveLength(3);
+    expect(elements?.every((element) => element.opacity === 50)).toBe(true);
+  });
+
+  it("updates drawing defaults without replacing elements when nothing is selected", () => {
+    engine.updateElementStyle({ strokeColor: "#e03131" });
+
+    const update = harness.updateScene.mock.calls.at(-1)?.[0];
+    expect(update?.elements).toBeUndefined();
+    expect(update?.appState).toMatchObject({
+      currentItemStrokeColor: "#e03131",
+    });
+  });
+
+  it("imports scene files through the engine boundary", async () => {
+    const scene = new Blob(
+      [
+        JSON.stringify({
+          type: "excalidraw",
+          version: 2,
+          source: "drawstuff",
+          elements: [],
+          appState: { name: "Imported scene" },
+          files: {},
+        }),
+      ],
+      { type: "application/json" },
+    );
+
+    await expect(engine.importDocument(scene)).resolves.toEqual({
+      name: "Imported scene",
+    });
+
+    const update = harness.updateScene.mock.calls.at(-1)?.[0];
+    expect(update?.elements).toEqual([]);
+    expect(update?.appState).toMatchObject({
+      isLoading: false,
+      name: "Adapter scene",
+    });
+    expect(update?.captureUpdate).toBe("IMMEDIATELY");
   });
 
   it("dispatches platform history shortcuts through the Excalidraw container", () => {

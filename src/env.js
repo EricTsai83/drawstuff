@@ -35,6 +35,9 @@ export const env = createEnv({
   client: {
     // NEXT_PUBLIC_CLIENTVAR: z.string(),
     NEXT_PUBLIC_BASE_URL: z.string().url(),
+    NEXT_PUBLIC_USE_OWNED_WHITEBOARD_SHELL: z
+      .enum(["true", "false"])
+      .default("true"),
   },
 
   /**
@@ -59,6 +62,8 @@ export const env = createEnv({
     CRON_SECRET: process.env.CRON_SECRET,
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
+    NEXT_PUBLIC_USE_OWNED_WHITEBOARD_SHELL:
+      process.env.NEXT_PUBLIC_USE_OWNED_WHITEBOARD_SHELL,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially
