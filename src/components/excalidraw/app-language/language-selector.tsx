@@ -8,8 +8,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Dropdown } from "@/components/icons/dropdown";
-import { cn } from "@/lib/utils";
 
 export const LanguageSelector = ({
   value,
@@ -47,15 +45,6 @@ export const LanguageSelector = ({
         size="sm"
         className="h-7 w-full gap-1 px-2 py-1 text-[13px]"
         aria-label={t("buttons.selectLanguage")}
-        icon={
-          <Dropdown
-            className={cn(
-              "pointer-events-none size-2 transition-transform duration-300 ease-in-out select-none",
-              isOpen ? "rotate-180" : undefined,
-            )}
-            aria-hidden="true"
-          />
-        }
       >
         <SelectValue placeholder="Select a language" />
       </SelectTrigger>
