@@ -60,8 +60,8 @@ export function OverflowTooltip({
   }
 
   return (
-    <Tooltip delayDuration={delayDuration}>
-      <TooltipTrigger asChild>{enhancedChild}</TooltipTrigger>
+    <Tooltip>
+      <TooltipTrigger delay={delayDuration} render={enhancedChild} />
       <TooltipContent
         variant={variant}
         sideOffset={sideOffset}
