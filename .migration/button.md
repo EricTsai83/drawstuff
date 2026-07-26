@@ -1,24 +1,24 @@
 # button
 
-2026-07-26, transformation engine for customized legacy `new-york`, migrated successfully to the Base UI Button primitive.
+2026-07-26, golden reference via a fresh shadcn Base Nova project and CLI replay, migrated successfully to the stock Base Nova Button.
 
 ## Changed
 
-- `src/components/ui/button.tsx:2` replaces Radix Slot with `@base-ui/react/button` while preserving all existing variants and classes.
-- `src/app/not-found.tsx` and `src/components/error-page.tsx` replace `asChild` link composition with Base UI `render` and `nativeButton={false}`.
-- `.migration/button.md` records the migration.
+- `src/components/ui/button.tsx`: replaced the legacy-styled Base UI wrapper with the official `base-nova` Button implementation.
+- Adopted Nova variants, eight stock sizes, icon-aware padding, and active/focus states.
+- `.migration/button.md`: replaced the previous transformation-engine report.
 - The leftover scan is clean: `grep -n "radix-ui\|@radix-ui" src/components/ui/button.tsx` returns no matches.
 
 ## Left alone
 
-- Other UI wrappers remain unchanged in this component commit and are migrated separately in dependency order.
+- Existing link consumers continue using Base UI `render` and `nativeButton={false}`.
 
 ## Behavior changes
 
-None for current consumers. Polymorphic Button composition now uses Base UI's `render` prop instead of Radix `asChild`.
+- Default buttons are now Nova's compact 32px height; other sizes and destructive styling also follow Nova.
 
 ## Verify by hand
 
-1. Open the not-found and error pages and activate both navigation buttons.
-2. Confirm the links keep button styling and navigate only once.
-3. Keyboard-focus each link and confirm Enter activates it.
+- Check all button variants in light and dark mode.
+- Activate link-rendered buttons and confirm navigation occurs once.
+- Confirm disabled, loading, keyboard-focus, and icon-only buttons remain accessible.
