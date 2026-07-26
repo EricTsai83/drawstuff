@@ -1,26 +1,28 @@
 # form
 
-2026-07-26, transformation engine for the customized React Hook Form wrapper, removed its remaining Radix Label and Slot dependencies successfully.
+2026-07-26, golden reference via fresh shadcn Base Nova form guidance, migrated successfully from the removed legacy Form wrapper to the current Field pattern.
 
 ## Changed
 
-- `src/components/ui/form.tsx:4` replaces Radix Slot with Base UI `useRender` and `mergeProps`.
-- `src/components/ui/form.tsx:91` types `FormLabel` against the migrated native Label wrapper.
-- `src/components/ui/form.tsx:107` preserves the existing `<FormControl><Input /></FormControl>` API while merging accessibility props through Base UI rendering utilities; it also accepts Base UI's explicit `render` prop.
-- `.migration/form.md` records the migration.
-- The leftover scan is clean: `grep -n "radix-ui\|@radix-ui" src/components/ui/form.tsx` returns no matches.
+- Removed `src/components/ui/form.tsx`; the current shadcn registry no longer provides the legacy React Hook Form adapter.
+- Added `src/components/ui/field.tsx` and `src/components/ui/separator.tsx` from the official `base-nova` registry.
+- `src/components/excalidraw/new-scene-dialog.tsx`: migrated to React Hook Form `Controller` with `Field`, `FieldGroup`, `FieldSet`, and `FieldError`.
+- `src/components/excalidraw/scene-cloud-upload-dialog.tsx`: migrated controlled inputs and validation messages to `Controller` and `Field`.
+- `src/components/excalidraw/workspace-settings-dialog.tsx`: migrated workspace-name validation to `Controller` and `Field`.
+- `.migration/form.md`: replaced the legacy wrapper report.
+- The leftover scan is clean: `grep -n "radix-ui\|@radix-ui" src/components/ui/field.tsx src/components/ui/separator.tsx` returns no matches.
 
 ## Left alone
 
-- `Form`, `FormField`, and validation state remain powered by `react-hook-form`; this file is shadcn's React Hook Form adapter, not a Radix Form primitive wrapper.
-- Existing form call sites remain unchanged because the wrapper preserves child composition.
+- Existing Zod schemas, submit handlers, async mutations, and React Hook Form settings remain unchanged.
 
 ## Behavior changes
 
-None for current consumers. FormControl prop merging now uses Base UI's merge semantics.
+- Validation styling now uses `data-invalid` on `Field` and `aria-invalid` on controls.
+- Field spacing and radio layout now follow Nova's current accessible form composition.
 
 ## Verify by hand
 
-1. Open create, rename, upload, and workspace-settings forms.
-2. Submit invalid values and confirm labels, descriptions, messages, `aria-describedby`, and `aria-invalid` remain connected.
-3. Enter valid values and confirm each form submits once.
+- Submit each migrated form with invalid values and confirm errors are announced and displayed.
+- Submit valid create-scene, cloud-save, and workspace-rename forms.
+- Confirm radio selection and focus order in the new-scene dialog.
