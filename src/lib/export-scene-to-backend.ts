@@ -10,15 +10,26 @@ import type {
   WhiteboardDocumentState,
   WhiteboardElement,
 } from "@/features/whiteboard";
+import {
+  createWhiteboardDocumentV1,
+  filterReferencedWhiteboardAssets,
+  serializeWhiteboardDocumentV1,
+} from "@/features/whiteboard";
+
+export type ScenePersistenceFormat = "legacy-excalidraw" | "whiteboard-v1";
 
 // 準備場景數據用於導出
 export async function prepareSceneDataForExport(
   elements: readonly WhiteboardElement[],
   appState: WhiteboardDocumentState,
   files: Readonly<Record<string, WhiteboardAsset>>,
-  options?: { encrypt?: boolean },
+  options?: {
+    readonly encrypt?: boolean;
+    readonly format?: ScenePersistenceFormat;
+  },
 ) {
   const shouldEncrypt = options?.encrypt ?? true;
+  const format = options?.format ?? "legacy-excalidraw";
 
   const encryptionKey = shouldEncrypt
     ? await generateEncryptionKey("string")
@@ -26,7 +37,9 @@ export async function prepareSceneDataForExport(
 
   // 場景資料：壓縮，視需要加密
   const compressedSceneData = await compressData(
-    new TextEncoder().encode(serializeSceneData(elements, appState)),
+    new TextEncoder().encode(
+      serializeSceneData(elements, appState, files, format),
+    ),
     { encryptionKey },
   );
 
@@ -51,11 +64,36 @@ export async function prepareSceneDataForExport(
 function serializeSceneData(
   elements: readonly WhiteboardElement[],
   appState: WhiteboardDocumentState,
+  files: Readonly<Record<string, WhiteboardAsset>>,
+  format: ScenePersistenceFormat,
 ): string {
+  const persistedElements = clearElementsForDatabase(
+    elements as unknown as readonly NonDeletedExcalidrawElement[],
+  );
+  if (format === "whiteboard-v1") {
+    return serializeWhiteboardDocumentV1(
+      createWhiteboardDocumentV1({
+        elements: persistedElements,
+        assets: filterReferencedWhiteboardAssets(persistedElements, files),
+        metadata: {
+          name: typeof appState.name === "string" ? appState.name : "",
+          theme: appState.theme === "dark" ? "dark" : "light",
+          viewBackgroundColor:
+            typeof appState.viewBackgroundColor === "string"
+              ? appState.viewBackgroundColor
+              : "#ffffff",
+          gridSize:
+            typeof appState.gridSize === "number" &&
+            Number.isFinite(appState.gridSize)
+              ? appState.gridSize
+              : null,
+        },
+      }),
+    );
+  }
+
   const data = {
-    elements: clearElementsForDatabase(
-      elements as unknown as readonly NonDeletedExcalidrawElement[],
-    ),
+    elements: persistedElements,
     appState,
   };
 

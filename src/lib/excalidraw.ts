@@ -12,6 +12,7 @@ import {
   saveCurrentSceneRevisionToStorage,
   clearCurrentSceneRevisionFromStorage,
   clearCurrentSceneSessionFromStorage,
+  syncOwnedWhiteboardDocumentToLocalStorage,
 } from "@/data/local-storage";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import type {
@@ -143,7 +144,10 @@ async function loadInitialRemoteScene(): Promise<WhiteboardInitialData | null> {
     const { importSceneDataBySceneId, importSceneFilesBySceneId } =
       await import("@/lib/import-data-from-db");
     const imported = await importSceneDataBySceneId(sceneId);
-    const files = await importSceneFilesBySceneId(sceneId);
+    const files = {
+      ...(imported.files ?? {}),
+      ...(await importSceneFilesBySceneId(sceneId)),
+    };
     const appState = ensureInitialAppState(imported.appState ?? {});
     const elements = imported.elements;
 
@@ -304,6 +308,11 @@ export function saveToLocalStorage(
       STORAGE_KEYS.LOCAL_STORAGE_FILES,
       JSON.stringify(files),
     );
+    syncOwnedWhiteboardDocumentToLocalStorage({
+      elements,
+      state: appState,
+      assets: files,
+    });
   } catch (error) {
     console.error("beforeunload 儲存數據失敗:", error);
   }

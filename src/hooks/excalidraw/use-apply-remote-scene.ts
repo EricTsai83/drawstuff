@@ -76,6 +76,11 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
       if (!imported?.elements && !imported?.appState) {
         return { ok: false, reason: "scene_data_missing" };
       }
+      const hydratedFiles: Readonly<Record<string, WhiteboardAsset>> = {
+        ...(imported.files as
+          Readonly<Record<string, WhiteboardAsset>> | undefined),
+        ...fetchedFiles,
+      };
 
       // 2. Prepare merged appState
       const baseAppState = engine.getDocument().state;
@@ -98,7 +103,7 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
         engine.loadDocument({
           elements,
           state: mergedAppState,
-          assets: fetchedFiles,
+          assets: hydratedFiles,
         });
 
         // 4. Center viewport before file injection so the user sees content ASAP
@@ -118,7 +123,7 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
         //    the local snapshot as a reliable cache for next startup.
         const filesComplete = hasCompleteSceneFileHydration(
           elements,
-          fetchedFiles as Parameters<typeof hasCompleteSceneFileHydration>[1],
+          hydratedFiles as Parameters<typeof hasCompleteSceneFileHydration>[1],
         );
 
         if (filesComplete) {
@@ -126,7 +131,7 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
           saveToLocalStorage(
             elements,
             mergedAppState as Parameters<typeof saveToLocalStorage>[1],
-            fetchedFiles as Parameters<typeof saveToLocalStorage>[2],
+            hydratedFiles as Parameters<typeof saveToLocalStorage>[2],
           );
         }
         // Always sync the session (id + revision) regardless of file completeness,

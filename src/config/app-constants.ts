@@ -31,6 +31,9 @@ export enum WS_SUBTYPES {
 export const STORAGE_KEYS = {
   LOCAL_STORAGE_ELEMENTS: "excalidraw",
   LOCAL_STORAGE_APP_STATE: "excalidraw-state",
+  LOCAL_STORAGE_WHITEBOARD_DOCUMENT: "drawstuff-whiteboard-document",
+  LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION: "drawstuff-legacy-document-revision",
+  LOCAL_STORAGE_OWNED_DOCUMENT_REVISION: "drawstuff-owned-document-revision",
   LOCAL_STORAGE_THEME: "theme",
   VERSION_DATA_STATE: "version-dataState",
   VERSION_FILES: "version-files",

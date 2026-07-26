@@ -12,6 +12,12 @@ import type {
   DataURL,
 } from "@excalidraw/excalidraw/types";
 import { ensureInitialAppState } from "@/lib/excalidraw";
+import {
+  filterReferencedWhiteboardAssets,
+  parsePersistedWhiteboardPayload,
+  toRuntimeWhiteboardDocument,
+  type WhiteboardDocument,
+} from "@/features/whiteboard";
 
 export async function importDataFromBackend(
   id: string,
@@ -36,18 +42,17 @@ export async function importDataFromBackend(
       { decryptionKey },
     );
 
-    const parsed = JSON.parse(new TextDecoder().decode(decodedBuffer)) as {
-      elements?: ExcalidrawElement[];
-      appState?: Partial<AppState>;
-    };
-
-    const sanitizedAppState = parsed.appState
-      ? sanitizeImportedAppState(parsed.appState)
+    const parsed = parseDecodedScenePayload(
+      new TextDecoder().decode(decodedBuffer),
+    );
+    const sanitizedAppState = parsed.state
+      ? sanitizeImportedAppState(parsed.state as unknown as Partial<AppState>)
       : null;
 
     return {
-      elements: parsed.elements ?? null,
+      elements: parsed.elements as unknown as ExcalidrawElement[],
       appState: sanitizedAppState,
+      files: parsed.assets as unknown as BinaryFiles,
     };
   } catch (error: unknown) {
     console.error("importFromBackend error", error);
@@ -227,12 +232,9 @@ export async function importSceneDataBySceneId(
       // 未加密情況下，此值不會被使用
       decryptionKey: "",
     });
-    const parsed = JSON.parse(new TextDecoder().decode(data)) as {
-      elements?: ExcalidrawElement[];
-      appState?: Partial<AppState>;
-    };
-    const sanitizedAppState = parsed.appState
-      ? sanitizeImportedAppState(parsed.appState)
+    const parsed = parseDecodedScenePayload(new TextDecoder().decode(data));
+    const sanitizedAppState = parsed.state
+      ? sanitizeImportedAppState(parsed.state as unknown as Partial<AppState>)
       : null;
     // DB name 欄位是權威來源（rename 只更新 DB name，不重寫 sceneData），
     // 用它覆蓋壓縮資料中可能過時的 appState.name
@@ -240,8 +242,9 @@ export async function importSceneDataBySceneId(
       sanitizedAppState.name = result.name;
     }
     return {
-      elements: parsed.elements ?? null,
+      elements: parsed.elements as unknown as ExcalidrawElement[],
       appState: sanitizedAppState,
+      files: parsed.assets as unknown as BinaryFiles,
       revision: normalizeRevision(result?.revision),
       updatedAt: normalizeUpdatedAt(result?.updatedAt),
       workspaceId: result?.workspaceId ?? undefined,
@@ -250,6 +253,21 @@ export async function importSceneDataBySceneId(
     console.error("importSceneDataBySceneId error", error);
     return {};
   }
+}
+
+function parseDecodedScenePayload(source: string): WhiteboardDocument {
+  const persisted = parsePersistedWhiteboardPayload(source);
+  const document =
+    persisted.format === "whiteboard-v1"
+      ? toRuntimeWhiteboardDocument(persisted.document)
+      : persisted.document;
+  return {
+    ...document,
+    assets: filterReferencedWhiteboardAssets(
+      document.elements,
+      document.assets,
+    ),
+  };
 }
 
 export async function getSceneMetaBySceneId(

@@ -20,6 +20,11 @@ import {
 } from "@/lib/excalidraw";
 import { extractImageFiles, processFilesForUpload } from "@/lib/file-processor";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";
+import {
+  createWhiteboardDocumentV1,
+  migrateLegacyExcalidrawScene,
+  serializeWhiteboardDocumentV1,
+} from "@/features/whiteboard";
 
 type SceneFixture = {
   type: "excalidraw";
@@ -240,5 +245,99 @@ describe("local recovery and binary files", () => {
     expect(loaded.appState?.zenModeEnabled).toBe(true);
     expect(loaded.appState?.scrollX).toBeUndefined();
     expect(loaded.files?.["legacy-image-file"]?.dataURL).toBe(binary.dataURL);
+  });
+
+  it("loads the unversioned legacy server shape at the published boundary", async () => {
+    const { compressData } = await import("@/lib/encode");
+    const compressedScene = await compressData(
+      new TextEncoder().encode(
+        JSON.stringify({
+          elements: [{ id: "server-legacy", type: "rectangle" }],
+          appState: {
+            name: "Unversioned server scene",
+            theme: "light",
+            viewBackgroundColor: "#ffffff",
+          },
+        }),
+      ),
+      {},
+    );
+
+    const loaded = await loadPublishedSceneData({
+      sceneData: Buffer.from(compressedScene).toString("base64"),
+      fileRecords: [],
+    });
+
+    expect(loaded.elements?.map((element) => element.id)).toEqual([
+      "server-legacy",
+    ]);
+    expect(loaded.appState?.name).toBe("Unversioned server scene");
+    expect(loaded.appState?.viewModeEnabled).toBe(true);
+  });
+
+  it("detects and loads an owned published document with inline assets", async () => {
+    const source = await readFile(
+      path.join(fixtureDirectory, "images-and-binary-files.excalidraw"),
+      "utf8",
+    );
+    const document = migrateLegacyExcalidrawScene(source);
+    const { compressData } = await import("@/lib/encode");
+    const compressedScene = await compressData(
+      new TextEncoder().encode(serializeWhiteboardDocumentV1(document)),
+      {},
+    );
+
+    const loaded = await loadPublishedSceneData({
+      sceneData: Buffer.from(compressedScene).toString("base64"),
+      fileRecords: [],
+    });
+
+    expect(loaded.elements?.map((element) => element.id)).toEqual([
+      "legacy-image",
+    ]);
+    expect(loaded.appState?.name).toBe("Legacy image and binary file");
+    expect(loaded.appState?.viewModeEnabled).toBe(true);
+    expect(loaded.files?.["legacy-image-file"]?.dataURL).toBe(
+      document.assets["legacy-image-file"]?.dataURL,
+    );
+  });
+
+  it("does not hydrate inline assets referenced only by deleted elements", async () => {
+    const document = createWhiteboardDocumentV1({
+      elements: [
+        {
+          id: "deleted-image",
+          type: "image",
+          isDeleted: true,
+          fileId: "private-asset",
+        },
+      ],
+      assets: {
+        "private-asset": {
+          id: "private-asset",
+          dataURL: "data:image/png;base64,AA==",
+          mimeType: "image/png",
+          created: 1,
+        },
+      },
+      metadata: {
+        name: "Deleted asset",
+        theme: "light",
+        viewBackgroundColor: "#ffffff",
+        gridSize: null,
+      },
+    });
+    const { compressData } = await import("@/lib/encode");
+    const compressedScene = await compressData(
+      new TextEncoder().encode(serializeWhiteboardDocumentV1(document)),
+      {},
+    );
+
+    const loaded = await loadPublishedSceneData({
+      sceneData: Buffer.from(compressedScene).toString("base64"),
+      fileRecords: [],
+    });
+
+    expect(loaded.files).toEqual({});
   });
 });

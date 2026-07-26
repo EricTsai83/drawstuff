@@ -12,11 +12,11 @@ import type {
 } from "@excalidraw/excalidraw/element/types";
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
 import { ensureInitialAppState } from "@/lib/excalidraw";
-
-type StoredScenePayload = {
-  elements?: ExcalidrawElement[];
-  appState?: Partial<AppState>;
-};
+import {
+  filterReferencedWhiteboardAssets,
+  parsePersistedWhiteboardPayload,
+  toRuntimeWhiteboardDocument,
+} from "@/features/whiteboard";
 
 type DecompressedFileMetadata = {
   id: string;
@@ -39,9 +39,13 @@ export async function loadPublishedSceneData({
     compressedBuffer,
     { decryptionKey: "" },
   );
-  const parsed = JSON.parse(
+  const persisted = parsePersistedWhiteboardPayload(
     new TextDecoder().decode(data),
-  ) as StoredScenePayload;
+  );
+  const parsed =
+    persisted.format === "whiteboard-v1"
+      ? toRuntimeWhiteboardDocument(persisted.document)
+      : persisted.document;
 
   const files: BinaryFiles = {};
   await Promise.allSettled(
@@ -68,9 +72,15 @@ export async function loadPublishedSceneData({
 
   const restored = restore(
     {
-      elements: parsed.elements ?? null,
-      appState: parsed.appState ?? null,
-      files,
+      elements: parsed.elements as unknown as ExcalidrawElement[],
+      appState: parsed.state as unknown as Partial<AppState>,
+      files: {
+        ...(filterReferencedWhiteboardAssets(
+          parsed.elements,
+          parsed.assets,
+        ) as unknown as BinaryFiles),
+        ...files,
+      },
     },
     null,
     null,
