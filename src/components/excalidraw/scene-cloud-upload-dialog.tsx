@@ -18,19 +18,17 @@ import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
-import { useForm } from "react-hook-form";
+import { Controller, useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { workspaceDescriptionSchema } from "@/lib/schemas/workspace";
 import { SCENE_NAME_MAX_LENGTH } from "@/lib/schemas/scene";
 import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+  Field,
+  FieldError,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 
 type SceneCloudUploadDialogProps = {
   open: boolean;
@@ -173,10 +171,8 @@ export function SceneCloudUploadDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-lg"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        initialFocus={false}
         data-prevent-outside-click="true"
-        onEscapeKeyDown={() => onOpenChange(false)}
-        onInteractOutside={() => onOpenChange(false)}
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">Save Scene</DialogTitle>
@@ -185,36 +181,36 @@ export function SceneCloudUploadDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <Form {...form}>
-          <form
-            onSubmit={form.handleSubmit((vals) => void handleConfirm(vals))}
-            noValidate
-            className="grid gap-4"
-          >
-            <FormField
+        <form
+          onSubmit={form.handleSubmit((vals) => void handleConfirm(vals))}
+          noValidate
+        >
+          <FieldGroup>
+            <Controller
               control={form.control}
               name="name"
-              rules={{ required: false }}
-              render={() => (
-                <FormItem>
-                  <FormLabel>Scene name</FormLabel>
-                  <FormControl>
-                    <Input
-                      placeholder="Enter a scene name"
-                      autoComplete="off"
-                      autoCorrect="off"
-                      autoCapitalize="off"
-                      spellCheck={false}
-                      {...form.register("name")}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor={field.name}>Scene name</FieldLabel>
+                  <Input
+                    {...field}
+                    id={field.name}
+                    placeholder="Enter a scene name"
+                    autoComplete="off"
+                    autoCorrect="off"
+                    autoCapitalize="off"
+                    spellCheck={false}
+                    aria-invalid={fieldState.invalid}
+                  />
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
               )}
             />
 
-            <div className="grid gap-3">
-              <FormLabel id="scene-workspace-label">Workspace</FormLabel>
+            <Field>
+              <FieldLabel id="scene-workspace-label">Workspace</FieldLabel>
               <div aria-labelledby="scene-workspace-label">
                 <WorkspaceDropdown
                   options={workspaceOptions}
@@ -229,39 +225,39 @@ export function SceneCloudUploadDialog({
                   }}
                 />
               </div>
-            </div>
+            </Field>
 
-            <FormField
+            <Controller
               control={form.control}
               name="description"
-              rules={{ required: false }}
-              render={() => (
-                <FormItem>
-                  <FormLabel htmlFor="scene-description-input">
+              render={({ field, fieldState }) => (
+                <Field data-invalid={fieldState.invalid}>
+                  <FieldLabel htmlFor="scene-description-input">
                     Description
-                  </FormLabel>
-                  <FormControl>
-                    <Textarea
-                      id="scene-description-input"
-                      placeholder="Add a short description"
-                      className="h-24 resize-none"
-                      {...form.register("description")}
-                    />
-                  </FormControl>
-                  <FormMessage />
-                </FormItem>
+                  </FieldLabel>
+                  <Textarea
+                    {...field}
+                    id="scene-description-input"
+                    placeholder="Add a short description"
+                    className="h-24 resize-none"
+                    aria-invalid={fieldState.invalid}
+                  />
+                  {fieldState.invalid && (
+                    <FieldError errors={[fieldState.error]} />
+                  )}
+                </Field>
               )}
             />
 
-            <div className="grid gap-3">
-              <FormLabel id="scene-categories-label">Categories</FormLabel>
+            <Field>
+              <FieldLabel id="scene-categories-label">Categories</FieldLabel>
               <div aria-labelledby="scene-categories-label">
                 <SearchableAndCreatableSelector
                   value={categoryOptions}
                   onChange={setCategoryOptions}
                 />
               </div>
-            </div>
+            </Field>
 
             <div className="flex justify-end gap-2">
               <Button
@@ -276,8 +272,8 @@ export function SceneCloudUploadDialog({
                 Save
               </Button>
             </div>
-          </form>
-        </Form>
+          </FieldGroup>
+        </form>
       </DialogContent>
     </Dialog>
   );

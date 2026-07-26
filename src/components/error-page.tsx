@@ -61,11 +61,14 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
             <RefreshCw className="size-4" aria-hidden="true" />
             Try again
           </Button>
-          <Button asChild variant="outline" className="w-full sm:w-auto">
-            <Link href="/">
-              <Home className="size-4" aria-hidden="true" />
-              Back to canvas
-            </Link>
+          <Button
+            render={<Link href="/" />}
+            nativeButton={false}
+            variant="outline"
+            className="w-full sm:w-auto"
+          >
+            <Home className="size-4" aria-hidden="true" />
+            Back to canvas
           </Button>
         </div>
       </section>

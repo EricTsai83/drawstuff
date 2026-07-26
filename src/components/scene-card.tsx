@@ -46,7 +46,12 @@ type SceneListItem =
 
 export function SceneCard({ item }: { item: SceneListItem }) {
   const { t, langCode } = useStandaloneI18n();
-  const { currentSceneId, clearCurrentScene, updateLastSyncedRevision, updateCurrentWorkspaceId } = useSceneSession();
+  const {
+    currentSceneId,
+    clearCurrentScene,
+    updateLastSyncedRevision,
+    updateCurrentWorkspaceId,
+  } = useSceneSession();
   const timeAgo = formatDistanceToNow(item.updatedAt, {
     addSuffix: true,
     locale: langCode === "zh-TW" ? zhTW : undefined,
@@ -149,7 +154,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         dataString = full?.sceneData ?? undefined;
         const fetchedRevision: unknown = full?.revision;
         expectedRevision =
-          typeof fetchedRevision === "number" ? fetchedRevision : expectedRevision;
+          typeof fetchedRevision === "number"
+            ? fetchedRevision
+            : expectedRevision;
       }
       if (!dataString || expectedRevision === undefined) {
         console.error("Failed to edit: missing scene data");
@@ -348,7 +355,6 @@ export function SceneCard({ item }: { item: SceneListItem }) {
           <div className="flex min-w-0 items-center gap-2">
             <OverflowTooltip
               delayDuration={600}
-              variant="secondary"
               sideOffset={6}
               contentClassName="max-w-[320px] text-xs leading-relaxed"
               content={item.name}
@@ -356,16 +362,18 @@ export function SceneCard({ item }: { item: SceneListItem }) {
               <h3 className="truncate text-lg font-semibold">{item.name}</h3>
             </OverflowTooltip>
             {item.description ? (
-              <Tooltip delayDuration={300}>
-                <TooltipTrigger asChild>
-                  <span className="text-muted-foreground hover:text-foreground shrink-0">
-                    <Info className="h-4 w-4" />
-                  </span>
+              <Tooltip>
+                <TooltipTrigger
+                  delay={300}
+                  render={
+                    <span className="text-muted-foreground hover:text-foreground shrink-0" />
+                  }
+                >
+                  <Info className="h-4 w-4" />
                 </TooltipTrigger>
                 <TooltipContent
-                  variant="secondary"
                   sideOffset={6}
-                  className="max-w-[280px] text-xs leading-relaxed"
+                  className="max-w-70 text-xs leading-relaxed"
                 >
                   <div className="mb-1 text-sm font-semibold">
                     {t("labels.description")}
