@@ -21,6 +21,25 @@ eventual replacement of `@excalidraw/excalidraw`.
 | 5G    | [Assets, export, and viewer](./phase-5g-whiteboard-assets-export-viewer.md)        | Images, portable exports, and public read-only viewing work    |
 | 5H    | [Migration rollout](./phase-5h-whiteboard-migration-rollout.md)                    | The owned engine is introduced behind a measured rollback path |
 | 5I    | [Excalidraw removal](./phase-5i-excalidraw-removal.md)                             | The legacy runtime and dependency are removed safely           |
+| 5J    | [Canonical V2 and owned-only writes](./phase-5j-canonical-whiteboard-v2.md)        | Existing owned work converges on one final persistence design  |
+| 5K    | [Data convergence and cutover](./phase-5k-whiteboard-data-convergence.md)          | Every persisted document is converted and verified             |
+| 5L    | [Irreversible legacy purge](./phase-5l-whiteboard-legacy-purge.md)                 | All legacy, migration, compatibility, and rollout code is gone |
+
+## Existing-phase policy
+
+Phases 5A through 5I remain the implementation history and are not reopened by
+the zero-legacy extension. In particular, Phase 5J builds on the completed
+contracts, document work, UI, canvas, tools, editing, assets, rollout, and
+runtime removal rather than reimplementing them.
+
+Phases 5J through 5L provide the additional final-state guarantee:
+
+- Production reads and writes one canonical owned document version.
+- Canonical documents never embed original legacy payloads or rollback copies.
+- One-time conversion code is deleted after every persisted document converges.
+- Database backups remain operational artifacts outside product documents.
+- No application-level rollback, legacy file import/export, stale-client
+  fallback, or migration branch remains after Phase 5L.
 
 ## Global rules
 

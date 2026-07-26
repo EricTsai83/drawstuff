@@ -26,9 +26,40 @@ import {
   zoomViewportAt,
   type WhiteboardPoint,
 } from "./geometry";
+import {
+  createOwnedClipboardPayload,
+  remapOwnedClipboardPayload,
+  type OwnedClipboardPayloadV1,
+} from "./clipboard";
 
 export const OWNED_MIN_ZOOM = 0.05;
 export const OWNED_MAX_ZOOM = 16;
+export const OWNED_HISTORY_LIMIT = 100;
+
+export type OwnedDocumentCommandKind =
+  | "clear"
+  | "create"
+  | "cut"
+  | "delete"
+  | "duplicate"
+  | "metadata"
+  | "move"
+  | "paste"
+  | "resize"
+  | "rotate"
+  | "style";
+
+interface OwnedDocumentCommand {
+  readonly kind: OwnedDocumentCommandKind;
+  readonly before: WhiteboardDocument;
+  readonly after: WhiteboardDocument;
+}
+
+interface ActiveElementGesture {
+  readonly kind: "move" | "resize" | "rotate";
+  readonly before: WhiteboardDocument;
+  readonly elementIds: ReadonlySet<string>;
+}
 
 const DEFAULT_STYLE: WhiteboardElementStyle = {
   strokeColor: "#1e1e1e",
@@ -37,6 +68,7 @@ const DEFAULT_STYLE: WhiteboardElementStyle = {
   strokeWidth: 1,
   strokeStyle: "solid",
   opacity: 100,
+  roughness: 1,
 };
 
 const DEFAULT_VIEWPORT: WhiteboardViewport = {
@@ -80,12 +112,18 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   >();
   private readonly renderListeners = new Set<OwnedWhiteboardRenderListener>();
   private readonly destroyListeners = new Set<() => void>();
+  private readonly undoStack: OwnedDocumentCommand[] = [];
+  private readonly redoStack: OwnedDocumentCommand[] = [];
+  private activeElementGesture: ActiveElementGesture | null = null;
   private destroyed = false;
 
   public loadDocument(document: WhiteboardDocument): void {
     this.assertActive();
     const nextZoom = clampZoom(document.state.zoom?.value, this.viewport.zoom);
     this.document = document;
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.activeElementGesture = null;
     this.refreshDocumentSnapshot();
     this.viewport = {
       ...this.viewport,
@@ -149,6 +187,8 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public updateEditorState(update: WhiteboardEditorStateUpdate): void {
     this.assertActive();
+    if (update.name !== undefined) this.finalizeActiveElementGesture();
+    const before = this.document;
     const nextState = {
       ...this.document.state,
       ...(update.name === undefined ? {} : { name: update.name }),
@@ -158,8 +198,28 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
         : { openDialog: update.openDialog }),
       ...(update.openMenu === undefined ? {} : { openMenu: update.openMenu }),
     };
+    if (shallowRecordEqual(this.document.state, nextState)) return;
     this.document = { ...this.document, state: nextState };
+    const nonHistoricalState = {
+      ...(update.theme === undefined ? {} : { theme: update.theme }),
+      ...(update.openDialog === undefined
+        ? {}
+        : { openDialog: update.openDialog }),
+      ...(update.openMenu === undefined ? {} : { openMenu: update.openMenu }),
+    };
+    if (Object.keys(nonHistoricalState).length > 0) {
+      this.rebaseHistoryDocuments((document) => ({
+        ...document,
+        state: { ...document.state, ...nonHistoricalState },
+      }));
+    }
     this.refreshDocumentSnapshot();
+    if (update.name !== undefined) {
+      this.recordDocumentMutation("metadata", {
+        ...before,
+        state: { ...before.state, ...nonHistoricalState },
+      });
+    }
     this.emitDocument();
     this.emitEditor();
     this.emitRender("scene");
@@ -178,9 +238,19 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public updateElementStyle(update: WhiteboardElementStyleUpdate): void {
     this.assertActive();
+    this.finalizeActiveElementGesture();
     this.elementStyle = { ...this.elementStyle, ...update };
     if (this.selectedElementIds.length > 0) {
       const selectedIds = new Set(this.selectedElementIds);
+      const changesDocument = this.document.elements.some(
+        (element) =>
+          selectedIds.has(element.id) && elementStyleDiffers(element, update),
+      );
+      if (!changesDocument) {
+        this.emitEditor();
+        return;
+      }
+      const before = this.document;
       this.document = {
         ...this.document,
         elements: this.document.elements.map((element) =>
@@ -193,6 +263,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
         ),
       };
       this.refreshDocumentSnapshot();
+      this.recordDocumentMutation("style", before);
       this.emitDocument();
     }
     this.emitEditor();
@@ -261,17 +332,50 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public undo(): void {
     this.assertActive();
+    this.cancelElementGesture();
+    const command = this.undoStack.pop();
+    if (!command) return;
+    this.redoStack.push(command);
+    this.restoreHistoryDocument(command.before);
   }
 
   public redo(): void {
     this.assertActive();
+    this.cancelElementGesture();
+    const command = this.redoStack.pop();
+    if (!command) return;
+    this.undoStack.push(command);
+    this.restoreHistoryDocument(command.after);
   }
 
   public clearDocument(): void {
     this.assertActive();
+    this.finalizeActiveElementGesture();
+    if (this.document.elements.length === 0) return;
+    const before = this.document;
     this.document = { ...this.document, elements: [] };
     this.refreshDocumentSnapshot();
+    this.recordDocumentMutation("clear", before);
     this.selectedElementIds = [];
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
+  public appendElement(element: WhiteboardElement): void {
+    this.assertActive();
+    this.finalizeActiveElementGesture();
+    const before = this.document;
+    this.document = {
+      ...this.document,
+      elements: [...this.document.elements, element],
+    };
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation("create", before);
+    this.selectedElementIds = [element.id];
+    if (!this.activeTool.locked) {
+      this.activeTool = { type: "selection" };
+    }
     this.emitDocument();
     this.emitEditor();
     this.emitRender("scene");
@@ -287,6 +391,13 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
         ...Object.fromEntries(assets.map((asset) => [asset.id, asset])),
       },
     };
+    this.rebaseHistoryDocuments((document) => ({
+      ...document,
+      assets: {
+        ...document.assets,
+        ...Object.fromEntries(assets.map((asset) => [asset.id, asset])),
+      },
+    }));
     this.refreshDocumentSnapshot();
     this.emitDocument();
     this.emitRender("scene");
@@ -358,6 +469,9 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.document = EMPTY_DOCUMENT;
     this.documentSnapshot = EMPTY_DOCUMENT;
     this.selectedElementIds = [];
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.activeElementGesture = null;
   }
 
   public subscribeRenderState(
@@ -376,12 +490,13 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public setSelection(ids: readonly string[]): void {
     this.assertActive();
-    const selectableIds = new Set(
-      this.document.elements
-        .filter(isElementSelectable)
-        .map((element) => element.id),
-    );
-    const nextIds = [...new Set(ids)].filter((id) => selectableIds.has(id));
+    const requestedIds = new Set(ids);
+    const nextIds = this.document.elements
+      .filter(
+        (element) =>
+          requestedIds.has(element.id) && isElementSelectable(element),
+      )
+      .map((element) => element.id);
     if (
       nextIds.length === this.selectedElementIds.length &&
       nextIds.every((id, index) => id === this.selectedElementIds[index])
@@ -391,6 +506,143 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.selectedElementIds = nextIds;
     this.emitEditor();
     this.emitRender("overlay");
+  }
+
+  public selectAll(): void {
+    this.assertActive();
+    this.setSelection(
+      this.document.elements
+        .filter(isElementSelectable)
+        .map((element) => element.id),
+    );
+  }
+
+  public getSelectedElements(): readonly WhiteboardElement[] {
+    this.assertActive();
+    const selectedIds = new Set(this.selectedElementIds);
+    return this.documentSnapshot.elements.filter((element) =>
+      selectedIds.has(element.id),
+    );
+  }
+
+  public createClipboardPayload(): OwnedClipboardPayloadV1 | null {
+    this.assertActive();
+    const elements = this.getSelectedElements();
+    return elements.length > 0
+      ? createOwnedClipboardPayload(elements, this.documentSnapshot.assets)
+      : null;
+  }
+
+  public deleteSelection(kind: "cut" | "delete" = "delete"): void {
+    this.assertActive();
+    this.finalizeActiveElementGesture();
+    if (this.selectedElementIds.length === 0) return;
+    const selectedIds = new Set(this.selectedElementIds);
+    const before = this.document;
+    this.document = {
+      ...this.document,
+      elements: this.document.elements.filter(
+        (element) => !selectedIds.has(element.id),
+      ),
+    };
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation(kind, before);
+    this.selectedElementIds = [];
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
+  public duplicateSelection(createId: () => string, offset = 20): void {
+    const payload = this.createClipboardPayload();
+    if (!payload) return;
+    this.insertClipboardPayload(payload, createId, offset, "duplicate");
+  }
+
+  public pasteClipboardPayload(
+    payload: OwnedClipboardPayloadV1,
+    createId: () => string,
+    offset: number,
+  ): void {
+    this.assertActive();
+    this.insertClipboardPayload(payload, createId, offset, "paste");
+  }
+
+  public beginElementGesture(kind: "move" | "resize" | "rotate"): void {
+    this.assertActive();
+    if (this.activeElementGesture || this.selectedElementIds.length === 0) {
+      return;
+    }
+    this.activeElementGesture = {
+      kind,
+      before: this.document,
+      elementIds: new Set(this.selectedElementIds),
+    };
+  }
+
+  public updateElementGesture(elements: readonly WhiteboardElement[]): void {
+    this.assertActive();
+    const gesture = this.activeElementGesture;
+    if (!gesture) return;
+    const replacements = new Map(
+      elements
+        .filter((element) => gesture.elementIds.has(element.id))
+        .map((element) => [element.id, element]),
+    );
+    if (replacements.size === 0) return;
+    this.document = {
+      ...this.document,
+      elements: this.document.elements.map(
+        (element) => replacements.get(element.id) ?? element,
+      ),
+    };
+    this.documentSnapshot = {
+      ...this.documentSnapshot,
+      elements: this.documentSnapshot.elements.map(
+        (element) => replacements.get(element.id) ?? element,
+      ),
+    };
+    this.emitRender("scene");
+  }
+
+  public commitElementGesture(): void {
+    this.assertActive();
+    const gesture = this.activeElementGesture;
+    if (!gesture) return;
+    this.activeElementGesture = null;
+    if (this.document === gesture.before) return;
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation(gesture.kind, gesture.before);
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
+  public cancelElementGesture(): void {
+    this.assertActive();
+    const gesture = this.activeElementGesture;
+    if (!gesture) return;
+    this.activeElementGesture = null;
+    if (this.document === gesture.before) return;
+    this.document = gesture.before;
+    this.refreshDocumentSnapshot();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
+  public getHistoryDiagnostics(): {
+    readonly undoEntries: number;
+    readonly redoEntries: number;
+    readonly limit: number;
+    readonly undoKinds: readonly OwnedDocumentCommandKind[];
+  } {
+    this.assertActive();
+    return {
+      undoEntries: this.undoStack.length,
+      redoEntries: this.redoStack.length,
+      limit: OWNED_HISTORY_LIMIT,
+      undoKinds: this.undoStack.map((command) => command.kind),
+    };
   }
 
   public panBy(deltaX: number, deltaY: number, transient = false): void {
@@ -485,11 +737,105 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.documentSnapshot = createSerializableSnapshot(this.document);
   }
 
+  private recordDocumentMutation(
+    kind: OwnedDocumentCommandKind,
+    before: WhiteboardDocument,
+  ): void {
+    if (before === this.document) return;
+    this.undoStack.push({ kind, before, after: this.document });
+    if (this.undoStack.length > OWNED_HISTORY_LIMIT) this.undoStack.shift();
+    this.redoStack.length = 0;
+  }
+
+  private finalizeActiveElementGesture(): void {
+    if (this.activeElementGesture) this.commitElementGesture();
+  }
+
+  private rebaseHistoryDocuments(
+    transform: (document: WhiteboardDocument) => WhiteboardDocument,
+  ): void {
+    for (const stack of [this.undoStack, this.redoStack]) {
+      stack.forEach((command, index) => {
+        stack[index] = {
+          ...command,
+          before: transform(command.before),
+          after: transform(command.after),
+        };
+      });
+    }
+    if (this.activeElementGesture) {
+      this.activeElementGesture = {
+        ...this.activeElementGesture,
+        before: transform(this.activeElementGesture.before),
+      };
+    }
+  }
+
+  private insertClipboardPayload(
+    payload: OwnedClipboardPayloadV1,
+    createId: () => string,
+    offset: number,
+    kind: "duplicate" | "paste",
+  ): void {
+    this.finalizeActiveElementGesture();
+    const remapped = remapOwnedClipboardPayload(
+      payload,
+      new Set(this.document.elements.map((element) => element.id)),
+      new Set(Object.keys(this.document.assets)),
+      createId,
+      offset,
+    );
+    if (remapped.elements.length === 0) return;
+    const before = this.document;
+    this.document = {
+      ...this.document,
+      elements: [...this.document.elements, ...remapped.elements],
+      assets: {
+        ...this.document.assets,
+        ...Object.fromEntries(
+          remapped.assets.map((asset) => [asset.id, asset]),
+        ),
+      },
+    };
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation(kind, before);
+    this.selectedElementIds = remapped.elements
+      .filter(isElementSelectable)
+      .map((element) => element.id);
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
+  private restoreHistoryDocument(document: WhiteboardDocument): void {
+    this.document = document;
+    this.refreshDocumentSnapshot();
+    const selectableIds = new Set(
+      this.document.elements
+        .filter(isElementSelectable)
+        .map((element) => element.id),
+    );
+    this.selectedElementIds = this.selectedElementIds.filter((id) =>
+      selectableIds.has(id),
+    );
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
   private assertActive(): void {
     if (this.destroyed) {
       throw new Error("Whiteboard engine has been destroyed");
     }
   }
+}
+
+function elementStyleDiffers(
+  element: WhiteboardElement,
+  update: WhiteboardElementStyleUpdate,
+): boolean {
+  const record = element as unknown as Readonly<Record<string, unknown>>;
+  return Object.entries(update).some(([key, value]) => record[key] !== value);
 }
 
 function styleFromElement(
@@ -518,6 +864,7 @@ function styleFromElement(
         ? record.strokeStyle
         : fallback.strokeStyle,
     opacity: finiteNumber(record.opacity, fallback.opacity),
+    roughness: finiteNumber(record.roughness, fallback.roughness ?? 1),
   };
 }
 
@@ -540,6 +887,16 @@ function finiteNumber(value: unknown, fallback: number): number {
 
 function stringValue(value: unknown, fallback: string): string {
   return typeof value === "string" ? value : fallback;
+}
+
+function shallowRecordEqual(left: object, right: object): boolean {
+  const leftEntries = Object.entries(left);
+  const rightEntries = Object.entries(right);
+  const rightRecord = right as Readonly<Record<string, unknown>>;
+  return (
+    leftEntries.length === rightEntries.length &&
+    leftEntries.every(([key, value]) => rightRecord[key] === value)
+  );
 }
 
 function createSerializableSnapshot(

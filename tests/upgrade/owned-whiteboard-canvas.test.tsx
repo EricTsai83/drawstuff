@@ -95,6 +95,18 @@ describe("OwnedWhiteboardCanvas lifecycle", () => {
     window.dispatchEvent(new Event("resize"));
     expect(container.querySelector("canvas")?.width).toBe(800);
 
+    rerender(
+      <OwnedWhiteboardCanvas
+        document={sourceDocument}
+        drawingCapabilities={{ arrow: false }}
+        onEngineReady={onEngineReady}
+      />,
+    );
+    expect(onEngineReady).not.toHaveBeenCalledWith(null);
+    expect(
+      onEngineReady.mock.calls.filter(([candidate]) => candidate !== null),
+    ).toHaveLength(1);
+
     let replacementEngine: WhiteboardEngine | null = null;
     const replacementReady = vi.fn(
       (nextEngine: WhiteboardEngine | null): void => {
@@ -149,7 +161,7 @@ function ownedDocument(): WhiteboardDocument {
         width: 100,
         height: 50,
         angle: 0,
-      } as unknown as WhiteboardDocument["elements"][number],
+      },
     ],
     assets: {},
     state: {
