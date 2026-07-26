@@ -221,7 +221,6 @@ function WorkspaceDropdownComponent(
           />
         </PopoverTrigger>
         <PopoverContent
-          collisionPadding={10}
           side="bottom"
           className="w-auto min-w-(--anchor-width) p-0"
           data-prevent-outside-click
