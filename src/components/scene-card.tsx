@@ -355,7 +355,6 @@ export function SceneCard({ item }: { item: SceneListItem }) {
           <div className="flex min-w-0 items-center gap-2">
             <OverflowTooltip
               delayDuration={600}
-              variant="secondary"
               sideOffset={6}
               contentClassName="max-w-[320px] text-xs leading-relaxed"
               content={item.name}
@@ -373,7 +372,6 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                   <Info className="h-4 w-4" />
                 </TooltipTrigger>
                 <TooltipContent
-                  variant="secondary"
                   sideOffset={6}
                   className="max-w-70 text-xs leading-relaxed"
                 >
