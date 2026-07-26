@@ -105,13 +105,11 @@ export function SceneRenameDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+      {trigger && <DialogTrigger render={trigger as React.ReactElement} />}
 
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-md"
         data-prevent-outside-click="true"
-        onEscapeKeyDown={handleClose}
-        onInteractOutside={handleClose}
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">Rename scene</DialogTitle>

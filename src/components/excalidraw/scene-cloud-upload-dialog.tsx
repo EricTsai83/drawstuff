@@ -173,10 +173,8 @@ export function SceneCloudUploadDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-lg"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        initialFocus={false}
         data-prevent-outside-click="true"
-        onEscapeKeyDown={() => onOpenChange(false)}
-        onInteractOutside={() => onOpenChange(false)}
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">Save Scene</DialogTitle>
