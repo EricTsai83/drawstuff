@@ -227,7 +227,7 @@ function WorkspaceDropdownComponent(
           data-prevent-outside-click
         >
           <Command
-            className="max-h-[200px] w-full sm:max-h-[270px]"
+            className="max-h-50 w-full sm:max-h-67.5"
             filter={(value, search) => {
               const q = (search ?? "").trim().toLowerCase();
               if (q.length === 0) return 1;
@@ -256,7 +256,7 @@ function WorkspaceDropdownComponent(
               />
             </div>
             <CommandList
-              className="max-h-[200px] overflow-y-auto sm:max-h-[270px]"
+              className="max-h-50 overflow-y-auto sm:max-h-67.5"
               onWheelCapture={(e) => {
                 e.stopPropagation();
               }}
