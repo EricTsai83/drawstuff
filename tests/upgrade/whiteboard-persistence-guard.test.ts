@@ -13,7 +13,7 @@ import {
   parseWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
   type OwnedWhiteboardDocument,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { compressData, decompressData } from "@/lib/encode";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { validateStoredWhiteboardWrite } from "@/server/whiteboard/persistence-guard";

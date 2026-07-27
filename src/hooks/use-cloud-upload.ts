@@ -1,11 +1,11 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@drawstuff/whiteboard";
 import {
   recordWhiteboardDiagnostic,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { api } from "@/trpc/react";
 import {
   cleanupSceneAssetUploadsAction,

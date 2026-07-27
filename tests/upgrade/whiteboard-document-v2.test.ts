@@ -8,7 +8,7 @@ import {
   type OwnedWhiteboardDocument,
   type WhiteboardElementType,
   type WhiteboardElementV2,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { saveSceneSchema } from "@/lib/schemas/scene";
 
 const elementTypes = [
@@ -41,6 +41,7 @@ const assetMimeTypes = [
 
 const earlierV2ElementFields = [
   "autoResize",
+  "baseline",
   "boundElementIds",
   "boundElements",
   "containerId",
@@ -60,6 +61,7 @@ const earlierV2ElementFields = [
   "link",
   "name",
   "pressures",
+  "polygon",
   "roundness",
   "scale",
   "seed",

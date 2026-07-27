@@ -1,4 +1,4 @@
-import { whiteboardDiagnosticSchema } from "@/features/whiteboard/diagnostics";
+import { whiteboardDiagnosticSchema } from "@drawstuff/whiteboard";
 import { getServerSession } from "@/lib/auth/server";
 
 export async function POST(request: Request): Promise<Response> {

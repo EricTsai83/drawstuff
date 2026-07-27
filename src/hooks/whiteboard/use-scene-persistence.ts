@@ -5,11 +5,11 @@ import { useSceneSession } from "@/hooks/scene-session-context";
 import type {
   OwnedWhiteboardDocument,
   WhiteboardEngine,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import {
   recordWhiteboardDiagnostic,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 

@@ -27,14 +27,14 @@ import { useApplyRemoteScene } from "@/hooks/whiteboard/use-apply-remote-scene";
 import { useSceneRemoteRevisionCheck } from "@/hooks/whiteboard/use-scene-remote-revision-check";
 import { SceneRemoteConflictDialog } from "@/components/whiteboard/scene-remote-conflict-dialog";
 import { useSceneSession } from "@/hooks/scene-session-context";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@drawstuff/whiteboard";
 import {
   recordWhiteboardDiagnostic,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { WhiteboardShell } from "@/features/whiteboard/ui";
 import { WhiteboardProductMenu } from "./whiteboard-product-menu";
-import { OwnedWhiteboardCanvas } from "@/features/whiteboard/owned";
+import { OwnedWhiteboardCanvas } from "@drawstuff/whiteboard";
 
 export default function WhiteboardEditor() {
   useSceneImportFileGuard();

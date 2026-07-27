@@ -5,11 +5,11 @@ import type {
   WhiteboardAsset,
   WhiteboardDocumentState,
   WhiteboardElement,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import {
   recordWhiteboardDiagnostic,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave, cleanupFailedSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";

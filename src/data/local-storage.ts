@@ -9,7 +9,7 @@ import {
   type WhiteboardDocumentV2,
   type WhiteboardAsset,
   type WhiteboardElement,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 
 // SSR/Node 環境保護：只有在瀏覽器且存在 localStorage 才進行存取
 function canUseLocalStorage(): boolean {

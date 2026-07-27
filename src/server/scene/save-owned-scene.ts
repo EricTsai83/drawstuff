@@ -8,7 +8,7 @@ import type {
   SaveSceneInput,
 } from "@/lib/schemas/scene";
 import { validateStoredWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
-import { WHITEBOARD_DOCUMENT_VERSION } from "@/features/whiteboard";
+import { WHITEBOARD_DOCUMENT_VERSION } from "@drawstuff/whiteboard";
 
 type SaveOwnedSceneParams = {
   userId: string;

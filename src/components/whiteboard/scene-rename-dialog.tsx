@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@drawstuff/whiteboard";
 import { useState, useRef, useEffect, type ReactNode } from "react";
 
 type SceneRenameDialogProps = {

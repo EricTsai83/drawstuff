@@ -10,7 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@drawstuff/whiteboard";
 import SearchableAndCreatableSelector from "@/components/searchable-and-creatable-selector";
 import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";

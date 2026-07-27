@@ -112,7 +112,9 @@ import type {
   WhiteboardEngine,
   WhiteboardFillStyle,
   WhiteboardStrokeStyle,
-} from "@/features/whiteboard";
+  WhiteboardTheme,
+} from "@drawstuff/whiteboard";
+import { OWNED_DARK_THEME_FILTER } from "@drawstuff/whiteboard";
 import { triggerBlobDownload } from "@/lib/download";
 import { cn } from "@/lib/utils";
 
@@ -744,12 +746,14 @@ function PropertiesPanel({
             colors={STROKE_COLORS}
             label="Stroke color"
             onChange={(strokeColor) => updateStyle({ strokeColor })}
+            theme={editorState.theme}
             value={editorState.elementStyle.strokeColor}
           />
           <ColorField
             colors={FILL_COLORS}
             label="Fill color"
             onChange={(backgroundColor) => updateStyle({ backgroundColor })}
+            theme={editorState.theme}
             value={editorState.elementStyle.backgroundColor}
           />
         </FieldSet>
@@ -856,11 +860,13 @@ function ColorField({
   colors,
   label,
   onChange,
+  theme,
   value,
 }: {
   readonly colors: readonly string[];
   readonly label: string;
   readonly onChange: (color: string) => void;
+  readonly theme: WhiteboardTheme;
   readonly value: string;
 }) {
   return (
@@ -879,7 +885,10 @@ function ColorField({
           >
             <span
               className="size-4 rounded-full border"
-              style={{ backgroundColor: color }}
+              style={{
+                backgroundColor: color,
+                filter: theme === "dark" ? OWNED_DARK_THEME_FILTER : undefined,
+              }}
             />
           </Button>
         ))}

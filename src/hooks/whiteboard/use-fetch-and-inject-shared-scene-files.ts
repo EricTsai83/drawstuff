@@ -9,7 +9,7 @@ import { toast } from "sonner";
 import { api } from "@/trpc/react";
 import { parseSharedSceneHash } from "@/lib/utils";
 import { decompressData } from "@/lib/encode";
-import type { WhiteboardAsset, WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardAsset, WhiteboardEngine } from "@drawstuff/whiteboard";
 
 // 穩定的空陣列參考：避免在 useEffect 依賴上造成不必要的重跑
 const EMPTY_FILE_RECORDS: ReadonlyArray<{ url: string }> = [];

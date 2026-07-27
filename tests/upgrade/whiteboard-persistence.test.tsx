@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   OwnedWhiteboardDocument,
   WhiteboardEngine,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 
 const persistenceMocks = vi.hoisted(() => ({
   currentSceneId: undefined as string | undefined,

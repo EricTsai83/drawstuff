@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { WHITEBOARD_DOCUMENT_VERSION } from "@/features/whiteboard";
+import { WHITEBOARD_DOCUMENT_VERSION } from "@drawstuff/whiteboard";
 
 export const SCENE_NAME_MAX_LENGTH = 255;
 export const SCENE_DATA_MAX_LENGTH = 5 * 1024 * 1024;

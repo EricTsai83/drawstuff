@@ -3,7 +3,7 @@ import "server-only";
 import {
   parseWhiteboardDocumentV2,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import {
   base64ToArrayBuffer,
   DecompressionLimitError,
