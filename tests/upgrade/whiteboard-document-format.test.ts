@@ -623,4 +623,32 @@ describe("owned-format persistence opt-in", () => {
     expect(document.metadata.legacy?.originalPayload).toContain('"files":{}');
     expect(source).not.toContain(asset.dataURL);
   });
+
+  it("uploads rollback assets referenced only by deleted legacy elements", async () => {
+    const asset = createAsset("rollback-asset");
+    const deletedImage = createElement({
+      id: "deleted-image",
+      type: "image",
+      fileId: asset.id,
+      isDeleted: true,
+    });
+
+    const prepared = await prepareSceneDataForExport(
+      [],
+      { name: "Rollback assets", theme: "light" },
+      {},
+      {
+        encrypt: false,
+        includeInlineAssets: false,
+        retainLegacy: false,
+        assetUploadElements: [deletedImage],
+        assetUploadAssets: { [asset.id]: asset },
+        includeDeletedAssetUploads: true,
+      },
+    );
+
+    expect(prepared.compressedFilesData.map((file) => file.id)).toEqual([
+      "rollback-asset",
+    ]);
+  });
 });

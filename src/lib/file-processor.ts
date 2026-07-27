@@ -24,11 +24,18 @@ export type ProcessedFile = {
 export function extractImageFiles(
   elements: readonly WhiteboardElement[],
   files: Readonly<Record<string, WhiteboardAsset>>,
+  options?: {
+    readonly includeDeleted?: boolean;
+  },
 ): Map<string, WhiteboardAsset> {
   const imageFilesMap = new Map<string, WhiteboardAsset>();
 
   for (const element of elements) {
-    if (isInitializedImageElement(element) && files[element.fileId]) {
+    if (
+      (options?.includeDeleted === true || !element.isDeleted) &&
+      isInitializedImageElement(element) &&
+      files[element.fileId]
+    ) {
       // Record 類型的屬性訪問總是返回 T | undefined，即
       // 使我們在邏輯上已經確保了該屬性存在。最簡潔的解決方案就是使用非空斷言操作符 "!"
       imageFilesMap.set(element.fileId, files[element.fileId]!);

@@ -177,6 +177,50 @@ describe("local recovery and binary files", () => {
     expect(recovered.files["legacy-image-file"]?.mimeType).toBe("image/png");
   });
 
+  it("repairs missing and duplicate ids in retained legacy local keys", () => {
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
+      JSON.stringify([
+        { type: "rectangle" },
+        { id: "duplicate", type: "ellipse" },
+        { id: "duplicate", type: "diamond" },
+        { id: "legacy-0", type: "line" },
+      ]),
+    );
+
+    const recovered = importFromLocalStorage();
+
+    expect(recovered.elements.map((element) => element.id)).toEqual([
+      "legacy-1",
+      "duplicate",
+      "legacy-2",
+      "legacy-0",
+    ]);
+    expect(
+      recovered.elements.every((element) => element.isDeleted === false),
+    ).toBe(true);
+    expect(recovered.persistence?.sourceFormat).toBe("legacy-excalidraw");
+  });
+
+  it("keeps valid retained elements when another legacy key is corrupt", () => {
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
+      JSON.stringify([{ id: "valid-shape", type: "rectangle" }]),
+    );
+    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_APP_STATE, "{invalid");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    const recovered = importFromLocalStorage();
+
+    expect(recovered.elements).toEqual([
+      {
+        id: "valid-shape",
+        type: "rectangle",
+        isDeleted: false,
+      },
+    ]);
+  });
+
   it("compresses an uploaded image and restores its binary metadata and data URL", async () => {
     const fixture = await readFixture("images-and-binary-files.excalidraw");
     const imageFiles = extractImageFiles(fixture.elements, fixture.files);
@@ -202,6 +246,16 @@ describe("local recovery and binary files", () => {
       hasCompleteSceneAssetHydration(fixture.elements, fixture.files),
     ).toBe(true);
     expect(hasCompleteSceneAssetHydration(fixture.elements, {})).toBe(false);
+    const deletedElements = fixture.elements.map((element) => ({
+      ...element,
+      isDeleted: true,
+    }));
+    expect(extractImageFiles(deletedElements, fixture.files).size).toBe(0);
+    expect(
+      extractImageFiles(deletedElements, fixture.files, {
+        includeDeleted: true,
+      }).size,
+    ).toBe(1);
   });
 
   it("loads published scene data in read-only mode with restored binary files", async () => {

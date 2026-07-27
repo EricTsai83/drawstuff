@@ -105,7 +105,10 @@ export const importFromLocalStorage = (options?: {
     (options?.preferRecovery ? true : revisionAllowsOwnedDocument);
   if (shouldLoadOwnedDocument) {
     try {
-      const persisted = parsePersistedWhiteboardPayload(preferredOwnedDocument);
+      const persisted = parsePersistedWhiteboardPayload(
+        preferredOwnedDocument,
+        { allowMissingAssets: true },
+      );
       if (persisted.format === "whiteboard-v1") {
         const document = toRuntimeWhiteboardDocument(persisted.document);
         return {
@@ -127,62 +130,66 @@ export const importFromLocalStorage = (options?: {
     }
   }
 
-  let elements: WhiteboardElement[] = [];
-  if (savedElements) {
+  if (savedElements !== null || savedState !== null || savedFiles !== null) {
     try {
-      elements = clearElementsForLocalStorage(
-        JSON.parse(savedElements) as WhiteboardElement[],
-      );
-    } catch (error: unknown) {
-      console.error(error);
-      // Do nothing because elements array is already empty
-    }
-  }
-
-  let appState: WhiteboardDocumentState | null = null;
-  if (savedState) {
-    try {
-      appState = {
-        ...getDefaultAppState(),
-        ...clearAppStateForLocalStorage(
-          JSON.parse(savedState) as WhiteboardDocumentState,
-        ),
+      const legacy = parsePersistedWhiteboardPayload({
+        type: "excalidraw",
+        version: 2,
+        elements: parseLocalStorageJson(savedElements, []),
+        appState: parseLocalStorageJson(savedState, {}),
+        files: parseLocalStorageJson(savedFiles, {}),
+      });
+      if (legacy.format !== "legacy-excalidraw") {
+        throw new Error("Expected retained legacy whiteboard keys");
+      }
+      const document = legacy.document;
+      return {
+        elements: clearElementsForLocalStorage([...document.elements]),
+        appState: {
+          ...getDefaultAppState(),
+          ...clearAppStateForLocalStorage(document.state),
+        },
+        files: document.assets,
+        persistence: document.persistence,
       };
     } catch (error: unknown) {
-      console.error(error);
-      // Do nothing because appState is already null
-    }
-  }
-
-  let files: Readonly<Record<string, WhiteboardAsset>> = {};
-  if (savedFiles) {
-    try {
-      files = JSON.parse(savedFiles) as Readonly<
-        Record<string, WhiteboardAsset>
-      >;
-    } catch (error: unknown) {
-      console.error(error);
-      // Do nothing because files is already empty object
+      console.error("Failed to load retained legacy whiteboard keys", error);
     }
   }
 
   return {
-    elements,
-    appState,
-    files,
+    elements: [] as WhiteboardElement[],
+    appState: null as WhiteboardDocumentState | null,
+    files: {} as Readonly<Record<string, WhiteboardAsset>>,
     persistence: undefined as WhiteboardDocument["persistence"],
   };
 };
 
+function parseLocalStorageJson(
+  value: string | null,
+  fallback: unknown,
+): unknown {
+  if (value === null) return fallback;
+  try {
+    return JSON.parse(value) as unknown;
+  } catch (error: unknown) {
+    console.error(error);
+    return fallback;
+  }
+}
+
 /** Writes the active owned document without touching retained legacy keys. */
 export function saveWhiteboardDocumentToLocalStorage(
   document: WhiteboardDocumentV1,
+  options?: {
+    readonly allowMissingAssets?: boolean;
+  },
 ): boolean {
   if (!canUseLocalStorage()) return false;
   try {
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-      serializeWhiteboardDocumentV1(document),
+      serializeWhiteboardDocumentV1(document, options),
     );
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_OWNED_DOCUMENT_REVISION,
@@ -202,14 +209,29 @@ export function saveWhiteboardDocumentToLocalStorage(
 export function saveOwnedWhiteboardDocumentToLocalStorage(
   document: WhiteboardDocument,
 ): boolean {
+  const persistedDocument = createPersistedLocalWhiteboardDocument(document);
+  if (!persistedDocument) return false;
   if (!parkOwnedRecoverySnapshot(document)) return false;
-  const saved = saveWhiteboardDocumentToLocalStorage(
-    createPersistedWhiteboardDocumentV1(document),
-  );
+  const saved = saveWhiteboardDocumentToLocalStorage(persistedDocument, {
+    allowMissingAssets: true,
+  });
   if (!saved) return false;
   return document.persistence?.loadedFromRecovery === true
     ? clearOwnedRecoverySnapshot()
     : true;
+}
+
+function createPersistedLocalWhiteboardDocument(
+  document: WhiteboardDocument,
+): WhiteboardDocumentV1 | null {
+  try {
+    return createPersistedWhiteboardDocumentV1(document, {
+      allowMissingAssets: true,
+    });
+  } catch (error: unknown) {
+    console.error("Failed to prepare owned local whiteboard document", error);
+    return null;
+  }
 }
 
 function parkOwnedRecoverySnapshot(document: WhiteboardDocument): boolean {

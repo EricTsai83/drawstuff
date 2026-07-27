@@ -142,9 +142,12 @@ describe("legacy migration recovery safety", () => {
         },
       ]),
     );
+    const ownedRevision = Number(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_OWNED_DOCUMENT_REVISION),
+    );
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION,
-      (Date.now() + 1).toString(),
+      Math.max(Date.now(), ownedRevision + 1).toString(),
     );
 
     expect(
@@ -221,5 +224,51 @@ describe("legacy migration recovery safety", () => {
     expect(
       localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT),
     ).toBe(existingOwned);
+  });
+
+  it("persists an incomplete image snapshot while preserving recovery data", () => {
+    const previous = parsePersistedWhiteboardPayload(legacyPayload());
+    if (previous.format !== "legacy-excalidraw") {
+      throw new Error("Expected a legacy fixture");
+    }
+    const existingOwned = serializeWhiteboardDocumentV1(
+      createPersistedWhiteboardDocumentV1(
+        prepareWhiteboardDocumentForOwnedEngine(previous.document),
+      ),
+    );
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
+      existingOwned,
+    );
+    const parsed = parsePersistedWhiteboardPayload({
+      type: "excalidraw",
+      version: 2,
+      elements: [
+        {
+          id: "missing-image",
+          type: "image",
+          isDeleted: false,
+          fileId: "missing-asset",
+        },
+      ],
+      appState: {},
+      files: {},
+    });
+    if (parsed.format !== "legacy-excalidraw") {
+      throw new Error("Expected a legacy fixture");
+    }
+    const incomplete = prepareWhiteboardDocumentForOwnedEngine(parsed.document);
+    expect(saveOwnedWhiteboardDocumentToLocalStorage(incomplete)).toBe(true);
+    expect(
+      localStorage.getItem(
+        STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
+      ),
+    ).toBe(existingOwned);
+    expect(
+      importFromLocalStorage({ preferOwned: true }).elements[0],
+    ).toMatchObject({
+      id: "missing-image",
+      fileId: "missing-asset",
+    });
   });
 });

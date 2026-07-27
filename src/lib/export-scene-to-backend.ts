@@ -27,6 +27,7 @@ export async function prepareSceneDataForExport(
     readonly compactLegacyAssets?: boolean;
     readonly assetUploadElements?: readonly WhiteboardElement[];
     readonly assetUploadAssets?: Readonly<Record<string, WhiteboardAsset>>;
+    readonly includeDeletedAssetUploads?: boolean;
   },
 ) {
   const shouldEncrypt = options?.encrypt ?? true;
@@ -50,6 +51,7 @@ export async function prepareSceneDataForExport(
   const imageFilesMap = extractImageFiles(
     options?.assetUploadElements ?? elements,
     options?.assetUploadAssets ?? files,
+    { includeDeleted: options?.includeDeletedAssetUploads },
   );
   const compressedFilesData = await processFilesForUpload({
     files: imageFilesMap,
