@@ -5,7 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "audit:ci": "node scripts/check-audit-baseline.mjs",
+    "audit:ci": "pnpm audit --prod --audit-level=low",
     "build": "next build",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
@@ -24,7 +24,6 @@
   "knip": {
     "ignore": [
       ".deepsec/deepsec.config.ts",
-      "scripts/check-audit-baseline.mjs",
       "packages/whiteboard/tests/fixtures/owned-canvas/performance.ts",
       "packages/whiteboard/tests/setup.ts",
       "tests/setup.ts"
