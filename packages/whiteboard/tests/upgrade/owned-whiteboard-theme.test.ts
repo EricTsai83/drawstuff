@@ -124,6 +124,7 @@ function rectangle(): WhiteboardElement {
 function createCanvasContext() {
   return {
     beginPath: () => undefined,
+    bezierCurveTo: () => undefined,
     clearRect: () => undefined,
     closePath: () => undefined,
     drawImage: () => undefined,
@@ -133,6 +134,7 @@ function createCanvasContext() {
     fillText: () => undefined,
     lineTo: () => undefined,
     moveTo: () => undefined,
+    quadraticCurveTo: () => undefined,
     rect: () => undefined,
     restore: () => undefined,
     rotate: () => undefined,
@@ -148,6 +150,7 @@ function createCanvasContext() {
     font: "",
     globalAlpha: 1,
     lineWidth: 1,
+    lineDashOffset: 0,
     strokeStyle: "",
     textBaseline: "top",
   };

@@ -198,12 +198,12 @@ export function OwnedWhiteboardCanvas({
       <canvas
         ref={sceneCanvasRef}
         aria-hidden="true"
-        className="absolute inset-0"
+        className="absolute inset-0 [image-rendering:pixelated]"
       />
       <canvas
         ref={overlayCanvasRef}
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0"
+        className="pointer-events-none absolute inset-0 [image-rendering:pixelated]"
       />
     </div>
   );

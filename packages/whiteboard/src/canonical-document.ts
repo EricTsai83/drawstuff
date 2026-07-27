@@ -8,6 +8,7 @@ import type {
   WhiteboardElement,
   WhiteboardElementType,
   WhiteboardElementV2,
+  WhiteboardEdgeStyle,
   WhiteboardFillStyle,
   WhiteboardStrokeStyle,
   WhiteboardTheme,
@@ -86,6 +87,7 @@ const ELEMENT_FIELDS = new Set([
   "originalText",
   "points",
   "roughness",
+  "roundness",
   "strokeColor",
   "strokeStyle",
   "strokeWidth",
@@ -314,6 +316,10 @@ function parseElements(value: unknown): WhiteboardElementV2[] {
     ids.add(id);
     const type = parseElementType(object.type, `${path}.type`);
     assertElementVariantFields(object, type, path);
+    const roundness = parseOptionalEdgeStyle(
+      object.roundness,
+      `${path}.roundness`,
+    );
     const base = {
       id,
       type,
@@ -336,6 +342,7 @@ function parseElements(value: unknown): WhiteboardElementV2[] {
       strokeStyle: parseStrokeStyle(object.strokeStyle, `${path}.strokeStyle`),
       opacity: expectRange(object.opacity, 0, 100, `${path}.opacity`),
       roughness: expectNonNegativeNumber(object.roughness, `${path}.roughness`),
+      ...(roundness ? { roundness } : {}),
       locked: expectBoolean(object.locked, `${path}.locked`),
     };
     if (isLinearElementType(type)) {
@@ -503,6 +510,7 @@ function normalizeRuntimeElement(
     strokeStyle: element.strokeStyle,
     opacity: element.opacity,
     roughness: element.roughness,
+    ...(element.roundness ? { roundness: element.roundness } : {}),
     locked: element.locked,
   };
   if (isLinearElementType(type) && "points" in element) {
@@ -770,6 +778,27 @@ function parseStrokeStyle(value: unknown, path: string): WhiteboardStrokeStyle {
     throw new WhiteboardDocumentError(
       "MALFORMED_DOCUMENT",
       "Unsupported stroke style",
+      path,
+    );
+  }
+  return value;
+}
+
+function parseOptionalEdgeStyle(
+  value: unknown,
+  path: string,
+): WhiteboardEdgeStyle | undefined {
+  if (
+    value === undefined ||
+    value === null ||
+    (typeof value === "object" && !Array.isArray(value))
+  ) {
+    return undefined;
+  }
+  if (value !== "sharp" && value !== "round") {
+    throw new WhiteboardDocumentError(
+      "MALFORMED_DOCUMENT",
+      "Unsupported edge style",
       path,
     );
   }

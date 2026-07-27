@@ -78,6 +78,7 @@ interface WhiteboardElementV2Base {
   readonly strokeStyle: WhiteboardStrokeStyle;
   readonly opacity: number;
   readonly roughness: number;
+  readonly roundness?: WhiteboardEdgeStyle;
   readonly locked: boolean;
 }
 
@@ -152,6 +153,7 @@ export type WhiteboardFillStyle =
   "hachure" | "cross-hatch" | "solid" | "zigzag";
 
 export type WhiteboardStrokeStyle = "solid" | "dashed" | "dotted";
+export type WhiteboardEdgeStyle = "sharp" | "round";
 
 export interface WhiteboardElementStyle {
   readonly strokeColor: string;
@@ -161,9 +163,13 @@ export interface WhiteboardElementStyle {
   readonly strokeStyle: WhiteboardStrokeStyle;
   readonly opacity: number;
   readonly roughness?: number;
+  readonly roundness?: WhiteboardEdgeStyle;
 }
 
 export type WhiteboardElementStyleUpdate = Partial<WhiteboardElementStyle>;
+
+export type WhiteboardElementOrderAction =
+  "back" | "backward" | "forward" | "front";
 
 export interface WhiteboardImportResult {
   readonly name: string | null;
@@ -237,6 +243,7 @@ export interface WhiteboardEngine {
   setActiveTool(tool: WhiteboardTool): void;
 
   updateElementStyle(update: WhiteboardElementStyleUpdate): void;
+  reorderSelection?(action: WhiteboardElementOrderAction): void;
 
   getViewport(): WhiteboardViewport;
   updateViewport(

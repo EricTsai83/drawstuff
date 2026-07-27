@@ -228,6 +228,9 @@ export function readElementNumber(
 ): number {
   if (key === "opacity") return element.opacity;
   if (key === "strokeWidth") return element.strokeWidth;
+  if (key === "roughness") {
+    return Number.isFinite(element.roughness) ? element.roughness : fallback;
+  }
   if (key === "fontSize" && element.type === "text") return element.fontSize;
   if (key === "lineHeight" && element.type === "text") {
     return element.lineHeight;
@@ -242,6 +245,7 @@ export function readElementString(
 ): string {
   if (key === "strokeColor") return element.strokeColor;
   if (key === "backgroundColor") return element.backgroundColor;
+  if (key === "fillStyle") return element.fillStyle;
   if (key === "strokeStyle") return element.strokeStyle;
   if (key === "text" && element.type === "text") return element.text;
   return fallback;

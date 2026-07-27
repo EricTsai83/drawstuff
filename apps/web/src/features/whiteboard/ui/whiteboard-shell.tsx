@@ -2,9 +2,13 @@
 
 import {
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
+  BringToFront,
   Circle,
   Diamond,
   Download,
+  Ellipsis,
   Eraser,
   FilePenLine,
   FileUp,
@@ -12,22 +16,24 @@ import {
   Hand,
   HelpCircle,
   Image,
+  Lock,
   Menu,
   Minus,
   MousePointer2,
-  Palette,
   Pencil,
   Plus,
   Redo2,
   Save,
   Scan,
+  SendToBack,
   Settings2,
   Share2,
   Slash,
   Square,
-  Sparkles,
+  SquareRoundCorner,
   Type,
   Undo2,
+  Unlock,
 } from "lucide-react";
 import {
   useCallback,
@@ -82,7 +88,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Field,
-  FieldDescription,
   FieldGroup,
   FieldLabel,
   FieldLegend,
@@ -108,11 +113,13 @@ import {
 import { SCENE_FILE_IMPORT_MAX_BYTES } from "@/config/app-constants";
 import type {
   OwnedWhiteboardEditorState,
+  WhiteboardEdgeStyle,
   WhiteboardElementStyle,
   WhiteboardEngine,
   WhiteboardFillStyle,
   WhiteboardStrokeStyle,
   WhiteboardTheme,
+  WhiteboardTool,
 } from "@drawstuff/whiteboard";
 import { OWNED_DARK_THEME_FILTER } from "@drawstuff/whiteboard";
 import { triggerBlobDownload } from "@/lib/download";
@@ -124,27 +131,117 @@ type ToolDefinition = {
   readonly type: string;
   readonly label: string;
   readonly shortcut: string;
+  readonly keys: readonly string[];
   readonly icon: Icon;
 };
 
 const TOOLS: readonly ToolDefinition[] = [
-  { type: "selection", label: "Select", shortcut: "1", icon: MousePointer2 },
-  { type: "hand", label: "Hand", shortcut: "H", icon: Hand },
-  { type: "rectangle", label: "Rectangle", shortcut: "2", icon: Square },
-  { type: "diamond", label: "Diamond", shortcut: "3", icon: Diamond },
-  { type: "ellipse", label: "Ellipse", shortcut: "4", icon: Circle },
-  { type: "arrow", label: "Arrow", shortcut: "5", icon: ArrowRight },
-  { type: "line", label: "Line", shortcut: "6", icon: Slash },
-  { type: "freedraw", label: "Draw", shortcut: "7", icon: Pencil },
-  { type: "text", label: "Text", shortcut: "8", icon: Type },
-  { type: "image", label: "Image", shortcut: "9", icon: Image },
-  { type: "eraser", label: "Eraser", shortcut: "E", icon: Eraser },
-  { type: "frame", label: "Frame", shortcut: "F", icon: Frame },
-  { type: "laser", label: "Laser", shortcut: "K", icon: Sparkles },
+  { type: "hand", label: "Hand", shortcut: "H", keys: ["h"], icon: Hand },
+  {
+    type: "selection",
+    label: "Selection",
+    shortcut: "1",
+    keys: ["1", "v"],
+    icon: MousePointer2,
+  },
+  {
+    type: "rectangle",
+    label: "Rectangle",
+    shortcut: "2",
+    keys: ["2", "r"],
+    icon: Square,
+  },
+  {
+    type: "diamond",
+    label: "Diamond",
+    shortcut: "3",
+    keys: ["3", "d"],
+    icon: Diamond,
+  },
+  {
+    type: "ellipse",
+    label: "Ellipse",
+    shortcut: "4",
+    keys: ["4", "o"],
+    icon: Circle,
+  },
+  {
+    type: "arrow",
+    label: "Arrow",
+    shortcut: "5",
+    keys: ["5", "a"],
+    icon: ArrowRight,
+  },
+  {
+    type: "line",
+    label: "Line",
+    shortcut: "6",
+    keys: ["6", "l"],
+    icon: Slash,
+  },
+  {
+    type: "freedraw",
+    label: "Draw",
+    shortcut: "7",
+    keys: ["7", "p", "x"],
+    icon: Pencil,
+  },
+  { type: "text", label: "Text", shortcut: "8", keys: ["8", "t"], icon: Type },
+  {
+    type: "image",
+    label: "Insert image",
+    shortcut: "9",
+    keys: ["9"],
+    icon: Image,
+  },
+  {
+    type: "eraser",
+    label: "Eraser",
+    shortcut: "0",
+    keys: ["0", "e"],
+    icon: Eraser,
+  },
+  { type: "frame", label: "Frame", shortcut: "F", keys: ["f"], icon: Frame },
 ] as const;
 
+const EXTRA_TOOL_TYPES = new Set(["frame"]);
+const PRIMARY_TOOLS = TOOLS.filter((tool) => !EXTRA_TOOL_TYPES.has(tool.type));
+const EXTRA_TOOLS = TOOLS.filter((tool) => EXTRA_TOOL_TYPES.has(tool.type));
+const MOBILE_TOOL_TYPES = new Set([
+  "hand",
+  "selection",
+  "freedraw",
+  "eraser",
+  "rectangle",
+  "arrow",
+  "text",
+]);
+const MOBILE_EXTRA_TOOLS = TOOLS.filter(
+  (tool) => !MOBILE_TOOL_TYPES.has(tool.type),
+);
+const MOBILE_TOOL_CLASSES: Readonly<Record<string, string>> = {
+  hand: "order-1 md:order-none",
+  selection: "order-2 md:order-none",
+  freedraw: "order-3 md:order-none",
+  eraser: "order-4 md:order-none",
+  rectangle: "order-5 md:order-none",
+  arrow: "order-6 md:order-none",
+  text: "order-7 md:order-none",
+};
+const LOCKABLE_TOOL_TYPES = new Set([
+  "rectangle",
+  "diamond",
+  "ellipse",
+  "arrow",
+  "line",
+  "freedraw",
+  "text",
+  "frame",
+]);
+const NON_STYLE_TOOLS = new Set(["selection", "hand", "eraser", "frame"]);
+
 const TOOL_SHORTCUTS = new Map(
-  TOOLS.map((tool) => [tool.shortcut.toLowerCase(), tool.type]),
+  TOOLS.flatMap((tool) => tool.keys.map((key) => [key, tool.type] as const)),
 );
 
 const STROKE_COLORS = [
@@ -152,14 +249,14 @@ const STROKE_COLORS = [
   "#e03131",
   "#2f9e44",
   "#1971c2",
-  "#6741d9",
+  "#f08c00",
 ] as const;
 const FILL_COLORS = [
   "transparent",
   "#ffc9c9",
   "#b2f2bb",
   "#a5d8ff",
-  "#d0bfff",
+  "#ffec99",
 ] as const;
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
@@ -186,6 +283,7 @@ const DISCONNECTED_STATE: OwnedWhiteboardEditorState = {
     strokeWidth: 1,
     strokeStyle: "solid",
     opacity: 100,
+    roundness: "round",
   },
 };
 
@@ -223,6 +321,7 @@ export function WhiteboardShell({
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const showProperties = canShowProperties(editorState);
 
   const selectTool = useCallback(
     (type: string) => {
@@ -264,6 +363,12 @@ export function WhiteboardShell({
         return;
       if (isEditableTarget(event.target)) return;
       const key = event.key.toLowerCase();
+      if ((event.metaKey || event.ctrlKey) && key === "0") {
+        event.preventDefault();
+        event.stopPropagation();
+        resetZoom();
+        return;
+      }
       if ((event.metaKey || event.ctrlKey) && key === "f") {
         event.preventDefault();
         event.stopPropagation();
@@ -277,8 +382,7 @@ export function WhiteboardShell({
         key === "?" ||
         key === "+" ||
         key === "=" ||
-        key === "-" ||
-        key === "0";
+        key === "-";
       if (
         isShellShortcut &&
         (helpOpen || importOpen || exportOpen || propertiesOpen || clearOpen)
@@ -316,11 +420,6 @@ export function WhiteboardShell({
         event.stopPropagation();
         zoomBy(-ZOOM_STEP);
         return;
-      }
-      if (key === "0") {
-        event.preventDefault();
-        event.stopPropagation();
-        resetZoom();
       }
     }
 
@@ -367,7 +466,11 @@ export function WhiteboardShell({
     <TooltipProvider>
       <ContextMenu>
         <ContextMenuTrigger
-          className="relative isolate h-full w-full"
+          className={cn(
+            "whiteboard-shell relative isolate h-full w-full overflow-hidden bg-[var(--whiteboard-surface-lowest)]",
+            getCanvasCursorClass(editorState.activeTool.type),
+          )}
+          data-canvas-theme={editorState.theme}
           onContextMenu={() =>
             engine?.updateEditorState({
               contextMenu: null,
@@ -397,20 +500,32 @@ export function WhiteboardShell({
             />
 
             <DrawingToolbar
-              activeTool={editorState.activeTool.type}
+              activeTool={editorState.activeTool}
               disabled={!engine}
               onSelectTool={selectTool}
+              onToggleLock={() => {
+                const activeTool = editorState.activeTool;
+                engine?.setActiveTool({
+                  ...activeTool,
+                  locked: !activeTool.locked,
+                });
+              }}
             />
 
-            <div className="pointer-events-auto absolute top-16 left-3 hidden lg:block">
-              <PropertiesPanel engine={engine} editorState={editorState} />
-            </div>
+            {showProperties && (
+              <div className="pointer-events-auto absolute top-[4.75rem] left-4 hidden lg:block">
+                <PropertiesPanel engine={engine} editorState={editorState} />
+              </div>
+            )}
 
-            <div className="pointer-events-auto absolute right-3 bottom-20 lg:hidden">
+            <div className="pointer-events-auto absolute right-3 bottom-[4.75rem] left-3 lg:hidden">
               <MobileProperties
                 engine={engine}
                 editorState={editorState}
                 open={propertiesOpen}
+                showProperties={showProperties}
+                onRedo={() => engine?.redo()}
+                onUndo={() => engine?.undo()}
                 onOpenChange={setPropertiesOpen}
               />
             </div>
@@ -418,11 +533,22 @@ export function WhiteboardShell({
             <ViewportControls
               disabled={!engine}
               zoom={editorState.viewport.zoom}
-              onFit={fitToContent}
+              onRedo={() => engine?.redo()}
               onReset={resetZoom}
+              onUndo={() => engine?.undo()}
               onZoomIn={() => zoomBy(ZOOM_STEP)}
               onZoomOut={() => zoomBy(-ZOOM_STEP)}
             />
+
+            <div className="pointer-events-auto absolute right-4 bottom-4 hidden md:block">
+              <TooltipButton
+                icon={HelpCircle}
+                label="Help"
+                onClick={() => setHelpOpen(true)}
+                size="whiteboard-tool"
+                variant="whiteboard-control"
+              />
+            </div>
           </div>
         </ContextMenuTrigger>
 
@@ -487,6 +613,20 @@ function useWhiteboardEditorState(
   return state;
 }
 
+function canShowProperties(editorState: OwnedWhiteboardEditorState): boolean {
+  return (
+    editorState.selectedElementIds.length > 0 ||
+    !NON_STYLE_TOOLS.has(editorState.activeTool.type)
+  );
+}
+
+function getCanvasCursorClass(tool: string): string {
+  if (tool === "hand") return "cursor-grab";
+  if (tool === "selection") return "cursor-default";
+  if (tool === "eraser") return "cursor-cell";
+  return "cursor-crosshair";
+}
+
 type TopBarProps = {
   readonly connected: boolean;
   readonly isSaving: boolean;
@@ -519,116 +659,112 @@ function TopBar({
   onWorkspace,
 }: TopBarProps) {
   return (
-    <header className="pointer-events-auto absolute inset-x-3 top-3 flex items-center justify-between gap-3">
-      <div className="bg-background/90 flex min-w-0 items-center gap-1 rounded-xl border p-1 shadow-sm backdrop-blur">
-        <DropdownMenu>
-          <Tooltip>
-            <TooltipTrigger
-              render={
-                <DropdownMenuTrigger
-                  render={
-                    <Button
-                      aria-label="Main menu"
-                      size="icon"
-                      variant="ghost"
-                    />
-                  }
-                />
-              }
+    <header className="pointer-events-none absolute inset-x-3 top-3 flex items-start justify-between gap-3 md:inset-x-4 md:top-4">
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    aria-label="Main menu"
+                    className="pointer-events-auto size-8 md:size-9"
+                    size="whiteboard-tool"
+                    variant="whiteboard-control"
+                  />
+                }
+              />
+            }
+          >
+            <Menu />
+          </TooltipTrigger>
+          <TooltipContent>Main menu</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="start" className="w-60">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel className="truncate">
+              {sceneName || "Untitled"}
+            </DropdownMenuLabel>
+            <DropdownMenuItem disabled={!connected} onClick={onImport}>
+              <FileUp />
+              Import
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!connected} onClick={onExport}>
+              <Download />
+              Export
+            </DropdownMenuItem>
+            <DropdownMenuItem disabled={!connected} onClick={onRename}>
+              <FilePenLine />
+              Rename
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!connected || isSaving}
+              onClick={onSave}
             >
-              <Menu />
-            </TooltipTrigger>
-            <TooltipContent>Main menu</TooltipContent>
-          </Tooltip>
-          <DropdownMenuContent align="start" className="w-52">
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Scene</DropdownMenuLabel>
-              <DropdownMenuItem disabled={!connected} onClick={onImport}>
-                <FileUp />
-                Import
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!connected} onClick={onExport}>
-                <Download />
-                Export
-              </DropdownMenuItem>
-              <DropdownMenuItem disabled={!connected} onClick={onRename}>
-                <FilePenLine />
-                Rename
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!connected || isSaving}
-                onClick={onSave}
-              >
-                <Save />
-                Save to cloud
-                <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!connected || isSharing}
-                onClick={onShare}
-              >
-                <Share2 />
-                Share
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuLabel>Workspace</DropdownMenuLabel>
-              <DropdownMenuItem
-                disabled={!onWorkspace}
-                onClick={() => onWorkspace?.()}
-              >
-                <Settings2 />
-                Workspace settings
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            {productMenuContent}
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <div className="px-2 py-1.5" role="none">
-                <StorageWarning className="flex items-center" />
-              </div>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem disabled={!connected} onClick={onClear}>
-                Clear canvas
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={onHelp}>
-                <HelpCircle />
-                Keyboard shortcuts
-                <DropdownMenuShortcut>?</DropdownMenuShortcut>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-          </DropdownMenuContent>
-        </DropdownMenu>
+              <Save />
+              Save to cloud
+              <DropdownMenuShortcut>⌘S</DropdownMenuShortcut>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              disabled={!connected || isSharing}
+              onClick={onShare}
+            >
+              <Share2 />
+              Share
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>Workspace</DropdownMenuLabel>
+            <DropdownMenuItem
+              disabled={!onWorkspace}
+              onClick={() => onWorkspace?.()}
+            >
+              <Settings2 />
+              Workspace settings
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+          {productMenuContent}
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <div className="px-2 py-1.5" role="none">
+              <StorageWarning className="flex items-center" />
+            </div>
+          </DropdownMenuGroup>
+          <DropdownMenuSeparator />
+          <DropdownMenuGroup>
+            <DropdownMenuItem disabled={!connected} onClick={onClear}>
+              Clear canvas
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={onHelp}>
+              <HelpCircle />
+              Keyboard shortcuts
+              <DropdownMenuShortcut>?</DropdownMenuShortcut>
+            </DropdownMenuItem>
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
-        <Button
-          className="max-w-44 justify-start truncate sm:max-w-64"
-          disabled={!connected}
-          onClick={onRename}
-          variant="ghost"
-        >
-          <FilePenLine data-icon="inline-start" />
-          <span className="truncate">{sceneName || "Untitled"}</span>
-        </Button>
-      </div>
-
-      <div className="bg-background/90 flex items-center gap-1 rounded-xl border p-1 shadow-sm backdrop-blur">
+      <div className="pointer-events-auto flex items-center gap-2">
         <TooltipButton
+          className="hidden md:inline-flex"
           disabled={!connected || isSaving}
           icon={Save}
           label={isSaving ? "Saving" : "Save"}
           onClick={onSave}
+          size="whiteboard-tool"
+          variant="whiteboard-control"
         />
         <Button
           aria-label={isSharing ? "Sharing" : "Share"}
+          className="size-8 px-0 md:h-9 md:w-auto md:px-3"
           disabled={!connected || isSharing}
           onClick={onShare}
-          size="sm"
+          size="whiteboard-share"
+          variant="whiteboard-primary"
         >
           <Share2 data-icon="inline-start" />
-          <span className="hidden sm:inline">
+          <span className="hidden md:inline">
             {isSharing ? "Sharing" : "Share"}
           </span>
         </Button>
@@ -638,26 +774,37 @@ function TopBar({
 }
 
 type DrawingToolbarProps = {
-  readonly activeTool: string;
+  readonly activeTool: WhiteboardTool;
   readonly disabled: boolean;
   readonly onSelectTool: (type: string) => void;
+  readonly onToggleLock: () => void;
 };
 
 function DrawingToolbar({
   activeTool,
   disabled,
   onSelectTool,
+  onToggleLock,
 }: DrawingToolbarProps) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
-  const tabStopTool = TOOLS.some((tool) => tool.type === activeTool)
-    ? activeTool
+  const tabStopTool = TOOLS.some((tool) => tool.type === activeTool.type)
+    ? activeTool.type
     : "selection";
+  const activeExtraTool = EXTRA_TOOLS.find(
+    (tool) => tool.type === activeTool.type,
+  );
+  const activeMobileExtraTool = MOBILE_EXTRA_TOOLS.find(
+    (tool) => tool.type === activeTool.type,
+  );
+  const DesktopExtraToolIcon = activeExtraTool?.icon ?? Ellipsis;
+  const MobileExtraToolIcon = activeMobileExtraTool?.icon ?? Ellipsis;
+  const canLock = LOCKABLE_TOOL_TYPES.has(activeTool.type);
 
   function moveFocus(
     event: ReactKeyboardEvent<HTMLButtonElement>,
     index: number,
   ): void {
-    const lastIndex = TOOLS.length - 1;
+    const lastIndex = PRIMARY_TOOLS.length;
     let nextIndex: number | null = null;
     if (event.key === "ArrowRight" || event.key === "ArrowDown") {
       nextIndex = index === lastIndex ? 0 : index + 1;
@@ -676,35 +823,155 @@ function DrawingToolbar({
   return (
     <div
       aria-label="Drawing tools"
-      className="bg-background/90 pointer-events-auto absolute inset-x-3 bottom-3 flex items-center gap-1 overflow-x-auto rounded-xl border p-1 shadow-sm backdrop-blur md:inset-x-auto md:top-16 md:bottom-auto md:left-1/2 md:-translate-x-1/2"
+      className="pointer-events-auto absolute inset-x-3 bottom-2 flex max-w-[calc(100%_-_1.5rem)] items-center justify-between gap-1 overflow-hidden rounded-lg bg-[var(--whiteboard-island)] p-1 shadow-[var(--whiteboard-shadow)] md:inset-x-auto md:top-4 md:bottom-auto md:left-1/2 md:-translate-x-1/2 md:justify-start md:overflow-visible"
       role="toolbar"
     >
-      {TOOLS.map((tool, index) => (
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <Button
+              aria-label={
+                activeTool.locked
+                  ? "Unlock tool"
+                  : "Keep selected tool active after drawing"
+              }
+              aria-pressed={Boolean(activeTool.locked)}
+              className="hidden md:inline-flex"
+              disabled={disabled || !canLock}
+              onClick={onToggleLock}
+              size="whiteboard-tool"
+              tabIndex={-1}
+              variant={activeTool.locked ? "whiteboard-active" : "whiteboard"}
+            />
+          }
+        >
+          {activeTool.locked ? <Unlock /> : <Lock />}
+        </TooltipTrigger>
+        <TooltipContent>
+          {activeTool.locked
+            ? "Unlock tool"
+            : "Keep selected tool active after drawing"}
+        </TooltipContent>
+      </Tooltip>
+
+      <div
+        aria-hidden="true"
+        className="mx-0.5 hidden h-6 w-px shrink-0 bg-[var(--whiteboard-surface-high)] md:block"
+      />
+
+      {PRIMARY_TOOLS.map((tool, index) => (
         <Tooltip key={tool.type}>
           <TooltipTrigger
             render={
               <Button
                 aria-label={tool.label}
-                aria-pressed={activeTool === tool.type}
+                aria-pressed={activeTool.type === tool.type}
+                className={cn(
+                  MOBILE_TOOL_CLASSES[tool.type],
+                  !MOBILE_TOOL_TYPES.has(tool.type) && "hidden md:inline-flex",
+                )}
                 disabled={disabled}
                 onKeyDown={(event) => moveFocus(event, index)}
                 onClick={() => onSelectTool(tool.type)}
                 ref={(button) => {
                   buttonRefs.current[index] = button;
                 }}
-                size="icon"
+                size="whiteboard-tool"
                 tabIndex={tabStopTool === tool.type ? 0 : -1}
-                variant={activeTool === tool.type ? "secondary" : "ghost"}
+                variant={
+                  activeTool.type === tool.type
+                    ? "whiteboard-active"
+                    : "whiteboard"
+                }
               />
             }
           >
             <tool.icon />
+            <span
+              aria-hidden="true"
+              className="absolute right-1 bottom-0.5 hidden text-[0.625rem] leading-none text-[var(--whiteboard-muted)] md:block"
+            >
+              {tool.shortcut}
+            </span>
           </TooltipTrigger>
           <TooltipContent>
             {tool.label} <span aria-hidden="true">· {tool.shortcut}</span>
           </TooltipContent>
         </Tooltip>
       ))}
+
+      <div
+        aria-hidden="true"
+        className="mx-0.5 hidden h-6 w-px shrink-0 bg-[var(--whiteboard-surface-high)] md:block"
+      />
+
+      <DropdownMenu>
+        <Tooltip>
+          <TooltipTrigger
+            render={
+              <DropdownMenuTrigger
+                render={
+                  <Button
+                    aria-label="More tools"
+                    aria-pressed={Boolean(
+                      activeExtraTool ?? activeMobileExtraTool,
+                    )}
+                    className="order-8 md:order-none"
+                    disabled={disabled}
+                    onKeyDown={(event) =>
+                      moveFocus(event, PRIMARY_TOOLS.length)
+                    }
+                    ref={(button) => {
+                      buttonRefs.current[PRIMARY_TOOLS.length] = button;
+                    }}
+                    size="whiteboard-tool"
+                    tabIndex={activeExtraTool ? 0 : -1}
+                    variant={
+                      activeExtraTool || activeMobileExtraTool
+                        ? "whiteboard-active"
+                        : "whiteboard"
+                    }
+                  />
+                }
+              />
+            }
+          >
+            <DesktopExtraToolIcon className="hidden md:block" />
+            <MobileExtraToolIcon className="md:hidden" />
+          </TooltipTrigger>
+          <TooltipContent>More tools</TooltipContent>
+        </Tooltip>
+        <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuGroup>
+            <DropdownMenuLabel>More tools</DropdownMenuLabel>
+            {EXTRA_TOOLS.map((tool) => (
+              <DropdownMenuItem
+                key={tool.type}
+                onClick={() => onSelectTool(tool.type)}
+              >
+                <tool.icon />
+                {tool.label}
+                <DropdownMenuShortcut>{tool.shortcut}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+          <DropdownMenuGroup className="md:hidden">
+            <DropdownMenuSeparator />
+            {MOBILE_EXTRA_TOOLS.filter(
+              (tool) => !EXTRA_TOOL_TYPES.has(tool.type),
+            ).map((tool) => (
+              <DropdownMenuItem
+                key={tool.type}
+                onClick={() => onSelectTool(tool.type)}
+              >
+                <tool.icon />
+                {tool.label}
+                <DropdownMenuShortcut>{tool.shortcut}</DropdownMenuShortcut>
+              </DropdownMenuItem>
+            ))}
+          </DropdownMenuGroup>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 }
@@ -718,12 +985,6 @@ function PropertiesPanel({
   readonly editorState: OwnedWhiteboardEditorState;
   readonly compact?: boolean;
 }) {
-  const canStyle =
-    Boolean(engine) &&
-    (editorState.selectedElementIds.length > 0 ||
-      !["selection", "hand", "eraser", "frame", "laser"].includes(
-        editorState.activeTool.type,
-      ));
   const updateStyle = useCallback(
     (update: Partial<WhiteboardElementStyle>) => {
       engine?.updateElementStyle(update);
@@ -735,106 +996,202 @@ function PropertiesPanel({
     <section
       aria-label="Element properties"
       className={cn(
-        "bg-background/90 rounded-xl border p-3 shadow-sm backdrop-blur",
-        compact ? "w-full border-0 bg-transparent p-4 shadow-none" : "w-60",
+        "rounded-lg bg-[var(--whiteboard-island)] p-3 shadow-[var(--whiteboard-shadow)]",
+        compact ? "w-full bg-transparent p-4 shadow-none" : "w-[12.625rem]",
       )}
     >
-      <FieldGroup>
-        <FieldSet disabled={!canStyle}>
-          <FieldLegend>Element properties</FieldLegend>
+      <FieldGroup className="gap-3">
+        <FieldSet className="gap-3" disabled={!engine}>
+          <FieldLegend className="sr-only">Element properties</FieldLegend>
           <ColorField
             colors={STROKE_COLORS}
-            label="Stroke color"
+            label="Stroke"
             onChange={(strokeColor) => updateStyle({ strokeColor })}
             theme={editorState.theme}
             value={editorState.elementStyle.strokeColor}
           />
           <ColorField
             colors={FILL_COLORS}
-            label="Fill color"
+            label="Background"
             onChange={(backgroundColor) => updateStyle({ backgroundColor })}
             theme={editorState.theme}
             value={editorState.elementStyle.backgroundColor}
           />
         </FieldSet>
 
-        <FieldSet disabled={!canStyle}>
-          <FieldLegend variant="label">Fill</FieldLegend>
+        <FieldSet className="gap-1.5" disabled={!engine}>
+          <FieldLegend className="text-xs font-normal" variant="label">
+            Fill
+          </FieldLegend>
           <ToggleGroup
             aria-label="Fill style"
-            disabled={!canStyle}
+            disabled={!engine}
             onValueChange={(values) => {
               const value = values[0] as WhiteboardFillStyle | undefined;
               if (value) updateStyle({ fillStyle: value });
             }}
-            spacing={0}
+            size="whiteboard"
+            spacing={2}
             value={[editorState.elementStyle.fillStyle]}
-            variant="outline"
+            variant="whiteboard"
           >
             <ToggleGroupItem aria-label="Hachure fill" value="hachure">
-              Hachure
+              <span
+                aria-hidden="true"
+                className="size-4 rounded-sm border border-[var(--whiteboard-outline)] bg-[repeating-linear-gradient(135deg,transparent_0,transparent_3px,currentColor_3px,currentColor_4px)]"
+              />
+            </ToggleGroupItem>
+            <ToggleGroupItem aria-label="Cross-hatch fill" value="cross-hatch">
+              <span
+                aria-hidden="true"
+                className="size-4 rounded-sm border border-[var(--whiteboard-outline)] bg-[repeating-linear-gradient(45deg,transparent_0,transparent_3px,currentColor_3px,currentColor_4px),repeating-linear-gradient(135deg,transparent_0,transparent_3px,currentColor_3px,currentColor_4px)]"
+              />
             </ToggleGroupItem>
             <ToggleGroupItem aria-label="Solid fill" value="solid">
-              Solid
+              <span
+                aria-hidden="true"
+                className="size-4 rounded-sm border border-current bg-current"
+              />
             </ToggleGroupItem>
           </ToggleGroup>
         </FieldSet>
 
-        <FieldSet disabled={!canStyle}>
-          <FieldLegend variant="label">Stroke width</FieldLegend>
+        <FieldSet className="gap-1.5" disabled={!engine}>
+          <FieldLegend className="text-xs font-normal" variant="label">
+            Stroke width
+          </FieldLegend>
           <ToggleGroup
             aria-label="Stroke width"
-            disabled={!canStyle}
+            disabled={!engine}
             onValueChange={(values) => {
               const value = Number(values[0]);
               if (Number.isFinite(value) && value > 0) {
                 updateStyle({ strokeWidth: value });
               }
             }}
-            spacing={0}
+            size="whiteboard"
+            spacing={2}
             value={[String(editorState.elementStyle.strokeWidth)]}
-            variant="outline"
+            variant="whiteboard"
           >
             <ToggleGroupItem aria-label="Thin stroke" value="1">
-              Thin
+              <span
+                aria-hidden="true"
+                className="h-px w-4 rounded-full bg-current"
+              />
             </ToggleGroupItem>
             <ToggleGroupItem aria-label="Medium stroke" value="2">
-              Medium
+              <span
+                aria-hidden="true"
+                className="h-0.5 w-4 rounded-full bg-current"
+              />
             </ToggleGroupItem>
             <ToggleGroupItem aria-label="Bold stroke" value="4">
-              Bold
+              <span
+                aria-hidden="true"
+                className="h-1 w-4 rounded-full bg-current"
+              />
             </ToggleGroupItem>
           </ToggleGroup>
         </FieldSet>
 
-        <FieldSet disabled={!canStyle}>
-          <FieldLegend variant="label">Stroke style</FieldLegend>
+        <FieldSet className="gap-1.5" disabled={!engine}>
+          <FieldLegend className="text-xs font-normal" variant="label">
+            Stroke style
+          </FieldLegend>
           <ToggleGroup
             aria-label="Stroke style"
-            disabled={!canStyle}
+            disabled={!engine}
             onValueChange={(values) => {
               const value = values[0] as WhiteboardStrokeStyle | undefined;
               if (value) updateStyle({ strokeStyle: value });
             }}
-            spacing={0}
+            size="whiteboard"
+            spacing={2}
             value={[editorState.elementStyle.strokeStyle]}
-            variant="outline"
+            variant="whiteboard"
           >
-            <ToggleGroupItem value="solid">Solid</ToggleGroupItem>
-            <ToggleGroupItem value="dashed">Dashed</ToggleGroupItem>
-            <ToggleGroupItem value="dotted">Dotted</ToggleGroupItem>
+            <ToggleGroupItem aria-label="Solid stroke" value="solid">
+              <span aria-hidden="true" className="h-0.5 w-4 bg-current" />
+            </ToggleGroupItem>
+            <ToggleGroupItem aria-label="Dashed stroke" value="dashed">
+              <span
+                aria-hidden="true"
+                className="h-0.5 w-4 bg-[repeating-linear-gradient(90deg,currentColor_0,currentColor_4px,transparent_4px,transparent_7px)]"
+              />
+            </ToggleGroupItem>
+            <ToggleGroupItem aria-label="Dotted stroke" value="dotted">
+              <span
+                aria-hidden="true"
+                className="h-0.5 w-4 bg-[radial-gradient(circle,currentColor_1px,transparent_1.5px)] bg-[length:4px_2px]"
+              />
+            </ToggleGroupItem>
           </ToggleGroup>
         </FieldSet>
 
-        <Field>
-          <div className="flex items-center justify-between gap-3">
-            <FieldLabel>Opacity</FieldLabel>
-            <span className="text-muted-foreground text-xs tabular-nums">
-              {editorState.elementStyle.opacity}%
-            </span>
-          </div>
+        <FieldSet className="gap-1.5" disabled={!engine}>
+          <FieldLegend className="text-xs font-normal" variant="label">
+            Sloppiness
+          </FieldLegend>
+          <ToggleGroup
+            aria-label="Sloppiness"
+            disabled={!engine}
+            onValueChange={(values) => {
+              const roughness = Number(values[0]);
+              if (Number.isFinite(roughness)) updateStyle({ roughness });
+            }}
+            size="whiteboard"
+            spacing={2}
+            value={[String(editorState.elementStyle.roughness ?? 1)]}
+            variant="whiteboard"
+          >
+            {[0, 1, 2].map((roughness) => (
+              <ToggleGroupItem
+                aria-label={
+                  roughness === 0
+                    ? "Architect"
+                    : roughness === 1
+                      ? "Artist"
+                      : "Cartoonist"
+                }
+                key={roughness}
+                value={String(roughness)}
+              >
+                <RoughnessPreview roughness={roughness} />
+              </ToggleGroupItem>
+            ))}
+          </ToggleGroup>
+        </FieldSet>
+
+        <FieldSet className="gap-1.5" disabled={!engine}>
+          <FieldLegend className="text-xs font-normal" variant="label">
+            Edges
+          </FieldLegend>
+          <ToggleGroup
+            aria-label="Edges"
+            disabled={!engine}
+            onValueChange={(values) => {
+              const roundness = values[0] as WhiteboardEdgeStyle | undefined;
+              if (roundness) updateStyle({ roundness });
+            }}
+            size="whiteboard"
+            spacing={2}
+            value={[editorState.elementStyle.roundness ?? "round"]}
+            variant="whiteboard"
+          >
+            <ToggleGroupItem aria-label="Sharp edges" value="sharp">
+              <Square />
+            </ToggleGroupItem>
+            <ToggleGroupItem aria-label="Round edges" value="round">
+              <SquareRoundCorner />
+            </ToggleGroupItem>
+          </ToggleGroup>
+        </FieldSet>
+
+        <Field className="gap-1.5">
+          <FieldLabel className="text-xs font-normal">Opacity</FieldLabel>
           <Slider
-            disabled={!canStyle}
+            disabled={!engine}
             max={100}
             min={0}
             onValueChange={(values: number | readonly number[]) => {
@@ -845,11 +1202,55 @@ function PropertiesPanel({
             thumbLabel="Opacity"
             value={[editorState.elementStyle.opacity]}
           />
+          <div
+            aria-hidden="true"
+            className="flex justify-between text-xs text-[var(--whiteboard-muted)]"
+          >
+            <span>0</span>
+            <span>100</span>
+          </div>
         </Field>
-        {!canStyle && (
-          <FieldDescription>
-            Select an element or choose a drawing tool to edit its appearance.
-          </FieldDescription>
+
+        {editorState.selectedElementIds.length > 0 && (
+          <FieldSet className="gap-1.5" disabled={!engine}>
+            <FieldLegend className="text-xs font-normal" variant="label">
+              Layers
+            </FieldLegend>
+            <div className="flex gap-1">
+              <TooltipButton
+                disabled={!engine?.reorderSelection}
+                icon={SendToBack}
+                label="Send to back"
+                onClick={() => engine?.reorderSelection?.("back")}
+                size="whiteboard-icon"
+                variant="whiteboard-panel"
+              />
+              <TooltipButton
+                disabled={!engine?.reorderSelection}
+                icon={ArrowDown}
+                label="Send backward"
+                onClick={() => engine?.reorderSelection?.("backward")}
+                size="whiteboard-icon"
+                variant="whiteboard-panel"
+              />
+              <TooltipButton
+                disabled={!engine?.reorderSelection}
+                icon={ArrowUp}
+                label="Bring forward"
+                onClick={() => engine?.reorderSelection?.("forward")}
+                size="whiteboard-icon"
+                variant="whiteboard-panel"
+              />
+              <TooltipButton
+                disabled={!engine?.reorderSelection}
+                icon={BringToFront}
+                label="Bring to front"
+                onClick={() => engine?.reorderSelection?.("front")}
+                size="whiteboard-icon"
+                variant="whiteboard-panel"
+              />
+            </div>
+          </FieldSet>
         )}
       </FieldGroup>
     </section>
@@ -870,30 +1271,70 @@ function ColorField({
   readonly value: string;
 }) {
   return (
-    <Field>
-      <FieldLabel>{label}</FieldLabel>
-      <div className="flex flex-wrap gap-2">
-        {colors.map((color) => (
-          <Button
-            aria-label={`${label}: ${color}`}
-            aria-pressed={value === color}
-            key={color}
-            onClick={() => onChange(color)}
-            size="icon-sm"
-            type="button"
-            variant={value === color ? "secondary" : "outline"}
-          >
-            <span
-              className="size-4 rounded-full border"
-              style={{
-                backgroundColor: color,
-                filter: theme === "dark" ? OWNED_DARK_THEME_FILTER : undefined,
-              }}
-            />
-          </Button>
-        ))}
+    <Field className="gap-1.5">
+      <FieldLabel className="text-xs font-normal">{label}</FieldLabel>
+      <div className="flex items-center gap-3">
+        <ToggleGroup
+          aria-label={label}
+          onValueChange={(values) => {
+            const color = values[0];
+            if (color) onChange(color);
+          }}
+          size="whiteboard-swatch"
+          spacing={1}
+          value={[value]}
+          variant="whiteboard"
+        >
+          {colors.map((color) => (
+            <ToggleGroupItem
+              aria-label={`${label}: ${color}`}
+              key={color}
+              value={color}
+            >
+              <span
+                className="size-5 rounded-sm border border-black/15"
+                style={{
+                  background:
+                    color === "transparent"
+                      ? "linear-gradient(135deg, transparent 46%, #e03131 47%, #e03131 53%, transparent 54%), #fff"
+                      : color,
+                  filter:
+                    theme === "dark" ? OWNED_DARK_THEME_FILTER : undefined,
+                }}
+              />
+            </ToggleGroupItem>
+          ))}
+        </ToggleGroup>
+        <Input
+          aria-label={`Custom ${label.toLowerCase()}`}
+          className="size-6 shrink-0 cursor-pointer rounded-md border-0 p-0.5"
+          onChange={(event) => onChange(event.currentTarget.value)}
+          type="color"
+          value={
+            /^#[\da-f]{6}$/i.test(value)
+              ? value
+              : label === "Background"
+                ? "#ffffff"
+                : "#1e1e1e"
+          }
+        />
       </div>
     </Field>
+  );
+}
+
+function RoughnessPreview({ roughness }: { readonly roughness: number }) {
+  const path =
+    roughness === 0
+      ? "M2 9 L14 9"
+      : roughness === 1
+        ? "M2 9 C5 7 9 11 14 8"
+        : "M2 11 C4 5 8 12 14 6";
+
+  return (
+    <svg aria-hidden="true" fill="none" viewBox="0 0 16 16">
+      <path d={path} stroke="currentColor" strokeLinecap="round" />
+    </svg>
   );
 }
 
@@ -901,34 +1342,109 @@ function MobileProperties({
   engine,
   editorState,
   open,
+  showProperties,
+  onRedo,
+  onUndo,
   onOpenChange,
 }: {
   readonly engine: WhiteboardEngine | null;
   readonly editorState: OwnedWhiteboardEditorState;
   readonly open: boolean;
+  readonly showProperties: boolean;
+  readonly onRedo: () => void;
+  readonly onUndo: () => void;
   readonly onOpenChange: (open: boolean) => void;
 }) {
+  const background = editorState.elementStyle.backgroundColor;
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
-      <Tooltip>
-        <TooltipTrigger
-          render={
+      <div className="flex items-center justify-between">
+        {showProperties ? (
+          <div className="flex items-center gap-1">
+            <SheetTrigger
+              render={
+                <Button
+                  aria-label="Stroke properties"
+                  disabled={!engine}
+                  size="whiteboard-icon"
+                  variant="whiteboard"
+                />
+              }
+            >
+              <span
+                aria-hidden="true"
+                className="size-6 rounded-md border border-black/15"
+                style={{
+                  background: `repeating-linear-gradient(135deg, ${editorState.elementStyle.strokeColor} 0, ${editorState.elementStyle.strokeColor} 2px, transparent 2px, transparent 4px)`,
+                  filter:
+                    editorState.theme === "dark"
+                      ? OWNED_DARK_THEME_FILTER
+                      : undefined,
+                }}
+              />
+            </SheetTrigger>
+            <SheetTrigger
+              render={
+                <Button
+                  aria-label="Background properties"
+                  disabled={!engine}
+                  size="whiteboard-icon"
+                  variant="whiteboard"
+                />
+              }
+            >
+              <span
+                aria-hidden="true"
+                className="size-6 rounded-md border border-black/15"
+                style={{
+                  background:
+                    background === "transparent"
+                      ? "linear-gradient(135deg, transparent 46%, #e03131 47%, #e03131 53%, transparent 54%), #fff"
+                      : background,
+                  filter:
+                    editorState.theme === "dark"
+                      ? OWNED_DARK_THEME_FILTER
+                      : undefined,
+                }}
+              />
+            </SheetTrigger>
             <SheetTrigger
               render={
                 <Button
                   aria-label="Element properties"
                   disabled={!engine}
-                  size="icon"
-                  variant="outline"
+                  size="whiteboard-icon"
+                  variant="whiteboard"
                 />
               }
-            />
-          }
-        >
-          <Palette />
-        </TooltipTrigger>
-        <TooltipContent>Element properties</TooltipContent>
-      </Tooltip>
+            >
+              <Settings2 />
+            </SheetTrigger>
+          </div>
+        ) : (
+          <span />
+        )}
+        <div className="flex items-center gap-1">
+          <Button
+            aria-label="Undo"
+            disabled={!engine}
+            onClick={onUndo}
+            size="whiteboard-icon"
+            variant="whiteboard"
+          >
+            <Undo2 />
+          </Button>
+          <Button
+            aria-label="Redo"
+            disabled={!engine}
+            onClick={onRedo}
+            size="whiteboard-icon"
+            variant="whiteboard"
+          >
+            <Redo2 />
+          </Button>
+        </div>
+      </div>
       <SheetContent side="bottom">
         <SheetHeader>
           <SheetTitle>Element properties</SheetTitle>
@@ -945,8 +1461,9 @@ function MobileProperties({
 type ViewportControlsProps = {
   readonly disabled: boolean;
   readonly zoom: number;
-  readonly onFit: () => void;
+  readonly onRedo: () => void;
   readonly onReset: () => void;
+  readonly onUndo: () => void;
   readonly onZoomIn: () => void;
   readonly onZoomOut: () => void;
 };
@@ -954,45 +1471,64 @@ type ViewportControlsProps = {
 function ViewportControls({
   disabled,
   zoom,
-  onFit,
+  onRedo,
   onReset,
+  onUndo,
   onZoomIn,
   onZoomOut,
 }: ViewportControlsProps) {
   return (
     <div
       aria-label="Viewport controls"
-      className="bg-background/90 pointer-events-auto absolute bottom-20 left-3 flex items-center gap-1 rounded-xl border p-1 shadow-sm backdrop-blur md:bottom-3"
+      className="pointer-events-auto absolute bottom-4 left-4 hidden items-center gap-2 md:flex"
       role="group"
     >
-      <TooltipButton
-        disabled={disabled || zoom <= MIN_ZOOM}
-        icon={Minus}
-        label="Zoom out"
-        onClick={onZoomOut}
-      />
-      <Button
-        aria-label="Reset zoom"
-        className="min-w-14 tabular-nums"
-        disabled={disabled}
-        onClick={onReset}
-        size="sm"
-        variant="ghost"
-      >
-        {Math.round(zoom * 100)}%
-      </Button>
-      <TooltipButton
-        disabled={disabled || zoom >= MAX_ZOOM}
-        icon={Plus}
-        label="Zoom in"
-        onClick={onZoomIn}
-      />
-      <TooltipButton
-        disabled={disabled}
-        icon={Scan}
-        label="Fit to content"
-        onClick={onFit}
-      />
+      <div className="flex overflow-hidden rounded-lg shadow-[0_0_0_1px_var(--whiteboard-surface-lowest)]">
+        <TooltipButton
+          disabled={disabled || zoom <= MIN_ZOOM}
+          icon={Minus}
+          label="Zoom out"
+          onClick={onZoomOut}
+          size="whiteboard-tool"
+          variant="whiteboard-group-control"
+        />
+        <Button
+          aria-label="Reset zoom"
+          className="w-[3.75rem] tabular-nums"
+          disabled={disabled}
+          onClick={onReset}
+          size="whiteboard-tool"
+          variant="whiteboard-group-control"
+        >
+          {Math.round(zoom * 100)}%
+        </Button>
+        <TooltipButton
+          disabled={disabled || zoom >= MAX_ZOOM}
+          icon={Plus}
+          label="Zoom in"
+          onClick={onZoomIn}
+          size="whiteboard-tool"
+          variant="whiteboard-group-control"
+        />
+      </div>
+      <div className="flex overflow-hidden rounded-lg shadow-[0_0_0_1px_var(--whiteboard-surface-lowest)]">
+        <TooltipButton
+          disabled={disabled}
+          icon={Undo2}
+          label="Undo"
+          onClick={onUndo}
+          size="whiteboard-tool"
+          variant="whiteboard-group-control"
+        />
+        <TooltipButton
+          disabled={disabled}
+          icon={Redo2}
+          label="Redo"
+          onClick={onRedo}
+          size="whiteboard-tool"
+          variant="whiteboard-group-control"
+        />
+      </div>
     </div>
   );
 }
@@ -1340,15 +1876,21 @@ function ShortcutRow({
 }
 
 function TooltipButton({
+  className,
   disabled,
   icon: IconComponent,
   label,
   onClick,
+  size = "icon",
+  variant = "ghost",
 }: {
+  readonly className?: string;
   readonly disabled?: boolean;
   readonly icon: Icon;
   readonly label: string;
   readonly onClick: () => void;
+  readonly size?: React.ComponentProps<typeof Button>["size"];
+  readonly variant?: React.ComponentProps<typeof Button>["variant"];
 }) {
   return (
     <Tooltip>
@@ -1356,10 +1898,11 @@ function TooltipButton({
         render={
           <Button
             aria-label={label}
+            className={className}
             disabled={disabled}
             onClick={onClick}
-            size="icon"
-            variant="ghost"
+            size={size}
+            variant={variant}
           />
         }
       >

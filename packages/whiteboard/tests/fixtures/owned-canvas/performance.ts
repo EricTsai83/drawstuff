@@ -9,6 +9,7 @@ export interface OwnedPerformanceFixture {
   readonly name: OwnedPerformanceFixtureName;
   readonly document: OwnedWhiteboardDocument;
   readonly expectedElementCount: number;
+  readonly expectedPaintedCount: number;
 }
 
 const FIXTURE_SIZES: Readonly<Record<OwnedPerformanceFixtureName, number>> = {
@@ -17,12 +18,21 @@ const FIXTURE_SIZES: Readonly<Record<OwnedPerformanceFixtureName, number>> = {
   large: 4096,
 };
 
+const EXPECTED_PAINTED_COUNTS: Readonly<
+  Record<OwnedPerformanceFixtureName, number>
+> = {
+  small: 32,
+  medium: 280,
+  large: 1050,
+};
+
 export const OWNED_CANVAS_PERFORMANCE_FIXTURES: readonly OwnedPerformanceFixture[] =
   (
     Object.entries(FIXTURE_SIZES) as [OwnedPerformanceFixtureName, number][]
   ).map(([name, size]) => ({
     name,
     expectedElementCount: size,
+    expectedPaintedCount: EXPECTED_PAINTED_COUNTS[name],
     document: Object.freeze({
       elements: Object.freeze(
         Array.from({ length: size }, (_, index) => createFixtureElement(index)),

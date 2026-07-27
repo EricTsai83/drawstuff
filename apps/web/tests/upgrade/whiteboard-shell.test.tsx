@@ -101,6 +101,7 @@ function createTestEngine(initialState = INITIAL_STATE) {
     },
   );
   const fitToContent = vi.fn();
+  const reorderSelection = vi.fn();
   const undo = vi.fn();
   const clearDocument = vi.fn();
   const exportImage = vi.fn(async () => new Blob(["image"]));
@@ -136,6 +137,7 @@ function createTestEngine(initialState = INITIAL_STATE) {
     getViewport: vi.fn(() => state.viewport),
     updateViewport,
     fitToContent,
+    reorderSelection,
     undo,
     redo: vi.fn(),
     clearDocument,
@@ -156,6 +158,7 @@ function createTestEngine(initialState = INITIAL_STATE) {
       fitToContent,
       importDocument,
       insertImage,
+      reorderSelection,
       setActiveTool,
       undo,
       updateElementStyle,
@@ -204,8 +207,9 @@ describe("owned whiteboard shell", () => {
     expect(
       toolButtons.map((button) => button.getAttribute("aria-label")),
     ).toEqual([
-      "Select",
+      "Keep selected tool active after drawing",
       "Hand",
+      "Selection",
       "Rectangle",
       "Diamond",
       "Ellipse",
@@ -213,10 +217,9 @@ describe("owned whiteboard shell", () => {
       "Line",
       "Draw",
       "Text",
-      "Image",
+      "Insert image",
       "Eraser",
-      "Frame",
-      "Laser",
+      "More tools",
     ]);
     expect(toolButtons.filter((button) => button.tabIndex === 0)).toHaveLength(
       1,
@@ -235,6 +238,10 @@ describe("owned whiteboard shell", () => {
         .getByRole("button", { name: "Rectangle" })
         .getAttribute("aria-pressed"),
     ).toBe("true");
+
+    fireEvent.click(screen.getByRole("button", { name: "More tools" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: /Frame/ }));
+    expect(spies.setActiveTool).toHaveBeenLastCalledWith({ type: "frame" });
 
     fireEvent.keyDown(window, { key: "8" });
     expect(spies.setActiveTool).toHaveBeenLastCalledWith({ type: "text" });
@@ -265,7 +272,7 @@ describe("owned whiteboard shell", () => {
       type: "image/png",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: "Image" }));
+    fireEvent.click(screen.getByRole("button", { name: "Insert image" }));
     fireEvent.change(screen.getByLabelText("Import image"), {
       target: { files: [image] },
     });
@@ -278,9 +285,7 @@ describe("owned whiteboard shell", () => {
     const { engine, spies } = createTestEngine();
     renderShell(engine);
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Stroke color: #1971c2" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Stroke: #1971c2" }));
     expect(spies.updateElementStyle).toHaveBeenLastCalledWith({
       strokeColor: "#1971c2",
     });
@@ -289,6 +294,19 @@ describe("owned whiteboard shell", () => {
     expect(spies.updateElementStyle).toHaveBeenLastCalledWith({
       fillStyle: "solid",
     });
+
+    fireEvent.click(screen.getByRole("button", { name: "Cartoonist" }));
+    expect(spies.updateElementStyle).toHaveBeenLastCalledWith({
+      roughness: 2,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sharp edges" }));
+    expect(spies.updateElementStyle).toHaveBeenLastCalledWith({
+      roundness: "sharp",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Bring to front" }));
+    expect(spies.reorderSelection).toHaveBeenLastCalledWith("front");
 
     const opacity = document.querySelector<HTMLInputElement>(
       'input[type="range"][aria-label="Opacity"]',
@@ -310,16 +328,19 @@ describe("owned whiteboard shell", () => {
     fireEvent.keyDown(window, { key: "-" });
     expect(spies.updateViewport).toHaveBeenLastCalledWith({ zoom: 1 });
 
-    fireEvent.click(screen.getByRole("button", { name: "Fit to content" }));
+    const contextTrigger = container.querySelector(
+      '[data-slot="context-menu-trigger"]',
+    );
+    expect(contextTrigger).not.toBeNull();
+    fireEvent.contextMenu(contextTrigger!);
+    fireEvent.click(
+      await screen.findByRole("menuitem", { name: "Fit to content" }),
+    );
     expect(spies.fitToContent).toHaveBeenCalledWith({
       animate: true,
       fitToViewport: true,
     });
 
-    const contextTrigger = container.querySelector(
-      '[data-slot="context-menu-trigger"]',
-    );
-    expect(contextTrigger).not.toBeNull();
     fireEvent.contextMenu(contextTrigger!);
     const undo = await screen.findByRole("menuitem", { name: /Undo/ });
     fireEvent.click(undo);
@@ -424,11 +445,12 @@ describe("owned whiteboard shell", () => {
     expect(spies.clearDocument).toHaveBeenCalledOnce();
   });
 
-  it("keeps product actions and disconnected states explicit", () => {
+  it("keeps product actions and disconnected states explicit", async () => {
     const { engine } = createTestEngine();
     const connected = renderShell(engine);
 
-    fireEvent.click(screen.getByRole("button", { name: "Test board" }));
+    fireEvent.click(screen.getByRole("button", { name: "Main menu" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
     expect(connected.actions.onRename).toHaveBeenCalledOnce();
     fireEvent.click(screen.getByRole("button", { name: "Share" }));
     expect(connected.actions.onShare).toHaveBeenCalledOnce();

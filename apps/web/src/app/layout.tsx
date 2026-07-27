@@ -1,6 +1,6 @@
 import "@/styles/globals.css";
 import { type Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Assistant, Geist, Geist_Mono } from "next/font/google";
 import { TRPCReactProvider } from "@/trpc/react";
 import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
 import { extractRouterConfig } from "uploadthing/server";
@@ -30,6 +30,11 @@ const geistMono = Geist_Mono({
   variable: "--font-mono",
 });
 
+const assistant = Assistant({
+  subsets: ["latin"],
+  variable: "--font-whiteboard",
+});
+
 export default function RootLayout({
   auth,
   dashboard,
@@ -46,6 +51,7 @@ export default function RootLayout({
         "font-sans antialiased",
         geist.variable,
         geistMono.variable,
+        assistant.variable,
       )}
       suppressHydrationWarning
     >

@@ -122,6 +122,47 @@ describe("owned whiteboard store", () => {
     expect(store.getDocument().elements).toEqual([]);
   });
 
+  it("reorders a multi-selection as a stable layer group and supports undo", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(
+      document([
+        rectangle("back", 0, 0, 10, 10),
+        rectangle("selected-a", 20, 0, 10, 10),
+        rectangle("middle", 40, 0, 10, 10),
+        rectangle("selected-b", 60, 0, 10, 10),
+        rectangle("front", 80, 0, 10, 10),
+      ]),
+    );
+    store.setSelection(["selected-a", "selected-b"]);
+
+    store.reorderSelection("front");
+    expect(store.getDocument().elements.map((element) => element.id)).toEqual([
+      "back",
+      "middle",
+      "front",
+      "selected-a",
+      "selected-b",
+    ]);
+
+    store.undo();
+    expect(store.getDocument().elements.map((element) => element.id)).toEqual([
+      "back",
+      "selected-a",
+      "middle",
+      "selected-b",
+      "front",
+    ]);
+
+    store.reorderSelection("backward");
+    expect(store.getDocument().elements.map((element) => element.id)).toEqual([
+      "selected-a",
+      "back",
+      "selected-b",
+      "middle",
+      "front",
+    ]);
+  });
+
   it("round-trips an owned document export through import", async () => {
     const source = new OwnedWhiteboardStore();
     source.loadDocument(

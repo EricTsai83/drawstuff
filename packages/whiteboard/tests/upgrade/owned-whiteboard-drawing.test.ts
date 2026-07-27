@@ -199,6 +199,7 @@ describe("owned drawing element geometry", () => {
 describe("owned drawing interactions", () => {
   it.each([
     ["mouse", "rectangle"],
+    ["mouse", "frame"],
     ["touch", "arrow"],
     ["pen", "freedraw"],
   ] as const)(
@@ -253,6 +254,7 @@ describe("owned drawing interactions", () => {
     "rectangle",
     "ellipse",
     "diamond",
+    "frame",
     "line",
     "arrow",
     "freedraw",
@@ -369,6 +371,7 @@ describe("owned drawing interactions", () => {
       arrow: false,
       diamond: true,
       ellipse: true,
+      frame: true,
       freedraw: true,
       line: true,
       rectangle: true,
