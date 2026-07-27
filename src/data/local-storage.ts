@@ -34,7 +34,6 @@ export const importFromLocalStorage = () => {
     };
   }
   try {
-    removeObsoleteLocalStorageValues();
     const source = localStorage.getItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
     );
@@ -58,20 +57,6 @@ export const importFromLocalStorage = () => {
     files: {} satisfies Readonly<Record<string, WhiteboardAsset>>,
   };
 };
-
-function removeObsoleteLocalStorageValues(): void {
-  [
-    "excalidraw",
-    "excalidraw-state",
-    "excalidraw-files",
-    "excalidraw-library",
-    "version-dataState",
-    "version-files",
-    "drawstuff-whiteboard-recovery-document",
-    "drawstuff-legacy-document-revision",
-    "drawstuff-owned-document-revision",
-  ].forEach((key) => localStorage.removeItem(key));
-}
 
 /** Writes the active canonical V2 document. */
 export function saveWhiteboardDocumentToLocalStorage(
