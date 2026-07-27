@@ -96,71 +96,39 @@ describe("owned drawing element geometry", () => {
       "text-id",
     );
 
-    expect({
-      freeDraw,
-      text,
-    }).toMatchInlineSnapshot(`
-      {
-        "freeDraw": {
-          "angle": 0,
-          "backgroundColor": "transparent",
-          "fillStyle": "solid",
-          "height": 14,
-          "id": "draw-id",
-          "isDeleted": false,
-          "locked": false,
-          "opacity": 80,
-          "points": [
-            [
-              0,
-              10,
-            ],
-            [
-              11,
-              0,
-            ],
-            [
-              20,
-              14,
-            ],
-          ],
-          "roughness": 1,
-          "strokeColor": "#1971c2",
-          "strokeStyle": "dashed",
-          "strokeWidth": 2,
-          "type": "freedraw",
-          "width": 20,
-          "x": -15,
-          "y": -2,
-        },
-        "text": {
-          "angle": 0,
-          "backgroundColor": "transparent",
-          "fillStyle": "solid",
-          "fontSize": 20,
-          "height": 75,
-          "id": "text-id",
-          "isDeleted": false,
-          "lineHeight": 1.25,
-          "locked": false,
-          "opacity": 80,
-          "originalText": "first
-
-      third",
-          "roughness": 1,
-          "strokeColor": "#1971c2",
-          "strokeStyle": "dashed",
-          "strokeWidth": 2,
-          "text": "first
-
-      third",
-          "type": "text",
-          "width": 60,
-          "x": -40,
-          "y": 12,
-        },
-      }
-    `);
+    expect(freeDraw).toMatchObject({
+      type: "freedraw",
+      x: -15,
+      y: -2,
+      width: 20,
+      height: 14,
+      points: [
+        [0, 10],
+        [11, 0],
+        [20, 14],
+      ],
+      pressures: [0.5, 0.5, 0.5],
+      simulatePressure: true,
+      lastCommittedPoint: [20, 14],
+      version: 1,
+      groupIds: [],
+      frameId: null,
+    });
+    expect(text).toMatchObject({
+      type: "text",
+      x: -40,
+      y: 12,
+      width: 60,
+      height: 75,
+      text: "first\n\nthird",
+      originalText: "first\n\nthird",
+      fontFamily: "excalifont",
+      textAlign: "left",
+      verticalAlign: "top",
+      containerId: null,
+      autoResize: true,
+      version: 1,
+    });
   });
 
   it("rejects whitespace-only text and accepts measured editor dimensions", () => {

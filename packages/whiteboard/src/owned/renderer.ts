@@ -4,6 +4,7 @@ import type { Drawable } from "roughjs/bin/core";
 import type {
   WhiteboardAsset,
   WhiteboardElement,
+  WhiteboardElementStyle,
   WhiteboardTheme,
   WhiteboardViewport,
 } from "../contracts";
@@ -17,6 +18,7 @@ import {
   readElementString,
   type ElementGeometry,
   type WhiteboardBounds,
+  type WhiteboardPoint,
 } from "./geometry";
 import type { OwnedWhiteboardStore } from "./store";
 import { getSelectionBounds, OWNED_ROTATION_HANDLE_OFFSET } from "./editing";
@@ -32,6 +34,13 @@ import {
   lineDashFor,
 } from "./rough-shapes";
 import { OWNED_DARK_THEME_FILTER, resolveOwnedThemeColor } from "./theme-color";
+import {
+  isRasterSizeAllowed,
+  OwnedRasterCache,
+  type OwnedRasterCacheValue,
+  type OwnedRasterCacheVariant,
+} from "./raster-cache";
+import type { OwnedPerformanceMonitor } from "./performance-monitor";
 
 export interface OwnedAnimationScheduler {
   readonly request: (callback: FrameRequestCallback) => number;
@@ -60,6 +69,12 @@ interface CachedRoughShape {
   readonly theme: WhiteboardTheme;
 }
 
+interface StreamingFreedrawPreview {
+  readonly path: Path2D | null;
+  readonly points: WhiteboardPoint[];
+  readonly style: WhiteboardElementStyle;
+}
+
 const DEFAULT_SCHEDULER: OwnedAnimationScheduler = {
   request: (callback) => window.requestAnimationFrame(callback),
   cancel: (handle) => window.cancelAnimationFrame(handle),
@@ -74,6 +89,7 @@ export class OwnedWhiteboardRenderer {
   private readonly roughOverlay: RoughCanvas;
   private readonly imageCache = new Map<string, CachedImage>();
   private readonly assetSafetyCache = new Map<string, CachedAssetSafety>();
+  private readonly rasterCache = new OwnedRasterCache();
   private roughShapeCache = new WeakMap<WhiteboardElement, CachedRoughShape>();
   private freeDrawShapeCache = new WeakMap<
     WhiteboardElement,
@@ -84,6 +100,7 @@ export class OwnedWhiteboardRenderer {
   private scheduledFrame: number | null = null;
   private marquee: WhiteboardBounds | null = null;
   private preview: WhiteboardElement | null = null;
+  private freedrawPreview: StreamingFreedrawPreview | null = null;
   private cssWidth = 0;
   private cssHeight = 0;
   private pixelRatio = 1;
@@ -102,6 +119,7 @@ export class OwnedWhiteboardRenderer {
     private readonly overlayCanvas: HTMLCanvasElement,
     private readonly store: OwnedWhiteboardStore,
     private readonly scheduler: OwnedAnimationScheduler = DEFAULT_SCHEDULER,
+    private readonly performanceMonitor?: OwnedPerformanceMonitor,
   ) {
     const sceneContext = sceneCanvas.getContext("2d");
     const overlayContext = overlayCanvas.getContext("2d");
@@ -161,6 +179,36 @@ export class OwnedWhiteboardRenderer {
     this.schedule();
   }
 
+  public beginFreedrawPreview(
+    point: WhiteboardPoint,
+    style: WhiteboardElementStyle,
+  ): void {
+    if (this.destroyed) return;
+    const path = typeof Path2D === "undefined" ? null : new Path2D();
+    path?.moveTo(point.x, point.y);
+    this.preview = null;
+    this.freedrawPreview = { path, points: [point], style };
+    this.overlayDirty = true;
+    this.schedule();
+  }
+
+  public appendFreedrawPreview(points: readonly WhiteboardPoint[]): void {
+    if (this.destroyed || !this.freedrawPreview) return;
+    for (const point of points) {
+      this.freedrawPreview.path?.lineTo(point.x, point.y);
+      this.freedrawPreview.points.push(point);
+    }
+    this.overlayDirty = true;
+    this.schedule();
+  }
+
+  public endFreedrawPreview(): void {
+    if (this.destroyed || !this.freedrawPreview) return;
+    this.freedrawPreview = null;
+    this.overlayDirty = true;
+    this.schedule();
+  }
+
   public setEditingEnabled(enabled: boolean): void {
     if (this.destroyed || enabled === this.editingEnabled) return;
     this.editingEnabled = enabled;
@@ -174,7 +222,7 @@ export class OwnedWhiteboardRenderer {
       this.scheduler.cancel(this.scheduledFrame);
       this.scheduledFrame = null;
     }
-    this.renderFrame();
+    this.renderFrame(performance.now());
     return this.lastStats;
   }
 
@@ -183,6 +231,7 @@ export class OwnedWhiteboardRenderer {
     readonly cachedAssets: number;
     readonly freeDrawShapeGenerations: number;
     readonly roughShapeGenerations: number;
+    readonly rasterCache: ReturnType<OwnedRasterCache["getDiagnostics"]>;
     readonly stats: OwnedRenderStats;
   } {
     return {
@@ -190,6 +239,7 @@ export class OwnedWhiteboardRenderer {
       cachedAssets: this.imageCache.size,
       freeDrawShapeGenerations: this.freeDrawShapeGenerations,
       roughShapeGenerations: this.roughShapeGenerations,
+      rasterCache: this.rasterCache.getDiagnostics(),
       stats: this.lastStats,
     };
   }
@@ -210,21 +260,23 @@ export class OwnedWhiteboardRenderer {
     }
     this.imageCache.clear();
     this.assetSafetyCache.clear();
+    this.rasterCache.clear();
     this.roughShapeCache = new WeakMap();
     this.freeDrawShapeCache = new WeakMap();
     this.marquee = null;
     this.preview = null;
+    this.freedrawPreview = null;
   }
 
   private schedule(): void {
     if (this.destroyed || this.scheduledFrame !== null) return;
-    this.scheduledFrame = this.scheduler.request(() => {
+    this.scheduledFrame = this.scheduler.request((timestamp) => {
       this.scheduledFrame = null;
-      if (!this.destroyed) this.renderFrame();
+      if (!this.destroyed) this.renderFrame(timestamp);
     });
   }
 
-  private renderFrame(): void {
+  private renderFrame(timestamp: number): void {
     if (this.store.isDestroyed()) {
       this.destroy();
       return;
@@ -259,6 +311,11 @@ export class OwnedWhiteboardRenderer {
       paintedElements,
       selectedElements,
     };
+    this.performanceMonitor?.recordFrame(
+      timestamp,
+      paintedElements,
+      this.rasterCache.getDiagnostics().hitRate,
+    );
   }
 
   private paintScene(
@@ -283,7 +340,11 @@ export class OwnedWhiteboardRenderer {
     context.scale(viewport.zoom, viewport.zoom);
     context.translate(viewport.x, viewport.y);
     let paintedElements = 0;
-    for (const element of elements) {
+    const candidates = viewportBounds
+      ? this.store.getVisibleElements(viewportBounds)
+      : elements;
+    const selectedIds = new Set(this.store.getEditorState().selectedElementIds);
+    for (const element of candidates) {
       if (!isElementVisible(element)) continue;
       const geometry = getElementGeometry(element);
       if (
@@ -292,14 +353,27 @@ export class OwnedWhiteboardRenderer {
       ) {
         continue;
       }
-      this.paintElement(
-        context,
-        element,
-        assets,
-        theme,
-        this.roughScene,
-        geometry,
-      );
+      const selected = selectedIds.has(element.id);
+      if (
+        !this.paintRasterElement(
+          context,
+          element,
+          assets,
+          theme,
+          viewport.zoom,
+          geometry,
+          selected ? 2 : 1,
+        )
+      ) {
+        this.paintElement(
+          context,
+          element,
+          assets,
+          theme,
+          this.roughScene,
+          geometry,
+        );
+      }
       paintedElements += 1;
     }
     context.restore();
@@ -307,6 +381,112 @@ export class OwnedWhiteboardRenderer {
     return {
       visitedElements: elements.length,
       paintedElements,
+    };
+  }
+
+  private paintRasterElement(
+    target: CanvasRenderingContext2D,
+    element: WhiteboardElement,
+    assets: Readonly<Record<string, WhiteboardAsset>>,
+    theme: WhiteboardTheme,
+    zoom: number,
+    geometry: ElementGeometry,
+    priority: number,
+  ): boolean {
+    if (
+      element.type === "image" ||
+      element.width === 0 ||
+      element.height === 0
+    ) {
+      return false;
+    }
+    const variant: OwnedRasterCacheVariant = {
+      theme,
+      pixelRatio: this.pixelRatio,
+      zoom,
+      assetRevision: 0,
+      boundTextNonce: 0,
+      frameOpacity: 100,
+    };
+    const cached = this.rasterCache.get(element, variant, priority);
+    if (cached) {
+      drawRaster(target, cached);
+      return true;
+    }
+    if (this.store.isViewportTransient()) {
+      const reusable = this.rasterCache.getReusable(element, variant, priority);
+      if (reusable) {
+        drawRaster(target, reusable);
+        return true;
+      }
+    }
+    const created = this.createRasterElement(
+      element,
+      assets,
+      theme,
+      zoom,
+      geometry,
+    );
+    if (!created) return false;
+    this.rasterCache.set(element, variant, created, priority);
+    drawRaster(target, created);
+    return true;
+  }
+
+  private createRasterElement(
+    element: WhiteboardElement,
+    assets: Readonly<Record<string, WhiteboardAsset>>,
+    theme: WhiteboardTheme,
+    zoom: number,
+    geometry: ElementGeometry,
+  ): OwnedRasterCacheValue | null {
+    const padding = Math.max(
+      4,
+      readElementNumber(element, "strokeWidth", 1) * 4,
+    );
+    const sceneWidth = Math.max(1, geometry.width + padding * 2);
+    const sceneHeight = Math.max(1, geometry.height + padding * 2);
+    const scale = Math.max(0.01, zoom * this.pixelRatio);
+    const pixelWidth = Math.ceil(sceneWidth * scale);
+    const pixelHeight = Math.ceil(sceneHeight * scale);
+    if (!isRasterSizeAllowed(pixelWidth, pixelHeight)) return null;
+    const useOffscreen =
+      typeof OffscreenCanvas !== "undefined" &&
+      !isRoughRenderableElement(element);
+    const canvas: HTMLCanvasElement | OffscreenCanvas = useOffscreen
+      ? new OffscreenCanvas(pixelWidth, pixelHeight)
+      : this.sceneCanvas.ownerDocument.createElement("canvas");
+    canvas.width = pixelWidth;
+    canvas.height = pixelHeight;
+    let context: CanvasRenderingContext2D | null;
+    try {
+      context = canvas.getContext(
+        "2d",
+      ) as unknown as CanvasRenderingContext2D | null;
+    } catch {
+      return null;
+    }
+    if (!context || typeof context.setTransform !== "function") return null;
+    context.setTransform(scale, 0, 0, scale, 0, 0);
+    context.translate(padding - geometry.x, padding - geometry.y);
+    this.paintElement(
+      context,
+      element,
+      assets,
+      theme,
+      canvas instanceof HTMLCanvasElement
+        ? rough.canvas(canvas)
+        : this.roughScene,
+      geometry,
+    );
+    return {
+      source: canvas,
+      pixelWidth,
+      pixelHeight,
+      sceneX: geometry.x - padding,
+      sceneY: geometry.y - padding,
+      sceneWidth,
+      sceneHeight,
     };
   }
 
@@ -561,6 +741,34 @@ export class OwnedWhiteboardRenderer {
       );
       context.restore();
     }
+    if (this.freedrawPreview) {
+      context.save();
+      context.scale(viewport.zoom, viewport.zoom);
+      context.translate(viewport.x, viewport.y);
+      context.strokeStyle = resolveOwnedThemeColor(
+        this.freedrawPreview.style.strokeColor,
+        this.store.getEditorState().theme,
+      );
+      context.lineWidth =
+        Math.max(0.5, this.freedrawPreview.style.strokeWidth) * 4.25;
+      context.lineCap = "round";
+      context.lineJoin = "round";
+      context.setLineDash([]);
+      if (this.freedrawPreview.path) {
+        context.stroke(this.freedrawPreview.path);
+      } else {
+        const first = this.freedrawPreview.points[0];
+        if (first) {
+          context.beginPath();
+          context.moveTo(first.x, first.y);
+          for (const point of this.freedrawPreview.points.slice(1)) {
+            context.lineTo(point.x, point.y);
+          }
+          context.stroke();
+        }
+      }
+      context.restore();
+    }
     const selectedIds = new Set(selectedElementIds);
     const selected = this.store
       .getDocument()
@@ -709,6 +917,19 @@ function getViewportDocumentBounds(
     maxX: width / zoom - viewport.x + overscan,
     maxY: height / zoom - viewport.y + overscan,
   };
+}
+
+function drawRaster(
+  context: CanvasRenderingContext2D,
+  raster: OwnedRasterCacheValue,
+): void {
+  context.drawImage(
+    raster.source,
+    raster.sceneX,
+    raster.sceneY,
+    raster.sceneWidth,
+    raster.sceneHeight,
+  );
 }
 
 function finiteNumber(value: number, fallback: number): number {

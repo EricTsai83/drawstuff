@@ -115,6 +115,9 @@ export async function POST(request: Request) {
     }
     // 6) 清理已完成/失敗且超過 30 天的延遲清理任務
     const cleanupCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const tombstoneCutoff = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000);
+    const deletedLegacyShareTombstones =
+      await QUERIES.deleteLegacySharedSceneTombstonesOlderThan(tombstoneCutoff);
     let purgedDeferredCleanupsCount: number;
     {
       const purgedDeferredCleanups =
@@ -136,6 +139,7 @@ export async function POST(request: Request) {
         deletedExpiredSessions: deletedExpiredSessionsCount,
         deletedExpiredVerifications: deletedExpiredVerificationsCount,
         purgedDeferredCleanups: purgedDeferredCleanupsCount,
+        deletedLegacyShareTombstones: deletedLegacyShareTombstones.length,
       });
     }
 
@@ -169,6 +173,7 @@ export async function POST(request: Request) {
       deletedExpiredSessions: deletedExpiredSessionsCount,
       deletedExpiredVerifications: deletedExpiredVerificationsCount,
       purgedDeferredCleanups: purgedDeferredCleanupsCount,
+      deletedLegacyShareTombstones: deletedLegacyShareTombstones.length,
     });
   } catch (error: unknown) {
     return NextResponse.json({ error: String(error) }, { status: 500 });

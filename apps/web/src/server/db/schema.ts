@@ -286,6 +286,19 @@ export const sharedScene = createTable(
   ],
 );
 
+export const legacySharedSceneTombstone = createTable(
+  "legacy_shared_scene_tombstone",
+  {
+    sharedSceneId: text("shared_scene_id").primaryKey(),
+    expiredAt: timestamp("expired_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("legacy_shared_scene_tombstone_expired_at_idx").on(table.expiredAt),
+  ],
+);
+
 // 新增：文件記錄表
 export const fileRecord = createTable(
   "file_record",

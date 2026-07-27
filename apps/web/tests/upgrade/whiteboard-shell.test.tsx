@@ -45,7 +45,9 @@ const DOCUMENT: OwnedWhiteboardDocument = {
 };
 
 const INITIAL_STATE: OwnedWhiteboardEditorState = {
-  activeTool: { type: "selection", locked: false, customType: null },
+  activeTool: { type: "selection", locked: false },
+  toolLocked: false,
+  interaction: "idle",
   viewport: {
     x: 0,
     y: 0,
@@ -58,6 +60,11 @@ const INITIAL_STATE: OwnedWhiteboardEditorState = {
   name: "Test board",
   theme: "light",
   selectedElementIds: ["shape-1"],
+  selection: {
+    elementIds: ["shape-1"],
+    groupIds: [],
+    editingGroupId: null,
+  },
   elementStyle: {
     strokeColor: "#1e1e1e",
     backgroundColor: "transparent",
@@ -66,6 +73,11 @@ const INITIAL_STATE: OwnedWhiteboardEditorState = {
     strokeStyle: "solid",
     opacity: 100,
   },
+  selectionStyle: null,
+  canUndo: true,
+  canRedo: false,
+  canGroup: false,
+  canUngroup: false,
 };
 
 function createTestEngine(initialState = INITIAL_STATE) {
@@ -133,10 +145,19 @@ function createTestEngine(initialState = INITIAL_STATE) {
     }),
     getActiveTool: vi.fn(() => state.activeTool),
     setActiveTool,
+    setToolLocked: vi.fn(),
     updateElementStyle,
+    selectAll: vi.fn(),
+    deleteSelection: vi.fn(),
+    duplicateSelection: vi.fn(),
+    groupSelection: vi.fn(),
+    ungroupSelection: vi.fn(),
     getViewport: vi.fn(() => state.viewport),
     updateViewport,
     fitToContent,
+    zoomToSelection: vi.fn(),
+    resetZoom: vi.fn(),
+    cancelInteraction: vi.fn(),
     reorderSelection,
     undo,
     redo: vi.fn(),

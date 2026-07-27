@@ -30,7 +30,7 @@ import {
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { decompressData } from "@/lib/encode";
-import { parseWhiteboardDocumentV2 } from "@drawstuff/whiteboard";
+import { parseWhiteboardDocumentV3 } from "@drawstuff/whiteboard";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "@/server/whiteboard/persistence-guard";
 
@@ -73,7 +73,7 @@ async function getReferencedPublishedFileIds(
       },
     );
     const source = new TextDecoder().decode(data);
-    const document = parseWhiteboardDocumentV2(source);
+    const document = parseWhiteboardDocumentV3(source);
     const ids = new Set<string>();
     for (const element of document.elements) {
       if (element.isDeleted) continue;

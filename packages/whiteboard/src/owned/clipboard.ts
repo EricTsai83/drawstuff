@@ -4,10 +4,10 @@ import type {
   WhiteboardElement,
 } from "../contracts";
 import {
-  createPersistedWhiteboardDocumentV2,
-  parseWhiteboardDocumentV2,
-  toRuntimeWhiteboardDocumentV2,
-} from "../canonical-document";
+  createPersistedWhiteboardDocumentV3,
+  parseWhiteboardDocumentV3,
+  toRuntimeWhiteboardDocumentV3,
+} from "../v3-document";
 
 export const OWNED_CLIPBOARD_MIME = "application/x-drawstuff-whiteboard+json";
 export const OWNED_CLIPBOARD_VERSION = 1 as const;
@@ -86,12 +86,12 @@ function parseClipboardContents(
   const persistedAssets = Object.fromEntries(
     Object.entries(assets).map(([id, asset]) => {
       if (!isRecord(asset)) throw new Error("Clipboard asset is malformed");
-      return [id, { ...asset, storage: "inline" }] as const;
+      return [id, { ...asset, storage: "inline", revision: 1 }] as const;
     }),
   );
-  return toRuntimeWhiteboardDocumentV2(
-    parseWhiteboardDocumentV2({
-      version: 2,
+  return toRuntimeWhiteboardDocumentV3(
+    parseWhiteboardDocumentV3({
+      version: 3,
       elements,
       assets: persistedAssets,
       metadata: {
@@ -108,8 +108,8 @@ function normalizeClipboardContents(
   elements: readonly WhiteboardElement[],
   assets: Readonly<Record<string, WhiteboardAsset>>,
 ): Pick<OwnedWhiteboardDocument, "elements" | "assets"> {
-  const normalized = toRuntimeWhiteboardDocumentV2(
-    createPersistedWhiteboardDocumentV2({
+  const normalized = toRuntimeWhiteboardDocumentV3(
+    createPersistedWhiteboardDocumentV3({
       elements,
       assets,
       state: {

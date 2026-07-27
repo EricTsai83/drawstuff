@@ -1,8 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPersistedWhiteboardDocumentV2,
-  serializeWhiteboardDocumentV2,
-} from "@drawstuff/whiteboard";
+  migrateWhiteboardDocumentV2,
+} from "@drawstuff/whiteboard/migration-v2";
+import { serializeWhiteboardDocumentV3 } from "@drawstuff/whiteboard";
 import { compressData } from "@/lib/encode";
 
 const boundaryMocks = vi.hoisted(() => ({
@@ -31,51 +32,50 @@ import {
 } from "@/lib/import-data-from-db";
 
 function createOwnedSource(): string {
-  return serializeWhiteboardDocumentV2(
-    createPersistedWhiteboardDocumentV2({
-      elements: [
-        {
-          id: "owned-element",
-          type: "image",
-          isDeleted: false,
-          fileId: "owned-asset",
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 100,
-          angle: 0,
-          strokeColor: "transparent",
-          backgroundColor: "transparent",
-          fillStyle: "solid",
-          strokeWidth: 1,
-          strokeStyle: "solid",
-          opacity: 100,
-          roughness: 0,
-          locked: false,
-        },
-      ],
-      assets: {
-        "owned-asset": {
-          id: "owned-asset",
-          dataURL: "data:image/png;base64,AA==",
-          mimeType: "image/png",
-          created: 1,
-        },
-        "deleted-asset": {
-          id: "deleted-asset",
-          dataURL: "data:image/png;base64,AA==",
-          mimeType: "image/png",
-          created: 2,
-        },
+  const v2 = createPersistedWhiteboardDocumentV2({
+    elements: [
+      {
+        id: "owned-element",
+        type: "image",
+        isDeleted: false,
+        fileId: "owned-asset",
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 100,
+        angle: 0,
+        strokeColor: "transparent",
+        backgroundColor: "transparent",
+        fillStyle: "solid",
+        strokeWidth: 1,
+        strokeStyle: "solid",
+        opacity: 100,
+        roughness: 0,
+        locked: false,
       },
-      state: {
-        name: "Embedded name",
-        theme: "dark",
-        viewBackgroundColor: "#111111",
-        gridSize: 16,
+    ],
+    assets: {
+      "owned-asset": {
+        id: "owned-asset",
+        dataURL: "data:image/png;base64,AA==",
+        mimeType: "image/png",
+        created: 1,
       },
-    }),
-  );
+      "deleted-asset": {
+        id: "deleted-asset",
+        dataURL: "data:image/png;base64,AA==",
+        mimeType: "image/png",
+        created: 2,
+      },
+    },
+    state: {
+      name: "Embedded name",
+      theme: "dark",
+      viewBackgroundColor: "#111111",
+      gridSize: 16,
+    },
+  });
+  return serializeWhiteboardDocumentV3(migrateWhiteboardDocumentV2(v2));
 }
 
 function createNonCanonicalSource(): string {
@@ -99,7 +99,7 @@ describe("document loading boundaries", () => {
     );
     boundaryMocks.getOwnedScene.mockResolvedValue({
       sceneData: Buffer.from(compressed).toString("base64"),
-      documentVersion: 2,
+      documentVersion: 3,
       name: "Renamed in database",
       revision: 7,
       updatedAt: new Date("2026-01-02T03:04:05.000Z"),
@@ -135,7 +135,7 @@ describe("document loading boundaries", () => {
     );
     boundaryMocks.getSharedScene.mockResolvedValue({
       compressedData: compressed,
-      documentVersion: 2,
+      documentVersion: 3,
     });
 
     const loaded = await importDataFromBackend("shared-1", "unused-key");
@@ -158,7 +158,7 @@ describe("document loading boundaries", () => {
     );
     boundaryMocks.getOwnedScene.mockResolvedValue({
       sceneData: Buffer.from(compressed).toString("base64"),
-      documentVersion: 2,
+      documentVersion: 3,
       name: "Invalid",
       revision: 1,
       updatedAt: new Date("2026-01-02T03:04:05.000Z"),
@@ -179,7 +179,7 @@ describe("document loading boundaries", () => {
     );
     boundaryMocks.getSharedScene.mockResolvedValue({
       compressedData: compressed,
-      documentVersion: 2,
+      documentVersion: 3,
     });
     const consoleError = vi
       .spyOn(console, "error")
@@ -189,5 +189,18 @@ describe("document loading boundaries", () => {
       importDataFromBackend("shared-1", "unused-key"),
     ).resolves.toBeNull();
     consoleError.mockRestore();
+  });
+
+  it("preserves the legacy-share expiration error from the API", async () => {
+    boundaryMocks.getSharedScene.mockRejectedValue(
+      new Error("LEGACY_SHARE_EXPIRED"),
+    );
+
+    await expect(
+      importDataFromBackend("legacy-share", "unused-key"),
+    ).rejects.toMatchObject({
+      name: "LegacySharedSceneExpiredError",
+      message: "LEGACY_SHARE_EXPIRED",
+    });
   });
 });

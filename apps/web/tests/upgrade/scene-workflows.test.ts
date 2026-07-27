@@ -113,7 +113,7 @@ describe("critical cloud scene workflow", () => {
         name: "Oversized scene",
         workspaceId,
         data: "compressed-payload",
-        documentVersion: 2,
+        documentVersion: 3,
       }),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
@@ -217,7 +217,7 @@ describe("critical cloud scene workflow", () => {
       name: "Created scene",
       workspaceId,
       data: "stable-compressed-payload",
-      documentVersion: 2,
+      documentVersion: 3,
     });
     const saved = await caller.saveScene({
       id: sceneId,
@@ -225,7 +225,7 @@ describe("critical cloud scene workflow", () => {
       workspaceId,
       expectedRevision: 1,
       data: "stable-compressed-payload",
-      documentVersion: 2,
+      documentVersion: 3,
     });
     const reloaded = await caller.getScene({ id: sceneId });
 

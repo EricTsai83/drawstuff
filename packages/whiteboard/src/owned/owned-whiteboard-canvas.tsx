@@ -4,14 +4,16 @@ import { useEffect, useRef } from "react";
 import type {
   OwnedWhiteboardDocument,
   WhiteboardEngine,
+  WhiteboardPerformanceSample,
   WhiteboardViewerController,
 } from "../contracts";
 import { recordWhiteboardDiagnostic } from "../diagnostics";
-import { WHITEBOARD_DOCUMENT_VERSION } from "../canonical-document";
+import { WHITEBOARD_DOCUMENT_VERSION } from "../v3-document";
 import { OwnedWhiteboardInput } from "./input";
 import { OwnedWhiteboardRenderer } from "./renderer";
 import { OwnedWhiteboardStore } from "./store";
 import { OwnedWhiteboardTextEditor } from "./text-editor";
+import { OwnedPerformanceMonitor } from "./performance-monitor";
 import {
   DEFAULT_OWNED_DRAWING_CAPABILITIES,
   type OwnedDrawingCapabilities,
@@ -29,6 +31,7 @@ export interface OwnedWhiteboardCanvasProps {
   readonly ariaLabel?: string;
   readonly drawingCapabilities?: Partial<OwnedDrawingCapabilities>;
   readonly editingEnabled?: boolean;
+  readonly onPerformanceSample?: (sample: WhiteboardPerformanceSample) => void;
 }
 
 type OwnedDocumentSource =
@@ -41,6 +44,7 @@ interface OwnedCanvasLifecycle {
   readonly store: OwnedWhiteboardStore;
   readonly input: OwnedWhiteboardInput;
   readonly renderer: OwnedWhiteboardRenderer;
+  readonly performanceMonitor: OwnedPerformanceMonitor | null;
   active: boolean;
   diagnosticsEnabled: boolean;
   fitOnResize: boolean;
@@ -57,6 +61,7 @@ export function OwnedWhiteboardCanvas({
   ariaLabel = "Whiteboard canvas",
   drawingCapabilities,
   editingEnabled = true,
+  onPerformanceSample,
 }: OwnedWhiteboardCanvasProps) {
   const rootRef = useRef<HTMLDivElement>(null);
   const sceneCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -67,6 +72,7 @@ export function OwnedWhiteboardCanvas({
     DEFAULT_OWNED_DRAWING_CAPABILITIES,
   );
   const editingEnabledRef = useRef(editingEnabled);
+  const performanceSampleRef = useRef(onPerformanceSample);
   const lifecycleRef = useRef<OwnedCanvasLifecycle | null>(null);
   documentRef.current = document;
   drawingCapabilitiesRef.current = {
@@ -74,6 +80,7 @@ export function OwnedWhiteboardCanvas({
     ...drawingCapabilities,
   };
   editingEnabledRef.current = editingEnabled;
+  performanceSampleRef.current = onPerformanceSample;
 
   useEffect(() => {
     const root = rootRef.current;
@@ -82,10 +89,17 @@ export function OwnedWhiteboardCanvas({
     if (!root || !sceneCanvas || !overlayCanvas) return;
 
     const store = new OwnedWhiteboardStore();
+    const performanceMonitor = performanceSampleRef.current
+      ? new OwnedPerformanceMonitor((sample) =>
+          performanceSampleRef.current?.(sample),
+        )
+      : null;
     const renderer = new OwnedWhiteboardRenderer(
       sceneCanvas,
       overlayCanvas,
       store,
+      undefined,
+      performanceMonitor ?? undefined,
     );
     const readOnly = Boolean(onViewerReady);
     const inputEditingEnabled = editingEnabledRef.current && !readOnly;
@@ -98,6 +112,14 @@ export function OwnedWhiteboardCanvas({
         renderer.setPreview(element),
       beginTextEditing: (point: Parameters<typeof textEditor.begin>[0]) =>
         textEditor.begin(point),
+      beginFreedrawPreview: (
+        point: Parameters<typeof renderer.beginFreedrawPreview>[0],
+        style: Parameters<typeof renderer.beginFreedrawPreview>[1],
+      ) => renderer.beginFreedrawPreview(point, style),
+      appendFreedrawPreview: (
+        points: Parameters<typeof renderer.appendFreedrawPreview>[0],
+      ) => renderer.appendFreedrawPreview(points),
+      endFreedrawPreview: () => renderer.endFreedrawPreview(),
     };
     const input = new OwnedWhiteboardInput(
       root,
@@ -106,11 +128,13 @@ export function OwnedWhiteboardCanvas({
       drawingCapabilitiesRef.current,
       undefined,
       inputEditingEnabled,
+      performanceMonitor ?? undefined,
     );
     const lifecycle: OwnedCanvasLifecycle = {
       store,
       input,
       renderer,
+      performanceMonitor,
       active: true,
       diagnosticsEnabled: !readOnly,
       fitOnResize: false,
@@ -161,6 +185,7 @@ export function OwnedWhiteboardCanvas({
       input.destroy();
       textEditor.destroy();
       renderer.destroy();
+      performanceMonitor?.destroy();
       store.destroy();
       if (storeRef.current === store) storeRef.current = null;
       if (lifecycleRef.current === lifecycle) lifecycleRef.current = null;
@@ -198,12 +223,12 @@ export function OwnedWhiteboardCanvas({
       <canvas
         ref={sceneCanvasRef}
         aria-hidden="true"
-        className="absolute inset-0 [image-rendering:pixelated]"
+        className="absolute inset-0"
       />
       <canvas
         ref={overlayCanvasRef}
         aria-hidden="true"
-        className="pointer-events-none absolute inset-0 [image-rendering:pixelated]"
+        className="pointer-events-none absolute inset-0"
       />
     </div>
   );

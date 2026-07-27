@@ -9,8 +9,8 @@ import type {
   WhiteboardElement,
 } from "@drawstuff/whiteboard";
 import {
-  createPersistedWhiteboardDocumentV2,
-  serializeWhiteboardDocumentV2,
+  createPersistedWhiteboardDocumentV3,
+  serializeWhiteboardDocumentV3,
   WHITEBOARD_DOCUMENT_VERSION,
 } from "@drawstuff/whiteboard";
 
@@ -64,8 +64,8 @@ function serializeSceneData(
   },
 ): string {
   const persistedElements = clearElementsForDatabase(elements);
-  return serializeWhiteboardDocumentV2(
-    createPersistedWhiteboardDocumentV2(
+  return serializeWhiteboardDocumentV3(
+    createPersistedWhiteboardDocumentV3(
       {
         elements: persistedElements,
         assets: files,

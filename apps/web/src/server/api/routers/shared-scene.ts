@@ -1,7 +1,12 @@
 import { z } from "zod";
+import { TRPCError } from "@trpc/server";
 import { createTRPCRouter, publicProcedure } from "@/server/api/trpc";
 import { eq } from "drizzle-orm";
-import { sharedScene, fileRecord } from "@/server/db/schema";
+import {
+  fileRecord,
+  legacySharedSceneTombstone,
+  sharedScene,
+} from "@/server/db/schema";
 
 // 依據 scene id 取得加密的場景資料（儲存在 scene.image）
 export const sharedSceneRouter = createTRPCRouter({
@@ -15,6 +20,21 @@ export const sharedSceneRouter = createTRPCRouter({
           documentVersion: true,
         },
       });
+      const tombstone = result
+        ? null
+        : await ctx.db.query.legacySharedSceneTombstone.findFirst({
+            where: eq(
+              legacySharedSceneTombstone.sharedSceneId,
+              input.sharedSceneId,
+            ),
+            columns: { sharedSceneId: true },
+          });
+      if (tombstone) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "LEGACY_SHARE_EXPIRED",
+        });
+      }
 
       return {
         compressedData: result?.compressedData ?? null,

@@ -7,8 +7,8 @@ import type {
 import { ensureInitialWhiteboardState } from "@/lib/whiteboard";
 import {
   filterReferencedWhiteboardAssets,
-  parseWhiteboardDocumentV2,
-  toRuntimeWhiteboardDocumentV2,
+  parseWhiteboardDocumentV3,
+  toRuntimeWhiteboardDocumentV3,
   WHITEBOARD_DOCUMENT_VERSION,
 } from "@drawstuff/whiteboard";
 
@@ -44,9 +44,20 @@ export async function importDataFromBackend(
       state: ensureInitialWhiteboardState(parsed.state),
     };
   } catch (error: unknown) {
+    if (error instanceof LegacySharedSceneExpiredError) throw error;
+    if (error instanceof Error && error.message === "LEGACY_SHARE_EXPIRED") {
+      throw new LegacySharedSceneExpiredError();
+    }
     console.error("importFromBackend error", error);
     console.error(error);
     return null;
+  }
+}
+
+export class LegacySharedSceneExpiredError extends Error {
+  public constructor() {
+    super("LEGACY_SHARE_EXPIRED");
+    this.name = "LegacySharedSceneExpiredError";
   }
 }
 
@@ -246,8 +257,8 @@ function parseDecodedScenePayload(
   if (documentVersion !== WHITEBOARD_DOCUMENT_VERSION) {
     throw new Error("Unsupported whiteboard document version");
   }
-  const document = toRuntimeWhiteboardDocumentV2(
-    parseWhiteboardDocumentV2(source),
+  const document = toRuntimeWhiteboardDocumentV3(
+    parseWhiteboardDocumentV3(source),
   );
   return {
     ...document,

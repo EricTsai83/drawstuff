@@ -23,7 +23,8 @@ export type InitialWhiteboardDocument = OwnedWhiteboardDocument & {
   readonly scrollToContent?: boolean;
 };
 
-type InitialDocumentFailureCode = "INVALID_DOCUMENT" | "NETWORK" | "UNKNOWN";
+type InitialDocumentFailureCode =
+  "INVALID_DOCUMENT" | "LEGACY_SHARE_EXPIRED" | "NETWORK" | "UNKNOWN";
 
 export async function createInitialWhiteboardDocument(options?: {
   readonly onFailure?: (errorCode: InitialDocumentFailureCode) => void;
@@ -56,7 +57,12 @@ export async function createInitialWhiteboardDocument(options?: {
         return document ? withInitialState(document, true) : localDocument;
       } catch (error) {
         console.error("透過 URL 載入場景失敗，回退至本地資料:", error);
-        options?.onFailure?.("NETWORK");
+        options?.onFailure?.(
+          error instanceof Error &&
+            error.name === "LegacySharedSceneExpiredError"
+            ? "LEGACY_SHARE_EXPIRED"
+            : "NETWORK",
+        );
         return localDocument;
       }
     }

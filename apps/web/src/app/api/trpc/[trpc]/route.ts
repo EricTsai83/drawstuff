@@ -21,6 +21,10 @@ const handler = (req: NextRequest) =>
     req,
     router: appRouter,
     createContext: () => createContext(req),
+    responseMeta: ({ errors }) =>
+      errors.some((error) => error.message === "LEGACY_SHARE_EXPIRED")
+        ? { status: 410 }
+        : {},
     onError:
       env.NODE_ENV === "development"
         ? ({ path, error }) => {

@@ -16,7 +16,7 @@ import {
   type OwnedDrawingCapabilities,
   type OwnedDrawingSession,
 } from "./drawing";
-import type { WhiteboardElement } from "../contracts";
+import type { WhiteboardElement, WhiteboardElementStyle } from "../contracts";
 import type { OwnedWhiteboardStore } from "./store";
 import {
   getResizedBounds,
@@ -35,6 +35,7 @@ import {
   parseOwnedClipboardPayload,
   serializeOwnedClipboardPayload,
 } from "./clipboard";
+import type { OwnedPerformanceMonitor } from "./performance-monitor";
 
 export type OwnedPointerType = "mouse" | "pen" | "touch";
 
@@ -69,6 +70,12 @@ export interface OwnedInteractionSink {
   setMarquee(bounds: WhiteboardBounds | null): void;
   setPreview(element: WhiteboardElement | null): void;
   beginTextEditing(point: WhiteboardPoint): void;
+  beginFreedrawPreview?(
+    point: WhiteboardPoint,
+    style: WhiteboardElementStyle,
+  ): void;
+  appendFreedrawPreview?(points: readonly WhiteboardPoint[]): void;
+  endFreedrawPreview?(): void;
 }
 
 type ActiveInteraction =
@@ -161,6 +168,8 @@ export class OwnedWhiteboardInput {
   private activeKeyboardNudge: ActiveKeyboardNudge | null = null;
   private spacePressed = false;
   private pasteCount = 0;
+  private pendingPointerMove: PointerEvent | null = null;
+  private pointerMoveFrame: number | null = null;
   private destroyed = false;
 
   public constructor(
@@ -170,6 +179,7 @@ export class OwnedWhiteboardInput {
     private capabilities: OwnedDrawingCapabilities = DEFAULT_OWNED_DRAWING_CAPABILITIES,
     private readonly createId: () => string = createOwnedElementId,
     private editingEnabled = true,
+    private readonly performanceMonitor?: OwnedPerformanceMonitor,
   ) {
     target.addEventListener("pointerdown", this.handlePointerDown);
     target.addEventListener("pointermove", this.handlePointerMove);
@@ -232,10 +242,16 @@ export class OwnedWhiteboardInput {
       clearTimeout(this.wheelCommitTimer);
       this.wheelCommitTimer = null;
     }
+    if (this.pointerMoveFrame !== null) {
+      cancelAnimationFrame(this.pointerMoveFrame);
+      this.pointerMoveFrame = null;
+    }
+    this.pendingPointerMove = null;
     this.releaseActivePointer();
     this.activeInteraction = null;
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
+    this.interactionSink.endFreedrawPreview?.();
   }
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
@@ -243,6 +259,7 @@ export class OwnedWhiteboardInput {
       return;
     }
     this.commitKeyboardNudge();
+    this.performanceMonitor?.recordInput(event.timeStamp);
     const pointer = normalizePointerEvent(event);
     const shouldPan =
       event.button === 1 ||
@@ -254,8 +271,13 @@ export class OwnedWhiteboardInput {
     this.target.focus({ preventScroll: true });
     this.refreshViewportOffset();
     if (shouldPan) {
+      this.performanceMonitor?.begin(
+        "pan",
+        this.store.getDocument().elements.length,
+      );
       this.interactionSink.setMarquee(null);
       this.interactionSink.setPreview(null);
+      this.interactionSink.endFreedrawPreview?.();
       this.target.setPointerCapture?.(pointer.id);
       this.activeInteraction = {
         type: "pan",
@@ -276,6 +298,10 @@ export class OwnedWhiteboardInput {
         return;
       }
       const session = beginOwnedDrawing(activeTool, documentPoint);
+      this.performanceMonitor?.begin(
+        "draw",
+        this.store.getDocument().elements.length,
+      );
       this.target.setPointerCapture?.(pointer.id);
       this.activeInteraction = {
         type: "draw",
@@ -283,14 +309,19 @@ export class OwnedWhiteboardInput {
         button: event.button,
         session,
       };
-      this.interactionSink.setPreview(
-        createOwnedDrawingElement(
-          session,
-          this.store.getEditorState().elementStyle,
-          "owned-preview",
-          { preview: true },
-        ),
-      );
+      const style = this.store.getEditorState().elementStyle;
+      if (
+        activeTool === "freedraw" &&
+        this.interactionSink.beginFreedrawPreview
+      ) {
+        this.interactionSink.beginFreedrawPreview(documentPoint, style);
+      } else {
+        this.interactionSink.setPreview(
+          createOwnedDrawingElement(session, style, "owned-preview", {
+            preview: true,
+          }),
+        );
+      }
       return;
     }
     const selectedElements = this.store.getSelectedElements();
@@ -302,6 +333,10 @@ export class OwnedWhiteboardInput {
     if (selectedBounds && transformHandle) {
       this.target.setPointerCapture?.(pointer.id);
       if (transformHandle === "rotate") {
+        this.performanceMonitor?.begin(
+          "rotate",
+          this.store.getDocument().elements.length,
+        );
         const center = selectionCenter(selectedBounds);
         this.store.beginElementGesture("rotate");
         this.activeInteraction = {
@@ -316,6 +351,10 @@ export class OwnedWhiteboardInput {
           elements: selectedElements,
         };
       } else {
+        this.performanceMonitor?.begin(
+          "resize",
+          this.store.getDocument().elements.length,
+        );
         this.store.beginElementGesture("resize");
         this.activeInteraction = {
           type: "resize",
@@ -329,7 +368,12 @@ export class OwnedWhiteboardInput {
       return;
     }
     const hit = hitTestElements(
-      this.store.getDocument().elements,
+      this.store.getVisibleElements({
+        minX: documentPoint.x - 12 / viewport.zoom,
+        minY: documentPoint.y - 12 / viewport.zoom,
+        maxX: documentPoint.x + 12 / viewport.zoom,
+        maxY: documentPoint.y + 12 / viewport.zoom,
+      }),
       documentPoint,
       viewport.zoom,
     );
@@ -353,6 +397,10 @@ export class OwnedWhiteboardInput {
         return;
       }
       const elements = this.store.getSelectedElements();
+      this.performanceMonitor?.begin(
+        "move",
+        this.store.getDocument().elements.length,
+      );
       this.store.beginElementGesture("move");
       this.target.setPointerCapture?.(pointer.id);
       this.activeInteraction = {
@@ -385,9 +433,28 @@ export class OwnedWhiteboardInput {
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
+    if (
+      typeof event.getCoalescedEvents === "function" &&
+      typeof requestAnimationFrame === "function"
+    ) {
+      event.preventDefault();
+      this.pendingPointerMove = event;
+      this.pointerMoveFrame ??= requestAnimationFrame(() => {
+        this.pointerMoveFrame = null;
+        const pending = this.pendingPointerMove;
+        this.pendingPointerMove = null;
+        if (pending) this.processPointerMove(pending);
+      });
+      return;
+    }
+    this.processPointerMove(event);
+  };
+
+  private readonly processPointerMove = (event: PointerEvent): void => {
     const interaction = this.activeInteraction;
     if (interaction?.pointerId !== event.pointerId) return;
     const pointer = normalizePointerEvent(event);
+    this.performanceMonitor?.recordInput(event.timeStamp);
     event.preventDefault();
     if (interaction.type === "pan") {
       this.store.panBy(
@@ -400,18 +467,43 @@ export class OwnedWhiteboardInput {
     }
     if (interaction.type === "draw") {
       this.refreshViewportOffset();
-      interaction.session = updateOwnedDrawing(
-        interaction.session,
-        screenToDocument(pointer.point, this.store.getViewport()),
-      );
-      this.interactionSink.setPreview(
-        createOwnedDrawingElement(
-          interaction.session,
-          this.store.getEditorState().elementStyle,
-          "owned-preview",
-          { preview: true },
-        ),
-      );
+      const viewport = this.store.getViewport();
+      const coalesced =
+        typeof event.getCoalescedEvents === "function"
+          ? event.getCoalescedEvents()
+          : [];
+      const samples = coalesced.length > 0 ? coalesced : [event];
+      const appended: WhiteboardPoint[] = [];
+      for (const sample of samples) {
+        const point = screenToDocument(
+          { x: sample.clientX, y: sample.clientY },
+          viewport,
+        );
+        const before = interaction.session.pointCount;
+        interaction.session = updateOwnedDrawing(interaction.session, point, {
+          minDistance:
+            interaction.session.tool === "freedraw" ? 0.5 / viewport.zoom : 0,
+          pressure: sample.pressure,
+        });
+        if (interaction.session.pointCount > before) appended.push(point);
+      }
+      if (
+        interaction.session.tool === "freedraw" &&
+        this.interactionSink.appendFreedrawPreview
+      ) {
+        if (appended.length > 0) {
+          this.interactionSink.appendFreedrawPreview(appended);
+        }
+      } else {
+        this.interactionSink.setPreview(
+          createOwnedDrawingElement(
+            interaction.session,
+            this.store.getEditorState().elementStyle,
+            "owned-preview",
+            { preview: true },
+          ),
+        );
+      }
       return;
     }
     this.refreshViewportOffset();
@@ -473,6 +565,7 @@ export class OwnedWhiteboardInput {
   };
 
   private readonly handlePointerUp = (event: PointerEvent): void => {
+    this.flushPendingPointerMove();
     const interaction = this.activeInteraction;
     if (interaction?.pointerId !== event.pointerId) return;
     if (interaction.button !== event.button) return;
@@ -493,6 +586,7 @@ export class OwnedWhiteboardInput {
         this.store.getEditorState().elementStyle,
         this.createId(),
       );
+      this.interactionSink.endFreedrawPreview?.();
       this.interactionSink.setPreview(null);
       if (element) this.store.appendElement(element);
     } else if (
@@ -511,7 +605,7 @@ export class OwnedWhiteboardInput {
         viewport.zoom;
       if (Math.hypot(width, height) >= 3) {
         const candidates = elementsInBounds(
-          this.store.getDocument().elements,
+          this.store.getVisibleElements(interaction.currentBounds),
           interaction.currentBounds,
         ).map((element) => element.id);
         if (interaction.toggle) {
@@ -529,9 +623,11 @@ export class OwnedWhiteboardInput {
     }
     this.releaseActivePointer();
     this.activeInteraction = null;
+    this.performanceMonitor?.end();
   };
 
   private readonly handlePointerCancel = (event: PointerEvent): void => {
+    this.cancelPendingPointerMove();
     if (this.activeInteraction?.pointerId !== event.pointerId) return;
     if (this.activeInteraction.type === "pan") {
       this.store.commitTransientViewport();
@@ -544,11 +640,14 @@ export class OwnedWhiteboardInput {
     }
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
+    this.interactionSink.endFreedrawPreview?.();
     this.releaseActivePointer();
     this.activeInteraction = null;
+    this.performanceMonitor?.end();
   };
 
   private readonly handleLostPointerCapture = (event: PointerEvent): void => {
+    this.flushPendingPointerMove();
     if (this.activeInteraction?.pointerId !== event.pointerId) return;
     if (this.activeInteraction.type === "pan") {
       this.store.commitTransientViewport();
@@ -561,11 +660,18 @@ export class OwnedWhiteboardInput {
     }
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
+    this.interactionSink.endFreedrawPreview?.();
     this.activeInteraction = null;
+    this.performanceMonitor?.end();
   };
 
   private readonly handleWheel = (event: WheelEvent): void => {
     event.preventDefault();
+    this.performanceMonitor?.begin(
+      event.ctrlKey || event.metaKey ? "zoom" : "pan",
+      this.store.getDocument().elements.length,
+    );
+    this.performanceMonitor?.recordInput(event.timeStamp);
     this.refreshViewportOffset();
     const multiplier = wheelDeltaMultiplier(
       event.deltaMode,
@@ -597,6 +703,10 @@ export class OwnedWhiteboardInput {
       else if (key === "d") {
         this.store.duplicateSelection(this.createId);
         this.pasteCount = 0;
+      } else if (key === "g" && event.shiftKey) {
+        this.store.ungroupSelection();
+      } else if (key === "g") {
+        this.store.groupSelection();
       } else if (key === "z" && event.shiftKey) this.store.redo();
       else if (key === "z") this.store.undo();
       else if (key === "y") this.store.redo();
@@ -690,6 +800,7 @@ export class OwnedWhiteboardInput {
       this.store.setSelection([]);
       this.interactionSink.setMarquee(null);
       this.interactionSink.setPreview(null);
+      this.interactionSink.endFreedrawPreview?.();
       this.activeInteraction = null;
     } else if (event.key === "Backspace" || event.key === "Delete") {
       if (!this.editingEnabled) return;
@@ -771,6 +882,7 @@ export class OwnedWhiteboardInput {
     this.activeInteraction = null;
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
+    this.interactionSink.endFreedrawPreview?.();
   };
 
   private refreshViewportOffset(): void {
@@ -791,6 +903,7 @@ export class OwnedWhiteboardInput {
       if (!this.destroyed && !this.store.isDestroyed()) {
         this.store.commitTransientViewport();
       }
+      this.performanceMonitor?.end();
     }, 120);
   }
 
@@ -799,6 +912,24 @@ export class OwnedWhiteboardInput {
     if (pointerId !== undefined && this.target.hasPointerCapture?.(pointerId)) {
       this.target.releasePointerCapture?.(pointerId);
     }
+  }
+
+  private flushPendingPointerMove(): void {
+    if (this.pointerMoveFrame !== null) {
+      cancelAnimationFrame(this.pointerMoveFrame);
+      this.pointerMoveFrame = null;
+    }
+    const pending = this.pendingPointerMove;
+    this.pendingPointerMove = null;
+    if (pending) this.processPointerMove(pending);
+  }
+
+  private cancelPendingPointerMove(): void {
+    if (this.pointerMoveFrame !== null) {
+      cancelAnimationFrame(this.pointerMoveFrame);
+      this.pointerMoveFrame = null;
+    }
+    this.pendingPointerMove = null;
   }
 }
 
