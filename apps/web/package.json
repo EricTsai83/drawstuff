@@ -4,6 +4,11 @@
   "license": "MIT",
   "private": true,
   "type": "module",
+  "postcss": {
+    "plugins": [
+      "@tailwindcss/postcss"
+    ]
+  },
   "scripts": {
     "build": "next build",
     "db:push": "drizzle-kit push",
@@ -68,7 +73,6 @@
     "eslint": "^9.39.5",
     "jsdom": "^29.1.1",
     "knip": "^6.29.0",
-    "postcss": "^8.5.23",
     "shadcn": "^4.15.0",
     "tailwindcss": "^4.3.3",
     "tw-animate-css": "^1.4.0",

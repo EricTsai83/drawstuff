@@ -1,6 +1,6 @@
 import nextLintConfig from "eslint-config-next/core-web-vitals";
 
-import baseConfig from "../../eslint.config.js";
+import baseConfig from "../../eslint.config.ts";
 
 const eslintConfig = [
   ...nextLintConfig,
