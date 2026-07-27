@@ -1,4 +1,3 @@
-import nextLintConfig from "eslint-config-next/core-web-vitals";
 import tseslint from "typescript-eslint";
 // @ts-ignore -- no types for this plugin
 import drizzle from "eslint-plugin-drizzle";
@@ -7,7 +6,6 @@ export default tseslint.config(
   {
     ignores: [".deepsec/**"],
   },
-  ...nextLintConfig,
   {
     files: ["**/*.ts", "**/*.tsx"],
     plugins: {
@@ -19,11 +17,6 @@ export default tseslint.config(
       ...tseslint.configs.stylisticTypeChecked,
     ],
     rules: {
-      "react-hooks/immutability": "off",
-      "react-hooks/incompatible-library": "off",
-      "react-hooks/preserve-manual-memoization": "off",
-      "react-hooks/refs": "off",
-      "react-hooks/set-state-in-effect": "off",
       "@typescript-eslint/array-type": "off",
       "@typescript-eslint/consistent-type-definitions": "off",
       "@typescript-eslint/consistent-type-imports": [
