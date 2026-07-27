@@ -136,18 +136,20 @@ export function getElementGeometry(
   element: WhiteboardElement,
 ): ElementGeometry | null {
   if (!isSupportedElement(element)) return null;
-  const record = asRecord(element);
-  const x = finiteNumber(record.x, 0);
-  const y = finiteNumber(record.y, 0);
-  const width = finiteNumber(record.width, 0);
-  const height = finiteNumber(record.height, 0);
-  const angle = finiteNumber(record.angle, 0);
-  const points = LINEAR_ELEMENT_TYPES.has(element.type)
-    ? readPoints(record.points).map((point) => ({
-        x: point.x + x,
-        y: point.y + y,
-      }))
-    : [];
+  const x = finiteNumber(element.x, 0);
+  const y = finiteNumber(element.y, 0);
+  const width = finiteNumber(element.width, 0);
+  const height = finiteNumber(element.height, 0);
+  const angle = finiteNumber(element.angle, 0);
+  const points =
+    element.type === "arrow" ||
+    element.type === "freedraw" ||
+    element.type === "line"
+      ? readPoints(element.points).map((point) => ({
+          x: point.x + x,
+          y: point.y + y,
+        }))
+      : [];
 
   const unrotated =
     points.length > 0
@@ -212,22 +214,14 @@ export function isElementVisible(element: WhiteboardElement): boolean {
   if (element.isDeleted || !SUPPORTED_ELEMENT_TYPES.has(element.type)) {
     return false;
   }
-  const record = asRecord(element);
-  return (
-    record.hidden !== true &&
-    record.visible !== false &&
-    finiteNumber(record.opacity, 100) > 0
-  );
+  return element.opacity > 0;
 }
 
 export function isElementSelectable(element: WhiteboardElement): boolean {
   if (element.isDeleted || !SUPPORTED_ELEMENT_TYPES.has(element.type)) {
     return false;
   }
-  const record = asRecord(element);
-  return (
-    record.hidden !== true && record.visible !== false && record.locked !== true
-  );
+  return !element.locked;
 }
 
 export function readElementNumber(
@@ -235,7 +229,13 @@ export function readElementNumber(
   key: string,
   fallback: number,
 ): number {
-  return finiteNumber(asRecord(element)[key], fallback);
+  if (key === "opacity") return element.opacity;
+  if (key === "strokeWidth") return element.strokeWidth;
+  if (key === "fontSize" && element.type === "text") return element.fontSize;
+  if (key === "lineHeight" && element.type === "text") {
+    return element.lineHeight;
+  }
+  return fallback;
 }
 
 export function readElementString(
@@ -243,21 +243,21 @@ export function readElementString(
   key: string,
   fallback: string,
 ): string {
-  const value = asRecord(element)[key];
-  return typeof value === "string" ? value : fallback;
+  if (key === "strokeColor") return element.strokeColor;
+  if (key === "backgroundColor") return element.backgroundColor;
+  if (key === "strokeStyle") return element.strokeStyle;
+  if (key === "text" && element.type === "text") return element.text;
+  return fallback;
 }
 
 export function readElementPoints(
   element: WhiteboardElement,
 ): readonly WhiteboardPoint[] {
-  return readPoints(asRecord(element).points);
-}
-
-export function readElementBoolean(
-  element: WhiteboardElement,
-  key: string,
-): boolean {
-  return asRecord(element)[key] === true;
+  return element.type === "arrow" ||
+    element.type === "freedraw" ||
+    element.type === "line"
+    ? readPoints(element.points)
+    : [];
 }
 
 function hitTestGeometry(
@@ -395,10 +395,4 @@ function usableZoom(zoom: number): number {
 
 function isSupportedElement(element: WhiteboardElement): boolean {
   return SUPPORTED_ELEMENT_TYPES.has(element.type);
-}
-
-function asRecord(
-  element: WhiteboardElement,
-): Readonly<Record<string, unknown>> {
-  return element as unknown as Readonly<Record<string, unknown>>;
 }

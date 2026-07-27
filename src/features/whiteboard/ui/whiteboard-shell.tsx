@@ -105,8 +105,9 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SCENE_FILE_IMPORT_MAX_BYTES } from "@/config/app-constants";
 import type {
-  WhiteboardEditorState,
+  OwnedWhiteboardEditorState,
   WhiteboardElementStyle,
   WhiteboardEngine,
   WhiteboardFillStyle,
@@ -162,7 +163,7 @@ const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.1;
 
-const DISCONNECTED_STATE: WhiteboardEditorState = {
+const DISCONNECTED_STATE: OwnedWhiteboardEditorState = {
   activeTool: { type: "selection", locked: false, customType: null },
   viewport: {
     x: 0,
@@ -468,8 +469,9 @@ export function WhiteboardShell({
 
 function useWhiteboardEditorState(
   engine: WhiteboardEngine | null,
-): WhiteboardEditorState {
-  const [state, setState] = useState<WhiteboardEditorState>(DISCONNECTED_STATE);
+): OwnedWhiteboardEditorState {
+  const [state, setState] =
+    useState<OwnedWhiteboardEditorState>(DISCONNECTED_STATE);
 
   useEffect(() => {
     if (!engine) {
@@ -711,7 +713,7 @@ function PropertiesPanel({
   compact = false,
 }: {
   readonly engine: WhiteboardEngine | null;
-  readonly editorState: WhiteboardEditorState;
+  readonly editorState: OwnedWhiteboardEditorState;
   readonly compact?: boolean;
 }) {
   const canStyle =
@@ -893,7 +895,7 @@ function MobileProperties({
   onOpenChange,
 }: {
   readonly engine: WhiteboardEngine | null;
-  readonly editorState: WhiteboardEditorState;
+  readonly editorState: OwnedWhiteboardEditorState;
   readonly open: boolean;
   readonly onOpenChange: (open: boolean) => void;
 }) {
@@ -1048,6 +1050,10 @@ function ImportDialog({
 
   async function importFile(): Promise<void> {
     if (!engine || !file || importing) return;
+    if (file.size > SCENE_FILE_IMPORT_MAX_BYTES) {
+      toast.error("Could not import this scene because the file is too large");
+      return;
+    }
     setImporting(true);
     try {
       const result = await engine.importDocument(file);
@@ -1068,15 +1074,14 @@ function ImportDialog({
         <DialogHeader>
           <DialogTitle>Import scene</DialogTitle>
           <DialogDescription>
-            Choose a Drawstuff or legacy Excalidraw scene file to replace the
-            current canvas.
+            Choose a Drawstuff scene file to replace the current canvas.
           </DialogDescription>
         </DialogHeader>
         <FieldGroup>
           <Field>
             <FieldLabel htmlFor="whiteboard-import-file">Scene file</FieldLabel>
             <Input
-              accept=".drawstuff,.excalidraw,application/json,application/vnd.excalidraw+json"
+              accept=".drawstuff,application/json"
               disabled={importing}
               id="whiteboard-import-file"
               onChange={(event) =>

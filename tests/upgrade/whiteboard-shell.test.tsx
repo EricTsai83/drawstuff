@@ -8,23 +8,43 @@ import {
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type {
-  WhiteboardDocument,
-  WhiteboardEditorState,
-  WhiteboardEditorStateUpdate,
+  OwnedWhiteboardDocument,
+  OwnedWhiteboardEditorState,
+  OwnedWhiteboardEditorStateUpdate,
   WhiteboardElementStyleUpdate,
   WhiteboardEngine,
   WhiteboardTool,
   WhiteboardViewport,
 } from "@/features/whiteboard";
 import { WhiteboardShell } from "@/features/whiteboard/ui";
+import { SCENE_FILE_IMPORT_MAX_BYTES } from "@/config/app-constants";
 
-const DOCUMENT: WhiteboardDocument = {
-  elements: [{ id: "shape-1", type: "rectangle", isDeleted: false }],
+const DOCUMENT: OwnedWhiteboardDocument = {
+  elements: [
+    {
+      id: "shape-1",
+      type: "rectangle",
+      isDeleted: false,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 50,
+      angle: 0,
+      strokeColor: "#1e1e1e",
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      strokeWidth: 1,
+      strokeStyle: "solid",
+      opacity: 100,
+      roughness: 1,
+      locked: false,
+    },
+  ],
   state: { name: "Test board", theme: "light" },
   assets: {},
 };
 
-const INITIAL_STATE: WhiteboardEditorState = {
+const INITIAL_STATE: OwnedWhiteboardEditorState = {
   activeTool: { type: "selection", locked: false, customType: null },
   viewport: {
     x: 0,
@@ -51,8 +71,10 @@ const INITIAL_STATE: WhiteboardEditorState = {
 function createTestEngine(initialState = INITIAL_STATE) {
   let state = initialState;
   let document = DOCUMENT;
-  const editorListeners = new Set<(value: WhiteboardEditorState) => void>();
-  const documentListeners = new Set<(value: WhiteboardDocument) => void>();
+  const editorListeners = new Set<
+    (value: OwnedWhiteboardEditorState) => void
+  >();
+  const documentListeners = new Set<(value: OwnedWhiteboardDocument) => void>();
 
   function publishEditorState(): void {
     for (const listener of editorListeners) listener(state);
@@ -86,25 +108,25 @@ function createTestEngine(initialState = INITIAL_STATE) {
   const importDocument = vi.fn(async () => ({ name: "Imported board" }));
 
   const engine: WhiteboardEngine = {
-    loadDocument: vi.fn((nextDocument: WhiteboardDocument) => {
+    loadDocument: vi.fn((nextDocument: OwnedWhiteboardDocument) => {
       document = nextDocument;
       for (const listener of documentListeners) listener(document);
     }),
     getDocument: vi.fn(() => document),
     subscribeDocument: vi.fn(
-      (listener: (value: WhiteboardDocument) => void) => {
+      (listener: (value: OwnedWhiteboardDocument) => void) => {
         documentListeners.add(listener);
         return () => documentListeners.delete(listener);
       },
     ),
     getEditorState: vi.fn(() => state),
     subscribeEditorState: vi.fn(
-      (listener: (value: WhiteboardEditorState) => void) => {
+      (listener: (value: OwnedWhiteboardEditorState) => void) => {
         editorListeners.add(listener);
         return () => editorListeners.delete(listener);
       },
     ),
-    updateEditorState: vi.fn((update: WhiteboardEditorStateUpdate) => {
+    updateEditorState: vi.fn((update: OwnedWhiteboardEditorStateUpdate) => {
       state = { ...state, ...update };
       publishEditorState();
     }),
@@ -312,7 +334,7 @@ describe("owned whiteboard shell", () => {
     fireEvent.click(await screen.findByRole("menuitem", { name: "Import" }));
 
     const importDialog = screen.getByRole("dialog", { name: "Import scene" });
-    const file = new File(["scene"], "board.excalidraw", {
+    const file = new File(["scene"], "board.drawstuff", {
       type: "application/json",
     });
     fireEvent.change(within(importDialog).getByLabelText("Scene file"), {
@@ -342,6 +364,29 @@ describe("owned whiteboard shell", () => {
         selectionOnly: false,
       }),
     );
+  });
+
+  it("rejects an oversized document before reading it", async () => {
+    const { engine, spies } = createTestEngine();
+    renderShell(engine);
+
+    fireEvent.click(screen.getByRole("button", { name: "Main menu" }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Import" }));
+    const importDialog = screen.getByRole("dialog", { name: "Import scene" });
+    const file = new File(
+      [new Uint8Array(SCENE_FILE_IMPORT_MAX_BYTES + 1)],
+      "oversized.drawstuff",
+      { type: "application/json" },
+    );
+    fireEvent.change(within(importDialog).getByLabelText("Scene file"), {
+      target: { files: [file] },
+    });
+    fireEvent.click(
+      within(importDialog).getByRole("button", { name: "Import" }),
+    );
+
+    expect(spies.importDocument).not.toHaveBeenCalled();
+    expect(screen.getByRole("dialog", { name: "Import scene" })).not.toBeNull();
   });
 
   it("disables selection-only export when the scene has no selection", async () => {

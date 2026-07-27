@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const shareExportMocks = vi.hoisted(() => ({
   handleSceneSave: vi.fn(),
   prepareSceneDataForExport: vi.fn(),
-  rollbackSharedScene: vi.fn(),
+  cleanupFailedSharedScene: vi.fn(),
   startUpload: vi.fn(),
 }));
 
@@ -14,7 +14,7 @@ vi.mock("@/lib/export-scene-to-backend", () => ({
 
 vi.mock("@/server/actions", () => ({
   handleSceneSave: shareExportMocks.handleSceneSave,
-  rollbackSharedScene: shareExportMocks.rollbackSharedScene,
+  cleanupFailedSharedScene: shareExportMocks.cleanupFailedSharedScene,
 }));
 
 vi.mock("@/lib/uploadthing", () => ({
@@ -35,7 +35,7 @@ describe("shared scene export", () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response()));
   });
 
-  it("treats a scene containing only deleted legacy elements as empty", async () => {
+  it("treats a scene containing only deleted elements as empty", async () => {
     const hook = renderHook(() => useSceneExport());
     let link: string | null = "not-called";
 
@@ -47,9 +47,22 @@ describe("shared scene export", () => {
             type: "image",
             isDeleted: true,
             fileId: "private-asset",
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 100,
+            angle: 0,
+            strokeColor: "transparent",
+            backgroundColor: "transparent",
+            fillStyle: "solid",
+            strokeWidth: 1,
+            strokeStyle: "solid",
+            opacity: 100,
+            roughness: 0,
+            locked: false,
           },
         ],
-        { name: "Deleted legacy scene", theme: "light" },
+        { name: "Deleted scene", theme: "light" },
         {
           "private-asset": {
             id: "private-asset",
@@ -87,7 +100,26 @@ describe("shared scene export", () => {
 
     await act(async () => {
       await hook.result.current.exportScene(
-        [{ id: "shape", type: "rectangle", isDeleted: false }],
+        [
+          {
+            id: "shape",
+            type: "rectangle",
+            isDeleted: false,
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 50,
+            angle: 0,
+            strokeColor: "#1e1e1e",
+            backgroundColor: "transparent",
+            fillStyle: "solid",
+            strokeWidth: 1,
+            strokeStyle: "solid",
+            opacity: 100,
+            roughness: 1,
+            locked: false,
+          },
+        ],
         { name: "V2", theme: "light" },
         {},
       );

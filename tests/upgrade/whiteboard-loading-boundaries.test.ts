@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPersistedWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
@@ -39,6 +39,19 @@ function createOwnedSource(): string {
           type: "image",
           isDeleted: false,
           fileId: "owned-asset",
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 100,
+          angle: 0,
+          strokeColor: "transparent",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          opacity: 100,
+          roughness: 0,
+          locked: false,
         },
       ],
       assets: {
@@ -65,29 +78,21 @@ function createOwnedSource(): string {
   );
 }
 
-function createLegacyServerSource(): string {
-  return JSON.stringify({
-    elements: [{ id: "legacy-element", type: "ellipse" }],
-    appState: {
-      name: "Legacy server payload",
-      theme: "light",
-      viewBackgroundColor: "#fafafa",
-    },
-  });
+function createNonCanonicalSource(): string {
+  const document = JSON.parse(createOwnedSource()) as {
+    elements: Array<Record<string, unknown>>;
+  };
+  document.elements[0]!.futureData = true;
+  return JSON.stringify(document);
 }
 
 describe("document loading boundaries", () => {
   beforeEach(() => {
-    vi.stubEnv("NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER", "true");
     boundaryMocks.getOwnedScene.mockReset();
     boundaryMocks.getSharedScene.mockReset();
   });
 
-  afterEach(() => {
-    vi.unstubAllEnvs();
-  });
-
-  it("detects owned database data and keeps the database name authoritative", async () => {
+  it("loads canonical database data and keeps the database name authoritative", async () => {
     const compressed = await compressData(
       new TextEncoder().encode(createOwnedSource()),
       {},
@@ -123,7 +128,7 @@ describe("document loading boundaries", () => {
     });
   });
 
-  it("detects owned shared data without a legacy runtime boundary", async () => {
+  it("loads canonical shared data", async () => {
     const compressed = await compressData(
       new TextEncoder().encode(createOwnedSource()),
       {},
@@ -146,85 +151,43 @@ describe("document loading boundaries", () => {
     expect(loaded?.assets["deleted-asset"]).toBeUndefined();
   });
 
-  it("refuses an unversioned legacy database shape after cutover", async () => {
+  it("refuses non-canonical database data", async () => {
     const compressed = await compressData(
-      new TextEncoder().encode(createLegacyServerSource()),
+      new TextEncoder().encode(createNonCanonicalSource()),
       {},
     );
     boundaryMocks.getOwnedScene.mockResolvedValue({
       sceneData: Buffer.from(compressed).toString("base64"),
-      name: "Database legacy name",
-      revision: 3,
-    });
-
-    const loaded = await importSceneDataBySceneId("legacy-scene");
-
-    expect(loaded).toEqual({});
-  });
-
-  it("refuses an unversioned legacy shared shape after cutover", async () => {
-    const compressed = await compressData(
-      new TextEncoder().encode(createLegacyServerSource()),
-      {},
-    );
-    boundaryMocks.getSharedScene.mockResolvedValue({
-      compressedData: compressed,
-    });
-
-    const loaded = await importDataFromBackend("legacy-shared", "unused-key");
-
-    expect(loaded).toBeNull();
-  });
-
-  it("keeps legacy owned and shared rows readable before cutover", async () => {
-    vi.stubEnv("NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER", "false");
-    const compressed = await compressData(
-      new TextEncoder().encode(createLegacyServerSource()),
-      {},
-    );
-    boundaryMocks.getOwnedScene.mockResolvedValue({
-      sceneData: Buffer.from(compressed).toString("base64"),
-      name: "Database legacy name",
-      revision: 3,
-    });
-    boundaryMocks.getSharedScene.mockResolvedValue({
-      compressedData: compressed,
-    });
-
-    const [owned, shared] = await Promise.all([
-      importSceneDataBySceneId("legacy-scene"),
-      importDataFromBackend("legacy-shared", "unused-key"),
-    ]);
-
-    expect(owned.document?.elements[0]?.id).toBe("legacy-element");
-    expect(shared?.elements[0]?.id).toBe("legacy-element");
-  });
-
-  it("refuses missing and duplicate legacy ids without a partial result", async () => {
-    const compressed = await compressData(
-      new TextEncoder().encode(
-        JSON.stringify({
-          elements: [
-            { type: "rectangle" },
-            { id: "duplicate", type: "ellipse" },
-            { id: "duplicate", type: "diamond" },
-            { id: "legacy-0", type: "line" },
-            null,
-          ],
-          appState: { name: "Repairable legacy" },
-        }),
-      ),
-      {},
-    );
-    boundaryMocks.getOwnedScene.mockResolvedValue({
-      sceneData: Buffer.from(compressed).toString("base64"),
-      name: "Repairable legacy",
+      documentVersion: 2,
+      name: "Invalid",
       revision: 1,
+      updatedAt: new Date("2026-01-02T03:04:05.000Z"),
+      workspaceId: "workspace-1",
     });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
 
-    vi.spyOn(console, "error").mockImplementation(() => undefined);
-    const loaded = await importSceneDataBySceneId("repairable");
+    await expect(importSceneDataBySceneId("scene-1")).resolves.toEqual({});
+    consoleError.mockRestore();
+  });
 
-    expect(loaded.document).toBeUndefined();
+  it("refuses non-canonical shared data", async () => {
+    const compressed = await compressData(
+      new TextEncoder().encode(createNonCanonicalSource()),
+      {},
+    );
+    boundaryMocks.getSharedScene.mockResolvedValue({
+      compressedData: compressed,
+      documentVersion: 2,
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
+    await expect(
+      importDataFromBackend("shared-1", "unused-key"),
+    ).resolves.toBeNull();
+    consoleError.mockRestore();
   });
 });

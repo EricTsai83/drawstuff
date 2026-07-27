@@ -89,7 +89,7 @@ type EncodedData = {
   encoding: "bstring";
   /** whether text is compressed (zlib) */
   compressed: boolean;
-  /** version for potential migration purposes */
+  /** encoding protocol version */
   version?: string;
 };
 
@@ -231,7 +231,7 @@ const concatBuffers = (...buffers: Uint8Array[]) => {
 
   let cursor = 0;
 
-  // as the first chunk we'll encode the version for backwards compatibility
+  // Encode the protocol version as the first chunk.
   dataView(bufferView, VERSION_DATAVIEW_BYTES, cursor, CONCAT_BUFFERS_VERSION);
   cursor += VERSION_DATAVIEW_BYTES;
 

@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { WhiteboardDocument } from "@/features/whiteboard";
+import type { OwnedWhiteboardDocument } from "@/features/whiteboard";
 
 const initializationMocks = vi.hoisted(() => ({
   importDataFromBackend: vi.fn(),
@@ -16,12 +16,25 @@ vi.mock("@/lib/initialize-scene", () => ({
 
 import { createInitialWhiteboardDocument } from "@/lib/whiteboard";
 
-const sharedDocument: WhiteboardDocument = {
+const sharedDocument: OwnedWhiteboardDocument = {
   elements: [
     {
       id: "shared-shape",
       type: "rectangle",
       isDeleted: false,
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 50,
+      angle: 0,
+      strokeColor: "#1e1e1e",
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      strokeWidth: 1,
+      strokeStyle: "solid",
+      opacity: 100,
+      roughness: 1,
+      locked: false,
     },
   ],
   state: {

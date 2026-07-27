@@ -1,5 +1,5 @@
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard";
 
@@ -7,7 +7,7 @@ export type OwnedPerformanceFixtureName = "small" | "medium" | "large";
 
 export interface OwnedPerformanceFixture {
   readonly name: OwnedPerformanceFixtureName;
-  readonly document: WhiteboardDocument;
+  readonly document: OwnedWhiteboardDocument;
   readonly expectedElementCount: number;
 }
 
@@ -55,5 +55,7 @@ function createFixtureElement(index: number): WhiteboardElement {
     strokeWidth: 1,
     strokeStyle: "solid",
     opacity: 100,
+    roughness: 1,
+    locked: false,
   };
 }

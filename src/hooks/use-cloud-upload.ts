@@ -2,7 +2,10 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { WhiteboardEngine } from "@/features/whiteboard";
-import { recordWhiteboardDiagnostic } from "@/features/whiteboard";
+import {
+  recordWhiteboardDiagnostic,
+  WHITEBOARD_DOCUMENT_VERSION,
+} from "@/features/whiteboard";
 import { api } from "@/trpc/react";
 import {
   cleanupSceneAssetUploadsAction,
@@ -128,7 +131,6 @@ export function useCloudUpload(
           recordWhiteboardDiagnostic({
             operation: "save",
             outcome: "blocked",
-            engine: "owned",
             documentVersion: null,
             errorCode: "INVALID_DOCUMENT",
           });
@@ -161,8 +163,7 @@ export function useCloudUpload(
             recordWhiteboardDiagnostic({
               operation: "save",
               outcome: "blocked",
-              engine: "owned",
-              documentVersion: scene.persistence?.documentVersion ?? null,
+              documentVersion: WHITEBOARD_DOCUMENT_VERSION,
               errorCode: "PAYLOAD_TOO_LARGE",
             });
             return false;
@@ -270,16 +271,16 @@ export function useCloudUpload(
           const sceneIdForCommit = targetSceneId;
           const expectedRevisionForCommit = expectedRevision;
 
-          const rollbackCreatedDraft = async () => {
+          const cleanupCreatedDraft = async () => {
             if (!createdNewScene) {
               return;
             }
             try {
               await deleteSceneAsync({ id: sceneIdForCommit });
-            } catch (rollbackErr) {
+            } catch (cleanupError) {
               console.error(
-                "Failed to rollback newly-created scene draft:",
-                rollbackErr,
+                "Failed to clean up newly-created scene draft:",
+                cleanupError,
               );
             }
           };
@@ -339,14 +340,13 @@ export function useCloudUpload(
               );
               markCurrentSceneDirty();
               await cleanupUploadedAssetKeys(uploadedAssetKeys);
-              await rollbackCreatedDraft();
+              await cleanupCreatedDraft();
               setStatus("error");
               toast.error(t("app.cloudUpload.toast.error.upload"));
               recordWhiteboardDiagnostic({
                 operation: "asset",
                 outcome: "failure",
-                engine: "owned",
-                documentVersion: scene.persistence?.documentVersion ?? null,
+                documentVersion: WHITEBOARD_DOCUMENT_VERSION,
                 errorCode: "NETWORK",
               });
               return false;
@@ -354,8 +354,7 @@ export function useCloudUpload(
             recordWhiteboardDiagnostic({
               operation: "asset",
               outcome: "success",
-              engine: "owned",
-              documentVersion: scene.persistence?.documentVersion ?? null,
+              documentVersion: WHITEBOARD_DOCUMENT_VERSION,
             });
           }
 
@@ -374,14 +373,14 @@ export function useCloudUpload(
           } catch (saveErr) {
             markCurrentSceneDirty();
             await cleanupUploadedAssetKeys(uploadedAssetKeys);
-            await rollbackCreatedDraft();
+            await cleanupCreatedDraft();
             throw saveErr;
           }
 
           if (!result.ok) {
             markCurrentSceneDirty();
             await cleanupUploadedAssetKeys(uploadedAssetKeys);
-            await rollbackCreatedDraft();
+            await cleanupCreatedDraft();
 
             if (result.error === APP_ERROR.SCENE_NOT_FOUND) {
               if (!createdNewScene) {
@@ -400,8 +399,7 @@ export function useCloudUpload(
               recordWhiteboardDiagnostic({
                 operation: "save",
                 outcome: "blocked",
-                engine: "owned",
-                documentVersion: scene.persistence?.documentVersion ?? null,
+                documentVersion: WHITEBOARD_DOCUMENT_VERSION,
                 errorCode: "CONFLICT",
               });
               return false;
@@ -412,8 +410,7 @@ export function useCloudUpload(
               recordWhiteboardDiagnostic({
                 operation: "save",
                 outcome: "blocked",
-                engine: "owned",
-                documentVersion: scene.persistence?.documentVersion ?? null,
+                documentVersion: WHITEBOARD_DOCUMENT_VERSION,
                 errorCode: "PAYLOAD_TOO_LARGE",
               });
               return false;
@@ -455,8 +452,7 @@ export function useCloudUpload(
           recordWhiteboardDiagnostic({
             operation: "save",
             outcome: "success",
-            engine: "owned",
-            documentVersion: scene.persistence?.documentVersion ?? null,
+            documentVersion: WHITEBOARD_DOCUMENT_VERSION,
           });
 
           // 可選地顯示成功 toast（由呼叫端統一顯示避免重複）
@@ -473,8 +469,7 @@ export function useCloudUpload(
           recordWhiteboardDiagnostic({
             operation: "save",
             outcome: "failure",
-            engine: "owned",
-            documentVersion: scene.persistence?.documentVersion ?? null,
+            documentVersion: WHITEBOARD_DOCUMENT_VERSION,
             errorCode: "UNKNOWN",
           });
           return false;

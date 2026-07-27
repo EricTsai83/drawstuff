@@ -1,5 +1,5 @@
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
   WhiteboardImageExportOptions,
 } from "@/features/whiteboard/contracts";
@@ -24,7 +24,7 @@ const MAX_EXPORT_DIMENSION = 16_384;
 const MAX_EXPORT_PIXELS = 67_108_864;
 
 export async function exportOwnedWhiteboardImage(
-  document: WhiteboardDocument,
+  document: OwnedWhiteboardDocument,
   options: WhiteboardImageExportOptions,
   selectedElementIds: readonly string[] = [],
 ): Promise<Blob> {
@@ -36,7 +36,7 @@ export async function exportOwnedWhiteboardImage(
 }
 
 export function exportOwnedWhiteboardDocument(
-  document: WhiteboardDocument,
+  document: OwnedWhiteboardDocument,
 ): Blob {
   const availableAssets = document.assets;
   const elements = document.elements.map((element) =>
@@ -62,7 +62,7 @@ export function exportOwnedWhiteboardDocument(
 }
 
 export function exportOwnedWhiteboardSvg(
-  document: WhiteboardDocument,
+  document: OwnedWhiteboardDocument,
   options: WhiteboardImageExportOptions,
   selectedElementIds: readonly string[] = [],
 ): string {
@@ -113,7 +113,7 @@ export function exportOwnedWhiteboardSvg(
 
 function serializeElement(
   element: WhiteboardElement,
-  document: WhiteboardDocument,
+  document: OwnedWhiteboardDocument,
   offsetX: number,
   offsetY: number,
 ): string {

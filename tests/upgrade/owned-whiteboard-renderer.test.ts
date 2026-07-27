@@ -1,17 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
-  beginOwnedDrawing,
-  createOwnedDrawingElement,
   OwnedWhiteboardRenderer,
   OwnedWhiteboardStore,
-  updateOwnedDrawing,
   type OwnedAnimationScheduler,
 } from "@/features/whiteboard/owned";
-import { migrateLegacyExcalidrawScene } from "@/features/whiteboard";
 import { OWNED_CANVAS_PERFORMANCE_FIXTURES } from "../fixtures/owned-canvas/performance";
 
 describe("owned whiteboard renderer", () => {
@@ -131,66 +127,6 @@ describe("owned whiteboard renderer", () => {
     expect(harness.overlayContext.rect).toHaveBeenCalledWith(0, 0, 100, 50);
     expect(harness.overlayContext.scale).toHaveBeenCalledWith(1, 1);
     expect(harness.overlayContext.translate).toHaveBeenCalledWith(0, 0);
-  });
-
-  it("renders migrated and newly created rectangles through the same path", () => {
-    const migratedHarness = createRenderer();
-    const migrated = migrateLegacyExcalidrawScene({
-      type: "excalidraw",
-      version: 2,
-      elements: [
-        {
-          id: "legacy",
-          type: "rectangle",
-          isDeleted: false,
-          x: 10,
-          y: 20,
-          width: 100,
-          height: 50,
-          angle: 0,
-          strokeColor: "#1e1e1e",
-          backgroundColor: "transparent",
-          fillStyle: "solid",
-          strokeWidth: 1,
-          strokeStyle: "solid",
-          opacity: 100,
-        },
-      ],
-      appState: {},
-      files: {},
-    }).elements[0]!;
-    migratedHarness.store.loadDocument(createDocument([migrated]));
-    migratedHarness.renderer.renderNow();
-
-    const createdHarness = createRenderer();
-    const session = updateOwnedDrawing(
-      beginOwnedDrawing("rectangle", { x: 10, y: 20 }),
-      { x: 110, y: 70 },
-    );
-    const created = createOwnedDrawingElement(
-      session,
-      {
-        strokeColor: "#1e1e1e",
-        backgroundColor: "transparent",
-        fillStyle: "solid",
-        strokeWidth: 1,
-        strokeStyle: "solid",
-        opacity: 100,
-      },
-      "created",
-    )!;
-    createdHarness.store.loadDocument(createDocument([created]));
-    createdHarness.renderer.renderNow();
-
-    expect(createdHarness.sceneContext.rect.mock.calls).toEqual(
-      migratedHarness.sceneContext.rect.mock.calls,
-    );
-    expect(createdHarness.sceneContext.stroke.mock.calls).toEqual(
-      migratedHarness.sceneContext.stroke.mock.calls,
-    );
-    expect(createdHarness.sceneContext.fill.mock.calls).toEqual(
-      migratedHarness.sceneContext.fill.mock.calls,
-    );
   });
 
   it("does not create image requests for non-inline asset URLs", () => {
@@ -417,7 +353,7 @@ function context() {
 
 function createDocument(
   elements: readonly WhiteboardElement[],
-): WhiteboardDocument {
+): OwnedWhiteboardDocument {
   return {
     elements,
     assets: {},

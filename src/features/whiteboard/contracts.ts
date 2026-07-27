@@ -14,35 +14,6 @@ export type WhiteboardElementType =
   | "rectangle"
   | "text";
 
-export interface WhiteboardElement {
-  readonly id: string;
-  readonly type: string;
-  readonly isDeleted: boolean;
-  readonly fileId?: string | null;
-  readonly x?: number;
-  readonly y?: number;
-  readonly width?: number;
-  readonly height?: number;
-  readonly angle?: number;
-  readonly points?: readonly (readonly [number, number])[];
-  readonly text?: string;
-  readonly originalText?: string;
-  readonly fontSize?: number;
-  readonly lineHeight?: number;
-  readonly strokeColor?: string;
-  readonly backgroundColor?: string;
-  readonly fillStyle?: WhiteboardFillStyle;
-  readonly strokeWidth?: number;
-  readonly strokeStyle?: WhiteboardStrokeStyle;
-  readonly opacity?: number;
-  readonly roughness?: number;
-  readonly seed?: number;
-  readonly locked?: boolean;
-  readonly hidden?: boolean;
-  readonly visible?: boolean;
-  readonly lastCommittedPoint?: readonly [number, number] | null;
-}
-
 export interface WhiteboardAsset {
   readonly id: string;
   readonly dataURL: string;
@@ -53,42 +24,6 @@ export interface WhiteboardAsset {
   readonly contentHash?: string;
   readonly width?: number;
   readonly height?: number;
-}
-
-export type WhiteboardJsonValue =
-  | boolean
-  | number
-  | string
-  | null
-  | readonly WhiteboardJsonValue[]
-  | { readonly [key: string]: WhiteboardJsonValue };
-
-export interface WhiteboardLegacyEnvelope {
-  readonly format: "excalidraw";
-  readonly sourceVersion: number | null;
-  readonly migrationVersion: 1;
-  readonly originalPayload: string;
-  readonly unsupported: Readonly<Record<string, WhiteboardJsonValue>>;
-}
-
-export interface WhiteboardDocumentMetadata {
-  readonly name: string;
-  readonly theme: WhiteboardTheme;
-  readonly viewBackgroundColor: string;
-  readonly gridSize: number | null;
-  readonly viewport?: {
-    readonly scrollX: number;
-    readonly scrollY: number;
-    readonly zoom: number;
-  };
-  readonly legacy?: WhiteboardLegacyEnvelope;
-}
-
-export interface WhiteboardDocumentV1 {
-  readonly version: 1;
-  readonly elements: readonly WhiteboardElement[];
-  readonly assets: Readonly<Record<string, WhiteboardAsset>>;
-  readonly metadata: WhiteboardDocumentMetadata;
 }
 
 export type WhiteboardAssetMimeTypeV2 =
@@ -180,6 +115,8 @@ export type WhiteboardElementV2 =
   | WhiteboardLinearElementV2
   | WhiteboardTextElementV2;
 
+export type WhiteboardElement = WhiteboardElementV2;
+
 export interface WhiteboardDocumentMetadataV2 {
   readonly name: string;
   readonly theme: WhiteboardTheme;
@@ -192,21 +129,6 @@ export interface WhiteboardDocumentV2 {
   readonly elements: readonly WhiteboardElementV2[];
   readonly assets: Readonly<Record<string, WhiteboardAssetV2>>;
   readonly metadata: WhiteboardDocumentMetadataV2;
-}
-
-export type WhiteboardPersistenceFormat =
-  "legacy-excalidraw" | "whiteboard-v1" | "whiteboard-v2";
-
-export interface WhiteboardDocumentPersistence {
-  readonly sourceFormat: WhiteboardPersistenceFormat;
-  readonly documentVersion: number | null;
-  readonly legacyRollback?: WhiteboardLegacyEnvelope;
-  readonly migratedFromLegacy?: boolean;
-  readonly loadedFromRecovery?: boolean;
-  readonly convertedFrom?: Exclude<
-    WhiteboardPersistenceFormat,
-    "whiteboard-v2"
-  >;
 }
 
 export interface WhiteboardViewport {
@@ -255,25 +177,19 @@ export interface WhiteboardDocumentState {
   readonly scrollX?: number;
   readonly scrollY?: number;
   readonly zoom?: Readonly<{ value: number }>;
-  readonly openDialog?: unknown;
-  readonly openMenu?: unknown;
+  readonly openDialog?: null;
+  readonly openMenu?: null;
   readonly viewModeEnabled?: boolean;
   readonly zenModeEnabled?: boolean;
 }
 
-export interface WhiteboardDocument {
+export interface OwnedWhiteboardDocument {
   readonly elements: readonly WhiteboardElement[];
   readonly state: WhiteboardDocumentState;
   readonly assets: Readonly<Record<string, WhiteboardAsset>>;
-  /**
-   * Persistence-only provenance. Engines carry this through edits so an owned
-   * write can retain the pre-migration payload without exposing scene content
-   * to operational diagnostics.
-   */
-  readonly persistence?: WhiteboardDocumentPersistence;
 }
 
-export interface WhiteboardEditorState {
+export interface OwnedWhiteboardEditorState {
   readonly activeTool: WhiteboardTool;
   readonly viewport: WhiteboardViewport;
   readonly name: string;
@@ -282,12 +198,12 @@ export interface WhiteboardEditorState {
   readonly elementStyle: WhiteboardElementStyle;
 }
 
-export interface WhiteboardEditorStateUpdate {
+export interface OwnedWhiteboardEditorStateUpdate {
   readonly name?: string;
   readonly theme?: WhiteboardTheme;
-  readonly openDialog?: unknown;
-  readonly openMenu?: unknown;
-  readonly contextMenu?: unknown;
+  readonly openDialog?: null;
+  readonly openMenu?: null;
+  readonly contextMenu?: null;
 }
 
 export interface WhiteboardImageExportOptions {
@@ -303,17 +219,17 @@ export interface WhiteboardImageExportOptions {
 export type WhiteboardUnsubscribe = () => void;
 
 export interface WhiteboardEngine {
-  loadDocument(document: WhiteboardDocument): void;
-  getDocument(): WhiteboardDocument;
+  loadDocument(document: OwnedWhiteboardDocument): void;
+  getDocument(): OwnedWhiteboardDocument;
   subscribeDocument(
-    listener: (document: WhiteboardDocument) => void,
+    listener: (document: OwnedWhiteboardDocument) => void,
   ): WhiteboardUnsubscribe;
 
-  getEditorState(): WhiteboardEditorState;
+  getEditorState(): OwnedWhiteboardEditorState;
   subscribeEditorState(
-    listener: (state: WhiteboardEditorState) => void,
+    listener: (state: OwnedWhiteboardEditorState) => void,
   ): WhiteboardUnsubscribe;
-  updateEditorState(update: WhiteboardEditorStateUpdate): void;
+  updateEditorState(update: OwnedWhiteboardEditorStateUpdate): void;
 
   getActiveTool(): WhiteboardTool;
   setActiveTool(tool: WhiteboardTool): void;

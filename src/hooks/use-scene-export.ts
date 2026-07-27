@@ -5,11 +5,13 @@ import type {
   WhiteboardAsset,
   WhiteboardDocumentState,
   WhiteboardElement,
-  WhiteboardDocumentPersistence,
 } from "@/features/whiteboard";
-import { recordWhiteboardDiagnostic } from "@/features/whiteboard";
+import {
+  recordWhiteboardDiagnostic,
+  WHITEBOARD_DOCUMENT_VERSION,
+} from "@/features/whiteboard";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
-import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
+import { handleSceneSave, cleanupFailedSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { getBaseUrl } from "@/lib/base-url";
 
@@ -54,7 +56,6 @@ export function useSceneExport() {
       elements: readonly WhiteboardElement[],
       appState: WhiteboardDocumentState,
       files: Readonly<Record<string, WhiteboardAsset>>,
-      persistence?: WhiteboardDocumentPersistence,
     ): Promise<string | null> => {
       if (exportStatus === "exporting") {
         setExportErrorMessage("Export already in progress");
@@ -69,8 +70,7 @@ export function useSceneExport() {
         recordWhiteboardDiagnostic({
           operation: "export",
           outcome: "blocked",
-          engine: "owned",
-          documentVersion: persistence?.documentVersion ?? null,
+          documentVersion: WHITEBOARD_DOCUMENT_VERSION,
           errorCode: "INVALID_DOCUMENT",
         });
         return null;
@@ -148,14 +148,14 @@ export function useSceneExport() {
               setExportErrorMessage(
                 "Some files failed to upload. Export canceled.",
               );
-              await rollbackSharedScene(result.sharedSceneId);
+              await cleanupFailedSharedScene(result.sharedSceneId);
               setExportStatus("error");
               return null;
             }
           } catch (uploadErr) {
             console.error("File upload failed:", uploadErr);
             setExportErrorMessage("File upload failed. Export canceled.");
-            await rollbackSharedScene(result.sharedSceneId);
+            await cleanupFailedSharedScene(result.sharedSceneId);
             setExportStatus("error");
             return null;
           }
@@ -170,8 +170,7 @@ export function useSceneExport() {
         recordWhiteboardDiagnostic({
           operation: "export",
           outcome: "success",
-          engine: "owned",
-          documentVersion: persistence?.documentVersion ?? null,
+          documentVersion: WHITEBOARD_DOCUMENT_VERSION,
         });
         console.log("Scene exported successfully:", result.sharedSceneId);
         return shareableUrlString;
@@ -182,8 +181,7 @@ export function useSceneExport() {
         recordWhiteboardDiagnostic({
           operation: "export",
           outcome: "failure",
-          engine: "owned",
-          documentVersion: persistence?.documentVersion ?? null,
+          documentVersion: WHITEBOARD_DOCUMENT_VERSION,
           errorCode: "UNKNOWN",
         });
         return null;

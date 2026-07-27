@@ -2,7 +2,6 @@ import { useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import {
   IMAGE_MIME_TYPES,
-  MIME_TYPES,
   SCENE_FILE_IMPORT_MAX_BYTES,
 } from "@/config/app-constants";
 import { nFormatter } from "@/lib/utils";
@@ -10,7 +9,6 @@ import { nFormatter } from "@/lib/utils";
 const MEDIA_MIME_PREFIXES = ["image/", "video/", "audio/"] as const;
 const MEDIA_FILE_EXTENSIONS = new Set<string>([
   "drawstuff",
-  "excalidraw",
   ...Object.keys(IMAGE_MIME_TYPES),
   "jpeg",
   "heic",
@@ -37,17 +35,11 @@ export function useSceneImportFileGuard(
 
   const shouldValidateFile = useCallback((file: File): boolean => {
     const fileType = file.type?.toLowerCase() ?? "";
-    if (fileType === MIME_TYPES.excalidraw) {
-      return true;
-    }
     if (MEDIA_MIME_PREFIXES.some((prefix) => fileType.startsWith(prefix))) {
       return true;
     }
 
     const fileName = file.name?.toLowerCase() ?? "";
-    if (fileName.endsWith(".excalidraw")) {
-      return true;
-    }
     const ext = fileName.split(".").pop();
     if (!ext) return false;
     return MEDIA_FILE_EXTENSIONS.has(ext);

@@ -2,7 +2,7 @@ import type {
   WhiteboardAsset,
   WhiteboardAssetMimeTypeV2,
   WhiteboardAssetV2,
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardDocumentMetadataV2,
   WhiteboardDocumentV2,
   WhiteboardElement,
@@ -71,15 +71,36 @@ const ASSET_FIELDS = new Set([
   "width",
 ]);
 
-/**
- * Compatibility properties are retained as element-level data because the
- * owned renderer and editing engine already preserve them across operations.
- * Transition envelopes and source payloads are deliberately absent.
- */
 const ELEMENT_FIELDS = new Set([
   "angle",
-  "autoResize",
   "backgroundColor",
+  "fileId",
+  "fillStyle",
+  "fontSize",
+  "height",
+  "id",
+  "isDeleted",
+  "lineHeight",
+  "locked",
+  "opacity",
+  "originalText",
+  "points",
+  "roughness",
+  "strokeColor",
+  "strokeStyle",
+  "strokeWidth",
+  "text",
+  "type",
+  "width",
+  "x",
+  "y",
+]);
+
+// Earlier canonical V2 writers preserved these source-engine properties.
+// Readers discard them immediately while continuing to reject every other key.
+const EARLIER_V2_ELEMENT_FIELDS = new Set([
+  ...ELEMENT_FIELDS,
+  "autoResize",
   "boundElementIds",
   "boundElements",
   "containerId",
@@ -89,28 +110,16 @@ const ELEMENT_FIELDS = new Set([
   "endArrowhead",
   "endBinding",
   "endIsSpecial",
-  "fileId",
-  "fillStyle",
   "fixedSegments",
   "fontFamily",
-  "fontSize",
   "frameId",
   "groupIds",
-  "height",
   "hidden",
-  "id",
   "index",
-  "isDeleted",
   "lastCommittedPoint",
-  "lineHeight",
   "link",
-  "locked",
   "name",
-  "opacity",
-  "originalText",
-  "points",
   "pressures",
-  "roughness",
   "roundness",
   "scale",
   "seed",
@@ -119,46 +128,13 @@ const ELEMENT_FIELDS = new Set([
   "startBinding",
   "startIsSpecial",
   "status",
-  "strokeColor",
   "strokeSharpness",
-  "strokeStyle",
-  "strokeWidth",
-  "text",
   "textAlign",
-  "type",
   "updated",
   "version",
   "versionNonce",
   "verticalAlign",
   "visible",
-  "width",
-  "x",
-  "y",
-]);
-
-const CORE_ELEMENT_FIELDS = new Set([
-  "angle",
-  "backgroundColor",
-  "fileId",
-  "fillStyle",
-  "fontSize",
-  "height",
-  "id",
-  "isDeleted",
-  "lineHeight",
-  "locked",
-  "opacity",
-  "originalText",
-  "points",
-  "roughness",
-  "strokeColor",
-  "strokeStyle",
-  "strokeWidth",
-  "text",
-  "type",
-  "width",
-  "x",
-  "y",
 ]);
 
 type JsonObject = Readonly<Record<string, unknown>>;
@@ -210,14 +186,9 @@ export function serializeWhiteboardDocumentV2(
 }
 
 export function createPersistedWhiteboardDocumentV2(
-  document: WhiteboardDocument,
+  document: OwnedWhiteboardDocument,
   options?: {
     readonly assetStorage?: "external" | "inline";
-    /**
-     * Conversion-only escape hatch for old cloud rows whose asset metadata
-     * lives exclusively in file_record. New writers must provide every asset.
-     */
-    readonly externalAssetIds?: ReadonlySet<string>;
   },
 ): WhiteboardDocumentV2 {
   const elements = document.elements.map((element, index) =>
@@ -235,17 +206,6 @@ export function createPersistedWhiteboardDocumentV2(
     [...referencedAssetIds].sort().map((id) => {
       const asset = document.assets[id];
       if (!asset) {
-        if (options?.externalAssetIds?.has(id)) {
-          return [
-            id,
-            {
-              id,
-              storage: "external" as const,
-              mimeType: "application/octet-stream" as const,
-              created: 0,
-            },
-          ] as const;
-        }
         throw new WhiteboardDocumentError(
           "MISSING_ASSET",
           `Image element references missing asset ${id}`,
@@ -284,7 +244,7 @@ export function externalizeWhiteboardDocumentAssetsV2(
 
 export function toRuntimeWhiteboardDocumentV2(
   document: WhiteboardDocumentV2,
-): WhiteboardDocument {
+): OwnedWhiteboardDocument {
   const parsed = parseWhiteboardDocumentV2(document);
   return {
     elements: parsed.elements,
@@ -324,10 +284,6 @@ export function toRuntimeWhiteboardDocumentV2(
       viewBackgroundColor: parsed.metadata.viewBackgroundColor,
       gridSize: parsed.metadata.gridSize,
     },
-    persistence: {
-      sourceFormat: "whiteboard-v2",
-      documentVersion: WHITEBOARD_DOCUMENT_VERSION,
-    },
   };
 }
 
@@ -343,7 +299,7 @@ function parseElements(value: unknown): WhiteboardElementV2[] {
   return value.map((value, index) => {
     const path = `$.elements[${index}]`;
     const object = expectObject(value, path);
-    assertOnlyFields(object, ELEMENT_FIELDS, path);
+    assertOnlyFields(object, EARLIER_V2_ELEMENT_FIELDS, path);
     assertJsonValue(object, path);
     const id = expectNonEmptyString(object.id, `${path}.id`);
     if (ids.has(id)) {
@@ -357,7 +313,6 @@ function parseElements(value: unknown): WhiteboardElementV2[] {
     const type = parseElementType(object.type, `${path}.type`);
     assertElementVariantFields(object, type, path);
     const base = {
-      ...cloneJson(object),
       id,
       type,
       isDeleted: expectBoolean(object.isDeleted, `${path}.isDeleted`),
@@ -526,81 +481,72 @@ function normalizeRuntimeElement(
   element: WhiteboardElement,
   index: number,
 ): WhiteboardElementV2 {
-  const source = element as unknown as JsonObject;
   const path = `$.elements[${index}]`;
-  assertOnlyFields(source, ELEMENT_FIELDS, path);
   const type = parseElementType(element.type, `${path}.type`);
-  assertElementVariantFields(source, type, path);
-  const width = finiteOr(element.width, 0);
-  const height = finiteOr(element.height, 0);
-  const compatibilityFields = Object.fromEntries(
-    Object.entries(source)
-      .filter(
-        ([key, value]) =>
-          ELEMENT_FIELDS.has(key) &&
-          !CORE_ELEMENT_FIELDS.has(key) &&
-          value !== undefined,
-      )
-      .map(([key, value]) => {
-        assertJsonValue(value, `${path}.${escapePathSegment(key)}`);
-        return [key, cloneJson(value)] as const;
-      }),
-  );
+  const width = element.width;
+  const height = element.height;
   const base = {
-    ...compatibilityFields,
     id: expectNonEmptyString(element.id, `${path}.id`),
     type,
     isDeleted: element.isDeleted,
-    x: finiteOr(element.x, 0),
-    y: finiteOr(element.y, 0),
+    x: element.x,
+    y: element.y,
     width,
     height,
-    angle: finiteOr(element.angle, 0),
-    strokeColor: stringOr(element.strokeColor, "#1b1b1f"),
-    backgroundColor: stringOr(element.backgroundColor, "transparent"),
-    fillStyle: normalizeFillStyle(element.fillStyle),
-    strokeWidth: nonNegativeOr(element.strokeWidth, 1),
-    strokeStyle: normalizeStrokeStyle(element.strokeStyle),
-    opacity: rangeOr(element.opacity, 0, 100, 100),
-    roughness: nonNegativeOr(element.roughness, 1),
-    locked: element.locked === true,
+    angle: element.angle,
+    strokeColor: element.strokeColor,
+    backgroundColor: element.backgroundColor,
+    fillStyle: element.fillStyle,
+    strokeWidth: element.strokeWidth,
+    strokeStyle: element.strokeStyle,
+    opacity: element.opacity,
+    roughness: element.roughness,
+    locked: element.locked,
   };
-  if (LINEAR_ELEMENT_TYPES.has(type)) {
-    const points = normalizePoints(element.points);
+  if (isLinearElementType(type) && "points" in element) {
     return {
       ...base,
       type,
-      points:
-        points.length > 0
-          ? points
-          : [
-              [0, 0],
-              [width, height],
-            ],
-    } as WhiteboardElementV2;
-  }
-  if (type === "image") {
-    return {
-      ...base,
-      type,
-      fileId:
-        typeof element.fileId === "string" && element.fileId.length > 0
-          ? element.fileId
-          : null,
+      points: element.points,
     };
   }
-  if (type === "text") {
-    const text = stringOr(element.text, "");
+  if (type === "image" && "fileId" in element) {
     return {
       ...base,
       type,
-      text,
-      originalText: stringOr(element.originalText, text),
-      fontSize: positiveOr(element.fontSize, 20),
-      lineHeight: positiveOr(element.lineHeight, 1.25),
+      fileId: element.fileId,
     };
   }
-  return base as WhiteboardElementV2;
+  if (
+    type === "text" &&
+    "text" in element &&
+    "originalText" in element &&
+    "fontSize" in element &&
+    "lineHeight" in element
+  ) {
+    return {
+      ...base,
+      type,
+      text: element.text,
+      originalText: element.originalText,
+      fontSize: element.fontSize,
+      lineHeight: element.lineHeight,
+    };
+  }
+  if (
+    type !== "arrow" &&
+    type !== "freedraw" &&
+    type !== "line" &&
+    type !== "image" &&
+    type !== "text"
+  ) {
+    return { ...base, type };
+  }
+  throw new WhiteboardDocumentError(
+    "MALFORMED_DOCUMENT",
+    `Element fields do not match type ${type}`,
+    path,
+  );
 }
 
 function assertElementVariantFields(
@@ -672,7 +618,7 @@ function createPersistedAsset(
 }
 
 function metadataFromRuntime(
-  document: WhiteboardDocument,
+  document: OwnedWhiteboardDocument,
 ): WhiteboardDocumentMetadataV2 {
   return {
     name: typeof document.state.name === "string" ? document.state.name : "",
@@ -865,21 +811,6 @@ function parsePoints(
   });
 }
 
-function normalizePoints(
-  value: WhiteboardElement["points"],
-): readonly (readonly [number, number])[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((point) =>
-    Array.isArray(point) &&
-    typeof point[0] === "number" &&
-    Number.isFinite(point[0]) &&
-    typeof point[1] === "number" &&
-    Number.isFinite(point[1])
-      ? [[point[0], point[1]] as const]
-      : [],
-  );
-}
-
 function parseJsonInput(payload: unknown): unknown {
   if (typeof payload !== "string") return payload;
   try {
@@ -1032,63 +963,6 @@ function sortJsonValue(value: unknown): unknown {
       .filter((key) => object[key] !== undefined)
       .map((key) => [key, sortJsonValue(object[key])]),
   );
-}
-
-function cloneJson<T>(value: T): T {
-  return JSON.parse(JSON.stringify(value)) as T;
-}
-
-function finiteOr(value: number | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
-}
-
-function positiveOr(value: number | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0
-    ? value
-    : fallback;
-}
-
-function nonNegativeOr(value: number | undefined, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value >= 0
-    ? value
-    : fallback;
-}
-
-function rangeOr(
-  value: number | undefined,
-  minimum: number,
-  maximum: number,
-  fallback: number,
-): number {
-  return typeof value === "number" &&
-    Number.isFinite(value) &&
-    value >= minimum &&
-    value <= maximum
-    ? value
-    : fallback;
-}
-
-function stringOr(value: string | undefined, fallback: string): string {
-  return typeof value === "string" ? value : fallback;
-}
-
-function normalizeFillStyle(
-  value: WhiteboardFillStyle | undefined,
-): WhiteboardFillStyle {
-  return value === "cross-hatch" ||
-    value === "hachure" ||
-    value === "solid" ||
-    value === "zigzag"
-    ? value
-    : "solid";
-}
-
-function normalizeStrokeStyle(
-  value: WhiteboardStrokeStyle | undefined,
-): WhiteboardStrokeStyle {
-  return value === "dashed" || value === "dotted" || value === "solid"
-    ? value
-    : "solid";
 }
 
 function escapePathSegment(value: string): string {

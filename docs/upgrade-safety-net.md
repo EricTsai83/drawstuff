@@ -35,7 +35,7 @@ override.
 fails CI. A finding disappearing from the registry is allowed and should be
 removed from the baseline during the next dependency phase.
 
-The baseline was reviewed after the Phase 5I Excalidraw removal on 2026-07-27
+The baseline was reviewed after the Phase 5I engine replacement on 2026-07-27
 and contains 11 unique `GHSA:package` advisory keys. pnpm reports 11
 vulnerability instances: 1 critical, 6 high, 2 moderate, and 2 low. It is
 an inventory, not a claim that the findings are safe. Findings against the
@@ -62,15 +62,15 @@ development-only CLI tree and are outside the production-only CI audit gate.
 - Google sign-in parameters and sign-out success callback.
 - Scene create, save, reload, rename, move, publish, delete, ownership
   rejection, and deferred UploadThing cleanup through the tRPC caller.
-- Local scene recovery, including deleted-element filtering and viewport data.
-- Existing Pako 2 and zlib-compatible compressed scene decoding.
+- Canonical local persistence, including deleted-element filtering and viewport
+  data.
+- Current compression round-trips and the decompressed-size safety limit.
 - Image extraction, upload compression, binary metadata restoration, and
   completeness checks.
 - Owned PNG/SVG/document export, including selection-only export, asset
   pruning, unsafe SVG/image handling, and dimension caps.
-- Runtime-free legacy scene migration, deterministic repair for missing or
-  duplicate IDs, and fixture assertions for elements, assets, groups, and
-  viewport metadata.
+- Canonical V2 parsing, strict unknown-field rejection, earlier-V2 residue
+  normalization, and duplicate-ID validation.
 - Published scene decoding with `viewModeEnabled`, cleared private viewport,
   and restored files.
 - Theme mapping plus language persistence and browser notification.
@@ -83,17 +83,6 @@ development-only CLI tree and are outside the production-only CI audit gate.
 part of `.github/workflows/ci.yaml`. Phase 3 removed the unused `idb-keyval` and
 `use-debounce` packages along with their temporary `knip.json` exceptions, so
 any unused production dependency fails without a project-specific allowlist.
-
-The fixtures under `tests/fixtures/legacy-scenes` are compatibility inputs and
-must not be regenerated as part of a dependency upgrade:
-
-- `shapes-and-text.excalidraw`
-- `images-and-binary-files.excalidraw`
-- `large-groups-and-viewport.excalidraw`
-- `pre-migration-bindings.excalidraw` (pre-index fields and legacy bindings)
-- `shapes-and-text.compressed.base64` (stable zlib-compatible representation)
-- `shapes-and-text.pako-2-compressed.base64` (Pako 2.1 scene envelope)
-- `utf8-text.pako-2-encoded.base64` (Pako 2.1 text encoding)
 
 ## Manual smoke checklist
 
@@ -111,12 +100,12 @@ browser, commit, and result for each item.
 - [ ] Upload an image through UploadThing, save, reload, and confirm the binary
       renders; inspect the browser console for failed asset fetches.
 - [ ] Export the scene as `.drawstuff`, PNG, and SVG and open each artifact.
-- [ ] Import each supported legacy `.excalidraw` fixture and confirm its shapes,
-      text, viewport, and image assets render through the owned editor.
+- [ ] Import a current `.drawstuff` document and confirm its shapes, text,
+      viewport, and image assets render through the owned editor.
 - [ ] Publish the scene, open `/p/[slug]` in a signed-out window, confirm it is
       read-only, then unpublish and confirm the URL no longer resolves.
 - [ ] Delete the scene and confirm its dashboard card and uploaded assets are
       removed (or queued for deferred cleanup).
-- [ ] Leave unsaved local content, reload, and confirm local recovery.
+- [ ] Leave unsaved local content, reload, and confirm local persistence.
 - [ ] Switch light/dark/system theme and English/Traditional Chinese, then
       reload and confirm both preferences remain.

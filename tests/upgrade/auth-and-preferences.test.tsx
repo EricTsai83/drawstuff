@@ -88,7 +88,7 @@ describe("theme and language preferences", () => {
     themeMocks.setTheme.mockReset();
   });
 
-  it("maps the stored theme to the Excalidraw active theme and exposes switching", () => {
+  it("maps the stored theme to the active whiteboard theme and exposes switching", () => {
     themeMocks.state.theme = "dark";
     themeMocks.state.resolvedTheme = "dark";
     const { result } = renderHook(() => useSyncTheme());

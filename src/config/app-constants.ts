@@ -29,19 +29,11 @@ export enum WS_SUBTYPES {
 }
 
 export const STORAGE_KEYS = {
-  LOCAL_STORAGE_ELEMENTS: "excalidraw",
-  LOCAL_STORAGE_APP_STATE: "excalidraw-state",
   LOCAL_STORAGE_WHITEBOARD_DOCUMENT: "drawstuff-whiteboard-document",
-  LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT:
-    "drawstuff-whiteboard-recovery-document",
-  LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION: "drawstuff-legacy-document-revision",
-  LOCAL_STORAGE_OWNED_DOCUMENT_REVISION: "drawstuff-owned-document-revision",
   LOCAL_STORAGE_THEME: "theme",
-  VERSION_DATA_STATE: "version-dataState",
-  VERSION_FILES: "version-files",
-  LOCAL_STORAGE_FILES: "excalidraw-files",
-  IDB_LIBRARY: "excalidraw-library",
   LOCAL_STORAGE_LANGUAGE: "i18nextLng",
+  // Stable browser-session identifiers. Renaming them detaches a current
+  // document from its cloud revision and can create a duplicate on next save.
   CURRENT_SCENE_ID: "excalidraw-current-scene-id",
   CURRENT_SCENE_REVISION: "excalidraw-current-scene-revision",
   CURRENT_SCENE_IS_DIRTY: "excalidraw-current-scene-is-dirty",
@@ -76,8 +68,6 @@ export const MIME_TYPES = {
   text: "text/plain",
   html: "text/html",
   json: "application/json",
-  // Legacy scene import
-  excalidraw: "application/vnd.excalidraw+json",
   // binary
   binary: "application/octet-stream",
   // image

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
   WhiteboardAsset,
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
@@ -46,11 +46,20 @@ describe("owned whiteboard export", () => {
             ...rectangle("text"),
             type: "text",
             text: `<script>alert("x")</script> & safe`,
+            originalText: `<script>alert("x")</script> & safe`,
             fontSize: 20,
             lineHeight: 1.25,
           },
-          { ...rectangle("image"), type: "image", fileId: "unsafe" },
-          { ...rectangle("missing"), type: "image", fileId: "missing" },
+          {
+            ...rectangle("image"),
+            type: "image",
+            fileId: "unsafe",
+          },
+          {
+            ...rectangle("missing"),
+            type: "image",
+            fileId: "missing",
+          },
         ],
         { unsafe: unsafeSvg },
       ),
@@ -71,14 +80,28 @@ describe("owned whiteboard export", () => {
     const unused = asset("unused");
     const source = createDocument(
       [
-        { ...rectangle("first"), text: "FIRST", type: "text" },
+        {
+          ...rectangle("first"),
+          text: "FIRST",
+          originalText: "FIRST",
+          fontSize: 20,
+          lineHeight: 1.25,
+          type: "text",
+        },
         {
           ...rectangle("second"),
           x: 200,
           text: "SECOND",
+          originalText: "SECOND",
+          fontSize: 20,
+          lineHeight: 1.25,
           type: "text",
         },
-        { ...rectangle("image"), type: "image", fileId: referenced.id },
+        {
+          ...rectangle("image"),
+          type: "image",
+          fileId: referenced.id,
+        },
       ],
       { referenced, unused },
     );
@@ -100,15 +123,15 @@ describe("owned whiteboard export", () => {
     expect(Object.keys(exported.assets)).toEqual(["referenced"]);
   });
 
-  it("keeps referenced legacy raster assets in the portable document", async () => {
-    const legacyAssets = Object.fromEntries(
+  it("keeps referenced raster assets in the portable document", async () => {
+    const rasterAssets = Object.fromEntries(
       [
         "image/bmp",
         "image/jfif",
         "image/vnd.microsoft.icon",
         "image/x-icon",
       ].map((mimeType, index) => {
-        const id = `legacy-${index}`;
+        const id = `raster-${index}`;
         return [
           id,
           {
@@ -123,17 +146,17 @@ describe("owned whiteboard export", () => {
     const exported = JSON.parse(
       await exportOwnedWhiteboardDocument(
         createDocument(
-          Object.keys(legacyAssets).map((fileId) => ({
+          Object.keys(rasterAssets).map((fileId) => ({
             ...rectangle(`image-${fileId}`),
             type: "image",
             fileId,
           })),
-          legacyAssets,
+          rasterAssets,
         ),
       ).text(),
     ) as { readonly assets: Readonly<Record<string, WhiteboardAsset>> };
 
-    expect(Object.keys(exported.assets)).toEqual(Object.keys(legacyAssets));
+    expect(Object.keys(exported.assets)).toEqual(Object.keys(rasterAssets));
   });
 
   it("exports dangling image references as portable placeholders", async () => {
@@ -149,7 +172,12 @@ describe("owned whiteboard export", () => {
       ).text(),
     ) as { readonly elements: readonly WhiteboardElement[] };
 
-    expect(exported.elements[0]?.fileId).toBeNull();
+    expect(exported.elements[0]?.type).toBe("image");
+    expect(
+      exported.elements[0]?.type === "image"
+        ? exported.elements[0].fileId
+        : undefined,
+    ).toBeNull();
   });
 
   it("rasterizes PNG at configurable scale and cap", async () => {
@@ -219,7 +247,7 @@ describe("owned whiteboard export", () => {
 function createDocument(
   elements: readonly WhiteboardElement[],
   assets: Readonly<Record<string, WhiteboardAsset>> = {},
-): WhiteboardDocument {
+): OwnedWhiteboardDocument {
   return {
     elements,
     assets,
@@ -244,9 +272,12 @@ function rectangle(id: string): WhiteboardElement {
     angle: 0,
     strokeColor: "#1e1e1e",
     backgroundColor: "transparent",
+    fillStyle: "solid",
     strokeWidth: 1,
     strokeStyle: "solid",
     opacity: 100,
+    roughness: 1,
+    locked: false,
   };
 }
 

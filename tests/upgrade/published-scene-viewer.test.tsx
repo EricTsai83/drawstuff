@@ -7,13 +7,13 @@ import {
 } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardViewerController,
 } from "@/features/whiteboard";
 
 const mocks = vi.hoisted(() => ({
   activeTheme: "light",
-  documents: [] as WhiteboardDocument[],
+  documents: [] as OwnedWhiteboardDocument[],
   fitToContent: vi.fn(),
   getViewport: vi.fn(() => ({
     x: 0,
@@ -56,7 +56,7 @@ vi.mock("@/features/whiteboard/owned", async () => {
       onDocumentReady,
       onViewerReady,
     }: {
-      readonly document: WhiteboardDocument;
+      readonly document: OwnedWhiteboardDocument;
       readonly editingEnabled: boolean;
       readonly onDocumentReady: () => void;
       readonly onViewerReady: (
@@ -87,7 +87,7 @@ vi.mock("@/features/whiteboard/owned", async () => {
 
 import { PublishedSceneViewer } from "@/components/whiteboard/published-scene-viewer";
 
-const DOCUMENT: WhiteboardDocument = {
+const DOCUMENT: OwnedWhiteboardDocument = {
   elements: [
     {
       id: "published-shape",
@@ -97,6 +97,15 @@ const DOCUMENT: WhiteboardDocument = {
       y: 0,
       width: 100,
       height: 50,
+      angle: 0,
+      strokeColor: "#1e1e1e",
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      strokeWidth: 1,
+      strokeStyle: "solid",
+      opacity: 100,
+      roughness: 1,
+      locked: false,
     },
   ],
   assets: {},

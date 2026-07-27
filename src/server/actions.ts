@@ -207,8 +207,8 @@ export async function getSharedSceneData(sharedSceneId: string) {
   }
 }
 
-// 回滾 shared scene：刪除已上傳的 UploadThing 檔案與 DB 紀錄
-export async function rollbackSharedScene(sharedSceneId: string) {
+// 清理失敗的 shared scene：刪除已上傳的 UploadThing 檔案與 DB 紀錄
+export async function cleanupFailedSharedScene(sharedSceneId: string) {
   const session = await getServerSession();
 
   if (!session) {
@@ -241,7 +241,7 @@ export async function rollbackSharedScene(sharedSceneId: string) {
           "Failed to delete uploaded files from UploadThing:",
           deleteErr,
         );
-        // 繼續回滾 DB，避免殘留無效資料
+        // 繼續清理 DB，避免殘留無效資料
       }
     }
 
@@ -252,10 +252,10 @@ export async function rollbackSharedScene(sharedSceneId: string) {
 
     return { success: true } as const;
   } catch (error) {
-    console.error("Error during rollbackSharedScene:", error);
+    console.error("Error during cleanupFailedSharedScene:", error);
     return {
       success: false,
-      errorMessage: "Failed to rollback shared scene. Please try again later",
+      errorMessage: "Failed to clean up shared scene. Please try again later",
     } as const;
   }
 }

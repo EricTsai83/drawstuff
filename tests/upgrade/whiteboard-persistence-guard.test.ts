@@ -12,7 +12,7 @@ import {
   createPersistedWhiteboardDocumentV2,
   parseWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
-  type WhiteboardDocument,
+  type OwnedWhiteboardDocument,
 } from "@/features/whiteboard";
 import { compressData, decompressData } from "@/lib/encode";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
@@ -21,27 +21,26 @@ import { validateOpaqueEncryptedWhiteboardWrite } from "@/server/whiteboard/pers
 import { SCENE_DATA_MAX_LENGTH } from "@/lib/schemas/scene";
 import { scene, sharedScene } from "@/server/db/schema";
 
-const legacySource = JSON.stringify({
-  type: "excalidraw",
-  version: 2,
-  elements: [
-    {
-      id: "legacy-shape",
-      type: "rectangle",
-      isDeleted: false,
-    },
-  ],
-  appState: { name: "Legacy" },
-  files: {},
-});
-
-const ownedDocument: WhiteboardDocument = {
+const ownedDocument: OwnedWhiteboardDocument = {
   elements: [
     {
       id: "owned-image",
       type: "image",
       isDeleted: false,
       fileId: "owned-file",
+      x: 0,
+      y: 0,
+      width: 100,
+      height: 100,
+      angle: 0,
+      strokeColor: "transparent",
+      backgroundColor: "transparent",
+      fillStyle: "solid",
+      strokeWidth: 1,
+      strokeStyle: "solid",
+      opacity: 100,
+      roughness: 0,
+      locked: false,
     },
   ],
   state: { name: "Owned", theme: "light" },
@@ -51,28 +50,6 @@ const ownedDocument: WhiteboardDocument = {
       dataURL: "data:image/png;base64,AA==",
       mimeType: "image/png",
       created: 1,
-    },
-  },
-  persistence: {
-    sourceFormat: "whiteboard-v1",
-    documentVersion: 1,
-    legacyRollback: {
-      format: "excalidraw",
-      sourceVersion: 2,
-      migrationVersion: 1,
-      originalPayload: JSON.stringify({
-        type: "excalidraw",
-        version: 2,
-        elements: [],
-        appState: { name: "Private rollback" },
-        files: {
-          "private-file": {
-            id: "private-file",
-            dataURL: "data:image/png;base64,PRIVATE",
-          },
-        },
-      }),
-      unsupported: {},
     },
   },
 };
@@ -102,16 +79,10 @@ describe("stored whiteboard persistence guard", () => {
     const ownedSource = serializeWhiteboardDocumentV2(
       createPersistedWhiteboardDocumentV2(ownedDocument),
     );
-    const [ownedData, legacyData] = await Promise.all([
-      encodeScene(ownedSource),
-      encodeScene(legacySource),
-    ]);
+    const ownedData = await encodeScene(ownedSource);
 
     await expect(validateStoredWhiteboardWrite(ownedData, 2)).resolves.toBe(
       "safe",
-    );
-    await expect(validateStoredWhiteboardWrite(legacyData, 2)).resolves.toBe(
-      "invalid",
     );
     await expect(validateStoredWhiteboardWrite(ownedData, 1)).resolves.toBe(
       "stale-version",
@@ -153,7 +124,7 @@ describe("stored whiteboard persistence guard", () => {
 });
 
 describe("public owned payload", () => {
-  it("emits V2 external assets without rollback content or inline bytes", async () => {
+  it("emits V2 external assets without inline bytes", async () => {
     const privateData = await encodeScene(
       serializeWhiteboardDocumentV2(
         createPersistedWhiteboardDocumentV2(ownedDocument),
@@ -168,16 +139,24 @@ describe("public owned payload", () => {
       id: "owned-file",
       storage: "external",
     });
-    expect(publicSource).not.toContain("originalPayload");
-    expect(publicSource).not.toContain("PRIVATE");
-    expect(publicSource).not.toContain("private-file");
     expect(publicSource).not.toContain("data:image/png");
   });
 
-  it("refuses to publish a legacy payload after cutover", async () => {
-    vi.stubEnv("NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER", "true");
+  it("refuses a well-formed document with a non-canonical field", async () => {
+    const canonical = JSON.parse(
+      serializeWhiteboardDocumentV2(
+        createPersistedWhiteboardDocumentV2(ownedDocument),
+      ),
+    ) as { elements: Array<Record<string, unknown>> };
+    canonical.elements[0]!.futureData = true;
+    const invalidData = await encodeScene(JSON.stringify(canonical));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+
     await expect(
-      createPublicWhiteboardPayload(await encodeScene(legacySource)),
+      createPublicWhiteboardPayload(invalidData),
     ).resolves.toBeNull();
+    consoleError.mockRestore();
   });
 });

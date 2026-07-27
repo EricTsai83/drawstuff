@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   WhiteboardAsset,
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
@@ -116,7 +116,7 @@ describe("owned whiteboard assets", () => {
       ),
     ).toEqual({ shared: local });
 
-    const document: WhiteboardDocument = {
+    const document: OwnedWhiteboardDocument = {
       elements,
       assets: { shared: local, unused: unreferenced },
       state: {},
@@ -155,7 +155,7 @@ describe("owned whiteboard assets", () => {
     "image/jfif",
     "image/vnd.microsoft.icon",
     "image/x-icon",
-  ])("keeps legacy %s raster payloads renderable", (mimeType) => {
+  ])("keeps supported %s raster payloads renderable", (mimeType) => {
     expect(
       isSafeInlineImage({
         id: mimeType,
@@ -226,5 +226,14 @@ function image(id: string, fileId: string): WhiteboardElement {
     y: 0,
     width: 10,
     height: 10,
+    angle: 0,
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    opacity: 100,
+    roughness: 0,
+    locked: false,
   };
 }

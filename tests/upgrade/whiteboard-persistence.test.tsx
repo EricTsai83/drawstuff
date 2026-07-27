@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardEngine,
 } from "@/features/whiteboard";
 
@@ -26,7 +26,7 @@ vi.mock("@/hooks/use-debounce", () => ({
 
 import { useScenePersistence } from "@/hooks/whiteboard/use-scene-persistence";
 
-const document: WhiteboardDocument = {
+const document: OwnedWhiteboardDocument = {
   elements: [],
   state: { name: "Persisted scene", theme: "light" },
   assets: {},
@@ -42,10 +42,10 @@ describe("whiteboard persistence subscription", () => {
   });
 
   it("does not resubscribe and replay when the current scene id changes", async () => {
-    let listener: ((nextDocument: WhiteboardDocument) => void) | undefined;
+    let listener: ((nextDocument: OwnedWhiteboardDocument) => void) | undefined;
     const unsubscribe = vi.fn();
     const subscribeDocument = vi.fn(
-      (nextListener: (nextDocument: WhiteboardDocument) => void) => {
+      (nextListener: (nextDocument: OwnedWhiteboardDocument) => void) => {
         listener = nextListener;
         nextListener(document);
         return unsubscribe;

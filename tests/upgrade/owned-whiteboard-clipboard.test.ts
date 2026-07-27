@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type {
   WhiteboardAsset,
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
@@ -56,47 +56,6 @@ describe("owned whiteboard clipboard", () => {
       fileId: "fresh-asset",
       x: 20,
       y: 20,
-    });
-  });
-
-  it("remaps internal group, container, frame, and binding references", () => {
-    const first = {
-      ...image("first", "asset"),
-      groupIds: ["group"],
-      boundElements: [{ id: "second", type: "rectangle" }],
-      frameId: "second",
-      endBinding: { elementId: "second", focus: 0, gap: 1 },
-    } as unknown as WhiteboardElement;
-    const second = {
-      ...image("second", "asset"),
-      groupIds: ["group"],
-      containerId: "first",
-      boundElementIds: ["first"],
-      startBinding: { elementId: "first", focus: 0, gap: 1 },
-    } as unknown as WhiteboardElement;
-    let id = 0;
-
-    const remapped = remapOwnedClipboardPayload(
-      createOwnedClipboardPayload([first, second], { asset }),
-      new Set(["first", "second"]),
-      new Set(["asset"]),
-      () => `new-${++id}`,
-      20,
-    );
-    const serialized = JSON.stringify(remapped.elements);
-
-    expect(serialized).not.toContain('"group"');
-    expect(serialized).not.toContain('"elementId":"first"');
-    expect(serialized).not.toContain('"elementId":"second"');
-    expect(serialized).not.toContain('"containerId":"first"');
-    expect(serialized).not.toContain('"frameId":"second"');
-    expect(remapped.elements[0]).toMatchObject({
-      frameId: remapped.elements[1]?.id,
-      endBinding: { elementId: remapped.elements[1]?.id },
-    });
-    expect(remapped.elements[1]).toMatchObject({
-      containerId: remapped.elements[0]?.id,
-      startBinding: { elementId: remapped.elements[0]?.id },
     });
   });
 
@@ -172,13 +131,21 @@ function image(id: string, fileId: string): WhiteboardElement {
     width: 100,
     height: 50,
     angle: 0,
+    strokeColor: "transparent",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    opacity: 100,
+    roughness: 0,
+    locked: false,
   };
 }
 
 function document(
   elements: readonly WhiteboardElement[],
   assets: Readonly<Record<string, WhiteboardAsset>> = {},
-): WhiteboardDocument {
+): OwnedWhiteboardDocument {
   return {
     elements,
     assets,

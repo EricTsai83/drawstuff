@@ -18,7 +18,7 @@ describe("whiteboard diagnostics boundary", () => {
     });
   });
 
-  it("accepts only aggregate engine/version failure fields", async () => {
+  it("accepts only aggregate version and failure fields", async () => {
     const info = vi.spyOn(console, "info").mockImplementation(() => undefined);
     const response = await POST(
       new Request("https://drawstuff.test/api/whiteboard-diagnostics", {
@@ -27,7 +27,6 @@ describe("whiteboard diagnostics boundary", () => {
         body: JSON.stringify({
           operation: "save",
           outcome: "failure",
-          engine: "owned",
           documentVersion: 1,
           errorCode: "NETWORK",
         }),
@@ -38,7 +37,6 @@ describe("whiteboard diagnostics boundary", () => {
     expect(info).toHaveBeenCalledWith("whiteboard-diagnostic", {
       operation: "save",
       outcome: "failure",
-      engine: "owned",
       documentVersion: 1,
       errorCode: "NETWORK",
     });
@@ -52,7 +50,6 @@ describe("whiteboard diagnostics boundary", () => {
         body: JSON.stringify({
           operation: "load",
           outcome: "failure",
-          engine: "owned",
           documentVersion: 1,
           sceneId: "private-scene",
           content: [{ id: "secret" }],
@@ -74,7 +71,6 @@ describe("whiteboard diagnostics boundary", () => {
         body: JSON.stringify({
           operation: "load",
           outcome: "success",
-          engine: "excalidraw",
           documentVersion: 2,
         }),
       }),

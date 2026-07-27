@@ -3,7 +3,7 @@ import {
   parseWhiteboardDocumentV2,
   toRuntimeWhiteboardDocumentV2,
   type WhiteboardAsset,
-  type WhiteboardDocument,
+  type OwnedWhiteboardDocument,
 } from "@/features/whiteboard";
 import { resolveWhiteboardAssets } from "@/features/whiteboard/owned";
 
@@ -22,7 +22,7 @@ export async function loadPublishedSceneData({
   sceneData: string;
   fileRecords: Array<{ url: string }>;
   signal?: AbortSignal;
-}): Promise<WhiteboardDocument> {
+}): Promise<OwnedWhiteboardDocument> {
   const compressedBuffer = new Uint8Array(base64ToArrayBuffer(sceneData));
   const { data } = await decompressData<Record<string, never>>(
     compressedBuffer,

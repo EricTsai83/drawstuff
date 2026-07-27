@@ -1,6 +1,6 @@
 import type {
   WhiteboardAsset,
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
   WhiteboardViewport,
 } from "@/features/whiteboard/contracts";
@@ -161,6 +161,7 @@ export function createWhiteboardImageElement(
     strokeStyle: "solid",
     opacity: 100,
     roughness: 0,
+    locked: false,
   };
 }
 
@@ -170,7 +171,9 @@ export function resolveWhiteboardAssets(
 ): Record<string, WhiteboardAsset> {
   const referencedIds = new Set(
     elements.flatMap((element) =>
-      !element.isDeleted && typeof element.fileId === "string"
+      !element.isDeleted &&
+      element.type === "image" &&
+      typeof element.fileId === "string"
         ? [element.fileId]
         : [],
     ),
@@ -179,9 +182,8 @@ export function resolveWhiteboardAssets(
   for (const id of [...referencedIds].sort()) {
     for (const source of sources) {
       const candidate = source[id];
-      if (candidate?.id !== id || !isSafeInlineImage(candidate)) {
-        continue;
-      }
+      if (candidate?.id !== id) continue;
+      if (!isSafeInlineImage(candidate)) continue;
       resolved[id] = candidate;
       break;
     }
@@ -190,8 +192,8 @@ export function resolveWhiteboardAssets(
 }
 
 export function pruneUnreferencedWhiteboardAssets(
-  document: WhiteboardDocument,
-): WhiteboardDocument {
+  document: OwnedWhiteboardDocument,
+): OwnedWhiteboardDocument {
   return {
     ...document,
     assets: resolveWhiteboardAssets(document.elements, document.assets),

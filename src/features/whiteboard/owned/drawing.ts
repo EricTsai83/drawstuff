@@ -35,11 +35,19 @@ export interface OwnedDrawingSession {
   readonly points: readonly WhiteboardPoint[];
 }
 
-const BOX_TOOLS = new Set<OwnedDrawingTool>([
+type OwnedBoxDrawingTool = "diamond" | "ellipse" | "rectangle";
+
+const BOX_TOOLS = new Set<OwnedBoxDrawingTool>([
   "diamond",
   "ellipse",
   "rectangle",
 ]);
+
+function isOwnedBoxDrawingTool(
+  tool: OwnedDrawingTool,
+): tool is OwnedBoxDrawingTool {
+  return BOX_TOOLS.has(tool as OwnedBoxDrawingTool);
+}
 
 export function isOwnedCreatableTool(tool: string): tool is OwnedCreatableTool {
   return (
@@ -93,10 +101,10 @@ export function createOwnedDrawingElement(
     strokeStyle: style.strokeStyle,
     opacity: style.opacity,
     roughness: style.roughness ?? 1,
-    seed: stableSeed(id),
+    locked: false,
   } as const;
 
-  if (BOX_TOOLS.has(session.tool)) {
+  if (isOwnedBoxDrawingTool(session.tool)) {
     const bounds = normalizeBounds(session.start, end);
     if (
       !options?.preview &&
@@ -107,6 +115,7 @@ export function createOwnedDrawingElement(
     }
     return {
       ...base,
+      type: session.tool,
       x: bounds.minX,
       y: bounds.minY,
       width: bounds.maxX - bounds.minX,
@@ -124,6 +133,7 @@ export function createOwnedDrawingElement(
   }
   return {
     ...base,
+    type: session.tool,
     x: bounds.minX,
     y: bounds.minY,
     width: bounds.maxX - bounds.minX,
@@ -175,7 +185,7 @@ export function createOwnedTextElement(
     strokeStyle: style.strokeStyle,
     opacity: style.opacity,
     roughness: style.roughness ?? 1,
-    seed: stableSeed(id),
+    locked: false,
   };
 }
 
@@ -212,13 +222,4 @@ function normalizePointBounds(points: readonly WhiteboardPoint[]) {
     maxX,
     maxY,
   };
-}
-
-function stableSeed(id: string): number {
-  let hash = 2166136261;
-  for (const character of id) {
-    hash ^= character.codePointAt(0) ?? 0;
-    hash = Math.imul(hash, 16777619);
-  }
-  return hash >>> 0;
 }

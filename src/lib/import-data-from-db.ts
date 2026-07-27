@@ -2,13 +2,11 @@ import { decompressData, base64ToArrayBuffer } from "./encode";
 import { getTrpcClient } from "@/trpc/client";
 import type {
   WhiteboardAsset,
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
 } from "@/features/whiteboard";
 import { ensureInitialWhiteboardState } from "@/lib/whiteboard";
-import { requiresCanonicalWhiteboardReads } from "@/config/whiteboard-cutover";
 import {
   filterReferencedWhiteboardAssets,
-  parseWhiteboardDocumentForImport,
   parseWhiteboardDocumentV2,
   toRuntimeWhiteboardDocumentV2,
   WHITEBOARD_DOCUMENT_VERSION,
@@ -17,7 +15,7 @@ import {
 export async function importDataFromBackend(
   id: string,
   decryptionKey: string,
-): Promise<WhiteboardDocument | null> {
+): Promise<OwnedWhiteboardDocument | null> {
   try {
     const client = getTrpcClient();
 
@@ -67,7 +65,7 @@ type SceneFileMetadata = {
 };
 
 export type ImportedSceneData = {
-  document?: WhiteboardDocument;
+  document?: OwnedWhiteboardDocument;
   revision?: number;
   updatedAt?: string;
   workspaceId?: string;
@@ -244,21 +242,9 @@ export async function importSceneDataBySceneId(
 function parseDecodedScenePayload(
   source: string,
   documentVersion: unknown,
-): WhiteboardDocument {
+): OwnedWhiteboardDocument {
   if (documentVersion !== WHITEBOARD_DOCUMENT_VERSION) {
-    if (requiresCanonicalWhiteboardReads()) {
-      throw new Error("Whiteboard data convergence is required");
-    }
-    const transitionalDocument = parseWhiteboardDocumentForImport(source, {
-      externalAssets: true,
-    });
-    return {
-      ...transitionalDocument,
-      assets: filterReferencedWhiteboardAssets(
-        transitionalDocument.elements,
-        transitionalDocument.assets,
-      ),
-    };
+    throw new Error("Unsupported whiteboard document version");
   }
   const document = toRuntimeWhiteboardDocumentV2(
     parseWhiteboardDocumentV2(source),
