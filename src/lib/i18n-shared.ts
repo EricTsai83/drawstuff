@@ -16,8 +16,6 @@ export const appTranslations: AppTranslations = {
       "Error occurred while uploading scene to cloud, please try again.",
     "app.cloudUpload.toast.error.unknown":
       "Unknown error occurred while uploading scene to cloud, please try again.",
-    "app.cloudUpload.toast.error.unsafeDowngrade":
-      "This scene has owned-editor changes. Re-enable the owned editor to recover and save them.",
     "app.localSave.toast.error":
       "Local recovery storage is full. Export or save the scene before closing this tab.",
     "app.cloudUpload.toast.error.sceneTooLarge":
@@ -176,8 +174,6 @@ export const appTranslations: AppTranslations = {
     "app.cloudUpload.toast.error.upload": "上傳場景至雲端時發生錯誤，請重試。",
     "app.cloudUpload.toast.error.unknown":
       "上傳場景至雲端時發生未知錯誤，請重試。",
-    "app.cloudUpload.toast.error.unsafeDowngrade":
-      "此場景包含新版編輯器的變更。請重新啟用新版編輯器後再復原與儲存。",
     "app.localSave.toast.error":
       "本機復原空間已滿。關閉此分頁前，請先匯出或儲存場景。",
     "app.cloudUpload.toast.error.sceneTooLarge":

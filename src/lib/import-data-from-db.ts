@@ -7,8 +7,10 @@ import type {
 import { ensureInitialWhiteboardState } from "@/lib/whiteboard";
 import {
   filterReferencedWhiteboardAssets,
-  parsePersistedWhiteboardPayload,
-  toRuntimeWhiteboardDocument,
+  parseWhiteboardDocumentForImport,
+  parseWhiteboardDocumentV2,
+  toRuntimeWhiteboardDocumentV2,
+  WHITEBOARD_DOCUMENT_VERSION,
 } from "@/features/whiteboard";
 
 export async function importDataFromBackend(
@@ -36,6 +38,7 @@ export async function importDataFromBackend(
 
     const parsed = parseDecodedScenePayload(
       new TextDecoder().decode(decodedBuffer),
+      result?.documentVersion,
     );
     return {
       ...parsed,
@@ -214,7 +217,10 @@ export async function importSceneDataBySceneId(
       // 未加密情況下，此值不會被使用
       decryptionKey: "",
     });
-    const parsed = parseDecodedScenePayload(new TextDecoder().decode(data));
+    const parsed = parseDecodedScenePayload(
+      new TextDecoder().decode(data),
+      result?.documentVersion,
+    );
     const state = ensureInitialWhiteboardState(parsed.state);
     // DB name 欄位是權威來源（rename 只更新 DB name，不重寫 sceneData），
     // 用它覆蓋壓縮資料中可能過時的 appState.name
@@ -234,14 +240,14 @@ export async function importSceneDataBySceneId(
   }
 }
 
-function parseDecodedScenePayload(source: string): WhiteboardDocument {
-  const persisted = parsePersistedWhiteboardPayload(source, {
-    allowMissingAssets: true,
-  });
+function parseDecodedScenePayload(
+  source: string,
+  documentVersion: unknown,
+): WhiteboardDocument {
   const document =
-    persisted.format === "whiteboard-v1"
-      ? toRuntimeWhiteboardDocument(persisted.document)
-      : persisted.document;
+    documentVersion === WHITEBOARD_DOCUMENT_VERSION
+      ? toRuntimeWhiteboardDocumentV2(parseWhiteboardDocumentV2(source))
+      : parseWhiteboardDocumentForImport(source, { externalAssets: true });
   return {
     ...document,
     assets: filterReferencedWhiteboardAssets(

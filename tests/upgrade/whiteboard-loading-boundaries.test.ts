@@ -153,11 +153,11 @@ describe("document loading boundaries", () => {
     const loaded = await importSceneDataBySceneId("legacy-scene");
 
     expect(loaded.document?.elements).toEqual([
-      {
+      expect.objectContaining({
         id: "legacy-element",
         type: "ellipse",
         isDeleted: false,
-      },
+      }),
     ]);
     expect(loaded.document?.state).toMatchObject({
       name: "Database legacy name",
@@ -179,16 +179,16 @@ describe("document loading boundaries", () => {
     const loaded = await importDataFromBackend("legacy-shared", "unused-key");
 
     expect(loaded?.elements).toEqual([
-      {
+      expect.objectContaining({
         id: "legacy-element",
         type: "ellipse",
         isDeleted: false,
-      },
+      }),
     ]);
     expect(loaded?.state.name).toBe("Legacy server payload");
   });
 
-  it("repairs missing and duplicate legacy ids without Excalidraw", async () => {
+  it("refuses missing and duplicate legacy ids without a partial result", async () => {
     const compressed = await compressData(
       new TextEncoder().encode(
         JSON.stringify({
@@ -210,14 +210,9 @@ describe("document loading boundaries", () => {
       revision: 1,
     });
 
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const loaded = await importSceneDataBySceneId("repairable");
 
-    expect(loaded.document?.elements).toHaveLength(4);
-    expect(loaded.document?.elements.map((element) => element.id)).toEqual([
-      "legacy-1",
-      "duplicate",
-      "legacy-2",
-      "legacy-0",
-    ]);
+    expect(loaded.document).toBeUndefined();
   });
 });

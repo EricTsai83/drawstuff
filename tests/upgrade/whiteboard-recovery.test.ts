@@ -5,15 +5,13 @@ import {
   saveOwnedWhiteboardDocumentToLocalStorage,
 } from "@/data/local-storage";
 import {
-  classifyWhiteboardWriteTransition,
-  createPersistedWhiteboardDocumentV1,
-  parsePersistedWhiteboardPayload,
-  prepareWhiteboardDocumentForOwnedEngine,
-  serializeWhiteboardDocumentV1,
+  convertPersistedWhiteboardDocumentToV2,
+  parseWhiteboardDocumentForImport,
+  parseWhiteboardDocumentV2,
+  serializeWhiteboardDocumentV2,
   type WhiteboardDocumentState,
   type WhiteboardElement,
 } from "@/features/whiteboard";
-import { createInitialWhiteboardDocument } from "@/lib/whiteboard";
 
 interface LegacyFixture {
   readonly elements: readonly WhiteboardElement[];
@@ -53,38 +51,21 @@ function legacyPayload(name = "Legacy board"): string {
 }
 
 describe("legacy migration recovery safety", () => {
-  it("retains the exact legacy payload while owned edits advance independently", () => {
+  it("converts legacy content to V2 without retaining its source payload", () => {
     const source = legacyPayload();
-    const parsed = parsePersistedWhiteboardPayload(source);
-    if (parsed.format !== "legacy-excalidraw") {
-      throw new Error("Expected a legacy fixture");
-    }
-    const migrated = prepareWhiteboardDocumentForOwnedEngine(parsed.document);
-    const edited = {
-      ...migrated,
-      elements: [
-        ...migrated.elements,
-        {
-          id: "owned-edit",
-          type: "ellipse",
-          isDeleted: false,
-        },
-      ],
-    };
-    const persisted = createPersistedWhiteboardDocumentV1(edited);
+    const converted = convertPersistedWhiteboardDocumentToV2(source);
+    const serialized = serializeWhiteboardDocumentV2(converted.document);
 
-    expect(persisted.metadata.legacy?.originalPayload).toBe(source);
-    expect(persisted.elements.map((element) => element.id)).toEqual([
+    expect(converted.report.sourceFormat).toBe("legacy-excalidraw");
+    expect(converted.document.elements.map((element) => element.id)).toEqual([
       "shape-1",
-      "owned-edit",
     ]);
-    expect(classifyWhiteboardWriteTransition(source, persisted)).toBe("safe");
-    expect(classifyWhiteboardWriteTransition(persisted, source)).toBe(
-      "unsafe-downgrade",
-    );
+    expect(serialized).not.toContain("originalPayload");
+    expect(serialized).not.toContain("migrationVersion");
+    expect(serialized).not.toContain(source);
   });
 
-  it("writes only the owned local key and leaves rollback keys recoverable", async () => {
+  it("writes only the V2 local key and never creates a recovery copy", () => {
     const source = legacyPayload("Rollback copy");
     const fixture = JSON.parse(source) as LegacyFixture;
     localStorage.setItem(
@@ -101,11 +82,7 @@ describe("legacy migration recovery safety", () => {
       "1",
     );
 
-    const parsed = parsePersistedWhiteboardPayload(source);
-    if (parsed.format !== "legacy-excalidraw") {
-      throw new Error("Expected a legacy fixture");
-    }
-    const migrated = prepareWhiteboardDocumentForOwnedEngine(parsed.document);
+    const migrated = parseWhiteboardDocumentForImport(source);
     expect(saveOwnedWhiteboardDocumentToLocalStorage(migrated)).toBe(true);
 
     expect(importFromLocalStorage({ preferOwned: false }).appState?.name).toBe(
@@ -121,68 +98,7 @@ describe("legacy migration recovery safety", () => {
     const ownedSource = localStorage.getItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
     );
-    expect(ownedSource).toBe(
-      serializeWhiteboardDocumentV1(
-        createPersistedWhiteboardDocumentV1(migrated),
-      ),
-    );
-    expect(saveOwnedWhiteboardDocumentToLocalStorage(migrated)).toBe(true);
-    expect(
-      localStorage.getItem(
-        STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
-      ),
-    ).toBeNull();
-
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
-      JSON.stringify([
-        {
-          ...fixture.elements[0]!,
-          id: "rollback-session-edit",
-        },
-      ]),
-    );
-    const ownedRevision = Number(
-      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_OWNED_DOCUMENT_REVISION),
-    );
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_LEGACY_DOCUMENT_REVISION,
-      Math.max(Date.now(), ownedRevision + 1).toString(),
-    );
-
-    expect(
-      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT),
-    ).toBe(ownedSource);
-    expect(importFromLocalStorage({ preferOwned: true }).elements[0]?.id).toBe(
-      "rollback-session-edit",
-    );
-
-    const rollbackSession = importFromLocalStorage({ preferOwned: true });
-    const remigrated = prepareWhiteboardDocumentForOwnedEngine({
-      elements: rollbackSession.elements,
-      state: rollbackSession.appState ?? {},
-      assets: rollbackSession.files,
-    });
-    expect(saveOwnedWhiteboardDocumentToLocalStorage(remigrated)).toBe(true);
-    expect(
-      localStorage.getItem(
-        STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
-      ),
-    ).toBe(ownedSource);
-    const recovered = await createInitialWhiteboardDocument({
-      preferRecovery: true,
-    });
-    if (!recovered) throw new Error("Expected the recovery document");
-    expect(recovered.elements[0]?.id).toBe("shape-1");
-    expect(recovered.persistence?.loadedFromRecovery).toBe(true);
-    expect(
-      saveOwnedWhiteboardDocumentToLocalStorage({
-        elements: recovered.elements,
-        state: recovered.state,
-        assets: recovered.assets,
-        persistence: recovered.persistence,
-      }),
-    ).toBe(true);
+    expect(parseWhiteboardDocumentV2(ownedSource).version).toBe(2);
     expect(
       localStorage.getItem(
         STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
@@ -190,35 +106,25 @@ describe("legacy migration recovery safety", () => {
     ).toBeNull();
   });
 
-  it("keeps the current owned snapshot when parking recovery data fails", () => {
-    const source = legacyPayload("Recovery quota");
-    const parsed = parsePersistedWhiteboardPayload(source);
-    if (parsed.format !== "legacy-excalidraw") {
-      throw new Error("Expected a legacy fixture");
-    }
-    const previous = parsePersistedWhiteboardPayload(
-      legacyPayload("Previous owned lineage"),
+  it("keeps the current V2 snapshot when the canonical local write fails", () => {
+    const previous = convertPersistedWhiteboardDocumentToV2(
+      legacyPayload("Previous V2"),
     );
-    if (previous.format !== "legacy-excalidraw") {
-      throw new Error("Expected a previous legacy fixture");
-    }
-    const existingOwned = serializeWhiteboardDocumentV1(
-      createPersistedWhiteboardDocumentV1(previous.document),
-    );
+    const existingOwned = serializeWhiteboardDocumentV2(previous.document);
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
       existingOwned,
     );
 
     vi.spyOn(Storage.prototype, "setItem").mockImplementation((key: string) => {
-      expect(key).toBe(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT);
+      expect(key).toBe(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT);
       throw new DOMException("Quota exceeded", "QuotaExceededError");
     });
     vi.spyOn(console, "error").mockImplementation(() => undefined);
 
     expect(
       saveOwnedWhiteboardDocumentToLocalStorage(
-        prepareWhiteboardDocumentForOwnedEngine(parsed.document),
+        parseWhiteboardDocumentForImport(legacyPayload("Next V2")),
       ),
     ).toBe(false);
     expect(
@@ -226,23 +132,15 @@ describe("legacy migration recovery safety", () => {
     ).toBe(existingOwned);
   });
 
-  it("persists an incomplete image snapshot while preserving recovery data", () => {
-    const previous = parsePersistedWhiteboardPayload(legacyPayload());
-    if (previous.format !== "legacy-excalidraw") {
-      throw new Error("Expected a legacy fixture");
-    }
-    const existingOwned = serializeWhiteboardDocumentV1(
-      createPersistedWhiteboardDocumentV1(
-        prepareWhiteboardDocumentForOwnedEngine(previous.document),
-      ),
+  it("refuses an incomplete image snapshot without replacing current V2", () => {
+    const existingOwned = serializeWhiteboardDocumentV2(
+      convertPersistedWhiteboardDocumentToV2(legacyPayload()).document,
     );
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
       existingOwned,
     );
-    const parsed = parsePersistedWhiteboardPayload({
-      type: "excalidraw",
-      version: 2,
+    const incomplete = {
       elements: [
         {
           id: "missing-image",
@@ -251,24 +149,13 @@ describe("legacy migration recovery safety", () => {
           fileId: "missing-asset",
         },
       ],
-      appState: {},
-      files: {},
-    });
-    if (parsed.format !== "legacy-excalidraw") {
-      throw new Error("Expected a legacy fixture");
-    }
-    const incomplete = prepareWhiteboardDocumentForOwnedEngine(parsed.document);
-    expect(saveOwnedWhiteboardDocumentToLocalStorage(incomplete)).toBe(true);
+      state: {},
+      assets: {},
+    };
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    expect(saveOwnedWhiteboardDocumentToLocalStorage(incomplete)).toBe(false);
     expect(
-      localStorage.getItem(
-        STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
-      ),
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT),
     ).toBe(existingOwned);
-    expect(
-      importFromLocalStorage({ preferOwned: true }).elements[0],
-    ).toMatchObject({
-      id: "missing-image",
-      fileId: "missing-asset",
-    });
   });
 });

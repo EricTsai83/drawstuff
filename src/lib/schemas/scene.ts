@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { WHITEBOARD_DOCUMENT_VERSION } from "@/features/whiteboard";
 
 export const SCENE_NAME_MAX_LENGTH = 255;
 export const SCENE_DATA_MAX_LENGTH = 5 * 1024 * 1024;
@@ -47,6 +48,7 @@ export const saveSceneSchema = z
     description: sceneDescriptionSchema,
     workspaceId: sceneWorkspaceIdSchema,
     data: sceneDataSchema,
+    documentVersion: z.literal(WHITEBOARD_DOCUMENT_VERSION),
     categories: sceneCategoriesSchema,
     expectedRevision: sceneRevisionSchema.optional(),
   })

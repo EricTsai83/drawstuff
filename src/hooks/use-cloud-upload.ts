@@ -1,17 +1,8 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type {
-  WhiteboardAsset,
-  WhiteboardDocument,
-  WhiteboardDocumentPersistence,
-  WhiteboardElement,
-  WhiteboardEngine,
-} from "@/features/whiteboard";
-import {
-  parsePersistedWhiteboardPayload,
-  recordWhiteboardDiagnostic,
-} from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@/features/whiteboard";
+import { recordWhiteboardDiagnostic } from "@/features/whiteboard";
 import { api } from "@/trpc/react";
 import {
   cleanupSceneAssetUploadsAction,
@@ -157,15 +148,7 @@ export function useCloudUpload(
             files,
             {
               encrypt: false,
-              persistence: scene.persistence,
               includeInlineAssets: false,
-              retainLegacy: true,
-              compactLegacyAssets: true,
-              ...createRollbackAssetUploadSource(
-                scene.persistence,
-                elements,
-                files,
-              ),
             },
           );
           const base64Data = stringToBase64(
@@ -384,6 +367,7 @@ export function useCloudUpload(
               description: sceneDescription,
               workspaceId: effectiveWorkspaceId,
               data: base64Data,
+              documentVersion: prepared.documentVersion,
               categories: options?.categories,
               expectedRevision: expectedRevisionForCommit,
             });
@@ -419,18 +403,6 @@ export function useCloudUpload(
                 engine: "owned",
                 documentVersion: scene.persistence?.documentVersion ?? null,
                 errorCode: "CONFLICT",
-              });
-              return false;
-            }
-            if (result.error === APP_ERROR.UNSAFE_DOWNGRADE) {
-              setStatus("idle");
-              toast.error(t("app.cloudUpload.toast.error.unsafeDowngrade"));
-              recordWhiteboardDiagnostic({
-                operation: "save",
-                outcome: "blocked",
-                engine: "owned",
-                documentVersion: scene.persistence?.documentVersion ?? null,
-                errorCode: "UNSAFE_DOWNGRADE",
               });
               return false;
             }
@@ -542,37 +514,4 @@ export function useCloudUpload(
     lastConflict,
     clearLastConflict,
   } as const;
-}
-
-function createRollbackAssetUploadSource(
-  persistence: WhiteboardDocumentPersistence | undefined,
-  elements: readonly WhiteboardElement[],
-  assets: Readonly<Record<string, WhiteboardAsset>>,
-): {
-  readonly assetUploadElements?: readonly WhiteboardElement[];
-  readonly assetUploadAssets?: Readonly<Record<string, WhiteboardAsset>>;
-  readonly includeDeletedAssetUploads?: boolean;
-} {
-  const rollback = parseLegacyRollbackDocument(persistence);
-  if (!rollback) return {};
-  return {
-    assetUploadElements: [...elements, ...rollback.elements],
-    assetUploadAssets: { ...rollback.assets, ...assets },
-    includeDeletedAssetUploads: true,
-  };
-}
-
-function parseLegacyRollbackDocument(
-  persistence: WhiteboardDocumentPersistence | undefined,
-): WhiteboardDocument | null {
-  const source = persistence?.legacyRollback?.originalPayload;
-  if (!source) return null;
-  try {
-    const persisted = parsePersistedWhiteboardPayload(source, {
-      allowMissingAssets: true,
-    });
-    return persisted.format === "legacy-excalidraw" ? persisted.document : null;
-  } catch {
-    return null;
-  }
 }

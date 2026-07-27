@@ -1,10 +1,9 @@
 import "server-only";
 
 import {
-  createPersistedWhiteboardDocumentV1,
-  parsePersistedWhiteboardPayload,
-  serializeWhiteboardDocumentV1,
-  toRuntimeWhiteboardDocument,
+  convertPersistedWhiteboardDocumentToV2,
+  externalizeWhiteboardDocumentAssetsV2,
+  serializeWhiteboardDocumentV2,
 } from "@/features/whiteboard";
 import { compressData, decompressData } from "@/lib/encode";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "./persistence-guard";
@@ -18,27 +17,15 @@ export async function createPublicWhiteboardPayload(
       decryptionKey: "",
       maxDecompressedBytes: MAX_DECOMPRESSED_SCENE_BYTES,
     });
-    const persisted = parsePersistedWhiteboardPayload(
+    const converted = convertPersistedWhiteboardDocumentToV2(
       new TextDecoder().decode(data),
-      { allowMissingAssets: true },
+      { externalAssets: true },
     );
-    if (persisted.format === "legacy-excalidraw") {
-      return sceneData;
-    }
-
-    const publicDocument = createPersistedWhiteboardDocumentV1(
-      toRuntimeWhiteboardDocument(persisted.document),
-      {
-        includeInlineAssets: false,
-        retainLegacy: false,
-      },
+    const publicDocument = externalizeWhiteboardDocumentAssetsV2(
+      converted.document,
     );
     const publicCompressed = await compressData(
-      new TextEncoder().encode(
-        serializeWhiteboardDocumentV1(publicDocument, {
-          allowMissingAssets: true,
-        }),
-      ),
+      new TextEncoder().encode(serializeWhiteboardDocumentV2(publicDocument)),
       {},
     );
     return Buffer.from(publicCompressed).toString("base64");

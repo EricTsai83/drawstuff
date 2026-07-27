@@ -1,8 +1,8 @@
 import "server-only";
 
 import {
-  classifyWhiteboardWriteTransition,
-  detectWhiteboardDocumentFormat,
+  parseWhiteboardDocumentV2,
+  WHITEBOARD_DOCUMENT_VERSION,
 } from "@/features/whiteboard";
 import {
   base64ToArrayBuffer,
@@ -13,18 +13,27 @@ import { SCENE_DATA_MAX_LENGTH } from "@/lib/schemas/scene";
 
 export const MAX_DECOMPRESSED_SCENE_BYTES = SCENE_DATA_MAX_LENGTH * 32;
 
+export function validateOpaqueEncryptedWhiteboardWrite(
+  encodedData: string,
+  documentVersion: unknown,
+): "safe" | "stale-version" | "too-large" {
+  if (documentVersion !== WHITEBOARD_DOCUMENT_VERSION) {
+    return "stale-version";
+  }
+  return encodedData.length > SCENE_DATA_MAX_LENGTH ? "too-large" : "safe";
+}
+
 export async function validateStoredWhiteboardWrite(
-  currentData: string | null,
   nextData: string,
-): Promise<"safe" | "unsafe-downgrade" | "too-large" | "invalid"> {
+  documentVersion: unknown,
+): Promise<"safe" | "stale-version" | "too-large" | "invalid"> {
+  if (documentVersion !== WHITEBOARD_DOCUMENT_VERSION) {
+    return "stale-version";
+  }
   try {
     const nextPayload = await decodeScenePayload(nextData);
-    if (currentData === null) return "safe";
-    if (detectWhiteboardDocumentFormat(nextPayload) === "whiteboard-v1") {
-      return "safe";
-    }
-    const currentPayload = await decodeScenePayload(currentData);
-    return classifyWhiteboardWriteTransition(currentPayload, nextPayload);
+    parseWhiteboardDocumentV2(nextPayload);
+    return "safe";
   } catch (error) {
     return error instanceof DecompressionLimitError ? "too-large" : "invalid";
   }

@@ -12,10 +12,14 @@ export const sharedSceneRouter = createTRPCRouter({
         where: eq(sharedScene.sharedSceneId, input.sharedSceneId),
         columns: {
           compressedData: true,
+          documentVersion: true,
         },
       });
 
-      return { compressedData: result?.compressedData ?? null };
+      return {
+        compressedData: result?.compressedData ?? null,
+        documentVersion: result?.documentVersion ?? null,
+      };
     }),
   getFileRecordsBySharedSceneId: publicProcedure
     .input(z.object({ sharedSceneId: z.string().min(1) }))

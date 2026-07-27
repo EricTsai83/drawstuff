@@ -147,7 +147,7 @@ describe("legacy Excalidraw scenes", () => {
 });
 
 describe("local recovery and binary files", () => {
-  it("recovers local elements, viewport, and files while removing deleted elements", async () => {
+  it("recovers local content while excluding viewport session state and deleted elements", async () => {
     const fixture = await readFixture("images-and-binary-files.excalidraw");
     const deletedElement = {
       ...fixture.elements[0]!,
@@ -173,11 +173,12 @@ describe("local recovery and binary files", () => {
     expect(recovered.elements.map((element) => element.id)).toEqual([
       "legacy-image",
     ]);
-    expect(recovered.appState).toMatchObject({ scrollX: 42, scrollY: -8 });
+    expect(recovered.appState?.scrollX).toBeUndefined();
+    expect(recovered.appState?.scrollY).toBeUndefined();
     expect(recovered.files["legacy-image-file"]?.mimeType).toBe("image/png");
   });
 
-  it("repairs missing and duplicate ids in retained legacy local keys", () => {
+  it("refuses retained legacy local keys that would require partial repair", () => {
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
       JSON.stringify([
@@ -188,18 +189,11 @@ describe("local recovery and binary files", () => {
       ]),
     );
 
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
     const recovered = importFromLocalStorage();
 
-    expect(recovered.elements.map((element) => element.id)).toEqual([
-      "legacy-1",
-      "duplicate",
-      "legacy-2",
-      "legacy-0",
-    ]);
-    expect(
-      recovered.elements.every((element) => element.isDeleted === false),
-    ).toBe(true);
-    expect(recovered.persistence?.sourceFormat).toBe("legacy-excalidraw");
+    expect(recovered.elements).toEqual([]);
+    expect(recovered.persistence).toBeUndefined();
   });
 
   it("keeps valid retained elements when another legacy key is corrupt", () => {
@@ -213,11 +207,11 @@ describe("local recovery and binary files", () => {
     const recovered = importFromLocalStorage();
 
     expect(recovered.elements).toEqual([
-      {
+      expect.objectContaining({
         id: "valid-shape",
         type: "rectangle",
         isDeleted: false,
-      },
+      }),
     ]);
   });
 

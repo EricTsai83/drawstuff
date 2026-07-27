@@ -5,13 +5,13 @@ import { clearElementsForDatabase } from "@/lib/whiteboard";
 import { extractImageFiles, processFilesForUpload } from "./file-processor";
 import type {
   WhiteboardAsset,
-  WhiteboardDocumentPersistence,
   WhiteboardDocumentState,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
-  createPersistedWhiteboardDocumentV1,
-  serializeWhiteboardDocumentV1,
+  createPersistedWhiteboardDocumentV2,
+  serializeWhiteboardDocumentV2,
+  WHITEBOARD_DOCUMENT_VERSION,
 } from "@/features/whiteboard";
 
 // 準備場景數據用於導出
@@ -21,13 +21,7 @@ export async function prepareSceneDataForExport(
   files: Readonly<Record<string, WhiteboardAsset>>,
   options?: {
     readonly encrypt?: boolean;
-    readonly persistence?: WhiteboardDocumentPersistence;
     readonly includeInlineAssets?: boolean;
-    readonly retainLegacy?: boolean;
-    readonly compactLegacyAssets?: boolean;
-    readonly assetUploadElements?: readonly WhiteboardElement[];
-    readonly assetUploadAssets?: Readonly<Record<string, WhiteboardAsset>>;
-    readonly includeDeletedAssetUploads?: boolean;
   },
 ) {
   const shouldEncrypt = options?.encrypt ?? true;
@@ -38,21 +32,15 @@ export async function prepareSceneDataForExport(
   // 場景資料：壓縮，視需要加密
   const compressedSceneData = await compressData(
     new TextEncoder().encode(
-      serializeSceneData(elements, appState, files, options?.persistence, {
+      serializeSceneData(elements, appState, files, {
         includeInlineAssets: options?.includeInlineAssets,
-        retainLegacy: options?.retainLegacy,
-        compactLegacyAssets: options?.compactLegacyAssets,
       }),
     ),
     { encryptionKey },
   );
 
   // 檔案資料：永遠壓縮，根據選項加/不加密
-  const imageFilesMap = extractImageFiles(
-    options?.assetUploadElements ?? elements,
-    options?.assetUploadAssets ?? files,
-    { includeDeleted: options?.includeDeletedAssetUploads },
-  );
+  const imageFilesMap = extractImageFiles(elements, files);
   const compressedFilesData = await processFilesForUpload({
     files: imageFilesMap,
     encryptionKey,
@@ -63,6 +51,7 @@ export async function prepareSceneDataForExport(
     compressedSceneData,
     compressedFilesData,
     encryptionKey: (encryptionKey ?? undefined) as unknown as string,
+    documentVersion: WHITEBOARD_DOCUMENT_VERSION,
   } as const;
 }
 
@@ -70,24 +59,22 @@ function serializeSceneData(
   elements: readonly WhiteboardElement[],
   appState: WhiteboardDocumentState,
   files: Readonly<Record<string, WhiteboardAsset>>,
-  persistence?: WhiteboardDocumentPersistence,
   options?: {
     readonly includeInlineAssets?: boolean;
-    readonly retainLegacy?: boolean;
-    readonly compactLegacyAssets?: boolean;
   },
 ): string {
   const persistedElements = clearElementsForDatabase(elements);
-  return serializeWhiteboardDocumentV1(
-    createPersistedWhiteboardDocumentV1(
+  return serializeWhiteboardDocumentV2(
+    createPersistedWhiteboardDocumentV2(
       {
         elements: persistedElements,
         assets: files,
         state: appState,
-        persistence,
       },
-      options,
+      {
+        assetStorage:
+          options?.includeInlineAssets === false ? "external" : "inline",
+      },
     ),
-    { allowMissingAssets: options?.includeInlineAssets === false },
   );
 }

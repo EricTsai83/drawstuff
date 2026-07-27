@@ -7,7 +7,6 @@ export const APP_ERROR = {
   CREATE_FAILED: "CREATE_FAILED",
   SAVE_FAILED: "SAVE_FAILED",
   SCENE_PAYLOAD_TOO_LARGE: "SCENE_PAYLOAD_TOO_LARGE",
-  UNSAFE_DOWNGRADE: "UNSAFE_DOWNGRADE",
 } as const;
 export type AppErrorCode = (typeof APP_ERROR)[keyof typeof APP_ERROR];
 

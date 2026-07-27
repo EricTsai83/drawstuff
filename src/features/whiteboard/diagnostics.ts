@@ -20,7 +20,6 @@ export const whiteboardDiagnosticSchema = z
         "MISSING_ASSET",
         "NETWORK",
         "PAYLOAD_TOO_LARGE",
-        "UNSAFE_DOWNGRADE",
         "UNKNOWN",
       ])
       .optional(),

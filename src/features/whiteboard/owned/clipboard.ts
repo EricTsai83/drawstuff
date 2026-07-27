@@ -1,8 +1,12 @@
 import type {
   WhiteboardAsset,
+  WhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard/contracts";
-import { createWhiteboardDocumentV1 } from "@/features/whiteboard/document-format";
+import {
+  createPersistedWhiteboardDocumentV2,
+  toRuntimeWhiteboardDocumentV2,
+} from "@/features/whiteboard/canonical-document";
 
 export const OWNED_CLIPBOARD_MIME = "application/x-drawstuff-whiteboard+json";
 export const OWNED_CLIPBOARD_VERSION = 1 as const;
@@ -30,10 +34,11 @@ export function createOwnedClipboardPayload(
     const asset = assets[fileId];
     if (asset) referencedAssets[fileId] = asset;
   }
+  const normalized = normalizeClipboardContents(elements, referencedAssets);
   return {
     version: OWNED_CLIPBOARD_VERSION,
-    elements,
-    assets: referencedAssets,
+    elements: normalized.elements,
+    assets: normalized.assets,
   };
 }
 
@@ -58,20 +63,14 @@ export function parseOwnedClipboardPayload(
     if (!isRecord(parsed) || parsed.version !== OWNED_CLIPBOARD_VERSION) {
       return null;
     }
-    const normalized = createWhiteboardDocumentV1({
-      elements: Array.isArray(parsed.elements)
+    const normalized = normalizeClipboardContents(
+      Array.isArray(parsed.elements)
         ? (parsed.elements as readonly WhiteboardElement[])
         : [],
-      assets: isRecord(parsed.assets)
+      isRecord(parsed.assets)
         ? (parsed.assets as Readonly<Record<string, WhiteboardAsset>>)
         : {},
-      metadata: {
-        name: "Clipboard",
-        theme: "light",
-        viewBackgroundColor: "#ffffff",
-        gridSize: null,
-      },
-    });
+    );
     if (normalized.elements.length === 0) return null;
     return {
       version: OWNED_CLIPBOARD_VERSION,
@@ -81,6 +80,53 @@ export function parseOwnedClipboardPayload(
   } catch {
     return null;
   }
+}
+
+function normalizeClipboardContents(
+  elements: readonly WhiteboardElement[],
+  assets: Readonly<Record<string, WhiteboardAsset>>,
+): Pick<WhiteboardDocument, "elements" | "assets"> {
+  const normalized = toRuntimeWhiteboardDocumentV2(
+    createPersistedWhiteboardDocumentV2({
+      elements: elements.map(removeStaleVariantFields),
+      assets,
+      state: {
+        name: "Clipboard",
+        theme: "light",
+        viewBackgroundColor: "#ffffff",
+        gridSize: null,
+      },
+    }),
+  );
+  return {
+    elements: normalized.elements,
+    assets: normalized.assets,
+  };
+}
+
+function removeStaleVariantFields(
+  element: WhiteboardElement,
+): WhiteboardElement {
+  const normalized = {
+    ...(element as unknown as Readonly<Record<string, unknown>>),
+  };
+  if (
+    element.type !== "arrow" &&
+    element.type !== "freedraw" &&
+    element.type !== "line"
+  ) {
+    delete normalized.points;
+  }
+  if (element.type !== "image") {
+    delete normalized.fileId;
+  }
+  if (element.type !== "text") {
+    delete normalized.text;
+    delete normalized.originalText;
+    delete normalized.fontSize;
+    delete normalized.lineHeight;
+  }
+  return normalized as unknown as WhiteboardElement;
 }
 
 export function remapOwnedClipboardPayload(

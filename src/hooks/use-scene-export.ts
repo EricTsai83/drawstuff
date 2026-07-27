@@ -85,9 +85,7 @@ export function useSceneExport() {
           appState,
           files,
           {
-            persistence,
             includeInlineAssets: false,
-            retainLegacy: false,
           },
         );
 
@@ -103,7 +101,10 @@ export function useSceneExport() {
         }
 
         // 使用 server action 保存場景（共享連結）
-        const result = await handleSceneSave(sceneData.compressedSceneData);
+        const result = await handleSceneSave(
+          sceneData.compressedSceneData,
+          sceneData.documentVersion,
+        );
 
         // 若未取得 sharedSceneId，直接回報錯誤
         if (!result.sharedSceneId) {

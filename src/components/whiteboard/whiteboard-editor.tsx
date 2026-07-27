@@ -114,7 +114,9 @@ export default function WhiteboardEditor() {
       },
     }).then((document) => {
       const isMigration =
-        document?.persistence?.sourceFormat !== "whiteboard-v1";
+        document?.persistence?.convertedFrom !== undefined ||
+        (document?.persistence?.sourceFormat !== undefined &&
+          document.persistence.sourceFormat !== "whiteboard-v2");
       let prepared = document;
       if (document) {
         try {
@@ -139,7 +141,7 @@ export default function WhiteboardEditor() {
       });
       if (
         isMigration &&
-        prepared?.persistence?.sourceFormat === "whiteboard-v1"
+        prepared?.persistence?.sourceFormat === "whiteboard-v2"
       ) {
         recordWhiteboardDiagnostic({
           operation: "migration",

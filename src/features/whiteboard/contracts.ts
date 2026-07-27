@@ -1,5 +1,19 @@
 export type WhiteboardTheme = "light" | "dark";
 
+export type WhiteboardElementType =
+  | "arrow"
+  | "diamond"
+  | "ellipse"
+  | "embeddable"
+  | "frame"
+  | "freedraw"
+  | "iframe"
+  | "image"
+  | "line"
+  | "magicframe"
+  | "rectangle"
+  | "text";
+
 export interface WhiteboardElement {
   readonly id: string;
   readonly type: string;
@@ -24,6 +38,9 @@ export interface WhiteboardElement {
   readonly roughness?: number;
   readonly seed?: number;
   readonly locked?: boolean;
+  readonly hidden?: boolean;
+  readonly visible?: boolean;
+  readonly lastCommittedPoint?: readonly [number, number] | null;
 }
 
 export interface WhiteboardAsset {
@@ -74,7 +91,111 @@ export interface WhiteboardDocumentV1 {
   readonly metadata: WhiteboardDocumentMetadata;
 }
 
-export type WhiteboardPersistenceFormat = "legacy-excalidraw" | "whiteboard-v1";
+export type WhiteboardAssetMimeTypeV2 =
+  | "application/octet-stream"
+  | "image/avif"
+  | "image/bmp"
+  | "image/gif"
+  | "image/jpeg"
+  | "image/jfif"
+  | "image/png"
+  | "image/svg+xml"
+  | "image/vnd.microsoft.icon"
+  | "image/webp"
+  | "image/x-icon";
+
+interface WhiteboardAssetV2Base {
+  readonly id: string;
+  readonly mimeType: WhiteboardAssetMimeTypeV2;
+  readonly created: number;
+  readonly lastRetrieved?: number;
+  readonly byteSize?: number;
+  readonly contentHash?: string;
+  readonly width?: number;
+  readonly height?: number;
+}
+
+export interface WhiteboardInlineAssetV2 extends WhiteboardAssetV2Base {
+  readonly storage: "inline";
+  readonly dataURL: string;
+}
+
+export interface WhiteboardExternalAssetV2 extends WhiteboardAssetV2Base {
+  readonly storage: "external";
+}
+
+export type WhiteboardAssetV2 =
+  WhiteboardInlineAssetV2 | WhiteboardExternalAssetV2;
+
+interface WhiteboardElementV2Base {
+  readonly id: string;
+  readonly isDeleted: boolean;
+  readonly x: number;
+  readonly y: number;
+  readonly width: number;
+  readonly height: number;
+  readonly angle: number;
+  readonly strokeColor: string;
+  readonly backgroundColor: string;
+  readonly fillStyle: WhiteboardFillStyle;
+  readonly strokeWidth: number;
+  readonly strokeStyle: WhiteboardStrokeStyle;
+  readonly opacity: number;
+  readonly roughness: number;
+  readonly locked: boolean;
+}
+
+export interface WhiteboardBoxElementV2 extends WhiteboardElementV2Base {
+  readonly type:
+    | "diamond"
+    | "ellipse"
+    | "embeddable"
+    | "frame"
+    | "iframe"
+    | "magicframe"
+    | "rectangle";
+}
+
+export interface WhiteboardLinearElementV2 extends WhiteboardElementV2Base {
+  readonly type: "arrow" | "freedraw" | "line";
+  readonly points: readonly (readonly [number, number])[];
+}
+
+export interface WhiteboardImageElementV2 extends WhiteboardElementV2Base {
+  readonly type: "image";
+  readonly fileId: string | null;
+}
+
+export interface WhiteboardTextElementV2 extends WhiteboardElementV2Base {
+  readonly type: "text";
+  readonly text: string;
+  readonly originalText: string;
+  readonly fontSize: number;
+  readonly lineHeight: number;
+}
+
+export type WhiteboardElementV2 =
+  | WhiteboardBoxElementV2
+  | WhiteboardImageElementV2
+  | WhiteboardLinearElementV2
+  | WhiteboardTextElementV2;
+
+export interface WhiteboardDocumentMetadataV2 {
+  readonly name: string;
+  readonly theme: WhiteboardTheme;
+  readonly viewBackgroundColor: string;
+  readonly gridSize: number | null;
+}
+
+export interface WhiteboardDocumentV2 {
+  readonly version: 2;
+  readonly elements: readonly WhiteboardElementV2[];
+  readonly assets: Readonly<Record<string, WhiteboardAssetV2>>;
+  readonly metadata: WhiteboardDocumentMetadataV2;
+}
+
+export type WhiteboardPersistenceFormat =
+  "legacy-excalidraw" | "whiteboard-v1" | "whiteboard-v2";
 
 export interface WhiteboardDocumentPersistence {
   readonly sourceFormat: WhiteboardPersistenceFormat;
@@ -82,6 +203,10 @@ export interface WhiteboardDocumentPersistence {
   readonly legacyRollback?: WhiteboardLegacyEnvelope;
   readonly migratedFromLegacy?: boolean;
   readonly loadedFromRecovery?: boolean;
+  readonly convertedFrom?: Exclude<
+    WhiteboardPersistenceFormat,
+    "whiteboard-v2"
+  >;
 }
 
 export interface WhiteboardViewport {

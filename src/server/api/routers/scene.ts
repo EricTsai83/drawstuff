@@ -14,18 +14,23 @@ import {
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 import { QUERIES } from "@/server/db/queries";
-import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
+import {
+  saveSceneSchema,
+  sceneCategoriesSchema,
+  sceneDescriptionSchema,
+  sceneNameSchema,
+  sceneRevisionSchema,
+  sceneWorkspaceIdSchema,
+} from "@/lib/schemas/scene";
 import { UTApi } from "uploadthing/server";
 import { nanoid } from "nanoid";
 import {
   saveOwnedScene,
+  syncSceneCategories,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { decompressData } from "@/lib/encode";
-import {
-  parsePersistedWhiteboardPayload,
-  toRuntimeWhiteboardDocument,
-} from "@/features/whiteboard";
+import { convertPersistedWhiteboardDocumentToV2 } from "@/features/whiteboard";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "@/server/whiteboard/persistence-guard";
 
@@ -67,16 +72,12 @@ async function getReferencedPublishedFileIds(
         maxDecompressedBytes: MAX_DECOMPRESSED_SCENE_BYTES,
       },
     );
-    const persisted = parsePersistedWhiteboardPayload(
+    const converted = convertPersistedWhiteboardDocumentToV2(
       new TextDecoder().decode(data),
-      { allowMissingAssets: true },
+      { externalAssets: true },
     );
-    const parsed =
-      persisted.format === "whiteboard-v1"
-        ? toRuntimeWhiteboardDocument(persisted.document)
-        : persisted.document;
     const ids = new Set<string>();
-    for (const element of parsed.elements) {
+    for (const element of converted.document.elements) {
       if (element.isDeleted) continue;
       if (element.type !== "image") continue;
       if (typeof element.fileId === "string" && element.fileId.length > 0) {
@@ -130,16 +131,79 @@ export const sceneRouter = createTRPCRouter({
         });
       }
 
-      if (saveResult.status === "unsafe_downgrade") {
-        throw new TRPCError({
-          code: "PRECONDITION_FAILED",
-          message: saveResult.message,
-        });
-      }
-
       throw new TRPCError({
         code: "BAD_REQUEST",
         message: saveResult.message,
+      });
+    }),
+
+  updateSceneMetadata: protectedProcedure
+    .input(
+      z.object({
+        id: z.uuid(),
+        name: sceneNameSchema,
+        description: sceneDescriptionSchema,
+        workspaceId: sceneWorkspaceIdSchema,
+        categories: sceneCategoriesSchema,
+        expectedRevision: sceneRevisionSchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db.transaction(async (tx) => {
+        if (input.workspaceId !== undefined) {
+          const targetWorkspace = await tx.query.workspace.findFirst({
+            where: and(
+              eq(workspace.id, input.workspaceId),
+              eq(workspace.userId, ctx.auth.user.id),
+            ),
+            columns: { id: true },
+          });
+          if (!targetWorkspace) {
+            throw new TRPCError({
+              code: "FORBIDDEN",
+              message: "Invalid workspace",
+            });
+          }
+        }
+
+        const now = new Date();
+        const [updated] = await tx
+          .update(scene)
+          .set({
+            name: input.name,
+            description: input.description,
+            ...(input.workspaceId !== undefined
+              ? { workspaceId: input.workspaceId }
+              : {}),
+            revision: sql`${scene.revision} + 1`,
+            updatedAt: now,
+            lastUpdated: now,
+          })
+          .where(
+            and(
+              eq(scene.id, input.id),
+              eq(scene.userId, ctx.auth.user.id),
+              eq(scene.revision, input.expectedRevision),
+            ),
+          )
+          .returning({
+            id: scene.id,
+            revision: scene.revision,
+            updatedAt: scene.updatedAt,
+          });
+        if (!updated) {
+          throw new TRPCError({
+            code: "CONFLICT",
+            message: "Scene has been updated elsewhere",
+          });
+        }
+
+        await syncSceneCategories(tx, {
+          sceneId: updated.id,
+          userId: ctx.auth.user.id,
+          categories: input.categories,
+        });
+        return updated;
       });
     }),
 

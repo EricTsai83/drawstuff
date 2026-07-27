@@ -1,7 +1,6 @@
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
 import {
-  parsePersistedWhiteboardPayload,
-  toRuntimeWhiteboardDocument,
+  parseWhiteboardDocumentForImport,
   type WhiteboardAsset,
   type WhiteboardDocument,
 } from "@/features/whiteboard";
@@ -28,16 +27,10 @@ export async function loadPublishedSceneData({
     compressedBuffer,
     { decryptionKey: "" },
   );
-  const persisted = parsePersistedWhiteboardPayload(
+  const parsed = parseWhiteboardDocumentForImport(
     new TextDecoder().decode(data),
-    // Published image records are stored separately from the scene payload.
-    // Missing records remain renderable as stable placeholders.
-    { allowMissingAssets: true },
+    { externalAssets: true },
   );
-  const parsed =
-    persisted.format === "whiteboard-v1"
-      ? toRuntimeWhiteboardDocument(persisted.document)
-      : persisted.document;
 
   const publishedAssets: Record<string, WhiteboardAsset> = {};
   await Promise.allSettled(

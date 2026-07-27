@@ -5,14 +5,17 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 
 import {
-  createPersistedWhiteboardDocumentV1,
-  parsePersistedWhiteboardPayload,
-  serializeWhiteboardDocumentV1,
+  createPersistedWhiteboardDocumentV2,
+  parseWhiteboardDocumentV2,
+  serializeWhiteboardDocumentV2,
   type WhiteboardDocument,
 } from "@/features/whiteboard";
 import { compressData, decompressData } from "@/lib/encode";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { validateStoredWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
+import { validateOpaqueEncryptedWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
+import { SCENE_DATA_MAX_LENGTH } from "@/lib/schemas/scene";
+import { scene, sharedScene } from "@/server/db/schema";
 
 const legacySource = JSON.stringify({
   type: "excalidraw",
@@ -84,72 +87,86 @@ async function decodeScene(source: string): Promise<string> {
 }
 
 describe("stored whiteboard persistence guard", () => {
-  it("blocks only an owned-to-legacy downgrade", async () => {
-    const ownedSource = serializeWhiteboardDocumentV1(
-      createPersistedWhiteboardDocumentV1(ownedDocument),
+  it("exposes nullable document_version metadata beside both opaque payloads", () => {
+    expect(scene.documentVersion.name).toBe("document_version");
+    expect(scene.documentVersion.notNull).toBe(false);
+    expect(sharedScene.documentVersion.name).toBe("document_version");
+    expect(sharedScene.documentVersion.notNull).toBe(false);
+  });
+
+  it("accepts only a valid V2 payload with the explicit current write version", async () => {
+    const ownedSource = serializeWhiteboardDocumentV2(
+      createPersistedWhiteboardDocumentV2(ownedDocument),
     );
     const [ownedData, legacyData] = await Promise.all([
       encodeScene(ownedSource),
       encodeScene(legacySource),
     ]);
 
-    await expect(
-      validateStoredWhiteboardWrite(ownedData, legacyData),
-    ).resolves.toBe("unsafe-downgrade");
-    await expect(
-      validateStoredWhiteboardWrite(legacyData, ownedData),
-    ).resolves.toBe("safe");
-    await expect(
-      validateStoredWhiteboardWrite(ownedData, ownedData),
-    ).resolves.toBe("safe");
-    await expect(validateStoredWhiteboardWrite(null, ownedData)).resolves.toBe(
+    await expect(validateStoredWhiteboardWrite(ownedData, 2)).resolves.toBe(
       "safe",
     );
+    await expect(validateStoredWhiteboardWrite(legacyData, 2)).resolves.toBe(
+      "invalid",
+    );
+    await expect(validateStoredWhiteboardWrite(ownedData, 1)).resolves.toBe(
+      "stale-version",
+    );
     await expect(
-      validateStoredWhiteboardWrite(null, "not-base64-scene-data"),
+      validateStoredWhiteboardWrite(ownedData, undefined),
+    ).resolves.toBe("stale-version");
+    await expect(
+      validateStoredWhiteboardWrite("not-base64-scene-data", 2),
     ).resolves.toBe("invalid");
   });
 
-  it("allows a valid owned recovery write over an undecodable current row", async () => {
+  it("checks only version and compressed size for opaque encrypted shares", () => {
+    expect(validateOpaqueEncryptedWhiteboardWrite("opaque-ciphertext", 2)).toBe(
+      "safe",
+    );
+    expect(validateOpaqueEncryptedWhiteboardWrite("opaque-ciphertext", 1)).toBe(
+      "stale-version",
+    );
+    expect(
+      validateOpaqueEncryptedWhiteboardWrite(
+        "x".repeat(SCENE_DATA_MAX_LENGTH + 1),
+        2,
+      ),
+    ).toBe("too-large");
+  });
+
+  it("does not inspect or depend on the previous row for a canonical write", async () => {
     const ownedData = await encodeScene(
-      serializeWhiteboardDocumentV1(
-        createPersistedWhiteboardDocumentV1(ownedDocument),
+      serializeWhiteboardDocumentV2(
+        createPersistedWhiteboardDocumentV2(ownedDocument),
       ),
     );
 
-    await expect(
-      validateStoredWhiteboardWrite("not-base64-scene-data", ownedData),
-    ).resolves.toBe("safe");
-  });
-
-  it("fails closed when a legacy write cannot classify the current row", async () => {
-    const legacyData = await encodeScene(legacySource);
-
-    await expect(
-      validateStoredWhiteboardWrite("not-base64-scene-data", legacyData),
-    ).resolves.toBe("invalid");
+    await expect(validateStoredWhiteboardWrite(ownedData, 2)).resolves.toBe(
+      "safe",
+    );
   });
 });
 
 describe("public owned payload", () => {
-  it("removes rollback content and inline assets before public delivery", async () => {
+  it("emits V2 external assets without rollback content or inline bytes", async () => {
     const privateData = await encodeScene(
-      serializeWhiteboardDocumentV1(
-        createPersistedWhiteboardDocumentV1(ownedDocument),
+      serializeWhiteboardDocumentV2(
+        createPersistedWhiteboardDocumentV2(ownedDocument),
       ),
     );
     const publicData = await createPublicWhiteboardPayload(privateData);
     expect(publicData).not.toBeNull();
     const publicSource = await decodeScene(publicData!);
-    const persisted = parsePersistedWhiteboardPayload(publicSource, {
-      allowMissingAssets: true,
+    const persisted = parseWhiteboardDocumentV2(publicSource);
+    expect(persisted.version).toBe(2);
+    expect(persisted.assets["owned-file"]).toMatchObject({
+      id: "owned-file",
+      storage: "external",
     });
-    expect(persisted.format).toBe("whiteboard-v1");
-    if (persisted.format !== "whiteboard-v1") return;
-
-    expect(persisted.document.metadata.legacy).toBeUndefined();
-    expect(persisted.document.assets).toEqual({});
+    expect(publicSource).not.toContain("originalPayload");
     expect(publicSource).not.toContain("PRIVATE");
     expect(publicSource).not.toContain("private-file");
+    expect(publicSource).not.toContain("data:image/png");
   });
 });

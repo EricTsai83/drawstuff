@@ -172,6 +172,7 @@ export const scene = createTable(
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
     sceneData: text("scene_data"), // 場景資料（壓縮/加密後的 base64 或 JSON 字串）
+    documentVersion: integer("document_version"),
     thumbnailUrl: text("thumbnail_url"), // 新增：縮圖 URL
     thumbnailFileKey: varchar("thumbnail_file_key", { length: 256 }),
     workspaceId: uuid("workspace_id").references(() => workspace.id, {
@@ -255,6 +256,7 @@ export const sharedScene = createTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     compressedData: bytea("compressed_data"),
+    documentVersion: integer("document_version"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),

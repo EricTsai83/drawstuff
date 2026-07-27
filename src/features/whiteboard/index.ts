@@ -1,10 +1,18 @@
 export type {
   WhiteboardAsset,
+  WhiteboardAssetMimeTypeV2,
+  WhiteboardAssetV2,
   WhiteboardDocument,
   WhiteboardDocumentMetadata,
+  WhiteboardDocumentMetadataV2,
   WhiteboardDocumentPersistence,
   WhiteboardDocumentState,
   WhiteboardDocumentV1,
+  WhiteboardDocumentV2,
+  WhiteboardElementType,
+  WhiteboardElementV2,
+  WhiteboardExternalAssetV2,
+  WhiteboardInlineAssetV2,
   WhiteboardElementStyle,
   WhiteboardElementStyleUpdate,
   WhiteboardEditorState,
@@ -28,7 +36,6 @@ export {
   createPersistedWhiteboardDocumentV1,
   createWhiteboardDocumentV1,
   detectWhiteboardDocumentFormat,
-  filterReferencedWhiteboardAssets,
   getWhiteboardDocumentVersion,
   LEGACY_MIGRATION_VERSION,
   migrateLegacyExcalidrawScene,
@@ -37,15 +44,29 @@ export {
   prepareWhiteboardDocumentForOwnedEngine,
   serializeWhiteboardDocumentV1,
   toRuntimeWhiteboardDocument,
-  WHITEBOARD_DOCUMENT_VERSION,
+  WHITEBOARD_DOCUMENT_V1_VERSION,
   WhiteboardDocumentError,
   type PersistedWhiteboardPayload,
   type WhiteboardDocumentErrorCode,
 } from "./document-format";
+export { filterReferencedWhiteboardAssets } from "./document-assets";
 export {
-  classifyWhiteboardWriteTransition,
-  type WhiteboardWriteTransition,
-} from "./persistence-transition";
+  createPersistedWhiteboardDocumentV2,
+  createWhiteboardDocumentV2,
+  externalizeWhiteboardDocumentAssetsV2,
+  parseWhiteboardDocumentV2,
+  serializeWhiteboardDocumentV2,
+  toRuntimeWhiteboardDocumentV2,
+  WHITEBOARD_DOCUMENT_VERSION,
+} from "./canonical-document";
+export {
+  convertPersistedWhiteboardDocumentToV2,
+  parseWhiteboardDocumentForImport,
+  WhiteboardConversionError,
+  type WhiteboardConversionReport,
+  type WhiteboardConversionResult,
+  type WhiteboardConversionSourceFormat,
+} from "./document-conversion";
 export {
   recordWhiteboardDiagnostic,
   whiteboardDiagnosticSchema,

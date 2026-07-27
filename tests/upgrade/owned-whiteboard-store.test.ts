@@ -177,7 +177,7 @@ describe("owned whiteboard store", () => {
     expect(store.getDocument().elements).toEqual([]);
   });
 
-  it("normalizes lenient legacy imports into an exportable snapshot while retaining late asset recovery", async () => {
+  it("refuses a partial legacy import with duplicate ids and unsafe assets", async () => {
     const store = new OwnedWhiteboardStore();
     const legacyBlob = new Blob([
       JSON.stringify({
@@ -216,35 +216,11 @@ describe("owned whiteboard store", () => {
       }),
     ]);
 
-    await store.importDocument(legacyBlob);
-
-    expect(store.getDocument().elements).toHaveLength(2);
-    expect(store.getDocument().elements.map((element) => element.id)).toEqual([
-      "duplicate",
-      "legacy-1",
-    ]);
-    expect(store.getDocument().elements[0]?.fileId).toBeNull();
-    const exported = JSON.parse(
-      await (await store.exportDocument()).text(),
-    ) as {
-      readonly version: number;
-      readonly elements: readonly WhiteboardElement[];
-      readonly assets: Readonly<Record<string, unknown>>;
-    };
-    expect(exported.version).toBe(1);
-    expect(exported.elements).toHaveLength(2);
-    expect(exported.assets).toEqual({});
-
-    store.addAssets([
-      {
-        id: "late-asset",
-        dataURL: "data:image/png;base64,AA==",
-        mimeType: "image/png",
-        created: 1,
-      },
-    ]);
-    expect(store.getDocument().elements[0]?.fileId).toBe("late-asset");
-    expect(store.getAssets()).toHaveProperty("late-asset");
+    await expect(store.importDocument(legacyBlob)).rejects.toMatchObject({
+      code: "MALFORMED_DOCUMENT",
+      path: "$.elements[1].id",
+    });
+    expect(store.getDocument().elements).toEqual([]);
   });
 
   it("clears subscriptions and rejects use after destroy", () => {
