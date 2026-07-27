@@ -551,12 +551,14 @@ function createRollbackAssetUploadSource(
 ): {
   readonly assetUploadElements?: readonly WhiteboardElement[];
   readonly assetUploadAssets?: Readonly<Record<string, WhiteboardAsset>>;
+  readonly includeDeletedAssetUploads?: boolean;
 } {
   const rollback = parseLegacyRollbackDocument(persistence);
   if (!rollback) return {};
   return {
     assetUploadElements: [...elements, ...rollback.elements],
     assetUploadAssets: { ...rollback.assets, ...assets },
+    includeDeletedAssetUploads: true,
   };
 }
 

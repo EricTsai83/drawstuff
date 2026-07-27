@@ -450,6 +450,7 @@ export function createPersistedWhiteboardDocumentV1(
     readonly includeInlineAssets?: boolean;
     readonly retainLegacy?: boolean;
     readonly compactLegacyAssets?: boolean;
+    readonly allowMissingAssets?: boolean;
   },
 ): WhiteboardDocumentV1 {
   const legacyRollback =
@@ -486,7 +487,9 @@ export function createPersistedWhiteboardDocumentV1(
       },
     },
     {
-      allowMissingAssets: options?.includeInlineAssets === false,
+      allowMissingAssets:
+        options?.allowMissingAssets === true ||
+        options?.includeInlineAssets === false,
     },
   );
 }

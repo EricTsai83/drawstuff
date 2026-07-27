@@ -58,7 +58,6 @@ export async function createInitialWhiteboardDocument(options?: {
       } catch (error) {
         console.error("透過 URL 載入場景失敗，回退至本地資料:", error);
         options?.onFailure?.("NETWORK");
-        clearSharedSceneHash();
         return localDocument;
       }
     }

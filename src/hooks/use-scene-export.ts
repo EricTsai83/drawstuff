@@ -62,7 +62,8 @@ export function useSceneExport() {
         return null;
       }
 
-      if (elements.length === 0) {
+      const activeElements = elements.filter((element) => !element.isDeleted);
+      if (activeElements.length === 0) {
         setExportErrorMessage("Cannot export empty canvas");
         setExportStatus("error");
         recordWhiteboardDiagnostic({
@@ -80,7 +81,7 @@ export function useSceneExport() {
       try {
         // 準備場景數據（只處理一次）
         const sceneData = await prepareSceneDataForExport(
-          elements,
+          activeElements,
           appState,
           files,
           {
