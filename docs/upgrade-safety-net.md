@@ -35,9 +35,9 @@ override.
 fails CI. A finding disappearing from the registry is allowed and should be
 removed from the baseline during the next dependency phase.
 
-The baseline was reviewed after the Phase 5I engine replacement on 2026-07-27
-and contains 11 unique `GHSA:package` advisory keys. pnpm reports 11
-vulnerability instances: 1 critical, 6 high, 2 moderate, and 2 low. It is
+The baseline was reviewed after a full stable dependency refresh on 2026-07-28
+and contains 8 unique `GHSA:package` advisory keys. pnpm reports 8
+vulnerability instances: 1 critical, 5 high, 2 moderate, and 0 low. It is
 an inventory, not a claim that the findings are safe. Findings against the
 Phase 1 direct dependencies are cleared; the remaining findings are pinned
 transitive packages and are tracked through their direct parent instead of
@@ -45,8 +45,8 @@ being forced with broad `pnpm.overrides`.
 
 | Parent package        | Remaining transitive relationship                                   | Baseline summary                     | Follow-up                                                        |
 | --------------------- | ------------------------------------------------------------------- | ------------------------------------ | ---------------------------------------------------------------- |
-| `better-auth`         | `defu` and the `drizzle-kit > esbuild` tree                         | 3 advisory keys; includes 1 high     | Track Better Auth and Drizzle Kit releases; do not force esbuild |
-| `next`                | `postcss`, `sharp`, and `styled-jsx > @babel/core`                  | 5 advisory keys; includes 3 high     | Track the Next.js-pinned build and image-processing packages     |
+| `better-auth`         | The `drizzle-kit > @esbuild-kit > esbuild` tree                     | 1 moderate advisory key              | Track Better Auth and Drizzle Kit releases; do not force esbuild |
+| `next`                | `postcss` and `sharp`                                                | 4 advisory keys; includes 3 high     | Track the Next.js-pinned build and image-processing packages     |
 | `drizzle-orm`         | Optional `gel > shell-quote` connector tree                         | 2 advisory keys; includes 1 critical | Track Drizzle/Gel; the application uses the PostgreSQL connector |
 | `@hookform/resolvers` | Optional `effect` peer, provided by the UploadThing dependency tree | 1 high advisory key                  | Track Resolvers and UploadThing with form and upload smoke tests |
 
