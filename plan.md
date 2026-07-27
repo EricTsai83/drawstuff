@@ -1,9 +1,0 @@
-- enhance image loading animation
-- enhance memory management.
-  - Implement an out-of-memory guard for localStorage.
-- Wait for the scene to finish creating before closing the dialog.
-- Refactor the codebase
-- Perform full manual testing
-- Enhance the dashboard interface using the View Transition API
-- Prevent importing the same scene on the dashboard page
-- Add rate limiting
