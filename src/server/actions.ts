@@ -22,6 +22,8 @@ import {
   type CreateOwnedSceneDraftResult,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
+import type { WHITEBOARD_DOCUMENT_VERSION } from "@/features/whiteboard";
+import { validateOpaqueEncryptedWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -31,6 +33,7 @@ export type HandleSceneSaveResult = {
 // 處理場景保存
 export async function handleSceneSave(
   compressedSceneData: Uint8Array,
+  documentVersion: typeof WHITEBOARD_DOCUMENT_VERSION,
 ): Promise<HandleSceneSaveResult> {
   const session = await getServerSession();
 
@@ -42,6 +45,24 @@ export async function handleSceneSave(
   }
 
   try {
+    // Shared scenes are end-to-end encrypted; the key exists only in the URL
+    // fragment and cannot be sent to the server for plaintext validation.
+    // prepareSceneDataForExport validates and serializes V2 before encryption.
+    const validation = validateOpaqueEncryptedWhiteboardWrite(
+      Buffer.from(compressedSceneData).toString("base64"),
+      documentVersion,
+    );
+    if (validation !== "safe") {
+      return {
+        sharedSceneId: null,
+        errorMessage:
+          validation === "stale-version"
+            ? "Please refresh before sharing this scene"
+            : validation === "too-large"
+              ? "Encrypted scene payload exceeds the storage limit"
+              : "The scene is not a valid current whiteboard document",
+      };
+    }
     // 保存場景到數據庫 - 直接使用 Uint8Array (自定義類型會自動處理轉換)
     const result = await db
       .insert(sharedScene)
@@ -49,6 +70,7 @@ export async function handleSceneSave(
         sharedSceneId: nanoid(),
         ownerId: session.user.id,
         compressedData: compressedSceneData,
+        documentVersion,
       })
       .returning({ sharedSceneId: sharedScene.sharedSceneId });
 
@@ -139,6 +161,7 @@ export async function getSharedSceneData(sharedSceneId: string) {
       .select({
         sharedSceneId: sharedScene.sharedSceneId,
         compressedData: sharedScene.compressedData,
+        documentVersion: sharedScene.documentVersion,
         createdAt: sharedScene.createdAt,
       })
       .from(sharedScene)
@@ -170,6 +193,7 @@ export async function getSharedSceneData(sharedSceneId: string) {
       data: {
         sharedSceneId: sceneData.sharedSceneId,
         compressedData: compressedData, // 這是 Uint8Array 類型
+        documentVersion: sceneData.documentVersion,
         createdAt: sceneData.createdAt,
       },
       errorMessage: null,
@@ -377,12 +401,6 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
       return {
         ok: false,
         error: APP_ERROR.SCENE_PAYLOAD_TOO_LARGE,
-        message: saveResult.message,
-      };
-    case "unsafe_downgrade":
-      return {
-        ok: false,
-        error: APP_ERROR.UNSAFE_DOWNGRADE,
         message: saveResult.message,
       };
     default:

@@ -4,6 +4,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 
 const workflowMocks = vi.hoisted(() => ({
   saveOwnedScene: vi.fn(),
+  syncSceneCategories: vi.fn(),
   getSceneOwnerId: vi.fn(),
   getSceneThumbnailKey: vi.fn(),
   getFileKeysBySceneIds: vi.fn(),
@@ -15,6 +16,7 @@ vi.mock("server-only", () => ({}));
 
 vi.mock("@/server/scene/save-owned-scene", () => ({
   saveOwnedScene: workflowMocks.saveOwnedScene,
+  syncSceneCategories: workflowMocks.syncSceneCategories,
 }));
 
 vi.mock("@/server/db/queries", () => ({
@@ -99,27 +101,6 @@ describe("critical cloud scene workflow", () => {
     workflowMocks.enqueueDeferredCleanup.mockResolvedValue(undefined);
   });
 
-  it("exposes unsafe downgrade saves as a failed precondition", async () => {
-    workflowMocks.saveOwnedScene.mockResolvedValue({
-      status: "unsafe_downgrade",
-      message:
-        "Owned whiteboard edits cannot be overwritten by the legacy adapter",
-    });
-    const caller = createCaller({});
-
-    await expect(
-      caller.saveScene({
-        id: sceneId,
-        name: "Rolled back scene",
-        workspaceId,
-        expectedRevision: 2,
-        data: "legacy-payload",
-      }),
-    ).rejects.toMatchObject({
-      code: "PRECONDITION_FAILED",
-    });
-  });
-
   it("exposes decompression safety limits as a bad request", async () => {
     workflowMocks.saveOwnedScene.mockResolvedValue({
       status: "payload_too_large",
@@ -132,11 +113,56 @@ describe("critical cloud scene workflow", () => {
         name: "Oversized scene",
         workspaceId,
         data: "compressed-payload",
+        documentVersion: 2,
       }),
     ).rejects.toMatchObject({
       code: "BAD_REQUEST",
       message: "Scene payload exceeds the decompression safety limit",
     });
+  });
+
+  it("updates legacy-row metadata without rewriting its document payload", async () => {
+    const updateBuilder = createUpdateBuilder([
+      {
+        id: sceneId,
+        revision: 4,
+        updatedAt: new Date("2026-07-01T00:02:00.000Z"),
+      },
+    ]);
+    const tx = {
+      query: {
+        workspace: {
+          findFirst: vi.fn(async () => ({ id: workspaceId })),
+        },
+      },
+      update: vi.fn(() => updateBuilder),
+    };
+    const caller = createCaller({
+      transaction: async (callback: (value: typeof tx) => unknown) =>
+        await callback(tx),
+    });
+
+    const updated = await caller.updateSceneMetadata({
+      id: sceneId,
+      name: "Metadata only",
+      description: "No payload rewrite",
+      workspaceId,
+      categories: ["Math"],
+      expectedRevision: 3,
+    });
+
+    expect(updated).toMatchObject({ id: sceneId, revision: 4 });
+    const metadataUpdate: unknown = updateBuilder.set.mock.calls[0]?.[0];
+    expect(metadataUpdate).not.toHaveProperty("sceneData");
+    expect(metadataUpdate).not.toHaveProperty("documentVersion");
+    expect(workflowMocks.syncSceneCategories).toHaveBeenCalledWith(
+      tx,
+      expect.objectContaining({
+        sceneId,
+        userId,
+        categories: ["Math"],
+      }),
+    );
   });
 
   it("creates, saves, reloads, renames, moves, publishes, and deletes an owned scene", async () => {
@@ -191,6 +217,7 @@ describe("critical cloud scene workflow", () => {
       name: "Created scene",
       workspaceId,
       data: "stable-compressed-payload",
+      documentVersion: 2,
     });
     const saved = await caller.saveScene({
       id: sceneId,
@@ -198,6 +225,7 @@ describe("critical cloud scene workflow", () => {
       workspaceId,
       expectedRevision: 1,
       data: "stable-compressed-payload",
+      documentVersion: 2,
     });
     const reloaded = await caller.getScene({ id: sceneId });
 

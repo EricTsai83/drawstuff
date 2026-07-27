@@ -1,12 +1,11 @@
 import { STORAGE_KEYS } from "@/config/app-constants";
 import {
-  createPersistedWhiteboardDocumentV1,
-  parsePersistedWhiteboardPayload,
-  serializeWhiteboardDocumentV1,
-  toRuntimeWhiteboardDocument,
+  createPersistedWhiteboardDocumentV2,
+  parseWhiteboardDocumentForImport,
+  serializeWhiteboardDocumentV2,
   type WhiteboardDocument,
   type WhiteboardDocumentState,
-  type WhiteboardDocumentV1,
+  type WhiteboardDocumentV2,
   type WhiteboardAsset,
   type WhiteboardElement,
 } from "@/features/whiteboard";
@@ -105,44 +104,34 @@ export const importFromLocalStorage = (options?: {
     (options?.preferRecovery ? true : revisionAllowsOwnedDocument);
   if (shouldLoadOwnedDocument) {
     try {
-      const persisted = parsePersistedWhiteboardPayload(
-        preferredOwnedDocument,
-        { allowMissingAssets: true },
-      );
-      if (persisted.format === "whiteboard-v1") {
-        const document = toRuntimeWhiteboardDocument(persisted.document);
-        return {
-          elements: clearElementsForLocalStorage([...document.elements]),
-          appState: document.state,
-          files: document.assets,
-          persistence: document.persistence
-            ? {
-                ...document.persistence,
-                ...(loadedFromRecovery ? { loadedFromRecovery: true } : {}),
-              }
-            : undefined,
-        };
-      }
+      const document = parseWhiteboardDocumentForImport(preferredOwnedDocument);
+      return {
+        elements: clearElementsForLocalStorage([...document.elements]),
+        appState: document.state,
+        files: document.assets,
+        persistence: document.persistence
+          ? {
+              ...document.persistence,
+              ...(loadedFromRecovery ? { loadedFromRecovery: true } : {}),
+            }
+          : undefined,
+      };
     } catch (error: unknown) {
-      // The legacy keys are deliberately retained as a rollback copy. If an
-      // opt-in owned document is corrupt, continue loading that snapshot.
+      // Existing legacy keys remain a temporary conversion input. If the
+      // canonical copy is corrupt, continue trying that pre-Phase-5J data.
       console.error("Failed to load owned local whiteboard document", error);
     }
   }
 
   if (savedElements !== null || savedState !== null || savedFiles !== null) {
     try {
-      const legacy = parsePersistedWhiteboardPayload({
+      const document = parseWhiteboardDocumentForImport({
         type: "excalidraw",
         version: 2,
         elements: parseLocalStorageJson(savedElements, []),
         appState: parseLocalStorageJson(savedState, {}),
         files: parseLocalStorageJson(savedFiles, {}),
       });
-      if (legacy.format !== "legacy-excalidraw") {
-        throw new Error("Expected retained legacy whiteboard keys");
-      }
-      const document = legacy.document;
       return {
         elements: clearElementsForLocalStorage([...document.elements]),
         appState: {
@@ -180,16 +169,13 @@ function parseLocalStorageJson(
 
 /** Writes the active owned document without touching retained legacy keys. */
 export function saveWhiteboardDocumentToLocalStorage(
-  document: WhiteboardDocumentV1,
-  options?: {
-    readonly allowMissingAssets?: boolean;
-  },
+  document: WhiteboardDocumentV2,
 ): boolean {
   if (!canUseLocalStorage()) return false;
   try {
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-      serializeWhiteboardDocumentV1(document, options),
+      serializeWhiteboardDocumentV2(document),
     );
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_OWNED_DOCUMENT_REVISION,
@@ -203,18 +189,15 @@ export function saveWhiteboardDocumentToLocalStorage(
 }
 
 /**
- * Owned sessions update only the versioned document key. Legacy keys remain a
- * byte-for-byte recovery snapshot and are never rewritten by the active editor.
+ * Owned sessions update only the canonical V2 key. Existing legacy keys remain
+ * read-only conversion inputs until Phase 5L.
  */
 export function saveOwnedWhiteboardDocumentToLocalStorage(
   document: WhiteboardDocument,
 ): boolean {
   const persistedDocument = createPersistedLocalWhiteboardDocument(document);
   if (!persistedDocument) return false;
-  if (!parkOwnedRecoverySnapshot(document)) return false;
-  const saved = saveWhiteboardDocumentToLocalStorage(persistedDocument, {
-    allowMissingAssets: true,
-  });
+  const saved = saveWhiteboardDocumentToLocalStorage(persistedDocument);
   if (!saved) return false;
   return document.persistence?.loadedFromRecovery === true
     ? clearOwnedRecoverySnapshot()
@@ -223,53 +206,12 @@ export function saveOwnedWhiteboardDocumentToLocalStorage(
 
 function createPersistedLocalWhiteboardDocument(
   document: WhiteboardDocument,
-): WhiteboardDocumentV1 | null {
+): WhiteboardDocumentV2 | null {
   try {
-    return createPersistedWhiteboardDocumentV1(document, {
-      allowMissingAssets: true,
-    });
+    return createPersistedWhiteboardDocumentV2(document);
   } catch (error: unknown) {
     console.error("Failed to prepare owned local whiteboard document", error);
     return null;
-  }
-}
-
-function parkOwnedRecoverySnapshot(document: WhiteboardDocument): boolean {
-  if (
-    !canUseLocalStorage() ||
-    document.persistence?.migratedFromLegacy !== true
-  ) {
-    return true;
-  }
-  try {
-    const current = localStorage.getItem(
-      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-    );
-    const recovery = localStorage.getItem(
-      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
-    );
-    if (current && !recovery) {
-      try {
-        const persistedCurrent = parsePersistedWhiteboardPayload(current);
-        if (
-          persistedCurrent.format === "whiteboard-v1" &&
-          persistedCurrent.document.metadata.legacy?.originalPayload ===
-            document.persistence?.legacyRollback?.originalPayload
-        ) {
-          return true;
-        }
-      } catch {
-        // Preserve an unreadable current document before replacing it.
-      }
-      localStorage.setItem(
-        STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT,
-        current,
-      );
-    }
-    return true;
-  } catch (error: unknown) {
-    console.error("Failed to preserve owned recovery snapshot", error);
-    return false;
   }
 }
 

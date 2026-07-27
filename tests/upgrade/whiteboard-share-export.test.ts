@@ -70,4 +70,32 @@ describe("shared scene export", () => {
     expect(shareExportMocks.handleSceneSave).not.toHaveBeenCalled();
     expect(shareExportMocks.startUpload).not.toHaveBeenCalled();
   });
+
+  it("passes the canonical document version to the shared-scene write", async () => {
+    const compressedSceneData = new Uint8Array([1, 2, 3]);
+    shareExportMocks.prepareSceneDataForExport.mockResolvedValue({
+      compressedSceneData,
+      compressedFilesData: [],
+      encryptionKey: "secret",
+      documentVersion: 2,
+    });
+    shareExportMocks.handleSceneSave.mockResolvedValue({
+      sharedSceneId: "shared-v2",
+      errorMessage: null,
+    });
+    const hook = renderHook(() => useSceneExport());
+
+    await act(async () => {
+      await hook.result.current.exportScene(
+        [{ id: "shape", type: "rectangle", isDeleted: false }],
+        { name: "V2", theme: "light" },
+        {},
+      );
+    });
+
+    expect(shareExportMocks.handleSceneSave).toHaveBeenCalledWith(
+      compressedSceneData,
+      2,
+    );
+  });
 });

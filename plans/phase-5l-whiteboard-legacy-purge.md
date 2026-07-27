@@ -26,6 +26,41 @@ cutover is approved.
 
 The production parser must reject anything except canonical V2.
 
+### Phase 5J removal inventory
+
+Delete this inventory as one compatibility unit after the Phase 5K audit proves
+that no V1, Excalidraw, or unversioned rows remain:
+
+- `src/features/whiteboard/document-format.ts`: V1 parser/serializer,
+  Excalidraw detection and parser, `WhiteboardDocumentV1`,
+  `WhiteboardLegacyEnvelope`, rollback helpers, compatibility field tables,
+  and `prepareWhiteboardDocumentForOwnedEngine`.
+- `src/features/whiteboard/document-conversion.ts`: the temporary
+  V1/Excalidraw-to-V2 conversion boundary, conversion reports, and
+  `convertedFrom` runtime provenance.
+- `src/features/whiteboard/owned/store.ts`: remove the temporary converter from
+  the file-import boundary and require canonical V2 input directly.
+- `src/data/local-storage.ts`: reads of `LOCAL_STORAGE_ELEMENTS`,
+  `LOCAL_STORAGE_APP_STATE`, `LOCAL_STORAGE_FILES`,
+  `LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT`, legacy/owned revision
+  arbitration, and `preferRecovery`.
+- `src/lib/import-data-from-db.ts`, `src/lib/published-scene-data.ts`,
+  `src/server/whiteboard/published-payload.ts`, and
+  `src/server/api/routers/scene.ts`: branches that call the temporary converter
+  when nullable `document_version` metadata denotes an old row.
+- `tests/fixtures/legacy-scenes/**`,
+  `tests/upgrade/whiteboard-document-format.test.ts`,
+  `tests/upgrade/whiteboard-recovery.test.ts`, and the V1/Excalidraw cases in
+  `tests/upgrade/legacy-scenes.test.ts` and
+  `tests/upgrade/whiteboard-loading-boundaries.test.ts`.
+- Contract fields and aliases used only by those paths:
+  `WhiteboardDocumentV1`, `WhiteboardDocumentMetadata`,
+  `WhiteboardLegacyEnvelope`, `WhiteboardPersistenceFormat` legacy members,
+  `legacyRollback`, `migratedFromLegacy`, `loadedFromRecovery`, and
+  `convertedFrom`.
+- `tests/upgrade/whiteboard-persistence-guard.test.ts`: the legacy payload
+  fixture proving that the V2-only write guard rejects obsolete formats.
+
 ## Transitional architecture removal
 
 - Delete temporary Phase 5A bridge document and editor-state types superseded by

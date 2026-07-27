@@ -13,12 +13,9 @@ import type {
   WhiteboardUnsubscribe,
   WhiteboardViewport,
 } from "@/features/whiteboard/contracts";
-import {
-  createWhiteboardDocumentV1,
-  filterReferencedWhiteboardAssets,
-  parsePersistedWhiteboardPayload,
-  toRuntimeWhiteboardDocument,
-} from "@/features/whiteboard/document-format";
+import { filterReferencedWhiteboardAssets } from "@/features/whiteboard/document-assets";
+import { createPersistedWhiteboardDocumentV2 } from "@/features/whiteboard/canonical-document";
+import { parseWhiteboardDocumentForImport } from "@/features/whiteboard/document-conversion";
 import { createWhiteboardImageElement, importWhiteboardImage } from "./assets";
 import {
   exportOwnedWhiteboardDocument,
@@ -458,11 +455,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public async importDocument(blob: Blob): Promise<WhiteboardImportResult> {
     this.assertActive();
-    const parsed = parsePersistedWhiteboardPayload(await blob.text());
-    const document =
-      parsed.format === "whiteboard-v1"
-        ? toRuntimeWhiteboardDocument(parsed.document)
-        : parsed.document;
+    const document = parseWhiteboardDocumentForImport(await blob.text());
     this.loadDocument(document);
     return {
       name:
@@ -951,10 +944,17 @@ function createSerializableSnapshot(
   const validAssets: Record<string, WhiteboardAsset> = {};
   for (const [id, asset] of Object.entries(document.assets)) {
     try {
-      createWhiteboardDocumentV1({
-        elements: [],
+      createPersistedWhiteboardDocumentV2({
+        elements: [
+          {
+            id: `asset-validation-${id}`,
+            type: "image",
+            isDeleted: false,
+            fileId: id,
+          },
+        ],
         assets: { [id]: asset },
-        metadata,
+        state: metadata,
       });
       validAssets[id] = asset;
     } catch {
@@ -996,14 +996,9 @@ function createSerializableSnapshot(
     ];
   });
   const assets = filterReferencedWhiteboardAssets(elements, validAssets);
-  const normalized = createWhiteboardDocumentV1({
+  return {
     elements,
     assets,
-    metadata,
-  });
-  return {
-    elements: normalized.elements,
-    assets: normalized.assets,
     state: document.state,
     ...(document.persistence ? { persistence: document.persistence } : {}),
   };

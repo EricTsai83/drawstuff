@@ -48,64 +48,6 @@ export const QUERIES = {
       .orderBy(scene.lastUpdated);
   },
 
-  createScene: async function ({
-    name,
-    description,
-    sceneData,
-    thumbnailUrl,
-    workspaceId,
-    userId,
-  }: {
-    name: string;
-    description?: string;
-    sceneData?: string;
-    thumbnailUrl?: string;
-    workspaceId?: string;
-    userId: string;
-  }) {
-    return await db
-      .insert(scene)
-      .values({
-        name,
-        description,
-        sceneData,
-        thumbnailUrl,
-        workspaceId: workspaceId ?? null,
-        userId,
-      })
-      .returning();
-  },
-
-  updateScene: async function ({
-    id,
-    name,
-    description,
-    sceneData,
-    thumbnailUrl,
-    workspaceId,
-  }: {
-    id: string;
-    name?: string;
-    description?: string;
-    sceneData?: string;
-    thumbnailUrl?: string;
-    workspaceId?: string;
-  }) {
-    return await db
-      .update(scene)
-      .set({
-        name,
-        description,
-        sceneData,
-        thumbnailUrl,
-        workspaceId: workspaceId ?? null,
-        lastUpdated: new Date(),
-        updatedAt: new Date(),
-      })
-      .where(eq(scene.id, id))
-      .returning();
-  },
-
   deleteScene: async function (id: string) {
     return await db.delete(scene).where(eq(scene.id, id)).returning();
   },
@@ -144,42 +86,6 @@ export const QUERIES = {
       .from(sharedScene)
       .where(eq(sharedScene.sharedSceneId, sharedSceneId));
     return row?.ownerId;
-  },
-
-  createSharedScene: async function ({
-    sharedSceneId,
-    ownerId,
-    compressedData,
-  }: {
-    sharedSceneId: string;
-    ownerId: string;
-    compressedData: Uint8Array;
-  }) {
-    return await db
-      .insert(sharedScene)
-      .values({
-        sharedSceneId,
-        ownerId,
-        compressedData,
-      })
-      .returning();
-  },
-
-  updateSharedScene: async function ({
-    sharedSceneId,
-    compressedData,
-  }: {
-    sharedSceneId: string;
-    compressedData: Uint8Array;
-  }) {
-    return await db
-      .update(sharedScene)
-      .set({
-        compressedData,
-        updatedAt: new Date(),
-      })
-      .where(eq(sharedScene.sharedSceneId, sharedSceneId))
-      .returning();
   },
 
   deleteSharedScene: async function (sharedSceneId: string) {

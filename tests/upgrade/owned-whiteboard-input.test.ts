@@ -673,7 +673,7 @@ describe("owned whiteboard pointer input", () => {
   it("does not cut an oversized whiteboard payload", () => {
     const { target, store, input } = setup([
       rectangle("shape", 0, 0, 40, 40, {
-        text: "界".repeat(1_700_000),
+        customData: { text: "界".repeat(1_700_000) },
       }),
     ]);
     store.setSelection(["shape"]);

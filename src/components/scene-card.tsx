@@ -62,7 +62,8 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   const router = useRouter();
 
   const utils = api.useUtils();
-  const saveSceneMutation = api.scene.saveScene.useMutation();
+  const updateSceneMetadataMutation =
+    api.scene.updateSceneMetadata.useMutation();
   const moveToWorkspaceMutation = api.scene.moveToWorkspace.useMutation();
   const publishSceneMutation = api.scene.publish.useMutation();
   const unpublishSceneMutation = api.scene.unpublish.useMutation();
@@ -146,30 +147,17 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     workspaceId?: string;
   }) => {
     try {
-      let dataString = item.sceneData;
-      let expectedRevision = item.revision;
-      if (!dataString) {
-        const full: RouterOutputs["scene"]["getScene"] =
-          await utils.scene.getScene.fetch({ id: item.id });
-        dataString = full?.sceneData ?? undefined;
-        const fetchedRevision: unknown = full?.revision;
-        expectedRevision =
-          typeof fetchedRevision === "number"
-            ? fetchedRevision
-            : expectedRevision;
-      }
-      if (!dataString || expectedRevision === undefined) {
-        console.error("Failed to edit: missing scene data");
+      if (item.revision === undefined) {
+        console.error("Failed to edit: missing scene revision");
         return;
       }
-      const saveResult = await saveSceneMutation.mutateAsync({
+      const saveResult = await updateSceneMetadataMutation.mutateAsync({
         id: item.id,
         name: payload.name,
         description: payload.description,
         workspaceId: payload.workspaceId,
-        data: dataString,
         categories: payload.categories,
-        expectedRevision,
+        expectedRevision: item.revision,
       });
       if (item.id === currentSceneId) {
         if (saveResult.revision != null) {
@@ -186,8 +174,6 @@ export function SceneCard({ item }: { item: SceneListItem }) {
       const trpcCode = (err as { data?: { code?: string } })?.data?.code;
       if (trpcCode === "CONFLICT") {
         toast.error("Scene was updated elsewhere. Refresh and try again.");
-      } else if (trpcCode === "PRECONDITION_FAILED") {
-        toast.error(t("app.cloudUpload.toast.error.unsafeDowngrade"));
       } else {
         toast.error("Failed to save scene. Please try again.");
       }

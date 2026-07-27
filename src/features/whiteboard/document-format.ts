@@ -9,8 +9,12 @@ import type {
   WhiteboardJsonValue,
   WhiteboardTheme,
 } from "./contracts";
+import { WhiteboardDocumentError } from "./document-errors";
+import type { WhiteboardDocumentErrorCode } from "./document-errors";
+import { WHITEBOARD_DOCUMENT_VERSION } from "./canonical-document";
+import { filterReferencedWhiteboardAssets } from "./document-assets";
 
-export const WHITEBOARD_DOCUMENT_VERSION = 1 as const;
+export const WHITEBOARD_DOCUMENT_V1_VERSION = 1 as const;
 export const LEGACY_MIGRATION_VERSION = 1 as const;
 
 const SUPPORTED_LEGACY_ELEMENT_TYPES = new Set([
@@ -48,16 +52,6 @@ const KNOWN_LEGACY_TOP_LEVEL_FIELDS = new Set([
   "source",
   "type",
   "version",
-]);
-
-const KNOWN_LEGACY_APP_STATE_FIELDS = new Set([
-  "gridSize",
-  "name",
-  "scrollX",
-  "scrollY",
-  "theme",
-  "viewBackgroundColor",
-  "zoom",
 ]);
 
 const KNOWN_LEGACY_ELEMENT_FIELDS = new Set([
@@ -144,23 +138,7 @@ export type PersistedWhiteboardPayload =
       readonly sourceVersion: number | null;
     };
 
-export type WhiteboardDocumentErrorCode =
-  | "INVALID_JSON"
-  | "MALFORMED_DOCUMENT"
-  | "MISSING_ASSET"
-  | "UNSUPPORTED_FORMAT"
-  | "UNSUPPORTED_VERSION";
-
-export class WhiteboardDocumentError extends Error {
-  public constructor(
-    public readonly code: WhiteboardDocumentErrorCode,
-    message: string,
-    public readonly path = "$",
-  ) {
-    super(`${message} at ${path}`);
-    this.name = "WhiteboardDocumentError";
-  }
-}
+export { WhiteboardDocumentError, type WhiteboardDocumentErrorCode };
 
 export function detectWhiteboardDocumentFormat(
   payload: unknown,
@@ -168,7 +146,7 @@ export function detectWhiteboardDocumentFormat(
   const parsed = parseJsonInput(payload);
   const object = expectObject(parsed, "$");
 
-  if (object.version === WHITEBOARD_DOCUMENT_VERSION) {
+  if (object.version === WHITEBOARD_DOCUMENT_V1_VERSION) {
     if (
       Array.isArray(object.elements) &&
       isObject(object.assets) &&
@@ -255,14 +233,14 @@ export function parseWhiteboardDocumentV1(
   },
 ): WhiteboardDocumentV1 {
   const object = expectObject(parseJsonInput(payload), "$");
-  if (object.version !== WHITEBOARD_DOCUMENT_VERSION) {
+  if (object.version !== WHITEBOARD_DOCUMENT_V1_VERSION) {
     const code =
       typeof object.version === "number"
         ? "UNSUPPORTED_VERSION"
         : "MALFORMED_DOCUMENT";
     throw new WhiteboardDocumentError(
       code,
-      `Expected whiteboard document version ${WHITEBOARD_DOCUMENT_VERSION}`,
+      `Expected whiteboard document version ${WHITEBOARD_DOCUMENT_V1_VERSION}`,
       "$.version",
     );
   }
@@ -275,7 +253,7 @@ export function parseWhiteboardDocumentV1(
   }
 
   return {
-    version: WHITEBOARD_DOCUMENT_VERSION,
+    version: WHITEBOARD_DOCUMENT_V1_VERSION,
     elements,
     assets,
     metadata,
@@ -286,6 +264,7 @@ export function migrateLegacyExcalidrawScene(
   payload: unknown,
   options?: {
     readonly assets?: Readonly<Record<string, WhiteboardAsset>>;
+    readonly allowMissingAssets?: boolean;
   },
 ): WhiteboardDocumentV1 {
   // String inputs retain their exact bytes. Object inputs have no original
@@ -312,10 +291,12 @@ export function migrateLegacyExcalidrawScene(
       ...externalAssets,
     }),
   );
-  assertReferencedAssetsExist(legacy.document.elements, assets);
+  if (!options?.allowMissingAssets) {
+    assertReferencedAssetsExist(legacy.document.elements, assets);
+  }
 
   return {
-    version: WHITEBOARD_DOCUMENT_VERSION,
+    version: WHITEBOARD_DOCUMENT_V1_VERSION,
     elements: legacy.document.elements,
     assets,
     metadata: {
@@ -347,7 +328,7 @@ export function createWhiteboardDocumentV1(
 ): WhiteboardDocumentV1 {
   return parseWhiteboardDocumentV1(
     {
-      version: WHITEBOARD_DOCUMENT_VERSION,
+      version: WHITEBOARD_DOCUMENT_V1_VERSION,
       elements,
       assets,
       metadata,
@@ -363,24 +344,6 @@ export function serializeWhiteboardDocumentV1(
   },
 ): string {
   return stableStringify(parseWhiteboardDocumentV1(document, options));
-}
-
-export function filterReferencedWhiteboardAssets(
-  elements: readonly WhiteboardElement[],
-  assets: Readonly<Record<string, WhiteboardAsset>>,
-): Record<string, WhiteboardAsset> {
-  const referencedIds = new Set<string>();
-  for (const element of elements) {
-    if (!element.isDeleted && typeof element.fileId === "string") {
-      referencedIds.add(element.fileId);
-    }
-  }
-
-  return Object.fromEntries(
-    [...referencedIds]
-      .sort()
-      .flatMap((id) => (assets[id] ? [[id, assets[id]]] : [])),
-  );
 }
 
 export function toRuntimeWhiteboardDocument(
@@ -404,7 +367,7 @@ export function toRuntimeWhiteboardDocument(
     },
     persistence: {
       sourceFormat: "whiteboard-v1",
-      documentVersion: WHITEBOARD_DOCUMENT_VERSION,
+      documentVersion: WHITEBOARD_DOCUMENT_V1_VERSION,
       ...(document.metadata.legacy
         ? { legacyRollback: document.metadata.legacy }
         : {}),
@@ -415,31 +378,20 @@ export function toRuntimeWhiteboardDocument(
 export function prepareWhiteboardDocumentForOwnedEngine(
   document: WhiteboardDocument,
 ): WhiteboardDocument {
-  if (document.persistence?.sourceFormat === "whiteboard-v1") {
+  if (document.persistence?.sourceFormat === "whiteboard-v2") {
     return document;
   }
-
-  const legacyRollback =
-    document.persistence?.legacyRollback ??
-    createLegacyRollbackEnvelope({
-      originalPayload: stableStringify({
-        type: "excalidraw",
-        version: 2,
-        source: "https://drawstuff.app/rollback",
-        elements: document.elements,
-        appState: document.state,
-        files: document.assets,
-      }),
-      sourceVersion: document.persistence?.documentVersion ?? 2,
-    });
 
   return {
     ...document,
     persistence: {
-      sourceFormat: "whiteboard-v1",
+      sourceFormat: "whiteboard-v2",
       documentVersion: WHITEBOARD_DOCUMENT_VERSION,
-      legacyRollback,
-      migratedFromLegacy: true,
+      ...(document.persistence?.sourceFormat
+        ? { convertedFrom: document.persistence.sourceFormat }
+        : {}),
+      migratedFromLegacy:
+        document.persistence?.sourceFormat === "legacy-excalidraw",
     },
   };
 }
@@ -955,15 +907,6 @@ function collectUnsupportedLegacyFields(
     "$",
     unsupported,
   );
-
-  if (isObject(object.appState)) {
-    collectUnknownObjectFields(
-      object.appState,
-      KNOWN_LEGACY_APP_STATE_FIELDS,
-      "$.appState",
-      unsupported,
-    );
-  }
 
   if (Array.isArray(object.elements)) {
     object.elements.forEach((element, index) => {

@@ -13,9 +13,9 @@ import {
 } from "./geometry";
 import { isSafeInlineImage, pruneUnreferencedWhiteboardAssets } from "./assets";
 import {
-  filterReferencedWhiteboardAssets,
-  serializeWhiteboardDocumentV1,
-} from "@/features/whiteboard/document-format";
+  createPersistedWhiteboardDocumentV2,
+  serializeWhiteboardDocumentV2,
+} from "@/features/whiteboard/canonical-document";
 
 const DEFAULT_EXPORT_PADDING = 10;
 const MIN_EXPORT_SCALE = 0.1;
@@ -49,24 +49,13 @@ export function exportOwnedWhiteboardDocument(
   );
   return new Blob(
     [
-      serializeWhiteboardDocumentV1({
-        version: 1,
-        elements,
-        assets: filterReferencedWhiteboardAssets(elements, availableAssets),
-        metadata: {
-          name:
-            typeof document.state.name === "string" ? document.state.name : "",
-          theme: document.state.theme === "dark" ? "dark" : "light",
-          viewBackgroundColor:
-            typeof document.state.viewBackgroundColor === "string"
-              ? document.state.viewBackgroundColor
-              : "#ffffff",
-          gridSize:
-            typeof document.state.gridSize === "number"
-              ? document.state.gridSize
-              : null,
-        },
-      }),
+      serializeWhiteboardDocumentV2(
+        createPersistedWhiteboardDocumentV2({
+          ...document,
+          elements,
+          assets: availableAssets,
+        }),
+      ),
     ],
     { type: "application/json" },
   );

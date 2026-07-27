@@ -57,8 +57,7 @@ export type SaveOwnedSceneResult =
       };
     }
   | { status: "validation_failed"; message: string }
-  | { status: "payload_too_large"; message: string }
-  | { status: "unsafe_downgrade"; message: string };
+  | { status: "payload_too_large"; message: string };
 
 export async function createOwnedSceneDraft({
   userId,
@@ -137,8 +136,8 @@ export async function saveOwnedScene({
 
     if (!input.id) {
       const writeTransition = await validateStoredWhiteboardWrite(
-        null,
         input.data,
+        input.documentVersion,
       );
       if (writeTransition === "too-large") {
         return {
@@ -152,6 +151,12 @@ export async function saveOwnedScene({
           message: "Unable to validate the scene persistence format",
         } as const;
       }
+      if (writeTransition === "stale-version") {
+        return {
+          status: "validation_failed",
+          message: "The client must write the current document version",
+        } as const;
+      }
       const [createdScene] = await tx
         .insert(scene)
         .values({
@@ -160,6 +165,7 @@ export async function saveOwnedScene({
           workspaceId: input.workspaceId,
           userId,
           sceneData: input.data,
+          documentVersion: input.documentVersion,
           updatedAt: now,
           lastUpdated: now,
         })
@@ -230,16 +236,9 @@ export async function saveOwnedScene({
     }
 
     const writeTransition = await validateStoredWhiteboardWrite(
-      existingScene.sceneData,
       input.data,
+      input.documentVersion,
     );
-    if (writeTransition === "unsafe-downgrade") {
-      return {
-        status: "unsafe_downgrade",
-        message:
-          "Owned whiteboard edits cannot be overwritten by the legacy adapter",
-      } as const;
-    }
     if (writeTransition === "too-large") {
       return {
         status: "payload_too_large",
@@ -250,6 +249,12 @@ export async function saveOwnedScene({
       return {
         status: "validation_failed",
         message: "Unable to validate the scene persistence format",
+      } as const;
+    }
+    if (writeTransition === "stale-version") {
+      return {
+        status: "validation_failed",
+        message: "The client must write the current document version",
       } as const;
     }
 
@@ -275,6 +280,7 @@ export async function saveOwnedScene({
         name: input.name,
         description: input.description,
         sceneData: input.data,
+        documentVersion: input.documentVersion,
         ...(input.workspaceId !== undefined
           ? { workspaceId: input.workspaceId }
           : {}),
@@ -341,7 +347,7 @@ type SyncSceneCategoriesParams = {
   categories: SaveSceneInput["categories"];
 };
 
-async function syncSceneCategories(
+export async function syncSceneCategories(
   tx: DbTransaction,
   { sceneId, userId, categories }: SyncSceneCategoriesParams,
 ): Promise<void> {

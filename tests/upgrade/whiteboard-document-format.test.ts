@@ -9,11 +9,14 @@ import {
 } from "@/data/local-storage";
 import {
   createWhiteboardDocumentV1,
+  createPersistedWhiteboardDocumentV2,
   detectWhiteboardDocumentFormat,
   migrateLegacyExcalidrawScene,
   parsePersistedWhiteboardPayload,
   parseWhiteboardDocumentV1,
+  parseWhiteboardDocumentV2,
   serializeWhiteboardDocumentV1,
+  toRuntimeWhiteboardDocument,
   WhiteboardDocumentError,
   type WhiteboardAsset,
   type WhiteboardDocumentV1,
@@ -181,7 +184,7 @@ describe("whiteboard document format", () => {
     expect(document.metadata.legacy?.unsupported).toEqual({});
   });
 
-  it("records unknown top-level, state, element, asset, and element-type data", () => {
+  it("records unsupported document data while ignoring app session state", () => {
     const asset = { ...createAsset(), futureAssetField: { codec: "v2" } };
     const input = {
       type: "excalidraw",
@@ -198,7 +201,10 @@ describe("whiteboard document format", () => {
         name: "Future",
         theme: "dark",
         viewBackgroundColor: "#000000",
-        futureStateField: "retained",
+        activeTool: { type: "rectangle" },
+        collaborators: new Map(),
+        openDialog: { name: "export" },
+        futureStateField: "ignored",
       },
       files: { [asset.id]: asset },
     };
@@ -208,10 +214,12 @@ describe("whiteboard document format", () => {
     expect(JSON.stringify(input)).toBe(before);
     expect(document.metadata.legacy?.unsupported).toMatchObject({
       "$.futureTopLevel": true,
-      "$.appState.futureStateField": "retained",
       "$.elements[0].futureElementField": [1, 2, 3],
       "$.files.asset-1.futureAssetField": { codec: "v2" },
     });
+    expect(
+      Object.keys(document.metadata.legacy?.unsupported ?? {}),
+    ).not.toContain("$.appState.futureStateField");
     expect(
       document.metadata.legacy?.unsupported["$.elements[0]"],
     ).toMatchObject({ type: "future-shape" });
@@ -474,10 +482,17 @@ describe("owned-format persistence opt-in", () => {
     );
     localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_FILES, "{}");
 
-    expect(saveWhiteboardDocumentToLocalStorage(document)).toBe(true);
+    expect(
+      saveWhiteboardDocumentToLocalStorage(
+        createPersistedWhiteboardDocumentV2(
+          toRuntimeWhiteboardDocument(document),
+        ),
+      ),
+    ).toBe(true);
     const loaded = importFromLocalStorage();
 
-    expect(loaded.elements).toEqual(document.elements);
+    expect(loaded.elements).toHaveLength(document.elements.length);
+    expect(loaded.elements[0]).toMatchObject(document.elements[0]!);
     expect(loaded.appState).toMatchObject({ name: "Owned", theme: "light" });
     expect(localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS)).toBe(
       "[]",
@@ -497,9 +512,13 @@ describe("owned-format persistence opt-in", () => {
         throw new DOMException("Quota exceeded", "QuotaExceededError");
       });
 
-    expect(saveWhiteboardDocumentToLocalStorage(createOwnedDocument())).toBe(
-      false,
-    );
+    expect(
+      saveWhiteboardDocumentToLocalStorage(
+        createPersistedWhiteboardDocumentV2(
+          toRuntimeWhiteboardDocument(createOwnedDocument()),
+        ),
+      ),
+    ).toBe(false);
 
     setItem.mockRestore();
     consoleError.mockRestore();
@@ -553,29 +572,30 @@ describe("owned-format persistence opt-in", () => {
       { decryptionKey: "" },
     );
     const source = new TextDecoder().decode(decompressed.data);
-    const document = parseWhiteboardDocumentV1(source);
+    const document = parseWhiteboardDocumentV2(source);
 
+    expect(prepared.documentVersion).toBe(2);
     expect(document).toMatchObject({
-      version: 1,
+      version: 2,
       elements: [{ id: "image-1", fileId: "asset-1" }],
-      assets: { "asset-1": asset },
+      assets: {
+        "asset-1": {
+          ...asset,
+          storage: "inline",
+        },
+      },
       metadata: {
         name: "Server owned",
         theme: "dark",
         viewBackgroundColor: "#101010",
         gridSize: 20,
-        viewport: {
-          scrollX: 999,
-          scrollY: 333,
-          zoom: 0.8,
-        },
       },
     });
-    expect(source).toContain('"scrollX":999');
+    expect(source).not.toContain("scrollX");
     expect(source).not.toContain("openDialog");
   });
 
-  it("stores cloud assets separately and compacts rollback asset bytes", async () => {
+  it("stores cloud assets as external V2 descriptors without rollback bytes", async () => {
     const asset = createAsset();
     const element = createElement({
       id: "image-1",
@@ -589,25 +609,6 @@ describe("owned-format persistence opt-in", () => {
       {
         encrypt: false,
         includeInlineAssets: false,
-        retainLegacy: true,
-        compactLegacyAssets: true,
-        persistence: {
-          sourceFormat: "whiteboard-v1",
-          documentVersion: 1,
-          legacyRollback: {
-            format: "excalidraw",
-            sourceVersion: 2,
-            migrationVersion: 1,
-            originalPayload: JSON.stringify({
-              type: "excalidraw",
-              version: 2,
-              elements: [element],
-              appState: {},
-              files: { [asset.id]: asset },
-            }),
-            unsupported: {},
-          },
-        },
       },
     );
     const decompressed = await decompressData<Record<string, never>>(
@@ -615,16 +616,23 @@ describe("owned-format persistence opt-in", () => {
       { decryptionKey: "" },
     );
     const source = new TextDecoder().decode(decompressed.data);
-    const document = parseWhiteboardDocumentV1(source, {
-      allowMissingAssets: true,
-    });
+    const document = parseWhiteboardDocumentV2(source);
 
-    expect(document.assets).toEqual({});
-    expect(document.metadata.legacy?.originalPayload).toContain('"files":{}');
+    expect(document.assets).toEqual({
+      "asset-1": {
+        id: "asset-1",
+        storage: "external",
+        mimeType: "image/png",
+        created: 123,
+        lastRetrieved: 456,
+      },
+    });
+    expect(source).not.toContain("legacy");
+    expect(source).not.toContain("originalPayload");
     expect(source).not.toContain(asset.dataURL);
   });
 
-  it("uploads rollback assets referenced only by deleted legacy elements", async () => {
+  it("does not create rollback uploads for deleted legacy elements", async () => {
     const asset = createAsset("rollback-asset");
     const deletedImage = createElement({
       id: "deleted-image",
@@ -634,21 +642,15 @@ describe("owned-format persistence opt-in", () => {
     });
 
     const prepared = await prepareSceneDataForExport(
-      [],
+      [deletedImage],
       { name: "Rollback assets", theme: "light" },
-      {},
+      { [asset.id]: asset },
       {
         encrypt: false,
         includeInlineAssets: false,
-        retainLegacy: false,
-        assetUploadElements: [deletedImage],
-        assetUploadAssets: { [asset.id]: asset },
-        includeDeletedAssetUploads: true,
       },
     );
 
-    expect(prepared.compressedFilesData.map((file) => file.id)).toEqual([
-      "rollback-asset",
-    ]);
+    expect(prepared.compressedFilesData).toEqual([]);
   });
 });
