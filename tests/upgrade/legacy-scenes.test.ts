@@ -13,9 +13,10 @@ import { hasCompleteSceneAssetHydration } from "@/lib/whiteboard";
 import { extractImageFiles, processFilesForUpload } from "@/lib/file-processor";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";
 import {
+  convertPersistedWhiteboardDocumentToV2,
   createWhiteboardDocumentV1,
   migrateLegacyExcalidrawScene,
-  serializeWhiteboardDocumentV1,
+  serializeWhiteboardDocumentV2,
 } from "@/features/whiteboard";
 
 type SceneFixture = {
@@ -196,7 +197,7 @@ describe("local recovery and binary files", () => {
     expect(recovered.persistence).toBeUndefined();
   });
 
-  it("keeps valid retained elements when another legacy key is corrupt", () => {
+  it("refuses the full retained snapshot when another legacy key is corrupt", () => {
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
       JSON.stringify([{ id: "valid-shape", type: "rectangle" }]),
@@ -206,13 +207,10 @@ describe("local recovery and binary files", () => {
 
     const recovered = importFromLocalStorage();
 
-    expect(recovered.elements).toEqual([
-      expect.objectContaining({
-        id: "valid-shape",
-        type: "rectangle",
-        isDeleted: false,
-      }),
-    ]);
+    expect(recovered.elements).toEqual([]);
+    expect(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS),
+    ).not.toBeNull();
   });
 
   it("compresses an uploaded image and restores its binary metadata and data URL", async () => {
@@ -254,7 +252,11 @@ describe("local recovery and binary files", () => {
 
   it("loads published scene data in read-only mode with restored binary files", async () => {
     const fixture = await readFixture("images-and-binary-files.excalidraw");
-    const sceneBytes = new TextEncoder().encode(JSON.stringify(fixture));
+    const sceneBytes = new TextEncoder().encode(
+      serializeWhiteboardDocumentV2(
+        convertPersistedWhiteboardDocumentToV2(fixture).document,
+      ),
+    );
     const { compressData } = await import("@/lib/encode");
     const compressedScene = await compressData(sceneBytes, {});
     const binary = fixture.files["legacy-image-file"]!;
@@ -288,7 +290,7 @@ describe("local recovery and binary files", () => {
     expect(loaded.assets["legacy-image-file"]?.dataURL).toBe(binary.dataURL);
   });
 
-  it("loads the unversioned legacy server shape at the published boundary", async () => {
+  it("refuses an unversioned legacy server shape at the published boundary", async () => {
     const { compressData } = await import("@/lib/encode");
     const compressedScene = await compressData(
       new TextEncoder().encode(
@@ -304,16 +306,12 @@ describe("local recovery and binary files", () => {
       {},
     );
 
-    const loaded = await loadPublishedSceneData({
-      sceneData: Buffer.from(compressedScene).toString("base64"),
-      fileRecords: [],
-    });
-
-    expect(loaded.elements?.map((element) => element.id)).toEqual([
-      "server-legacy",
-    ]);
-    expect(loaded.state.name).toBe("Unversioned server scene");
-    expect(loaded.state.viewModeEnabled).toBe(true);
+    await expect(
+      loadPublishedSceneData({
+        sceneData: Buffer.from(compressedScene).toString("base64"),
+        fileRecords: [],
+      }),
+    ).rejects.toThrow();
   });
 
   it("detects and loads an owned published document with inline assets", async () => {
@@ -324,7 +322,11 @@ describe("local recovery and binary files", () => {
     const document = migrateLegacyExcalidrawScene(source);
     const { compressData } = await import("@/lib/encode");
     const compressedScene = await compressData(
-      new TextEncoder().encode(serializeWhiteboardDocumentV1(document)),
+      new TextEncoder().encode(
+        serializeWhiteboardDocumentV2(
+          convertPersistedWhiteboardDocumentToV2(document).document,
+        ),
+      ),
       {},
     );
 
@@ -364,7 +366,13 @@ describe("local recovery and binary files", () => {
       },
     };
     const compressedScene = await compressData(
-      new TextEncoder().encode(JSON.stringify(source)),
+      new TextEncoder().encode(
+        serializeWhiteboardDocumentV2(
+          convertPersistedWhiteboardDocumentToV2(source, {
+            externalAssets: true,
+          }).document,
+        ),
+      ),
       {},
     );
     const dataURL = "data:image/png;base64,AA==";
@@ -399,31 +407,33 @@ describe("local recovery and binary files", () => {
     const id = "published-precedence-file";
     const compressedScene = await compressData(
       new TextEncoder().encode(
-        JSON.stringify({
-          version: 1,
-          elements: [
-            {
-              id: "published-precedence-image",
-              type: "image",
-              isDeleted: false,
-              fileId: id,
+        serializeWhiteboardDocumentV2(
+          convertPersistedWhiteboardDocumentToV2({
+            version: 1,
+            elements: [
+              {
+                id: "published-precedence-image",
+                type: "image",
+                isDeleted: false,
+                fileId: id,
+              },
+            ],
+            assets: {
+              [id]: {
+                id,
+                dataURL: "data:image/png;base64,AA==",
+                mimeType: "image/png",
+                created: 1,
+              },
             },
-          ],
-          assets: {
-            [id]: {
-              id,
-              dataURL: "data:image/png;base64,AA==",
-              mimeType: "image/png",
-              created: 1,
+            metadata: {
+              name: "Published precedence",
+              theme: "light",
+              viewBackgroundColor: "#ffffff",
+              gridSize: null,
             },
-          },
-          metadata: {
-            name: "Published precedence",
-            theme: "light",
-            viewBackgroundColor: "#ffffff",
-            gridSize: null,
-          },
-        }),
+          }).document,
+        ),
       ),
       {},
     );
@@ -454,24 +464,29 @@ describe("local recovery and binary files", () => {
     const { compressData } = await import("@/lib/encode");
     const compressedScene = await compressData(
       new TextEncoder().encode(
-        JSON.stringify({
-          version: 1,
-          elements: [
+        serializeWhiteboardDocumentV2(
+          convertPersistedWhiteboardDocumentToV2(
             {
-              id: "missing-owned-image",
-              type: "image",
-              isDeleted: false,
-              fileId: "missing-owned-file",
+              version: 1,
+              elements: [
+                {
+                  id: "missing-owned-image",
+                  type: "image",
+                  isDeleted: false,
+                  fileId: "missing-owned-file",
+                },
+              ],
+              assets: {},
+              metadata: {
+                name: "Missing owned image",
+                theme: "light",
+                viewBackgroundColor: "#ffffff",
+                gridSize: null,
+              },
             },
-          ],
-          assets: {},
-          metadata: {
-            name: "Missing owned image",
-            theme: "light",
-            viewBackgroundColor: "#ffffff",
-            gridSize: null,
-          },
-        }),
+            { externalAssets: true },
+          ).document,
+        ),
       ),
       {},
     );
@@ -512,7 +527,11 @@ describe("local recovery and binary files", () => {
     });
     const { compressData } = await import("@/lib/encode");
     const compressedScene = await compressData(
-      new TextEncoder().encode(serializeWhiteboardDocumentV1(document)),
+      new TextEncoder().encode(
+        serializeWhiteboardDocumentV2(
+          convertPersistedWhiteboardDocumentToV2(document).document,
+        ),
+      ),
       {},
     );
 

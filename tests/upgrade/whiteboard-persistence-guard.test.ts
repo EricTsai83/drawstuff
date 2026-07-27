@@ -1,8 +1,12 @@
 // @vitest-environment node
 
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+});
 
 import {
   createPersistedWhiteboardDocumentV2,
@@ -87,11 +91,11 @@ async function decodeScene(source: string): Promise<string> {
 }
 
 describe("stored whiteboard persistence guard", () => {
-  it("exposes nullable document_version metadata beside both opaque payloads", () => {
+  it("requires document_version metadata beside both opaque payloads", () => {
     expect(scene.documentVersion.name).toBe("document_version");
-    expect(scene.documentVersion.notNull).toBe(false);
+    expect(scene.documentVersion.notNull).toBe(true);
     expect(sharedScene.documentVersion.name).toBe("document_version");
-    expect(sharedScene.documentVersion.notNull).toBe(false);
+    expect(sharedScene.documentVersion.notNull).toBe(true);
   });
 
   it("accepts only a valid V2 payload with the explicit current write version", async () => {
@@ -168,5 +172,12 @@ describe("public owned payload", () => {
     expect(publicSource).not.toContain("PRIVATE");
     expect(publicSource).not.toContain("private-file");
     expect(publicSource).not.toContain("data:image/png");
+  });
+
+  it("refuses to publish a legacy payload after cutover", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER", "true");
+    await expect(
+      createPublicWhiteboardPayload(await encodeScene(legacySource)),
+    ).resolves.toBeNull();
   });
 });

@@ -473,7 +473,7 @@ describe("owned-format persistence opt-in", () => {
     localStorage.clear();
   });
 
-  it("round-trips local owned data without replacing the retained legacy keys", () => {
+  it("round-trips local owned data and removes verified obsolete keys", () => {
     const document = createOwnedDocument();
     localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS, "[]");
     localStorage.setItem(
@@ -494,12 +494,12 @@ describe("owned-format persistence opt-in", () => {
     expect(loaded.elements).toHaveLength(document.elements.length);
     expect(loaded.elements[0]).toMatchObject(document.elements[0]!);
     expect(loaded.appState).toMatchObject({ name: "Owned", theme: "light" });
-    expect(localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS)).toBe(
-      "[]",
-    );
+    expect(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS),
+    ).toBeNull();
     expect(
       localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_APP_STATE),
-    ).toContain("Rollback copy");
+    ).toBeNull();
   });
 
   it("reports local quota failures without throwing", () => {
@@ -524,7 +524,7 @@ describe("owned-format persistence opt-in", () => {
     consoleError.mockRestore();
   });
 
-  it("falls back to the untouched legacy snapshot when the owned copy is malformed", () => {
+  it("converts a complete legacy snapshot when the owned copy is malformed", () => {
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
       '{"version":1}',
@@ -543,6 +543,14 @@ describe("owned-format persistence opt-in", () => {
 
     expect(loaded.elements[0]?.id).toBe("legacy");
     expect(loaded.appState?.name).toBe("Legacy fallback");
+    expect(
+      parseWhiteboardDocumentV2(
+        localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT),
+      ).version,
+    ).toBe(2);
+    expect(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS),
+    ).toBeNull();
   });
 
   it("round-trips the opt-in server serialization through compression", async () => {

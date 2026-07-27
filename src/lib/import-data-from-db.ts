@@ -5,6 +5,7 @@ import type {
   WhiteboardDocument,
 } from "@/features/whiteboard";
 import { ensureInitialWhiteboardState } from "@/lib/whiteboard";
+import { requiresCanonicalWhiteboardReads } from "@/config/whiteboard-cutover";
 import {
   filterReferencedWhiteboardAssets,
   parseWhiteboardDocumentForImport,
@@ -244,10 +245,24 @@ function parseDecodedScenePayload(
   source: string,
   documentVersion: unknown,
 ): WhiteboardDocument {
-  const document =
-    documentVersion === WHITEBOARD_DOCUMENT_VERSION
-      ? toRuntimeWhiteboardDocumentV2(parseWhiteboardDocumentV2(source))
-      : parseWhiteboardDocumentForImport(source, { externalAssets: true });
+  if (documentVersion !== WHITEBOARD_DOCUMENT_VERSION) {
+    if (requiresCanonicalWhiteboardReads()) {
+      throw new Error("Whiteboard data convergence is required");
+    }
+    const transitionalDocument = parseWhiteboardDocumentForImport(source, {
+      externalAssets: true,
+    });
+    return {
+      ...transitionalDocument,
+      assets: filterReferencedWhiteboardAssets(
+        transitionalDocument.elements,
+        transitionalDocument.assets,
+      ),
+    };
+  }
+  const document = toRuntimeWhiteboardDocumentV2(
+    parseWhiteboardDocumentV2(source),
+  );
   return {
     ...document,
     assets: filterReferencedWhiteboardAssets(
