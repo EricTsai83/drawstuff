@@ -30,7 +30,11 @@ import {
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { decompressData } from "@/lib/encode";
-import { convertPersistedWhiteboardDocumentToV2 } from "@/features/whiteboard";
+import {
+  convertPersistedWhiteboardDocumentToV2,
+  parseWhiteboardDocumentV2,
+} from "@/features/whiteboard";
+import { requiresCanonicalWhiteboardReads } from "@/config/whiteboard-cutover";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "@/server/whiteboard/persistence-guard";
 
@@ -72,12 +76,14 @@ async function getReferencedPublishedFileIds(
         maxDecompressedBytes: MAX_DECOMPRESSED_SCENE_BYTES,
       },
     );
-    const converted = convertPersistedWhiteboardDocumentToV2(
-      new TextDecoder().decode(data),
-      { externalAssets: true },
-    );
+    const source = new TextDecoder().decode(data);
+    const document = requiresCanonicalWhiteboardReads()
+      ? parseWhiteboardDocumentV2(source)
+      : convertPersistedWhiteboardDocumentToV2(source, {
+          externalAssets: true,
+        }).document;
     const ids = new Set<string>();
-    for (const element of converted.document.elements) {
+    for (const element of document.elements) {
       if (element.isDeleted) continue;
       if (element.type !== "image") continue;
       if (typeof element.fileId === "string" && element.fileId.length > 0) {

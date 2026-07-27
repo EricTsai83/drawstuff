@@ -1,7 +1,7 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  createWhiteboardDocumentV1,
-  serializeWhiteboardDocumentV1,
+  createPersistedWhiteboardDocumentV2,
+  serializeWhiteboardDocumentV2,
 } from "@/features/whiteboard";
 import { compressData } from "@/lib/encode";
 
@@ -31,8 +31,8 @@ import {
 } from "@/lib/import-data-from-db";
 
 function createOwnedSource(): string {
-  return serializeWhiteboardDocumentV1(
-    createWhiteboardDocumentV1({
+  return serializeWhiteboardDocumentV2(
+    createPersistedWhiteboardDocumentV2({
       elements: [
         {
           id: "owned-element",
@@ -55,7 +55,7 @@ function createOwnedSource(): string {
           created: 2,
         },
       },
-      metadata: {
+      state: {
         name: "Embedded name",
         theme: "dark",
         viewBackgroundColor: "#111111",
@@ -78,8 +78,13 @@ function createLegacyServerSource(): string {
 
 describe("document loading boundaries", () => {
   beforeEach(() => {
+    vi.stubEnv("NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER", "true");
     boundaryMocks.getOwnedScene.mockReset();
     boundaryMocks.getSharedScene.mockReset();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
   });
 
   it("detects owned database data and keeps the database name authoritative", async () => {
@@ -89,6 +94,7 @@ describe("document loading boundaries", () => {
     );
     boundaryMocks.getOwnedScene.mockResolvedValue({
       sceneData: Buffer.from(compressed).toString("base64"),
+      documentVersion: 2,
       name: "Renamed in database",
       revision: 7,
       updatedAt: new Date("2026-01-02T03:04:05.000Z"),
@@ -124,6 +130,7 @@ describe("document loading boundaries", () => {
     );
     boundaryMocks.getSharedScene.mockResolvedValue({
       compressedData: compressed,
+      documentVersion: 2,
     });
 
     const loaded = await importDataFromBackend("shared-1", "unused-key");
@@ -139,7 +146,7 @@ describe("document loading boundaries", () => {
     expect(loaded?.assets["deleted-asset"]).toBeUndefined();
   });
 
-  it("keeps reading the exact unversioned legacy database shape", async () => {
+  it("refuses an unversioned legacy database shape after cutover", async () => {
     const compressed = await compressData(
       new TextEncoder().encode(createLegacyServerSource()),
       {},
@@ -152,22 +159,10 @@ describe("document loading boundaries", () => {
 
     const loaded = await importSceneDataBySceneId("legacy-scene");
 
-    expect(loaded.document?.elements).toEqual([
-      expect.objectContaining({
-        id: "legacy-element",
-        type: "ellipse",
-        isDeleted: false,
-      }),
-    ]);
-    expect(loaded.document?.state).toMatchObject({
-      name: "Database legacy name",
-      theme: "light",
-      viewBackgroundColor: "#fafafa",
-    });
-    expect(loaded.revision).toBe(3);
+    expect(loaded).toEqual({});
   });
 
-  it("keeps reading the exact unversioned legacy shared shape", async () => {
+  it("refuses an unversioned legacy shared shape after cutover", async () => {
     const compressed = await compressData(
       new TextEncoder().encode(createLegacyServerSource()),
       {},
@@ -178,14 +173,31 @@ describe("document loading boundaries", () => {
 
     const loaded = await importDataFromBackend("legacy-shared", "unused-key");
 
-    expect(loaded?.elements).toEqual([
-      expect.objectContaining({
-        id: "legacy-element",
-        type: "ellipse",
-        isDeleted: false,
-      }),
+    expect(loaded).toBeNull();
+  });
+
+  it("keeps legacy owned and shared rows readable before cutover", async () => {
+    vi.stubEnv("NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER", "false");
+    const compressed = await compressData(
+      new TextEncoder().encode(createLegacyServerSource()),
+      {},
+    );
+    boundaryMocks.getOwnedScene.mockResolvedValue({
+      sceneData: Buffer.from(compressed).toString("base64"),
+      name: "Database legacy name",
+      revision: 3,
+    });
+    boundaryMocks.getSharedScene.mockResolvedValue({
+      compressedData: compressed,
+    });
+
+    const [owned, shared] = await Promise.all([
+      importSceneDataBySceneId("legacy-scene"),
+      importDataFromBackend("legacy-shared", "unused-key"),
     ]);
-    expect(loaded?.state.name).toBe("Legacy server payload");
+
+    expect(owned.document?.elements[0]?.id).toBe("legacy-element");
+    expect(shared?.elements[0]?.id).toBe("legacy-element");
   });
 
   it("refuses missing and duplicate legacy ids without a partial result", async () => {

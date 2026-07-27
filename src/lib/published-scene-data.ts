@@ -1,6 +1,7 @@
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
 import {
-  parseWhiteboardDocumentForImport,
+  parseWhiteboardDocumentV2,
+  toRuntimeWhiteboardDocumentV2,
   type WhiteboardAsset,
   type WhiteboardDocument,
 } from "@/features/whiteboard";
@@ -27,9 +28,8 @@ export async function loadPublishedSceneData({
     compressedBuffer,
     { decryptionKey: "" },
   );
-  const parsed = parseWhiteboardDocumentForImport(
-    new TextDecoder().decode(data),
-    { externalAssets: true },
+  const parsed = toRuntimeWhiteboardDocumentV2(
+    parseWhiteboardDocumentV2(new TextDecoder().decode(data)),
   );
 
   const publishedAssets: Record<string, WhiteboardAsset> = {};

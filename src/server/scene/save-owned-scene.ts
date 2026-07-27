@@ -8,6 +8,7 @@ import type {
   SaveSceneInput,
 } from "@/lib/schemas/scene";
 import { validateStoredWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
+import { WHITEBOARD_DOCUMENT_VERSION } from "@/features/whiteboard";
 
 type SaveOwnedSceneParams = {
   userId: string;
@@ -87,6 +88,7 @@ export async function createOwnedSceneDraft({
         workspaceId: input.workspaceId,
         userId,
         sceneData: null,
+        documentVersion: WHITEBOARD_DOCUMENT_VERSION,
         updatedAt: now,
         lastUpdated: now,
       })

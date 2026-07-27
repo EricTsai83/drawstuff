@@ -26,7 +26,7 @@ cutover is approved.
 
 The production parser must reject anything except canonical V2.
 
-### Phase 5J removal inventory
+### Phase 5J/5K removal inventory
 
 Delete this inventory as one compatibility unit after the Phase 5K audit proves
 that no V1, Excalidraw, or unversioned rows remain:
@@ -44,10 +44,16 @@ that no V1, Excalidraw, or unversioned rows remain:
   `LOCAL_STORAGE_APP_STATE`, `LOCAL_STORAGE_FILES`,
   `LOCAL_STORAGE_WHITEBOARD_RECOVERY_DOCUMENT`, legacy/owned revision
   arbitration, and `preferRecovery`.
-- `src/lib/import-data-from-db.ts`, `src/lib/published-scene-data.ts`,
+- `src/server/whiteboard/data-convergence.ts` and
+  `src/app/api/maintenance/whiteboard-convergence/route.ts`: the completed
+  batch converter, asset verifier, audit output, and maintenance endpoint.
+- `src/lib/import-data-from-db.ts`,
   `src/server/whiteboard/published-payload.ts`, and
-  `src/server/api/routers/scene.ts`: branches that call the temporary converter
-  when nullable `document_version` metadata denotes an old row.
+  `src/server/api/routers/scene.ts`: the support-window converter branches
+  guarded by `NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER`.
+- `src/config/whiteboard-cutover.ts`, the
+  `NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER` environment key, and its runbook
+  instructions: replace the temporary switch with unconditional V2 reads.
 - `tests/fixtures/legacy-scenes/**`,
   `tests/upgrade/whiteboard-document-format.test.ts`,
   `tests/upgrade/whiteboard-recovery.test.ts`, and the V1/Excalidraw cases in

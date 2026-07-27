@@ -3,8 +3,10 @@ import "server-only";
 import {
   convertPersistedWhiteboardDocumentToV2,
   externalizeWhiteboardDocumentAssetsV2,
+  parseWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
 } from "@/features/whiteboard";
+import { requiresCanonicalWhiteboardReads } from "@/config/whiteboard-cutover";
 import { compressData, decompressData } from "@/lib/encode";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "./persistence-guard";
 
@@ -17,13 +19,13 @@ export async function createPublicWhiteboardPayload(
       decryptionKey: "",
       maxDecompressedBytes: MAX_DECOMPRESSED_SCENE_BYTES,
     });
-    const converted = convertPersistedWhiteboardDocumentToV2(
-      new TextDecoder().decode(data),
-      { externalAssets: true },
-    );
-    const publicDocument = externalizeWhiteboardDocumentAssetsV2(
-      converted.document,
-    );
+    const source = new TextDecoder().decode(data);
+    const document = requiresCanonicalWhiteboardReads()
+      ? parseWhiteboardDocumentV2(source)
+      : convertPersistedWhiteboardDocumentToV2(source, {
+          externalAssets: true,
+        }).document;
+    const publicDocument = externalizeWhiteboardDocumentAssetsV2(document);
     const publicCompressed = await compressData(
       new TextEncoder().encode(serializeWhiteboardDocumentV2(publicDocument)),
       {},
