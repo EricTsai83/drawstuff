@@ -6,28 +6,20 @@
   "type": "module",
   "scripts": {
     "audit:ci": "pnpm audit --prod --audit-level=low",
-    "build": "next build",
-    "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio",
-    "dev": "next dev --turbo",
+    "build": "turbo run build",
+    "db:push": "turbo run db:push --filter=@drawstuff/web",
+    "db:studio": "pnpm --filter @drawstuff/web db:studio",
+    "dev": "turbo run dev",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
-    "preview": "next build && next start",
-    "lint": "eslint . --ext .ts,.tsx --max-warnings=0",
-    "lint:fix": "eslint . --ext .ts,.tsx --fix",
-    "knip": "SKIP_ENV_VALIDATION=1 knip --production --dependencies --files",
-    "start": "next start",
-    "test": "vitest run",
-    "test:coverage": "vitest run --coverage",
-    "typecheck": "tsc --noEmit"
-  },
-  "knip": {
-    "ignore": [
-      ".deepsec/deepsec.config.ts",
-      "packages/whiteboard/tests/fixtures/owned-canvas/performance.ts",
-      "packages/whiteboard/tests/setup.ts",
-      "tests/setup.ts"
-    ]
+    "preview": "pnpm build && pnpm start",
+    "lint": "turbo run lint",
+    "lint:fix": "turbo run lint:fix",
+    "knip": "turbo run knip",
+    "start": "pnpm --filter @drawstuff/web start",
+    "test": "turbo run test",
+    "test:coverage": "turbo run test:coverage",
+    "typecheck": "turbo run typecheck"
   },
   "devEngines": {
     "runtime": {
@@ -36,65 +28,15 @@
       "onFail": "download"
     }
   },
-  "dependencies": {
-    "@base-ui/react": "^1.6.0",
-    "@drawstuff/whiteboard": "workspace:*",
-    "@hookform/resolvers": "^5.5.7",
-    "@t3-oss/env-nextjs": "^0.13.11",
-    "@tanstack/react-query": "^5.101.4",
-    "@trpc/client": "^11.18.0",
-    "@trpc/react-query": "^11.18.0",
-    "@trpc/server": "^11.18.0",
-    "@uploadthing/react": "^7.3.3",
-    "better-auth": "^1.6.25",
-    "class-variance-authority": "^0.7.1",
-    "clsx": "^2.1.1",
-    "cmdk": "^1.1.1",
-    "date-fns": "^4.4.0",
-    "drizzle-orm": "^0.45.2",
-    "i18next-browser-languagedetector": "^8.2.1",
-    "lucide-react": "^1.27.0",
-    "nanoid": "^6.0.0",
-    "next": "^16.2.12",
-    "next-themes": "^0.4.6",
-    "nuqs": "^2.9.2",
-    "pako": "^3.0.1",
-    "postgres": "^3.4.9",
-    "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "react-hook-form": "^7.83.0",
-    "server-only": "^0.0.1",
-    "sonner": "^2.0.7",
-    "superjson": "^2.2.6",
-    "tailwind-merge": "^3.6.0",
-    "uploadthing": "^7.7.4",
-    "zod": "^4.4.3"
-  },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4.3.3",
-    "@testing-library/react": "^16.3.2",
-    "@types/node": "^24.13.3",
-    "@types/react": "^19.2.17",
-    "@types/react-dom": "^19.2.3",
-    "@vitest/coverage-v8": "^4.1.10",
-    "drizzle-kit": "^0.31.10",
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.2.12",
     "eslint-plugin-drizzle": "^0.2.3",
-    "jsdom": "^29.1.1",
-    "knip": "^6.29.0",
-    "postcss": "^8.5.23",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
-    "shadcn": "^4.15.0",
-    "tailwindcss": "^4.3.3",
-    "tw-animate-css": "^1.4.0",
+    "turbo": "^2.10.7",
     "typescript": "^6.0.3",
-    "typescript-eslint": "^8.65.0",
-    "vitest": "^4.1.10"
-  },
-  "ct3aMetadata": {
-    "initVersion": "7.39.3"
+    "typescript-eslint": "^8.65.0"
   },
   "packageManager": "pnpm@11.17.0+sha512.cca3cea332ad254bb84145f966d19f4879615210346fc92c79a047f23a0d7b3cca3c3792f0076ba1f1831d277efbcf0a9119b31a9a60eca7fb3d6231f331ef72"
 }

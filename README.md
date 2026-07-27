@@ -8,7 +8,7 @@
 
 ## What is drawstuff?
 
-drawstuff is an open-source whiteboard app built with an owned drawing engine, [Next.js](https://github.com/vercel/next.js), and [tRPC](https://github.com/trpc/trpc). It combines a full-screen drawing experience with cloud persistence, workspace-based organization, encrypted sharing, and published public pages for read-only scene viewing.
+drawstuff is an open-source whiteboard app built as a Turborepo with an owned drawing engine, [Next.js](https://github.com/vercel/next.js), and [tRPC](https://github.com/trpc/trpc). It combines a full-screen drawing experience with cloud persistence, workspace-based organization, encrypted sharing, and published public pages for read-only scene viewing.
 
 ## Key Features
 
@@ -57,14 +57,17 @@ Use publishing when you want a stable, read-only page that can be opened directl
 ## Project Structure
 
 ```text
-src/
-  app/                 # App Router pages, API routes, published pages
-  components/          # UI, dashboard, auth, and whiteboard integrations
-  hooks/               # Client-side hooks for editor and app behavior
-  lib/                 # Shared utilities, encryption, export/import helpers
-  server/
-    api/               # tRPC routers and server context
-    db/                # Drizzle schema and database access
+apps/
+  web/                 # Next.js application, tests, and app configuration
+    src/
+      app/             # App Router pages, API routes, published pages
+      components/      # UI, dashboard, auth, and whiteboard integrations
+      hooks/           # Client-side hooks for editor and app behavior
+      lib/             # Utilities, encryption, export/import helpers
+      server/          # tRPC routers, Drizzle schema, and database access
+packages/
+  whiteboard/          # Framework-independent owned drawing engine
+turbo.json             # Task graph and cache configuration
 ```
 
 ## Getting Started
@@ -88,7 +91,7 @@ cd drawstuff
 pnpm install
 
 # Copy environment variables
-cp .env.example .env
+cp apps/web/.env.example apps/web/.env
 
 # Push database schema
 pnpm db:push
@@ -101,7 +104,7 @@ Open `http://localhost:3000`.
 
 ## Environment Variables
 
-The app validates its environment variables in `src/env.js`.
+The app validates its environment variables in `apps/web/src/env.js`.
 
 ```bash
 # Database
@@ -147,6 +150,15 @@ pnpm format:write
 pnpm db:push
 pnpm db:studio
 ```
+
+The root commands use Turbo to run the matching task in each affected
+workspace. To run a command only for the web app, use
+`pnpm --filter @drawstuff/web <command>`.
+
+## Deployment
+
+When importing the repository into Vercel, select `apps/web` as the project
+root. The app-specific cron configuration lives in `apps/web/vercel.json`.
 
 ## Maintenance Endpoint
 
