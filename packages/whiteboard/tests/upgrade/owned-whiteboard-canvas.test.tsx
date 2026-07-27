@@ -84,7 +84,7 @@ describe("OwnedWhiteboardCanvas lifecycle", () => {
     callbacks.clear();
 
     expect(container.querySelectorAll("canvas")).toHaveLength(2);
-    expect(context.rect).toHaveBeenCalled();
+    expect(context.bezierCurveTo).toHaveBeenCalled();
     expect(readyEngine?.getViewport()).toMatchObject({
       width: 400,
       height: 300,
@@ -213,6 +213,7 @@ function ownedDocument(): OwnedWhiteboardDocument {
 function canvasContext() {
   return {
     beginPath: vi.fn(),
+    bezierCurveTo: vi.fn(),
     clearRect: vi.fn(),
     closePath: vi.fn(),
     drawImage: vi.fn(),
@@ -222,6 +223,7 @@ function canvasContext() {
     fillText: vi.fn(),
     lineTo: vi.fn(),
     moveTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
     rect: vi.fn(),
     restore: vi.fn(),
     rotate: vi.fn(),
@@ -236,6 +238,7 @@ function canvasContext() {
     font: "",
     globalAlpha: 1,
     lineWidth: 1,
+    lineDashOffset: 0,
     strokeStyle: "",
     textBaseline: "top",
   };

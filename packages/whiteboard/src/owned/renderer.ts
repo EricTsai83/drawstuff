@@ -1,20 +1,36 @@
+import rough from "roughjs/bin/rough";
+import type { RoughCanvas } from "roughjs/bin/canvas";
+import type { Drawable } from "roughjs/bin/core";
 import type {
   WhiteboardAsset,
   WhiteboardElement,
   WhiteboardTheme,
+  WhiteboardViewport,
 } from "../contracts";
 import {
+  boundsIntersect,
   documentToScreen,
   getElementGeometry,
   isElementVisible,
   readElementNumber,
   readElementPoints,
   readElementString,
+  type ElementGeometry,
   type WhiteboardBounds,
 } from "./geometry";
 import type { OwnedWhiteboardStore } from "./store";
 import { getSelectionBounds, OWNED_ROTATION_HANDLE_OFFSET } from "./editing";
 import { isSafeInlineImage } from "./assets";
+import {
+  createFreeDrawOutline,
+  traceFreeDrawOutline,
+  type FreeDrawOutlinePoint,
+} from "./freehand";
+import {
+  createRoughDrawables,
+  isRoughRenderableElement,
+  lineDashFor,
+} from "./rough-shapes";
 import { OWNED_DARK_THEME_FILTER, resolveOwnedThemeColor } from "./theme-color";
 
 export interface OwnedAnimationScheduler {
@@ -39,6 +55,11 @@ interface CachedAssetSafety {
   readonly source: string;
 }
 
+interface CachedRoughShape {
+  readonly drawables: readonly Drawable[];
+  readonly theme: WhiteboardTheme;
+}
+
 const DEFAULT_SCHEDULER: OwnedAnimationScheduler = {
   request: (callback) => window.requestAnimationFrame(callback),
   cancel: (handle) => window.cancelAnimationFrame(handle),
@@ -49,8 +70,17 @@ export class OwnedWhiteboardRenderer {
   private readonly overlayContext: CanvasRenderingContext2D;
   private readonly unsubscribeRender: () => void;
   private readonly unsubscribeDestroy: () => void;
+  private readonly roughScene: RoughCanvas;
+  private readonly roughOverlay: RoughCanvas;
   private readonly imageCache = new Map<string, CachedImage>();
   private readonly assetSafetyCache = new Map<string, CachedAssetSafety>();
+  private roughShapeCache = new WeakMap<WhiteboardElement, CachedRoughShape>();
+  private freeDrawShapeCache = new WeakMap<
+    WhiteboardElement,
+    readonly FreeDrawOutlinePoint[]
+  >();
+  private roughShapeGenerations = 0;
+  private freeDrawShapeGenerations = 0;
   private scheduledFrame: number | null = null;
   private marquee: WhiteboardBounds | null = null;
   private preview: WhiteboardElement | null = null;
@@ -80,6 +110,8 @@ export class OwnedWhiteboardRenderer {
     }
     this.sceneContext = sceneContext;
     this.overlayContext = overlayContext;
+    this.roughScene = rough.canvas(sceneCanvas);
+    this.roughOverlay = rough.canvas(overlayCanvas);
     this.unsubscribeRender = store.subscribeRenderState((change) => {
       if (change === "scene") this.sceneDirty = true;
       this.overlayDirty = true;
@@ -149,11 +181,15 @@ export class OwnedWhiteboardRenderer {
   public getDiagnostics(): {
     readonly scheduled: boolean;
     readonly cachedAssets: number;
+    readonly freeDrawShapeGenerations: number;
+    readonly roughShapeGenerations: number;
     readonly stats: OwnedRenderStats;
   } {
     return {
       scheduled: this.scheduledFrame !== null,
       cachedAssets: this.imageCache.size,
+      freeDrawShapeGenerations: this.freeDrawShapeGenerations,
+      roughShapeGenerations: this.roughShapeGenerations,
       stats: this.lastStats,
     };
   }
@@ -174,6 +210,8 @@ export class OwnedWhiteboardRenderer {
     }
     this.imageCache.clear();
     this.assetSafetyCache.clear();
+    this.roughShapeCache = new WeakMap();
+    this.freeDrawShapeCache = new WeakMap();
     this.marquee = null;
     this.preview = null;
   }
@@ -236,13 +274,32 @@ export class OwnedWhiteboardRenderer {
     context.fillRect(0, 0, this.cssWidth, this.cssHeight);
 
     const viewport = this.store.getViewport();
+    const viewportBounds = getViewportDocumentBounds(
+      viewport,
+      this.cssWidth,
+      this.cssHeight,
+    );
     context.save();
     context.scale(viewport.zoom, viewport.zoom);
     context.translate(viewport.x, viewport.y);
     let paintedElements = 0;
     for (const element of elements) {
       if (!isElementVisible(element)) continue;
-      this.paintElement(context, element, assets, theme);
+      const geometry = getElementGeometry(element);
+      if (
+        !geometry ||
+        (viewportBounds && !boundsIntersect(geometry.bounds, viewportBounds))
+      ) {
+        continue;
+      }
+      this.paintElement(
+        context,
+        element,
+        assets,
+        theme,
+        this.roughScene,
+        geometry,
+      );
       paintedElements += 1;
     }
     context.restore();
@@ -258,8 +315,10 @@ export class OwnedWhiteboardRenderer {
     element: WhiteboardElement,
     assets: Readonly<Record<string, WhiteboardAsset>>,
     theme: WhiteboardTheme,
+    roughCanvas: RoughCanvas,
+    resolvedGeometry?: ElementGeometry,
   ): void {
-    const geometry = getElementGeometry(element);
+    const geometry = resolvedGeometry ?? getElementGeometry(element);
     if (!geometry) return;
     context.save();
     context.globalAlpha = Math.min(
@@ -286,11 +345,11 @@ export class OwnedWhiteboardRenderer {
     context.rotate(geometry.angle);
     context.translate(-geometry.width / 2, -geometry.height / 2);
 
-    if (
-      element.type === "line" ||
-      element.type === "arrow" ||
-      element.type === "freedraw"
-    ) {
+    if (isRoughRenderableElement(element)) {
+      this.paintRoughElement(roughCanvas, element, geometry, theme);
+    } else if (element.type === "freedraw") {
+      this.paintFreeDrawElement(context, element);
+    } else if (element.type === "line" || element.type === "arrow") {
       this.paintLinearElement(context, element);
     } else if (element.type === "text") {
       this.paintText(context, element, theme);
@@ -300,6 +359,45 @@ export class OwnedWhiteboardRenderer {
       this.paintBoxElement(context, element, geometry.width, geometry.height);
     }
     context.restore();
+  }
+
+  private paintFreeDrawElement(
+    context: CanvasRenderingContext2D,
+    element: WhiteboardElement,
+  ): void {
+    const cached = this.freeDrawShapeCache.get(element);
+    const outline = cached ?? createFreeDrawOutline(element);
+    if (!cached) {
+      this.freeDrawShapeCache.set(element, outline);
+      this.freeDrawShapeGenerations += 1;
+    }
+    traceFreeDrawOutline(context, outline);
+    context.fillStyle = context.strokeStyle;
+    context.fill();
+  }
+
+  private paintRoughElement(
+    roughCanvas: RoughCanvas,
+    element: WhiteboardElement,
+    geometry: ElementGeometry,
+    theme: WhiteboardTheme,
+  ): void {
+    const cached = this.roughShapeCache.get(element);
+    const drawables =
+      cached?.theme === theme
+        ? cached.drawables
+        : createRoughDrawables(
+            roughCanvas.generator,
+            element,
+            geometry.width,
+            geometry.height,
+            theme,
+          );
+    if (cached?.theme !== theme) {
+      this.roughShapeCache.set(element, { drawables, theme });
+      this.roughShapeGenerations += 1;
+    }
+    for (const drawable of drawables) roughCanvas.draw(drawable);
   }
 
   private paintBoxElement(
@@ -454,7 +552,13 @@ export class OwnedWhiteboardRenderer {
       context.save();
       context.scale(viewport.zoom, viewport.zoom);
       context.translate(viewport.x, viewport.y);
-      this.paintElement(context, this.preview, {}, "light");
+      this.paintElement(
+        context,
+        this.preview,
+        {},
+        this.store.getEditorState().theme,
+        this.roughOverlay,
+      );
       context.restore();
     }
     const selectedIds = new Set(selectedElementIds);
@@ -464,7 +568,7 @@ export class OwnedWhiteboardRenderer {
     const selectedElements = selected.filter(
       (element) => getElementGeometry(element) !== null,
     ).length;
-    context.strokeStyle = "#4c6ef5";
+    context.strokeStyle = "#6965db";
     context.lineWidth = 1.5;
     context.setLineDash([]);
     const selectionBounds = getSelectionBounds(selected);
@@ -521,7 +625,7 @@ export class OwnedWhiteboardRenderer {
       const y = topLeft.y - viewport.offsetY;
       const width = bottomRight.x - topLeft.x;
       const height = bottomRight.y - topLeft.y;
-      context.fillStyle = "rgba(76, 110, 245, 0.08)";
+      context.fillStyle = "rgba(105, 101, 219, 0.08)";
       context.fillRect(x, y, width, height);
       context.strokeRect(x, y, width, height);
     }
@@ -591,11 +695,20 @@ export class OwnedWhiteboardRenderer {
   }
 }
 
-function lineDashFor(element: WhiteboardElement): readonly number[] {
-  const style = readElementString(element, "strokeStyle", "solid");
-  if (style === "dashed") return [8, 6];
-  if (style === "dotted") return [2, 4];
-  return [];
+function getViewportDocumentBounds(
+  viewport: WhiteboardViewport,
+  width: number,
+  height: number,
+): WhiteboardBounds | null {
+  if (width <= 0 || height <= 0) return null;
+  const zoom = Math.max(0.01, viewport.zoom);
+  const overscan = 24 / zoom;
+  return {
+    minX: -viewport.x - overscan,
+    minY: -viewport.y - overscan,
+    maxX: width / zoom - viewport.x + overscan,
+    maxY: height / zoom - viewport.y + overscan,
+  };
 }
 
 function finiteNumber(value: number, fallback: number): number {

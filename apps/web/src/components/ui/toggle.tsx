@@ -12,12 +12,18 @@ const toggleVariants = cva(
       variant: {
         default: "bg-transparent",
         outline: "border border-input bg-transparent hover:bg-muted",
+        whiteboard:
+          "border border-transparent bg-[var(--whiteboard-surface-mid)] text-[var(--whiteboard-on-surface)] hover:bg-[var(--whiteboard-button-hover)] data-[state=on]:border-[var(--whiteboard-primary)] data-[state=on]:bg-[var(--whiteboard-primary-container)] data-[state=on]:text-[var(--whiteboard-on-primary-container)]",
       },
       size: {
         default:
           "h-8 min-w-8 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
         sm: "h-7 min-w-7 rounded-[min(var(--radius-md),12px)] px-2.5 text-[0.8rem] has-data-[icon=inline-end]:pr-1.5 has-data-[icon=inline-start]:pl-1.5 [&_svg:not([class*='size-'])]:size-3.5",
         lg: "h-9 min-w-9 px-2.5 has-data-[icon=inline-end]:pr-2 has-data-[icon=inline-start]:pl-2",
+        whiteboard:
+          "size-8 min-w-8 rounded-lg p-0 text-xs [&_svg:not([class*='size-'])]:size-4",
+        "whiteboard-swatch":
+          "size-6 min-w-6 rounded-md p-0 [&_svg:not([class*='size-'])]:size-4",
       },
     },
     defaultVariants: {

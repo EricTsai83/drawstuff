@@ -41,7 +41,7 @@ describe("owned whiteboard renderer", () => {
 
   it.each(OWNED_CANVAS_PERFORMANCE_FIXTURES)(
     "records a deterministic $name paint baseline",
-    ({ document, expectedElementCount }) => {
+    ({ document, expectedElementCount, expectedPaintedCount }) => {
       const harness = createRenderer();
       harness.store.loadDocument(document);
       harness.renderer.resize(1200, 800, 1);
@@ -50,7 +50,7 @@ describe("owned whiteboard renderer", () => {
 
       expect(stats).toEqual({
         visitedElements: expectedElementCount,
-        paintedElements: expectedElementCount,
+        paintedElements: expectedPaintedCount,
         selectedElements: 0,
       });
       harness.renderer.destroy();
@@ -124,9 +124,42 @@ describe("owned whiteboard renderer", () => {
 
     expect(harness.sceneContext.clearRect).not.toHaveBeenCalled();
     expect(harness.overlayContext.clearRect).toHaveBeenCalledOnce();
-    expect(harness.overlayContext.rect).toHaveBeenCalledWith(0, 0, 100, 50);
+    expect(harness.overlayContext.bezierCurveTo).toHaveBeenCalled();
     expect(harness.overlayContext.scale).toHaveBeenCalledWith(1, 1);
     expect(harness.overlayContext.translate).toHaveBeenCalledWith(0, 0);
+  });
+
+  it("reuses rough shapes across viewport renders and invalidates changed elements", () => {
+    const harness = createRenderer();
+    harness.store.loadDocument(
+      createDocument([
+        rectangle("cached"),
+        {
+          ...rectangle("freehand"),
+          type: "freedraw",
+          points: [
+            [0, 0],
+            [30, 20],
+            [60, 10],
+          ],
+        },
+      ]),
+    );
+    harness.renderer.resize(300, 200, 1);
+    harness.renderer.renderNow();
+    expect(harness.renderer.getDiagnostics().roughShapeGenerations).toBe(1);
+    expect(harness.renderer.getDiagnostics().freeDrawShapeGenerations).toBe(1);
+
+    harness.store.updateViewport({ x: 12 });
+    harness.renderer.renderNow();
+    expect(harness.renderer.getDiagnostics().roughShapeGenerations).toBe(1);
+    expect(harness.renderer.getDiagnostics().freeDrawShapeGenerations).toBe(1);
+
+    harness.store.setSelection(["cached"]);
+    harness.store.updateElementStyle({ roughness: 2 });
+    harness.renderer.renderNow();
+    expect(harness.renderer.getDiagnostics().roughShapeGenerations).toBe(2);
+    expect(harness.renderer.getDiagnostics().freeDrawShapeGenerations).toBe(1);
   });
 
   it("does not create image requests for non-inline asset URLs", () => {
@@ -323,6 +356,7 @@ function animationScheduler() {
 function context() {
   return {
     beginPath: vi.fn(),
+    bezierCurveTo: vi.fn(),
     clearRect: vi.fn(),
     closePath: vi.fn(),
     drawImage: vi.fn(),
@@ -332,6 +366,7 @@ function context() {
     fillText: vi.fn(),
     lineTo: vi.fn(),
     moveTo: vi.fn(),
+    quadraticCurveTo: vi.fn(),
     rect: vi.fn(),
     restore: vi.fn(),
     rotate: vi.fn(),
@@ -346,6 +381,7 @@ function context() {
     font: "",
     globalAlpha: 1,
     lineWidth: 1,
+    lineDashOffset: 0,
     strokeStyle: "",
     textBaseline: "top",
   };

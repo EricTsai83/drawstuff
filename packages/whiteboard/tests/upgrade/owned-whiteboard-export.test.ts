@@ -31,6 +31,66 @@ describe("owned whiteboard export", () => {
     expect(svg).not.toContain("selection");
   });
 
+  it("uses deterministic rough geometry and fill patterns in exported images", () => {
+    const shape = {
+      ...rectangle("rough-shape"),
+      backgroundColor: "#ffc9c9",
+      fillStyle: "cross-hatch" as const,
+      roughness: 2,
+      roundness: "round" as const,
+    };
+
+    const first = exportOwnedWhiteboardSvg(createDocument([shape]), {
+      format: "svg",
+      background: false,
+    });
+    const second = exportOwnedWhiteboardSvg(createDocument([shape]), {
+      format: "svg",
+      background: false,
+    });
+    const architect = exportOwnedWhiteboardSvg(
+      createDocument([{ ...shape, roughness: 0 }]),
+      { format: "svg", background: false },
+    );
+    const solid = exportOwnedWhiteboardSvg(
+      createDocument([{ ...shape, fillStyle: "solid" }]),
+      { format: "svg", background: false },
+    );
+    const sharp = exportOwnedWhiteboardSvg(
+      createDocument([{ ...shape, roundness: "sharp" }]),
+      { format: "svg", background: false },
+    );
+    const parsed = new DOMParser().parseFromString(first, "image/svg+xml");
+
+    expect(second).toBe(first);
+    expect(architect).not.toBe(first);
+    expect(solid).not.toBe(first);
+    expect(sharp).not.toBe(first);
+    expect(parsed.querySelector("parsererror")).toBeNull();
+    expect(parsed.querySelectorAll("g > path").length).toBeGreaterThan(1);
+    expect(first).not.toContain("<polygon");
+  });
+
+  it("exports free-draw strokes with the same perfect-freehand outline", () => {
+    const svg = exportOwnedWhiteboardSvg(
+      createDocument([
+        {
+          ...rectangle("freehand"),
+          type: "freedraw",
+          points: [
+            [0, 0],
+            [20, 30],
+            [50, 10],
+          ],
+        },
+      ]),
+      { format: "svg", background: false },
+    );
+
+    expect(svg).toMatch(/<path [^>]*d="M [^"]+ Q [^"]+ Z"/);
+    expect(svg).toContain('fill="#1e1e1e" stroke="none"');
+  });
+
   it("escapes text and replaces unsafe, missing, or external images", () => {
     const unsafeSvg: WhiteboardAsset = {
       id: "unsafe",

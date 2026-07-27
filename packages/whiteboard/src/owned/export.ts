@@ -1,3 +1,5 @@
+import rough from "roughjs/bin/rough";
+import type { RoughGenerator } from "roughjs/bin/generator";
 import type {
   OwnedWhiteboardDocument,
   WhiteboardElement,
@@ -12,6 +14,7 @@ import {
   readElementString,
 } from "./geometry";
 import { isSafeInlineImage, pruneUnreferencedWhiteboardAssets } from "./assets";
+import { createFreeDrawOutline, getFreeDrawSvgPath } from "./freehand";
 import {
   createPersistedWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
@@ -20,6 +23,11 @@ import {
   OWNED_DARK_THEME_FILTER,
   applyOwnedDarkModeFilter,
 } from "./theme-color";
+import {
+  createRoughDrawables,
+  isRoughRenderableElement,
+  lineDashFor,
+} from "./rough-shapes";
 
 const DEFAULT_EXPORT_PADDING = 10;
 const MIN_EXPORT_SCALE = 0.1;
@@ -100,6 +108,7 @@ export function exportOwnedWhiteboardSvg(
     typeof document.state.viewBackgroundColor === "string"
       ? document.state.viewBackgroundColor
       : "#ffffff";
+  const roughGenerator = rough.generator();
   const body = elements
     .map((element) =>
       serializeElement(
@@ -108,6 +117,7 @@ export function exportOwnedWhiteboardSvg(
         offsetX,
         offsetY,
         exportWithDarkMode,
+        roughGenerator,
       ),
     )
     .join("");
@@ -131,6 +141,7 @@ function serializeElement(
   offsetX: number,
   offsetY: number,
   exportWithDarkMode: boolean,
+  roughGenerator: RoughGenerator,
 ): string {
   const geometry = getElementGeometry(element);
   if (!geometry) return "";
@@ -209,11 +220,39 @@ function serializeElement(
     );
   }
 
-  if (
-    element.type === "line" ||
-    element.type === "arrow" ||
-    element.type === "freedraw"
-  ) {
+  if (isRoughRenderableElement(element)) {
+    const paths = createRoughDrawables(
+      roughGenerator,
+      element,
+      geometry.width,
+      geometry.height,
+      exportWithDarkMode ? "dark" : "light",
+    ).flatMap((drawable) => roughGenerator.toPaths(drawable));
+    const dash = lineDashFor(element).join(" ");
+    const serializedPaths = paths
+      .map((path) => {
+        const isStrokePath = path.stroke !== "none" && path.fill === "none";
+        return [
+          `<path d="${escapeAttribute(path.d)}"`,
+          ` stroke="${escapeAttribute(path.stroke)}"`,
+          ` stroke-width="${formatNumber(path.strokeWidth)}"`,
+          ` fill="${escapeAttribute(path.fill ?? "none")}"`,
+          dash && isStrokePath ? ` stroke-dasharray="${dash}"` : "",
+          "/>",
+        ].join("");
+      })
+      .join("");
+    return `<g ${commonAttributes} stroke-linecap="round" stroke-linejoin="round">${serializedPaths}</g>`;
+  }
+
+  if (element.type === "freedraw") {
+    const path = getFreeDrawSvgPath(createFreeDrawOutline(element));
+    return path
+      ? `<path ${commonAttributes} d="${escapeAttribute(path)}" fill="${stroke}" stroke="none"/>`
+      : "";
+  }
+
+  if (element.type === "line" || element.type === "arrow") {
     const points = readElementPoints(element);
     if (points.length === 0) return "";
     const path = points
@@ -355,10 +394,7 @@ function readSvgDimensions(svg: string): {
 }
 
 function strokeDashArray(element: WhiteboardElement): string {
-  const style = readElementString(element, "strokeStyle", "solid");
-  if (style === "dashed") return "8 6";
-  if (style === "dotted") return "2 4";
-  return "";
+  return lineDashFor(element).join(" ");
 }
 
 function escapeText(value: string): string {

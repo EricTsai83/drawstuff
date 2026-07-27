@@ -18,6 +18,18 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive/10 text-destructive hover:bg-destructive/20 focus-visible:border-destructive/40 focus-visible:ring-destructive/20 dark:bg-destructive/20 dark:hover:bg-destructive/30 dark:focus-visible:ring-destructive/40",
         link: "text-primary underline-offset-4 hover:underline",
+        whiteboard:
+          "bg-transparent text-[var(--whiteboard-on-surface)] hover:bg-[var(--whiteboard-button-hover)] aria-expanded:bg-[var(--whiteboard-button-hover)] active:not-aria-[haspopup]:translate-y-0",
+        "whiteboard-active":
+          "bg-[var(--whiteboard-primary-container)] text-[var(--whiteboard-on-primary-container)] hover:bg-[var(--whiteboard-primary-container)] active:not-aria-[haspopup]:translate-y-0",
+        "whiteboard-control":
+          "bg-[var(--whiteboard-control)] text-[var(--whiteboard-on-surface)] shadow-[0_0_0_1px_var(--whiteboard-surface-lowest)] hover:bg-[var(--whiteboard-control-hover)] active:not-aria-[haspopup]:translate-y-0",
+        "whiteboard-group-control":
+          "rounded-none bg-[var(--whiteboard-control)] text-[var(--whiteboard-on-surface)] hover:bg-[var(--whiteboard-control-hover)] active:not-aria-[haspopup]:translate-y-0",
+        "whiteboard-panel":
+          "bg-[var(--whiteboard-surface-mid)] text-[var(--whiteboard-on-surface)] hover:bg-[var(--whiteboard-surface-high)] active:not-aria-[haspopup]:translate-y-0",
+        "whiteboard-primary":
+          "bg-[var(--whiteboard-primary)] text-white hover:bg-[var(--whiteboard-primary-hover)] active:not-aria-[haspopup]:translate-y-0",
       },
       size: {
         default:
@@ -31,6 +43,12 @@ const buttonVariants = cva(
         "icon-sm":
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
+        "whiteboard-tool":
+          "size-9 rounded-lg p-0 text-[0.8333rem] [&_svg:not([class*='size-'])]:size-4",
+        "whiteboard-icon":
+          "size-8 rounded-lg p-0 text-[0.8333rem] [&_svg:not([class*='size-'])]:size-4",
+        "whiteboard-share":
+          "h-9 rounded-lg px-3 text-[0.8333rem] [&_svg:not([class*='size-'])]:size-4",
       },
     },
     defaultVariants: {

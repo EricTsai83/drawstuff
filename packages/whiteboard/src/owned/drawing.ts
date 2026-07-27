@@ -2,7 +2,7 @@ import type { WhiteboardElement, WhiteboardElementStyle } from "../contracts";
 import { normalizeBounds, type WhiteboardPoint } from "./geometry";
 
 export type OwnedDrawingTool =
-  "arrow" | "diamond" | "ellipse" | "freedraw" | "line" | "rectangle";
+  "arrow" | "diamond" | "ellipse" | "frame" | "freedraw" | "line" | "rectangle";
 
 export type OwnedCreatableTool = OwnedDrawingTool | "text";
 
@@ -10,6 +10,7 @@ export interface OwnedDrawingCapabilities {
   readonly arrow: boolean;
   readonly diamond: boolean;
   readonly ellipse: boolean;
+  readonly frame: boolean;
   readonly freedraw: boolean;
   readonly line: boolean;
   readonly rectangle: boolean;
@@ -20,6 +21,7 @@ export const DEFAULT_OWNED_DRAWING_CAPABILITIES: OwnedDrawingCapabilities = {
   arrow: true,
   diamond: true,
   ellipse: true,
+  frame: true,
   freedraw: true,
   line: true,
   rectangle: true,
@@ -32,11 +34,12 @@ export interface OwnedDrawingSession {
   readonly points: readonly WhiteboardPoint[];
 }
 
-type OwnedBoxDrawingTool = "diamond" | "ellipse" | "rectangle";
+type OwnedBoxDrawingTool = "diamond" | "ellipse" | "frame" | "rectangle";
 
 const BOX_TOOLS = new Set<OwnedBoxDrawingTool>([
   "diamond",
   "ellipse",
+  "frame",
   "rectangle",
 ]);
 
@@ -51,6 +54,7 @@ export function isOwnedCreatableTool(tool: string): tool is OwnedCreatableTool {
     tool === "arrow" ||
     tool === "diamond" ||
     tool === "ellipse" ||
+    tool === "frame" ||
     tool === "freedraw" ||
     tool === "line" ||
     tool === "rectangle" ||
@@ -98,6 +102,7 @@ export function createOwnedDrawingElement(
     strokeStyle: style.strokeStyle,
     opacity: style.opacity,
     roughness: style.roughness ?? 1,
+    ...(style.roundness ? { roundness: style.roundness } : {}),
     locked: false,
   } as const;
 
@@ -113,6 +118,9 @@ export function createOwnedDrawingElement(
     return {
       ...base,
       type: session.tool,
+      ...(session.tool === "frame"
+        ? { backgroundColor: "transparent", fillStyle: "solid" as const }
+        : {}),
       x: bounds.minX,
       y: bounds.minY,
       width: bounds.maxX - bounds.minX,
@@ -182,6 +190,7 @@ export function createOwnedTextElement(
     strokeStyle: style.strokeStyle,
     opacity: style.opacity,
     roughness: style.roughness ?? 1,
+    ...(style.roundness ? { roundness: style.roundness } : {}),
     locked: false,
   };
 }

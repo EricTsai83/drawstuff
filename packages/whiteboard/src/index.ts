@@ -12,6 +12,8 @@ export type {
   WhiteboardInlineAssetV2,
   WhiteboardElementStyle,
   WhiteboardElementStyleUpdate,
+  WhiteboardElementOrderAction,
+  WhiteboardEdgeStyle,
   OwnedWhiteboardEditorState,
   OwnedWhiteboardEditorStateUpdate,
   WhiteboardElement,

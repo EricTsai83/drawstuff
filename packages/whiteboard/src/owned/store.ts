@@ -4,6 +4,7 @@ import type {
   OwnedWhiteboardEditorState,
   OwnedWhiteboardEditorStateUpdate,
   WhiteboardElement,
+  WhiteboardElementOrderAction,
   WhiteboardElementStyle,
   WhiteboardElementStyleUpdate,
   WhiteboardEngine,
@@ -54,6 +55,7 @@ export type OwnedDocumentCommandKind =
   | "move"
   | "paste"
   | "resize"
+  | "reorder"
   | "rotate"
   | "style";
 
@@ -77,6 +79,7 @@ const DEFAULT_STYLE: WhiteboardElementStyle = {
   strokeStyle: "solid",
   opacity: 100,
   roughness: 1,
+  roundness: "round",
 };
 
 const DEFAULT_VIEWPORT: WhiteboardViewport = {
@@ -279,6 +282,69 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     }
     this.emitEditor();
     if (this.selectedElementIds.length > 0) this.emitRender("scene");
+  }
+
+  public reorderSelection(action: WhiteboardElementOrderAction): void {
+    this.assertActive();
+    this.finalizeActiveElementGesture();
+    if (this.selectedElementIds.length === 0) return;
+    const selectedIds = new Set(this.selectedElementIds);
+    const before = this.document;
+    const elements = [...this.document.elements];
+    if (action === "back" || action === "front") {
+      const selected = elements.filter((element) =>
+        selectedIds.has(element.id),
+      );
+      const unselected = elements.filter(
+        (element) => !selectedIds.has(element.id),
+      );
+      elements.splice(
+        0,
+        elements.length,
+        ...(action === "back"
+          ? [...selected, ...unselected]
+          : [...unselected, ...selected]),
+      );
+    } else if (action === "backward") {
+      for (let index = 1; index < elements.length; index += 1) {
+        const current = elements[index];
+        const previous = elements[index - 1];
+        if (
+          current &&
+          previous &&
+          selectedIds.has(current.id) &&
+          !selectedIds.has(previous.id)
+        ) {
+          elements[index - 1] = current;
+          elements[index] = previous;
+        }
+      }
+    } else {
+      for (let index = elements.length - 2; index >= 0; index -= 1) {
+        const current = elements[index];
+        const next = elements[index + 1];
+        if (
+          current &&
+          next &&
+          selectedIds.has(current.id) &&
+          !selectedIds.has(next.id)
+        ) {
+          elements[index] = next;
+          elements[index + 1] = current;
+        }
+      }
+    }
+    if (
+      elements.every((element, index) => element === before.elements[index])
+    ) {
+      return;
+    }
+    this.document = { ...this.document, elements };
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation("reorder", before);
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
   }
 
   public getViewport(): WhiteboardViewport {
@@ -881,7 +947,9 @@ function elementStyleDiffers(
     (update.strokeStyle !== undefined &&
       update.strokeStyle !== element.strokeStyle) ||
     (update.opacity !== undefined && update.opacity !== element.opacity) ||
-    (update.roughness !== undefined && update.roughness !== element.roughness)
+    (update.roughness !== undefined &&
+      update.roughness !== element.roughness) ||
+    (update.roundness !== undefined && update.roundness !== element.roundness)
   );
 }
 
@@ -894,6 +962,7 @@ function styleFromElement(element: WhiteboardElement): WhiteboardElementStyle {
     strokeStyle: element.strokeStyle,
     opacity: element.opacity,
     roughness: element.roughness,
+    roundness: element.roundness ?? "sharp",
   };
 }
 
