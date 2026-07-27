@@ -32,6 +32,7 @@
     "eslint": "^9.39.5",
     "eslint-config-next": "^16.2.12",
     "eslint-plugin-drizzle": "^0.2.3",
+    "jiti": "^2.7.0",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "turbo": "^2.10.7",
