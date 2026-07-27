@@ -12,3 +12,17 @@ allowBuilds:
   msgpackr-extract: false
   sharp: false
   unrs-resolver: false
+
+overrides:
+  # UploadThing 7.7.4 pins vulnerable effect 3.17.7; fixed in 3.20.0.
+  effect: 3.20.0
+
+auditConfig:
+  ignoreGhsas:
+    # better-auth > drizzle-kit > @esbuild-kit > esbuild
+    - GHSA-67mh-4wv8-2f99
+    # Next.js-pinned production dependencies
+    - GHSA-qx2v-qp2m-jg93
+    - GHSA-f88m-g3jw-g9cj
+    - GHSA-6g55-p6wh-862q
+    - GHSA-r28c-9q8g-f849
