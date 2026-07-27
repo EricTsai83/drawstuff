@@ -1,14 +1,11 @@
 {
-  "reviewedAt": "2026-07-27",
+  "reviewedAt": "2026-07-28",
   "advisories": [
     "GHSA-38f7-945m-qr2g:effect",
     "GHSA-395f-4hp3-45gv:shell-quote",
-    "GHSA-4x5r-pxfx-6jf8:@babel/core",
     "GHSA-67mh-4wv8-2f99:esbuild",
     "GHSA-6g55-p6wh-862q:postcss",
-    "GHSA-737v-mqg7-c878:defu",
     "GHSA-f88m-g3jw-g9cj:sharp",
-    "GHSA-g7r4-m6w7-qqqr:esbuild",
     "GHSA-qx2v-qp2m-jg93:postcss",
     "GHSA-r28c-9q8g-f849:postcss",
     "GHSA-w7jw-789q-3m8p:shell-quote"
