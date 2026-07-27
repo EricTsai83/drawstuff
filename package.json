@@ -29,8 +29,12 @@
       "tests/setup.ts"
     ]
   },
-  "engines": {
-    "node": "24.x"
+  "devEngines": {
+    "runtime": {
+      "name": "node",
+      "version": "24.18.0",
+      "onFail": "download"
+    }
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

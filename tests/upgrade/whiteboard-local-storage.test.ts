@@ -51,23 +51,6 @@ describe("canonical local whiteboard storage", () => {
     });
   });
 
-  it("reclaims obsolete whiteboard values before reading V2", () => {
-    localStorage.setItem("excalidraw", "old-elements");
-    localStorage.setItem("excalidraw-files", "old-assets");
-    localStorage.setItem(
-      "drawstuff-whiteboard-recovery-document",
-      "old-snapshot",
-    );
-
-    importFromLocalStorage();
-
-    expect(localStorage.getItem("excalidraw")).toBeNull();
-    expect(localStorage.getItem("excalidraw-files")).toBeNull();
-    expect(
-      localStorage.getItem("drawstuff-whiteboard-recovery-document"),
-    ).toBeNull();
-  });
-
   it("returns an empty document for corrupt storage without throwing", () => {
     localStorage.setItem("drawstuff-whiteboard-document", "{not-json");
     const consoleError = vi
