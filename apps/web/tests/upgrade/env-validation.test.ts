@@ -36,7 +36,7 @@ describe("environment parsing", () => {
   });
 
   it("accepts the complete server and client environment", async () => {
-    const { env } = await import("@/env.js");
+    const { env } = await import("@/env");
 
     expect(env.POSTGRES_DATABASE).toBe("drawstuff");
     expect(env.NEXT_PUBLIC_BASE_URL).toBe("https://drawstuff.test");
@@ -46,6 +46,6 @@ describe("environment parsing", () => {
     vi.stubEnv("NEXT_PUBLIC_BASE_URL", "not-a-url");
     vi.resetModules();
 
-    await expect(import("@/env.js")).rejects.toThrow();
+    await expect(import("@/env")).rejects.toThrow();
   });
 });

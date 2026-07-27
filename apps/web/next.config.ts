@@ -2,10 +2,11 @@
  * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially useful
  * for Docker builds.
  */
-import "./src/env.js";
+import "./src/env.ts";
 
-/** @type {import("next").NextConfig} */
-const config = {
+import type { NextConfig } from "next";
+
+const config: NextConfig = {
   transpilePackages: ["@drawstuff/whiteboard"],
   devIndicators: false,
   // T3 Code's collaborative preview reaches the local dev server through
