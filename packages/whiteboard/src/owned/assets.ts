@@ -5,6 +5,7 @@ import type {
   WhiteboardViewport,
 } from "../contracts";
 import { createOwnedElementId } from "./drawing";
+import { createOwnedElementRuntimeFields } from "./element-version";
 
 export const OWNED_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
 export const OWNED_IMAGE_MAX_DIMENSION = 8192;
@@ -143,9 +144,11 @@ export function createWhiteboardImageElement(
   const height = Math.max(1, image.height * scale);
   const centerX = viewport.width / (2 * viewport.zoom) - viewport.x;
   const centerY = viewport.height / (2 * viewport.zoom) - viewport.y;
+  const id = createId();
 
   return {
-    id: createId(),
+    ...createOwnedElementRuntimeFields(id),
+    id,
     type: "image",
     isDeleted: false,
     fileId: image.asset.id,
@@ -162,6 +165,9 @@ export function createWhiteboardImageElement(
     opacity: 100,
     roughness: 0,
     locked: false,
+    status: "saved",
+    scale: [1, 1],
+    crop: null,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { WhiteboardElement, WhiteboardElementStyle } from "../contracts";
 import { normalizeBounds, type WhiteboardPoint } from "./geometry";
+import { createOwnedElementRuntimeFields } from "./element-version";
 
 export type OwnedDrawingTool =
   "arrow" | "diamond" | "ellipse" | "frame" | "freedraw" | "line" | "rectangle";
@@ -31,8 +32,13 @@ export const DEFAULT_OWNED_DRAWING_CAPABILITIES: OwnedDrawingCapabilities = {
 export interface OwnedDrawingSession {
   readonly tool: OwnedDrawingTool;
   readonly start: WhiteboardPoint;
-  readonly points: readonly WhiteboardPoint[];
+  end: WhiteboardPoint;
+  readonly chunks: WhiteboardPoint[][];
+  readonly pressureChunks: number[][];
+  pointCount: number;
 }
+
+export const OWNED_FREEDRAW_CHUNK_SIZE = 256;
 
 type OwnedBoxDrawingTool = "diamond" | "ellipse" | "frame" | "rectangle";
 
@@ -66,21 +72,50 @@ export function beginOwnedDrawing(
   tool: OwnedDrawingTool,
   point: WhiteboardPoint,
 ): OwnedDrawingSession {
-  return { tool, start: point, points: [point] };
+  return {
+    tool,
+    start: point,
+    end: point,
+    chunks: [[point]],
+    pressureChunks: [[0.5]],
+    pointCount: 1,
+  };
 }
 
 export function updateOwnedDrawing(
   session: OwnedDrawingSession,
   point: WhiteboardPoint,
+  options?: {
+    readonly minDistance?: number;
+    readonly pressure?: number;
+  },
 ): OwnedDrawingSession {
   if (session.tool !== "freedraw") {
-    return { ...session, points: [session.start, point] };
-  }
-  const previous = session.points.at(-1);
-  if (previous?.x === point.x && previous.y === point.y) {
+    session.end = point;
     return session;
   }
-  return { ...session, points: [...session.points, point] };
+  const previousChunk = session.chunks.at(-1);
+  const previous = previousChunk?.at(-1);
+  const minDistance = Math.max(0, options?.minDistance ?? 0);
+  if (
+    previous &&
+    Math.hypot(previous.x - point.x, previous.y - point.y) <= minDistance
+  ) {
+    return session;
+  }
+  let points = previousChunk;
+  let pressures = session.pressureChunks.at(-1);
+  if (!points || !pressures || points.length >= OWNED_FREEDRAW_CHUNK_SIZE) {
+    points = [];
+    pressures = [];
+    session.chunks.push(points);
+    session.pressureChunks.push(pressures);
+  }
+  points.push(point);
+  pressures.push(clampPressure(options?.pressure));
+  session.end = point;
+  session.pointCount += 1;
+  return session;
 }
 
 export function createOwnedDrawingElement(
@@ -89,8 +124,9 @@ export function createOwnedDrawingElement(
   id: string,
   options?: { readonly preview?: boolean },
 ): WhiteboardElement | null {
-  const end = session.points.at(-1) ?? session.start;
+  const end = session.end;
   const base = {
+    ...createOwnedElementRuntimeFields(id),
     id,
     type: session.tool,
     isDeleted: false,
@@ -119,7 +155,11 @@ export function createOwnedDrawingElement(
       ...base,
       type: session.tool,
       ...(session.tool === "frame"
-        ? { backgroundColor: "transparent", fillStyle: "solid" as const }
+        ? {
+            backgroundColor: "transparent",
+            fillStyle: "solid" as const,
+            name: "",
+          }
         : {}),
       x: bounds.minX,
       y: bounds.minY,
@@ -128,7 +168,8 @@ export function createOwnedDrawingElement(
     };
   }
 
-  const bounds = normalizePointBounds(session.points);
+  const points = materializeDrawingPoints(session);
+  const bounds = normalizePointBounds(points);
   if (
     !options?.preview &&
     bounds.minX === bounds.maxX &&
@@ -145,10 +186,40 @@ export function createOwnedDrawingElement(
     height: bounds.maxY - bounds.minY,
     backgroundColor: "transparent",
     fillStyle: "solid",
-    points: session.points.map(
+    points: points.map(
       (point) => [point.x - bounds.minX, point.y - bounds.minY] as const,
     ),
+    ...(session.tool === "freedraw"
+      ? {
+          pressures: session.pressureChunks.flat(),
+          simulatePressure: session.pressureChunks
+            .flat()
+            .every((pressure) => pressure === 0.5),
+          lastCommittedPoint: [
+            end.x - bounds.minX,
+            end.y - bounds.minY,
+          ] as const,
+        }
+      : {}),
+    ...(session.tool === "arrow" || session.tool === "line"
+      ? {
+          startArrowhead: null,
+          endArrowhead: session.tool === "arrow" ? "arrow" : null,
+          startBinding: null,
+          endBinding: null,
+          elbowed: false,
+          fixedSegments: [],
+        }
+      : {}),
   };
+}
+
+export function materializeDrawingPoints(
+  session: OwnedDrawingSession,
+): readonly WhiteboardPoint[] {
+  return session.tool === "freedraw"
+    ? session.chunks.flat()
+    : [session.start, session.end];
 }
 
 export function createOwnedTextElement(
@@ -171,6 +242,7 @@ export function createOwnedTextElement(
   );
   const estimatedHeight = Math.max(1, lines.length * fontSize * lineHeight);
   return {
+    ...createOwnedElementRuntimeFields(id),
     id,
     type: "text",
     isDeleted: false,
@@ -183,6 +255,11 @@ export function createOwnedTextElement(
     originalText: text,
     fontSize,
     lineHeight,
+    fontFamily: "excalifont",
+    textAlign: "left",
+    verticalAlign: "top",
+    containerId: null,
+    autoResize: true,
     strokeColor: style.strokeColor,
     backgroundColor: "transparent",
     fillStyle: "solid",
@@ -228,4 +305,10 @@ function normalizePointBounds(points: readonly WhiteboardPoint[]) {
     maxX,
     maxY,
   };
+}
+
+function clampPressure(value: number | undefined): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? Math.min(1, value)
+    : 0.5;
 }

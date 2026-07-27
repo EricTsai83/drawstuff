@@ -8,6 +8,10 @@
     ".": {
       "types": "./src/index.ts",
       "default": "./src/index.ts"
+    },
+    "./migration-v2": {
+      "types": "./src/migration-v2.ts",
+      "default": "./src/migration-v2.ts"
     }
   },
   "scripts": {

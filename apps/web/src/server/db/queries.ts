@@ -9,6 +9,7 @@ import {
   category,
   sceneCategory,
   deferredFileCleanup,
+  legacySharedSceneTombstone,
   session,
   verification,
 } from "./schema";
@@ -93,6 +94,13 @@ export const QUERIES = {
       .delete(sharedScene)
       .where(eq(sharedScene.sharedSceneId, sharedSceneId))
       .returning();
+  },
+
+  deleteLegacySharedSceneTombstonesOlderThan: async function (cutoff: Date) {
+    return await db
+      .delete(legacySharedSceneTombstone)
+      .where(lt(legacySharedSceneTombstone.expiredAt, cutoff))
+      .returning({ id: legacySharedSceneTombstone.sharedSceneId });
   },
 
   // 文件記錄相關查詢

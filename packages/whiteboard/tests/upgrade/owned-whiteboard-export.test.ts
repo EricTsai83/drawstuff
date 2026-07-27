@@ -179,7 +179,7 @@ describe("owned whiteboard export", () => {
 
     expect(svg).toContain("SECOND");
     expect(svg).not.toContain("FIRST");
-    expect(exported.version).toBe(2);
+    expect(exported.version).toBe(3);
     expect(Object.keys(exported.assets)).toEqual(["referenced"]);
   });
 

@@ -1,9 +1,9 @@
 import "server-only";
 
 import {
-  externalizeWhiteboardDocumentAssetsV2,
-  parseWhiteboardDocumentV2,
-  serializeWhiteboardDocumentV2,
+  externalizeWhiteboardDocumentAssetsV3,
+  parseWhiteboardDocumentV3,
+  serializeWhiteboardDocumentV3,
 } from "@drawstuff/whiteboard";
 import { compressData, decompressData } from "@/lib/encode";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "./persistence-guard";
@@ -18,10 +18,10 @@ export async function createPublicWhiteboardPayload(
       maxDecompressedBytes: MAX_DECOMPRESSED_SCENE_BYTES,
     });
     const source = new TextDecoder().decode(data);
-    const document = parseWhiteboardDocumentV2(source);
-    const publicDocument = externalizeWhiteboardDocumentAssetsV2(document);
+    const document = parseWhiteboardDocumentV3(source);
+    const publicDocument = externalizeWhiteboardDocumentAssetsV3(document);
     const publicCompressed = await compressData(
-      new TextEncoder().encode(serializeWhiteboardDocumentV2(publicDocument)),
+      new TextEncoder().encode(serializeWhiteboardDocumentV3(publicDocument)),
       {},
     );
     return Buffer.from(publicCompressed).toString("base64");

@@ -1,10 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createWhiteboardDocumentV2,
-  serializeWhiteboardDocumentV2,
+  migrateWhiteboardDocumentV2,
   type WhiteboardAssetV2,
   type WhiteboardElementV2,
-} from "@drawstuff/whiteboard";
+} from "@drawstuff/whiteboard/migration-v2";
+import { serializeWhiteboardDocumentV3 } from "@drawstuff/whiteboard";
 import { compressData } from "@/lib/encode";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";
 
@@ -69,7 +70,9 @@ async function encodeDocument(options: {
     },
   });
   const compressed = await compressData(
-    new TextEncoder().encode(serializeWhiteboardDocumentV2(document)),
+    new TextEncoder().encode(
+      serializeWhiteboardDocumentV3(migrateWhiteboardDocumentV2(document)),
+    ),
     {},
   );
   return Buffer.from(compressed).toString("base64");

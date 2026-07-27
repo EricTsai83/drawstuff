@@ -1,7 +1,7 @@
 import "server-only";
 
 import {
-  parseWhiteboardDocumentV2,
+  parseWhiteboardDocumentV3,
   WHITEBOARD_DOCUMENT_VERSION,
 } from "@drawstuff/whiteboard";
 import {
@@ -32,7 +32,7 @@ export async function validateStoredWhiteboardWrite(
   }
   try {
     const nextPayload = await decodeScenePayload(nextData);
-    parseWhiteboardDocumentV2(nextPayload);
+    parseWhiteboardDocumentV3(nextPayload);
     return "safe";
   } catch (error) {
     return error instanceof DecompressionLimitError ? "too-large" : "invalid";

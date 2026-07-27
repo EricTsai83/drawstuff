@@ -35,6 +35,7 @@ import {
 import { WhiteboardShell } from "@/features/whiteboard/ui";
 import { WhiteboardProductMenu } from "./whiteboard-product-menu";
 import { OwnedWhiteboardCanvas } from "@drawstuff/whiteboard";
+import { consumeWhiteboardV3ResetNotice } from "@/data/local-storage";
 
 export default function WhiteboardEditor() {
   useSceneImportFileGuard();
@@ -100,6 +101,9 @@ export default function WhiteboardEditor() {
     suppressDirtyTracking();
     const nextInitialDataPromise = createInitialWhiteboardDocument({
       onFailure: (errorCode) => {
+        if (errorCode === "LEGACY_SHARE_EXPIRED") {
+          toast.error("此分享連結使用舊版格式，已失效");
+        }
         recordWhiteboardDiagnostic({
           operation: "load",
           outcome: "failure",
@@ -108,6 +112,9 @@ export default function WhiteboardEditor() {
         });
       },
     }).then((document) => {
+      if (consumeWhiteboardV3ResetNotice()) {
+        toast.info("本地草稿已因畫布升級重置");
+      }
       recordWhiteboardDiagnostic({
         operation: "load",
         outcome: "success",

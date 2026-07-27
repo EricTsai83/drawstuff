@@ -16,9 +16,9 @@ import {
 import { isSafeInlineImage, pruneUnreferencedWhiteboardAssets } from "./assets";
 import { createFreeDrawOutline, getFreeDrawSvgPath } from "./freehand";
 import {
-  createPersistedWhiteboardDocumentV2,
-  serializeWhiteboardDocumentV2,
-} from "../canonical-document";
+  createPersistedWhiteboardDocumentV3,
+  serializeWhiteboardDocumentV3,
+} from "../v3-document";
 import {
   OWNED_DARK_THEME_FILTER,
   applyOwnedDarkModeFilter,
@@ -61,8 +61,8 @@ export function exportOwnedWhiteboardDocument(
   );
   return new Blob(
     [
-      serializeWhiteboardDocumentV2(
-        createPersistedWhiteboardDocumentV2({
+      serializeWhiteboardDocumentV3(
+        createPersistedWhiteboardDocumentV3({
           ...document,
           elements,
           assets: availableAssets,

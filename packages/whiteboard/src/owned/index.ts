@@ -33,6 +33,8 @@ export {
   createOwnedTextElement,
   DEFAULT_OWNED_DRAWING_CAPABILITIES,
   isOwnedCreatableTool,
+  materializeDrawingPoints,
+  OWNED_FREEDRAW_CHUNK_SIZE,
   updateOwnedDrawing,
   type OwnedCreatableTool,
   type OwnedDrawingCapabilities,
@@ -97,6 +99,22 @@ export {
   type OwnedWhiteboardRenderChange,
   type OwnedWhiteboardRenderListener,
 } from "./store";
+export {
+  OWNED_SPATIAL_CELL_SIZE,
+  OWNED_SPATIAL_MAX_CELLS,
+  OwnedSpatialIndex,
+} from "./spatial-index";
+export {
+  isRasterSizeAllowed,
+  OWNED_RASTER_DESKTOP_BUDGET,
+  OWNED_RASTER_MAX_AREA,
+  OWNED_RASTER_MAX_SIDE,
+  OWNED_RASTER_MOBILE_BUDGET,
+  OwnedRasterCache,
+  type OwnedRasterCacheValue,
+  type OwnedRasterCacheVariant,
+} from "./raster-cache";
+export { OwnedPerformanceMonitor } from "./performance-monitor";
 export { OwnedWhiteboardTextEditor } from "./text-editor";
 export {
   applyOwnedDarkModeFilter,

@@ -9,6 +9,7 @@ export const whiteboardDiagnosticSchema = z
       .enum([
         "CONFLICT",
         "INVALID_DOCUMENT",
+        "LEGACY_SHARE_EXPIRED",
         "MISSING_ASSET",
         "NETWORK",
         "PAYLOAD_TOO_LARGE",

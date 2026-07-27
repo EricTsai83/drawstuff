@@ -5,9 +5,11 @@ import {
   parseWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
   type WhiteboardAssetV2,
-  type OwnedWhiteboardDocument,
-  type WhiteboardElementType,
   type WhiteboardElementV2,
+} from "@drawstuff/whiteboard/migration-v2";
+import type {
+  OwnedWhiteboardDocument,
+  WhiteboardElementType,
 } from "@drawstuff/whiteboard";
 import { saveSceneSchema } from "@/lib/schemas/scene";
 
@@ -419,7 +421,7 @@ describe("WhiteboardDocumentV2", () => {
       data: "compressed",
     };
     expect(
-      saveSceneSchema.safeParse({ ...base, documentVersion: 2 }).success,
+      saveSceneSchema.safeParse({ ...base, documentVersion: 3 }).success,
     ).toBe(true);
     expect(saveSceneSchema.safeParse(base).success).toBe(false);
     expect(

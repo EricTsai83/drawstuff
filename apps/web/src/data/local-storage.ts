@@ -1,15 +1,17 @@
 import { STORAGE_KEYS } from "@/config/app-constants";
 import {
-  createPersistedWhiteboardDocumentV2,
-  parseWhiteboardDocumentV2,
-  serializeWhiteboardDocumentV2,
-  toRuntimeWhiteboardDocumentV2,
+  createPersistedWhiteboardDocumentV3,
+  parseWhiteboardDocumentV3,
+  serializeWhiteboardDocumentV3,
+  toRuntimeWhiteboardDocumentV3,
   type OwnedWhiteboardDocument,
   type WhiteboardDocumentState,
-  type WhiteboardDocumentV2,
+  type WhiteboardDocumentV3,
   type WhiteboardAsset,
   type WhiteboardElement,
 } from "@drawstuff/whiteboard";
+
+const WHITEBOARD_V3_RESET_NOTICE_KEY = "drawstuff:whiteboard-v3-reset-notice";
 
 // SSR/Node 環境保護：只有在瀏覽器且存在 localStorage 才進行存取
 function canUseLocalStorage(): boolean {
@@ -38,8 +40,13 @@ export const importFromLocalStorage = () => {
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
     );
     if (source !== null) {
-      const document = toRuntimeWhiteboardDocumentV2(
-        parseWhiteboardDocumentV2(source),
+      if (readDocumentVersion(source) === 2) {
+        localStorage.removeItem(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT);
+        localStorage.setItem(WHITEBOARD_V3_RESET_NOTICE_KEY, "1");
+        throw new Error("Legacy V2 local draft was reset");
+      }
+      const document = toRuntimeWhiteboardDocumentV3(
+        parseWhiteboardDocumentV3(source),
       );
       return {
         elements: clearElementsForLocalStorage([...document.elements]),
@@ -58,15 +65,23 @@ export const importFromLocalStorage = () => {
   };
 };
 
-/** Writes the active canonical V2 document. */
+export function consumeWhiteboardV3ResetNotice(): boolean {
+  if (!canUseLocalStorage()) return false;
+  const shouldNotify =
+    localStorage.getItem(WHITEBOARD_V3_RESET_NOTICE_KEY) === "1";
+  if (shouldNotify) localStorage.removeItem(WHITEBOARD_V3_RESET_NOTICE_KEY);
+  return shouldNotify;
+}
+
+/** Writes the active canonical V3 document. */
 export function saveWhiteboardDocumentToLocalStorage(
-  document: WhiteboardDocumentV2,
+  document: WhiteboardDocumentV3,
 ): boolean {
   if (!canUseLocalStorage()) return false;
   try {
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
-      serializeWhiteboardDocumentV2(document),
+      serializeWhiteboardDocumentV3(document),
     );
     return true;
   } catch (error: unknown) {
@@ -76,7 +91,7 @@ export function saveWhiteboardDocumentToLocalStorage(
 }
 
 /**
- * Owned sessions update only the canonical V2 key.
+ * Owned sessions update only the canonical V3 key.
  */
 export function saveOwnedWhiteboardDocumentToLocalStorage(
   document: OwnedWhiteboardDocument,
@@ -86,11 +101,24 @@ export function saveOwnedWhiteboardDocumentToLocalStorage(
   return saveWhiteboardDocumentToLocalStorage(persistedDocument);
 }
 
+function readDocumentVersion(source: string): number | null {
+  try {
+    const value: unknown = JSON.parse(source);
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      return null;
+    }
+    const version = (value as Record<string, unknown>).version;
+    return typeof version === "number" ? version : null;
+  } catch {
+    return null;
+  }
+}
+
 function createPersistedLocalWhiteboardDocument(
   document: OwnedWhiteboardDocument,
-): WhiteboardDocumentV2 | null {
+): WhiteboardDocumentV3 | null {
   try {
-    return createPersistedWhiteboardDocumentV2(document);
+    return createPersistedWhiteboardDocumentV3(document);
   } catch (error: unknown) {
     console.error("Failed to prepare owned local whiteboard document", error);
     return null;

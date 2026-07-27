@@ -244,7 +244,7 @@ describe("owned whiteboard store", () => {
     expect(store.getDocument().elements[0]).toMatchObject({ fileId: null });
   });
 
-  it("refuses a malformed canonical import with duplicate ids", async () => {
+  it("rejects legacy V2 file imports as unsupported", async () => {
     const store = new OwnedWhiteboardStore();
     const malformedBlob = new Blob([
       JSON.stringify({
@@ -274,8 +274,8 @@ describe("owned whiteboard store", () => {
     ]);
 
     await expect(store.importDocument(malformedBlob)).rejects.toMatchObject({
-      code: "MALFORMED_DOCUMENT",
-      path: "$.elements[1].id",
+      code: "UNSUPPORTED_VERSION",
+      path: "$.version",
     });
     expect(store.getDocument().elements).toEqual([]);
   });

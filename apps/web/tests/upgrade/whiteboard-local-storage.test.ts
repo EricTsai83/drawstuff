@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  consumeWhiteboardV3ResetNotice,
   importFromLocalStorage,
   saveOwnedWhiteboardDocumentToLocalStorage,
 } from "@/data/local-storage";
@@ -44,11 +45,11 @@ describe("canonical local whiteboard storage", () => {
   it("round-trips the current document", () => {
     expect(saveOwnedWhiteboardDocumentToLocalStorage(document)).toBe(true);
 
-    expect(importFromLocalStorage()).toEqual({
-      elements: document.elements,
-      appState: document.state,
-      files: {},
-    });
+    const loaded = importFromLocalStorage();
+    expect(loaded.elements).toHaveLength(1);
+    expect(loaded.elements[0]).toMatchObject(document.elements[0]!);
+    expect(loaded.appState).toEqual(document.state);
+    expect(loaded.files).toEqual({});
   });
 
   it("returns an empty document for corrupt storage without throwing", () => {
@@ -64,5 +65,21 @@ describe("canonical local whiteboard storage", () => {
     });
     expect(consoleError).toHaveBeenCalledOnce();
     consoleError.mockRestore();
+  });
+
+  it("drops only a legacy V2 document and exposes a one-time notice", () => {
+    localStorage.setItem(
+      "drawstuff-whiteboard-document",
+      JSON.stringify({ version: 2 }),
+    );
+    localStorage.setItem("theme", "dark");
+    localStorage.setItem("currentSceneId", "remote-scene");
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    expect(importFromLocalStorage().elements).toEqual([]);
+    expect(localStorage.getItem("drawstuff-whiteboard-document")).toBeNull();
+    expect(localStorage.getItem("theme")).toBe("dark");
+    expect(consumeWhiteboardV3ResetNotice()).toBe(true);
+    expect(consumeWhiteboardV3ResetNotice()).toBe(false);
   });
 });

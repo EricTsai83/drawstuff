@@ -120,6 +120,7 @@ import type {
   WhiteboardStrokeStyle,
   WhiteboardTheme,
   WhiteboardTool,
+  WhiteboardToolType,
 } from "@drawstuff/whiteboard";
 import { OWNED_DARK_THEME_FILTER } from "@drawstuff/whiteboard";
 import { triggerBlobDownload } from "@/lib/download";
@@ -128,7 +129,7 @@ import { cn } from "@/lib/utils";
 type Icon = ComponentType<React.ComponentProps<"svg">>;
 
 type ToolDefinition = {
-  readonly type: string;
+  readonly type: WhiteboardToolType;
   readonly label: string;
   readonly shortcut: string;
   readonly keys: readonly string[];
@@ -263,7 +264,9 @@ const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.1;
 
 const DISCONNECTED_STATE: OwnedWhiteboardEditorState = {
-  activeTool: { type: "selection", locked: false, customType: null },
+  activeTool: { type: "selection", locked: false },
+  toolLocked: false,
+  interaction: "idle",
   viewport: {
     x: 0,
     y: 0,
@@ -276,6 +279,7 @@ const DISCONNECTED_STATE: OwnedWhiteboardEditorState = {
   name: "",
   theme: "light",
   selectedElementIds: [],
+  selection: { elementIds: [], groupIds: [], editingGroupId: null },
   elementStyle: {
     strokeColor: STROKE_COLORS[0],
     backgroundColor: FILL_COLORS[0],
@@ -285,6 +289,11 @@ const DISCONNECTED_STATE: OwnedWhiteboardEditorState = {
     opacity: 100,
     roundness: "round",
   },
+  selectionStyle: null,
+  canUndo: false,
+  canRedo: false,
+  canGroup: false,
+  canUngroup: false,
 };
 
 export type WhiteboardShellProps = {
@@ -320,11 +329,25 @@ export function WhiteboardShell({
   const [exportOpen, setExportOpen] = useState(false);
   const [propertiesOpen, setPropertiesOpen] = useState(false);
   const [clearOpen, setClearOpen] = useState(false);
+  const [isDocumentEmpty, setIsDocumentEmpty] = useState(true);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const showProperties = canShowProperties(editorState);
 
+  useEffect(() => {
+    if (!engine) {
+      setIsDocumentEmpty(true);
+      return;
+    }
+    const update = (document: ReturnType<WhiteboardEngine["getDocument"]>) =>
+      setIsDocumentEmpty(
+        !document.elements.some((element) => !element.isDeleted),
+      );
+    update(engine.getDocument());
+    return engine.subscribeDocument(update);
+  }, [engine]);
+
   const selectTool = useCallback(
-    (type: string) => {
+    (type: WhiteboardToolType) => {
       if (type === "image" && engine?.insertImage) {
         imageInputRef.current?.click();
         return;
@@ -483,6 +506,39 @@ export function WhiteboardShell({
             className="pointer-events-none absolute inset-0 z-10"
             onContextMenu={(event) => event.stopPropagation()}
           >
+            {isDocumentEmpty && (
+              <section
+                aria-label="Welcome to Drawstuff"
+                className="pointer-events-auto absolute top-1/2 left-1/2 flex w-[min(26rem,calc(100%_-_2rem))] -translate-x-1/2 -translate-y-1/2 flex-col items-center gap-4 rounded-xl bg-[var(--whiteboard-island)] p-6 text-center shadow-[var(--whiteboard-shadow)]"
+              >
+                <div className="flex flex-col gap-1">
+                  <h1 className="text-lg font-semibold">Start drawing</h1>
+                  <p className="text-muted-foreground text-sm">
+                    Open a V3 board or create something new on the canvas.
+                  </p>
+                </div>
+                <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+                  <Button onClick={() => setImportOpen(true)} variant="outline">
+                    <FileUp data-icon="inline-start" />
+                    Open V3 file
+                  </Button>
+                  <Button
+                    onClick={() => {
+                      if (onWorkspace) onWorkspace();
+                      else window.location.assign("/login");
+                    }}
+                    variant="outline"
+                  >
+                    {onWorkspace ? "Browse Workspace" : "Sign in"}
+                  </Button>
+                  <Button onClick={() => setHelpOpen(true)} variant="ghost">
+                    <HelpCircle data-icon="inline-start" />
+                    Help & shortcuts
+                  </Button>
+                </div>
+              </section>
+            )}
+
             <TopBar
               connected={Boolean(engine)}
               isSaving={isSaving}
@@ -505,11 +561,11 @@ export function WhiteboardShell({
               onSelectTool={selectTool}
               onToggleLock={() => {
                 const activeTool = editorState.activeTool;
-                engine?.setActiveTool({
-                  ...activeTool,
-                  locked: !activeTool.locked,
-                });
+                engine?.setToolLocked(!activeTool.locked);
               }}
+              onLockTool={(type) =>
+                engine?.setActiveTool({ type, locked: true })
+              }
             />
 
             {showProperties && (
@@ -776,7 +832,8 @@ function TopBar({
 type DrawingToolbarProps = {
   readonly activeTool: WhiteboardTool;
   readonly disabled: boolean;
-  readonly onSelectTool: (type: string) => void;
+  readonly onSelectTool: (type: WhiteboardToolType) => void;
+  readonly onLockTool: (type: WhiteboardToolType) => void;
   readonly onToggleLock: () => void;
 };
 
@@ -784,6 +841,7 @@ function DrawingToolbar({
   activeTool,
   disabled,
   onSelectTool,
+  onLockTool,
   onToggleLock,
 }: DrawingToolbarProps) {
   const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
@@ -873,6 +931,7 @@ function DrawingToolbar({
                 disabled={disabled}
                 onKeyDown={(event) => moveFocus(event, index)}
                 onClick={() => onSelectTool(tool.type)}
+                onDoubleClick={() => onLockTool(tool.type)}
                 ref={(button) => {
                   buttonRefs.current[index] = button;
                 }}

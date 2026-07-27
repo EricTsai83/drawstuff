@@ -9,9 +9,9 @@ afterEach(() => {
 });
 
 import {
-  createPersistedWhiteboardDocumentV2,
-  parseWhiteboardDocumentV2,
-  serializeWhiteboardDocumentV2,
+  createPersistedWhiteboardDocumentV3,
+  parseWhiteboardDocumentV3,
+  serializeWhiteboardDocumentV3,
   type OwnedWhiteboardDocument,
 } from "@drawstuff/whiteboard";
 import { compressData, decompressData } from "@/lib/encode";
@@ -75,13 +75,13 @@ describe("stored whiteboard persistence guard", () => {
     expect(sharedScene.documentVersion.notNull).toBe(true);
   });
 
-  it("accepts only a valid V2 payload with the explicit current write version", async () => {
-    const ownedSource = serializeWhiteboardDocumentV2(
-      createPersistedWhiteboardDocumentV2(ownedDocument),
+  it("accepts only a valid V3 payload with the explicit current write version", async () => {
+    const ownedSource = serializeWhiteboardDocumentV3(
+      createPersistedWhiteboardDocumentV3(ownedDocument),
     );
     const ownedData = await encodeScene(ownedSource);
 
-    await expect(validateStoredWhiteboardWrite(ownedData, 2)).resolves.toBe(
+    await expect(validateStoredWhiteboardWrite(ownedData, 3)).resolves.toBe(
       "safe",
     );
     await expect(validateStoredWhiteboardWrite(ownedData, 1)).resolves.toBe(
@@ -91,12 +91,12 @@ describe("stored whiteboard persistence guard", () => {
       validateStoredWhiteboardWrite(ownedData, undefined),
     ).resolves.toBe("stale-version");
     await expect(
-      validateStoredWhiteboardWrite("not-base64-scene-data", 2),
+      validateStoredWhiteboardWrite("not-base64-scene-data", 3),
     ).resolves.toBe("invalid");
   });
 
   it("checks only version and compressed size for opaque encrypted shares", () => {
-    expect(validateOpaqueEncryptedWhiteboardWrite("opaque-ciphertext", 2)).toBe(
+    expect(validateOpaqueEncryptedWhiteboardWrite("opaque-ciphertext", 3)).toBe(
       "safe",
     );
     expect(validateOpaqueEncryptedWhiteboardWrite("opaque-ciphertext", 1)).toBe(
@@ -105,36 +105,36 @@ describe("stored whiteboard persistence guard", () => {
     expect(
       validateOpaqueEncryptedWhiteboardWrite(
         "x".repeat(SCENE_DATA_MAX_LENGTH + 1),
-        2,
+        3,
       ),
     ).toBe("too-large");
   });
 
   it("does not inspect or depend on the previous row for a canonical write", async () => {
     const ownedData = await encodeScene(
-      serializeWhiteboardDocumentV2(
-        createPersistedWhiteboardDocumentV2(ownedDocument),
+      serializeWhiteboardDocumentV3(
+        createPersistedWhiteboardDocumentV3(ownedDocument),
       ),
     );
 
-    await expect(validateStoredWhiteboardWrite(ownedData, 2)).resolves.toBe(
+    await expect(validateStoredWhiteboardWrite(ownedData, 3)).resolves.toBe(
       "safe",
     );
   });
 });
 
 describe("public owned payload", () => {
-  it("emits V2 external assets without inline bytes", async () => {
+  it("emits V3 external assets without inline bytes", async () => {
     const privateData = await encodeScene(
-      serializeWhiteboardDocumentV2(
-        createPersistedWhiteboardDocumentV2(ownedDocument),
+      serializeWhiteboardDocumentV3(
+        createPersistedWhiteboardDocumentV3(ownedDocument),
       ),
     );
     const publicData = await createPublicWhiteboardPayload(privateData);
     expect(publicData).not.toBeNull();
     const publicSource = await decodeScene(publicData!);
-    const persisted = parseWhiteboardDocumentV2(publicSource);
-    expect(persisted.version).toBe(2);
+    const persisted = parseWhiteboardDocumentV3(publicSource);
+    expect(persisted.version).toBe(3);
     expect(persisted.assets["owned-file"]).toMatchObject({
       id: "owned-file",
       storage: "external",
@@ -144,8 +144,8 @@ describe("public owned payload", () => {
 
   it("refuses a well-formed document with a non-canonical field", async () => {
     const canonical = JSON.parse(
-      serializeWhiteboardDocumentV2(
-        createPersistedWhiteboardDocumentV2(ownedDocument),
+      serializeWhiteboardDocumentV3(
+        createPersistedWhiteboardDocumentV3(ownedDocument),
       ),
     ) as { elements: Array<Record<string, unknown>> };
     canonical.elements[0]!.futureData = true;
