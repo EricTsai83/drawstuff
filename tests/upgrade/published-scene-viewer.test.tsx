@@ -9,7 +9,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type {
   OwnedWhiteboardDocument,
   WhiteboardViewerController,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 
 const mocks = vi.hoisted(() => ({
   activeTheme: "light",
@@ -47,7 +47,7 @@ vi.mock("@/hooks/use-standalone-i18n", () => ({
   }),
 }));
 
-vi.mock("@/features/whiteboard/owned", async () => {
+vi.mock("@drawstuff/whiteboard", async () => {
   const React = await import("react");
   return {
     OwnedWhiteboardCanvas: ({

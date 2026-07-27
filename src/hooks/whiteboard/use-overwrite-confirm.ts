@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@drawstuff/whiteboard";
 import { toast } from "sonner";
 import { setOverwriteConfirmHandler } from "@/lib/initialize-scene";
 import { triggerBlobDownload } from "@/lib/download";

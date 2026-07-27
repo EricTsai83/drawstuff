@@ -1,5 +1,5 @@
 import { compressData } from "./encode";
-import type { WhiteboardAsset, WhiteboardElement } from "@/features/whiteboard";
+import type { WhiteboardAsset, WhiteboardElement } from "@drawstuff/whiteboard";
 import { isInitializedImageElement } from "@/lib/whiteboard";
 
 // 文件處理選項類型

@@ -4,7 +4,7 @@ import {
   importFromLocalStorage,
   saveOwnedWhiteboardDocumentToLocalStorage,
 } from "@/data/local-storage";
-import type { OwnedWhiteboardDocument } from "@/features/whiteboard";
+import type { OwnedWhiteboardDocument } from "@drawstuff/whiteboard";
 
 const document: OwnedWhiteboardDocument = {
   elements: [

@@ -7,12 +7,12 @@ import type {
   WhiteboardAsset,
   WhiteboardDocumentState,
   WhiteboardElement,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import {
   createPersistedWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 
 // 準備場景數據用於導出
 export async function prepareSceneDataForExport(

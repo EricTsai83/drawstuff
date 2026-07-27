@@ -11,7 +11,7 @@ import type {
   WhiteboardAsset,
   WhiteboardDocumentState,
   WhiteboardEngine,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 
 type ApplyRemoteSceneParams = {
   sceneId: string;

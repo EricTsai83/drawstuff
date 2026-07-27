@@ -3,14 +3,14 @@ import { getTrpcClient } from "@/trpc/client";
 import type {
   WhiteboardAsset,
   OwnedWhiteboardDocument,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { ensureInitialWhiteboardState } from "@/lib/whiteboard";
 import {
   filterReferencedWhiteboardAssets,
   parseWhiteboardDocumentV2,
   toRuntimeWhiteboardDocumentV2,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 
 export async function importDataFromBackend(
   id: string,

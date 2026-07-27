@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   createPersistedWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { compressData } from "@/lib/encode";
 
 const boundaryMocks = vi.hoisted(() => ({

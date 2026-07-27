@@ -4,8 +4,8 @@ import {
   toRuntimeWhiteboardDocumentV2,
   type WhiteboardAsset,
   type OwnedWhiteboardDocument,
-} from "@/features/whiteboard";
-import { resolveWhiteboardAssets } from "@/features/whiteboard/owned";
+} from "@drawstuff/whiteboard";
+import { resolveWhiteboardAssets } from "@drawstuff/whiteboard";
 
 type DecompressedFileMetadata = {
   id: string;

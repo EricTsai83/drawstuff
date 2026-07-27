@@ -30,7 +30,7 @@ import {
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { decompressData } from "@/lib/encode";
-import { parseWhiteboardDocumentV2 } from "@/features/whiteboard";
+import { parseWhiteboardDocumentV2 } from "@drawstuff/whiteboard";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "@/server/whiteboard/persistence-guard";
 

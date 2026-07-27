@@ -22,7 +22,7 @@ import {
   type CreateOwnedSceneDraftResult,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
-import type { WHITEBOARD_DOCUMENT_VERSION } from "@/features/whiteboard";
+import type { WHITEBOARD_DOCUMENT_VERSION } from "@drawstuff/whiteboard";
 import { validateOpaqueEncryptedWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
 
 export type HandleSceneSaveResult = {

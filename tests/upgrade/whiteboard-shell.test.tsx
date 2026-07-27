@@ -15,7 +15,7 @@ import type {
   WhiteboardEngine,
   WhiteboardTool,
   WhiteboardViewport,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { WhiteboardShell } from "@/features/whiteboard/ui";
 import { SCENE_FILE_IMPORT_MAX_BYTES } from "@/config/app-constants";
 

@@ -4,7 +4,7 @@ import {
   serializeWhiteboardDocumentV2,
   type WhiteboardAssetV2,
   type WhiteboardElementV2,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { compressData } from "@/lib/encode";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";
 

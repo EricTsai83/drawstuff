@@ -4,7 +4,7 @@ import {
   externalizeWhiteboardDocumentAssetsV2,
   parseWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { compressData, decompressData } from "@/lib/encode";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "./persistence-guard";
 

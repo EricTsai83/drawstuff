@@ -12,7 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
-import { WHITEBOARD_DOCUMENT_VERSION } from "@/features/whiteboard/canonical-document";
+import { WHITEBOARD_DOCUMENT_VERSION } from "@drawstuff/whiteboard";
 
 // This is a stable physical database prefix, not a product-format reference.
 // Changing it requires paired ALTER TABLE renames and a tablesFilter update.

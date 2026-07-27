@@ -14,10 +14,10 @@ import {
   type WhiteboardDocumentState,
   type WhiteboardElement,
   type WhiteboardEngine,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { openConfirmModal } from "@/lib/initialize-scene";
 import { parseSharedSceneHash } from "@/lib/utils";
-import { exportOwnedWhiteboardImage } from "@/features/whiteboard/owned";
+import { exportOwnedWhiteboardImage } from "@drawstuff/whiteboard";
 
 export type InitialWhiteboardDocument = OwnedWhiteboardDocument & {
   readonly scrollToContent?: boolean;

@@ -27,8 +27,8 @@ import type {
   OwnedWhiteboardDocument,
   WhiteboardViewerController,
   WhiteboardViewport,
-} from "@/features/whiteboard";
-import { OwnedWhiteboardCanvas } from "@/features/whiteboard/owned";
+} from "@drawstuff/whiteboard";
+import { OwnedWhiteboardCanvas } from "@drawstuff/whiteboard";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { loadPublishedSceneData } from "@/lib/published-scene-data";

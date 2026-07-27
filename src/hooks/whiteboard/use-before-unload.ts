@@ -1,10 +1,10 @@
 import { useEffect, useCallback } from "react";
 import { saveOwnedWhiteboardDocumentToLocalStorage } from "@/data/local-storage";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@drawstuff/whiteboard";
 import {
   recordWhiteboardDiagnostic,
   WHITEBOARD_DOCUMENT_VERSION,
-} from "@/features/whiteboard";
+} from "@drawstuff/whiteboard";
 import { cleanUnusedWhiteboardAssets } from "@/lib/whiteboard";
 
 export const useBeforeUnload = (engine: WhiteboardEngine | null) => {

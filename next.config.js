@@ -6,6 +6,7 @@ import "./src/env.js";
 
 /** @type {import("next").NextConfig} */
 const config = {
+  transpilePackages: ["@drawstuff/whiteboard"],
   // T3 Code's collaborative preview reaches the local dev server through
   // 127.0.0.1. Next.js otherwise blocks its dev assets and HMR websocket.
   allowedDevOrigins: ["127.0.0.1"],

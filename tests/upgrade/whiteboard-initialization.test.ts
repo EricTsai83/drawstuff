@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { OwnedWhiteboardDocument } from "@/features/whiteboard";
+import type { OwnedWhiteboardDocument } from "@drawstuff/whiteboard";
 
 const initializationMocks = vi.hoisted(() => ({
   importDataFromBackend: vi.fn(),

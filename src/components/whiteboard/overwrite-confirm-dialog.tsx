@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Download, Image as ImageIcon, CloudUpload } from "lucide-react";
-import type { WhiteboardEngine } from "@/features/whiteboard";
+import type { WhiteboardEngine } from "@drawstuff/whiteboard";
 import { useOverwriteConfirm } from "@/hooks/whiteboard/use-overwrite-confirm";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { getCurrentSceneSnapshot } from "@/lib/whiteboard";
