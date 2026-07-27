@@ -3,6 +3,25 @@
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
+      "env": [
+        "BETTER_AUTH_SECRET",
+        "BETTER_AUTH_URL",
+        "CLEANUP_OWNER_EMAIL",
+        "CRON_SECRET",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "NEXT_PUBLIC_BASE_URL",
+        "POSTGRES_DATABASE",
+        "POSTGRES_HOST",
+        "POSTGRES_PASSWORD",
+        "POSTGRES_PRISMA_URL",
+        "POSTGRES_URL",
+        "POSTGRES_URL_NON_POOLING",
+        "POSTGRES_URL_NO_SSL",
+        "POSTGRES_USER",
+        "SKIP_ENV_VALIDATION",
+        "UPLOADTHING_TOKEN"
+      ],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
       "outputs": [".next/**", "!.next/cache/**"]
     },
