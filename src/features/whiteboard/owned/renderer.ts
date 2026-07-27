@@ -397,7 +397,7 @@ export class OwnedWhiteboardRenderer {
     element: WhiteboardElement,
     assets: Readonly<Record<string, WhiteboardAsset>>,
   ): void {
-    const fileId = element.fileId;
+    const fileId = element.type === "image" ? element.fileId : null;
     const asset = typeof fileId === "string" ? assets[fileId] : undefined;
     const geometry = getElementGeometry(element);
     if (!asset || !geometry) {

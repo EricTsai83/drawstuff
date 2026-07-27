@@ -2,12 +2,9 @@ export type {
   WhiteboardAsset,
   WhiteboardAssetMimeTypeV2,
   WhiteboardAssetV2,
-  WhiteboardDocument,
-  WhiteboardDocumentMetadata,
+  OwnedWhiteboardDocument,
   WhiteboardDocumentMetadataV2,
-  WhiteboardDocumentPersistence,
   WhiteboardDocumentState,
-  WhiteboardDocumentV1,
   WhiteboardDocumentV2,
   WhiteboardElementType,
   WhiteboardElementV2,
@@ -15,16 +12,13 @@ export type {
   WhiteboardInlineAssetV2,
   WhiteboardElementStyle,
   WhiteboardElementStyleUpdate,
-  WhiteboardEditorState,
-  WhiteboardEditorStateUpdate,
+  OwnedWhiteboardEditorState,
+  OwnedWhiteboardEditorStateUpdate,
   WhiteboardElement,
   WhiteboardEngine,
   WhiteboardImageExportOptions,
   WhiteboardImportResult,
   WhiteboardFillStyle,
-  WhiteboardJsonValue,
-  WhiteboardLegacyEnvelope,
-  WhiteboardPersistenceFormat,
   WhiteboardTheme,
   WhiteboardStrokeStyle,
   WhiteboardTool,
@@ -33,22 +27,9 @@ export type {
   WhiteboardViewerController,
 } from "./contracts";
 export {
-  createPersistedWhiteboardDocumentV1,
-  createWhiteboardDocumentV1,
-  detectWhiteboardDocumentFormat,
-  getWhiteboardDocumentVersion,
-  LEGACY_MIGRATION_VERSION,
-  migrateLegacyExcalidrawScene,
-  parsePersistedWhiteboardPayload,
-  parseWhiteboardDocumentV1,
-  prepareWhiteboardDocumentForOwnedEngine,
-  serializeWhiteboardDocumentV1,
-  toRuntimeWhiteboardDocument,
-  WHITEBOARD_DOCUMENT_V1_VERSION,
   WhiteboardDocumentError,
-  type PersistedWhiteboardPayload,
   type WhiteboardDocumentErrorCode,
-} from "./document-format";
+} from "./document-errors";
 export { filterReferencedWhiteboardAssets } from "./document-assets";
 export {
   createPersistedWhiteboardDocumentV2,
@@ -59,14 +40,6 @@ export {
   toRuntimeWhiteboardDocumentV2,
   WHITEBOARD_DOCUMENT_VERSION,
 } from "./canonical-document";
-export {
-  convertPersistedWhiteboardDocumentToV2,
-  parseWhiteboardDocumentForImport,
-  WhiteboardConversionError,
-  type WhiteboardConversionReport,
-  type WhiteboardConversionResult,
-  type WhiteboardConversionSourceFormat,
-} from "./document-conversion";
 export {
   recordWhiteboardDiagnostic,
   whiteboardDiagnosticSchema,

@@ -1,10 +1,11 @@
 import type {
   WhiteboardAsset,
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard/contracts";
 import {
   createPersistedWhiteboardDocumentV2,
+  parseWhiteboardDocumentV2,
   toRuntimeWhiteboardDocumentV2,
 } from "@/features/whiteboard/canonical-document";
 
@@ -29,7 +30,7 @@ export function createOwnedClipboardPayload(
 ): OwnedClipboardPayloadV1 {
   const referencedAssets: Record<string, WhiteboardAsset> = {};
   for (const element of elements) {
-    const fileId = element.fileId;
+    const fileId = element.type === "image" ? element.fileId : null;
     if (typeof fileId !== "string") continue;
     const asset = assets[fileId];
     if (asset) referencedAssets[fileId] = asset;
@@ -63,14 +64,7 @@ export function parseOwnedClipboardPayload(
     if (!isRecord(parsed) || parsed.version !== OWNED_CLIPBOARD_VERSION) {
       return null;
     }
-    const normalized = normalizeClipboardContents(
-      Array.isArray(parsed.elements)
-        ? (parsed.elements as readonly WhiteboardElement[])
-        : [],
-      isRecord(parsed.assets)
-        ? (parsed.assets as Readonly<Record<string, WhiteboardAsset>>)
-        : {},
-    );
+    const normalized = parseClipboardContents(parsed.elements, parsed.assets);
     if (normalized.elements.length === 0) return null;
     return {
       version: OWNED_CLIPBOARD_VERSION,
@@ -82,13 +76,41 @@ export function parseOwnedClipboardPayload(
   }
 }
 
+function parseClipboardContents(
+  elements: unknown,
+  assets: unknown,
+): Pick<OwnedWhiteboardDocument, "elements" | "assets"> {
+  if (!Array.isArray(elements) || !isRecord(assets)) {
+    throw new Error("Clipboard payload is malformed");
+  }
+  const persistedAssets = Object.fromEntries(
+    Object.entries(assets).map(([id, asset]) => {
+      if (!isRecord(asset)) throw new Error("Clipboard asset is malformed");
+      return [id, { ...asset, storage: "inline" }] as const;
+    }),
+  );
+  return toRuntimeWhiteboardDocumentV2(
+    parseWhiteboardDocumentV2({
+      version: 2,
+      elements,
+      assets: persistedAssets,
+      metadata: {
+        name: "Clipboard",
+        theme: "light",
+        viewBackgroundColor: "#ffffff",
+        gridSize: null,
+      },
+    }),
+  );
+}
+
 function normalizeClipboardContents(
   elements: readonly WhiteboardElement[],
   assets: Readonly<Record<string, WhiteboardAsset>>,
-): Pick<WhiteboardDocument, "elements" | "assets"> {
+): Pick<OwnedWhiteboardDocument, "elements" | "assets"> {
   const normalized = toRuntimeWhiteboardDocumentV2(
     createPersistedWhiteboardDocumentV2({
-      elements: elements.map(removeStaleVariantFields),
+      elements,
       assets,
       state: {
         name: "Clipboard",
@@ -102,31 +124,6 @@ function normalizeClipboardContents(
     elements: normalized.elements,
     assets: normalized.assets,
   };
-}
-
-function removeStaleVariantFields(
-  element: WhiteboardElement,
-): WhiteboardElement {
-  const normalized = {
-    ...(element as unknown as Readonly<Record<string, unknown>>),
-  };
-  if (
-    element.type !== "arrow" &&
-    element.type !== "freedraw" &&
-    element.type !== "line"
-  ) {
-    delete normalized.points;
-  }
-  if (element.type !== "image") {
-    delete normalized.fileId;
-  }
-  if (element.type !== "text") {
-    delete normalized.text;
-    delete normalized.originalText;
-    delete normalized.fontSize;
-    delete normalized.lineHeight;
-  }
-  return normalized as unknown as WhiteboardElement;
 }
 
 export function remapOwnedClipboardPayload(
@@ -149,80 +146,21 @@ export function remapOwnedClipboardPayload(
       uniqueId(createId, reservedIds, "element"),
     ]),
   );
-  const groupIdMap = new Map<string, string>();
-  for (const element of payload.elements) {
-    const record = asRecord(element);
-    for (const groupId of readStringArray(record.groupIds)) {
-      if (!groupIdMap.has(groupId)) {
-        groupIdMap.set(groupId, uniqueId(createId, reservedIds, "group"));
-      }
-    }
-  }
-  const elements = payload.elements.map((element) => {
+  const elements: WhiteboardElement[] = payload.elements.map((element) => {
     const id = elementIdMap.get(element.id)!;
     const fileId =
-      typeof element.fileId === "string"
+      element.type === "image" && typeof element.fileId === "string"
         ? (assetIdMap.get(element.fileId) ?? null)
-        : element.fileId;
-    return {
+        : null;
+    const moved = {
       ...element,
-      ...remapElementReferences(element, elementIdMap, groupIdMap),
       id,
       x: finiteNumber(element.x, 0) + offset,
       y: finiteNumber(element.y, 0) + offset,
-      ...(fileId === undefined ? {} : { fileId }),
     };
+    return element.type === "image" ? { ...moved, fileId } : moved;
   });
   return { elements, assets };
-}
-
-function remapElementReferences(
-  element: WhiteboardElement,
-  elementIds: ReadonlyMap<string, string>,
-  groupIds: ReadonlyMap<string, string>,
-): Readonly<Record<string, unknown>> {
-  const record = asRecord(element);
-  const update: Record<string, unknown> = {};
-  if ("groupIds" in record) {
-    update.groupIds = readStringArray(record.groupIds).flatMap((id) => {
-      const remapped = groupIds.get(id);
-      return remapped ? [remapped] : [];
-    });
-  }
-  for (const key of ["containerId", "frameId"] as const) {
-    if (key in record) {
-      update[key] =
-        typeof record[key] === "string"
-          ? (elementIds.get(record[key]) ?? null)
-          : null;
-    }
-  }
-  if (Array.isArray(record.boundElementIds)) {
-    update.boundElementIds = readStringArray(record.boundElementIds).flatMap(
-      (id) => {
-        const remapped = elementIds.get(id);
-        return remapped ? [remapped] : [];
-      },
-    );
-  }
-  if (Array.isArray(record.boundElements)) {
-    update.boundElements = record.boundElements.flatMap((binding: unknown) => {
-      if (!isRecord(binding) || typeof binding.id !== "string") return [];
-      const id = elementIds.get(binding.id);
-      return id ? [{ ...binding, id }] : [];
-    });
-  }
-  for (const key of ["startBinding", "endBinding"] as const) {
-    if (!(key in record)) continue;
-    const binding = record[key];
-    if (!isRecord(binding) || typeof binding.elementId !== "string") {
-      update[key] = null;
-      continue;
-    }
-    const elementId = elementIds.get(binding.elementId);
-    update[key] = elementId ? { ...binding, elementId } : null;
-  }
-  return update;
 }
 
 function uniqueId(
@@ -250,14 +188,4 @@ function finiteNumber(value: number | undefined, fallback: number): number {
 
 function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function asRecord(value: WhiteboardElement): Readonly<Record<string, unknown>> {
-  return value as unknown as Readonly<Record<string, unknown>>;
-}
-
-function readStringArray(value: unknown): readonly string[] {
-  return Array.isArray(value)
-    ? value.filter((item): item is string => typeof item === "string")
-    : [];
 }

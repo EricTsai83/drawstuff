@@ -153,7 +153,7 @@ export const QUERIES = {
         .returning();
     }
 
-    // sharedSceneId 路徑以檔名保存 Excalidraw file id，支援重試冪等
+    // sharedSceneId 路徑以檔名保存 whiteboard asset id，支援重試冪等
     return await db
       .insert(fileRecord)
       .values({

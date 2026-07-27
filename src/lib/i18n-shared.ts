@@ -17,7 +17,7 @@ export const appTranslations: AppTranslations = {
     "app.cloudUpload.toast.error.unknown":
       "Unknown error occurred while uploading scene to cloud, please try again.",
     "app.localSave.toast.error":
-      "Local recovery storage is full. Export or save the scene before closing this tab.",
+      "Local whiteboard storage is full. Export or save the scene before closing this tab.",
     "app.cloudUpload.toast.error.sceneTooLarge":
       "This scene is too large for cloud storage. Export a local copy before continuing.",
 

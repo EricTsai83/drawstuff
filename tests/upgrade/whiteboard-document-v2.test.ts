@@ -1,13 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
-  convertPersistedWhiteboardDocumentToV2,
   createPersistedWhiteboardDocumentV2,
   createWhiteboardDocumentV2,
   parseWhiteboardDocumentV2,
   serializeWhiteboardDocumentV2,
-  WhiteboardConversionError,
   type WhiteboardAssetV2,
-  type WhiteboardDocument,
+  type OwnedWhiteboardDocument,
   type WhiteboardElementType,
   type WhiteboardElementV2,
 } from "@/features/whiteboard";
@@ -39,6 +37,44 @@ const assetMimeTypes = [
   "image/vnd.microsoft.icon",
   "image/webp",
   "image/x-icon",
+] as const;
+
+const earlierV2ElementFields = [
+  "autoResize",
+  "boundElementIds",
+  "boundElements",
+  "containerId",
+  "crop",
+  "customData",
+  "elbowed",
+  "endArrowhead",
+  "endBinding",
+  "endIsSpecial",
+  "fixedSegments",
+  "fontFamily",
+  "frameId",
+  "groupIds",
+  "hidden",
+  "index",
+  "lastCommittedPoint",
+  "link",
+  "name",
+  "pressures",
+  "roundness",
+  "scale",
+  "seed",
+  "simulatePressure",
+  "startArrowhead",
+  "startBinding",
+  "startIsSpecial",
+  "status",
+  "strokeSharpness",
+  "textAlign",
+  "updated",
+  "version",
+  "versionNonce",
+  "verticalAlign",
+  "visible",
 ] as const;
 
 function baseElement(
@@ -233,17 +269,20 @@ describe("WhiteboardDocumentV2", () => {
       path: "$.version",
     },
     {
-      payload: { ...canonicalDocument(), legacy: true },
+      payload: { ...canonicalDocument(), unsupportedRoot: true },
       code: "UNSUPPORTED_FIELD",
-      path: "$.legacy",
+      path: "$.unsupportedRoot",
     },
     {
       payload: {
         ...canonicalDocument(),
-        metadata: { ...canonicalDocument().metadata, migrationVersion: 1 },
+        metadata: {
+          ...canonicalDocument().metadata,
+          unsupportedMetadata: true,
+        },
       },
       code: "UNSUPPORTED_FIELD",
-      path: "$.metadata.migrationVersion",
+      path: "$.metadata.unsupportedMetadata",
     },
     {
       payload: {
@@ -276,13 +315,13 @@ describe("WhiteboardDocumentV2", () => {
         ...canonicalDocument(),
         elements: [
           {
-            ...baseElement("infinite-compatibility", "rectangle"),
-            customData: { pressure: Number.POSITIVE_INFINITY },
+            ...baseElement("future-field", "rectangle"),
+            futureData: true,
           },
         ],
       },
-      code: "MALFORMED_DOCUMENT",
-      path: "$.elements[0].customData.pressure",
+      code: "UNSUPPORTED_FIELD",
+      path: "$.elements[0].futureData",
     },
     {
       payload: {
@@ -308,13 +347,50 @@ describe("WhiteboardDocumentV2", () => {
     },
   );
 
-  it("keeps editor session state and transition envelopes out of writes", () => {
-    const runtime: WhiteboardDocument = {
+  it("strips properties emitted by earlier V2 writers", () => {
+    const document = parseWhiteboardDocumentV2({
+      ...canonicalDocument(),
+      elements: [
+        {
+          ...baseElement("earlier-v2", "rectangle"),
+          ...Object.fromEntries(
+            earlierV2ElementFields.map((field) => [field, null]),
+          ),
+        },
+      ],
+    });
+
+    expect(document.elements[0]).toEqual(
+      baseElement("earlier-v2", "rectangle"),
+    );
+    const serialized = JSON.parse(serializeWhiteboardDocumentV2(document)) as {
+      elements: Array<Record<string, unknown>>;
+    };
+    for (const field of earlierV2ElementFields) {
+      expect(field in serialized.elements[0]!).toBe(false);
+    }
+  });
+
+  it("keeps editor session state out of writes", () => {
+    const runtime: OwnedWhiteboardDocument = {
       elements: [
         {
           id: "shape",
           type: "rectangle",
           isDeleted: false,
+          x: 0,
+          y: 0,
+          width: 100,
+          height: 50,
+          angle: 0,
+          strokeColor: "#1e1e1e",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          opacity: 100,
+          roughness: 1,
+          locked: false,
         },
       ],
       assets: {},
@@ -324,18 +400,7 @@ describe("WhiteboardDocumentV2", () => {
         scrollX: 100,
         scrollY: 200,
         zoom: { value: 0.5 },
-        openDialog: { name: "export" },
-      },
-      persistence: {
-        sourceFormat: "legacy-excalidraw",
-        documentVersion: 2,
-        legacyRollback: {
-          format: "excalidraw",
-          sourceVersion: 2,
-          migrationVersion: 1,
-          originalPayload: "PRIVATE",
-          unsupported: {},
-        },
+        openDialog: null,
       },
     };
     const source = serializeWhiteboardDocumentV2(
@@ -344,140 +409,6 @@ describe("WhiteboardDocumentV2", () => {
 
     expect(source).not.toContain("scrollX");
     expect(source).not.toContain("openDialog");
-    expect(source).not.toContain("legacy");
-    expect(source).not.toContain("PRIVATE");
-  });
-
-  it("converts supported V1 atomically and reports unsupported legacy fields", () => {
-    const supported = {
-      version: 1,
-      elements: [{ id: "shape", type: "rectangle", isDeleted: false }],
-      assets: {},
-      metadata: {
-        name: "V1",
-        theme: "light",
-        viewBackgroundColor: "#ffffff",
-        gridSize: null,
-      },
-    };
-    expect(
-      convertPersistedWhiteboardDocumentToV2(supported).document.version,
-    ).toBe(2);
-
-    expect(() =>
-      convertPersistedWhiteboardDocumentToV2({
-        type: "excalidraw",
-        version: 2,
-        elements: [
-          {
-            id: "shape",
-            type: "rectangle",
-            isDeleted: false,
-            futureField: true,
-          },
-        ],
-        appState: {},
-        files: {},
-      }),
-    ).toThrowError(
-      expect.objectContaining({
-        code: "UNSUPPORTED_FIELD",
-        path: "$.elements[0].futureField",
-      }),
-    );
-
-    try {
-      convertPersistedWhiteboardDocumentToV2({
-        type: "excalidraw",
-        version: 2,
-        elements: [{ id: "future", type: "future-shape", isDeleted: false }],
-        appState: {},
-        files: {},
-      });
-      throw new Error("Expected unsupported element conversion to fail");
-    } catch (error) {
-      expect(error).toMatchObject({
-        code: "UNSUPPORTED_ELEMENT",
-        report: {
-          unsupportedElements: ["$.elements[0]"],
-          unsupportedFields: [],
-          missingAssets: [],
-        },
-      });
-    }
-  });
-
-  it.each([
-    {
-      field: "root",
-      patch: { futureRoot: true },
-      path: "$.futureRoot",
-    },
-    {
-      field: "metadata",
-      patch: {
-        metadata: {
-          name: "V1",
-          theme: "light",
-          viewBackgroundColor: "#ffffff",
-          gridSize: null,
-          futureMetadata: true,
-        },
-      },
-      path: "$.metadata.futureMetadata",
-    },
-    {
-      field: "element",
-      patch: {
-        elements: [
-          {
-            id: "shape",
-            type: "rectangle",
-            isDeleted: false,
-            futureElement: true,
-          },
-        ],
-      },
-      path: "$.elements[0].futureElement",
-    },
-    {
-      field: "asset",
-      patch: {
-        assets: {
-          asset: {
-            id: "asset",
-            dataURL: "data:image/png;base64,AA==",
-            mimeType: "image/png",
-            created: 1,
-            futureAsset: true,
-          },
-        },
-      },
-      path: "$.assets.asset.futureAsset",
-    },
-  ])("refuses unsupported native V1 $field fields", ({ patch, path }) => {
-    const payload = {
-      version: 1,
-      elements: [{ id: "shape", type: "rectangle", isDeleted: false }],
-      assets: {},
-      metadata: {
-        name: "V1",
-        theme: "light",
-        viewBackgroundColor: "#ffffff",
-        gridSize: null,
-      },
-      ...patch,
-    };
-
-    try {
-      convertPersistedWhiteboardDocumentToV2(payload);
-      throw new Error("Expected V1 conversion to refuse unsupported fields");
-    } catch (error) {
-      expect(error).toBeInstanceOf(WhiteboardConversionError);
-      if (!(error instanceof WhiteboardConversionError)) return;
-      expect(error).toMatchObject({ code: "UNSUPPORTED_FIELD", path });
-      expect(error.report.unsupportedFields).toContain(path);
-    }
   });
 
   it("requires the explicit current version in the save API", () => {

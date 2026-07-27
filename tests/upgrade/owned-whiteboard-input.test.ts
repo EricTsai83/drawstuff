@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
@@ -671,10 +671,20 @@ describe("owned whiteboard pointer input", () => {
   });
 
   it("does not cut an oversized whiteboard payload", () => {
-    const { target, store, input } = setup([
-      rectangle("shape", 0, 0, 40, 40, {
-        customData: { text: "界".repeat(1_700_000) },
-      }),
+    const oversizedAssetId = "oversized-asset";
+    const oversizedImage = {
+      ...rectangle("shape", 0, 0, 40, 40),
+      type: "image",
+      fileId: oversizedAssetId,
+    } as WhiteboardElement;
+    const { target, store, input } = setup([oversizedImage]);
+    store.addAssets([
+      {
+        id: oversizedAssetId,
+        dataURL: `data:image/png;base64,${"A".repeat(5_000_000)}`,
+        mimeType: "image/png",
+        created: 1,
+      },
     ]);
     store.setSelection(["shape"]);
     const clipboard = clipboardData();
@@ -751,7 +761,7 @@ function setup(
   });
   const store = new OwnedWhiteboardStore();
   store.resizeViewport(500, 400, 0, 0);
-  const whiteboardDocument: WhiteboardDocument = {
+  const whiteboardDocument: OwnedWhiteboardDocument = {
     elements,
     assets: {},
     state: {
@@ -899,6 +909,14 @@ function rectangle(
     width,
     height,
     angle: 0,
+    strokeColor: "#1e1e1e",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    opacity: 100,
+    roughness: 1,
+    locked: false,
     ...update,
   };
 }

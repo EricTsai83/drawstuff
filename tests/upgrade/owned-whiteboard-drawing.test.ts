@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElementStyle,
 } from "@/features/whiteboard";
 import {
@@ -108,6 +108,7 @@ describe("owned drawing element geometry", () => {
           "height": 14,
           "id": "draw-id",
           "isDeleted": false,
+          "locked": false,
           "opacity": 80,
           "points": [
             [
@@ -124,7 +125,6 @@ describe("owned drawing element geometry", () => {
             ],
           ],
           "roughness": 1,
-          "seed": 1264129047,
           "strokeColor": "#1971c2",
           "strokeStyle": "dashed",
           "strokeWidth": 2,
@@ -142,12 +142,12 @@ describe("owned drawing element geometry", () => {
           "id": "text-id",
           "isDeleted": false,
           "lineHeight": 1.25,
+          "locked": false,
           "opacity": 80,
           "originalText": "first
 
       third",
           "roughness": 1,
-          "seed": 924750060,
           "strokeColor": "#1971c2",
           "strokeStyle": "dashed",
           "strokeWidth": 2,
@@ -525,7 +525,7 @@ function setup() {
   return { target, store, sink, input };
 }
 
-function emptyDocument(): WhiteboardDocument {
+function emptyDocument(): OwnedWhiteboardDocument {
   return {
     elements: [],
     assets: {},

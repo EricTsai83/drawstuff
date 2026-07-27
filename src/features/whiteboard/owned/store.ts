@@ -1,8 +1,8 @@
 import type {
   WhiteboardAsset,
-  WhiteboardDocument,
-  WhiteboardEditorState,
-  WhiteboardEditorStateUpdate,
+  OwnedWhiteboardDocument,
+  OwnedWhiteboardEditorState,
+  OwnedWhiteboardEditorStateUpdate,
   WhiteboardElement,
   WhiteboardElementStyle,
   WhiteboardElementStyleUpdate,
@@ -14,9 +14,16 @@ import type {
   WhiteboardViewport,
 } from "@/features/whiteboard/contracts";
 import { filterReferencedWhiteboardAssets } from "@/features/whiteboard/document-assets";
-import { createPersistedWhiteboardDocumentV2 } from "@/features/whiteboard/canonical-document";
-import { parseWhiteboardDocumentForImport } from "@/features/whiteboard/document-conversion";
-import { createWhiteboardImageElement, importWhiteboardImage } from "./assets";
+import {
+  createPersistedWhiteboardDocumentV2,
+  parseWhiteboardDocumentV2,
+  toRuntimeWhiteboardDocumentV2,
+} from "@/features/whiteboard/canonical-document";
+import {
+  createWhiteboardImageElement,
+  importWhiteboardImage,
+  isSafeInlineImage,
+} from "./assets";
 import {
   exportOwnedWhiteboardDocument,
   exportOwnedWhiteboardImage,
@@ -52,13 +59,13 @@ export type OwnedDocumentCommandKind =
 
 interface OwnedDocumentCommand {
   readonly kind: OwnedDocumentCommandKind;
-  readonly before: WhiteboardDocument;
-  readonly after: WhiteboardDocument;
+  readonly before: OwnedWhiteboardDocument;
+  readonly after: OwnedWhiteboardDocument;
 }
 
 interface ActiveElementGesture {
   readonly kind: "move" | "resize" | "rotate";
-  readonly before: WhiteboardDocument;
+  readonly before: OwnedWhiteboardDocument;
   readonly elementIds: ReadonlySet<string>;
 }
 
@@ -82,7 +89,7 @@ const DEFAULT_VIEWPORT: WhiteboardViewport = {
   offsetY: 0,
 };
 
-const EMPTY_DOCUMENT: WhiteboardDocument = {
+const EMPTY_DOCUMENT: OwnedWhiteboardDocument = {
   elements: [],
   assets: {},
   state: {
@@ -99,18 +106,19 @@ export type OwnedWhiteboardRenderListener = (
 ) => void;
 
 export class OwnedWhiteboardStore implements WhiteboardEngine {
-  private document: WhiteboardDocument = EMPTY_DOCUMENT;
-  private documentSnapshot: WhiteboardDocument = EMPTY_DOCUMENT;
-  private documentWithViewportSnapshot: WhiteboardDocument = EMPTY_DOCUMENT;
+  private document: OwnedWhiteboardDocument = EMPTY_DOCUMENT;
+  private documentSnapshot: OwnedWhiteboardDocument = EMPTY_DOCUMENT;
+  private documentWithViewportSnapshot: OwnedWhiteboardDocument =
+    EMPTY_DOCUMENT;
   private viewport: WhiteboardViewport = DEFAULT_VIEWPORT;
   private activeTool: WhiteboardTool = { type: "selection" };
   private selectedElementIds: readonly string[] = [];
   private elementStyle: WhiteboardElementStyle = DEFAULT_STYLE;
   private readonly documentListeners = new Set<
-    (document: WhiteboardDocument) => void
+    (document: OwnedWhiteboardDocument) => void
   >();
   private readonly editorListeners = new Set<
-    (state: WhiteboardEditorState) => void
+    (state: OwnedWhiteboardEditorState) => void
   >();
   private readonly renderListeners = new Set<OwnedWhiteboardRenderListener>();
   private readonly destroyListeners = new Set<() => void>();
@@ -119,7 +127,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   private activeElementGesture: ActiveElementGesture | null = null;
   private destroyed = false;
 
-  public loadDocument(document: WhiteboardDocument): void {
+  public loadDocument(document: OwnedWhiteboardDocument): void {
     this.assertActive();
     const nextZoom = clampZoom(document.state.zoom?.value, this.viewport.zoom);
     this.document = document;
@@ -147,20 +155,20 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.emitRender("scene");
   }
 
-  public getDocument(): WhiteboardDocument {
+  public getDocument(): OwnedWhiteboardDocument {
     this.assertActive();
     return this.getDocumentWithViewport();
   }
 
   public subscribeDocument(
-    listener: (document: WhiteboardDocument) => void,
+    listener: (document: OwnedWhiteboardDocument) => void,
   ): WhiteboardUnsubscribe {
     this.assertActive();
     this.documentListeners.add(listener);
     return () => this.documentListeners.delete(listener);
   }
 
-  public getEditorState(): WhiteboardEditorState {
+  public getEditorState(): OwnedWhiteboardEditorState {
     this.assertActive();
     const selectedElement = this.document.elements.find((element) =>
       this.selectedElementIds.includes(element.id),
@@ -175,20 +183,20 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       theme: this.document.state.theme === "dark" ? "dark" : "light",
       selectedElementIds: this.selectedElementIds,
       elementStyle: selectedElement
-        ? styleFromElement(selectedElement, this.elementStyle)
+        ? styleFromElement(selectedElement)
         : this.elementStyle,
     };
   }
 
   public subscribeEditorState(
-    listener: (state: WhiteboardEditorState) => void,
+    listener: (state: OwnedWhiteboardEditorState) => void,
   ): WhiteboardUnsubscribe {
     this.assertActive();
     this.editorListeners.add(listener);
     return () => this.editorListeners.delete(listener);
   }
 
-  public updateEditorState(update: WhiteboardEditorStateUpdate): void {
+  public updateEditorState(update: OwnedWhiteboardEditorStateUpdate): void {
     this.assertActive();
     if (update.name !== undefined) this.finalizeActiveElementGesture();
     const before = this.document;
@@ -455,7 +463,9 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public async importDocument(blob: Blob): Promise<WhiteboardImportResult> {
     this.assertActive();
-    const document = parseWhiteboardDocumentForImport(await blob.text());
+    const document = toRuntimeWhiteboardDocumentV2(
+      parseWhiteboardDocumentV2(await blob.text()),
+    );
     this.loadDocument(document);
     return {
       name:
@@ -746,7 +756,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.refreshViewportSnapshot();
   }
 
-  private getDocumentWithViewport(): WhiteboardDocument {
+  private getDocumentWithViewport(): OwnedWhiteboardDocument {
     return this.documentWithViewportSnapshot;
   }
 
@@ -764,7 +774,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   private recordDocumentMutation(
     kind: OwnedDocumentCommandKind,
-    before: WhiteboardDocument,
+    before: OwnedWhiteboardDocument,
   ): void {
     if (before === this.document) return;
     this.undoStack.push({ kind, before, after: this.document });
@@ -777,7 +787,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   }
 
   private rebaseHistoryDocuments(
-    transform: (document: WhiteboardDocument) => WhiteboardDocument,
+    transform: (document: OwnedWhiteboardDocument) => OwnedWhiteboardDocument,
   ): void {
     for (const stack of [this.undoStack, this.redoStack]) {
       stack.forEach((command, index) => {
@@ -832,7 +842,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.emitRender("scene");
   }
 
-  private restoreHistoryDocument(document: WhiteboardDocument): void {
+  private restoreHistoryDocument(document: OwnedWhiteboardDocument): void {
     this.document = document;
     this.refreshDocumentSnapshot();
     const selectableIds = new Set(
@@ -859,37 +869,31 @@ function elementStyleDiffers(
   element: WhiteboardElement,
   update: WhiteboardElementStyleUpdate,
 ): boolean {
-  const record = element as unknown as Readonly<Record<string, unknown>>;
-  return Object.entries(update).some(([key, value]) => record[key] !== value);
+  return (
+    (update.strokeColor !== undefined &&
+      update.strokeColor !== element.strokeColor) ||
+    (update.backgroundColor !== undefined &&
+      update.backgroundColor !== element.backgroundColor) ||
+    (update.fillStyle !== undefined &&
+      update.fillStyle !== element.fillStyle) ||
+    (update.strokeWidth !== undefined &&
+      update.strokeWidth !== element.strokeWidth) ||
+    (update.strokeStyle !== undefined &&
+      update.strokeStyle !== element.strokeStyle) ||
+    (update.opacity !== undefined && update.opacity !== element.opacity) ||
+    (update.roughness !== undefined && update.roughness !== element.roughness)
+  );
 }
 
-function styleFromElement(
-  element: WhiteboardElement,
-  fallback: WhiteboardElementStyle,
-): WhiteboardElementStyle {
-  const record = element as unknown as Readonly<Record<string, unknown>>;
+function styleFromElement(element: WhiteboardElement): WhiteboardElementStyle {
   return {
-    strokeColor: stringValue(record.strokeColor, fallback.strokeColor),
-    backgroundColor: stringValue(
-      record.backgroundColor,
-      fallback.backgroundColor,
-    ),
-    fillStyle:
-      record.fillStyle === "hachure" ||
-      record.fillStyle === "cross-hatch" ||
-      record.fillStyle === "solid" ||
-      record.fillStyle === "zigzag"
-        ? record.fillStyle
-        : fallback.fillStyle,
-    strokeWidth: finiteNumber(record.strokeWidth, fallback.strokeWidth),
-    strokeStyle:
-      record.strokeStyle === "solid" ||
-      record.strokeStyle === "dashed" ||
-      record.strokeStyle === "dotted"
-        ? record.strokeStyle
-        : fallback.strokeStyle,
-    opacity: finiteNumber(record.opacity, fallback.opacity),
-    roughness: finiteNumber(record.roughness, fallback.roughness ?? 1),
+    strokeColor: element.strokeColor,
+    backgroundColor: element.backgroundColor,
+    fillStyle: element.fillStyle,
+    strokeWidth: element.strokeWidth,
+    strokeStyle: element.strokeStyle,
+    opacity: element.opacity,
+    roughness: element.roughness,
   };
 }
 
@@ -910,10 +914,6 @@ function finiteNumber(value: unknown, fallback: number): number {
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
-function stringValue(value: unknown, fallback: string): string {
-  return typeof value === "string" ? value : fallback;
-}
-
 function shallowRecordEqual(left: object, right: object): boolean {
   const leftEntries = Object.entries(left);
   const rightEntries = Object.entries(right);
@@ -925,81 +925,70 @@ function shallowRecordEqual(left: object, right: object): boolean {
 }
 
 function createSerializableSnapshot(
-  document: WhiteboardDocument,
-): WhiteboardDocument {
-  const metadata = {
-    name: typeof document.state.name === "string" ? document.state.name : "",
-    theme:
-      document.state.theme === "dark" ? ("dark" as const) : ("light" as const),
-    viewBackgroundColor:
-      typeof document.state.viewBackgroundColor === "string"
-        ? document.state.viewBackgroundColor
-        : "#ffffff",
-    gridSize:
-      typeof document.state.gridSize === "number" &&
-      Number.isFinite(document.state.gridSize)
-        ? document.state.gridSize
-        : null,
-  };
+  document: OwnedWhiteboardDocument,
+): OwnedWhiteboardDocument {
   const validAssets: Record<string, WhiteboardAsset> = {};
   for (const [id, asset] of Object.entries(document.assets)) {
-    try {
-      createPersistedWhiteboardDocumentV2({
-        elements: [
-          {
-            id: `asset-validation-${id}`,
-            type: "image",
-            isDeleted: false,
-            fileId: id,
-          },
-        ],
-        assets: { [id]: asset },
-        state: metadata,
-      });
+    if (isSerializableAsset(id, asset)) {
       validAssets[id] = asset;
-    } catch {
-      // Invalid legacy assets remain absent until addAssets provides a valid copy.
     }
   }
 
   const seenIds = new Set<string>();
   const elements = document.elements.flatMap((element) => {
-    const record = element as unknown as Readonly<Record<string, unknown>>;
-    if (
-      typeof record.id !== "string" ||
-      typeof record.type !== "string" ||
-      seenIds.has(record.id)
-    ) {
+    if (seenIds.has(element.id)) {
       return [];
     }
-    seenIds.add(record.id);
-    const fileId =
-      record.fileId === null ||
-      record.fileId === undefined ||
-      typeof record.fileId === "string"
-        ? record.fileId
-        : null;
-    return [
-      {
-        ...record,
-        id: record.id,
-        type: record.type,
-        isDeleted: record.isDeleted === true,
-        ...(record.type === "image" &&
-        typeof fileId === "string" &&
-        !validAssets[fileId]
-          ? { fileId: null }
-          : fileId === undefined
-            ? {}
-            : { fileId }),
-      },
-    ];
+    seenIds.add(element.id);
+    return element.type === "image" &&
+      typeof element.fileId === "string" &&
+      !validAssets[element.fileId]
+      ? [{ ...element, fileId: null }]
+      : [element];
   });
   const assets = filterReferencedWhiteboardAssets(elements, validAssets);
   return {
     elements,
     assets,
     state: document.state,
-    ...(document.persistence ? { persistence: document.persistence } : {}),
   };
+}
+
+function isSerializableAsset(id: string, asset: WhiteboardAsset): boolean {
+  if (asset.id !== id || !isSafeInlineImage(asset)) return false;
+  try {
+    createPersistedWhiteboardDocumentV2({
+      elements: [
+        {
+          id: `asset-validation-${id}`,
+          type: "image",
+          isDeleted: false,
+          fileId: id,
+          x: 0,
+          y: 0,
+          width: 1,
+          height: 1,
+          angle: 0,
+          strokeColor: "transparent",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          strokeWidth: 1,
+          strokeStyle: "solid",
+          opacity: 100,
+          roughness: 0,
+          locked: false,
+        },
+      ],
+      assets: { [id]: asset },
+      state: {
+        name: "",
+        theme: "light",
+        viewBackgroundColor: "#ffffff",
+        gridSize: null,
+      },
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }

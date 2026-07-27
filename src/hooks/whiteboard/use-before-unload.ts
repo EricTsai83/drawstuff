@@ -1,7 +1,10 @@
 import { useEffect, useCallback } from "react";
 import { saveOwnedWhiteboardDocumentToLocalStorage } from "@/data/local-storage";
 import type { WhiteboardEngine } from "@/features/whiteboard";
-import { recordWhiteboardDiagnostic } from "@/features/whiteboard";
+import {
+  recordWhiteboardDiagnostic,
+  WHITEBOARD_DOCUMENT_VERSION,
+} from "@/features/whiteboard";
 import { cleanUnusedWhiteboardAssets } from "@/lib/whiteboard";
 
 export const useBeforeUnload = (engine: WhiteboardEngine | null) => {
@@ -18,8 +21,7 @@ export const useBeforeUnload = (engine: WhiteboardEngine | null) => {
       recordWhiteboardDiagnostic({
         operation: "save",
         outcome: "failure",
-        engine: "owned",
-        documentVersion: document.persistence?.documentVersion ?? null,
+        documentVersion: WHITEBOARD_DOCUMENT_VERSION,
         errorCode: "UNKNOWN",
       });
     }

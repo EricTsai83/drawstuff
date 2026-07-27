@@ -68,11 +68,10 @@ describe("owned whiteboard geometry", () => {
     expect(geometry?.bounds.maxY).toBeCloseTo(90);
   });
 
-  it("hit tests in reverse paint order while skipping locked, hidden, and deleted elements", () => {
+  it("hit tests in reverse paint order while skipping locked and deleted elements", () => {
     const elements = [
       element({ id: "bottom" }),
       element({ id: "locked", locked: true }),
-      element({ id: "hidden", hidden: true }),
       element({ id: "deleted", isDeleted: true }),
     ];
 
@@ -132,6 +131,14 @@ function element(update: Readonly<Record<string, unknown>>): WhiteboardElement {
     width: 100,
     height: 60,
     angle: 0,
+    strokeColor: "#1e1e1e",
+    backgroundColor: "transparent",
+    fillStyle: "solid",
+    strokeWidth: 1,
+    strokeStyle: "solid",
+    opacity: 100,
+    roughness: 1,
+    locked: false,
     ...update,
   };
 }

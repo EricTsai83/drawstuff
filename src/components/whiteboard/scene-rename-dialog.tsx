@@ -65,11 +65,7 @@ export function SceneRenameDialog({
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     // 組字中（中文輸入等）時，忽略 Enter
-    if (
-      e.nativeEvent.isComposing ||
-      (e as unknown as { keyCode?: number }).keyCode === 229
-    )
-      return;
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return;
 
     if (e.key === "Enter") {
       handleConfirm();

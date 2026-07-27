@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
@@ -81,11 +81,15 @@ describe("owned whiteboard editing transforms", () => {
       { minX: 0, minY: 0, maxX: 200, maxY: 150 },
     );
 
-    expect(resizedLine?.points).toEqual([
+    expect(
+      resizedLine && "points" in resizedLine ? resizedLine.points : undefined,
+    ).toEqual([
       [0, 0],
       [200, 150],
     ]);
-    expect(resizedText?.fontSize).toBe(60);
+    expect(
+      resizedText?.type === "text" ? resizedText.fontSize : undefined,
+    ).toBe(60);
   });
 
   it("resizes rotated elements uniformly from the opposite anchor", () => {
@@ -104,7 +108,7 @@ describe("owned whiteboard editing transforms", () => {
     expect(resized.angle).toBeCloseTo(Math.PI / 2);
     expect(resizedBounds.minX).toBeCloseTo(source.minX);
     expect(resizedBounds.maxX).toBeCloseTo(source.maxX + 100);
-    expect(resized.width! / resized.height!).toBeCloseTo(2);
+    expect(resized.width / resized.height).toBeCloseTo(2);
   });
 
   it("preserves aspect ratio with Shift semantics and prevents handle crossing", () => {
@@ -200,7 +204,7 @@ describe("owned whiteboard semantic history", () => {
         {
           ...editableElement("image", "image"),
           fileId: "remote",
-        },
+        } as WhiteboardElement,
       ]),
     );
 
@@ -226,7 +230,11 @@ describe("owned whiteboard semantic history", () => {
     store.redo();
     expect(store.getEditorState().theme).toBe("dark");
     expect(store.getAssets()).toHaveProperty("remote");
-    expect(store.getDocument().elements[0]?.fileId).toBe("remote");
+    const restored = store.getDocument().elements[0];
+    expect(restored?.type).toBe("image");
+    expect(restored?.type === "image" ? restored.fileId : undefined).toBe(
+      "remote",
+    );
   });
 });
 
@@ -234,31 +242,51 @@ function editableElement(
   type: (typeof EDITABLE_ELEMENT_TYPES)[number],
   id: string = type,
 ): WhiteboardElement {
-  return {
+  const common = {
     id,
     type,
     isDeleted: false,
-    fileId: type === "image" ? null : undefined,
     x: 0,
     y: 0,
     width: 100,
     height: 50,
     angle: 0,
-    points:
-      type === "line" || type === "arrow" || type === "freedraw"
-        ? [
-            [0, 0],
-            [100, 50],
-          ]
-        : undefined,
-    text: type === "text" ? "Editable" : undefined,
-    originalText: type === "text" ? "Editable" : undefined,
-    fontSize: type === "text" ? 20 : undefined,
-    lineHeight: type === "text" ? 1.25 : undefined,
+    strokeColor: "#1e1e1e",
+    backgroundColor: "transparent",
+    fillStyle: "solid" as const,
+    strokeWidth: 1,
+    strokeStyle: "solid" as const,
+    opacity: 100,
+    roughness: 1,
+    locked: false,
   };
+  if (type === "image") return { ...common, type, fileId: null };
+  if (type === "text") {
+    return {
+      ...common,
+      type,
+      text: "Editable",
+      originalText: "Editable",
+      fontSize: 20,
+      lineHeight: 1.25,
+    };
+  }
+  if (type === "line" || type === "arrow" || type === "freedraw") {
+    return {
+      ...common,
+      type,
+      points: [
+        [0, 0],
+        [100, 50],
+      ],
+    };
+  }
+  return { ...common, type };
 }
 
-function document(elements: readonly WhiteboardElement[]): WhiteboardDocument {
+function document(
+  elements: readonly WhiteboardElement[],
+): OwnedWhiteboardDocument {
   return {
     elements,
     assets: {},

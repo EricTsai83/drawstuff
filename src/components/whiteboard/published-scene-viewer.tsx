@@ -24,7 +24,7 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardViewerController,
   WhiteboardViewport,
 } from "@/features/whiteboard";
@@ -60,9 +60,8 @@ export function PublishedSceneViewer({
 }: PublishedSceneViewerProps) {
   const { t } = useStandaloneI18n();
   const { setTheme, browserActiveTheme } = useSyncTheme();
-  const [sceneDocument, setSceneDocument] = useState<WhiteboardDocument | null>(
-    null,
-  );
+  const [sceneDocument, setSceneDocument] =
+    useState<OwnedWhiteboardDocument | null>(null);
   const [loadError, setLoadError] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [viewer, setViewer] = useState<WhiteboardViewerController | null>(null);

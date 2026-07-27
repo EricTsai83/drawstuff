@@ -3,10 +3,13 @@ import { useDebounce } from "@/hooks/use-debounce";
 import { saveOwnedWhiteboardDocumentToLocalStorage } from "@/data/local-storage";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardEngine,
 } from "@/features/whiteboard";
-import { recordWhiteboardDiagnostic } from "@/features/whiteboard";
+import {
+  recordWhiteboardDiagnostic,
+  WHITEBOARD_DOCUMENT_VERSION,
+} from "@/features/whiteboard";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
@@ -22,14 +25,13 @@ export function useScenePersistence(
   const localSaveWarningShownRef = useRef(false);
   const { t } = useStandaloneI18n();
   const persistDocument = useCallback(
-    (document: WhiteboardDocument): void => {
+    (document: OwnedWhiteboardDocument): void => {
       const saved = saveOwnedWhiteboardDocumentToLocalStorage(document);
       if (!saved) {
         recordWhiteboardDiagnostic({
           operation: "save",
           outcome: "failure",
-          engine: "owned",
-          documentVersion: document.persistence?.documentVersion ?? null,
+          documentVersion: WHITEBOARD_DOCUMENT_VERSION,
           errorCode: "UNKNOWN",
         });
         if (!localSaveWarningShownRef.current) {
@@ -65,7 +67,7 @@ export function useScenePersistence(
   );
 
   const handleSceneChange = useCallback(
-    (document: WhiteboardDocument): void => {
+    (document: OwnedWhiteboardDocument): void => {
       setSceneName(document.state.name ?? "");
       if (
         currentSceneId &&

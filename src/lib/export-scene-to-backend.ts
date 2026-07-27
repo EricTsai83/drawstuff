@@ -50,7 +50,7 @@ export async function prepareSceneDataForExport(
   return {
     compressedSceneData,
     compressedFilesData,
-    encryptionKey: (encryptionKey ?? undefined) as unknown as string,
+    encryptionKey: encryptionKey ?? undefined,
     documentVersion: WHITEBOARD_DOCUMENT_VERSION,
   } as const;
 }

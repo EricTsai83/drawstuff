@@ -9,7 +9,6 @@ import {
 import { Button } from "@/components/ui/button";
 import { Download, Image as ImageIcon, CloudUpload } from "lucide-react";
 import type { WhiteboardEngine } from "@/features/whiteboard";
-import { prepareWhiteboardDocumentForOwnedEngine } from "@/features/whiteboard";
 import { useOverwriteConfirm } from "@/hooks/whiteboard/use-overwrite-confirm";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { getCurrentSceneSnapshot } from "@/lib/whiteboard";
@@ -58,7 +57,7 @@ export function OverwriteConfirmDialog({
   }
 
   // Listen for #json=... changes so links opened after mount use the same
-  // runtime-free legacy importer as initial loading.
+  // canonical shared-document loader as initial loading.
   useEffect(() => {
     function onHashChange() {
       const parsed = parseSharedSceneHash();
@@ -103,12 +102,10 @@ export function OverwriteConfirmDialog({
             if (!scene) {
               toast.error("Could not load the shared scene.");
             } else if (engine) {
-              engine.loadDocument(
-                prepareWhiteboardDocumentForOwnedEngine({
-                  ...scene,
-                  assets: { ...scene.assets, ...files },
-                }),
-              );
+              engine.loadDocument({
+                ...scene,
+                assets: { ...scene.assets, ...files },
+              });
             }
           } catch (e) {
             console.error("透過 URL 載入場景失敗:", e);

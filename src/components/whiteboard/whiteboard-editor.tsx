@@ -29,9 +29,8 @@ import { SceneRemoteConflictDialog } from "@/components/whiteboard/scene-remote-
 import { useSceneSession } from "@/hooks/scene-session-context";
 import type { WhiteboardEngine } from "@/features/whiteboard";
 import {
-  getWhiteboardDocumentVersion,
-  prepareWhiteboardDocumentForOwnedEngine,
   recordWhiteboardDiagnostic,
+  WHITEBOARD_DOCUMENT_VERSION,
 } from "@/features/whiteboard";
 import { WhiteboardShell } from "@/features/whiteboard/ui";
 import { WhiteboardProductMenu } from "./whiteboard-product-menu";
@@ -99,58 +98,22 @@ export default function WhiteboardEditor() {
 
   useEffect(() => {
     suppressDirtyTracking();
-    const preferRecovery =
-      new URLSearchParams(window.location.search).get("recover") === "1";
     const nextInitialDataPromise = createInitialWhiteboardDocument({
-      preferRecovery,
       onFailure: (errorCode) => {
         recordWhiteboardDiagnostic({
           operation: "load",
           outcome: "failure",
-          engine: "owned",
           documentVersion: null,
           errorCode,
         });
       },
     }).then((document) => {
-      const isMigration =
-        document?.persistence?.convertedFrom !== undefined ||
-        (document?.persistence?.sourceFormat !== undefined &&
-          document.persistence.sourceFormat !== "whiteboard-v2");
-      let prepared = document;
-      if (document) {
-        try {
-          prepared = prepareWhiteboardDocumentForOwnedEngine(document);
-        } catch {
-          recordWhiteboardDiagnostic({
-            operation: "migration",
-            outcome: "failure",
-            engine: "owned",
-            documentVersion: getWhiteboardDocumentVersion(document),
-            errorCode: "INVALID_DOCUMENT",
-          });
-        }
-      }
       recordWhiteboardDiagnostic({
         operation: "load",
         outcome: "success",
-        engine: "owned",
-        documentVersion: prepared
-          ? getWhiteboardDocumentVersion(prepared)
-          : null,
+        documentVersion: document ? WHITEBOARD_DOCUMENT_VERSION : null,
       });
-      if (
-        isMigration &&
-        prepared?.persistence?.sourceFormat === "whiteboard-v2"
-      ) {
-        recordWhiteboardDiagnostic({
-          operation: "migration",
-          outcome: "success",
-          engine: "owned",
-          documentVersion: getWhiteboardDocumentVersion(prepared),
-        });
-      }
-      return prepared;
+      return document;
     });
     setInitialDataPromise(nextInitialDataPromise);
     void nextInitialDataPromise.finally(() => {
@@ -368,7 +331,6 @@ export default function WhiteboardEditor() {
       document.elements,
       document.state,
       document.assets,
-      document.persistence,
     );
     if (link) setIsShareDialogOpen(true);
   }, [engine, exportScene]);

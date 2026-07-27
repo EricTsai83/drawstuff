@@ -123,7 +123,6 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 # Storage and app config
 UPLOADTHING_TOKEN=your-uploadthing-token
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
-NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER=false
 
 # Maintenance
 CRON_SECRET=strong-random-string

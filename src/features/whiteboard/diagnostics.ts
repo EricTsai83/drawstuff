@@ -2,16 +2,8 @@ import { z } from "zod";
 
 export const whiteboardDiagnosticSchema = z
   .object({
-    operation: z.enum([
-      "asset",
-      "export",
-      "load",
-      "migration",
-      "render",
-      "save",
-    ]),
+    operation: z.enum(["asset", "export", "load", "render", "save"]),
     outcome: z.enum(["blocked", "failure", "success"]),
-    engine: z.enum(["excalidraw", "owned"]),
     documentVersion: z.number().int().nonnegative().nullable(),
     errorCode: z
       .enum([
@@ -41,6 +33,6 @@ export function recordWhiteboardDiagnostic(
     body: JSON.stringify(parsed.data),
     keepalive: true,
   }).catch(() => {
-    // Diagnostics must never interrupt editing or recovery.
+    // Diagnostics must never interrupt editing or local persistence.
   });
 }

@@ -99,7 +99,6 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
           elements,
           state: mergedAppState,
           assets: hydratedFiles,
-          persistence: imported.document.persistence,
         });
 
         // 4. Center viewport before file injection so the user sees content ASAP

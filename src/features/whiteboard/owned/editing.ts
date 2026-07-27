@@ -57,7 +57,7 @@ export function resizeElements(
     const y = finiteNumber(element.y, safeSource.minY);
     const width = Math.max(0, finiteNumber(element.width, 0));
     const height = Math.max(0, finiteNumber(element.height, 0));
-    const points = element.points?.map(
+    const points = ("points" in element ? element.points : undefined)?.map(
       ([pointX, pointY]) =>
         [
           finiteNumber(pointX, 0) * scaleX,
@@ -65,12 +65,12 @@ export function resizeElements(
         ] as const,
     );
     const fontSize =
-      element.type === "text" && element.fontSize !== undefined
+      element.type === "text"
         ? Math.max(
             OWNED_MIN_ELEMENT_SIZE,
             finiteNumber(element.fontSize, 20) * scaleY,
           )
-        : element.fontSize;
+        : undefined;
     return {
       ...element,
       x: safeTarget.minX + (x - safeSource.minX) * scaleX,
@@ -122,7 +122,7 @@ export function resizeElementsUniformly(
       x: anchor.x + (center.x - anchor.x) * scale,
       y: anchor.y + (center.y - anchor.y) * scale,
     };
-    const points = element.points?.map(
+    const points = ("points" in element ? element.points : undefined)?.map(
       ([pointX, pointY]) =>
         [
           finiteNumber(pointX, 0) * scale,
@@ -130,12 +130,12 @@ export function resizeElementsUniformly(
         ] as const,
     );
     const fontSize =
-      element.type === "text" && element.fontSize !== undefined
+      element.type === "text"
         ? Math.max(
             OWNED_MIN_ELEMENT_SIZE,
             finiteNumber(element.fontSize, 20) * scale,
           )
-        : element.fontSize;
+        : undefined;
     return {
       ...element,
       x: nextCenter.x - nextWidth / 2,

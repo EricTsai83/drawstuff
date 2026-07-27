@@ -2,13 +2,13 @@
 
 import { useEffect, useRef } from "react";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
   WhiteboardEngine,
   WhiteboardViewerController,
 } from "@/features/whiteboard/contracts";
 import {
-  getWhiteboardDocumentVersion,
   recordWhiteboardDiagnostic,
+  WHITEBOARD_DOCUMENT_VERSION,
 } from "@/features/whiteboard";
 import { OwnedWhiteboardInput } from "./input";
 import { OwnedWhiteboardRenderer } from "./renderer";
@@ -21,7 +21,7 @@ import {
 
 export interface OwnedWhiteboardCanvasProps {
   readonly document?:
-    WhiteboardDocument | Promise<WhiteboardDocument | null> | null;
+    OwnedWhiteboardDocument | Promise<OwnedWhiteboardDocument | null> | null;
   readonly onEngineReady?: (engine: WhiteboardEngine | null) => void;
   readonly onViewerReady?: (
     controller: WhiteboardViewerController | null,
@@ -34,7 +34,10 @@ export interface OwnedWhiteboardCanvasProps {
 }
 
 type OwnedDocumentSource =
-  WhiteboardDocument | Promise<WhiteboardDocument | null> | null | undefined;
+  | OwnedWhiteboardDocument
+  | Promise<OwnedWhiteboardDocument | null>
+  | null
+  | undefined;
 
 interface OwnedCanvasLifecycle {
   readonly store: OwnedWhiteboardStore;
@@ -231,8 +234,7 @@ function applyDocument(
         recordWhiteboardDiagnostic({
           operation: "render",
           outcome: "success",
-          engine: "owned",
-          documentVersion: getWhiteboardDocumentVersion(document),
+          documentVersion: WHITEBOARD_DOCUMENT_VERSION,
         });
       }
       if (!hasSavedViewport(document)) {
@@ -252,10 +254,9 @@ function applyDocument(
           recordWhiteboardDiagnostic({
             operation: "render",
             outcome: "failure",
-            engine: "owned",
             documentVersion:
               source && !(source instanceof Promise)
-                ? getWhiteboardDocumentVersion(source)
+                ? WHITEBOARD_DOCUMENT_VERSION
                 : null,
             errorCode: "INVALID_DOCUMENT",
           });
@@ -285,7 +286,7 @@ function createViewerController(
   return Object.freeze(controller);
 }
 
-function hasSavedViewport(document: WhiteboardDocument): boolean {
+function hasSavedViewport(document: OwnedWhiteboardDocument): boolean {
   return (
     typeof document.state.scrollX === "number" &&
     Number.isFinite(document.state.scrollX) &&

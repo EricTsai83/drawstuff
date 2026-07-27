@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import type {
-  WhiteboardDocument,
+  OwnedWhiteboardDocument,
+  WhiteboardAsset,
   WhiteboardElement,
 } from "@/features/whiteboard";
 import {
@@ -165,8 +166,10 @@ describe("owned whiteboard store", () => {
     await store.insertImage(image);
     expect(store.getDocument().elements).toHaveLength(2);
     expect(Object.keys(store.getAssets())).toHaveLength(1);
-    expect(store.getDocument().elements[1]?.fileId).toBe(
-      first.elements[0]?.fileId,
+    const inserted = store.getDocument().elements[1];
+    const original = first.elements[0];
+    expect(inserted?.type === "image" ? inserted.fileId : undefined).toBe(
+      original?.type === "image" ? original.fileId : undefined,
     );
 
     store.undo();
@@ -177,46 +180,59 @@ describe("owned whiteboard store", () => {
     expect(store.getDocument().elements).toEqual([]);
   });
 
-  it("refuses a partial legacy import with duplicate ids and unsafe assets", async () => {
+  it("drops an incomplete image asset from serializable snapshots", () => {
     const store = new OwnedWhiteboardStore();
-    const legacyBlob = new Blob([
+    const incompleteAsset = {
+      id: "incomplete",
+      dataURL: "data:image/png;base64,AA==",
+      mimeType: "image/png",
+    } as unknown as WhiteboardAsset;
+    store.loadDocument({
+      elements: [
+        {
+          ...rectangle("image", 0, 0, 10, 10),
+          type: "image",
+          fileId: "incomplete",
+        },
+      ],
+      assets: { incomplete: incompleteAsset },
+      state: { name: "", theme: "light" },
+    });
+
+    expect(store.getDocument().assets).toEqual({});
+    expect(store.getDocument().elements[0]).toMatchObject({ fileId: null });
+  });
+
+  it("refuses a malformed canonical import with duplicate ids", async () => {
+    const store = new OwnedWhiteboardStore();
+    const malformedBlob = new Blob([
       JSON.stringify({
-        type: "excalidraw",
         version: 2,
         elements: [
           {
-            id: "duplicate",
-            type: "image",
-            isDeleted: false,
-            fileId: "late-asset",
-            x: 0,
-            y: 0,
-            width: 20,
-            height: 20,
+            ...rectangle("duplicate", 0, 0, 20, 20),
+            fillStyle: "solid",
+            roughness: 1,
+            locked: false,
           },
           {
-            id: "duplicate",
-            type: "rectangle",
-            isDeleted: false,
-            x: 30,
-            y: 0,
-            width: 20,
-            height: 20,
+            ...rectangle("duplicate", 30, 0, 20, 20),
+            fillStyle: "solid",
+            roughness: 1,
+            locked: false,
           },
         ],
-        appState: { name: "Lenient legacy import" },
-        files: {
-          "late-asset": {
-            id: "late-asset",
-            dataURL: "https://invalid.example/image.png",
-            mimeType: "text/html",
-            created: 1,
-          },
+        metadata: {
+          name: "Duplicate import",
+          theme: "light",
+          viewBackgroundColor: "#ffffff",
+          gridSize: null,
         },
+        assets: {},
       }),
     ]);
 
-    await expect(store.importDocument(legacyBlob)).rejects.toMatchObject({
+    await expect(store.importDocument(malformedBlob)).rejects.toMatchObject({
       code: "MALFORMED_DOCUMENT",
       path: "$.elements[1].id",
     });
@@ -236,8 +252,8 @@ describe("owned whiteboard store", () => {
 
 function document(
   elements: readonly WhiteboardElement[],
-  state?: Partial<WhiteboardDocument["state"]>,
-): WhiteboardDocument {
+  state?: Partial<OwnedWhiteboardDocument["state"]>,
+): OwnedWhiteboardDocument {
   return {
     elements,
     assets: {},
@@ -270,11 +286,14 @@ function rectangle(
     angle: 0,
     strokeColor: "#1e1e1e",
     backgroundColor: "transparent",
+    fillStyle: "solid",
     strokeWidth: 1,
     strokeStyle: "solid",
     opacity: 100,
+    roughness: 1,
+    locked: false,
     ...update,
-  } as unknown as WhiteboardElement;
+  };
 }
 
 function pngBytes(width: number, height: number): ArrayBuffer {

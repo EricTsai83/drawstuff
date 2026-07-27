@@ -6,7 +6,11 @@ export function filterReferencedWhiteboardAssets(
 ): Record<string, WhiteboardAsset> {
   const referencedIds = new Set<string>();
   for (const element of elements) {
-    if (!element.isDeleted && typeof element.fileId === "string") {
+    if (
+      !element.isDeleted &&
+      element.type === "image" &&
+      typeof element.fileId === "string"
+    ) {
       referencedIds.add(element.fileId);
     }
   }

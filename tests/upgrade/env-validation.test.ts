@@ -40,18 +40,10 @@ describe("environment parsing", () => {
 
     expect(env.POSTGRES_DATABASE).toBe("drawstuff");
     expect(env.NEXT_PUBLIC_BASE_URL).toBe("https://drawstuff.test");
-    expect(env.NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER).toBe("false");
   });
 
   it("rejects an invalid public URL when validation is enabled", async () => {
     vi.stubEnv("NEXT_PUBLIC_BASE_URL", "not-a-url");
-    vi.resetModules();
-
-    await expect(import("@/env.js")).rejects.toThrow();
-  });
-
-  it("accepts only an explicit boolean cutover value", async () => {
-    vi.stubEnv("NEXT_PUBLIC_WHITEBOARD_V2_READ_CUTOVER", "enabled");
     vi.resetModules();
 
     await expect(import("@/env.js")).rejects.toThrow();

@@ -10,7 +10,7 @@ import {
 import {
   filterReferencedWhiteboardAssets,
   type WhiteboardAsset,
-  type WhiteboardDocument,
+  type OwnedWhiteboardDocument,
   type WhiteboardDocumentState,
   type WhiteboardElement,
   type WhiteboardEngine,
@@ -19,7 +19,7 @@ import { openConfirmModal } from "@/lib/initialize-scene";
 import { parseSharedSceneHash } from "@/lib/utils";
 import { exportOwnedWhiteboardImage } from "@/features/whiteboard/owned";
 
-export type InitialWhiteboardDocument = WhiteboardDocument & {
+export type InitialWhiteboardDocument = OwnedWhiteboardDocument & {
   readonly scrollToContent?: boolean;
 };
 
@@ -27,10 +27,9 @@ type InitialDocumentFailureCode = "INVALID_DOCUMENT" | "NETWORK" | "UNKNOWN";
 
 export async function createInitialWhiteboardDocument(options?: {
   readonly onFailure?: (errorCode: InitialDocumentFailureCode) => void;
-  readonly preferRecovery?: boolean;
 }): Promise<InitialWhiteboardDocument | null> {
   try {
-    const localDocument = readLocalDocument(options?.preferRecovery);
+    const localDocument = readLocalDocument();
     const sharedScene = parseSharedSceneHash();
 
     if (sharedScene) {
@@ -71,17 +70,13 @@ export async function createInitialWhiteboardDocument(options?: {
   }
 }
 
-function readLocalDocument(preferRecovery = false): InitialWhiteboardDocument {
-  const local = importFromLocalStorage({
-    preferOwned: true,
-    preferRecovery,
-  });
+function readLocalDocument(): InitialWhiteboardDocument {
+  const local = importFromLocalStorage();
   const state = ensureInitialWhiteboardState(local.appState ?? {});
   return {
     elements: local.elements,
     state,
     assets: local.files,
-    persistence: local.persistence,
     scrollToContent: !hasViewportData(state),
   };
 }
@@ -131,7 +126,7 @@ async function loadInitialRemoteDocument(
 }
 
 function withInitialState(
-  document: WhiteboardDocument,
+  document: OwnedWhiteboardDocument,
   scrollToContent: boolean,
 ): InitialWhiteboardDocument {
   const state = ensureInitialWhiteboardState(document.state);
@@ -143,8 +138,8 @@ function withInitialState(
 }
 
 function hasDocumentContent(
-  document: WhiteboardDocument | null,
-): document is WhiteboardDocument {
+  document: OwnedWhiteboardDocument | null,
+): document is OwnedWhiteboardDocument {
   return Boolean(
     document &&
     (document.elements.length > 0 ||
@@ -198,13 +193,7 @@ export function hasCompleteSceneAssetHydration(
 export function clearElementsForDatabase(
   elements: readonly WhiteboardElement[],
 ): WhiteboardElement[] {
-  return elements
-    .filter((element) => !element.isDeleted)
-    .map((element) =>
-      element.type === "arrow" || element.type === "line"
-        ? { ...element, lastCommittedPoint: null }
-        : element,
-    );
+  return elements.filter((element) => !element.isDeleted);
 }
 
 export function isInitializedImageElement(
@@ -215,7 +204,7 @@ export function isInitializedImageElement(
 
 export function getCurrentSceneSnapshot(
   engine?: WhiteboardEngine | null,
-): WhiteboardDocument | null {
+): OwnedWhiteboardDocument | null {
   if (!engine) return null;
   const document = engine.getDocument();
   const elements = document.elements.filter((element) => !element.isDeleted);

@@ -30,11 +30,7 @@ import {
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { decompressData } from "@/lib/encode";
-import {
-  convertPersistedWhiteboardDocumentToV2,
-  parseWhiteboardDocumentV2,
-} from "@/features/whiteboard";
-import { requiresCanonicalWhiteboardReads } from "@/config/whiteboard-cutover";
+import { parseWhiteboardDocumentV2 } from "@/features/whiteboard";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "@/server/whiteboard/persistence-guard";
 
@@ -77,11 +73,7 @@ async function getReferencedPublishedFileIds(
       },
     );
     const source = new TextDecoder().decode(data);
-    const document = requiresCanonicalWhiteboardReads()
-      ? parseWhiteboardDocumentV2(source)
-      : convertPersistedWhiteboardDocumentToV2(source, {
-          externalAssets: true,
-        }).document;
+    const document = parseWhiteboardDocumentV2(source);
     const ids = new Set<string>();
     for (const element of document.elements) {
       if (element.isDeleted) continue;

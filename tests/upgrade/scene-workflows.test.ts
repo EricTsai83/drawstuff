@@ -121,7 +121,7 @@ describe("critical cloud scene workflow", () => {
     });
   });
 
-  it("updates legacy-row metadata without rewriting its document payload", async () => {
+  it("updates scene metadata without rewriting its document payload", async () => {
     const updateBuilder = createUpdateBuilder([
       {
         id: sceneId,
