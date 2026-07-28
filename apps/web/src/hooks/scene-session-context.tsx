@@ -20,7 +20,6 @@ import {
   saveCurrentSceneDirtyToStorage,
   loadCurrentSceneWorkspaceIdFromStorage,
   saveCurrentSceneWorkspaceIdToStorage,
-  clearCurrentSceneWorkspaceIdFromStorage,
 } from "@/data/local-storage";
 
 /** Safety-net timeout: auto-resumes dirty tracking if a caller forgets to

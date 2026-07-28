@@ -35,6 +35,16 @@
     "lint:fix": {
       "cache": false
     },
+    "knip": {
+      "dependsOn": ["^knip"]
+    },
+    "test": {
+      "dependsOn": ["^test"]
+    },
+    "test:coverage": {
+      "dependsOn": ["^test:coverage"],
+      "outputs": ["coverage/**"]
+    },
     "typecheck": {
       "dependsOn": ["^typecheck"]
     },
