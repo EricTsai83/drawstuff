@@ -136,7 +136,7 @@ export const decode = (data: EncodedData): string => {
 
   if (data.compressed) {
     return inflate(new Uint8Array(byteStringToArrayBuffer(decoded)), {
-      to: "string",
+      toText: true,
     });
   }
 

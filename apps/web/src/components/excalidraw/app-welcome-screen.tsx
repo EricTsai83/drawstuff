@@ -1,8 +1,7 @@
 import { WelcomeScreen } from "@excalidraw/excalidraw";
 import { memo } from "react";
-import { Github } from "lucide-react";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
-import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
+import { DrawstuffLogo, Github } from "@/components/icons";
 
 function AppWelcomeScreen() {
   const { t } = useStandaloneI18n();
@@ -35,7 +34,7 @@ function AppWelcomeScreen() {
           <WelcomeScreen.Center.MenuItemLink
             href="https://github.com/EricTsai83/excalidraw-ericts"
             shortcut={null}
-            icon={<Github size={16} />}
+            icon={<Github className="size-4" />}
           >
             GitHub Repository
           </WelcomeScreen.Center.MenuItemLink>
