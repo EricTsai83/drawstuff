@@ -28,6 +28,8 @@
 6. 上線後能觀察文件版本、轉換失敗、資產缺失、save conflict 與 payload 大小。
 7. 正式切換有負責人、快照、停寫窗口、驗證報告與明確 rollback trigger。
 8. 所有既有 CI gates 維持通過。
+9. Drawstuff 的持久化邊界有對照
+   `@excalidraw/excalidraw@0.18.1` 官方行為的 executable contract tests。
 
 ## 不在這一階段處理
 
@@ -36,6 +38,159 @@
 - 不實作 realtime collaboration server。
 - 不急著建立 `packages/whiteboard`。
 - 不在沒有 database clone、快照及停寫確認時執行正式 migration。
+- 不照抄 Firebase/Firestore；它是 Excalidraw hosted app 的部署選擇，不是 npm
+  package 要求的資料庫 schema。
+- 不把每種 Excalidraw element 拆成 relational tables。native element array
+  仍是文件的原子資料，PostgreSQL 只正規化 Drawstuff 的產品 metadata、權限、
+  revision 與 asset records。
+
+---
+
+## Excalidraw open source 資料設計研究與決策
+
+### 研究基準
+
+資料契約以目前 dependency
+`@excalidraw/excalidraw@0.18.1` 對應的官方 tag 為 normative baseline：
+
+- tag commit：`a2ec2889babf7d2295469c6d90ebe77fae57df84`
+- [官方 JSON serialization](https://github.com/excalidraw/excalidraw/blob/v0.18.1/packages/excalidraw/data/json.ts)
+- [官方 appState storage allowlist](https://github.com/excalidraw/excalidraw/blob/v0.18.1/packages/excalidraw/appState.ts)
+- [官方 element storage cleaner](https://github.com/excalidraw/excalidraw/blob/v0.18.1/packages/excalidraw/element/index.ts)
+- [官方 share link 與 sync payload](https://github.com/excalidraw/excalidraw/blob/v0.18.1/excalidraw-app/data/index.ts)
+- [官方 collaboration persistence](https://github.com/excalidraw/excalidraw/blob/v0.18.1/excalidraw-app/data/firebase.ts)
+- [官方 browser local persistence](https://github.com/excalidraw/excalidraw/blob/v0.18.1/excalidraw-app/data/LocalData.ts)
+- [官方 stateless room relay](https://github.com/excalidraw/excalidraw-room/blob/03ff435860b508d7cd9e005cfc90f7977ae2a593/src/index.ts)
+
+`master` 只用來觀察未來變化；在 Drawstuff 升級 dependency 前，不讓主線變動默默
+改變 production 資料契約。
+
+### 官方實際存哪些資料
+
+Excalidraw open source 沒有一套可以直接複製的 relational DB schema。官方 hosted
+app 依用途使用不同 storage profile：
+
+| 情境                                      | 持久化內容                                                                                     | 明確不持久化                                                      |
+| ----------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------------------------------------------------- |
+| `.excalidraw` 本機檔案                    | `type`、`version`、`source`、非刪除 native elements、export appState、仍被引用的 files         | 已刪除 elements、未使用 files、暫時 UI state                      |
+| readonly share backend                    | 壓縮且 client-side encrypted 的 database JSON；內容是非刪除 native elements 與 server appState | files、encryption key、viewport、selection、theme 等個人 UI state |
+| collaboration Firestore `scenes/{roomId}` | `sceneVersion`、`iv`、`ciphertext`；明文內容只有 reconcile 後的 syncable native elements       | appState、files、presence、room key                               |
+| Firebase object storage                   | 以 Excalidraw `fileId` 為 key 的獨立加密 binary files                                          | scene document 本體                                               |
+| browser local storage                     | local elements 與 browser appState                                                             | binary files、library                                             |
+| browser IndexedDB                         | binary files 與 library                                                                        | cloud product metadata                                            |
+| `excalidraw-room`                         | 無 durable DB；只 relay encrypted payload、room membership 與 volatile events                  | scene snapshot、files、users、encryption key                      |
+
+`0.18.1` 的 server appState allowlist 精確只有：
+
+```text
+gridSize
+gridStep
+gridModeEnabled
+viewBackgroundColor
+```
+
+`theme`、`scrollX`、`scrollY`、`zoom`、selection、open dialogs 與 collaborators
+不是 cloud scene document。官方 readonly share serialization 會移除所有 deleted
+elements；官方 collaboration snapshot 則保留最近 24 小時的 deleted tombstones，
+並濾除 invisibly-small elements。這兩種行為不可混成同一個「官方 DB 格式」。
+
+### Drawstuff 的一次對齊策略
+
+可以一次對齊，但對齊的是 native document boundary，不是 hosted app 的供應商：
+
+1. **Runtime model**
+   - editor 內一律使用官方 `ExcalidrawElement[]`、`AppState` 與 `BinaryFiles`。
+   - 不建立 Drawstuff-owned element shape，也不把 element 欄位正規化到 SQL。
+   - element 順序、`index`、bindings、`version`、`versionNonce`、`updated`、
+     `customData` 與未知 future fields 原樣保存。
+2. **Owned scene snapshot**
+   - PostgreSQL `scene.scene_data` 保存 versioned、compressed Drawstuff envelope。
+   - envelope 內的 scene 保持 native elements；server appState 依 pinned official
+     allowlist。
+   - `name`、workspace、category、publish/archive、owner、revision 留在 relational
+     columns/tables，DB 欄位是產品 metadata 的權威來源。
+3. **Binary assets**
+   - binary content 留在 object storage，不嵌入 `scene_data`。
+   - `file_record` 必須有明確、不可變的 Excalidraw `fileId`，不能長期依賴 upload
+     filename 猜回 mapping；另存 storage key、mime type、byte size、content hash
+     與 ownership。
+   - scene commit 與 asset references 必須可驗證，允許偵測 missing/orphan files。
+4. **Readonly encrypted share**
+   - server 只存 opaque compressed ciphertext、document version、owner 與 timestamps。
+   - encryption key 只存在 URL fragment/client；禁止寫入 DB、logs 或 analytics。
+   - share assets 分開加密與儲存，使用同一 share key 解密。
+5. **Realtime collaboration readiness**
+   - 未來 room transport 與 presence 不進 PostgreSQL scene payload。
+   - durable room snapshot 只保存 syncable elements；merge 使用官方
+     `reconcileElements`，不另造 custom merge/CRDT。
+   - deleted tombstone retention 先以官方 24 小時為相容基準，再用 reconnect
+     simulation 驗證後才能更改。
+
+目前 V4 的大方向正確：native element array、asset metadata 分離、document version
+與 optimistic revision 都應保留。已知要在 migration 前裁決的差異：
+
+- V4 `scene.appState` 現在額外保存 `theme`；官方 server contract 不保存。
+- V4 保存 deleted tombstones；official readonly share 會全部移除，但 collaboration
+  snapshot 只保留 24 小時內的 tombstones。
+- `file_record.name` 現在實際承擔 `fileId` mapping；應改成顯式欄位與 constraint。
+- Drawstuff envelope version `4` 與官方 `.excalidraw` format version `2` 是不同
+  version namespace，必須在名稱、validation 與 telemetry 中保持清楚。
+
+因此不立即發明 V5。先用 Phase 0 產生 gap report 與 differential tests；若只需
+收窄 writer、增加 asset mapping 或 profile-specific serializer，維持 V4 並做
+backward-compatible change。只有現有 reader 無法無歧義讀取時，才提出 V5 ADR。
+
+---
+
+## Phase 0 — 鎖定 Excalidraw 0.18.1 資料契約
+
+### 工作
+
+1. 建立 `excalidraw-0.18.1` contract fixtures：
+   - 官方 `serializeAsJSON(..., "local")`。
+   - 官方 `serializeAsJSON(..., "database")`。
+   - `restore()` 前後的 native scene。
+   - `getSyncableElements()` 的 live、recent tombstone、expired tombstone 與
+     invisibly-small cases。
+2. 把官方 server appState allowlist 寫成單一 adapter 與 tests；cloud writer 不再
+   自行列出第二套規則。
+3. 建立 storage-profile matrix 與獨立 codec entry points：
+   - `owned-scene`
+   - `readonly-share`
+   - `local-export`
+   - future `collaboration-snapshot`
+4. 對目前 V2、V3、V4 corpus 跑 differential comparison，輸出逐欄 gap report：
+   - preserved
+   - intentionally Drawstuff-specific
+   - stripped by official contract
+   - missing/lossy
+5. 補 `file_record.excalidraw_file_id` 的 DDL proposal、backfill 規則、unique
+   constraints 與 collision report；本階段先在 integration DB 驗證，不動正式 DB。
+6. 寫一份短 ADR，固定以下決策：
+   - PostgreSQL 與 object storage 的責任邊界。
+   - appState allowlist。
+   - tombstone policy per storage profile。
+   - encryption key ownership。
+   - Drawstuff document version 與 upstream format version 的命名。
+7. 根據 gap report 決定「V4 相容調整」或「需要 V5」；沒有報告前不執行內容
+   migration。
+
+### Exit criteria
+
+- representative scene 經官方 serializer/restore 與 Drawstuff codec 後，native
+  elements 的語意摘要一致；所有例外均列在 ADR。
+- cloud scene 不保存 viewport、selection、dialogs、collaborators 或 theme。
+- readonly share payload 不包含 key 或 files，且 deleted elements 已依 profile
+  移除。
+- collaboration fixture 只保留符合官方規則的 syncable elements。
+- 每個 referenced image `fileId` 都能唯一對應一筆 file record。
+- ADR 明確決定 V4 是否足夠，reviewer 簽核後才開始 Phase 1/2 的 schema 工作。
+
+### 建議提交
+
+1. `test: pin Excalidraw 0.18.1 persistence contracts`
+2. `refactor: split storage profile serializers`
+3. `docs: record Excalidraw data alignment decisions`
 
 ---
 
@@ -105,6 +260,9 @@ pnpm integration:down
 ```text
 source → parse → serialize → compress → DB → decompress → parse
 ```
+
+並依 storage profile 與 pinned `0.18.1` official serializer/restore 做 differential
+comparison；不能只比較 Drawstuff writer 與自己的 reader。
 
 語意摘要至少比較：
 
@@ -448,12 +606,14 @@ internal only → 1% → 10% → 50% → 100%
 
 開始 realtime collaboration 前先補：
 
-- 官方 element reconciliation contracts。
-- tombstone retention policy。
+- pinned upstream `reconcileElements` contracts 與 upgrade test。
+- 依 `getSyncableElements()` 驗證的 24 小時 tombstone retention 與 compaction。
 - room/session authorization。
 - encrypted transport與key ownership。
 - reconnect、offline queue與conflict simulation。
 - presence資料與persisted document嚴格分離。
+- WebSocket relay 保持 stateless；durable snapshot 與 files 使用分離的 storage
+  adapters。
 
 ---
 
@@ -484,24 +644,25 @@ CI 不得取得 production database credentials。
 
 ## 建議執行順序
 
-1. Phase 1：隔離 integration environment。
-2. Phase 2：資料、service與migration測試。
-3. Phase 3：完整 browser/visual coverage。
-4. Phase 4：rollout flags、metrics與kill switch。
-5. Phase 5：production clone rehearsal與rollback演練。
-6. Phase 6：reader → DDL → canary writes → owned-scene migration。
-7. Phase 7：soak、compatibility cleanup與後續 collaboration準備。
+1. Phase 0：鎖定 Excalidraw 0.18.1 storage profiles 與 gap report。
+2. Phase 1：隔離 integration environment。
+3. Phase 2：資料、service與migration測試。
+4. Phase 3：完整 browser/visual coverage。
+5. Phase 4：rollout flags、metrics與kill switch。
+6. Phase 5：production clone rehearsal與rollback演練。
+7. Phase 6：reader → DDL → canary writes → owned-scene migration。
+8. Phase 7：soak、compatibility cleanup與後續 collaboration準備。
 
-前三個 Phase 可以在不接觸正式資料的情況下立即開始。Phase 5 之後需要資料庫
+Phase 0 到 Phase 3 可以在不接觸正式資料的情況下立即開始。Phase 5 之後需要資料庫
 snapshot、clone、maintenance window、監控平台與上線負責人的明確協調。
 
 ## 下一個最合理的工作項目
 
-先做 Phase 1：
+先做 Phase 0：
 
-> 建立完全隔離的 PostgreSQL integration environment、deterministic seed、
-> test-only auth fixture 與 fake file storage，讓 dashboard、published scene、
-> cloud save、conflict 和 migration 都能在 CI 中被真實驗證。
+> 把 Excalidraw `0.18.1` 的 official serializers、appState allowlist、syncable
+> element/tombstone 規則固定成 executable fixtures，對目前 V4 產生 gap report，
+> 並完成 storage-profile ADR。
 
-這一步完成後，原計畫中尚未補齊的歷史頁面、登入後流程與資料庫流程才能變成
-可靠、可重複的自動化基準。
+這一步完成後再建立 Phase 1 的 isolated PostgreSQL environment；如此後面的 DDL、
+migration 與 browser tests 都會針對已確認的資料契約，而不是把錯誤假設自動化。
