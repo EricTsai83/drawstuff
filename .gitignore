@@ -2,11 +2,12 @@
 
 # dependencies
 /node_modules
+**/node_modules/
 /.pnp
 .pnp.js
 
 # testing
-/coverage
+**/coverage/
 
 # database
 /prisma/db.sqlite
@@ -14,12 +15,15 @@
 db.sqlite
 
 # next.js
-/.next/
-/out/
+**/.next/
+**/out/
 next-env.d.ts
 
 # production
 /build
+
+# turborepo
+**/.turbo/
 
 # misc
 .DS_Store
@@ -37,7 +41,7 @@ yarn-error.log*
 .env*.local
 
 # vercel
-.vercel
+**/.vercel/
 
 # typescript
 *.tsbuildinfo
