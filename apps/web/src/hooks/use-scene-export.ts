@@ -2,11 +2,12 @@
 
 import { useState, useCallback } from "react";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { getBaseUrl } from "@/lib/base-url";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
 
 function cloneToArrayBuffer(
   fileBuffer: Uint8Array<ArrayBufferLike>,
@@ -46,7 +47,7 @@ export function useSceneExport() {
 
   const exportScene = useCallback(
     async (
-      elements: readonly NonDeletedExcalidrawElement[],
+      elements: readonly ExcalidrawElement[],
       appState: Partial<AppState>,
       files: BinaryFiles,
     ): Promise<string | null> => {
@@ -84,7 +85,10 @@ export function useSceneExport() {
         }
 
         // 使用 server action 保存場景（共享連結）
-        const result = await handleSceneSave(sceneData.compressedSceneData);
+        const result = await handleSceneSave(
+          sceneData.compressedSceneData,
+          DRAWSTUFF_DOCUMENT_VERSION,
+        );
 
         // 若未取得 sharedSceneId，直接回報錯誤
         if (!result.sharedSceneId) {

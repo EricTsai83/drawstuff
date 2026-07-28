@@ -12,6 +12,10 @@ import type {
   DataURL,
 } from "@excalidraw/excalidraw/types";
 import { ensureInitialAppState } from "@/lib/excalidraw";
+import {
+  parseDrawstuffDocument,
+  toNativeExcalidrawScene,
+} from "@/lib/excalidraw-document-v4";
 
 export async function importDataFromBackend(
   id: string,
@@ -36,18 +40,11 @@ export async function importDataFromBackend(
       { decryptionKey },
     );
 
-    const parsed = JSON.parse(new TextDecoder().decode(decodedBuffer)) as {
-      elements?: ExcalidrawElement[];
-      appState?: Partial<AppState>;
-    };
-
-    const sanitizedAppState = parsed.appState
-      ? sanitizeImportedAppState(parsed.appState)
-      : null;
+    const parsed = decodePersistedScene(decodedBuffer);
 
     return {
-      elements: parsed.elements ?? null,
-      appState: sanitizedAppState,
+      elements: parsed.elements,
+      appState: parsed.appState,
     };
   } catch (error: unknown) {
     console.error("importFromBackend error", error);
@@ -227,20 +224,15 @@ export async function importSceneDataBySceneId(
       // 未加密情況下，此值不會被使用
       decryptionKey: "",
     });
-    const parsed = JSON.parse(new TextDecoder().decode(data)) as {
-      elements?: ExcalidrawElement[];
-      appState?: Partial<AppState>;
-    };
-    const sanitizedAppState = parsed.appState
-      ? sanitizeImportedAppState(parsed.appState)
-      : null;
+    const parsed = decodePersistedScene(data);
+    const sanitizedAppState = parsed.appState;
     // DB name 欄位是權威來源（rename 只更新 DB name，不重寫 sceneData），
     // 用它覆蓋壓縮資料中可能過時的 appState.name
     if (sanitizedAppState && result?.name) {
       sanitizedAppState.name = result.name;
     }
     return {
-      elements: parsed.elements ?? null,
+      elements: parsed.elements,
       appState: sanitizedAppState,
       revision: normalizeRevision(result?.revision),
       updatedAt: normalizeUpdatedAt(result?.updatedAt),
@@ -250,6 +242,21 @@ export async function importSceneDataBySceneId(
     console.error("importSceneDataBySceneId error", error);
     return {};
   }
+}
+
+function decodePersistedScene(data: Uint8Array | undefined): {
+  elements: ExcalidrawElement[];
+  appState: Partial<AppState>;
+} {
+  if (!data) {
+    throw new Error("Persisted scene payload is empty");
+  }
+  const document = parseDrawstuffDocument(new TextDecoder().decode(data));
+  const native = toNativeExcalidrawScene(document);
+  return {
+    elements: [...native.elements],
+    appState: sanitizeImportedAppState(native.appState),
+  };
 }
 
 export async function getSceneMetaBySceneId(

@@ -60,7 +60,11 @@ export const base64ToString = (base64: string, isByteString = false) => {
 export const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
   if (typeof Buffer !== "undefined") {
     // Node.js environment
-    return Buffer.from(base64, "base64").buffer;
+    const bytes = Buffer.from(base64, "base64");
+    return bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
   }
   // Browser environment
   return byteStringToArrayBuffer(atob(base64));
@@ -361,6 +365,7 @@ const _decryptAndDecompress = async (
   decryptionKey: string,
   hasEncryption: boolean,
   isCompressed: boolean,
+  maxDecompressedBytes?: number,
 ) => {
   let processedBuffer = inputBuffer;
   if (hasEncryption) {
@@ -370,15 +375,35 @@ const _decryptAndDecompress = async (
   }
 
   if (isCompressed) {
-    return inflate(processedBuffer);
+    const inflated = inflate(processedBuffer);
+    if (
+      maxDecompressedBytes !== undefined &&
+      inflated.byteLength > maxDecompressedBytes
+    ) {
+      throw new DecompressionLimitError();
+    }
+    return inflated;
   }
 
+  if (
+    maxDecompressedBytes !== undefined &&
+    processedBuffer.byteLength > maxDecompressedBytes
+  ) {
+    throw new DecompressionLimitError();
+  }
   return processedBuffer;
 };
 
+export class DecompressionLimitError extends Error {
+  constructor() {
+    super("Decompressed data exceeds the configured size limit");
+    this.name = "DecompressionLimitError";
+  }
+}
+
 export const decompressData = async <T extends Record<string, unknown>>(
   bufferView: Uint8Array,
-  options: { decryptionKey: string },
+  options: { decryptionKey: string; maxDecompressedBytes?: number },
 ) => {
   // first chunk is encoding metadata (ignored for now)
   const [encodingMetadataBuffer, iv, buffer] = splitBuffers(bufferView);
@@ -399,6 +424,7 @@ export const decompressData = async <T extends Record<string, unknown>>(
         options.decryptionKey,
         !!encodingMetadata.encryption,
         !!encodingMetadata.compression,
+        options.maxDecompressedBytes,
       ),
     );
 

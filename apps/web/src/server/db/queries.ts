@@ -1,5 +1,6 @@
 import { eq, and, lte, ne, lt, inArray, isNull } from "drizzle-orm";
 import { db } from "./index";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
 import {
   scene,
   sharedScene,
@@ -69,6 +70,7 @@ export const QUERIES = {
         name,
         description,
         sceneData,
+        documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
         thumbnailUrl,
         workspaceId: workspaceId ?? null,
         userId,
@@ -97,6 +99,7 @@ export const QUERIES = {
         name,
         description,
         sceneData,
+        documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
         thumbnailUrl,
         workspaceId: workspaceId ?? null,
         lastUpdated: new Date(),
@@ -161,6 +164,7 @@ export const QUERIES = {
         sharedSceneId,
         ownerId,
         compressedData,
+        documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
       })
       .returning();
   },
@@ -176,6 +180,7 @@ export const QUERIES = {
       .update(sharedScene)
       .set({
         compressedData,
+        documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
         updatedAt: new Date(),
       })
       .where(eq(sharedScene.sharedSceneId, sharedSceneId))

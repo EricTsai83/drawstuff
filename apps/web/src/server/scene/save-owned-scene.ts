@@ -7,6 +7,8 @@ import type {
   CreateSceneDraftInput,
   SaveSceneInput,
 } from "@/lib/schemas/scene";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
+import { validateStoredV4Write } from "@/server/excalidraw/persistence-guard";
 
 type SaveOwnedSceneParams = {
   userId: string;
@@ -85,6 +87,7 @@ export async function createOwnedSceneDraft({
         workspaceId: input.workspaceId,
         userId,
         sceneData: null,
+        documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
         updatedAt: now,
         lastUpdated: now,
       })
@@ -117,6 +120,14 @@ export async function saveOwnedScene({
   input,
   now = new Date(),
 }: SaveOwnedSceneParams): Promise<SaveOwnedSceneResult> {
+  const persistenceStatus = await validateStoredV4Write(input.data);
+  if (persistenceStatus !== "safe") {
+    return {
+      status: "validation_failed",
+      message: `Scene data rejected: ${persistenceStatus}`,
+    };
+  }
+
   return await db.transaction(async (tx) => {
     if (input.workspaceId !== undefined) {
       const [ownedWorkspace] = await tx
@@ -141,6 +152,7 @@ export async function saveOwnedScene({
           workspaceId: input.workspaceId,
           userId,
           sceneData: input.data,
+          documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
           updatedAt: now,
           lastUpdated: now,
         })
@@ -220,6 +232,7 @@ export async function saveOwnedScene({
         name: input.name,
         description: input.description,
         sceneData: input.data,
+        documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
         ...(input.workspaceId !== undefined
           ? { workspaceId: input.workspaceId }
           : {}),

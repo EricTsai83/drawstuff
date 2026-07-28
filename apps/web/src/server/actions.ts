@@ -16,6 +16,8 @@ import { z } from "zod";
 import { createSceneDraftSchema, saveSceneSchema } from "@/lib/schemas/scene";
 import type { AppErrorCode } from "@/lib/errors";
 import { APP_ERROR } from "@/lib/errors";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
+import { validateOpaqueV4Write } from "@/server/excalidraw/persistence-guard";
 import {
   createOwnedSceneDraft,
   saveOwnedScene,
@@ -31,6 +33,7 @@ export type HandleSceneSaveResult = {
 // 處理場景保存
 export async function handleSceneSave(
   compressedSceneData: Uint8Array,
+  documentVersion: number,
 ): Promise<HandleSceneSaveResult> {
   const session = await getServerSession();
 
@@ -38,6 +41,17 @@ export async function handleSceneSave(
     return {
       sharedSceneId: null,
       errorMessage: "Please sign in and try again",
+    };
+  }
+
+  const persistenceStatus = validateOpaqueV4Write(
+    compressedSceneData,
+    documentVersion,
+  );
+  if (persistenceStatus !== "safe") {
+    return {
+      sharedSceneId: null,
+      errorMessage: `Scene data rejected: ${persistenceStatus}`,
     };
   }
 
@@ -49,6 +63,7 @@ export async function handleSceneSave(
         sharedSceneId: nanoid(),
         ownerId: session.user.id,
         compressedData: compressedSceneData,
+        documentVersion: DRAWSTUFF_DOCUMENT_VERSION,
       })
       .returning({ sharedSceneId: sharedScene.sharedSceneId });
 
