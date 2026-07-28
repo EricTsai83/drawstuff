@@ -32,7 +32,9 @@ export const LanguageSelector = ({
 
   return (
     <Select
-      onValueChange={onValueChange}
+      onValueChange={(langCode) => {
+        if (langCode !== null) onValueChange(langCode);
+      }}
       value={value}
       open={isOpen}
       onOpenChange={handleOpenChange}

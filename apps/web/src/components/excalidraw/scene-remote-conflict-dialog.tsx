@@ -31,16 +31,7 @@ export function SceneRemoteConflictDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent
-        className="sm:max-w-md"
-        showCloseButton={false}
-        onInteractOutside={(e) => {
-          if (isLoading) e.preventDefault();
-        }}
-        onEscapeKeyDown={(e) => {
-          if (isLoading) e.preventDefault();
-        }}
-      >
+      <DialogContent className="sm:max-w-md" showCloseButton={false}>
         <DialogHeader className="pr-8">
           <DialogTitle className="text-lg font-semibold">
             Remote changes detected
@@ -56,7 +47,7 @@ export function SceneRemoteConflictDialog({
           <Button
             type="button"
             variant="default"
-            className="h-auto whitespace-normal justify-start gap-3 px-4 py-3"
+            className="h-auto justify-start gap-3 px-4 py-3 whitespace-normal"
             disabled={isLoading}
             onClick={() => onChoose("loadRemote")}
           >
@@ -71,7 +62,7 @@ export function SceneRemoteConflictDialog({
           <Button
             type="button"
             variant="outline"
-            className="h-auto whitespace-normal justify-start gap-3 px-4 py-3"
+            className="h-auto justify-start gap-3 px-4 py-3 whitespace-normal"
             disabled={isLoading}
             onClick={() => onChoose("saveAsNew")}
           >
@@ -86,7 +77,7 @@ export function SceneRemoteConflictDialog({
           <Button
             type="button"
             variant="outline"
-            className="h-auto whitespace-normal justify-start gap-3 px-4 py-3"
+            className="h-auto justify-start gap-3 px-4 py-3 whitespace-normal"
             disabled={isLoading}
             onClick={() => onChoose("keepLocal")}
           >

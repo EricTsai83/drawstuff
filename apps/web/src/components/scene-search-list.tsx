@@ -219,16 +219,18 @@ export function SceneSearchList() {
             />
           </div>
           <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button
-                type="button"
-                variant="ghost"
-                size="icon"
-                aria-label={t("dashboard.workspace.manage")}
-              >
-                <Settings2 className="size-4" />
-              </Button>
-            </DropdownMenuTrigger>
+            <DropdownMenuTrigger
+              render={
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("dashboard.workspace.manage")}
+                >
+                  <Settings2 className="size-4" />
+                </Button>
+              }
+            />
             <DropdownMenuContent align="end">
               <DropdownMenuItem
                 onSelect={() =>

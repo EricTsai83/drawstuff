@@ -28,17 +28,17 @@ export default function NotFound() {
         </p>
 
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
-          <Button asChild className="w-full sm:w-auto">
-            <Link href="/">
-              <Home className="size-4" aria-hidden="true" />
-              Back to canvas
-            </Link>
+          <Button render={<Link href="/" />} className="w-full sm:w-auto">
+            <Home className="size-4" aria-hidden="true" />
+            Back to canvas
           </Button>
-          <Button asChild variant="outline" className="w-full sm:w-auto">
-            <Link href="/dashboard">
-              <PanelsTopLeft className="size-4" aria-hidden="true" />
-              Open dashboard
-            </Link>
+          <Button
+            render={<Link href="/dashboard" />}
+            variant="outline"
+            className="w-full sm:w-auto"
+          >
+            <PanelsTopLeft className="size-4" aria-hidden="true" />
+            Open dashboard
           </Button>
         </div>
       </section>

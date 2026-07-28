@@ -25,7 +25,7 @@ export function SceneShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent onOpenAutoFocus={(e) => e.preventDefault()}>
+      <DialogContent initialFocus={false}>
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
             {t("labels.share")}
