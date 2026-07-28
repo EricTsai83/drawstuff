@@ -14,6 +14,7 @@ import {
   zoomViewportAt,
 } from "@drawstuff/whiteboard";
 import { OWNED_CANVAS_PERFORMANCE_FIXTURES } from "../fixtures/owned-canvas/performance";
+import { createTestElementV3 } from "../helpers";
 
 const viewport: WhiteboardViewport = {
   x: 40,
@@ -122,7 +123,7 @@ describe("owned whiteboard geometry", () => {
 });
 
 function element(update: Readonly<Record<string, unknown>>): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id: "element",
     type: "rectangle",
     isDeleted: false,
@@ -140,5 +141,5 @@ function element(update: Readonly<Record<string, unknown>>): WhiteboardElement {
     roughness: 1,
     locked: false,
     ...update,
-  };
+  });
 }

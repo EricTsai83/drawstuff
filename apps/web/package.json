@@ -11,6 +11,7 @@
   },
   "scripts": {
     "build": "next build",
+    "bundle:guard": "tsx scripts/check-whiteboard-client-bundle.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "dev": "next dev --turbo",
@@ -20,16 +21,23 @@
     "knip": "SKIP_ENV_VALIDATION=1 knip --production --dependencies --files",
     "preview": "next build && next start",
     "start": "next start",
+    "test:e2e": "playwright test",
     "test": "vitest run",
     "test:coverage": "vitest run --coverage",
     "typecheck": "tsc --noEmit"
   },
   "knip": {
     "entry": [
-      "scripts/migrate-whiteboard-v3.ts"
+      "scripts/migrate-whiteboard-v3.ts",
+      "scripts/check-whiteboard-client-bundle.ts",
+      "playwright.config.ts",
+      "src/server/whiteboard/migration-v3.ts",
+      "src/test-mode/whiteboard-test-disabled.tsx",
+      "tests/e2e/**/*.ts"
     ],
     "ignore": [
-      "tests/setup.ts"
+      "tests/setup.ts",
+      "tests/whiteboard-fixtures.ts"
     ]
   },
   "dependencies": {
@@ -67,6 +75,8 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.12.1",
+    "@playwright/test": "^1.62.0",
     "@tailwindcss/postcss": "^4.3.3",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^24.13.3",

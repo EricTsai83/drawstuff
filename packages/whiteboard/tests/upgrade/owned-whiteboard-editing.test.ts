@@ -12,6 +12,7 @@ import {
   rotateElements,
   translateElements,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 
 const EDITABLE_ELEMENT_TYPES = [
   "arrow",
@@ -260,28 +261,29 @@ function editableElement(
     roughness: 1,
     locked: false,
   };
-  if (type === "image") return { ...common, type, fileId: null };
+  if (type === "image")
+    return createTestElementV3({ ...common, type, fileId: null });
   if (type === "text") {
-    return {
+    return createTestElementV3({
       ...common,
       type,
       text: "Editable",
       originalText: "Editable",
       fontSize: 20,
       lineHeight: 1.25,
-    };
+    });
   }
   if (type === "line" || type === "arrow" || type === "freedraw") {
-    return {
+    return createTestElementV3({
       ...common,
       type,
       points: [
         [0, 0],
         [100, 50],
       ],
-    };
+    });
   }
-  return { ...common, type };
+  return createTestElementV3({ ...common, type });
 }
 
 function document(

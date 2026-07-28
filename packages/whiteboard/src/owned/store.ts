@@ -4,8 +4,6 @@ import type {
   OwnedWhiteboardEditorState,
   OwnedWhiteboardEditorStateUpdate,
   WhiteboardElement,
-  WhiteboardElementV3,
-  WhiteboardLinearElementV3,
   WhiteboardTextElementV3,
   WhiteboardElementOrderAction,
   WhiteboardElementStyle,
@@ -48,7 +46,12 @@ import {
 } from "./clipboard";
 import { createOwnedElementId, createOwnedTextElement } from "./drawing";
 import { OwnedSpatialIndex } from "./spatial-index";
-import { commitOwnedElement, ownedElementIndex } from "./element-version";
+import {
+  commitOwnedElement,
+  createOwnedElementRuntimeFields,
+  ownedElementIndex,
+} from "./element-version";
+import { updateBoundLinearElement } from "./bindings";
 
 export const OWNED_MIN_ZOOM = 0.05;
 export const OWNED_MAX_ZOOM = 16;
@@ -61,6 +64,7 @@ export type OwnedDocumentCommandKind =
   | "cut"
   | "delete"
   | "duplicate"
+  | "erase"
   | "group"
   | "metadata"
   | "move"
@@ -91,6 +95,17 @@ interface ActiveElementGesture {
   readonly before: OwnedWhiteboardDocument;
   readonly elementIds: ReadonlySet<string>;
   readonly primaryElementIds: ReadonlySet<string>;
+  readonly drafts: Map<string, WhiteboardElement>;
+}
+
+interface ActiveEraseGesture {
+  readonly before: OwnedWhiteboardDocument;
+  readonly erasedIds: Set<string>;
+}
+
+interface ActiveDuplicateGesture {
+  readonly before: OwnedWhiteboardDocument;
+  readonly assets: readonly WhiteboardAsset[];
   readonly drafts: Map<string, WhiteboardElement>;
 }
 
@@ -148,6 +163,9 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   >();
   private readonly renderListeners = new Set<OwnedWhiteboardRenderListener>();
   private readonly destroyListeners = new Set<() => void>();
+  private readonly accessibilityListeners = new Set<
+    (message: string) => void
+  >();
   private readonly undoStack: OwnedDocumentCommand[] = [];
   private readonly redoStack: OwnedDocumentCommand[] = [];
   private historyBytes = 0;
@@ -163,7 +181,11 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   private viewportVersion = 0;
   private viewportTransient = false;
   private textEditing = false;
+  private pinching = false;
+  private editingGroupId: string | null = null;
   private activeElementGesture: ActiveElementGesture | null = null;
+  private activeEraseGesture: ActiveEraseGesture | null = null;
+  private activeDuplicateGesture: ActiveDuplicateGesture | null = null;
   private destroyed = false;
 
   public loadDocument(document: OwnedWhiteboardDocument): void {
@@ -174,6 +196,10 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.redoStack.length = 0;
     this.historyBytes = 0;
     this.activeElementGesture = null;
+    this.activeEraseGesture = null;
+    this.activeDuplicateGesture = null;
+    this.pinching = false;
+    this.editingGroupId = null;
     this.refreshDocumentSnapshot();
     this.viewport = {
       ...this.viewport,
@@ -215,24 +241,26 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     );
     const selectedElement = selectedElements[0];
     const selectedGroupIds = [
-      ...new Set(
-        selectedElements.flatMap((element) =>
-          "groupIds" in element ? element.groupIds : [],
-        ),
-      ),
+      ...new Set(selectedElements.flatMap((element) => element.groupIds)),
     ];
     return {
       activeTool: this.activeTool,
       toolLocked: this.activeTool.locked === true,
       interaction: this.textEditing
         ? "text-editing"
-        : this.activeElementGesture?.kind === "move"
-          ? "moving"
-          : this.activeElementGesture?.kind === "resize"
-            ? "resizing"
-            : this.activeElementGesture?.kind === "rotate"
-              ? "rotating"
-              : "idle",
+        : this.pinching
+          ? "pinching"
+          : this.activeDuplicateGesture
+            ? "duplicating"
+            : this.activeEraseGesture
+              ? "erasing"
+              : this.activeElementGesture?.kind === "move"
+                ? "moving"
+                : this.activeElementGesture?.kind === "resize"
+                  ? "resizing"
+                  : this.activeElementGesture?.kind === "rotate"
+                    ? "rotating"
+                    : "idle",
       viewport: this.viewport,
       name:
         typeof this.document.state.name === "string"
@@ -243,7 +271,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       selection: {
         elementIds: this.selectedElementIds,
         groupIds: selectedGroupIds,
-        editingGroupId: null,
+        editingGroupId: this.editingGroupId,
       },
       elementStyle: selectedElement
         ? styleFromElement(selectedElement)
@@ -308,8 +336,10 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
 
   public setActiveTool(tool: WhiteboardTool): void {
     this.assertActive();
+    const changed = this.activeTool.type !== tool.type;
     this.activeTool = tool;
     this.emitEditor();
+    if (changed) this.announce(`Tool changed to ${tool.type}`);
   }
 
   public setToolLocked(locked: boolean): void {
@@ -415,7 +445,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.document = {
       ...this.document,
       elements: elements.map((element, position) =>
-        "index" in element && element.index !== ownedElementIndex(position)
+        element.index !== ownedElementIndex(position)
           ? commitOwnedElement(element, {
               ...element,
               index: ownedElementIndex(position),
@@ -541,6 +571,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     if (!command) return;
     this.redoStack.push(command);
     this.applyHistoryPatch(command.before);
+    this.announce("Undo");
   }
 
   public redo(): void {
@@ -550,6 +581,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     if (!command) return;
     this.undoStack.push(command);
     this.applyHistoryPatch(command.after);
+    this.announce("Redo");
   }
 
   public clearDocument(): void {
@@ -576,13 +608,10 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.assertActive();
     this.finalizeActiveElementGesture();
     const before = this.document;
-    const positioned =
-      "index" in element
-        ? {
-            ...element,
-            index: ownedElementIndex(this.document.elements.length),
-          }
-        : element;
+    const positioned = {
+      ...element,
+      index: ownedElementIndex(this.document.elements.length),
+    };
     this.document = {
       ...this.document,
       elements: [...this.document.elements, positioned],
@@ -678,6 +707,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.documentListeners.clear();
     this.editorListeners.clear();
     this.renderListeners.clear();
+    this.accessibilityListeners.clear();
     this.document = EMPTY_DOCUMENT;
     this.documentSnapshot = EMPTY_DOCUMENT;
     this.documentWithViewportSnapshot = EMPTY_DOCUMENT;
@@ -686,7 +716,11 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.redoStack.length = 0;
     this.historyBytes = 0;
     this.activeElementGesture = null;
+    this.activeEraseGesture = null;
+    this.activeDuplicateGesture = null;
     this.textEditing = false;
+    this.pinching = false;
+    this.editingGroupId = null;
   }
 
   public subscribeRenderState(
@@ -703,6 +737,14 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     return () => this.destroyListeners.delete(listener);
   }
 
+  public subscribeAccessibilityAnnouncements(
+    listener: (message: string) => void,
+  ): WhiteboardUnsubscribe {
+    this.assertActive();
+    this.accessibilityListeners.add(listener);
+    return () => this.accessibilityListeners.delete(listener);
+  }
+
   public setSelection(ids: readonly string[]): void {
     this.assertActive();
     const requestedIds = new Set(ids);
@@ -714,7 +756,9 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     const nextIds = this.document.elements
       .filter(
         (element) =>
-          requestedIds.has(element.id) && isElementSelectable(element),
+          requestedIds.has(element.id) &&
+          isElementSelectable(element) &&
+          this.isWithinEditingGroup(element),
       )
       .map((element) => element.id);
     if (
@@ -727,19 +771,27 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.selectionVersion += 1;
     this.emitEditor();
     this.emitRender("overlay");
+    this.announce(
+      nextIds.length === 0
+        ? "Selection cleared"
+        : `${nextIds.length} element${nextIds.length === 1 ? "" : "s"} selected`,
+    );
   }
 
   public getSelectionUnitIds(id: string): readonly string[] {
     this.assertActive();
     const element = this.elementsById.get(id);
-    const groupId =
-      element && isV3Element(element) ? element.groupIds.at(-1) : undefined;
+    if (!element || !this.isWithinEditingGroup(element)) return [];
+    const editingGroupIndex = this.editingGroupId
+      ? element.groupIds.indexOf(this.editingGroupId)
+      : -1;
+    const groupId = element.groupIds.slice(editingGroupIndex + 1).at(-1);
     if (!groupId) return element && isElementSelectable(element) ? [id] : [];
     return this.document.elements
       .filter(
         (candidate) =>
-          isV3Element(candidate) &&
           candidate.groupIds.includes(groupId) &&
+          this.isWithinEditingGroup(candidate) &&
           isElementSelectable(candidate),
       )
       .map((candidate) => candidate.id);
@@ -749,9 +801,46 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.assertActive();
     this.setSelection(
       this.document.elements
-        .filter(isElementSelectable)
+        .filter(
+          (element) =>
+            isElementSelectable(element) && this.isWithinEditingGroup(element),
+        )
         .map((element) => element.id),
     );
+  }
+
+  public enterGroupEditing(elementId: string): boolean {
+    this.assertActive();
+    const element = this.elementsById.get(elementId);
+    if (!element || !this.isWithinEditingGroup(element)) return false;
+    const currentIndex = this.editingGroupId
+      ? element.groupIds.indexOf(this.editingGroupId)
+      : -1;
+    const groupId = element.groupIds.slice(currentIndex + 1).at(-1);
+    if (!groupId) return false;
+    this.editingGroupId = groupId;
+    this.selectedElementIds = this.getSelectionUnitIds(elementId);
+    this.selectionVersion += 1;
+    this.emitEditor();
+    this.emitRender("overlay");
+    return true;
+  }
+
+  public exitGroupEditing(): boolean {
+    this.assertActive();
+    const editingGroupId = this.editingGroupId;
+    if (!editingGroupId) return false;
+    this.editingGroupId = null;
+    this.selectedElementIds = [];
+    this.selectionVersion += 1;
+    this.emitEditor();
+    this.emitRender("overlay");
+    return true;
+  }
+
+  public isElementWithinEditingGroup(element: WhiteboardElement): boolean {
+    this.assertActive();
+    return this.isWithinEditingGroup(element);
   }
 
   public getSelectedElements(): readonly WhiteboardElement[] {
@@ -796,7 +885,36 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.assertActive();
     const textId = this.containerTextIndex.get(containerId);
     const element = textId ? this.getElement(textId) : null;
-    return element?.type === "text" && isV3Element(element) ? element : null;
+    return element?.type === "text" ? element : null;
+  }
+
+  public getContainingFrames(
+    element: WhiteboardElement,
+  ): readonly WhiteboardElement[] {
+    this.assertActive();
+    return findContainingFrames(
+      element,
+      this.documentSnapshot.elements.filter(
+        (candidate) => candidate.type === "frame",
+      ),
+    );
+  }
+
+  public getFrameAncestors(
+    element: WhiteboardElement,
+  ): readonly WhiteboardElement[] {
+    this.assertActive();
+    const frames: WhiteboardElement[] = [];
+    const visited = new Set<string>();
+    let frameId = element.frameId;
+    while (frameId && !visited.has(frameId)) {
+      visited.add(frameId);
+      const frame = this.elementsById.get(frameId);
+      if (frame?.type !== "frame") break;
+      frames.unshift(frame);
+      frameId = frame.frameId;
+    }
+    return frames;
   }
 
   public commitTextEdit(options: {
@@ -857,14 +975,14 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
           (options.createId ?? createOwnedElementId)(),
           { width: options.width, height: options.height },
         );
-      if (text?.type !== "text" || !isV3Element(text)) return;
+      if (text?.type !== "text") return;
       const aligned = alignBoundText(
         {
           ...text,
           text: options.text,
           originalText: options.text,
           containerId: target.id,
-          frameId: isV3Element(target) ? target.frameId : null,
+          frameId: target.frameId,
           index: existingText
             ? text.index
             : ownedElementIndex(this.document.elements.length),
@@ -913,9 +1031,70 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       );
   }
 
+  public getCommittedVisibleElements(
+    bounds: WhiteboardBounds,
+  ): readonly WhiteboardElement[] {
+    this.assertActive();
+    const excluded = this.activeElementGesture?.elementIds;
+    return [...this.spatialIndex.query(bounds)]
+      .flatMap((id) => {
+        if (excluded?.has(id)) return [];
+        const element = this.elementsById.get(id);
+        if (!element || element.isDeleted) return [];
+        const geometry = getElementGeometry(element);
+        return geometry && boundsIntersect(geometry.bounds, bounds)
+          ? [element]
+          : [];
+      })
+      .sort(
+        (left, right) =>
+          (this.orderById.get(left.id) ?? 0) -
+          (this.orderById.get(right.id) ?? 0),
+      );
+  }
+
+  public getCommittedElements(): readonly WhiteboardElement[] {
+    this.assertActive();
+    const excluded = this.activeElementGesture?.elementIds;
+    return excluded
+      ? this.document.elements.filter((element) => !excluded.has(element.id))
+      : this.document.elements;
+  }
+
+  public getGestureDrafts(): readonly WhiteboardElement[] {
+    this.assertActive();
+    const drafts =
+      this.activeElementGesture?.drafts ?? this.activeDuplicateGesture?.drafts;
+    if (!drafts) {
+      return [];
+    }
+    return [...drafts.values()].sort(
+      (left, right) =>
+        (this.orderById.get(left.id) ?? 0) -
+        (this.orderById.get(right.id) ?? 0),
+    );
+  }
+
+  public getErasedPreviewElements(): readonly WhiteboardElement[] {
+    this.assertActive();
+    const ids = this.activeEraseGesture?.erasedIds;
+    return ids
+      ? this.document.elements.filter((element) => ids.has(element.id))
+      : [];
+  }
+
   public createClipboardPayload(): OwnedClipboardPayloadV1 | null {
     this.assertActive();
-    const elements = this.getSelectedElements();
+    const selectedIds = new Set(
+      this.getSelectedElements().map((element) => element.id),
+    );
+    for (const id of [...selectedIds]) {
+      const textId = this.containerTextIndex.get(id);
+      if (textId) selectedIds.add(textId);
+    }
+    const elements = this.documentSnapshot.elements.filter((element) =>
+      selectedIds.has(element.id),
+    );
     return elements.length > 0
       ? createOwnedClipboardPayload(elements, this.documentSnapshot.assets)
       : null;
@@ -940,10 +1119,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       ...this.document,
       elements: this.document.elements.flatMap((element) => {
         if (selectedIds.has(element.id)) return [];
-        if (
-          !isV3Element(element) ||
-          (element.type !== "arrow" && element.type !== "line")
-        ) {
+        if (element.type !== "arrow" && element.type !== "line") {
           return [element];
         }
         const startBinding =
@@ -973,6 +1149,9 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.emitDocument();
     this.emitEditor();
     this.emitRender("scene");
+    this.announce(
+      `${selectedIds.size} element${selectedIds.size === 1 ? "" : "s"} deleted`,
+    );
   }
 
   public duplicateSelection(
@@ -997,10 +1176,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
         selectedIds.has(element.id)
           ? commitOwnedElement(element, {
               ...element,
-              groupIds: [
-                ...("groupIds" in element ? element.groupIds : []),
-                groupId,
-              ],
+              groupIds: [...element.groupIds, groupId],
             })
           : element,
       ),
@@ -1010,6 +1186,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.emitDocument();
     this.emitEditor();
     this.emitRender("scene");
+    this.announce(`Grouped ${selectedIds.size} elements`);
   }
 
   public ungroupSelection(): void {
@@ -1019,9 +1196,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     const selectedIds = new Set(this.selectedElementIds);
     const selectedGroups = new Set(
       this.document.elements.flatMap((element) =>
-        selectedIds.has(element.id) && "groupIds" in element
-          ? element.groupIds
-          : [],
+        selectedIds.has(element.id) ? element.groupIds : [],
       ),
     );
     if (selectedGroups.size === 0) return;
@@ -1029,7 +1204,6 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.document = {
       ...this.document,
       elements: this.document.elements.map((element) =>
-        isV3Element(element) &&
         element.groupIds.some((groupId) => selectedGroups.has(groupId))
           ? commitOwnedElement(element, {
               ...element,
@@ -1045,6 +1219,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.emitDocument();
     this.emitEditor();
     this.emitRender("scene");
+    this.announce("Ungrouped selection");
   }
 
   public pasteClipboardPayload(
@@ -1081,6 +1256,196 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       drafts: new Map(),
     };
     this.emitEditor();
+    this.emitRender("scene");
+  }
+
+  public beginEraseGesture(): void {
+    this.assertActive();
+    this.finalizeActiveElementGesture();
+    if (this.activeEraseGesture) return;
+    this.activeEraseGesture = {
+      before: this.document,
+      erasedIds: new Set(),
+    };
+    this.emitEditor();
+    this.emitRender("overlay");
+  }
+
+  public beginDuplicateGesture(
+    createId: () => string = createOwnedElementId,
+  ): readonly WhiteboardElement[] {
+    this.assertActive();
+    this.finalizeActiveElementGesture();
+    if (this.activeDuplicateGesture || this.selectedElementIds.length === 0) {
+      return [];
+    }
+    const payload = this.createClipboardPayload();
+    if (!payload) return [];
+    const duplicated = remapOwnedClipboardPayload(
+      payload,
+      new Set(this.document.elements.map(({ id }) => id)),
+      new Set(Object.keys(this.document.assets)),
+      createId,
+      0,
+    );
+    const drafts = new Map(
+      duplicated.elements.map((element) => [element.id, element]),
+    );
+    this.activeDuplicateGesture = {
+      before: this.document,
+      assets: duplicated.assets,
+      drafts,
+    };
+    this.emitEditor();
+    this.emitRender("overlay");
+    return [...drafts.values()];
+  }
+
+  public updateDuplicateGesture(elements: readonly WhiteboardElement[]): void {
+    this.assertActive();
+    const gesture = this.activeDuplicateGesture;
+    if (!gesture) return;
+    for (const element of elements) {
+      if (gesture.drafts.has(element.id)) {
+        gesture.drafts.set(element.id, element);
+      }
+    }
+    this.emitRender("overlay");
+  }
+
+  public commitDuplicateGesture(): void {
+    this.assertActive();
+    const gesture = this.activeDuplicateGesture;
+    if (!gesture) return;
+    this.activeDuplicateGesture = null;
+    const position = this.document.elements.length;
+    const elements = [...gesture.drafts.values()].map((element, offset) => ({
+      ...element,
+      index: ownedElementIndex(position + offset),
+    }));
+    this.document = {
+      ...this.document,
+      elements: [...this.document.elements, ...elements],
+      assets: {
+        ...this.document.assets,
+        ...Object.fromEntries(gesture.assets.map((asset) => [asset.id, asset])),
+      },
+    };
+    this.selectedElementIds = elements
+      .filter(isElementSelectable)
+      .map(({ id }) => id);
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation("duplicate", gesture.before);
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+  }
+
+  public cancelDuplicateGesture(): void {
+    this.assertActive();
+    if (!this.activeDuplicateGesture) return;
+    this.activeDuplicateGesture = null;
+    this.emitEditor();
+    this.emitRender("overlay");
+  }
+
+  public updateEraseGesture(
+    start: WhiteboardPoint,
+    end: WhiteboardPoint,
+    radius: number,
+  ): readonly string[] {
+    this.assertActive();
+    const gesture = this.activeEraseGesture;
+    if (!gesture) return [];
+    const safeRadius = Math.max(0, finiteNumber(radius, 0));
+    const sweep = {
+      minX: Math.min(start.x, end.x) - safeRadius,
+      minY: Math.min(start.y, end.y) - safeRadius,
+      maxX: Math.max(start.x, end.x) + safeRadius,
+      maxY: Math.max(start.y, end.y) + safeRadius,
+    };
+    let changed = false;
+    for (const id of this.spatialIndex.query(sweep)) {
+      const element = this.elementsById.get(id);
+      const geometry = element ? getElementGeometry(element) : null;
+      if (
+        !element ||
+        !geometry ||
+        !isElementSelectable(element) ||
+        !segmentHitsBounds(start, end, geometry.bounds, safeRadius)
+      ) {
+        continue;
+      }
+      changed =
+        addErasedDependencies(
+          id,
+          gesture.erasedIds,
+          this.elementsById,
+          this.containerTextIndex,
+          this.frameChildrenIndex,
+        ) || changed;
+    }
+    if (changed) this.emitRender("overlay");
+    return [...gesture.erasedIds];
+  }
+
+  public commitEraseGesture(): void {
+    this.assertActive();
+    const gesture = this.activeEraseGesture;
+    if (!gesture) return;
+    this.activeEraseGesture = null;
+    if (gesture.erasedIds.size === 0) {
+      this.emitEditor();
+      this.emitRender("overlay");
+      return;
+    }
+    const erasedIds = gesture.erasedIds;
+    this.document = {
+      ...this.document,
+      elements: this.document.elements.flatMap((element) => {
+        if (erasedIds.has(element.id)) return [];
+        if (element.type !== "arrow" && element.type !== "line") {
+          return [element];
+        }
+        const startBinding =
+          element.startBinding && erasedIds.has(element.startBinding.elementId)
+            ? null
+            : element.startBinding;
+        const endBinding =
+          element.endBinding && erasedIds.has(element.endBinding.elementId)
+            ? null
+            : element.endBinding;
+        return startBinding !== element.startBinding ||
+          endBinding !== element.endBinding
+          ? [
+              commitOwnedElement(element, {
+                ...element,
+                startBinding,
+                endBinding,
+              }),
+            ]
+          : [element];
+      }),
+    };
+    this.selectedElementIds = this.selectedElementIds.filter(
+      (id) => !erasedIds.has(id),
+    );
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation("erase", gesture.before);
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
+    this.announce(
+      `${erasedIds.size} element${erasedIds.size === 1 ? "" : "s"} deleted`,
+    );
+  }
+
+  public cancelEraseGesture(): void {
+    this.assertActive();
+    if (!this.activeEraseGesture) return;
+    this.activeEraseGesture = null;
+    this.emitEditor();
+    this.emitRender("overlay");
   }
 
   public updateElementGesture(elements: readonly WhiteboardElement[]): void {
@@ -1097,7 +1462,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     }
     if (!changed) return;
     this.synchronizeGestureDependencies(gesture);
-    this.emitRender("scene");
+    this.emitRender("overlay");
   }
 
   public commitElementGesture(): void {
@@ -1105,8 +1470,10 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     const gesture = this.activeElementGesture;
     if (!gesture) return;
     this.activeElementGesture = null;
+    this.activeEraseGesture = null;
     if (gesture.drafts.size === 0) {
       this.emitEditor();
+      this.emitRender("scene");
       return;
     }
     const draftElements = this.applyFrameReparenting(gesture);
@@ -1193,18 +1560,18 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     const textId = this.containerTextIndex.get(element.id);
     const text = textId ? this.elementsById.get(textId) : null;
     let frameOpacity = 100;
-    let frameId = isV3Element(element) ? element.frameId : null;
+    let frameId = element.frameId;
     const visited = new Set<string>();
     while (frameId && !visited.has(frameId)) {
       visited.add(frameId);
       const frame = this.elementsById.get(frameId);
       if (frame?.type !== "frame") break;
       frameOpacity *= Math.max(0, Math.min(100, frame.opacity)) / 100;
-      frameId = isV3Element(frame) ? frame.frameId : null;
+      frameId = frame.frameId;
     }
     return {
       assetRevision,
-      boundTextNonce: text && isV3Element(text) ? text.versionNonce : 0,
+      boundTextNonce: text?.versionNonce ?? 0,
       frameOpacity,
     };
   }
@@ -1249,6 +1616,36 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.viewportTransient = false;
     this.emitEditor();
     this.emitRender("scene");
+  }
+
+  public beginPinchGesture(): void {
+    this.assertActive();
+    this.pinching = true;
+    this.viewportTransient = true;
+    this.emitEditor();
+  }
+
+  public updatePinchViewport(
+    update: Pick<WhiteboardViewport, "x" | "y" | "zoom">,
+  ): void {
+    this.assertActive();
+    this.viewport = {
+      ...this.viewport,
+      x: finiteNumber(update.x, this.viewport.x),
+      y: finiteNumber(update.y, this.viewport.y),
+      zoom: clampZoom(update.zoom, this.viewport.zoom),
+    };
+    this.viewportTransient = true;
+    this.refreshViewportSnapshot();
+    this.viewportVersion += 1;
+    this.emitRender("scene");
+  }
+
+  public endPinchGesture(): void {
+    this.assertActive();
+    if (!this.pinching) return;
+    this.pinching = false;
+    this.commitTransientViewport();
   }
 
   public isViewportTransient(): boolean {
@@ -1347,30 +1744,24 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       if (geometry && !element.isDeleted) {
         this.spatialIndex.insert(element.id, geometry.bounds);
       }
-      if ("frameId" in element && element.frameId) {
+      if (element.frameId) {
         addIndexValue(this.frameChildrenIndex, element.frameId, element.id);
       }
-      if (
-        element.type === "text" &&
-        isV3Element(element) &&
-        element.containerId
-      ) {
+      if (element.type === "text" && element.containerId) {
         this.containerTextIndex.set(element.containerId, element.id);
       }
-      if ("groupIds" in element) {
-        for (const groupId of element.groupIds) {
-          addIndexValue(this.groupIndex, groupId, element.id);
-        }
+      for (const groupId of element.groupIds) {
+        addIndexValue(this.groupIndex, groupId, element.id);
       }
       if (element.type === "arrow" || element.type === "line") {
-        if ("startBinding" in element && element.startBinding) {
+        if (element.startBinding) {
           addIndexValue(
             this.reverseBindings,
             element.startBinding.elementId,
             element.id,
           );
         }
-        if ("endBinding" in element && element.endBinding) {
+        if (element.endBinding) {
           addIndexValue(
             this.reverseBindings,
             element.endBinding.elementId,
@@ -1391,22 +1782,28 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     }
   }
 
+  private isWithinEditingGroup(element: WhiteboardElement): boolean {
+    return (
+      this.editingGroupId === null ||
+      element.groupIds.includes(this.editingGroupId)
+    );
+  }
+
+  private announce(message: string): void {
+    for (const listener of this.accessibilityListeners) listener(message);
+  }
+
   private synchronizeGestureDependencies(gesture: ActiveElementGesture): void {
     for (const targetId of gesture.primaryElementIds) {
       const target =
         gesture.drafts.get(targetId) ?? this.elementsById.get(targetId);
       const original = this.elementsById.get(targetId);
-      if (
-        !target ||
-        !original ||
-        !isV3Element(target) ||
-        !isV3Element(original)
-      ) {
+      if (!target || !original) {
         continue;
       }
       const textId = this.containerTextIndex.get(targetId);
       const text = textId ? this.elementsById.get(textId) : null;
-      if (text?.type === "text" && isV3Element(text)) {
+      if (text?.type === "text") {
         const dependent =
           gesture.kind === "move"
             ? {
@@ -1424,14 +1821,19 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
         if (gesture.primaryElementIds.has(arrowId)) continue;
         const arrow =
           gesture.drafts.get(arrowId) ?? this.elementsById.get(arrowId);
-        if (
-          !arrow ||
-          !isV3Element(arrow) ||
-          (arrow.type !== "arrow" && arrow.type !== "line")
-        ) {
+        if (!arrow || (arrow.type !== "arrow" && arrow.type !== "line")) {
           continue;
         }
-        const dependent = updateBoundLinearElement(arrow, targetId, target);
+        const targets = new Map<string, WhiteboardElement>();
+        for (const binding of [arrow.startBinding, arrow.endBinding]) {
+          if (!binding) continue;
+          const bindingTarget =
+            gesture.drafts.get(binding.elementId) ??
+            this.elementsById.get(binding.elementId);
+          if (bindingTarget) targets.set(binding.elementId, bindingTarget);
+        }
+        targets.set(targetId, target);
+        const dependent = updateBoundLinearElement(arrow, targets);
         gesture.drafts.set(arrow.id, dependent);
         this.updateDraftSpatialBounds(dependent);
       }
@@ -1448,20 +1850,16 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     const frames = scene.filter((element) => element.type === "frame");
     for (const id of gesture.primaryElementIds) {
       const element = drafts.get(id);
-      if (!element || !isV3Element(element) || element.type === "frame") {
+      if (!element) {
         continue;
       }
-      const frameId = findContainingFrameId(element, frames);
+      const frameId = findContainingFrames(element, frames).at(0)?.id ?? null;
       if (element.frameId !== frameId) {
         drafts.set(id, { ...element, frameId });
       }
       const textId = this.containerTextIndex.get(id);
       const text = textId ? drafts.get(textId) : null;
-      if (
-        text?.type === "text" &&
-        isV3Element(text) &&
-        text.frameId !== frameId
-      ) {
+      if (text?.type === "text" && text.frameId !== frameId) {
         drafts.set(text.id, { ...text, frameId });
       }
     }
@@ -1707,10 +2105,14 @@ function isSerializableAsset(id: string, asset: WhiteboardAsset): boolean {
     createPersistedWhiteboardDocumentV3({
       elements: [
         {
+          ...createOwnedElementRuntimeFields(`asset-validation-${id}`),
           id: `asset-validation-${id}`,
           type: "image",
           isDeleted: false,
           fileId: id,
+          status: "saved",
+          scale: [1, 1],
+          crop: null,
           x: 0,
           y: 0,
           width: 1,
@@ -1766,105 +2168,65 @@ function alignBoundText(
     width,
     height,
     angle: container.angle,
-    frameId: isV3Element(container) ? container.frameId : null,
+    frameId: container.frameId,
     containerId: container.id,
     textAlign: "center",
     verticalAlign: "middle",
   };
 }
 
-function updateBoundLinearElement(
-  element: WhiteboardLinearElementV3,
-  targetId: string,
-  target: WhiteboardElement,
-): WhiteboardLinearElementV3 {
-  const worldPoints = element.points.map(
-    ([x, y]) => [element.x + x, element.y + y] as const,
-  );
-  if (worldPoints.length < 2) return element;
-  const first = worldPoints[0]!;
-  const last = worldPoints.at(-1)!;
-  if (element.startBinding?.elementId === targetId) {
-    worldPoints[0] = boundEndpoint(target, last, element.startBinding.gap);
-  }
-  if (element.endBinding?.elementId === targetId) {
-    worldPoints[worldPoints.length - 1] = boundEndpoint(
-      target,
-      first,
-      element.endBinding.gap,
-    );
-  }
-  const minX = Math.min(...worldPoints.map(([x]) => x));
-  const minY = Math.min(...worldPoints.map(([, y]) => y));
-  const maxX = Math.max(...worldPoints.map(([x]) => x));
-  const maxY = Math.max(...worldPoints.map(([, y]) => y));
-  return {
-    ...element,
-    x: minX,
-    y: minY,
-    width: maxX - minX,
-    height: maxY - minY,
-    points: worldPoints.map(([x, y]) => [x - minX, y - minY] as const),
-  };
-}
-
-function boundEndpoint(
-  target: WhiteboardElement,
-  toward: readonly [number, number],
-  gap: number,
-): readonly [number, number] {
-  const geometry = getElementGeometry(target);
-  if (!geometry) return toward;
-  const centerX = (geometry.bounds.minX + geometry.bounds.maxX) / 2;
-  const centerY = (geometry.bounds.minY + geometry.bounds.maxY) / 2;
-  const deltaX = toward[0] - centerX;
-  const deltaY = toward[1] - centerY;
-  const halfWidth = Math.max(
-    0.5,
-    (geometry.bounds.maxX - geometry.bounds.minX) / 2,
-  );
-  const halfHeight = Math.max(
-    0.5,
-    (geometry.bounds.maxY - geometry.bounds.minY) / 2,
-  );
-  const scale =
-    1 /
-    Math.max(Math.abs(deltaX) / halfWidth, Math.abs(deltaY) / halfHeight, 1);
-  const length = Math.hypot(deltaX, deltaY) || 1;
-  return [
-    centerX + deltaX * scale + (deltaX / length) * gap,
-    centerY + deltaY * scale + (deltaY / length) * gap,
-  ];
-}
-
-function findContainingFrameId(
+function findContainingFrames(
   element: WhiteboardElement,
   frames: readonly WhiteboardElement[],
-): string | null {
+): readonly WhiteboardElement[] {
   const geometry = getElementGeometry(element);
-  if (!geometry) return null;
-  const center = {
-    x: (geometry.bounds.minX + geometry.bounds.maxX) / 2,
-    y: (geometry.bounds.minY + geometry.bounds.maxY) / 2,
+  if (!geometry) return [];
+  const framesById = new Map(frames.map((frame) => [frame.id, frame]));
+  const wouldCreateCycle = (frame: WhiteboardElement): boolean => {
+    const visited = new Set<string>();
+    let frameId = frame.frameId;
+    while (frameId && !visited.has(frameId)) {
+      if (frameId === element.id) return true;
+      visited.add(frameId);
+      frameId = framesById.get(frameId)?.frameId ?? null;
+    }
+    return false;
   };
-  return (
-    frames
-      .filter((frame) => {
-        if (frame.id === element.id || frame.type !== "frame") return false;
-        const bounds = getElementGeometry(frame)?.bounds;
-        return (
-          bounds !== undefined &&
-          center.x >= bounds.minX &&
-          center.x <= bounds.maxX &&
-          center.y >= bounds.minY &&
-          center.y <= bounds.maxY
-        );
-      })
-      .sort(
-        (left, right) => left.width * left.height - right.width * right.height,
-      )
-      .at(0)?.id ?? null
-  );
+  const depth = (frame: WhiteboardElement): number => {
+    let result = 0;
+    const visited = new Set<string>();
+    let frameId = frame.frameId;
+    while (frameId && !visited.has(frameId)) {
+      visited.add(frameId);
+      result += 1;
+      frameId = framesById.get(frameId)?.frameId ?? null;
+    }
+    return result;
+  };
+  return frames
+    .filter((frame) => {
+      if (
+        frame.id === element.id ||
+        frame.type !== "frame" ||
+        wouldCreateCycle(frame)
+      ) {
+        return false;
+      }
+      const bounds = getElementGeometry(frame)?.bounds;
+      return (
+        bounds !== undefined &&
+        geometry.bounds.minX >= bounds.minX &&
+        geometry.bounds.maxX <= bounds.maxX &&
+        geometry.bounds.minY >= bounds.minY &&
+        geometry.bounds.maxY <= bounds.maxY
+      );
+    })
+    .sort((left, right) => {
+      const depthDifference = depth(right) - depth(left);
+      return depthDifference !== 0
+        ? depthDifference
+        : left.width * left.height - right.width * right.height;
+    });
 }
 
 function positiveDimension(
@@ -1876,16 +2238,101 @@ function positiveDimension(
     : Math.max(1, fallback);
 }
 
-function isV3Element(
-  element: WhiteboardElement,
-): element is WhiteboardElementV3 {
-  return (
-    "index" in element &&
-    "version" in element &&
-    "versionNonce" in element &&
-    "groupIds" in element &&
-    "frameId" in element
+function addErasedDependencies(
+  id: string,
+  erasedIds: Set<string>,
+  elementsById: ReadonlyMap<string, WhiteboardElement>,
+  containerTextIndex: ReadonlyMap<string, string>,
+  frameChildrenIndex: ReadonlyMap<string, ReadonlySet<string>>,
+): boolean {
+  if (erasedIds.has(id)) return false;
+  erasedIds.add(id);
+  const element = elementsById.get(id);
+  if (!element) return true;
+  const textId = containerTextIndex.get(id);
+  if (textId)
+    addErasedDependencies(
+      textId,
+      erasedIds,
+      elementsById,
+      containerTextIndex,
+      frameChildrenIndex,
+    );
+  if (element.type === "frame") {
+    for (const childId of frameChildrenIndex.get(id) ?? []) {
+      addErasedDependencies(
+        childId,
+        erasedIds,
+        elementsById,
+        containerTextIndex,
+        frameChildrenIndex,
+      );
+    }
+  }
+  return true;
+}
+
+function segmentHitsBounds(
+  start: WhiteboardPoint,
+  end: WhiteboardPoint,
+  bounds: WhiteboardBounds,
+  radius: number,
+): boolean {
+  const expanded = {
+    minX: bounds.minX - radius,
+    minY: bounds.minY - radius,
+    maxX: bounds.maxX + radius,
+    maxY: bounds.maxY + radius,
+  };
+  if (pointInsideBounds(start, expanded) || pointInsideBounds(end, expanded)) {
+    return true;
+  }
+  const corners = [
+    { x: expanded.minX, y: expanded.minY },
+    { x: expanded.maxX, y: expanded.minY },
+    { x: expanded.maxX, y: expanded.maxY },
+    { x: expanded.minX, y: expanded.maxY },
+  ];
+  return corners.some((corner, index) =>
+    segmentsIntersect(
+      start,
+      end,
+      corner,
+      corners[(index + 1) % corners.length]!,
+    ),
   );
+}
+
+function pointInsideBounds(
+  point: WhiteboardPoint,
+  bounds: WhiteboardBounds,
+): boolean {
+  return (
+    point.x >= bounds.minX &&
+    point.x <= bounds.maxX &&
+    point.y >= bounds.minY &&
+    point.y <= bounds.maxY
+  );
+}
+
+function segmentsIntersect(
+  firstStart: WhiteboardPoint,
+  firstEnd: WhiteboardPoint,
+  secondStart: WhiteboardPoint,
+  secondEnd: WhiteboardPoint,
+): boolean {
+  const cross = (
+    origin: WhiteboardPoint,
+    left: WhiteboardPoint,
+    right: WhiteboardPoint,
+  ) =>
+    (left.x - origin.x) * (right.y - origin.y) -
+    (left.y - origin.y) * (right.x - origin.x);
+  const firstA = cross(firstStart, firstEnd, secondStart);
+  const firstB = cross(firstStart, firstEnd, secondEnd);
+  const secondA = cross(secondStart, secondEnd, firstStart);
+  const secondB = cross(secondStart, secondEnd, firstEnd);
+  return firstA * firstB <= 0 && secondA * secondB <= 0;
 }
 
 function createDocumentCommand(

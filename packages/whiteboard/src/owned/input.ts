@@ -36,6 +36,16 @@ import {
   serializeOwnedClipboardPayload,
 } from "./clipboard";
 import type { OwnedPerformanceMonitor } from "./performance-monitor";
+import {
+  snapMoveDelta,
+  snapResizePoint,
+  snapRotation,
+  type OwnedSnapGuide,
+} from "./snapping";
+import {
+  createBindingForTarget,
+  getBindingCandidateThreshold,
+} from "./bindings";
 
 export type OwnedPointerType = "mouse" | "pen" | "touch";
 
@@ -71,6 +81,7 @@ export interface OwnedInteractionSink {
   setPreview(element: WhiteboardElement | null): void;
   beginTextEditing(point: WhiteboardPoint, target?: WhiteboardElement): void;
   setBindingHint?(element: WhiteboardElement | null): void;
+  setSnapGuides?(guides: readonly OwnedSnapGuide[]): void;
   beginFreedrawPreview?(
     point: WhiteboardPoint,
     style: WhiteboardElementStyle,
@@ -108,6 +119,15 @@ type ActiveInteraction =
       readonly button: number;
       readonly startPoint: WhiteboardPoint;
       readonly elements: readonly WhiteboardElement[];
+      readonly bounds: WhiteboardBounds;
+    }
+  | {
+      readonly type: "duplicate";
+      readonly pointerId: number;
+      readonly button: number;
+      readonly startPoint: WhiteboardPoint;
+      readonly elements: readonly WhiteboardElement[];
+      readonly bounds: WhiteboardBounds;
     }
   | {
       readonly type: "resize";
@@ -124,6 +144,22 @@ type ActiveInteraction =
       readonly center: WhiteboardPoint;
       readonly startAngle: number;
       readonly elements: readonly WhiteboardElement[];
+    }
+  | {
+      readonly type: "erase";
+      readonly pointerId: number;
+      readonly button: number;
+      lastPoint: WhiteboardPoint;
+      readonly radius: number;
+    }
+  | {
+      readonly type: "pinch";
+      readonly pointerId: number;
+      readonly button: number;
+      readonly pointerIds: readonly [number, number];
+      readonly initialDistance: number;
+      readonly anchor: WhiteboardPoint;
+      readonly initialZoom: number;
     };
 
 interface ActiveKeyboardNudge {
@@ -172,6 +208,7 @@ export class OwnedWhiteboardInput {
   private pasteCount = 0;
   private pendingPointerMove: PointerEvent | null = null;
   private pointerMoveFrame: number | null = null;
+  private readonly activePointers = new Map<number, WhiteboardPoint>();
   private destroyed = false;
 
   public constructor(
@@ -212,10 +249,15 @@ export class OwnedWhiteboardInput {
     if (
       !enabled &&
       (this.activeInteraction?.type === "move" ||
+        this.activeInteraction?.type === "duplicate" ||
         this.activeInteraction?.type === "resize" ||
         this.activeInteraction?.type === "rotate")
     ) {
-      this.store.cancelElementGesture();
+      if (this.activeInteraction.type === "duplicate") {
+        this.store.cancelDuplicateGesture();
+      } else {
+        this.store.cancelElementGesture();
+      }
       this.releaseActivePointer();
       this.activeInteraction = null;
     }
@@ -251,21 +293,36 @@ export class OwnedWhiteboardInput {
       this.pointerMoveFrame = null;
     }
     this.pendingPointerMove = null;
+    this.activePointers.clear();
     this.releaseActivePointer();
     this.activeInteraction = null;
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
     this.interactionSink.setBindingHint?.(null);
+    this.interactionSink.setSnapGuides?.([]);
     this.interactionSink.endFreedrawPreview?.();
   }
 
   private readonly handlePointerDown = (event: PointerEvent): void => {
-    if (this.destroyed || !event.isPrimary || isEditableTarget(event.target)) {
+    if (this.destroyed || isEditableTarget(event.target)) {
       return;
     }
+    const pointer = normalizePointerEvent(event);
+    if (pointer.type === "touch") {
+      this.activePointers.set(pointer.id, pointer.point);
+      if (this.activePointers.size >= 2) {
+        event.preventDefault();
+        if (this.activePointers.size > 2) {
+          this.finishPinch();
+          return;
+        }
+        this.beginPinch();
+        return;
+      }
+    }
+    if (!event.isPrimary) return;
     this.commitKeyboardNudge();
     this.performanceMonitor?.recordInput(event.timeStamp);
-    const pointer = normalizePointerEvent(event);
     const shouldPan =
       event.button === 1 ||
       this.spacePressed ||
@@ -296,6 +353,21 @@ export class OwnedWhiteboardInput {
     const viewport = this.store.getViewport();
     const documentPoint = screenToDocument(pointer.point, viewport);
     const activeTool = this.store.getActiveTool().type;
+    if (activeTool === "eraser") {
+      if (!this.editingEnabled) return;
+      this.store.beginEraseGesture();
+      this.target.setPointerCapture?.(pointer.id);
+      const radius = (pointer.type === "touch" ? 8 : 5) / viewport.zoom;
+      this.activeInteraction = {
+        type: "erase",
+        pointerId: pointer.id,
+        button: event.button,
+        lastPoint: documentPoint,
+        radius,
+      };
+      this.store.updateEraseGesture(documentPoint, documentPoint, radius);
+      return;
+    }
     if (isOwnedCreatableTool(activeTool)) {
       if (!this.capabilities[activeTool]) return;
       if (activeTool === "text") {
@@ -319,7 +391,7 @@ export class OwnedWhiteboardInput {
         session,
         startBindingTargetId:
           activeTool === "arrow"
-            ? (this.findBindingTarget(documentPoint)?.id ?? null)
+            ? (this.findBindingTarget(documentPoint, pointer.type)?.id ?? null)
             : null,
       };
       const style = this.store.getEditorState().elementStyle;
@@ -380,16 +452,23 @@ export class OwnedWhiteboardInput {
       }
       return;
     }
-    const hit = hitTestElements(
-      this.store.getVisibleElements({
-        minX: documentPoint.x - 12 / viewport.zoom,
-        minY: documentPoint.y - 12 / viewport.zoom,
-        maxX: documentPoint.x + 12 / viewport.zoom,
-        maxY: documentPoint.y + 12 / viewport.zoom,
-      }),
+    const visibleElements = this.store.getVisibleElements({
+      minX: documentPoint.x - 12 / viewport.zoom,
+      minY: documentPoint.y - 12 / viewport.zoom,
+      maxX: documentPoint.x + 12 / viewport.zoom,
+      maxY: documentPoint.y + 12 / viewport.zoom,
+    });
+    let hit = hitTestElements(
+      visibleElements.filter((element) =>
+        this.store.isElementWithinEditingGroup(element),
+      ),
       documentPoint,
       viewport.zoom,
     );
+    if (!hit && this.store.getEditorState().selection.editingGroupId) {
+      this.store.exitGroupEditing();
+      hit = hitTestElements(visibleElements, documentPoint, viewport.zoom);
+    }
     if (hit) {
       const toggle =
         this.editingEnabled &&
@@ -412,6 +491,26 @@ export class OwnedWhiteboardInput {
         this.activeInteraction = null;
         return;
       }
+      if (pointer.altKey) {
+        const elements = this.store.beginDuplicateGesture(this.createId);
+        if (elements.length === 0) return;
+        this.performanceMonitor?.begin(
+          "move",
+          this.store.getDocument().elements.length,
+        );
+        this.target.setPointerCapture?.(pointer.id);
+        this.activeInteraction = {
+          type: "duplicate",
+          pointerId: pointer.id,
+          button: event.button,
+          startPoint: documentPoint,
+          elements,
+          bounds:
+            getSelectionBounds(elements) ??
+            normalizeBounds(documentPoint, documentPoint),
+        };
+        return;
+      }
       const elements = this.store.getTransformElements("move");
       this.performanceMonitor?.begin(
         "move",
@@ -425,6 +524,9 @@ export class OwnedWhiteboardInput {
         button: event.button,
         startPoint: documentPoint,
         elements,
+        bounds:
+          getSelectionBounds(elements) ??
+          normalizeBounds(documentPoint, documentPoint),
       };
       return;
     }
@@ -462,6 +564,11 @@ export class OwnedWhiteboardInput {
       { x: event.clientX, y: event.clientY },
       this.store.getViewport(),
     );
+    const hit = this.findElementTarget(point);
+    if (hit && this.store.enterGroupEditing(hit.id)) {
+      event.preventDefault();
+      return;
+    }
     const target = this.findTextTarget(point);
     if (!target) return;
     event.preventDefault();
@@ -470,6 +577,7 @@ export class OwnedWhiteboardInput {
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
+    this.performanceMonitor?.recordInput(event.timeStamp);
     if (
       typeof event.getCoalescedEvents === "function" &&
       typeof requestAnimationFrame === "function"
@@ -489,9 +597,16 @@ export class OwnedWhiteboardInput {
 
   private readonly processPointerMove = (event: PointerEvent): void => {
     const interaction = this.activeInteraction;
-    if (interaction?.pointerId !== event.pointerId) return;
     const pointer = normalizePointerEvent(event);
-    this.performanceMonitor?.recordInput(event.timeStamp);
+    if (pointer.type === "touch" && this.activePointers.has(pointer.id)) {
+      this.activePointers.set(pointer.id, pointer.point);
+    }
+    if (interaction?.type === "pinch") {
+      this.updatePinch(interaction);
+      event.preventDefault();
+      return;
+    }
+    if (interaction?.pointerId !== event.pointerId) return;
     event.preventDefault();
     if (interaction.type === "pan") {
       this.store.panBy(
@@ -526,7 +641,7 @@ export class OwnedWhiteboardInput {
       }
       if (interaction.session.tool === "arrow") {
         this.interactionSink.setBindingHint?.(
-          this.findBindingTarget(interaction.session.end),
+          this.findBindingTarget(interaction.session.end, pointer.type),
         );
       }
       if (
@@ -554,26 +669,71 @@ export class OwnedWhiteboardInput {
       this.store.getViewport(),
     );
     if (interaction.type === "move") {
-      this.store.updateElementGesture(
-        translateElements(interaction.elements, {
+      const snap = this.getMoveSnap(
+        interaction.bounds,
+        interaction.elements,
+        {
           x: documentPoint.x - interaction.startPoint.x,
           y: documentPoint.y - interaction.startPoint.y,
-        }),
+        },
+        pointer,
+      );
+      this.interactionSink.setSnapGuides?.(snap.guides);
+      this.store.updateElementGesture(
+        translateElements(interaction.elements, snap.delta),
+      );
+      return;
+    }
+    if (interaction.type === "duplicate") {
+      const snap = this.getMoveSnap(
+        interaction.bounds,
+        interaction.elements,
+        {
+          x: documentPoint.x - interaction.startPoint.x,
+          y: documentPoint.y - interaction.startPoint.y,
+        },
+        pointer,
+      );
+      this.interactionSink.setSnapGuides?.(snap.guides);
+      this.store.updateDuplicateGesture(
+        translateElements(interaction.elements, snap.delta),
       );
       return;
     }
     if (interaction.type === "resize") {
+      const viewport = this.store.getViewport();
       const containsRotation = interaction.elements.some(
         (element) =>
           typeof element.angle === "number" &&
           Number.isFinite(element.angle) &&
           Math.abs(element.angle) > Number.EPSILON,
       );
+      const threshold = (pointer.type === "touch" ? 8 : 5) / viewport.zoom;
+      const resizingIds = new Set(
+        interaction.elements.map((element) => element.id),
+      );
+      const resizeSnap = snapResizePoint({
+        point: documentPoint,
+        candidates: this.store
+          .getVisibleElements({
+            minX: documentPoint.x - threshold,
+            minY: documentPoint.y - threshold,
+            maxX: documentPoint.x + threshold,
+            maxY: documentPoint.y + threshold,
+          })
+          .filter((element) => !resizingIds.has(element.id)),
+        zoom: viewport.zoom,
+        pointerType: pointer.type,
+        gridSize: this.store.getDocument().state.gridSize,
+        disabled: pointer.ctrlKey || pointer.metaKey,
+      });
+      this.interactionSink.setSnapGuides?.(resizeSnap.guides);
       const bounds = getResizedBounds(
         interaction.bounds,
         interaction.handle,
-        documentPoint,
+        resizeSnap.point,
         pointer.shiftKey || containsRotation,
+        pointer.altKey,
       );
       this.store.updateElementGesture(
         containsRotation
@@ -588,14 +748,25 @@ export class OwnedWhiteboardInput {
       return;
     }
     if (interaction.type === "rotate") {
-      const angle =
+      const angle = snapRotation(
         Math.atan2(
           documentPoint.y - interaction.center.y,
           documentPoint.x - interaction.center.x,
-        ) - interaction.startAngle;
+        ) - interaction.startAngle,
+        pointer.shiftKey,
+      );
       this.store.updateElementGesture(
         rotateElements(interaction.elements, interaction.center, angle),
       );
+      return;
+    }
+    if (interaction.type === "erase") {
+      this.store.updateEraseGesture(
+        interaction.lastPoint,
+        documentPoint,
+        interaction.radius,
+      );
+      interaction.lastPoint = documentPoint;
       return;
     }
 
@@ -609,6 +780,12 @@ export class OwnedWhiteboardInput {
   private readonly handlePointerUp = (event: PointerEvent): void => {
     this.flushPendingPointerMove();
     const interaction = this.activeInteraction;
+    if (interaction?.type === "pinch") {
+      this.activePointers.delete(event.pointerId);
+      event.preventDefault();
+      if (this.activePointers.size === 0) this.finishPinch();
+      return;
+    }
     if (interaction?.pointerId !== event.pointerId) return;
     if (interaction.button !== event.button) return;
     event.preventDefault();
@@ -616,12 +793,10 @@ export class OwnedWhiteboardInput {
       this.store.commitTransientViewport();
     } else if (interaction.type === "draw") {
       this.refreshViewportOffset();
+      const pointer = normalizePointerEvent(event);
       const session = updateOwnedDrawing(
         interaction.session,
-        screenToDocument(
-          normalizePointerEvent(event).point,
-          this.store.getViewport(),
-        ),
+        screenToDocument(pointer.point, this.store.getViewport()),
       );
       const created = createOwnedDrawingElement(
         session,
@@ -630,34 +805,41 @@ export class OwnedWhiteboardInput {
       );
       const endBindingTarget =
         session.tool === "arrow"
-          ? (this.findBindingTarget(session.end)?.id ?? null)
+          ? this.findBindingTarget(session.end, pointer.type)
           : null;
+      const startBindingTarget = interaction.startBindingTargetId
+        ? this.store.getElement(interaction.startBindingTargetId)
+        : null;
       const element =
-        created?.type === "arrow" && "startBinding" in created
+        created?.type === "arrow"
           ? {
               ...created,
-              startBinding: interaction.startBindingTargetId
-                ? {
-                    elementId: interaction.startBindingTargetId,
-                    focus: 0,
-                    gap: 0,
-                  }
+              startBinding: startBindingTarget
+                ? createBindingForTarget(startBindingTarget, session.end)
                 : null,
               endBinding: endBindingTarget
-                ? { elementId: endBindingTarget, focus: 0, gap: 0 }
+                ? createBindingForTarget(endBindingTarget, session.start)
                 : null,
             }
           : created;
       this.interactionSink.endFreedrawPreview?.();
       this.interactionSink.setPreview(null);
       this.interactionSink.setBindingHint?.(null);
+      this.interactionSink.setSnapGuides?.([]);
       if (element) this.store.appendElement(element);
     } else if (
       interaction.type === "move" ||
+      interaction.type === "duplicate" ||
       interaction.type === "resize" ||
       interaction.type === "rotate"
     ) {
-      this.store.commitElementGesture();
+      if (interaction.type === "duplicate") {
+        this.store.commitDuplicateGesture();
+      } else {
+        this.store.commitElementGesture();
+      }
+    } else if (interaction.type === "erase") {
+      this.store.commitEraseGesture();
     } else {
       const viewport = this.store.getViewport();
       const width =
@@ -694,24 +876,38 @@ export class OwnedWhiteboardInput {
     }
     this.releaseActivePointer();
     this.activeInteraction = null;
+    this.activePointers.delete(event.pointerId);
     this.performanceMonitor?.end();
   };
 
   private readonly handlePointerCancel = (event: PointerEvent): void => {
     this.cancelPendingPointerMove();
+    this.activePointers.delete(event.pointerId);
+    if (this.activeInteraction?.type === "pinch") {
+      this.finishPinch();
+      return;
+    }
     if (this.activeInteraction?.pointerId !== event.pointerId) return;
     if (this.activeInteraction.type === "pan") {
       this.store.commitTransientViewport();
     } else if (
       this.activeInteraction.type === "move" ||
+      this.activeInteraction.type === "duplicate" ||
       this.activeInteraction.type === "resize" ||
       this.activeInteraction.type === "rotate"
     ) {
-      this.store.cancelElementGesture();
+      if (this.activeInteraction.type === "duplicate") {
+        this.store.cancelDuplicateGesture();
+      } else {
+        this.store.cancelElementGesture();
+      }
+    } else if (this.activeInteraction.type === "erase") {
+      this.store.cancelEraseGesture();
     }
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
     this.interactionSink.setBindingHint?.(null);
+    this.interactionSink.setSnapGuides?.([]);
     this.interactionSink.endFreedrawPreview?.();
     this.releaseActivePointer();
     this.activeInteraction = null;
@@ -720,19 +916,32 @@ export class OwnedWhiteboardInput {
 
   private readonly handleLostPointerCapture = (event: PointerEvent): void => {
     this.flushPendingPointerMove();
+    this.activePointers.delete(event.pointerId);
+    if (this.activeInteraction?.type === "pinch") {
+      this.finishPinch();
+      return;
+    }
     if (this.activeInteraction?.pointerId !== event.pointerId) return;
     if (this.activeInteraction.type === "pan") {
       this.store.commitTransientViewport();
     } else if (
       this.activeInteraction.type === "move" ||
+      this.activeInteraction.type === "duplicate" ||
       this.activeInteraction.type === "resize" ||
       this.activeInteraction.type === "rotate"
     ) {
-      this.store.commitElementGesture();
+      if (this.activeInteraction.type === "duplicate") {
+        this.store.cancelDuplicateGesture();
+      } else {
+        this.store.commitElementGesture();
+      }
+    } else if (this.activeInteraction.type === "erase") {
+      this.store.cancelEraseGesture();
     }
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
     this.interactionSink.setBindingHint?.(null);
+    this.interactionSink.setSnapGuides?.([]);
     this.interactionSink.endFreedrawPreview?.();
     this.activeInteraction = null;
     this.performanceMonitor?.end();
@@ -806,6 +1015,7 @@ export class OwnedWhiteboardInput {
     if (isArrowKey) {
       if (
         this.activeInteraction?.type === "move" ||
+        this.activeInteraction?.type === "duplicate" ||
         this.activeInteraction?.type === "resize" ||
         this.activeInteraction?.type === "rotate"
       ) {
@@ -865,19 +1075,33 @@ export class OwnedWhiteboardInput {
       }
       if (
         this.activeInteraction?.type === "move" ||
+        this.activeInteraction?.type === "duplicate" ||
         this.activeInteraction?.type === "resize" ||
         this.activeInteraction?.type === "rotate"
       ) {
-        this.store.cancelElementGesture();
+        if (this.activeInteraction.type === "duplicate") {
+          this.store.cancelDuplicateGesture();
+        } else {
+          this.store.cancelElementGesture();
+        }
+      }
+      if (this.activeInteraction?.type === "erase") {
+        this.store.cancelEraseGesture();
+      }
+      if (this.activeInteraction?.type === "pinch") {
+        this.finishPinch();
       }
       this.releaseActivePointer();
       this.interactionSink.setMarquee(null);
       this.interactionSink.setPreview(null);
       this.interactionSink.setBindingHint?.(null);
+      this.interactionSink.setSnapGuides?.([]);
       this.interactionSink.endFreedrawPreview?.();
       this.activeInteraction = null;
       if (hadInteraction) this.performanceMonitor?.end();
-      if (!hadInteraction) this.store.setSelection([]);
+      if (!hadInteraction && !this.store.exitGroupEditing()) {
+        this.store.setSelection([]);
+      }
     } else if (event.key === "Backspace" || event.key === "Delete") {
       if (!this.editingEnabled) return;
       this.store.deleteSelection();
@@ -949,10 +1173,17 @@ export class OwnedWhiteboardInput {
       this.store.commitTransientViewport();
     } else if (
       this.activeInteraction?.type === "move" ||
+      this.activeInteraction?.type === "duplicate" ||
       this.activeInteraction?.type === "resize" ||
       this.activeInteraction?.type === "rotate"
     ) {
-      this.store.commitElementGesture();
+      if (this.activeInteraction.type === "duplicate") {
+        this.store.cancelDuplicateGesture();
+      } else {
+        this.store.commitElementGesture();
+      }
+    } else if (this.activeInteraction?.type === "erase") {
+      this.store.cancelEraseGesture();
     }
     this.releaseActivePointer();
     this.activeInteraction = null;
@@ -961,18 +1192,37 @@ export class OwnedWhiteboardInput {
     this.interactionSink.endFreedrawPreview?.();
   };
 
-  private findTextTarget(point: WhiteboardPoint): WhiteboardElement | null {
+  private getMoveSnap(
+    bounds: WhiteboardBounds,
+    elements: readonly WhiteboardElement[],
+    delta: WhiteboardPoint,
+    pointer: NormalizedWhiteboardPointer,
+  ) {
     const viewport = this.store.getViewport();
-    const hit = hitTestElements(
-      this.store.getVisibleElements({
-        minX: point.x - 10 / viewport.zoom,
-        minY: point.y - 10 / viewport.zoom,
-        maxX: point.x + 10 / viewport.zoom,
-        maxY: point.y + 10 / viewport.zoom,
-      }),
-      point,
-      viewport.zoom,
-    );
+    const threshold = (pointer.type === "touch" ? 8 : 5) / viewport.zoom;
+    const query = {
+      minX: bounds.minX + delta.x - threshold,
+      minY: bounds.minY + delta.y - threshold,
+      maxX: bounds.maxX + delta.x + threshold,
+      maxY: bounds.maxY + delta.y + threshold,
+    };
+    const movingIds = new Set(elements.map(({ id }) => id));
+    return snapMoveDelta({
+      selectionBounds: bounds,
+      candidates: this.store
+        .getVisibleElements(query)
+        .filter((element) => !movingIds.has(element.id)),
+      delta,
+      zoom: viewport.zoom,
+      pointerType: pointer.type,
+      gridSize: this.store.getDocument().state.gridSize,
+      disabled: pointer.ctrlKey || pointer.metaKey,
+      constrainAxis: pointer.shiftKey,
+    });
+  }
+
+  private findTextTarget(point: WhiteboardPoint): WhiteboardElement | null {
+    const hit = this.findElementTarget(point);
     return hit &&
       (hit.type === "text" ||
         hit.type === "rectangle" ||
@@ -982,14 +1232,34 @@ export class OwnedWhiteboardInput {
       : null;
   }
 
-  private findBindingTarget(point: WhiteboardPoint): WhiteboardElement | null {
+  private findElementTarget(point: WhiteboardPoint): WhiteboardElement | null {
     const viewport = this.store.getViewport();
+    return hitTestElements(
+      this.store
+        .getVisibleElements({
+          minX: point.x - 10 / viewport.zoom,
+          minY: point.y - 10 / viewport.zoom,
+          maxX: point.x + 10 / viewport.zoom,
+          maxY: point.y + 10 / viewport.zoom,
+        })
+        .filter((element) => this.store.isElementWithinEditingGroup(element)),
+      point,
+      viewport.zoom,
+    );
+  }
+
+  private findBindingTarget(
+    point: WhiteboardPoint,
+    pointerType: OwnedPointerType,
+  ): WhiteboardElement | null {
+    const viewport = this.store.getViewport();
+    const threshold = getBindingCandidateThreshold(pointerType, viewport.zoom);
     const hit = hitTestElements(
       this.store.getVisibleElements({
-        minX: point.x - 10 / viewport.zoom,
-        minY: point.y - 10 / viewport.zoom,
-        maxX: point.x + 10 / viewport.zoom,
-        maxY: point.y + 10 / viewport.zoom,
+        minX: point.x - threshold,
+        minY: point.y - threshold,
+        maxX: point.x + threshold,
+        maxY: point.y + threshold,
       }),
       point,
       viewport.zoom,
@@ -1032,6 +1302,90 @@ export class OwnedWhiteboardInput {
     }
   }
 
+  private beginPinch(): void {
+    const pointers = [...this.activePointers.entries()];
+    const first = pointers[0];
+    const second = pointers[1];
+    if (!first || !second) return;
+    this.cancelActiveSinglePointerForPinch();
+    const midpoint = midpointOf(first[1], second[1]);
+    const viewport = this.store.getViewport();
+    this.store.beginPinchGesture();
+    this.target.setPointerCapture?.(first[0]);
+    this.target.setPointerCapture?.(second[0]);
+    this.activeInteraction = {
+      type: "pinch",
+      pointerId: first[0],
+      button: 0,
+      pointerIds: [first[0], second[0]],
+      initialDistance: Math.max(1, pointDistance(first[1], second[1])),
+      anchor: screenToDocument(midpoint, viewport),
+      initialZoom: viewport.zoom,
+    };
+  }
+
+  private updatePinch(
+    interaction: Extract<ActiveInteraction, { type: "pinch" }>,
+  ): void {
+    const first = this.activePointers.get(interaction.pointerIds[0]);
+    const second = this.activePointers.get(interaction.pointerIds[1]);
+    if (!first || !second) return;
+    const midpoint = midpointOf(first, second);
+    const viewport = this.store.getViewport();
+    const zoom = Math.min(
+      16,
+      Math.max(
+        0.05,
+        interaction.initialZoom *
+          (pointDistance(first, second) / interaction.initialDistance),
+      ),
+    );
+    this.store.updatePinchViewport({
+      x: (midpoint.x - viewport.offsetX) / zoom - interaction.anchor.x,
+      y: (midpoint.y - viewport.offsetY) / zoom - interaction.anchor.y,
+      zoom,
+    });
+  }
+
+  private finishPinch(): void {
+    if (this.activeInteraction?.type !== "pinch") return;
+    this.store.endPinchGesture();
+    for (const pointerId of this.activeInteraction.pointerIds) {
+      if (this.target.hasPointerCapture?.(pointerId)) {
+        this.target.releasePointerCapture?.(pointerId);
+      }
+    }
+    this.activeInteraction = null;
+    this.activePointers.clear();
+    this.performanceMonitor?.end();
+  }
+
+  private cancelActiveSinglePointerForPinch(): void {
+    const interaction = this.activeInteraction;
+    if (!interaction) return;
+    if (
+      interaction.type === "move" ||
+      interaction.type === "duplicate" ||
+      interaction.type === "resize" ||
+      interaction.type === "rotate"
+    ) {
+      if (interaction.type === "duplicate") {
+        this.store.cancelDuplicateGesture();
+      } else {
+        this.store.cancelElementGesture();
+      }
+    } else if (interaction.type === "erase") {
+      this.store.cancelEraseGesture();
+    }
+    this.interactionSink.setMarquee(null);
+    this.interactionSink.setPreview(null);
+    this.interactionSink.setBindingHint?.(null);
+    this.interactionSink.setSnapGuides?.([]);
+    this.interactionSink.endFreedrawPreview?.();
+    this.releaseActivePointer();
+    this.activeInteraction = null;
+  }
+
   private flushPendingPointerMove(): void {
     if (this.pointerMoveFrame !== null) {
       cancelAnimationFrame(this.pointerMoveFrame);
@@ -1061,6 +1415,23 @@ function viewportCenter(viewport: {
     x: viewport.offsetX + viewport.width / 2,
     y: viewport.offsetY + viewport.height / 2,
   };
+}
+
+function midpointOf(
+  first: WhiteboardPoint,
+  second: WhiteboardPoint,
+): WhiteboardPoint {
+  return {
+    x: (first.x + second.x) / 2,
+    y: (first.y + second.y) / 2,
+  };
+}
+
+function pointDistance(
+  first: WhiteboardPoint,
+  second: WhiteboardPoint,
+): number {
+  return Math.hypot(second.x - first.x, second.y - first.y);
 }
 
 function isEditableTarget(target: EventTarget | null): boolean {

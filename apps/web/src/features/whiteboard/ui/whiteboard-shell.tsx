@@ -259,6 +259,18 @@ const FILL_COLORS = [
   "#a5d8ff",
   "#ffec99",
 ] as const;
+const COLOR_NAMES: Readonly<Record<string, string>> = {
+  transparent: "Transparent",
+  "#1e1e1e": "Black",
+  "#e03131": "Red",
+  "#2f9e44": "Green",
+  "#1971c2": "Blue",
+  "#f08c00": "Orange",
+  "#ffc9c9": "Light red",
+  "#b2f2bb": "Light green",
+  "#a5d8ff": "Light blue",
+  "#ffec99": "Light yellow",
+};
 const MIN_ZOOM = 0.1;
 const MAX_ZOOM = 4;
 const ZOOM_STEP = 0.1;
@@ -308,6 +320,8 @@ export type WhiteboardShellProps = {
   readonly onShare: () => void;
   readonly onWorkspace?: () => void;
   readonly onImported?: (name: string | null) => void;
+  readonly openPanel?: string | null;
+  readonly onOpenPanelChange?: (panel: string | null) => void;
 };
 
 export function WhiteboardShell({
@@ -322,12 +336,18 @@ export function WhiteboardShell({
   onShare,
   onWorkspace,
   onImported,
+  openPanel = null,
+  onOpenPanelChange,
 }: WhiteboardShellProps) {
   const editorState = useWhiteboardEditorState(engine);
   const [helpOpen, setHelpOpen] = useState(false);
   const [importOpen, setImportOpen] = useState(false);
   const [exportOpen, setExportOpen] = useState(false);
-  const [propertiesOpen, setPropertiesOpen] = useState(false);
+  const propertiesOpen = openPanel === "properties";
+  const setPropertiesOpen = useCallback(
+    (open: boolean) => onOpenPanelChange?.(open ? "properties" : null),
+    [onOpenPanelChange],
+  );
   const [clearOpen, setClearOpen] = useState(false);
   const [isDocumentEmpty, setIsDocumentEmpty] = useState(true);
   const imageInputRef = useRef<HTMLInputElement>(null);
@@ -574,7 +594,7 @@ export function WhiteboardShell({
               </div>
             )}
 
-            <div className="pointer-events-auto absolute right-3 bottom-[4.75rem] left-3 lg:hidden">
+            <div className="pointer-events-auto absolute right-3 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] left-3 lg:hidden">
               <MobileProperties
                 engine={engine}
                 editorState={editorState}
@@ -724,7 +744,7 @@ function TopBar({
                 render={
                   <Button
                     aria-label="Main menu"
-                    className="pointer-events-auto size-8 md:size-9"
+                    className="pointer-events-auto"
                     size="whiteboard-tool"
                     variant="whiteboard-control"
                   />
@@ -813,7 +833,7 @@ function TopBar({
         />
         <Button
           aria-label={isSharing ? "Sharing" : "Share"}
-          className="size-8 px-0 md:h-9 md:w-auto md:px-3"
+          className="w-11 px-0 md:w-auto md:px-3"
           disabled={!connected || isSharing}
           onClick={onShare}
           size="whiteboard-share"
@@ -881,7 +901,7 @@ function DrawingToolbar({
   return (
     <div
       aria-label="Drawing tools"
-      className="pointer-events-auto absolute inset-x-3 bottom-2 flex max-w-[calc(100%_-_1.5rem)] items-center justify-between gap-1 overflow-hidden rounded-lg bg-[var(--whiteboard-island)] p-1 shadow-[var(--whiteboard-shadow)] md:inset-x-auto md:top-4 md:bottom-auto md:left-1/2 md:-translate-x-1/2 md:justify-start md:overflow-visible"
+      className="pointer-events-auto absolute inset-x-3 bottom-[calc(0.5rem+env(safe-area-inset-bottom))] flex max-w-[calc(100%_-_1.5rem)] items-center justify-between gap-1 overflow-hidden rounded-lg bg-[var(--whiteboard-island)] p-1 shadow-[var(--whiteboard-shadow)] md:inset-x-auto md:top-4 md:bottom-auto md:left-1/2 md:-translate-x-1/2 md:justify-start md:overflow-visible"
       role="toolbar"
     >
       <Tooltip>
@@ -1346,7 +1366,7 @@ function ColorField({
         >
           {colors.map((color) => (
             <ToggleGroupItem
-              aria-label={`${label}: ${color}`}
+              aria-label={`${label}: ${colorName(color)} (${color})`}
               key={color}
               value={color}
             >
@@ -1380,6 +1400,10 @@ function ColorField({
       </div>
     </Field>
   );
+}
+
+function colorName(color: string): string {
+  return COLOR_NAMES[color.toLowerCase()] ?? "Custom color";
 }
 
 function RoughnessPreview({ roughness }: { readonly roughness: number }) {
@@ -1504,7 +1528,10 @@ function MobileProperties({
           </Button>
         </div>
       </div>
-      <SheetContent side="bottom">
+      <SheetContent
+        className="max-h-[calc(100dvh-env(safe-area-inset-top))] overflow-y-auto pb-[env(safe-area-inset-bottom)]"
+        side="bottom"
+      >
         <SheetHeader>
           <SheetTitle>Element properties</SheetTitle>
           <SheetDescription>

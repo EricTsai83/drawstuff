@@ -11,6 +11,7 @@ import type {
   OwnedWhiteboardDocument,
   WhiteboardElementType,
 } from "@drawstuff/whiteboard";
+import { rectangleV3 } from "../whiteboard-fixtures";
 import { saveSceneSchema } from "@/lib/schemas/scene";
 
 const elementTypes = [
@@ -377,26 +378,7 @@ describe("WhiteboardDocumentV2", () => {
 
   it("keeps editor session state out of writes", () => {
     const runtime: OwnedWhiteboardDocument = {
-      elements: [
-        {
-          id: "shape",
-          type: "rectangle",
-          isDeleted: false,
-          x: 0,
-          y: 0,
-          width: 100,
-          height: 50,
-          angle: 0,
-          strokeColor: "#1e1e1e",
-          backgroundColor: "transparent",
-          fillStyle: "solid",
-          strokeWidth: 1,
-          strokeStyle: "solid",
-          opacity: 100,
-          roughness: 1,
-          locked: false,
-        },
-      ],
+      elements: [rectangleV3("shape")],
       assets: {},
       state: {
         name: "Runtime",

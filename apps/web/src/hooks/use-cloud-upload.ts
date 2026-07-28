@@ -258,6 +258,17 @@ export function useCloudUpload(
             });
 
             if (!draftResult.ok) {
+              if (draftResult.error === APP_ERROR.WHITEBOARD_MAINTENANCE) {
+                setStatus("idle");
+                toast.error(draftResult.message);
+                recordWhiteboardDiagnostic({
+                  operation: "save",
+                  outcome: "blocked",
+                  documentVersion: WHITEBOARD_DOCUMENT_VERSION,
+                  errorCode: "MAINTENANCE",
+                });
+                return false;
+              }
               throw new Error(draftResult.message ?? draftResult.error);
             }
 
@@ -412,6 +423,17 @@ export function useCloudUpload(
                 outcome: "blocked",
                 documentVersion: WHITEBOARD_DOCUMENT_VERSION,
                 errorCode: "PAYLOAD_TOO_LARGE",
+              });
+              return false;
+            }
+            if (result.error === APP_ERROR.WHITEBOARD_MAINTENANCE) {
+              setStatus("idle");
+              toast.error(result.message);
+              recordWhiteboardDiagnostic({
+                operation: "save",
+                outcome: "blocked",
+                documentVersion: WHITEBOARD_DOCUMENT_VERSION,
+                errorCode: "MAINTENANCE",
               });
               return false;
             }

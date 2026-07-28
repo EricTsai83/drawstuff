@@ -3,6 +3,7 @@ import type {
   OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 import {
   applyOwnedDarkModeFilter,
   exportOwnedWhiteboardSvg,
@@ -101,7 +102,7 @@ function createDocument(theme: "dark" | "light"): OwnedWhiteboardDocument {
 }
 
 function rectangle(): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id: "rectangle",
     type: "rectangle",
     isDeleted: false,
@@ -118,7 +119,7 @@ function rectangle(): WhiteboardElement {
     opacity: 100,
     roughness: 1,
     locked: false,
-  };
+  });
 }
 
 function createCanvasContext() {

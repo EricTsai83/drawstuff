@@ -1,7 +1,7 @@
 import type {
   OwnedWhiteboardDocument,
   WhiteboardAsset,
-  WhiteboardAssetMimeTypeV2,
+  WhiteboardAssetMimeTypeV3,
   WhiteboardAssetV3,
   WhiteboardBindingV3,
   WhiteboardDocumentMetadataV3,
@@ -43,7 +43,7 @@ const STROKE_STYLES = new Set<WhiteboardStrokeStyle>([
   "dashed",
   "dotted",
 ]);
-const MIME_TYPES = new Set<WhiteboardAssetMimeTypeV2>([
+const MIME_TYPES = new Set<WhiteboardAssetMimeTypeV3>([
   "application/octet-stream",
   "image/avif",
   "image/bmp",
@@ -692,8 +692,8 @@ function persistAsset(
   asset: WhiteboardAsset,
   storage: "external" | "inline",
 ): WhiteboardAssetV3 {
-  const mimeType = MIME_TYPES.has(asset.mimeType as WhiteboardAssetMimeTypeV2)
-    ? (asset.mimeType as WhiteboardAssetMimeTypeV2)
+  const mimeType = MIME_TYPES.has(asset.mimeType as WhiteboardAssetMimeTypeV3)
+    ? (asset.mimeType as WhiteboardAssetMimeTypeV3)
     : "application/octet-stream";
   return {
     id: asset.id,

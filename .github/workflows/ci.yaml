@@ -52,3 +52,29 @@ jobs:
         run: pnpm build
         env:
           SKIP_ENV_VALIDATION: "1"
+
+      - name: Guard V3-only whiteboard client bundle
+        run: pnpm --filter @drawstuff/web bundle:guard
+
+      - name: Build whiteboard browser harness
+        run: pnpm --filter @drawstuff/web build
+        env:
+          NEXT_PUBLIC_WHITEBOARD_TEST_MODE: "1"
+          SKIP_ENV_VALIDATION: "1"
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @drawstuff/web exec playwright install --with-deps chromium webkit
+
+      - name: Browser, mobile, and accessibility gates
+        run: pnpm --filter @drawstuff/web test:e2e
+        env:
+          NEXT_PUBLIC_WHITEBOARD_TEST_MODE: "1"
+
+      - name: Upload browser failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: whiteboard-playwright-artifacts
+          path: |
+            apps/web/playwright-report
+            apps/web/test-results/playwright

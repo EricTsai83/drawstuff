@@ -151,21 +151,22 @@ export function createOwnedDrawingElement(
     ) {
       return null;
     }
-    return {
+    const box = {
       ...base,
-      type: session.tool,
-      ...(session.tool === "frame"
-        ? {
-            backgroundColor: "transparent",
-            fillStyle: "solid" as const,
-            name: "",
-          }
-        : {}),
       x: bounds.minX,
       y: bounds.minY,
       width: bounds.maxX - bounds.minX,
       height: bounds.maxY - bounds.minY,
     };
+    return session.tool === "frame"
+      ? {
+          ...box,
+          type: "frame",
+          backgroundColor: "transparent",
+          fillStyle: "solid",
+          name: "",
+        }
+      : { ...box, type: session.tool };
   }
 
   const points = materializeDrawingPoints(session);
@@ -177,40 +178,37 @@ export function createOwnedDrawingElement(
   ) {
     return null;
   }
-  return {
+  const linear = {
     ...base,
-    type: session.tool,
     x: bounds.minX,
     y: bounds.minY,
     width: bounds.maxX - bounds.minX,
     height: bounds.maxY - bounds.minY,
     backgroundColor: "transparent",
-    fillStyle: "solid",
+    fillStyle: "solid" as const,
     points: points.map(
       (point) => [point.x - bounds.minX, point.y - bounds.minY] as const,
     ),
-    ...(session.tool === "freedraw"
-      ? {
-          pressures: session.pressureChunks.flat(),
-          simulatePressure: session.pressureChunks
-            .flat()
-            .every((pressure) => pressure === 0.5),
-          lastCommittedPoint: [
-            end.x - bounds.minX,
-            end.y - bounds.minY,
-          ] as const,
-        }
-      : {}),
-    ...(session.tool === "arrow" || session.tool === "line"
-      ? {
-          startArrowhead: null,
-          endArrowhead: session.tool === "arrow" ? "arrow" : null,
-          startBinding: null,
-          endBinding: null,
-          elbowed: false,
-          fixedSegments: [],
-        }
-      : {}),
+  };
+  if (session.tool === "freedraw") {
+    const pressures = session.pressureChunks.flat();
+    return {
+      ...linear,
+      type: "freedraw",
+      pressures,
+      simulatePressure: pressures.every((pressure) => pressure === 0.5),
+      lastCommittedPoint: [end.x - bounds.minX, end.y - bounds.minY] as const,
+    };
+  }
+  return {
+    ...linear,
+    type: session.tool,
+    startArrowhead: null,
+    endArrowhead: session.tool === "arrow" ? "arrow" : null,
+    startBinding: null,
+    endBinding: null,
+    elbowed: false,
+    fixedSegments: [],
   };
 }
 

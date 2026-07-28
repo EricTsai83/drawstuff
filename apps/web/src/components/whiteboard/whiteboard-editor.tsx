@@ -36,6 +36,7 @@ import { WhiteboardShell } from "@/features/whiteboard/ui";
 import { WhiteboardProductMenu } from "./whiteboard-product-menu";
 import { OwnedWhiteboardCanvas } from "@drawstuff/whiteboard";
 import { consumeWhiteboardV3ResetNotice } from "@/data/local-storage";
+import { useWhiteboardSessionState } from "@/hooks/whiteboard/use-whiteboard-session-state";
 
 export default function WhiteboardEditor() {
   useSceneImportFileGuard();
@@ -78,6 +79,10 @@ export default function WhiteboardEditor() {
   } = useCloudUpload(() => {
     setIsCloudUploadDialogOpen(true);
   }, engine);
+  const { openPanel, setOpenPanel } = useWhiteboardSessionState(
+    engine,
+    currentSceneId,
+  );
   const { applyRemoteScene } = useApplyRemoteScene(engine);
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
@@ -431,6 +436,8 @@ export default function WhiteboardEditor() {
         onSave={() => void handleCloudUpload()}
         onShare={() => void handleShareLinkClick()}
         onWorkspace={session ? () => setIsWorkspaceDialogOpen(true) : undefined}
+        openPanel={openPanel}
+        onOpenPanelChange={setOpenPanel}
         productMenuContent={
           <WhiteboardProductMenu onNewScene={handleNewScene} />
         }

@@ -9,6 +9,7 @@ import {
   type OwnedAnimationScheduler,
 } from "@drawstuff/whiteboard";
 import { OWNED_CANVAS_PERFORMANCE_FIXTURES } from "../fixtures/owned-canvas/performance";
+import { createTestElementV3 } from "../helpers";
 
 describe("owned whiteboard renderer", () => {
   it("scales both backing canvases for DPR and redraws only while dirty", () => {
@@ -144,7 +145,7 @@ describe("owned whiteboard renderer", () => {
     harness.store.loadDocument(
       createDocument([
         rectangle("cached"),
-        {
+        createTestElementV3({
           ...rectangle("freehand"),
           type: "freedraw",
           points: [
@@ -152,7 +153,7 @@ describe("owned whiteboard renderer", () => {
             [30, 20],
             [60, 10],
           ],
-        },
+        }),
       ]),
     );
     harness.renderer.resize(300, 200, 1);
@@ -176,11 +177,11 @@ describe("owned whiteboard renderer", () => {
     const harness = createRenderer();
     harness.store.loadDocument({
       elements: [
-        {
+        createTestElementV3({
           ...rectangle("external-image"),
           type: "image",
           fileId: "external",
-        },
+        }),
       ],
       assets: {
         external: {
@@ -222,11 +223,11 @@ describe("owned whiteboard renderer", () => {
     const harness = createRenderer();
     harness.store.loadDocument({
       elements: [
-        {
+        createTestElementV3({
           ...rectangle("failed-image"),
           type: "image",
           fileId: "failed",
-        },
+        }),
       ],
       assets: {
         failed: {
@@ -266,11 +267,11 @@ describe("owned whiteboard renderer", () => {
     const harness = createRenderer();
     harness.store.loadDocument({
       elements: [
-        {
+        createTestElementV3({
           ...rectangle("image"),
           type: "image",
           fileId: "asset",
-        },
+        }),
       ],
       assets: {
         asset: {
@@ -413,7 +414,7 @@ function createDocument(
 }
 
 function rectangle(id: string): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id,
     type: "rectangle",
     isDeleted: false,
@@ -427,5 +428,5 @@ function rectangle(id: string): WhiteboardElement {
     strokeWidth: 1,
     strokeStyle: "solid",
     opacity: 100,
-  } as unknown as WhiteboardElement;
+  });
 }

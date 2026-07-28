@@ -16,6 +16,13 @@ export {
   exportOwnedWhiteboardSvg,
 } from "./export";
 export {
+  canBindLinearElement,
+  createBindingForTarget,
+  getBindingCandidateThreshold,
+  getBindingEndpoint,
+  updateBoundLinearElement,
+} from "./bindings";
+export {
   createOwnedClipboardPayload,
   isOwnedClipboardPayloadSizeAllowed,
   OWNED_CLIPBOARD_MIME,
@@ -115,6 +122,24 @@ export {
   type OwnedRasterCacheVariant,
 } from "./raster-cache";
 export { OwnedPerformanceMonitor } from "./performance-monitor";
+export {
+  snapMoveDelta,
+  snapResizePoint,
+  snapRotation,
+  type OwnedMoveSnapResult,
+  type OwnedResizeSnapResult,
+  type OwnedSnapAxis,
+  type OwnedSnapGuide,
+} from "./snapping";
+export {
+  getWhiteboardFontDescriptor,
+  getWhiteboardFontFamily,
+  layoutWhiteboardText,
+  OWNED_BOUND_TEXT_PADDING,
+  type OwnedTextLayout,
+  type OwnedTextLayoutLine,
+  type OwnedTextMeasureResult,
+} from "./text-layout";
 export { OwnedWhiteboardTextEditor } from "./text-editor";
 export {
   applyOwnedDarkModeFilter,

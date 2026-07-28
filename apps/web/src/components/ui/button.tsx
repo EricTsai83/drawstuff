@@ -44,11 +44,11 @@ const buttonVariants = cva(
           "size-7 rounded-[min(var(--radius-md),12px)] in-data-[slot=button-group]:rounded-lg",
         "icon-lg": "size-9",
         "whiteboard-tool":
-          "size-9 rounded-lg p-0 text-[0.8333rem] [&_svg:not([class*='size-'])]:size-4",
+          "size-11 rounded-lg p-0 text-[0.8333rem] md:size-9 [&_svg:not([class*='size-'])]:size-4",
         "whiteboard-icon":
-          "size-8 rounded-lg p-0 text-[0.8333rem] [&_svg:not([class*='size-'])]:size-4",
+          "size-11 rounded-lg p-0 text-[0.8333rem] md:size-8 [&_svg:not([class*='size-'])]:size-4",
         "whiteboard-share":
-          "h-9 rounded-lg px-3 text-[0.8333rem] [&_svg:not([class*='size-'])]:size-4",
+          "h-11 rounded-lg px-3 text-[0.8333rem] md:h-9 [&_svg:not([class*='size-'])]:size-4",
       },
     },
     defaultVariants: {

@@ -28,19 +28,12 @@ export function commitOwnedElement(
   previous: WhiteboardElement,
   next: WhiteboardElement,
 ): WhiteboardElement {
-  if (
-    "version" in previous &&
-    "versionNonce" in previous &&
-    "updatedAt" in previous
-  ) {
-    return {
-      ...next,
-      version: previous.version + 1,
-      versionNonce: nextVersionNonce(previous.versionNonce),
-      updatedAt: Date.now(),
-    };
-  }
-  return next;
+  return {
+    ...next,
+    version: previous.version + 1,
+    versionNonce: nextVersionNonce(previous.versionNonce),
+    updatedAt: Date.now(),
+  };
 }
 
 export function ownedElementIndex(position: number): string {

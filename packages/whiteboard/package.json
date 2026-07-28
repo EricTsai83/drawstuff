@@ -25,6 +25,7 @@
   "knip": {
     "ignore": [
       "tests/fixtures/owned-canvas/performance.ts",
+      "tests/helpers.ts",
       "tests/setup.ts"
     ]
   },

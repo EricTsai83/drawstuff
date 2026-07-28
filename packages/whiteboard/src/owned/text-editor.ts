@@ -1,8 +1,9 @@
 import { createOwnedElementId } from "./drawing";
 import { documentToScreen, type WhiteboardPoint } from "./geometry";
-import type { WhiteboardElement, WhiteboardTextElementV3 } from "../contracts";
+import type { WhiteboardElement } from "../contracts";
 import type { OwnedWhiteboardStore } from "./store";
 import { resolveOwnedThemeColor } from "./theme-color";
+import { getWhiteboardFontFamily } from "./text-layout";
 
 export class OwnedWhiteboardTextEditor {
   private textarea: HTMLTextAreaElement | null = null;
@@ -11,6 +12,7 @@ export class OwnedWhiteboardTextEditor {
   private angle = 0;
   private fixedWidth = false;
   private cancelling = false;
+  private composing = false;
   private readonly unsubscribeEditor: () => void;
   private readonly unsubscribeRender: () => void;
   private readonly unsubscribeDestroy: () => void;
@@ -27,12 +29,14 @@ export class OwnedWhiteboardTextEditor {
       this.positionEditor(),
     );
     this.unsubscribeDestroy = store.subscribeDestroy(() => this.destroy());
+    window.visualViewport?.addEventListener("resize", this.positionEditor);
+    window.visualViewport?.addEventListener("scroll", this.positionEditor);
   }
 
   public begin(point: WhiteboardPoint, target?: WhiteboardElement): void {
     this.commit();
     const editedText =
-      target?.type === "text" && "fontFamily" in target
+      target?.type === "text"
         ? target
         : target
           ? this.store.getBoundTextForContainer(target.id)
@@ -60,7 +64,12 @@ export class OwnedWhiteboardTextEditor {
       overflow: "hidden",
       resize: "none",
       background: "transparent",
-      font: `${fontSize}px/${lineHeight} ${fontFamily(editedText)}`,
+      font: `${fontSize}px/${lineHeight} ${getWhiteboardFontFamily(
+        editedText?.fontFamily ?? "excalifont",
+      )}`,
+      textAlign: editedText?.textAlign ?? "left",
+      whiteSpace: "pre-wrap",
+      overflowWrap: "break-word",
       color: resolveOwnedThemeColor(
         this.store.getEditorState().elementStyle.strokeColor,
         this.store.getEditorState().theme,
@@ -71,13 +80,21 @@ export class OwnedWhiteboardTextEditor {
     textarea.addEventListener("input", this.resizeEditor);
     textarea.addEventListener("keydown", this.handleKeyDown);
     textarea.addEventListener("blur", this.handleBlur);
+    textarea.addEventListener("compositionstart", this.handleCompositionStart);
+    textarea.addEventListener("compositionend", this.handleCompositionEnd);
     this.textarea = textarea;
     this.point = editorPoint;
     this.targetId = target?.id ?? null;
     this.angle = editedText?.angle ?? target?.angle ?? 0;
-    this.fixedWidth = Boolean(target && target.type !== "text");
-    if (this.fixedWidth && target) {
-      textarea.style.width = `${Math.max(24, target.width - 16)}px`;
+    this.fixedWidth =
+      editedText?.autoResize === false ||
+      typeof editedText?.containerId === "string" ||
+      (target !== undefined && target.type !== "text");
+    if (this.fixedWidth) {
+      textarea.style.width = `${Math.max(
+        24,
+        editedText?.width ?? (target ? target.width - 16 : 24),
+      )}px`;
     }
     this.root.append(textarea);
     this.store.setTextEditing(true);
@@ -120,6 +137,8 @@ export class OwnedWhiteboardTextEditor {
     this.unsubscribeEditor();
     this.unsubscribeRender();
     this.unsubscribeDestroy();
+    window.visualViewport?.removeEventListener("resize", this.positionEditor);
+    window.visualViewport?.removeEventListener("scroll", this.positionEditor);
   }
 
   private readonly handleKeyDown = (event: KeyboardEvent): void => {
@@ -142,7 +161,18 @@ export class OwnedWhiteboardTextEditor {
   };
 
   private readonly handleBlur = (): void => {
-    if (!this.cancelling) this.commit();
+    if (!this.cancelling && !this.composing) this.commit();
+  };
+
+  private readonly handleCompositionStart = (): void => {
+    this.composing = true;
+  };
+
+  private readonly handleCompositionEnd = (): void => {
+    this.composing = false;
+    if (this.textarea && document.activeElement !== this.textarea) {
+      this.commit();
+    }
   };
 
   private readonly resizeEditor = (): void => {
@@ -156,24 +186,23 @@ export class OwnedWhiteboardTextEditor {
     textarea.style.height = `${Math.max(25, textarea.scrollHeight + 2)}px`;
   };
 
-  private positionEditor(): void {
+  private readonly positionEditor = (): void => {
     const textarea = this.textarea;
     const point = this.point;
     if (!textarea || !point || this.store.isDestroyed()) return;
     const viewport = this.store.getViewport();
     const editorState = this.store.getEditorState();
     const screenPoint = documentToScreen(point, viewport);
-    textarea.style.left = `${screenPoint.x - viewport.offsetX}px`;
-    textarea.style.top = `${screenPoint.y - viewport.offsetY}px`;
-    textarea.style.transform =
-      this.angle === 0
-        ? `scale(${viewport.zoom})`
-        : `scale(${viewport.zoom}) rotate(${this.angle}rad)`;
+    textarea.style.left = "0";
+    textarea.style.top = "0";
+    textarea.style.transform = `translate(${screenPoint.x - viewport.offsetX}px, ${
+      screenPoint.y - viewport.offsetY
+    }px) rotate(${this.angle}rad) scale(${viewport.zoom})`;
     textarea.style.color = resolveOwnedThemeColor(
       editorState.elementStyle.strokeColor,
       editorState.theme,
     );
-  }
+  };
 
   private releaseEditor(): void {
     const textarea = this.textarea;
@@ -183,18 +212,18 @@ export class OwnedWhiteboardTextEditor {
     this.targetId = null;
     this.angle = 0;
     this.fixedWidth = false;
+    this.composing = false;
     if (!this.store.isDestroyed()) this.store.setTextEditing(false);
     textarea.removeEventListener("input", this.resizeEditor);
     textarea.removeEventListener("keydown", this.handleKeyDown);
     textarea.removeEventListener("blur", this.handleBlur);
+    textarea.removeEventListener(
+      "compositionstart",
+      this.handleCompositionStart,
+    );
+    textarea.removeEventListener("compositionend", this.handleCompositionEnd);
     textarea.remove();
   }
-}
-
-function fontFamily(text: WhiteboardTextElementV3 | null): string {
-  if (text?.fontFamily === "nunito") return "Nunito, sans-serif";
-  if (text?.fontFamily === "system") return "system-ui, sans-serif";
-  return "Excalifont, sans-serif";
 }
 
 function readCssPixels(value: string): number | undefined {

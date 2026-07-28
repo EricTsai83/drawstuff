@@ -40,7 +40,9 @@ import {
   type OwnedRasterCacheValue,
   type OwnedRasterCacheVariant,
 } from "./raster-cache";
+import type { OwnedSnapGuide } from "./snapping";
 import type { OwnedPerformanceMonitor } from "./performance-monitor";
+import { layoutWhiteboardText } from "./text-layout";
 
 export interface OwnedAnimationScheduler {
   readonly request: (callback: FrameRequestCallback) => number;
@@ -62,6 +64,15 @@ interface CachedImage {
 interface CachedAssetSafety {
   readonly safe: boolean;
   readonly source: string;
+}
+
+interface RasterRebuildEntry {
+  readonly element: WhiteboardElement;
+  readonly geometry: ElementGeometry;
+  readonly priority: number;
+  readonly dependencies: ReturnType<
+    OwnedWhiteboardStore["getRasterCacheDependencies"]
+  >;
 }
 
 interface CachedRoughShape {
@@ -101,6 +112,7 @@ export class OwnedWhiteboardRenderer {
   private marquee: WhiteboardBounds | null = null;
   private preview: WhiteboardElement | null = null;
   private bindingHint: WhiteboardElement | null = null;
+  private snapGuides: readonly OwnedSnapGuide[] = [];
   private freedrawPreview: StreamingFreedrawPreview | null = null;
   private cssWidth = 0;
   private cssHeight = 0;
@@ -108,6 +120,12 @@ export class OwnedWhiteboardRenderer {
   private sceneDirty = true;
   private overlayDirty = true;
   private editingEnabled = true;
+  private lastTheme: WhiteboardTheme | null = null;
+  private committedRasterZoom: number | null = null;
+  private rasterRebuildSignature: string | null = null;
+  private rasterRebuildQueue: RasterRebuildEntry[] = [];
+  private readonly queuedRasterIds = new Set<string>();
+  private recentlyVisibleElements = new Map<string, WhiteboardElement>();
   private destroyed = false;
   private lastStats: OwnedRenderStats = {
     visitedElements: 0,
@@ -137,6 +155,17 @@ export class OwnedWhiteboardRenderer {
       this.schedule();
     });
     this.unsubscribeDestroy = store.subscribeDestroy(() => this.destroy());
+    if (typeof document !== "undefined" && document.fonts) {
+      void document.fonts.ready.then(() => {
+        if (this.destroyed) return;
+        for (const element of this.store.getCommittedElements()) {
+          if (element.type === "text") this.rasterCache.invalidate(element);
+        }
+        this.sceneDirty = true;
+        this.overlayDirty = true;
+        this.schedule();
+      });
+    }
     this.schedule();
   }
 
@@ -155,6 +184,7 @@ export class OwnedWhiteboardRenderer {
     this.cssWidth = nextWidth;
     this.cssHeight = nextHeight;
     this.pixelRatio = nextRatio;
+    this.cancelRasterRebuild();
     for (const canvas of [this.sceneCanvas, this.overlayCanvas]) {
       canvas.width = Math.round(nextWidth * nextRatio);
       canvas.height = Math.round(nextHeight * nextRatio);
@@ -183,6 +213,13 @@ export class OwnedWhiteboardRenderer {
   public setBindingHint(element: WhiteboardElement | null): void {
     if (this.destroyed) return;
     this.bindingHint = element;
+    this.overlayDirty = true;
+    this.schedule();
+  }
+
+  public setSnapGuides(guides: readonly OwnedSnapGuide[]): void {
+    if (this.destroyed) return;
+    this.snapGuides = guides;
     this.overlayDirty = true;
     this.schedule();
   }
@@ -240,6 +277,7 @@ export class OwnedWhiteboardRenderer {
     readonly cachedAssets: number;
     readonly freeDrawShapeGenerations: number;
     readonly roughShapeGenerations: number;
+    readonly rasterRebuildQueue: number;
     readonly rasterCache: ReturnType<OwnedRasterCache["getDiagnostics"]>;
     readonly stats: OwnedRenderStats;
   } {
@@ -248,6 +286,7 @@ export class OwnedWhiteboardRenderer {
       cachedAssets: this.imageCache.size,
       freeDrawShapeGenerations: this.freeDrawShapeGenerations,
       roughShapeGenerations: this.roughShapeGenerations,
+      rasterRebuildQueue: this.rasterRebuildQueue.length,
       rasterCache: this.rasterCache.getDiagnostics(),
       stats: this.lastStats,
     };
@@ -270,6 +309,8 @@ export class OwnedWhiteboardRenderer {
     this.imageCache.clear();
     this.assetSafetyCache.clear();
     this.rasterCache.clear();
+    this.cancelRasterRebuild();
+    this.recentlyVisibleElements.clear();
     this.roughShapeCache = new WeakMap();
     this.freeDrawShapeCache = new WeakMap();
     this.marquee = null;
@@ -292,6 +333,13 @@ export class OwnedWhiteboardRenderer {
     }
     const document = this.store.getDocument();
     const editorState = this.store.getEditorState();
+    if (this.lastTheme !== null && this.lastTheme !== editorState.theme) {
+      this.cancelRasterRebuild();
+      this.rasterCache.clear();
+      this.roughShapeCache = new WeakMap();
+      this.freeDrawShapeCache = new WeakMap();
+    }
+    this.lastTheme = editorState.theme;
     let visitedElements = this.lastStats.visitedElements;
     let paintedElements = this.lastStats.paintedElements;
     if (this.sceneDirty) {
@@ -307,6 +355,13 @@ export class OwnedWhiteboardRenderer {
       visitedElements = sceneStats.visitedElements;
       paintedElements = sceneStats.paintedElements;
       this.sceneDirty = false;
+      const rebuilt = this.processRasterRebuildQueue(
+        document.assets,
+        theme,
+        this.store.getViewport().zoom,
+      );
+      if (rebuilt > 0) this.sceneDirty = true;
+      if (this.rasterRebuildQueue.length > 0 || rebuilt > 0) this.schedule();
     }
     let selectedElements = this.lastStats.selectedElements;
     if (this.overlayDirty) {
@@ -333,6 +388,9 @@ export class OwnedWhiteboardRenderer {
     background: string,
     theme: WhiteboardTheme,
   ): Pick<OwnedRenderStats, "visitedElements" | "paintedElements"> {
+    this.rasterCache.retain(
+      new Set(elements.filter((element) => !element.isDeleted)),
+    );
     const context = this.sceneContext;
     context.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
     context.clearRect(0, 0, this.cssWidth, this.cssHeight);
@@ -340,6 +398,29 @@ export class OwnedWhiteboardRenderer {
     context.fillRect(0, 0, this.cssWidth, this.cssHeight);
 
     const viewport = this.store.getViewport();
+    const renderSignature = [
+      this.store.getIndexDiagnostics().sceneVersion,
+      this.store.getIndexDiagnostics().viewportVersion,
+      theme,
+      viewport.zoom.toFixed(4),
+      this.pixelRatio.toFixed(4),
+    ].join(":");
+    if (
+      this.rasterRebuildSignature &&
+      this.rasterRebuildSignature !== renderSignature
+    ) {
+      this.cancelRasterRebuild();
+    }
+    const transientViewport = this.store.isViewportTransient();
+    if (
+      !transientViewport &&
+      this.committedRasterZoom !== null &&
+      this.committedRasterZoom !== viewport.zoom
+    ) {
+      this.cancelRasterRebuild();
+      this.rasterRebuildSignature = renderSignature;
+    }
+    if (!transientViewport) this.committedRasterZoom = viewport.zoom;
     const viewportBounds = getViewportDocumentBounds(
       viewport,
       this.cssWidth,
@@ -350,8 +431,12 @@ export class OwnedWhiteboardRenderer {
     context.translate(viewport.x, viewport.y);
     let paintedElements = 0;
     const candidates = viewportBounds
-      ? this.store.getVisibleElements(viewportBounds)
-      : elements;
+      ? this.store.getCommittedVisibleElements(viewportBounds)
+      : this.store.getCommittedElements();
+    const previousVisible = this.recentlyVisibleElements;
+    this.recentlyVisibleElements = new Map(
+      candidates.map((element) => [element.id, element]),
+    );
     const selectedIds = new Set(this.store.getEditorState().selectedElementIds);
     for (const element of candidates) {
       if (!isElementVisible(element)) continue;
@@ -364,6 +449,8 @@ export class OwnedWhiteboardRenderer {
       }
       const selected = selectedIds.has(element.id);
       const dependencies = this.store.getRasterCacheDependencies(element);
+      context.save();
+      this.applyFrameClips(context, element);
       if (
         !this.paintRasterElement(
           context,
@@ -386,7 +473,29 @@ export class OwnedWhiteboardRenderer {
           dependencies.frameOpacity,
         );
       }
+      if (element.type === "frame" && element.name.trim().length > 0) {
+        this.paintFrameName(context, element, theme, viewport.zoom);
+      }
+      context.restore();
       paintedElements += 1;
+    }
+    if (this.rasterRebuildSignature) {
+      for (const [id, element] of previousVisible) {
+        if (
+          this.recentlyVisibleElements.has(id) ||
+          !isElementVisible(element)
+        ) {
+          continue;
+        }
+        const geometry = getElementGeometry(element);
+        if (!geometry) continue;
+        this.enqueueRasterRebuild({
+          element,
+          geometry,
+          priority: 0,
+          dependencies: this.store.getRasterCacheDependencies(element),
+        });
+      }
     }
     context.restore();
     this.releaseUnusedAssets(assets);
@@ -432,6 +541,16 @@ export class OwnedWhiteboardRenderer {
         drawRaster(target, reusable);
         return true;
       }
+      return false;
+    }
+    if (this.rasterRebuildSignature) {
+      this.enqueueRasterRebuild({
+        element,
+        geometry,
+        priority,
+        dependencies,
+      });
+      return false;
     }
     const created = this.createRasterElement(
       element,
@@ -445,6 +564,67 @@ export class OwnedWhiteboardRenderer {
     this.rasterCache.set(element, variant, created, priority);
     drawRaster(target, created);
     return true;
+  }
+
+  private enqueueRasterRebuild(entry: RasterRebuildEntry): void {
+    if (this.queuedRasterIds.has(entry.element.id)) return;
+    this.queuedRasterIds.add(entry.element.id);
+    this.rasterRebuildQueue.push(entry);
+    this.rasterRebuildQueue.sort(
+      (left, right) => right.priority - left.priority,
+    );
+  }
+
+  private processRasterRebuildQueue(
+    assets: Readonly<Record<string, WhiteboardAsset>>,
+    theme: WhiteboardTheme,
+    zoom: number,
+  ): number {
+    if (!this.rasterRebuildSignature) return 0;
+    const budget =
+      typeof navigator !== "undefined" && navigator.maxTouchPoints > 0 ? 2 : 4;
+    const startedAt = performance.now();
+    let rebuilt = 0;
+    while (
+      this.rasterRebuildQueue.length > 0 &&
+      performance.now() - startedAt < budget
+    ) {
+      const entry = this.rasterRebuildQueue.shift();
+      if (!entry) break;
+      this.queuedRasterIds.delete(entry.element.id);
+      const created = this.createRasterElement(
+        entry.element,
+        assets,
+        theme,
+        zoom,
+        entry.geometry,
+        entry.dependencies.frameOpacity,
+      );
+      if (!created) continue;
+      this.rasterCache.set(
+        entry.element,
+        {
+          theme,
+          pixelRatio: this.pixelRatio,
+          zoom,
+          ...entry.dependencies,
+        },
+        created,
+        entry.priority,
+      );
+      rebuilt += 1;
+    }
+    if (this.rasterRebuildQueue.length === 0) {
+      this.rasterRebuildSignature = null;
+      this.queuedRasterIds.clear();
+    }
+    return rebuilt;
+  }
+
+  private cancelRasterRebuild(): void {
+    this.rasterRebuildSignature = null;
+    this.rasterRebuildQueue = [];
+    this.queuedRasterIds.clear();
   }
 
   private createRasterElement(
@@ -464,17 +644,24 @@ export class OwnedWhiteboardRenderer {
     const scale = Math.max(0.01, zoom * this.pixelRatio);
     const pixelWidth = Math.ceil(sceneWidth * scale);
     const pixelHeight = Math.ceil(sceneHeight * scale);
-    if (!isRasterSizeAllowed(pixelWidth, pixelHeight)) return null;
-    const useOffscreen =
-      typeof OffscreenCanvas !== "undefined" &&
-      !isRoughRenderableElement(element);
-    const canvas: HTMLCanvasElement | OffscreenCanvas = useOffscreen
-      ? new OffscreenCanvas(pixelWidth, pixelHeight)
-      : this.sceneCanvas.ownerDocument.createElement("canvas");
-    canvas.width = pixelWidth;
-    canvas.height = pixelHeight;
+    if (
+      !isRasterSizeAllowed(pixelWidth, pixelHeight) ||
+      pixelWidth * pixelHeight * 4 >
+        this.rasterCache.getDiagnostics().budgetBytes
+    ) {
+      return null;
+    }
+    let canvas: HTMLCanvasElement | OffscreenCanvas;
     let context: CanvasRenderingContext2D | null;
     try {
+      const useOffscreen =
+        typeof OffscreenCanvas !== "undefined" &&
+        !isRoughRenderableElement(element);
+      canvas = useOffscreen
+        ? new OffscreenCanvas(pixelWidth, pixelHeight)
+        : this.sceneCanvas.ownerDocument.createElement("canvas");
+      canvas.width = pixelWidth;
+      canvas.height = pixelHeight;
       context = canvas.getContext(
         "2d",
       ) as unknown as CanvasRenderingContext2D | null;
@@ -559,6 +746,57 @@ export class OwnedWhiteboardRenderer {
     } else {
       this.paintBoxElement(context, element, geometry.width, geometry.height);
     }
+    context.restore();
+  }
+
+  private applyFrameClips(
+    context: CanvasRenderingContext2D,
+    element: WhiteboardElement,
+  ): void {
+    for (const frame of this.store.getFrameAncestors(element)) {
+      const geometry = getElementGeometry(frame);
+      if (!geometry) continue;
+      const centerX = geometry.x + geometry.width / 2;
+      const centerY = geometry.y + geometry.height / 2;
+      context.translate(centerX, centerY);
+      context.rotate(geometry.angle);
+      context.translate(-geometry.width / 2, -geometry.height / 2);
+      context.beginPath();
+      context.rect(0, 0, geometry.width, geometry.height);
+      context.translate(geometry.width / 2, geometry.height / 2);
+      context.rotate(-geometry.angle);
+      context.translate(-centerX, -centerY);
+      context.clip();
+    }
+  }
+
+  private paintFrameName(
+    context: CanvasRenderingContext2D,
+    frame: WhiteboardElement,
+    theme: WhiteboardTheme,
+    zoom: number,
+  ): void {
+    if (frame.type !== "frame") return;
+    const geometry = getElementGeometry(frame);
+    if (!geometry) return;
+    const fontSize = 14 / Math.max(0.05, zoom);
+    const x = geometry.bounds.minX;
+    const y = geometry.bounds.minY - 7 / Math.max(0.05, zoom);
+    context.save();
+    context.font = `600 ${fontSize}px sans-serif`;
+    context.textBaseline = "bottom";
+    context.lineJoin = "round";
+    context.lineWidth = 3 / Math.max(0.05, zoom);
+    context.strokeStyle = resolveOwnedThemeColor(
+      theme === "dark" ? "#1e1e1e" : "#ffffff",
+      theme,
+    );
+    context.fillStyle = resolveOwnedThemeColor(
+      readElementString(frame, "strokeColor", "#1e1e1e"),
+      theme,
+    );
+    context.strokeText(frame.name, x, y);
+    context.fillText(frame.name, x, y);
     context.restore();
   }
 
@@ -687,22 +925,32 @@ export class OwnedWhiteboardRenderer {
     element: WhiteboardElement,
     theme: WhiteboardTheme,
   ): void {
+    if (element.type !== "text") return;
     const fontSize = Math.max(1, readElementNumber(element, "fontSize", 20));
-    const lineHeight = Math.max(
-      0.5,
-      readElementNumber(element, "lineHeight", 1.25),
-    );
-    context.font = `${fontSize}px sans-serif`;
+    const layout = layoutWhiteboardText({
+      text: element.text,
+      fontFamily: element.fontFamily,
+      fontSize,
+      lineHeight: element.lineHeight,
+      textAlign: element.textAlign,
+      verticalAlign: element.verticalAlign,
+      width: element.width,
+      height: element.height,
+      autoResize: element.autoResize && element.containerId === null,
+      measureText: (text) =>
+        typeof context.measureText === "function"
+          ? context.measureText(text)
+          : { width: text.length * fontSize * 0.6 },
+    });
+    context.font = layout.font;
     context.textBaseline = "top";
     context.fillStyle = resolveOwnedThemeColor(
       readElementString(element, "strokeColor", "#1e1e1e"),
       theme,
     );
-    readElementString(element, "text", "")
-      .split("\n")
-      .forEach((line, index) => {
-        context.fillText(line, 0, index * fontSize * lineHeight);
-      });
+    for (const line of layout.lines) {
+      context.fillText(line.text, line.x, line.y);
+    }
   }
 
   private paintImage(
@@ -765,6 +1013,44 @@ export class OwnedWhiteboardRenderer {
     context.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
     context.clearRect(0, 0, this.cssWidth, this.cssHeight);
     const viewport = this.store.getViewport();
+    const gestureDrafts = this.store.getGestureDrafts();
+    if (gestureDrafts.length > 0) {
+      context.save();
+      context.scale(viewport.zoom, viewport.zoom);
+      context.translate(viewport.x, viewport.y);
+      for (const element of gestureDrafts) {
+        const geometry = getElementGeometry(element);
+        if (!geometry) continue;
+        this.paintElement(
+          context,
+          element,
+          this.store.getAssets(),
+          this.store.getEditorState().theme,
+          this.roughOverlay,
+          geometry,
+          this.store.getRasterCacheDependencies(element).frameOpacity,
+        );
+      }
+      context.restore();
+    }
+    const erasedPreview = this.store.getErasedPreviewElements();
+    if (erasedPreview.length > 0) {
+      context.save();
+      context.scale(viewport.zoom, viewport.zoom);
+      context.translate(viewport.x, viewport.y);
+      for (const element of erasedPreview) {
+        this.paintElement(
+          context,
+          element,
+          this.store.getAssets(),
+          this.store.getEditorState().theme,
+          this.roughOverlay,
+          getElementGeometry(element) ?? undefined,
+          28,
+        );
+      }
+      context.restore();
+    }
     if (this.preview) {
       context.save();
       context.scale(viewport.zoom, viewport.zoom);
@@ -824,10 +1110,35 @@ export class OwnedWhiteboardRenderer {
         context.restore();
       }
     }
+    if (this.snapGuides.length > 0) {
+      context.save();
+      context.scale(viewport.zoom, viewport.zoom);
+      context.translate(viewport.x, viewport.y);
+      context.strokeStyle = "#e8590c";
+      context.fillStyle = "#e8590c";
+      context.lineWidth = 1 / viewport.zoom;
+      context.setLineDash([4 / viewport.zoom, 3 / viewport.zoom]);
+      for (const guide of this.snapGuides) {
+        context.beginPath();
+        if (guide.axis === "x") {
+          context.moveTo(guide.position, guide.from);
+          context.lineTo(guide.position, guide.to);
+        } else {
+          context.moveTo(guide.from, guide.position);
+          context.lineTo(guide.to, guide.position);
+        }
+        context.stroke();
+      }
+      context.restore();
+    }
     const selectedIds = new Set(selectedElementIds);
+    const draftsById = new Map(
+      gestureDrafts.map((element) => [element.id, element]),
+    );
     const selected = this.store
       .getDocument()
-      .elements.filter((element) => selectedIds.has(element.id));
+      .elements.filter((element) => selectedIds.has(element.id))
+      .map((element) => draftsById.get(element.id) ?? element);
     const selectedElements = selected.filter(
       (element) => getElementGeometry(element) !== null,
     ).length;

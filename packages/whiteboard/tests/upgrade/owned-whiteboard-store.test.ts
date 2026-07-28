@@ -7,6 +7,7 @@ import type {
   WhiteboardFrameElementV3,
   WhiteboardLinearElementV3,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 import {
   documentToScreen,
   OWNED_MAX_ZOOM,
@@ -347,6 +348,73 @@ describe("owned whiteboard store", () => {
     expect(store.getElement("child-text")).toBeNull();
   });
 
+  it("edits the innermost nested group without selecting outside members", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(
+      document([
+        v3Rectangle("outer-only", 0, 0, 20, 20, {
+          groupIds: ["outer"],
+        }),
+        v3Rectangle("inner-a", 30, 0, 20, 20, {
+          groupIds: ["outer", "inner"],
+        }),
+        v3Rectangle("inner-b", 60, 0, 20, 20, {
+          groupIds: ["outer", "inner"],
+        }),
+        v3Rectangle("outside", 90, 0, 20, 20),
+      ]),
+    );
+
+    expect(store.enterGroupEditing("inner-a")).toBe(true);
+    expect(store.getEditorState().selection.editingGroupId).toBe("inner");
+    store.setSelection(["inner-a"]);
+    expect(store.getEditorState().selectedElementIds).toEqual(["inner-a"]);
+    store.setSelection(["outside"]);
+    expect(store.getEditorState().selectedElementIds).toEqual([]);
+    store.selectAll();
+    expect(store.getEditorState().selectedElementIds).toEqual([
+      "inner-a",
+      "inner-b",
+    ]);
+
+    expect(store.exitGroupEditing()).toBe(true);
+    expect(store.getEditorState().selection.editingGroupId).toBeNull();
+    store.setSelection(["inner-a"]);
+    expect(store.getEditorState().selectedElementIds).toEqual([
+      "inner-a",
+      "inner-b",
+    ]);
+  });
+
+  it("uses full bounds and deepest nesting when resolving containing frames", () => {
+    const store = new OwnedWhiteboardStore();
+    const outer = v3Frame("outer", 0, 0, 400, 400);
+    const inner = {
+      ...v3Frame("inner", 50, 50, 200, 200),
+      frameId: "outer",
+    };
+    const fullyNested = v3Rectangle("fully-nested", 100, 100, 20, 20);
+    const partiallyNested = v3Rectangle("partially-nested", 240, 100, 20, 20);
+    store.loadDocument(document([outer, inner, fullyNested, partiallyNested]));
+
+    expect(
+      store.getContainingFrames(fullyNested).map((frame) => frame.id),
+    ).toEqual(["inner", "outer"]);
+    expect(
+      store.getContainingFrames(partiallyNested).map((frame) => frame.id),
+    ).toEqual(["outer"]);
+
+    store.setSelection(["partially-nested"]);
+    store.beginElementGesture("move");
+    store.updateElementGesture([
+      { ...partiallyNested, x: partiallyNested.x + 1 },
+    ]);
+    store.commitElementGesture();
+    expect(store.getElement("partially-nested")).toMatchObject({
+      frameId: "outer",
+    });
+  });
+
   it("drops an incomplete image asset from serializable snapshots", () => {
     const store = new OwnedWhiteboardStore();
     const incompleteAsset = {
@@ -356,11 +424,11 @@ describe("owned whiteboard store", () => {
     } as unknown as WhiteboardAsset;
     store.loadDocument({
       elements: [
-        {
+        createTestElementV3({
           ...rectangle("image", 0, 0, 10, 10),
           type: "image",
           fileId: "incomplete",
-        },
+        }),
       ],
       assets: { incomplete: incompleteAsset },
       state: { name: "", theme: "light" },
@@ -368,6 +436,55 @@ describe("owned whiteboard store", () => {
 
     expect(store.getDocument().assets).toEqual({});
     expect(store.getDocument().elements[0]).toMatchObject({ fileId: null });
+  });
+
+  it("previews a swept eraser once and commits one document/history event", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(
+      document([
+        rectangle("first", 0, 0, 40, 40),
+        rectangle("second", 80, 0, 40, 40),
+        rectangle("locked", 160, 0, 40, 40, { locked: true }),
+      ]),
+    );
+    const documentListener = vi.fn();
+    const renderListener = vi.fn();
+    store.subscribeDocument(documentListener);
+    store.subscribeRenderState(renderListener);
+
+    store.beginEraseGesture();
+    store.updateEraseGesture({ x: -10, y: 20 }, { x: 130, y: 20 }, 5);
+    store.updateEraseGesture({ x: 20, y: 20 }, { x: 20, y: 20 }, 5);
+
+    expect(store.getErasedPreviewElements().map(({ id }) => id)).toEqual([
+      "first",
+      "second",
+    ]);
+    expect(documentListener).not.toHaveBeenCalled();
+    expect(renderListener).toHaveBeenLastCalledWith("overlay");
+
+    store.commitEraseGesture();
+
+    expect(store.getDocument().elements.map(({ id }) => id)).toEqual([
+      "locked",
+    ]);
+    expect(documentListener).toHaveBeenCalledOnce();
+    expect(store.getHistoryDiagnostics().undoKinds).toEqual(["erase"]);
+  });
+
+  it("cancels erasing without mutating the document", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(document([rectangle("shape", 0, 0, 40, 40)]));
+    const listener = vi.fn();
+    store.subscribeDocument(listener);
+    store.beginEraseGesture();
+    store.updateEraseGesture({ x: 10, y: 10 }, { x: 30, y: 30 }, 5);
+
+    store.cancelEraseGesture();
+
+    expect(store.getDocument().elements).toHaveLength(1);
+    expect(store.getErasedPreviewElements()).toEqual([]);
+    expect(listener).not.toHaveBeenCalled();
   });
 
   it("rejects legacy V2 file imports as unsupported", async () => {
@@ -442,7 +559,7 @@ function rectangle(
   height: number,
   update: Readonly<Record<string, unknown>> = {},
 ): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id,
     type: "rectangle",
     isDeleted: false,
@@ -460,7 +577,7 @@ function rectangle(
     roughness: 1,
     locked: false,
     ...update,
-  };
+  });
 }
 
 function v3Rectangle(

@@ -4,6 +4,7 @@ import type {
   OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 import {
   exportOwnedWhiteboardDocument,
   exportOwnedWhiteboardImage,
@@ -15,11 +16,11 @@ describe("owned whiteboard export", () => {
     const svg = exportOwnedWhiteboardSvg(
       createDocument([
         rectangle("shape"),
-        {
+        createTestElementV3({
           ...rectangle("deleted"),
           isDeleted: true,
           x: 1000,
-        },
+        }),
       ]),
       { format: "svg", exportPadding: 10 },
     );
@@ -74,7 +75,7 @@ describe("owned whiteboard export", () => {
   it("exports free-draw strokes with the same perfect-freehand outline", () => {
     const svg = exportOwnedWhiteboardSvg(
       createDocument([
-        {
+        createTestElementV3({
           ...rectangle("freehand"),
           type: "freedraw",
           points: [
@@ -82,13 +83,40 @@ describe("owned whiteboard export", () => {
             [20, 30],
             [50, 10],
           ],
-        },
+        }),
       ]),
       { format: "svg", background: false },
     );
 
     expect(svg).toMatch(/<path [^>]*d="M [^"]+ Q [^"]+ Z"/);
     expect(svg).toContain('fill="#1e1e1e" stroke="none"');
+  });
+
+  it("applies ancestor frame clipping as vector clip paths", () => {
+    const frame = createTestElementV3({
+      ...rectangle("frame"),
+      type: "frame",
+      name: "Frame",
+      width: 80,
+      height: 40,
+      angle: Math.PI / 8,
+    });
+    const child = createTestElementV3({
+      ...rectangle("child"),
+      frameId: "frame",
+      x: 70,
+    });
+    const svg = exportOwnedWhiteboardSvg(createDocument([frame, child]), {
+      format: "svg",
+      background: false,
+    });
+    const parsed = new DOMParser().parseFromString(svg, "image/svg+xml");
+
+    expect(parsed.querySelector("parsererror")).toBeNull();
+    expect(parsed.querySelector("defs clipPath rect")).not.toBeNull();
+    expect(
+      parsed.querySelector('g[clip-path="url(#frame-clip-0)"]'),
+    ).not.toBeNull();
   });
 
   it("escapes text and replaces unsafe, missing, or external images", () => {
@@ -102,24 +130,24 @@ describe("owned whiteboard export", () => {
     const svg = exportOwnedWhiteboardSvg(
       createDocument(
         [
-          {
+          createTestElementV3({
             ...rectangle("text"),
             type: "text",
             text: `<script>alert("x")</script> & safe`,
             originalText: `<script>alert("x")</script> & safe`,
             fontSize: 20,
             lineHeight: 1.25,
-          },
-          {
+          }),
+          createTestElementV3({
             ...rectangle("image"),
             type: "image",
             fileId: "unsafe",
-          },
-          {
+          }),
+          createTestElementV3({
             ...rectangle("missing"),
             type: "image",
             fileId: "missing",
-          },
+          }),
         ],
         { unsafe: unsafeSvg },
       ),
@@ -140,15 +168,15 @@ describe("owned whiteboard export", () => {
     const unused = asset("unused");
     const source = createDocument(
       [
-        {
+        createTestElementV3({
           ...rectangle("first"),
           text: "FIRST",
           originalText: "FIRST",
           fontSize: 20,
           lineHeight: 1.25,
           type: "text",
-        },
-        {
+        }),
+        createTestElementV3({
           ...rectangle("second"),
           x: 200,
           text: "SECOND",
@@ -156,12 +184,12 @@ describe("owned whiteboard export", () => {
           fontSize: 20,
           lineHeight: 1.25,
           type: "text",
-        },
-        {
+        }),
+        createTestElementV3({
           ...rectangle("image"),
           type: "image",
           fileId: referenced.id,
-        },
+        }),
       ],
       { referenced, unused },
     );
@@ -206,11 +234,13 @@ describe("owned whiteboard export", () => {
     const exported = JSON.parse(
       await exportOwnedWhiteboardDocument(
         createDocument(
-          Object.keys(rasterAssets).map((fileId) => ({
-            ...rectangle(`image-${fileId}`),
-            type: "image",
-            fileId,
-          })),
+          Object.keys(rasterAssets).map((fileId) =>
+            createTestElementV3({
+              ...rectangle(`image-${fileId}`),
+              type: "image",
+              fileId,
+            }),
+          ),
           rasterAssets,
         ),
       ).text(),
@@ -223,11 +253,11 @@ describe("owned whiteboard export", () => {
     const exported = JSON.parse(
       await exportOwnedWhiteboardDocument(
         createDocument([
-          {
+          createTestElementV3({
             ...rectangle("missing-image"),
             type: "image",
             fileId: "missing",
-          },
+          }),
         ]),
       ).text(),
     ) as { readonly elements: readonly WhiteboardElement[] };
@@ -321,7 +351,7 @@ function createDocument(
 }
 
 function rectangle(id: string): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id,
     type: "rectangle",
     isDeleted: false,
@@ -338,7 +368,7 @@ function rectangle(id: string): WhiteboardElement {
     opacity: 100,
     roughness: 1,
     locked: false,
-  };
+  });
 }
 
 function asset(id: string): WhiteboardAsset {

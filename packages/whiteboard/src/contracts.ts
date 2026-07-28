@@ -29,7 +29,7 @@ export type WhiteboardToolType =
   | "eraser"
   | "frame";
 
-export interface WhiteboardAsset {
+export interface WhiteboardRuntimeAssetV3 {
   readonly id: string;
   readonly dataURL: string;
   readonly mimeType: string;
@@ -42,7 +42,9 @@ export interface WhiteboardAsset {
   readonly height?: number;
 }
 
-export type WhiteboardAssetMimeTypeV2 =
+export type WhiteboardAsset = WhiteboardRuntimeAssetV3;
+
+export type WhiteboardAssetMimeTypeV3 =
   | "application/octet-stream"
   | "image/avif"
   | "image/bmp"
@@ -54,97 +56,6 @@ export type WhiteboardAssetMimeTypeV2 =
   | "image/vnd.microsoft.icon"
   | "image/webp"
   | "image/x-icon";
-
-interface WhiteboardAssetV2Base {
-  readonly id: string;
-  readonly mimeType: WhiteboardAssetMimeTypeV2;
-  readonly created: number;
-  readonly lastRetrieved?: number;
-  readonly byteSize?: number;
-  readonly contentHash?: string;
-  readonly width?: number;
-  readonly height?: number;
-}
-
-export interface WhiteboardInlineAssetV2 extends WhiteboardAssetV2Base {
-  readonly storage: "inline";
-  readonly dataURL: string;
-}
-
-export interface WhiteboardExternalAssetV2 extends WhiteboardAssetV2Base {
-  readonly storage: "external";
-}
-
-export type WhiteboardAssetV2 =
-  WhiteboardInlineAssetV2 | WhiteboardExternalAssetV2;
-
-interface WhiteboardElementV2Base {
-  readonly id: string;
-  readonly isDeleted: boolean;
-  readonly x: number;
-  readonly y: number;
-  readonly width: number;
-  readonly height: number;
-  readonly angle: number;
-  readonly strokeColor: string;
-  readonly backgroundColor: string;
-  readonly fillStyle: WhiteboardFillStyle;
-  readonly strokeWidth: number;
-  readonly strokeStyle: WhiteboardStrokeStyle;
-  readonly opacity: number;
-  readonly roughness: number;
-  readonly roundness?: WhiteboardEdgeStyle;
-  readonly locked: boolean;
-}
-
-export interface WhiteboardBoxElementV2 extends WhiteboardElementV2Base {
-  readonly type:
-    | "diamond"
-    | "ellipse"
-    | "embeddable"
-    | "frame"
-    | "iframe"
-    | "magicframe"
-    | "rectangle";
-}
-
-export interface WhiteboardLinearElementV2 extends WhiteboardElementV2Base {
-  readonly type: "arrow" | "freedraw" | "line";
-  readonly points: readonly (readonly [number, number])[];
-}
-
-export interface WhiteboardImageElementV2 extends WhiteboardElementV2Base {
-  readonly type: "image";
-  readonly fileId: string | null;
-}
-
-export interface WhiteboardTextElementV2 extends WhiteboardElementV2Base {
-  readonly type: "text";
-  readonly text: string;
-  readonly originalText: string;
-  readonly fontSize: number;
-  readonly lineHeight: number;
-}
-
-export type WhiteboardElementV2 =
-  | WhiteboardBoxElementV2
-  | WhiteboardImageElementV2
-  | WhiteboardLinearElementV2
-  | WhiteboardTextElementV2;
-
-export interface WhiteboardDocumentMetadataV2 {
-  readonly name: string;
-  readonly theme: WhiteboardTheme;
-  readonly viewBackgroundColor: string;
-  readonly gridSize: number | null;
-}
-
-export interface WhiteboardDocumentV2 {
-  readonly version: 2;
-  readonly elements: readonly WhiteboardElementV2[];
-  readonly assets: Readonly<Record<string, WhiteboardAssetV2>>;
-  readonly metadata: WhiteboardDocumentMetadataV2;
-}
 
 export interface WhiteboardBindingV3 {
   readonly elementId: string;
@@ -164,7 +75,7 @@ export interface WhiteboardImageCropV3 {
 
 export interface WhiteboardAssetV3 {
   readonly id: string;
-  readonly mimeType: WhiteboardAssetMimeTypeV2;
+  readonly mimeType: WhiteboardAssetMimeTypeV3;
   readonly created: number;
   readonly lastRetrieved?: number;
   readonly byteSize?: number;
@@ -266,7 +177,7 @@ export type WhiteboardElementV3 =
   | WhiteboardLinearElementV3
   | WhiteboardTextElementV3;
 
-export type WhiteboardElement = WhiteboardElementV2 | WhiteboardElementV3;
+export type WhiteboardElement = WhiteboardElementV3;
 
 export interface WhiteboardDocumentMetadataV3 {
   readonly name: string;
@@ -339,9 +250,9 @@ export interface WhiteboardDocumentState {
 }
 
 export interface OwnedWhiteboardDocument {
-  readonly elements: readonly WhiteboardElement[];
+  readonly elements: readonly WhiteboardElementV3[];
   readonly state: WhiteboardDocumentState;
-  readonly assets: Readonly<Record<string, WhiteboardAsset>>;
+  readonly assets: Readonly<Record<string, WhiteboardRuntimeAssetV3>>;
 }
 
 export interface WhiteboardSessionStateV1 {
@@ -358,8 +269,11 @@ export type OwnedWhiteboardInteraction =
   | "idle"
   | "binding"
   | "drawing"
+  | "duplicating"
+  | "erasing"
   | "marquee"
   | "moving"
+  | "pinching"
   | "resizing"
   | "rotating"
   | "text-editing";
