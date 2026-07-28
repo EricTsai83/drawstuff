@@ -12,6 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
 
 export const createTable = pgTableCreator(
   (name) => `excalidraw-ericts_${name}`,
@@ -172,6 +173,9 @@ export const scene = createTable(
     name: varchar("name", { length: 255 }).notNull(),
     description: text("description"),
     sceneData: text("scene_data"), // 場景資料（壓縮/加密後的 base64 或 JSON 字串）
+    documentVersion: integer("document_version")
+      .default(DRAWSTUFF_DOCUMENT_VERSION)
+      .notNull(),
     thumbnailUrl: text("thumbnail_url"), // 新增：縮圖 URL
     thumbnailFileKey: varchar("thumbnail_file_key", { length: 256 }),
     workspaceId: uuid("workspace_id").references(() => workspace.id, {
@@ -205,6 +209,12 @@ export const scene = createTable(
     index("scene_published_idx").on(table.isPublished),
     uniqueIndex("scene_published_slug_unique").on(table.publishedSlug),
     check("scene_revision_positive", sql`${table.revision} >= 1`),
+    check(
+      "scene_document_version_supported",
+      sql`${table.documentVersion} in (2, 3, ${sql.raw(
+        String(DRAWSTUFF_DOCUMENT_VERSION),
+      )})`,
+    ),
   ],
 );
 
@@ -255,6 +265,9 @@ export const sharedScene = createTable(
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
     compressedData: bytea("compressed_data"),
+    documentVersion: integer("document_version")
+      .default(DRAWSTUFF_DOCUMENT_VERSION)
+      .notNull(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -266,6 +279,12 @@ export const sharedScene = createTable(
     index("shared_scene_id_idx").on(table.sharedSceneId),
     index("shared_scene_owner_id_idx").on(table.ownerId),
     index("shared_scene_created_at_idx").on(table.createdAt),
+    check(
+      "shared_scene_document_version_supported",
+      sql`${table.documentVersion} in (2, 3, ${sql.raw(
+        String(DRAWSTUFF_DOCUMENT_VERSION),
+      )})`,
+    ),
   ],
 );
 

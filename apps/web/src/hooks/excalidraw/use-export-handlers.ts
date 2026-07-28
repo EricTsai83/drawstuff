@@ -6,11 +6,14 @@ import type {
   BinaryFiles,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type {
+  ExcalidrawElement,
+  NonDeletedExcalidrawElement,
+} from "@excalidraw/excalidraw/element/types";
 
 type ExportDeps = {
   exportScene: (
-    els: readonly NonDeletedExcalidrawElement[],
+    els: readonly ExcalidrawElement[],
     state: Partial<AppState>,
     fls: BinaryFiles,
   ) => Promise<string | null>;
@@ -63,11 +66,7 @@ export function useExportHandlers({
     if (isExporting || isUploading) return;
     const scene = getCurrentSceneSnapshot(excalidrawAPI);
     if (!scene) return;
-    const url = await exportScene(
-      scene.elements as readonly NonDeletedExcalidrawElement[],
-      scene.appState,
-      scene.files,
-    );
+    const url = await exportScene(scene.elements, scene.appState, scene.files);
     if (!url) return;
     onShareSuccess?.(url);
   }, [exportScene, onShareSuccess, isExporting, isUploading, excalidrawAPI]);

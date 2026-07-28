@@ -2,7 +2,6 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawInitialDataState,
-  ElementOrToolType,
   ExcalidrawImperativeAPI,
 } from "@excalidraw/excalidraw/types";
 import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
@@ -72,11 +71,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
         );
 
         // 清除加密資訊，避免資訊殘留在 URL 上
-        window.history.replaceState(
-          {},
-          document.title,
-          window.location.origin,
-        );
+        window.history.replaceState({}, document.title, window.location.origin);
 
         return {
           elements: scene.elements ?? [],
@@ -96,7 +91,10 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
     }
 
     if (hasLocalSavedScene) {
-      return await restoreInitialDataFromLocal(localDataState, hasLocalSavedScene);
+      return await restoreInitialDataFromLocal(
+        localDataState,
+        hasLocalSavedScene,
+      );
     }
 
     return await loadInitialRemoteScene();
@@ -141,10 +139,8 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
   }
 
   try {
-    const {
-      importSceneDataBySceneId,
-      importSceneFilesBySceneId,
-    } = await import("@/lib/import-data-from-db");
+    const { importSceneDataBySceneId, importSceneFilesBySceneId } =
+      await import("@/lib/import-data-from-db");
     const imported = await importSceneDataBySceneId(sceneId);
     const files = await importSceneFilesBySceneId(sceneId);
     const appState = ensureInitialAppState(imported.appState ?? {});
@@ -312,23 +308,10 @@ export function saveToLocalStorage(
   }
 }
 
-export const clearElementsForDatabase = (
-  elements: readonly ExcalidrawElement[],
-): ExcalidrawElement[] =>
-  getNonDeletedElements(elements).map((element) =>
-    isLinearElementType(element.type)
-      ? { ...element, lastCommittedPoint: null }
-      : element,
-  );
-
 const getNonDeletedElements = <T extends ExcalidrawElement>(
   elements: readonly T[],
 ) =>
   elements.filter((element) => !element.isDeleted) as readonly NonDeleted<T>[];
-
-function isLinearElementType(elementType: ElementOrToolType): boolean {
-  return elementType === "arrow" || elementType === "line"; // || elementType === "freedraw"
-}
 
 export function isInitializedImageElement(
   element: ExcalidrawElement | null,
@@ -405,7 +388,10 @@ export function getCurrentSceneSnapshot(
   files: BinaryFiles;
 } | null {
   if (!excalidrawAPI) return null;
-  const elements = excalidrawAPI.getSceneElements();
+  // Cloud/share persistence needs collaboration tombstones as well as visible
+  // elements. Disk export still receives Excalidraw's non-deleted callback
+  // elements through its separate handler.
+  const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
   const appState = excalidrawAPI.getAppState();
   const files = excalidrawAPI.getFiles();
   return { elements, appState: appState as Partial<AppState>, files };

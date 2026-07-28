@@ -22,6 +22,7 @@ import {
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { decompressData } from "@/lib/encode";
+import { parseDrawstuffDocument } from "@/lib/excalidraw-document-v4";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -64,11 +65,10 @@ async function getReferencedPublishedFileIds(
       compressedBuffer,
       { decryptionKey: "" },
     );
-    const parsed = JSON.parse(new TextDecoder().decode(data)) as {
-      elements?: StoredSceneElement[];
-    };
+    const parsed = parseDrawstuffDocument(new TextDecoder().decode(data));
     const ids = new Set<string>();
-    for (const element of parsed.elements ?? []) {
+    for (const element of parsed.scene
+      .elements as readonly StoredSceneElement[]) {
       if (element.isDeleted) continue;
       if (element.type !== "image") continue;
       if (typeof element.fileId === "string" && element.fileId.length > 0) {
