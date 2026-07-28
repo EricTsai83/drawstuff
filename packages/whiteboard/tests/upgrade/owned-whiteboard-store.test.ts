@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import type {
   OwnedWhiteboardDocument,
   WhiteboardAsset,
+  WhiteboardBoxElementV3,
   WhiteboardElement,
+  WhiteboardFrameElementV3,
+  WhiteboardLinearElementV3,
 } from "@drawstuff/whiteboard";
 import {
   documentToScreen,
@@ -221,6 +224,129 @@ describe("owned whiteboard store", () => {
     expect(store.getDocument().elements).toEqual([]);
   });
 
+  it("keeps bound text, arrow endpoints, and frame membership synchronized in one move", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(
+      document([
+        v3Rectangle("container", 0, 0, 80, 60),
+        v3Frame("frame", 100, 100, 300, 240, 50),
+        v3Arrow("arrow", -100, 20, "container"),
+      ]),
+    );
+    store.commitTextEdit({
+      targetId: "container",
+      point: { x: 0, y: 0 },
+      text: "Bound",
+      width: 50,
+      height: 25,
+      createId: () => "bound-text",
+    });
+    const beforeText = store.getBoundTextForContainer("container");
+    expect(beforeText).toMatchObject({
+      containerId: "container",
+      textAlign: "center",
+      verticalAlign: "middle",
+    });
+
+    store.setSelection(["container"]);
+    store.beginElementGesture("move");
+    store.updateElementGesture([
+      { ...store.getElement("container")!, x: 150, y: 150 },
+    ]);
+    expect(
+      store.getDocument().elements.find(({ id }) => id === "container"),
+    ).toMatchObject({
+      x: 0,
+      y: 0,
+    });
+    store.commitElementGesture();
+
+    const container = store.getElement("container");
+    const text = store.getBoundTextForContainer("container");
+    const arrow = store.getElement("arrow");
+    expect(container).toMatchObject({ x: 150, y: 150, frameId: "frame" });
+    expect(text).toMatchObject({
+      x: (beforeText?.x ?? 0) + 150,
+      y: (beforeText?.y ?? 0) + 150,
+      frameId: "frame",
+    });
+    expect(
+      arrow?.type === "arrow"
+        ? arrow.x + (arrow.points.at(-1)?.[0] ?? 0)
+        : Number.NaN,
+    ).toBeCloseTo(150);
+    expect(store.getRasterCacheDependencies(container!)).toMatchObject({
+      boundTextNonce: text?.versionNonce,
+      frameOpacity: 50,
+    });
+    expect(store.getHistoryDiagnostics().undoKinds).toEqual(["text", "move"]);
+
+    store.deleteSelection();
+    expect(store.getElement("container")).toBeNull();
+    expect(store.getElement("bound-text")).toBeNull();
+    expect(store.getElement("arrow")).toMatchObject({ endBinding: null });
+    store.undo();
+    expect(store.getElement("container")).not.toBeNull();
+    expect(store.getBoundTextForContainer("container")).not.toBeNull();
+    expect(store.getElement("arrow")).toMatchObject({
+      endBinding: { elementId: "container" },
+    });
+  });
+
+  it("selects groups as a unit, ungroups every member, and moves frame descendants", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(
+      document([
+        v3Rectangle("group-a", 0, 0, 20, 20, {
+          groupIds: ["group-1"],
+        }),
+        v3Rectangle("group-b", 30, 0, 20, 20, {
+          groupIds: ["group-1"],
+        }),
+        v3Frame("frame", 100, 100, 200, 200),
+        v3Rectangle("child", 120, 120, 20, 20, { frameId: "frame" }),
+      ]),
+    );
+
+    store.setSelection(["group-a"]);
+    expect(store.getEditorState().selectedElementIds).toEqual([
+      "group-a",
+      "group-b",
+    ]);
+    store.ungroupSelection();
+    const groupA = store.getElement("group-a");
+    const groupB = store.getElement("group-b");
+    expect(groupA && "groupIds" in groupA ? groupA.groupIds : null).toEqual([]);
+    expect(groupB && "groupIds" in groupB ? groupB.groupIds : null).toEqual([]);
+
+    store.setSelection(["frame"]);
+    const transform = store.getTransformElements("move");
+    expect(transform.map(({ id }) => id)).toEqual(["frame", "child"]);
+    store.beginElementGesture("move");
+    store.updateElementGesture(
+      transform.map((element) => ({
+        ...element,
+        x: element.x + 50,
+        y: element.y + 40,
+      })),
+    );
+    store.commitElementGesture();
+    expect(store.getElement("frame")).toMatchObject({ x: 150, y: 140 });
+    expect(store.getElement("child")).toMatchObject({ x: 170, y: 160 });
+
+    store.commitTextEdit({
+      targetId: "child",
+      point: { x: 170, y: 160 },
+      text: "Child label",
+      createId: () => "child-text",
+    });
+    store.setSelection(["frame"]);
+    store.deleteSelection();
+    expect(store.getElement("frame")).toBeNull();
+    expect(store.getElement("child")).toBeNull();
+    expect(store.getElement("child-text")).toBeNull();
+  });
+
   it("drops an incomplete image asset from serializable snapshots", () => {
     const store = new OwnedWhiteboardStore();
     const incompleteAsset = {
@@ -334,6 +460,65 @@ function rectangle(
     roughness: 1,
     locked: false,
     ...update,
+  };
+}
+
+function v3Rectangle(
+  id: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  update: Partial<WhiteboardBoxElementV3> = {},
+): WhiteboardBoxElementV3 & { readonly type: "rectangle" } {
+  return {
+    ...rectangle(id, x, y, width, height),
+    index: `a-${id}`,
+    seed: 1,
+    version: 1,
+    versionNonce: 1,
+    updatedAt: 1,
+    groupIds: [],
+    frameId: null,
+    ...update,
+  } as WhiteboardBoxElementV3 & { readonly type: "rectangle" };
+}
+
+function v3Frame(
+  id: string,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  opacity = 100,
+): WhiteboardFrameElementV3 {
+  return {
+    ...v3Rectangle(id, x, y, width, height),
+    type: "frame",
+    name: id,
+    opacity,
+  };
+}
+
+function v3Arrow(
+  id: string,
+  x: number,
+  y: number,
+  targetId: string,
+): WhiteboardLinearElementV3 & { readonly type: "arrow" } {
+  return {
+    ...v3Rectangle(id, x, y, 100, 1),
+    type: "arrow",
+    points: [
+      [0, 0],
+      [100, 0],
+    ],
+    startArrowhead: null,
+    endArrowhead: "arrow",
+    startBinding: null,
+    endBinding: { elementId: targetId, focus: 0, gap: 0 },
+    elbowed: false,
+    fixedSegments: [],
   };
 }
 

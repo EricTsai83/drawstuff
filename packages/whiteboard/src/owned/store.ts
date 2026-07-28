@@ -4,6 +4,9 @@ import type {
   OwnedWhiteboardEditorState,
   OwnedWhiteboardEditorStateUpdate,
   WhiteboardElement,
+  WhiteboardElementV3,
+  WhiteboardLinearElementV3,
+  WhiteboardTextElementV3,
   WhiteboardElementOrderAction,
   WhiteboardElementStyle,
   WhiteboardElementStyleUpdate,
@@ -43,7 +46,7 @@ import {
   remapOwnedClipboardPayload,
   type OwnedClipboardPayloadV1,
 } from "./clipboard";
-import { createOwnedElementId } from "./drawing";
+import { createOwnedElementId, createOwnedTextElement } from "./drawing";
 import { OwnedSpatialIndex } from "./spatial-index";
 import { commitOwnedElement, ownedElementIndex } from "./element-version";
 
@@ -66,6 +69,7 @@ export type OwnedDocumentCommandKind =
   | "reorder"
   | "rotate"
   | "style"
+  | "text"
   | "ungroup";
 
 interface OwnedDocumentCommand {
@@ -86,6 +90,7 @@ interface ActiveElementGesture {
   readonly kind: "move" | "resize" | "rotate";
   readonly before: OwnedWhiteboardDocument;
   readonly elementIds: ReadonlySet<string>;
+  readonly primaryElementIds: ReadonlySet<string>;
   readonly drafts: Map<string, WhiteboardElement>;
 }
 
@@ -149,6 +154,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   private readonly elementsById = new Map<string, WhiteboardElement>();
   private readonly orderById = new Map<string, number>();
   private readonly reverseBindings = new Map<string, Set<string>>();
+  private readonly containerTextIndex = new Map<string, string>();
   private readonly frameChildrenIndex = new Map<string, Set<string>>();
   private readonly groupIndex = new Map<string, Set<string>>();
   private readonly spatialIndex = new OwnedSpatialIndex();
@@ -156,6 +162,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   private selectionVersion = 0;
   private viewportVersion = 0;
   private viewportTransient = false;
+  private textEditing = false;
   private activeElementGesture: ActiveElementGesture | null = null;
   private destroyed = false;
 
@@ -217,8 +224,9 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     return {
       activeTool: this.activeTool,
       toolLocked: this.activeTool.locked === true,
-      interaction:
-        this.activeElementGesture?.kind === "move"
+      interaction: this.textEditing
+        ? "text-editing"
+        : this.activeElementGesture?.kind === "move"
           ? "moving"
           : this.activeElementGesture?.kind === "resize"
             ? "resizing"
@@ -308,6 +316,13 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.assertActive();
     if (this.activeTool.locked === locked) return;
     this.activeTool = { ...this.activeTool, locked };
+    this.emitEditor();
+  }
+
+  public setTextEditing(editing: boolean): void {
+    this.assertActive();
+    if (this.textEditing === editing) return;
+    this.textEditing = editing;
     this.emitEditor();
   }
 
@@ -671,6 +686,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.redoStack.length = 0;
     this.historyBytes = 0;
     this.activeElementGesture = null;
+    this.textEditing = false;
   }
 
   public subscribeRenderState(
@@ -690,6 +706,11 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
   public setSelection(ids: readonly string[]): void {
     this.assertActive();
     const requestedIds = new Set(ids);
+    for (const id of ids) {
+      for (const memberId of this.getSelectionUnitIds(id)) {
+        requestedIds.add(memberId);
+      }
+    }
     const nextIds = this.document.elements
       .filter(
         (element) =>
@@ -708,6 +729,22 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.emitRender("overlay");
   }
 
+  public getSelectionUnitIds(id: string): readonly string[] {
+    this.assertActive();
+    const element = this.elementsById.get(id);
+    const groupId =
+      element && isV3Element(element) ? element.groupIds.at(-1) : undefined;
+    if (!groupId) return element && isElementSelectable(element) ? [id] : [];
+    return this.document.elements
+      .filter(
+        (candidate) =>
+          isV3Element(candidate) &&
+          candidate.groupIds.includes(groupId) &&
+          isElementSelectable(candidate),
+      )
+      .map((candidate) => candidate.id);
+  }
+
   public selectAll(): void {
     this.assertActive();
     this.setSelection(
@@ -724,6 +761,134 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     return this.documentSnapshot.elements
       .filter((element) => selectedIds.has(element.id))
       .map((element) => drafts?.get(element.id) ?? element);
+  }
+
+  public getTransformElements(
+    kind: "move" | "resize" | "rotate",
+  ): readonly WhiteboardElement[] {
+    this.assertActive();
+    const ids = new Set(this.selectedElementIds);
+    if (kind === "move") {
+      const frames = [...ids].filter(
+        (id) => this.elementsById.get(id)?.type === "frame",
+      );
+      for (const frameId of frames) {
+        this.addFrameDescendants(frameId, ids);
+      }
+    }
+    return this.documentSnapshot.elements.filter((element) =>
+      ids.has(element.id),
+    );
+  }
+
+  public getElement(id: string): WhiteboardElement | null {
+    this.assertActive();
+    return (
+      this.activeElementGesture?.drafts.get(id) ??
+      this.elementsById.get(id) ??
+      null
+    );
+  }
+
+  public getBoundTextForContainer(
+    containerId: string,
+  ): WhiteboardTextElementV3 | null {
+    this.assertActive();
+    const textId = this.containerTextIndex.get(containerId);
+    const element = textId ? this.getElement(textId) : null;
+    return element?.type === "text" && isV3Element(element) ? element : null;
+  }
+
+  public commitTextEdit(options: {
+    readonly targetId: string | null;
+    readonly point: WhiteboardPoint;
+    readonly text: string;
+    readonly width?: number;
+    readonly height?: number;
+    readonly createId?: () => string;
+  }): void {
+    this.assertActive();
+    this.finalizeActiveElementGesture();
+    const target = options.targetId
+      ? this.elementsById.get(options.targetId)
+      : null;
+    if (!target) {
+      const element = createOwnedTextElement(
+        options.point,
+        options.text,
+        this.elementStyle,
+        (options.createId ?? createOwnedElementId)(),
+        { width: options.width, height: options.height },
+      );
+      if (element) this.appendElement(element);
+      return;
+    }
+    const existingText =
+      target.type === "text"
+        ? target
+        : this.getBoundTextForContainer(target.id);
+    const trimmed = options.text.trim();
+    if (!trimmed && !existingText) return;
+    const before = this.document;
+    let nextElements = this.document.elements;
+    if (!trimmed && existingText) {
+      nextElements = nextElements.filter(
+        (element) => element.id !== existingText.id,
+      );
+    } else if (target.type === "text") {
+      nextElements = nextElements.map((element) =>
+        element.id === target.id
+          ? commitOwnedElement(element, {
+              ...target,
+              text: options.text,
+              originalText: options.text,
+              width: positiveDimension(options.width, target.width),
+              height: positiveDimension(options.height, target.height),
+            })
+          : element,
+      );
+    } else {
+      const text =
+        existingText ??
+        createOwnedTextElement(
+          options.point,
+          options.text,
+          this.elementStyle,
+          (options.createId ?? createOwnedElementId)(),
+          { width: options.width, height: options.height },
+        );
+      if (text?.type !== "text" || !isV3Element(text)) return;
+      const aligned = alignBoundText(
+        {
+          ...text,
+          text: options.text,
+          originalText: options.text,
+          containerId: target.id,
+          frameId: isV3Element(target) ? target.frameId : null,
+          index: existingText
+            ? text.index
+            : ownedElementIndex(this.document.elements.length),
+          width: positiveDimension(options.width, text.width),
+          height: positiveDimension(options.height, text.height),
+        },
+        target,
+      );
+      nextElements = existingText
+        ? nextElements.map((element) =>
+            element.id === existingText.id
+              ? commitOwnedElement(existingText, aligned)
+              : element,
+          )
+        : [...nextElements, aligned];
+    }
+    this.document = { ...this.document, elements: nextElements };
+    this.refreshDocumentSnapshot();
+    this.recordDocumentMutation("text", before);
+    this.selectedElementIds = [target.id];
+    if (!this.activeTool.locked) this.activeTool = { type: "selection" };
+    this.emitDocument();
+    this.emitEditor();
+    this.emitRender("scene");
   }
 
   public getVisibleElements(
@@ -761,12 +926,46 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.finalizeActiveElementGesture();
     if (this.selectedElementIds.length === 0) return;
     const selectedIds = new Set(this.selectedElementIds);
+    for (const id of [...selectedIds]) {
+      if (this.elementsById.get(id)?.type === "frame") {
+        this.addFrameDescendants(id, selectedIds);
+      }
+    }
+    for (const id of selectedIds) {
+      const textId = this.containerTextIndex.get(id);
+      if (textId) selectedIds.add(textId);
+    }
     const before = this.document;
     this.document = {
       ...this.document,
-      elements: this.document.elements.filter(
-        (element) => !selectedIds.has(element.id),
-      ),
+      elements: this.document.elements.flatMap((element) => {
+        if (selectedIds.has(element.id)) return [];
+        if (
+          !isV3Element(element) ||
+          (element.type !== "arrow" && element.type !== "line")
+        ) {
+          return [element];
+        }
+        const startBinding =
+          element.startBinding &&
+          selectedIds.has(element.startBinding.elementId)
+            ? null
+            : element.startBinding;
+        const endBinding =
+          element.endBinding && selectedIds.has(element.endBinding.elementId)
+            ? null
+            : element.endBinding;
+        return startBinding !== element.startBinding ||
+          endBinding !== element.endBinding
+          ? [
+              commitOwnedElement(element, {
+                ...element,
+                startBinding,
+                endBinding,
+              }),
+            ]
+          : [element];
+      }),
     };
     this.refreshDocumentSnapshot();
     this.recordDocumentMutation(kind, before);
@@ -830,7 +1029,8 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.document = {
       ...this.document,
       elements: this.document.elements.map((element) =>
-        selectedIds.has(element.id) && "groupIds" in element
+        isV3Element(element) &&
+        element.groupIds.some((groupId) => selectedGroups.has(groupId))
           ? commitOwnedElement(element, {
               ...element,
               groupIds: element.groupIds.filter(
@@ -861,10 +1061,23 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     if (this.activeElementGesture || this.selectedElementIds.length === 0) {
       return;
     }
+    const primaryElements = this.getTransformElements(kind);
+    const primaryElementIds = new Set(
+      primaryElements.map((element) => element.id),
+    );
+    const elementIds = new Set(primaryElementIds);
+    for (const id of primaryElementIds) {
+      const textId = this.containerTextIndex.get(id);
+      if (textId) elementIds.add(textId);
+      for (const arrowId of this.reverseBindings.get(id) ?? []) {
+        elementIds.add(arrowId);
+      }
+    }
     this.activeElementGesture = {
       kind,
       before: this.document,
-      elementIds: new Set(this.selectedElementIds),
+      elementIds,
+      primaryElementIds,
       drafts: new Map(),
     };
     this.emitEditor();
@@ -876,13 +1089,14 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     if (!gesture) return;
     let changed = false;
     for (const element of elements) {
-      if (!gesture.elementIds.has(element.id)) continue;
+      if (!gesture.primaryElementIds.has(element.id)) continue;
       gesture.drafts.set(element.id, element);
       const geometry = getElementGeometry(element);
       if (geometry) this.spatialIndex.update(element.id, geometry.bounds);
       changed = true;
     }
     if (!changed) return;
+    this.synchronizeGestureDependencies(gesture);
     this.emitRender("scene");
   }
 
@@ -895,10 +1109,11 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       this.emitEditor();
       return;
     }
+    const draftElements = this.applyFrameReparenting(gesture);
     this.document = {
       ...this.document,
       elements: this.document.elements.map((element) => {
-        const draft = gesture.drafts.get(element.id);
+        const draft = draftElements.get(element.id);
         return draft ? commitOwnedElement(element, draft) : element;
       }),
     };
@@ -962,6 +1177,35 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       frames: this.frameChildrenIndex.size,
       groups: this.groupIndex.size,
       spatial: this.spatialIndex.getDiagnostics(),
+    };
+  }
+
+  public getRasterCacheDependencies(element: WhiteboardElement): {
+    readonly assetRevision: number;
+    readonly boundTextNonce: number;
+    readonly frameOpacity: number;
+  } {
+    this.assertActive();
+    const assetRevision =
+      element.type === "image" && element.fileId
+        ? (this.document.assets[element.fileId]?.revision ?? 0)
+        : 0;
+    const textId = this.containerTextIndex.get(element.id);
+    const text = textId ? this.elementsById.get(textId) : null;
+    let frameOpacity = 100;
+    let frameId = isV3Element(element) ? element.frameId : null;
+    const visited = new Set<string>();
+    while (frameId && !visited.has(frameId)) {
+      visited.add(frameId);
+      const frame = this.elementsById.get(frameId);
+      if (frame?.type !== "frame") break;
+      frameOpacity *= Math.max(0, Math.min(100, frame.opacity)) / 100;
+      frameId = isV3Element(frame) ? frame.frameId : null;
+    }
+    return {
+      assetRevision,
+      boundTextNonce: text && isV3Element(text) ? text.versionNonce : 0,
+      frameOpacity,
     };
   }
 
@@ -1092,6 +1336,7 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
     this.elementsById.clear();
     this.orderById.clear();
     this.reverseBindings.clear();
+    this.containerTextIndex.clear();
     this.frameChildrenIndex.clear();
     this.groupIndex.clear();
     this.spatialIndex.clear();
@@ -1104,6 +1349,13 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
       }
       if ("frameId" in element && element.frameId) {
         addIndexValue(this.frameChildrenIndex, element.frameId, element.id);
+      }
+      if (
+        element.type === "text" &&
+        isV3Element(element) &&
+        element.containerId
+      ) {
+        this.containerTextIndex.set(element.containerId, element.id);
       }
       if ("groupIds" in element) {
         for (const groupId of element.groupIds) {
@@ -1127,6 +1379,98 @@ export class OwnedWhiteboardStore implements WhiteboardEngine {
         }
       }
     });
+  }
+
+  private addFrameDescendants(frameId: string, ids: Set<string>): void {
+    for (const childId of this.frameChildrenIndex.get(frameId) ?? []) {
+      if (ids.has(childId)) continue;
+      ids.add(childId);
+      if (this.elementsById.get(childId)?.type === "frame") {
+        this.addFrameDescendants(childId, ids);
+      }
+    }
+  }
+
+  private synchronizeGestureDependencies(gesture: ActiveElementGesture): void {
+    for (const targetId of gesture.primaryElementIds) {
+      const target =
+        gesture.drafts.get(targetId) ?? this.elementsById.get(targetId);
+      const original = this.elementsById.get(targetId);
+      if (
+        !target ||
+        !original ||
+        !isV3Element(target) ||
+        !isV3Element(original)
+      ) {
+        continue;
+      }
+      const textId = this.containerTextIndex.get(targetId);
+      const text = textId ? this.elementsById.get(textId) : null;
+      if (text?.type === "text" && isV3Element(text)) {
+        const dependent =
+          gesture.kind === "move"
+            ? {
+                ...text,
+                x: text.x + (target.x - original.x),
+                y: text.y + (target.y - original.y),
+                angle: target.angle,
+                frameId: target.frameId,
+              }
+            : alignBoundText(text, target);
+        gesture.drafts.set(text.id, dependent);
+        this.updateDraftSpatialBounds(dependent);
+      }
+      for (const arrowId of this.reverseBindings.get(targetId) ?? []) {
+        if (gesture.primaryElementIds.has(arrowId)) continue;
+        const arrow =
+          gesture.drafts.get(arrowId) ?? this.elementsById.get(arrowId);
+        if (
+          !arrow ||
+          !isV3Element(arrow) ||
+          (arrow.type !== "arrow" && arrow.type !== "line")
+        ) {
+          continue;
+        }
+        const dependent = updateBoundLinearElement(arrow, targetId, target);
+        gesture.drafts.set(arrow.id, dependent);
+        this.updateDraftSpatialBounds(dependent);
+      }
+    }
+  }
+
+  private applyFrameReparenting(
+    gesture: ActiveElementGesture,
+  ): Map<string, WhiteboardElement> {
+    const drafts = new Map(gesture.drafts);
+    const scene = this.document.elements.map(
+      (element) => drafts.get(element.id) ?? element,
+    );
+    const frames = scene.filter((element) => element.type === "frame");
+    for (const id of gesture.primaryElementIds) {
+      const element = drafts.get(id);
+      if (!element || !isV3Element(element) || element.type === "frame") {
+        continue;
+      }
+      const frameId = findContainingFrameId(element, frames);
+      if (element.frameId !== frameId) {
+        drafts.set(id, { ...element, frameId });
+      }
+      const textId = this.containerTextIndex.get(id);
+      const text = textId ? drafts.get(textId) : null;
+      if (
+        text?.type === "text" &&
+        isV3Element(text) &&
+        text.frameId !== frameId
+      ) {
+        drafts.set(text.id, { ...text, frameId });
+      }
+    }
+    return drafts;
+  }
+
+  private updateDraftSpatialBounds(element: WhiteboardElement): void {
+    const geometry = getElementGeometry(element);
+    if (geometry) this.spatialIndex.update(element.id, geometry.bounds);
   }
 
   private recordDocumentMutation(
@@ -1404,6 +1748,144 @@ function addIndexValue(
   const values = index.get(key) ?? new Set<string>();
   values.add(value);
   index.set(key, values);
+}
+
+function alignBoundText(
+  text: WhiteboardTextElementV3,
+  container: WhiteboardElement,
+): WhiteboardTextElementV3 {
+  const availableWidth = Math.max(1, container.width - 16);
+  const width = text.autoResize
+    ? Math.min(text.width, availableWidth)
+    : availableWidth;
+  const height = Math.min(text.height, Math.max(1, container.height - 16));
+  return {
+    ...text,
+    x: container.x + (container.width - width) / 2,
+    y: container.y + (container.height - height) / 2,
+    width,
+    height,
+    angle: container.angle,
+    frameId: isV3Element(container) ? container.frameId : null,
+    containerId: container.id,
+    textAlign: "center",
+    verticalAlign: "middle",
+  };
+}
+
+function updateBoundLinearElement(
+  element: WhiteboardLinearElementV3,
+  targetId: string,
+  target: WhiteboardElement,
+): WhiteboardLinearElementV3 {
+  const worldPoints = element.points.map(
+    ([x, y]) => [element.x + x, element.y + y] as const,
+  );
+  if (worldPoints.length < 2) return element;
+  const first = worldPoints[0]!;
+  const last = worldPoints.at(-1)!;
+  if (element.startBinding?.elementId === targetId) {
+    worldPoints[0] = boundEndpoint(target, last, element.startBinding.gap);
+  }
+  if (element.endBinding?.elementId === targetId) {
+    worldPoints[worldPoints.length - 1] = boundEndpoint(
+      target,
+      first,
+      element.endBinding.gap,
+    );
+  }
+  const minX = Math.min(...worldPoints.map(([x]) => x));
+  const minY = Math.min(...worldPoints.map(([, y]) => y));
+  const maxX = Math.max(...worldPoints.map(([x]) => x));
+  const maxY = Math.max(...worldPoints.map(([, y]) => y));
+  return {
+    ...element,
+    x: minX,
+    y: minY,
+    width: maxX - minX,
+    height: maxY - minY,
+    points: worldPoints.map(([x, y]) => [x - minX, y - minY] as const),
+  };
+}
+
+function boundEndpoint(
+  target: WhiteboardElement,
+  toward: readonly [number, number],
+  gap: number,
+): readonly [number, number] {
+  const geometry = getElementGeometry(target);
+  if (!geometry) return toward;
+  const centerX = (geometry.bounds.minX + geometry.bounds.maxX) / 2;
+  const centerY = (geometry.bounds.minY + geometry.bounds.maxY) / 2;
+  const deltaX = toward[0] - centerX;
+  const deltaY = toward[1] - centerY;
+  const halfWidth = Math.max(
+    0.5,
+    (geometry.bounds.maxX - geometry.bounds.minX) / 2,
+  );
+  const halfHeight = Math.max(
+    0.5,
+    (geometry.bounds.maxY - geometry.bounds.minY) / 2,
+  );
+  const scale =
+    1 /
+    Math.max(Math.abs(deltaX) / halfWidth, Math.abs(deltaY) / halfHeight, 1);
+  const length = Math.hypot(deltaX, deltaY) || 1;
+  return [
+    centerX + deltaX * scale + (deltaX / length) * gap,
+    centerY + deltaY * scale + (deltaY / length) * gap,
+  ];
+}
+
+function findContainingFrameId(
+  element: WhiteboardElement,
+  frames: readonly WhiteboardElement[],
+): string | null {
+  const geometry = getElementGeometry(element);
+  if (!geometry) return null;
+  const center = {
+    x: (geometry.bounds.minX + geometry.bounds.maxX) / 2,
+    y: (geometry.bounds.minY + geometry.bounds.maxY) / 2,
+  };
+  return (
+    frames
+      .filter((frame) => {
+        if (frame.id === element.id || frame.type !== "frame") return false;
+        const bounds = getElementGeometry(frame)?.bounds;
+        return (
+          bounds !== undefined &&
+          center.x >= bounds.minX &&
+          center.x <= bounds.maxX &&
+          center.y >= bounds.minY &&
+          center.y <= bounds.maxY
+        );
+      })
+      .sort(
+        (left, right) => left.width * left.height - right.width * right.height,
+      )
+      .at(0)?.id ?? null
+  );
+}
+
+function positiveDimension(
+  value: number | undefined,
+  fallback: number,
+): number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : Math.max(1, fallback);
+}
+
+function isV3Element(
+  element: WhiteboardElement,
+): element is WhiteboardElementV3 {
+  return (
+    "index" in element &&
+    "version" in element &&
+    "versionNonce" in element &&
+    "groupIds" in element &&
+    "frameId" in element
+  );
 }
 
 function createDocumentCommand(

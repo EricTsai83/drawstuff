@@ -110,8 +110,13 @@ export function OwnedWhiteboardCanvas({
         renderer.setMarquee(bounds),
       setPreview: (element: Parameters<typeof renderer.setPreview>[0]) =>
         renderer.setPreview(element),
-      beginTextEditing: (point: Parameters<typeof textEditor.begin>[0]) =>
-        textEditor.begin(point),
+      setBindingHint: (
+        element: Parameters<typeof renderer.setBindingHint>[0],
+      ) => renderer.setBindingHint(element),
+      beginTextEditing: (
+        point: Parameters<typeof textEditor.begin>[0],
+        target: Parameters<typeof textEditor.begin>[1],
+      ) => textEditor.begin(point, target),
       beginFreedrawPreview: (
         point: Parameters<typeof renderer.beginFreedrawPreview>[0],
         style: Parameters<typeof renderer.beginFreedrawPreview>[1],
