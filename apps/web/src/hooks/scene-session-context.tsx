@@ -88,14 +88,17 @@ export function SceneSessionProvider({
   const suppressedRef = useRef(false);
   const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  const doSuppress = useCallback((safetyNetMs: number = SUPPRESS_SAFETY_NET_MS) => {
-    suppressedRef.current = true;
-    if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
-    suppressTimerRef.current = setTimeout(() => {
-      suppressedRef.current = false;
-      suppressTimerRef.current = null;
-    }, safetyNetMs);
-  }, []);
+  const doSuppress = useCallback(
+    (safetyNetMs: number = SUPPRESS_SAFETY_NET_MS) => {
+      suppressedRef.current = true;
+      if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
+      suppressTimerRef.current = setTimeout(() => {
+        suppressedRef.current = false;
+        suppressTimerRef.current = null;
+      }, safetyNetMs);
+    },
+    [],
+  );
 
   const doResume = useCallback(() => {
     suppressedRef.current = false;

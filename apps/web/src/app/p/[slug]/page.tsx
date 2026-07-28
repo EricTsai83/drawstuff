@@ -23,7 +23,8 @@ export async function generateMetadata({
 
   const title = `${scene.name} — drawstuff`;
   const description =
-    scene.description || `A published scene by ${scene.authorName ?? "drawstuff"}`;
+    scene.description ||
+    `A published scene by ${scene.authorName ?? "drawstuff"}`;
 
   return {
     title,
@@ -33,7 +34,9 @@ export async function generateMetadata({
       description,
       type: "article",
       ...(scene.thumbnailUrl ? { images: [{ url: scene.thumbnailUrl }] } : {}),
-      ...(scene.publishedAt ? { publishedTime: scene.publishedAt.toISOString() } : {}),
+      ...(scene.publishedAt
+        ? { publishedTime: scene.publishedAt.toISOString() }
+        : {}),
       modifiedTime: scene.updatedAt.toISOString(),
     },
     twitter: {

@@ -283,8 +283,7 @@ function AppMainMenu({
           clearCurrentScene();
           // 重置畫布為空
           const currentAppState = excalidrawAPI?.getAppState() as
-            | AppState
-            | undefined;
+            AppState | undefined;
           if (currentAppState) {
             const resetZoom = createResetZoomState(currentAppState.zoom);
             excalidrawAPI?.updateScene({
