@@ -13,11 +13,11 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import { useState, useRef, useEffect, type ReactNode } from "react";
+import { useState, useRef, useEffect, type ReactElement } from "react";
 
 type SceneRenameDialogProps = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
-  trigger?: ReactNode;
+  trigger?: ReactElement;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   onConfirmName: (name: string) => void;
@@ -105,13 +105,11 @@ export function SceneRenameDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+      {trigger && <DialogTrigger render={trigger} nativeButton={false} />}
 
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-md"
         data-prevent-outside-click="true"
-        onEscapeKeyDown={handleClose}
-        onInteractOutside={handleClose}
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">Rename scene</DialogTitle>

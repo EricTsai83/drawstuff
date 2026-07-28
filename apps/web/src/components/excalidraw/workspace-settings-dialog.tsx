@@ -39,7 +39,7 @@ import {
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type WorkspaceSettingsDialogProps = {
-  trigger?: React.ReactNode;
+  trigger?: React.ReactElement;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
   workspaceId?: string;
@@ -166,12 +166,11 @@ export default function WorkspaceSettingsDialog({
 
   return (
     <Dialog open={isOpen} onOpenChange={handleOpenChange}>
-      {trigger && <DialogTrigger asChild>{trigger}</DialogTrigger>}
+      {trigger && <DialogTrigger render={trigger} />}
       <DialogContent
         className="rounded-xl px-6 py-5 sm:max-w-lg"
-        onOpenAutoFocus={(e) => e.preventDefault()}
+        initialFocus={false}
         data-prevent-outside-click="true"
-        onEscapeKeyDown={() => handleOpenChange(false)}
       >
         <DialogHeader>
           <DialogTitle>
@@ -361,13 +360,15 @@ export default function WorkspaceSettingsDialog({
                   disableDelete ? (
                     <TooltipProvider>
                       <Tooltip>
-                        <TooltipTrigger asChild>
-                          <span className="inline-block">
-                            <Button variant="destructive" disabled>
-                              {t("workspace.settings.deleteThisWorkspace")}
-                            </Button>
-                          </span>
-                        </TooltipTrigger>
+                        <TooltipTrigger
+                          render={
+                            <span className="inline-block">
+                              <Button variant="destructive" disabled>
+                                {t("workspace.settings.deleteThisWorkspace")}
+                              </Button>
+                            </span>
+                          }
+                        />
                         <TooltipContent side="right" variant="secondary">
                           {t("workspace.settings.defaultCannotDeleteShort")}
                         </TooltipContent>
