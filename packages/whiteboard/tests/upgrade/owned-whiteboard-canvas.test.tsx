@@ -6,6 +6,7 @@ import type {
   WhiteboardViewerController,
 } from "@drawstuff/whiteboard";
 import { OwnedWhiteboardCanvas } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 
 describe("OwnedWhiteboardCanvas lifecycle", () => {
   it("loads an owned document and releases RAF, observer, engine, and canvas resources", async () => {
@@ -181,7 +182,7 @@ describe("OwnedWhiteboardCanvas lifecycle", () => {
 function ownedDocument(): OwnedWhiteboardDocument {
   return {
     elements: [
-      {
+      createTestElementV3({
         id: "owned-shape",
         type: "rectangle",
         isDeleted: false,
@@ -198,7 +199,7 @@ function ownedDocument(): OwnedWhiteboardDocument {
         opacity: 100,
         roughness: 1,
         locked: false,
-      },
+      }),
     ],
     assets: {},
     state: {

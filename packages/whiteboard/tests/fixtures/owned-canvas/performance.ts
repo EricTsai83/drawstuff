@@ -2,6 +2,7 @@ import type {
   OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../../helpers";
 
 export type OwnedPerformanceFixtureName = "small" | "medium" | "large";
 
@@ -140,7 +141,7 @@ function createMixedFixtureElement(
   }
   if (name === "text-500" || name === "bound-text-500") {
     const textIndex = name === "bound-text-500" ? index - 500 : index;
-    return {
+    return createTestElementV3({
       ...translated,
       type: "text",
       text: `Deterministic text ${textIndex}`,
@@ -148,14 +149,14 @@ function createMixedFixtureElement(
       fontSize: 20,
       lineHeight: 1.25,
       containerId: name === "bound-text-500" ? `container-${textIndex}` : null,
-    };
+    });
   }
   if (name === "bindings-500" && index < 500) {
     return { ...translated, id: `binding-target-${index}` };
   }
   if (name === "bindings-500") {
     const bindingIndex = index - 500;
-    return {
+    return createTestElementV3({
       ...translated,
       type: "arrow",
       points: [
@@ -168,30 +169,30 @@ function createMixedFixtureElement(
         gap: 4,
       },
       endBinding: null,
-    };
+    });
   }
   if (name === "frames-groups-100") {
-    return {
+    return createTestElementV3({
       ...translated,
       type: index % 10 === 0 ? "frame" : "rectangle",
       groupIds: [`group-${Math.floor(index / 5)}`],
       frameId: index % 10 === 0 ? null : `fixture-${index - (index % 10)}`,
-    };
+    });
   }
   if (name === "large-and-missing-images") {
-    return {
+    return createTestElementV3({
       ...translated,
       type: "image",
       fileId: `missing-${index}`,
       width: 2_000,
       height: 1_500,
-    };
+    });
   }
   return translated;
 }
 
 function createFreedrawFixture(): WhiteboardElement {
-  return {
+  return createTestElementV3({
     ...createFixtureElement(0),
     type: "freedraw",
     width: 1_999,
@@ -201,13 +202,13 @@ function createFreedrawFixture(): WhiteboardElement {
       (_, index) => [index, 20 + Math.sin(index / 8) * 20] as const,
     ),
     pressures: Array.from({ length: 2_000 }, (_, index) => (index % 10) / 10),
-  };
+  });
 }
 
 function createFixtureElement(index: number): WhiteboardElement {
   const column = index % 64;
   const row = Math.floor(index / 64);
-  return {
+  return createTestElementV3({
     id: `fixture-${index}`,
     type: index % 7 === 0 ? "ellipse" : "rectangle",
     isDeleted: false,
@@ -224,5 +225,5 @@ function createFixtureElement(index: number): WhiteboardElement {
     opacity: 100,
     roughness: 1,
     locked: false,
-  };
+  });
 }

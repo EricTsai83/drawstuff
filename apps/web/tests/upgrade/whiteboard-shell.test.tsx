@@ -18,28 +18,10 @@ import type {
 } from "@drawstuff/whiteboard";
 import { WhiteboardShell } from "@/features/whiteboard/ui";
 import { SCENE_FILE_IMPORT_MAX_BYTES } from "@/config/app-constants";
+import { rectangleV3 } from "../whiteboard-fixtures";
 
 const DOCUMENT: OwnedWhiteboardDocument = {
-  elements: [
-    {
-      id: "shape-1",
-      type: "rectangle",
-      isDeleted: false,
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 50,
-      angle: 0,
-      strokeColor: "#1e1e1e",
-      backgroundColor: "transparent",
-      fillStyle: "solid",
-      strokeWidth: 1,
-      strokeStyle: "solid",
-      opacity: 100,
-      roughness: 1,
-      locked: false,
-    },
-  ],
+  elements: [rectangleV3("shape-1")],
   state: { name: "Test board", theme: "light" },
   assets: {},
 };
@@ -306,7 +288,9 @@ describe("owned whiteboard shell", () => {
     const { engine, spies } = createTestEngine();
     renderShell(engine);
 
-    fireEvent.click(screen.getByRole("button", { name: "Stroke: #1971c2" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Stroke: Blue (#1971c2)" }),
+    );
     expect(spies.updateElementStyle).toHaveBeenLastCalledWith({
       strokeColor: "#1971c2",
     });

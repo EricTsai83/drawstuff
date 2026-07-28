@@ -10,6 +10,7 @@ export const whiteboardDiagnosticSchema = z
         "CONFLICT",
         "INVALID_DOCUMENT",
         "LEGACY_SHARE_EXPIRED",
+        "MAINTENANCE",
         "MISSING_ASSET",
         "NETWORK",
         "PAYLOAD_TOO_LARGE",

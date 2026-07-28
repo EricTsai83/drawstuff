@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import type {
   OwnedWhiteboardDocument,
   WhiteboardEngine,
@@ -18,6 +18,7 @@ import {
   DEFAULT_OWNED_DRAWING_CAPABILITIES,
   type OwnedDrawingCapabilities,
 } from "./drawing";
+import { screenToDocument } from "./geometry";
 
 export interface OwnedWhiteboardCanvasProps {
   readonly document?:
@@ -74,6 +75,9 @@ export function OwnedWhiteboardCanvas({
   const editingEnabledRef = useRef(editingEnabled);
   const performanceSampleRef = useRef(onPerformanceSample);
   const lifecycleRef = useRef<OwnedCanvasLifecycle | null>(null);
+  const instructionsId = useId();
+  const [activeToolLabel, setActiveToolLabel] = useState("selection");
+  const [announcement, setAnnouncement] = useState("");
   documentRef.current = document;
   drawingCapabilitiesRef.current = {
     ...DEFAULT_OWNED_DRAWING_CAPABILITIES,
@@ -113,6 +117,8 @@ export function OwnedWhiteboardCanvas({
       setBindingHint: (
         element: Parameters<typeof renderer.setBindingHint>[0],
       ) => renderer.setBindingHint(element),
+      setSnapGuides: (guides: Parameters<typeof renderer.setSnapGuides>[0]) =>
+        renderer.setSnapGuides(guides),
       beginTextEditing: (
         point: Parameters<typeof textEditor.begin>[0],
         target: Parameters<typeof textEditor.begin>[1],
@@ -148,6 +154,17 @@ export function OwnedWhiteboardCanvas({
     };
     lifecycleRef.current = lifecycle;
     const resize = (): void => {
+      const previousViewport = store.getViewport();
+      const sceneCenter =
+        previousViewport.width > 0 && previousViewport.height > 0
+          ? screenToDocument(
+              {
+                x: previousViewport.offsetX + previousViewport.width / 2,
+                y: previousViewport.offsetY + previousViewport.height / 2,
+              },
+              previousViewport,
+            )
+          : null;
       const bounds = root.getBoundingClientRect();
       const pixelRatio =
         typeof window.devicePixelRatio === "number"
@@ -160,22 +177,40 @@ export function OwnedWhiteboardCanvas({
         bounds.top,
       );
       renderer.resize(bounds.width, bounds.height, pixelRatio);
+      if (sceneCenter && !lifecycle.fitOnResize) {
+        const viewport = store.getViewport();
+        store.updateViewport({
+          x: viewport.width / (2 * viewport.zoom) - sceneCenter.x,
+          y: viewport.height / (2 * viewport.zoom) - sceneCenter.y,
+        });
+      }
       if (lifecycle.fitOnResize && bounds.width > 0 && bounds.height > 0) {
         lifecycle.fitOnResize = false;
         store.fitToContent();
       }
     };
     const resizeObserver = new ResizeObserver(resize);
+    const unsubscribeEditor = store.subscribeEditorState((state) =>
+      setActiveToolLabel(state.activeTool.type),
+    );
+    const unsubscribeAnnouncements =
+      store.subscribeAccessibilityAnnouncements(setAnnouncement);
     let environmentReleased = false;
     const releaseEnvironment = (): void => {
       if (environmentReleased) return;
       environmentReleased = true;
       resizeObserver.disconnect();
       window.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("resize", resize);
+      window.visualViewport?.removeEventListener("scroll", resize);
+      unsubscribeEditor();
+      unsubscribeAnnouncements();
     };
     const unsubscribeDestroy = store.subscribeDestroy(releaseEnvironment);
     resizeObserver.observe(root);
     window.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("resize", resize);
+    window.visualViewport?.addEventListener("scroll", resize);
     resize();
     storeRef.current = store;
     applyDocument(lifecycle, documentRef.current, onDocumentReady);
@@ -220,11 +255,20 @@ export function OwnedWhiteboardCanvas({
     <div
       ref={rootRef}
       role="application"
-      aria-label={ariaLabel}
+      aria-describedby={instructionsId}
+      aria-label={`${ariaLabel}. Current tool: ${activeToolLabel}`}
       className={`relative h-full w-full overflow-hidden outline-none ${className ?? ""}`}
       style={{ touchAction: "none" }}
       tabIndex={0}
     >
+      <span className="sr-only" id={instructionsId}>
+        {editingEnabled
+          ? "Use the toolbar or keyboard shortcuts to choose a tool. Use arrow keys to move a selection, or to pan when nothing is selected. Use plus and minus to zoom."
+          : "Read-only canvas. Use arrow keys to pan and plus or minus to zoom."}
+      </span>
+      <span aria-atomic="true" aria-live="polite" className="sr-only">
+        {announcement}
+      </span>
       <canvas
         ref={sceneCanvasRef}
         aria-hidden="true"

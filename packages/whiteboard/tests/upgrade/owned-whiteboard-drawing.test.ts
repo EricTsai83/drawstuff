@@ -402,11 +402,15 @@ describe("owned drawing interactions", () => {
     const textarea = root.querySelector("textarea");
     expect(textarea).not.toBeNull();
     expect(store.getEditorState().interaction).toBe("text-editing");
-    expect(textarea?.style.left).toBe("100px");
-    expect(textarea?.style.top).toBe("100px");
-    expect(textarea?.style.transform).toBe("scale(2)");
+    expect(textarea?.style.left).toBe("0px");
+    expect(textarea?.style.top).toBe("0px");
+    expect(textarea?.style.transform).toBe(
+      "translate(100px, 100px) rotate(0rad) scale(2)",
+    );
     store.panBy(20, 0, true);
-    expect(textarea?.style.left).toBe("120px");
+    expect(textarea?.style.transform).toBe(
+      "translate(120px, 100px) rotate(0rad) scale(2)",
+    );
     textarea!.value = "first\n\nthird";
     textarea!.dispatchEvent(new FocusEvent("blur"));
     expect(store.getEditorState().interaction).toBe("idle");

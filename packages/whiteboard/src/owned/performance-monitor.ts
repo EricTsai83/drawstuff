@@ -8,10 +8,17 @@ export class OwnedPerformanceMonitor {
   private visibleElements = 0;
   private readonly frameTimes: number[] = [];
   private readonly inputLatencies: number[] = [];
+  private readonly pendingInputTimestamps: number[] = [];
   private lastFrameAt: number | null = null;
-  private lastInputAt: number | null = null;
   private longTaskCount = 0;
+  private maxLongTaskDuration = 0;
   private rasterCacheHitRate = 0;
+  private lastDiagnostics = {
+    insufficientFrameSamples: true,
+    frameSampleCount: 0,
+    inputSampleCount: 0,
+    maxLongTaskDuration: 0,
+  };
   private readonly observer: PerformanceObserver | null;
 
   public constructor(
@@ -22,9 +29,14 @@ export class OwnedPerformanceMonitor {
         ? null
         : new PerformanceObserver((list) => {
             if (!this.gesture) return;
-            this.longTaskCount += list
-              .getEntries()
-              .filter((entry) => entry.duration > 50).length;
+            for (const entry of list.getEntries()) {
+              if (entry.duration <= 50) continue;
+              this.longTaskCount += 1;
+              this.maxLongTaskDuration = Math.max(
+                this.maxLongTaskDuration,
+                entry.duration,
+              );
+            }
           });
     try {
       this.observer?.observe({ entryTypes: ["longtask"] });
@@ -41,15 +53,16 @@ export class OwnedPerformanceMonitor {
     this.visibleElements = 0;
     this.frameTimes.length = 0;
     this.inputLatencies.length = 0;
+    this.pendingInputTimestamps.length = 0;
     this.lastFrameAt = null;
-    this.lastInputAt = null;
     this.longTaskCount = 0;
+    this.maxLongTaskDuration = 0;
     this.rasterCacheHitRate = 0;
   }
 
   public recordInput(timestamp: number): void {
     if (!this.gesture || !Number.isFinite(timestamp)) return;
-    this.lastInputAt = timestamp;
+    this.pendingInputTimestamps.push(timestamp);
   }
 
   public recordFrame(
@@ -61,10 +74,12 @@ export class OwnedPerformanceMonitor {
     if (this.lastFrameAt !== null) {
       this.frameTimes.push(Math.max(0, timestamp - this.lastFrameAt));
     }
-    if (this.lastInputAt !== null && timestamp >= this.lastInputAt) {
-      this.inputLatencies.push(timestamp - this.lastInputAt);
-      this.lastInputAt = null;
+    for (const inputTimestamp of this.pendingInputTimestamps) {
+      if (timestamp >= inputTimestamp) {
+        this.inputLatencies.push(timestamp - inputTimestamp);
+      }
     }
+    this.pendingInputTimestamps.length = 0;
     this.visibleElements = visibleElements;
     this.rasterCacheHitRate = clampRate(rasterCacheHitRate);
     this.lastFrameAt = timestamp;
@@ -74,6 +89,13 @@ export class OwnedPerformanceMonitor {
     const gesture = this.gesture;
     if (!gesture) return;
     this.gesture = null;
+    this.lastDiagnostics = {
+      insufficientFrameSamples: this.frameTimes.length < 2,
+      frameSampleCount: this.frameTimes.length,
+      inputSampleCount: this.inputLatencies.length,
+      maxLongTaskDuration: this.maxLongTaskDuration,
+    };
+    if (this.frameTimes.length < 2) return;
     this.emit({
       gesture,
       totalElements: this.totalElements,
@@ -90,6 +112,15 @@ export class OwnedPerformanceMonitor {
   public destroy(): void {
     this.observer?.disconnect();
     this.gesture = null;
+  }
+
+  public getDiagnostics(): {
+    readonly insufficientFrameSamples: boolean;
+    readonly frameSampleCount: number;
+    readonly inputSampleCount: number;
+    readonly maxLongTaskDuration: number;
+  } {
+    return this.lastDiagnostics;
   }
 }
 

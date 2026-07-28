@@ -30,6 +30,7 @@ export enum WS_SUBTYPES {
 
 export const STORAGE_KEYS = {
   LOCAL_STORAGE_WHITEBOARD_DOCUMENT: "drawstuff-whiteboard-document",
+  LOCAL_STORAGE_WHITEBOARD_SESSION: "drawstuff-whiteboard-session-v1",
   LOCAL_STORAGE_THEME: "theme",
   LOCAL_STORAGE_LANGUAGE: "i18nextLng",
   // Stable browser-session identifiers. Renaming them detaches a current

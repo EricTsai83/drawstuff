@@ -109,17 +109,42 @@ export function exportOwnedWhiteboardSvg(
       ? document.state.viewBackgroundColor
       : "#ffffff";
   const roughGenerator = rough.generator();
+  const frameClipIds = new Map(
+    document.elements
+      .filter(
+        (element) => element.type === "frame" && isElementVisible(element),
+      )
+      .map((frame, index) => [frame.id, `frame-clip-${index}`]),
+  );
+  const elementsById = new Map(
+    document.elements.map((element) => [element.id, element]),
+  );
+  const clipDefinitions = [...frameClipIds].map(([frameId, clipId]) => {
+    const frame = elementsById.get(frameId);
+    return frame ? serializeFrameClip(frame, clipId, offsetX, offsetY) : "";
+  });
   const body = elements
-    .map((element) =>
-      serializeElement(
+    .map((element) => {
+      let serialized = serializeElement(
         element,
         safeDocument,
         offsetX,
         offsetY,
         exportWithDarkMode,
         roughGenerator,
-      ),
-    )
+      );
+      const visited = new Set<string>();
+      let frameId = element.frameId;
+      while (frameId && !visited.has(frameId)) {
+        visited.add(frameId);
+        const clipId = frameClipIds.get(frameId);
+        if (clipId) {
+          serialized = `<g clip-path="url(#${clipId})">${serialized}</g>`;
+        }
+        frameId = elementsById.get(frameId)?.frameId ?? null;
+      }
+      return serialized;
+    })
     .join("");
 
   return [
@@ -127,11 +152,36 @@ export function exportOwnedWhiteboardSvg(
     ` width="${formatNumber(width)}" height="${formatNumber(height)}"`,
     ` viewBox="0 0 ${formatNumber(width)} ${formatNumber(height)}"`,
     ' role="img">',
+    clipDefinitions.length > 0
+      ? `<defs>${clipDefinitions.join("")}</defs>`
+      : "",
     options.background === false
       ? ""
       : `<rect width="100%" height="100%" fill="${escapeAttribute(applyOwnedDarkModeFilter(background, exportWithDarkMode))}"/>`,
     body,
     "</svg>",
+  ].join("");
+}
+
+function serializeFrameClip(
+  frame: WhiteboardElement,
+  clipId: string,
+  offsetX: number,
+  offsetY: number,
+): string {
+  const geometry = getElementGeometry(frame);
+  if (!geometry) return "";
+  const centerX = geometry.x + geometry.width / 2 + offsetX;
+  const centerY = geometry.y + geometry.height / 2 + offsetY;
+  const rotation = (geometry.angle * 180) / Math.PI;
+  return [
+    `<clipPath id="${clipId}" clipPathUnits="userSpaceOnUse">`,
+    `<rect x="${formatNumber(geometry.x + offsetX)}"`,
+    ` y="${formatNumber(geometry.y + offsetY)}"`,
+    ` width="${formatNumber(geometry.width)}"`,
+    ` height="${formatNumber(geometry.height)}"`,
+    ` transform="rotate(${formatNumber(rotation)} ${formatNumber(centerX)} ${formatNumber(centerY)})"/>`,
+    "</clipPath>",
   ].join("");
 }
 

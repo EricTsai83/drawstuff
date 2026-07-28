@@ -135,6 +135,12 @@ export class OwnedRasterCache {
     this.variants.delete(element);
   }
 
+  public retain(elements: ReadonlySet<object>): void {
+    for (const entry of [...this.lru.values()]) {
+      if (!elements.has(entry.element)) this.remove(entry);
+    }
+  }
+
   public clear(): void {
     for (const entry of this.lru.values()) releaseCanvas(entry.source);
     this.lru.clear();

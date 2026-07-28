@@ -24,6 +24,10 @@ import {
 } from "@/server/scene/save-owned-scene";
 import type { WHITEBOARD_DOCUMENT_VERSION } from "@drawstuff/whiteboard";
 import { validateOpaqueEncryptedWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
+import {
+  areWhiteboardWritesPaused,
+  WHITEBOARD_MAINTENANCE_MESSAGE,
+} from "@/server/whiteboard/maintenance";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -35,6 +39,12 @@ export async function handleSceneSave(
   compressedSceneData: Uint8Array,
   documentVersion: typeof WHITEBOARD_DOCUMENT_VERSION,
 ): Promise<HandleSceneSaveResult> {
+  if (areWhiteboardWritesPaused()) {
+    return {
+      sharedSceneId: null,
+      errorMessage: WHITEBOARD_MAINTENANCE_MESSAGE,
+    };
+  }
   const session = await getServerSession();
 
   if (!session) {
@@ -284,6 +294,13 @@ export type SaveSceneResult =
 export async function createSceneDraftAction(
   raw: unknown,
 ): Promise<CreateSceneDraftResult> {
+  if (areWhiteboardWritesPaused()) {
+    return {
+      ok: false,
+      error: APP_ERROR.WHITEBOARD_MAINTENANCE,
+      message: WHITEBOARD_MAINTENANCE_MESSAGE,
+    };
+  }
   const session = await getServerSession();
   if (!session)
     return {
@@ -332,6 +349,13 @@ export async function createSceneDraftAction(
 }
 
 export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
+  if (areWhiteboardWritesPaused()) {
+    return {
+      ok: false,
+      error: APP_ERROR.WHITEBOARD_MAINTENANCE,
+      message: WHITEBOARD_MAINTENANCE_MESSAGE,
+    };
+  }
   const session = await getServerSession();
   if (!session)
     return {

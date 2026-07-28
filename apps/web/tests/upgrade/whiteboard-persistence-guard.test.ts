@@ -20,28 +20,16 @@ import { validateStoredWhiteboardWrite } from "@/server/whiteboard/persistence-g
 import { validateOpaqueEncryptedWhiteboardWrite } from "@/server/whiteboard/persistence-guard";
 import { SCENE_DATA_MAX_LENGTH } from "@/lib/schemas/scene";
 import { scene, sharedScene } from "@/server/db/schema";
+import { imageV3 } from "../whiteboard-fixtures";
 
 const ownedDocument: OwnedWhiteboardDocument = {
   elements: [
-    {
-      id: "owned-image",
-      type: "image",
-      isDeleted: false,
-      fileId: "owned-file",
-      x: 0,
-      y: 0,
+    imageV3("owned-image", "owned-file", {
       width: 100,
       height: 100,
-      angle: 0,
       strokeColor: "transparent",
-      backgroundColor: "transparent",
-      fillStyle: "solid",
-      strokeWidth: 1,
-      strokeStyle: "solid",
-      opacity: 100,
       roughness: 0,
-      locked: false,
-    },
+    }),
   ],
   state: { name: "Owned", theme: "light" },
   assets: {

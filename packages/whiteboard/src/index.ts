@@ -1,6 +1,7 @@
 export type {
   WhiteboardAsset,
   WhiteboardAssetV3,
+  WhiteboardRuntimeAssetV3,
   WhiteboardBindingV3,
   OwnedWhiteboardDocument,
   WhiteboardDocumentMetadataV3,
@@ -54,4 +55,9 @@ export {
   whiteboardDiagnosticSchema,
   type WhiteboardDiagnostic,
 } from "./diagnostics";
+export {
+  createWhiteboardSessionStateV1,
+  parseWhiteboardSessionStateV1,
+  serializeWhiteboardSessionStateV1,
+} from "./session-state";
 export * from "./owned";

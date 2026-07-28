@@ -9,6 +9,10 @@ import {
   type WhiteboardDocumentV3,
   type WhiteboardAsset,
   type WhiteboardElement,
+  type WhiteboardSessionStateV1,
+  createWhiteboardSessionStateV1,
+  parseWhiteboardSessionStateV1,
+  serializeWhiteboardSessionStateV1,
 } from "@drawstuff/whiteboard";
 
 const WHITEBOARD_V3_RESET_NOTICE_KEY = "drawstuff:whiteboard-v3-reset-notice";
@@ -71,6 +75,34 @@ export function consumeWhiteboardV3ResetNotice(): boolean {
     localStorage.getItem(WHITEBOARD_V3_RESET_NOTICE_KEY) === "1";
   if (shouldNotify) localStorage.removeItem(WHITEBOARD_V3_RESET_NOTICE_KEY);
   return shouldNotify;
+}
+
+export function loadWhiteboardSessionState(): WhiteboardSessionStateV1 {
+  if (!canUseLocalStorage()) return createWhiteboardSessionStateV1();
+  const key = STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_SESSION;
+  const source = localStorage.getItem(key);
+  if (source === null) return createWhiteboardSessionStateV1();
+  try {
+    return parseWhiteboardSessionStateV1(source);
+  } catch {
+    localStorage.removeItem(key);
+    return createWhiteboardSessionStateV1();
+  }
+}
+
+export function saveWhiteboardSessionState(
+  state: WhiteboardSessionStateV1,
+): boolean {
+  if (!canUseLocalStorage()) return false;
+  try {
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_SESSION,
+      serializeWhiteboardSessionStateV1(state),
+    );
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** Writes the active canonical V3 document. */

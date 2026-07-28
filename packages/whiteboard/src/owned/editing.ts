@@ -57,13 +57,18 @@ export function resizeElements(
     const y = finiteNumber(element.y, safeSource.minY);
     const width = Math.max(0, finiteNumber(element.width, 0));
     const height = Math.max(0, finiteNumber(element.height, 0));
-    const points = ("points" in element ? element.points : undefined)?.map(
-      ([pointX, pointY]) =>
-        [
-          finiteNumber(pointX, 0) * scaleX,
-          finiteNumber(pointY, 0) * scaleY,
-        ] as const,
-    );
+    const points =
+      element.type === "arrow" ||
+      element.type === "freedraw" ||
+      element.type === "line"
+        ? element.points.map(
+            ([pointX, pointY]) =>
+              [
+                finiteNumber(pointX, 0) * scaleX,
+                finiteNumber(pointY, 0) * scaleY,
+              ] as const,
+          )
+        : undefined;
     const fontSize =
       element.type === "text"
         ? Math.max(
@@ -122,13 +127,18 @@ export function resizeElementsUniformly(
       x: anchor.x + (center.x - anchor.x) * scale,
       y: anchor.y + (center.y - anchor.y) * scale,
     };
-    const points = ("points" in element ? element.points : undefined)?.map(
-      ([pointX, pointY]) =>
-        [
-          finiteNumber(pointX, 0) * scale,
-          finiteNumber(pointY, 0) * scale,
-        ] as const,
-    );
+    const points =
+      element.type === "arrow" ||
+      element.type === "freedraw" ||
+      element.type === "line"
+        ? element.points.map(
+            ([pointX, pointY]) =>
+              [
+                finiteNumber(pointX, 0) * scale,
+                finiteNumber(pointY, 0) * scale,
+              ] as const,
+          )
+        : undefined;
     const fontSize =
       element.type === "text"
         ? Math.max(
@@ -182,6 +192,7 @@ export function getResizedBounds(
   handle: OwnedResizeHandle,
   pointer: WhiteboardPoint,
   preserveAspectRatio: boolean,
+  resizeFromCenter = false,
 ): WhiteboardBounds {
   const safeSource = finiteBounds(source);
   const safePointer = {
@@ -196,6 +207,14 @@ export function getResizedBounds(
   if (handle.includes("e")) maxX = Math.max(safePointer.x, minX + 1);
   if (handle.includes("n")) minY = Math.min(safePointer.y, maxY - 1);
   if (handle.includes("s")) maxY = Math.max(safePointer.y, minY + 1);
+  if (resizeFromCenter) {
+    const centerX = (safeSource.minX + safeSource.maxX) / 2;
+    const centerY = (safeSource.minY + safeSource.maxY) / 2;
+    if (handle.includes("w")) maxX = centerX + (centerX - minX);
+    if (handle.includes("e")) minX = centerX - (maxX - centerX);
+    if (handle.includes("n")) maxY = centerY + (centerY - minY);
+    if (handle.includes("s")) minY = centerY - (maxY - centerY);
+  }
   if (!preserveAspectRatio) return { minX, minY, maxX, maxY };
 
   const sourceWidth = safeSource.maxX - safeSource.minX;

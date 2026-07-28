@@ -1,18 +1,19 @@
 import type {
   WhiteboardAsset,
-  WhiteboardAssetMimeTypeV2,
-  WhiteboardAssetV2,
-  OwnedWhiteboardDocument,
-  WhiteboardDocumentMetadataV2,
-  WhiteboardDocumentV2,
-  WhiteboardElement,
   WhiteboardElementType,
-  WhiteboardElementV2,
   WhiteboardEdgeStyle,
   WhiteboardFillStyle,
   WhiteboardStrokeStyle,
   WhiteboardTheme,
 } from "./contracts";
+import type {
+  WhiteboardAssetMimeTypeV2,
+  WhiteboardAssetV2,
+  WhiteboardDocumentMetadataV2,
+  WhiteboardDocumentV2,
+  WhiteboardElementV2,
+  WhiteboardRuntimeDocumentV2,
+} from "./migration-v2-contracts";
 import { WhiteboardDocumentError } from "./document-errors";
 
 export const WHITEBOARD_DOCUMENT_VERSION = 2 as const;
@@ -190,7 +191,7 @@ export function serializeWhiteboardDocumentV2(
 }
 
 export function createPersistedWhiteboardDocumentV2(
-  document: OwnedWhiteboardDocument,
+  document: WhiteboardRuntimeDocumentV2,
   options?: {
     readonly assetStorage?: "external" | "inline";
   },
@@ -248,7 +249,7 @@ export function externalizeWhiteboardDocumentAssetsV2(
 
 export function toRuntimeWhiteboardDocumentV2(
   document: WhiteboardDocumentV2,
-): OwnedWhiteboardDocument {
+): WhiteboardRuntimeDocumentV2 {
   const parsed = parseWhiteboardDocumentV2(document);
   return {
     elements: parsed.elements,
@@ -487,7 +488,7 @@ function parseMetadata(value: unknown): WhiteboardDocumentMetadataV2 {
 }
 
 function normalizeRuntimeElement(
-  element: WhiteboardElement,
+  element: WhiteboardElementV2,
   index: number,
 ): WhiteboardElementV2 {
   const path = `$.elements[${index}]`;
@@ -628,7 +629,7 @@ function createPersistedAsset(
 }
 
 function metadataFromRuntime(
-  document: OwnedWhiteboardDocument,
+  document: WhiteboardRuntimeDocumentV2,
 ): WhiteboardDocumentMetadataV2 {
   return {
     name: typeof document.state.name === "string" ? document.state.name : "",

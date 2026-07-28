@@ -33,6 +33,7 @@ import { decompressData } from "@/lib/encode";
 import { parseWhiteboardDocumentV3 } from "@drawstuff/whiteboard";
 import { createPublicWhiteboardPayload } from "@/server/whiteboard/published-payload";
 import { MAX_DECOMPRESSED_SCENE_BYTES } from "@/server/whiteboard/persistence-guard";
+import { assertWhiteboardWritesEnabled } from "@/server/whiteboard/maintenance";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -93,6 +94,7 @@ export const sceneRouter = createTRPCRouter({
   saveScene: protectedProcedure
     .input(saveSceneSchema)
     .mutation(async ({ ctx, input }) => {
+      assertWhiteboardWritesEnabled();
       const saveResult: SaveOwnedSceneResult = await saveOwnedScene({
         userId: ctx.auth.user.id,
         input,
@@ -511,6 +513,7 @@ export const sceneRouter = createTRPCRouter({
     .input(z.object({ id: z.uuid() }))
     .output(publishMutationOutput)
     .mutation(async ({ ctx, input }) => {
+      assertWhiteboardWritesEnabled();
       const ownedScene = await ctx.db.query.scene.findFirst({
         where: and(
           eq(scene.id, input.id),
@@ -590,6 +593,7 @@ export const sceneRouter = createTRPCRouter({
   unpublish: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
+      assertWhiteboardWritesEnabled();
       const [updated] = await ctx.db
         .update(scene)
         .set({

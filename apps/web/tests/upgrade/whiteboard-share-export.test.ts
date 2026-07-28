@@ -28,6 +28,7 @@ vi.mock("@/lib/base-url", () => ({
 }));
 
 import { useSceneExport } from "@/hooks/use-scene-export";
+import { imageV3, rectangleV3 } from "../whiteboard-fixtures";
 
 describe("shared scene export", () => {
   beforeEach(() => {
@@ -42,25 +43,13 @@ describe("shared scene export", () => {
     await act(async () => {
       link = await hook.result.current.exportScene(
         [
-          {
-            id: "deleted-image",
-            type: "image",
+          imageV3("deleted-image", "private-asset", {
             isDeleted: true,
-            fileId: "private-asset",
-            x: 0,
-            y: 0,
             width: 100,
             height: 100,
-            angle: 0,
             strokeColor: "transparent",
-            backgroundColor: "transparent",
-            fillStyle: "solid",
-            strokeWidth: 1,
-            strokeStyle: "solid",
-            opacity: 100,
             roughness: 0,
-            locked: false,
-          },
+          }),
         ],
         { name: "Deleted scene", theme: "light" },
         {
@@ -100,26 +89,7 @@ describe("shared scene export", () => {
 
     await act(async () => {
       await hook.result.current.exportScene(
-        [
-          {
-            id: "shape",
-            type: "rectangle",
-            isDeleted: false,
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 50,
-            angle: 0,
-            strokeColor: "#1e1e1e",
-            backgroundColor: "transparent",
-            fillStyle: "solid",
-            strokeWidth: 1,
-            strokeStyle: "solid",
-            opacity: 100,
-            roughness: 1,
-            locked: false,
-          },
-        ],
+        [rectangleV3("shape")],
         { name: "V2", theme: "light" },
         {},
       );

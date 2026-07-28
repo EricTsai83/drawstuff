@@ -3,6 +3,7 @@ import type {
   OwnedWhiteboardDocument,
   WhiteboardElement,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 import {
   normalizePointerEvent,
   OwnedWhiteboardInput,
@@ -186,6 +187,133 @@ describe("owned whiteboard pointer input", () => {
 
     expect(listener).toHaveBeenCalledOnce();
     expect(store.getViewport()).toMatchObject({ x: 25, y: 15 });
+    input.destroy();
+  });
+
+  it("cancels a single-touch draft and commits one anchored pinch viewport", () => {
+    const { target, store, input } = setup([]);
+    store.setActiveTool({ type: "rectangle" });
+    const documentListener = vi.fn();
+    const editorListener = vi.fn();
+    store.subscribeDocument(documentListener);
+    store.subscribeEditorState(editorListener);
+
+    target.dispatchEvent(
+      pointerEvent("pointerdown", {
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        clientX: 100,
+        clientY: 100,
+      }),
+    );
+    target.dispatchEvent(
+      pointerEvent("pointerdown", {
+        pointerId: 2,
+        pointerType: "touch",
+        isPrimary: false,
+        clientX: 200,
+        clientY: 100,
+      }),
+    );
+    expect(store.getEditorState().interaction).toBe("pinching");
+    editorListener.mockClear();
+
+    target.dispatchEvent(
+      pointerEvent("pointermove", {
+        pointerId: 2,
+        pointerType: "touch",
+        isPrimary: false,
+        clientX: 300,
+        clientY: 100,
+      }),
+    );
+
+    expect(store.getViewport()).toMatchObject({ x: -50, y: -50, zoom: 2 });
+    expect(editorListener).not.toHaveBeenCalled();
+    expect(documentListener).not.toHaveBeenCalled();
+
+    target.dispatchEvent(
+      pointerEvent("pointerup", {
+        pointerId: 2,
+        pointerType: "touch",
+        isPrimary: false,
+        clientX: 300,
+        clientY: 100,
+      }),
+    );
+    expect(editorListener).not.toHaveBeenCalled();
+    target.dispatchEvent(
+      pointerEvent("pointerup", {
+        pointerId: 1,
+        pointerType: "touch",
+        isPrimary: true,
+        clientX: 100,
+        clientY: 100,
+      }),
+    );
+
+    expect(editorListener).toHaveBeenCalledOnce();
+    expect(store.getEditorState().interaction).toBe("idle");
+    expect(store.getHistoryDiagnostics().undoEntries).toBe(0);
+    expect(store.getDocument().elements).toEqual([]);
+    input.destroy();
+  });
+
+  it("commits Alt-drag duplicates as one history and document event", () => {
+    const ids = ["duplicate"];
+    const { target, store, input } = setup(
+      [rectangle("shape", 0, 0, 40, 40)],
+      () => ids.shift() ?? "fallback",
+    );
+    click(target, 10, 10);
+    const documentListener = vi.fn();
+    store.subscribeDocument(documentListener);
+
+    drag(target, { x: 10, y: 10 }, { x: 70, y: 50 }, { altKey: true });
+
+    expect(store.getDocument().elements).toHaveLength(2);
+    expect(store.getDocument().elements[1]).toMatchObject({
+      id: "duplicate",
+      x: 60,
+      y: 40,
+    });
+    expect(store.getEditorState().selectedElementIds).toEqual(["duplicate"]);
+    expect(documentListener).toHaveBeenCalledOnce();
+    expect(store.getHistoryDiagnostics().undoKinds).toEqual(["duplicate"]);
+    input.destroy();
+  });
+
+  it("drops an Alt-drag duplicate on pointercancel", () => {
+    const { target, store, input } = setup(
+      [rectangle("shape", 0, 0, 40, 40)],
+      () => "duplicate",
+    );
+    click(target, 10, 10);
+    target.dispatchEvent(
+      pointerEvent("pointerdown", {
+        clientX: 10,
+        clientY: 10,
+        altKey: true,
+      }),
+    );
+    target.dispatchEvent(
+      pointerEvent("pointermove", {
+        clientX: 70,
+        clientY: 50,
+        altKey: true,
+      }),
+    );
+    target.dispatchEvent(
+      pointerEvent("pointercancel", {
+        clientX: 70,
+        clientY: 50,
+        altKey: true,
+      }),
+    );
+
+    expect(store.getDocument().elements).toHaveLength(1);
+    expect(store.getHistoryDiagnostics().undoEntries).toBe(0);
     input.destroy();
   });
 
@@ -984,7 +1112,7 @@ function rectangle(
   height: number,
   update: Readonly<Record<string, unknown>> = {},
 ): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id,
     type: "rectangle",
     isDeleted: false,
@@ -1002,7 +1130,7 @@ function rectangle(
     roughness: 1,
     locked: false,
     ...update,
-  };
+  });
 }
 
 function groupedRectangle(

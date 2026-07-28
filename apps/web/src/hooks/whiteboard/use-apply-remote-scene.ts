@@ -12,6 +12,8 @@ import type {
   WhiteboardDocumentState,
   WhiteboardEngine,
 } from "@drawstuff/whiteboard";
+import { restoreWhiteboardSceneViewport } from "./use-whiteboard-session-state";
+import { loadWhiteboardSessionState } from "@/data/local-storage";
 
 type ApplyRemoteSceneParams = {
   sceneId: string;
@@ -100,6 +102,7 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
           state: mergedAppState,
           assets: hydratedFiles,
         });
+        restoreWhiteboardSceneViewport(engine, sceneId);
 
         // 4. Center viewport before file injection so the user sees content ASAP
         const hasViewportFromImported = Boolean(
@@ -108,7 +111,11 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
           typeof imported.document.state.zoom === "object",
         );
 
-        if (shouldCenter && !hasViewportFromImported) {
+        if (
+          shouldCenter &&
+          !hasViewportFromImported &&
+          !loadWhiteboardSessionViewportExists(sceneId)
+        ) {
           cancelCenteringRef.current = queueCenterToContent(engine);
         }
 
@@ -148,6 +155,14 @@ export function useApplyRemoteScene(engine: WhiteboardEngine | null) {
   );
 
   return { applyRemoteScene } as const;
+}
+
+function loadWhiteboardSessionViewportExists(sceneId: string): boolean {
+  try {
+    return Boolean(loadWhiteboardSessionState().sceneViewports[sceneId]);
+  } catch {
+    return false;
+  }
 }
 
 function queueCenterToContent(engine: WhiteboardEngine): () => void {

@@ -8,6 +8,7 @@ import {
   parseWhiteboardDocumentV3,
   toRuntimeWhiteboardDocumentV3,
 } from "../v3-document";
+import { createOwnedElementRuntimeFields } from "./element-version";
 
 export const OWNED_CLIPBOARD_MIME = "application/x-drawstuff-whiteboard+json";
 export const OWNED_CLIPBOARD_VERSION = 1 as const;
@@ -146,21 +147,100 @@ export function remapOwnedClipboardPayload(
       uniqueId(createId, reservedIds, "element"),
     ]),
   );
-  const elements: WhiteboardElement[] = payload.elements.map((element) => {
-    const id = elementIdMap.get(element.id)!;
-    const fileId =
-      element.type === "image" && typeof element.fileId === "string"
-        ? (assetIdMap.get(element.fileId) ?? null)
-        : null;
-    const moved = {
-      ...element,
-      id,
-      x: finiteNumber(element.x, 0) + offset,
-      y: finiteNumber(element.y, 0) + offset,
-    };
-    return element.type === "image" ? { ...moved, fileId } : moved;
-  });
+  const groupIdMap = new Map<string, string>();
+  for (const groupId of new Set(
+    payload.elements.flatMap((element) => element.groupIds),
+  )) {
+    groupIdMap.set(groupId, uniqueId(createId, reservedIds, "group"));
+  }
+  const elements: WhiteboardElement[] = payload.elements.map(
+    (element, position) => {
+      const id = elementIdMap.get(element.id)!;
+      const fileId =
+        element.type === "image" && typeof element.fileId === "string"
+          ? (assetIdMap.get(element.fileId) ?? null)
+          : null;
+      const moved = {
+        ...createOwnedElementRuntimeFields(
+          id,
+          existingElementIds.size + position,
+        ),
+        id,
+        x: finiteNumber(element.x, 0) + offset,
+        y: finiteNumber(element.y, 0) + offset,
+        groupIds: element.groupIds.map(
+          (groupId) => groupIdMap.get(groupId) ?? groupId,
+        ),
+        frameId: remapElementReference(
+          element.frameId,
+          elementIdMap,
+          existingElementIds,
+        ),
+      };
+      if (element.type === "image") {
+        return { ...element, ...moved, type: "image", fileId };
+      }
+      if (element.type === "text") {
+        return {
+          ...element,
+          ...moved,
+          type: "text",
+          containerId: remapElementReference(
+            element.containerId,
+            elementIdMap,
+            existingElementIds,
+          ),
+        };
+      }
+      if (element.type === "arrow" || element.type === "line") {
+        return {
+          ...element,
+          ...moved,
+          type: element.type,
+          startBinding: remapBinding(
+            element.startBinding,
+            elementIdMap,
+            existingElementIds,
+          ),
+          endBinding: remapBinding(
+            element.endBinding,
+            elementIdMap,
+            existingElementIds,
+          ),
+        };
+      }
+      return { ...element, ...moved };
+    },
+  );
   return { elements, assets };
+}
+
+function remapBinding(
+  binding:
+    | Extract<WhiteboardElement, { type: "arrow" | "line" }>["startBinding"]
+    | null,
+  elementIdMap: ReadonlyMap<string, string>,
+  existingElementIds: ReadonlySet<string>,
+) {
+  if (!binding) return null;
+  const elementId = remapElementReference(
+    binding.elementId,
+    elementIdMap,
+    existingElementIds,
+  );
+  return elementId ? { ...binding, elementId } : null;
+}
+
+function remapElementReference(
+  reference: string | null,
+  elementIdMap: ReadonlyMap<string, string>,
+  existingElementIds: ReadonlySet<string>,
+): string | null {
+  if (!reference) return null;
+  return (
+    elementIdMap.get(reference) ??
+    (existingElementIds.has(reference) ? reference : null)
+  );
 }
 
 function uniqueId(

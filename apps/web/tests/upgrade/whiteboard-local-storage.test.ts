@@ -5,28 +5,24 @@ import {
   importFromLocalStorage,
   saveOwnedWhiteboardDocumentToLocalStorage,
 } from "@/data/local-storage";
+import {
+  loadWhiteboardSessionState,
+  saveWhiteboardSessionState,
+} from "@/data/local-storage";
+import { createWhiteboardSessionStateV1 } from "@drawstuff/whiteboard";
 import type { OwnedWhiteboardDocument } from "@drawstuff/whiteboard";
+import { STORAGE_KEYS } from "@/config/app-constants";
+import { rectangleV3 } from "../whiteboard-fixtures";
 
 const document: OwnedWhiteboardDocument = {
   elements: [
-    {
-      id: "local-shape",
-      type: "rectangle",
-      isDeleted: false,
+    rectangleV3("local-shape", {
       x: 1,
       y: 2,
       width: 30,
       height: 40,
-      angle: 0,
       strokeColor: "#111111",
-      backgroundColor: "transparent",
-      fillStyle: "solid",
-      strokeWidth: 1,
-      strokeStyle: "solid",
-      opacity: 100,
-      roughness: 1,
-      locked: false,
-    },
+    }),
   ],
   assets: {},
   state: {
@@ -38,6 +34,38 @@ const document: OwnedWhiteboardDocument = {
 };
 
 describe("canonical local whiteboard storage", () => {
+  it("resets only the corrupt session key", () => {
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT,
+      "document-stays",
+    );
+    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_THEME, "dark");
+    localStorage.setItem(
+      STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_SESSION,
+      "{broken",
+    );
+
+    expect(loadWhiteboardSessionState()).toEqual(
+      createWhiteboardSessionStateV1(),
+    );
+    expect(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_SESSION),
+    ).toBeNull();
+    expect(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_WHITEBOARD_DOCUMENT),
+    ).toBe("document-stays");
+    expect(localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_THEME)).toBe("dark");
+  });
+
+  it("persists the independent session payload", () => {
+    const session = createWhiteboardSessionStateV1({
+      activeTool: "arrow",
+      openPanel: "properties",
+    });
+    expect(saveWhiteboardSessionState(session)).toBe(true);
+    expect(loadWhiteboardSessionState()).toEqual(session);
+  });
+
   beforeEach(() => {
     localStorage.clear();
   });

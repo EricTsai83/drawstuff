@@ -11,6 +11,7 @@ import {
   resolveWhiteboardAssets,
   WhiteboardAssetError,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 
 describe("owned whiteboard assets", () => {
   it("validates image headers, records metadata, and deduplicates exact content", async () => {
@@ -217,7 +218,7 @@ function asset(id: string, payload: string): WhiteboardAsset {
 }
 
 function image(id: string, fileId: string): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id,
     type: "image",
     isDeleted: false,
@@ -235,5 +236,5 @@ function image(id: string, fileId: string): WhiteboardElement {
     opacity: 100,
     roughness: 0,
     locked: false,
-  };
+  });
 }

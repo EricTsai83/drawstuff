@@ -86,28 +86,10 @@ vi.mock("@drawstuff/whiteboard", async () => {
 });
 
 import { PublishedSceneViewer } from "@/components/whiteboard/published-scene-viewer";
+import { rectangleV3 } from "../whiteboard-fixtures";
 
 const DOCUMENT: OwnedWhiteboardDocument = {
-  elements: [
-    {
-      id: "published-shape",
-      type: "rectangle",
-      isDeleted: false,
-      x: 0,
-      y: 0,
-      width: 100,
-      height: 50,
-      angle: 0,
-      strokeColor: "#1e1e1e",
-      backgroundColor: "transparent",
-      fillStyle: "solid",
-      strokeWidth: 1,
-      strokeStyle: "solid",
-      opacity: 100,
-      roughness: 1,
-      locked: false,
-    },
-  ],
+  elements: [rectangleV3("published-shape")],
   assets: {},
   state: {
     name: "Published",

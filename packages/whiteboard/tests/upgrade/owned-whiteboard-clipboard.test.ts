@@ -12,6 +12,7 @@ import {
   remapOwnedClipboardPayload,
   serializeOwnedClipboardPayload,
 } from "@drawstuff/whiteboard";
+import { createTestElementV3 } from "../helpers";
 
 describe("owned whiteboard clipboard", () => {
   it("round-trips the versioned payload and rejects malformed or unsupported data", () => {
@@ -111,6 +112,82 @@ describe("owned whiteboard clipboard", () => {
     expect(store.getDocument().elements).toHaveLength(1);
     expect(store.getEditorState().selectedElementIds).toEqual([]);
   });
+
+  it("copies and duplicates a container together with its bound text", () => {
+    const store = new OwnedWhiteboardStore();
+    store.loadDocument(
+      document([
+        createTestElementV3({ id: "container", type: "rectangle" }),
+        createTestElementV3({
+          id: "label",
+          type: "text",
+          text: "Bound label",
+          originalText: "Bound label",
+          containerId: "container",
+        }),
+      ]),
+    );
+    store.setSelection(["container"]);
+
+    const payload = store.createClipboardPayload();
+    expect(payload?.elements.map(({ id }) => id)).toEqual([
+      "container",
+      "label",
+    ]);
+
+    let nextId = 0;
+    store.duplicateSelection(() => `duplicate-${++nextId}`, 20);
+    const duplicate = store
+      .getDocument()
+      .elements.find((element) => element.id === "duplicate-1");
+    const duplicateText = store
+      .getDocument()
+      .elements.find((element) => element.id === "duplicate-2");
+    expect(duplicate).toMatchObject({ type: "rectangle", x: 20 });
+    expect(duplicateText).toMatchObject({
+      type: "text",
+      text: "Bound label",
+      containerId: "duplicate-1",
+      x: 20,
+    });
+  });
+
+  it("preserves available external bindings and clears unavailable targets", () => {
+    const arrow = createTestElementV3({
+      id: "arrow",
+      type: "arrow",
+      startBinding: {
+        elementId: "external-target",
+        focus: 0,
+        gap: 0,
+      },
+    });
+    const payload = {
+      version: 1,
+      elements: [arrow],
+      assets: {},
+    } as const;
+
+    const sameDocument = remapOwnedClipboardPayload(
+      payload,
+      new Set(["external-target"]),
+      new Set(),
+      () => "arrow-copy",
+      0,
+    );
+    expect(sameDocument.elements[0]).toMatchObject({
+      startBinding: { elementId: "external-target" },
+    });
+
+    const otherDocument = remapOwnedClipboardPayload(
+      payload,
+      new Set(),
+      new Set(),
+      () => "arrow-copy",
+      0,
+    );
+    expect(otherDocument.elements[0]).toMatchObject({ startBinding: null });
+  });
 });
 
 const asset: WhiteboardAsset = {
@@ -121,7 +198,7 @@ const asset: WhiteboardAsset = {
 };
 
 function image(id: string, fileId: string): WhiteboardElement {
-  return {
+  return createTestElementV3({
     id,
     type: "image",
     isDeleted: false,
@@ -139,7 +216,7 @@ function image(id: string, fileId: string): WhiteboardElement {
     opacity: 100,
     roughness: 0,
     locked: false,
-  };
+  });
 }
 
 function document(
