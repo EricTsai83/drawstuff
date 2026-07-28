@@ -8,18 +8,29 @@ import { compressData } from "./encode";
 import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
 import { extractImageFiles, processFilesForUpload } from "./file-processor";
 import {
-  createDrawstuffDocumentV4,
+  createOwnedSceneDocumentV4,
+  createReadonlyShareDocumentV4,
   serializeDrawstuffDocumentV4,
 } from "@/lib/excalidraw-document-v4";
+import type { ExcalidrawStorageProfile } from "@/lib/excalidraw-persistence-contract";
+
+type BackendSceneStorageProfile = Extract<
+  ExcalidrawStorageProfile,
+  "owned-scene" | "readonly-share"
+>;
 
 // 準備場景數據用於導出
 export async function prepareSceneDataForExport(
   elements: readonly ExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
-  options?: { encrypt?: boolean },
+  options?: {
+    encrypt?: boolean;
+    profile?: BackendSceneStorageProfile;
+  },
 ) {
   const shouldEncrypt = options?.encrypt ?? true;
+  const profile = options?.profile ?? "owned-scene";
 
   const encryptionKey = shouldEncrypt
     ? await generateEncryptionKey("string")
@@ -27,7 +38,9 @@ export async function prepareSceneDataForExport(
 
   // 場景資料：壓縮，視需要加密
   const compressedSceneData = await compressData(
-    new TextEncoder().encode(serializeSceneData(elements, appState, files)),
+    new TextEncoder().encode(
+      serializeSceneData(elements, appState, files, profile),
+    ),
     { encryptionKey },
   );
 
@@ -55,9 +68,14 @@ export function serializeSceneData(
   elements: readonly ExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles = {},
+  profile: BackendSceneStorageProfile = "owned-scene",
 ): string {
+  const createDocument =
+    profile === "readonly-share"
+      ? createReadonlyShareDocumentV4
+      : createOwnedSceneDocumentV4;
   return serializeDrawstuffDocumentV4(
-    createDrawstuffDocumentV4({
+    createDocument({
       elements,
       appState,
       files,

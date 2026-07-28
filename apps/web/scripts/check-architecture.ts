@@ -47,6 +47,36 @@ if (!snapshotSource.includes("getSceneElementsIncludingDeleted()")) {
   );
 }
 
+const documentCodecSource = readFileSync(
+  path.join(sourceRoot, "lib/excalidraw-document-v4.ts"),
+  "utf8",
+);
+if (!documentCodecSource.includes("selectOfficialServerAppState")) {
+  violations.push(
+    "lib/excalidraw-document-v4.ts: cloud appState must use the pinned shared adapter",
+  );
+}
+
+const readonlyShareSource = readFileSync(
+  path.join(sourceRoot, "hooks/use-scene-export.ts"),
+  "utf8",
+);
+if (!readonlyShareSource.includes('profile: "readonly-share"')) {
+  violations.push(
+    "hooks/use-scene-export.ts: readonly shares must use the readonly-share profile",
+  );
+}
+
+const ownedSceneSource = readFileSync(
+  path.join(sourceRoot, "hooks/use-cloud-upload.ts"),
+  "utf8",
+);
+if (!ownedSceneSource.includes('profile: "owned-scene"')) {
+  violations.push(
+    "hooks/use-cloud-upload.ts: owned saves must use the owned-scene profile",
+  );
+}
+
 if (violations.length > 0) {
   process.stderr.write(`${violations.join("\n")}\n`);
   process.exitCode = 1;

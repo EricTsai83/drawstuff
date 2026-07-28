@@ -9,6 +9,11 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    server: {
+      deps: {
+        inline: ["@excalidraw/excalidraw", "open-color"],
+      },
+    },
     env: {
       SKIP_ENV_VALIDATION: "1",
     },
