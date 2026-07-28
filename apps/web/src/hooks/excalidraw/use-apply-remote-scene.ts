@@ -28,7 +28,9 @@ type ApplyRemoteSceneResult =
   | { ok: false; reason: "scene_data_missing" | "incomplete_files" };
 
 /** The canvas was updated — true even when some image assets are still missing. */
-export function isApplyResultAcceptable(result: ApplyRemoteSceneResult): boolean {
+export function isApplyResultAcceptable(
+  result: ApplyRemoteSceneResult,
+): boolean {
   return result.ok || result.reason === "incomplete_files";
 }
 
@@ -54,9 +56,7 @@ export function useApplyRemoteScene(
       try {
         [imported, fetchedFiles] = await Promise.all([
           importSceneDataBySceneId(sceneId),
-          importSceneFilesBySceneId(sceneId).catch(
-            (): BinaryFiles => ({}),
-          ),
+          importSceneFilesBySceneId(sceneId).catch((): BinaryFiles => ({})),
         ]);
       } catch (error) {
         console.error("Failed to import remote scene data:", error);
@@ -93,10 +93,9 @@ export function useApplyRemoteScene(
         // 4. Center viewport before file injection so the user sees content ASAP
         const hasViewportFromImported = Boolean(
           imported.appState &&
-            (typeof imported.appState.scrollX === "number" ||
-              typeof imported.appState.scrollY === "number" ||
-              typeof (imported.appState as Partial<AppState>).zoom ===
-                "object"),
+          (typeof imported.appState.scrollX === "number" ||
+            typeof imported.appState.scrollY === "number" ||
+            typeof (imported.appState as Partial<AppState>).zoom === "object"),
         );
 
         if (shouldCenter && !hasViewportFromImported) {
@@ -151,7 +150,12 @@ export function useApplyRemoteScene(
         });
       }
     },
-    [excalidrawAPI, suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene],
+    [
+      excalidrawAPI,
+      suppressDirtyTracking,
+      resumeDirtyTracking,
+      syncCurrentScene,
+    ],
   );
 
   return { applyRemoteScene } as const;

@@ -205,7 +205,9 @@ export default function ExcalidrawEditor() {
     isReady: !!excalidrawAPI && isSessionReady && !!session,
     isUploadInProgress: uploadStatus === "uploading",
     isBlockingDialogOpen:
-      isSceneChangeDialogOpen || isCloudUploadDialogOpen || workspaceCreateConfirmOpen,
+      isSceneChangeDialogOpen ||
+      isCloudUploadDialogOpen ||
+      workspaceCreateConfirmOpen,
     externalConflict: lastConflict,
     onExternalConflictHandled: clearLastConflict,
   });
@@ -421,7 +423,7 @@ export default function ExcalidrawEditor() {
             trigger={<SceneNameTrigger sceneName={sceneName} />}
             onConfirmName={(newName) => {
               // 先同步更新到 Excalidraw appState
-            handleSetSceneName(newName);
+              handleSetSceneName(newName);
               // 若已有雲端場景 ID，直接更新 DB 名稱
               if (currentSceneId) {
                 renameSceneMutation.mutate(
