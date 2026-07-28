@@ -5,7 +5,6 @@
     "allowImportingTsExtensions": true,
     "checkJs": true,
     "incremental": true,
-    "baseUrl": ".",
     "plugins": [{ "name": "next" }],
     "paths": { "@/*": ["./src/*"] }
   },

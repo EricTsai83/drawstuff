@@ -2,15 +2,11 @@
  * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially useful
  * for Docker builds.
  */
-import "./src/env.js";
+import "./src/env.ts";
 
-/** @type {import("next").NextConfig} */
-const config = {
-  typescript: {
-    // Warning: This allows production builds to successfully complete even if
-    // your project has TypeScript errors.
-    ignoreBuildErrors: true,
-  },
+import type { NextConfig } from "next";
+
+const config: NextConfig = {
   experimental: {
     // https://nextjs.org/docs/app/api-reference/config/next-config-js/authInterrupts
     authInterrupts: true,
