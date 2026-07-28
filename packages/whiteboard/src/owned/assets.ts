@@ -119,6 +119,7 @@ export async function importWhiteboardImage(
       dataURL,
       mimeType,
       created: (options?.now ?? Date.now)(),
+      revision: 1,
       byteSize: blob.size,
       contentHash,
       width: dimensions.width,

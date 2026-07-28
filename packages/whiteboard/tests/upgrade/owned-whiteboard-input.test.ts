@@ -73,6 +73,50 @@ describe("owned whiteboard pointer input", () => {
     input.destroy();
   });
 
+  it("starts container text editing on double click without creating a move history entry", () => {
+    const { target, store, sink, input } = setup([
+      rectangle("container", 0, 0, 100, 60),
+    ]);
+
+    target.dispatchEvent(
+      new MouseEvent("dblclick", {
+        button: 0,
+        clientX: 50,
+        clientY: 30,
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+
+    expect(sink.beginTextEditing).toHaveBeenCalledWith(
+      { x: 50, y: 30 },
+      expect.objectContaining({ id: "container" }),
+    );
+    expect(store.getEditorState().selectedElementIds).toEqual(["container"]);
+    expect(store.getHistoryDiagnostics().undoEntries).toBe(0);
+    input.destroy();
+  });
+
+  it("binds a newly drawn arrow to shape endpoints and clears the binding hint", () => {
+    const { target, store, sink, input } = setup([
+      rectangle("start", 0, 0, 40, 40),
+      rectangle("end", 160, 0, 40, 40),
+    ]);
+    store.setActiveTool({ type: "arrow" });
+
+    drag(target, { x: 20, y: 20 }, { x: 180, y: 20 });
+
+    const arrow = store
+      .getDocument()
+      .elements.find((element) => element.type === "arrow");
+    expect(arrow).toMatchObject({
+      startBinding: { elementId: "start", focus: 0, gap: 0 },
+      endBinding: { elementId: "end", focus: 0, gap: 0 },
+    });
+    expect(sink.setBindingHint).toHaveBeenLastCalledWith(null);
+    input.destroy();
+  });
+
   it("refreshes the viewport offset before hit testing a moved canvas", () => {
     const { target, store, input } = setup([
       rectangle("offset-shape", 0, 0, 50, 50),
@@ -290,6 +334,45 @@ describe("owned whiteboard pointer input", () => {
     ]);
     drag(target, { x: -10, y: -10 }, { x: 45, y: 45 }, { ctrlKey: true });
     expect(store.getEditorState().selectedElementIds).toEqual(["second"]);
+    input.destroy();
+  });
+
+  it("toggles an entire group when modifier-marquee intersects one member", () => {
+    const { target, store, input } = setup([
+      groupedRectangle("group-a", 0, 0),
+      groupedRectangle("group-b", 60, 0),
+    ]);
+    store.setSelection(["group-a"]);
+    expect(store.getEditorState().selectedElementIds).toEqual([
+      "group-a",
+      "group-b",
+    ]);
+
+    drag(target, { x: -5, y: -5 }, { x: 45, y: 45 }, { shiftKey: true });
+
+    expect(store.getEditorState().selectedElementIds).toEqual([]);
+    input.destroy();
+  });
+
+  it("merges overlapping nested-group units before modifier-marquee toggles", () => {
+    const { target, store, input } = setup([
+      groupedRectangle("outer-only", 0, 0, ["outer"]),
+      groupedRectangle("inner-a", 50, 0, ["outer", "inner"]),
+      groupedRectangle("inner-b", 100, 0, ["outer", "inner"]),
+    ]);
+    store.setSelection(["inner-a"]);
+    expect(store.getEditorState().selectedElementIds).toEqual([
+      "inner-a",
+      "inner-b",
+    ]);
+
+    drag(target, { x: -5, y: -5 }, { x: 95, y: 45 }, { shiftKey: true });
+
+    expect(store.getEditorState().selectedElementIds).toEqual([
+      "outer-only",
+      "inner-a",
+      "inner-b",
+    ]);
     input.destroy();
   });
 
@@ -775,6 +858,7 @@ function setup(
   const sink = {
     setMarquee: vi.fn(),
     setPreview: vi.fn(),
+    setBindingHint: vi.fn(),
     beginTextEditing: vi.fn(),
   } satisfies OwnedInteractionSink;
   const input = new OwnedWhiteboardInput(
@@ -918,5 +1002,23 @@ function rectangle(
     roughness: 1,
     locked: false,
     ...update,
+  };
+}
+
+function groupedRectangle(
+  id: string,
+  x: number,
+  y: number,
+  groupIds: readonly string[] = ["group-1"],
+): WhiteboardElement {
+  return {
+    ...rectangle(id, x, y, 40, 40),
+    index: `a-${id}`,
+    seed: 1,
+    version: 1,
+    versionNonce: 1,
+    updatedAt: 1,
+    groupIds,
+    frameId: null,
   };
 }

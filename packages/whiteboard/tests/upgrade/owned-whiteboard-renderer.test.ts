@@ -127,6 +127,16 @@ describe("owned whiteboard renderer", () => {
     expect(harness.overlayContext.bezierCurveTo).toHaveBeenCalled();
     expect(harness.overlayContext.scale).toHaveBeenCalledWith(1, 1);
     expect(harness.overlayContext.translate).toHaveBeenCalledWith(0, 0);
+
+    harness.overlayContext.strokeRect.mockClear();
+    harness.renderer.setBindingHint(rectangle("binding"));
+    harness.renderer.renderNow();
+    expect(harness.overlayContext.strokeRect).toHaveBeenCalledWith(
+      10,
+      20,
+      100,
+      50,
+    );
   });
 
   it("reuses rough shapes across viewport renders and invalidates changed elements", () => {

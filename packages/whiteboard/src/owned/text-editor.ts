@@ -1,11 +1,15 @@
-import { createOwnedElementId, createOwnedTextElement } from "./drawing";
+import { createOwnedElementId } from "./drawing";
 import { documentToScreen, type WhiteboardPoint } from "./geometry";
+import type { WhiteboardElement, WhiteboardTextElementV3 } from "../contracts";
 import type { OwnedWhiteboardStore } from "./store";
 import { resolveOwnedThemeColor } from "./theme-color";
 
 export class OwnedWhiteboardTextEditor {
   private textarea: HTMLTextAreaElement | null = null;
   private point: WhiteboardPoint | null = null;
+  private targetId: string | null = null;
+  private angle = 0;
+  private fixedWidth = false;
   private cancelling = false;
   private readonly unsubscribeEditor: () => void;
   private readonly unsubscribeRender: () => void;
@@ -25,8 +29,21 @@ export class OwnedWhiteboardTextEditor {
     this.unsubscribeDestroy = store.subscribeDestroy(() => this.destroy());
   }
 
-  public begin(point: WhiteboardPoint): void {
+  public begin(point: WhiteboardPoint, target?: WhiteboardElement): void {
     this.commit();
+    const editedText =
+      target?.type === "text" && "fontFamily" in target
+        ? target
+        : target
+          ? this.store.getBoundTextForContainer(target.id)
+          : null;
+    const editorPoint = editedText
+      ? { x: editedText.x, y: editedText.y }
+      : target
+        ? { x: target.x + 8, y: target.y + 8 }
+        : point;
+    const fontSize = editedText?.fontSize ?? 20;
+    const lineHeight = editedText?.lineHeight ?? 1.25;
     const textarea = document.createElement("textarea");
     textarea.setAttribute("aria-label", "Edit text");
     textarea.setAttribute("autocapitalize", "sentences");
@@ -43,21 +60,31 @@ export class OwnedWhiteboardTextEditor {
       overflow: "hidden",
       resize: "none",
       background: "transparent",
-      font: "20px/1.25 sans-serif",
+      font: `${fontSize}px/${lineHeight} ${fontFamily(editedText)}`,
       color: resolveOwnedThemeColor(
         this.store.getEditorState().elementStyle.strokeColor,
         this.store.getEditorState().theme,
       ),
       transformOrigin: "top left",
     });
+    textarea.value = editedText?.text ?? "";
     textarea.addEventListener("input", this.resizeEditor);
     textarea.addEventListener("keydown", this.handleKeyDown);
     textarea.addEventListener("blur", this.handleBlur);
     this.textarea = textarea;
-    this.point = point;
+    this.point = editorPoint;
+    this.targetId = target?.id ?? null;
+    this.angle = editedText?.angle ?? target?.angle ?? 0;
+    this.fixedWidth = Boolean(target && target.type !== "text");
+    if (this.fixedWidth && target) {
+      textarea.style.width = `${Math.max(24, target.width - 16)}px`;
+    }
     this.root.append(textarea);
+    this.store.setTextEditing(true);
+    this.resizeEditor();
     this.positionEditor();
     textarea.focus({ preventScroll: true });
+    textarea.setSelectionRange(0, textarea.value.length);
   }
 
   public commit(): void {
@@ -65,19 +92,20 @@ export class OwnedWhiteboardTextEditor {
     const point = this.point;
     if (!textarea || !point) return;
     const text = textarea.value;
+    const targetId = this.targetId;
     const dimensions = {
       width: readCssPixels(textarea.style.width),
       height: readCssPixels(textarea.style.height),
     };
     this.releaseEditor();
-    const element = createOwnedTextElement(
+    this.store.commitTextEdit({
+      targetId,
       point,
       text,
-      this.store.getEditorState().elementStyle,
-      this.createId(),
-      dimensions,
-    );
-    if (element) this.store.appendElement(element);
+      width: dimensions.width,
+      height: dimensions.height,
+      createId: this.createId,
+    });
   }
 
   public cancel(): void {
@@ -120,9 +148,11 @@ export class OwnedWhiteboardTextEditor {
   private readonly resizeEditor = (): void => {
     const textarea = this.textarea;
     if (!textarea) return;
-    textarea.style.width = "1px";
+    if (!this.fixedWidth) textarea.style.width = "1px";
     textarea.style.height = "1px";
-    textarea.style.width = `${Math.max(24, textarea.scrollWidth + 2)}px`;
+    if (!this.fixedWidth) {
+      textarea.style.width = `${Math.max(24, textarea.scrollWidth + 2)}px`;
+    }
     textarea.style.height = `${Math.max(25, textarea.scrollHeight + 2)}px`;
   };
 
@@ -135,7 +165,10 @@ export class OwnedWhiteboardTextEditor {
     const screenPoint = documentToScreen(point, viewport);
     textarea.style.left = `${screenPoint.x - viewport.offsetX}px`;
     textarea.style.top = `${screenPoint.y - viewport.offsetY}px`;
-    textarea.style.transform = `scale(${viewport.zoom})`;
+    textarea.style.transform =
+      this.angle === 0
+        ? `scale(${viewport.zoom})`
+        : `scale(${viewport.zoom}) rotate(${this.angle}rad)`;
     textarea.style.color = resolveOwnedThemeColor(
       editorState.elementStyle.strokeColor,
       editorState.theme,
@@ -147,11 +180,21 @@ export class OwnedWhiteboardTextEditor {
     if (!textarea) return;
     this.textarea = null;
     this.point = null;
+    this.targetId = null;
+    this.angle = 0;
+    this.fixedWidth = false;
+    if (!this.store.isDestroyed()) this.store.setTextEditing(false);
     textarea.removeEventListener("input", this.resizeEditor);
     textarea.removeEventListener("keydown", this.handleKeyDown);
     textarea.removeEventListener("blur", this.handleBlur);
     textarea.remove();
   }
+}
+
+function fontFamily(text: WhiteboardTextElementV3 | null): string {
+  if (text?.fontFamily === "nunito") return "Nunito, sans-serif";
+  if (text?.fontFamily === "system") return "system-ui, sans-serif";
+  return "Excalifont, sans-serif";
 }
 
 function readCssPixels(value: string): number | undefined {

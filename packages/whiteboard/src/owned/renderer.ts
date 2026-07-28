@@ -100,6 +100,7 @@ export class OwnedWhiteboardRenderer {
   private scheduledFrame: number | null = null;
   private marquee: WhiteboardBounds | null = null;
   private preview: WhiteboardElement | null = null;
+  private bindingHint: WhiteboardElement | null = null;
   private freedrawPreview: StreamingFreedrawPreview | null = null;
   private cssWidth = 0;
   private cssHeight = 0;
@@ -179,6 +180,13 @@ export class OwnedWhiteboardRenderer {
     this.schedule();
   }
 
+  public setBindingHint(element: WhiteboardElement | null): void {
+    if (this.destroyed) return;
+    this.bindingHint = element;
+    this.overlayDirty = true;
+    this.schedule();
+  }
+
   public beginFreedrawPreview(
     point: WhiteboardPoint,
     style: WhiteboardElementStyle,
@@ -187,6 +195,7 @@ export class OwnedWhiteboardRenderer {
     const path = typeof Path2D === "undefined" ? null : new Path2D();
     path?.moveTo(point.x, point.y);
     this.preview = null;
+    this.bindingHint = null;
     this.freedrawPreview = { path, points: [point], style };
     this.overlayDirty = true;
     this.schedule();
@@ -354,6 +363,7 @@ export class OwnedWhiteboardRenderer {
         continue;
       }
       const selected = selectedIds.has(element.id);
+      const dependencies = this.store.getRasterCacheDependencies(element);
       if (
         !this.paintRasterElement(
           context,
@@ -363,6 +373,7 @@ export class OwnedWhiteboardRenderer {
           viewport.zoom,
           geometry,
           selected ? 2 : 1,
+          dependencies,
         )
       ) {
         this.paintElement(
@@ -372,6 +383,7 @@ export class OwnedWhiteboardRenderer {
           theme,
           this.roughScene,
           geometry,
+          dependencies.frameOpacity,
         );
       }
       paintedElements += 1;
@@ -392,11 +404,14 @@ export class OwnedWhiteboardRenderer {
     zoom: number,
     geometry: ElementGeometry,
     priority: number,
+    dependencies: ReturnType<
+      OwnedWhiteboardStore["getRasterCacheDependencies"]
+    >,
   ): boolean {
     if (
-      element.type === "image" ||
       element.width === 0 ||
-      element.height === 0
+      element.height === 0 ||
+      (element.type === "image" && !this.isImageRasterReady(element, assets))
     ) {
       return false;
     }
@@ -404,9 +419,7 @@ export class OwnedWhiteboardRenderer {
       theme,
       pixelRatio: this.pixelRatio,
       zoom,
-      assetRevision: 0,
-      boundTextNonce: 0,
-      frameOpacity: 100,
+      ...dependencies,
     };
     const cached = this.rasterCache.get(element, variant, priority);
     if (cached) {
@@ -426,6 +439,7 @@ export class OwnedWhiteboardRenderer {
       theme,
       zoom,
       geometry,
+      dependencies.frameOpacity,
     );
     if (!created) return false;
     this.rasterCache.set(element, variant, created, priority);
@@ -439,6 +453,7 @@ export class OwnedWhiteboardRenderer {
     theme: WhiteboardTheme,
     zoom: number,
     geometry: ElementGeometry,
+    frameOpacity: number,
   ): OwnedRasterCacheValue | null {
     const padding = Math.max(
       4,
@@ -478,6 +493,7 @@ export class OwnedWhiteboardRenderer {
         ? rough.canvas(canvas)
         : this.roughScene,
       geometry,
+      frameOpacity,
     );
     return {
       source: canvas,
@@ -497,13 +513,18 @@ export class OwnedWhiteboardRenderer {
     theme: WhiteboardTheme,
     roughCanvas: RoughCanvas,
     resolvedGeometry?: ElementGeometry,
+    frameOpacity = 100,
   ): void {
     const geometry = resolvedGeometry ?? getElementGeometry(element);
     if (!geometry) return;
     context.save();
     context.globalAlpha = Math.min(
       1,
-      Math.max(0, readElementNumber(element, "opacity", 100) / 100),
+      Math.max(
+        0,
+        (readElementNumber(element, "opacity", 100) / 100) *
+          (frameOpacity / 100),
+      ),
     );
     context.strokeStyle = resolveOwnedThemeColor(
       readElementString(element, "strokeColor", "#1e1e1e"),
@@ -723,6 +744,22 @@ export class OwnedWhiteboardRenderer {
     }
   }
 
+  private isImageRasterReady(
+    element: WhiteboardElement,
+    assets: Readonly<Record<string, WhiteboardAsset>>,
+  ): boolean {
+    if (element.type !== "image" || !element.fileId) return false;
+    const asset = assets[element.fileId];
+    if (!asset) return false;
+    const cached = this.getCachedImage(asset);
+    return Boolean(
+      cached &&
+      !cached.failed &&
+      cached.image.complete &&
+      cached.image.naturalWidth > 0,
+    );
+  }
+
   private paintOverlay(selectedElementIds: readonly string[]): number {
     const context = this.overlayContext;
     context.setTransform(this.pixelRatio, 0, 0, this.pixelRatio, 0, 0);
@@ -768,6 +805,24 @@ export class OwnedWhiteboardRenderer {
         }
       }
       context.restore();
+    }
+    if (this.bindingHint) {
+      const geometry = getElementGeometry(this.bindingHint);
+      if (geometry) {
+        context.save();
+        context.scale(viewport.zoom, viewport.zoom);
+        context.translate(viewport.x, viewport.y);
+        context.strokeStyle = "#4c6ef5";
+        context.lineWidth = 2 / viewport.zoom;
+        context.setLineDash([6 / viewport.zoom, 4 / viewport.zoom]);
+        context.strokeRect(
+          geometry.bounds.minX,
+          geometry.bounds.minY,
+          geometry.bounds.maxX - geometry.bounds.minX,
+          geometry.bounds.maxY - geometry.bounds.minY,
+        );
+        context.restore();
+      }
     }
     const selectedIds = new Set(selectedElementIds);
     const selected = this.store

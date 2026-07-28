@@ -401,6 +401,7 @@ describe("owned drawing interactions", () => {
     );
     const textarea = root.querySelector("textarea");
     expect(textarea).not.toBeNull();
+    expect(store.getEditorState().interaction).toBe("text-editing");
     expect(textarea?.style.left).toBe("100px");
     expect(textarea?.style.top).toBe("100px");
     expect(textarea?.style.transform).toBe("scale(2)");
@@ -408,6 +409,7 @@ describe("owned drawing interactions", () => {
     expect(textarea?.style.left).toBe("120px");
     textarea!.value = "first\n\nthird";
     textarea!.dispatchEvent(new FocusEvent("blur"));
+    expect(store.getEditorState().interaction).toBe("idle");
 
     expect(store.getDocument().elements[0]).toMatchObject({
       id: "text-1",
@@ -432,6 +434,7 @@ describe("owned drawing interactions", () => {
     );
     expect(store.getDocument().elements).toHaveLength(1);
     expect(root.querySelector("textarea")).toBeNull();
+    expect(store.getEditorState().interaction).toBe("idle");
 
     store.setActiveTool({ type: "text" });
     root.dispatchEvent(

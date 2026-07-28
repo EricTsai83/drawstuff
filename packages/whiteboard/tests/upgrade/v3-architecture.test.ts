@@ -142,6 +142,7 @@ describe("V3 architecture", () => {
       cache.set(first, variant, value(document.createElement("canvas"))),
     ).toBe(true);
     expect(cache.get(first, variant)).not.toBeNull();
+    expect(cache.get(first, { ...variant, assetRevision: 2 })).toBeNull();
     expect(
       cache.set(second, variant, value(document.createElement("canvas"))),
     ).toBe(true);

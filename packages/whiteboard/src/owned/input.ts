@@ -69,7 +69,8 @@ export interface PointerEventLike {
 export interface OwnedInteractionSink {
   setMarquee(bounds: WhiteboardBounds | null): void;
   setPreview(element: WhiteboardElement | null): void;
-  beginTextEditing(point: WhiteboardPoint): void;
+  beginTextEditing(point: WhiteboardPoint, target?: WhiteboardElement): void;
+  setBindingHint?(element: WhiteboardElement | null): void;
   beginFreedrawPreview?(
     point: WhiteboardPoint,
     style: WhiteboardElementStyle,
@@ -99,6 +100,7 @@ type ActiveInteraction =
       readonly pointerId: number;
       readonly button: number;
       session: OwnedDrawingSession;
+      readonly startBindingTargetId: string | null;
     }
   | {
       readonly type: "move";
@@ -185,6 +187,7 @@ export class OwnedWhiteboardInput {
     target.addEventListener("pointermove", this.handlePointerMove);
     target.addEventListener("pointerup", this.handlePointerUp);
     target.addEventListener("pointercancel", this.handlePointerCancel);
+    target.addEventListener("dblclick", this.handleDoubleClick);
     target.addEventListener(
       "lostpointercapture",
       this.handleLostPointerCapture,
@@ -227,6 +230,7 @@ export class OwnedWhiteboardInput {
     this.target.removeEventListener("pointermove", this.handlePointerMove);
     this.target.removeEventListener("pointerup", this.handlePointerUp);
     this.target.removeEventListener("pointercancel", this.handlePointerCancel);
+    this.target.removeEventListener("dblclick", this.handleDoubleClick);
     this.target.removeEventListener(
       "lostpointercapture",
       this.handleLostPointerCapture,
@@ -251,6 +255,7 @@ export class OwnedWhiteboardInput {
     this.activeInteraction = null;
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
+    this.interactionSink.setBindingHint?.(null);
     this.interactionSink.endFreedrawPreview?.();
   }
 
@@ -294,7 +299,11 @@ export class OwnedWhiteboardInput {
     if (isOwnedCreatableTool(activeTool)) {
       if (!this.capabilities[activeTool]) return;
       if (activeTool === "text") {
-        this.interactionSink.beginTextEditing(documentPoint);
+        const target = this.findTextTarget(documentPoint);
+        this.interactionSink.beginTextEditing(
+          documentPoint,
+          target ?? undefined,
+        );
         return;
       }
       const session = beginOwnedDrawing(activeTool, documentPoint);
@@ -308,6 +317,10 @@ export class OwnedWhiteboardInput {
         pointerId: pointer.id,
         button: event.button,
         session,
+        startBindingTargetId:
+          activeTool === "arrow"
+            ? (this.findBindingTarget(documentPoint)?.id ?? null)
+            : null,
       };
       const style = this.store.getEditorState().elementStyle;
       if (
@@ -383,11 +396,14 @@ export class OwnedWhiteboardInput {
         (pointer.shiftKey || pointer.ctrlKey || pointer.metaKey);
       const selection = this.store.getEditorState().selectedElementIds;
       if (toggle) {
-        this.store.setSelection(
-          selection.includes(hit.id)
-            ? selection.filter((id) => id !== hit.id)
-            : [...selection, hit.id],
-        );
+        const unitIds = this.store.getSelectionUnitIds(hit.id);
+        const selected = new Set(selection);
+        const remove = unitIds.every((id) => selected.has(id));
+        for (const id of unitIds) {
+          if (remove) selected.delete(id);
+          else selected.add(id);
+        }
+        this.store.setSelection([...selected]);
         this.activeInteraction = null;
         return;
       }
@@ -396,7 +412,7 @@ export class OwnedWhiteboardInput {
         this.activeInteraction = null;
         return;
       }
-      const elements = this.store.getSelectedElements();
+      const elements = this.store.getTransformElements("move");
       this.performanceMonitor?.begin(
         "move",
         this.store.getDocument().elements.length,
@@ -430,6 +446,27 @@ export class OwnedWhiteboardInput {
       currentBounds: bounds,
     };
     this.interactionSink.setMarquee(bounds);
+  };
+
+  private readonly handleDoubleClick = (event: MouseEvent): void => {
+    if (
+      this.destroyed ||
+      !this.editingEnabled ||
+      event.button !== 0 ||
+      isEditableTarget(event.target)
+    ) {
+      return;
+    }
+    this.refreshViewportOffset();
+    const point = screenToDocument(
+      { x: event.clientX, y: event.clientY },
+      this.store.getViewport(),
+    );
+    const target = this.findTextTarget(point);
+    if (!target) return;
+    event.preventDefault();
+    this.store.setSelection([target.id]);
+    this.interactionSink.beginTextEditing(point, target);
   };
 
   private readonly handlePointerMove = (event: PointerEvent): void => {
@@ -486,6 +523,11 @@ export class OwnedWhiteboardInput {
           pressure: sample.pressure,
         });
         if (interaction.session.pointCount > before) appended.push(point);
+      }
+      if (interaction.session.tool === "arrow") {
+        this.interactionSink.setBindingHint?.(
+          this.findBindingTarget(interaction.session.end),
+        );
       }
       if (
         interaction.session.tool === "freedraw" &&
@@ -581,13 +623,34 @@ export class OwnedWhiteboardInput {
           this.store.getViewport(),
         ),
       );
-      const element = createOwnedDrawingElement(
+      const created = createOwnedDrawingElement(
         session,
         this.store.getEditorState().elementStyle,
         this.createId(),
       );
+      const endBindingTarget =
+        session.tool === "arrow"
+          ? (this.findBindingTarget(session.end)?.id ?? null)
+          : null;
+      const element =
+        created?.type === "arrow" && "startBinding" in created
+          ? {
+              ...created,
+              startBinding: interaction.startBindingTargetId
+                ? {
+                    elementId: interaction.startBindingTargetId,
+                    focus: 0,
+                    gap: 0,
+                  }
+                : null,
+              endBinding: endBindingTarget
+                ? { elementId: endBindingTarget, focus: 0, gap: 0 }
+                : null,
+            }
+          : created;
       this.interactionSink.endFreedrawPreview?.();
       this.interactionSink.setPreview(null);
+      this.interactionSink.setBindingHint?.(null);
       if (element) this.store.appendElement(element);
     } else if (
       interaction.type === "move" ||
@@ -610,9 +673,17 @@ export class OwnedWhiteboardInput {
         ).map((element) => element.id);
         if (interaction.toggle) {
           const next = new Set(interaction.initialSelection);
-          for (const id of candidates) {
-            if (next.has(id)) next.delete(id);
-            else next.add(id);
+          const selectionUnits = mergeOverlappingSelectionUnits(
+            candidates.map((id) => this.store.getSelectionUnitIds(id)),
+          );
+          for (const unitIds of selectionUnits) {
+            const remove = unitIds.every((unitId) =>
+              interaction.initialSelection.includes(unitId),
+            );
+            for (const unitId of unitIds) {
+              if (remove) next.delete(unitId);
+              else next.add(unitId);
+            }
           }
           this.store.setSelection([...next]);
         } else {
@@ -640,6 +711,7 @@ export class OwnedWhiteboardInput {
     }
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
+    this.interactionSink.setBindingHint?.(null);
     this.interactionSink.endFreedrawPreview?.();
     this.releaseActivePointer();
     this.activeInteraction = null;
@@ -660,6 +732,7 @@ export class OwnedWhiteboardInput {
     }
     this.interactionSink.setMarquee(null);
     this.interactionSink.setPreview(null);
+    this.interactionSink.setBindingHint?.(null);
     this.interactionSink.endFreedrawPreview?.();
     this.activeInteraction = null;
     this.performanceMonitor?.end();
@@ -739,7 +812,7 @@ export class OwnedWhiteboardInput {
         event.preventDefault();
         return;
       }
-      const selected = this.store.getSelectedElements();
+      const selected = this.store.getTransformElements("move");
       if (this.editingEnabled && selected.length > 0) {
         const step = event.shiftKey ? 10 : 1;
         if (this.activeKeyboardNudge?.key !== event.key) {
@@ -786,6 +859,7 @@ export class OwnedWhiteboardInput {
     } else if (event.key === "Home") {
       this.store.fitToContent();
     } else if (event.key === "Escape") {
+      const hadInteraction = this.activeInteraction !== null;
       if (this.activeInteraction?.type === "pan") {
         this.store.commitTransientViewport();
       }
@@ -797,11 +871,13 @@ export class OwnedWhiteboardInput {
         this.store.cancelElementGesture();
       }
       this.releaseActivePointer();
-      this.store.setSelection([]);
       this.interactionSink.setMarquee(null);
       this.interactionSink.setPreview(null);
+      this.interactionSink.setBindingHint?.(null);
       this.interactionSink.endFreedrawPreview?.();
       this.activeInteraction = null;
+      if (hadInteraction) this.performanceMonitor?.end();
+      if (!hadInteraction) this.store.setSelection([]);
     } else if (event.key === "Backspace" || event.key === "Delete") {
       if (!this.editingEnabled) return;
       this.store.deleteSelection();
@@ -885,6 +961,48 @@ export class OwnedWhiteboardInput {
     this.interactionSink.endFreedrawPreview?.();
   };
 
+  private findTextTarget(point: WhiteboardPoint): WhiteboardElement | null {
+    const viewport = this.store.getViewport();
+    const hit = hitTestElements(
+      this.store.getVisibleElements({
+        minX: point.x - 10 / viewport.zoom,
+        minY: point.y - 10 / viewport.zoom,
+        maxX: point.x + 10 / viewport.zoom,
+        maxY: point.y + 10 / viewport.zoom,
+      }),
+      point,
+      viewport.zoom,
+    );
+    return hit &&
+      (hit.type === "text" ||
+        hit.type === "rectangle" ||
+        hit.type === "diamond" ||
+        hit.type === "ellipse")
+      ? hit
+      : null;
+  }
+
+  private findBindingTarget(point: WhiteboardPoint): WhiteboardElement | null {
+    const viewport = this.store.getViewport();
+    const hit = hitTestElements(
+      this.store.getVisibleElements({
+        minX: point.x - 10 / viewport.zoom,
+        minY: point.y - 10 / viewport.zoom,
+        maxX: point.x + 10 / viewport.zoom,
+        maxY: point.y + 10 / viewport.zoom,
+      }),
+      point,
+      viewport.zoom,
+    );
+    return hit &&
+      (hit.type === "rectangle" ||
+        hit.type === "diamond" ||
+        hit.type === "ellipse" ||
+        hit.type === "frame")
+      ? hit
+      : null;
+  }
+
   private refreshViewportOffset(): void {
     const bounds = this.target.getBoundingClientRect();
     this.store.syncViewportOffset(bounds.left, bounds.top);
@@ -951,6 +1069,23 @@ function isEditableTarget(target: EventTarget | null): boolean {
     target instanceof HTMLTextAreaElement ||
     (target instanceof HTMLElement && target.isContentEditable)
   );
+}
+
+function mergeOverlappingSelectionUnits(
+  units: readonly (readonly string[])[],
+): readonly (readonly string[])[] {
+  const merged: Set<string>[] = [];
+  for (const unit of units) {
+    const next = new Set(unit);
+    for (let index = merged.length - 1; index >= 0; index -= 1) {
+      const candidate = merged[index];
+      if (!candidate || ![...candidate].some((id) => next.has(id))) continue;
+      for (const id of candidate) next.add(id);
+      merged.splice(index, 1);
+    }
+    if (next.size > 0) merged.push(next);
+  }
+  return merged.map((unit) => [...unit]);
 }
 
 function wheelDeltaMultiplier(

@@ -234,6 +234,7 @@ export function toRuntimeWhiteboardDocumentV3(
                   dataURL: asset.dataURL,
                   mimeType: asset.mimeType,
                   created: asset.created,
+                  revision: asset.revision,
                   lastRetrieved: asset.lastRetrieved,
                   byteSize: asset.byteSize,
                   contentHash: asset.contentHash,
@@ -698,7 +699,7 @@ function persistAsset(
     id: asset.id,
     mimeType,
     created: asset.created,
-    revision: 1,
+    revision: asset.revision ?? 1,
     storage,
     ...(storage === "inline" ? { dataURL: asset.dataURL } : {}),
     ...(asset.lastRetrieved === undefined

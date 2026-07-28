@@ -34,6 +34,7 @@ export interface WhiteboardAsset {
   readonly dataURL: string;
   readonly mimeType: string;
   readonly created: number;
+  readonly revision?: number;
   readonly lastRetrieved?: number;
   readonly byteSize?: number;
   readonly contentHash?: string;
@@ -130,8 +131,6 @@ export type WhiteboardElementV2 =
   | WhiteboardImageElementV2
   | WhiteboardLinearElementV2
   | WhiteboardTextElementV2;
-
-export type WhiteboardElement = WhiteboardElementV2 | WhiteboardElementV3;
 
 export interface WhiteboardDocumentMetadataV2 {
   readonly name: string;
@@ -266,6 +265,8 @@ export type WhiteboardElementV3 =
   | WhiteboardImageElementV3
   | WhiteboardLinearElementV3
   | WhiteboardTextElementV3;
+
+export type WhiteboardElement = WhiteboardElementV2 | WhiteboardElementV3;
 
 export interface WhiteboardDocumentMetadataV3 {
   readonly name: string;
