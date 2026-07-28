@@ -1,5 +1,15 @@
+packages:
+  - "apps/*"
+  - "packages/*"
+
+enableGlobalVirtualStore: false
+
+publicHoistPattern:
+  - "*eslint*"
+  - "*prettier*"
+
 allowBuilds:
-  esbuild: set this to true or false
-  msgpackr-extract: set this to true or false
-  sharp: set this to true or false
-  unrs-resolver: set this to true or false
+  esbuild: false
+  msgpackr-extract: false
+  sharp: false
+  unrs-resolver: false
