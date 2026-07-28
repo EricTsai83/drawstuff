@@ -70,10 +70,10 @@ describe("DrawstuffDocumentV4", () => {
       native.elements.find((element) => element.id === "deleted-1"),
     ).toMatchObject({ isDeleted: true, version: 5, versionNonce: 1010 });
     expect(loaded.scene.appState).toEqual({
-      theme: "dark",
       viewBackgroundColor: "#ffffff",
       gridSize: 20,
     });
+    expect(loaded.scene.appState).not.toHaveProperty("theme");
     expect(loaded.scene.appState).not.toHaveProperty("scrollX");
     expect(loaded.scene.appState).not.toHaveProperty("zoom");
   });

@@ -1,0 +1,27 @@
+{
+  "input": "../native-excalidraw-elements.json",
+  "expectedElementIds": [
+    "frame-1",
+    "rect-1",
+    "text-1",
+    "ellipse-1",
+    "diamond-1",
+    "line-1",
+    "arrow-1",
+    "freedraw-1",
+    "image-1",
+    "deleted-1"
+  ],
+  "expectedDeletedElementIds": ["deleted-1"],
+  "semanticFields": [
+    "id",
+    "type",
+    "index",
+    "version",
+    "versionNonce",
+    "isDeleted",
+    "updated",
+    "fileId",
+    "customData"
+  ]
+}

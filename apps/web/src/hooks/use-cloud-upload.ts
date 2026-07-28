@@ -136,7 +136,7 @@ export function useCloudUpload(
             elements,
             appState,
             files,
-            { encrypt: false },
+            { encrypt: false, profile: "owned-scene" },
           );
           const base64Data = stringToBase64(
             toByteString(prepared.compressedSceneData),

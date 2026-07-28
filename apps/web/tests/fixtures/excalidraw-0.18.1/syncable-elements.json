@@ -1,0 +1,71 @@
+{
+  "now": 1735689600000,
+  "elements": [
+    {
+      "id": "live-shape",
+      "type": "rectangle",
+      "width": 10,
+      "height": 10,
+      "isDeleted": false,
+      "updated": 1735689599000
+    },
+    {
+      "id": "recent-tombstone",
+      "type": "rectangle",
+      "width": 10,
+      "height": 10,
+      "isDeleted": true,
+      "updated": 1735689599000
+    },
+    {
+      "id": "boundary-tombstone",
+      "type": "rectangle",
+      "width": 10,
+      "height": 10,
+      "isDeleted": true,
+      "updated": 1735603200000
+    },
+    {
+      "id": "expired-tombstone",
+      "type": "rectangle",
+      "width": 10,
+      "height": 10,
+      "isDeleted": true,
+      "updated": 1735603199999
+    },
+    {
+      "id": "invisible-shape",
+      "type": "rectangle",
+      "width": 0,
+      "height": 0,
+      "isDeleted": false,
+      "updated": 1735689599000
+    },
+    {
+      "id": "invisible-line",
+      "type": "line",
+      "width": 10,
+      "height": 0,
+      "points": [[0, 0]],
+      "isDeleted": false,
+      "updated": 1735689599000
+    },
+    {
+      "id": "live-line",
+      "type": "line",
+      "width": 10,
+      "height": 0,
+      "points": [
+        [0, 0],
+        [10, 0]
+      ],
+      "isDeleted": false,
+      "updated": 1735689599000
+    }
+  ],
+  "expectedSyncableElementIds": [
+    "live-shape",
+    "recent-tombstone",
+    "live-line"
+  ]
+}

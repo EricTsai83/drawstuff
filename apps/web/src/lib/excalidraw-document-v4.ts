@@ -1,5 +1,13 @@
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
+import {
+  clearElementsForOfficialExport,
+  EXCALIDRAW_PERSISTENCE_CONTRACT,
+  filterReferencedFiles,
+  getOfficialSyncableElements,
+  selectOfficialServerAppState,
+  type ExcalidrawStorageProfile,
+} from "@/lib/excalidraw-persistence-contract";
 
 export const DRAWSTUFF_DOCUMENT_VERSION = 4 as const;
 export const DRAWSTUFF_EXCALIDRAW_VERSION = "0.18.1" as const;
@@ -28,6 +36,23 @@ export interface DrawstuffDocumentV4 {
   };
 }
 
+export interface OfficialExcalidrawExport {
+  readonly type: "excalidraw";
+  readonly version: typeof EXCALIDRAW_PERSISTENCE_CONTRACT.upstreamFormatVersion;
+  readonly source: string;
+  readonly elements: readonly unknown[];
+  readonly appState: Readonly<Record<string, unknown>>;
+  readonly files?: BinaryFiles;
+}
+
+export interface DrawstuffCollaborationSnapshot {
+  readonly engine: {
+    readonly name: "excalidraw";
+    readonly version: typeof DRAWSTUFF_EXCALIDRAW_VERSION;
+  };
+  readonly elements: readonly unknown[];
+}
+
 type JsonObject = Record<string, unknown>;
 
 export function createDrawstuffDocumentV4(input: {
@@ -35,8 +60,13 @@ export function createDrawstuffDocumentV4(input: {
   readonly appState: Partial<AppState> | Readonly<Record<string, unknown>>;
   readonly files?: BinaryFiles;
   readonly name?: string;
+  readonly profile?: Extract<
+    ExcalidrawStorageProfile,
+    "owned-scene" | "readonly-share"
+  >;
 }): DrawstuffDocumentV4 {
   const appState = objectOrEmpty(input.appState);
+  const profile = input.profile ?? "owned-scene";
   return {
     version: DRAWSTUFF_DOCUMENT_VERSION,
     engine: {
@@ -47,13 +77,57 @@ export function createDrawstuffDocumentV4(input: {
       // Elements are deliberately not projected onto an application-owned
       // shape. Native collaboration fields and future unknown fields must
       // survive unchanged.
-      elements: input.elements,
-      appState: sharedAppState(appState),
+      elements:
+        profile === "readonly-share"
+          ? clearElementsForOfficialExport(input.elements)
+          : input.elements,
+      appState: selectOfficialServerAppState(appState),
     },
-    assets: assetMetadata(input.files),
+    assets: profile === "owned-scene" ? assetMetadata(input.files) : {},
     metadata: {
       name: normalizeName(input.name ?? appState.name),
     },
+  };
+}
+
+export function createOwnedSceneDocumentV4(
+  input: Omit<Parameters<typeof createDrawstuffDocumentV4>[0], "profile">,
+): DrawstuffDocumentV4 {
+  return createDrawstuffDocumentV4({ ...input, profile: "owned-scene" });
+}
+
+export function createReadonlyShareDocumentV4(
+  input: Omit<Parameters<typeof createDrawstuffDocumentV4>[0], "profile">,
+): DrawstuffDocumentV4 {
+  return createDrawstuffDocumentV4({ ...input, profile: "readonly-share" });
+}
+
+export function createLocalExportDocument(input: {
+  readonly elements: readonly ExcalidrawElement[] | readonly unknown[];
+  readonly appState: Partial<AppState> | Readonly<Record<string, unknown>>;
+  readonly files?: BinaryFiles;
+  readonly source: string;
+}): OfficialExcalidrawExport {
+  return {
+    type: "excalidraw",
+    version: EXCALIDRAW_PERSISTENCE_CONTRACT.upstreamFormatVersion,
+    source: input.source,
+    elements: clearElementsForOfficialExport(input.elements),
+    appState: selectOfficialServerAppState(input.appState),
+    files: filterReferencedFiles(input.elements, input.files ?? {}),
+  };
+}
+
+export function createCollaborationSnapshot(
+  elements: readonly ExcalidrawElement[] | readonly unknown[],
+  now = Date.now(),
+): DrawstuffCollaborationSnapshot {
+  return {
+    engine: {
+      name: "excalidraw",
+      version: DRAWSTUFF_EXCALIDRAW_VERSION,
+    },
+    elements: getOfficialSyncableElements(elements, now),
   };
 }
 
@@ -182,22 +256,6 @@ function convertOwnedWhiteboardV3(
       name: typeof metadata.name === "string" ? metadata.name : "Untitled",
     }),
     assets: convertV3Assets(document.assets),
-  };
-}
-
-function sharedAppState(
-  appState: Readonly<Record<string, unknown>>,
-): Readonly<Record<string, unknown>> {
-  return {
-    ...(appState.theme !== undefined ? { theme: appState.theme } : {}),
-    ...(appState.viewBackgroundColor !== undefined
-      ? { viewBackgroundColor: appState.viewBackgroundColor }
-      : {}),
-    ...(appState.gridSize !== undefined ? { gridSize: appState.gridSize } : {}),
-    ...(appState.gridStep !== undefined ? { gridStep: appState.gridStep } : {}),
-    ...(appState.gridModeEnabled !== undefined
-      ? { gridModeEnabled: appState.gridModeEnabled }
-      : {}),
   };
 }
 

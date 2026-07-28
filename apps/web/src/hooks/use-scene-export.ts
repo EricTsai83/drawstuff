@@ -71,6 +71,7 @@ export function useSceneExport() {
           elements,
           appState,
           files,
+          { profile: "readonly-share" },
         );
 
         // 如果有文件需要上傳，先整理檔案
