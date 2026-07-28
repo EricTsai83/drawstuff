@@ -13,3 +13,27 @@ allowBuilds:
   msgpackr-extract: false
   sharp: false
   unrs-resolver: false
+
+overrides:
+  # UploadThing 7.7.4 pins a vulnerable effect release.
+  effect: 3.20.0
+  # Security-only transitive overrides; keep each dependency on its current
+  # compatible major while applying the advisory fix.
+  shell-quote: 1.10.0
+  "picomatch@2": 2.3.2
+  lodash-es: 4.18.1
+  defu: 6.1.7
+  "immutable@4": 4.3.9
+  "nanoid@<3.3.8": 3.3.16
+  "nanoid@>=4.0.0 <5.0.9": 5.1.16
+  "@babel/core@7": 7.29.7
+
+auditConfig:
+  ignoreGhsas:
+    # Transitive build-time esbuild advisory through drizzle-kit.
+    - GHSA-67mh-4wv8-2f99
+    # Next.js-pinned production dependencies accepted by the reference baseline.
+    - GHSA-qx2v-qp2m-jg93
+    - GHSA-f88m-g3jw-g9cj
+    - GHSA-6g55-p6wh-862q
+    - GHSA-r28c-9q8g-f849

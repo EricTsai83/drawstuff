@@ -177,8 +177,6 @@ export function useSceneRemoteRevisionCheck({
       isUploadInProgress,
       isBlockingDialogOpen,
       pendingConflict,
-      isDirty,
-      lastSyncedRevision,
       applyRemoteScene,
       getActiveTheme,
       openConflict,

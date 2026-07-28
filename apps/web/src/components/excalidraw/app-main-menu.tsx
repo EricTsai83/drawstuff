@@ -5,6 +5,7 @@ import {
   useRef,
   memo,
   useCallback,
+  useEffect,
   useState,
   type Dispatch,
   type SetStateAction,
@@ -114,6 +115,27 @@ function AppMainMenu({
   });
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
   const { updateLastSyncedRevision, currentWorkspaceId } = useSceneSession();
+
+  // Excalidraw 0.18.1's tunneled default trigger does not expose a trigger
+  // prop and renders without an accessible name. Keep the official trigger
+  // and repair its name after the tunnel mounts.
+  useEffect(() => {
+    const labelTrigger = () => {
+      const trigger = document.querySelector<HTMLButtonElement>(
+        '[data-testid="main-menu-trigger"]',
+      );
+      if (!trigger) return false;
+      trigger.setAttribute("aria-label", "Menu");
+      return true;
+    };
+
+    if (labelTrigger()) return;
+    const observer = new MutationObserver(() => {
+      if (labelTrigger()) observer.disconnect();
+    });
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => observer.disconnect();
+  }, [langCode]);
 
   const closeMenu = useCallback(() => {
     const currentAppState = excalidrawAPI?.getAppState();
