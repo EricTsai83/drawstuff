@@ -1,11 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import { Home, RefreshCw, TriangleAlert } from "lucide-react";
+import { Home, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 
 export type AppError = Error & {
   digest?: string;
@@ -31,19 +31,11 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
           <DrawstuffLogo className="size-9" />
           <span className="text-lg font-semibold">drawstuff</span>
         </div>
-
-        <div className="border-destructive/20 bg-destructive/10 text-destructive mb-6 flex size-14 items-center justify-center rounded-full border">
-          <TriangleAlert className="size-7" aria-hidden="true" />
-        </div>
-
-        <p className="text-muted-foreground mb-3 text-sm font-medium">
-          Something went wrong
-        </p>
         <h1
           id="error-page-title"
-          className="max-w-lg text-3xl font-bold text-balance sm:text-4xl"
+          className="text-destructive max-w-lg text-3xl font-bold sm:text-4xl"
         >
-          We could not load this drawing space.
+          Something went wrong
         </h1>
         <p className="text-muted-foreground mt-4 max-w-md text-sm leading-6 text-balance">
           Try reloading the page. If the problem continues, return to the canvas
@@ -58,17 +50,19 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
 
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
           <Button type="button" onClick={reset} className="w-full sm:w-auto">
-            <RefreshCw className="size-4" aria-hidden="true" />
+            <RefreshCw data-icon="inline-start" aria-hidden="true" />
             Try again
           </Button>
-          <Button
-            render={<Link href="/" />}
-            variant="outline"
-            className="w-full sm:w-auto"
+          <Link
+            href="/"
+            className={buttonVariants({
+              variant: "outline",
+              className: "w-full sm:w-auto",
+            })}
           >
-            <Home className="size-4" aria-hidden="true" />
+            <Home data-icon="inline-start" aria-hidden="true" />
             Back to canvas
-          </Button>
+          </Link>
         </div>
       </section>
     </main>

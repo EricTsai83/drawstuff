@@ -2,7 +2,7 @@ import Link from "next/link";
 import { Home, PanelsTopLeft } from "lucide-react";
 
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
-import { Button } from "@/components/ui/button";
+import { buttonVariants } from "@/components/ui/button";
 
 export default function NotFound() {
   return (
@@ -28,18 +28,25 @@ export default function NotFound() {
         </p>
 
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
-          <Button render={<Link href="/" />} className="w-full sm:w-auto">
-            <Home className="size-4" aria-hidden="true" />
-            Back to canvas
-          </Button>
-          <Button
-            render={<Link href="/dashboard" />}
-            variant="outline"
-            className="w-full sm:w-auto"
+          <Link
+            href="/"
+            className={buttonVariants({
+              className: "w-full sm:w-auto",
+            })}
           >
-            <PanelsTopLeft className="size-4" aria-hidden="true" />
+            <Home data-icon="inline-start" aria-hidden="true" />
+            Back to canvas
+          </Link>
+          <Link
+            href="/dashboard"
+            className={buttonVariants({
+              variant: "outline",
+              className: "w-full sm:w-auto",
+            })}
+          >
+            <PanelsTopLeft data-icon="inline-start" aria-hidden="true" />
             Open dashboard
-          </Button>
+          </Link>
         </div>
       </section>
     </main>
