@@ -1,6 +1,6 @@
 ---
 name: implement-with-claude-review
-description: Implement a plan or scoped change, verify it, obtain a read-only Claude review, validate and fix confirmed findings, then report in Traditional Chinese with a purpose-led per-file summary explaining why each change exists and which development responsibility it fulfills. Use for end-to-end implementation requests that require Claude or cross-model review. Fall back to an independent Codex review when Claude is unavailable and disclose the reason.
+description: Implement a plan or scoped change, verify it, obtain a read-only Claude review, immediately surface every reviewer finding before review-driven fixes, validate and fix confirmed findings, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Claude or cross-model review. Fall back to an independent Codex review when Claude is unavailable and disclose the reason.
 ---
 
 # Implement with Claude Review
@@ -13,10 +13,11 @@ Codex owns implementation, final technical judgment, fixes, verification, and re
 2. Implement without committing, pushing, deploying, or expanding scope unless requested.
 3. Run proportionate checks.
 4. Request a read-only Claude review against the requirements, diff, and check results.
-5. Validate every finding; accept only concrete correctness, regression, security, requirement, or meaningful test-coverage issues.
-6. Fix accepted findings and rerun affected checks. Reject style-only, speculative, or false-positive findings.
-7. If fixes are material, run one final pass with the same reviewer. Maximum: two review passes.
-8. Report the result in Traditional Chinese using the format below.
+5. Immediately present every returned finding to the user before making any review-driven code change. Mark these as unvalidated reviewer findings, not Codex's final judgment.
+6. Validate every finding; accept only concrete correctness, regression, security, requirement, or meaningful test-coverage issues.
+7. Present Codex's acceptance or rejection decisions, then fix accepted findings and rerun affected checks. Reject style-only, speculative, or false-positive findings.
+8. If fixes are material, run one final pass with the same reviewer. Maximum: two review passes. Repeat the immediate disclosure for that pass.
+9. Report the result in Traditional Chinese using the format below. Include every usable finding returned by every review pass, even when it was rejected or already fixed.
 
 ## Claude Review
 
@@ -31,7 +32,17 @@ claude -p "<focused review prompt>" \
   --tools "Read,Grep,Glob,Bash"
 ```
 
-Include the requirements, implementation scope, changed files or diff, checks, and pre-existing changes to ignore. Require severity, file/line, failure mode, and fix direction. Exclude formatting, naming, subjective style, and unrelated improvements. Treat findings as evidence, not authority.
+Include the requirements, implementation scope, changed files or diff, checks, and pre-existing changes to ignore. Require numbered findings with severity, file/line, failure mode, and fix direction, plus an explicit statement when there are no findings. Exclude formatting, naming, subjective style, and unrelated improvements. Treat findings as evidence, not authority.
+
+Retain the review output until the final report is complete. Present every usable reviewer finding in `Review 結果`, including rejected findings and findings fixed before a later clean pass. Do not replace the findings with only a pass/fail conclusion, a count, “已修正”, or the final reviewer approval. Faithfully summarize each finding; quote the reviewer only when its exact wording matters. Exact duplicates may be consolidated only when all original finding IDs are listed.
+
+### Immediate Finding Disclosure
+
+After each review invocation returns, send a commentary update before editing any code in response to that review. Do not defer this disclosure to the final report.
+
+Use the heading `Claude Review Pass N — 初始 findings（尚未經 Codex 驗證）` and include the provider plus every usable finding's ID, severity, file/line, failure mode, impact, and proposed fix direction. State clearly that Codex may accept or reject each finding after inspecting the code. When the reviewer reports no findings, immediately say `本 pass 無 findings`.
+
+After validation, send a second concise commentary update with the acceptance or rejection of each finding and the reason before or while applying accepted fixes. The later final report remains the authoritative record of findings, decisions, changes, and verification.
 
 ### Wait Limit
 
@@ -81,7 +92,13 @@ Write explanations and headings in Traditional Chinese; preserve commands, ident
 
 ## Review 結果
 
-- 每一 pass 的 provider、finding、接受／拒絕與對應修正。
+- 先明確說明 Claude 是否完成 review；若使用 fallback，列出規定的完整 provider label。
+- 依 pass 逐項呈現 reviewer 回傳的每一個可用 finding，不論接受、拒絕或已在後續 pass 解決：
+  - `[finding ID] severity — path:line`（reviewer 未提供位置時明確註明）。
+  - **Reviewer finding**：忠實呈現 failure mode、觸發條件、影響與 reviewer 建議的修正方向；不可只寫 finding 標題或最終結論。
+  - **判定**：接受／拒絕，以及 Codex 驗證後的具體理由。
+  - **處理與驗證**：接受時列出修正與檢查；拒絕時明確寫「未修改」及支持判定的證據。
+- reviewer 明確回傳沒有 findings 時，寫出「本 pass 無 findings」，不可省略該 pass。
 
 ## 驗證
 

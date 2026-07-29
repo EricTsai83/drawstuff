@@ -2,6 +2,17 @@ import tseslint from "typescript-eslint";
 // @ts-ignore -- no types for this plugin
 import drizzle from "eslint-plugin-drizzle";
 
+const adapterDeepImportRestriction = {
+  regex: "^@drawstuff/excalidraw-adapter/(?!client$|codec$|types$)",
+  message:
+    "Import an explicit @drawstuff/excalidraw-adapter public entry point.",
+};
+
+const adapterInternalPathRestriction = {
+  group: ["**/packages/excalidraw-adapter/**"],
+  message: "Import @drawstuff/excalidraw-adapter through its package exports.",
+};
+
 export default tseslint.config(
   {
     ignores: [".deepsec/**"],
@@ -32,6 +43,27 @@ export default tseslint.config(
         "error",
         { checksVoidReturn: { attributes: false } },
       ],
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@excalidraw/excalidraw",
+              message:
+                "Only @drawstuff/excalidraw-adapter may depend on the canvas engine.",
+            },
+          ],
+          patterns: [
+            {
+              group: ["@excalidraw/excalidraw/*"],
+              message:
+                "Only @drawstuff/excalidraw-adapter may depend on the canvas engine.",
+            },
+            adapterDeepImportRestriction,
+            adapterInternalPathRestriction,
+          ],
+        },
+      ],
       "drizzle/enforce-delete-with-where": [
         "error",
         { drizzleObjectName: ["db", "ctx.db"] },
@@ -39,6 +71,42 @@ export default tseslint.config(
       "drizzle/enforce-update-with-where": [
         "error",
         { drizzleObjectName: ["db", "ctx.db"] },
+      ],
+    },
+  },
+  {
+    files: [
+      "packages/excalidraw-adapter/src/**/*.{ts,tsx}",
+      "packages/excalidraw-adapter/tests/**/*.{ts,tsx}",
+    ],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@drawstuff/collaboration",
+              message:
+                "The adapter cannot depend on downstream collaboration code.",
+            },
+            {
+              name: "@drawstuff/web",
+              message: "The adapter cannot depend on downstream app code.",
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                "@drawstuff/collaboration/*",
+                "@drawstuff/web/*",
+                "**/apps/web/**",
+              ],
+              message:
+                "The adapter cannot import from a downstream workspace package.",
+            },
+            adapterDeepImportRestriction,
+          ],
+        },
       ],
     },
   },

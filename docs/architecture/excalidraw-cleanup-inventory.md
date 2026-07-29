@@ -119,6 +119,12 @@ Plan 00 snapshot 在 `apps/web` 未發現 editor、toolbar 或 collaboration fea
 ## Exports、dependencies 與 test-only paths
 
 - `@excalidraw/excalidraw` app dependency：Plan 02 移除。
+- `knip.ignoreDependencies` 的 `@drawstuff/excalidraw-adapter`：Plan 01 scaffold
+  尚未留下 verification-only app import，因此暫時忽略；Plan 02 第一次產品 import
+  建立後必須連同這個 ignore 一起移除。
+- Adapter 自己的 `knip.ignoreDependencies` 暫時忽略尚未由空 entry 使用的 upstream
+  dependency 與只提供 ambient types 的 `@types/react-dom`；Plan 02 建立實際
+  client/types entry 後必須移除已開始被使用的 ignore。
 - Plan 00 snapshot 沒有 internal package export，因此沒有可保留的 compatibility
   barrel；Plan 01 建立 adapter exports allowlist，Plan 02 禁止 app deep import。
 - Vitest `server.deps.inline` 的 upstream entry：Plan 02 在 tests 搬移後重新評估並由
