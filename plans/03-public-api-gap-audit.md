@@ -1,12 +1,13 @@
-# Plan 07：審核公開 API 缺口
+# Plan 03：審核公開 API 缺口
 
 - Status: Ready
-- Depends on: Plan 06
+- Depends on: Plan 02
 - Expected change size: 測試、spike 與一份決策表
 
 ## Outcome
 
-以可重現證據決定是否需要維護 upstream patch；不能只因為實作不方便就 fork。
+在 controller 與 toolbar 實作前，以可重現證據決定是否需要維護 upstream seam；
+不能先依賴 private API，再把既成事實當成 fork 理由。
 
 ## In scope
 
@@ -23,6 +24,8 @@
   - collaboration callbacks 所需 state
 - 每個缺口附最小 reproduction test。
 - 做出 `public API sufficient` 或 `minimal patch required` 決策。
+- 量測每個候選 API 在 selection change、pointer move、large scene 和 mobile
+  interaction 下的通知/render cost，排除必須輪詢或反覆複製完整 scene 的設計。
 
 ## Out of scope
 
@@ -32,11 +35,14 @@
 
 ## Steps
 
-1. 將目前 controller methods 對應到 upstream public symbols。
+1. 透過 `opensrc path --cwd . @excalidraw/excalidraw` 檢查 lockfile-resolved
+   dependency source，將預定 controller methods 對應到 upstream public symbols。
 2. 對所有 fallback、DOM query 或 private property 標記為 gap。
 3. 為每個 gap 建立最小失敗測試或 spike。
 4. 判斷是否能用較小的 product UX 調整消除 gap。
 5. 將結果寫入 `docs/`，包含版本、source link 與決策。
+6. 若某能力只能靠 DOM selector、timer polling、private property 或 full-scene
+   diff，直接視為 confirmed gap，不允許先放進 production。
 
 ## Verification
 
@@ -49,5 +55,7 @@ pnpm lint
 ## Done when
 
 - 每個 toolbar capability 都有 public API、accepted limitation 或 confirmed gap。
-- Plan 08 能明確標記為 `Ready` 或 `Skipped`。
+- Plan 04 能明確標記為 `Ready` 或 `Skipped`。
 - 沒有 production code 依賴 DOM selectors 或 undocumented internals。
+- Plan 05 的 controller contract 只包含已證明可穩定且符合 performance budget 的
+  能力，不需要後續重做。

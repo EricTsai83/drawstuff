@@ -7,13 +7,18 @@ owned Whiteboard V3 payloads, and V4 during the rollout.
 ## Preconditions
 
 1. Work against a database clone first.
-2. Apply `apps/web/drizzle/0001_excalidraw_v4_compatibility.sql`.
-3. Confirm an immutable database snapshot exists.
-4. Confirm the application can be put into read-only mode before execution.
+2. Review the Drizzle schema diff and run `pnpm db:push` against the clone;
+   there must be no migration file or handwritten migration SQL.
+3. Stop if DB push reports a destructive operation or unexpected
+   drop/truncate/type change.
+4. Confirm an immutable database snapshot and tested restore path exist.
+5. Confirm the application can be put into read-only mode before the data
+   rewrite.
 
 ## Inspect and validate
 
-Run the read-only count:
+The following command is a data backfill/validation utility, not a schema
+migration. Run the read-only count:
 
 ```sh
 pnpm --filter @drawstuff/web migrate:excalidraw-v4 -- --inspect
@@ -43,6 +48,10 @@ DRAWSTUFF_V4_MIGRATION_CONFIRM=I_HAVE_A_DATABASE_SNAPSHOT_AND_WRITES_ARE_PAUSED 
 The update uses the source document version in its `WHERE` clause and aborts
 if a row changed after validation. Run `--inspect` again before resuming
 writes.
+
+After every unencrypted owned scene is V4 and the result is independently
+verified, remove this one-off script, its package script, and backfill-only
+tests. Do not keep an executable legacy rewrite path indefinitely.
 
 ## Encrypted shared scenes
 

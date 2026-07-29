@@ -1,7 +1,7 @@
-# Plan 04：建立 Drawstuff toolbar 外殼
+# Plan 06：建立 Drawstuff toolbar 外殼
 
 - Status: Ready
-- Depends on: Plan 03
+- Depends on: Plan 05
 - Expected change size: 一個 UI component，尚未取代所有原生 controls
 
 ## Outcome
@@ -16,6 +16,8 @@
 - Toolbar 從 `WhiteboardController` 讀取狀態。
 - 初期 buttons 可以 disabled，但不得使用假 state。
 - 加入 feature flag，預設仍可安全退回原生 toolbar。
+- Flag 是有期限的 rollout control，owner/removal plan 固定為 Plan 08；不得衍生
+  第二套 toolbar state 或長期雙軌設定。
 
 ## Out of scope
 
@@ -30,6 +32,8 @@
 3. 接 controller provider/context，不直接 import upstream package。
 4. 加入 keyboard focus、tooltip 和 mobile overflow 測試。
 5. 加入視覺或 E2E smoke coverage。
+6. 記錄 toolbar chunk/render baseline，確認 opening/resize/focus 不會觸發 scene
+   serialization 或全 editor re-render。
 
 ## Verification
 
@@ -45,3 +49,5 @@ pnpm --filter @drawstuff/web test:e2e
 - Feature flag 開啟時可看到自訂 toolbar shell。
 - Feature flag 關閉時完全回到原本行為。
 - Toolbar UI 沒有 direct upstream imports。
+- Flag 關閉時 custom toolbar 不 mount、不訂閱 controller，也不進入 initial
+  interaction path；沒有 hidden duplicate controls。
