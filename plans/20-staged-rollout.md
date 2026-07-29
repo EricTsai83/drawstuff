@@ -35,7 +35,6 @@ editor，而不破壞 scene data。
 ## Verification
 
 ```sh
-pnpm architecture:guard
 pnpm lint
 pnpm typecheck
 pnpm test

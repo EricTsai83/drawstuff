@@ -20,7 +20,7 @@ type GlobalConfirmDialogProps = {
   options: ConfirmDialogOptions;
 };
 
-export function GlobalConfirmDialog({
+function GlobalConfirmDialog({
   open,
   onOpenChange,
   loading,

@@ -26,6 +26,9 @@ import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import { parseSharedSceneHash } from "@/lib/utils";
 import { exportToBlob, MIME_TYPES } from "@excalidraw/excalidraw";
+import { ensureInitialAppState } from "@/lib/excalidraw-app-state";
+import { createLocalExportDocument } from "@/lib/excalidraw-document-v4";
+import { getBaseUrl } from "@/lib/base-url";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
@@ -249,7 +252,7 @@ export function cleanUnusedFiles(
   return filteredFiles;
 }
 
-export function getReferencedFileIds(
+function getReferencedFileIds(
   elements: readonly ExcalidrawElement[] | null | undefined,
 ): Set<string> {
   const fileIds = new Set<string>();
@@ -319,35 +322,6 @@ export function isInitializedImageElement(
   return !!element && element.type === "image" && !!element.fileId;
 }
 
-export type ExcalidrawSceneData = {
-  type: "excalidraw";
-  version: 2;
-  source: string;
-  elements:
-    | readonly NonDeletedExcalidrawElement[]
-    | readonly OrderedExcalidrawElement[];
-  appState: Partial<AppState>;
-  files: BinaryFiles;
-};
-
-// 建立標準 Excalidraw 場景資料物件
-export function createExcalidrawSceneData(
-  elements:
-    | readonly NonDeletedExcalidrawElement[]
-    | readonly OrderedExcalidrawElement[],
-  appState: Partial<AppState>,
-  files: BinaryFiles,
-): ExcalidrawSceneData {
-  return {
-    type: "excalidraw" as const,
-    version: 2 as const,
-    source: "https://excalidraw-ericts.vercel.app",
-    elements,
-    appState,
-    files,
-  };
-}
-
 // 以標準格式將場景儲存為 .excalidraw 並下載
 export function saveSceneJsonToDisk(
   elements:
@@ -357,7 +331,12 @@ export function saveSceneJsonToDisk(
   files: BinaryFiles,
   fileName?: string,
 ): void {
-  const sceneData = createExcalidrawSceneData(elements, appState, files);
+  const sceneData = createLocalExportDocument({
+    elements,
+    appState,
+    files,
+    source: getBaseUrl(),
+  });
   const blob = createJsonBlob(sceneData);
   const baseName =
     ((appState.name as string | undefined) ?? "scene").trim() || "scene";
@@ -404,41 +383,6 @@ function hasViewportData(appState: Partial<AppState>): boolean {
     typeof appState.scrollY === "number" ||
     appState.zoom !== undefined
   );
-}
-
-export function ensureInitialAppState(
-  appState: Partial<AppState>,
-): Partial<AppState> {
-  // Excalidraw 會期望一些欄位為特定形狀。這裡清掉可能造成型別/結構問題的欄位
-  const { theme, viewBackgroundColor, gridSize, name } = appState;
-  const sanitizedScrollX = sanitizeViewportCoordinate(appState.scrollX);
-  const sanitizedScrollY = sanitizeViewportCoordinate(appState.scrollY);
-  const sanitizedZoom = sanitizeZoomState(appState.zoom);
-
-  return {
-    theme,
-    viewBackgroundColor,
-    gridSize,
-    name,
-    ...(sanitizedScrollX !== undefined ? { scrollX: sanitizedScrollX } : {}),
-    ...(sanitizedScrollY !== undefined ? { scrollY: sanitizedScrollY } : {}),
-    ...(sanitizedZoom ? { zoom: sanitizedZoom } : {}),
-  };
-}
-
-function sanitizeViewportCoordinate(value: unknown): number | undefined {
-  if (typeof value !== "number") return undefined;
-  if (!Number.isFinite(value)) return undefined;
-  return value;
-}
-
-function sanitizeZoomState(
-  zoom: AppState["zoom"] | undefined,
-): AppState["zoom"] | undefined {
-  if (!zoom) return undefined;
-  if (typeof zoom.value !== "number") return undefined;
-  if (!Number.isFinite(zoom.value)) return undefined;
-  return { ...zoom, value: zoom.value };
 }
 
 // 匯出場景為 PNG Blob（抽共用）

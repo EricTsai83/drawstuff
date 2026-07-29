@@ -48,7 +48,6 @@ describe("DrawstuffDocumentV4", () => {
     expect(loaded.version).toBe(DRAWSTUFF_DOCUMENT_VERSION);
     expect(loaded.engine).toEqual({
       name: "excalidraw",
-      version: "0.18.1",
     });
     expect(native.elements).toEqual(elements);
     expect(native.elements.map((element) => element.id)).toEqual(
@@ -76,6 +75,21 @@ describe("DrawstuffDocumentV4", () => {
     expect(loaded.scene.appState).not.toHaveProperty("theme");
     expect(loaded.scene.appState).not.toHaveProperty("scrollX");
     expect(loaded.scene.appState).not.toHaveProperty("zoom");
+  });
+
+  it("reads V4 documents written by older Excalidraw versions", () => {
+    const historical = {
+      ...createDrawstuffDocumentV4({
+        elements,
+        appState: { name: "Historical fixture" },
+      }),
+      engine: {
+        name: "excalidraw" as const,
+        version: "0.18.1",
+      },
+    };
+
+    expect(parseDrawstuffDocument(historical)).toEqual(historical);
   });
 
   it("reads raw legacy Excalidraw and deterministic Whiteboard V3", () => {

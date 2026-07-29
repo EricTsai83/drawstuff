@@ -82,14 +82,14 @@ interface MultipleSelectorProps {
   hideClearAllButton?: boolean;
 }
 
-export interface MultipleSelectorRef {
+interface MultipleSelectorRef {
   selectedValue: Option[];
   input: HTMLInputElement;
   focus: () => void;
   reset: () => void;
 }
 
-export function useDebounce<T>(value: T, delay?: number): T {
+function useDebounce<T>(value: T, delay?: number): T {
   const [debouncedValue, setDebouncedValue] = React.useState<T>(value);
 
   useEffect(() => {

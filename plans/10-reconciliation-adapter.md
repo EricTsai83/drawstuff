@@ -6,14 +6,14 @@
 
 ## Outcome
 
-所有遠端 element updates 都由 pinned Excalidraw 的 `reconcileElements` 合併；
+所有遠端 element updates 都由目前解析的 Excalidraw `reconcileElements` 合併；
 Drawstuff 不存在第二套 merge algorithm。
 
 ## In scope
 
 - Adapter 暴露狹窄的 `reconcileRemoteElements()`。
 - 建立 `getSyncableElements()`，遵守既有 tombstone 與 invisible-element policy。
-- 對 pinned upstream 建立 differential fixtures。
+- 對目前解析的 upstream 版本建立 differential fixtures。
 - 測試 element ordering、`version`、`versionNonce`、deletion 和 simultaneous edits。
 - 將 collaboration package 接到這個 adapter contract。
 
@@ -36,12 +36,12 @@ Drawstuff 不存在第二套 merge algorithm。
 ```sh
 pnpm --filter @drawstuff/excalidraw-adapter test
 pnpm --filter @drawstuff/collaboration test
-pnpm architecture:guard
+pnpm lint
 pnpm typecheck
 ```
 
 ## Done when
 
-- Adapter 與 pinned upstream 的 differential results 一致。
+- Adapter 與 lockfile 解析的 upstream 版本 differential results 一致。
 - Collaboration code 沒有自訂 version winner 或 ordering 邏輯。
 - Deleted tombstones 可以跨 client 正確收斂。

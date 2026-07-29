@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 
-export type SceneChangeDecision = "save" | "switch" | "cancel";
+type SceneChangeDecision = "save" | "switch" | "cancel";
 
 export type UseSceneChangeConfirm = {
   isSceneChangeDialogOpen: boolean;

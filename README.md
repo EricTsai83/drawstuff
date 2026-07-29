@@ -51,7 +51,7 @@ Use publishing when you want a stable, read-only page that can be opened directl
 | Database | PostgreSQL, Drizzle ORM |
 | Auth | Better Auth, Google OAuth |
 | File Storage | UploadThing |
-| UI | Tailwind CSS v4, Radix UI, Sonner |
+| UI | Tailwind CSS v4, Base UI, Sonner |
 | Utilities | Zod, nuqs, date-fns |
 
 ## Project Structure

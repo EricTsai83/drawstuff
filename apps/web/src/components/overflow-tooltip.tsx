@@ -72,5 +72,3 @@ export function OverflowTooltip({
     </Tooltip>
   );
 }
-
-export default OverflowTooltip;

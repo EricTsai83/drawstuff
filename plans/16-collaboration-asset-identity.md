@@ -37,7 +37,7 @@
 ```sh
 pnpm --filter @drawstuff/web typecheck
 pnpm --filter @drawstuff/web test
-pnpm architecture:guard
+pnpm lint
 ```
 
 另需在 isolated database 保存 migration dry-run 與 rollback 結果。

@@ -80,40 +80,6 @@ export const workspaceRouter = createTRPCRouter({
       };
     }),
 
-  // 單純取得預設 workspace（若不存在則回傳 null，不建立）
-  getDefault: protectedProcedure.query(async ({ ctx }) => {
-    const userId = ctx.auth.user.id;
-    const mapping = await ctx.db
-      .select({ workspaceId: userDefaultWorkspace.workspaceId })
-      .from(userDefaultWorkspace)
-      .where(eq(userDefaultWorkspace.userId, userId))
-      .limit(1);
-
-    if (!mapping[0]) return null;
-
-    const [row] = await ctx.db
-      .select({
-        id: workspace.id,
-        name: workspace.name,
-        description: workspace.description,
-        createdAt: workspace.createdAt,
-        updatedAt: workspace.updatedAt,
-      })
-      .from(workspace)
-      .where(eq(workspace.id, mapping[0].workspaceId))
-      .limit(1);
-
-    if (!row) return null;
-
-    return {
-      id: row.id,
-      name: row.name,
-      description: row.description,
-      createdAt: row.createdAt.toISOString(),
-      updatedAt: row.updatedAt.toISOString(),
-    };
-  }),
-
   // 確保存在預設 workspace（不存在才建立）
   ensureDefault: protectedProcedure.mutation(async ({ ctx }) => {
     const userId = ctx.auth.user.id;
@@ -188,38 +154,6 @@ export const workspaceRouter = createTRPCRouter({
         })
         .onConflictDoNothing({ target: userLastActiveWorkspace.userId });
     });
-  }),
-
-  // 取得最後啟用的 workspace（若不存在回傳 null）
-  getLastActive: protectedProcedure.query(async ({ ctx }) => {
-    const userId = ctx.auth.user.id;
-    const [lastActiveWorkspaceRow] = await ctx.db
-      .select({ workspaceId: userLastActiveWorkspace.workspaceId })
-      .from(userLastActiveWorkspace)
-      .where(eq(userLastActiveWorkspace.userId, userId))
-      .limit(1);
-    if (!lastActiveWorkspaceRow) return null;
-
-    const [lastActiveWorkspaceRowDetail] = await ctx.db
-      .select({
-        id: workspace.id,
-        name: workspace.name,
-        description: workspace.description,
-        createdAt: workspace.createdAt,
-        updatedAt: workspace.updatedAt,
-      })
-      .from(workspace)
-      .where(eq(workspace.id, lastActiveWorkspaceRow.workspaceId))
-      .limit(1);
-    if (!lastActiveWorkspaceRowDetail) return null;
-
-    return {
-      id: lastActiveWorkspaceRowDetail.id,
-      name: lastActiveWorkspaceRowDetail.name,
-      description: lastActiveWorkspaceRowDetail.description,
-      createdAt: lastActiveWorkspaceRowDetail.createdAt.toISOString(),
-      updatedAt: lastActiveWorkspaceRowDetail.updatedAt.toISOString(),
-    };
   }),
 
   // 設定最後啟用的 workspace

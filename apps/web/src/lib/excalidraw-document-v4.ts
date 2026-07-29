@@ -4,15 +4,13 @@ import {
   clearElementsForOfficialExport,
   EXCALIDRAW_PERSISTENCE_CONTRACT,
   filterReferencedFiles,
-  getOfficialSyncableElements,
   selectOfficialServerAppState,
   type ExcalidrawStorageProfile,
 } from "@/lib/excalidraw-persistence-contract";
 
 export const DRAWSTUFF_DOCUMENT_VERSION = 4 as const;
-export const DRAWSTUFF_EXCALIDRAW_VERSION = "0.18.1" as const;
 
-export interface DrawstuffAssetMetadata {
+interface DrawstuffAssetMetadata {
   readonly id: string;
   readonly mimeType?: string;
   readonly created?: number;
@@ -24,7 +22,11 @@ export interface DrawstuffDocumentV4 {
   readonly version: typeof DRAWSTUFF_DOCUMENT_VERSION;
   readonly engine: {
     readonly name: "excalidraw";
-    readonly version: typeof DRAWSTUFF_EXCALIDRAW_VERSION;
+    /**
+     * Informational metadata written by older V4 documents. Document
+     * compatibility is governed by the Drawstuff document version instead.
+     */
+    readonly version?: string;
   };
   readonly scene: {
     readonly elements: readonly unknown[];
@@ -45,14 +47,6 @@ export interface OfficialExcalidrawExport {
   readonly files?: BinaryFiles;
 }
 
-export interface DrawstuffCollaborationSnapshot {
-  readonly engine: {
-    readonly name: "excalidraw";
-    readonly version: typeof DRAWSTUFF_EXCALIDRAW_VERSION;
-  };
-  readonly elements: readonly unknown[];
-}
-
 type JsonObject = Record<string, unknown>;
 
 export function createDrawstuffDocumentV4(input: {
@@ -71,7 +65,6 @@ export function createDrawstuffDocumentV4(input: {
     version: DRAWSTUFF_DOCUMENT_VERSION,
     engine: {
       name: "excalidraw",
-      version: DRAWSTUFF_EXCALIDRAW_VERSION,
     },
     scene: {
       // Elements are deliberately not projected onto an application-owned
@@ -115,19 +108,6 @@ export function createLocalExportDocument(input: {
     elements: clearElementsForOfficialExport(input.elements),
     appState: selectOfficialServerAppState(input.appState),
     files: filterReferencedFiles(input.elements, input.files ?? {}),
-  };
-}
-
-export function createCollaborationSnapshot(
-  elements: readonly ExcalidrawElement[] | readonly unknown[],
-  now = Date.now(),
-): DrawstuffCollaborationSnapshot {
-  return {
-    engine: {
-      name: "excalidraw",
-      version: DRAWSTUFF_EXCALIDRAW_VERSION,
-    },
-    elements: getOfficialSyncableElements(elements, now),
   };
 }
 
@@ -176,7 +156,7 @@ function isDrawstuffDocumentV4(value: unknown): value is DrawstuffDocumentV4 {
   if (
     !isObject(value.engine) ||
     value.engine.name !== "excalidraw" ||
-    value.engine.version !== DRAWSTUFF_EXCALIDRAW_VERSION
+    ("version" in value.engine && typeof value.engine.version !== "string")
   ) {
     return false;
   }

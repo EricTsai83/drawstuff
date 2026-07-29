@@ -137,67 +137,6 @@ export async function getCourseCategory(
   }
 }
 
-// 讀取場景資料
-export async function getSharedSceneData(sharedSceneId: string) {
-  const session = await getServerSession();
-
-  if (!session) {
-    return {
-      data: null,
-      errorMessage: "Please sign in and try again",
-    };
-  }
-
-  try {
-    // 從資料庫讀取場景資料
-    const result = await db
-      .select({
-        sharedSceneId: sharedScene.sharedSceneId,
-        compressedData: sharedScene.compressedData,
-        createdAt: sharedScene.createdAt,
-      })
-      .from(sharedScene)
-      .where(eq(sharedScene.sharedSceneId, sharedSceneId))
-      .limit(1);
-
-    if (result.length === 0) {
-      return {
-        data: null,
-        errorMessage:
-          "Scene not found. It may have been deleted or you lack permission",
-      };
-    }
-
-    const sceneData = result[0];
-
-    if (!sceneData?.compressedData) {
-      return {
-        data: null,
-        errorMessage:
-          "Scene data appears corrupted. Please re-share the scene or contact support",
-      };
-    }
-
-    // 自定義類型會自動將 bytea 轉回 Uint8Array
-    const compressedData: Uint8Array = sceneData.compressedData;
-
-    return {
-      data: {
-        sharedSceneId: sceneData.sharedSceneId,
-        compressedData: compressedData, // 這是 Uint8Array 類型
-        createdAt: sceneData.createdAt,
-      },
-      errorMessage: null,
-    };
-  } catch (error) {
-    console.error("Error in getSceneData:", error);
-    return {
-      data: null,
-      errorMessage: "Failed to load scene data. Please try again later",
-    };
-  }
-}
-
 // 回滾 shared scene：刪除已上傳的 UploadThing 檔案與 DB 紀錄
 export async function rollbackSharedScene(sharedSceneId: string) {
   const session = await getServerSession();

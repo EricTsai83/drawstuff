@@ -176,15 +176,6 @@ export function saveCurrentSceneIdToStorage(id: string): void {
   }
 }
 
-export function clearCurrentSceneIdFromStorage(): void {
-  if (!canUseLocalStorage()) return;
-  try {
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
-  } catch (error: unknown) {
-    console.error(error);
-  }
-}
-
 /** Clear all scene-session keys (ID + revision + dirty + workspaceId) at once. */
 export function clearCurrentSceneSessionFromStorage(): void {
   if (!canUseLocalStorage()) return;
@@ -256,15 +247,6 @@ export function saveCurrentSceneDirtyToStorage(isDirty: boolean): void {
   }
 }
 
-export function clearCurrentSceneDirtyFromStorage(): void {
-  if (!canUseLocalStorage()) return;
-  try {
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);
-  } catch (error: unknown) {
-    console.error(error);
-  }
-}
-
 // ====== Scene Workspace ID helpers ======
 
 export function loadCurrentSceneWorkspaceIdFromStorage(): string | undefined {
@@ -282,15 +264,6 @@ export function saveCurrentSceneWorkspaceIdToStorage(id: string): void {
   if (!canUseLocalStorage()) return;
   try {
     localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID, id);
-  } catch (error: unknown) {
-    console.error(error);
-  }
-}
-
-export function clearCurrentSceneWorkspaceIdFromStorage(): void {
-  if (!canUseLocalStorage()) return;
-  try {
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID);
   } catch (error: unknown) {
     console.error(error);
   }

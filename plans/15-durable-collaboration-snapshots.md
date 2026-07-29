@@ -26,7 +26,7 @@ snapshot 恢復並繼續同步。
 
 ## Steps
 
-1. 將現有 `collaboration-snapshot` profile 接到 collaboration package。
+1. 在 collaboration package 建立 `collaboration-snapshot` profile 與 codec。
 2. 定義 encrypted envelope、crypto version、revision 和 checksum metadata。
 3. 建立 create/read/conditional-write API。
 4. 由選定 client 定期提交 snapshot，處理 revision conflict。
@@ -38,7 +38,7 @@ snapshot 恢復並繼續同步。
 pnpm --filter @drawstuff/collaboration test
 pnpm --filter @drawstuff/web test
 pnpm --filter @drawstuff/web test:e2e
-pnpm architecture:guard
+pnpm lint
 ```
 
 ## Done when

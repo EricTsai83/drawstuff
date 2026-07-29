@@ -1,6 +1,6 @@
 import { getBaseUrl } from "@/lib/base-url";
 
-export function getPublishedScenePath(slug: string): string {
+function getPublishedScenePath(slug: string): string {
   return `/p/${slug}`;
 }
 

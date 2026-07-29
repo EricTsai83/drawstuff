@@ -43,7 +43,7 @@ type NewSceneDialogProps = {
   }) => void;
 };
 
-export function NewSceneDialog({
+function NewSceneDialog({
   trigger,
   open,
   onOpenChange,

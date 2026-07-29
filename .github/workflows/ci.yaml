@@ -45,9 +45,6 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Guard official Excalidraw architecture
-        run: pnpm architecture:guard
-
       - name: Audit production dependencies
         run: pnpm audit:ci
 

@@ -10,7 +10,7 @@ import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { AuthSessionData } from "@/lib/types";
 
-export type ExportUIHandlers = {
+type ExportUIHandlers = {
   handleSaveToDisk: (
     elements: readonly NonDeletedExcalidrawElement[],
     appState: Partial<AppState>,
@@ -120,7 +120,7 @@ export function ExportSceneActions({
   );
 }
 
-export type ExportActionConfig = {
+type ExportActionConfig = {
   title: string;
   subtitle: string;
   buttonLabel: string;

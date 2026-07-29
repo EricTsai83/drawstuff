@@ -11,7 +11,7 @@ import type {
   BinaryFileData,
   DataURL,
 } from "@excalidraw/excalidraw/types";
-import { ensureInitialAppState } from "@/lib/excalidraw";
+import { ensureInitialAppState } from "@/lib/excalidraw-app-state";
 import {
   parseDrawstuffDocument,
   toNativeExcalidrawScene,
@@ -53,7 +53,7 @@ export async function importDataFromBackend(
   }
 }
 
-export type CloudFileRecord = {
+type CloudFileRecord = {
   utFileKey: string;
   url: string;
   name: string;
@@ -73,7 +73,7 @@ export type ImportedSceneData = ImportedDataState & {
   workspaceId?: string;
 };
 
-export async function getFileRecordsBySharedSceneId(
+async function getFileRecordsBySharedSceneId(
   sharedSceneId: string,
 ): Promise<CloudFileRecord[]> {
   try {
@@ -90,7 +90,7 @@ export async function getFileRecordsBySharedSceneId(
   }
 }
 
-export async function getFileRecordsBySceneId(
+async function getFileRecordsBySceneId(
   sceneId: string,
 ): Promise<CloudFileRecord[]> {
   try {
