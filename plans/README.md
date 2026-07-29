@@ -18,29 +18,32 @@ merge algorithm，皆不在這組計畫內。
 
 ## 執行順序
 
-| Plan                                          | 結果                                            | 依賴                |
-| --------------------------------------------- | ----------------------------------------------- | ------------------- |
-| [00](./00-architecture-contract.md)           | 鎖定 ownership 與不可破壞的相容性邊界           | 無                  |
-| [01](./01-adapter-package-scaffold.md)        | 建立 internal adapter package                   | 00                  |
-| [02](./02-editor-render-bridge.md)            | 現有 editor 透過 adapter render                 | 01                  |
-| [03](./03-public-api-gap-audit.md)            | 先證明公開 API 能力並決定是否需要 upstream seam | 02                  |
-| [04](./04-minimal-upstream-seam.md)           | 僅補足已確認的 upstream API seam                | 03，條件式          |
-| [05](./05-whiteboard-controller.md)           | 建立穩定 controller/command API                 | 03，以及需要時的 04 |
-| [06](./06-custom-toolbar-shell.md)            | 建立 Drawstuff toolbar 外殼                     | 05                  |
-| [07](./07-core-tool-controls.md)              | 接上核心繪圖工具                                | 06                  |
-| [08](./08-style-and-selection-controls.md)    | 接上樣式與 selection controls                   | 07                  |
-| [09](./09-collaboration-contracts.md)         | 建立 transport-neutral 共編 contracts           | 08                  |
-| [10](./10-reconciliation-adapter.md)          | 鎖定官方 merge semantics                        | 09                  |
-| [11](./11-local-two-client-poc.md)            | 在單一瀏覽器驗證兩個 client 收斂                | 10                  |
-| [12](./12-stateless-relay-service.md)         | 建立獨立 realtime relay                         | 11                  |
-| [13](./13-room-auth-and-lifecycle.md)         | 加入 room 權限與生命週期                        | 12                  |
-| [14](./14-e2ee-realtime-payloads.md)          | Relay 只看得到密文                              | 13                  |
-| [15](./15-durable-collaboration-snapshots.md) | 建立獨立加密 snapshot                           | 14                  |
-| [16](./16-collaboration-asset-identity.md)    | 建立 collaboration asset metadata 邊界          | 15                  |
-| [17](./17-encrypted-asset-transfer.md)        | 同步並保存圖片等 binary assets                  | 16                  |
-| [18](./18-reconnect-and-convergence.md)       | 驗證斷線、重連與 server restart                 | 17                  |
-| [19](./19-production-hardening.md)            | 加入 limits、監控與 load/security checks        | 18                  |
-| [20](./20-staged-rollout.md)                  | 以 feature flag 漸進開放並可回滾                | 19                  |
+下表是所有 plan 執行狀態的唯一紀錄；`Completed` 代表該 plan 已實際執行並通過
+完成條件，其餘狀態都不代表已完成。
+
+| Plan                                          | 執行狀態  | 結果                                            | 依賴                |
+| --------------------------------------------- | --------- | ----------------------------------------------- | ------------------- |
+| [00](./00-architecture-contract.md)           | Completed | 鎖定 ownership 與不可破壞的相容性邊界           | 無                  |
+| [01](./01-adapter-package-scaffold.md)        | Ready     | 建立 internal adapter package                   | 00                  |
+| [02](./02-editor-render-bridge.md)            | Ready     | 現有 editor 透過 adapter render                 | 01                  |
+| [03](./03-public-api-gap-audit.md)            | Ready     | 先證明公開 API 能力並決定是否需要 upstream seam | 02                  |
+| [04](./04-minimal-upstream-seam.md)           | Ready     | 僅補足已確認的 upstream API seam                | 03，條件式          |
+| [05](./05-whiteboard-controller.md)           | Ready     | 建立穩定 controller/command API                 | 03，以及需要時的 04 |
+| [06](./06-custom-toolbar-shell.md)            | Ready     | 建立 Drawstuff toolbar 外殼                     | 05                  |
+| [07](./07-core-tool-controls.md)              | Ready     | 接上核心繪圖工具                                | 06                  |
+| [08](./08-style-and-selection-controls.md)    | Ready     | 接上樣式與 selection controls                   | 07                  |
+| [09](./09-collaboration-contracts.md)         | Ready     | 建立 transport-neutral 共編 contracts           | 08                  |
+| [10](./10-reconciliation-adapter.md)          | Ready     | 鎖定官方 merge semantics                        | 09                  |
+| [11](./11-local-two-client-poc.md)            | Ready     | 在單一瀏覽器驗證兩個 client 收斂                | 10                  |
+| [12](./12-stateless-relay-service.md)         | Ready     | 建立獨立 realtime relay                         | 11                  |
+| [13](./13-room-auth-and-lifecycle.md)         | Ready     | 加入 room 權限與生命週期                        | 12                  |
+| [14](./14-e2ee-realtime-payloads.md)          | Ready     | Relay 只看得到密文                              | 13                  |
+| [15](./15-durable-collaboration-snapshots.md) | Ready     | 建立獨立加密 snapshot                           | 14                  |
+| [16](./16-collaboration-asset-identity.md)    | Ready     | 建立 collaboration asset metadata 邊界          | 15                  |
+| [17](./17-encrypted-asset-transfer.md)        | Ready     | 同步並保存圖片等 binary assets                  | 16                  |
+| [18](./18-reconnect-and-convergence.md)       | Ready     | 驗證斷線、重連與 server restart                 | 17                  |
+| [19](./19-production-hardening.md)            | Ready     | 加入 limits、監控與 load/security checks        | 18                  |
+| [20](./20-staged-rollout.md)                  | Ready     | 以 feature flag 漸進開放並可回滾                | 19                  |
 
 Plan 04 是唯一條件式 plan。若 Plan 03 證明公開 API 足夠，將它標記為
 `Skipped — public API sufficient`，然後直接執行 Plan 05。
@@ -87,7 +90,7 @@ Plan 04 是唯一條件式 plan。若 Plan 03 證明公開 API 足夠，將它�
 - Data backfill/verification job 不是 schema migration；它仍須支援 dry-run、
   batching、checkpoint、idempotency、併發寫入策略與可核對的 before/after counts。
 
-## 狀態標記
+## 執行狀態標記
 
 每份 plan 的 `Status` 使用以下其中之一：
 
@@ -98,4 +101,5 @@ Plan 04 是唯一條件式 plan。若 Plan 03 證明公開 API 足夠，將它�
 - `Skipped — <reason>`
 
 開始實作前，把該文件的 status 改成 `In progress`；所有完成條件成立後才改成
-`Completed`。
+`Completed`。每次狀態變更都必須同步更新上方索引表；判斷 plan 是否已執行完成
+時，以上方索引表的 `執行狀態` 為準。

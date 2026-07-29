@@ -1,6 +1,6 @@
 # Plan 00：鎖定架構與相容性契約
 
-- Status: Ready
+- Status: Completed
 - Depends on: 無
 - Expected change size: 文件與測試基線
 
@@ -58,6 +58,10 @@ orchestration，但不擁有另一套 canvas engine 或 element schema。
 pnpm lint
 pnpm typecheck
 pnpm test
+pnpm knip
+SKIP_ENV_VALIDATION=1 pnpm build
+pnpm baseline:performance
+pnpm baseline:performance:e2e
 ```
 
 ## Done when
