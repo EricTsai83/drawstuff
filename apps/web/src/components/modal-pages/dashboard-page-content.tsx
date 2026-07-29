@@ -19,7 +19,7 @@ export default async function DashboardPageContent() {
 
   return (
     <OverlayModal
-      overlayClassName="pt-6"
+      overlayClassName="bg-transparent pt-6"
       closeDelayMs={0}
       contentClassName={cn(
         "bg-background mx-auto min-h-full w-4/5 rounded-none border-0 flex justify-center",
