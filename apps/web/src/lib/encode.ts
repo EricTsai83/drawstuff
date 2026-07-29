@@ -34,10 +34,6 @@ const byteStringToArrayBuffer = (byteString: string) => {
   return buffer;
 };
 
-const byteStringToString = (byteString: string) => {
-  return new TextDecoder("utf-8").decode(byteStringToArrayBuffer(byteString));
-};
-
 // -----------------------------------------------------------------------------
 // base64
 // -----------------------------------------------------------------------------
@@ -48,13 +44,6 @@ const byteStringToString = (byteString: string) => {
  */
 export const stringToBase64 = (str: string, isByteString = false) => {
   return isByteString ? window.btoa(str) : window.btoa(toByteString(str));
-};
-
-// async to align with stringToBase64
-export const base64ToString = (base64: string, isByteString = false) => {
-  return isByteString
-    ? window.atob(base64)
-    : byteStringToString(window.atob(base64));
 };
 
 export const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
@@ -68,83 +57,6 @@ export const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
   }
   // Browser environment
   return byteStringToArrayBuffer(atob(base64));
-};
-
-// -----------------------------------------------------------------------------
-// base64url
-// -----------------------------------------------------------------------------
-
-export const base64urlToString = (str: string) => {
-  return window.atob(
-    // normalize base64URL to base64
-    str
-      .replace(/-/g, "+")
-      .replace(/_/g, "/")
-      .padEnd(str.length + ((4 - (str.length % 4)) % 4), "="),
-  );
-};
-
-// -----------------------------------------------------------------------------
-// text encoding
-// -----------------------------------------------------------------------------
-
-type EncodedData = {
-  encoded: string;
-  encoding: "bstring";
-  /** whether text is compressed (zlib) */
-  compressed: boolean;
-  /** version for potential migration purposes */
-  version?: string;
-};
-
-/**
- * Encodes (and potentially compresses via zlib) text to byte string
- */
-export const encode = ({
-  text,
-  compress,
-}: {
-  text: string;
-  /** defaults to `true`. If compression fails, falls back to bstring alone. */
-  compress?: boolean;
-}): EncodedData => {
-  let deflated!: string;
-  if (compress !== false) {
-    try {
-      deflated = toByteString(deflate(text));
-    } catch (error: unknown) {
-      console.error("encode: cannot deflate", error);
-    }
-  }
-  return {
-    version: "1",
-    encoding: "bstring",
-    compressed: !!deflated,
-    encoded: deflated || toByteString(text),
-  };
-};
-
-export const decode = (data: EncodedData): string => {
-  let decoded: string;
-
-  switch (data.encoding) {
-    case "bstring":
-      // if compressed, do not double decode the bstring
-      decoded = data.compressed
-        ? data.encoded
-        : byteStringToString(data.encoded);
-      break;
-    default:
-      throw new Error(`decode: unknown encoding "${data.encoding as string}"`);
-  }
-
-  if (data.compressed) {
-    return inflate(new Uint8Array(byteStringToArrayBuffer(decoded)), {
-      toText: true,
-    });
-  }
-
-  return decoded;
 };
 
 // -----------------------------------------------------------------------------

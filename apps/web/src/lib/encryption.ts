@@ -4,9 +4,9 @@ import type { ArrayBufferInput, Uint8ArrayLike } from "./array-buffer";
 import { normalizeToArrayBuffer } from "./array-buffer";
 import { blobToArrayBuffer } from "./blob";
 
-export const IV_LENGTH_BYTES = 12;
+const IV_LENGTH_BYTES = 12;
 
-export const createIV = () => {
+const createIV = () => {
   const arr = new Uint8Array(IV_LENGTH_BYTES);
   return window.crypto.getRandomValues(arr);
 };
@@ -29,7 +29,7 @@ export async function generateEncryptionKey<
   ) as T extends "cryptoKey" ? CryptoKey : string;
 }
 
-export const getCryptoKey = (key: string, usage: KeyUsage) =>
+const getCryptoKey = (key: string, usage: KeyUsage) =>
   window.crypto.subtle.importKey(
     "jwk",
     {

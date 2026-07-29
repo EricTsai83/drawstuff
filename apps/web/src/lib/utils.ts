@@ -6,57 +6,6 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
-// 定義可解析 Promise 的介面
-interface ResolvablePromise<T> extends Promise<T> {
-  resolve: (value: T | PromiseLike<T>) => void;
-  reject: (reason?: unknown) => void;
-}
-
-export const resolvablePromise = <T>(): ResolvablePromise<T> => {
-  let resolve!: (value: T | PromiseLike<T>) => void;
-  let reject!: (reason?: unknown) => void;
-
-  const promise = new Promise<T>((_resolve, _reject) => {
-    resolve = _resolve;
-    reject = _reject;
-  });
-
-  // 使用 Object.assign 來添加方法，避免 any 類型
-  return Object.assign(promise, {
-    resolve,
-    reject,
-  }) as ResolvablePromise<T>;
-};
-
-export const debounce = <T extends unknown[]>(
-  fn: (...args: T) => void,
-  timeout: number,
-) => {
-  let handle = 0;
-  let lastArgs: T | null = null;
-  const ret = (...args: T) => {
-    lastArgs = args;
-    clearTimeout(handle);
-    handle = window.setTimeout(() => {
-      lastArgs = null;
-      fn(...args);
-    }, timeout);
-  };
-  ret.flush = () => {
-    clearTimeout(handle);
-    if (lastArgs) {
-      const _lastArgs = lastArgs;
-      lastArgs = null;
-      fn(..._lastArgs);
-    }
-  };
-  ret.cancel = () => {
-    lastArgs = null;
-    clearTimeout(handle);
-  };
-  return ret;
-};
-
 // https://developer.mozilla.org/en-US/docs/Web/API/Storage_API/Storage_quotas_and_eviction_criteria
 // Browsers can store up to 5 MiB of local storage, and 5 MiB of session storage per origin.
 type Unit = { value: number; symbol: string };
@@ -112,7 +61,7 @@ export const getMaxFileSizeString = (
   return "1GB"; // Default fallback
 };
 
-export const probablySupportsClipboardWriteText =
+const probablySupportsClipboardWriteText =
   typeof window !== "undefined" &&
   "clipboard" in navigator &&
   "writeText" in navigator.clipboard;
@@ -207,18 +156,4 @@ export function parseSharedSceneHash(
   const match = SHARED_SCENE_HASH_RE.exec(hash);
   if (!match?.[1] || !match?.[2]) return null;
   return { id: match[1], key: match[2] };
-}
-
-// 解析場景清單雙擊觸發的 URL hash：#loadScene=<sceneId>[,<workspaceId>]
-const LOAD_SCENE_HASH_RE = /^#loadScene=([^,]+?)(?:,([^,]+))?$/;
-export type ParsedLoadSceneHash = { sceneId: string; workspaceId?: string };
-
-export function parseLoadSceneHash(hash?: string): ParsedLoadSceneHash | null {
-  if (hash === undefined) {
-    if (typeof window === "undefined") return null;
-    hash = window.location.hash;
-  }
-  const match = LOAD_SCENE_HASH_RE.exec(hash);
-  if (!match?.[1]) return null;
-  return { sceneId: match[1], workspaceId: match?.[2] };
 }

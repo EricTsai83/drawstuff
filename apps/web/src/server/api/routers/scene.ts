@@ -160,17 +160,6 @@ export const sceneRouter = createTRPCRouter({
       return sceneMeta ?? null;
     }),
 
-  getUserScenes: protectedProcedure.query(async ({ ctx }) => {
-    const scenes = await ctx.db.query.scene.findMany({
-      where: and(
-        eq(scene.userId, ctx.auth.user.id),
-        isNotNull(scene.sceneData),
-      ),
-      orderBy: (scene, { desc }) => [desc(scene.updatedAt)],
-    });
-    return scenes;
-  }),
-
   // Infinite list for dashboard/search
   getUserScenesInfinite: protectedProcedure
     .input(

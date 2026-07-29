@@ -1,12 +1,6 @@
 import { type ReactNode } from "react";
-// import type {
-//   ExcalidrawImperativeAPI,
-//   ExcalidrawInitialDataState,
-// } from "@excalidraw/excalidraw/types";
-// import type { RestoredDataState } from "@excalidraw/excalidraw/data/restore";
 import { restore } from "@excalidraw/excalidraw";
 import { importDataFromBackend } from "./import-data-from-db";
-// import { importFromLocalStorage } from "@/data/local-storage";
 import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 
 export async function loadScene(

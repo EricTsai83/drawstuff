@@ -23,7 +23,7 @@ orchestration，但不擁有另一套 canvas engine 或 element schema。
   - undo/redo engine
   - restore/serialization semantics
   - `reconcileElements`
-- 執行並保存目前 typecheck、test、architecture guard 的 baseline。
+- 執行並保存目前 lint、typecheck、test 的 baseline。
 
 ## Out of scope
 
@@ -42,7 +42,7 @@ orchestration，但不擁有另一套 canvas engine 或 element schema。
 ## Verification
 
 ```sh
-pnpm architecture:guard
+pnpm lint
 pnpm typecheck
 pnpm test
 ```

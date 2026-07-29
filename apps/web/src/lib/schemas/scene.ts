@@ -2,10 +2,10 @@ import { z } from "zod";
 
 export const SCENE_NAME_MAX_LENGTH = 255;
 export const SCENE_DATA_MAX_LENGTH = 5 * 1024 * 1024;
-export const SCENE_CATEGORY_MAX_COUNT = 50;
-export const SCENE_CATEGORY_NAME_MAX_LENGTH = 100;
+const SCENE_CATEGORY_MAX_COUNT = 50;
+const SCENE_CATEGORY_NAME_MAX_LENGTH = 100;
 
-export const sceneIdSchema = z.uuid();
+const sceneIdSchema = z.uuid();
 
 export const sceneNameSchema = z
   .string()
@@ -15,13 +15,13 @@ export const sceneNameSchema = z
 
 export const sceneDescriptionSchema = z.string().max(500).optional();
 
-export const sceneWorkspaceIdSchema = z.uuid().optional();
+const sceneWorkspaceIdSchema = z.uuid().optional();
 
-export const sceneDataSchema = z
+const sceneDataSchema = z
   .string()
   .max(SCENE_DATA_MAX_LENGTH, "Scene data is too large");
 
-export const sceneCategoriesSchema = z
+const sceneCategoriesSchema = z
   .array(
     z
       .string()
@@ -32,7 +32,7 @@ export const sceneCategoriesSchema = z
   .max(SCENE_CATEGORY_MAX_COUNT, "Too many categories")
   .optional();
 
-export const sceneRevisionSchema = z.number().int().min(1);
+const sceneRevisionSchema = z.number().int().min(1);
 
 export const createSceneDraftSchema = z.object({
   name: sceneNameSchema,

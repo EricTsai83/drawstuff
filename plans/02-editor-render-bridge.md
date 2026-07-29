@@ -16,7 +16,8 @@ component；畫面與行為必須保持不變。
 - 保留 existing children、`renderTopRightUI`、`renderCustomStats`、`UIOptions`、
   `initialData`、theme、language 與 imperative API callback。
 - 更新 `excalidraw-editor.tsx` 走 adapter。
-- 加入 architecture guard，禁止 production app source 直接 import upstream package。
+- 加入有 adapter/test 例外的 ESLint import boundary，禁止 production app source
+  直接 import upstream package。
 
 ## Out of scope
 
@@ -35,7 +36,7 @@ component；畫面與行為必須保持不變。
 ## Verification
 
 ```sh
-pnpm architecture:guard
+pnpm lint
 pnpm --filter @drawstuff/web typecheck
 pnpm --filter @drawstuff/web test
 pnpm --filter @drawstuff/web test:e2e

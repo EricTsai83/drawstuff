@@ -3,7 +3,7 @@
 import { authClient } from "@/lib/auth/client";
 import { api } from "@/trpc/react";
 
-export type WorkspaceOption = {
+type WorkspaceOption = {
   id: string;
   name: string;
   description: string | null;

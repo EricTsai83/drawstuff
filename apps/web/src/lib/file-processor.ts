@@ -114,28 +114,3 @@ async function processSingleFile({
     buffer: encodedFile,
   };
 }
-
-/**
- * 驗證文件大小
- * @param fileSize 文件大小（字節）
- * @param maxBytes 最大允許大小（字節）
- * @returns 是否有效
- */
-export function validateFileSize(fileSize: number, maxBytes: number): boolean {
-  return fileSize <= maxBytes;
-}
-
-/**
- * 獲取文件大小的可讀格式
- * @param bytes 字節數
- * @returns 可讀的文件大小字符串
- */
-export function formatFileSize(bytes: number): string {
-  if (bytes === 0) return "0 Bytes";
-
-  const k = 1024;
-  const sizes = ["Bytes", "KB", "MB", "GB"];
-  const i = Math.floor(Math.log(bytes) / Math.log(k));
-
-  return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + " " + sizes[i];
-}

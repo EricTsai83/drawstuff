@@ -1,7 +1,9 @@
 # Excalidraw 0.18.1 persistence gap report
 
-This report compares the V2, V3, and V4 corpus with the pinned Excalidraw
-`0.18.1` persistence contracts. The executable comparisons live in
+This historical report compares the V2, V3, and V4 corpus with the Excalidraw
+`0.18.1` reference persistence contracts. These fixtures remain as backward
+compatibility coverage; they do not pin the installed package version. The
+executable comparisons live in
 `apps/web/tests/excalidraw-persistence-contract.test.ts` and
 `apps/web/tests/excalidraw-document-v4.test.ts`.
 
@@ -15,8 +17,6 @@ This report compares the V2, V3, and V4 corpus with the pinned Excalidraw
 | V3 source payload | N/A | Embedded under `customData.drawstuffWhiteboardV3` during conversion | Reader-only compatibility data | intentionally Drawstuff-specific |
 | Deleted elements in owned scene | Input-dependent | Input-dependent | Preserved | intentionally Drawstuff-specific |
 | Deleted elements in readonly share/local export | Removed by upstream cleaner | Removed after conversion | Removed by profile codec | stripped by official contract |
-| Expired collaboration tombstones | N/A | N/A | Removed after 24 hours | stripped by official contract |
-| Invisible live collaboration elements | N/A | N/A | Removed from collaboration snapshot | stripped by official contract |
 | `gridSize`, `gridStep`, `gridModeEnabled`, `viewBackgroundColor` | Preserved when present | Converted when present | Preserved | preserved |
 | `theme` in cloud document | Present in some payloads | Converted by old writer | Read-compatible, stripped by new writers | stripped by official contract |
 | viewport, zoom, selection, dialogs, collaborators | Present in some raw payloads | Not consistently modeled | Stripped by every cloud writer | stripped by official contract |
@@ -34,7 +34,6 @@ This report compares the V2, V3, and V4 corpus with the pinned Excalidraw
 | `owned-scene` | Native semantic digest is stable through V4 compression round-trip | Keeps tombstones intentionally |
 | `readonly-share` | Matches upstream database element/appState cleanup | Uses a Drawstuff V4 envelope before encryption |
 | `local-export` | Matches upstream `serializeAsJSON(..., "local")` fixture | Source is supplied by the caller for deterministic tests |
-| `collaboration-snapshot` | Matches upstream 24-hour tombstone and invisible-element policy | Merge/relay are deferred, with `reconcileElements` reserved as the merge boundary |
 
 ## Asset identity gap
 

@@ -72,7 +72,6 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     (sceneId?: string) =>
       Promise.allSettled([
         utils.scene.getUserScenesInfinite.invalidate(),
-        utils.scene.getUserScenes.invalidate(),
         ...(sceneId ? [utils.scene.getScene.invalidate({ id: sceneId })] : []),
         utils.workspace.listWithMeta.invalidate(),
       ]),

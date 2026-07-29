@@ -26,7 +26,7 @@ import type {
   FileId,
 } from "@excalidraw/excalidraw/element/types";
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
-import { ensureInitialAppState } from "@/lib/excalidraw";
+import { ensureInitialAppState } from "@/lib/excalidraw-app-state";
 import Link from "next/link";
 import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";

@@ -14,9 +14,7 @@ import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
 
-export const createTable = pgTableCreator(
-  (name) => `excalidraw-ericts_${name}`,
-);
+const createTable = pgTableCreator((name) => `excalidraw-ericts_${name}`);
 
 export const user = createTable("user", {
   id: text("id").primaryKey(),
@@ -507,6 +505,3 @@ export const schema = {
   userDefaultWorkspace,
   userLastActiveWorkspace,
 };
-
-// 導出常用型別
-export type SceneRow = typeof scene.$inferSelect;

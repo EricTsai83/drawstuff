@@ -32,14 +32,14 @@ document semantics 不變。
 2. 若有多個不相關 gaps，為每個 gap 複製本 plan，分開執行。
 3. 對第一個 blocking gap 建立最小 patch 和 regression test。
 4. 重新執行 upstream contract fixtures。
-5. 在 architecture guard 中鎖定只允許指定 patched dependency。
+5. 以 package override 與 contract test 驗證指定 patched dependency。
 6. 記錄未來升級時如何檢查 patch 是否已被 upstream 取代。
 
 ## Verification
 
 ```sh
 pnpm install --frozen-lockfile
-pnpm architecture:guard
+pnpm lint
 pnpm typecheck
 pnpm test
 pnpm --filter @drawstuff/web test:e2e

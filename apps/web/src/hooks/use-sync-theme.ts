@@ -5,7 +5,7 @@ import { THEME } from "@excalidraw/excalidraw";
 import { type Dispatch, type SetStateAction } from "react";
 
 export type UserChosenTheme = "system" | "dark" | "light";
-export type BrowserActiveTheme = "dark" | "light";
+type BrowserActiveTheme = "dark" | "light";
 
 export function useSyncTheme() {
   const { theme, setTheme, resolvedTheme } = useTheme();

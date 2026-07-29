@@ -11,7 +11,7 @@ import {
 } from "@/lib/encode";
 import { SCENE_DATA_MAX_LENGTH } from "@/lib/schemas/scene";
 
-export const MAX_DECOMPRESSED_SCENE_BYTES = SCENE_DATA_MAX_LENGTH * 32;
+const MAX_DECOMPRESSED_SCENE_BYTES = SCENE_DATA_MAX_LENGTH * 32;
 
 export function validateOpaqueV4Write(
   data: Uint8Array,

@@ -2,13 +2,13 @@
 
 - Status: Proposed — pending reviewer sign-off before Phase 1
 - Date: 2026-07-29
-- Upstream baseline: `@excalidraw/excalidraw@0.18.1`
+- Historical reference baseline: `@excalidraw/excalidraw@0.18.1`
 - Upstream tag commit: `a2ec2889babf7d2295469c6d90ebe77fae57df84`
 
 ## Context
 
 Drawstuff uses Excalidraw as its only canvas runtime, but it is not a clone of
-the hosted Excalidraw application. The pinned upstream implementation is an
+the hosted Excalidraw application. The reference upstream implementation is an
 executable compatibility baseline, not a requirement to copy Firebase,
 Firestore, or every hosted-app storage choice.
 
@@ -42,12 +42,11 @@ relational columns.
 | `owned-scene` | Complete native array, including tombstones | Official server allowlist | External objects plus metadata in the V4 envelope |
 | `readonly-share` | Non-deleted elements; linear transient point cleared | Official server allowlist | Separately encrypted objects; none in the scene envelope |
 | `local-export` | Upstream export cleaner | Official export allowlist | Only files referenced by live elements |
-| `collaboration-snapshot` | Live visible elements plus tombstones newer than 24 hours | None | Separate encrypted storage |
 
 The owned profile intentionally differs from the hosted app. Keeping all
 tombstones in an owned revision is useful for optimistic concurrency,
-recovery, audit, and a later collaboration migration. Share and collaboration
-profiles stay narrow because their lifecycle and disclosure boundaries differ.
+recovery, audit, and a later collaboration migration. Readonly shares stay
+narrow because their lifecycle and disclosure boundaries differ.
 
 ### appState
 
@@ -87,29 +86,33 @@ assets use the same client-owned key but are stored separately.
 
 - `drawstuffDocumentVersion = 4` identifies the Drawstuff envelope.
 - `upstreamExcalidrawFormatVersion = 2` identifies the `.excalidraw` format.
-- `engine.version = 0.18.1` identifies the pinned editor/contract baseline.
+- `engine.name = excalidraw` identifies the editor family. Older V4 documents
+  may include `engine.version` as informational metadata, but readers do not
+  use it as a compatibility gate.
 
 Code, validation errors, telemetry, and migration reports must keep these
-names distinct.
+names distinct. The installed editor version belongs in the package manifest
+and lockfile; document compatibility belongs to the Drawstuff envelope version
+and executable contract fixtures.
 
 ### Realtime collaboration readiness
 
 Realtime transport, presence, cursor state, room membership, and volatile
 events do not belong in PostgreSQL scene payloads.
 
-The future collaboration path will use three explicit boundaries:
+The future collaboration path will define three explicit boundaries:
 
-1. `getOfficialSyncableElements()` prepares durable or relay-safe element
-   snapshots using the pinned tombstone and visibility policy.
+1. A collaboration-owned adapter will prepare durable or relay-safe element
+   snapshots using an explicitly tested tombstone and visibility policy.
 2. An Excalidraw `reconcileElements` adapter will own merge semantics. The
    application will not invent a second merge algorithm or custom CRDT.
 3. Relay messages remain opaque to the relay. Presence is volatile, while a
    durable snapshot is an independently encrypted storage concern.
 
 When collaboration implementation starts, the adapter will be differential
-tested against the then-pinned Excalidraw version before changing retention
-or reconciliation behavior. A dependency upgrade never changes production
-storage behavior implicitly.
+tested against the lockfile-resolved Excalidraw version before changing
+retention or reconciliation behavior. A dependency upgrade never changes
+production storage behavior implicitly.
 
 ## V4 decision
 

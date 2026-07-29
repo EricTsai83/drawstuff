@@ -116,7 +116,7 @@ function AppMainMenu({
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
   const { updateLastSyncedRevision, currentWorkspaceId } = useSceneSession();
 
-  // Excalidraw 0.18.1's tunneled default trigger does not expose a trigger
+  // Excalidraw's tunneled default trigger does not expose a trigger
   // prop and renders without an accessible name. Keep the official trigger
   // and repair its name after the tunnel mounts.
   useEffect(() => {

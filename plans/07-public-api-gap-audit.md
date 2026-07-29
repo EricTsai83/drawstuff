@@ -10,7 +10,8 @@
 
 ## In scope
 
-- 對 pinned `@excalidraw/excalidraw@0.18.1` 建立 capability matrix。
+- 對 lockfile 目前解析的官方 `@excalidraw/excalidraw` 版本建立 capability
+  matrix。
 - 驗證以下能力是否只靠 public API 即可完成：
   - primary tools
   - active/locked tool state
@@ -42,7 +43,7 @@
 ```sh
 pnpm --filter @drawstuff/excalidraw-adapter test
 pnpm --filter @drawstuff/web test:e2e
-pnpm architecture:guard
+pnpm lint
 ```
 
 ## Done when

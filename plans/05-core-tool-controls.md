@@ -38,7 +38,7 @@
 pnpm --filter @drawstuff/excalidraw-adapter test
 pnpm --filter @drawstuff/web test
 pnpm --filter @drawstuff/web test:e2e
-pnpm architecture:guard
+pnpm lint
 ```
 
 ## Done when

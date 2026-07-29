@@ -12,7 +12,6 @@
     "dev": "turbo run dev",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
-    "architecture:guard": "pnpm --filter @drawstuff/web architecture:guard",
     "knip": "turbo run knip",
     "lint": "turbo run lint",
     "lint:fix": "turbo run lint:fix",

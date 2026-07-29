@@ -13,7 +13,8 @@ monorepo 中存在可被 `apps/web` 引用的 `@drawstuff/excalidraw-adapter`，
 
 - 建立 `packages/excalidraw-adapter/`。
 - 加入 `package.json`、`tsconfig.json`、`src/index.ts` 與最小測試設定。
-- 將 `@excalidraw/excalidraw@0.18.1` 設為 adapter 的精確 dependency。
+- 將官方 `@excalidraw/excalidraw` 設為 adapter dependency，實際解析版本由
+  lockfile 固定。
 - `apps/web` 加入 workspace dependency。
 - 設定 package exports，只暴露明確 public entry point。
 - 更新 lockfile 與 Turborepo 可執行的 typecheck/test scripts。
@@ -30,7 +31,8 @@ monorepo 中存在可被 `apps/web` 引用的 `@drawstuff/excalidraw-adapter`，
 2. export 一個不依賴 DOM 的版本常數或 package metadata，驗證 workspace wiring。
 3. 在 `apps/web` 的非 production 路徑 import 該常數，或使用 package test 驗證。
 4. 確認沒有 circular dependency；adapter 不得 import `apps/web`。
-5. 更新 architecture guard：仍禁止舊的 `@drawstuff/whiteboard` engine。
+5. 以 package boundary test 或 ESLint rule 禁止舊的
+   `@drawstuff/whiteboard` engine。
 
 ## Verification
 
@@ -38,11 +40,11 @@ monorepo 中存在可被 `apps/web` 引用的 `@drawstuff/excalidraw-adapter`，
 pnpm install --lockfile-only
 pnpm typecheck
 pnpm test
-pnpm architecture:guard
+pnpm lint
 ```
 
 ## Done when
 
 - Workspace 能解析 `@drawstuff/excalidraw-adapter`。
-- Adapter 自己擁有精確 pinned 的 upstream dependency。
+- Adapter 自己擁有 upstream dependency，解析版本記錄在 lockfile。
 - 尚未發生 runtime 或 UI 行為改變。
