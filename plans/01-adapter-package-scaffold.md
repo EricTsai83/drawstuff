@@ -1,6 +1,6 @@
 # Plan 01：建立 Excalidraw adapter package
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 00
 - Expected change size: 一個空的 workspace package
 
