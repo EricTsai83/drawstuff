@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "audit:ci": "pnpm audit --prod --audit-level=low",
+    "baseline:performance": "pnpm --filter @drawstuff/web baseline:performance",
+    "baseline:performance:e2e": "pnpm --filter @drawstuff/web baseline:performance:e2e",
     "build": "turbo run build",
     "db:push": "turbo run db:push --filter=@drawstuff/web",
     "db:studio": "pnpm --filter @drawstuff/web db:studio",

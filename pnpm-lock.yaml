@@ -185,6 +185,9 @@ importers:
       eslint-plugin-drizzle:
         specifier: ^0.2.3
         version: 0.2.3(eslint@9.39.5(jiti@2.7.0)(supports-color@7.2.0))
+      fractional-indexing:
+        specifier: 3.2.0
+        version: 3.2.0
       jsdom:
         specifier: ^29.1.1
         version: 29.1.1(@noble/hashes@2.0.1)
