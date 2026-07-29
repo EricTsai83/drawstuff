@@ -37,15 +37,15 @@ relational columns.
 
 ### Storage profiles
 
-| Profile | Elements | appState | Binary assets |
-| --- | --- | --- | --- |
-| `owned-scene` | Complete native array, including tombstones | Official server allowlist | External objects plus metadata in the V4 envelope |
+| Profile          | Elements                                             | appState                  | Binary assets                                            |
+| ---------------- | ---------------------------------------------------- | ------------------------- | -------------------------------------------------------- |
+| `owned-scene`    | Complete native array, including tombstones          | Official server allowlist | External objects plus metadata in the V4 envelope        |
 | `readonly-share` | Non-deleted elements; linear transient point cleared | Official server allowlist | Separately encrypted objects; none in the scene envelope |
-| `local-export` | Upstream export cleaner | Official export allowlist | Only files referenced by live elements |
+| `local-export`   | Upstream export cleaner                              | Official export allowlist | Only files referenced by live elements                   |
 
 The owned profile intentionally differs from the hosted app. Keeping all
 tombstones in an owned revision is useful for optimistic concurrency,
-recovery, audit, and a later collaboration migration. Readonly shares stay
+recovery, audit, and a later collaboration transition. Readonly shares stay
 narrow because their lifecycle and disclosure boundaries differ.
 
 ### appState
@@ -73,7 +73,9 @@ or share remain product metadata.
 One scene can contain different Excalidraw file IDs with identical content.
 Therefore `(scene_id, content_hash)` can be indexed for lookup but cannot be
 the identity constraint. Identity is `(scene_id, excalidraw_file_id)` or
-`(shared_scene_id, excalidraw_file_id)`.
+`(shared_scene_id, excalidraw_file_id)`. Schema changes are expressed only in
+the Drizzle schema and applied with `pnpm db:push`; migration files are not
+part of this architecture.
 
 ### Encryption key ownership
 
@@ -90,7 +92,7 @@ assets use the same client-owned key but are stored separately.
   may include `engine.version` as informational metadata, but readers do not
   use it as a compatibility gate.
 
-Code, validation errors, telemetry, and migration reports must keep these
+Code, validation errors, telemetry, and data-rewrite reports must keep these
 names distinct. The installed editor version belongs in the package manifest
 and lockfile; document compatibility belongs to the Drawstuff envelope version
 and executable contract fixtures.
@@ -128,7 +130,11 @@ documents without ambiguity.
 - Upstream serializer/restore behavior is covered by executable fixtures.
 - Existing V4 `theme` data is tolerated on read and disappears on the next
   write.
-- The proposed asset DDL must pass collision and reference reports in an
-  isolated database before it can become a migration.
+- The final asset schema must pass collision/reference reports, a bounded
+  backfill, schema diff review, `db:push`, and restore verification in an
+  isolated database before the same DB-push sequence reaches the target
+  environment. A destructive warning or requirement for handwritten DDL is a
+  stop condition that requires explicit user approval before considering a
+  migration file.
 - Realtime collaboration can reuse the native element model and official
   reconciliation semantics without replacing owned-scene storage.

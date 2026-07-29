@@ -18,6 +18,10 @@ monorepo 中存在可被 `apps/web` 引用的 `@drawstuff/excalidraw-adapter`，
 - `apps/web` 加入 workspace dependency。
 - 設定 package exports，只暴露明確 public entry point。
 - 更新 lockfile 與 Turborepo 可執行的 typecheck/test scripts。
+- 建立 `exports` allowlist 與 import-boundary lint test，禁止 deep import 和
+  adapter 反向 import `apps/web`/`@drawstuff/collaboration`。
+- 確認 package 可被 tree-shake，且 server-safe entry 不會在 server graph 載入
+  Excalidraw DOM/CSS runtime。
 
 ## Out of scope
 
@@ -28,11 +32,13 @@ monorepo 中存在可被 `apps/web` 引用的 `@drawstuff/excalidraw-adapter`，
 ## Steps
 
 1. 依 repo 現有 TypeScript/ESM 設定建立 source package。
-2. export 一個不依賴 DOM 的版本常數或 package metadata，驗證 workspace wiring。
-3. 在 `apps/web` 的非 production 路徑 import 該常數，或使用 package test 驗證。
-4. 確認沒有 circular dependency；adapter 不得 import `apps/web`。
-5. 以 package boundary test 或 ESLint rule 禁止舊的
-   `@drawstuff/whiteboard` engine。
+2. 以 package resolution test 驗證 public entry；不要為了驗證 wiring 在 app
+   留下無產品用途的 import 或版本常數。
+3. 建立明確的 client、server-safe types/codec entry points，避免 accidental
+   client bundle 或 SSR side effect。
+4. 以 dependency graph test 確認沒有 circular dependency。
+5. 以 package boundary test 和 ESLint rule 禁止舊 engine、deep import 與新增的
+   app-level upstream imports。
 
 ## Verification
 
@@ -48,3 +54,4 @@ pnpm lint
 - Workspace 能解析 `@drawstuff/excalidraw-adapter`。
 - Adapter 自己擁有 upstream dependency，解析版本記錄在 lockfile。
 - 尚未發生 runtime 或 UI 行為改變。
+- 沒有驗證用 dead export、暫時 app import 或 duplicated dependency。
