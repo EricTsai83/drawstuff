@@ -1,5 +1,5 @@
 import { useEffect, useCallback } from "react";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import { cleanUnusedFiles, saveToLocalStorage } from "@/lib/excalidraw";
 
 export const useBeforeUnload = (

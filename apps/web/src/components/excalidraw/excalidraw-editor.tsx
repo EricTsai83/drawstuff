@@ -1,7 +1,9 @@
 "use client";
 
-import "@excalidraw/excalidraw/index.css";
-import { Excalidraw, Footer } from "@excalidraw/excalidraw";
+import {
+  ExcalidrawCanvas,
+  ExcalidrawFooter as Footer,
+} from "@drawstuff/excalidraw-adapter/client";
 import { useState, useCallback, useEffect } from "react";
 import { toast } from "sonner";
 import type {
@@ -10,7 +12,7 @@ import type {
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
   UIAppState,
-} from "@excalidraw/excalidraw/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import { useCallbackRefState } from "@/hooks/use-callback-ref-state";
 import AppMainMenu from "./app-main-menu";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
@@ -27,7 +29,7 @@ import { useConfirmBeforeUnload } from "@/hooks/use-confirm-before-unload";
 import type {
   NonDeletedExcalidrawElement,
   ExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import {
   ExportSceneActions,
   type ExportSceneActionsProps,
@@ -389,7 +391,7 @@ export default function ExcalidrawEditor() {
         options={workspaceCreateConfirmOptions}
       />
       {initialDataPromise && (
-        <Excalidraw
+        <ExcalidrawCanvas
           excalidrawAPI={excalidrawRefCallback}
           initialData={initialDataPromise}
           onChange={handleSceneChange}
@@ -494,7 +496,7 @@ export default function ExcalidrawEditor() {
               });
             }}
           />
-        </Excalidraw>
+        </ExcalidrawCanvas>
       )}
     </div>
   );

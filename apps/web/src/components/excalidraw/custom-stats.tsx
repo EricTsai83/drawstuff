@@ -1,4 +1,4 @@
-import { Stats } from "@excalidraw/excalidraw";
+import { ExcalidrawStats as Stats } from "@drawstuff/excalidraw-adapter/client";
 import { nFormatter } from "@/lib/utils";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useStorageWarning } from "@/hooks/use-storage-warning";

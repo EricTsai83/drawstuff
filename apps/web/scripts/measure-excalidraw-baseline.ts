@@ -7,7 +7,7 @@ import {
   createReadonlyShareDocumentV4,
   parseDrawstuffDocument,
   serializeDrawstuffDocumentV4,
-} from "../src/lib/excalidraw-document-v4";
+} from "@drawstuff/excalidraw-adapter/codec";
 import {
   countSemanticControllerNotifications,
   createControllerNotificationTrace,
@@ -44,6 +44,7 @@ const measurements = {
 };
 const memory = measureMemory();
 const bundle = measureRouteBundle();
+const serverBundle = measureServerBundle();
 
 const checks = {
   largeSceneLoad:
@@ -63,6 +64,7 @@ const checks = {
   routeJavaScript:
     bundle.rawBytes <= EXCALIDRAW_PERFORMANCE_BUDGETS.routeJavaScriptRawBytes &&
     bundle.gzipBytes <= EXCALIDRAW_PERFORMANCE_BUDGETS.routeJavaScriptGzipBytes,
+  serverBundle: serverBundle.upstreamRuntimeReferences.length === 0,
   nodeMemory:
     memory.workingHeapDeltaBytes <=
       EXCALIDRAW_PERFORMANCE_BUDGETS.nodeWorkingHeapDeltaBytes &&
@@ -86,6 +88,7 @@ const result = {
   measurements,
   memory,
   bundle,
+  serverBundle,
   budgets: EXCALIDRAW_PERFORMANCE_BUDGETS,
   checks,
 };
@@ -238,6 +241,41 @@ function measureChunks(chunks: ReadonlySet<string>): {
   return { rawBytes, gzipBytes };
 }
 
+function measureServerBundle(): {
+  readonly chunkCount: number;
+  readonly scannedBytes: number;
+  readonly upstreamRuntimeReferences: readonly string[];
+} {
+  const serverRoot = path.join(nextDirectory, "server");
+  const chunks = listFiles(serverRoot).filter(
+    (filePath) =>
+      (filePath.endsWith(".js") || filePath.endsWith(".mjs")) &&
+      !filePath.endsWith(".map"),
+  );
+  const upstreamMarkers = [
+    "@excalidraw/excalidraw",
+    "canvas-roundrect-polyfill",
+    "node_modules/@excalidraw/excalidraw/dist",
+  ];
+  let scannedBytes = 0;
+  const upstreamRuntimeReferences: string[] = [];
+
+  for (const chunkPath of chunks) {
+    const contents = readFileSync(chunkPath);
+    scannedBytes += contents.byteLength;
+    const source = contents.toString("utf8");
+    if (upstreamMarkers.some((marker) => source.includes(marker))) {
+      upstreamRuntimeReferences.push(path.relative(nextDirectory, chunkPath));
+    }
+  }
+
+  return {
+    chunkCount: chunks.length,
+    scannedBytes,
+    upstreamRuntimeReferences,
+  };
+}
+
 function readManifest(manifestPath: string): unknown {
   const contents = readFileSync(path.join(nextDirectory, manifestPath), "utf8");
   if (manifestPath.endsWith(".json")) {
@@ -284,6 +322,8 @@ function findNewestBundleInput(): {
     path.join(webDirectory, "postcss.config.js"),
     path.join(webDirectory, "tsconfig.json"),
     path.join(repositoryDirectory, "package.json"),
+    path.join(repositoryDirectory, "packages/excalidraw-adapter/package.json"),
+    path.join(repositoryDirectory, "packages/excalidraw-adapter/src"),
     path.join(repositoryDirectory, "pnpm-lock.yaml"),
     path.join(repositoryDirectory, "pnpm-workspace.yaml"),
     path.join(repositoryDirectory, "turbo.json"),

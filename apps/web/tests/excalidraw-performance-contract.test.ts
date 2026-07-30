@@ -5,7 +5,7 @@ import {
   createOwnedSceneDocumentV4,
   parseDrawstuffDocument,
   serializeDrawstuffDocumentV4,
-} from "@/lib/excalidraw-document-v4";
+} from "@drawstuff/excalidraw-adapter/codec";
 import {
   CONTROLLER_EVENT_COUNT,
   createControllerNotificationTrace,

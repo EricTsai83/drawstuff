@@ -14,8 +14,8 @@ import type {
   DataURL,
   BinaryFileData,
   ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { FileId } from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
+import type { FileId } from "@drawstuff/excalidraw-adapter/types";
 
 // 穩定的空陣列參考：避免在 useEffect 依賴上造成不必要的重跑
 const EMPTY_FILE_RECORDS: ReadonlyArray<{ url: string }> = [];

@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useRef, useState } from "react";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
 import { api } from "@/trpc/react";
 import {
@@ -17,7 +17,7 @@ import {
 } from "@/lib/excalidraw";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { NonDeletedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";

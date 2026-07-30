@@ -1,4 +1,7 @@
-import { defaultLang, languages } from "@excalidraw/excalidraw";
+import {
+  DEFAULT_EXCALIDRAW_LANGUAGE,
+  EXCALIDRAW_LANGUAGES,
+} from "@drawstuff/excalidraw-adapter/client";
 import LanguageDetector from "i18next-browser-languagedetector";
 
 const languageDetector = new LanguageDetector();
@@ -18,8 +21,10 @@ export const getPreferredLanguage = () => {
     (detectedLanguage
       ? // region code may not be defined if user uses generic preferred language
         // (e.g. chinese vs instead of chinese-simplified)
-        languages.find((lang) => lang.code.startsWith(detectedLanguage))?.code
-      : null) ?? defaultLang.code;
+        EXCALIDRAW_LANGUAGES.find((lang) =>
+          lang.code.startsWith(detectedLanguage),
+        )?.code
+      : null) ?? DEFAULT_EXCALIDRAW_LANGUAGE.code;
 
   return initialLanguage;
 };

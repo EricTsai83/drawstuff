@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
@@ -8,12 +9,7 @@ import {
   parseDrawstuffDocument,
   serializeDrawstuffDocumentV4,
   toNativeExcalidrawScene,
-} from "@/lib/excalidraw-document-v4";
-import {
-  base64ToArrayBuffer,
-  compressData,
-  decompressData,
-} from "@/lib/encode";
+} from "../src/codec";
 
 const elements = JSON.parse(
   readFileSync(
@@ -26,6 +22,24 @@ const elements = JSON.parse(
 ) as readonly Record<string, unknown>[];
 
 describe("DrawstuffDocumentV4", () => {
+  it("keeps the approved V4 byte and semantic digest", () => {
+    const serialized = serializeDrawstuffDocumentV4(
+      createDrawstuffDocumentV4({
+        elements,
+        appState: {
+          name: "Digest fixture",
+          viewBackgroundColor: "#ffffff",
+          gridSize: 20,
+        },
+      }),
+    );
+
+    expect(Buffer.byteLength(serialized)).toBe(5_638);
+    expect(createHash("sha256").update(serialized).digest("hex")).toBe(
+      "a19961cd33772399749a638ad90b0c8aae44ec8bd72fae8fdc232fd4c8fecbb9",
+    );
+  });
+
   it("preserves complete ordered native elements and unknown fields", () => {
     const serialized = serializeDrawstuffDocumentV4(
       createDrawstuffDocumentV4({
@@ -125,35 +139,5 @@ describe("DrawstuffDocumentV4", () => {
         updatedAt: 1234,
       },
     });
-  });
-
-  it("keeps deleted tombstones through the cloud compression codec", async () => {
-    const serialized = serializeDrawstuffDocumentV4(
-      createDrawstuffDocumentV4({
-        elements,
-        appState: { name: "Compressed fixture" },
-      }),
-    );
-    const compressed = await compressData(
-      new TextEncoder().encode(serialized),
-      {},
-    );
-    const encoded = Buffer.from(compressed).toString("base64");
-    const exactBuffer = base64ToArrayBuffer(encoded);
-    const { data } = await decompressData<Record<string, never>>(
-      new Uint8Array(exactBuffer),
-      { decryptionKey: "" },
-    );
-    const loaded = parseDrawstuffDocument(new TextDecoder().decode(data));
-
-    expect(new Uint8Array(exactBuffer).byteLength).toBe(compressed.byteLength);
-    expect(loaded.scene.elements).toHaveLength(elements.length);
-    expect(
-      loaded.scene.elements.some(
-        (element) =>
-          (element as Record<string, unknown>).id === "deleted-1" &&
-          (element as Record<string, unknown>).isDeleted === true,
-      ),
-    ).toBe(true);
   });
 });

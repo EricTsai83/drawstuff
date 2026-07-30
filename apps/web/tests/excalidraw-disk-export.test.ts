@@ -1,7 +1,10 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
+import type { ExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
+import type {
+  AppState,
+  BinaryFiles,
+} from "@drawstuff/excalidraw-adapter/types";
 import { describe, expect, it, vi } from "vitest";
 
 const { createJsonBlobMock, downloadMock, exportBlob } = vi.hoisted(() => ({
@@ -25,7 +28,7 @@ type JsonObject = Record<string, unknown>;
 
 const fixtureDirectory = path.resolve(
   import.meta.dirname,
-  "fixtures/excalidraw-0.18.1",
+  "../../../packages/excalidraw-adapter/tests/fixtures/excalidraw-0.18.1",
 );
 const contractInput = readFixture<{
   appState: JsonObject;

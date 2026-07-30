@@ -1,5 +1,4 @@
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
+import type { AppState, BinaryFiles, ExcalidrawElement } from "./types.ts";
 
 export const EXCALIDRAW_PERSISTENCE_CONTRACT = {
   upstreamFormatVersion: 2,
@@ -50,8 +49,7 @@ export function filterReferencedFiles(
     const value = objectOrEmpty(element);
     const fileId = value.fileId;
     if (!value.isDeleted && typeof fileId === "string" && fileId in files) {
-      referencedFiles[fileId as keyof BinaryFiles] =
-        files[fileId as keyof BinaryFiles]!;
+      referencedFiles[fileId] = files[fileId]!;
     }
   }
   return referencedFiles;

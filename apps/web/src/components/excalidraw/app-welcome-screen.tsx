@@ -1,10 +1,10 @@
-import { WelcomeScreen } from "@excalidraw/excalidraw";
+import { ExcalidrawWelcomeScreen as WelcomeScreen } from "@drawstuff/excalidraw-adapter/client";
 import { memo } from "react";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { DrawstuffLogo, Github } from "@/components/icons";
 
 function AppWelcomeScreen() {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const headingContent = t("welcomeScreen.app.center_heading");
 
   return (

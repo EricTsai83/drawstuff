@@ -5,8 +5,8 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
+import type { ExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import {
   hasCompleteSceneFileHydration,
   saveToLocalStorage,

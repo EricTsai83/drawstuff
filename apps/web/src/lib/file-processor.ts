@@ -1,12 +1,12 @@
 import type {
   FileId,
   NonDeletedExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import type {
   BinaryFileData,
   BinaryFileMetadata,
   BinaryFiles,
-} from "@excalidraw/excalidraw/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import { compressData } from "./encode";
 import { isInitializedImageElement } from "@/lib/excalidraw";
 

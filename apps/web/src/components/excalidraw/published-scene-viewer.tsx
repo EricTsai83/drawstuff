@@ -1,7 +1,10 @@
 "use client";
 
-import "@excalidraw/excalidraw/index.css";
-import { Excalidraw, MainMenu, restore } from "@excalidraw/excalidraw";
+import {
+  ExcalidrawCanvas,
+  ExcalidrawMainMenu as MainMenu,
+  restoreScene,
+} from "@drawstuff/excalidraw-adapter/client";
 import {
   Eye,
   EyeOff,
@@ -19,14 +22,14 @@ import type {
   DataURL,
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
-} from "@excalidraw/excalidraw/types";
-import type { AppState } from "@excalidraw/excalidraw/types";
+} from "@drawstuff/excalidraw-adapter/types";
+import type { AppState } from "@drawstuff/excalidraw-adapter/types";
 import type {
   ExcalidrawElement,
   FileId,
-} from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
-import { ensureInitialAppState } from "@/lib/excalidraw-app-state";
+import { ensureInitialAppState } from "@drawstuff/excalidraw-adapter/codec";
 import Link from "next/link";
 import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
@@ -172,7 +175,7 @@ export function PublishedSceneViewer({
 
         if (!isActive) return;
 
-        const restored = restore(
+        const restored = restoreScene(
           {
             elements: parsed.elements ?? null,
             appState: parsed.appState ?? null,
@@ -577,7 +580,7 @@ export function PublishedSceneViewer({
             style={{ opacity: hasAutoCentered ? 1 : 0 }}
           >
             {initialData && (
-              <Excalidraw
+              <ExcalidrawCanvas
                 excalidrawAPI={setExcalidrawAPI}
                 initialData={initialData}
                 theme={browserActiveTheme}
@@ -633,7 +636,7 @@ export function PublishedSceneViewer({
                     </Link>
                   </MainMenu.ItemCustom>
                 </MainMenu>
-              </Excalidraw>
+              </ExcalidrawCanvas>
             )}
           </div>
         )}

@@ -1,4 +1,4 @@
-import { useI18n as useExcalidrawI18n } from "@excalidraw/excalidraw";
+import { useExcalidrawI18n } from "@drawstuff/excalidraw-adapter/client";
 import {
   appTranslations,
   formatPlaceholders,

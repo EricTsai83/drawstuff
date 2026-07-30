@@ -5,11 +5,11 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import type {
   ExcalidrawElement,
   NonDeletedExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
 
 type ExportDeps = {
   exportScene: (

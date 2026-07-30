@@ -3,8 +3,8 @@ import type {
   AppState,
   BinaryFiles,
   ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
+import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { useDebounce } from "@/hooks/use-debounce";
 import { saveData } from "@/lib/excalidraw";
 import { useSceneSession } from "@/hooks/scene-session-context";

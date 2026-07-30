@@ -3,8 +3,8 @@ import type {
   BinaryFiles,
   ExcalidrawInitialDataState,
   ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
-import type { OrderedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
+import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import {
   importFromLocalStorage,
   loadCurrentSceneIdFromStorage,
@@ -21,13 +21,16 @@ import type {
   NonDeleted,
   NonDeletedExcalidrawElement,
   ExcalidrawFrameLikeElement,
-} from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
 import { parseSharedSceneHash } from "@/lib/utils";
-import { exportToBlob, MIME_TYPES } from "@excalidraw/excalidraw";
-import { ensureInitialAppState } from "@/lib/excalidraw-app-state";
-import { createLocalExportDocument } from "@/lib/excalidraw-document-v4";
+import {
+  EXCALIDRAW_MIME_TYPES,
+  exportCanvasToBlob,
+} from "@drawstuff/excalidraw-adapter/client";
+import { ensureInitialAppState } from "@drawstuff/excalidraw-adapter/codec";
+import { createLocalExportDocument } from "@drawstuff/excalidraw-adapter/codec";
 import { getBaseUrl } from "@/lib/base-url";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
@@ -433,13 +436,13 @@ export async function exportSceneToPngBlob(
   }) => Promise<Blob>;
 
   const exportToBlobTyped: ExportToBlobFn =
-    exportToBlob as unknown as ExportToBlobFn;
+    exportCanvasToBlob as unknown as ExportToBlobFn;
 
   return await exportToBlobTyped({
     elements: elementsForExport,
     appState: appStateForExport,
     files,
-    mimeType: MIME_TYPES.png,
+    mimeType: EXCALIDRAW_MIME_TYPES.png,
     quality: options?.quality ?? 1,
     exportPadding: options?.exportPadding,
     maxWidthOrHeight: options?.maxWidthOrHeight,

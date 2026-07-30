@@ -1,21 +1,21 @@
-import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
+import type { ImportedDataState } from "@drawstuff/excalidraw-adapter/types";
 import { decompressData, base64ToArrayBuffer } from "./encode";
 import { getTrpcClient } from "@/trpc/client";
 import type {
   ExcalidrawElement,
   FileId,
-} from "@excalidraw/excalidraw/element/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import type {
   AppState,
   BinaryFiles,
   BinaryFileData,
   DataURL,
-} from "@excalidraw/excalidraw/types";
-import { ensureInitialAppState } from "@/lib/excalidraw-app-state";
+} from "@drawstuff/excalidraw-adapter/types";
+import { ensureInitialAppState } from "@drawstuff/excalidraw-adapter/codec";
 import {
   parseDrawstuffDocument,
   toNativeExcalidrawScene,
-} from "@/lib/excalidraw-document-v4";
+} from "@drawstuff/excalidraw-adapter/codec";
 
 export async function importDataFromBackend(
   id: string,

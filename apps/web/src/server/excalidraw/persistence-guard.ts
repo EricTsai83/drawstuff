@@ -3,7 +3,7 @@ import "server-only";
 import {
   DRAWSTUFF_DOCUMENT_VERSION,
   parseDrawstuffDocument,
-} from "@/lib/excalidraw-document-v4";
+} from "@drawstuff/excalidraw-adapter/codec";
 import {
   base64ToArrayBuffer,
   DecompressionLimitError,
