@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
-import type { NonDeletedExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
+import type { NonDeletedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { toast } from "sonner";
 import { setOverwriteConfirmHandler } from "@/lib/initialize-scene";
 import {

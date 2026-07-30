@@ -1,3 +1,5 @@
+// @vitest-environment jsdom
+
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { restore, serializeAsJSON } from "@excalidraw/excalidraw";
@@ -9,12 +11,9 @@ import {
   createLocalExportDocument,
   createOwnedSceneDocumentV4,
   createReadonlyShareDocumentV4,
-} from "@/lib/excalidraw-document-v4";
-import {
   OFFICIAL_SERVER_APP_STATE_KEYS,
   selectOfficialServerAppState,
-} from "@/lib/excalidraw-persistence-contract";
-import { serializeSceneData } from "@/lib/export-scene-to-backend";
+} from "../src/codec";
 
 type JsonObject = Record<string, unknown>;
 
@@ -164,20 +163,6 @@ describe("Excalidraw persistence contract", () => {
     expect(readonly.assets).toEqual({});
     expect(JSON.stringify(readonly)).not.toContain("file-deleted");
     expect(JSON.stringify(readonly)).not.toContain('"theme"');
-
-    const readonlyWriterOutput = JSON.parse(
-      serializeSceneData(elements, appState, files, "readonly-share"),
-    ) as {
-      scene: { elements: unknown[]; appState: JsonObject };
-      assets: JsonObject;
-    };
-    expect(readonlyWriterOutput.scene.elements.map(elementId)).toEqual([
-      "rectangle-live",
-      "line-live",
-      "image-live",
-    ]);
-    expect(readonlyWriterOutput.scene.appState).toEqual(expectedAppState);
-    expect(readonlyWriterOutput.assets).toEqual({});
   });
 });
 

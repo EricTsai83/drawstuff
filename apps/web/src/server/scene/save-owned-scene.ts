@@ -7,7 +7,7 @@ import type {
   CreateSceneDraftInput,
   SaveSceneInput,
 } from "@/lib/schemas/scene";
-import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import { validateStoredV4Write } from "@/server/excalidraw/persistence-guard";
 
 type SaveOwnedSceneParams = {

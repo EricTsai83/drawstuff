@@ -4,26 +4,15 @@ import path from "node:path";
 import ts from "typescript";
 import { describe, expect, it } from "vitest";
 
-import { legacyWebUpstreamImportFiles } from "../../../config/excalidraw-import-boundaries.ts";
-
 const packageRoot = path.resolve(import.meta.dirname, "..");
 const workspaceRoot = path.resolve(packageRoot, "../..");
 const sourceRoot = path.join(packageRoot, "src");
 const webRoot = path.join(workspaceRoot, "apps/web");
 
 const adapterPublicSpecifiers = new Set([
-  "@drawstuff/excalidraw-adapter",
   "@drawstuff/excalidraw-adapter/client",
   "@drawstuff/excalidraw-adapter/codec",
   "@drawstuff/excalidraw-adapter/types",
-]);
-
-const legacyUpstreamSpecifiers = new Set([
-  "@excalidraw/excalidraw",
-  "@excalidraw/excalidraw/data/types",
-  "@excalidraw/excalidraw/element/types",
-  "@excalidraw/excalidraw/index.css",
-  "@excalidraw/excalidraw/types",
 ]);
 
 type ModuleReference = {
@@ -148,6 +137,30 @@ const resolveLocalModule = (
   return candidates.find((candidate) => sourceFiles.has(candidate));
 };
 
+const resolveWebModule = (
+  importer: string,
+  specifier: string,
+  sourceFiles: ReadonlySet<string>,
+): string | undefined => {
+  if (specifier.startsWith(".")) {
+    return resolveLocalModule(importer, specifier, sourceFiles);
+  }
+  if (!specifier.startsWith("@/")) {
+    return undefined;
+  }
+
+  const unresolvedPath = path.join(webRoot, "src", specifier.slice(2));
+  const candidates = [
+    unresolvedPath,
+    `${unresolvedPath}.ts`,
+    `${unresolvedPath}.tsx`,
+    path.join(unresolvedPath, "index.ts"),
+    path.join(unresolvedPath, "index.tsx"),
+  ];
+
+  return candidates.find((candidate) => sourceFiles.has(candidate));
+};
+
 const findCycle = (
   graph: ReadonlyMap<string, readonly string[]>,
 ): string[] | undefined => {
@@ -207,14 +220,6 @@ describe("adapter import boundaries", () => {
         filesWithUpstreamImports.push(path.relative(webRoot, filePath));
       }
 
-      for (const { specifier } of upstreamReferences) {
-        if (!legacyUpstreamSpecifiers.has(specifier)) {
-          boundaryViolations.push(
-            `${path.relative(webRoot, filePath)} -> ${specifier}`,
-          );
-        }
-      }
-
       for (const { specifier } of references) {
         if (
           (specifier.startsWith("@drawstuff/excalidraw-adapter") &&
@@ -228,9 +233,7 @@ describe("adapter import boundaries", () => {
       }
     }
 
-    expect(filesWithUpstreamImports.sort()).toEqual([
-      ...legacyWebUpstreamImportFiles,
-    ]);
+    expect(filesWithUpstreamImports).toEqual([]);
     expect(boundaryViolations).toEqual([]);
   });
 
@@ -274,10 +277,65 @@ describe("adapter import boundaries", () => {
     expect(findCycle(graph)).toBeUndefined();
   });
 
+  it("keeps the app server graph away from the client editor runtime", async () => {
+    const webFiles = await listTypeScriptFiles(path.join(webRoot, "src"));
+    const webFileSet = new Set(webFiles);
+    const referencesByFile = new Map<string, ModuleReference[]>();
+
+    await Promise.all(
+      webFiles.map(async (filePath) => {
+        referencesByFile.set(filePath, await getModuleReferences(filePath));
+      }),
+    );
+
+    const pending = webFiles.filter((filePath) => {
+      const relativePath = path.relative(webRoot, filePath);
+      const references = referencesByFile.get(filePath) ?? [];
+      return (
+        relativePath.startsWith(`src${path.sep}server${path.sep}`) ||
+        relativePath.startsWith(`src${path.sep}app${path.sep}api${path.sep}`) ||
+        references.some(({ specifier }) => specifier === "server-only")
+      );
+    });
+    const visited = new Set<string>();
+    const violations: string[] = [];
+
+    while (pending.length > 0) {
+      const filePath = pending.pop();
+      if (!filePath || visited.has(filePath)) {
+        continue;
+      }
+      visited.add(filePath);
+
+      for (const { isTypeOnly, specifier } of referencesByFile.get(filePath) ??
+        []) {
+        if (isTypeOnly) {
+          continue;
+        }
+        if (
+          specifier === "@drawstuff/excalidraw-adapter/client" ||
+          specifier === "@excalidraw/excalidraw" ||
+          specifier.startsWith("@excalidraw/excalidraw/")
+        ) {
+          violations.push(
+            `${path.relative(webRoot, filePath)} -> ${specifier}`,
+          );
+        }
+
+        const dependency = resolveWebModule(filePath, specifier, webFileSet);
+        if (dependency && !visited.has(dependency)) {
+          pending.push(dependency);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
+
   it("keeps server-safe entries free of client, DOM, CSS, and runtime engine imports", async () => {
     const sourceFiles = await listTypeScriptFiles(sourceRoot);
     const sourceFileSet = new Set(sourceFiles);
-    const pending = ["index.ts", "types.ts", "codec.ts"].map((fileName) =>
+    const pending = ["types.ts", "codec.ts"].map((fileName) =>
       path.join(sourceRoot, fileName),
     );
     const visited = new Set<string>();
@@ -384,5 +442,22 @@ describe("adapter import boundaries", () => {
     );
     expect(graph.get("@drawstuff/excalidraw-adapter")).toEqual([]);
     expect(findCycle(graph)).toBeUndefined();
+  });
+
+  it("keeps the upstream engine dependency owned by the adapter", async () => {
+    const webManifest = JSON.parse(
+      await readFile(path.join(webRoot, "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+    const adapterManifest = JSON.parse(
+      await readFile(path.join(packageRoot, "package.json"), "utf8"),
+    ) as { dependencies?: Record<string, string> };
+
+    expect(webManifest.dependencies).not.toHaveProperty(
+      "@excalidraw/excalidraw",
+    );
+    expect(adapterManifest.dependencies).toHaveProperty(
+      "@excalidraw/excalidraw",
+      "^0.18.1",
+    );
   });
 });

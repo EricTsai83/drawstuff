@@ -1,12 +1,11 @@
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import {
   clearElementsForOfficialExport,
   EXCALIDRAW_PERSISTENCE_CONTRACT,
   filterReferencedFiles,
   selectOfficialServerAppState,
   type ExcalidrawStorageProfile,
-} from "@/lib/excalidraw-persistence-contract";
+} from "./persistence-contract.ts";
+import type { AppState, BinaryFiles, ExcalidrawElement } from "./types.ts";
 
 export const DRAWSTUFF_DOCUMENT_VERSION = 4 as const;
 

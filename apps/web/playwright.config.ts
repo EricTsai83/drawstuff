@@ -42,6 +42,14 @@ export default defineConfig({
         viewport: { width: 1728, height: 1080 },
       },
     },
+    {
+      name: "webkit-mobile",
+      use: {
+        ...devices["iPhone 12"],
+        browserName: "webkit",
+        viewport: { width: 390, height: 844 },
+      },
+    },
   ],
   webServer: {
     command: "pnpm start --port 3107",

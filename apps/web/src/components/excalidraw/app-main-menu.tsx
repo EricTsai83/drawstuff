@@ -1,6 +1,6 @@
 "use client";
 
-import { MainMenu } from "@excalidraw/excalidraw";
+import { ExcalidrawMainMenu as MainMenu } from "@drawstuff/excalidraw-adapter/client";
 import {
   useRef,
   memo,
@@ -17,7 +17,7 @@ import { useOutsideClick } from "@/hooks/use-outside-click";
 import type {
   AppState,
   ExcalidrawImperativeAPI,
-} from "@excalidraw/excalidraw/types";
+} from "@drawstuff/excalidraw-adapter/types";
 import { SceneRenameDialog } from "@/components/excalidraw/scene-rename-dialog";
 import {
   LogIn,

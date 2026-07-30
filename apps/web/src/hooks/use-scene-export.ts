@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useCallback } from "react";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type {
+  AppState,
+  BinaryFiles,
+} from "@drawstuff/excalidraw-adapter/types";
+import type { ExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { getBaseUrl } from "@/lib/base-url";
-import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 
 function cloneToArrayBuffer(
   fileBuffer: Uint8Array<ArrayBufferLike>,

@@ -4,5 +4,11 @@ export default defineConfig({
   test: {
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
+    setupFiles: ["./tests/setup.ts"],
+    server: {
+      deps: {
+        inline: ["@excalidraw/excalidraw", "open-color"],
+      },
+    },
   },
 });

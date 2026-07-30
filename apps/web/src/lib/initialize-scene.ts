@@ -1,7 +1,7 @@
 import { type ReactNode } from "react";
-import { restore } from "@excalidraw/excalidraw";
+import { restoreScene } from "@drawstuff/excalidraw-adapter/client";
 import { importDataFromBackend } from "./import-data-from-db";
-import type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
+import type { ImportedDataState } from "@drawstuff/excalidraw-adapter/types";
 
 export async function loadScene(
   id: string | undefined,
@@ -15,14 +15,14 @@ export async function loadScene(
   if (id != null && privateKey != null) {
     // the private key is used to decrypt the content from the server, take
     // extra care not to leak it
-    data = restore(
+    data = restoreScene(
       await importDataFromBackend(id, privateKey),
       localDataState?.appState,
       localDataState?.elements,
       { repairBindings: true, refreshDimensions: false },
     );
   } else {
-    data = restore(localDataState ?? null, null, null, {
+    data = restoreScene(localDataState ?? null, null, null, {
       repairBindings: true,
     });
   }

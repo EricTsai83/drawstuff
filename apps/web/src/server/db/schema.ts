@@ -12,7 +12,7 @@ import {
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
-import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 
 const createTable = pgTableCreator((name) => `excalidraw-ericts_${name}`);
 

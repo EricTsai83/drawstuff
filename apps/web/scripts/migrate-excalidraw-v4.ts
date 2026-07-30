@@ -5,7 +5,7 @@ import {
   DRAWSTUFF_DOCUMENT_VERSION,
   parseDrawstuffDocument,
   serializeDrawstuffDocumentV4,
-} from "../src/lib/excalidraw-document-v4";
+} from "@drawstuff/excalidraw-adapter/codec";
 import { compressData, decompressData } from "../src/lib/encode";
 
 const argumentsList = process.argv.slice(2);

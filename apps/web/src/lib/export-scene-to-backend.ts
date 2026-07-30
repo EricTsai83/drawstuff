@@ -1,8 +1,11 @@
 import type {
   ExcalidrawElement,
   NonDeletedExcalidrawElement,
-} from "@excalidraw/excalidraw/element/types";
-import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
+} from "@drawstuff/excalidraw-adapter/types";
+import type {
+  AppState,
+  BinaryFiles,
+} from "@drawstuff/excalidraw-adapter/types";
 import { generateEncryptionKey } from "./encryption";
 import { compressData } from "./encode";
 import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
@@ -11,8 +14,8 @@ import {
   createOwnedSceneDocumentV4,
   createReadonlyShareDocumentV4,
   serializeDrawstuffDocumentV4,
-} from "@/lib/excalidraw-document-v4";
-import type { ExcalidrawStorageProfile } from "@/lib/excalidraw-persistence-contract";
+} from "@drawstuff/excalidraw-adapter/codec";
+import type { ExcalidrawStorageProfile } from "@drawstuff/excalidraw-adapter/codec";
 
 type BackendSceneStorageProfile = Extract<
   ExcalidrawStorageProfile,

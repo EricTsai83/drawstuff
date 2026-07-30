@@ -16,7 +16,7 @@ import { z } from "zod";
 import { createSceneDraftSchema, saveSceneSchema } from "@/lib/schemas/scene";
 import type { AppErrorCode } from "@/lib/errors";
 import { APP_ERROR } from "@/lib/errors";
-import { DRAWSTUFF_DOCUMENT_VERSION } from "@/lib/excalidraw-document-v4";
+import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import { validateOpaqueV4Write } from "@/server/excalidraw/persistence-guard";
 import {
   createOwnedSceneDraft,

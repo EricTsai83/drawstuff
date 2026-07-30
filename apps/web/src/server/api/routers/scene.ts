@@ -22,7 +22,7 @@ import {
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { decompressData } from "@/lib/encode";
-import { parseDrawstuffDocument } from "@/lib/excalidraw-document-v4";
+import { parseDrawstuffDocument } from "@drawstuff/excalidraw-adapter/codec";
 
 const publishMutationOutput = z.object({
   slug: z.string(),

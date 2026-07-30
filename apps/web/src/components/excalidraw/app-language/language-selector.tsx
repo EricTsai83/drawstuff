@@ -1,15 +1,21 @@
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { allowedLanguages } from "./allowed-languages";
 import { useState } from "react";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 import { Dropdown } from "@/components/icons/dropdown";
 import { cn } from "@/lib/utils";
+
+const languageItems = allowedLanguages.map(({ code, label }) => ({
+  label,
+  value: code,
+}));
 
 export const LanguageSelector = ({
   value,
@@ -22,7 +28,7 @@ export const LanguageSelector = ({
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }) => {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
   const handleOpenChange = (nextOpen: boolean) => {
@@ -32,15 +38,17 @@ export const LanguageSelector = ({
 
   return (
     <Select
+      items={languageItems}
+      modal={false}
       onValueChange={(langCode) => {
         if (langCode !== null) onValueChange(langCode);
       }}
       value={value}
       open={isOpen}
       onOpenChange={handleOpenChange}
-      aria-label={t("buttons.selectLanguage")}
     >
       <SelectTrigger
+        aria-label={t("buttons.selectLanguage")}
         size="sm"
         className="h-7 w-full gap-1 px-2 py-1 text-[13px]"
         icon={
@@ -55,20 +63,18 @@ export const LanguageSelector = ({
       >
         <SelectValue placeholder="Select a language" />
       </SelectTrigger>
-      <SelectContent
-        data-prevent-outside-click
-        onPointerDownCapture={(e) => e.stopPropagation()}
-        onClickCapture={(e) => e.stopPropagation()}
-      >
-        {allowedLanguages.map((lang) => (
-          <SelectItem
-            key={lang.code}
-            value={lang.code}
-            className="py-1 pr-6 pl-2 text-xs"
-          >
-            {lang.label}
-          </SelectItem>
-        ))}
+      <SelectContent data-prevent-outside-click>
+        <SelectGroup>
+          {languageItems.map((lang) => (
+            <SelectItem
+              key={lang.value}
+              value={lang.value}
+              className="py-1 pr-6 pl-2 text-xs"
+            >
+              {lang.label}
+            </SelectItem>
+          ))}
+        </SelectGroup>
       </SelectContent>
     </Select>
   );

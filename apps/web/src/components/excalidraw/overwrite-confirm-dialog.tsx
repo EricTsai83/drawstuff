@@ -8,7 +8,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Download, Image as ImageIcon, CloudUpload } from "lucide-react";
-import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import { useOverwriteConfirm } from "@/hooks/excalidraw/use-overwrite-confirm";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { getCurrentSceneSnapshot } from "@/lib/excalidraw";
