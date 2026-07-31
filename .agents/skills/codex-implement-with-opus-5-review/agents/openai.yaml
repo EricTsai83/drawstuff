@@ -1,0 +1,4 @@
+interface:
+  display_name: "Codex Implement with Opus 5 Review"
+  short_description: "Codex implements; Claude Opus 5 performs the review."
+  default_prompt: "Use $codex-implement-with-opus-5-review to implement this change and have Claude Opus 5 review it."

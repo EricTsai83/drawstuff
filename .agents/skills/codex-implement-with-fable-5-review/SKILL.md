@@ -1,33 +1,34 @@
 ---
-name: implement-with-claude-review
-description: Implement a plan or scoped change, verify it, obtain a read-only Claude review, immediately surface every reviewer finding before review-driven fixes, validate and fix confirmed findings, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Claude or cross-model review. Fall back to an independent Codex review when Claude is unavailable and disclose the reason.
+name: codex-implement-with-fable-5-review
+description: Implement a plan or scoped change with Codex, verify it, obtain a read-only Claude Fable 5 review at high reasoning, immediately surface every reviewer finding before review-driven fixes, validate and fix confirmed findings, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Codex implementation with Claude Fable 5 or cross-model review. Fall back to an independent Codex review when Claude is unavailable and disclose the reason.
 ---
 
-# Implement with Claude Review
+# Codex Implement with Fable 5 Review
 
-Codex owns implementation, final technical judgment, fixes, verification, and reporting. Claude is a read-only reviewer.
+Codex owns implementation, final technical judgment, fixes, verification, and reporting. Claude Fable 5 is a read-only reviewer.
 
 ## Workflow
 
 1. Read the requirements, repository instructions, and starting `git status`; preserve unrelated changes.
 2. Implement without committing, pushing, deploying, or expanding scope unless requested.
 3. Run proportionate checks.
-4. Request a read-only Claude review against the requirements, diff, and check results.
+4. Request a read-only Claude Fable 5 review against the requirements, diff, and check results.
 5. Immediately present every returned finding to the user before making any review-driven code change. Mark these as unvalidated reviewer findings, not Codex's final judgment.
 6. Validate every finding; accept only concrete correctness, regression, security, requirement, or meaningful test-coverage issues.
 7. Present Codex's acceptance or rejection decisions, then fix accepted findings and rerun affected checks. Reject style-only, speculative, or false-positive findings.
 8. If fixes are material, run one final pass with the same reviewer. Maximum: two review passes. Repeat the immediate disclosure for that pass.
 9. Report the result in Traditional Chinese using the format below. Include every usable finding returned by every review pass, even when it was rejected or already fixed.
 
-## Claude Review
+## Claude Fable 5 Review
 
-Use Claude Opus unless the user requests another model. Run non-interactively in plan/read-only mode:
+Use Claude Fable 5 for every review pass. Run non-interactively at high reasoning in plan/read-only mode:
 
 A typical invocation is:
 
 ```bash
 claude -p "<focused review prompt>" \
-  --model opus \
+  --model claude-fable-5 \
+  --effort high \
   --permission-mode plan \
   --tools "Read,Grep,Glob,Bash"
 ```
@@ -40,7 +41,7 @@ Retain the review output until the final report is complete. Present every usabl
 
 After each review invocation returns, send a commentary update before editing any code in response to that review. Do not defer this disclosure to the final report.
 
-Use the heading `Claude Review Pass N — 初始 findings（尚未經 Codex 驗證）` and include the provider plus every usable finding's ID, severity, file/line, failure mode, impact, and proposed fix direction. State clearly that Codex may accept or reject each finding after inspecting the code. When the reviewer reports no findings, immediately say `本 pass 無 findings`.
+Use the heading `Claude Fable 5 Review Pass N — 初始 findings（尚未經 Codex 驗證）` and include the provider plus every usable finding's ID, severity, file/line, failure mode, impact, and proposed fix direction. State clearly that Codex may accept or reject each finding after inspecting the code. When the reviewer reports no findings, immediately say `本 pass 無 findings`.
 
 After validation, send a second concise commentary update with the acceptance or rejection of each finding and the reason before or while applying accepted fixes. The later final report remains the authoritative record of findings, decisions, changes, and verification.
 
@@ -59,7 +60,10 @@ Use a cumulative 30-minute wait budget for all Claude review invocations in the 
 If Claude returns no usable review—because of access, quota, policy, authentication, timeout, tooling, context, or malformed output—retry once only when the invocation is clearly correctable; otherwise use independent Codex review:
 
 ```bash
-codex -C "$PWD" review -
+codex exec -C "$PWD" \
+  --model gpt-5.6-sol \
+  --config 'model_reasoning_effort="high"' \
+  review --uncommitted -
 ```
 
 Pass the same review context through stdin. Immediately identify the fallback with the specific, sanitized reason:
@@ -92,7 +96,7 @@ Write explanations and headings in Traditional Chinese; preserve commands, ident
 
 ## Review 結果
 
-- 先明確說明 Claude 是否完成 review；若使用 fallback，列出規定的完整 provider label。
+- 先明確說明 Claude Fable 5 是否完成 review；若使用 fallback，列出規定的完整 provider label。
 - 依 pass 逐項呈現 reviewer 回傳的每一個可用 finding，不論接受、拒絕或已在後續 pass 解決：
   - `[finding ID] severity — path:line`（reviewer 未提供位置時明確註明）。
   - **Reviewer finding**：忠實呈現 failure mode、觸發條件、影響與 reviewer 建議的修正方向；不可只寫 finding 標題或最終結論。
@@ -137,4 +141,4 @@ Use this distinction:
 - **設計理由**：對完整 request tree 做一次純 traversal，讓 path、patch、prompt 與 model 共用同一政策，避免各 engine adapter 各自 redaction 而產生漏接或行為分歧。
 ```
 
-State whether Claude completed review. For fallback, repeat the exact provider label and reason, and never imply Claude approved the work.
+State whether Claude Fable 5 completed review. For fallback, repeat the exact provider label and reason, and never imply Claude approved the work.
