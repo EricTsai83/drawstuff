@@ -26,8 +26,8 @@ merge algorithm，皆不在這組計畫內。
 | [00](./00-architecture-contract.md)           | Completed | 鎖定 ownership 與不可破壞的相容性邊界           | 無                  |
 | [01](./01-adapter-package-scaffold.md)        | Completed | 建立 internal adapter package                   | 00                  |
 | [02](./02-editor-render-bridge.md)            | Completed | 現有 editor 透過 adapter render                 | 01                  |
-| [03](./03-public-api-gap-audit.md)            | Ready     | 先證明公開 API 能力並決定是否需要 upstream seam | 02                  |
-| [04](./04-minimal-upstream-seam.md)           | Ready     | 僅補足已確認的 upstream API seam                | 03，條件式          |
+| [03](./03-public-api-gap-audit.md)            | Completed | 決策 `minimal patch required`，確認 G1/G2/G3/G4 | 02                  |
+| [04](./04-minimal-upstream-seam.md)           | Ready     | 僅補足已確認的 upstream API seam（G1/G2/G3/G4） | 03，已觸發          |
 | [05](./05-whiteboard-controller.md)           | Ready     | 建立穩定 controller/command API                 | 03，以及需要時的 04 |
 | [06](./06-custom-toolbar-shell.md)            | Ready     | 建立 Drawstuff toolbar 外殼                     | 05                  |
 | [07](./07-core-tool-controls.md)              | Ready     | 接上核心繪圖工具                                | 06                  |
@@ -47,7 +47,9 @@ merge algorithm，皆不在這組計畫內。
 | [21](./21-legacy-v2-v3-data-rewrite.md)      | Completed | 執行 V2/V3 舊資料 rewrite 並移除 legacy readers | 02（獨立於 03–20）  |
 
 Plan 04 是唯一條件式 plan。若 Plan 03 證明公開 API 足夠，將它標記為
-`Skipped — public API sufficient`，然後直接執行 Plan 05。
+`Skipped — public API sufficient`，然後直接執行 Plan 05。Plan 03 的結論是
+`minimal patch required`，因此 Plan 04 維持 `Ready`，並依 G1/G2/G3/G4 四個
+confirmed gaps 分開執行。
 
 ## 共同完成規則
 

@@ -1,8 +1,12 @@
 # Plan 03：審核公開 API 缺口
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 02
 - Expected change size: 測試、spike 與一份決策表
+- Outcome: `minimal patch required`（G1 primary toolbar 可見性、G2 undo/redo
+  command、G3 locale key 覆寫、G4 container-bound text reflow）。決策紀錄見
+  `docs/architecture/03-public-api-gap-audit.md`，reproduction 見
+  `packages/excalidraw-adapter/tests/upstream-capability-audit.test.ts`。
 
 ## Outcome
 

@@ -1,8 +1,27 @@
 # Plan 04：補上最小 upstream API seam
 
-- Status: Ready（條件式）
-- Depends on: Plan 03 的 `minimal patch required` 決策
+- Status: Ready
+- Depends on: Plan 03 的 `minimal patch required` 決策（已成立）
 - Expected change size: 每個 confirmed gap 一個獨立、長期維護的 integration seam
+- Confirmed gaps（依 Plan 03 決策，分四次獨立執行）：
+  1. **G2** — `ExcalidrawImperativeAPI` 沒有 host 可呼叫的 undo/redo command
+     （`History.undo/redo`、`actionUndo`/`actionRedo` 已存在但未 export）。
+  2. **G1** — `UIOptions` 沒有隱藏 upstream primary tool island 的 visibility
+     option（`viewModeEnabled` 會停用編輯，`zenModeEnabled` 不會隱藏該 island，
+     且會把 host `Footer` slot 一併推出畫面）。
+  3. **G3** — 沒有覆寫單一 locale key 的 public API，`toast.unableToEmbed` 文案
+     無法在地化（不阻擋其他 plan）。
+  4. **G4** — 沒有 public 的 container-bound text reflow command
+     （`redrawTextBoundingBox` 已存在但未 export；`restoreElements` 的
+     `refreshTextDimensions` 只重算 text 自身尺寸，不會放大 container，也不會用
+     `computeBoundTextPosition` 重新定位 bound text，而重建該行為所需的
+     `measureText`／`wrapText`／`getFontString`／`getBoundTextMaxWidth`／
+     `computeContainerDimensionForBoundText`／`computeBoundTextPosition`／
+     `getContainerElement` 全部未 export）。與 G2 同屬「upstream 已存在但未 export
+     的 stable command」，順序排在 G3 之後。
+
+  證據與 reproduction：`docs/architecture/03-public-api-gap-audit.md`、
+  `packages/excalidraw-adapter/tests/upstream-capability-audit.test.ts`。
 
 ## Outcome
 
