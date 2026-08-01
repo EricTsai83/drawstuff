@@ -1,7 +1,13 @@
 import type { ReactElement } from "react";
 import { expect, it } from "vitest";
 
-import type { ExcalidrawCanvasProps } from "../src/types";
+import type {
+  ExcalidrawCanvasProps,
+  ExcalidrawValidateEmbeddable,
+} from "../src/types";
+
+const validateEmbeddable: ExcalidrawValidateEmbeddable = (url: string) =>
+  url.startsWith("https://example.com/") ? true : undefined;
 
 const editorProps = {
   initialData: Promise.resolve(null),
@@ -14,6 +20,7 @@ const editorProps = {
       toggleTheme: true,
     },
   },
+  validateEmbeddable,
 } satisfies ExcalidrawCanvasProps;
 
 const createTypecheckedElement = (): ReactElement => (

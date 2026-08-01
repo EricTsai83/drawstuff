@@ -32,5 +32,9 @@ export type ExcalidrawCanvasProps = Pick<
   | "renderTopRightUI"
   | "theme"
   | "UIOptions"
+  | "validateEmbeddable"
   | "viewModeEnabled"
 >;
+
+export type ExcalidrawValidateEmbeddable =
+  ExcalidrawProps["validateEmbeddable"];

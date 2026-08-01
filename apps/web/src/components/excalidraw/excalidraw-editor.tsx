@@ -56,6 +56,13 @@ import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
 import { useSceneRemoteRevisionCheck } from "@/hooks/excalidraw/use-scene-remote-revision-check";
 import { SceneRemoteConflictDialog } from "@/components/excalidraw/scene-remote-conflict-dialog";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import {
+  createEmbedUrlValidator,
+  EXTRA_EMBED_DOMAINS,
+} from "@/config/embed-allowlist";
+
+// 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
+const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
 
 export default function ExcalidrawEditor() {
   useSceneImportFileGuard();
@@ -408,6 +415,7 @@ export default function ExcalidrawEditor() {
           theme={browserActiveTheme}
           renderTopRightUI={renderTopRightUI}
           renderCustomStats={renderCustomStats}
+          validateEmbeddable={embedUrlValidator}
         >
           <AppMainMenu
             userChosenTheme={userChosenTheme}
