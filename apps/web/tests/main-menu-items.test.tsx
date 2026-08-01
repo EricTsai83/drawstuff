@@ -1,0 +1,182 @@
+import { act, type ReactElement } from "react";
+import { createRoot } from "react-dom/client";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+/**
+ * What blocks a main-menu item from rendering in isolation is the i18n hook
+ * chain (`useAppI18n` → adapter `useI18n` → an isolated `useAtomValue` from
+ * upstream's `jotai-scope` `createIsolation()`), which throws without the
+ * Excalidraw provider. `MainMenu.Item` / `ItemCustom` are a plain button/div
+ * over defaulted contexts and are not the obstacle. So every item here is
+ * unit-testable once the adapter's i18n hook is mocked.
+ *
+ * KNOWN GAP: the session-gated items that also need auth/tRPC/workspace state
+ * (`workspace-switcher-item`, `dashboard-link-item`, `account-item`) and the
+ * editor-state items (`theme-item`, `language-item`) have no direct coverage.
+ * tests/e2e/excalidraw-smoke.spec.ts never authenticates, so it does not
+ * exercise the session-gated ones either.
+ */
+
+vi.mock("@drawstuff/excalidraw-adapter/client", () => ({
+  useExcalidrawI18n: () => ({ t: (key: string) => key, langCode: "en" }),
+}));
+
+import { MenuActionItem } from "@/components/excalidraw/main-menu/menu-action-item";
+import { NewSceneItem } from "@/components/excalidraw/main-menu/new-scene-item";
+import { RenameSceneItem } from "@/components/excalidraw/main-menu/rename-scene-item";
+import { SceneTitle } from "@/components/excalidraw/main-menu/scene-title";
+import { SettingsItem } from "@/components/excalidraw/main-menu/settings-item";
+import { SocialLinksItem } from "@/components/excalidraw/main-menu/social-links-item";
+
+const actEnvironment = globalThis as unknown as {
+  IS_REACT_ACT_ENVIRONMENT: boolean;
+};
+
+let container: HTMLDivElement;
+let root: ReturnType<typeof createRoot>;
+
+function render(ui: ReactElement): void {
+  act(() => root.render(ui));
+}
+
+function renderedItem(): HTMLDivElement {
+  const item = container.querySelector("div");
+  if (!item) {
+    throw new Error("the menu item did not render");
+  }
+  return item;
+}
+
+function pressKey(element: Element, key: string): void {
+  act(() => {
+    element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key }));
+  });
+}
+
+beforeEach(() => {
+  actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+  container = document.createElement("div");
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+describe("MenuActionItem", () => {
+  it("keeps the upstream dropdown item classes so it matches native items", () => {
+    render(
+      <MenuActionItem
+        icon={<span data-testid="icon" />}
+        label="Rename"
+        onActivate={vi.fn()}
+      />,
+    );
+
+    const item = renderedItem();
+    expect(item.className).toBe("dropdown-menu-item dropdown-menu-item-base");
+    expect(item.querySelector('[data-testid="icon"]')).not.toBeNull();
+    expect(item.textContent).toBe("Rename");
+  });
+
+  it("activates on click", () => {
+    const onActivate = vi.fn();
+    render(
+      <MenuActionItem icon={null} label="Rename" onActivate={onActivate} />,
+    );
+
+    act(() => {
+      renderedItem().click();
+    });
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["Enter", " "])("activates on %j", (key) => {
+    const onActivate = vi.fn();
+    render(
+      <MenuActionItem icon={null} label="Rename" onActivate={onActivate} />,
+    );
+
+    pressKey(renderedItem(), key);
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores every other key", () => {
+    const onActivate = vi.fn();
+    render(
+      <MenuActionItem icon={null} label="Rename" onActivate={onActivate} />,
+    );
+
+    for (const key of ["a", "Escape", "Tab", "ArrowDown"]) {
+      pressKey(renderedItem(), key);
+    }
+
+    expect(onActivate).not.toHaveBeenCalled();
+  });
+});
+
+describe("MenuActionItem wrappers", () => {
+  const wrappers = [
+    { name: "RenameSceneItem", Item: RenameSceneItem, label: "Rename scene" },
+    { name: "NewSceneItem", Item: NewSceneItem, label: "New scene" },
+    { name: "SettingsItem", Item: SettingsItem, label: "Settings" },
+  ];
+
+  it.each(wrappers)("$name renders its translated label", ({ Item, label }) => {
+    render(<Item onActivate={vi.fn()} />);
+
+    expect(renderedItem().textContent).toBe(label);
+  });
+
+  it.each(wrappers)("$name activates on click", ({ Item }) => {
+    const onActivate = vi.fn();
+    render(<Item onActivate={onActivate} />);
+
+    act(() => {
+      renderedItem().click();
+    });
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(wrappers)("$name activates on Enter", ({ Item }) => {
+    const onActivate = vi.fn();
+    render(<Item onActivate={onActivate} />);
+
+    pressKey(renderedItem(), "Enter");
+
+    expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SocialLinksItem", () => {
+  it("renders every social link as a new-tab link that cannot reach the opener", () => {
+    render(<SocialLinksItem />);
+
+    const links = Array.from(container.querySelectorAll("a"));
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      "https://github.com/EricTsai83/drawstuff",
+      "https://bsky.app/profile/ericts.com",
+      "https://ericts.com",
+    ]);
+    for (const link of links) {
+      expect(link.getAttribute("target")).toBe("_blank");
+      expect(link.getAttribute("rel")).toBe("noopener");
+      expect(link.className).toBe("dropdown-menu-item dropdown-menu-item-base");
+    }
+  });
+});
+
+describe("SceneTitle", () => {
+  it("renders the scene name and stays hidden on the wide layout", () => {
+    render(<SceneTitle sceneName="Quarterly plan" />);
+
+    const title = renderedItem();
+    expect(title.textContent).toBe("Quarterly plan");
+    expect(title.className).toContain("min-[728px]:hidden");
+  });
+});
