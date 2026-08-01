@@ -1,21 +1,13 @@
 import type { ImportedDataState } from "@drawstuff/excalidraw-adapter/types";
 import { decompressData, base64ToArrayBuffer } from "./encode";
 import { getTrpcClient } from "@/trpc/client";
+import type { FileId } from "@drawstuff/excalidraw-adapter/types";
 import type {
-  ExcalidrawElement,
-  FileId,
-} from "@drawstuff/excalidraw-adapter/types";
-import type {
-  AppState,
   BinaryFiles,
   BinaryFileData,
   DataURL,
 } from "@drawstuff/excalidraw-adapter/types";
-import { ensureInitialAppState } from "@drawstuff/excalidraw-adapter/codec";
-import {
-  parseDrawstuffDocument,
-  toNativeExcalidrawScene,
-} from "@drawstuff/excalidraw-adapter/codec";
+import { decodePersistedScene } from "./persisted-scene";
 
 export async function importDataFromBackend(
   id: string,
@@ -198,12 +190,6 @@ function toUint8Array(input: unknown): Uint8Array {
   throw new Error("Unsupported compressed data format");
 }
 
-function sanitizeImportedAppState(
-  appState: Partial<AppState>,
-): Partial<AppState> {
-  return ensureInitialAppState(appState);
-}
-
 // 非分享模式：直接以 sceneId 讀取壓縮過的 sceneData，解壓並回傳
 export async function importSceneDataBySceneId(
   sceneId: string,
@@ -242,21 +228,6 @@ export async function importSceneDataBySceneId(
     console.error("importSceneDataBySceneId error", error);
     return {};
   }
-}
-
-function decodePersistedScene(data: Uint8Array | undefined): {
-  elements: ExcalidrawElement[];
-  appState: Partial<AppState>;
-} {
-  if (!data) {
-    throw new Error("Persisted scene payload is empty");
-  }
-  const document = parseDrawstuffDocument(new TextDecoder().decode(data));
-  const native = toNativeExcalidrawScene(document);
-  return {
-    elements: [...native.elements],
-    appState: sanitizeImportedAppState(native.appState),
-  };
 }
 
 export async function getSceneMetaBySceneId(

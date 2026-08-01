@@ -3,7 +3,6 @@
 import {
   ExcalidrawCanvas,
   ExcalidrawMainMenu as MainMenu,
-  restoreScene,
 } from "@drawstuff/excalidraw-adapter/client";
 import {
   Eye,
@@ -24,12 +23,9 @@ import type {
   ExcalidrawInitialDataState,
 } from "@drawstuff/excalidraw-adapter/types";
 import type { AppState } from "@drawstuff/excalidraw-adapter/types";
-import type {
-  ExcalidrawElement,
-  FileId,
-} from "@drawstuff/excalidraw-adapter/types";
+import type { FileId } from "@drawstuff/excalidraw-adapter/types";
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
-import { ensureInitialAppState } from "@drawstuff/excalidraw-adapter/codec";
+import { decodePersistedScene } from "@/lib/persisted-scene";
 import Link from "next/link";
 import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
@@ -44,11 +40,6 @@ type PublishedSceneViewerProps = {
   sceneDescription: string;
   authorName?: string;
   updatedAt: string;
-};
-
-type StoredScenePayload = {
-  elements?: ExcalidrawElement[];
-  appState?: Partial<AppState>;
 };
 
 type DecompressedFileMetadata = {
@@ -143,9 +134,7 @@ export function PublishedSceneViewer({
           compressedBuffer,
           { decryptionKey: "" },
         );
-        const parsed = JSON.parse(
-          new TextDecoder().decode(data),
-        ) as StoredScenePayload;
+        const parsed = decodePersistedScene(data);
 
         const files: BinaryFiles = {};
 
@@ -175,29 +164,19 @@ export function PublishedSceneViewer({
 
         if (!isActive) return;
 
-        const restored = restoreScene(
-          {
-            elements: parsed.elements ?? null,
-            appState: parsed.appState ?? null,
-            files,
-          },
-          null,
-          null,
-          { repairBindings: true, refreshDimensions: false },
-        );
-
-        const cleanAppState = ensureInitialAppState(restored.appState ?? {});
         setInitialData({
-          elements: restored.elements ?? [],
+          elements: parsed.elements,
           appState: {
-            ...cleanAppState,
+            ...parsed.appState,
+            // The viewer always frames the scene itself, so a persisted
+            // viewport must not win over scrollToContent.
             scrollX: undefined,
             scrollY: undefined,
             zoom: undefined,
             viewModeEnabled: true,
             zenModeEnabled: true,
           },
-          files: restored.files ?? files,
+          files,
         });
       } catch (error) {
         if (error instanceof Error && error.name === "AbortError") {
