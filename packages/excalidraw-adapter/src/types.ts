@@ -33,7 +33,6 @@ export type ExcalidrawCanvasProps = Pick<
   | "theme"
   | "UIOptions"
   | "validateEmbeddable"
-  | "viewModeEnabled"
 >;
 
 export type ExcalidrawValidateEmbeddable =

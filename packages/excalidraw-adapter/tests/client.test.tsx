@@ -13,6 +13,7 @@ vi.mock("@excalidraw/excalidraw", () => ({
   defaultLang: { code: "en" },
   Excalidraw: upstream.Excalidraw,
   exportToBlob: vi.fn(),
+  exportToSvg: vi.fn(),
   Footer: "footer",
   languages: [{ code: "en" }],
   MainMenu: "menu",
@@ -45,7 +46,6 @@ describe("ExcalidrawCanvas", () => {
       theme: "dark",
       UIOptions: uiOptions,
       validateEmbeddable,
-      viewModeEnabled: true,
     });
 
     expect(renderToStaticMarkup(element)).toContain("menu slot");
@@ -57,7 +57,6 @@ describe("ExcalidrawCanvas", () => {
         theme: "dark",
         UIOptions: uiOptions,
         validateEmbeddable,
-        viewModeEnabled: true,
       }),
       undefined,
     );

@@ -6,6 +6,7 @@ import {
   defaultLang,
   Excalidraw,
   exportToBlob,
+  exportToSvg,
   Footer,
   languages,
   MainMenu,
@@ -26,9 +27,16 @@ export function ExcalidrawCanvas(
   return createElement(Excalidraw, props);
 }
 
+/**
+ * Options of the upstream SVG export, derived from the function itself so the
+ * passthrough can never drift from the engine's own signature.
+ */
+export type ExcalidrawSvgExportOptions = Parameters<typeof exportToSvg>[0];
+
 export {
   defaultLang as DEFAULT_EXCALIDRAW_LANGUAGE,
   exportToBlob as exportCanvasToBlob,
+  exportToSvg as exportSceneToSvg,
   Footer as ExcalidrawFooter,
   languages as EXCALIDRAW_LANGUAGES,
   MainMenu as ExcalidrawMainMenu,

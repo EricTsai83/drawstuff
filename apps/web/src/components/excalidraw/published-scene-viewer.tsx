@@ -1,8 +1,8 @@
 "use client";
 
 import {
-  ExcalidrawCanvas,
-  ExcalidrawMainMenu as MainMenu,
+  exportSceneToSvg,
+  type ExcalidrawSvgExportOptions,
 } from "@drawstuff/excalidraw-adapter/client";
 import {
   Eye,
@@ -14,26 +14,23 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   BinaryFileData,
   BinaryFiles,
   DataURL,
-  ExcalidrawImperativeAPI,
-  ExcalidrawInitialDataState,
+  ExcalidrawElement,
+  FileId,
+  NonDeleted,
 } from "@drawstuff/excalidraw-adapter/types";
-import type { AppState } from "@drawstuff/excalidraw-adapter/types";
-import type { FileId } from "@drawstuff/excalidraw-adapter/types";
 import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
 import { decodePersistedScene } from "@/lib/persisted-scene";
+import { hardenSvgLinks } from "@/lib/svg-links";
 import Link from "next/link";
-import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
+import { DrawstuffLogo } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
-import {
-  createEmbedUrlValidator,
-  EXTRA_EMBED_DOMAINS,
-} from "@/config/embed-allowlist";
+import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
 
 type PublishedSceneViewerProps = {
   sceneData: string;
@@ -53,52 +50,34 @@ type DecompressedFileMetadata = {
   lastRetrieved: number;
 };
 
+/**
+ * Everything the SVG export needs, decoded once per published scene. Derived
+ * from the adapter's option type so it cannot drift from the engine.
+ */
+type LoadedScene = {
+  elements: ExcalidrawSvgExportOptions["elements"];
+  appState: NonNullable<ExcalidrawSvgExportOptions["appState"]>;
+  files: NonNullable<ExcalidrawSvgExportOptions["files"]>;
+};
+
+function isNotDeleted(
+  element: ExcalidrawElement,
+): element is NonDeleted<ExcalidrawElement> {
+  return !element.isDeleted;
+}
+
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.2;
 
-const FIT_TO_VIEWPORT_OPTIONS = {
-  fitToViewport: true,
-  viewportZoomFactor: 0.7,
-  animate: false,
-} as const;
-
-function clamp(value: number, min: number, max: number): number {
-  return Math.min(max, Math.max(min, value));
-}
-
-function getCenteredZoomState(
-  appState: AppState,
-  nextZoom: AppState["zoom"]["value"],
-): Pick<AppState, "scrollX" | "scrollY" | "zoom"> {
-  const viewportCenterX = appState.offsetLeft + appState.width / 2;
-  const viewportCenterY = appState.offsetTop + appState.height / 2;
-  const appLayerX = viewportCenterX - appState.offsetLeft;
-  const appLayerY = viewportCenterY - appState.offsetTop;
-  const currentZoom = appState.zoom.value;
-  const baseScrollX = appState.scrollX + appLayerX - appLayerX / currentZoom;
-  const baseScrollY = appState.scrollY + appLayerY - appLayerY / currentZoom;
-  const zoomOffsetScrollX = -(appLayerX - appLayerX / nextZoom);
-  const zoomOffsetScrollY = -(appLayerY - appLayerY / nextZoom);
-
-  return {
-    scrollX: baseScrollX + zoomOffsetScrollX,
-    scrollY: baseScrollY + zoomOffsetScrollY,
-    zoom: {
-      ...appState.zoom,
-      value: nextZoom,
-    },
-  };
-}
+/** Breathing room left around the scene when framing it. */
+const FIT_MARGIN = 32;
 
 const ICON_BTN =
   "inline-flex h-10 w-10 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
 
 const TEXT_BTN =
   "inline-flex h-10 min-w-10 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
-
-// 檢視模式一樣會渲染 embeddable，所以 viewer 也要套用同一份補充名單。
-const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
 
 const CONTROLS_MENU =
   "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
@@ -111,13 +90,9 @@ export function PublishedSceneViewer({
 }: PublishedSceneViewerProps) {
   const { t } = useStandaloneI18n();
   const { setTheme, browserActiveTheme } = useSyncTheme();
-  const [initialData, setInitialData] =
-    useState<ExcalidrawInitialDataState | null>(null);
+  const [scene, setScene] = useState<LoadedScene | null>(null);
+  const [sceneSvg, setSceneSvg] = useState<SVGSVGElement | null>(null);
   const [loadError, setLoadError] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
-  const [excalidrawAPI, setExcalidrawAPI] =
-    useState<ExcalidrawImperativeAPI | null>(null);
-  const [hasAutoCentered, setHasAutoCentered] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const headerRef = useRef<HTMLElement | null>(null);
@@ -125,14 +100,31 @@ export function PublishedSceneViewer({
   const headerRightRef = useRef<HTMLDivElement | null>(null);
   const [titleMaxWidth, setTitleMaxWidth] = useState<number | undefined>();
 
+  const {
+    viewportRef,
+    stageRef,
+    transformStyle,
+    hasFitted,
+    fit,
+    reset,
+    zoomBy,
+    onPointerDown,
+    onClickCapture,
+  } = useSvgPanZoom({
+    content: sceneSvg,
+    contentKey: sceneData,
+    margin: FIT_MARGIN,
+    minScale: MIN_ZOOM,
+    maxScale: MAX_ZOOM,
+  });
+
   useEffect(() => {
     const controller = new AbortController();
     let isActive = true;
 
-    setInitialData(null);
+    setScene(null);
+    setSceneSvg(null);
     setLoadError(false);
-    setIsLoading(true);
-    setHasAutoCentered(false);
 
     async function loadPublishedScene() {
       try {
@@ -171,18 +163,11 @@ export function PublishedSceneViewer({
 
         if (!isActive) return;
 
-        setInitialData({
-          elements: parsed.elements,
-          appState: {
-            ...parsed.appState,
-            // The viewer always frames the scene itself, so a persisted
-            // viewport must not win over scrollToContent.
-            scrollX: undefined,
-            scrollY: undefined,
-            zoom: undefined,
-            viewModeEnabled: true,
-            zenModeEnabled: true,
-          },
+        setScene({
+          // `exportToSvg` renders exactly the elements it is given, so
+          // tombstones are dropped here rather than by an editor.
+          elements: parsed.elements.filter(isNotDeleted),
+          appState: parsed.appState,
           files,
         });
       } catch (error) {
@@ -193,10 +178,6 @@ export function PublishedSceneViewer({
         console.error("Failed to load published scene", error);
         if (isActive) {
           setLoadError(true);
-        }
-      } finally {
-        if (isActive) {
-          setIsLoading(false);
         }
       }
     }
@@ -209,44 +190,66 @@ export function PublishedSceneViewer({
     };
   }, [fileRecords, sceneData]);
 
+  // The published page renders a static export instead of mounting the editor,
+  // so a theme change means re-exporting the scene.
   useEffect(() => {
-    if (!excalidrawAPI) return;
-    const current = excalidrawAPI.getAppState();
-    if (current.theme !== browserActiveTheme) {
-      excalidrawAPI.updateScene({
-        appState: { ...current, theme: browserActiveTheme },
-      });
+    if (!scene) return;
+    let isActive = true;
+
+    async function renderSceneSvg(loaded: LoadedScene) {
+      const exportOnce = (skipInliningFonts: true | undefined) =>
+        exportSceneToSvg({
+          elements: loaded.elements,
+          appState: {
+            ...loaded.appState,
+            exportWithDarkMode: browserActiveTheme === "dark",
+            // Transparent canvas: the viewport paints the app theme's
+            // background token instead of the scene's own color.
+            exportBackground: false,
+          },
+          files: loaded.files,
+          skipInliningFonts,
+        });
+
+      try {
+        let svg: SVGSVGElement;
+        try {
+          svg = await exportOnce(undefined);
+        } catch (error) {
+          // Font inlining runs upstream's subsetting worker + wasm pipeline,
+          // which is environment-dependent and can fail where the rest of the
+          // export would succeed. Degrade to system-font text instead of an
+          // error page.
+          console.warn(
+            "Falling back to exporting without inlined fonts:",
+            error instanceof Error ? (error.stack ?? error.message) : error,
+          );
+          svg = await exportOnce(true);
+        }
+
+        if (!isActive) return;
+        hardenSvgLinks(svg);
+        setSceneSvg(svg);
+        // A failed export (e.g. before a theme retry) must not keep covering a
+        // successful one.
+        setLoadError(false);
+      } catch (error) {
+        console.error(
+          "Failed to render published scene:",
+          error instanceof Error ? (error.stack ?? error.message) : error,
+        );
+        if (isActive) {
+          setLoadError(true);
+        }
+      }
     }
-  }, [browserActiveTheme, excalidrawAPI]);
 
-  useEffect(() => {
-    if (!excalidrawAPI || !initialData || hasAutoCentered) return;
-
-    let attempts = 0;
-    let timer: number | undefined;
-
-    const tryCenter = () => {
-      attempts += 1;
-      const elements = excalidrawAPI.getSceneElements() ?? [];
-      const hasContent = elements.some((element) => !element.isDeleted);
-
-      if (hasContent) {
-        excalidrawAPI.scrollToContent(undefined, FIT_TO_VIEWPORT_OPTIONS);
-        setHasAutoCentered(true);
-        return;
-      }
-
-      if (attempts < 15) {
-        timer = window.setTimeout(tryCenter, 120);
-      }
-    };
-
-    tryCenter();
+    void renderSceneSvg(scene);
 
     return () => {
-      if (timer) window.clearTimeout(timer);
+      isActive = false;
     };
-  }, [excalidrawAPI, hasAutoCentered, initialData]);
+  }, [browserActiveTheme, scene]);
 
   useEffect(() => {
     if (!uiVisible) return;
@@ -305,63 +308,19 @@ export function PublishedSceneViewer({
     };
   }, [controlsMenuOpen]);
 
-  const fitToScreen = useCallback(() => {
-    if (!excalidrawAPI) return;
-    excalidrawAPI.scrollToContent(undefined, FIT_TO_VIEWPORT_OPTIONS);
-  }, [excalidrawAPI]);
-
-  const zoomBy = useCallback(
-    (factor: number) => {
-      if (!excalidrawAPI) return;
-      const current = excalidrawAPI.getAppState();
-      const nextZoom = clamp(current.zoom.value * factor, MIN_ZOOM, MAX_ZOOM);
-      if (nextZoom === current.zoom.value) return;
-
-      excalidrawAPI.updateScene({
-        appState: {
-          ...current,
-          ...getCenteredZoomState(
-            current,
-            nextZoom as AppState["zoom"]["value"],
-          ),
-        },
-      });
-    },
-    [excalidrawAPI],
-  );
-
-  const resetView = useCallback(() => {
-    if (!excalidrawAPI) return;
-    const current = excalidrawAPI.getAppState();
-    excalidrawAPI.updateScene({
-      appState: {
-        ...current,
-        zoom: {
-          ...current.zoom,
-          value: 1 as AppState["zoom"]["value"],
-        },
-      },
-    });
-
-    requestAnimationFrame(() => {
-      excalidrawAPI.scrollToContent(undefined, {
-        fitToViewport: false,
-        animate: false,
-      });
-    });
-  }, [excalidrawAPI]);
-
-  const toggleTheme = useCallback(() => {
+  const toggleTheme = () => {
     setTheme(browserActiveTheme === "light" ? "dark" : "light");
-  }, [browserActiveTheme, setTheme]);
+  };
 
   const themeLabel =
     browserActiveTheme === "light"
       ? t("public.theme.light")
       : t("public.theme.dark");
 
+  const isLoading = !sceneSvg && !loadError;
+
   return (
-    <div className="published-viewer flex h-full w-full flex-col">
+    <div className="flex h-full w-full flex-col">
       {/* ── Header ── */}
       {uiVisible && (
         <header
@@ -445,7 +404,7 @@ export function PublishedSceneViewer({
               <div className="bg-border my-1 h-px w-4" />
               <button
                 type="button"
-                onClick={fitToScreen}
+                onClick={fit}
                 className={TEXT_BTN}
                 aria-label={t("public.viewer.fit")}
                 title={t("public.viewer.fit")}
@@ -454,7 +413,7 @@ export function PublishedSceneViewer({
               </button>
               <button
                 type="button"
-                onClick={resetView}
+                onClick={reset}
                 className={ICON_BTN}
                 aria-label={t("public.viewer.reset")}
                 title={t("public.viewer.reset")}
@@ -508,7 +467,7 @@ export function PublishedSceneViewer({
               <div className="bg-border mx-1 h-4 w-px" />
               <button
                 type="button"
-                onClick={fitToScreen}
+                onClick={fit}
                 className={TEXT_BTN}
                 aria-label={t("public.viewer.fit")}
                 title={t("public.viewer.fit")}
@@ -517,7 +476,7 @@ export function PublishedSceneViewer({
               </button>
               <button
                 type="button"
-                onClick={resetView}
+                onClick={reset}
                 className={ICON_BTN}
                 aria-label={t("public.viewer.reset")}
                 title={t("public.viewer.reset")}
@@ -530,7 +489,7 @@ export function PublishedSceneViewer({
         </header>
       )}
 
-      {/* ── Canvas area ── */}
+      {/* ── Scene stage (static SVG, no editor) ── */}
       <div className="relative min-h-0 flex-1">
         {/* Restore UI button — only when chrome is hidden */}
         {!uiVisible && (
@@ -545,86 +504,38 @@ export function PublishedSceneViewer({
           </button>
         )}
 
-        {loadError ? (
-          <div className="flex h-full items-center justify-center">
+        {/* Always mounted: the pan/zoom hook binds its listeners to this node. */}
+        <div
+          ref={viewportRef}
+          onPointerDown={onPointerDown}
+          onClickCapture={onClickCapture}
+          className="bg-background relative h-full w-full cursor-grab touch-none overflow-hidden active:cursor-grabbing"
+        >
+          <div
+            ref={stageRef}
+            role="img"
+            aria-label={sceneName}
+            className="absolute top-0 left-0 transition-opacity duration-200 will-change-transform"
+            style={{ ...transformStyle, opacity: hasFitted ? 1 : 0 }}
+          />
+        </div>
+
+        {loadError && (
+          <div className="bg-background absolute inset-0 flex items-center justify-center">
             <p className="text-muted-foreground text-sm">
               {t("public.viewer.loadError")}
             </p>
           </div>
-        ) : !initialData && isLoading ? (
-          <div className="flex h-full flex-col items-center justify-center gap-4">
+        )}
+
+        {isLoading && (
+          <div className="bg-background absolute inset-0 flex flex-col items-center justify-center gap-4">
             <div className="flex h-10 w-10 items-center justify-center">
               <div className="border-primary/30 border-t-primary h-7 w-7 animate-spin rounded-full border-2" />
             </div>
             <p className="text-muted-foreground animate-pulse text-sm">
               {t("public.viewer.loading")}
             </p>
-          </div>
-        ) : (
-          <div
-            className="h-full w-full transition-opacity duration-200"
-            style={{ opacity: hasAutoCentered ? 1 : 0 }}
-          >
-            {initialData && (
-              <ExcalidrawCanvas
-                excalidrawAPI={setExcalidrawAPI}
-                initialData={initialData}
-                theme={browserActiveTheme}
-                viewModeEnabled
-                renderTopRightUI={() => null}
-                validateEmbeddable={embedUrlValidator}
-                UIOptions={{
-                  canvasActions: {
-                    toggleTheme: false,
-                    clearCanvas: false,
-                    loadScene: false,
-                    saveAsImage: false,
-                    saveToActiveFile: false,
-                    changeViewBackgroundColor: false,
-                    export: false,
-                  },
-                }}
-              >
-                <MainMenu>
-                  <MainMenu.DefaultItems.SearchMenu />
-                  <MainMenu.DefaultItems.Help />
-                  <MainMenu.Separator />
-                  <MainMenu.ItemCustom>
-                    <Link
-                      href="https://github.com/EricTsai83/drawstuff"
-                      target="_blank"
-                      rel="noopener"
-                      className="dropdown-menu-item dropdown-menu-item-base"
-                    >
-                      <Github className="h-4 w-4" />
-                      GitHub
-                    </Link>
-                  </MainMenu.ItemCustom>
-                  <MainMenu.ItemCustom>
-                    <Link
-                      href="https://bsky.app/profile/ericts.com"
-                      target="_blank"
-                      rel="noopener"
-                      className="dropdown-menu-item dropdown-menu-item-base"
-                    >
-                      <Bluesky className="h-4 w-4" />
-                      Bluesky
-                    </Link>
-                  </MainMenu.ItemCustom>
-                  <MainMenu.ItemCustom>
-                    <Link
-                      href="https://ericts.com"
-                      target="_blank"
-                      rel="noopener"
-                      className="dropdown-menu-item dropdown-menu-item-base"
-                    >
-                      <Blog className="h-4 w-4" />
-                      Website
-                    </Link>
-                  </MainMenu.ItemCustom>
-                </MainMenu>
-              </ExcalidrawCanvas>
-            )}
           </div>
         )}
       </div>
