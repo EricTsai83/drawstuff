@@ -1,9 +1,9 @@
 ---
-name: claude-implement-with-gpt56-sol
+name: claude-implement-with-gpt56-sol-review
 description: Have Claude implement a plan or scoped change without pinning its implementation model, verify it, obtain a read-only Codex GPT-5.6 Sol review at high reasoning, immediately surface every reviewer finding before review-driven fixes, return validation and fixes to Claude, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Claude implementation with GPT-5.6 Sol or cross-model review. Fall back to a read-only Claude review when Codex is unavailable and disclose the reason.
 ---
 
-# Claude Implement with GPT-5.6 Sol
+# Claude Implement with GPT-5.6 Sol Review
 
 Claude owns implementation, final technical judgment, fixes, and implementation checks. Codex GPT-5.6 Sol is a read-only reviewer. The coordinating agent owns orchestration, immediate disclosures, independent verification, and final reporting; it must not silently take implementation ownership away from Claude.
 
