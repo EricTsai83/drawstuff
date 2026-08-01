@@ -5,7 +5,11 @@
 - Decision owner: Drawstuff architecture
 - Reference engine: lockfile-resolved `@excalidraw/excalidraw@0.18.1`
 - **決策：`minimal patch required`**
-- **Plan 04：`Ready`（4 個 confirmed gaps，分開執行）**
+- **Plan 04：`Skipped — 不修改 upstream`（2026-08-01 owner 決策，取代上行結論
+  的執行；詳見 `plans/04-minimal-upstream-seam.md` 決策紀錄。G1/G2/G4 因保留
+  原生 editor UI 而不再需要，G3 為 accepted limitation。本文件其餘內容為
+  stock 0.18.1 的稽核事實，維持有效，capability matrix 與 tripwire tests 持續
+  守護「只依賴 public API」的邊界。）**
 
 ## Context
 

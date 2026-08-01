@@ -1,69 +1,21 @@
 # Plan 08：接上樣式與 selection controls
 
-- Status: Ready
-- Depends on: Plan 07
-- Expected change size: 一個 properties panel 與有限 style commands
+- Status: Skipped — 路線取消（2026-08-01 owner 決策）
 
-## Outcome
+## 決策紀錄
 
-自訂 UI 可以安全地修改新 element defaults 和已選 elements 的常用樣式，正確
-處理 mixed selection，並完成 toolbar 單一路徑 cutover。
+產品方向改為保留 Excalidraw 原生 editor UI：樣式編輯（stroke／background／
+fill／opacity／font 等）與 selection controls 一律使用原生 properties panel，
+不再自訂。原因：
 
-## In scope
+- 自訂 style controls 需要 G4（container-bound text reflow）等 upstream 未
+  export 的能力，與「不修改 upstream」原則衝突；原生 panel 內部自行處理
+  reflow，沒有這個問題。
+- Undo/redo、mixed selection、O(n) command 成本等原 plan 要處理的複雜度，全部
+  由原生 UI 承擔，產品不需要重新實作。
 
-- Stroke color、background color、fill style。
-- Stroke width/style、sloppiness、opacity。
-- Font family、font size、text alignment；只在適用 selection 顯示。Text 樣式不是
-  geometry-free：`redrawTextBoundingBox`／`updateBoundElements` 皆未 export，唯一的
-  public reflow 是 `restoreElements(elements, null, { repairBindings: true,
-  refreshDimensions: true })`。這條路徑要分兩種 text 看待：
-  - **沒有 container 的 text**：accepted limitation（Plan 03 audit §#4a）。三個代價是
-    重建全部 element object、bound arrow 幾何暫時未對齊，以及 `refreshTextDimensions`
-    從 `text` 而非 `originalText` 重新 wrap（非 idempotent）。第三點可在呼叫
-    `restoreElements` 前以 `newElementWith(text, { fontSize, text: text.originalText })`
-    自行消除。
-  - **container-bound text**：**confirmed gap G4**（Plan 03 audit §#4b）。restore 路徑
-    不會放大 container，也不會重新定位 bound text，字級變大會直接溢出。在 Plan 04
-    完成 G4 之前，本 plan 的 font controls parity 只涵蓋沒有 container 的 text，
-    且不得以 copy/paste upstream text layout 演算法的方式繞過。
-- Arrowhead；只在線性 element 適用時顯示。
-- Mixed/unsupported/disabled state 的明確 UI。
-- Undo/redo 必須包含 style updates。
-- 達到已定義 parity 後移除 Plan 06 feature flag、舊 product toolbar wrappers、
-  hidden duplicate UI、舊 styles、dead translations 和只測舊路徑的 tests。
+原始 plan 內容已由 git 歷史保留（commit 85e1fefd 之前的版本）。若未來重啟
+自訂 editor UI 路線，須先與 owner 討論並重新評估 Plan 03 稽核結論。
 
-## Out of scope
-
-- 自訂 Excalidraw element schema。
-- 直接 mutate selected elements。
-- 不在目前產品需求內的所有 upstream properties。
-
-## Steps
-
-1. 定義 `SelectionSummary` 的 supported、mixed 和 value semantics。
-2. 分開處理「沒有 selection 時更新 current style」與「有 selection 時執行
-   element action」。
-3. 每種 control 僅呼叫 controller command。
-4. 驗證 group、bound text、multi-selection 和 locked elements。
-5. 補 undo/redo、keyboard selection change 與 mobile panel 測試。
-6. 執行 cutover cleanup inventory 與 Knip/import scan，確認 app 只有一套 toolbar
-   composition；rollback 依靠部署回退，不在新版本保留舊 implementation。
-
-## Verification
-
-```sh
-pnpm --filter @drawstuff/excalidraw-adapter test
-pnpm --filter @drawstuff/web test
-pnpm --filter @drawstuff/web test:e2e
-pnpm typecheck
-```
-
-## Done when
-
-- 常用樣式可由 Drawstuff UI 修改。
-- Mixed selection 不會顯示錯誤單一值或破壞不支援的 element。
-- 所有修改都進入 upstream history，undo/redo 結果正確。
-- Custom toolbar 不再由 feature flag 控制，production bundle 沒有舊 toolbar
-  runtime path、雙重 controller subscription 或 dead code。
-- Large mixed selection 的摘要與 style update 符合 Plan 00 budget；不會因每個
-  control 各自掃描全 selection 而產生重複 O(n) 工作。
+產品客製化改走 Plan 05（原生 UI 整合契約與 Menu 整備）與 Plan 06／07
+（dashboard 產品功能）。共編線（Plan 09 起）改依賴 Plan 05。

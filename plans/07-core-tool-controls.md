@@ -1,53 +1,58 @@
-# Plan 07：接上核心繪圖工具
+# Plan 07：場景封存與還原（archive）
 
 - Status: Ready
-- Depends on: Plan 06
-- Expected change size: 一組 tool buttons 與 controller commands
+- Depends on: Plan 05
+- Expected change size: 兩個 tRPC mutation + dashboard 封存 UI
+
+> 2026-08-01 改版：本 plan 原為「接上核心繪圖工具」（自訂 toolbar 的 tool
+> buttons），路線取消後改為新產品功能。依據：`scene.isArchived` 欄位已存在於
+> schema（`apps/web/src/server/db/schema.ts`）且 `getUserScenesInfinite` 尚未
+> 區分封存狀態——本 plan 把這個預留的能力做完，或經確認不需要後把欄位刪掉。
 
 ## Outcome
 
-使用者可以從 Drawstuff toolbar 選擇最常用工具，active state 與 canvas 真實狀態
-一致。
+使用者可以在 dashboard 封存與還原場景：封存的場景預設不出現在列表，可切換
+「已封存」檢視找回；刪除場景多一層「先封存」的安全網。
 
 ## In scope
 
-- 接上 selection、hand、rectangle、diamond、ellipse、arrow、line、freedraw、
-  text、eraser。
-- 顯示真實 active tool。
-- 保留 upstream keyboard shortcuts。
-- 處理 locked tool、one-shot tool 與 selection 返回狀態。
-- 在 feature flag 下隱藏重複的 upstream primary tool UI。
-- Tool mapping 是 exhaustive typed table；unsupported upstream tool 有明確
-  read-only representation，不以 default branch 靜默映射成 selection。
+- 先與 owner 確認此功能仍要做；若否，本 plan 改為依「Database schema 規則」
+  流程刪除 `isArchived` 欄位後標記 Completed。
+- `scene.archive`／`scene.unarchive` tRPC mutations（scoped to owner，走既有
+  revision 檢查模式）。
+- `getUserScenesInfinite` 明確依 `isArchived` 篩選：預設排除封存；dashboard
+  提供「已封存」檢視切換（nuqs URL state，與 search／publish filter 同模式）。
+- `scene-card-menu.tsx` 加入封存／還原動作；封存目前開啟中的場景時，明確定義
+  editor 行為（保持開啟但標示、或提示切換）。
+- 明確定義封存與既有能力的互動：已發佈場景可否封存（`/p/[slug]` 是否維持可
+  讀）、封存場景是否計入 workspace 場景數、`deleteScene` 與封存的關係。
+- 空狀態與 i18n 文案。
 
 ## Out of scope
 
-- Stroke/fill/font 等 style controls。
-- Library、image import、laser pointer 等次要功能。
-- 修改 upstream tool state machine。
+- 自動封存策略（閒置 N 天自動封存等）。
+- 資源清理（封存不觸發 `deferredFileCleanup`；刪除流程維持既有行為）。
+- 回收桶／永久刪除倒數等進階流程。
 
 ## Steps
 
-1. 建立 Drawstuff tool ID 到 upstream tool ID 的唯一 mapping。
-2. Tool buttons 只呼叫 controller command。
-3. 從 controller subscription 更新 active/locked UI。
-4. 測試 button、shortcut 和 canvas gesture 三種切換來源。
-5. 驗證 mobile toolbar overflow 與 tooltip shortcut 顯示。
-6. 刪除被取代的 product wrappers、事件轉接與重複 tests；upstream engine 內建
-   state machine 保留，但 app 不保留另一套 tool state。
+1. 與 owner 確認功能去留與「發佈 × 封存」的預期行為。
+2. 實作 mutations 與列表篩選，含 unit tests。
+3. 實作 dashboard 檢視切換與 card 動作。
+4. 補「封存後從預設列表消失、還原後回來、封存當前場景」的整合測試。
+5. 依共同完成規則清理。
 
 ## Verification
 
 ```sh
-pnpm --filter @drawstuff/excalidraw-adapter test
-pnpm --filter @drawstuff/web test
-pnpm --filter @drawstuff/web test:e2e
 pnpm lint
+pnpm typecheck
+pnpm test
+pnpm --filter @drawstuff/web test:e2e
 ```
 
 ## Done when
 
-- 每個列出的工具都可被選取並實際在 canvas 建立正確 element。
-- Keyboard shortcut 與 toolbar active state 不會不同步。
-- 關閉 feature flag 仍可回到 upstream toolbar。
-- Tool change 只造成 active group 的 bounded re-render，不會掃描/複製完整 scene。
+- 封存／還原／檢視切換全流程可用且有測試。
+- `isArchived` 不再是「有欄位無行為」的殭屍 schema（做完或刪除，二擇一）。
+- 預設列表查詢排除封存場景且維持既有效能模式。

@@ -1,68 +1,70 @@
-# Plan 05：建立穩定 Whiteboard controller
+# Plan 05：原生 UI 整合契約與 Menu 整備
 
 - Status: Ready
-- Depends on: Plan 03，以及需要時的 Plan 04
-- Expected change size: 一個 controller contract 與 adapter 實作
+- Depends on: Plan 03（capability audit 與 tripwire 已存在）
+- Expected change size: adapter 契約測試對齊 + `AppMainMenu` 結構重整，無新產品功能
+
+> 2026-08-01 改版：本 plan 原為「Whiteboard controller」（服務自訂 toolbar）。
+> 產品方向改為保留原生 editor UI 後，controller/command API 整份取消；本 plan
+> 改為鎖定「原生 UI + public slot」這條實際路線的整合契約。
 
 ## Outcome
 
-產品 UI 可以透過 Drawstuff 自己的 controller 讀取 editor 狀態與送出 commands，
-不需要知道 `ExcalidrawImperativeAPI` 的完整形狀。
+「產品功能只透過 upstream public API 掛進 editor」成為有測試守護的明文契約；
+`MainMenu` 成為新產品功能的標準掛載點——之後新增一個 menu 功能（例如開啟
+dashboard、分類、封存）只需要新增一個獨立的 menu item component 並掛上，
+不需要動 menu 骨架。
 
 ## In scope
 
-- 定義小型 `WhiteboardController` interface。
-- 第一版只加入後續 toolbar 必要能力：
-  - `getActiveTool()`
-  - `getSelectionSummary()`
-  - `setActiveTool(tool)`
-  - `updateCurrentStyle(stylePatch)`
-  - `deleteSelection()`
-  - `undo()` / `redo()`
-- `deleteSelection()` 必須自行重現 upstream 的 delete contract（`fixBindingsAfterDeletion`
-  未 export，見 Plan 03 audit §#4）：
-  1. 以 `newElementWith(el, { isDeleted: true })` tombstone，不得從 array 移除。
-  2. Container 的 bound text（`containerId` 指向被刪除 element）一併 tombstone。
-  3. 清掉 linear element 指向已刪除 element 的 `startBinding`／`endBinding`；指向
-     存活 element 的 binding 不得更動。
-  4. 把已刪除的 id 從存活 element 的 `boundElements` 陣列移除。
-  5. 不在 blast radius 內的 element 保留 referential identity。
-- 提供訂閱 state change 的 API，使用 `useSyncExternalStore` 或同等穩定模式。
-- 將 upstream appState/element types 轉成 Drawstuff-owned read model。
-- 加入 controller unit tests。
-- Snapshot 以 semantic equality/memoization 保持 referential stability；pointer move
-  或不相關 appState change 不得通知 toolbar subscribers。
-- Controller 有明確 attach/detach/dispose lifecycle，不殘留 listener 或 stale API
-  reference。
+- **盤點實際依賴的 public surface。** 逐一列出 `excalidraw-editor.tsx` 與
+  `published-scene-viewer.tsx` 使用的 props／slots／`UIOptions`（現況：
+  `excalidrawAPI`、`initialData`、`onChange`、`UIOptions.canvasActions`、
+  `langCode`、`theme`、`renderTopRightUI`、`renderCustomStats`、
+  `validateEmbeddable`、`viewModeEnabled`、`MainMenu`、`Footer`、
+  `WelcomeScreen`），確認每一項都在
+  `upstream-capability-audit.test.ts` 的 audited keys 內；缺的補進 audited
+  清單，讓「升級 upstream 弄壞我們用到的 API」一定被 typecheck/test 抓到。
+- **`AppMainMenu` 結構重整。** 目前約 585 行、混雜 menu 骨架與各功能邏輯。
+  拆成「骨架 + 每個產品動作一個獨立 item component」（dashboard 連結、rename、
+  new scene、settings、auth、theme、language…），dialogs 維持渲染在 menu 外的
+  既有模式。純結構重整，行為不變。
+- **處置既有的 DOM workaround。** `app-main-menu.tsx` 以
+  `document.querySelector('[data-testid="main-menu-trigger"]')` + MutationObserver
+  修補 menu trigger 的 aria-label，違反共同完成規則 #7 與「不依賴 upstream
+  internals」原則。本 plan 內確認 upstream 是否已有 public 替代；沒有就把它
+  隔離成單一明確標註的 accepted-limitation 模組（附 upstream issue 連結與移除
+  條件），並禁止此 pattern 擴散。
+- 在 `docs/architecture/` 記錄本契約（依賴的 slot 清單、掛載規則、禁止事項）。
 
 ## Out of scope
 
-- Toolbar component。
-- Collaboration。
-- 一次包裝所有 upstream API。
+- 任何 upstream patch／fork／私有 API（見 Plan 04 決策紀錄）。
+- 自訂 toolbar、controller、command API。
+- 新產品功能（Plan 06／07）。
 
 ## Steps
 
-1. 從 toolbar use cases 反推最小 command/read model。
-2. 在 adapter 內保存 upstream API reference，但不複製 scene state。
-3. 將 upstream state change 轉為小型 immutable snapshot。
-4. 驗證 controller command 不會直接改寫 element object。
-5. 為沒有 editor instance、沒有 selection、mixed selection 補測試。
-6. 使用 Plan 00 large-scene fixture 量測通知次數、selector cost 與 React commits；
-   hot path 不複製完整 element array，且每個 relevant change 最多一次通知。
+1. 產出 editor／viewer 的 public-surface 依賴清單，對照 audited keys 補齊缺口。
+2. 重整 `AppMainMenu` 為骨架 + item components；每個 item 有獨立測試或由既有
+   E2E 覆蓋。
+3. 處置 aria-label DOM workaround（public 替代或隔離＋記錄）。
+4. 撰寫整合契約文件，連同本 plan 的掛載規則。
+5. 刪除被取代的舊結構與只服務舊路徑的測試。
 
 ## Verification
 
 ```sh
-pnpm --filter @drawstuff/excalidraw-adapter typecheck
-pnpm --filter @drawstuff/excalidraw-adapter test
+pnpm lint
 pnpm typecheck
+pnpm test
+pnpm knip
 ```
 
 ## Done when
 
-- App UI 只需要 controller 就能取得 active tool 與 selection summary。
-- Commands 有 typed error/no-op semantics。
-- Controller 沒有把 upstream internal store 暴露給 app。
-- Strict Mode remount 後沒有重複 subscription；相同 semantic snapshot 不會造成
-  re-render，controller overhead 符合已核准 budget。
+- 我們依賴的每個 upstream prop／slot 都在 audit tripwire 的守護範圍內。
+- 新增一個 menu 產品功能 = 新增一個 item component + 一行掛載。
+- repo 內除了被隔離並記錄的單一例外，沒有任何 DOM selector 觸碰 upstream
+  internals。
+- 契約文件存在且與程式碼一致。
