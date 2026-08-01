@@ -21,6 +21,7 @@ When uncertain, prefer: Tailwind, TypeScript, Bun, Convex, Clerk, Vercel.
 ## General proference
 - If asked to do too much work at once, stop and state that clearly.
 - If computer use is helpful for completing or verifying work, shell out to gpt-5.5 with Codex for it.
+- While any long-running step or delegated agent invocation is in progress, give the user a concise status update at least every 60 seconds, watch the process for liveness, and report immediately if it dies without producing a result.
 
 ## Source Code Reference
 

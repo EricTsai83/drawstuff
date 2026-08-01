@@ -19,6 +19,15 @@ Claude owns implementation, final technical judgment, fixes, verification, and r
 8. If fixes are material, run one final pass with the same reviewer. Maximum: two review passes. Repeat the immediate disclosure for that pass.
 9. Report the result in Traditional Chinese using the format below. Include every usable finding returned by every review pass, even when it was rejected or already fixed.
 
+## Progress Updates
+
+These rules apply to the whole workflow — long-running implementation or verification work and every non-interactive agent invocation (Codex review passes and any Claude subprocess) alike:
+
+- While any long-running step is in progress, send the user a concise status update at least every 60 seconds: which phase and step is running, elapsed time, and remaining wait budget where one applies.
+- Run every long-running agent invocation under a liveness watcher that distinguishes "still running" from "process exited without producing a result". Report a dead invocation immediately with the evidence found, instead of waiting for a timeout or the next user message.
+- If the coordinating session is interrupted or restarted while an invocation is running, state that immediately at the start of the next turn: what was lost, what evidence remains, and the recovery plan.
+- Report phase transitions (implementation done, checks passing or failing, review started, findings returned) as they happen; do not batch them into the final report.
+
 ## Codex GPT-5.6 Sol Review
 
 Use Codex GPT-5.6 Sol for every review pass. Run non-interactively at high reasoning in read-only review mode:
