@@ -1,40 +1,23 @@
 ---
 name: claude-implement-with-gpt56-sol-review
-description: Have Claude implement a plan or scoped change without pinning its implementation model, verify it, obtain a read-only Codex GPT-5.6 Sol review at high reasoning, immediately surface every reviewer finding before review-driven fixes, return validation and fixes to Claude, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Claude implementation with GPT-5.6 Sol or cross-model review. Fall back to a read-only Claude review when Codex is unavailable and disclose the reason.
+description: Implement a plan or scoped change with Claude, verify it, obtain a read-only Codex GPT-5.6 Sol review at high reasoning, immediately surface every reviewer finding before review-driven fixes, validate and fix confirmed findings, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Claude implementation with GPT-5.6 Sol or cross-model review. Fall back to an independent Claude review when Codex is unavailable and disclose the reason.
 ---
 
 # Claude Implement with GPT-5.6 Sol Review
 
-Claude owns implementation, final technical judgment, fixes, and implementation checks. Codex GPT-5.6 Sol is a read-only reviewer. The coordinating agent owns orchestration, immediate disclosures, independent verification, and final reporting; it must not silently take implementation ownership away from Claude.
+Claude owns implementation, final technical judgment, fixes, verification, and reporting. Codex GPT-5.6 Sol is a read-only reviewer.
 
 ## Workflow
 
 1. Read the requirements, repository instructions, and starting `git status`; preserve unrelated changes.
-2. Invoke Claude to implement without committing, pushing, deploying, or expanding scope unless requested. Do not pin the Claude implementation model.
-3. Run or confirm proportionate checks and inspect the resulting diff.
+2. Implement without committing, pushing, deploying, or expanding scope unless requested.
+3. Run proportionate checks.
 4. Request a read-only Codex GPT-5.6 Sol review against the requirements, diff, and check results.
 5. Immediately present every returned finding to the user before making any review-driven code change. Mark these as unvalidated reviewer findings, not Claude's final judgment.
-6. Have Claude validate every finding; accept only concrete correctness, regression, security, requirement, or meaningful test-coverage issues.
-7. Present Claude's acceptance or rejection decisions, then have Claude fix accepted findings and rerun affected checks. Reject style-only, speculative, or false-positive findings.
+6. Validate every finding; accept only concrete correctness, regression, security, requirement, or meaningful test-coverage issues.
+7. Present Claude's acceptance or rejection decisions, then fix accepted findings and rerun affected checks. Reject style-only, speculative, or false-positive findings.
 8. If fixes are material, run one final pass with the same reviewer. Maximum: two review passes. Repeat the immediate disclosure for that pass.
 9. Report the result in Traditional Chinese using the format below. Include every usable finding returned by every review pass, even when it was rejected or already fixed.
-
-## Claude Implementation
-
-Do not specify a Claude model for implementation, finding validation, or review-driven fixes. Run non-interactively at high effort with the permissions appropriate to each phase.
-
-A typical implementation invocation is:
-
-```bash
-claude -p "<focused implementation prompt>" \
-  --effort high \
-  --permission-mode acceptEdits \
-  --tools "Read,Grep,Glob,Bash,Edit,Write"
-```
-
-Include the requirements, implementation scope, repository instructions, starting status, pre-existing changes to preserve, acceptance criteria, and required checks. Require Claude to inspect the existing implementation before editing, avoid commits and external side effects, keep scope tight, run proportionate checks, and summarize changed paths plus command results.
-
-If Claude cannot complete implementation because of access, quota, policy, authentication, timeout, tooling, context, or malformed output, retry once only when the invocation is clearly correctable. Otherwise stop and report the blocker. Do not silently replace Claude with Codex implementation.
 
 ## Codex GPT-5.6 Sol Review
 
@@ -55,20 +38,11 @@ Retain the review output until the final report is complete. Present every usabl
 
 ### Immediate Finding Disclosure
 
-After each review invocation returns, send a commentary update before invoking Claude to edit code in response to that review. Do not defer this disclosure to the final report.
+After each review invocation returns, send a commentary update before editing any code in response to that review. Do not defer this disclosure to the final report.
 
 Use the heading `Codex GPT-5.6 Sol Review Pass N — 初始 findings（尚未經 Claude 驗證）` and include the provider plus every usable finding's ID, severity, file/line, failure mode, impact, and proposed fix direction. State clearly that Claude may accept or reject each finding after inspecting the code. When the reviewer reports no findings, immediately say `本 pass 無 findings`.
 
-Validate findings with a read-only Claude invocation that does not pin the implementation model:
-
-```bash
-claude -p "<finding validation prompt>" \
-  --effort high \
-  --permission-mode plan \
-  --tools "Read,Grep,Glob,Bash"
-```
-
-After validation, send a second concise commentary update with the acceptance or rejection of each finding and the reason before invoking Claude with edit permissions to apply accepted fixes. The later final report remains the authoritative record of findings, decisions, changes, and verification.
+After validation, send a second concise commentary update with the acceptance or rejection of each finding and the reason before or while applying accepted fixes. The later final report remains the authoritative record of findings, decisions, changes, and verification.
 
 ### Wait Limit
 
@@ -82,23 +56,22 @@ Use a cumulative 30-minute wait budget for all Codex review invocations in the w
 
 ## Codex Failure Fallback
 
-If Codex returns no usable review—because of access, quota, policy, authentication, timeout, tooling, context, or malformed output—retry once only when the invocation is clearly correctable; otherwise use a fresh read-only Claude Opus review:
+If Codex returns no usable review—because of access, quota, policy, authentication, timeout, tooling, context, or malformed output—retry once only when the invocation is clearly correctable; otherwise use independent Claude review:
 
 ```bash
 claude -p "<focused review prompt>" \
-  --model opus \
   --effort high \
   --permission-mode plan \
   --tools "Read,Grep,Glob,Bash"
 ```
 
-Pass the same review context to the fallback. Immediately identify it with the specific, sanitized reason:
+Pass the same review context to the fallback. Immediately identify the fallback with the specific, sanitized reason:
 
 ```text
-Review provider: Claude Opus (fallback — Codex unavailable: <specific reason>)
+Review provider: Claude (fallback — Codex unavailable: <specific reason>)
 ```
 
-After fallback, use Claude Opus for remaining passes and count them toward the two-pass limit. State that the fallback was a fresh same-provider review, not cross-model, and never imply Codex approved it. If fallback also fails, report both failures and stop review work.
+After fallback, use Claude for remaining passes and count them toward the two-pass limit. State that the review was independent, not cross-model, and never imply Codex approved it. If fallback also fails, report both failures and stop review work.
 
 ## Final Report
 
@@ -127,7 +100,7 @@ Write explanations and headings in Traditional Chinese; preserve commands, ident
   - `[finding ID] severity — path:line`（reviewer 未提供位置時明確註明）。
   - **Reviewer finding**：忠實呈現 failure mode、觸發條件、影響與 reviewer 建議的修正方向；不可只寫 finding 標題或最終結論。
   - **判定**：接受／拒絕，以及 Claude 驗證後的具體理由。
-  - **處理與驗證**：接受時列出 Claude 的修正與檢查；拒絕時明確寫「未修改」及支持判定的證據。
+  - **處理與驗證**：接受時列出修正與檢查；拒絕時明確寫「未修改」及支持判定的證據。
 - reviewer 明確回傳沒有 findings 時，寫出「本 pass 無 findings」，不可省略該 pass。
 
 ## 驗證
