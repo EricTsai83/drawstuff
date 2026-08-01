@@ -1,5 +1,5 @@
 // @vitest-environment node
-import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -47,6 +47,10 @@ beforeAll(async () => {
     testDb as unknown as Parameters<typeof pushSchema>[1],
   );
   await apply();
+});
+
+afterAll(async () => {
+  await client.close();
 });
 
 beforeEach(async () => {
