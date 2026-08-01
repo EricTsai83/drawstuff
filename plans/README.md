@@ -51,6 +51,7 @@ merge algorithm，皆不在這組計畫內。
 | [19](./19-production-hardening.md)            | Ready     | 加入 limits、監控與 load/security checks        | 18                  |
 | [20](./20-staged-rollout.md)                  | Ready     | 以 feature flag 漸進開放並可回滾                | 19                  |
 | [21](./21-legacy-v2-v3-data-rewrite.md)      | Completed | 執行 V2/V3 舊資料 rewrite 並移除 legacy readers | 02（獨立於 03–20）  |
+| [22](./22-freedraw-pressure-backfill.md)     | Completed | freedraw pressure 欄位 backfill 並移除 read-time 修復層 | 21（獨立於 03–20）  |
 
 Plan 03 的稽核結論原為 `minimal patch required`（G1/G2/G3/G4 四個 confirmed
 gaps）。2026-08-01 owner 決策改採「不修改 upstream」原則後，Plan 04 標記為

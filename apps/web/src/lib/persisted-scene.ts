@@ -26,6 +26,12 @@ type DecodedPersistedScene = {
  * Restoring here means every persisted read — owned scene, shared link and
  * published page alike — yields native elements.
  *
+ * Freedraw `pressures`/`simulatePressure` are NOT restored by upstream (its
+ * SVG export reads `pressures[i]` unguarded and silently drops the stroke).
+ * Stored rows were backfilled once (plans/22-freedraw-pressure-backfill.md);
+ * a round-trip tripwire in excalidraw-persisted-scene-restore.test.ts keeps
+ * the writer from ever stripping the pair again.
+ *
  * Only elements are restored: `restoreAppState` materialises every default,
  * including `scrollX`/`scrollY`/`zoom`, which would defeat the "did the saved
  * scene carry a viewport?" checks that decide whether to auto-center.
