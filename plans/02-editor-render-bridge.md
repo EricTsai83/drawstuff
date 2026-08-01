@@ -1,6 +1,6 @@
 # Plan 02：讓 editor 透過 adapter render
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 01
 - Expected change size: render wrapper、adapter entry points 與完整 import cutover
 
@@ -50,6 +50,8 @@ pnpm lint
 pnpm --filter @drawstuff/web typecheck
 pnpm --filter @drawstuff/web test
 pnpm --filter @drawstuff/web test:e2e
+pnpm baseline:performance
+pnpm baseline:performance:e2e
 ```
 
 ## Done when

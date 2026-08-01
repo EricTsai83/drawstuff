@@ -160,6 +160,40 @@ functional probe 後證明原座標序列是 no-op，因此 95.031ms/131.604ms �
 - Controller reference trace 不是 Plan 05 implementation benchmark 的替代品；
   Plan 05 必須額外量測真實 subscribers、selector cost 與 React commits。
 
+## Plan 02 完整 suite capture
+
+- Captured: 2026-08-01
+- Source revision: `1dbc07be`（editor cutover 到 `@drawstuff/excalidraw-adapter`）
+- Machine：與上方 baseline 相同的 `MacBookPro18,1`，因此直接比較 absolute budget
+
+`pnpm baseline:performance`（全部 checks 為 `true`）：
+
+| Check                         | Result                                                    |
+| ----------------------------- | --------------------------------------------------------- |
+| `largeSceneLoad`              | true                                                      |
+| `largeSceneOwnedSave`         | true                                                      |
+| `largeSceneReadonlySave`      | true                                                      |
+| `controllerNotificationTrace` | true                                                      |
+| `routeJavaScript`             | true（budget raw 3,670,016 bytes、gzip 1,101,005 bytes）  |
+| `serverBundle`                | true（`upstreamRuntimeReferences: []`，掃描 132 chunks）  |
+| `nodeMemory`                  | true                                                      |
+
+`pnpm baseline:performance:e2e`（`ENFORCE_EXCALIDRAW_PERFORMANCE_BUDGETS=1`、
+`chromium-desktop`、viewport 1728×1080、fixture `plan-00-editor-interaction-v1`、
+`budgetEnforced: true`、1 passed）：
+
+| Measurement              |          Plan 02 |    Plan 00 baseline |                                Budget |
+| ------------------------ | ---------------: | ------------------: | ------------------------------------: |
+| Editor ready             |        406.054ms |           405.737ms | informational；保留比較但不作 CI gate |
+| Interaction count        |               12 |                  12 |                        fixture 定義值 |
+| Interaction p50          |         64.592ms |            66.403ms |                         informational |
+| Interaction p95          |         86.882ms |            86.790ms |                               ≤ 140ms |
+| JS heap used after trace | 14,642,316 bytes |    16,900,632 bytes |                         informational |
+| DOM nodes after trace    |           12,233 |              12,233 |                         informational |
+
+Adapter cutover 沒有改變 interaction p95（86.882ms vs 86.790ms，仍遠低於 140ms），
+server bundle 也確認不含 upstream editor runtime。
+
 ## Final verification capture
 
 | Command                                   | Result                                      |
