@@ -19,6 +19,14 @@
   - `updateCurrentStyle(stylePatch)`
   - `deleteSelection()`
   - `undo()` / `redo()`
+- `deleteSelection()` 必須自行重現 upstream 的 delete contract（`fixBindingsAfterDeletion`
+  未 export，見 Plan 03 audit §#4）：
+  1. 以 `newElementWith(el, { isDeleted: true })` tombstone，不得從 array 移除。
+  2. Container 的 bound text（`containerId` 指向被刪除 element）一併 tombstone。
+  3. 清掉 linear element 指向已刪除 element 的 `startBinding`／`endBinding`；指向
+     存活 element 的 binding 不得更動。
+  4. 把已刪除的 id 從存活 element 的 `boundElements` 陣列移除。
+  5. 不在 blast radius 內的 element 保留 referential identity。
 - 提供訂閱 state change 的 API，使用 `useSyncExternalStore` 或同等穩定模式。
 - 將 upstream appState/element types 轉成 Drawstuff-owned read model。
 - 加入 controller unit tests。

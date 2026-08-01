@@ -13,7 +13,19 @@
 
 - Stroke color、background color、fill style。
 - Stroke width/style、sloppiness、opacity。
-- Font family、font size、text alignment；只在適用 selection 顯示。
+- Font family、font size、text alignment；只在適用 selection 顯示。Text 樣式不是
+  geometry-free：`redrawTextBoundingBox`／`updateBoundElements` 皆未 export，唯一的
+  public reflow 是 `restoreElements(elements, null, { repairBindings: true,
+  refreshDimensions: true })`。這條路徑要分兩種 text 看待：
+  - **沒有 container 的 text**：accepted limitation（Plan 03 audit §#4a）。三個代價是
+    重建全部 element object、bound arrow 幾何暫時未對齊，以及 `refreshTextDimensions`
+    從 `text` 而非 `originalText` 重新 wrap（非 idempotent）。第三點可在呼叫
+    `restoreElements` 前以 `newElementWith(text, { fontSize, text: text.originalText })`
+    自行消除。
+  - **container-bound text**：**confirmed gap G4**（Plan 03 audit §#4b）。restore 路徑
+    不會放大 container，也不會重新定位 bound text，字級變大會直接溢出。在 Plan 04
+    完成 G4 之前，本 plan 的 font controls parity 只涵蓋沒有 container 的 text，
+    且不得以 copy/paste upstream text layout 演算法的方式繞過。
 - Arrowhead；只在線性 element 適用時顯示。
 - Mixed/unsupported/disabled state 的明確 UI。
 - Undo/redo 必須包含 style updates。
