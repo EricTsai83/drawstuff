@@ -91,22 +91,31 @@ describe("DrawstuffDocumentV4", () => {
     expect(loaded.scene.appState).not.toHaveProperty("zoom");
   });
 
-  it("reads V4 documents written by older Excalidraw versions", () => {
+  it("drops the removed engine.version and theme fields of historical V4 rows", () => {
     const historical = {
       ...createDrawstuffDocumentV4({
         elements,
-        appState: { name: "Historical fixture" },
+        appState: { name: "Historical fixture", viewBackgroundColor: "#fff" },
       }),
       engine: {
         name: "excalidraw" as const,
         version: "0.18.1",
       },
+      scene: {
+        elements,
+        appState: { viewBackgroundColor: "#fff", theme: "dark" },
+      },
     };
+    const parsed = parseDrawstuffDocument(historical);
 
-    expect(parseDrawstuffDocument(historical)).toEqual(historical);
+    expect(parsed.engine).toEqual({ name: "excalidraw" });
+    expect(parsed.scene.appState).toEqual({ viewBackgroundColor: "#fff" });
+    expect(parsed.scene.elements).toEqual(elements);
+    expect(parsed.metadata.name).toBe("Historical fixture");
+    expect(serializeDrawstuffDocumentV4(historical)).not.toContain('"theme"');
   });
 
-  it("reads raw legacy Excalidraw and deterministic Whiteboard V3", () => {
+  it("reads raw legacy Excalidraw payloads", () => {
     const legacy = parseDrawstuffDocument({
       elements,
       appState: { name: "Legacy", theme: "light", scrollX: 99 },
@@ -114,30 +123,36 @@ describe("DrawstuffDocumentV4", () => {
     expect(legacy.metadata.name).toBe("Legacy");
     expect(legacy.scene.elements).toEqual(elements);
     expect(legacy.scene.appState).not.toHaveProperty("scrollX");
+    expect(legacy.scene.appState).not.toHaveProperty("theme");
+  });
 
-    const v3 = parseDrawstuffDocument({
+  it("rejects Owned Whiteboard V3 payloads instead of misreading them", () => {
+    expect(() =>
+      parseDrawstuffDocument({
+        version: 3,
+        elements: [{ id: "v3-rect", type: "rectangle", updatedAt: 1234 }],
+        metadata: { name: "V3 fixture", theme: "dark" },
+      }),
+    ).toThrow(/Owned Whiteboard V3 documents are no longer readable/);
+  });
+
+  it("reads raw Excalidraw payloads whose upstream format version is 3", () => {
+    const legacy = parseDrawstuffDocument({
+      type: "excalidraw",
       version: 3,
-      elements: [
-        {
-          id: "v3-rect",
-          type: "rectangle",
-          updatedAt: 1234,
-          roundness: "round",
-          customData: { retained: true },
-        },
-      ],
-      metadata: { name: "V3 fixture", theme: "dark" },
+      source: "https://excalidraw.com",
+      elements,
+      appState: { name: "Upstream v3", theme: "light", scrollX: 99 },
     });
-    const converted = v3.scene.elements[0] as Record<string, unknown>;
-    expect(converted.updated).toBe(1234);
-    expect(converted).not.toHaveProperty("updatedAt");
-    expect(converted.roundness).toEqual({ type: 3 });
-    expect(converted.customData).toMatchObject({
-      retained: true,
-      drawstuffWhiteboardV3: {
-        id: "v3-rect",
-        updatedAt: 1234,
-      },
-    });
+    expect(legacy.metadata.name).toBe("Upstream v3");
+    expect(legacy.scene.elements).toEqual(elements);
+    expect(legacy.scene.appState).not.toHaveProperty("scrollX");
+    expect(legacy.scene.appState).not.toHaveProperty("theme");
+  });
+
+  it("rejects payloads that are neither V4 documents nor Excalidraw scenes", () => {
+    expect(() => parseDrawstuffDocument({ version: 4 })).toThrow(
+      "Unsupported Drawstuff document payload",
+    );
   });
 });

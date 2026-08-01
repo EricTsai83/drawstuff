@@ -24,8 +24,8 @@ merge algorithm，皆不在這組計畫內。
 | Plan                                          | 執行狀態  | 結果                                            | 依賴                |
 | --------------------------------------------- | --------- | ----------------------------------------------- | ------------------- |
 | [00](./00-architecture-contract.md)           | Completed | 鎖定 ownership 與不可破壞的相容性邊界           | 無                  |
-| [01](./01-adapter-package-scaffold.md)        | Ready     | 建立 internal adapter package                   | 00                  |
-| [02](./02-editor-render-bridge.md)            | Ready     | 現有 editor 透過 adapter render                 | 01                  |
+| [01](./01-adapter-package-scaffold.md)        | Completed | 建立 internal adapter package                   | 00                  |
+| [02](./02-editor-render-bridge.md)            | Completed | 現有 editor 透過 adapter render                 | 01                  |
 | [03](./03-public-api-gap-audit.md)            | Ready     | 先證明公開 API 能力並決定是否需要 upstream seam | 02                  |
 | [04](./04-minimal-upstream-seam.md)           | Ready     | 僅補足已確認的 upstream API seam                | 03，條件式          |
 | [05](./05-whiteboard-controller.md)           | Ready     | 建立穩定 controller/command API                 | 03，以及需要時的 04 |
@@ -44,6 +44,7 @@ merge algorithm，皆不在這組計畫內。
 | [18](./18-reconnect-and-convergence.md)       | Ready     | 驗證斷線、重連與 server restart                 | 17                  |
 | [19](./19-production-hardening.md)            | Ready     | 加入 limits、監控與 load/security checks        | 18                  |
 | [20](./20-staged-rollout.md)                  | Ready     | 以 feature flag 漸進開放並可回滾                | 19                  |
+| [21](./21-legacy-v2-v3-data-rewrite.md)      | Completed | 執行 V2/V3 舊資料 rewrite 並移除 legacy readers | 02（獨立於 03–20）  |
 
 Plan 04 是唯一條件式 plan。若 Plan 03 證明公開 API 足夠，將它標記為
 `Skipped — public API sufficient`，然後直接執行 Plan 05。

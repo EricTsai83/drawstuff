@@ -74,8 +74,9 @@ Storage profiles 固定為：
 
 Cloud appState allowlist 是 `gridSize`、`gridStep`、`gridModeEnabled`、
 `viewBackgroundColor`。Theme、viewport、zoom、selection、dialogs、
-collaborators 與 presence 都是 user/session state。既有 V4 `theme` 可讀，但新 writer
-必須移除。
+collaborators 與 presence 都是 user/session state。既有 V4 rows 仍可讀，但 `theme`
+等非 allowlist `appState` key 會在讀取時被丟棄，也不會再被寫回（Plan 21，
+2026-08-01）。
 
 `drawstuffDocumentVersion`、upstream `.excalidraw` format version 與 npm engine
 version 是不同 namespace；不得互相當作 compatibility gate。
