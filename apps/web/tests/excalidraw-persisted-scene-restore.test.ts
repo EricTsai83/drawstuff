@@ -129,6 +129,43 @@ describe("persisted scene restore boundary", () => {
     expectRestoredDefaults(decoded.elements[0]);
   });
 
+  // Tripwire for plans/22-freedraw-pressure-backfill.md: upstream restore does
+  // NOT default `pressures`/`simulatePressure`, and its SVG export silently
+  // drops any freedraw stroke missing them. Stored rows were backfilled once;
+  // the writer must never strip the pair again.
+  it("carries freedraw pressure fields through the serialize→decode round-trip", () => {
+    const freedrawElement = {
+      ...legacyElement,
+      id: "modern-freedraw",
+      type: "freedraw",
+      points: [
+        [0, 0],
+        [10, 10],
+        [20, 5],
+      ],
+      pressures: [0.4, 0.6, 0.8],
+      simulatePressure: false,
+    };
+    const decoded = decodePersistedScene(
+      new TextEncoder().encode(
+        serializeDrawstuffDocumentV4(
+          createOwnedSceneDocumentV4({
+            appState: { name: "Pen scene" },
+            elements: [freedrawElement],
+          }),
+        ),
+      ),
+    );
+
+    expect(decoded.elements).toHaveLength(1);
+    const freedraw = decoded.elements[0] as unknown as {
+      pressures: unknown;
+      simulatePressure: unknown;
+    };
+    expect(freedraw.pressures).toEqual([0.4, 0.6, 0.8]);
+    expect(freedraw.simulatePressure).toBe(false);
+  });
+
   it("does not crash the unguarded field reads updateScene performs", async () => {
     getSceneQuery.mockResolvedValue({
       name: "Legacy scene",
