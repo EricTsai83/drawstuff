@@ -5,11 +5,17 @@ plans。每份 plan 預期對應一個可獨立 review、驗證與回滾的 PR�
 
 ## 最終目標
 
-- 保留官方 `@excalidraw/excalidraw` 作為 canvas engine。
+- 保留官方 `@excalidraw/excalidraw` 作為 canvas engine，**並保留其原生 editor
+  UI**（toolbar、properties panel、undo/redo 等 engine 內建能力一律用原生的，
+  不重新實作）。
 - 在 monorepo 建立 `@drawstuff/excalidraw-adapter`，成為唯一直接依賴
   Excalidraw 的產品邊界。
-- 使用 Drawstuff 的 Base UI、Tailwind 與設計系統實作 toolbar 和產品 UI。
-- 只有在公開 API 無法支援必要能力時，才維護窄幅 upstream patch/fork。
+- 產品功能（menu、dashboard、分享、場景管理等）使用 Drawstuff 的 Base UI、
+  Tailwind 與設計系統實作，只透過 upstream 的 public slots／props（`MainMenu`、
+  `Footer`、`renderTopRightUI`、`WelcomeScreen`、`UIOptions` 等）掛進 editor。
+- **不修改 upstream**（2026-08-01 決策）：Excalidraw 沒提供 public 客製化 API 的
+  能力，一律不 patch、不 fork、不用私有 API 或 DOM workaround——要嘛放棄該客製，
+  要嘛先提出討論再決定。
 - 建立 `@drawstuff/collaboration`，沿用原生 element model 與官方
   `reconcileElements`，加入 Drawstuff 自己的 relay、權限、加密和持久化。
 
@@ -27,12 +33,12 @@ merge algorithm，皆不在這組計畫內。
 | [01](./01-adapter-package-scaffold.md)        | Completed | 建立 internal adapter package                   | 00                  |
 | [02](./02-editor-render-bridge.md)            | Completed | 現有 editor 透過 adapter render                 | 01                  |
 | [03](./03-public-api-gap-audit.md)            | Completed | 決策 `minimal patch required`，確認 G1/G2/G3/G4 | 02                  |
-| [04](./04-minimal-upstream-seam.md)           | Ready     | 僅補足已確認的 upstream API seam（G1/G2/G3/G4） | 03，已觸發          |
-| [05](./05-whiteboard-controller.md)           | Ready     | 建立穩定 controller/command API                 | 03，以及需要時的 04 |
-| [06](./06-custom-toolbar-shell.md)            | Ready     | 建立 Drawstuff toolbar 外殼                     | 05                  |
-| [07](./07-core-tool-controls.md)              | Ready     | 接上核心繪圖工具                                | 06                  |
-| [08](./08-style-and-selection-controls.md)    | Ready     | 接上樣式與 selection controls                   | 07                  |
-| [09](./09-collaboration-contracts.md)         | Ready     | 建立 transport-neutral 共編 contracts           | 08                  |
+| [04](./04-minimal-upstream-seam.md)           | Skipped — 不修改 upstream | 2026-08-01 決策：G1–G4 一律不以 patch 處理 | 03                  |
+| [05](./05-whiteboard-controller.md)           | Ready     | 原生 UI 整合契約與 Menu 整備                    | 03                  |
+| [06](./06-custom-toolbar-shell.md)            | Ready     | Dashboard 場景分類（category）                  | 05                  |
+| [07](./07-core-tool-controls.md)              | Ready     | 場景封存與還原（archive）                       | 05                  |
+| [08](./08-style-and-selection-controls.md)    | Skipped — 路線取消 | 自訂 toolbar／style controls 不再執行  | —                   |
+| [09](./09-collaboration-contracts.md)         | Ready     | 建立 transport-neutral 共編 contracts           | 05                  |
 | [10](./10-reconciliation-adapter.md)          | Ready     | 鎖定官方 merge semantics                        | 09                  |
 | [11](./11-local-two-client-poc.md)            | Ready     | 在單一瀏覽器驗證兩個 client 收斂                | 10                  |
 | [12](./12-stateless-relay-service.md)         | Ready     | 建立獨立 realtime relay                         | 11                  |
@@ -46,10 +52,16 @@ merge algorithm，皆不在這組計畫內。
 | [20](./20-staged-rollout.md)                  | Ready     | 以 feature flag 漸進開放並可回滾                | 19                  |
 | [21](./21-legacy-v2-v3-data-rewrite.md)      | Completed | 執行 V2/V3 舊資料 rewrite 並移除 legacy readers | 02（獨立於 03–20）  |
 
-Plan 04 是唯一條件式 plan。若 Plan 03 證明公開 API 足夠，將它標記為
-`Skipped — public API sufficient`，然後直接執行 Plan 05。Plan 03 的結論是
-`minimal patch required`，因此 Plan 04 維持 `Ready`，並依 G1/G2/G3/G4 四個
-confirmed gaps 分開執行。
+Plan 03 的稽核結論原為 `minimal patch required`（G1/G2/G3/G4 四個 confirmed
+gaps）。2026-08-01 owner 決策改採「不修改 upstream」原則後，Plan 04 標記為
+`Skipped`：G1（隱藏原生 toolbar）、G2（undo/redo command）、G4（text reflow）
+因保留原生 toolbar／properties panel 而不再需要；G3（locale key 覆寫）列為
+accepted limitation。Plan 03 的 capability matrix 與 tripwire tests 仍然有效——
+它們持續守住「我們只依賴 public API」這條線，並在升級 upstream 時強制重新稽核。
+
+Plan 05–07 是新的產品客製化線：05 鎖定原生 UI 整合契約並整備 menu 掛載點，
+06/07 在既有架構上新增產品功能（皆為 schema 已預留、尚無 UI 的能力）。共編線
+（09–20）內容不依賴 toolbar，僅需 05 的整合契約穩定即可開始。
 
 ## 共同完成規則
 

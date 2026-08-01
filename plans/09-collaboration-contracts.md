@@ -1,7 +1,8 @@
 # Plan 09：建立 collaboration contracts
 
 - Status: Ready
-- Depends on: Plan 08
+- Depends on: Plan 05（2026-08-01 起；原依賴 Plan 08 已 Skipped，產品功能
+  plans 06/07 與共編線互不阻擋）
 - Expected change size: 一個無網路實作的 domain package
 
 ## Outcome

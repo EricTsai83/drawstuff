@@ -1,7 +1,32 @@
 # Plan 04：補上最小 upstream API seam
 
-- Status: Ready
-- Depends on: Plan 03 的 `minimal patch required` 決策（已成立）
+- Status: Skipped — 不修改 upstream（2026-08-01 owner 決策）
+- Depends on: Plan 03 的 `minimal patch required` 決策（已成立，後被下述決策取代）
+
+## 決策紀錄（2026-08-01）
+
+Owner 確立原則：**Excalidraw 沒提供 public 客製化 API 的能力，一律不修改
+upstream（不 patch、不 fork）；要動一定先討論。** 同時產品方向改為保留原生
+editor UI（toolbar、properties panel、undo/redo），只透過 public slots 掛產品
+功能。因此本 plan 整體標記為 Skipped：
+
+- **G2（undo/redo command）**：曾以 pnpm patch 完整實作並通過 review，於同日
+  依本決策全數 revert。原生 toolbar 保留後，undo/redo 直接用 upstream 內建
+  UI 與快捷鍵，不需要 host 呼叫入口。
+- **G1（隱藏原生 toolbar）**：自訂 toolbar 路線取消，不再需要。
+- **G4（container-bound text reflow）**：只有自訂 style controls 需要它；原生
+  properties panel 內部自行處理 reflow，不受影響。
+- **G3（`toast.unableToEmbed` locale 覆寫）**：accepted limitation，不處理。
+
+Plan 03 的 capability matrix 與 `upstream-capability-audit.test.ts` tripwire
+**維持有效**：它們守住「只依賴 public API」的邊界，並在升級 upstream 時強制
+重新稽核（若 upstream 未來自行 export 這些能力，tripwire 會失敗提示重新評估）。
+若日後有新能力確認非 patch 不可，須先與 owner 討論，經同意後以本 plan 原始
+規格（如下保留）另開執行。
+
+---
+
+以下為原始 plan 內容，保留作為「若未來經討論同意 patch」的執行規格。
 - Expected change size: 每個 confirmed gap 一個獨立、長期維護的 integration seam
 - Confirmed gaps（依 Plan 03 決策，分四次獨立執行）：
   1. **G2** — `ExcalidrawImperativeAPI` 沒有 host 可呼叫的 undo/redo command
