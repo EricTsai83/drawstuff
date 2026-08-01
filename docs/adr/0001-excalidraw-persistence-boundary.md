@@ -43,7 +43,7 @@ app、adapter、DOM/CSS 或 browser-only module。
 
 ### Upstream import boundary
 
-完成 Plan 02 後，只有以下位置可直接 import `@excalidraw/excalidraw`：
+只有以下位置可直接 import `@excalidraw/excalidraw`：
 
 1. `packages/excalidraw-adapter/src/**`；
 2. adapter-owned upstream contract/differential tests。
@@ -92,9 +92,12 @@ version 是不同 namespace；不得互相當作 compatibility gate。
 - restore、cleaning 與 serialization semantics；
 - `reconcileElements` 的 conflict resolution 與 merge ordering。
 
-若 public API 無法提供必要能力，Plan 03 必須先以 lockfile-resolved source、
-reproduction 與 performance evidence 證明缺口；只有 Plan 04 可建立最小 upstream
-seam。完整 engine rewrite 不列為替代方案。
+若 public API 無法提供必要能力，必須先以 lockfile-resolved source、reproduction 與
+performance evidence 證明缺口（結果記錄在
+`docs/architecture/03-public-api-gap-audit.md`），並由 owner 決定是否開最小
+upstream seam；目前的決策是**不修改 upstream**
+（`docs/architecture/05-native-ui-integration-contract.md`）。完整 engine rewrite
+不列為替代方案。
 
 ### Collaboration readiness
 

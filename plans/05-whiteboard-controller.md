@@ -1,8 +1,11 @@
 # Plan 05：原生 UI 整合契約與 Menu 整備
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 03（capability audit 與 tripwire 已存在）
 - Expected change size: adapter 契約測試對齊 + `AppMainMenu` 結構重整，無新產品功能
+- Outcome: 契約文件見 `docs/architecture/05-native-ui-integration-contract.md`；
+  tripwire 見 `packages/excalidraw-adapter/tests/upstream-capability-audit.test.ts`
+  的 `describe("host integration surface (native UI integration contract)")`。
 
 > 2026-08-01 改版：本 plan 原為「Whiteboard controller」（服務自訂 toolbar）。
 > 產品方向改為保留原生 editor UI 後，controller/command API 整份取消；本 plan
