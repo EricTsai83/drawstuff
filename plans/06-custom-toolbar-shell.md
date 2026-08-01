@@ -1,6 +1,6 @@
 # Plan 06：Dashboard 場景分類（category）
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 05
 - Expected change size: 一個 tRPC router + dashboard 分類 UI
 
