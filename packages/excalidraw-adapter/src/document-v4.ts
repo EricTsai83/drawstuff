@@ -21,11 +21,6 @@ export interface DrawstuffDocumentV4 {
   readonly version: typeof DRAWSTUFF_DOCUMENT_VERSION;
   readonly engine: {
     readonly name: "excalidraw";
-    /**
-     * Informational metadata written by older V4 documents. Document
-     * compatibility is governed by the Drawstuff document version instead.
-     */
-    readonly version?: string;
   };
   readonly scene: {
     readonly elements: readonly unknown[];
@@ -119,10 +114,26 @@ export function serializeDrawstuffDocumentV4(
 export function parseDrawstuffDocument(payload: unknown): DrawstuffDocumentV4 {
   const parsed = parseJson(payload);
   if (isDrawstuffDocumentV4(parsed)) {
-    return parsed;
+    // Documents are returned in the single canonical V4 shape. Fields that
+    // older writers emitted (`engine.version`, non-contract `appState` keys
+    // such as `theme`) are not part of the document any more, so they are
+    // dropped instead of being carried forward on the next write.
+    return {
+      version: DRAWSTUFF_DOCUMENT_VERSION,
+      engine: { name: "excalidraw" },
+      scene: {
+        elements: parsed.scene.elements,
+        appState: selectOfficialServerAppState(parsed.scene.appState),
+      },
+      assets: parsed.assets,
+      metadata: { name: parsed.metadata.name },
+    };
   }
   if (isOwnedWhiteboardV3(parsed)) {
-    return convertOwnedWhiteboardV3(parsed);
+    throw new Error(
+      "Owned Whiteboard V3 documents are no longer readable; they were " +
+        "rewritten to Drawstuff V4 on 2026-08-01",
+    );
   }
   if (isLegacyExcalidrawPayload(parsed)) {
     return createDrawstuffDocumentV4({
@@ -152,11 +163,7 @@ function isDrawstuffDocumentV4(value: unknown): value is DrawstuffDocumentV4 {
   if (!isObject(value) || value.version !== DRAWSTUFF_DOCUMENT_VERSION) {
     return false;
   }
-  if (
-    !isObject(value.engine) ||
-    value.engine.name !== "excalidraw" ||
-    ("version" in value.engine && typeof value.engine.version !== "string")
-  ) {
+  if (!isObject(value.engine) || value.engine.name !== "excalidraw") {
     return false;
   }
   if (
@@ -179,63 +186,19 @@ function isLegacyExcalidrawPayload(value: unknown): value is {
   return isObject(value) && Array.isArray(value.elements);
 }
 
-type OwnedWhiteboardV3 = {
-  readonly version: 3;
-  readonly elements: readonly JsonObject[];
-  readonly assets?: Readonly<Record<string, unknown>>;
-  readonly metadata?: JsonObject;
-};
-
-function isOwnedWhiteboardV3(value: unknown): value is OwnedWhiteboardV3 {
+/**
+ * Owned Whiteboard V3 was rewritten to V4 in production, so the reader is
+ * gone. V3 payloads still carry a top-level `elements` array, so they are
+ * rejected explicitly instead of falling through to the raw `.excalidraw`
+ * reader, which would misread their renamed fields.
+ */
+function isOwnedWhiteboardV3(value: unknown): boolean {
   return (
     isObject(value) &&
+    value.type !== "excalidraw" &&
     value.version === 3 &&
-    Array.isArray(value.elements) &&
-    value.elements.every(isObject)
+    Array.isArray(value.elements)
   );
-}
-
-function convertOwnedWhiteboardV3(
-  document: OwnedWhiteboardV3,
-): DrawstuffDocumentV4 {
-  const metadata = objectOrEmpty(document.metadata);
-  const elements = document.elements.map((element) => {
-    const { updatedAt, roundness, ...rest } = element;
-    return {
-      ...rest,
-      // Whiteboard V3 renamed Excalidraw's native `updated` field and
-      // discarded other native properties. Keep the full V3 source under
-      // customData so the lossy historical payload remains auditable.
-      updated: typeof updatedAt === "number" ? updatedAt : 0,
-      roundness:
-        roundness === "round"
-          ? { type: 3 }
-          : roundness === "sharp"
-            ? null
-            : roundness,
-      boundElements: Array.isArray(element.boundElements)
-        ? element.boundElements
-        : null,
-      link: typeof element.link === "string" ? element.link : null,
-      customData: {
-        ...objectOrEmpty(element.customData),
-        drawstuffWhiteboardV3: element,
-      },
-    };
-  });
-
-  return {
-    ...createDrawstuffDocumentV4({
-      elements,
-      appState: {
-        theme: metadata.theme,
-        viewBackgroundColor: metadata.viewBackgroundColor,
-        gridSize: metadata.gridSize,
-      },
-      name: typeof metadata.name === "string" ? metadata.name : "Untitled",
-    }),
-    assets: convertV3Assets(document.assets),
-  };
 }
 
 function assetMetadata(
@@ -253,33 +216,6 @@ function assetMetadata(
         storage: "external" as const,
       },
     ]),
-  );
-}
-
-function convertV3Assets(
-  assets: Readonly<Record<string, unknown>> | undefined,
-): Readonly<Record<string, DrawstuffAssetMetadata>> {
-  if (!assets) return {};
-  return Object.fromEntries(
-    Object.entries(assets).map(([id, value]) => {
-      const asset = objectOrEmpty(value);
-      return [
-        id,
-        {
-          id,
-          ...(typeof asset.mimeType === "string"
-            ? { mimeType: asset.mimeType }
-            : {}),
-          ...(typeof asset.created === "number"
-            ? { created: asset.created }
-            : {}),
-          ...(typeof asset.lastRetrieved === "number"
-            ? { lastRetrieved: asset.lastRetrieved }
-            : {}),
-          storage: "external" as const,
-        },
-      ];
-    }),
   );
 }
 

@@ -14,7 +14,6 @@
     "knip": "SKIP_ENV_VALIDATION=1 knip --production --dependencies --files",
     "baseline:performance": "node --expose-gc --import tsx scripts/measure-excalidraw-baseline.ts",
     "baseline:performance:e2e": "ENFORCE_EXCALIDRAW_PERFORMANCE_BUDGETS=1 playwright test tests/e2e/excalidraw-performance.spec.ts --project chromium-desktop",
-    "migrate:excalidraw-v4": "tsx scripts/migrate-excalidraw-v4.ts",
     "preview": "next build && next start",
     "start": "next start",
     "test": "vitest run",
@@ -25,7 +24,6 @@
   "knip": {
     "entry": [
       "scripts/measure-excalidraw-baseline.ts",
-      "scripts/migrate-excalidraw-v4.ts",
       "tests/e2e/**/*.ts",
       "tests/support/excalidraw-performance-fixtures.ts"
     ],
