@@ -35,7 +35,7 @@ merge algorithm，皆不在這組計畫內。
 | [03](./03-public-api-gap-audit.md)            | Completed | 決策 `minimal patch required`，確認 G1/G2/G3/G4 | 02                  |
 | [04](./04-minimal-upstream-seam.md)           | Skipped — 不修改 upstream | 2026-08-01 決策：G1–G4 一律不以 patch 處理 | 03                  |
 | [05](./05-whiteboard-controller.md)           | Completed | 原生 UI 整合契約與 Menu 整備                    | 03                  |
-| [06](./06-custom-toolbar-shell.md)            | Ready     | Dashboard 場景分類（category）                  | 05                  |
+| [06](./06-custom-toolbar-shell.md)            | Completed | Dashboard 場景分類（category）                  | 05                  |
 | [07](./07-core-tool-controls.md)              | Ready     | 場景封存與還原（archive）                       | 05                  |
 | [08](./08-style-and-selection-controls.md)    | Skipped — 路線取消 | 自訂 toolbar／style controls 不再執行  | —                   |
 | [09](./09-collaboration-contracts.md)         | Ready     | 建立 transport-neutral 共編 contracts           | 05                  |
