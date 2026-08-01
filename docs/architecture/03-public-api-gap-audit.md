@@ -1,15 +1,17 @@
-# Plan 03：`@excalidraw/excalidraw@0.18.1` public API gap audit
+# `@excalidraw/excalidraw@0.18.1` public API gap audit
 
 - Status: Accepted
 - Date: 2026-08-01
+- 出處：Plan 03（2026-08-01）
 - Decision owner: Drawstuff architecture
 - Reference engine: lockfile-resolved `@excalidraw/excalidraw@0.18.1`
 - **決策：`minimal patch required`**
-- **Plan 04：`Skipped — 不修改 upstream`（2026-08-01 owner 決策，取代上行結論
-  的執行；詳見 `plans/04-minimal-upstream-seam.md` 決策紀錄。G1/G2/G4 因保留
-  原生 editor UI 而不再需要，G3 為 accepted limitation。本文件其餘內容為
-  stock 0.18.1 的稽核事實，維持有效，capability matrix 與 tripwire tests 持續
-  守護「只依賴 public API」的邊界。）**
+- **上述決策的執行已被 owner 取代為 `不修改 upstream`（2026-08-01）**：不 patch、
+  不 fork，需要 public API 沒有的能力時先與 owner 討論。G1/G2/G4 因保留原生
+  editor UI 而不再需要，G3 為 accepted limitation。本文件其餘內容為 stock
+  0.18.1 的稽核事實，維持有效，capability matrix 與 tripwire tests 持續守護
+  「只依賴 public API」的邊界。整合面的規則見
+  `docs/architecture/05-native-ui-integration-contract.md`。
 
 ## Context
 
@@ -19,7 +21,7 @@ collaboration contracts 都必須先知道「哪些能力是 upstream public API
 private property / DOM selector / polling 取得」，否則 controller contract 會在實作
 後才發現要重做，或把既成事實當作 fork 的理由。
 
-本文件是 Plan 03 的決策紀錄：capability matrix、證據、reproduction test 指標、
+本文件是這份稽核的決策紀錄：capability matrix、證據、reproduction test 指標、
 notification cost 評估與最終決策。
 
 ## 證據來源
@@ -182,7 +184,7 @@ text**（`containerId` 指向 rectangle／diamond／ellipse 的 text）則是缺
 `computeBoundTextPosition`／`getContainerElement`——**這七個 helper 全部不在 root
 export**（`element/textMeasurements.ts`、`element/textWrapping.ts`、
 `element/textElement.ts` 都沒有被 re-export 到 package entry）。自己重寫等於把
-upstream 的 text layout 演算法 copy/paste 一份，正是 Plan 04 In scope 明文禁止的
+upstream 的 text layout 演算法 copy/paste 一份，正是 upstream seam 決策明文禁止的
 「copy/paste upstream implementation」，而且一旦 upstream 調整 wrapping 或 padding
 就會與 canvas 實際渲染結果不一致。因此列為 **confirmed gap（G4）**。
 
@@ -208,8 +210,8 @@ Reproduction：`describe("container-bound text reflow (confirmed gap G4)")`。
 `History` class 有 `undo()`／`redo()`，`actionUndo`／`actionRedo` 也存在，但
 `ExcalidrawImperativeAPI` 只暴露 `history: { clear }`。`registerAction` 可以「註冊」
 action 卻無法「執行」action（`ActionManager.executeAction` 不在 public surface）。
-唯一剩下的觸發路徑是對 editor container 派送合成 `KeyboardEvent`，屬於 Plan 03
-明文禁止的 DOM-level workaround。
+唯一剩下的觸發路徑是對 editor container 派送合成 `KeyboardEvent`，屬於本文件
+§「被否決的設計（不得進入 production）」明文禁止的 DOM-level workaround。
 
 **#6 隱藏 upstream primary toolbar.**
 `LayerUI` 在 `!appState.viewModeEnabled && appState.openDialog?.name !== "elementLinkSelector"`
@@ -236,7 +238,7 @@ children 內；否則要用 `renderTopRightUI(isMobile, appState)` 傳進來的 
 `renderTopRightUI` 與 `Sidebar`。
 
 **#9／#9a embeddable。**
-與 Plan 03 已預先記錄的結論一致，已逐行覆核：`embeddableURLValidator(url, validateEmbeddable)`
+與稽核前預先記錄的結論一致，已逐行覆核：`embeddableURLValidator(url, validateEmbeddable)`
 在 `typeof validateEmbeddable === "function"` 且回傳值不是 boolean 時，會往下走到
 `return !!matchHostname(url, ALLOWED_DOMAINS)`，所以 host 只加白名單、不會影響既有
 網域。本 repo 以 `apps/web/src/config/embed-allowlist.ts` 自管補充名單。
@@ -291,7 +293,7 @@ runtime condition），所以它 type 上看得到、runtime 拿不到，reprodu
 
 | 想法 | 否決理由 |
 | ---- | -------- |
-| 對 `.excalidraw` container 派送合成 `KeyboardEvent` 觸發 undo/redo | DOM-level workaround，Plan 03 明訂為 confirmed gap |
+| 對 `.excalidraw` container 派送合成 `KeyboardEvent` 觸發 undo/redo | DOM-level workaround；本文件把 undo/redo 明訂為 confirmed gap（G2） |
 | 用 CSS override（`.App-toolbar { display: none }`）隱藏原生 toolbar | 依賴 upstream class name，屬 undocumented internal |
 | 以 `setInterval` 輪詢 `getAppState()` 取得 toolbar state | timer polling，明文禁止 |
 | 讀 `appState.toast.message` 與英文原文比對後改寫 toast | 依賴 locale 字面值，脆弱且仍是 undocumented 行為 |
@@ -373,7 +375,8 @@ product UX 調整消除：
   history，undo/redo 結果正確」無法由 Drawstuff UI 驗收。
 - G4 若不處理，Plan 08 的 font controls 套用在 container-bound text 上時，container
   不會跟著放大、text 也不會重新定位，畫面直接出現文字溢出 container 的錯誤結果。
-  唯一的替代路徑是 copy/paste upstream 的 text layout 演算法，Plan 04 明文禁止。
+  唯一的替代路徑是 copy/paste upstream 的 text layout 演算法，upstream seam 決策
+  明文禁止。
 
 因此 Plan 04 標記為 **Ready**，並依 Plan 04「多個不相關 gaps 就分開執行」的規定拆成
 四次獨立執行，優先順序依 Plan 04 的 seam 分類：

@@ -18,7 +18,7 @@ import {
 const LARGE_SCENE_FIXTURE_DIGEST =
   "fcb1b639a8bb4952389e7ede840fc759e027c39acb4f0d512cf960f0137d90b2";
 
-describe("Plan 00 performance fixtures", () => {
+describe("performance baseline fixtures", () => {
   it("keeps the large-scene fixture deterministic and native-shaped", () => {
     const elements = createLargeSceneElements();
 
@@ -38,7 +38,7 @@ describe("Plan 00 performance fixtures", () => {
           gridModeEnabled: true,
           viewBackgroundColor: "#ffffff",
         },
-        name: "Plan 00 performance fixture",
+        name: "performance baseline fixture",
       }),
     );
     const parsed = parseDrawstuffDocument(serialized);
