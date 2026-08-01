@@ -36,6 +36,7 @@ describe("ExcalidrawCanvas", () => {
         toggleTheme: true,
       },
     };
+    const validateEmbeddable = vi.fn<(url: string) => boolean | undefined>();
     const element = ExcalidrawCanvas({
       children: <span>menu slot</span>,
       excalidrawAPI: onApi,
@@ -43,6 +44,7 @@ describe("ExcalidrawCanvas", () => {
       langCode: "en",
       theme: "dark",
       UIOptions: uiOptions,
+      validateEmbeddable,
       viewModeEnabled: true,
     });
 
@@ -54,6 +56,7 @@ describe("ExcalidrawCanvas", () => {
         langCode: "en",
         theme: "dark",
         UIOptions: uiOptions,
+        validateEmbeddable,
         viewModeEnabled: true,
       }),
       undefined,

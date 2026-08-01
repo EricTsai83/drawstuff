@@ -24,6 +24,21 @@
   - collaboration callbacks 所需 state
 - 每個缺口附最小 reproduction test。
 - 做出 `public API sufficient` 或 `minimal patch required` 決策。
+- Embeddable 網域白名單與其錯誤提示（0.18.1）：
+  - 網域擴充 **no gap**：`validateEmbeddable` 是官方 public API，型別為
+    `boolean | string[] | RegExp | RegExp[] | ((link) => boolean | undefined)`。
+    upstream `embeddableURLValidator` 在 function 回傳非 boolean（即 `undefined`）
+    時會退回內建 `ALLOWED_DOMAINS`，因此可以只加白名單而不影響既有網域。
+    本 repo 以 `apps/web/src/config/embed-allowlist.ts` 自管補充名單，並在
+    `excalidraw-editor.tsx` 與 `published-scene-viewer.tsx` 兩處掛上。
+  - 錯誤提示文案 **confirmed gap**：被拒絕時 upstream 內部直接呼叫
+    `setToast({ message: t("toast.unableToEmbed") })`，該 key 在 0.18.1 en locale
+    寫死為 `Embedding this url is currently not allowed. Raise an issue on GitHub
+    to request the url whitelisted`。0.18.1 沒有覆寫單一 locale key 的 public
+    API，`langCode` 只能整包切換官方語系。
+  - 對本專案這種 self-hosted SaaS，該文案會把使用者導向 Excalidraw 上游 GitHub
+    開 issue，而正確動作是修改本 repo 的 allowlist 設定檔。列為 Plan 04
+    minimal locale seam 的候選項目。
 - 量測每個候選 API 在 selection change、pointer move、large scene 和 mobile
   interaction 下的通知/render cost，排除必須輪詢或反覆複製完整 scene 的設計。
 

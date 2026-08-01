@@ -30,6 +30,10 @@ import Link from "next/link";
 import { Blog, Bluesky, DrawstuffLogo, Github } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import {
+  createEmbedUrlValidator,
+  EXTRA_EMBED_DOMAINS,
+} from "@/config/embed-allowlist";
 
 type PublishedSceneViewerProps = {
   sceneData: string;
@@ -92,6 +96,9 @@ const ICON_BTN =
 
 const TEXT_BTN =
   "inline-flex h-10 min-w-10 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+
+// 檢視模式一樣會渲染 embeddable，所以 viewer 也要套用同一份補充名單。
+const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
 
 const CONTROLS_MENU =
   "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
@@ -565,6 +572,7 @@ export function PublishedSceneViewer({
                 theme={browserActiveTheme}
                 viewModeEnabled
                 renderTopRightUI={() => null}
+                validateEmbeddable={embedUrlValidator}
                 UIOptions={{
                   canvasActions: {
                     toggleTheme: false,
