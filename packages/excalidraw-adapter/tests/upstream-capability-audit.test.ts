@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 
 /**
- * Plan 03 reproduction suite for `@excalidraw/excalidraw@0.18.1`.
+ * Upstream public-API reproduction and audit suite for
+ * `@excalidraw/excalidraw@0.18.1`.
  *
  * Every `confirmed gap` below pins the *current* upstream behaviour, so the
  * assertion passes today and fails the moment upstream closes the gap. The
@@ -14,19 +15,31 @@ import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import * as upstream from "@excalidraw/excalidraw";
-import { CaptureUpdateAction, newElementWith } from "@excalidraw/excalidraw";
+import {
+  CaptureUpdateAction,
+  type Footer,
+  MainMenu,
+  newElementWith,
+  Stats,
+  WelcomeScreen,
+} from "@excalidraw/excalidraw";
 import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
 import type {
   AppState,
+  CanvasActions,
   Collaborator,
   ExcalidrawImperativeAPI,
   ExcalidrawProps,
+  ExportOpts,
   SocketId,
   ToolType,
 } from "@excalidraw/excalidraw/types";
 import { describe, expect, it } from "vitest";
 
-import type { ExcalidrawValidateEmbeddable } from "../src/types";
+import type {
+  ExcalidrawCanvasProps,
+  ExcalidrawValidateEmbeddable,
+} from "../src/types";
 
 type CaptureUpdateActionType =
   (typeof CaptureUpdateAction)[keyof typeof CaptureUpdateAction];
@@ -243,6 +256,293 @@ describe("upstream 0.18.1 public API surface", () => {
   });
 });
 
+/**
+ * The native UI integration contract: the slice of the surface above that
+ * Drawstuff actually mounts into.
+ *
+ * Every entry is something `apps/web/src/components/excalidraw/*` passes or
+ * renders today, so an upstream upgrade that drops one of them fails `tsc`
+ * (`as const satisfies readonly (keyof T)[]`) and an upgrade that adds a
+ * sibling fails `assertNoUnauditedKeys`. See
+ * docs/architecture/05-native-ui-integration-contract.md.
+ */
+describe("host integration surface (native UI integration contract)", () => {
+  /** Upstream slot components hang sub-components off a component object. */
+  type SlotMembers<TSlot> = Exclude<keyof TSlot, "displayName" | "propTypes">;
+
+  it("mounts only editor props that are already audited", () => {
+    // excalidraw-editor.tsx is the only host that mounts the editor: the
+    // published page renders a static `exportToSvg` output and passes no
+    // editor props at all (which is why `viewModeEnabled` is absent here).
+    const HOST_EDITOR_PROPS = [
+      "children",
+      "excalidrawAPI",
+      "initialData",
+      "langCode",
+      "onChange",
+      "renderCustomStats",
+      "renderTopRightUI",
+      "theme",
+      "UIOptions",
+      "validateEmbeddable",
+    ] as const satisfies readonly (typeof EDITOR_PROP_KEYS)[number][];
+
+    // The adapter's `ExcalidrawCanvasProps` must expose exactly this set: no
+    // prop reaches the editor without passing through the audit above.
+    type UnexposedHostProp = Exclude<
+      (typeof HOST_EDITOR_PROPS)[number],
+      keyof ExcalidrawCanvasProps
+    >;
+    type UnauditedAdapterProp = Exclude<
+      keyof ExcalidrawCanvasProps,
+      (typeof HOST_EDITOR_PROPS)[number]
+    >;
+    assertNoUnauditedKeys<UnexposedHostProp>();
+    assertNoUnauditedKeys<UnauditedAdapterProp>();
+
+    expect(HOST_EDITOR_PROPS).toHaveLength(10);
+  });
+
+  it("pins the upstream export utilities the host renders scenes through", () => {
+    // The published page renders a static scene with `exportToSvg` instead of
+    // mounting the editor, and lib/excalidraw.ts builds PNG thumbnails with
+    // `exportToBlob`. Both are adapter passthroughs, so this is the runtime
+    // tripwire for upstream dropping either one.
+    expect(upstreamExportNames).toEqual(
+      expect.arrayContaining(["exportToBlob", "exportToSvg"]),
+    );
+    expect(upstream.exportToSvg).toBeTypeOf("function");
+  });
+
+  it("calls only audited members of the imperative API", () => {
+    const HOST_IMPERATIVE_API = [
+      "addFiles",
+      "getAppState",
+      "getFiles",
+      "getName",
+      "getSceneElements",
+      "getSceneElementsIncludingDeleted",
+      "scrollToContent",
+      "updateScene",
+    ] as const satisfies readonly (typeof IMPERATIVE_API_KEYS)[number][];
+
+    expect(HOST_IMPERATIVE_API).toHaveLength(8);
+  });
+
+  it("pins the UIOptions.canvasActions surface and the toggles the host sets", () => {
+    const CANVAS_ACTION_KEYS = [
+      "changeViewBackgroundColor",
+      "clearCanvas",
+      "export",
+      "loadScene",
+      "saveAsImage",
+      "saveToActiveFile",
+      "toggleTheme",
+    ] as const satisfies readonly (keyof CanvasActions)[];
+    type UnauditedCanvasAction = Exclude<
+      keyof CanvasActions,
+      (typeof CANVAS_ACTION_KEYS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedCanvasAction>();
+
+    expect(CANVAS_ACTION_KEYS).toHaveLength(7);
+
+    // The editor is the only host that sets any of them: it keeps upstream's
+    // theme toggle and replaces the export UI. Everything else stays at the
+    // upstream default.
+    const HOST_CANVAS_ACTIONS = [
+      "export",
+      "toggleTheme",
+    ] as const satisfies readonly (typeof CANVAS_ACTION_KEYS)[number][];
+    expect(HOST_CANVAS_ACTIONS).toHaveLength(2);
+
+    const EXPORT_OPT_KEYS = [
+      "onExportToBackend",
+      "renderCustomUI",
+      "saveFileToDisk",
+    ] as const satisfies readonly (keyof ExportOpts)[];
+    type UnauditedExportOpt = Exclude<
+      keyof ExportOpts,
+      (typeof EXPORT_OPT_KEYS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedExportOpt>();
+
+    const HOST_EXPORT_OPTS = [
+      "renderCustomUI",
+      "saveFileToDisk",
+    ] as const satisfies readonly (typeof EXPORT_OPT_KEYS)[number][];
+    expect(HOST_EXPORT_OPTS).toHaveLength(2);
+  });
+
+  it("pins the MainMenu slot the product features mount into", () => {
+    const MAIN_MENU_SLOTS = [
+      "DefaultItems",
+      "Group",
+      "Item",
+      "ItemCustom",
+      "ItemLink",
+      "Separator",
+      "Trigger",
+    ] as const satisfies readonly SlotMembers<typeof MainMenu>[];
+    type UnauditedMainMenuSlot = Exclude<
+      SlotMembers<typeof MainMenu>,
+      (typeof MAIN_MENU_SLOTS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedMainMenuSlot>();
+
+    // app-main-menu.tsx and its item components.
+    const HOST_MAIN_MENU_SLOTS = [
+      "DefaultItems",
+      "Item",
+      "ItemCustom",
+      "Separator",
+    ] as const satisfies readonly (typeof MAIN_MENU_SLOTS)[number][];
+
+    for (const slot of HOST_MAIN_MENU_SLOTS) {
+      expect(MainMenu[slot]).toBeDefined();
+    }
+  });
+
+  it("pins the MainMenu default items the menu renders", () => {
+    type DefaultItems = typeof MainMenu.DefaultItems;
+
+    const DEFAULT_ITEM_KEYS = [
+      "ChangeCanvasBackground",
+      "ClearCanvas",
+      "CommandPalette",
+      "Export",
+      "Help",
+      "LiveCollaborationTrigger",
+      "LoadScene",
+      "SaveAsImage",
+      "SaveToActiveFile",
+      "SearchMenu",
+      "Socials",
+      "ToggleTheme",
+    ] as const satisfies readonly (keyof DefaultItems)[];
+    type UnauditedDefaultItem = Exclude<
+      keyof DefaultItems,
+      (typeof DEFAULT_ITEM_KEYS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedDefaultItem>();
+
+    const HOST_DEFAULT_ITEMS = [
+      "ChangeCanvasBackground",
+      "ClearCanvas",
+      "Export",
+      "Help",
+      "LoadScene",
+      "SaveAsImage",
+      "SearchMenu",
+      "ToggleTheme",
+    ] as const satisfies readonly (typeof DEFAULT_ITEM_KEYS)[number][];
+
+    for (const item of HOST_DEFAULT_ITEMS) {
+      expect(MainMenu.DefaultItems[item]).toBeTypeOf("function");
+    }
+
+    // `ThemeItem` drives upstream's toggle in its three-state mode, which only
+    // exists on the `allowSystemTheme: true` branch of the props union.
+    type ToggleThemeProps = Parameters<DefaultItems["ToggleTheme"]>[0];
+    const systemThemeProps: Extract<
+      ToggleThemeProps,
+      { allowSystemTheme: true }
+    > = { allowSystemTheme: true, onSelect: () => undefined, theme: "system" };
+
+    expect(systemThemeProps.theme).toBe("system");
+  });
+
+  it("pins the Footer, WelcomeScreen and Stats slots the host renders", () => {
+    // `Footer` takes children only — there is nothing else to depend on.
+    const FOOTER_SLOTS = [] as const satisfies readonly SlotMembers<
+      typeof Footer
+    >[];
+    type UnauditedFooterSlot = Exclude<
+      SlotMembers<typeof Footer>,
+      (typeof FOOTER_SLOTS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedFooterSlot>();
+
+    const WELCOME_SCREEN_SLOTS = [
+      "Center",
+      "Hints",
+    ] as const satisfies readonly SlotMembers<typeof WelcomeScreen>[];
+    type UnauditedWelcomeScreenSlot = Exclude<
+      SlotMembers<typeof WelcomeScreen>,
+      (typeof WELCOME_SCREEN_SLOTS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedWelcomeScreenSlot>();
+
+    // app-welcome-screen.tsx renders each of these.
+    const HOST_WELCOME_SCREEN_CENTER = [
+      "Heading",
+      "Logo",
+      "Menu",
+      "MenuItemHelp",
+      "MenuItemLink",
+      "MenuItemLoadScene",
+    ] as const satisfies readonly SlotMembers<typeof WelcomeScreen.Center>[];
+    const HOST_WELCOME_SCREEN_HINTS = [
+      "HelpHint",
+      "MenuHint",
+      "ToolbarHint",
+    ] as const satisfies readonly SlotMembers<typeof WelcomeScreen.Hints>[];
+
+    for (const slot of HOST_WELCOME_SCREEN_CENTER) {
+      expect(WelcomeScreen.Center[slot]).toBeDefined();
+    }
+    for (const slot of HOST_WELCOME_SCREEN_HINTS) {
+      expect(WelcomeScreen.Hints[slot]).toBeDefined();
+    }
+
+    // custom-stats.tsx builds the `renderCustomStats` panel from these.
+    const HOST_STATS_SLOTS = [
+      "StatsRow",
+      "StatsRows",
+    ] as const satisfies readonly SlotMembers<typeof Stats>[];
+    type UnauditedStatsSlot = Exclude<
+      SlotMembers<typeof Stats>,
+      (typeof HOST_STATS_SLOTS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedStatsSlot>();
+
+    for (const slot of HOST_STATS_SLOTS) {
+      expect(Stats[slot]).toBeTypeOf("function");
+    }
+  });
+
+  it("has no public way to name the MainMenu trigger, which is the one accepted DOM workaround", () => {
+    // `MainMenu` renders its own `DropdownMenu.Trigger` (dist/dev/index.js:
+    // 17552-17565) with no accessible name (:10729-10761), and `DropdownMenu`
+    // only picks a trigger out of its *own* children (:10889-10901), so a
+    // host-rendered `MainMenu.Trigger` cannot replace it. That is why
+    // apps/web/src/components/excalidraw/main-menu/accepted-limitation-trigger-label.ts
+    // exists; this case is its removal condition.
+    type MainMenuProps = Parameters<typeof MainMenu>[0];
+
+    const MAIN_MENU_PROP_KEYS = [
+      "__fallback",
+      "children",
+      "onSelect",
+    ] as const satisfies readonly (keyof MainMenuProps)[];
+    type UnauditedMainMenuProp = Exclude<
+      keyof MainMenuProps,
+      (typeof MAIN_MENU_PROP_KEYS)[number]
+    >;
+    assertNoUnauditedKeys<UnauditedMainMenuProp>();
+
+    const mainMenuPropKeys: string[] = [...MAIN_MENU_PROP_KEYS];
+    for (const missingProp of [
+      "trigger",
+      "renderTrigger",
+      "triggerProps",
+      "aria-label",
+    ]) {
+      expect(mainMenuPropKeys).not.toContain(missingProp);
+    }
+  });
+});
+
 describe("primary tools and active/locked tool state (public API)", () => {
   const DRAWSTUFF_PRIMARY_TOOLS = [
     "selection",
@@ -315,7 +615,10 @@ describe("style defaults (public API)", () => {
     const { api, sceneUpdates } = createRecordingApi();
 
     api.updateScene({
-      appState: { currentItemStrokeColor: "#e03131", currentItemStrokeWidth: 4 },
+      appState: {
+        currentItemStrokeColor: "#e03131",
+        currentItemStrokeWidth: 4,
+      },
       captureUpdate: CaptureUpdateAction.IMMEDIATELY,
     });
 
@@ -659,7 +962,9 @@ describe("undo/redo (confirmed gap)", () => {
 
     // `registerAction` can add an action but cannot invoke one, so the only
     // remaining trigger is a synthetic keyboard event on the editor container —
-    // a DOM-level workaround that Plan 03 forbids in production code.
+    // a DOM-level workaround the native UI integration contract forbids in
+    // production code (docs/architecture/05-native-ui-integration-contract.md
+    // §禁止事項).
     expect(imperativeApiKeys).toContain("registerAction");
   });
 });

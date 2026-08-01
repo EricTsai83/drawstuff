@@ -156,10 +156,3 @@
 .animate-flash-once {
   animation: flash-once 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
 }
-
-/* Hide Excalidraw native UI in published viewer */
-.published-viewer .excalidraw .layer-ui__wrapper .disable-zen-mode,
-.published-viewer .excalidraw .layer-ui__wrapper .disable-zen-mode--visible,
-.published-viewer .excalidraw .layer-ui__wrapper__footer {
-  display: none !important;
-}
