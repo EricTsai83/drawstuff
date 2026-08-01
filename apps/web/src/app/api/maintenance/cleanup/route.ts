@@ -74,16 +74,6 @@ export async function POST(request: Request) {
         : 0;
     }
 
-    // 3) 刪除無場景使用的孤兒分類（批次）
-    const orphanIds = await QUERIES.getOrphanCategoryIds(1000);
-    let deletedCategoriesCount: number;
-    {
-      const deletedCategories = await QUERIES.deleteCategoriesByIds(orphanIds);
-      deletedCategoriesCount = Array.isArray(deletedCategories)
-        ? deletedCategories.length
-        : 0;
-    }
-
     type DeferredCleanupTask = {
       id: string;
       utFileKey: string;
@@ -132,7 +122,6 @@ export async function POST(request: Request) {
         deletedUsers,
         deletedExpiredSharedScenes: deletedSharedCount,
         deletedRemoteFiles: deletedRemote,
-        deletedOrphanCategories: deletedCategoriesCount,
         deletedExpiredSessions: deletedExpiredSessionsCount,
         deletedExpiredVerifications: deletedExpiredVerificationsCount,
         purgedDeferredCleanups: purgedDeferredCleanupsCount,
@@ -165,7 +154,6 @@ export async function POST(request: Request) {
       deletedUsers,
       deletedExpiredSharedScenes: deletedSharedCount,
       deletedRemoteFiles: deletedRemote,
-      deletedOrphanCategories: deletedCategoriesCount,
       deletedExpiredSessions: deletedExpiredSessionsCount,
       deletedExpiredVerifications: deletedExpiredVerificationsCount,
       purgedDeferredCleanups: purgedDeferredCleanupsCount,

@@ -4,7 +4,7 @@
 import MultipleSelector, {
   type Option,
 } from "@/components/ui/multiple-selector";
-import { getCourseCategory } from "@/server/actions";
+import { api } from "@/trpc/react";
 import { toast } from "sonner";
 
 function SearchableAndCreatableSelector({
@@ -14,17 +14,22 @@ function SearchableAndCreatableSelector({
   value?: Option[];
   onChange?: (value: Option[]) => void;
 }) {
+  const utils = api.useUtils();
+
   const handleSearch = async (keyword: string) => {
     try {
-      const response = await getCourseCategory(keyword);
-      if (response.status === "failed") {
-        toast.error(response.message);
-        return [];
-      }
-      if (response.status === "success" && response.data) {
-        return response.data;
-      }
-      return [];
+      const categories = await utils.category.list.fetch(undefined, {
+        staleTime: 30_000,
+      });
+      const term = keyword.trim().toLowerCase();
+      return categories
+        .filter((categoryItem) =>
+          term ? categoryItem.name.toLowerCase().includes(term) : true,
+        )
+        .map((categoryItem) => ({
+          value: categoryItem.name,
+          label: categoryItem.name,
+        }));
     } catch {
       toast.error("Failed to get categories", {
         duration: Infinity,

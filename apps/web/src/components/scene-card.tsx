@@ -64,6 +64,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   const utils = api.useUtils();
   const saveSceneMutation = api.scene.saveScene.useMutation();
   const moveToWorkspaceMutation = api.scene.moveToWorkspace.useMutation();
+  const assignCategoryMutation = api.category.assignToScene.useMutation();
+  const unassignCategoryMutation = api.category.unassignFromScene.useMutation();
+  const { data: categoryOptions } = api.category.list.useQuery();
   const publishSceneMutation = api.scene.publish.useMutation();
   const unpublishSceneMutation = api.scene.unpublish.useMutation();
   const { workspaces } = useWorkspaceOptions();
@@ -74,6 +77,8 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         utils.scene.getUserScenesInfinite.invalidate(),
         ...(sceneId ? [utils.scene.getScene.invalidate({ id: sceneId })] : []),
         utils.workspace.listWithMeta.invalidate(),
+        // 編輯對話框可能新建分類、刪除場景會改變 sceneCount
+        utils.category.list.invalidate(),
       ]),
     [utils],
   );
@@ -298,6 +303,32 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     ],
   );
 
+  const handleToggleCategory = useCallback(
+    async (categoryId: string, assigned: boolean) => {
+      try {
+        if (assigned) {
+          await unassignCategoryMutation.mutateAsync({
+            sceneId: item.id,
+            categoryId,
+          });
+        } else {
+          await assignCategoryMutation.mutateAsync({
+            sceneId: item.id,
+            categoryId,
+          });
+        }
+        await Promise.allSettled([
+          utils.scene.getUserScenesInfinite.invalidate(),
+          utils.category.list.invalidate(),
+        ]);
+      } catch (error) {
+        console.error("Failed to toggle category:", error);
+        toast.error(t("category.toast.assignFailed"));
+      }
+    },
+    [item.id, assignCategoryMutation, unassignCategoryMutation, utils, t],
+  );
+
   const handleDoubleClickCard = loadScene;
 
   return (
@@ -345,6 +376,11 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                 currentWorkspaceId={item.workspaceId}
                 workspaces={workspaces}
                 onMoveToWorkspace={handleMoveToWorkspace}
+                categories={categoryOptions}
+                assignedCategoryIds={item.categories.map(
+                  (categoryItem) => categoryItem.id,
+                )}
+                onToggleCategory={handleToggleCategory}
               />
             </div>
           </div>
@@ -389,9 +425,13 @@ export function SceneCard({ item }: { item: SceneListItem }) {
             </p>
           </div>
           <div className="mb-2 flex h-10 flex-wrap gap-1 overflow-hidden">
-            {item.categories.map((cat) => (
-              <Badge key={cat} variant="secondary" className="text-xs">
-                {cat}
+            {item.categories.map((categoryItem) => (
+              <Badge
+                key={categoryItem.id}
+                variant="secondary"
+                className="text-xs"
+              >
+                {categoryItem.name}
               </Badge>
             ))}
           </div>
@@ -434,7 +474,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         initial={{
           name: item.name,
           description: item.description,
-          categories: item.categories,
+          categories: item.categories.map((categoryItem) => categoryItem.name),
           workspaceId: item.workspaceId,
         }}
         onConfirm={handleConfirmEdit}

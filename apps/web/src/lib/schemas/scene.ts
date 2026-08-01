@@ -1,9 +1,9 @@
 import { z } from "zod";
+import { categoryNameSchema } from "@/lib/schemas/category";
 
 export const SCENE_NAME_MAX_LENGTH = 255;
 export const SCENE_DATA_MAX_LENGTH = 5 * 1024 * 1024;
 const SCENE_CATEGORY_MAX_COUNT = 50;
-const SCENE_CATEGORY_NAME_MAX_LENGTH = 100;
 
 const sceneIdSchema = z.uuid();
 
@@ -22,13 +22,7 @@ const sceneDataSchema = z
   .max(SCENE_DATA_MAX_LENGTH, "Scene data is too large");
 
 const sceneCategoriesSchema = z
-  .array(
-    z
-      .string()
-      .trim()
-      .min(1, "Category name is required")
-      .max(SCENE_CATEGORY_NAME_MAX_LENGTH, "Category name is too long"),
-  )
+  .array(categoryNameSchema)
   .max(SCENE_CATEGORY_MAX_COUNT, "Too many categories")
   .optional();
 
