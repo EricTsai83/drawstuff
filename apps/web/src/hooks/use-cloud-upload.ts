@@ -400,8 +400,10 @@ export function useCloudUpload(
             toast.success(t("app.cloudUpload.toast.success"));
           }
 
-          // 完成雲端上傳後，讓清單失效以取得最新資料
+          // 完成雲端上傳後，讓清單失效以取得最新資料；
+          // 上傳對話框可能新建分類，一併失效分類清單
           void utils.scene.getUserScenesInfinite.invalidate();
+          void utils.category.list.invalidate();
         } catch (e) {
           console.error("Failed to save scene record to DB:", e);
           setStatus("error");

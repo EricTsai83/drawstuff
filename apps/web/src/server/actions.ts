@@ -1,12 +1,7 @@
 "use server";
 
 import { db } from "@/server/db";
-import {
-  sharedScene,
-  scene,
-  sceneCategory,
-  category,
-} from "@/server/db/schema";
+import { sharedScene } from "@/server/db/schema";
 import { nanoid } from "nanoid";
 import { eq } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/server";
@@ -83,57 +78,6 @@ export async function handleSceneSave(
       sharedSceneId: null,
       errorMessage: "Failed to create shareable link. Please try again later",
     };
-  }
-}
-
-// 取得目前使用者曾使用過的課程類別（僅限本人歷史），支援關鍵字查詢
-export type GetCourseCategoryResponse =
-  | { status: "success"; data: { value: string; label: string }[] }
-  | { status: "failed"; message: string };
-
-export async function getCourseCategory(
-  keyword: string,
-): Promise<GetCourseCategoryResponse> {
-  const session = await getServerSession();
-  const userId = session?.user?.id ?? null;
-
-  if (!userId) {
-    return {
-      status: "failed",
-      message: "Please sign in and try again",
-    } as const;
-  }
-
-  try {
-    const rows = await db
-      .select({ name: category.name })
-      .from(sceneCategory)
-      .innerJoin(scene, eq(sceneCategory.sceneId, scene.id))
-      .innerJoin(category, eq(sceneCategory.categoryId, category.id))
-      .where(eq(scene.userId, userId));
-
-    const term = (keyword ?? "").trim().toLowerCase();
-    const seen = new Set<string>();
-
-    const options = rows
-      .map((r) => r.name)
-      .filter((n): n is string => Boolean(n))
-      .filter((n) => (term ? n.toLowerCase().includes(term) : true))
-      .filter((n) => {
-        if (seen.has(n)) return false;
-        seen.add(n);
-        return true;
-      })
-      .sort((a, b) => a.localeCompare(b))
-      .map((name) => ({ value: name, label: name }));
-
-    return { status: "success", data: options } as const;
-  } catch (error) {
-    console.error("Error in getCourseCategory:", error);
-    return {
-      status: "failed",
-      message: "Unable to fetch categories. Please try again later",
-    } as const;
   }
 }
 

@@ -1,3 +1,4 @@
+import { categoryRouter } from "@/server/api/routers/category";
 import { sceneRouter } from "@/server/api/routers/scene";
 import { workspaceRouter } from "@/server/api/routers/workspace";
 import { sharedSceneRouter } from "@/server/api/routers/shared-scene";
@@ -9,6 +10,7 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
+  category: categoryRouter,
   scene: sceneRouter,
   sharedScene: sharedSceneRouter,
   workspace: workspaceRouter,

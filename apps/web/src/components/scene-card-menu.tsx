@@ -19,12 +19,19 @@ import {
   Trash2,
   Globe,
   Copy,
+  Check,
   ExternalLink,
   ArrowRightLeft,
+  Tag,
 } from "lucide-react";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type WorkspaceOption = {
+  id: string;
+  name: string;
+};
+
+type CategoryOption = {
   id: string;
   name: string;
 };
@@ -41,6 +48,9 @@ type SceneCardMenuProps = {
   currentWorkspaceId?: string;
   workspaces?: WorkspaceOption[];
   onMoveToWorkspace?: (workspaceId: string) => void;
+  categories?: CategoryOption[];
+  assignedCategoryIds?: string[];
+  onToggleCategory?: (categoryId: string, assigned: boolean) => void;
 };
 
 export function SceneCardMenu({
@@ -55,6 +65,9 @@ export function SceneCardMenu({
   currentWorkspaceId,
   workspaces,
   onMoveToWorkspace,
+  categories,
+  assignedCategoryIds,
+  onToggleCategory,
 }: SceneCardMenuProps) {
   const { t } = useStandaloneI18n();
 
@@ -63,6 +76,9 @@ export function SceneCardMenu({
   );
   const showMoveSubmenu =
     onMoveToWorkspace && otherWorkspaces && otherWorkspaces.length > 0;
+  const showCategorySubmenu =
+    onToggleCategory && categories && categories.length > 0;
+  const assignedIds = new Set(assignedCategoryIds ?? []);
 
   return (
     <DropdownMenu>
@@ -109,6 +125,39 @@ export function SceneCardMenu({
                   <span className="truncate">{ws.name}</span>
                 </DropdownMenuItem>
               ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        )}
+        {showCategorySubmenu && (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger
+              onClick={(e) => e.stopPropagation()}
+              className="gap-0"
+            >
+              <Tag className="hover:text-accent-foreground mr-2 h-4 w-4" />
+              {t("menu.categories")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+              {categories.map((categoryOption) => {
+                const assigned = assignedIds.has(categoryOption.id);
+                return (
+                  <DropdownMenuItem
+                    key={categoryOption.id}
+                    closeOnClick={false}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onToggleCategory(categoryOption.id, assigned);
+                    }}
+                  >
+                    <Check
+                      className={
+                        assigned ? "mr-2 h-4 w-4" : "mr-2 h-4 w-4 opacity-0"
+                      }
+                    />
+                    <span className="truncate">{categoryOption.name}</span>
+                  </DropdownMenuItem>
+                );
+              })}
             </DropdownMenuSubContent>
           </DropdownMenuSub>
         )}

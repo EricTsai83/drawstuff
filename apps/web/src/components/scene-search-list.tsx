@@ -2,7 +2,16 @@
 
 import { useMemo, useEffect, useState, useRef, type FormEvent } from "react";
 import { useQueryState } from "nuqs";
-import { Loader2, Pencil, Plus, Search, Settings2, Trash2 } from "lucide-react";
+import { z } from "zod";
+import {
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  Settings2,
+  Tag,
+  Trash2,
+} from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { StatefulButton } from "@/components/stateful-button";
 import { SceneCard } from "./scene-card";
@@ -33,6 +42,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { workspaceNameSchema } from "@/lib/schemas/workspace";
+import { CategoryManagementDialog } from "@/components/category-management-dialog";
 import { toast } from "sonner";
 
 type SceneListItem =
@@ -63,6 +73,25 @@ export function SceneSearchList() {
     clearOnDefault: true,
   });
   const [publishFilter, setPublishFilter] = useState<PublishFilter>("all");
+  const [categoryFilter, setCategoryFilter] = useQueryState("category", {
+    defaultValue: "",
+    clearOnDefault: true,
+  });
+  const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
+  const { data: categories } = api.category.list.useQuery();
+
+  // URL 上的分類參數必須是合法 UUID 才拿去過濾，避免無效輸入打到後端
+  const activeCategoryId = z.uuid().safeParse(categoryFilter).success
+    ? categoryFilter
+    : undefined;
+
+  // 分類被刪除（或參數無效）時自動清掉篩選
+  useEffect(() => {
+    if (!categoryFilter || !categories) return;
+    if (!categories.some((c) => c.id === categoryFilter)) {
+      void setCategoryFilter("");
+    }
+  }, [categoryFilter, categories, setCategoryFilter]);
 
   useEscapeKey(() => router.back());
 
@@ -85,6 +114,7 @@ export function SceneSearchList() {
       {
         limit: 10,
         workspaceId: effectiveWorkspaceId,
+        categoryId: activeCategoryId,
         search: searchQuery || undefined,
       },
       {
@@ -99,7 +129,7 @@ export function SceneSearchList() {
   useEffect(() => {
     // 變動時滾回頂部，避免 UX 不連貫
     window?.scrollTo?.({ top: 0, behavior: "instant" as ScrollBehavior });
-  }, [effectiveWorkspaceId, searchQuery]);
+  }, [effectiveWorkspaceId, searchQuery, activeCategoryId]);
 
   // 若 URL 上帶有 workspaceId，取得後即從 URL 移除（保留其他參數），
   // 並以本地覆蓋值維持當前 workspace 過濾，避免畫面閃爍。
@@ -117,7 +147,9 @@ export function SceneSearchList() {
   function doesSceneMatchQuery(item: SceneListItem, q: string): boolean {
     const inName = item.name.toLowerCase().includes(q);
     const inDesc = item.description.toLowerCase().includes(q);
-    const inCats = item.categories.some((cat) => cat.toLowerCase().includes(q));
+    const inCats = item.categories.some((cat) =>
+      cat.name.toLowerCase().includes(q),
+    );
     const inWorkspace = item.workspaceName?.toLowerCase().includes(q) ?? false;
     const matches = [inName, inDesc, inCats, inWorkspace].some(
       (v: boolean) => v === true,
@@ -298,6 +330,16 @@ export function SceneSearchList() {
         onSearchChange={setSearchQuery}
       />
       <PublishFilterBar value={publishFilter} onChange={setPublishFilter} />
+      <CategoryFilterBar
+        categories={categories ?? []}
+        value={activeCategoryId}
+        onChange={(id) => void setCategoryFilter(id ?? "")}
+        onManage={() => setManageCategoriesOpen(true)}
+      />
+      <CategoryManagementDialog
+        open={manageCategoriesOpen}
+        onOpenChange={setManageCategoriesOpen}
+      />
 
       {/* Recently modified by you Section */}
       <section className="space-y-4">
@@ -399,6 +441,66 @@ function PublishFilterBar({ value, onChange }: PublishFilterBarProps) {
           </StatefulButton>
         );
       })}
+    </div>
+  );
+}
+
+type CategoryFilterBarProps = {
+  categories: Array<{ id: string; name: string; sceneCount: number }>;
+  value: string | undefined;
+  onChange: (categoryId: string | undefined) => void;
+  onManage: () => void;
+};
+
+function CategoryFilterBar({
+  categories,
+  value,
+  onChange,
+  onManage,
+}: CategoryFilterBarProps) {
+  const { t } = useStandaloneI18n();
+
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {categories.length > 0 && (
+        <>
+          <StatefulButton
+            type="button"
+            variant="outline"
+            size="sm"
+            active={value === undefined}
+            onClick={() => onChange(undefined)}
+          >
+            {t("dashboard.category.all")}
+          </StatefulButton>
+          {categories.map((categoryItem) => (
+            <StatefulButton
+              key={categoryItem.id}
+              type="button"
+              variant="outline"
+              size="sm"
+              active={value === categoryItem.id}
+              onClick={() =>
+                onChange(
+                  value === categoryItem.id ? undefined : categoryItem.id,
+                )
+              }
+            >
+              {categoryItem.name}
+            </StatefulButton>
+          ))}
+        </>
+      )}
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        onClick={onManage}
+        aria-label={t("dashboard.category.manage")}
+      >
+        <Tag className="size-4" />
+        {t("dashboard.category.manage")}
+      </Button>
     </div>
   );
 }

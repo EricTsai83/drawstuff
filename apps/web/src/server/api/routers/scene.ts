@@ -4,7 +4,17 @@ import {
   protectedProcedure,
   publicProcedure,
 } from "@/server/api/trpc";
-import { and, eq, ilike, isNotNull, lt, or, sql, type SQL } from "drizzle-orm";
+import {
+  and,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  lt,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 import {
   category,
   scene,
@@ -172,6 +182,7 @@ export const sceneRouter = createTRPCRouter({
           })
           .optional(),
         workspaceId: z.uuid().optional(),
+        categoryId: z.uuid().optional(),
         search: z.string().optional(),
       }),
     )
@@ -193,7 +204,7 @@ export const sceneRouter = createTRPCRouter({
             isPublished: z.boolean(),
             publishedSlug: z.string().optional(),
             publishedAt: z.date().optional(),
-            categories: z.array(z.string()),
+            categories: z.array(z.object({ id: z.uuid(), name: z.string() })),
           }),
         ),
         nextCursor: z.object({ updatedAt: z.date(), id: z.uuid() }).optional(),
@@ -210,6 +221,21 @@ export const sceneRouter = createTRPCRouter({
       if (input.workspaceId) {
         whereClauses.push(eq(scene.workspaceId, input.workspaceId));
       }
+      // 注意：relational query 的 where 會把內嵌 sql 中其他表的欄位重寫成主表
+      // alias（造成 "scene"."category_id" 這類錯誤欄位），因此跨表條件一律用
+      // query builder 子查詢表達，讓子查詢維持自己的 alias context。
+      if (input.categoryId) {
+        // 走 scene_category 的 (scene_id, category_id) unique index，避免全表掃描
+        whereClauses.push(
+          inArray(
+            scene.id,
+            ctx.db
+              .select({ sceneId: sceneCategory.sceneId })
+              .from(sceneCategory)
+              .where(eq(sceneCategory.categoryId, input.categoryId)),
+          ),
+        );
+      }
 
       const normalizedSearch = normalizeSearchTerm(input.search);
       if (normalizedSearch) {
@@ -218,20 +244,31 @@ export const sceneRouter = createTRPCRouter({
           or(
             ilike(scene.name, pattern),
             ilike(scene.description, pattern),
-            sql`exists (
-              select 1
-              from ${workspace}
-              where ${workspace.id} = ${scene.workspaceId}
-                and ${workspace.name} ilike ${pattern}
-            )`,
-            sql`exists (
-              select 1
-              from ${sceneCategory}
-              inner join ${category}
-                on ${sceneCategory.categoryId} = ${category.id}
-              where ${sceneCategory.sceneId} = ${scene.id}
-                and ${category.name} ilike ${pattern}
-            )`,
+            inArray(
+              scene.workspaceId,
+              ctx.db
+                .select({ id: workspace.id })
+                .from(workspace)
+                .where(
+                  and(
+                    eq(workspace.userId, ctx.auth.user.id),
+                    ilike(workspace.name, pattern),
+                  ),
+                ),
+            ),
+            inArray(
+              scene.id,
+              ctx.db
+                .select({ sceneId: sceneCategory.sceneId })
+                .from(sceneCategory)
+                .innerJoin(category, eq(sceneCategory.categoryId, category.id))
+                .where(
+                  and(
+                    eq(category.userId, ctx.auth.user.id),
+                    ilike(category.name, pattern),
+                  ),
+                ),
+            ),
           )!,
         );
       }
@@ -299,8 +336,15 @@ export const sceneRouter = createTRPCRouter({
           publishedSlug: s.publishedSlug ?? undefined,
           publishedAt: s.publishedAt ?? undefined,
           categories: (s.sceneCategories ?? [])
-            .map((sc) => sc.category?.name)
-            .filter((name): name is string => Boolean(name)),
+            .map((sc) => sc.category)
+            .filter(
+              (categoryRow): categoryRow is { id: string; name: string } =>
+                Boolean(categoryRow),
+            )
+            .map((categoryRow) => ({
+              id: categoryRow.id,
+              name: categoryRow.name,
+            })),
         };
       });
 
