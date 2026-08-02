@@ -5,9 +5,13 @@ export type {
   BinaryFileData,
   BinaryFileMetadata,
   BinaryFiles,
+  Collaborator,
+  CollaboratorPointer,
   DataURL,
   ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
+  SceneData,
+  SocketId,
   UIAppState,
 } from "@excalidraw/excalidraw/types";
 export type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
@@ -26,8 +30,10 @@ export type ExcalidrawCanvasProps = Pick<
   | "children"
   | "excalidrawAPI"
   | "initialData"
+  | "isCollaborating"
   | "langCode"
   | "onChange"
+  | "onPointerUpdate"
   | "renderCustomStats"
   | "renderTopRightUI"
   | "theme"
@@ -37,3 +43,7 @@ export type ExcalidrawCanvasProps = Pick<
 
 export type ExcalidrawValidateEmbeddable =
   ExcalidrawProps["validateEmbeddable"];
+
+export type ExcalidrawPointerUpdatePayload = Parameters<
+  NonNullable<ExcalidrawProps["onPointerUpdate"]>
+>[0];

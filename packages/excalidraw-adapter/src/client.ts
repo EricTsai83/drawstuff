@@ -3,6 +3,7 @@
 import "@excalidraw/excalidraw/index.css";
 
 import {
+  CaptureUpdateAction,
   defaultLang,
   Excalidraw,
   exportToBlob,
@@ -15,6 +16,7 @@ import {
   Stats,
   THEME,
   useI18n,
+  UserIdleState,
   WelcomeScreen,
 } from "@excalidraw/excalidraw";
 import { createElement, type ReactElement } from "react";
@@ -34,6 +36,7 @@ export function ExcalidrawCanvas(
 export type ExcalidrawSvgExportOptions = Parameters<typeof exportToSvg>[0];
 
 export {
+  CaptureUpdateAction as EXCALIDRAW_CAPTURE_UPDATE_ACTION,
   defaultLang as DEFAULT_EXCALIDRAW_LANGUAGE,
   exportToBlob as exportCanvasToBlob,
   exportToSvg as exportSceneToSvg,
@@ -45,5 +48,6 @@ export {
   Stats as ExcalidrawStats,
   THEME as EXCALIDRAW_THEME,
   useI18n as useExcalidrawI18n,
+  UserIdleState as EXCALIDRAW_USER_IDLE_STATE,
   WelcomeScreen as ExcalidrawWelcomeScreen,
 };
