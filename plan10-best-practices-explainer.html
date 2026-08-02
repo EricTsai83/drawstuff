@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Plan 10 最佳實踐評估 — 白話完整解說</title>
+<style>
+  :root {
+    --ink: #1f2430;
+    --muted: #5c6470;
+    --bg: #f7f8fa;
+    --card: #ffffff;
+    --line: #e3e7ee;
+    --good: #1d7a4f;
+    --good-bg: #e8f5ee;
+    --warn: #9a6700;
+    --warn-bg: #fff5e0;
+    --bad: #b3392f;
+    --bad-bg: #fdecea;
+    --accent: #2b5fd9;
+    --accent-bg: #eaf0fe;
+    --code-bg: #f1f3f7;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    line-height: 1.85;
+    font-size: 16px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; padding: 48px 24px 96px; }
+  h1 { font-size: 30px; line-height: 1.4; margin: 0 0 8px; }
+  h2 { font-size: 23px; margin: 56px 0 12px; padding-top: 24px; border-top: 2px solid var(--line); }
+  h3 { font-size: 18px; margin: 28px 0 8px; }
+  p { margin: 10px 0; }
+  .sub { color: var(--muted); font-size: 15px; }
+  .card {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 18px 0;
+  }
+  .card.good { border-left: 6px solid var(--good); }
+  .card.warn { border-left: 6px solid var(--warn); }
+  .card.bad  { border-left: 6px solid var(--bad); }
+  .card.info { border-left: 6px solid var(--accent); }
+  .tag {
+    display: inline-block; font-size: 13px; font-weight: 700;
+    padding: 2px 10px; border-radius: 999px; margin-right: 8px; vertical-align: 2px;
+  }
+  .tag.good { color: var(--good); background: var(--good-bg); }
+  .tag.warn { color: var(--warn); background: var(--warn-bg); }
+  .tag.bad  { color: var(--bad); background: var(--bad-bg); }
+  .tag.info { color: var(--accent); background: var(--accent-bg); }
+  code, .mono {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 0.88em;
+    background: var(--code-bg);
+    border-radius: 5px;
+    padding: 1px 6px;
+  }
+  pre {
+    background: var(--code-bg); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; overflow-x: auto; font-size: 13.5px; line-height: 1.7;
+  }
+  pre code { background: none; padding: 0; }
+  .flow {
+    display: flex; flex-wrap: wrap; align-items: stretch; gap: 10px;
+    margin: 16px 0; align-items: center;
+  }
+  .step {
+    background: var(--card); border: 1.5px solid var(--line); border-radius: 10px;
+    padding: 10px 14px; font-size: 14px; text-align: center; min-width: 120px; flex: 1;
+  }
+  .step b { display: block; font-size: 14.5px; }
+  .step small { color: var(--muted); }
+  .step.ok   { border-color: var(--good); background: var(--good-bg); }
+  .step.warn { border-color: var(--warn); background: var(--warn-bg); }
+  .step.bad  { border-color: var(--bad); background: var(--bad-bg); }
+  .arrow { font-size: 20px; color: var(--muted); flex: 0 0 auto; }
+  .timeline { margin: 16px 0; padding: 0; list-style: none; }
+  .timeline li {
+    position: relative; padding: 8px 0 8px 34px; border-left: 2px solid var(--line);
+    margin-left: 10px; font-size: 15px;
+  }
+  .timeline li::before {
+    content: ""; position: absolute; left: -8px; top: 16px;
+    width: 14px; height: 14px; border-radius: 50%;
+    background: var(--card); border: 3px solid var(--muted);
+  }
+  .timeline li.ok::before  { border-color: var(--good); }
+  .timeline li.bad::before { border-color: var(--bad); }
+  .timeline li.bad { background: var(--bad-bg); border-radius: 0 8px 8px 0; }
+  .timeline li.ok.hl { background: var(--good-bg); border-radius: 0 8px 8px 0; }
+  table { border-collapse: collapse; width: 100%; margin: 16px 0; font-size: 14.5px; background: var(--card); }
+  th, td { border: 1px solid var(--line); padding: 10px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--code-bg); font-size: 14px; }
+  .verdict-good { color: var(--good); font-weight: 700; white-space: nowrap; }
+  .verdict-warn { color: var(--warn); font-weight: 700; white-space: nowrap; }
+  .defbox {
+    background: var(--accent-bg); border-radius: 10px; padding: 14px 18px; margin: 14px 0;
+    font-size: 14.5px;
+  }
+  .defbox dt { font-weight: 700; margin-top: 8px; }
+  .defbox dt:first-child { margin-top: 0; }
+  .defbox dd { margin: 2px 0 0 0; color: #333c4d; }
+  .vs { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin: 16px 0; }
+  @media (max-width: 640px) { .vs { grid-template-columns: 1fr; } }
+  .vs .card { margin: 0; }
+  .center { text-align: center; }
+  .small { font-size: 13.5px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<h1>Plan 10「最佳實踐評估」白話完整解說</h1>
+<p class="sub">
+  這份文件重新解釋先前報告裡「最佳實踐評估」那一段：哪些做法是業界公認的正確做法、
+  哪些是<b>明知不是教科書標準、但刻意選擇的取捨</b>，以及三輪 AI 交叉審查到底修掉了什麼。
+  看完你應該能自己判斷「這次實作是不是最佳實踐」。
+</p>
+
+<div class="defbox">
+  <b>先建立三個名詞，後面會一直用到：</b>
+  <dl>
+    <dt>Upstream（上游）</dt>
+    <dd>Excalidraw 官方專案本身（npm 套件 <code>@excalidraw/excalidraw@0.18.1</code> 與它的原始碼）。我們的程式碼建立在它之上。</dd>
+    <dt>Adapter（轉接層）</dt>
+    <dd>這次寫的 <code>reconcile.ts</code>。它是 Drawstuff 與 Excalidraw 之間唯一的「窄門」：所有跟引擎有關的操作都必須走這裡。</dd>
+    <dt>Tracker（變更追蹤器）</dt>
+    <dd>記錄「哪些元素已經送給其他協作者了」的小帳本。有了它，你動一個方塊時只需要送那一個方塊，而不是整張 10,000 個元素的畫布。</dd>
+  </dl>
+</div>
+
+<!-- ================================================================ -->
+<h2>第一部分：四項「符合最佳實踐」的做法</h2>
+
+<div class="card good">
+  <h3><span class="tag good">最佳實踐 1</span>不重寫引擎的演算法，用「差異測試」證明</h3>
+  <p><b>白話：</b>兩個人同時改同一個方塊，最後聽誰的？這個「衝突裁判規則」是 Excalidraw 寫好的
+  （<code>reconcileElements</code>）。我們<b>只包一層薄薄的外殼去呼叫它</b>，一行裁判邏輯都不自己寫。</p>
+  <p><b>為什麼這是最佳實踐？</b>如果自己再寫一套「差不多的」合併規則，會發生兩件事：
+  （1）你的規則和引擎的規則在邊角情況下裁決不同 → 兩個使用者的畫面永久對不上；
+  （2）Excalidraw 一升級，你的復刻版就過時了，而且<b>沒有任何測試會告訴你</b>。</p>
+  <p><b>那怎麼證明外殼沒有偷偷改變行為？</b>用「差異測試」（differential testing）：
+  準備 16 組固定劇本（誰的版本新、誰刪除了元素、誰正在編輯中……），每組劇本同時餵給兩條路：</p>
+  <div class="flow">
+    <div class="step"><b>同一組輸入</b><small>本地元素 + 遠端元素</small></div>
+    <div class="arrow">➜</div>
+    <div class="step"><b>路徑 A</b><small>直接呼叫 Excalidraw 原函式</small></div>
+    <div class="arrow">＝?</div>
+    <div class="step"><b>路徑 B</b><small>呼叫我們的 adapter</small></div>
+    <div class="arrow">➜</div>
+    <div class="step ok"><b>逐欄位比對</b><small>結果必須 100% 相同</small></div>
+  </div>
+  <p>只要 adapter 哪天「多做了一點事」，測試立刻紅燈。這就是「不是用信任、是用測試」的意思。</p>
+</div>
+
+<div class="card good">
+  <h3><span class="tag good">最佳實踐 2</span>失敗方向設計：壞掉時「寧可重送、絕不遺失」</h3>
+  <p><b>白話：</b>分散式系統一定會出錯——網路斷線、佇列塞滿、時機不巧。
+  好的設計不是「假裝不會出錯」，而是<b>規定出錯之後往哪邊倒</b>。這裡的規定是：
+  任何意外都只能造成「同一筆變更多送一次」，永遠不能造成「有一筆變更沒送出去」。</p>
+  <div class="vs">
+    <div class="card" style="border-left: 6px solid var(--good);">
+      <b>多送一次（重送）＝ 無害</b>
+      <p class="small">接收端的合併是「冪等」的：同一筆資料收兩次，結果跟收一次完全一樣
+      （版本相同 → 裁判規則判定為無變化）。頂多浪費幾百 bytes 流量。</p>
+    </div>
+    <div class="card" style="border-left: 6px solid var(--bad);">
+      <b>少送一筆（遺失）＝ 災難</b>
+      <p class="small">你畫的東西別人永遠看不到，而且<b>沒有任何錯誤訊息</b>。
+      兩邊畫面默默分岔，使用者只會覺得「這協作功能怪怪的」。</p>
+    </div>
+  </div>
+  <p>後面第三部分會看到：三輪審查修掉的三個 bug，全部都是「某個罕見時序下會變成遺失」的漏洞。
+  修完之後「只會重送、不會遺失」從<i>大致成立</i>變成<i>結構上必然成立</i>。</p>
+</div>
+
+<div class="card good">
+  <h3><span class="tag good">最佳實踐 3</span>升級絆線（tripwire）：讓「升級 Excalidraw」不可能靜默出錯</h3>
+  <p><b>白話：</b>絆線就是綁在門口的細繩——小偷（行為改變）一進來就會絆倒觸發警報。這次埋了三條：</p>
+  <ul>
+    <li><b>版本絆線</b>：測試會讀取實際安裝的 Excalidraw 版本，跟測試資料裡記錄的 <code>0.18.1</code> 比對。
+        升到 0.19 的那一刻，測試直接失敗，逼你重新審核。</li>
+    <li><b>行為絆線</b>：16 組劇本的「正確答案」被釘死在檔案裡。如果新版 Excalidraw 改了裁判規則
+        （例如平手時改成聽另一邊的），比對立刻失敗。</li>
+    <li><b>API 表面絆線</b>：測試釘死了 adapter 對外只暴露 5 個函式。誰想偷偷加一個「方便的」直通引擎出口，測試失敗。</li>
+  </ul>
+  <p><b>為什麼重要？</b>依賴升級最可怕的不是「編譯錯誤」（那個很好處理），而是「編譯過了、行為變了、沒人發現」。
+  絆線把後者轉換成前者。</p>
+</div>
+
+<div class="card good">
+  <h3><span class="tag good">最佳實踐 4</span>效能量測方法論：可重現、看 p95、只在校準過的機器上當門檻</h3>
+  <ul>
+    <li><b>固定劇本</b>：永遠用同一個 1,000／10,000 個元素的假畫布來量。下次有人改了程式，數字可以直接比。</li>
+    <li><b>暖身 + p95</b>：先跑 5 次不計分（讓 JavaScript 引擎「熱機」），再跑 30 次取第 95 百分位數——
+        看「最差的正常情況」，而不是被平均值美化。</li>
+    <li><b>兩種斷言分開</b>：<b>結構性保證</b>（動 1 個元素只序列化 1 個元素、抽取時零複製）在任何電腦上都強制檢查；
+        <b>速度門檻</b>（例如 p95 ≤ 2ms）只在文件記錄的那台基準機器上強制——因為同一段程式在慢的 CI 機器上跑出 3ms
+        不代表程式變慢了。把速度門檻無條件掛在 CI 上是常見的反模式（flaky test 之源）。</li>
+  </ul>
+</div>
+
+<!-- ================================================================ -->
+<h2>第二部分：三個「有意識的取捨」——不是教科書標準，但有理由</h2>
+<p class="sub">「取捨」的意思是：我知道有一個更「純正」的做法，但它的代價比好處大，所以刻意不選它，並且把風險寫下來、加上防線。</p>
+
+<div class="card warn">
+  <h3><span class="tag warn">取捨 1</span>型別上的「善意謊言」：<code>localState as AppState</code></h3>
+  <p><b>背景：</b>Excalidraw 的合併函式簽名要求傳入完整的 <code>AppState</code>——一個有<b>幾十個欄位</b>的大物件
+  （縮放倍率、主題色、選取狀態、開了哪個對話框……）。但去讀它的原始碼會發現：它<b>實際上只讀其中 3 個欄位</b>
+  （「這個元素是否正在被輸入文字／被縮放／正在畫」——正在操作中的元素本地必須贏，不能被遠端蓋掉）。</p>
+  <div class="vs">
+    <div class="card">
+      <b>教科書做法</b>
+      <p class="small">照簽名要求，讓呼叫者傳完整 <code>AppState</code>。型別 100% 誠實，
+      但未來的協作模組被迫隨身攜帶整包編輯器狀態，測試也得先造出一個巨大假物件。</p>
+    </div>
+    <div class="card">
+      <b>實際選擇</b>
+      <p class="small">對外只要求那 3 個欄位，內部用 <code>as AppState</code> 告訴 TypeScript「相信我」。
+      介面乾淨得多，但這是一句<b>編譯器驗證不了的斷言</b>。</p>
+    </div>
+  </div>
+  <p><b>風險：</b>如果未來某版 Excalidraw 開始讀第 4 個欄位，TypeScript <b>不會報錯</b>——那個欄位會默默是 <code>undefined</code>。</p>
+  <p><b>防線：</b>（1）程式碼註解標明了 upstream 原始碼的檔案與行號，說明「只讀 3 個欄位」的證據出處；
+  （2）第一部分的版本絆線會在升級時強制重新人工核對這件事；（3）差異測試涵蓋了這 3 個欄位各自生效的劇本。</p>
+</div>
+
+<div class="card warn">
+  <h3><span class="tag warn">取捨 2</span>測試裡的 <code>as unknown as ...</code> 強制轉型</h3>
+  <p><b>背景：</b>Excalidraw 用了一種叫 <b>branded types（烙印型別）</b>的技巧：
+  某些型別除了資料形狀，還帶一個看不見的「官方印章」，宣告「這個元素是引擎親手做的」。
+  問題是——<b>只有引擎內部能蓋這個章</b>。測試要手工捏一個假元素來餵，形狀完全正確，但拿不到章，
+  只能用 <code>as unknown as OrderedExcalidrawElement</code> 硬轉。</p>
+  <p><b>為什麼可接受？</b>（1）只出現在<b>測試的資料工廠</b>，正式程式碼（<code>src/</code>）沒有這種轉型；
+  （2）去看 Excalidraw 自己的測試，它們也是同樣做法——這是烙印型別生態的固有限制，不是我們的偷懶。</p>
+</div>
+
+<div class="card warn">
+  <h3><span class="tag warn">取捨 3</span>帳本規則的一個細節：「同版本」時允許覆寫</h3>
+  <p><b>背景：</b>tracker 的帳本有一條保護規則：「舊資料不能蓋掉新資料」（版本 2 的遲到記帳不能蓋掉版本 3）。
+  那<b>版本相同</b>但內容識別碼不同時要不要允許覆寫？兩個選項各有一個壞情況：</p>
+  <div class="vs">
+    <div class="card" style="border-left: 6px solid var(--bad);">
+      <b>選項 A：同版本一律拒絕</b>
+      <p class="small">更「嚴格」，但存在一種邊角狀態：帳本記的和畫布上的永遠差一個識別碼
+      → 每次檢查都覺得「有變更」→ <b>無限重送迴圈</b>，永遠停不下來。</p>
+    </div>
+    <div class="card" style="border-left: 6px solid var(--good);">
+      <b>選項 B：同版本允許覆寫（實際選擇）</b>
+      <p class="small">最壞情況是<b>多回聲一次</b>：多送一筆對方其實已經有的資料，
+      對方的裁判規則判定無變化，下一輪就安靜了。<b>會自我痊癒</b>。</p>
+    </div>
+  </div>
+  <p><b>判斷依據：</b>「永不停止的迴圈」比「多送一次就好」嚴重得多。這也和 Excalidraw 官方的整體哲學一致——
+  它甚至容忍更大的誤差（見下一部分結尾）。</p>
+</div>
+
+<!-- ================================================================ -->
+<h2>第三部分：三輪審查的演進——同一個 bug 家族被連續抓了三次</h2>
+<p class="sub">
+  這部分是原報告裡最難懂、也最有價值的段落。核心問題只有一個：<br>
+  <b>「哪些元素已經送出去了」這本帳，到底該在什麼時候、用什麼資料來記？</b><br>
+  記帳時機錯 → 遺失；記帳資料錯 → 也遺失。三輪由 GPT-5.6 Sol 執行的交叉審查，每輪都在更刁鑽的時序下找到一個洞。
+</p>
+
+<div class="card bad">
+  <h3><span class="tag bad">第 1 版</span>樂觀記帳：「抽出來的當下」就記帳 → <b>送失敗時掉資料</b></h3>
+  <p>第一版模仿 Excalidraw 官方 app 的做法：從畫布抽出變更清單的<b>同時</b>，就在帳本記下「已送出」。</p>
+  <ul class="timeline">
+    <li>你把方塊改成<b>版本 2</b></li>
+    <li>系統抽出變更清單〔方塊 v2〕，<b>並同時記帳：「v2 已送」</b></li>
+    <li class="bad">網路層拒絕這次傳送（斷線／佇列滿）——但帳已經記了</li>
+    <li class="bad">下一輪檢查：「帳上寫 v2 已送」→ 認為沒有東西要送 → <b>你的修改永遠傳不出去</b></li>
+  </ul>
+  <p><b>審查裁決：接受。</b>修法：拆成兩階段——<b>抽取（extract）不記帳，傳送成功後才呼叫 commit 記帳</b>。
+  送失敗就不 commit，下一輪自然重抽重送。順帶注意：忘記 commit 的後果是「多送」，不是「遺失」——連 API 的誤用方向都是安全的。</p>
+</div>
+
+<div class="card bad">
+  <h3><span class="tag bad">第 2 版</span>兩階段有了，但 commit 時「重新去讀」一個會被就地修改的物件</h3>
+  <p>修完第 1 版後，commit 記帳的資料是<b>當下重新從元素物件上讀的版本號</b>。
+  問題：Excalidraw 是<b>就地修改</b>（in-place mutation）元素物件的——同一個物件，版本號會直接在原地跳動。</p>
+  <ul class="timeline">
+    <li>抽出方塊 <b>v2</b>，序列化成封包、送出（網路上跑的是 v2）</li>
+    <li class="bad">就在 commit 之前，一個重入的畫布更新把<b>同一個物件</b>就地改成 <b>v3</b></li>
+    <li class="bad">commit 執行：去物件上讀版本 → 讀到 <b>v3</b> → 帳本記「v3 已送」</li>
+    <li class="bad">但網路上只送過 v2！下一輪檢查認為 v3 已送 → <b>v3 這筆修改遺失</b></li>
+  </ul>
+  <p><b>審查裁決：接受。</b>修法：抽取的當下就把每個元素的識別資料（id＋版本＋識別碼）<b>拍一張不可變的快照</b>，
+  commit 永遠寫快照、絕不重讀活物件。</p>
+</div>
+
+<div class="card bad">
+  <h3><span class="tag bad">第 3 版</span>快照存在「全 tracker 共用的一格」裡 → 兩個批次會互相覆寫</h3>
+  <p>第 2 版的快照放在 tracker 身上的一個共用 Map（每個元素 id 一格）。第三輪審查指出：<b>一格不夠</b>。</p>
+  <ul class="timeline">
+    <li>批次①抽出方塊 v2（快照格寫入 v2），封包送出但回應很慢，commit 被延遲</li>
+    <li>物件就地變成 v3；批次②抽出 v3——<b>快照格被覆寫成 v3</b></li>
+    <li class="bad">批次①的延遲 commit 終於執行：它手上的物件參照現在顯示 v3，跟格子裡的 v3「對上了」→ 記帳 v3</li>
+    <li class="bad">但批次①實際送出的是 v2 → <b>v3 又遺失了</b>（另外還有兩個較小的洞：帳本可能被遲到的 commit 蓋回舊值造成回聲、快照格永遠不清理會累積記憶體）</li>
+  </ul>
+  <p><b>審查裁決：三項全接受。</b>最終修法用一個設計同時解決三個洞——<b>批次把手（batch handle）</b>：</p>
+  <pre><code>// 之前：抽取回傳陣列，commit 是 tracker 上的共用方法
+const delta = tracker.extractChangedElements(scene);
+send(delta);
+tracker.markElementsSent(delta);   // ← 讀共用格，會被別的批次污染
+
+// 之後：每個批次自帶自己的快照和自己的 commit 按鈕
+const batch = tracker.extractChangedElements(scene);
+send(batch.elements);
+batch.markSent();                  // ← 只會寫「這個批次抽取當下」的快照</code></pre>
+  <div class="flow">
+    <div class="step ok"><b>防護 1：批次快照</b><small>快照鎖在批次內部，別的批次碰不到 → 互相覆寫在結構上不可能</small></div>
+    <div class="step ok"><b>防護 2：單調性檢查</b><small>帳本已有更新的記錄時，遲到的舊 commit 直接跳過 → 不會倒退</small></div>
+    <div class="step ok"><b>防護 3：世代編號</b><small>重新加入房間（reset）後，舊時代的批次 commit 一律無效 → 舊狀態不污染新連線</small></div>
+  </div>
+  <p>快照跟著批次物件一起被垃圾回收，記憶體累積問題也順帶消失。每個修法都有一個直接重演該失敗時序的測試釘住。</p>
+</div>
+
+<div class="card info">
+  <h3><span class="tag info">結論</span>為什麼說最終版「優於 Excalidraw 官方 app 自己的實作」？</h3>
+  <p>要分清楚兩件事：</p>
+  <ul>
+    <li><b>合併演算法</b>（誰贏誰輸的裁判規則）：100% 沿用 Excalidraw，我們刻意一個字都不改。這部分不存在「優於」的問題。</li>
+    <li><b>外圍的記帳機制</b>（決定哪些元素要送出去）：Excalidraw 官方 app 用的就是上面「第 1 版」的樂觀記帳——
+        送失敗一樣會掉資料。它的補救方式是<b>每 20 秒把整張畫布全量重送一次</b>，用蠻力把洞蓋掉（畫布大時很浪費頻寬）。
+        我們的版本經過三輪審查後，是<b>結構上保證不掉資料</b>，不需要靠定時全量重送兜底。</li>
+  </ul>
+</div>
+
+<!-- ================================================================ -->
+<h2>第四部分：總結對照表</h2>
+<table>
+  <thead>
+    <tr><th style="width:26%">面向</th><th>做法</th><th style="width:13%">評估</th><th style="width:30%">備註／防線</th></tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td>衝突合併演算法</td>
+      <td>只呼叫 Excalidraw 原函式，零自製裁判邏輯</td>
+      <td class="verdict-good">最佳實踐</td>
+      <td>16 組差異測試逐欄位比對，證明外殼不改變行為</td>
+    </tr>
+    <tr>
+      <td>錯誤處理哲學</td>
+      <td>所有失敗路徑收斂到「重送」，靠接收端冪等吸收</td>
+      <td class="verdict-good">最佳實踐</td>
+      <td>三輪審查後從「大致成立」變「結構性成立」</td>
+    </tr>
+    <tr>
+      <td>依賴升級安全</td>
+      <td>版本＋行為＋API 表面三重絆線</td>
+      <td class="verdict-good">最佳實踐</td>
+      <td>升級時測試必紅，強制人工重新審核</td>
+    </tr>
+    <tr>
+      <td>效能量測</td>
+      <td>固定劇本、暖身、p95；速度門檻只在基準機器強制</td>
+      <td class="verdict-good">最佳實踐</td>
+      <td>結構性保證（零複製、payload 成比例）到處都強制</td>
+    </tr>
+    <tr>
+      <td><code>as AppState</code> 轉型</td>
+      <td>對外只要求實際被讀的 3 個欄位</td>
+      <td class="verdict-warn">有意識的取捨</td>
+      <td>風險：upstream 未來讀第 4 欄不會報錯；防線：註解出處＋升級絆線＋差異測試</td>
+    </tr>
+    <tr>
+      <td>測試中的強制轉型</td>
+      <td>假元素拿不到 branded type 的「印章」，硬轉</td>
+      <td class="verdict-warn">有意識的取捨</td>
+      <td>僅限測試工廠；Excalidraw 自家測試同樣做法</td>
+    </tr>
+    <tr>
+      <td>同版本覆寫規則</td>
+      <td>允許覆寫，最壞回聲一次後自癒</td>
+      <td class="verdict-warn">有意識的取捨</td>
+      <td>另一選項的最壞情況是無限重送迴圈，明顯更糟</td>
+    </tr>
+    <tr>
+      <td>變更追蹤（記帳）機制</td>
+      <td>批次把手＋快照＋單調性＋世代，三輪審查迭代出的最終設計</td>
+      <td class="verdict-good">優於 upstream 官方 app</td>
+      <td>官方版送失敗會掉資料、靠 20 秒全量重送兜底；每個修正都有專屬回歸測試</td>
+    </tr>
+  </tbody>
+</table>
+
+<p class="small center" style="margin-top:40px">
+  本檔案為說明用途，未加入版本控制——看完可直接刪除。<br>
+  對應原始報告：Plan 10 實作報告「最佳實踐評估」段落（2026-08-02）。
+</p>
+
+</div>
+</body>
+</html>

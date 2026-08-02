@@ -1,0 +1,667 @@
+{
+  "engine": "@excalidraw/excalidraw",
+  "engineVersion": "0.18.1",
+  "fixtureFormatVersion": 1,
+  "description": "Differential reconciliation fixtures. Every case runs through the upstream composition (restoreElements + reconcileElements) and through the adapter's reconcileRemoteElements; the full semantic results must be identical, and the summarized result must equal `expected`. Regenerate expected values only after auditing an upstream upgrade (RECONCILE_FIXTURE_PRINT=1 prints actuals).",
+  "baseElement": {
+    "type": "rectangle",
+    "x": 0,
+    "y": 0,
+    "width": 20,
+    "height": 20,
+    "angle": 0,
+    "strokeColor": "#1e1e1e",
+    "backgroundColor": "transparent",
+    "fillStyle": "solid",
+    "strokeWidth": 1,
+    "strokeStyle": "solid",
+    "roughness": 1,
+    "opacity": 100,
+    "groupIds": [],
+    "frameId": null,
+    "roundness": {
+      "type": 3
+    },
+    "seed": 1,
+    "version": 1,
+    "versionNonce": 1,
+    "isDeleted": false,
+    "boundElements": null,
+    "updated": 1710000000000,
+    "link": null,
+    "locked": false
+  },
+  "cases": [
+    {
+      "name": "remote-newer-version-wins",
+      "description": "A remote element with a higher version replaces the local element.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 2,
+          "versionNonce": 500
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 3,
+          "versionNonce": 900,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "#ffc9c9",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 3,
+          "versionNonce": 900
+        }
+      ]
+    },
+    {
+      "name": "local-newer-version-wins",
+      "description": "A stale remote update never overwrites a newer local element.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 5,
+          "versionNonce": 500,
+          "backgroundColor": "#b2f2bb"
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 3,
+          "versionNonce": 900
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "#b2f2bb",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 5,
+          "versionNonce": 500
+        }
+      ]
+    },
+    {
+      "name": "simultaneous-edit-remote-lower-nonce-wins",
+      "description": "Equal versions resolve deterministically to the lower versionNonce (remote side).",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 4,
+          "versionNonce": 200,
+          "backgroundColor": "#b2f2bb"
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 4,
+          "versionNonce": 100,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "#ffc9c9",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 4,
+          "versionNonce": 100
+        }
+      ]
+    },
+    {
+      "name": "simultaneous-edit-local-lower-nonce-wins",
+      "description": "Equal versions resolve deterministically to the lower versionNonce (local side).",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 4,
+          "versionNonce": 100,
+          "backgroundColor": "#b2f2bb"
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 4,
+          "versionNonce": 200,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "#b2f2bb",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 4,
+          "versionNonce": 100
+        }
+      ]
+    },
+    {
+      "name": "remote-deletion-wins",
+      "description": "A newer remote tombstone deletes the local live element.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 3,
+          "versionNonce": 300
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 4,
+          "versionNonce": 400,
+          "isDeleted": true
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "backgroundColor": "transparent",
+          "id": "el-b",
+          "index": "a1",
+          "isDeleted": true,
+          "version": 4,
+          "versionNonce": 400
+        }
+      ]
+    },
+    {
+      "name": "local-deletion-preserved",
+      "description": "A stale remote live element does not resurrect a newer local tombstone.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 4,
+          "versionNonce": 400,
+          "isDeleted": true
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 3,
+          "versionNonce": 300
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "backgroundColor": "transparent",
+          "id": "el-b",
+          "index": "a1",
+          "isDeleted": true,
+          "version": 4,
+          "versionNonce": 400
+        }
+      ]
+    },
+    {
+      "name": "tombstones-converge-across-clients",
+      "description": "When both sides hold tombstones the higher version wins, keeping deletion convergent.",
+      "local": [
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 4,
+          "versionNonce": 400,
+          "isDeleted": true
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 6,
+          "versionNonce": 600,
+          "isDeleted": true
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-b",
+          "index": "a1",
+          "isDeleted": true,
+          "version": 6,
+          "versionNonce": 600
+        }
+      ]
+    },
+    {
+      "name": "remote-new-element-inserted-by-index",
+      "description": "A remote-only element lands at its fractional index between local elements.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "id": "el-c",
+          "index": "a2",
+          "version": 1,
+          "versionNonce": 33
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 1,
+          "versionNonce": 42
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "backgroundColor": "transparent",
+          "id": "el-b",
+          "index": "a1",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 42
+        },
+        {
+          "backgroundColor": "transparent",
+          "id": "el-c",
+          "index": "a2",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 33
+        }
+      ]
+    },
+    {
+      "name": "local-only-element-preserved",
+      "description": "Local elements the remote batch never mentions survive reconciliation untouched.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 2,
+          "versionNonce": 500
+        },
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 7,
+          "versionNonce": 77,
+          "backgroundColor": "#b2f2bb"
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 3,
+          "versionNonce": 900,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "#ffc9c9",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 3,
+          "versionNonce": 900
+        },
+        {
+          "backgroundColor": "#b2f2bb",
+          "id": "el-b",
+          "index": "a1",
+          "isDeleted": false,
+          "version": 7,
+          "versionNonce": 77
+        }
+      ]
+    },
+    {
+      "name": "editing-text-lock-discards-remote",
+      "description": "A locally text-edited element wins even against a much newer remote version.",
+      "localState": {
+        "editingTextElementId": "el-a"
+      },
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 2,
+          "versionNonce": 500
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 9,
+          "versionNonce": 900,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 2,
+          "versionNonce": 500
+        }
+      ]
+    },
+    {
+      "name": "resizing-lock-discards-remote",
+      "description": "A locally resizing element wins even against a much newer remote version.",
+      "localState": {
+        "resizingElementId": "el-a"
+      },
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 2,
+          "versionNonce": 500
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 9,
+          "versionNonce": 900,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 2,
+          "versionNonce": 500
+        }
+      ]
+    },
+    {
+      "name": "new-element-lock-discards-remote",
+      "description": "An element still being drawn locally wins even against a newer remote version.",
+      "localState": {
+        "newElementId": "el-a"
+      },
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 2,
+          "versionNonce": 500
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 9,
+          "versionNonce": 900,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 2,
+          "versionNonce": 500
+        }
+      ]
+    },
+    {
+      "name": "already-converged-duplicate-delivery",
+      "description": "Redelivering an identical element (same version and versionNonce) is a semantic no-op.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 3,
+          "versionNonce": 300,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 3,
+          "versionNonce": 300,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "#ffc9c9",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 3,
+          "versionNonce": 300
+        }
+      ]
+    },
+    {
+      "name": "ordering-sparse-remote-batch-merges-by-index",
+      "description": "A scene-ordered remote batch that skips local elements merges at the right fractional positions. Remote batches must stay in scene (index) order: upstream restoreElements index-repairs any batch whose members are out of order, exactly like the upstream Portal, which always broadcasts in scene order.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 1,
+          "versionNonce": 22
+        },
+        {
+          "id": "el-c",
+          "index": "a2",
+          "version": 1,
+          "versionNonce": 33
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 2,
+          "versionNonce": 44,
+          "backgroundColor": "#ffc9c9"
+        },
+        {
+          "id": "el-c",
+          "index": "a2",
+          "version": 2,
+          "versionNonce": 66,
+          "backgroundColor": "#ffc9c9"
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "#ffc9c9",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 2,
+          "versionNonce": 44
+        },
+        {
+          "backgroundColor": "transparent",
+          "id": "el-b",
+          "index": "a1",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 22
+        },
+        {
+          "backgroundColor": "#ffc9c9",
+          "id": "el-c",
+          "index": "a2",
+          "isDeleted": false,
+          "version": 2,
+          "versionNonce": 66
+        }
+      ]
+    },
+    {
+      "name": "concurrent-insert-same-index-repaired",
+      "description": "Two clients inserting at the same fractional index converge through upstream's index repair. The repair bumps the repaired element's version with a regenerated versionNonce and updated timestamp, so those two fields are volatile and normalized to -1 before comparison.",
+      "volatileVersionNonce": true,
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "id": "el-b",
+          "index": "a1",
+          "version": 1,
+          "versionNonce": 100
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-x",
+          "index": "a1",
+          "version": 1,
+          "versionNonce": 50
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 11
+        },
+        {
+          "backgroundColor": "transparent",
+          "id": "el-b",
+          "index": "a1",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 100
+        },
+        {
+          "backgroundColor": "transparent",
+          "id": "el-x",
+          "index": "a2",
+          "isDeleted": false,
+          "version": 2,
+          "versionNonce": -1
+        }
+      ]
+    },
+    {
+      "name": "remote-invisibly-small-dropped",
+      "description": "An invisibly small remote element (0x0) is dropped by upstream restore before reconciliation.",
+      "local": [
+        {
+          "id": "el-a",
+          "index": "a0",
+          "version": 1,
+          "versionNonce": 11
+        }
+      ],
+      "remote": [
+        {
+          "id": "el-tiny",
+          "index": "a1",
+          "version": 1,
+          "versionNonce": 99,
+          "width": 0,
+          "height": 0
+        }
+      ],
+      "expected": [
+        {
+          "backgroundColor": "transparent",
+          "id": "el-a",
+          "index": "a0",
+          "isDeleted": false,
+          "version": 1,
+          "versionNonce": 11
+        }
+      ]
+    }
+  ]
+}

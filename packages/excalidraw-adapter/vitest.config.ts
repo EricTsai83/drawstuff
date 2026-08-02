@@ -5,6 +5,9 @@ export default defineConfig({
     environment: "node",
     include: ["tests/**/*.test.{ts,tsx}"],
     setupFiles: ["./tests/setup.ts"],
+    // Deterministic allocation numbers for the reconciliation performance
+    // suite; harmless for every other test.
+    execArgv: ["--expose-gc"],
     server: {
       deps: {
         inline: ["@excalidraw/excalidraw", "open-color"],

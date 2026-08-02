@@ -1,6 +1,6 @@
 # Plan 10：建立官方 reconciliation adapter
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 09
 - Expected change size: 一個 merge adapter 與 differential fixtures
 
