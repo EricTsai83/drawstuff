@@ -29,10 +29,14 @@ A typical invocation is:
 codex exec -C "$PWD" \
   --model gpt-5.6-sol \
   --config 'model_reasoning_effort="high"' \
-  review --uncommitted -
+  review - <<'EOF'
+<focused review prompt>
+EOF
 ```
 
-Pass the focused review prompt through stdin. Include the requirements, implementation scope, changed files or diff, checks, and pre-existing changes to ignore. Require numbered findings with severity, file/line, failure mode, and fix direction, plus an explicit statement when there are no findings. Exclude formatting, naming, subjective style, and unrelated improvements. Treat findings as evidence, not authority.
+Pass the focused review prompt through stdin (`-`) using a heredoc, never a temporary file. State the review scope in the first line of the prompt (for example "Review the uncommitted changes in this repository"). After the review returns, confirm from its output that Codex enumerated the intended changes.
+
+In the prompt, include the requirements, implementation scope, changed files or diff, checks, and pre-existing changes to ignore. Require numbered findings with severity, file/line, failure mode, and fix direction, plus an explicit statement when there are no findings. Exclude formatting, naming, subjective style, and unrelated improvements. Treat findings as evidence, not authority.
 
 Retain the review output until the final report is complete. Present every usable reviewer finding in `Review 結果`, including rejected findings and findings fixed before a later clean pass. Do not replace the findings with only a pass/fail conclusion, a count, “已修正”, or the final reviewer approval. Faithfully summarize each finding; quote the reviewer only when its exact wording matters. Exact duplicates may be consolidated only when all original finding IDs are listed.
 
