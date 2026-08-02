@@ -110,7 +110,7 @@ Plan 00 snapshot 在 `apps/web` 未發現 editor、toolbar 或 collaboration fea
 | Future flag                               | 建立 plan | 唯一 removal owner                                                                                      |
 | ----------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------- |
 | Custom toolbar rollout                    | Plan 06   | Plan 08 parity cutover                                                                                  |
-| Local two-client POC dev/test flag        | Plan 11   | Plan 11 完成時即排除 production entry/runtime                                                           |
+| Local two-client POC dev/test flag        | Plan 11   | 未設定 flag 的 production build 已排除 entry/runtime；Plan 12 接入 relay 時刪除 flag、BroadcastChannel transport、idle/test hook 與 POC runtime wiring |
 | Room create/join/durable snapshot rollout | Plan 20   | Plan 20 一般開放後移除 rollout-only flags；只保留不選擇第二套 implementation 的 operational kill switch |
 
 禁止新增未列 owner、expiry 與 removal condition 的 flag。

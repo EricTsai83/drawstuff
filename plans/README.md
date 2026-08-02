@@ -40,7 +40,7 @@ merge algorithm，皆不在這組計畫內。
 | [08](./08-style-and-selection-controls.md)    | Skipped — 路線取消        | 自訂 toolbar／style controls 不再執行                   | —                  |
 | [09](./09-collaboration-contracts.md)         | Completed                 | 建立 transport-neutral 共編 contracts                   | 05                 |
 | [10](./10-reconciliation-adapter.md)          | Completed                 | 鎖定官方 merge semantics                                | 09                 |
-| [11](./11-local-two-client-poc.md)            | Ready                     | 在單一瀏覽器驗證兩個 client 收斂                        | 10                 |
+| [11](./11-local-two-client-poc.md)            | Completed                 | 在單一瀏覽器驗證兩個 client 收斂                        | 10                 |
 | [12](./12-stateless-relay-service.md)         | Ready                     | 建立獨立 realtime relay                                 | 11                 |
 | [13](./13-room-auth-and-lifecycle.md)         | Ready                     | 加入 room 權限與生命週期                                | 12                 |
 | [14](./14-e2ee-realtime-payloads.md)          | Ready                     | Relay 只看得到密文                                      | 13                 |

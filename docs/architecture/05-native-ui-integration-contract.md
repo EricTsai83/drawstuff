@@ -47,8 +47,10 @@ adapter 的 `ExcalidrawCanvasProps`（`packages/excalidraw-adapter/src/types.ts`
 | `children` | editor | 掛載 `MainMenu`／`Footer`／`WelcomeScreen` 與 dialogs |
 | `excalidrawAPI` | editor | 取得 `ExcalidrawImperativeAPI` |
 | `initialData` | editor | 初始場景（Promise） |
+| `isCollaborating` | editor | 共編 session 啟用時通知 engine（Plan 11 POC） |
 | `langCode` | editor | 語言切換 |
-| `onChange` | editor | 場景持久化與 dirty tracking |
+| `onChange` | editor | 場景持久化與 dirty tracking；共編啟用時同時餵 changed-element tracker |
+| `onPointerUpdate` | editor | 共編 presence（pointer／button）廣播來源（Plan 11 POC） |
 | `renderCustomStats` | editor | Stats 面板加上 storage 用量 |
 | `renderTopRightUI` | editor | 右上角雲端儲存／分享按鈕 |
 | `theme` | editor | 跟隨 app 主題 |
