@@ -38,7 +38,7 @@ merge algorithm，皆不在這組計畫內。
 | [06](./06-custom-toolbar-shell.md)            | Completed                 | Dashboard 場景分類（category）                          | 05                 |
 | [07](./07-core-tool-controls.md)              | Completed                 | 場景封存與還原（archive）                               | 05                 |
 | [08](./08-style-and-selection-controls.md)    | Skipped — 路線取消        | 自訂 toolbar／style controls 不再執行                   | —                  |
-| [09](./09-collaboration-contracts.md)         | Ready                     | 建立 transport-neutral 共編 contracts                   | 05                 |
+| [09](./09-collaboration-contracts.md)         | Completed                 | 建立 transport-neutral 共編 contracts                   | 05                 |
 | [10](./10-reconciliation-adapter.md)          | Ready                     | 鎖定官方 merge semantics                                | 09                 |
 | [11](./11-local-two-client-poc.md)            | Ready                     | 在單一瀏覽器驗證兩個 client 收斂                        | 10                 |
 | [12](./12-stateless-relay-service.md)         | Ready                     | 建立獨立 realtime relay                                 | 11                 |

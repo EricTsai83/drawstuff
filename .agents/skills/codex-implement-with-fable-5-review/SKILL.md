@@ -63,10 +63,12 @@ If Claude returns no usable review—because of access, quota, policy, authentic
 codex exec -C "$PWD" \
   --model gpt-5.6-sol \
   --config 'model_reasoning_effort="high"' \
-  review --uncommitted -
+  review - <<'EOF'
+<same review context>
+EOF
 ```
 
-Pass the same review context through stdin. Immediately identify the fallback with the specific, sanitized reason:
+Pass the same review context through stdin (`-`) using a heredoc, never a temporary file, and state the review scope in the first line of the prompt. Immediately identify the fallback with the specific, sanitized reason:
 
 ```text
 Review provider: Codex (fallback — Claude unavailable: <specific reason>)

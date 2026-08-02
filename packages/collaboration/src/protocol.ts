@@ -1,0 +1,38 @@
+export {
+  decodeCollaborationMessage,
+  encodeCollaborationMessage,
+  type CollaborationProtocolError,
+  type DecodeMessageResult,
+  type EncodeMessageResult,
+  type MessageChannel,
+} from "./codec.ts";
+export {
+  clientIdSchema,
+  COLLABORATION_PROTOCOL_VERSION,
+  collaborationMessageSchema,
+  FORBIDDEN_BINARY_ELEMENT_KEYS,
+  MAX_PRESENCE_MESSAGE_BYTES,
+  MAX_SCENE_MESSAGE_BYTES,
+  maxEncodedBytesFor,
+  peerIdSchema,
+  presenceMessageSchema,
+  roomIdSchema,
+  sceneInitMessageSchema,
+  sceneUpdateMessageSchema,
+  syncedElementSchema,
+  type ClientId,
+  type CollaborationMessage,
+  type PeerId,
+  type PresenceMessage,
+  type RoomId,
+  type SceneInitMessage,
+  type SceneMessage,
+  type SceneUpdateMessage,
+  type SyncedElement,
+} from "./messages.ts";
+export {
+  createInboundMessageGate,
+  type InboundGateRejection,
+  type InboundGateResult,
+  type InboundMessageGate,
+} from "./ordering.ts";

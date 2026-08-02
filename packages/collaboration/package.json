@@ -1,0 +1,48 @@
+{
+  "name": "@drawstuff/collaboration",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    "./protocol": {
+      "types": "./src/protocol.ts",
+      "default": "./src/protocol.ts"
+    },
+    "./transport": {
+      "types": "./src/transport.ts",
+      "default": "./src/transport.ts"
+    },
+    "./testing": {
+      "types": "./src/testing.ts",
+      "default": "./src/testing.ts"
+    }
+  },
+  "scripts": {
+    "knip": "knip",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
+  "knip": {
+    "entry": [
+      "tests/**/*.test.{ts,tsx}"
+    ],
+    "project": [
+      "src/**/*.{ts,tsx}",
+      "tests/**/*.{ts,tsx}"
+    ]
+  },
+  "devDependencies": {
+    "@types/node": "^24.13.3",
+    "eslint": "^9.39.5",
+    "knip": "^6.29.0",
+    "typescript": "^6.0.3",
+    "vitest": "^4.1.10"
+  }
+}
