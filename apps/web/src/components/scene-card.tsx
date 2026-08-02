@@ -69,6 +69,8 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   const { data: categoryOptions } = api.category.list.useQuery();
   const publishSceneMutation = api.scene.publish.useMutation();
   const unpublishSceneMutation = api.scene.unpublish.useMutation();
+  const archiveSceneMutation = api.scene.archive.useMutation();
+  const unarchiveSceneMutation = api.scene.unarchive.useMutation();
   const { workspaces } = useWorkspaceOptions();
 
   const invalidateSceneQueries = useCallback(
@@ -135,6 +137,47 @@ export function SceneCard({ item }: { item: SceneListItem }) {
       loadScene();
     },
     [loadScene],
+  );
+
+  const handleArchiveChange = useCallback(
+    async (e: React.MouseEvent, archived: boolean) => {
+      e.stopPropagation();
+      try {
+        const mutation = archived
+          ? archiveSceneMutation
+          : unarchiveSceneMutation;
+        const result = await mutation.mutateAsync({
+          id: item.id,
+          expectedRevision: item.revision,
+        });
+        if (item.id === currentSceneId) {
+          updateLastSyncedRevision(result.revision);
+        }
+        await invalidateSceneQueries(item.id);
+        toast.success(
+          t(
+            archived
+              ? item.id === currentSceneId
+                ? "archive.toast.currentArchived"
+                : "archive.toast.archived"
+              : "archive.toast.unarchived",
+          ),
+        );
+      } catch (error) {
+        console.error("Failed to update archive status:", error);
+        toast.error(t("archive.toast.failed"));
+      }
+    },
+    [
+      archiveSceneMutation,
+      unarchiveSceneMutation,
+      item.id,
+      item.revision,
+      currentSceneId,
+      updateLastSyncedRevision,
+      invalidateSceneQueries,
+      t,
+    ],
   );
 
   const handleEditScene = (e: React.MouseEvent) => {
@@ -373,6 +416,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                 onCopyPublicLink={handleCopyPublicLink}
                 onOpenPublicLink={handleOpenPublicLink}
                 isPublished={item.isPublished}
+                isArchived={item.isArchived}
+                onArchive={(event) => void handleArchiveChange(event, true)}
+                onUnarchive={(event) => void handleArchiveChange(event, false)}
                 currentWorkspaceId={item.workspaceId}
                 workspaces={workspaces}
                 onMoveToWorkspace={handleMoveToWorkspace}

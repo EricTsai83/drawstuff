@@ -49,6 +49,7 @@ type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
 type SceneInfinitePage = RouterOutputs["scene"]["getUserScenesInfinite"];
 type PublishFilter = "all" | "public" | "private";
+type ArchiveFilter = "active" | "archived";
 
 export function SceneSearchList() {
   const router = useRouter();
@@ -73,12 +74,20 @@ export function SceneSearchList() {
     clearOnDefault: true,
   });
   const [publishFilter, setPublishFilter] = useState<PublishFilter>("all");
+  const [archiveFilter, setArchiveFilter] = useQueryState("archive", {
+    defaultValue: "active",
+    clearOnDefault: true,
+    parse: (value): ArchiveFilter =>
+      value === "archived" ? "archived" : "active",
+  });
   const [categoryFilter, setCategoryFilter] = useQueryState("category", {
     defaultValue: "",
     clearOnDefault: true,
   });
   const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
   const { data: categories } = api.category.list.useQuery();
+  const activeArchiveFilter: ArchiveFilter =
+    archiveFilter === "archived" ? "archived" : "active";
 
   // URL 上的分類參數必須是合法 UUID 才拿去過濾，避免無效輸入打到後端
   const activeCategoryId = z.uuid().safeParse(categoryFilter).success
@@ -116,6 +125,7 @@ export function SceneSearchList() {
         workspaceId: effectiveWorkspaceId,
         categoryId: activeCategoryId,
         search: searchQuery || undefined,
+        archived: activeArchiveFilter === "archived",
       },
       {
         getNextPageParam: (last: SceneInfinitePage) => last.nextCursor,
@@ -129,7 +139,12 @@ export function SceneSearchList() {
   useEffect(() => {
     // 變動時滾回頂部，避免 UX 不連貫
     window?.scrollTo?.({ top: 0, behavior: "instant" as ScrollBehavior });
-  }, [effectiveWorkspaceId, searchQuery, activeCategoryId]);
+  }, [
+    effectiveWorkspaceId,
+    searchQuery,
+    activeCategoryId,
+    activeArchiveFilter,
+  ]);
 
   // 若 URL 上帶有 workspaceId，取得後即從 URL 移除（保留其他參數），
   // 並以本地覆蓋值維持當前 workspace 過濾，避免畫面閃爍。
@@ -330,6 +345,10 @@ export function SceneSearchList() {
         onSearchChange={setSearchQuery}
       />
       <PublishFilterBar value={publishFilter} onChange={setPublishFilter} />
+      <ArchiveFilterBar
+        value={activeArchiveFilter}
+        onChange={(value) => void setArchiveFilter(value)}
+      />
       <CategoryFilterBar
         categories={categories ?? []}
         value={activeCategoryId}
@@ -385,13 +404,25 @@ export function SceneSearchList() {
               {t("dashboard.loading")}
             </div>
           </div>
+        ) : filteredItems.length > 0 ? (
+          <div className="text-muted-foreground py-6 text-center text-sm">
+            {t("dashboard.reachedEnd")}
+          </div>
         ) : (
           <div className="py-8 text-center">
             <div className="text-muted-foreground text-lg">
-              {t("dashboard.noScenesFound")}
+              {t(
+                activeArchiveFilter === "archived"
+                  ? "dashboard.noArchivedScenes"
+                  : "dashboard.noScenesFound",
+              )}
             </div>
             <div className="text-muted-foreground mt-2 text-sm">
-              {t("dashboard.noScenesFound.hint")}
+              {t(
+                activeArchiveFilter === "archived"
+                  ? "dashboard.noArchivedScenes.hint"
+                  : "dashboard.noScenesFound.hint",
+              )}
             </div>
           </div>
         )}
@@ -405,6 +436,31 @@ export function SceneSearchList() {
           searchQuery={searchQuery}
         />
       )}
+    </div>
+  );
+}
+
+type ArchiveFilterBarProps = {
+  value: ArchiveFilter;
+  onChange: (value: ArchiveFilter) => void;
+};
+
+function ArchiveFilterBar({ value, onChange }: ArchiveFilterBarProps) {
+  const { t } = useStandaloneI18n();
+  return (
+    <div className="flex flex-wrap gap-2">
+      {(["active", "archived"] as const).map((option) => (
+        <StatefulButton
+          key={option}
+          type="button"
+          variant="outline"
+          active={value === option}
+          size="sm"
+          onClick={() => onChange(option)}
+        >
+          {t(`dashboard.archive.${option}`)}
+        </StatefulButton>
+      ))}
     </div>
   );
 }

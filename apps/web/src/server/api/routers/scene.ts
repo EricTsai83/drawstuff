@@ -184,6 +184,7 @@ export const sceneRouter = createTRPCRouter({
         workspaceId: z.uuid().optional(),
         categoryId: z.uuid().optional(),
         search: z.string().optional(),
+        archived: z.boolean().default(false),
       }),
     )
     .output(
@@ -217,6 +218,7 @@ export const sceneRouter = createTRPCRouter({
       const whereClauses: [SQL, ...SQL[]] = [
         eq(scene.userId, ctx.auth.user.id),
         isNotNull(scene.sceneData),
+        eq(scene.isArchived, input.archived),
       ];
       if (input.workspaceId) {
         whereClauses.push(eq(scene.workspaceId, input.workspaceId));
@@ -356,6 +358,68 @@ export const sceneRouter = createTRPCRouter({
         : undefined;
 
       return { items: mapped, nextCursor };
+    }),
+
+  archive: protectedProcedure
+    .input(
+      z.object({ id: z.uuid(), expectedRevision: z.number().int().min(1) }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [updated] = await ctx.db
+        .update(scene)
+        .set({
+          isArchived: true,
+          updatedAt: new Date(),
+          revision: sql`${scene.revision} + 1`,
+        })
+        .where(
+          and(
+            eq(scene.id, input.id),
+            eq(scene.userId, ctx.auth.user.id),
+            eq(scene.revision, input.expectedRevision),
+            eq(scene.isArchived, false),
+          ),
+        )
+        .returning({ id: scene.id, revision: scene.revision });
+
+      if (!updated) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Scene changed or is already archived",
+        });
+      }
+      return updated;
+    }),
+
+  unarchive: protectedProcedure
+    .input(
+      z.object({ id: z.uuid(), expectedRevision: z.number().int().min(1) }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const [updated] = await ctx.db
+        .update(scene)
+        .set({
+          isArchived: false,
+          updatedAt: new Date(),
+          revision: sql`${scene.revision} + 1`,
+        })
+        .where(
+          and(
+            eq(scene.id, input.id),
+            eq(scene.userId, ctx.auth.user.id),
+            eq(scene.revision, input.expectedRevision),
+            eq(scene.isArchived, true),
+          ),
+        )
+        .returning({ id: scene.id, revision: scene.revision });
+
+      if (!updated) {
+        throw new TRPCError({
+          code: "CONFLICT",
+          message: "Scene changed or is not archived",
+        });
+      }
+      return updated;
     }),
 
   deleteScene: protectedProcedure

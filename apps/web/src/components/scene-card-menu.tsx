@@ -23,6 +23,8 @@ import {
   ExternalLink,
   ArrowRightLeft,
   Tag,
+  Archive,
+  ArchiveRestore,
 } from "lucide-react";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
@@ -45,6 +47,9 @@ type SceneCardMenuProps = {
   onCopyPublicLink: (e: React.MouseEvent) => void;
   onOpenPublicLink: (e: React.MouseEvent) => void;
   isPublished: boolean;
+  isArchived: boolean;
+  onArchive: (e: React.MouseEvent) => void;
+  onUnarchive: (e: React.MouseEvent) => void;
   currentWorkspaceId?: string;
   workspaces?: WorkspaceOption[];
   onMoveToWorkspace?: (workspaceId: string) => void;
@@ -62,6 +67,9 @@ export function SceneCardMenu({
   onCopyPublicLink,
   onOpenPublicLink,
   isPublished,
+  isArchived,
+  onArchive,
+  onUnarchive,
   currentWorkspaceId,
   workspaces,
   onMoveToWorkspace,
@@ -187,10 +195,23 @@ export function SceneCardMenu({
             <DropdownMenuSeparator />
           </>
         )}
-        <DropdownMenuItem variant="destructive" onClick={onDelete}>
-          <Trash2 className="hover:text-destructive-foreground mr-2 h-4 w-4" />
-          {t("buttons.delete")}
-        </DropdownMenuItem>
+        {isArchived ? (
+          <>
+            <DropdownMenuItem onClick={onUnarchive}>
+              <ArchiveRestore className="mr-2 h-4 w-4" />
+              {t("archive.menu.unarchive")}
+            </DropdownMenuItem>
+            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+              <Trash2 className="hover:text-destructive-foreground mr-2 h-4 w-4" />
+              {t("buttons.delete")}
+            </DropdownMenuItem>
+          </>
+        ) : (
+          <DropdownMenuItem onClick={onArchive}>
+            <Archive className="mr-2 h-4 w-4" />
+            {t("archive.menu.archive")}
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
