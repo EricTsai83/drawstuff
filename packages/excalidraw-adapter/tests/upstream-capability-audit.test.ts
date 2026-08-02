@@ -278,8 +278,10 @@ describe("host integration surface (native UI integration contract)", () => {
       "children",
       "excalidrawAPI",
       "initialData",
+      "isCollaborating",
       "langCode",
       "onChange",
+      "onPointerUpdate",
       "renderCustomStats",
       "renderTopRightUI",
       "theme",
@@ -300,7 +302,7 @@ describe("host integration surface (native UI integration contract)", () => {
     assertNoUnauditedKeys<UnexposedHostProp>();
     assertNoUnauditedKeys<UnauditedAdapterProp>();
 
-    expect(HOST_EDITOR_PROPS).toHaveLength(10);
+    expect(HOST_EDITOR_PROPS).toHaveLength(12);
   });
 
   it("pins the upstream export utilities the host renders scenes through", () => {
