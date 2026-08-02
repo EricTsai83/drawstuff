@@ -1,16 +1,30 @@
 // @vitest-environment node
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("server-only", () => ({}));
 
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
 import { pushSchema } from "drizzle-kit/api";
+import { eq } from "drizzle-orm";
 import * as schema from "@/server/db/schema";
 import { createCaller } from "@/server/api/root";
 import type { createTRPCContext } from "@/server/api/trpc";
 import { categoryNameSchema } from "@/lib/schemas/category";
 import { saveSceneSchema } from "@/lib/schemas/scene";
+import {
+  createDrawstuffDocumentV4,
+  serializeDrawstuffDocumentV4,
+} from "@drawstuff/excalidraw-adapter/codec";
+import { compressData } from "@/lib/encode";
 
 type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
 
@@ -294,5 +308,83 @@ describe("getUserScenesInfinite category filter", () => {
       categoryId: categoryA.id,
     });
     expect(result.items).toHaveLength(0);
+  });
+});
+
+describe("scene archive lifecycle", () => {
+  it("hides archived scenes by default and restores them to the active list", async () => {
+    const caller = callerFor(USER_A);
+    const sceneId = await createScene(USER_A, "Archive me");
+
+    const archived = await caller.scene.archive({
+      id: sceneId,
+      expectedRevision: 1,
+    });
+    expect(archived.revision).toBe(2);
+    expect(
+      (await caller.scene.getUserScenesInfinite({ limit: 10 })).items,
+    ).toHaveLength(0);
+    expect(
+      (
+        await caller.scene.getUserScenesInfinite({
+          limit: 10,
+          archived: true,
+        })
+      ).items.map((item) => item.id),
+    ).toEqual([sceneId]);
+
+    const restored = await caller.scene.unarchive({
+      id: sceneId,
+      expectedRevision: archived.revision,
+    });
+    expect(restored.revision).toBe(3);
+    expect(
+      (await caller.scene.getUserScenesInfinite({ limit: 10 })).items.map(
+        (item) => item.id,
+      ),
+    ).toEqual([sceneId]);
+  });
+
+  it("rejects stale revisions and cannot archive another user's scene", async () => {
+    const sceneId = await createScene(USER_A, "Private scene");
+    const callerA = callerFor(USER_A);
+    const callerB = callerFor(USER_B);
+
+    await expect(
+      callerB.scene.archive({ id: sceneId, expectedRevision: 1 }),
+    ).rejects.toThrow("Scene changed or is already archived");
+
+    await callerA.scene.archive({ id: sceneId, expectedRevision: 1 });
+    await expect(
+      callerA.scene.unarchive({ id: sceneId, expectedRevision: 1 }),
+    ).rejects.toThrow("Scene changed or is not archived");
+  });
+
+  it("keeps an archived published scene available through its public slug", async () => {
+    const sceneId = await createScene(USER_A, "Published archive");
+    const document = serializeDrawstuffDocumentV4(
+      createDrawstuffDocumentV4({ elements: [], appState: {} }),
+    );
+    const sceneData = Buffer.from(
+      await compressData(new TextEncoder().encode(document), {}),
+    ).toString("base64");
+    await testDb
+      .update(schema.scene)
+      .set({
+        sceneData,
+        isPublished: true,
+        publishedSlug: "published-archive",
+      })
+      .where(eq(schema.scene.id, sceneId));
+
+    await callerFor(USER_A).scene.archive({
+      id: sceneId,
+      expectedRevision: 1,
+    });
+
+    const published = await callerFor(USER_B).scene.getPublishedSceneBySlug({
+      slug: "published-archive",
+    });
+    expect(published?.id).toBe(sceneId);
   });
 });

@@ -1,6 +1,6 @@
 # Plan 07：場景封存與還原（archive）
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 05
 - Expected change size: 兩個 tRPC mutation + dashboard 封存 UI
 
@@ -13,6 +13,16 @@
 
 使用者可以在 dashboard 封存與還原場景：封存的場景預設不出現在列表，可切換
 「已封存」檢視找回；刪除場景多一層「先封存」的安全網。
+
+## Product decisions
+
+- 已發佈場景封存後，既有 `/p/[slug]` 維持可讀；封存只影響 owner dashboard
+  的預設列表，不改變 publish 狀態。
+- 封存場景仍計入 workspace 與 category 的場景數；封存是可逆的列表狀態，不是
+  搬移或刪除。
+- 未封存場景的 card menu 只提供封存，永久刪除只在「已封存」檢視提供；封存
+  不觸發資產清理，永久刪除維持原有 cleanup 流程。
+- 封存目前開啟的場景時 editor 保持開啟、同步 revision，並顯示明確提示。
 
 ## In scope
 
