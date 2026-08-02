@@ -55,6 +55,9 @@ importers:
       '@base-ui/react':
         specifier: ^1.6.0
         version: 1.6.0(@types/react@19.2.17)(date-fns@4.4.0)(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+      '@drawstuff/collaboration':
+        specifier: workspace:*
+        version: link:../../packages/collaboration
       '@drawstuff/excalidraw-adapter':
         specifier: workspace:*
         version: link:../../packages/excalidraw-adapter

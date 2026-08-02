@@ -1,0 +1,548 @@
+import { beforeEach, describe, expect, it } from "vitest";
+
+import {
+  clientIdSchema,
+  roomIdSchema,
+  type ClientId,
+  type CollaborationMessage,
+  type SceneMessage,
+  type SyncedElement,
+} from "@drawstuff/collaboration/protocol";
+import type { ConnectionState } from "@drawstuff/collaboration/transport";
+import {
+  createFakeCollaborationNetwork,
+  type FakeCollaborationNetwork,
+} from "@drawstuff/collaboration/testing";
+import type {
+  Collaborator,
+  OrderedExcalidrawElement,
+  SceneData,
+  SocketId,
+} from "@drawstuff/excalidraw-adapter/types";
+
+import {
+  createCollaborationSession,
+  type CollaborationSceneApi,
+  type CollaborationSession,
+} from "@/lib/collab/collaboration-session";
+import {
+  COLLAB_SCENE_FIXED_NOW,
+  collabAppState,
+  collabRectangle,
+  editedElement,
+  sortSceneById,
+} from "./support/collab-scene-fixtures";
+
+const ROOM_ID = roomIdSchema.parse("room-poc");
+
+type SceneHost = {
+  api: CollaborationSceneApi;
+  readonly elements: readonly OrderedExcalidrawElement[];
+  setElements(next: readonly OrderedExcalidrawElement[]): void;
+  readonly collaborators: ReadonlyMap<SocketId, Collaborator>;
+  /** captureUpdate of every element-carrying updateScene call, in order. */
+  readonly elementCaptureUpdates: readonly (string | undefined)[];
+};
+
+function createSceneHost(): SceneHost {
+  let elements: readonly OrderedExcalidrawElement[] = [];
+  let collaborators = new Map<SocketId, Collaborator>();
+  const elementCaptureUpdates: (string | undefined)[] = [];
+  const localState = {
+    editingTextElement: null,
+    newElement: null,
+    resizingElement: null,
+  };
+
+  return {
+    api: {
+      getSceneElementsIncludingDeleted: () => elements,
+      getAppState: () => localState,
+      updateScene(sceneData: Pick<SceneData, "elements" | "collaborators" | "captureUpdate">) {
+        if (sceneData.elements) {
+          elements = sceneData.elements as readonly OrderedExcalidrawElement[];
+          elementCaptureUpdates.push(sceneData.captureUpdate);
+        }
+        if (sceneData.collaborators) {
+          collaborators = sceneData.collaborators;
+        }
+      },
+    },
+    get elements() {
+      return elements;
+    },
+    setElements(next) {
+      elements = next;
+    },
+    get collaborators() {
+      return collaborators;
+    },
+    elementCaptureUpdates,
+  };
+}
+
+function createManualScheduler() {
+  const queue: (() => void)[] = [];
+  let cancelledCount = 0;
+  return {
+    schedule(flush: () => void): () => void {
+      queue.push(flush);
+      return () => {
+        const index = queue.indexOf(flush);
+        if (index !== -1) {
+          queue.splice(index, 1);
+          cancelledCount += 1;
+        }
+      };
+    },
+    /** Runs only the flushes queued before the call: a flush that re-schedules
+     *  itself (overflow retry) waits for the next runAll, mirroring "next
+     *  animation frame" semantics without looping forever. */
+    runAll(): void {
+      const batch = queue.splice(0);
+      for (const flush of batch) flush();
+    },
+    get pendingCount() {
+      return queue.length;
+    },
+    get cancelledCount() {
+      return cancelledCount;
+    },
+  };
+}
+
+type TestClient = {
+  host: SceneHost;
+  session: CollaborationSession;
+  scheduler: ReturnType<typeof createManualScheduler>;
+  clientId: ClientId;
+  /** Mutates the host scene, notifies the session, and runs the flush. */
+  edit(
+    mutate: (
+      elements: readonly OrderedExcalidrawElement[],
+    ) => readonly OrderedExcalidrawElement[],
+  ): void;
+};
+
+function createHarness() {
+  const network = createFakeCollaborationNetwork();
+  const clock = { now: COLLAB_SCENE_FIXED_NOW };
+
+  const createClient = (name: string): TestClient => {
+    const host = createSceneHost();
+    const scheduler = createManualScheduler();
+    const clientId = clientIdSchema.parse(name);
+    const session = createCollaborationSession({
+      transport: network.createTransport(),
+      roomId: ROOM_ID,
+      clientId,
+      username: name,
+      sceneApi: host.api,
+      scheduleSceneFlush: scheduler.schedule,
+      now: () => clock.now,
+    });
+    return {
+      host,
+      session,
+      scheduler,
+      clientId,
+      edit(mutate) {
+        host.setElements(mutate(host.elements));
+        session.handleLocalSceneChange(host.elements, collabAppState());
+        scheduler.runAll();
+      },
+    };
+  };
+
+  return { network, clock, createClient };
+}
+
+function expectConverged(a: TestClient, b: TestClient): void {
+  expect(sortSceneById(a.host.elements)).toEqual(
+    sortSceneById(b.host.elements),
+  );
+}
+
+/** Crafts protocol messages from a raw transport's connected session. */
+function createRawSender(network: FakeCollaborationNetwork, name: string) {
+  const transport = network.createTransport();
+  transport.connect({ roomId: ROOM_ID, clientId: clientIdSchema.parse(name) });
+  const state = transport.getConnectionState();
+  if (state.status !== "connected") throw new Error("raw sender not connected");
+  const received: CollaborationMessage[] = [];
+  transport.subscribe({
+    onMessage: (message) => {
+      received.push(message);
+    },
+  });
+  let messageCounter = 0;
+  const sceneMessage = (input: {
+    type?: SceneMessage["type"];
+    sequence: number;
+    elements: readonly OrderedExcalidrawElement[];
+  }): SceneMessage => ({
+    protocolVersion: 1,
+    messageId: `raw-${(messageCounter += 1)}`,
+    roomId: state.roomId,
+    roomGeneration: state.roomGeneration,
+    senderClientId: state.clientId,
+    senderPeerId: state.peerId,
+    sequence: input.sequence,
+    type: input.type ?? "scene-update",
+    payload: { elements: input.elements as unknown as SyncedElement[] },
+  });
+  return { transport, state, received, sceneMessage };
+}
+
+describe("collaboration session over the fake network", () => {
+  let harness: ReturnType<typeof createHarness>;
+  let alice: TestClient;
+  let bob: TestClient;
+
+  beforeEach(() => {
+    harness = createHarness();
+    alice = harness.createClient("client-alice");
+    bob = harness.createClient("client-bob");
+    alice.session.connect();
+    bob.session.connect();
+    harness.network.flush();
+  });
+
+  it("converges add, move, style change and delete across two clients", () => {
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+    expect(bob.host.elements).toHaveLength(1);
+    expectConverged(alice, bob);
+
+    bob.edit((elements) =>
+      elements.map((element) =>
+        element.id === "r1" ? editedElement(element, { x: 120, y: 40 }) : element,
+      ),
+    );
+    harness.network.flush();
+    expectConverged(alice, bob);
+    expect(alice.host.elements[0]).toMatchObject({ x: 120, y: 40, version: 2 });
+
+    alice.edit((elements) =>
+      elements.map((element) =>
+        element.id === "r1"
+          ? editedElement(element, { backgroundColor: "#ffc9c9" })
+          : element,
+      ),
+    );
+    harness.network.flush();
+    expectConverged(alice, bob);
+    expect(bob.host.elements[0]).toMatchObject({
+      backgroundColor: "#ffc9c9",
+      version: 3,
+    });
+
+    bob.edit((elements) =>
+      elements.map((element) =>
+        element.id === "r1" ? editedElement(element, { isDeleted: true }) : element,
+      ),
+    );
+    harness.network.flush();
+    expectConverged(alice, bob);
+    expect(alice.host.elements[0]).toMatchObject({ isDeleted: true });
+  });
+
+  it("applies every remote scene write outside the local undo history", () => {
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+    bob.edit((elements) =>
+      elements.map((element) => editedElement(element, { x: 9 })),
+    );
+    harness.network.flush();
+
+    for (const client of [alice, bob]) {
+      expect(client.host.elementCaptureUpdates.length).toBeGreaterThan(0);
+      for (const captureUpdate of client.host.elementCaptureUpdates) {
+        expect(captureUpdate).toBe("NEVER");
+      }
+    }
+  });
+
+  it("does not echo adopted remote elements back to the sender", () => {
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+    expectConverged(alice, bob);
+
+    // A no-op change notification on Bob's side (pointer-style onChange).
+    bob.session.handleLocalSceneChange(bob.host.elements, collabAppState());
+    bob.scheduler.runAll();
+    expect(harness.network.pendingMessageCount()).toBe(0);
+  });
+
+  it("produces no scene message for pointer-only changes", () => {
+    alice.session.handleLocalSceneChange(alice.host.elements, collabAppState());
+    alice.scheduler.runAll();
+    expect(harness.network.pendingMessageCount()).toBe(0);
+  });
+
+  it("hands a full snapshot to a late joiner", () => {
+    alice.edit((elements) => [
+      ...elements,
+      collabRectangle({ id: "r1" }),
+      collabRectangle({ id: "r2", isDeleted: true }),
+    ]);
+    harness.network.flush();
+
+    const carol = harness.createClient("client-carol");
+    carol.session.connect();
+    harness.network.flush();
+    // Carol's empty snapshot triggers snapshot replies; deliver them.
+    harness.network.flush();
+
+    expectConverged(alice, carol);
+    expect(sortSceneById(carol.host.elements).map((element) => element.id)).toEqual(
+      ["r1", "r2"],
+    );
+  });
+
+  it("keeps only the newest state for duplicate and out-of-order messages", () => {
+    const raw = createRawSender(harness.network, "client-raw");
+    harness.network.flush(); // membership + snapshot exchange
+
+    const base = collabRectangle({ id: "rx" });
+    const v2 = editedElement(base, { x: 50 });
+
+    // Newest first (sequence 2), then a stale sequence 1, then a duplicate.
+    raw.transport.sendSceneMessage(
+      raw.sceneMessage({ sequence: 2, elements: [v2] }),
+    );
+    harness.network.flush();
+    raw.transport.sendSceneMessage(
+      raw.sceneMessage({ sequence: 1, elements: [base] }),
+    );
+    raw.transport.sendSceneMessage(
+      raw.sceneMessage({ sequence: 2, elements: [base] }),
+    );
+    harness.network.flush();
+
+    const bobRx = bob.host.elements.find((element) => element.id === "rx");
+    expect(bobRx).toMatchObject({ x: 50, version: 2 });
+    const aliceRx = alice.host.elements.find((element) => element.id === "rx");
+    expect(aliceRx).toMatchObject({ x: 50, version: 2 });
+    expectConverged(alice, bob);
+  });
+
+  it("answers a detected sequence gap with a snapshot exchange", () => {
+    const raw = createRawSender(harness.network, "client-raw");
+    harness.network.flush();
+    raw.received.length = 0;
+
+    // Sequence 5 with no prior messages: receivers flag a gap and broadcast
+    // their own snapshot, which invites the sender's snapshot reply.
+    raw.transport.sendSceneMessage(
+      raw.sceneMessage({ sequence: 5, elements: [collabRectangle({ id: "rg" })] }),
+    );
+    harness.network.flush();
+    harness.network.flush();
+
+    const sceneInits = raw.received.filter(
+      (message) => message.type === "scene-init",
+    );
+    expect(sceneInits.length).toBeGreaterThan(0);
+    expectConverged(alice, bob);
+  });
+
+  it("keeps scene convergence when every presence message is dropped", () => {
+    alice.session.handlePointerUpdate({
+      pointer: { x: 10, y: 20, tool: "pointer" },
+      button: "down",
+      pointersMap: new Map(),
+    });
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush({ dropPresenceMessages: true });
+
+    expect(bob.host.collaborators.size).toBe(0);
+    expectConverged(alice, bob);
+    expect(bob.host.elements).toHaveLength(1);
+  });
+
+  it("publishes pointer, username and idle state through presence", () => {
+    alice.session.handlePointerUpdate({
+      pointer: { x: 10, y: 20, tool: "pointer" },
+      button: "down",
+      pointersMap: new Map(),
+    });
+    harness.network.flush();
+
+    const seenByBob = [...bob.host.collaborators.values()];
+    expect(seenByBob).toHaveLength(1);
+    expect(seenByBob[0]).toMatchObject({
+      username: "client-alice",
+      pointer: { x: 10, y: 20, tool: "pointer" },
+      button: "down",
+      userState: "active",
+    });
+
+    harness.clock.now += 40; // past the presence throttle window
+    alice.session.setIdleState("idle");
+    harness.network.flush();
+    expect([...bob.host.collaborators.values()][0]).toMatchObject({
+      userState: "idle",
+    });
+  });
+
+  it("throttles pointer presence to the configured window", () => {
+    const pointerUpdate = (x: number) =>
+      alice.session.handlePointerUpdate({
+        pointer: { x, y: 0, tool: "pointer" },
+        button: "up",
+        pointersMap: new Map(),
+      });
+
+    pointerUpdate(1);
+    pointerUpdate(2);
+    pointerUpdate(3);
+    expect(harness.network.pendingMessageCount()).toBe(1);
+
+    harness.clock.now += 33;
+    pointerUpdate(4);
+    expect(harness.network.pendingMessageCount()).toBe(2);
+  });
+
+  it("re-sends unacknowledged changes after an outbound queue overflow", () => {
+    const tinyHarness = (() => {
+      const network = createFakeCollaborationNetwork({ maxQueuedMessages: 1 });
+      return network;
+    })();
+    const host = createSceneHost();
+    const scheduler = createManualScheduler();
+    const session = createCollaborationSession({
+      transport: tinyHarness.createTransport(),
+      roomId: ROOM_ID,
+      clientId: clientIdSchema.parse("client-tiny"),
+      username: "tiny",
+      sceneApi: host.api,
+      scheduleSceneFlush: scheduler.schedule,
+      now: () => COLLAB_SCENE_FIXED_NOW,
+    });
+    const receiver = createSceneHost();
+    const receiverScheduler = createManualScheduler();
+    const receiverSession = createCollaborationSession({
+      transport: tinyHarness.createTransport(),
+      roomId: ROOM_ID,
+      clientId: clientIdSchema.parse("client-rx"),
+      username: "rx",
+      sceneApi: receiver.api,
+      scheduleSceneFlush: receiverScheduler.schedule,
+      now: () => COLLAB_SCENE_FIXED_NOW,
+    });
+    session.connect(); // join snapshot fills the 1-slot queue
+    receiverSession.connect(); // this snapshot send overflows and stays pending
+
+    host.setElements([collabRectangle({ id: "r1" })]);
+    session.handleLocalSceneChange(host.elements, collabAppState());
+    scheduler.runAll(); // overflow: nothing marked sent, retry scheduled
+    expect(scheduler.pendingCount).toBeGreaterThan(0);
+
+    tinyHarness.flush();
+    scheduler.runAll();
+    tinyHarness.flush();
+    receiverScheduler.runAll();
+    tinyHarness.flush();
+
+    expect(
+      receiver.elements.find((element) => element.id === "r1"),
+    ).toBeDefined();
+  });
+
+  it("converges after disconnect, offline edits on both sides and rejoin", () => {
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+    alice.session.handlePointerUpdate({
+      pointer: { x: 1, y: 1, tool: "pointer" },
+      button: "up",
+      pointersMap: new Map(),
+    });
+    harness.network.flush();
+    expect(bob.host.collaborators.size).toBe(1);
+
+    alice.session.disconnect();
+    harness.network.flush();
+    // Bob prunes the departed collaborator's presence.
+    expect(bob.host.collaborators.size).toBe(0);
+
+    // Divergent offline edits: Bob moves r1, Alice recolors r1 and adds r2.
+    bob.edit((elements) =>
+      elements.map((element) =>
+        element.id === "r1" ? editedElement(element, { x: 300 }) : element,
+      ),
+    );
+    harness.network.flush();
+    alice.edit((elements) => [
+      ...elements.map((element) =>
+        element.id === "r1"
+          ? editedElement(element, { backgroundColor: "#a5d8ff" })
+          : element,
+      ),
+      collabRectangle({ id: "r2" }),
+    ]);
+    expect(alice.session.getConnectionState().status).toBe("disconnected");
+
+    alice.session.connect();
+    harness.network.flush(); // join snapshots both ways
+    harness.network.flush(); // convergence replies
+
+    expectConverged(alice, bob);
+    expect(sortSceneById(alice.host.elements).map((element) => element.id)).toEqual(
+      ["r1", "r2"],
+    );
+  });
+
+  it("cancels scheduled work and stops reacting after destroy", () => {
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+
+    bob.host.setElements([
+      ...bob.host.elements,
+      collabRectangle({ id: "r-pending" }),
+    ]);
+    bob.session.handleLocalSceneChange(bob.host.elements, collabAppState());
+    expect(bob.scheduler.pendingCount).toBe(1);
+
+    bob.session.destroy();
+    expect(bob.scheduler.pendingCount).toBe(0);
+    expect(bob.scheduler.cancelledCount).toBe(1);
+
+    // Destroyed sessions ignore local input and remote traffic alike.
+    bob.session.handleLocalSceneChange(bob.host.elements, collabAppState());
+    expect(bob.scheduler.pendingCount).toBe(0);
+    const bobElementsBefore = bob.host.elements;
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r2" })]);
+    harness.network.flush();
+    expect(bob.host.elements).toBe(bobElementsBefore);
+  });
+
+  it("rebroadcasts a full snapshot once the sync interval elapses", () => {
+    const raw = createRawSender(harness.network, "client-raw");
+    harness.network.flush();
+    raw.received.length = 0;
+
+    harness.clock.now += 20_000;
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+
+    expect(
+      raw.received.some((message) => message.type === "scene-init"),
+    ).toBe(true);
+    expectConverged(alice, bob);
+  });
+});
+
+describe("connection state bookkeeping", () => {
+  it("exposes the transport connection state", () => {
+    const harness = createHarness();
+    const client = harness.createClient("client-solo");
+    const states: ConnectionState["status"][] = [];
+    states.push(client.session.getConnectionState().status);
+    client.session.connect();
+    states.push(client.session.getConnectionState().status);
+    client.session.disconnect();
+    states.push(client.session.getConnectionState().status);
+    expect(states).toEqual(["disconnected", "connected", "disconnected"]);
+  });
+});
