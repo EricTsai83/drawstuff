@@ -53,6 +53,7 @@ import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm"
 import GlobalConfirmDialog from "@/components/confirm-dialog";
 import { useSceneImportFileGuard } from "@/hooks/excalidraw/use-scene-import-file-guard";
 import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
+import { useCollaborationPoc } from "@/hooks/excalidraw/use-collaboration-poc";
 import { useSceneRemoteRevisionCheck } from "@/hooks/excalidraw/use-scene-remote-revision-check";
 import { SceneRemoteConflictDialog } from "@/components/excalidraw/scene-remote-conflict-dialog";
 import { useSceneSession } from "@/hooks/scene-session-context";
@@ -93,6 +94,19 @@ export default function ExcalidrawEditor() {
   } = useSceneExport();
   const { sceneName, handleSceneChange, handleSetSceneName } =
     useScenePersistence(excalidrawAPI);
+  // Plan 11 POC：dev/test-only 共編 session（?collab-room=<id> 時啟用）
+  const {
+    isCollaborating,
+    onPointerUpdate,
+    onSceneChange: handleCollabSceneChange,
+  } = useCollaborationPoc(excalidrawAPI);
+  const handleCanvasChange = useCallback<typeof handleSceneChange>(
+    (elements, appState, files) => {
+      handleSceneChange(elements, appState, files);
+      handleCollabSceneChange(elements, appState);
+    },
+    [handleSceneChange, handleCollabSceneChange],
+  );
   const {
     status: uploadStatus,
     uploadSceneToCloud,
@@ -401,7 +415,9 @@ export default function ExcalidrawEditor() {
         <ExcalidrawCanvas
           excalidrawAPI={excalidrawRefCallback}
           initialData={initialDataPromise}
-          onChange={handleSceneChange}
+          onChange={handleCanvasChange}
+          onPointerUpdate={onPointerUpdate}
+          isCollaborating={isCollaborating}
           UIOptions={{
             canvasActions: {
               toggleTheme: true,

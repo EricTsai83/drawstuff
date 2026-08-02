@@ -25,7 +25,8 @@
     "entry": [
       "scripts/measure-excalidraw-baseline.ts",
       "tests/e2e/**/*.ts",
-      "tests/support/excalidraw-performance-fixtures.ts"
+      "tests/support/excalidraw-performance-fixtures.ts",
+      "tests/support/collab-scene-fixtures.ts"
     ],
     "ignore": [
       "tests/setup.ts"
@@ -36,6 +37,7 @@
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
+    "@drawstuff/collaboration": "workspace:*",
     "@drawstuff/excalidraw-adapter": "workspace:*",
     "@hookform/resolvers": "^5.5.7",
     "@t3-oss/env-nextjs": "^0.13.11",
