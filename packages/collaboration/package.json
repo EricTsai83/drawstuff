@@ -10,6 +10,14 @@
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"
     },
+    "./relay-client": {
+      "types": "./src/relay-client.ts",
+      "default": "./src/relay-client.ts"
+    },
+    "./relay-protocol": {
+      "types": "./src/relay-protocol.ts",
+      "default": "./src/relay-protocol.ts"
+    },
     "./transport": {
       "types": "./src/transport.ts",
       "default": "./src/transport.ts"
