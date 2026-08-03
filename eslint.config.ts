@@ -111,6 +111,40 @@ export default tseslint.config(
     },
   },
   {
+    files: ["apps/collaboration-relay/**/*.ts"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "@drawstuff/excalidraw-adapter",
+              message:
+                "The relay routes protocol frames; it cannot depend on the canvas engine boundary.",
+            },
+            {
+              name: "react",
+              message: "The relay is a headless service; no React.",
+            },
+          ],
+          patterns: [
+            {
+              group: [
+                "@drawstuff/excalidraw-adapter/*",
+                "@drawstuff/web/*",
+                "@excalidraw/*",
+                "**/apps/web/**",
+                "**/packages/excalidraw-adapter/**",
+              ],
+              message:
+                "The relay may only import @drawstuff/collaboration protocol entries, ws, and node builtins.",
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     linterOptions: {
       reportUnusedDisableDirectives: true,
     },

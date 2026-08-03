@@ -52,15 +52,13 @@ export default defineConfig({
     },
   ],
   webServer: {
-    // Build + start so the server always serves the current sources with
-    // NEXT_PUBLIC_COLLAB_POC baked in (Plan 11 POC; deploy builds omit it).
+    // Build + start so the server always serves the current sources.
     command: "pnpm preview --port 3107",
     url: baseURL,
     reuseExistingServer: false,
     timeout: 300_000,
     env: {
       ...process.env,
-      NEXT_PUBLIC_COLLAB_POC: "1",
       POSTGRES_URL: safeDatabaseUrl,
       POSTGRES_URL_NON_POOLING: safeDatabaseUrl,
       POSTGRES_URL_NO_SSL: safeDatabaseUrl,

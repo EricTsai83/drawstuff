@@ -18,6 +18,8 @@ describe("@drawstuff/collaboration package contract", () => {
   it("exposes only the approved public entry points", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./protocol",
+      "./relay-client",
+      "./relay-protocol",
       "./testing",
       "./transport",
     ]);
@@ -44,6 +46,8 @@ describe("@drawstuff/collaboration package contract", () => {
   it("resolves every public entry point to its source module", () => {
     const expectedEntries = {
       "@drawstuff/collaboration/protocol": "protocol.ts",
+      "@drawstuff/collaboration/relay-client": "relay-client.ts",
+      "@drawstuff/collaboration/relay-protocol": "relay-protocol.ts",
       "@drawstuff/collaboration/testing": "testing.ts",
       "@drawstuff/collaboration/transport": "transport.ts",
     };
