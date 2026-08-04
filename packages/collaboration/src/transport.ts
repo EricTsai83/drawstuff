@@ -40,6 +40,19 @@ export interface TransportSubscriber {
   onMessage?(message: CollaborationMessage): void;
   /** Current room membership including this transport's own peer. */
   onRoomPeersChange?(peers: readonly RoomPeer[]): void;
+  /**
+   * The transport dropped inbound scene traffic before it could be delivered
+   * (for example because its bounded inbound queue was full), so the receiver
+   * may now be behind without ever observing a sequence gap.
+   *
+   * This exists because a silent scene drop is not self-healing: gap detection
+   * only fires when a *later* message arrives, and if the lost frame was the
+   * sender's last edit, nothing else would trigger a repair. Implementations
+   * should re-broadcast their own `scene-init` snapshot, which draws the peer's
+   * snapshot reply and restores convergence. Presence loss never reports here —
+   * it is volatile by design.
+   */
+  onSceneSyncRequired?(): void;
 }
 
 export type SendError =
@@ -58,6 +71,15 @@ export type SendError =
        * off; queues never grow without limit.
        */
       code: "queue-overflow";
+    }
+  | {
+      /**
+       * The session's end-to-end nonce budget is spent. Sending again would
+       * require reusing a nonce under the same derived key, so the transport
+       * refuses instead: the session must reconnect (fresh nonce prefix) or
+       * the room generation must be rotated (fresh derived key).
+       */
+      code: "crypto-exhausted";
     }
   | CollaborationProtocolError;
 
@@ -81,6 +103,11 @@ export type SendResult = { ok: true } | { ok: false; error: SendError };
  * Every connection is authorized: `connect` requires a short-lived room join
  * token issued by the app backend, and the granted role arrives back in the
  * connected state.
+ *
+ * Authorization is not confidentiality. Implementations that carry messages
+ * over a shared server must seal every payload end-to-end before it leaves the
+ * client (`./realtime-crypto.ts`), so the server routes ciphertext it cannot
+ * read; the join token deliberately carries no key material.
  */
 export interface CollaborationTransport {
   getConnectionState(): ConnectionState;

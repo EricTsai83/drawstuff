@@ -9,6 +9,11 @@ import {
   type SceneMessage,
   type SyncedElement,
 } from "@drawstuff/collaboration/protocol";
+import {
+  createRealtimeCryptoCodec,
+  roomKeySchema,
+  type RoomKey,
+} from "@drawstuff/collaboration/realtime-crypto";
 import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import type {
@@ -21,12 +26,24 @@ import { issueJoinToken } from "./room-tokens.ts";
 
 /**
  * Minimal collaboration client for relay integration tests: a last-writer-wins
- * element store plus the real protocol codec, inbound gate, and relay
- * transport. It mirrors the production session's convergence moves — snapshot
- * on join, snapshot reply when a received snapshot lacks local state, snapshot
- * on sequence gaps — without importing the canvas engine, so relay tests stay
- * inside the relay's dependency boundary.
+ * element store plus the real protocol codec, realtime crypto codec, inbound
+ * gate, and relay transport. It mirrors the production session's convergence
+ * moves — snapshot on join, snapshot reply when a received snapshot lacks local
+ * state, snapshot on sequence gaps — without importing the canvas engine, so
+ * relay tests stay inside the relay's dependency boundary.
+ *
+ * Payloads are sealed with the real end-to-end codec, so relay tests observe
+ * exactly what production puts on the wire: ciphertext.
  */
+
+/**
+ * Room key shared by every client of one room. Fixed rather than generated so a
+ * failing assertion about wire bytes is reproducible; clients that must fail to
+ * decrypt pass their own key.
+ */
+export const TEST_ROOM_KEY: RoomKey = roomKeySchema.parse(
+  "cmVsYXktdGVzdC1yb29tLWtleS0zMi1ieXRlcy0wMDA",
+);
 
 export type TestElement = SyncedElement & { label?: string };
 
@@ -71,7 +88,7 @@ export type TestClient = {
   roomGeneration(): number | undefined;
 };
 
-export function createTestClient(options: {
+export async function createTestClient(options: {
   url: string;
   roomId: RoomId;
   clientId: ClientId;
@@ -85,9 +102,20 @@ export function createTestClient(options: {
   subject?: string;
   /** Overrides the minted token entirely (invalid-token cases). */
   joinToken?: string;
-}): TestClient {
+  /** Room key; a different key makes every payload unreadable to this client. */
+  roomKey?: RoomKey;
+}): Promise<TestClient> {
   const { url, roomId, clientId } = options;
-  const transport = createRelayWebSocketTransport({ url });
+  const transport = createRelayWebSocketTransport({
+    url,
+    crypto: await createRealtimeCryptoCodec({
+      roomKey: options.roomKey ?? TEST_ROOM_KEY,
+      roomId,
+      // Room key derivation is bound to the app's authorization generation,
+      // the same claim the join token carries.
+      authGeneration: options.authGeneration ?? 1,
+    }),
+  });
   const elements = new Map<string, TestElement>();
   const presenceReceived: PresenceMessage[] = [];
 

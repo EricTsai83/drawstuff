@@ -47,4 +47,31 @@ describe("@drawstuff/collaboration-relay package contract", () => {
     }
     expect(violations).toEqual([]);
   });
+
+  it("keeps every frame-handling source free of logging", () => {
+    // Plan 14 step 3: the relay handles ciphertext, but a log line is still a
+    // copy. Only `main.ts` may write output — it runs before any socket exists
+    // and only reports the bound URLs and a missing-secret startup failure — so
+    // no code path that has a frame in scope can emit one.
+    const offenders = listSourceFiles(sourceRoot)
+      .filter((filePath) =>
+        /\bconsole\s*\.|process\.(?:stdout|stderr)/.test(
+          readFileSync(filePath, "utf8"),
+        ),
+      )
+      .map((filePath) => path.relative(sourceRoot, filePath));
+    expect(offenders).toEqual(["main.ts"]);
+  });
+
+  it("never derives or holds a room encryption key", () => {
+    // The relay is an authorization boundary, not a key distribution channel.
+    const offenders = listSourceFiles(sourceRoot)
+      .filter((filePath) =>
+        /roomKey|RoomKey|realtime-crypto|subtle/.test(
+          readFileSync(filePath, "utf8"),
+        ),
+      )
+      .map((filePath) => path.relative(sourceRoot, filePath));
+    expect(offenders).toEqual([]);
+  });
 });

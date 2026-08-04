@@ -6,6 +6,10 @@ import {
   MAX_SCENE_MESSAGE_BYTES,
 } from "../src/protocol.ts";
 import {
+  REALTIME_SEALED_OVERHEAD_BYTES,
+  sealedFrameByteLength,
+} from "../src/realtime-crypto.ts";
+import {
   decodeRelayDataFrame,
   encodeRelayControl,
   encodeRelayDataFrame,
@@ -47,14 +51,23 @@ describe("relay data frames", () => {
     expect(decodeRelayDataFrame(new Uint8Array([0x7f, 1]))).toBeUndefined();
   });
 
-  it("derives frame budgets from the protocol message budgets", () => {
+  it("leaves the sealing overhead inside every frame budget", () => {
+    // The message budgets bound plaintext, so a maximum-size message still has
+    // to fit once its IV and GCM tag are added.
+    const overhead = REALTIME_SEALED_OVERHEAD_BYTES + 1;
     expect(maxRelayDataFrameBytesFor("scene")).toBe(
-      MAX_SCENE_MESSAGE_BYTES + 1,
+      MAX_SCENE_MESSAGE_BYTES + overhead,
     );
     expect(maxRelayDataFrameBytesFor("presence")).toBe(
-      MAX_PRESENCE_MESSAGE_BYTES + 1,
+      MAX_PRESENCE_MESSAGE_BYTES + overhead,
     );
-    expect(MAX_RELAY_DATA_FRAME_BYTES).toBe(MAX_SCENE_MESSAGE_BYTES + 1);
+    expect(MAX_RELAY_DATA_FRAME_BYTES).toBe(MAX_SCENE_MESSAGE_BYTES + overhead);
+    expect(
+      encodeRelayDataFrame(
+        "presence",
+        new Uint8Array(sealedFrameByteLength(MAX_PRESENCE_MESSAGE_BYTES)),
+      ).byteLength,
+    ).toBe(maxRelayDataFrameBytesFor("presence"));
   });
 });
 

@@ -4,10 +4,10 @@ import {
   clientIdSchema,
   peerIdSchema,
   roomIdSchema,
-  MAX_PRESENCE_MESSAGE_BYTES,
 } from "@drawstuff/collaboration/protocol";
 import {
   encodeRelayControl,
+  maxRelayDataFrameBytesFor,
   parseRelayServerControl,
   MAX_RELAY_CONTROL_FRAME_BYTES,
   RELAY_CLOSE_CODES,
@@ -218,7 +218,7 @@ describe("createRelayConnection", () => {
     const oversize = setup();
     oversize.join();
     oversize.connection.handleBinaryFrame(
-      presenceFrame(MAX_PRESENCE_MESSAGE_BYTES + 2),
+      presenceFrame(maxRelayDataFrameBytesFor("presence") + 2),
     );
     expect(oversize.socket.closedWith?.code).toBe(
       RELAY_CLOSE_CODES.protocolViolation,

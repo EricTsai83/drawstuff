@@ -62,8 +62,9 @@ import {
   EXTRA_EMBED_DOMAINS,
 } from "@/config/embed-allowlist";
 import { useCollaborationRoom } from "@/hooks/excalidraw/use-collaboration-room";
+import { useCollaborationRoomKey } from "@/hooks/excalidraw/use-collaboration-room-key";
 import { CollaborationRoomDialog } from "@/components/excalidraw/collaboration-room-dialog";
-import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-session";
+import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
 
 // 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
 const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
@@ -109,10 +110,13 @@ export default function ExcalidrawEditor() {
     setIsCloudUploadDialogOpen(true);
   }, excalidrawAPI);
   const { applyRemoteScene } = useApplyRemoteScene(excalidrawAPI);
-  // 共編 room：room id 放在 URL 上（連結即邀請），實際權限由後端決定。
+  // 共編 room：room id 放在 query string（連結即邀請，權限仍由後端決定），
+  // 端到端金鑰只放在 URL fragment，永遠不會隨 request 送到伺服器。
   const [collaborationRoomId, setCollaborationRoomId] = useQueryState(
     COLLABORATION_ROOM_PARAM,
   );
+  const [collaborationRoomKey, setCollaborationRoomKey] =
+    useCollaborationRoomKey();
   const [isCollaborationDialogOpen, setIsCollaborationDialogOpen] =
     useState(false);
   const {
@@ -126,6 +130,7 @@ export default function ExcalidrawEditor() {
   } = useCollaborationRoom({
     excalidrawAPI,
     roomId: collaborationRoomId,
+    roomKey: collaborationRoomKey,
     currentSceneId: currentSceneId ?? null,
     username: session?.user?.name,
     isAuthenticated: !!session,
@@ -533,6 +538,8 @@ export default function ExcalidrawEditor() {
             onRoomIdChange={(nextRoomId) => {
               void setCollaborationRoomId(nextRoomId);
             }}
+            roomKey={collaborationRoomKey}
+            onRoomKeyChange={setCollaborationRoomKey}
             status={collaborationStatus}
             role={collaborationRole}
             errorMessage={collaborationErrorMessage}

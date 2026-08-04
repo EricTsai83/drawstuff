@@ -109,7 +109,7 @@ describe("cross-process relay integration", () => {
       "driver process to join the room",
     );
 
-    const local = createTestClient({
+    const local = await createTestClient({
       url,
       roomId: ROOM_ID,
       clientId: clientIdSchema.parse("client-local"),

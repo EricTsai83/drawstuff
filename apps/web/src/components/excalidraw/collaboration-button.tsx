@@ -19,6 +19,7 @@ const LABEL: Record<CollaborationRoomStatus, string> = {
   disconnected: "已離線",
   unauthorized: "無法加入",
   "scene-mismatch": "場景不符",
+  "missing-room-key": "連結不完整",
 };
 
 /** Opens the room dialog and reflects the live room state, including the

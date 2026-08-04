@@ -466,6 +466,11 @@ export function createCollaborationSession(
     onConnectionStateChange: handleConnectionStateChange,
     onMessage: handleRemoteMessage,
     onRoomPeersChange: handleRoomPeersChange,
+    // The transport dropped inbound scene traffic, so this side may be behind
+    // with no sequence gap to detect. Our snapshot draws the sender's
+    // `scene-init` reply (see `sceneInitNeedsReply`), which carries whatever we
+    // lost — the same repair path a detected gap uses.
+    onSceneSyncRequired: sendFullScene,
   };
   const unsubscribe = transport.subscribe(subscriber);
 
