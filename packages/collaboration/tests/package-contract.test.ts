@@ -18,6 +18,7 @@ describe("@drawstuff/collaboration package contract", () => {
   it("exposes only the approved public entry points", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./protocol",
+      "./realtime-crypto",
       "./relay-client",
       "./relay-protocol",
       "./room-auth",
@@ -53,6 +54,7 @@ describe("@drawstuff/collaboration package contract", () => {
   it("resolves every public entry point to its source module", () => {
     const expectedEntries = {
       "@drawstuff/collaboration/protocol": "protocol.ts",
+      "@drawstuff/collaboration/realtime-crypto": "realtime-crypto.ts",
       "@drawstuff/collaboration/relay-client": "relay-client.ts",
       "@drawstuff/collaboration/relay-protocol": "relay-protocol.ts",
       "@drawstuff/collaboration/room-auth": "room-auth.ts",
@@ -66,6 +68,35 @@ describe("@drawstuff/collaboration package contract", () => {
         path.join(sourceRoot, fileName),
       );
     }
+  });
+
+  it("has no logging surface at all", () => {
+    // Plan 14 step 3: reviewing every logging path is only durable if there are
+    // none. A single `console.log` in the send/receive path would be enough to
+    // put plaintext elements, usernames, or cursors into a browser console or a
+    // captured error report, so the whole package is kept output-free and
+    // callers decide what (if anything) to report.
+    const offenders = listSourceFiles(sourceRoot).filter((filePath) =>
+      /\bconsole\s*\.|process\.(?:stdout|stderr)/.test(
+        readFileSync(filePath, "utf8"),
+      ),
+    );
+    expect(offenders).toEqual([]);
+  });
+
+  it("confines room key material to the crypto module", () => {
+    // The wire protocol, the relay client, and the token modules must never see
+    // a room key: that is what lets the relay verify tokens it cannot turn into
+    // a decryption key. Structural, so a future edit cannot quietly thread key
+    // material through an envelope, a control frame, or a token claim.
+    const withKeyMaterial = listSourceFiles(sourceRoot)
+      .filter((filePath) =>
+        /roomKey|RoomKey|getRandomValues|subtle/.test(
+          readFileSync(filePath, "utf8"),
+        ),
+      )
+      .map((filePath) => path.relative(sourceRoot, filePath));
+    expect(withKeyMaterial).toEqual(["realtime-crypto.ts"]);
   });
 
   it("rejects package deep imports", () => {

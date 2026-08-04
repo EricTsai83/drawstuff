@@ -7,6 +7,7 @@ import {
   clientIdSchema,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
+import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
   roomRoleCanEditScene,
   type RoomRole,
@@ -37,6 +38,12 @@ import { api } from "@/trpc/react";
  * connection is surfaced rather than silently retried: automatic reconnection
  * is Plan 18's scope, and a silent retry would hide a revoked membership.
  *
+ * Authorization and confidentiality arrive from opposite directions. The join
+ * token comes from the backend; the room key comes from the URL fragment and is
+ * never sent anywhere. A link without a usable key therefore cannot open a
+ * session at all — reporting `missing-room-key` is the only option, because a
+ * session without the key could neither read nor write the room.
+ *
  * The room's scene must already be the open scene. A session broadcasts the
  * local canvas as soon as it connects, so joining with a different scene loaded
  * would publish unrelated content into the room; that is refused here rather
@@ -51,7 +58,9 @@ export type CollaborationRoomStatus =
   | "disconnected"
   | "unauthorized"
   /** The room belongs to a scene other than the one currently open. */
-  | "scene-mismatch";
+  | "scene-mismatch"
+  /** The link carries a room id but no usable end-to-end key. */
+  | "missing-room-key";
 
 export type UseCollaborationRoomResult = {
   status: CollaborationRoomStatus;
@@ -71,6 +80,11 @@ export function useCollaborationRoom(options: {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   /** Room id from the shareable link; `null` disables collaboration. */
   roomId: string | null;
+  /**
+   * End-to-end room key from the URL fragment. `null` while a room id is set
+   * means the link is incomplete, which is a hard stop rather than a downgrade.
+   */
+  roomKey: RoomKey | null;
   /** Cloud scene id currently open in the editor, if any. */
   currentSceneId: string | null;
   /** Display name for presence; falls back to a per-client guest label. */
@@ -78,8 +92,14 @@ export function useCollaborationRoom(options: {
   /** Collaboration requires an authenticated session. */
   isAuthenticated: boolean;
 }): UseCollaborationRoomResult {
-  const { excalidrawAPI, roomId, currentSceneId, username, isAuthenticated } =
-    options;
+  const {
+    excalidrawAPI,
+    roomId,
+    roomKey,
+    currentSceneId,
+    username,
+    isAuthenticated,
+  } = options;
   const { suppressDirtyTracking, resumeDirtyTracking } = useSceneSession();
   const utils = api.useUtils();
 
@@ -129,6 +149,16 @@ export function useCollaborationRoom(options: {
       setErrorMessage("這個共編連結格式不正確。");
       return;
     }
+    // Checked before any token is requested: without the key there is nothing a
+    // session could do, and asking the backend for a token would only advertise
+    // an attempt. The message never echoes the fragment.
+    if (!roomKey) {
+      setStatus("missing-room-key");
+      setErrorMessage(
+        "這個共編連結缺少加密金鑰（連結的 # 之後那一段）。請向分享者索取完整連結。",
+      );
+      return;
+    }
 
     let cancelled = false;
     let handle: CollaborationRoomHandle | undefined;
@@ -158,12 +188,18 @@ export function useCollaborationRoom(options: {
             clientId,
           });
         if (cancelled) return;
-        handle = startCollaborationRoomSession({
+        // Key derivation is asynchronous, so the effect can be torn down while
+        // the session is still being built. Whatever comes back has to be
+        // destroyed in that case: the closure variable the cleanup reads is
+        // still undefined at that point.
+        const started = await startCollaborationRoomSession({
           excalidrawApi: excalidrawAPI,
           relayUrl: joined.relayUrl,
           roomId: joined.roomId,
           clientId,
           joinToken: joined.token,
+          roomKey,
+          authGeneration: joined.authGeneration,
           username: toCollaborationUsername(usernameRef.current, clientId),
           wrapRemoteApply,
           // Scene loading replaces the canvas and writes the new scene id to
@@ -185,6 +221,11 @@ export function useCollaborationRoom(options: {
             setStatus("disconnected");
           },
         });
+        if (cancelled) {
+          started.destroy();
+          return;
+        }
+        handle = started;
         handleRef.current = handle;
       } catch (error) {
         if (cancelled) return;
@@ -209,6 +250,7 @@ export function useCollaborationRoom(options: {
   }, [
     excalidrawAPI,
     roomId,
+    roomKey,
     currentSceneId,
     isAuthenticated,
     clientId,

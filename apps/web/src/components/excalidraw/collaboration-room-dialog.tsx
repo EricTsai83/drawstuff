@@ -3,6 +3,10 @@
 import { useMemo } from "react";
 import { toast } from "sonner";
 
+import {
+  generateRoomKey,
+  type RoomKey,
+} from "@drawstuff/collaboration/realtime-crypto";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 
 import { CopyButton } from "@/components/copy-button";
@@ -24,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import type { CollaborationRoomStatus } from "@/hooks/excalidraw/use-collaboration-room";
-import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-session";
+import { buildRoomInviteUrl } from "@/lib/collab/room-link";
 import { api } from "@/trpc/react";
 
 /**
@@ -35,6 +39,12 @@ import { api } from "@/trpc/react";
  * actions are enforced by the API, and the read-only badge mirrors the role the
  * relay granted. Anonymous access is not offered anywhere: the link role only
  * ever widens access for signed-in Drawstuff users.
+ *
+ * This dialog is also where the room's end-to-end key is born and retired. It
+ * is generated here, on the client, and only ever handed to the URL fragment;
+ * no mutation on this screen carries it. Rotating the room generation mints a
+ * new key as well, which is what makes rotation an actual cryptographic
+ * revocation rather than only an authorization one.
  */
 
 type LinkRole = "none" | "viewer" | "editor";
@@ -58,6 +68,7 @@ const STATUS_LABEL: Record<CollaborationRoomStatus, string> = {
   disconnected: "已離線",
   unauthorized: "無法加入",
   "scene-mismatch": "場景不符",
+  "missing-room-key": "連結缺少金鑰",
 };
 
 export type CollaborationRoomDialogProps = {
@@ -68,6 +79,9 @@ export type CollaborationRoomDialogProps = {
   /** Active room id from the URL, if the editor is in a room. */
   roomId: string | null;
   onRoomIdChange: (roomId: string | null) => void;
+  /** Active room key from the URL fragment; `null` means the link is partial. */
+  roomKey: RoomKey | null;
+  onRoomKeyChange: (roomKey: RoomKey | null) => void;
   status: CollaborationRoomStatus;
   role: RoomRole | null;
   errorMessage: string | null;
@@ -79,6 +93,8 @@ export function CollaborationRoomDialog({
   sceneId,
   roomId,
   onRoomIdChange,
+  roomKey,
+  onRoomKeyChange,
   status,
   role,
   errorMessage,
@@ -107,6 +123,9 @@ export function CollaborationRoomDialog({
 
   const createRoom = api.collaborationRoom.create.useMutation({
     onSuccess: async (created) => {
+      // The key is minted here and never sent with the mutation: the backend
+      // knows the room exists, not how to read it.
+      onRoomKeyChange(generateRoomKey());
       onRoomIdChange(created.roomId);
       await invalidateRoom();
     },
@@ -116,6 +135,9 @@ export function CollaborationRoomDialog({
     onSuccess: async (result) => {
       reportRelayEnforcement(result.relayEnforced);
       onRoomIdChange(null);
+      // Drop the key from the address bar too: an ended room's link should not
+      // keep a usable key sitting in browser history.
+      onRoomKeyChange(null);
       await invalidateRoom();
       onOpenChange(false);
     },
@@ -125,6 +147,7 @@ export function CollaborationRoomDialog({
     onSuccess: async (result) => {
       reportRelayEnforcement(result.relayEnforced);
       onRoomIdChange(null);
+      onRoomKeyChange(null);
       await invalidateRoom();
       onOpenChange(false);
     },
@@ -151,20 +174,26 @@ export function CollaborationRoomDialog({
   const rotateGeneration = api.collaborationRoom.rotateGeneration.useMutation({
     onSuccess: async (result) => {
       reportRelayEnforcement(result.relayEnforced);
+      // A new generation derives a new key from the room key, but a removed
+      // member still holds that room key. Minting a fresh one is what actually
+      // takes reading access away, so rotation replaces both.
+      onRoomKeyChange(generateRoomKey());
       await invalidateRoom();
-      toast.success(`已建立新的 room generation（${result.authGeneration}）。`);
+      toast.success(
+        `已建立新的 room generation（${result.authGeneration}）並更換加密金鑰，請重新分享連結。`,
+      );
     },
     onError: (error) => toast.error(error.message),
   });
 
   const roomUrl = useMemo(() => {
     if (!roomId || typeof window === "undefined") return "";
-    const url = new URL(window.location.href);
-    url.search = "";
-    url.hash = "";
-    url.searchParams.set(COLLABORATION_ROOM_PARAM, roomId);
-    return url.toString();
-  }, [roomId]);
+    return buildRoomInviteUrl({
+      currentUrl: window.location.href,
+      roomId,
+      roomKey,
+    });
+  }, [roomId, roomKey]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -212,12 +241,19 @@ export function CollaborationRoomDialog({
               <p className="text-destructive text-sm">{errorMessage}</p>
             )}
 
-            <div className="flex items-end gap-2">
-              <div className="grid flex-1 gap-2">
-                <Label htmlFor="collab-room-link">共編連結</Label>
-                <Input id="collab-room-link" value={roomUrl} readOnly />
+            <div className="flex flex-col gap-2">
+              <div className="flex items-end gap-2">
+                <div className="grid flex-1 gap-2">
+                  <Label htmlFor="collab-room-link">共編連結</Label>
+                  <Input id="collab-room-link" value={roomUrl} readOnly />
+                </div>
+                <CopyButton textToCopy={roomUrl} />
               </div>
-              <CopyButton textToCopy={roomUrl} />
+              <p className="text-muted-foreground text-xs">
+                {roomKey
+                  ? "連結的 # 之後是這個 room 的加密金鑰，只存在瀏覽器與連結中，不會傳到伺服器。請完整複製整段連結。"
+                  : "這個連結缺少加密金鑰，複製後對方無法加入。請由建立 room 的裝置分享完整連結，或重設 room generation 以產生新金鑰。"}
+              </p>
             </div>
 
             {isOwner && room && (

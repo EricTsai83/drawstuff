@@ -21,7 +21,7 @@ if (!url || !roomIdRaw || !clientIdRaw) {
   throw new Error("RELAY_URL, RELAY_ROOM_ID, and RELAY_CLIENT_ID are required");
 }
 
-const client = createTestClient({
+const client = await createTestClient({
   url,
   roomId: roomIdSchema.parse(roomIdRaw),
   clientId: clientIdSchema.parse(clientIdRaw),

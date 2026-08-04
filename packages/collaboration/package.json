@@ -10,6 +10,10 @@
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"
     },
+    "./realtime-crypto": {
+      "types": "./src/realtime-crypto.ts",
+      "default": "./src/realtime-crypto.ts"
+    },
     "./relay-client": {
       "types": "./src/relay-client.ts",
       "default": "./src/relay-client.ts"
@@ -56,8 +60,10 @@
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
+    "@vitest/browser-playwright": "^4.1.10",
     "eslint": "^9.39.5",
     "knip": "^6.29.0",
+    "playwright": "^1.62.1",
     "typescript": "^6.0.3",
     "vitest": "^4.1.10"
   }

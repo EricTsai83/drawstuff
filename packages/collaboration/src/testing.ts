@@ -85,6 +85,13 @@ interface QueuedMessage {
  * receiver decodes its own copy, so cross-client object mutation cannot leak.
  * Peer ids (`peer-1`, `peer-2`, …) and room generations are assigned from
  * counters, never from clocks or randomness.
+ *
+ * Deliberately not encrypted. Payloads never leave the process here — there is
+ * no socket, no relay, and no third party to keep them from — so sealing them
+ * would only make delivery asynchronous and every ordering assertion racy.
+ * End-to-end encryption is a property of the wire, and it is enforced where the
+ * wire is: `createRelayWebSocketTransport` requires a `RealtimeCryptoCodec`,
+ * and the relay integration tests assert that nothing readable is routed.
  */
 const DEFAULT_MAX_QUEUED_MESSAGES = 256;
 

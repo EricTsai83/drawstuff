@@ -9,6 +9,7 @@ import {
   peerIdSchema,
   roomIdSchema,
 } from "./messages.ts";
+import { REALTIME_SEALED_OVERHEAD_BYTES } from "./realtime-crypto.ts";
 import { MAX_ROOM_TOKEN_BYTES, roomRoleSchema } from "./room-auth.ts";
 
 /**
@@ -19,10 +20,10 @@ import { MAX_ROOM_TOKEN_BYTES, roomRoleSchema } from "./room-auth.ts";
  * - Control frames are JSON text (`join`, `leave` from the client; `joined`,
  *   `peers` from the relay). They carry membership and authorization only,
  *   never scene state.
- * - Data frames are binary: a one-byte channel prefix followed by the exact
- *   bytes produced by the protocol codec. The relay routes data frames by
- *   room and channel without decoding the payload, so element semantics stay
- *   entirely client-side.
+ * - Data frames are binary: a one-byte channel prefix followed by one sealed
+ *   realtime frame (`./realtime-crypto.ts`). The relay routes data frames by
+ *   room and channel without decoding the payload — and cannot decode it: the
+ *   payload is AES-GCM ciphertext under a key that never leaves the clients.
  */
 
 export const relayPeerSchema = z.strictObject({
@@ -105,16 +106,25 @@ const CHANNEL_BY_BYTE = new Map<number, MessageChannel>([
 
 export const RELAY_DATA_FRAME_HEADER_BYTES = 1;
 
-/** Channel budget plus the frame header; the relay's transport-level cap. */
+/**
+ * Channel budget plus sealing overhead plus the frame header; the relay's
+ * transport-level cap. The channel budgets in `./messages.ts` bound *plaintext*
+ * bytes, so the wire cap has to leave room for the sealed frame's IV and GCM
+ * tag — otherwise a message the codec accepts would be refused by the relay.
+ */
 export const MAX_RELAY_DATA_FRAME_BYTES =
-  MAX_SCENE_MESSAGE_BYTES + RELAY_DATA_FRAME_HEADER_BYTES;
+  MAX_SCENE_MESSAGE_BYTES +
+  REALTIME_SEALED_OVERHEAD_BYTES +
+  RELAY_DATA_FRAME_HEADER_BYTES;
 
 export function maxRelayDataFrameBytesFor(channel: MessageChannel): number {
   const maxPayload =
     channel === "presence"
       ? MAX_PRESENCE_MESSAGE_BYTES
       : MAX_SCENE_MESSAGE_BYTES;
-  return maxPayload + RELAY_DATA_FRAME_HEADER_BYTES;
+  return (
+    maxPayload + REALTIME_SEALED_OVERHEAD_BYTES + RELAY_DATA_FRAME_HEADER_BYTES
+  );
 }
 
 export function encodeRelayDataFrame(

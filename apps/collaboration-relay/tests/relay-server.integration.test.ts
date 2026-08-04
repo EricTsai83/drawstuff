@@ -7,6 +7,8 @@ import {
 } from "@drawstuff/collaboration/protocol";
 import {
   encodeRelayControl,
+  maxRelayDataFrameBytesFor,
+  MAX_RELAY_DATA_FRAME_BYTES,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
 import { MAX_ROOM_TOKEN_BYTES } from "@drawstuff/collaboration/room-auth";
@@ -47,13 +49,13 @@ async function startServer(
   return server;
 }
 
-function client(
+async function client(
   url: string,
   clientId: typeof CLIENT_A,
   nonceSeed: number,
   overrides: { role?: "owner" | "editor" | "viewer"; subject?: string } = {},
-): TestClient {
-  const testClient = createTestClient({
+): Promise<TestClient> {
+  const testClient = await createTestClient({
     url,
     roomId: ROOM_ID,
     clientId,
@@ -85,8 +87,8 @@ const closeCodeOf = (socket: WsClient): Promise<number> =>
 describe("relay server integration", () => {
   it("converges two clients editing concurrently through the relay", async () => {
     const server = await startServer();
-    const a = client(server.url, CLIENT_A, 1);
-    const b = client(server.url, CLIENT_B, 2);
+    const a = await client(server.url, CLIENT_A, 1);
+    const b = await client(server.url, CLIENT_B, 2);
     await a.connect();
     await b.connect();
 
@@ -105,11 +107,11 @@ describe("relay server integration", () => {
 
   it("hands a joining client the existing scene via the snapshot handshake", async () => {
     const server = await startServer();
-    const a = client(server.url, CLIENT_A, 1);
+    const a = await client(server.url, CLIENT_A, 1);
     await a.connect();
     a.upsertElement("el-early", "before-b-joined");
 
-    const b = client(server.url, CLIENT_B, 2);
+    const b = await client(server.url, CLIENT_B, 2);
     await b.connect();
     await waitUntil(() => converged(a, b), "late joiner to converge");
     expect(b.elementIds()).toEqual(["el-early"]);
@@ -117,8 +119,8 @@ describe("relay server integration", () => {
 
   it("reports room membership to both clients", async () => {
     const server = await startServer();
-    const a = client(server.url, CLIENT_A, 1);
-    const b = client(server.url, CLIENT_B, 2);
+    const a = await client(server.url, CLIENT_A, 1);
+    const b = await client(server.url, CLIENT_B, 2);
     await a.connect();
     await b.connect();
 
@@ -138,8 +140,8 @@ describe("relay server integration", () => {
 
   it("delivers volatile presence between clients", async () => {
     const server = await startServer();
-    const a = client(server.url, CLIENT_A, 1);
-    const b = client(server.url, CLIENT_B, 2);
+    const a = await client(server.url, CLIENT_A, 1);
+    const b = await client(server.url, CLIENT_B, 2);
     await a.connect();
     await b.connect();
 
@@ -165,8 +167,8 @@ describe("relay server integration", () => {
       },
     };
     const server = await startServer({ fanout: presenceLossFanout });
-    const a = client(server.url, CLIENT_A, 1);
-    const b = client(server.url, CLIENT_B, 2);
+    const a = await client(server.url, CLIENT_A, 1);
+    const b = await client(server.url, CLIENT_B, 2);
     await a.connect();
     await b.connect();
 
@@ -181,8 +183,8 @@ describe("relay server integration", () => {
   it("recovers from a relay restart with a fresh room generation", async () => {
     const server = await startServer();
     const port = server.port;
-    const a = client(server.url, CLIENT_A, 1);
-    const b = client(server.url, CLIENT_B, 2);
+    const a = await client(server.url, CLIENT_A, 1);
+    const b = await client(server.url, CLIENT_B, 2);
     await a.connect();
     await b.connect();
     a.upsertElement("el-before", "pre-restart");
@@ -221,8 +223,8 @@ describe("relay server integration", () => {
   it("releases all room state after clients leave (room churn)", async () => {
     const server = await startServer();
     for (let round = 0; round < 3; round += 1) {
-      const a = client(server.url, CLIENT_A, 1);
-      const b = client(server.url, CLIENT_B, 2);
+      const a = await client(server.url, CLIENT_A, 1);
+      const b = await client(server.url, CLIENT_B, 2);
       await a.connect();
       await b.connect();
       a.upsertElement(`el-${round}`, "churn");
@@ -246,7 +248,7 @@ describe("relay server integration", () => {
     const server = await startServer({
       limits: { maxConnectionsPerRoom: 1 },
     });
-    const a = client(server.url, CLIENT_A, 1);
+    const a = await client(server.url, CLIENT_A, 1);
     await a.connect();
 
     const socket = await rawSocket(server.url);
@@ -284,7 +286,7 @@ describe("relay server integration", () => {
     );
     // Past the transport-level maxPayload: ws refuses it with 1009 without
     // ever buffering the full frame into relay memory.
-    const oversize = new Uint8Array(1_048_578);
+    const oversize = new Uint8Array(MAX_RELAY_DATA_FRAME_BYTES + 2);
     oversize[0] = 0x01;
     socket.send(oversize);
     expect(await closeCodeOf(socket)).toBe(1009);
@@ -306,7 +308,9 @@ describe("relay server integration", () => {
         }),
       }),
     );
-    const oversizePresence = new Uint8Array(16_386);
+    const oversizePresence = new Uint8Array(
+      maxRelayDataFrameBytesFor("presence") + 2,
+    );
     oversizePresence[0] = 0x02;
     socket.send(oversizePresence);
     expect(await closeCodeOf(socket)).toBe(RELAY_CLOSE_CODES.protocolViolation);
@@ -367,7 +371,7 @@ const nowSeconds = (): number => Math.floor(Date.now() / 1000);
 describe("relay room authorization and lifecycle", () => {
   it("refuses an unauthorized join and never routes its frames", async () => {
     const server = await startServer();
-    const authorized = client(server.url, CLIENT_A, 1);
+    const authorized = await client(server.url, CLIENT_A, 1);
     await authorized.connect();
 
     const socket = await rawSocket(server.url);
@@ -391,8 +395,8 @@ describe("relay room authorization and lifecycle", () => {
 
   it("keeps a viewer read-only over the wire while presence still flows", async () => {
     const server = await startServer();
-    const editor = client(server.url, CLIENT_A, 1);
-    const viewer = createTestClient({
+    const editor = await client(server.url, CLIENT_A, 1);
+    const viewer = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
       clientId: CLIENT_B,
@@ -455,8 +459,12 @@ describe("relay room authorization and lifecycle", () => {
 
   it("disconnects a revoked member and leaves the rest of the room connected", async () => {
     const server = await startServer();
-    const owner = client(server.url, CLIENT_A, 1, { subject: "user-owner" });
-    const guest = client(server.url, CLIENT_B, 2, { subject: "user-guest" });
+    const owner = await client(server.url, CLIENT_A, 1, {
+      subject: "user-owner",
+    });
+    const guest = await client(server.url, CLIENT_B, 2, {
+      subject: "user-guest",
+    });
     await owner.connect();
     await guest.connect();
     await waitUntil(() => server.sessionCount() === 2, "both members to join");
@@ -482,8 +490,8 @@ describe("relay room authorization and lifecycle", () => {
 
   it("ends a room generation by closing every session in it", async () => {
     const server = await startServer();
-    const a = client(server.url, CLIENT_A, 1);
-    const b = client(server.url, CLIENT_B, 2);
+    const a = await client(server.url, CLIENT_A, 1);
+    const b = await client(server.url, CLIENT_B, 2);
     await a.connect();
     await b.connect();
     await waitUntil(() => server.sessionCount() === 2, "both members to join");
@@ -509,14 +517,14 @@ describe("relay room authorization and lifecycle", () => {
 
   it("isolates room generations from each other", async () => {
     const server = await startServer();
-    const oldGeneration = createTestClient({
+    const oldGeneration = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
       clientId: CLIENT_A,
       nonceSeed: 1,
       authGeneration: 1,
     });
-    const newGeneration = createTestClient({
+    const newGeneration = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
       clientId: CLIENT_B,
@@ -565,7 +573,7 @@ describe("relay room authorization and lifecycle", () => {
       authRevision: 1,
       issuedAtSeconds: nowSeconds(),
     });
-    const guest = createTestClient({
+    const guest = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
       clientId: CLIENT_B,
@@ -611,7 +619,9 @@ describe("relay room authorization and lifecycle", () => {
     // Time-of-check/time-of-use: the app issued a valid token, the member
     // joined, and only then was the membership revoked. The join itself cannot
     // be refused retroactively, so the socket must be closed instead.
-    const guest = client(server.url, CLIENT_B, 2, { subject: "user-guest" });
+    const guest = await client(server.url, CLIENT_B, 2, {
+      subject: "user-guest",
+    });
     await guest.connect();
     expect(guest.connectionState().status).toBe("connected");
 
@@ -632,7 +642,7 @@ describe("relay room authorization and lifecycle", () => {
 
   it("rejects control calls that are not authorized, addressed, or shaped correctly", async () => {
     const server = await startServer();
-    const a = client(server.url, CLIENT_A, 1, { subject: "user-a" });
+    const a = await client(server.url, CLIENT_A, 1, { subject: "user-a" });
     await a.connect();
     await waitUntil(() => server.sessionCount() === 1, "member to join");
 

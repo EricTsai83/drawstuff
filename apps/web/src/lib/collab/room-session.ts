@@ -1,4 +1,8 @@
 import type { ClientId, RoomId } from "@drawstuff/collaboration/protocol";
+import {
+  createRealtimeCryptoCodec,
+  type RoomKey,
+} from "@drawstuff/collaboration/realtime-crypto";
 import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
 import type { ConnectionState } from "@drawstuff/collaboration/transport";
 import type {
@@ -14,17 +18,22 @@ import {
 } from "@/lib/collab/collaboration-session";
 
 /**
- * Runtime wiring for one authorized collaboration room: relay transport +
- * collaboration session + upstream-style idle detection. Everything it needs
- * to authorize the connection (room, client instance, join token) is supplied
- * by the caller, which obtained it from `collaborationRoom.join`; this module
- * never decides access and never sees the signing secret.
+ * Runtime wiring for one authorized collaboration room: realtime crypto codec +
+ * relay transport + collaboration session + upstream-style idle detection.
+ * Everything it needs to authorize the connection (room, client instance, join
+ * token) is supplied by the caller, which obtained it from
+ * `collaborationRoom.join`; this module never decides access and never sees the
+ * signing secret.
+ *
+ * The room key is the other half, and it comes from the other direction: the
+ * caller reads it from the URL fragment, never from the backend. That split is
+ * what makes the relay unable to read the room — it verifies tokens it cannot
+ * turn into a decryption key.
  */
 
 /** Mirrors the upstream collab app's idle detection threshold. */
 const IDLE_THRESHOLD_MS = 60_000;
 
-export const COLLABORATION_ROOM_PARAM = "collab-room";
 const MAX_USERNAME_LENGTH = 128;
 
 export type CollaborationRoomHandle = {
@@ -47,13 +56,21 @@ export function toCollaborationUsername(
   );
 }
 
-export function startCollaborationRoomSession(options: {
+export async function startCollaborationRoomSession(options: {
   excalidrawApi: ExcalidrawImperativeAPI;
   relayUrl: string;
   roomId: RoomId;
   clientId: ClientId;
   /** Short-lived token from the app backend; the relay verifies it. */
   joinToken: string;
+  /** End-to-end room key from the URL fragment; never from the backend. */
+  roomKey: RoomKey;
+  /**
+   * The room's durable authorization generation, from `collaborationRoom.join`.
+   * Key derivation is bound to it, so rotating the generation makes the previous
+   * generation's ciphertext unreadable.
+   */
+  authGeneration: number;
   username: string;
   wrapRemoteApply: (apply: () => void) => void;
   /**
@@ -63,9 +80,16 @@ export function startCollaborationRoomSession(options: {
    */
   canSyncScene: () => boolean;
   onConnectionStateChange?: (state: ConnectionState) => void;
-}): CollaborationRoomHandle {
+}): Promise<CollaborationRoomHandle> {
   const sceneApi: CollaborationSceneApi = options.excalidrawApi;
-  const transport = createRelayWebSocketTransport({ url: options.relayUrl });
+  const transport = createRelayWebSocketTransport({
+    url: options.relayUrl,
+    crypto: await createRealtimeCryptoCodec({
+      roomKey: options.roomKey,
+      roomId: options.roomId,
+      authGeneration: options.authGeneration,
+    }),
+  });
   const unsubscribe = transport.subscribe({
     onConnectionStateChange: options.onConnectionStateChange,
   });
