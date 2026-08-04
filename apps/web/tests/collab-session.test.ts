@@ -8,6 +8,7 @@ import {
   type SceneMessage,
   type SyncedElement,
 } from "@drawstuff/collaboration/protocol";
+import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import type { ConnectionState } from "@drawstuff/collaboration/transport";
 import {
   createFakeCollaborationNetwork,
@@ -34,6 +35,8 @@ import {
 } from "./support/collab-scene-fixtures";
 
 const ROOM_ID = roomIdSchema.parse("room-poc");
+/** The fake network models delivery, not token verification. */
+const JOIN_TOKEN = "test-join-token";
 
 type SceneHost = {
   api: CollaborationSceneApi;
@@ -58,7 +61,12 @@ function createSceneHost(): SceneHost {
     api: {
       getSceneElementsIncludingDeleted: () => elements,
       getAppState: () => localState,
-      updateScene(sceneData: Pick<SceneData, "elements" | "collaborators" | "captureUpdate">) {
+      updateScene(
+        sceneData: Pick<
+          SceneData,
+          "elements" | "collaborators" | "captureUpdate"
+        >,
+      ) {
         if (sceneData.elements) {
           elements = sceneData.elements as readonly OrderedExcalidrawElement[];
           elementCaptureUpdates.push(sceneData.captureUpdate);
@@ -128,14 +136,18 @@ function createHarness() {
   const network = createFakeCollaborationNetwork();
   const clock = { now: COLLAB_SCENE_FIXED_NOW };
 
-  const createClient = (name: string): TestClient => {
+  const createClient = (
+    name: string,
+    options: { role?: RoomRole } = {},
+  ): TestClient => {
     const host = createSceneHost();
     const scheduler = createManualScheduler();
     const clientId = clientIdSchema.parse(name);
     const session = createCollaborationSession({
-      transport: network.createTransport(),
+      transport: network.createTransport({ role: options.role }),
       roomId: ROOM_ID,
       clientId,
+      joinToken: JOIN_TOKEN,
       username: name,
       sceneApi: host.api,
       scheduleSceneFlush: scheduler.schedule,
@@ -166,7 +178,11 @@ function expectConverged(a: TestClient, b: TestClient): void {
 /** Crafts protocol messages from a raw transport's connected session. */
 function createRawSender(network: FakeCollaborationNetwork, name: string) {
   const transport = network.createTransport();
-  transport.connect({ roomId: ROOM_ID, clientId: clientIdSchema.parse(name) });
+  transport.connect({
+    roomId: ROOM_ID,
+    clientId: clientIdSchema.parse(name),
+    joinToken: JOIN_TOKEN,
+  });
   const state = transport.getConnectionState();
   if (state.status !== "connected") throw new Error("raw sender not connected");
   const received: CollaborationMessage[] = [];
@@ -216,7 +232,9 @@ describe("collaboration session over the fake network", () => {
 
     bob.edit((elements) =>
       elements.map((element) =>
-        element.id === "r1" ? editedElement(element, { x: 120, y: 40 }) : element,
+        element.id === "r1"
+          ? editedElement(element, { x: 120, y: 40 })
+          : element,
       ),
     );
     harness.network.flush();
@@ -239,7 +257,9 @@ describe("collaboration session over the fake network", () => {
 
     bob.edit((elements) =>
       elements.map((element) =>
-        element.id === "r1" ? editedElement(element, { isDeleted: true }) : element,
+        element.id === "r1"
+          ? editedElement(element, { isDeleted: true })
+          : element,
       ),
     );
     harness.network.flush();
@@ -295,9 +315,9 @@ describe("collaboration session over the fake network", () => {
     harness.network.flush();
 
     expectConverged(alice, carol);
-    expect(sortSceneById(carol.host.elements).map((element) => element.id)).toEqual(
-      ["r1", "r2"],
-    );
+    expect(
+      sortSceneById(carol.host.elements).map((element) => element.id),
+    ).toEqual(["r1", "r2"]);
   });
 
   it("keeps only the newest state for duplicate and out-of-order messages", () => {
@@ -335,7 +355,10 @@ describe("collaboration session over the fake network", () => {
     // Sequence 5 with no prior messages: receivers flag a gap and broadcast
     // their own snapshot, which invites the sender's snapshot reply.
     raw.transport.sendSceneMessage(
-      raw.sceneMessage({ sequence: 5, elements: [collabRectangle({ id: "rg" })] }),
+      raw.sceneMessage({
+        sequence: 5,
+        elements: [collabRectangle({ id: "rg" })],
+      }),
     );
     harness.network.flush();
     harness.network.flush();
@@ -415,6 +438,7 @@ describe("collaboration session over the fake network", () => {
       transport: tinyHarness.createTransport(),
       roomId: ROOM_ID,
       clientId: clientIdSchema.parse("client-tiny"),
+      joinToken: JOIN_TOKEN,
       username: "tiny",
       sceneApi: host.api,
       scheduleSceneFlush: scheduler.schedule,
@@ -426,6 +450,7 @@ describe("collaboration session over the fake network", () => {
       transport: tinyHarness.createTransport(),
       roomId: ROOM_ID,
       clientId: clientIdSchema.parse("client-rx"),
+      joinToken: JOIN_TOKEN,
       username: "rx",
       sceneApi: receiver.api,
       scheduleSceneFlush: receiverScheduler.schedule,
@@ -488,9 +513,9 @@ describe("collaboration session over the fake network", () => {
     harness.network.flush(); // convergence replies
 
     expectConverged(alice, bob);
-    expect(sortSceneById(alice.host.elements).map((element) => element.id)).toEqual(
-      ["r1", "r2"],
-    );
+    expect(
+      sortSceneById(alice.host.elements).map((element) => element.id),
+    ).toEqual(["r1", "r2"]);
   });
 
   it("cancels scheduled work and stops reacting after destroy", () => {
@@ -526,10 +551,118 @@ describe("collaboration session over the fake network", () => {
     alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
     harness.network.flush();
 
-    expect(
-      raw.received.some((message) => message.type === "scene-init"),
-    ).toBe(true);
+    expect(raw.received.some((message) => message.type === "scene-init")).toBe(
+      true,
+    );
     expectConverged(alice, bob);
+  });
+});
+
+describe("viewer role", () => {
+  it("sends no scene traffic but still receives, applies and reports presence", () => {
+    const harness = createHarness();
+    const editor = harness.createClient("client-editor");
+    const viewer = harness.createClient("client-viewer", { role: "viewer" });
+    editor.session.connect();
+    viewer.session.connect();
+    harness.network.flush();
+
+    const state = viewer.session.getConnectionState();
+    if (state.status !== "connected") throw new Error("viewer not connected");
+    expect(state.role).toBe("viewer");
+
+    // The editor's work still reaches the viewer's canvas.
+    editor.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+    expect(viewer.host.elements.map((element) => element.id)).toEqual(["r1"]);
+
+    // A local edit in a read-only session produces no outbound scene message,
+    // so the session never gets itself disconnected by the relay's role check.
+    viewer.edit((elements) => [
+      ...elements,
+      collabRectangle({ id: "r-viewer" }),
+    ]);
+    expect(harness.network.pendingMessageCount()).toBe(0);
+    harness.network.flush();
+    expect(editor.host.elements.map((element) => element.id)).toEqual(["r1"]);
+
+    // Presence is not a scene mutation: a viewer's cursor is still shared.
+    viewer.session.handlePointerUpdate({
+      pointer: { x: 3, y: 4, tool: "pointer" },
+      button: "up",
+      pointersMap: new Map(),
+    });
+    expect(harness.network.pendingMessageCount()).toBe(1);
+    harness.network.flush();
+    expect(
+      [...editor.host.collaborators.values()].map(
+        (collaborator) => collaborator.username,
+      ),
+    ).toEqual(["client-viewer"]);
+  });
+
+  it("sends no join snapshot and answers no snapshot exchange as a viewer", () => {
+    const harness = createHarness();
+    const viewer = harness.createClient("client-viewer", { role: "viewer" });
+    viewer.host.setElements([collabRectangle({ id: "local-only" })]);
+    viewer.session.connect();
+    // Even the join handshake snapshot is suppressed for a read-only role.
+    expect(harness.network.pendingMessageCount()).toBe(0);
+
+    const editor = harness.createClient("client-editor");
+    editor.session.connect();
+    harness.network.flush();
+    // The editor's join snapshot arrives; the viewer holds state the snapshot
+    // lacks but must not reply with its own.
+    expect(harness.network.pendingMessageCount()).toBe(0);
+  });
+});
+
+describe("scene attachment guard", () => {
+  it("stops sending and applying scene state once the canvas holds another scene", () => {
+    const network = createFakeCollaborationNetwork();
+    const host = createSceneHost();
+    const scheduler = createManualScheduler();
+    let attached = true;
+    const session = createCollaborationSession({
+      transport: network.createTransport(),
+      roomId: ROOM_ID,
+      clientId: clientIdSchema.parse("client-attached"),
+      joinToken: JOIN_TOKEN,
+      username: "attached",
+      sceneApi: host.api,
+      scheduleSceneFlush: scheduler.schedule,
+      now: () => COLLAB_SCENE_FIXED_NOW,
+      canSyncScene: () => attached,
+    });
+    const peer = createRawSender(network, "client-peer");
+    session.connect();
+    network.flush();
+
+    // Detached: the canvas was replaced by a different scene. Local edits must
+    // not be broadcast, or the room receives content from another document.
+    attached = false;
+    host.setElements([collabRectangle({ id: "other-scene" })]);
+    session.handleLocalSceneChange(host.elements, collabAppState());
+    scheduler.runAll();
+    expect(network.pendingMessageCount()).toBe(0);
+
+    // Inbound room state must not be written onto that other scene either.
+    peer.transport.sendSceneMessage(
+      peer.sceneMessage({
+        type: "scene-init",
+        sequence: 1,
+        elements: [collabRectangle({ id: "from-room" })],
+      }),
+    );
+    network.flush();
+    expect(host.elements.map((element) => element.id)).toEqual(["other-scene"]);
+
+    // Reattaching restores normal operation.
+    attached = true;
+    session.handleLocalSceneChange(host.elements, collabAppState());
+    scheduler.runAll();
+    expect(network.pendingMessageCount()).toBeGreaterThan(0);
   });
 });
 

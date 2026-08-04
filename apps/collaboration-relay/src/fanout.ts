@@ -2,9 +2,9 @@ import type {
   ClientId,
   MessageChannel,
   PeerId,
-  RoomId,
 } from "@drawstuff/collaboration/protocol";
 import type { RelayPeer } from "@drawstuff/collaboration/relay-protocol";
+import type { RoomChannelKey } from "@drawstuff/collaboration/room-auth";
 
 /**
  * Delivery sink one room member registers with the fanout. Implementations
@@ -38,23 +38,27 @@ type FanoutJoinResult = {
  * The fanout is stateless with respect to scene content: it routes frames
  * synchronously and never retains them, so relay memory holds no durable
  * scene or binary payloads.
+ *
+ * Rooms are addressed by `RoomChannelKey` — room id plus authorization
+ * generation — so rotating a room's generation produces a disjoint channel and
+ * a member holding an old-generation token cannot reach the new one.
  */
 export interface RoomFanout {
   join(member: {
-    roomId: RoomId;
+    channel: RoomChannelKey;
     clientId: ClientId;
     peerId: PeerId;
     subscriber: FanoutSubscriber;
   }): FanoutJoinResult;
-  leave(roomId: RoomId, peerId: PeerId): void;
+  leave(channel: RoomChannelKey, peerId: PeerId): void;
   /** Route one data frame to every other member of the room. */
   publish(
-    roomId: RoomId,
+    channel: RoomChannelKey,
     senderPeerId: PeerId,
-    channel: MessageChannel,
+    messageChannel: MessageChannel,
     frame: Uint8Array,
   ): void;
-  memberCount(roomId: RoomId): number;
+  memberCount(channel: RoomChannelKey): number;
   roomCount(): number;
 }
 
@@ -76,7 +80,7 @@ export function createInMemoryRoomFanout(options?: {
   now?: () => number;
 }): RoomFanout {
   const now = options?.now ?? Date.now;
-  const rooms = new Map<RoomId, RoomState>();
+  const rooms = new Map<RoomChannelKey, RoomState>();
 
   /**
    * Room epochs must advance strictly, including across relay restarts and
@@ -100,10 +104,7 @@ export function createInMemoryRoomFanout(options?: {
       clientId,
     }));
 
-  const broadcastPeers = (
-    room: RoomState,
-    excludePeerId?: PeerId,
-  ): void => {
+  const broadcastPeers = (room: RoomState, excludePeerId?: PeerId): void => {
     const version = room.membershipVersion;
     const peers = peersOf(room);
     for (const member of room.members.values()) {
@@ -118,18 +119,18 @@ export function createInMemoryRoomFanout(options?: {
   };
 
   return {
-    join({ roomId, clientId, peerId, subscriber }) {
-      let room = rooms.get(roomId);
+    join({ channel, clientId, peerId, subscriber }) {
+      let room = rooms.get(channel);
       if (!room) {
         room = {
           generation: nextGeneration(),
           members: new Map(),
           membershipVersion: 0,
         };
-        rooms.set(roomId, room);
+        rooms.set(channel, room);
       }
       if (room.members.has(peerId)) {
-        throw new Error(`Peer ${peerId} is already a member of ${roomId}`);
+        throw new Error(`Peer ${peerId} is already a member of ${channel}`);
       }
       room.members.set(peerId, { peerId, clientId, subscriber });
       room.membershipVersion += 1;
@@ -139,28 +140,28 @@ export function createInMemoryRoomFanout(options?: {
       broadcastPeers(room, peerId);
       return { roomGeneration: room.generation, peers: peersOf(room) };
     },
-    leave(roomId, peerId) {
-      const room = rooms.get(roomId);
+    leave(channel, peerId) {
+      const room = rooms.get(channel);
       if (!room?.members.delete(peerId)) return;
       room.membershipVersion += 1;
       if (room.members.size === 0) {
         // Last member left: release the room immediately so idle room ids
         // hold no relay memory. A later join creates a fresh epoch.
-        rooms.delete(roomId);
+        rooms.delete(channel);
         return;
       }
       broadcastPeers(room);
     },
-    publish(roomId, senderPeerId, channel, frame) {
-      const room = rooms.get(roomId);
+    publish(channel, senderPeerId, messageChannel, frame) {
+      const room = rooms.get(channel);
       if (!room?.members.has(senderPeerId)) return;
       for (const member of room.members.values()) {
         if (member.peerId === senderPeerId) continue;
-        member.subscriber.deliverData(channel, frame, senderPeerId);
+        member.subscriber.deliverData(messageChannel, frame, senderPeerId);
       }
     },
-    memberCount(roomId) {
-      return rooms.get(roomId)?.members.size ?? 0;
+    memberCount(channel) {
+      return rooms.get(channel)?.members.size ?? 0;
     },
     roomCount() {
       return rooms.size;

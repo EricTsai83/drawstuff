@@ -7,6 +7,7 @@ import {
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
 
+import { TEST_ROOM_TOKEN_SECRET } from "./support/room-tokens.ts";
 import { createTestClient, waitUntil } from "./support/test-client.ts";
 
 /**
@@ -36,15 +37,11 @@ type LineStream = {
 };
 
 function spawnTsx(script: string, env: Record<string, string>): LineStream {
-  const child = spawn(
-    process.execPath,
-    ["--import", "tsx", script],
-    {
-      cwd: PACKAGE_ROOT,
-      env: { ...process.env, ...env },
-      stdio: ["ignore", "pipe", "pipe"],
-    },
-  );
+  const child = spawn(process.execPath, ["--import", "tsx", script], {
+    cwd: PACKAGE_ROOT,
+    env: { ...process.env, ...env },
+    stdio: ["ignore", "pipe", "pipe"],
+  });
   children.push(child);
 
   const seenLines: string[] = [];
@@ -88,6 +85,9 @@ describe("cross-process relay integration", () => {
     const relay = spawnTsx(path.join("src", "main.ts"), {
       PORT: "0",
       HOST: "127.0.0.1",
+      // The relay process refuses to start without the shared token secret,
+      // so the real startup contract is exercised here too.
+      COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
     });
     const listeningLine = await relay.waitForLine(
       (line) => line.includes("listening on "),
@@ -96,17 +96,14 @@ describe("cross-process relay integration", () => {
     const url = listeningLine.split("listening on ").at(-1);
     if (!url) throw new Error("relay did not report its url");
 
-    const driver = spawnTsx(
-      path.join("tests", "support", "client-driver.ts"),
-      {
-        RELAY_URL: url,
-        RELAY_ROOM_ID: ROOM_ID,
-        RELAY_CLIENT_ID: "client-driver",
-        RELAY_NONCE_SEED: "9",
-        RELAY_ELEMENT_PREFIX: "el-driver",
-        RELAY_ELEMENT_COUNT: "3",
-      },
-    );
+    const driver = spawnTsx(path.join("tests", "support", "client-driver.ts"), {
+      RELAY_URL: url,
+      RELAY_ROOM_ID: ROOM_ID,
+      RELAY_CLIENT_ID: "client-driver",
+      RELAY_NONCE_SEED: "9",
+      RELAY_ELEMENT_PREFIX: "el-driver",
+      RELAY_ELEMENT_COUNT: "3",
+    });
     await driver.waitForLine(
       (line) => line === "ready",
       "driver process to join the room",
@@ -125,14 +122,18 @@ describe("cross-process relay integration", () => {
 
       // Convergence: the driver's last reported digest equals ours and both
       // contain the union of elements created in the two client processes.
-      await waitUntil(() => {
-        const lastDigest = driver
-          .lines()
-          .filter((line) => line.startsWith("digest\t"))
-          .at(-1)
-          ?.slice("digest\t".length);
-        return lastDigest !== undefined && lastDigest === local.digest();
-      }, "cross-process digests to converge", 20_000);
+      await waitUntil(
+        () => {
+          const lastDigest = driver
+            .lines()
+            .filter((line) => line.startsWith("digest\t"))
+            .at(-1)
+            ?.slice("digest\t".length);
+          return lastDigest !== undefined && lastDigest === local.digest();
+        },
+        "cross-process digests to converge",
+        20_000,
+      );
 
       expect(local.elementIds()).toEqual([
         "el-driver-0",

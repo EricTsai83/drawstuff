@@ -10,10 +10,14 @@ import {
   type SyncedElement,
 } from "@drawstuff/collaboration/protocol";
 import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
+import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import type {
   ConnectionState,
   RoomPeer,
+  SendResult,
 } from "@drawstuff/collaboration/transport";
+
+import { issueJoinToken } from "./room-tokens.ts";
 
 /**
  * Minimal collaboration client for relay integration tests: a last-writer-wins
@@ -53,6 +57,11 @@ export type TestClient = {
   close(): void;
   /** Create or overwrite an element and broadcast it as a scene delta. */
   upsertElement(id: string, label: string): void;
+  /**
+   * Attempts one scene mutation and reports the transport's verdict without
+   * touching local state — used to assert that a read-only role is refused.
+   */
+  trySendSceneMutation(id: string): SendResult;
   sendPresence(x: number, y: number): void;
   digest(): string;
   elementIds(): string[];
@@ -68,6 +77,14 @@ export function createTestClient(options: {
   clientId: ClientId;
   /** Distinct per client so concurrently created nonces never collide. */
   nonceSeed: number;
+  /** Role the minted join token grants; defaults to `editor`. */
+  role?: RoomRole;
+  /** Room authorization generation the token is bound to. */
+  authGeneration?: number;
+  /** Authenticated user the token is issued for; defaults per client id. */
+  subject?: string;
+  /** Overrides the minted token entirely (invalid-token cases). */
+  joinToken?: string;
 }): TestClient {
   const { url, roomId, clientId } = options;
   const transport = createRelayWebSocketTransport({ url });
@@ -195,7 +212,22 @@ export function createTestClient(options: {
 
   return {
     async connect() {
-      transport.connect({ roomId, clientId });
+      transport.connect({
+        roomId,
+        clientId,
+        joinToken:
+          options.joinToken ??
+          issueJoinToken({
+            roomId,
+            clientId,
+            role: options.role,
+            authGeneration: options.authGeneration,
+            subject: options.subject,
+            // Real tokens over a real socket: the wall clock is what the relay
+            // verifies against here, so no fixed test clock is used.
+            issuedAtSeconds: Math.floor(Date.now() / 1000),
+          }),
+      });
       await waitUntil(
         () => connected !== undefined,
         `client ${clientId} to join ${roomId}`,
@@ -218,6 +250,20 @@ export function createTestClient(options: {
       };
       elements.set(id, next);
       sendScene("scene-update", [next]);
+    },
+    trySendSceneMutation(id) {
+      if (!connected) return { ok: false, error: { code: "not-connected" } };
+      const element: TestElement = {
+        id,
+        version: 1,
+        versionNonce: ++nonceCounter,
+        isDeleted: false,
+      };
+      return transport.sendSceneMessage({
+        ...envelope(connected, sceneSequence + 1),
+        type: "scene-update",
+        payload: { elements: [element] },
+      });
     },
     sendPresence(x, y) {
       if (!connected) return;

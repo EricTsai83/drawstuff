@@ -60,15 +60,21 @@ Use a cumulative 30-minute wait budget for all Claude review invocations in the 
 If Claude returns no usable review—because of access, quota, policy, authentication, timeout, tooling, context, or malformed output—retry once only when the invocation is clearly correctable; otherwise use independent Codex review:
 
 ```bash
+cat > /tmp/codex-review.sh <<'WRAPPER'
+#!/bin/sh
 codex exec -C "$PWD" \
   --model gpt-5.6-sol \
   --config 'model_reasoning_effort="high"' \
-  review - <<'EOF'
+  review - > /tmp/codex-review.log 2>&1 <<'EOF'
 <same review context>
 EOF
+echo "CODEX_EXIT=$?" >> /tmp/codex-review.log
+WRAPPER
+chmod +x /tmp/codex-review.sh
+nohup /tmp/codex-review.sh > /tmp/codex-review-launcher.log 2>&1 &
 ```
 
-Pass the same review context through stdin (`-`) using a heredoc, never a temporary file, and state the review scope in the first line of the prompt. Immediately identify the fallback with the specific, sanitized reason:
+Never run `codex exec` in the foreground or as a directly tracked background command; it is killed at the tool timeout or on session restart, and a killed pass emits no findings. Use `nohup`, not `setsid` (macOS has no `setsid`), keep the launcher's output visible, and poll the log for the `CODEX_EXIT=` line as the only completion signal. Resume a killed pass with `codex exec resume --last`. Pass the same review context through stdin (`-`) using a heredoc inside the wrapper, never as a file argument to `codex`, and state the review scope in the first line of the prompt. Instruct Codex not to run test suites or package-manager commands, and list the changed files in the prompt. Immediately identify the fallback with the specific, sanitized reason:
 
 ```text
 Review provider: Codex (fallback — Claude unavailable: <specific reason>)

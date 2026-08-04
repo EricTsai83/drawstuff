@@ -19,6 +19,7 @@ import {
   CLIENT_A,
   CLIENT_B,
   connectedState,
+  JOIN_TOKEN,
   PEER_A,
   PEER_B,
   presenceFromSession,
@@ -82,6 +83,7 @@ const joinedNotice = (
   roomId: ROOM_ID,
   peerId: PEER_A,
   roomGeneration: 3,
+  role: "editor",
   peers: [{ peerId: PEER_A, clientId: CLIENT_A }],
   ...overrides,
 });
@@ -105,12 +107,18 @@ function setup(options: { maxBufferedBytes?: number } = {}) {
     onMessage: (message) => messages.push(message),
     onRoomPeersChange: (peers) => peerUpdates.push(peers),
   });
-  const connectAndJoin = (): FakeSocket => {
-    transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+  const connectAndJoin = (options?: {
+    joined?: Partial<Extract<RelayServerControl, { control: "joined" }>>;
+  }): FakeSocket => {
+    transport.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     const socket = sockets.at(-1);
     if (!socket) throw new Error("no socket created");
     socket.open();
-    socket.receiveControl(joinedNotice());
+    socket.receiveControl(joinedNotice(options?.joined));
     return socket;
   };
   return { transport, sockets, states, messages, peerUpdates, connectAndJoin };
@@ -128,6 +136,7 @@ describe("createRelayWebSocketTransport", () => {
       protocolVersion: 1,
       roomId: ROOM_ID,
       clientId: CLIENT_A,
+      token: JOIN_TOKEN,
     });
 
     expect(states.map((state) => state.status)).toEqual([
@@ -162,7 +171,11 @@ describe("createRelayWebSocketTransport", () => {
 
   it("rejects sends before the join acknowledgment", () => {
     const { transport, sockets } = setup();
-    transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    transport.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     sockets[0]?.open();
 
     const result = transport.sendSceneMessage(sceneMessage({ sequence: 1 }));
@@ -231,7 +244,11 @@ describe("createRelayWebSocketTransport", () => {
 
   it("treats a joined notice for the wrong room as a broken connection", () => {
     const { transport, sockets } = setup();
-    transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    transport.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     const socket = sockets[0];
     socket?.open();
     socket?.receiveControl(
@@ -257,7 +274,11 @@ describe("createRelayWebSocketTransport", () => {
     expect(first.closedWith?.code).toBe(1000);
     expect(transport.getConnectionState().status).toBe("disconnected");
 
-    transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    transport.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     const second = sockets.at(-1);
     expect(second).not.toBe(first);
     second?.open();
@@ -285,18 +306,27 @@ describe("createRelayWebSocketTransport", () => {
     expect(transport.getConnectionState()).toEqual({ status: "closed" });
     expect(states.at(-1)?.status).toBe("closed");
     expect(() =>
-      transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A }),
+      transport.connect({
+        roomId: ROOM_ID,
+        clientId: CLIENT_A,
+        joinToken: JOIN_TOKEN,
+      }),
     ).toThrow(/closed/i);
-    expect(
-      transport.sendSceneMessage(sceneMessage({ sequence: 1 })),
-    ).toEqual({ ok: false, error: { code: "not-connected" } });
+    expect(transport.sendSceneMessage(sceneMessage({ sequence: 1 }))).toEqual({
+      ok: false,
+      error: { code: "not-connected" },
+    });
   });
 
   it("throws when connecting an already-connected transport", () => {
     const { transport, connectAndJoin } = setup();
     connectAndJoin();
     expect(() =>
-      transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A }),
+      transport.connect({
+        roomId: ROOM_ID,
+        clientId: CLIENT_A,
+        joinToken: JOIN_TOKEN,
+      }),
     ).toThrow(/already connected/i);
   });
 });

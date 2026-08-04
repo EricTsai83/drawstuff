@@ -7,6 +7,7 @@ import type {
   SceneMessage,
 } from "./messages.ts";
 import type { CollaborationProtocolError } from "./codec.ts";
+import type { RoomRole } from "./room-auth.ts";
 
 export type ConnectionState =
   | { status: "disconnected" }
@@ -19,6 +20,12 @@ export type ConnectionState =
       peerId: PeerId;
       /** Room epoch assigned at join time; stamped on every outbound message. */
       roomGeneration: number;
+      /**
+       * Role the server granted this connection. Authoritative enforcement is
+       * server-side; callers mirror it to keep read-only state visible in the
+       * UI and to avoid sending frames that would be refused.
+       */
+      role: RoomRole;
     }
   | { status: "closed" };
 
@@ -37,6 +44,10 @@ export interface TransportSubscriber {
 
 export type SendError =
   | { code: "not-connected" }
+  | {
+      /** The connection's role may not mutate the scene (viewer). */
+      code: "read-only-role";
+    }
   | {
       /** Message envelope does not match the current session identity. */
       code: "stale-session";
@@ -66,10 +77,19 @@ export type SendResult = { ok: true } | { ok: false; error: SendError };
  *
  * Implementations must validate and size-limit every message via the protocol
  * codec, and must release all listeners, timers, and queues on `close()`.
+ *
+ * Every connection is authorized: `connect` requires a short-lived room join
+ * token issued by the app backend, and the granted role arrives back in the
+ * connected state.
  */
 export interface CollaborationTransport {
   getConnectionState(): ConnectionState;
-  connect(session: { roomId: RoomId; clientId: ClientId }): void;
+  connect(session: {
+    roomId: RoomId;
+    clientId: ClientId;
+    /** Short-lived join token from the app backend, verified by the relay. */
+    joinToken: string;
+  }): void;
   /** Leave the room but keep the transport reusable for a later connect. */
   disconnect(): void;
   /** Terminal: disconnect, drop subscribers, and refuse further connects. */

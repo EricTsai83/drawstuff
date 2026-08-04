@@ -242,6 +242,117 @@ export const sceneCategory = createTable(
   ],
 );
 
+/**
+ * 共編 room（Plan 13）。一個 room 綁定一個 scene，room 的授權由這裡決定，relay
+ * 只驗證由本表簽出的短效 join token。
+ *
+ * `authGeneration` 是「授權世代」，與 relay 在記憶體中發放的 session epoch
+ * （`roomGeneration`）不同：授權世代寫在 DB、只在需要讓既有 token 全部失效時
+ * 遞增（未來 Plan 14 的 room key 也綁在同一個世代上）。移除成員只會阻止新連線
+ * 與新訊息；要做密碼學撤銷必須遞增世代。
+ */
+export const collaborationRoom = createTable(
+  "collaboration_room",
+  {
+    // relay 用的 room id（nanoid），同時是主鍵：不另外維護第二組識別碼。
+    roomId: varchar("room_id", { length: 64 }).primaryKey(),
+    sceneId: uuid("scene_id")
+      .notNull()
+      .references(() => scene.id, { onDelete: "cascade" }),
+    ownerId: text("owner_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    authGeneration: integer("auth_generation").default(1).notNull(),
+    /**
+     * 單調遞增的授權版本：每次成員／生命週期變更都在 row lock 下 +1。cutoff 用
+     * 版本而不是時間排序，等鎖的請求才不會發出比自己還舊的 cutoff，重新授權後
+     * 簽出的 token 也一定高於該次 cutoff。
+     */
+    authRevision: integer("auth_revision").default(1).notNull(),
+    /**
+     * 拿到連結但沒有 member row 的已登入使用者取得的角色；預設 `none`
+     * （invite-only）。匿名加入一律不支援：所有 room API 都要求登入 session。
+     */
+    linkRole: varchar("link_role", { length: 16 }).default("none").notNull(),
+    status: varchar("status", { length: 16 }).default("active").notNull(),
+    expiresAt: timestamp("expires_at").notNull(),
+    endedAt: timestamp("ended_at"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("collaboration_room_owner_id_idx").on(table.ownerId),
+    // 「這個 scene 現在有沒有 active room」與生命週期清理都走這兩個索引。
+    index("collaboration_room_status_expires_at_idx").on(
+      table.status,
+      table.expiresAt,
+    ),
+    // 同一個 scene 最多一個 active room；ended room 保留為歷史紀錄。
+    uniqueIndex("collaboration_room_active_scene_unique")
+      .on(table.sceneId)
+      .where(sql`status = 'active'`),
+    check(
+      "collaboration_room_auth_generation_positive",
+      sql`${table.authGeneration} >= 1`,
+    ),
+    check(
+      "collaboration_room_auth_revision_positive",
+      sql`${table.authRevision} >= 1`,
+    ),
+    check(
+      "collaboration_room_status_supported",
+      sql`${table.status} in ('active', 'ended')`,
+    ),
+    check(
+      "collaboration_room_link_role_supported",
+      sql`${table.linkRole} in ('none', 'viewer', 'editor')`,
+    ),
+  ],
+);
+
+/**
+ * 明確授權的 room 成員。`revokedAt` 不為 null 代表已被移除：保留 row 才能區分
+ * 「被移除」與「從未加入」——被移除的人即使有 room 連結也不能重新取得 token。
+ */
+export const collaborationRoomMember = createTable(
+  "collaboration_room_member",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    roomId: varchar("room_id", { length: 64 })
+      .notNull()
+      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 16 }).notNull(),
+    revokedAt: timestamp("revoked_at"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    // join 時是 (room, user) 單筆查詢；唯一索引同時擋掉重複 membership。
+    uniqueIndex("collaboration_room_member_room_user_unique").on(
+      table.roomId,
+      table.userId,
+    ),
+    index("collaboration_room_member_user_id_idx").on(table.userId),
+    check(
+      "collaboration_room_member_role_supported",
+      sql`${table.role} in ('owner', 'editor', 'viewer')`,
+    ),
+  ],
+);
+
 // 自定義 bytea 類型用於儲存二進位資料
 const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
   dataType() {
@@ -450,7 +561,37 @@ export const sceneRelations = relations(scene, ({ one, many }) => ({
   }),
   sceneCategories: many(sceneCategory),
   fileRecords: many(fileRecord), // 新增：文件記錄關聯
+  collaborationRooms: many(collaborationRoom),
 }));
+
+export const collaborationRoomRelations = relations(
+  collaborationRoom,
+  ({ one, many }) => ({
+    scene: one(scene, {
+      fields: [collaborationRoom.sceneId],
+      references: [scene.id],
+    }),
+    owner: one(user, {
+      fields: [collaborationRoom.ownerId],
+      references: [user.id],
+    }),
+    members: many(collaborationRoomMember),
+  }),
+);
+
+export const collaborationRoomMemberRelations = relations(
+  collaborationRoomMember,
+  ({ one }) => ({
+    room: one(collaborationRoom, {
+      fields: [collaborationRoomMember.roomId],
+      references: [collaborationRoom.roomId],
+    }),
+    user: one(user, {
+      fields: [collaborationRoomMember.userId],
+      references: [user.id],
+    }),
+  }),
+);
 
 export const categoryRelations = relations(category, ({ many }) => ({
   sceneCategories: many(sceneCategory),
@@ -504,4 +645,6 @@ export const schema = {
   deferredFileCleanup,
   userDefaultWorkspace,
   userLastActiveWorkspace,
+  collaborationRoom,
+  collaborationRoomMember,
 };

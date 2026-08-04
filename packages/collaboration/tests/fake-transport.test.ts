@@ -16,6 +16,7 @@ import {
   CLIENT_B,
   connectedState,
   element,
+  JOIN_TOKEN,
   presenceFromSession,
   ROOM_ID,
   sceneFromSession,
@@ -26,8 +27,12 @@ const setupPair = () => {
   const network = createFakeCollaborationNetwork();
   const first = network.createTransport();
   const second = network.createTransport();
-  first.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
-  second.connect({ roomId: ROOM_ID, clientId: CLIENT_B });
+  first.connect({ roomId: ROOM_ID, clientId: CLIENT_A, joinToken: JOIN_TOKEN });
+  second.connect({
+    roomId: ROOM_ID,
+    clientId: CLIENT_B,
+    joinToken: JOIN_TOKEN,
+  });
   return { network, first, second };
 };
 
@@ -56,9 +61,17 @@ describe("fake collaboration network", () => {
     const rosters: (readonly RoomPeer[])[] = [];
     first.subscribe({ onRoomPeersChange: (peers) => rosters.push(peers) });
 
-    first.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    first.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     const second = network.createTransport();
-    second.connect({ roomId: ROOM_ID, clientId: CLIENT_B });
+    second.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_B,
+      joinToken: JOIN_TOKEN,
+    });
     second.disconnect();
 
     expect(rosters.map((peers) => peers.map((peer) => peer.clientId))).toEqual([
@@ -88,9 +101,17 @@ describe("fake collaboration network", () => {
     const network = createFakeCollaborationNetwork();
     const sender = network.createTransport();
     const receivers = [network.createTransport(), network.createTransport()];
-    sender.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    sender.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     const inboxes = receivers.map((receiver) => {
-      receiver.connect({ roomId: ROOM_ID, clientId: CLIENT_B });
+      receiver.connect({
+        roomId: ROOM_ID,
+        clientId: CLIENT_B,
+        joinToken: JOIN_TOKEN,
+      });
       return collectMessages(receiver);
     });
 
@@ -144,7 +165,11 @@ describe("fake collaboration network", () => {
 
     first.disconnect();
     expect(first.getConnectionState()).toEqual({ status: "disconnected" });
-    first.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    first.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
 
     expect(first.sendSceneMessage(staleMessage)).toEqual({
       ok: false,
@@ -179,8 +204,16 @@ describe("fake collaboration network", () => {
     const network = createFakeCollaborationNetwork({ maxQueuedMessages: 2 });
     const first = network.createTransport();
     const second = network.createTransport();
-    first.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
-    second.connect({ roomId: ROOM_ID, clientId: CLIENT_B });
+    first.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
+    second.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_B,
+      joinToken: JOIN_TOKEN,
+    });
     const state = connectedState(first);
 
     expect(
@@ -229,7 +262,11 @@ describe("fake collaboration network", () => {
     first.disconnect();
     second.disconnect();
     const third = network.createTransport();
-    third.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    third.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
 
     expect(connectedState(third).roomGeneration).toBe(2);
   });
@@ -246,7 +283,11 @@ describe("fake collaboration network", () => {
     expect(first.getConnectionState()).toEqual({ status: "disconnected" });
     expect(second.getConnectionState()).toEqual({ status: "disconnected" });
 
-    first.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    first.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     expect(connectedState(first).roomGeneration).toBe(2);
   });
 
@@ -274,9 +315,7 @@ describe("fake collaboration network", () => {
         if (restartSends === 0 && state.status === "connected") {
           restartSends += 1;
           expect(
-            second.sendSceneMessage(
-              sceneFromSession(state, { sequence: 1 }),
-            ),
+            second.sendSceneMessage(sceneFromSession(state, { sequence: 1 })),
           ).toEqual({ ok: true });
         }
       },
@@ -293,8 +332,16 @@ describe("fake collaboration network", () => {
     const network = createFakeCollaborationNetwork();
     const first = network.createTransport();
     const second = network.createTransport();
-    first.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
-    second.connect({ roomId: ROOM_ID, clientId: CLIENT_B });
+    first.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
+    second.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_B,
+      joinToken: JOIN_TOKEN,
+    });
     const states: ConnectionState["status"][] = [];
     let reconnectError: unknown;
     first.subscribe({
@@ -302,7 +349,11 @@ describe("fake collaboration network", () => {
         states.push(state.status);
         if (state.status === "closed") {
           try {
-            first.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+            first.connect({
+              roomId: ROOM_ID,
+              clientId: CLIENT_A,
+              joinToken: JOIN_TOKEN,
+            });
           } catch (error) {
             reconnectError = error;
           }
@@ -353,13 +404,21 @@ describe("fake collaboration network", () => {
       onConnectionStateChange: (state) => states.push(state.status),
     });
 
-    transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    transport.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     transport.disconnect();
     transport.close();
 
     expect(states).toEqual(["connected", "disconnected", "closed"]);
     expect(() =>
-      transport.connect({ roomId: ROOM_ID, clientId: CLIENT_A }),
+      transport.connect({
+        roomId: ROOM_ID,
+        clientId: CLIENT_A,
+        joinToken: JOIN_TOKEN,
+      }),
     ).toThrow(/closed/);
     unsubscribe();
 
@@ -368,7 +427,11 @@ describe("fake collaboration network", () => {
     late.subscribe({
       onConnectionStateChange: (state) => lateStates.push(state.status),
     })();
-    late.connect({ roomId: ROOM_ID, clientId: CLIENT_A });
+    late.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
     expect(lateStates).toEqual([]);
   });
 });

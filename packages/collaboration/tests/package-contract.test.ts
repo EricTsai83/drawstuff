@@ -20,6 +20,8 @@ describe("@drawstuff/collaboration package contract", () => {
       "./protocol",
       "./relay-client",
       "./relay-protocol",
+      "./room-auth",
+      "./room-token",
       "./testing",
       "./transport",
     ]);
@@ -36,11 +38,16 @@ describe("@drawstuff/collaboration package contract", () => {
       for (const match of source.matchAll(importPattern)) {
         const specifier = match[1] ?? "";
         if (specifier !== "zod" && !specifier.startsWith("./")) {
-          violations.push(`${path.relative(packageRoot, filePath)} -> ${specifier}`);
+          violations.push(
+            `${path.relative(packageRoot, filePath)} -> ${specifier}`,
+          );
         }
       }
     }
-    expect(violations).toEqual([]);
+    // `room-token.ts` is the single server-only module and the only place
+    // allowed to reach a runtime builtin: HMAC signing must stay out of every
+    // browser-reachable entry point.
+    expect(violations).toEqual(["src/room-token.ts -> node:crypto"]);
   });
 
   it("resolves every public entry point to its source module", () => {
@@ -48,6 +55,8 @@ describe("@drawstuff/collaboration package contract", () => {
       "@drawstuff/collaboration/protocol": "protocol.ts",
       "@drawstuff/collaboration/relay-client": "relay-client.ts",
       "@drawstuff/collaboration/relay-protocol": "relay-protocol.ts",
+      "@drawstuff/collaboration/room-auth": "room-auth.ts",
+      "@drawstuff/collaboration/room-token": "room-token.ts",
       "@drawstuff/collaboration/testing": "testing.ts",
       "@drawstuff/collaboration/transport": "transport.ts",
     };

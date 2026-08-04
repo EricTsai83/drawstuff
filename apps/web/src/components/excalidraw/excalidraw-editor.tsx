@@ -5,6 +5,7 @@ import {
   ExcalidrawFooter as Footer,
 } from "@drawstuff/excalidraw-adapter/client";
 import { useState, useCallback, useEffect } from "react";
+import { useQueryState } from "nuqs";
 import { toast } from "sonner";
 import type {
   AppState,
@@ -60,6 +61,9 @@ import {
   createEmbedUrlValidator,
   EXTRA_EMBED_DOMAINS,
 } from "@/config/embed-allowlist";
+import { useCollaborationRoom } from "@/hooks/excalidraw/use-collaboration-room";
+import { CollaborationRoomDialog } from "@/components/excalidraw/collaboration-room-dialog";
+import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-session";
 
 // 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
 const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
@@ -105,6 +109,34 @@ export default function ExcalidrawEditor() {
     setIsCloudUploadDialogOpen(true);
   }, excalidrawAPI);
   const { applyRemoteScene } = useApplyRemoteScene(excalidrawAPI);
+  // 共編 room：room id 放在 URL 上（連結即邀請），實際權限由後端決定。
+  const [collaborationRoomId, setCollaborationRoomId] = useQueryState(
+    COLLABORATION_ROOM_PARAM,
+  );
+  const [isCollaborationDialogOpen, setIsCollaborationDialogOpen] =
+    useState(false);
+  const {
+    status: collaborationStatus,
+    role: collaborationRole,
+    isReadOnly: isCollaborationReadOnly,
+    isCollaborating,
+    errorMessage: collaborationErrorMessage,
+    onPointerUpdate: handleCollabPointerUpdate,
+    onSceneChange: handleCollabSceneChange,
+  } = useCollaborationRoom({
+    excalidrawAPI,
+    roomId: collaborationRoomId,
+    currentSceneId: currentSceneId ?? null,
+    username: session?.user?.name,
+    isAuthenticated: !!session,
+  });
+  const handleCanvasChange = useCallback<typeof handleSceneChange>(
+    (elements, appState, files) => {
+      handleSceneChange(elements, appState, files);
+      handleCollabSceneChange(elements, appState);
+    },
+    [handleSceneChange, handleCollabSceneChange],
+  );
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
@@ -383,10 +415,20 @@ export default function ExcalidrawEditor() {
           linkExportStatus={exportStatus}
           onCloudUploadClick={handleCloudUpload}
           onShareLinkClick={handleShareLinkClick}
+          collaborationStatus={collaborationStatus}
+          isCollaborationReadOnly={isCollaborationReadOnly}
+          onCollaborationClick={() => setIsCollaborationDialogOpen(true)}
         />
       );
     },
-    [exportStatus, uploadStatus, handleCloudUpload, handleShareLinkClick],
+    [
+      exportStatus,
+      uploadStatus,
+      handleCloudUpload,
+      handleShareLinkClick,
+      collaborationStatus,
+      isCollaborationReadOnly,
+    ],
   );
 
   return (
@@ -401,7 +443,11 @@ export default function ExcalidrawEditor() {
         <ExcalidrawCanvas
           excalidrawAPI={excalidrawRefCallback}
           initialData={initialDataPromise}
-          onChange={handleSceneChange}
+          onChange={handleCanvasChange}
+          onPointerUpdate={handleCollabPointerUpdate}
+          isCollaborating={isCollaborating}
+          // Viewer 角色在 UI 也是唯讀；server 端仍是唯一的權限來源。
+          viewModeEnabled={isCollaborationReadOnly}
           UIOptions={{
             canvasActions: {
               toggleTheme: true,
@@ -479,6 +525,18 @@ export default function ExcalidrawEditor() {
             }}
           />
           <SceneRemoteConflictDialog {...conflictDialog} />
+          <CollaborationRoomDialog
+            open={isCollaborationDialogOpen}
+            onOpenChange={setIsCollaborationDialogOpen}
+            sceneId={currentSceneId ?? null}
+            roomId={collaborationRoomId}
+            onRoomIdChange={(nextRoomId) => {
+              void setCollaborationRoomId(nextRoomId);
+            }}
+            status={collaborationStatus}
+            role={collaborationRole}
+            errorMessage={collaborationErrorMessage}
+          />
           <SceneCloudUploadDialog
             open={isCloudUploadDialogOpen}
             onOpenChange={setIsCloudUploadDialogOpen}

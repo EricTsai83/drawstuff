@@ -18,6 +18,14 @@
       "types": "./src/relay-protocol.ts",
       "default": "./src/relay-protocol.ts"
     },
+    "./room-auth": {
+      "types": "./src/room-auth.ts",
+      "default": "./src/room-auth.ts"
+    },
+    "./room-token": {
+      "types": "./src/room-token.ts",
+      "default": "./src/room-token.ts"
+    },
     "./transport": {
       "types": "./src/transport.ts",
       "default": "./src/transport.ts"

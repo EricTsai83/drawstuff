@@ -16,6 +16,11 @@ export default defineConfig({
     },
     env: {
       SKIP_ENV_VALIDATION: "1",
+      // Collaboration room tokens are signed with the real HMAC path in tests,
+      // so the room-auth env has to be present (never a production secret).
+      COLLAB_JOIN_TOKEN_SECRET: "web-test-room-token-secret-0123456789",
+      COLLAB_RELAY_CONTROL_URL: "http://127.0.0.1:3105",
+      NEXT_PUBLIC_COLLAB_RELAY_URL: "ws://127.0.0.1:3105",
     },
     unstubGlobals: true,
     setupFiles: ["./tests/setup.ts"],

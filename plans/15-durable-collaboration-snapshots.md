@@ -22,6 +22,14 @@ snapshot 恢復並繼續同步。
   relay restart 與 late join 的 baseline；多個 peer response 必須 deterministic
   選擇/去重。
 - 定義 snapshot cadence 與最後一位 participant 離開時的 flush。
+- **接手 Plan 13 的 joiner scene bootstrap（唯一 owner 在此 plan）**：Plan 13 為了
+  避免「連上就把本地無關場景廣播進 room」的外洩，要求 room 的場景必須就是目前開啟
+  的場景；而非擁有者讀不到該場景（`scene.getScene` 限 owner），因此**跨帳號加入目前
+  一律被拒為 `scene-mismatch`**。這裡必須讓被授權成員取得 room 的初始畫布，並移除該
+  暫時限制。決策方向：加入前先以既有的「未存內容：儲存／捨棄／取消」確認流程換掉本地
+  畫布（連線前完成，外洩窗口才不存在），再由 elected peer 或 durable snapshot 供給
+  baseline；guest 的 `currentSceneId` 不得設為擁有者的 scene id（否則其 Cmd+S 會嘗試
+  覆寫他人場景），`canSyncScene` 的依據要改為獨立的「畫布屬於此 room」標記。
 - Snapshot table/index 若有 schema change，一律依共同 DB push 規則處理，不建立
   migration file。
 
@@ -55,6 +63,9 @@ pnpm lint
 
 ## Done when
 
+- 跨帳號加入可用：被授權為 editor/viewer 的第二個使用者點 room 連結後能取得 room
+  的畫布並同步，Plan 13 的 `scene-mismatch` 暫時限制連同其 UI 文案一併移除，且
+  「本地無關場景不會被廣播進 room」仍有測試守住。
 - Relay restart 後可由 encrypted snapshot 恢復同一 semantic digest。
 - Presence/appState 不會進入 snapshot。
 - Snapshot 和 owned-scene save 是兩個明確、互不覆寫的 lifecycle。

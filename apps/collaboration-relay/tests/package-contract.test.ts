@@ -19,7 +19,8 @@ const listSourceFiles = (root: string): string[] =>
  * payloads because no code path can reach them.
  */
 const ALLOWED_IMPORT = new RegExp(
-  "^(?:node:|ws$|\\./|@drawstuff/collaboration/(?:protocol|relay-protocol)$)",
+  "^(?:node:|ws$|\\./|@drawstuff/collaboration/" +
+    "(?:protocol|relay-protocol|room-auth|room-token)$)",
 );
 
 describe("@drawstuff/collaboration-relay package contract", () => {
