@@ -30,20 +30,32 @@ These rules apply to the whole workflow — long-running implementation or verif
 
 ## Codex GPT-5.6 Sol Review
 
-Use Codex GPT-5.6 Sol for every review pass. Run non-interactively at high reasoning in read-only review mode:
+Use Codex GPT-5.6 Sol for every review pass. Run non-interactively at high reasoning in read-only review mode.
 
-A typical invocation is:
+Never run `codex exec` in the foreground or as a directly tracked background command: a review routinely runs past 10 minutes, a foreground call is killed at the tool timeout, a tracked background call is killed when the session restarts, and a killed pass emits no findings at all. Launch it through a wrapper script that returns immediately:
 
 ```bash
+cat > /tmp/codex-review.sh <<'WRAPPER'
+#!/bin/sh
 codex exec -C "$PWD" \
   --model gpt-5.6-sol \
   --config 'model_reasoning_effort="high"' \
-  review - <<'EOF'
+  review - > /tmp/codex-review.log 2>&1 <<'EOF'
 <focused review prompt>
 EOF
+echo "CODEX_EXIT=$?" >> /tmp/codex-review.log
+WRAPPER
+chmod +x /tmp/codex-review.sh
+nohup /tmp/codex-review.sh > /tmp/codex-review-launcher.log 2>&1 &
 ```
 
-Pass the focused review prompt through stdin (`-`) using a heredoc, never a temporary file. State the review scope in the first line of the prompt (for example "Review the uncommitted changes in this repository"). After the review returns, confirm from its output that Codex enumerated the intended changes.
+- Use `nohup`, not `setsid`; macOS has no `setsid`.
+- Never send the launcher's own output to `/dev/null`; a failed launch must stay visible.
+- Confirm the wrapper detached: its PPID becomes 1.
+- Poll the log for the `CODEX_EXIT=` line and treat it as the only completion signal. A log that stopped growing without it means the pass was killed.
+- Resume a killed pass with `codex exec resume --last` instead of restarting it, and count the resumed run as the same pass.
+
+Pass the focused review prompt through stdin (`-`) using a heredoc inside the wrapper, never as a file argument to `codex`. State the review scope in the first line of the prompt (for example "Review the uncommitted changes in this repository"). Instruct Codex not to run test suites or package-manager commands, and state that the checks this workflow already ran are authoritative; its sandbox reports failures that are environment artifacts and the runs consume the wait budget. List the changed files in the prompt so Codex does not spend the budget discovering them. After the review returns, confirm from its output that Codex enumerated the intended changes.
 
 In the prompt, include the requirements, implementation scope, changed files or diff, checks, and pre-existing changes to ignore. Require numbered findings with severity, file/line, failure mode, and fix direction, plus an explicit statement when there are no findings. Exclude formatting, naming, subjective style, and unrelated improvements. Treat findings as evidence, not authority.
 
@@ -77,6 +89,8 @@ claude -p "<focused review prompt>" \
   --permission-mode plan \
   --tools "Read,Grep,Glob,Bash"
 ```
+
+Launch the fallback detached the same way, with the same completion sentinel.
 
 Pass the same review context to the fallback. Immediately identify the fallback with the specific, sanitized reason:
 

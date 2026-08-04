@@ -9,6 +9,7 @@ import {
   type PeerId,
   type RoomId,
 } from "./messages.ts";
+import { roomRoleCanEditScene, type RoomRole } from "./room-auth.ts";
 import type {
   CollaborationTransport,
   ConnectionState,
@@ -26,7 +27,14 @@ export interface FakeCollaborationNetworkOptions {
 }
 
 export interface FakeCollaborationNetwork {
-  createTransport(): CollaborationTransport;
+  /**
+   * The fake network models delivery semantics, not authorization: `connect`
+   * still requires a non-empty join token (so a caller cannot skip the
+   * authorized path), but the granted role is fixed here instead of being
+   * derived from a signed token. Token verification itself is covered by the
+   * room-token and relay tests.
+   */
+  createTransport(options?: { role?: RoomRole }): CollaborationTransport;
   /**
    * Deliver queued messages in FIFO order and return how many were delivered.
    * Messages sent from inside subscriber callbacks queue for the next flush,
@@ -44,6 +52,7 @@ export interface FakeCollaborationNetwork {
 
 interface FakeTransportInternal {
   readonly subscribers: Set<TransportSubscriber>;
+  readonly role: RoomRole;
   session:
     | { roomId: RoomId; clientId: ClientId; peerId: PeerId; generation: number }
     | undefined;
@@ -119,6 +128,7 @@ export function createFakeCollaborationNetwork(
       clientId: transport.session.clientId,
       peerId: transport.session.peerId,
       roomGeneration: transport.session.generation,
+      role: transport.role,
     };
   };
 
@@ -153,6 +163,9 @@ export function createFakeCollaborationNetwork(
     if (!session) {
       return { ok: false, error: { code: "not-connected" } };
     }
+    if (message.type !== "presence" && !roomRoleCanEditScene(transport.role)) {
+      return { ok: false, error: { code: "read-only-role" } };
+    }
     if (
       message.roomId !== session.roomId ||
       message.senderPeerId !== session.peerId ||
@@ -181,21 +194,25 @@ export function createFakeCollaborationNetwork(
   };
 
   return {
-    createTransport() {
+    createTransport(transportOptions = {}) {
       const internal: FakeTransportInternal = {
         subscribers: new Set(),
+        role: transportOptions.role ?? "editor",
         session: undefined,
         closed: false,
       };
 
       return {
         getConnectionState: () => connectionStateOf(internal),
-        connect({ roomId, clientId }) {
+        connect({ roomId, clientId, joinToken }) {
           if (internal.closed) {
             throw new Error("Transport is closed");
           }
           if (internal.session) {
             throw new Error("Transport is already connected");
+          }
+          if (joinToken.length === 0) {
+            throw new Error("A room join token is required to connect");
           }
 
           let room = rooms.get(roomId);

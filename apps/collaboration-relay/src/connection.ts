@@ -1,4 +1,4 @@
-import type { PeerId, RoomId } from "@drawstuff/collaboration/protocol";
+import type { PeerId } from "@drawstuff/collaboration/protocol";
 import {
   decodeRelayDataFrame,
   encodeRelayControl,
@@ -7,8 +7,16 @@ import {
   parseRelayClientControl,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
+import {
+  roomChannelKey,
+  roomRoleCanEditScene,
+  type RoomChannelKey,
+  type RoomRole,
+} from "@drawstuff/collaboration/room-auth";
+import { verifyJoinToken } from "@drawstuff/collaboration/room-token";
 
 import type { FanoutSubscriber, RoomFanout } from "./fanout.ts";
+import type { RelaySessionHandle, RelaySessionRegistry } from "./sessions.ts";
 
 /**
  * The slice of a server-side WebSocket the connection logic drives. `ws`
@@ -48,12 +56,32 @@ export type RelayConnection = {
 export function createRelayConnection(options: {
   socket: RelayConnectionSocket;
   fanout: RoomFanout;
+  sessions: RelaySessionRegistry;
   limits: RelayConnectionLimits;
   generatePeerId: () => PeerId;
+  /** Shared secret the app signs room tokens with. */
+  joinTokenSecret: string;
+  now?: () => number;
 }): RelayConnection {
-  const { socket, fanout, limits, generatePeerId } = options;
+  const {
+    socket,
+    fanout,
+    sessions,
+    limits,
+    generatePeerId,
+    joinTokenSecret,
+    now = Date.now,
+  } = options;
 
-  let membership: { roomId: RoomId; peerId: PeerId } | undefined;
+  let membership:
+    | {
+        channel: RoomChannelKey;
+        peerId: PeerId;
+        role: RoomRole;
+        session: RelaySessionHandle;
+      }
+    | undefined;
+  let roomExpiryTimer: ReturnType<typeof setTimeout> | undefined;
   let ended = false;
 
   /** Idempotent resource release; every close path funnels through here. */
@@ -61,8 +89,13 @@ export function createRelayConnection(options: {
     if (ended) return;
     ended = true;
     clearTimeout(joinDeadline);
+    if (roomExpiryTimer !== undefined) {
+      clearTimeout(roomExpiryTimer);
+      roomExpiryTimer = undefined;
+    }
     if (membership) {
-      fanout.leave(membership.roomId, membership.peerId);
+      membership.session.release();
+      fanout.leave(membership.channel, membership.peerId);
       membership = undefined;
     }
   };
@@ -129,19 +162,74 @@ export function createRelayConnection(options: {
         end(RELAY_CLOSE_CODES.protocolViolation, "already joined");
         return;
       }
-      if (fanout.memberCount(control.roomId) >= limits.maxConnectionsPerRoom) {
+      // Authorization precedes every routing decision: an unverified socket
+      // never reaches the fanout, so it can neither receive nor publish.
+      const verified = verifyJoinToken({
+        token: control.token,
+        secret: joinTokenSecret,
+        nowSeconds: Math.floor(now() / 1000),
+        expectedRoomId: control.roomId,
+        expectedClientId: control.clientId,
+      });
+      if (!verified.ok) {
+        end(
+          RELAY_CLOSE_CODES.unauthorized,
+          `join rejected: ${verified.reason}`,
+        );
+        return;
+      }
+      const { role, gen, sub, arev, rexp } = verified.claims;
+      // Generation comes from the verified token, never from the client, so a
+      // rotated room is a channel a stale token cannot address.
+      const channel = roomChannelKey(control.roomId, gen);
+      // A token that predates a revocation or a room end is refused even
+      // though it is still signed and unexpired: closing the sockets of a
+      // removed member is pointless if the same token can rejoin at once.
+      if (sessions.isRefused(channel, sub, arev)) {
+        end(
+          RELAY_CLOSE_CODES.membershipRevoked,
+          "authorization was revoked after this token was issued",
+        );
+        return;
+      }
+      // The room's own lifetime bounds the session: an already-connected
+      // socket must not outlive it.
+      const roomExpiryMs = rexp * 1000 - now();
+      if (roomExpiryMs <= 0) {
+        end(RELAY_CLOSE_CODES.roomEnded, "room expired");
+        return;
+      }
+      if (fanout.memberCount(channel) >= limits.maxConnectionsPerRoom) {
         end(RELAY_CLOSE_CODES.roomAtCapacity, "room at capacity");
         return;
       }
       const peerId = generatePeerId();
       const joined = fanout.join({
-        roomId: control.roomId,
+        channel,
         clientId: control.clientId,
         peerId,
         subscriber,
       });
-      membership = { roomId: control.roomId, peerId };
+      // Registered before the acknowledgment so a revocation racing the join
+      // finds this socket instead of leaving it connected.
+      const session = sessions.register({
+        channel,
+        subject: sub,
+        tokenRevision: arev,
+        close: (closure) => {
+          if (closure === "room-ended") {
+            end(RELAY_CLOSE_CODES.roomEnded, "room ended");
+            return;
+          }
+          end(RELAY_CLOSE_CODES.membershipRevoked, "membership revoked");
+        },
+      });
+      membership = { channel, peerId, role, session };
       clearTimeout(joinDeadline);
+      roomExpiryTimer = setTimeout(() => {
+        roomExpiryTimer = undefined;
+        end(RELAY_CLOSE_CODES.roomEnded, "room expired");
+      }, roomExpiryMs);
       socket.send(
         encodeRelayControl({
           control: "joined",
@@ -149,6 +237,7 @@ export function createRelayConnection(options: {
           roomId: control.roomId,
           peerId,
           roomGeneration: joined.roomGeneration,
+          role,
           peers: [...joined.peers],
         }),
       );
@@ -164,6 +253,16 @@ export function createRelayConnection(options: {
         end(RELAY_CLOSE_CODES.protocolViolation, "unknown data frame");
         return;
       }
+      // Role enforcement happens here, on the server, for every frame: a
+      // viewer that drives the transport directly still cannot publish a
+      // scene mutation. Presence stays allowed — it mutates no scene state.
+      if (
+        dataFrame.channel === "scene" &&
+        !roomRoleCanEditScene(membership.role)
+      ) {
+        end(RELAY_CLOSE_CODES.readOnlyRole, "role may not mutate the scene");
+        return;
+      }
       // Channel budgets bound every routed frame (the server-level maxPayload
       // only enforces the larger scene budget). The payload itself is opaque:
       // the relay routes by room and channel, never by element semantics.
@@ -172,7 +271,7 @@ export function createRelayConnection(options: {
         return;
       }
       fanout.publish(
-        membership.roomId,
+        membership.channel,
         membership.peerId,
         dataFrame.channel,
         frame,

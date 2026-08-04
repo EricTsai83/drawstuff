@@ -25,6 +25,14 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: z.string(),
     CRON_SECRET: z.string().min(1),
     CLEANUP_OWNER_EMAIL: z.string().email(),
+    /**
+     * HMAC secret shared with @drawstuff/collaboration-relay. Signs the
+     * short-lived room join tokens and the server-to-server control tokens;
+     * required because the relay has no unauthenticated join path.
+     */
+    COLLAB_JOIN_TOKEN_SECRET: z.string().min(32),
+    /** Origin of the relay's control endpoint (server-to-server only). */
+    COLLAB_RELAY_CONTROL_URL: z.string().url(),
   },
 
   /**
@@ -35,6 +43,8 @@ export const env = createEnv({
   client: {
     // NEXT_PUBLIC_CLIENTVAR: z.string(),
     NEXT_PUBLIC_BASE_URL: z.string().url(),
+    /** WebSocket endpoint clients connect to with a room join token. */
+    NEXT_PUBLIC_COLLAB_RELAY_URL: z.string().url(),
   },
 
   /**
@@ -58,7 +68,10 @@ export const env = createEnv({
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     CRON_SECRET: process.env.CRON_SECRET,
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
+    COLLAB_JOIN_TOKEN_SECRET: process.env.COLLAB_JOIN_TOKEN_SECRET,
+    COLLAB_RELAY_CONTROL_URL: process.env.COLLAB_RELAY_CONTROL_URL,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
+    NEXT_PUBLIC_COLLAB_RELAY_URL: process.env.NEXT_PUBLIC_COLLAB_RELAY_URL,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

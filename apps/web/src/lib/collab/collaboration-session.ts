@@ -9,6 +9,7 @@ import {
   type SceneMessage,
   type SyncedElement,
 } from "@drawstuff/collaboration/protocol";
+import { roomRoleCanEditScene } from "@drawstuff/collaboration/room-auth";
 import type {
   CollaborationTransport,
   ConnectionState,
@@ -77,6 +78,11 @@ export type CollaborationSessionOptions = {
   transport: CollaborationTransport;
   roomId: RoomId;
   clientId: ClientId;
+  /**
+   * Short-lived join token from `collaborationRoom.join`. The session never
+   * decides its own role: the granted role comes back in the connected state.
+   */
+  joinToken: string;
   username: string;
   sceneApi: CollaborationSceneApi;
   /**
@@ -92,6 +98,13 @@ export type CollaborationSessionOptions = {
    * scheduler for determinism.
    */
   scheduleSceneFlush?: (flush: () => void) => () => void;
+  /**
+   * Checked synchronously before every scene read or write. When it returns
+   * false the canvas no longer holds this room's scene, so the session neither
+   * broadcasts what is on it nor applies room traffic to it. Presence is
+   * unaffected: it carries no scene state.
+   */
+  canSyncScene?: () => boolean;
   now?: () => number;
   fullSceneSyncIntervalMs?: number;
   presenceThrottleMs?: number;
@@ -150,6 +163,7 @@ export function createCollaborationSession(
     transport,
     roomId,
     clientId,
+    joinToken,
     username,
     sceneApi,
     wrapRemoteApply = (apply) => {
@@ -159,6 +173,7 @@ export function createCollaborationSession(
     now = Date.now,
     fullSceneSyncIntervalMs = FULL_SCENE_SYNC_INTERVAL_MS,
     presenceThrottleMs = PRESENCE_THROTTLE_MS,
+    canSyncScene = () => true,
   } = options;
 
   type ConnectedState = Extract<ConnectionState, { status: "connected" }>;
@@ -225,8 +240,18 @@ export function createCollaborationSession(
     });
   };
 
+  /**
+   * A viewer never produces scene traffic. The relay refuses it anyway (and
+   * closes the socket for trying), so this keeps a read-only session from
+   * disconnecting itself; presence remains allowed for both roles.
+   */
+  const canEditScene = (): boolean =>
+    connected !== undefined &&
+    roomRoleCanEditScene(connected.role) &&
+    canSyncScene();
+
   const sendFullScene = (): void => {
-    if (!connected) return;
+    if (!connected || !canEditScene()) return;
     const currentNow = now();
     const batch = tracker.extractChangedElements(
       sceneApi.getSceneElementsIncludingDeleted(),
@@ -248,7 +273,7 @@ export function createCollaborationSession(
 
   const flushLocalScene = (): void => {
     cancelPendingFlush = undefined;
-    if (!connected) return;
+    if (!connected || !canEditScene()) return;
     const currentNow = now();
     // Throttled full resync (upstream SYNC_FULL_SCENE_INTERVAL_MS): a
     // snapshot supersedes the delta and heals any receiver-side gaps.
@@ -321,6 +346,9 @@ export function createCollaborationSession(
   };
 
   const applyRemoteSceneMessage = (message: SceneMessage): void => {
+    // The canvas may have been replaced by another scene since this message
+    // was sent; applying room state to it would corrupt that scene.
+    if (!canSyncScene()) return;
     wrapRemoteApply(() => {
       const localElements = sceneApi.getSceneElementsIncludingDeleted();
       const remoteElements = message.payload
@@ -444,7 +472,7 @@ export function createCollaborationSession(
   return {
     connect() {
       if (destroyed) throw new Error("Collaboration session is destroyed");
-      transport.connect({ roomId, clientId });
+      transport.connect({ roomId, clientId, joinToken });
     },
     disconnect() {
       transport.disconnect();

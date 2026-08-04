@@ -20,6 +20,8 @@ export const CLIENT_A = clientIdSchema.parse("client-a");
 export const CLIENT_B = clientIdSchema.parse("client-b");
 export const PEER_A = peerIdSchema.parse("peer-a");
 export const PEER_B = peerIdSchema.parse("peer-b");
+/** Opaque placeholder: only the relay verifies token signatures. */
+export const JOIN_TOKEN = "test-join-token";
 
 let messageCounter = 0;
 const nextMessageId = (): string => `m-${++messageCounter}`;

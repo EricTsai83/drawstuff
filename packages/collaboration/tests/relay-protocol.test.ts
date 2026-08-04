@@ -16,7 +16,13 @@ import {
   parseRelayServerControl,
   type RelayServerControl,
 } from "../src/relay-protocol.ts";
-import { CLIENT_A, PEER_A, ROOM_ID, sceneMessage } from "./helpers.ts";
+import {
+  CLIENT_A,
+  JOIN_TOKEN,
+  PEER_A,
+  ROOM_ID,
+  sceneMessage,
+} from "./helpers.ts";
 
 describe("relay data frames", () => {
   it("round-trips a codec-encoded scene message", () => {
@@ -59,8 +65,12 @@ describe("relay control frames", () => {
       protocolVersion: 1,
       roomId: ROOM_ID,
       clientId: CLIENT_A,
+      token: JOIN_TOKEN,
     } as const;
     expect(parseRelayClientControl(encodeRelayControl(join))).toEqual(join);
+    // A join without a token is not a join: the relay has no anonymous path.
+    const tokenless = { ...join, token: undefined };
+    expect(parseRelayClientControl(JSON.stringify(tokenless))).toBeUndefined();
     expect(
       parseRelayClientControl(encodeRelayControl({ control: "leave" })),
     ).toEqual({ control: "leave" });
@@ -73,11 +83,10 @@ describe("relay control frames", () => {
       roomId: ROOM_ID,
       peerId: PEER_A,
       roomGeneration: 7,
+      role: "viewer",
       peers: [{ peerId: PEER_A, clientId: CLIENT_A }],
     };
-    expect(parseRelayServerControl(encodeRelayControl(joined))).toEqual(
-      joined,
-    );
+    expect(parseRelayServerControl(encodeRelayControl(joined))).toEqual(joined);
   });
 
   it("rejects malformed, mixed-direction, and oversize controls", () => {

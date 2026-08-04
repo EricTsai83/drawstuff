@@ -15,6 +15,7 @@ import {
   encodeRelayDataFrame,
   parseRelayServerControl,
 } from "./relay-protocol.ts";
+import { roomRoleCanEditScene, type RoomRole } from "./room-auth.ts";
 import type {
   CollaborationTransport,
   ConnectionState,
@@ -79,7 +80,7 @@ export function createRelayWebSocketTransport(
     socket: RelaySocketLike;
     roomId: RoomId;
     clientId: ClientId;
-    session?: { peerId: PeerId; roomGeneration: number };
+    session?: { peerId: PeerId; roomGeneration: number; role: RoomRole };
   };
 
   const subscribers = new Set<TransportSubscriber>();
@@ -96,6 +97,7 @@ export function createRelayWebSocketTransport(
       clientId: active.clientId,
       peerId: active.session.peerId,
       roomGeneration: active.session.roomGeneration,
+      role: active.session.role,
     };
   };
 
@@ -148,6 +150,7 @@ export function createRelayWebSocketTransport(
       connection.session = {
         peerId: control.peerId,
         roomGeneration: control.roomGeneration,
+        role: control.role,
       };
       notifyConnectionState();
       notifyRoomPeers(control.peers);
@@ -193,6 +196,12 @@ export function createRelayWebSocketTransport(
     if (closed || !connection?.session) {
       return { ok: false, error: { code: "not-connected" } };
     }
+    // The relay closes a viewer's connection outright when it publishes on the
+    // scene channel. Failing the send here keeps a mis-wired caller from
+    // destroying its own read-only session; enforcement stays server-side.
+    if (channel === "scene" && !roomRoleCanEditScene(connection.session.role)) {
+      return { ok: false, error: { code: "read-only-role" } };
+    }
     if (
       message.roomId !== connection.roomId ||
       message.senderClientId !== connection.clientId ||
@@ -219,9 +228,12 @@ export function createRelayWebSocketTransport(
 
   return {
     getConnectionState: connectionState,
-    connect({ roomId, clientId }) {
+    connect({ roomId, clientId, joinToken }) {
       if (closed) throw new Error("Transport is closed");
       if (active) throw new Error("Transport is already connected");
+      if (joinToken.length === 0) {
+        throw new Error("A room join token is required to connect");
+      }
 
       const socket = createSocket(url);
       socket.binaryType = "arraybuffer";
@@ -236,6 +248,7 @@ export function createRelayWebSocketTransport(
             protocolVersion: COLLABORATION_PROTOCOL_VERSION,
             roomId,
             clientId,
+            token: joinToken,
           }),
         );
       };

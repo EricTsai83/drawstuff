@@ -273,7 +273,7 @@ describe("host integration surface (native UI integration contract)", () => {
   it("mounts only editor props that are already audited", () => {
     // excalidraw-editor.tsx is the only host that mounts the editor: the
     // published page renders a static `exportToSvg` output and passes no
-    // editor props at all (which is why `viewModeEnabled` is absent here).
+    // editor props at all.
     const HOST_EDITOR_PROPS = [
       "children",
       "excalidrawAPI",
@@ -287,6 +287,7 @@ describe("host integration surface (native UI integration contract)", () => {
       "theme",
       "UIOptions",
       "validateEmbeddable",
+      "viewModeEnabled",
     ] as const satisfies readonly (typeof EDITOR_PROP_KEYS)[number][];
 
     // The adapter's `ExcalidrawCanvasProps` must expose exactly this set: no
@@ -302,7 +303,7 @@ describe("host integration surface (native UI integration contract)", () => {
     assertNoUnauditedKeys<UnexposedHostProp>();
     assertNoUnauditedKeys<UnauditedAdapterProp>();
 
-    expect(HOST_EDITOR_PROPS).toHaveLength(12);
+    expect(HOST_EDITOR_PROPS).toHaveLength(13);
   });
 
   it("pins the upstream export utilities the host renders scenes through", () => {

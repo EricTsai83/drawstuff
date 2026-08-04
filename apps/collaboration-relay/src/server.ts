@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { once } from "node:events";
+import { createServer, type Server } from "node:http";
 
 import { WebSocketServer, type WebSocket } from "ws";
 
@@ -8,12 +9,18 @@ import {
   MAX_RELAY_DATA_FRAME_BYTES,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
+import { assertRoomTokenSecret } from "@drawstuff/collaboration/room-token";
 
 import {
   createRelayConnection,
   type RelayConnectionLimits,
 } from "./connection.ts";
+import { createRelayControlRequestHandler } from "./control.ts";
 import { createInMemoryRoomFanout, type RoomFanout } from "./fanout.ts";
+import {
+  createRelaySessionRegistry,
+  type RelaySessionRegistry,
+} from "./sessions.ts";
 
 type RelayLimits = RelayConnectionLimits & {
   /** Relay-wide connection cap; connections beyond it are refused. */
@@ -36,10 +43,16 @@ const DEFAULT_RELAY_LIMITS: RelayLimits = {
 };
 
 export type RelayServerOptions = {
+  /**
+   * Shared secret the app signs room join and control tokens with. Required:
+   * the relay has no unauthenticated join path.
+   */
+  joinTokenSecret: string;
   /** Port to bind; 0 (default) picks an ephemeral port. Local/test only. */
   port?: number;
   host?: string;
   fanout?: RoomFanout;
+  sessions?: RelaySessionRegistry;
   limits?: Partial<RelayLimits>;
   generatePeerId?: () => PeerId;
 };
@@ -47,34 +60,50 @@ export type RelayServerOptions = {
 export type RelayServer = {
   readonly port: number;
   readonly url: string;
+  /** HTTP origin of the server-to-server control endpoint. */
+  readonly controlUrl: string;
   connectionCount(): number;
   roomCount(): number;
+  /** Authorized, currently joined sessions across all room generations. */
+  sessionCount(): number;
   close(): Promise<void>;
 };
 
 /**
  * Stateless realtime relay. Routes session-ordered scene frames and volatile
- * presence frames between the members of a room; keeps no scene state, no
- * binary payloads, and no persistence — a restart only drops connections and
- * starts fresh room epochs.
+ * presence frames between the members of an authorized room; keeps no scene
+ * state, no binary payloads, and no persistence — a restart only drops
+ * connections and starts fresh room epochs.
+ *
+ * Authorization is token-based (Plan 13): every join must present a short-lived
+ * token signed by the app, and membership changes reach already-connected
+ * sockets through the control endpoint served on the same port.
  */
 export async function createRelayServer(
-  options: RelayServerOptions = {},
+  options: RelayServerOptions,
 ): Promise<RelayServer> {
   const host = options.host ?? "127.0.0.1";
   const limits: RelayLimits = { ...DEFAULT_RELAY_LIMITS, ...options.limits };
   const fanout = options.fanout ?? createInMemoryRoomFanout();
+  const sessions = options.sessions ?? createRelaySessionRegistry();
+  // Fail at startup, not on the first join: the secret is only reached inside
+  // a socket message handler, where a throw would take the process down.
+  const joinTokenSecret = options.joinTokenSecret;
+  assertRoomTokenSecret(joinTokenSecret);
   const generatePeerId =
     options.generatePeerId ??
     ((): PeerId => peerIdSchema.parse(`peer-${randomUUID()}`));
 
+  const httpServer: Server = createServer(
+    createRelayControlRequestHandler({ sessions, joinTokenSecret }),
+  );
   const server = new WebSocketServer({
-    host,
-    port: options.port ?? 0,
+    server: httpServer,
     // Transport-level cap; exact per-channel budgets are enforced per frame.
     maxPayload: MAX_RELAY_DATA_FRAME_BYTES,
   });
-  await once(server, "listening");
+  httpServer.listen(options.port ?? 0, host);
+  await once(httpServer, "listening");
 
   const liveness = new WeakMap<WebSocket, { isAlive: boolean }>();
 
@@ -102,8 +131,10 @@ export async function createRelayServer(
     const connection = createRelayConnection({
       socket,
       fanout,
+      sessions,
       limits,
       generatePeerId,
+      joinTokenSecret,
     });
 
     socket.on("message", (data, isBinary) => {
@@ -142,7 +173,7 @@ export async function createRelayServer(
     }
   }, limits.heartbeatIntervalMs);
 
-  const address = server.address();
+  const address = httpServer.address();
   const port =
     typeof address === "object" && address !== null ? address.port : 0;
 
@@ -151,8 +182,10 @@ export async function createRelayServer(
   return {
     port,
     url: `ws://${host}:${port}`,
+    controlUrl: `http://${host}:${port}`,
     connectionCount: () => server.clients.size,
     roomCount: () => fanout.roomCount(),
+    sessionCount: () => sessions.sessionCount(),
     async close() {
       if (closed) return;
       closed = true;
@@ -165,6 +198,13 @@ export async function createRelayServer(
       }
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
+      });
+      // The WebSocket server does not own the HTTP listener it was attached
+      // to, so the control endpoint's socket has to be released explicitly.
+      // Dropping keep-alive sockets first keeps shutdown deterministic.
+      httpServer.closeAllConnections();
+      await new Promise<void>((resolve, reject) => {
+        httpServer.close((error) => (error ? reject(error) : resolve()));
       });
     },
   };

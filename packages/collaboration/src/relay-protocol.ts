@@ -9,6 +9,7 @@ import {
   peerIdSchema,
   roomIdSchema,
 } from "./messages.ts";
+import { MAX_ROOM_TOKEN_BYTES, roomRoleSchema } from "./room-auth.ts";
 
 /**
  * Wire protocol between a collaboration client and the stateless relay.
@@ -16,7 +17,8 @@ import {
  * Two frame kinds travel over one WebSocket connection:
  *
  * - Control frames are JSON text (`join`, `leave` from the client; `joined`,
- *   `peers` from the relay). They carry membership only, never scene state.
+ *   `peers` from the relay). They carry membership and authorization only,
+ *   never scene state.
  * - Data frames are binary: a one-byte channel prefix followed by the exact
  *   bytes produced by the protocol codec. The relay routes data frames by
  *   room and channel without decoding the payload, so element semantics stay
@@ -29,11 +31,18 @@ export const relayPeerSchema = z.strictObject({
 });
 export type RelayPeer = z.infer<typeof relayPeerSchema>;
 
+/**
+ * Join request. The room token is mandatory: the relay has no unauthenticated
+ * join path, so an unauthorized client can neither subscribe to nor publish
+ * into a room. The declared `roomId`/`clientId` must match the token claims,
+ * and the room's authorization generation is taken from the token only.
+ */
 export const relayJoinRequestSchema = z.strictObject({
   control: z.literal("join"),
   protocolVersion: z.literal(COLLABORATION_PROTOCOL_VERSION),
   roomId: roomIdSchema,
   clientId: clientIdSchema,
+  token: z.string().min(1).max(MAX_ROOM_TOKEN_BYTES),
 });
 export type RelayJoinRequest = z.infer<typeof relayJoinRequestSchema>;
 
@@ -47,14 +56,18 @@ export const relayClientControlSchema = z.discriminatedUnion("control", [
 ]);
 export type RelayClientControl = z.infer<typeof relayClientControlSchema>;
 
-/** Join acknowledgment: session identity assigned by the relay plus the
- *  current room membership (including the joiner itself). */
+/** Join acknowledgment: session identity assigned by the relay, the role the
+ *  relay will enforce for this connection, plus the current room membership
+ *  (including the joiner itself). */
 export const relayJoinedNoticeSchema = z.strictObject({
   control: z.literal("joined"),
   protocolVersion: z.literal(COLLABORATION_PROTOCOL_VERSION),
   roomId: roomIdSchema,
   peerId: peerIdSchema,
   roomGeneration: z.int().positive(),
+  /** Echoed from the verified token so the client mirrors the authoritative
+   *  server-side decision instead of trusting its own copy. */
+  role: roomRoleSchema,
   peers: z.array(relayPeerSchema),
 });
 export type RelayJoinedNotice = z.infer<typeof relayJoinedNoticeSchema>;
@@ -108,7 +121,9 @@ export function encodeRelayDataFrame(
   channel: MessageChannel,
   payload: Uint8Array,
 ): Uint8Array {
-  const frame = new Uint8Array(payload.byteLength + RELAY_DATA_FRAME_HEADER_BYTES);
+  const frame = new Uint8Array(
+    payload.byteLength + RELAY_DATA_FRAME_HEADER_BYTES,
+  );
   frame[0] = CHANNEL_BYTE[channel];
   frame.set(payload, RELAY_DATA_FRAME_HEADER_BYTES);
   return frame;
@@ -189,6 +204,15 @@ export const RELAY_CLOSE_CODES = {
   slowConsumer: 4003,
   /** The socket never sent a valid join within the join deadline. */
   joinTimeout: 4004,
+  /** No token, or a token that failed signature/audience/expiry/binding
+   *  verification. The client must obtain a fresh token from the app. */
+  unauthorized: 4005,
+  /** A viewer attempted to publish a scene mutation. */
+  readOnlyRole: 4006,
+  /** The member's room authorization was revoked while connected. */
+  membershipRevoked: 4007,
+  /** The room generation was ended (or rotated) by its owner. */
+  roomEnded: 4008,
 } as const;
 export type RelayCloseCode =
   (typeof RELAY_CLOSE_CODES)[keyof typeof RELAY_CLOSE_CODES];
