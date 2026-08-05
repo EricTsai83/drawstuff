@@ -42,6 +42,18 @@ jobs:
       - name: Lint
         run: pnpm lint
 
+      # Before `Test`, not just before the e2e gates: `pnpm test` includes
+      # @drawstuff/collaboration's `browser` vitest project, which re-runs the
+      # crypto suites in real Chromium and WebKit. Installing after `Test` left
+      # that project unable to launch a browser. Kept after the cheap checks so
+      # typecheck, format and lint still fail fast without paying for the
+      # download. `chromium` brings its headless shell along, and both
+      # playwright versions in the workspace (1.62.0 in apps/web, 1.62.1 in
+      # packages/collaboration) pin the same browser revisions, so one install
+      # serves the vitest browser project and the e2e gates alike.
+      - name: Install Playwright browsers
+        run: pnpm --filter @drawstuff/web exec playwright install --with-deps chromium webkit
+
       - name: Test
         run: pnpm test
 
@@ -55,9 +67,6 @@ jobs:
         run: pnpm build
         env:
           SKIP_ENV_VALIDATION: "1"
-
-      - name: Install Playwright browsers
-        run: pnpm --filter @drawstuff/web exec playwright install --with-deps chromium webkit
 
       - name: Browser, mobile, and accessibility gates
         run: pnpm --filter @drawstuff/web test:e2e
