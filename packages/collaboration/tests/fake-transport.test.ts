@@ -164,7 +164,10 @@ describe("fake collaboration network", () => {
     });
 
     first.disconnect();
-    expect(first.getConnectionState()).toEqual({ status: "disconnected" });
+    expect(first.getConnectionState()).toEqual({
+      status: "disconnected",
+      reason: "idle",
+    });
     first.connect({
       roomId: ROOM_ID,
       clientId: CLIENT_A,
@@ -280,8 +283,15 @@ describe("fake collaboration network", () => {
     network.restartRoom(ROOM_ID);
 
     expect(network.pendingMessageCount()).toBe(0);
-    expect(first.getConnectionState()).toEqual({ status: "disconnected" });
-    expect(second.getConnectionState()).toEqual({ status: "disconnected" });
+    // A restart is a failure every member should recover from, not a leave.
+    expect(first.getConnectionState()).toEqual({
+      status: "disconnected",
+      reason: "transient",
+    });
+    expect(second.getConnectionState()).toEqual({
+      status: "disconnected",
+      reason: "transient",
+    });
 
     first.connect({
       roomId: ROOM_ID,
@@ -325,7 +335,10 @@ describe("fake collaboration network", () => {
 
     expect(restartSends).toBe(1);
     expect(network.pendingMessageCount()).toBe(0);
-    expect(first.getConnectionState()).toEqual({ status: "disconnected" });
+    expect(first.getConnectionState()).toEqual({
+      status: "disconnected",
+      reason: "transient",
+    });
   });
 
   it("is terminally closed before close-time callbacks fire", () => {

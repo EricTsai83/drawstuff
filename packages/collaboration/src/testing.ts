@@ -13,10 +13,51 @@ import { roomRoleCanEditScene, type RoomRole } from "./room-auth.ts";
 import type {
   CollaborationTransport,
   ConnectionState,
+  DisconnectReason,
   RoomPeer,
   SendResult,
   TransportSubscriber,
 } from "./transport.ts";
+
+/**
+ * Deterministic pseudo-random generator (mulberry32) for fault injection.
+ *
+ * Fault matrices are only useful if a failure can be replayed, so the fake
+ * network never touches `Math.random`: a test picks a seed, and a failing seed is
+ * the whole reproduction.
+ */
+export function createSeededRandom(seed: number): () => number {
+  let state = seed >>> 0;
+  return () => {
+    state = (state + 0x6d2b79f5) >>> 0;
+    let t = state;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+  };
+}
+
+/**
+ * Delivery faults the network injects, each as an independent per-message
+ * probability in `[0, 1]`.
+ *
+ * `delayProbability` deliberately breaks the transport's session-ordering
+ * guarantee: a delayed frame is requeued behind messages sent after it, so the
+ * receiver sees a scene sequence go backwards. A real relay cannot do that over
+ * one socket, which is exactly why it is worth injecting — it proves the inbound
+ * gate rejects the stale frame instead of applying it, and that the snapshot
+ * repair path converges anyway rather than relying on ordering to be true.
+ */
+export type FakeNetworkFaults = {
+  /** Message is lost outright, including on the session-ordered channel. */
+  dropProbability?: number;
+  /** Message is delivered twice, as a retransmitting middlebox would. */
+  duplicateProbability?: number;
+  /** Message is held back to a later flush: added latency and reordering. */
+  delayProbability?: number;
+  /** Hard bound on how many flushes one message may be held back. */
+  maxDelayRounds?: number;
+};
 
 export interface FakeCollaborationNetworkOptions {
   /**
@@ -24,6 +65,8 @@ export interface FakeCollaborationNetworkOptions {
    * fail with a `queue-overflow` error instead of growing memory.
    */
   maxQueuedMessages?: number;
+  /** Fault-injection randomness; seed it for reproducible matrices. */
+  random?: () => number;
 }
 
 export interface FakeCollaborationNetwork {
@@ -43,6 +86,24 @@ export interface FakeCollaborationNetwork {
   flush(options?: { dropPresenceMessages?: boolean }): number;
   pendingMessageCount(): number;
   /**
+   * Installs (or clears, when called with no faults) the delivery fault profile
+   * applied by every subsequent `flush`.
+   */
+  setFaults(faults?: FakeNetworkFaults): void;
+  /**
+   * Drops one member's connection the way a relay-side failure does. Reports
+   * `transient` by default — the reason a network failure or a relay restart
+   * carries — so a client's recovery policy sees something worth retrying rather
+   * than a local `disconnect()`.
+   */
+  dropConnection(transport: CollaborationTransport): void;
+  /**
+   * Changes the reason subsequent `dropConnection` and `restartRoom` calls
+   * report, so a test can inject the closes a real relay makes for authorization
+   * reasons and not only the transient ones.
+   */
+  setDisconnectReason(reason: DisconnectReason): void;
+  /**
    * Simulate a relay restart: every member is disconnected, in-flight
    * messages for the room are lost, and the next join starts a new room
    * generation.
@@ -57,6 +118,8 @@ interface FakeTransportInternal {
     | { roomId: RoomId; clientId: ClientId; peerId: PeerId; generation: number }
     | undefined;
   closed: boolean;
+  /** Why the last session ended; mirrors the real transport's contract. */
+  disconnectReason: DisconnectReason;
 }
 
 interface RoomMember {
@@ -75,6 +138,8 @@ interface QueuedMessage {
   sender: FakeTransportInternal;
   bytes: Uint8Array;
   volatile: boolean;
+  /** Flushes this message has already been held back by the delay fault. */
+  delayedRounds: number;
 }
 
 /**
@@ -105,9 +170,21 @@ export function createFakeCollaborationNetwork(
       `maxQueuedMessages must be a positive integer, received ${maxQueuedMessages}`,
     );
   }
+  const random = options.random ?? Math.random;
   const rooms = new Map<RoomId, RoomState>();
+  /** Lets `dropConnection` reach the internals behind a public transport. */
+  const internals = new WeakMap<
+    CollaborationTransport,
+    FakeTransportInternal
+  >();
   let queue: QueuedMessage[] = [];
   let nextPeerNumber = 1;
+  let faults: FakeNetworkFaults | undefined;
+  /** Reason `dropConnection` and `restartRoom` report; see `setDisconnectReason`. */
+  let dropReason: DisconnectReason = "transient";
+
+  const rollFault = (probability: number | undefined): boolean =>
+    probability !== undefined && probability > 0 && random() < probability;
 
   const notifyMembership = (room: RoomState): void => {
     for (const member of room.members) {
@@ -131,7 +208,7 @@ export function createFakeCollaborationNetwork(
       return { status: "closed" };
     }
     if (!transport.session) {
-      return { status: "disconnected" };
+      return { status: "disconnected", reason: transport.disconnectReason };
     }
     return {
       status: "connected",
@@ -150,12 +227,16 @@ export function createFakeCollaborationNetwork(
     }
   };
 
-  const leaveRoom = (transport: FakeTransportInternal): void => {
+  const leaveRoom = (
+    transport: FakeTransportInternal,
+    reason: DisconnectReason,
+  ): void => {
     const session = transport.session;
     if (!session) {
       return;
     }
     transport.session = undefined;
+    transport.disconnectReason = reason;
     const room = rooms.get(session.roomId);
     if (room) {
       room.members = room.members.filter(
@@ -200,6 +281,7 @@ export function createFakeCollaborationNetwork(
       sender: transport,
       bytes: encoded.bytes,
       volatile: message.type === "presence",
+      delayedRounds: 0,
     });
     return { ok: true };
   };
@@ -211,9 +293,10 @@ export function createFakeCollaborationNetwork(
         role: transportOptions.role ?? "editor",
         session: undefined,
         closed: false,
+        disconnectReason: "idle",
       };
 
-      return {
+      const transport: CollaborationTransport = {
         getConnectionState: () => connectionStateOf(internal),
         connect({ roomId, clientId, joinToken }) {
           if (internal.closed) {
@@ -247,7 +330,7 @@ export function createFakeCollaborationNetwork(
           notifyMembership(room);
         },
         disconnect() {
-          leaveRoom(internal);
+          leaveRoom(internal, "idle");
         },
         close() {
           if (internal.closed) {
@@ -257,7 +340,7 @@ export function createFakeCollaborationNetwork(
           // fired below are rejected instead of resurrecting room membership.
           internal.closed = true;
           const wasConnected = internal.session !== undefined;
-          leaveRoom(internal);
+          leaveRoom(internal, "idle");
           // Terminal cleanup: unlike disconnect(), which leaves already-sent
           // messages in flight, close() purges this sender's undelivered
           // messages so nothing retains the closed transport. flush() also
@@ -277,24 +360,15 @@ export function createFakeCollaborationNetwork(
           };
         },
       };
+      internals.set(transport, internal);
+      return transport;
     },
     flush(options) {
       const pending = queue;
       queue = [];
       let delivered = 0;
 
-      for (const item of pending) {
-        // A sender closed mid-flush purges the rest of its active batch too.
-        if (item.sender.closed) {
-          continue;
-        }
-        if (options?.dropPresenceMessages && item.volatile) {
-          continue;
-        }
-        const room = rooms.get(item.roomId);
-        if (!room) {
-          continue;
-        }
+      const deliverOnce = (item: QueuedMessage, room: RoomState): void => {
         for (const member of room.members) {
           if (member.transport === item.sender) {
             continue;
@@ -315,16 +389,63 @@ export function createFakeCollaborationNetwork(
             delivered += 1;
           }
         }
+      };
+
+      for (const item of pending) {
+        // A sender closed mid-flush purges the rest of its active batch too.
+        if (item.sender.closed) {
+          continue;
+        }
+        if (options?.dropPresenceMessages && item.volatile) {
+          continue;
+        }
+        if (rollFault(faults?.dropProbability)) {
+          continue;
+        }
+        // Held back to a later flush, and requeued at the *tail* so messages
+        // sent after it arrive first. The bound is what keeps `settle()` from
+        // looping: a message cannot be delayed forever.
+        if (
+          item.delayedRounds < (faults?.maxDelayRounds ?? 0) &&
+          rollFault(faults?.delayProbability)
+        ) {
+          queue.push({ ...item, delayedRounds: item.delayedRounds + 1 });
+          continue;
+        }
+        const room = rooms.get(item.roomId);
+        if (!room) {
+          continue;
+        }
+        deliverOnce(item, room);
+        if (rollFault(faults?.duplicateProbability)) {
+          deliverOnce(item, room);
+        }
       }
 
       return delivered;
     },
     pendingMessageCount: () => queue.length,
+    setFaults(nextFaults) {
+      faults = nextFaults;
+    },
+    setDisconnectReason(reason) {
+      dropReason = reason;
+    },
+    dropConnection(transport) {
+      const internal = internals.get(transport);
+      if (!internal) {
+        throw new Error("dropConnection: transport is not from this network");
+      }
+      leaveRoom(internal, dropReason);
+    },
     restartRoom(roomId) {
       const room = rooms.get(roomId);
       if (room) {
         for (const member of [...room.members]) {
-          leaveRoom(member.transport);
+          // A restart is not a member leaving: every client sees a failure it
+          // should recover from, which is what makes the restart testable
+          // against the recovery policy rather than against `disconnect()`.
+          leaveRoom(member.transport, dropReason);
         }
       }
       // Purge after every member left: membership callbacks fired during the

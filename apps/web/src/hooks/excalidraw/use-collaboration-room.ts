@@ -1,5 +1,6 @@
 "use client";
 
+import { TRPCClientError } from "@trpc/client";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
@@ -8,6 +9,7 @@ import {
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
+import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import {
   roomRoleCanEditScene,
   type RoomRole,
@@ -30,7 +32,7 @@ import {
   releaseCanvasRoom,
 } from "@/lib/collab/canvas-room-marker";
 import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
-import type { BaselineOutcome } from "@/lib/collab/collaboration-session";
+import type { JoinCredentialsResult } from "@/lib/collab/collaboration-session";
 import {
   startCollaborationRoomSession,
   toCollaborationUsername,
@@ -44,9 +46,17 @@ import { api } from "@/trpc/react";
  * the granted role as read-only editor state.
  *
  * The room id is a locator only — the backend decides the role, and a viewer's
- * session is read-only on the server whatever this hook reports. A dropped
- * connection is surfaced rather than silently retried: automatic reconnection is
- * Plan 18's scope, and a silent retry would hide a revoked membership.
+ * session is read-only on the server whatever this hook reports.
+ *
+ * ## Losing the connection
+ *
+ * A dropped socket reconnects on its own, with backoff and a freshly minted join
+ * token, and the status says so. What it must never do is retry indefinitely
+ * without saying anything: a revoked membership, an ended room and a rotated
+ * generation all end a session for good, and each of them looks exactly like a
+ * network blip until the reason is reported. So the user-facing status follows the
+ * session's *recovery* state rather than its socket state — `reconnecting` and
+ * `failed` are both a closed socket, and only one of them is worth waiting for.
  *
  * Authorization and confidentiality arrive from opposite directions. The join
  * token comes from the backend; the room key comes from the URL fragment and is
@@ -81,7 +91,10 @@ export type CollaborationRoomStatus =
   | "preparing"
   | "joining"
   | "connected"
-  | "disconnected"
+  /** The connection dropped and the session is retrying with backoff. */
+  | "reconnecting"
+  /** Recovery stopped for a stated reason; `errorMessage` carries it. */
+  | "failed"
   | "unauthorized"
   /** The user declined to give up the current canvas, so no join happened. */
   | "cancelled"
@@ -108,11 +121,70 @@ export type UseCollaborationRoomResult = {
   ) => void;
 };
 
-/** Reported to the user only when the outcome needs explaining. */
-const BASELINE_MESSAGE: Partial<Record<BaselineOutcome, string>> = {
-  "unreadable-snapshot":
+/**
+ * What each terminal recovery reason means for the user, and what they can do
+ * about it. Every reason gets a message: an unexplained "stopped reconnecting" is
+ * indistinguishable from a hang, and the action differs per reason — ask for
+ * access, ask for a new link, or reload.
+ *
+ * None of them echoes the room key or the fragment.
+ */
+const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
+  unauthorized:
+    "目前無法取得這個共編 room 的存取權，連線已停止。請確認你仍是成員，或向擁有者重新索取邀請。",
+  "membership-revoked": "你的共編權限已被移除，連線已結束。",
+  "room-ended":
+    "這個共編 room 已被擁有者結束或重設，連線已停止。請向分享者索取新的連結。",
+  "generation-rotated":
+    "這個 room 的加密世代已更新，目前的連結無法再解密內容。請向分享者索取新的完整連結。",
+  "unreadable-room":
     "這個 room 有已儲存的畫布，但無法用目前連結的金鑰解開。請向分享者索取最新的完整連結。",
+  "protocol-violation":
+    "連線因通訊協定錯誤而中止。請重新載入頁面；若持續發生請回報。",
+  "crypto-exhausted":
+    "這個連線的加密額度已用盡，無法繼續安全傳送。請由擁有者重設 room generation 後重新加入。",
+  "retry-limit":
+    "多次重新連線都失敗，已停止重試。請確認網路連線後重新載入頁面。",
 };
+
+/**
+ * Turns a failed `collaborationRoom.join` into the credential refusal recovery
+ * acts on.
+ *
+ * This is the only place that can make the call. The relay closes a socket as soon
+ * as the app withdraws the authorization it holds, and it uses one close code for
+ * both "removed from the room" and "role changed" — and a role change *must*
+ * reconnect, because the role travels in the token. So the relay's close is always
+ * retried, and this request is where a client that genuinely cannot come back is
+ * stopped.
+ *
+ * Read off the tRPC error code rather than the message, and deliberately
+ * conservative: only the codes that state a refusal are terminal, so an
+ * unrecognized failure is retried. A retried refusal costs one round-trip and
+ * lands here again; a terminal verdict on a transient failure would abandon a
+ * session that was coming back.
+ *
+ * `PRECONDITION_FAILED` is `accessError`'s answer for a room that has ended or
+ * expired, which is exactly why it must not read as "unavailable": retrying it
+ * would spend the whole budget and then report the wrong reason.
+ */
+function classifyJoinFailure(error: unknown): JoinCredentialsResult {
+  const code =
+    error instanceof TRPCClientError
+      ? (error.data as { code?: unknown } | null | undefined)?.code
+      : undefined;
+  switch (code) {
+    case "FORBIDDEN":
+      return { ok: false, retry: false, failure: "membership-revoked" };
+    case "UNAUTHORIZED":
+      return { ok: false, retry: false, failure: "unauthorized" };
+    case "PRECONDITION_FAILED":
+    case "NOT_FOUND":
+      return { ok: false, retry: false, failure: "room-ended" };
+    default:
+      return { ok: false, retry: true };
+  }
+}
 
 export function useCollaborationRoom(options: {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
@@ -167,6 +239,20 @@ export function useCollaborationRoom(options: {
    * room while the editor still offers the actions that replace it.
    */
   const [ownsCanvas, setOwnsCanvas] = useState(false);
+  /**
+   * True once the app has withdrawn this connection's authorization and a new
+   * grant has not arrived yet.
+   *
+   * The relay closes with `membership-revoked` both when a member is removed and
+   * when their *role* is changed — a role change has to force a reconnect, because
+   * the role travels in the token. So during that reconnect the role this hook is
+   * holding may no longer be the user's, and continuing to accept edits on the
+   * strength of it is how a demoted editor produces work the reconnected viewer can
+   * never publish: locally newer than the room, refused by the relay, permanently
+   * divergent. A transient drop is different — the role is unchanged, so editing
+   * continues and the offline queue carries it.
+   */
+  const [roleWithdrawn, setRoleWithdrawn] = useState(false);
 
   /**
    * Read at connect time instead of being effect dependencies: a display name
@@ -255,6 +341,8 @@ export function useCollaborationRoom(options: {
 
     let cancelled = false;
     let handle: CollaborationRoomHandle | undefined;
+    /** Separates the first join from every reconnect after it. */
+    let hasBeenLive = false;
     setStatus("joining");
     setErrorMessage(null);
 
@@ -341,12 +429,40 @@ export function useCollaborationRoom(options: {
         // the session is still being built. Whatever comes back has to be
         // destroyed in that case: the closure variable the cleanup reads is
         // still undefined at that point.
+        /**
+         * Mints credentials for a reconnect attempt, and classifies a refusal.
+         *
+         * The classification has to happen here, where the backend's error
+         * vocabulary is: a `FORBIDDEN`/`NOT_FOUND` answer means this client is no
+         * longer allowed in and recovery must stop, while anything else — a
+         * timeout, a 5xx, an offline browser — is a condition the next attempt may
+         * not hit. Getting that backwards either hides a revocation behind an
+         * endless spinner or abandons a session that would have come back.
+         */
+        const refreshJoinToken = async (): Promise<JoinCredentialsResult> => {
+          try {
+            const refreshed =
+              await utilsRef.current.client.collaborationRoom.join.mutate({
+                roomId: parsedRoomId.data,
+                clientId,
+              });
+            return {
+              ok: true,
+              token: refreshed.token,
+              authGeneration: refreshed.authGeneration,
+            };
+          } catch (error) {
+            return classifyJoinFailure(error);
+          }
+        };
+
         const started = await startCollaborationRoomSession({
           excalidrawApi: excalidrawAPI,
           relayUrl: joined.relayUrl,
           roomId: joined.roomId,
           clientId,
           joinToken: joined.token,
+          refreshJoinToken,
           roomKey,
           authGeneration: joined.authGeneration,
           username: toCollaborationUsername(usernameRef.current, clientId),
@@ -370,22 +486,45 @@ export function useCollaborationRoom(options: {
           },
           wrapRemoteApply,
           canSyncScene: () => canvasBelongsToRoom(joined.roomId),
-          onBaselineResolved: (outcome) => {
-            if (cancelled) return;
-            const message = BASELINE_MESSAGE[outcome];
-            if (message) setErrorMessage(message);
-          },
+          // Role only: the granted role is a property of the socket, and it must
+          // survive a reconnect window so a viewer's editor does not briefly
+          // become writable while the session is retrying.
           onConnectionStateChange: (state) => {
             if (cancelled) return;
             if (state.status === "connected") {
               setRole(state.role);
+              // The server just stated the role, so it is authoritative again.
+              setRoleWithdrawn(false);
+              return;
+            }
+            if (
+              state.status === "disconnected" &&
+              state.reason === "membership-revoked"
+            ) {
+              setRoleWithdrawn(true);
+            }
+          },
+          onRecoveryStateChange: (state) => {
+            if (cancelled) return;
+            if (state.phase === "failed") {
+              setStatus("failed");
+              setErrorMessage(FAILURE_MESSAGE[state.reason]);
+              return;
+            }
+            setErrorMessage(null);
+            if (state.phase === "live") {
+              hasBeenLive = true;
               setStatus("connected");
               return;
             }
-            if (state.status === "connecting") return;
-            // The relay closed us: revoked membership, an ended room, or a
-            // transport failure. Report it instead of reconnecting silently.
-            setStatus("disconnected");
+            if (state.phase === "idle") {
+              setStatus("idle");
+              return;
+            }
+            // Before the first successful join this is still the join; after it,
+            // it is a reconnect. The difference is the whole point of the status:
+            // "this is slow" versus "this broke and is coming back".
+            setStatus(hasBeenLive ? "reconnecting" : "joining");
           },
         });
         if (cancelled) {
@@ -417,6 +556,7 @@ export function useCollaborationRoom(options: {
       setOwnsCanvas(false);
       setStatus("idle");
       setRole(null);
+      setRoleWithdrawn(false);
       setErrorMessage(null);
     };
   }, [
@@ -448,8 +588,14 @@ export function useCollaborationRoom(options: {
     status,
     role,
     isCollaborating: status === "connected",
+    // Keyed to the canvas claim, not to the connection: a viewer's canvas belongs
+    // to the room for the whole session, so letting the editor become writable
+    // during a reconnect window would accept edits the relay will refuse. And an
+    // authorization the app has withdrawn is read-only whatever role this hook
+    // still holds — see `roleWithdrawn`.
     isReadOnly:
-      status === "connected" && role !== null && !roomRoleCanEditScene(role),
+      ownsCanvas &&
+      (roleWithdrawn || (role !== null && !roomRoleCanEditScene(role))),
     errorMessage,
     ownsCanvas,
     onPointerUpdate,

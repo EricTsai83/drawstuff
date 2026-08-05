@@ -16,6 +16,7 @@ import {
 } from "./realtime-crypto.ts";
 import {
   decodeRelayDataFrame,
+  disconnectReasonForCloseCode,
   encodeRelayControl,
   encodeRelayDataFrame,
   parseRelayServerControl,
@@ -25,6 +26,7 @@ import { roomRoleCanEditScene, type RoomRole } from "./room-auth.ts";
 import type {
   CollaborationTransport,
   ConnectionState,
+  DisconnectReason,
   RoomPeer,
   SendResult,
   TransportSubscriber,
@@ -44,7 +46,13 @@ export type RelaySocketLike = {
   close(code?: number, reason?: string): void;
   onopen: ((event: unknown) => void) | null;
   onmessage: ((event: { data: unknown }) => void) | null;
-  onclose: ((event: unknown) => void) | null;
+  /**
+   * `CloseEvent`, narrowed to the one field recovery needs. The relay states
+   * *why* it closed a connection in the close code (`RELAY_CLOSE_CODES`), and
+   * without it a revoked membership is indistinguishable from a network blip —
+   * so the reconnect loop would retry both.
+   */
+  onclose: ((event: { code?: number }) => void) | null;
   onerror: ((event: unknown) => void) | null;
 };
 
@@ -161,13 +169,19 @@ export function createRelayWebSocketTransport(
   const subscribers = new Set<TransportSubscriber>();
   let active: ActiveConnection | undefined;
   let closed = false;
+  /**
+   * Why the last connection ended, reported with every `disconnected` state so a
+   * caller never has to guess whether reconnecting is the right move. Reset on
+   * `connect()` so a stale reason cannot outlive the connection it describes.
+   */
+  let disconnectReason: DisconnectReason = "idle";
 
   const totalPendingBytes = (queues: ChannelQueues): number =>
     queues.scene.pendingBytes + queues.presence.pendingBytes;
 
   const connectionState = (): ConnectionState => {
     if (closed) return { status: "closed" };
-    if (!active) return { status: "disconnected" };
+    if (!active) return { status: "disconnected", reason: disconnectReason };
     if (!active.session) return { status: "connecting", roomId: active.roomId };
     return {
       status: "connected",
@@ -200,9 +214,13 @@ export function createRelayWebSocketTransport(
   };
 
   /** Drop the current connection and report `disconnected` (unless closed). */
-  const teardown = (connection: ActiveConnection): void => {
+  const teardown = (
+    connection: ActiveConnection,
+    reason: DisconnectReason,
+  ): void => {
     if (active !== connection) return;
     active = undefined;
+    disconnectReason = reason;
     detachSocket(connection.socket);
     try {
       connection.socket.close(1000, "client disconnect");
@@ -221,8 +239,10 @@ export function createRelayWebSocketTransport(
     if (control.control === "joined") {
       // A second `joined` or one for the wrong room is a relay bug; treat it
       // as a broken connection rather than adopting inconsistent identity.
+      // Reported as a protocol failure, not a blip: reconnecting into a relay
+      // that answers this way would only repeat it.
       if (connection.session || control.roomId !== connection.roomId) {
-        teardown(connection);
+        teardown(connection, "protocol");
         return;
       }
       connection.session = {
@@ -394,6 +414,7 @@ export function createRelayWebSocketTransport(
 
       const socket = createSocket(url);
       socket.binaryType = "arraybuffer";
+      disconnectReason = "idle";
       const connection: ActiveConnection = {
         socket,
         roomId,
@@ -424,9 +445,13 @@ export function createRelayWebSocketTransport(
         const bytes = toBytes(event.data);
         if (bytes) handleServerData(connection, bytes);
       };
-      socket.onclose = () => {
+      socket.onclose = (event) => {
         if (active !== connection) return;
         active = undefined;
+        // The relay's close code is the only evidence of *why* the session
+        // ended. A missing code (a socket that failed before any close frame)
+        // reads as transient, which is what a network failure is.
+        disconnectReason = disconnectReasonForCloseCode(event?.code);
         detachSocket(socket);
         notifyConnectionState();
       };
@@ -446,7 +471,7 @@ export function createRelayWebSocketTransport(
           // Best-effort retraction; the relay also cleans up on close.
         }
       }
-      teardown(connection);
+      teardown(connection, "idle");
     },
     close() {
       if (closed) return;
@@ -458,7 +483,7 @@ export function createRelayWebSocketTransport(
           // Best-effort retraction; the relay also cleans up on close.
         }
       }
-      if (connection) teardown(connection);
+      if (connection) teardown(connection, "idle");
       closed = true;
       notifyConnectionState();
       subscribers.clear();

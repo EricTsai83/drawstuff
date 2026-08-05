@@ -21,9 +21,14 @@ import {
   encodeRelayControl,
   encodeRelayDataFrame,
   parseRelayClientControl,
+  RELAY_CLOSE_CODES,
   type RelayServerControl,
 } from "../src/relay-protocol.ts";
-import type { ConnectionState, RoomPeer } from "../src/transport.ts";
+import type {
+  ConnectionState,
+  DisconnectReason,
+  RoomPeer,
+} from "../src/transport.ts";
 import {
   CLIENT_A,
   CLIENT_B,
@@ -46,7 +51,7 @@ class FakeSocket implements RelaySocketLike {
   bufferedAmount = 0;
   onopen: ((event: unknown) => void) | null = null;
   onmessage: ((event: { data: unknown }) => void) | null = null;
-  onclose: ((event: unknown) => void) | null = null;
+  onclose: ((event: { code?: number }) => void) | null = null;
   onerror: ((event: unknown) => void) | null = null;
   readonly sentText: string[] = [];
   readonly sentBinary: Uint8Array[] = [];
@@ -81,9 +86,9 @@ class FakeSocket implements RelaySocketLike {
     });
   }
 
-  serverClose(): void {
+  serverClose(code?: number): void {
     this.readyState = 3;
-    this.onclose?.({});
+    this.onclose?.(code === undefined ? {} : { code });
   }
 }
 
@@ -710,9 +715,69 @@ describe("createRelayWebSocketTransport", () => {
     const { transport, connectAndJoin } = await setup();
     const socket = connectAndJoin();
 
+    // No close code at all: a socket that failed before any close frame, which
+    // is what a network failure looks like. Retryable.
     socket.serverClose();
     expect(transport.getConnectionState()).toEqual({
       status: "disconnected",
+      reason: "transient",
+    });
+  });
+
+  it("reports the relay's close code as the reason recovery acts on", async () => {
+    const cases: {
+      code: number | undefined;
+      reason: DisconnectReason;
+    }[] = [
+      { code: RELAY_CLOSE_CODES.slowConsumer, reason: "transient" },
+      { code: RELAY_CLOSE_CODES.roomAtCapacity, reason: "transient" },
+      { code: RELAY_CLOSE_CODES.relayAtCapacity, reason: "transient" },
+      { code: RELAY_CLOSE_CODES.joinTimeout, reason: "transient" },
+      { code: RELAY_CLOSE_CODES.unauthorized, reason: "unauthorized" },
+      {
+        code: RELAY_CLOSE_CODES.membershipRevoked,
+        reason: "membership-revoked",
+      },
+      { code: RELAY_CLOSE_CODES.roomEnded, reason: "room-ended" },
+      { code: RELAY_CLOSE_CODES.protocolViolation, reason: "protocol" },
+      { code: RELAY_CLOSE_CODES.readOnlyRole, reason: "protocol" },
+      // A normal close from the server side is still an unexpected end of
+      // session for the client, so it is worth retrying.
+      { code: 1000, reason: "transient" },
+      { code: 1006, reason: "transient" },
+    ];
+
+    for (const { code, reason } of cases) {
+      const { transport, connectAndJoin } = await setup();
+      connectAndJoin().serverClose(code);
+      expect(transport.getConnectionState()).toEqual({
+        status: "disconnected",
+        reason,
+      });
+    }
+  });
+
+  it("clears a stale disconnect reason when reconnecting", async () => {
+    const { transport, connectAndJoin, sockets } = await setup();
+    connectAndJoin().serverClose(RELAY_CLOSE_CODES.slowConsumer);
+
+    transport.connect({
+      roomId: ROOM_ID,
+      clientId: CLIENT_A,
+      joinToken: JOIN_TOKEN,
+    });
+    expect(transport.getConnectionState()).toEqual({
+      status: "connecting",
+      roomId: ROOM_ID,
+    });
+
+    // A reason must never outlive the connection it describes: the caller ends
+    // this one, so that is what it reports.
+    sockets[1]?.open();
+    transport.disconnect();
+    expect(transport.getConnectionState()).toEqual({
+      status: "disconnected",
+      reason: "idle",
     });
   });
 
@@ -733,6 +798,7 @@ describe("createRelayWebSocketTransport", () => {
 
     expect(transport.getConnectionState()).toEqual({
       status: "disconnected",
+      reason: "protocol",
     });
     expect(socket?.closedWith?.code).toBe(1000);
   });

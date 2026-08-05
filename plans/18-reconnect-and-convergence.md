@@ -1,6 +1,6 @@
 # Plan 18：驗證 reconnect 與 convergence
 
-- Status: Ready
+- Status: Completed
 - Depends on: Plan 17
 - Expected change size: recovery state machine 與 fault-injection tests
 
