@@ -16,15 +16,18 @@ import { roomAuthGenerationSchema } from "./room-auth.ts";
  *
  * The room key is never used as an encryption key directly. HKDF-SHA256 derives
  * one AES-GCM key per (room, authorization generation, purpose), which buys
- * three separations:
+ * two separations:
  *
  * - Realtime traffic, durable snapshots and binary assets use different
  *   purposes, so one leaked derived key never unlocks the others.
  * - A room's authorization generation is part of the salt, so rotating it
  *   (`collaborationRoom.rotateGeneration`) produces a key that cannot open the
  *   previous generation's ciphertext.
- * - The wire protocol version is part of the info string, so a future protocol
- *   revision cannot be attacked by replaying frames across versions.
+ *
+ * Those are the only two inputs. Envelope and protocol versions stay out of the
+ * derivation and bind to the ciphertext as authenticated data instead, so a
+ * format revision cannot re-derive a live room's keys — see
+ * `roomKeyDerivationInfo`.
  *
  * Only primitives from Web Crypto are used; nothing here implements a cipher,
  * a MAC, or a KDF by hand.
@@ -143,6 +146,29 @@ export const DEFAULT_REPLAY_CACHE_TTL_MS = 60_000;
 export const ROOM_KEY_PURPOSES = ["realtime", "snapshot", "asset"] as const;
 export type RoomKeyPurpose = (typeof ROOM_KEY_PURPOSES)[number];
 
+/**
+ * HKDF `info` for one purpose — the whole derivation label, and deliberately
+ * version-free.
+ *
+ * Envelope and protocol versions describe a *wire format*, so they belong in the
+ * authenticated data of each format (`drawstuff-realtime/…`,
+ * `drawstuff-snapshot/…`, `drawstuff-asset/…`), where a frame from another
+ * version fails authentication. They used to be in this info string as well,
+ * which made every derived key a function of them: bumping the realtime envelope
+ * would have silently re-derived the `snapshot` and `asset` keys too, making a
+ * live room's stored ciphertext permanently unreadable even though its format
+ * had not changed.
+ *
+ * Key rotation therefore has exactly one trigger: the room's authorization
+ * generation, which is in the salt.
+ *
+ * Exported so the "no version reaches the KDF" property is a pinned contract
+ * rather than a comment.
+ */
+export function roomKeyDerivationInfo(purpose: RoomKeyPurpose): string {
+  return `drawstuff-key/${purpose}`;
+}
+
 /** Unpadded base64url of exactly `ROOM_KEY_BYTES` bytes. */
 const ROOM_KEY_LENGTH = Math.ceil((ROOM_KEY_BYTES * 4) / 3);
 
@@ -235,11 +261,10 @@ export async function deriveRoomKey(options: {
       salt: asBufferSource(
         encoder.encode(`drawstuff-room/${options.roomId}/g${generation}`),
       ),
-      // Envelope version, wire protocol version, and purpose.
+      // Purpose only. No envelope or protocol version participates here — see
+      // `roomKeyDerivationInfo`.
       info: asBufferSource(
-        encoder.encode(
-          `drawstuff-key/v${REALTIME_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${options.purpose}`,
-        ),
+        encoder.encode(roomKeyDerivationInfo(options.purpose)),
       ),
     },
     material,

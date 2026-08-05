@@ -15,6 +15,9 @@ Scene 與 presence payload 在離開 client 前已加密；relay、app backend �
 - Key 只存在 URL fragment 和 client memory。
 - 使用 Web Crypto AES-GCM；透過 HKDF 以 room generation、protocol version 和
   purpose 做 domain separation，realtime/snapshot/asset 不共用原始 encryption key。
+  （2026-08-06 由 [Plan 26](./26-purpose-scoped-key-derivation.md) 取代：`protocol version`
+  已從 HKDF info 移除，只留 purpose；版本改為只綁在各格式的 AAD。推導輸入現為
+  room id、authorization generation 與 purpose。）
 - nonce/IV 生成策略、碰撞 budget 和 key rotation threshold 必須有測試/文件，
   不能只假設亂數永不碰撞——budget 必須是**可強制執行**的，不能只是註解。
   （2026-08-05 修訂：原文寫「保證唯一 nonce/IV」。實作後發現該措辭比業界標準更嚴，

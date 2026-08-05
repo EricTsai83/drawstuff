@@ -24,7 +24,7 @@
 | -------------------------------- | ------------------------------------------------------ | -------------------------- |
 | 4 metrics / alerts / dashboards  | [Plan 24](./24-collaboration-observability.md)         | Ready                      |
 | 9 drain / restart + `RoomFanout` | [Plan 25](./25-relay-drain-and-deployment-envelope.md) | Ready                      |
-| 6 `deriveRoomKey` 版本策略       | [Plan 26](./26-purpose-scoped-key-derivation.md)       | Ready（路線已定）          |
+| 6 `deriveRoomKey` 版本策略       | [Plan 26](./26-purpose-scoped-key-derivation.md)       | Completed（2026-08-06）    |
 | 2 的後端半邊（速率限制）         | [Plan 27](./27-collaboration-backend-rate-limits.md)   | Blocked（共享儲存決定）    |
 | 5 room-scoped retention          | [Plan 28](./28-room-scoped-retention.md)               | Blocked（Plan 23 step 4）  |
 | 8 load test + runbook + rollback | [Plan 29](./29-collaboration-load-test-and-runbook.md) | Blocked（R1、Plan 24／25） |
@@ -74,7 +74,9 @@ invocation 間不成立，需要共享儲存（Upstash Redis 之類）。引入�
 
 ## Step 6 決策紀錄（2026-08-06）
 
-**決定：從 HKDF info 抽掉版本號，只留 purpose。** 尚未實作。
+**決定：從 HKDF info 抽掉版本號，只留 purpose。**
+**已由 [Plan 26](./26-purpose-scoped-key-derivation.md) 實作完成（2026-08-06）**；以下為當時的
+決策依據，現況以 Plan 26 為準。
 
 依據是 upstream 的設計（2026-08-06 查 `excalidraw/excalidraw@master`）：Excalidraw
 **完全不做金鑰推導**——`getCryptoKey` 把 room key 字串原樣 `importKey` 成 AES-GCM-128

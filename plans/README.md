@@ -55,10 +55,12 @@ merge algorithm，皆不在這組計畫內。
 | [23](./23-owned-scene-asset-lifecycle.md)         | Ready                     | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
 | [24](./24-collaboration-observability.md)         | Ready                     | Relay metrics、structured logs、alerts contract         | 19                 |
 | [25](./25-relay-drain-and-deployment-envelope.md) | Ready                     | Graceful drain 與單 instance 部署封套                   | 19                 |
-| [26](./26-purpose-scoped-key-derivation.md)       | Ready                     | `deriveRoomKey` 解除 envelope 版本耦合                  | 19                 |
+| [26](./26-purpose-scoped-key-derivation.md)       | Completed                 | `deriveRoomKey` 解除 envelope 版本耦合                  | 19                 |
 | [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 共享儲存決定    | 共編後端入口的速率限制                                  | 19                 |
 | [28](./28-room-scoped-retention.md)               | Blocked — Plan 23 step 4  | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
 | [29](./29-collaboration-load-test-and-runbook.md) | Blocked — 24、25          | Load test 六情境、runbook 與 drill                      | 19、24、25         |
+| [30](./30-silent-key-mismatch-detection.md)       | Ready                     | 金鑰不相容的非靜默偵測不得只依賴 snapshot               | 19、26             |
+| [31](./31-durable-format-protocol-decoupling.md)  | Ready                     | durable 格式與 transport 版本解耦                       | 26                 |
 
 2026-08-06：原 Plan 19「完成 production hardening」被拆成七份。它涵蓋 9 個 step、實際上是
 六個以上的 PR，違反本節開頭「每份 plan 對應一個可獨立 review、驗證與回滾的 PR」。Plan 19
@@ -67,7 +69,7 @@ merge algorithm，皆不在這組計畫內。
 
 1. ~~**Plan 19**~~ — Completed（2026-08-06）。
 2. **Plan 24**（可觀測性）與 **Plan 25**（drain 與部署封套）— 互相獨立，可任一順序。
-3. **Plan 26**（`deriveRoomKey` 解耦）— 與 24／25 無依賴，可平行。
+3. ~~**Plan 26**（`deriveRoomKey` 解耦）~~ — Completed（2026-08-06）。
 4. **Plan 23**（owned-scene 資產生命週期）— 其 step 4 的 maintenance endpoint 拆分是
    Plan 28 的前置。Plan 23 只依賴 Plan 16，因此隨時可執行。
 5. **Plan 28**（room retention）— 需要 Plan 23 step 4。
@@ -77,6 +79,16 @@ merge algorithm，皆不在這組計畫內。
    gate：沒有它，storage 的累積速度等於開房速度，而漸進開放正是提高開房速度的動作。
    Plan 27（後端速率限制）同理應在開放前落地；若決定延後，Plan 20 必須明確承擔「後端入口
    無速率上界」這個風險。
+
+2026-08-06（第二次追加）：Plan 26 的 review 留下兩個殘留，各自成為一份 plan。兩者與上面的
+順序互相獨立，可平行：
+
+- **Plan 30**（金鑰不相容的非靜默偵測）— 應在 **Plan 20 之前**落地。漸進開放會提高開房
+  速度，而「錯誤連結 ＋ 尚無 snapshot 的新 room」正是開房當下最可能出現的組合；此時三條
+  路徑全靜默，使用者會看到「已連線」卻永久空白。若決定延後，Plan 20 必須明確承擔這個風險。
+- **Plan 31**（durable 格式與 transport 版本解耦）— 應在**任何需要升版
+  `COLLABORATION_PROTOCOL_VERSION` 的變更之前**落地，否則一次純 transport 變更就會摧毀當
+  下所有活著的 room 的 snapshot 與 asset。它沒有其他依賴，越早做代價越小（活資料越少）。
 
 Plan 03 的稽核結論原為 `minimal patch required`（G1/G2/G3/G4 四個 confirmed
 gaps）。2026-08-01 owner 決策改採「不修改 upstream」原則後，Plan 04 標記為

@@ -15,13 +15,18 @@ import {
   REALTIME_SEALED_OVERHEAD_BYTES,
   ROOM_KEY_BYTES,
   ROOM_KEY_PURPOSES,
+  roomKeyDerivationInfo,
   roomKeySchema,
   sealedFrameByteLength,
   type RealtimeCryptoCodec,
   type RealtimeCryptoCodecOptions,
   type RoomKey,
 } from "../src/realtime-crypto.ts";
-import { roomIdSchema, type RoomId } from "../src/protocol.ts";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  roomIdSchema,
+  type RoomId,
+} from "../src/protocol.ts";
 
 /** Fixed key material so the vectors below are stable across runs. */
 const FIXED_ROOM_KEY = roomKeySchema.parse(
@@ -86,6 +91,52 @@ const opened = async (
   if (!result.ok)
     throw new Error(`expected an opened frame: ${result.error.code}`);
   return decoder.decode(result.plaintext);
+};
+
+/**
+ * A derived key is non-extractable, so what it encrypts is the only observable
+ * identity it has. Fixed key, fixed IV, fixed plaintext: same derived key ⇒ same
+ * hex, different derived key ⇒ different hex.
+ */
+const probe = async (key: CryptoKey): Promise<string> =>
+  toHex(
+    new Uint8Array(
+      await crypto.subtle.encrypt(
+        { name: "AES-GCM", iv: new Uint8Array(REALTIME_NONCE_BYTES) },
+        key,
+        encoder.encode("probe"),
+      ),
+    ),
+  );
+
+/**
+ * HKDF run entirely from the test's own literals, so the info string being
+ * checked is the test's and not whatever the implementation happens to build.
+ */
+const probeUnderInfo = async (info: string): Promise<string> => {
+  const raw = atob(FIXED_ROOM_KEY.replaceAll("-", "+").replaceAll("_", "/"));
+  const material = await crypto.subtle.importKey(
+    "raw",
+    Uint8Array.from(raw, (character) => character.charCodeAt(0)),
+    "HKDF",
+    false,
+    ["deriveBits"],
+  );
+  const bits = await crypto.subtle.deriveBits(
+    {
+      name: "HKDF",
+      hash: "SHA-256",
+      salt: encoder.encode(`drawstuff-room/${ROOM_ID}/g1`),
+      info: encoder.encode(info),
+    },
+    material,
+    256,
+  );
+  return probe(
+    await crypto.subtle.importKey("raw", bits, { name: "AES-GCM" }, false, [
+      "encrypt",
+    ]),
+  );
 };
 
 const flipByte = (frame: Uint8Array, index: number): Uint8Array => {
@@ -161,10 +212,10 @@ describe("realtime sealed frames", () => {
     // cannot pass unnoticed. Both frames share an IV only because the test
     // injects a constant one; production draws a fresh IV per message.
     expect(toHex(await sealed(sender, "drawstuff", "scene"))).toBe(
-      "03abababababababababababab5fdff2c7b28d54bab1d360c86f7282aefd21024167c756a894",
+      "03abababababababababababab4e9be479aa206bee409fd134ab19eae6d89767eb9d4cd99569",
     );
     expect(toHex(await sealed(sender, "drawstuff", "presence"))).toBe(
-      "03abababababababababababab5fdff2c7b28d54bab18292791ce57aaaeab741479cdb923dad",
+      "03abababababababababababab4e9be479aa206bee4082bbeeecf8450da12da13f43bd4a2b0f",
     );
   });
 
@@ -247,7 +298,7 @@ describe("IV strategy and message budget", () => {
 
 describe("domain separation", () => {
   it("gives every purpose its own key", async () => {
-    const raw = await Promise.all(
+    const probes = await Promise.all(
       ROOM_KEY_PURPOSES.map(async (purpose) => {
         const key = await deriveRoomKey({
           roomKey: FIXED_ROOM_KEY,
@@ -258,19 +309,40 @@ describe("domain separation", () => {
         // Non-extractable by construction, so the only observable difference is
         // the ciphertext each key produces.
         expect(key.extractable).toBe(false);
-        const iv = new Uint8Array(REALTIME_NONCE_BYTES);
-        return toHex(
-          new Uint8Array(
-            await crypto.subtle.encrypt(
-              { name: "AES-GCM", iv },
-              key,
-              encoder.encode("probe"),
-            ),
-          ),
-        );
+        return probe(key);
       }),
     );
-    expect(new Set(raw).size).toBe(ROOM_KEY_PURPOSES.length);
+    expect(new Set(probes).size).toBe(ROOM_KEY_PURPOSES.length);
+  });
+
+  it("keeps envelope and protocol versions out of the derivation", async () => {
+    // Envelope and protocol versions are wire-format versions. If either reached
+    // the KDF, bumping `REALTIME_CRYPTO_VERSION` for a realtime layout change
+    // would also re-derive the `snapshot` and `asset` keys and make a live room's
+    // stored ciphertext unopenable. This pins that they are not inputs, so their
+    // value cannot matter.
+    for (const purpose of ROOM_KEY_PURPOSES) {
+      expect(roomKeyDerivationInfo(purpose)).toBe(`drawstuff-key/${purpose}`);
+      expect(roomKeyDerivationInfo(purpose)).not.toMatch(/\d/);
+    }
+
+    for (const purpose of ["snapshot", "asset"] as const) {
+      const actual = await probe(
+        await deriveRoomKey({
+          roomKey: FIXED_ROOM_KEY,
+          roomId: ROOM_ID,
+          authGeneration: 1,
+          purpose,
+        }),
+      );
+      expect(actual).toBe(await probeUnderInfo(`drawstuff-key/${purpose}`));
+      // The shape the info string used to have, at today's version numbers.
+      expect(actual).not.toBe(
+        await probeUnderInfo(
+          `drawstuff-key/v${REALTIME_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${purpose}`,
+        ),
+      );
+    }
   });
 
   it("cannot open another generation's, room's, or key's frame", async () => {
