@@ -722,10 +722,12 @@ export async function createCollaborationAssetStore(options: {
         uploading.set(file.id, claim);
         // Uploads share the download budget: peak memory is four transfers
         // whatever mix they are.
-        return transfers.run(() => publishOne(file)).finally(() => {
-          if (uploading.get(file.id) === claim) uploading.delete(file.id);
-          settle();
-        });
+        return transfers
+          .run(() => publishOne(file))
+          .finally(() => {
+            if (uploading.get(file.id) === claim) uploading.delete(file.id);
+            settle();
+          });
       }),
     );
   }

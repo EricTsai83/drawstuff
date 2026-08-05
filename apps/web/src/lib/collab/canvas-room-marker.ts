@@ -36,8 +36,7 @@ import { STORAGE_KEYS } from "@/config/app-constants";
  */
 
 const canUseSessionStorage = (): boolean =>
-  typeof window !== "undefined" &&
-  typeof window.sessionStorage !== "undefined";
+  typeof window !== "undefined" && typeof window.sessionStorage !== "undefined";
 
 /** Marks the on-screen canvas as this room's scene. */
 export function claimCanvasForRoom(roomId: string): void {

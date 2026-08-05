@@ -913,8 +913,7 @@ describe("fault-matrix convergence", () => {
         harness.network.setFaults();
         healUntilConverged(harness, clients, 10);
         expectAllConverged(clients);
-      }, // down: the heal loop is bounded and cannot spin. // on purpose. A case that exceeds this has stopped converging, not slowed // Generous, because the cost is the real reconciliation these cases run
-      60_000);
+      }, 60_000); // down: the heal loop is bounded and cannot spin. // on purpose. A case that exceeds this has stopped converging, not slowed // Generous, because the cost is the real reconciliation these cases run
     }
   }
 });

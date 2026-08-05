@@ -19,10 +19,7 @@ import {
   resolveRoomAccess,
   type RoomAccess,
 } from "@/server/collab/rooms";
-import {
-  readRoomSnapshot,
-  writeRoomSnapshot,
-} from "@/server/collab/snapshots";
+import { readRoomSnapshot, writeRoomSnapshot } from "@/server/collab/snapshots";
 
 /**
  * Durable collaboration snapshot API (Plan 15).

@@ -151,8 +151,7 @@ export type SnapshotCodecError =
   | { code: "wrong-room"; receivedRoomId: string };
 
 export type EncodeSnapshotResult =
-  | { ok: true; bytes: Uint8Array }
-  | { ok: false; error: SnapshotCodecError };
+  { ok: true; bytes: Uint8Array } | { ok: false; error: SnapshotCodecError };
 
 export type DecodeSnapshotResult =
   | { ok: true; snapshot: CollaborationSnapshot }

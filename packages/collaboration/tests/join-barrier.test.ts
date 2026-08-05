@@ -122,7 +122,9 @@ describe("electSnapshotResponder", () => {
   it("picks the smallest pre-existing peer id, independent of list order", () => {
     const peers = [peer("peer-c"), peer("peer-a"), peer("peer-new")];
     const newPeerIds = ids("peer-new");
-    expect(electSnapshotResponder({ peers, newPeerIds })?.peerId).toBe("peer-a");
+    expect(electSnapshotResponder({ peers, newPeerIds })?.peerId).toBe(
+      "peer-a",
+    );
     expect(
       electSnapshotResponder({ peers: [...peers].reverse(), newPeerIds })
         ?.peerId,

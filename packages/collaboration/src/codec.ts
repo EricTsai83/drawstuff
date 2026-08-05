@@ -47,7 +47,10 @@ export function encodeCollaborationMessage(
   if (!parsed.success) {
     return {
       ok: false,
-      error: { code: "malformed-payload", detail: z.prettifyError(parsed.error) },
+      error: {
+        code: "malformed-payload",
+        detail: z.prettifyError(parsed.error),
+      },
     };
   }
 
@@ -132,7 +135,10 @@ export function decodeCollaborationMessage(
   if (!parsed.success) {
     return {
       ok: false,
-      error: { code: "malformed-payload", detail: z.prettifyError(parsed.error) },
+      error: {
+        code: "malformed-payload",
+        detail: z.prettifyError(parsed.error),
+      },
     };
   }
 

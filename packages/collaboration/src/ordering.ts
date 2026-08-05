@@ -90,8 +90,7 @@ export function createInboundMessageGate(session: {
       // A snapshot carries the sender's full scene, so skipped deltas before
       // it no longer matter; presence gaps are inherent to volatile delivery.
       const sceneSyncRequired =
-        message.type === "scene-update" &&
-        message.sequence > lastSequence + 1;
+        message.type === "scene-update" && message.sequence > lastSequence + 1;
       return { action: "deliver", sceneSyncRequired };
     },
     advanceGeneration(nextGeneration) {

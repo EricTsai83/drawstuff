@@ -68,7 +68,8 @@ const seal = async (
     authGeneration: overrides.authGeneration ?? 1,
     revision: overrides.revision ?? 1,
   });
-  if (!sealed.ok) throw new Error(`expected seal to succeed: ${sealed.error.code}`);
+  if (!sealed.ok)
+    throw new Error(`expected seal to succeed: ${sealed.error.code}`);
   return sealed.ciphertext;
 };
 
@@ -190,10 +191,7 @@ describe("collaboration snapshot digest", () => {
       await collaborationSnapshotDigest(reversed),
     );
 
-    const bumped = [
-      ...forward.slice(0, 3),
-      { ...forward[3]!, version: 99 },
-    ];
+    const bumped = [...forward.slice(0, 3), { ...forward[3]!, version: 99 }];
     expect(await collaborationSnapshotDigest(bumped)).not.toBe(
       await collaborationSnapshotDigest(forward),
     );
@@ -349,9 +347,9 @@ describe("collaboration snapshot sealing", () => {
     const checksum = await snapshotCiphertextChecksum(ciphertext);
     expect(checksum).toMatch(/^[0-9a-f]{64}$/);
 
-    expect(
-      await snapshotCiphertextChecksum(flipByte(ciphertext, 1)),
-    ).not.toBe(checksum);
+    expect(await snapshotCiphertextChecksum(flipByte(ciphertext, 1))).not.toBe(
+      checksum,
+    );
   });
 });
 
