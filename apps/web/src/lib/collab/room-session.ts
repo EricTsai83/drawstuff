@@ -3,6 +3,7 @@ import {
   createRealtimeCryptoCodec,
   type RoomKey,
 } from "@drawstuff/collaboration/realtime-crypto";
+import type { RecoveryState } from "@drawstuff/collaboration/recovery";
 import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
 import type { ConnectionState } from "@drawstuff/collaboration/transport";
 import type {
@@ -18,9 +19,9 @@ import {
 } from "@/lib/collab/asset-store";
 import {
   createCollaborationSession,
-  type BaselineOutcome,
   type CollaborationSceneApi,
   type CollaborationSession,
+  type JoinCredentialsResult,
 } from "@/lib/collab/collaboration-session";
 import {
   createCollaborationSnapshotStore,
@@ -82,6 +83,15 @@ export async function startCollaborationRoomSession(options: {
   clientId: ClientId;
   /** Short-lived token from the app backend; the relay verifies it. */
   joinToken: string;
+  /**
+   * Mints a token for a reconnect attempt. Separate from `joinToken` because the
+   * first token was already minted by the caller (it is how the caller learned
+   * `relayUrl` and `authGeneration`), and because a reconnect needs a *fresh*
+   * one: tokens are short-lived, and re-asking the backend is what makes a
+   * membership revoked while offline fail at authorization rather than loop
+   * against the relay.
+   */
+  refreshJoinToken: () => Promise<JoinCredentialsResult>;
   /** End-to-end room key from the URL fragment; never from the backend. */
   roomKey: RoomKey;
   /**
@@ -107,8 +117,12 @@ export async function startCollaborationRoomSession(options: {
    */
   canSyncScene: () => boolean;
   onConnectionStateChange?: (state: ConnectionState) => void;
-  /** Reported once per connection when the join baseline resolves. */
-  onBaselineResolved?: (outcome: BaselineOutcome) => void;
+  /**
+   * Reported on every recovery phase change. This — not the socket state — is
+   * what a user-facing status has to follow: "waiting to reconnect" and "this
+   * room is gone" are both `disconnected` sockets.
+   */
+  onRecoveryStateChange?: (state: RecoveryState) => void;
 }): Promise<CollaborationRoomHandle> {
   const sceneApi: CollaborationSceneApi = options.excalidrawApi;
   const transport = createRelayWebSocketTransport({
@@ -147,6 +161,8 @@ export async function startCollaborationRoomSession(options: {
     roomId: options.roomId,
     clientId: options.clientId,
     joinToken: options.joinToken,
+    authGeneration: options.authGeneration,
+    refreshJoinToken: options.refreshJoinToken,
     username: options.username,
     sceneApi,
     snapshotStore: await createCollaborationSnapshotStore({
@@ -158,7 +174,17 @@ export async function startCollaborationRoomSession(options: {
     assetStore,
     wrapRemoteApply: options.wrapRemoteApply,
     canSyncScene: options.canSyncScene,
-    onBaselineResolved: options.onBaselineResolved,
+    onRecoveryStateChange: (state) => {
+      // A terminal recovery state ends this room's work, and the session can only
+      // release what it owns. Everything wired up *around* it — the encrypted asset
+      // transfers, their retry timer, the idle timer, the visibility listener, the
+      // socket itself — is owned here, and the React effect that owns this handle
+      // stays mounted while the failure is displayed. So the teardown runs here
+      // too, or a stopped session keeps fetching assets and firing timers for a
+      // room it can no longer reach.
+      if (state.phase === "failed") releaseRoomResources();
+      options.onRecoveryStateChange?.(state);
+    },
   });
   assetTarget = session;
 
@@ -187,6 +213,23 @@ export async function startCollaborationRoomSession(options: {
   };
   document.addEventListener("visibilitychange", handleVisibilityChange);
 
+  /**
+   * Releases everything this module owns. Idempotent, because it runs both on a
+   * terminal recovery state and on `destroy()`, and either can come first.
+   */
+  let released = false;
+  function releaseRoomResources(): void {
+    if (released) return;
+    released = true;
+    if (idleTimerId !== undefined) clearTimeout(idleTimerId);
+    idleTimerId = undefined;
+    document.removeEventListener("visibilitychange", handleVisibilityChange);
+    unsubscribe();
+    assetStore.destroy();
+    assetTarget = undefined;
+    transport.close();
+  }
+
   session.connect();
   armIdleTimer();
 
@@ -200,26 +243,22 @@ export async function startCollaborationRoomSession(options: {
     },
     getConnectionState: () => session.getConnectionState(),
     destroy() {
-      if (idleTimerId !== undefined) clearTimeout(idleTimerId);
-      idleTimerId = undefined;
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       // Leaving may be the room emptying out, and an empty room has no live copy
       // of the scene left — so the durable snapshot has to be brought current
       // here. The flush deliberately outlives `destroy()`: it is a forced write,
       // which is exempt from the teardown guard precisely because the digest it
       // has to compute is asynchronous and every teardown would otherwise abort
       // it in the same tick. It cannot be awaited (React cleanup is synchronous),
-      // so the promise is returned for callers that can.
+      // so the promise is returned for callers that can. After a terminal failure
+      // it resolves immediately without writing — the write requires a connection,
+      // which is exactly what a terminal failure does not have.
       const flushed = session.flushSnapshot();
-      unsubscribe();
+      // Aborts in-flight asset transfers and drops the retry timer. Unlike the
+      // snapshot flush there is nothing to finish: an upload that has not landed
+      // carries bytes still present on this canvas, and a download that has not
+      // landed is for a canvas that is going away.
+      releaseRoomResources();
       session.destroy();
-      // Aborts in-flight transfers and drops the retry timer. Unlike the snapshot
-      // flush there is nothing to finish: an upload that has not landed carries
-      // bytes still present on this canvas, and a download that has not landed is
-      // for a canvas that is going away.
-      assetStore.destroy();
-      assetTarget = undefined;
-      transport.close();
       return flushed;
     },
   };

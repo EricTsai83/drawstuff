@@ -11,6 +11,7 @@ import {
 } from "./messages.ts";
 import { REALTIME_SEALED_OVERHEAD_BYTES } from "./realtime-crypto.ts";
 import { MAX_ROOM_TOKEN_BYTES, roomRoleSchema } from "./room-auth.ts";
+import type { DisconnectReason } from "./transport.ts";
 
 /**
  * Wire protocol between a collaboration client and the stateless relay.
@@ -206,8 +207,11 @@ export function parseRelayServerControl(
 
 /**
  * Application close codes the relay uses when it terminates a connection.
- * Clients treat every one of them as a normal disconnect: the session model
- * heals by reconnecting and exchanging `scene-init` snapshots.
+ *
+ * Every one of them ends the session cleanly — there is no half-open state to
+ * recover — but they are not interchangeable to the client: some describe a
+ * condition that will be gone on the next attempt, and some describe one that a
+ * reconnect can only repeat. `disconnectReasonForCloseCode` is that split.
  */
 export const RELAY_CLOSE_CODES = {
   /** Malformed control frame, unknown data frame, oversize payload, or a
@@ -234,3 +238,35 @@ export const RELAY_CLOSE_CODES = {
 } as const;
 export type RelayCloseCode =
   (typeof RELAY_CLOSE_CODES)[keyof typeof RELAY_CLOSE_CODES];
+
+/**
+ * Maps a WebSocket close code to the reason a client acts on.
+ *
+ * The default is `transient`, and that direction is deliberate: an unknown or
+ * absent code is what a failed TCP connection, a proxy, a load-balancer restart
+ * and a browser tab suspension all produce, and every one of those is worth
+ * retrying. The codes that must *not* be retried are the ones the relay states
+ * explicitly, so they are the ones enumerated here — a terminal condition is
+ * never inferred from silence.
+ *
+ * `roomAtCapacity` and `relayAtCapacity` count as transient because they are
+ * statements about right now, and the retry budget (`./recovery.ts`) is what
+ * stops a room that is permanently full from being retried forever.
+ */
+export function disconnectReasonForCloseCode(
+  code: number | undefined,
+): DisconnectReason {
+  switch (code) {
+    case RELAY_CLOSE_CODES.unauthorized:
+      return "unauthorized";
+    case RELAY_CLOSE_CODES.membershipRevoked:
+      return "membership-revoked";
+    case RELAY_CLOSE_CODES.roomEnded:
+      return "room-ended";
+    case RELAY_CLOSE_CODES.protocolViolation:
+    case RELAY_CLOSE_CODES.readOnlyRole:
+      return "protocol";
+    default:
+      return "transient";
+  }
+}

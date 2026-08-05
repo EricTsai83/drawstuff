@@ -14,7 +14,10 @@ import {
   roomKeySchema,
   type RoomKey,
 } from "@drawstuff/collaboration/realtime-crypto";
-import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
+import {
+  createRelayWebSocketTransport,
+  type RelaySocketLike,
+} from "@drawstuff/collaboration/relay-client";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import type {
   ConnectionState,
@@ -69,7 +72,14 @@ export async function waitUntil(
 }
 
 export type TestClient = {
+  /**
+   * Joins the room, minting a fresh join token. Callable again after a
+   * disconnect: that is what a reconnect is, and tokens are short-lived, so a
+   * reconnect always presents a new one.
+   */
   connect(): Promise<void>;
+  /** Resolves once the socket is down, so a test never sleeps on a close. */
+  waitForDisconnect(): Promise<void>;
   disconnect(): void;
   close(): void;
   /** Create or overwrite an element and broadcast it as a scene delta. */
@@ -104,10 +114,16 @@ export async function createTestClient(options: {
   joinToken?: string;
   /** Room key; a different key makes every payload unreadable to this client. */
   roomKey?: RoomKey;
+  /**
+   * Socket constructor, so a test can wrap the real socket and inject delivery
+   * faults (`./faulty-socket.ts`). Defaults to the transport's own `WebSocket`.
+   */
+  createSocket?: (url: string) => RelaySocketLike;
 }): Promise<TestClient> {
   const { url, roomId, clientId } = options;
   const transport = createRelayWebSocketTransport({
     url,
+    createSocket: options.createSocket,
     crypto: await createRealtimeCryptoCodec({
       roomKey: options.roomKey ?? TEST_ROOM_KEY,
       roomId,
@@ -259,6 +275,12 @@ export async function createTestClient(options: {
       await waitUntil(
         () => connected !== undefined,
         `client ${clientId} to join ${roomId}`,
+      );
+    },
+    waitForDisconnect() {
+      return waitUntil(
+        () => connected === undefined,
+        `client ${clientId} to lose its session`,
       );
     },
     disconnect() {

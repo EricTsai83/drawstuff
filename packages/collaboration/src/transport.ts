@@ -9,8 +9,45 @@ import type {
 import type { CollaborationProtocolError } from "./codec.ts";
 import type { RoomRole } from "./room-auth.ts";
 
+/**
+ * Why a transport is not connected.
+ *
+ * Recovery is a decision, not a reflex, and this is what it is decided from: a
+ * dropped socket and a revoked membership both end a session, but retrying the
+ * first is correct and retrying the second is a loop that hides the revocation
+ * from the user. The transport therefore reports *why* it is down, and the
+ * recovery policy (`./recovery.ts`) maps that to retry, re-authorize, or stop.
+ *
+ * Deliberately coarse. A client can act on "try again", "get a new token" and
+ * "this is over"; the relay's specific close code adds nothing beyond that and
+ * would push transport-specific numbers into every caller.
+ */
+export type DisconnectReason =
+  /** No connection has been attempted, or the caller ended it. Never retried. */
+  | "idle"
+  /**
+   * Socket failure, relay restart, capacity, join timeout, or a slow-consumer
+   * disconnect. Retryable with backoff; the session heals via snapshot exchange.
+   */
+  | "transient"
+  /**
+   * The join token was refused. A fresh token may be accepted (short-lived
+   * tokens expire), so this is retryable — but only through the app backend,
+   * which is also where a genuinely removed member is refused.
+   */
+  | "unauthorized"
+  /** This member's room authorization was revoked while connected. Terminal. */
+  | "membership-revoked"
+  /** The room generation was ended or rotated by its owner. Terminal. */
+  | "room-ended"
+  /**
+   * This client broke the wire contract (or the server did). Terminal:
+   * reconnecting would repeat the same violation.
+   */
+  | "protocol";
+
 export type ConnectionState =
-  | { status: "disconnected" }
+  | { status: "disconnected"; reason: DisconnectReason }
   | { status: "connecting"; roomId: RoomId }
   | {
       status: "connected";

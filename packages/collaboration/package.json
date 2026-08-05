@@ -18,6 +18,14 @@
       "types": "./src/join-barrier.ts",
       "default": "./src/join-barrier.ts"
     },
+    "./offline-queue": {
+      "types": "./src/offline-queue.ts",
+      "default": "./src/offline-queue.ts"
+    },
+    "./recovery": {
+      "types": "./src/recovery.ts",
+      "default": "./src/recovery.ts"
+    },
     "./realtime-crypto": {
       "types": "./src/realtime-crypto.ts",
       "default": "./src/realtime-crypto.ts"

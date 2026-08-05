@@ -9,13 +9,20 @@ import {
   type SyncedElement,
 } from "@drawstuff/collaboration/protocol";
 import type { JoinBarrierOptions } from "@drawstuff/collaboration/join-barrier";
+import type { OfflineChangeQueueOptions } from "@drawstuff/collaboration/offline-queue";
 import { roomKeySchema } from "@drawstuff/collaboration/realtime-crypto";
+import type {
+  RecoveryPolicyOptions,
+  RecoveryState,
+} from "@drawstuff/collaboration/recovery";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import { SNAPSHOT_NO_REVISION } from "@drawstuff/collaboration/snapshot";
 import {
   createFakeCollaborationNetwork,
   type FakeCollaborationNetwork,
+  type FakeCollaborationNetworkOptions,
 } from "@drawstuff/collaboration/testing";
+import type { CollaborationTransport } from "@drawstuff/collaboration/transport";
 import type {
   BinaryFileData,
   BinaryFiles,
@@ -35,6 +42,7 @@ import {
   type BaselineOutcome,
   type CollaborationSceneApi,
   type CollaborationSession,
+  type JoinCredentialsResult,
 } from "@/lib/collab/collaboration-session";
 import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
 import {
@@ -511,10 +519,15 @@ export function createAssetBackend() {
 export type TestClient = {
   host: SceneHost;
   session: CollaborationSession;
+  transport: CollaborationTransport;
   scheduler: ReturnType<typeof createManualScheduler>;
   timers: ReturnType<typeof createManualTimers>;
   clientId: ClientId;
   baselineOutcomes: readonly BaselineOutcome[];
+  /** Every recovery phase this client passed through, in order. */
+  recoveryStates: readonly RecoveryState[];
+  /** How many times the client asked the backend for fresh credentials. */
+  readonly tokenRefreshCount: number;
   /** Mutates the host scene, notifies the session, and runs the flush. */
   edit(
     mutate: (
@@ -523,48 +536,82 @@ export type TestClient = {
   ): void;
 };
 
-export function createHarness() {
-  const network = createFakeCollaborationNetwork();
+export type CreateClientOptions = {
+  role?: RoomRole;
+  snapshotStore?: CollaborationSnapshotStore;
+  assetStore?: CollaborationAssetStore;
+  canSyncScene?: () => boolean;
+  joinBarrier?: JoinBarrierOptions;
+  offlineQueue?: OfflineChangeQueueOptions;
+  recovery?: RecoveryPolicyOptions;
+  maxSceneRepairAttempts?: number;
+  /**
+   * Overrides what the backend answers a reconnect with. Defaults to a fresh
+   * token on the same authorization generation, which is the ordinary case.
+   */
+  refreshJoinToken?: () => Promise<JoinCredentialsResult>;
+};
+
+export function createHarness(
+  networkOptions: FakeCollaborationNetworkOptions = {},
+) {
+  const network = createFakeCollaborationNetwork(networkOptions);
   const clock = { now: COLLAB_SCENE_FIXED_NOW };
 
   const createClient = (
     name: string,
-    options: {
-      role?: RoomRole;
-      snapshotStore?: CollaborationSnapshotStore;
-      assetStore?: CollaborationAssetStore;
-      canSyncScene?: () => boolean;
-      joinBarrier?: JoinBarrierOptions;
-    } = {},
+    options: CreateClientOptions = {},
   ): TestClient => {
     const host = createSceneHost();
     const scheduler = createManualScheduler();
     const timers = createManualTimers();
     const clientId = clientIdSchema.parse(name);
     const baselineOutcomes: BaselineOutcome[] = [];
+    const recoveryStates: RecoveryState[] = [];
+    const transport = network.createTransport({ role: options.role });
+    let tokenRefreshCount = 0;
     const session = createCollaborationSession({
-      transport: network.createTransport({ role: options.role }),
+      transport,
       roomId: ROOM_ID,
       clientId,
       joinToken: JOIN_TOKEN,
+      authGeneration: AUTH_GENERATION,
+      refreshJoinToken: async () => {
+        tokenRefreshCount += 1;
+        if (options.refreshJoinToken) return options.refreshJoinToken();
+        return {
+          ok: true,
+          token: `${JOIN_TOKEN}-${tokenRefreshCount}`,
+          authGeneration: AUTH_GENERATION,
+        };
+      },
       username: name,
       sceneApi: host.api,
       snapshotStore: options.snapshotStore,
       assetStore: options.assetStore,
       canSyncScene: options.canSyncScene,
       joinBarrier: options.joinBarrier,
+      offlineQueue: options.offlineQueue,
+      recovery: options.recovery,
+      maxSceneRepairAttempts: options.maxSceneRepairAttempts,
       scheduleSceneFlush: scheduler.schedule,
       scheduleTimeout: timers.schedule,
       onBaselineResolved: (outcome) => baselineOutcomes.push(outcome),
+      onRecoveryStateChange: (state) => recoveryStates.push(state),
       now: () => clock.now,
     });
     return {
       host,
       session,
+      transport,
       scheduler,
       timers,
       clientId,
       baselineOutcomes,
+      recoveryStates,
+      get tokenRefreshCount() {
+        return tokenRefreshCount;
+      },
       edit(mutate) {
         host.setElements(mutate(host.elements));
         session.handleLocalSceneChange(host.elements, collabAppState());
@@ -601,12 +648,7 @@ export function createHarness() {
   const createAssetClient = async (
     name: string,
     backend: AssetBackend,
-    options: {
-      role?: RoomRole;
-      snapshotStore?: CollaborationSnapshotStore;
-      canSyncScene?: () => boolean;
-      joinBarrier?: JoinBarrierOptions;
-    } = {},
+    options: Omit<CreateClientOptions, "assetStore"> = {},
   ): Promise<AssetTestClient> => {
     const assetTimers = createManualTimers();
     let target: CollaborationSession | undefined;
@@ -630,7 +672,45 @@ export function createHarness() {
     return { ...client, assetStore, assetTimers };
   };
 
-  return { network, clock, createClient, createAssetClient, settle };
+  /**
+   * Lets every already-resolved promise run: a token refresh, a snapshot load, or
+   * an asset download that the test has already unblocked.
+   *
+   * Reconnection is asynchronous even against manual timers — the session mints a
+   * fresh token before it opens a socket — so tests need a way to let those
+   * microtasks land. Draining the queue this way is deterministic: it advances
+   * only work that is already resolvable, never wall time, so no assertion ever
+   * depends on a sleep.
+   */
+  const drainMicrotasks = async (rounds = 10): Promise<void> => {
+    for (let round = 0; round < rounds; round += 1) await Promise.resolve();
+  };
+
+  /**
+   * Advances one client's timers, lets the resulting async work settle, and
+   * delivers whatever it produced. The reconnect loop is exactly this shape:
+   * backoff timer fires, token refresh resolves, socket joins, snapshots flow.
+   */
+  const advanceAndSettle = async (
+    clients: readonly TestClient[],
+    ms: number,
+  ): Promise<void> => {
+    for (const client of clients) client.timers.advance(ms);
+    await drainMicrotasks();
+    settle();
+    await drainMicrotasks();
+    settle();
+  };
+
+  return {
+    network,
+    clock,
+    createClient,
+    createAssetClient,
+    settle,
+    drainMicrotasks,
+    advanceAndSettle,
+  };
 }
 
 export type AssetBackend = ReturnType<typeof createAssetBackend>;
@@ -648,7 +728,10 @@ export function expectConverged(a: TestClient, b: TestClient): void {
 }
 
 /** Crafts protocol messages from a raw transport's connected session. */
-export function createRawSender(network: FakeCollaborationNetwork, name: string) {
+export function createRawSender(
+  network: FakeCollaborationNetwork,
+  name: string,
+) {
   const transport = network.createTransport();
   transport.connect({
     roomId: ROOM_ID,
@@ -681,4 +764,3 @@ export function createRawSender(network: FakeCollaborationNetwork, name: string)
   });
   return { transport, state, received, sceneMessage };
 }
-

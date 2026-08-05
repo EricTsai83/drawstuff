@@ -19,8 +19,10 @@ describe("@drawstuff/collaboration package contract", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./asset",
       "./join-barrier",
+      "./offline-queue",
       "./protocol",
       "./realtime-crypto",
+      "./recovery",
       "./relay-client",
       "./relay-protocol",
       "./room-auth",
@@ -58,8 +60,10 @@ describe("@drawstuff/collaboration package contract", () => {
     const expectedEntries = {
       "@drawstuff/collaboration/asset": "asset.ts",
       "@drawstuff/collaboration/join-barrier": "join-barrier.ts",
+      "@drawstuff/collaboration/offline-queue": "offline-queue.ts",
       "@drawstuff/collaboration/protocol": "protocol.ts",
       "@drawstuff/collaboration/realtime-crypto": "realtime-crypto.ts",
+      "@drawstuff/collaboration/recovery": "recovery.ts",
       "@drawstuff/collaboration/relay-client": "relay-client.ts",
       "@drawstuff/collaboration/relay-protocol": "relay-protocol.ts",
       "@drawstuff/collaboration/room-auth": "room-auth.ts",

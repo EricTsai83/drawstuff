@@ -10,6 +10,7 @@ import {
   sortSceneById,
 } from "./support/collab-scene-fixtures";
 import {
+  AUTH_GENERATION,
   createHarness,
   createManualScheduler,
   createRawSender,
@@ -252,6 +253,13 @@ describe("collaboration session over the fake network", () => {
       roomId: ROOM_ID,
       clientId: clientIdSchema.parse("client-tiny"),
       joinToken: JOIN_TOKEN,
+      authGeneration: AUTH_GENERATION,
+      refreshJoinToken: () =>
+        Promise.resolve({
+          ok: true,
+          token: JOIN_TOKEN,
+          authGeneration: AUTH_GENERATION,
+        }),
       username: "tiny",
       sceneApi: host.api,
       scheduleSceneFlush: scheduler.schedule,
@@ -264,6 +272,13 @@ describe("collaboration session over the fake network", () => {
       roomId: ROOM_ID,
       clientId: clientIdSchema.parse("client-rx"),
       joinToken: JOIN_TOKEN,
+      authGeneration: AUTH_GENERATION,
+      refreshJoinToken: () =>
+        Promise.resolve({
+          ok: true,
+          token: JOIN_TOKEN,
+          authGeneration: AUTH_GENERATION,
+        }),
       username: "rx",
       sceneApi: receiver.api,
       scheduleSceneFlush: receiverScheduler.schedule,
@@ -442,6 +457,13 @@ describe("scene attachment guard", () => {
       roomId: ROOM_ID,
       clientId: clientIdSchema.parse("client-attached"),
       joinToken: JOIN_TOKEN,
+      authGeneration: AUTH_GENERATION,
+      refreshJoinToken: () =>
+        Promise.resolve({
+          ok: true,
+          token: JOIN_TOKEN,
+          authGeneration: AUTH_GENERATION,
+        }),
       username: "attached",
       sceneApi: host.api,
       scheduleSceneFlush: scheduler.schedule,

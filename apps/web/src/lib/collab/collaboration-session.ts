@@ -16,6 +16,16 @@ import {
   type JoinBarrier,
   type JoinBarrierOptions,
 } from "@drawstuff/collaboration/join-barrier";
+import {
+  createOfflineChangeQueue,
+  type OfflineChangeQueueOptions,
+} from "@drawstuff/collaboration/offline-queue";
+import {
+  createRecoveryMachine,
+  type RecoveryPolicyOptions,
+  type RecoveryState,
+  type UnrecoverableReason,
+} from "@drawstuff/collaboration/recovery";
 import { roomRoleCanEditScene } from "@drawstuff/collaboration/room-auth";
 import {
   collaborationSnapshotDigest,
@@ -25,7 +35,9 @@ import {
 import type {
   CollaborationTransport,
   ConnectionState,
+  DisconnectReason,
   RoomPeer,
+  SendError,
   TransportSubscriber,
 } from "@drawstuff/collaboration/transport";
 import {
@@ -74,6 +86,17 @@ export const PRESENCE_THROTTLE_MS = 33;
  */
 export const SNAPSHOT_INTERVAL_MS = 30_000;
 
+/**
+ * Consecutive scene repairs a session will attempt with no sign of room activity
+ * in between (see `armSceneRepair`).
+ *
+ * Small on purpose. One repair already covers a single dropped message, which is
+ * the realistic case; the extra attempts cover a repair that is itself dropped.
+ * Past this the room is treated as quiet and the session stops publishing, because
+ * the alternative is a permanent full-scene heartbeat from every member.
+ */
+export const MAX_SCENE_REPAIR_ATTEMPTS = 3;
+
 /** Longest scene-flush coalescing window when animation frames are throttled
  *  (hidden tab): a plain timer backstop keeps outbound deltas moving. */
 const SCENE_FLUSH_BACKSTOP_MS = 32;
@@ -119,6 +142,34 @@ export type BaselineOutcome =
   | "snapshot-unavailable";
 
 /**
+ * What the join established about the room's own state, which is what decides
+ * how much of the local canvas may be published once the barrier opens.
+ *
+ * Separate from `BaselineOutcome` because the outcomes group differently for this
+ * question than for the user-facing one: a peer snapshot and an empty room are
+ * both "known", and a failed fetch and an expired deadline are both "unknown".
+ */
+/**
+ * What a publish attempt did. `nothing-to-send` is not a failure: it is the room
+ * already having everything this client holds, which is the normal steady state.
+ */
+type PublishOutcome = "sent" | "nothing-to-send" | "failed";
+
+type BaselineKnowledge =
+  /** The room's state was obtained — possibly empty, which is still knowledge. */
+  | "known"
+  /**
+   * Nothing was obtained. The whole canvas is published: it is the only state
+   * this client can vouch for, and a full snapshot converges from anywhere.
+   */
+  | "unknown"
+  /**
+   * The room has state this client cannot decrypt. Nothing is published — this
+   * canvas is not the room's scene, and sending it would claim that it is.
+   */
+  | "unreadable";
+
+/**
  * The slice of `ExcalidrawImperativeAPI` the session reads and writes, kept
  * minimal so tests can drive the session with a plain in-memory scene host.
  */
@@ -137,15 +188,74 @@ export type CollaborationSceneApi = {
   addFiles(files: BinaryFileData[]): void;
 };
 
+/**
+ * Credentials for one connection attempt.
+ *
+ * `authGeneration` travels with the token because it is what binds the token to
+ * the key this session derived. If the owner rotates the generation while a
+ * session is running, the next token comes back on the new generation — and the
+ * session must stop rather than reconnect, because its derived key can no longer
+ * open the room's ciphertext.
+ */
+export type JoinCredentials = {
+  token: string;
+  authGeneration: number;
+};
+
+/**
+ * Why the backend would not issue credentials, and what recovery does about it.
+ *
+ * The classification is the caller's, not this module's: the backend's own error
+ * vocabulary (an HTTP status, a tRPC code) is what distinguishes "you are no
+ * longer in this room" from "the request did not get through", and the session
+ * must not have to interpret transport errors to tell those apart. Getting the
+ * split wrong in either direction is a real failure — retrying a revocation hides
+ * it, and stopping on a blip abandons a session that was coming back.
+ *
+ * This is the authoritative split, not the relay's close code. The relay closes a
+ * socket the moment the app withdraws its authorization, and it uses the same
+ * code whether the member was removed or merely had their role changed — a role
+ * change *requires* a reconnect, because the role travels in the token. Only the
+ * next token request can distinguish them, so the terminal reasons live here.
+ */
+export type JoinCredentialsRefusal =
+  /** Transport or backend failure of unknown cause; retried with backoff. */
+  | { retry: true }
+  /** Terminal, with the reason to report. */
+  | {
+      retry: false;
+      failure: Extract<
+        UnrecoverableReason,
+        "unauthorized" | "membership-revoked" | "room-ended"
+      >;
+    };
+
+export type JoinCredentialsResult =
+  ({ ok: true } & JoinCredentials) | ({ ok: false } & JoinCredentialsRefusal);
+
 export type CollaborationSessionOptions = {
   transport: CollaborationTransport;
   roomId: RoomId;
   clientId: ClientId;
   /**
-   * Short-lived join token from `collaborationRoom.join`. The session never
-   * decides its own role: the granted role comes back in the connected state.
+   * Short-lived join token from `collaborationRoom.join`, already minted for the
+   * first attempt. The session never decides its own role: the granted role comes
+   * back in the connected state.
    */
   joinToken: string;
+  /**
+   * The room's durable authorization generation this session's keys are derived
+   * from. Compared against every refreshed token so a rotation is detected as a
+   * rotation instead of as a stream of undecryptable frames.
+   */
+  authGeneration: number;
+  /**
+   * Mints credentials for a reconnect attempt. Join tokens are short-lived by
+   * design, so the token that opened the first socket is usually expired by the
+   * time a reconnect happens — and re-asking the backend is also what makes a
+   * revoked member's reconnect fail where it should, at authorization time.
+   */
+  refreshJoinToken: () => Promise<JoinCredentialsResult>;
   username: string;
   sceneApi: CollaborationSceneApi;
   /**
@@ -188,16 +298,31 @@ export type CollaborationSessionOptions = {
   canSyncScene?: () => boolean;
   /** Reported once per connection when the join baseline resolves. */
   onBaselineResolved?: (outcome: BaselineOutcome) => void;
+  /**
+   * Reported on every recovery phase change, including the terminal ones. This
+   * is the session's honest connection status: `getConnectionState()` describes
+   * the socket, this describes whether the room is coming back.
+   */
+  onRecoveryStateChange?: (state: RecoveryState) => void;
   now?: () => number;
   fullSceneSyncIntervalMs?: number;
   presenceThrottleMs?: number;
   snapshotIntervalMs?: number;
   joinBaselineTimeoutMs?: number;
+  maxSceneRepairAttempts?: number;
   joinBarrier?: JoinBarrierOptions;
+  offlineQueue?: OfflineChangeQueueOptions;
+  recovery?: RecoveryPolicyOptions;
 };
 
 export type CollaborationSession = {
+  /**
+   * Starts the first connection attempt and arms recovery. Subsequent attempts
+   * are the session's own business: a dropped socket reconnects with backoff and
+   * a freshly minted token until it succeeds or hits a terminal condition.
+   */
   connect(): void;
+  /** Leaves the room and disarms recovery; `connect()` may be called again. */
   disconnect(): void;
   /** Unsubscribes from the transport and cancels every scheduled flush. The
    *  transport itself stays owned by the caller. */
@@ -231,6 +356,8 @@ export type CollaborationSession = {
    */
   flushSnapshot(): Promise<void>;
   getConnectionState(): ConnectionState;
+  /** Current recovery phase; see `onRecoveryStateChange`. */
+  getRecoveryState(): RecoveryState;
 };
 
 const defaultScheduleSceneFlush = (flush: () => void): (() => void) => {
@@ -277,6 +404,8 @@ export function createCollaborationSession(
     roomId,
     clientId,
     joinToken,
+    authGeneration,
+    refreshJoinToken,
     username,
     sceneApi,
     snapshotStore,
@@ -287,20 +416,60 @@ export function createCollaborationSession(
     scheduleSceneFlush = defaultScheduleSceneFlush,
     scheduleTimeout = defaultScheduleTimeout,
     onBaselineResolved,
+    onRecoveryStateChange,
     now = Date.now,
     fullSceneSyncIntervalMs = FULL_SCENE_SYNC_INTERVAL_MS,
     presenceThrottleMs = PRESENCE_THROTTLE_MS,
     snapshotIntervalMs = SNAPSHOT_INTERVAL_MS,
     joinBaselineTimeoutMs = DEFAULT_JOIN_BASELINE_TIMEOUT_MS,
+    maxSceneRepairAttempts = MAX_SCENE_REPAIR_ATTEMPTS,
     canSyncScene = () => true,
   } = options;
 
   type ConnectedState = Extract<ConnectionState, { status: "connected" }>;
 
   let destroyed = false;
+  /**
+   * Set once recovery reached a terminal state. Distinct from `destroyed`, which
+   * is the caller's teardown: a terminated session is still owned by a caller
+   * that has not torn it down yet, and it must stop doing work in the meantime
+   * rather than keep walking the scene on every `onChange`.
+   */
+  let terminated = false;
+  /**
+   * Assigned once the transport subscription exists. Released by `terminate` as
+   * well as by `destroy`, and idempotent, because a terminal state may be reached
+   * from inside the transport callback that is delivering it.
+   */
+  let unsubscribeTransport: (() => void) | undefined;
   let connected: ConnectedState | undefined;
   let gate: InboundMessageGate | undefined;
   const tracker = createChangedElementTracker();
+
+  const recovery = createRecoveryMachine(options.recovery);
+  /**
+   * Bounded accounting of what changed while the session was down, and the only
+   * thing that decides whether a reconnect can be a delta.
+   */
+  const offlineQueue = createOfflineChangeQueue(options.offlineQueue);
+  /** Credentials for the current attempt; replaced by every refresh. */
+  let credentials: JoinCredentials = { token: joinToken, authGeneration };
+  let cancelReconnectTimer: (() => void) | undefined;
+  /** Full-sync repair armed after the last publish; see `armSceneRepair`. */
+  let cancelSceneRepair: (() => void) | undefined;
+  /** Consecutive timer-driven repairs with no room activity in between. */
+  let sceneRepairAttempts = 0;
+  /**
+   * Invalidates an in-flight token refresh. A refresh that settles after the
+   * caller disconnected — or after a later attempt superseded it — must not open
+   * a socket nobody asked for.
+   */
+  let attemptEpoch = 0;
+  /**
+   * False until the first baseline resolves. A first join publishes the whole
+   * canvas; only a *re*join has a room state to diff against.
+   */
+  let hasSynced = false;
 
   let sceneSequence = 0;
   let presenceSequence = 0;
@@ -353,6 +522,132 @@ export function createCollaborationSession(
    *  the engine always receives a fresh Map. Bounded by room membership. */
   const collaborators = new Map<ClientId, Collaborator>();
 
+  const notifyRecovery = (): void => {
+    onRecoveryStateChange?.(recovery.state());
+  };
+
+  const clearReconnectTimer = (): void => {
+    cancelReconnectTimer?.();
+    cancelReconnectTimer = undefined;
+  };
+
+  /** Opens a socket with the credentials already in hand. */
+  const beginAttempt = (): void => {
+    recovery.start();
+    notifyRecovery();
+    transport.connect({ roomId, clientId, joinToken: credentials.token });
+  };
+
+  /**
+   * The single terminal teardown. Every path that ends recovery goes through it,
+   * whether the reason came from the transport, from the backend, or from this
+   * session's own state.
+   *
+   * Being terminal is not just a label on the state machine: the session stops
+   * doing work. It drops the connection (a socket held open in this condition
+   * looks connected while syncing nothing), abandons any token refresh still in
+   * flight, cancels the pending flush and the retry timer, releases its transport
+   * subscription, and empties the offline queue. `terminated` is what keeps the
+   * editor's own callbacks from refilling any of that — the caller still holds a
+   * live session object and will keep sending `onChange` until it tears it down.
+   */
+  const terminate = (): void => {
+    terminated = true;
+    clearReconnectTimer();
+    // Abandons any token refresh still in flight for this session.
+    attemptEpoch += 1;
+    // And any snapshot load or write still in flight. Those are guarded by
+    // `joinEpoch`, not by `attemptEpoch`, so without this a durable load issued
+    // during the join could still resolve afterwards and write the room's elements
+    // onto the canvas of a session that has already stopped.
+    joinEpoch += 1;
+    cancelPendingFlush?.();
+    cancelPendingFlush = undefined;
+    clearSceneRepair();
+    offlineQueue.clear();
+    transport.disconnect();
+    unsubscribeTransport?.();
+    unsubscribeTransport = undefined;
+  };
+
+  const failRecovery = (reason: UnrecoverableReason): void => {
+    recovery.fail(reason);
+    terminate();
+    notifyRecovery();
+  };
+
+  /**
+   * Applies the recovery policy to a lost connection: schedule the next attempt,
+   * stop with a stated reason, or ignore it because we asked for it.
+   */
+  const handleConnectionLoss = (reason: DisconnectReason): void => {
+    const next = recovery.lost(reason);
+    if (next.phase === "failed") {
+      // A terminal reason reported by the transport takes the same teardown as
+      // any other, rather than only flipping the state machine and leaving the
+      // session's timers, queue and subscription running.
+      terminate();
+      notifyRecovery();
+      return;
+    }
+    notifyRecovery();
+    if (next.phase !== "waiting") return;
+    clearReconnectTimer();
+    cancelReconnectTimer = scheduleTimeout(() => {
+      cancelReconnectTimer = undefined;
+      if (destroyed || terminated) return;
+      reconnect();
+    }, next.delayMs);
+  };
+
+  /**
+   * Mints fresh credentials and reconnects.
+   *
+   * The token is refreshed rather than reused because join tokens are
+   * short-lived, and because re-asking the backend is what makes a reconnect fail
+   * where it should: a member removed while offline is refused here, not left
+   * looping against the relay.
+   */
+  const reconnect = (): void => {
+    const epoch = (attemptEpoch += 1);
+    recovery.start();
+    notifyRecovery();
+    void (async () => {
+      let refreshed: JoinCredentialsResult;
+      try {
+        refreshed = await refreshJoinToken();
+      } catch {
+        // An unexpected throw is not evidence of lost access — a fetch that
+        // never left the machine looks exactly like this — so it is retried.
+        refreshed = { ok: false, retry: true };
+      }
+      if (destroyed || epoch !== attemptEpoch) return;
+      if (!refreshed.ok) {
+        // The backend is the authority on whether this client may still be in the
+        // room, so its refusal is what ends recovery — including for a member the
+        // relay closed as "revoked", which is also how a role change arrives.
+        if (!refreshed.retry) {
+          failRecovery(refreshed.failure);
+          return;
+        }
+        handleConnectionLoss("transient");
+        return;
+      }
+      // The room's generation moved under us, so this session's derived keys can
+      // no longer open the room. Reconnecting would produce a client that is
+      // connected and permanently blind; a new link is the only fix.
+      if (refreshed.authGeneration !== authGeneration) {
+        failRecovery("generation-rotated");
+        return;
+      }
+      credentials = {
+        token: refreshed.token,
+        authGeneration: refreshed.authGeneration,
+      };
+      transport.connect({ roomId, clientId, joinToken: credentials.token });
+    })();
+  };
+
   const nextMessageId = (): string => {
     messageCounter += 1;
     const peerId = connected?.peerId ?? "detached";
@@ -403,6 +698,25 @@ export function createCollaborationSession(
     roomRoleCanEditScene(connected.role) &&
     canSyncScene();
 
+  /**
+   * Applies the send policy to a failed scene send.
+   *
+   * `crypto-exhausted` is terminal and has to be treated as such: the derived key
+   * is per room generation, not per session, so reconnecting does not buy a fresh
+   * nonce budget and a session that keeps trying would drop every edit silently.
+   * A full outbound queue self-heals — nothing was marked sent, so the next flush
+   * re-extracts the same elements.
+   */
+  const handleSceneSendError = (error: SendError): void => {
+    if (error.code === "crypto-exhausted") {
+      failRecovery("crypto-exhausted");
+      return;
+    }
+    if (error.code === "queue-overflow") {
+      scheduleFlush();
+    }
+  };
+
   const sendFullScene = (): void => {
     // Nothing may be published before the baseline lands: until then this canvas
     // is not yet the room's scene, and broadcasting it would push pre-join local
@@ -421,32 +735,41 @@ export function createCollaborationSession(
       // codec re-validates the identity fields on send.
       payload: { elements: batch.elements as unknown as SyncedElement[] },
     };
-    if (transport.sendSceneMessage(message).ok) {
+    const result = transport.sendSceneMessage(message);
+    if (result.ok) {
       sceneSequence += 1;
       batch.markSent();
       lastFullSceneSyncAt = currentNow;
-    }
-  };
-
-  const flushLocalScene = (): void => {
-    cancelPendingFlush = undefined;
-    // Local edits made during the join window are not lost: the tracker still
-    // holds them (nothing was marked sent), and the snapshot broadcast that
-    // follows the baseline carries them.
-    if (barrier || !connected || !canEditScene()) return;
-    publishLocalAssets();
-    const currentNow = now();
-    // Throttled full resync (upstream SYNC_FULL_SCENE_INTERVAL_MS): a
-    // snapshot supersedes the delta and heals any receiver-side gaps.
-    if (currentNow - lastFullSceneSyncAt >= fullSceneSyncIntervalMs) {
-      sendFullScene();
+      // Armed even though this published everything: this very snapshot can be
+      // the message that gets dropped, and then nothing else would retry it. An
+      // empty scene is exempt — there is no state a drop could lose.
+      if (batch.elements.length > 0) armSceneRepair();
       return;
     }
+    handleSceneSendError(result.error);
+  };
+
+  /**
+   * Sends the elements the tracker still holds as pending, as one delta.
+   *
+   * Used both by the ordinary flush and by a rejoin. On a rejoin the pending set
+   * is precisely what the room's baseline did not already have: the tracker is
+   * reset on connect, and applying the baseline marks everything the baseline won
+   * as synced, so what is left is exactly the state this client owes the room.
+   * That derivation is deliberate — it does not depend on the tracker's beliefs
+   * from before the socket broke, which are exactly the beliefs a lost final
+   * frame would have made wrong.
+   */
+  const sendSceneDelta = (): PublishOutcome => {
+    if (barrier || !connected || !canEditScene()) return "failed";
+    const currentNow = now();
     const batch = tracker.extractChangedElements(
       sceneApi.getSceneElementsIncludingDeleted(),
       { now: currentNow },
     );
-    if (batch.elements.length === 0) return;
+    // Nothing pending means the room already has everything this client holds, so
+    // there is no send to make and nothing a repair could re-send.
+    if (batch.elements.length === 0) return "nothing-to-send";
     const message: SceneMessage = {
       ...buildEnvelope(connected, sceneSequence + 1),
       type: "scene-update",
@@ -456,18 +779,115 @@ export function createCollaborationSession(
     if (result.ok) {
       sceneSequence += 1;
       batch.markSent();
-      return;
+      return "sent";
     }
     // Nothing was marked sent, so the tracker still holds every pending
-    // element — the scene itself is the bounded offline queue. A full
-    // outbound queue self-heals by re-extracting on the next flush.
-    if (result.error.code === "queue-overflow") {
-      scheduleFlush();
-    }
+    // element — the scene itself is the bounded offline queue.
+    handleSceneSendError(result.error);
+    return "failed";
   };
 
+  /**
+   * Accounts for local edits made while the session is down.
+   *
+   * Extraction only — nothing is marked sent, because nothing was sent. The
+   * queue keeps identity and size, so the element bodies stay in the scene and
+   * the reconnect re-reads them; an element drawn and then deleted while offline
+   * is therefore replayed as the tombstone it became.
+   */
+  const recordOfflineChanges = (): void => {
+    const currentNow = now();
+    const batch = tracker.extractChangedElements(
+      sceneApi.getSceneElementsIncludingDeleted(),
+      { now: currentNow },
+    );
+    offlineQueue.record(
+      batch.elements as unknown as readonly SyncedElement[],
+      currentNow,
+    );
+  };
+
+  const flushLocalScene = (): void => {
+    cancelPendingFlush = undefined;
+    if (!canSyncScene()) return;
+    // Disconnected: account for the change, bounded, so the reconnect can decide
+    // between replaying a delta and falling back to one full sync.
+    if (!connected) {
+      recordOfflineChanges();
+      return;
+    }
+    // Local edits made during the join window are not lost either: the tracker
+    // still holds them, and the rejoin publish that follows the baseline carries
+    // them.
+    if (barrier || !canEditScene()) return;
+    publishLocalAssets();
+    const currentNow = now();
+    // Throttled full resync (upstream SYNC_FULL_SCENE_INTERVAL_MS): a
+    // snapshot supersedes the delta and heals any receiver-side gaps.
+    if (currentNow - lastFullSceneSyncAt >= fullSceneSyncIntervalMs) {
+      sendFullScene();
+      return;
+    }
+    // Armed only when something actually went on the wire: a repair exists to
+    // re-send state that may have been dropped, and a send that carried nothing
+    // has nothing to lose.
+    if (sendSceneDelta() === "sent") armSceneRepair();
+  };
+
+  /**
+   * Arms the repair that heals a publish nobody received.
+   *
+   * Every other repair path in the session is reactive: a sequence gap is noticed
+   * when a *later* message from that sender arrives, a received snapshot draws a
+   * reply, a newcomer draws a snapshot. All of them need traffic to happen next —
+   * and the one case with no traffic next is the one that matters most. If the last
+   * message of the room's activity is dropped and the room then goes quiet, the
+   * sender has no acknowledgement to miss and the receiver sees no gap, so the
+   * divergence is permanent.
+   *
+   * The throttled full resync was already meant to be that backstop, but it only
+   * ran when a flush happened to occur, and an idle room never flushes. This puts
+   * it on a timer, armed after *any* successful publish — a snapshot can be dropped
+   * just as easily as a delta, so arming only after deltas would leave the same
+   * hole one step further along.
+   *
+   * `maxSceneRepairAttempts` is what keeps that from becoming a permanent
+   * heartbeat. The counter measures consecutive repairs with no sign of life in
+   * between: a local edit or any inbound scene message resets it, because either
+   * one means the reactive paths are working again. A room that goes completely
+   * silent therefore emits a small bounded number of repairs and stops.
+   */
+  function armSceneRepair(): void {
+    if (sceneRepairAttempts >= maxSceneRepairAttempts) return;
+    cancelSceneRepair?.();
+    cancelSceneRepair = scheduleTimeout(() => {
+      cancelSceneRepair = undefined;
+      if (isStopped()) return;
+      sceneRepairAttempts += 1;
+      scheduleFlush();
+    }, fullSceneSyncIntervalMs);
+  }
+
+  /** Any sign that the room is still exchanging traffic re-earns the budget. */
+  const noteRoomActivity = (): void => {
+    sceneRepairAttempts = 0;
+  };
+
+  const clearSceneRepair = (): void => {
+    cancelSceneRepair?.();
+    cancelSceneRepair = undefined;
+  };
+
+  /**
+   * True once this session will never do useful work again — torn down by the
+   * caller, or stopped by a terminal recovery failure. The editor keeps calling in
+   * either case, so the entry points that would otherwise walk the scene, measure
+   * elements or build messages check this first.
+   */
+  const isStopped = (): boolean => destroyed || terminated;
+
   const scheduleFlush = (): void => {
-    if (destroyed || cancelPendingFlush) return;
+    if (isStopped() || cancelPendingFlush) return;
     cancelPendingFlush = scheduleSceneFlush(flushLocalScene);
   };
 
@@ -484,9 +904,17 @@ export function createCollaborationSession(
         idleState,
       },
     };
-    if (transport.sendPresenceMessage(message).ok) {
+    const result = transport.sendPresenceMessage(message);
+    if (result.ok) {
       presenceSequence += 1;
       lastPresenceSentAt = now();
+      return;
+    }
+    // Presence loss is free — the next pointer sample repairs it — with one
+    // exception: a spent nonce budget is terminal for the whole session, and
+    // presence is the channel most likely to reach it first.
+    if (result.error.code === "crypto-exhausted") {
+      failRecovery("crypto-exhausted");
     }
   };
 
@@ -606,6 +1034,9 @@ export function createCollaborationSession(
     message: SceneMessage,
     sceneSyncRequired: boolean,
   ): void => {
+    // Inbound scene traffic means the reactive repair paths are working, so the
+    // timer-driven budget is restored.
+    noteRoomActivity();
     applyRemoteElements(message.payload.elements);
     if (message.type === "scene-init") {
       if (sceneInitNeedsReply(message.payload.elements)) sendFullScene();
@@ -623,14 +1054,66 @@ export function createCollaborationSession(
   };
 
   /**
+   * Publishes what this client owes the room, once the baseline is in.
+   *
+   * A first join publishes the whole canvas: there is no prior room state to
+   * measure against, and the snapshot is also what draws the peers' snapshot
+   * replies. A rejoin has a choice, and the offline queue makes it:
+   *
+   * - Within its bounds, the pending delta is enough. The baseline was merged
+   *   first, so what the tracker still holds is exactly the state the room does
+   *   not have — usually a handful of elements rather than the whole scene.
+   * - Over any bound, or with no baseline at all (the deadline expired), the
+   *   whole scene goes out instead. One bounded full sync converges from any
+   *   starting state, which is what makes it safe to stop being precise.
+   */
+  const publishAfterBaseline = (params: {
+    rejoin: boolean;
+    knowledge: BaselineKnowledge;
+  }): void => {
+    // The room holds state this client cannot read, so this canvas is not the
+    // room's scene and publishing it would claim otherwise.
+    if (params.knowledge === "unreadable") return;
+    // A terminal failure resolved during this join for any other reason.
+    if (recovery.state().phase === "failed") return;
+    if (!connected || !canEditScene()) return;
+    publishLocalAssets();
+    const verdict = offlineQueue.drain(now());
+    if (
+      !params.rejoin ||
+      params.knowledge === "unknown" ||
+      verdict.mode === "full-sync"
+    ) {
+      sendFullScene();
+      return;
+    }
+    // Both `delta` and `none` take this path: "nothing changed while offline"
+    // still leaves the possibility that the last frame before the socket broke
+    // never landed, and the pending set covers exactly that.
+    //
+    // The backstop is only rearmed when the delta actually went out. A refused
+    // send leaves it where it was, so the retried flush publishes a full snapshot
+    // instead of quietly waiting out the interval with unsent state.
+    const published = sendSceneDelta();
+    if (published === "failed") return;
+    // The reconnect exchange reconciled this client with the room, so the periodic
+    // backstop restarts from here rather than firing on the very next edit.
+    lastFullSceneSyncAt = now();
+    if (published === "sent") armSceneRepair();
+  };
+
+  /**
    * Opens the barrier: replays what it held, in arrival order, then publishes
-   * our own snapshot so the rest of the room converges with us.
+   * what the room is missing so the rest of the room converges with us.
    *
    * Replay applies elements only — it deliberately does not run the per-message
-   * snapshot-reply probe, because the single broadcast at the end is that probe,
+   * snapshot-reply probe, because the single publish at the end is that probe,
    * and running it per replayed message would answer one join with a burst.
    */
-  const releaseBarrier = (outcome: BaselineOutcome): void => {
+  const releaseBarrier = (
+    outcome: BaselineOutcome,
+    knowledge: BaselineKnowledge,
+  ): void => {
     const releasing = barrier;
     if (!releasing) return;
     clearBaselineTimeout();
@@ -639,16 +1122,23 @@ export function createCollaborationSession(
     for (const message of held) {
       applyRemoteElements(message.payload.elements);
     }
+    const rejoin = hasSynced;
+    hasSynced = true;
+    if (recovery.state().phase === "syncing") {
+      // Only a resolved baseline counts as progress, so this is also what clears
+      // the retry budget: a relay that accepts joins and drops them keeps backing
+      // off instead of hammering at the base delay.
+      recovery.synced();
+      notifyRecovery();
+    }
     onBaselineResolved?.(outcome);
-    // Also the repair for a buffer that overflowed: our snapshot draws the
+    // Also the repair for a buffer that overflowed: what we publish draws the
     // peers' snapshot replies, which carry whatever the drop lost.
-    sendFullScene();
+    publishAfterBaseline({ rejoin, knowledge });
     // A viewer cannot publish, so the line above is not a repair for it. Re-read
     // the durable baseline instead, which recovers everything up to the last
-    // stored snapshot without needing a frame the relay would refuse. Edits
-    // newer than that snapshot still depend on a peer's periodic full sync; a
-    // read-only sync request is the complete answer and belongs to Plan 18's
-    // recovery state machine.
+    // stored snapshot without needing a frame the relay would refuse. Edits newer
+    // than that snapshot still arrive with a peer's periodic full sync.
     if (releasing.needsSceneSync() && !canEditScene()) {
       void loadDurableBaseline(joinEpoch);
     }
@@ -686,26 +1176,33 @@ export function createCollaborationSession(
       applyRemoteElements(result.elements);
       snapshotRevision = result.revision;
       snapshotBaselineKnown = true;
-      if (barrier?.claimBaseline()) releaseBarrier("durable-snapshot");
+      if (barrier?.claimBaseline()) releaseBarrier("durable-snapshot", "known");
       return;
     }
     if (result.status === "empty") {
       snapshotRevision = SNAPSHOT_NO_REVISION;
       snapshotBaselineKnown = true;
-      if (barrier?.claimBaseline()) releaseBarrier("empty");
+      // An empty room is a baseline: "the room has nothing" is knowledge, and it
+      // is what makes a first publish of the local canvas correct.
+      if (barrier?.claimBaseline()) releaseBarrier("empty", "known");
       return;
     }
     // The baseline stays unknown, and `writeSnapshot` refuses while it is:
     // replacing a snapshot we could not read would destroy room history on the
     // strength of a canvas we have no reason to believe is complete.
     snapshotBaselineKnown = false;
+    const unreadable = result.reason === "wrong-key";
     if (barrier?.claimBaseline()) {
       releaseBarrier(
-        result.reason === "wrong-key"
-          ? "unreadable-snapshot"
-          : "snapshot-unavailable",
+        unreadable ? "unreadable-snapshot" : "snapshot-unavailable",
+        unreadable ? "unreadable" : "unknown",
       );
     }
+    // A stored snapshot this client cannot open means the link's key cannot open
+    // the room at all — realtime frames are sealed under a key derived from the
+    // same material — so the session is terminal rather than merely stale. Failed
+    // after the barrier reports the outcome, so the user still learns *why*.
+    if (unreadable) failRecovery("unreadable-room");
   };
 
   const openBarrier = (epoch: number): void => {
@@ -715,7 +1212,9 @@ export function createCollaborationSession(
     cancelBaselineTimeout = scheduleTimeout(() => {
       cancelBaselineTimeout = undefined;
       if (epoch !== joinEpoch || !barrier?.claimBaseline()) return;
-      releaseBarrier("snapshot-unavailable");
+      // No room state was obtained, so there is nothing to diff against and the
+      // whole canvas goes out.
+      releaseBarrier("snapshot-unavailable", "unknown");
     }, joinBaselineTimeoutMs);
     void loadDurableBaseline(epoch);
   };
@@ -889,7 +1388,7 @@ export function createCollaborationSession(
       // ordinary traffic, which is what makes duplicate replies harmless.
       if (message.type === "scene-init" && barrier.claimBaseline()) {
         applyRemoteElements(message.payload.elements);
-        releaseBarrier("peer");
+        releaseBarrier("peer", "known");
         return;
       }
       barrier.hold(message, meta.byteLength);
@@ -900,7 +1399,19 @@ export function createCollaborationSession(
   };
 
   const handleConnectionStateChange = (state: ConnectionState): void => {
+    // The socket is open but has not joined yet: no session state exists to set
+    // up and none to tear down.
+    if (state.status === "connecting") return;
     if (state.status === "connected") {
+      // Always `connecting` here: every socket this session has is opened by
+      // `beginAttempt` or `reconnect`, both of which enter that phase first. The
+      // check exists so a transport driven from outside the session cannot push
+      // the machine through an illegal transition and throw inside a subscriber
+      // callback — it is not a second way to become live.
+      if (recovery.state().phase === "connecting") {
+        recovery.connected();
+        notifyRecovery();
+      }
       joinEpoch += 1;
       connected = state;
       gate = createInboundMessageGate({
@@ -913,10 +1424,13 @@ export function createCollaborationSession(
       lastFullSceneSyncAt = Number.NEGATIVE_INFINITY;
       lastPresenceSentAt = Number.NEGATIVE_INFINITY;
       knownPeerIds = new Set([state.peerId]);
-      roomPeers = [{ peerId: state.peerId, clientId: state.clientId, role: state.role }];
+      roomPeers = [
+        { peerId: state.peerId, clientId: state.clientId, role: state.role },
+      ];
       snapshotRevision = SNAPSHOT_NO_REVISION;
       snapshotBaselineKnown = false;
       lastSnapshotDigest = undefined;
+      noteRoomActivity();
       // Subscribe first, then obtain a baseline: an edit published between a
       // baseline fetch and a subscription would be in neither, and nothing later
       // would reveal that it is missing.
@@ -931,10 +1445,21 @@ export function createCollaborationSession(
     barrier = undefined;
     clearBaselineTimeout();
     stopSnapshotCadence();
+    // Nothing to repair while there is no session: the offline queue takes over,
+    // and the rejoin publish is what brings the room up to date.
+    clearSceneRepair();
     if (collaborators.size > 0) {
       collaborators.clear();
       applyCollaborators();
     }
+    if (state.status === "disconnected") {
+      handleConnectionLoss(state.reason);
+      return;
+    }
+    // The transport is closed for good, so there is nothing left to recover.
+    clearReconnectTimer();
+    recovery.stop();
+    notifyRecovery();
   };
 
   const handleRoomPeersChange = (peers: readonly RoomPeer[]): void => {
@@ -980,14 +1505,25 @@ export function createCollaborationSession(
     // lost — the same repair path a detected gap uses.
     onSceneSyncRequired: sendFullScene,
   };
-  const unsubscribe = transport.subscribe(subscriber);
+  unsubscribeTransport = transport.subscribe(subscriber);
 
   return {
     connect() {
       if (destroyed) throw new Error("Collaboration session is destroyed");
-      transport.connect({ roomId, clientId, joinToken });
+      // Idempotent while an attempt or a live session exists: `connect()` arms
+      // recovery, and recovery owns every attempt after the first.
+      if (recovery.state().phase !== "idle") return;
+      beginAttempt();
     },
     disconnect() {
+      // Recovery is disarmed *before* the socket goes away, so the disconnect it
+      // is about to observe reads as "the caller asked" rather than as a failure
+      // worth retrying.
+      clearReconnectTimer();
+      attemptEpoch += 1;
+      offlineQueue.clear();
+      recovery.stop();
+      notifyRecovery();
       transport.disconnect();
     },
     destroy() {
@@ -999,10 +1535,21 @@ export function createCollaborationSession(
       barrier = undefined;
       clearBaselineTimeout();
       stopSnapshotCadence();
-      unsubscribe();
+      clearReconnectTimer();
+      clearSceneRepair();
+      // Abandons an in-flight token refresh, so a session torn down mid-attempt
+      // cannot open a socket afterwards.
+      attemptEpoch += 1;
+      offlineQueue.clear();
+      recovery.stop();
+      unsubscribeTransport?.();
+      unsubscribeTransport = undefined;
     },
     handleLocalSceneChange(_elements, appState) {
-      if (destroyed) return;
+      if (isStopped()) return;
+      // A real edit means this client has something new to say, so the repair
+      // budget is not being spent on a silent room.
+      noteRoomActivity();
       lastSelectedElementIds = Object.keys(appState.selectedElementIds)
         .filter((id) => id.length <= MAX_PRESENCE_ELEMENT_ID_LENGTH)
         .slice(0, MAX_PRESENCE_SELECTED_ELEMENT_IDS);
@@ -1020,11 +1567,11 @@ export function createCollaborationSession(
       });
     },
     republishLocalAssets() {
-      if (destroyed) return;
+      if (isStopped()) return;
       publishLocalAssets();
     },
     handlePointerUpdate(payload) {
-      if (destroyed) return;
+      if (isStopped()) return;
       lastPointer = {
         x: payload.pointer.x,
         y: payload.pointer.y,
@@ -1036,7 +1583,7 @@ export function createCollaborationSession(
       if (now() - lastPresenceSentAt >= presenceThrottleMs) sendPresence();
     },
     setIdleState(nextIdleState) {
-      if (destroyed || idleState === nextIdleState) return;
+      if (isStopped() || idleState === nextIdleState) return;
       idleState = nextIdleState;
       // Idle transitions are rare and user-visible: bypass the throttle.
       sendPresence();
@@ -1046,6 +1593,9 @@ export function createCollaborationSession(
     },
     getConnectionState() {
       return transport.getConnectionState();
+    },
+    getRecoveryState() {
+      return recovery.state();
     },
   };
 }
