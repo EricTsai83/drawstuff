@@ -13,6 +13,7 @@ export {
 } from "./document-v4.ts";
 export {
   clearElementsForOfficialExport,
+  collectReferencedFileIds,
   EXCALIDRAW_PERSISTENCE_CONTRACT,
   filterReferencedFiles,
   OFFICIAL_SERVER_APP_STATE_KEYS,

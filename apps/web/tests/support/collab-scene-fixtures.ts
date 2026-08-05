@@ -59,6 +59,30 @@ export function collabRectangle(
   } as unknown as OrderedExcalidrawElement;
 }
 
+/**
+ * A native-shaped image element in its saved state, so it carries a `fileId` the
+ * asset pipeline has to resolve. Same restore fixed-point requirement as
+ * `collabRectangle`: the element itself must survive a wire round-trip unchanged,
+ * because the bytes travel on a completely separate path.
+ */
+export function collabImage(
+  overrides: Record<string, unknown> & {
+    readonly id: string;
+    readonly fileId: string;
+  },
+): OrderedExcalidrawElement {
+  return collabRectangle({
+    ...overrides,
+    type: "image",
+    status: "saved",
+    scale: [1, 1],
+    crop: null,
+    roundness: null,
+    width: 100,
+    height: 80,
+  });
+}
+
 /** A copy of `element` with one semantic edit and the upstream version bump. */
 export function editedElement(
   element: OrderedExcalidrawElement,

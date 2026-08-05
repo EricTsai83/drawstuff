@@ -34,28 +34,42 @@ const { pgClient, testDb } = await vi.hoisted(async () => {
 vi.mock("@/server/db/index", () => ({ db: testDb }));
 
 import { pushSchema } from "drizzle-kit/api";
-import { and, eq } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
 import {
-  MAX_ASSET_REGISTRATION_BATCH,
+  ASSET_CRYPTO_VERSION,
+  MAX_ASSET_CIPHERTEXT_BYTES,
+  MAX_ASSET_LOOKUP_BATCH,
   MAX_ROOM_ASSETS_PER_GENERATION,
 } from "@drawstuff/collaboration/asset";
 
 import * as schema from "@/server/db/schema";
 import { createCaller } from "@/server/api/root";
 import type { createTRPCContext } from "@/server/api/trpc";
+import {
+  commitRoomAssetUpload,
+  RETIRED_ASSET_CLEANUP_REASON,
+} from "@/server/collab/assets";
+import type { Database } from "@/server/collab/rooms";
 import { QUERIES } from "@/server/db/queries";
 
 /**
- * Asset identity as the storage boundary enforces it (Plan 16).
+ * Asset identity as the storage boundary enforces it (Plan 16), and the room
+ * asset writes that identity now governs (Plan 17).
  *
- * The property under test is narrow and was previously wrong: an asset is
+ * The identity property is narrow and was previously wrong: an asset is
  * identified by *parent scope + Excalidraw file id*, and by nothing else. Before
- * this plan an owned-scene asset was keyed by `(scene_id, content_hash)` over
- * the compressed upload payload, which changes on every write — so the same
- * image accumulated a row per save, and two images could in principle collide on
- * a hash. Both directions are asserted here, against real Postgres DDL rather
- * than a mock, because the guarantee is the constraint, not the call site.
+ * Plan 16 an owned-scene asset was keyed by `(scene_id, content_hash)` over the
+ * compressed upload payload, which changes on every write — so the same image
+ * accumulated a row per save, and two images could in principle collide on a
+ * hash. Both directions are asserted here, against real Postgres DDL rather than
+ * a mock, because the guarantee is the constraint, not the call site.
+ *
+ * The room half adds the two things a stored ciphertext needs: an authorization
+ * re-check at commit time (an upload takes as long as the bytes take, and access
+ * can be revoked while it is in flight) and bounded retention (a rotated
+ * generation's assets are unreadable, so their objects have to be handed to the
+ * cleanup worker in the same transaction that orphans them).
  */
 
 type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
@@ -317,154 +331,217 @@ describe("scene asset identity", () => {
   });
 });
 
-describe("collaboration asset manifest", () => {
-  it("starts empty and reports the generation it answers for", async () => {
+describe("collaboration room assets", () => {
+  const CIPHERTEXT_BYTES = 512;
+
+  const upload = (
+    roomId: string,
+    fileId: string,
+    options: {
+      userId?: string;
+      authGeneration?: number;
+      utFileKey?: string;
+      byteLength?: number;
+      cryptoVersion?: number;
+    } = {},
+  ) =>
+    commitRoomAssetUpload(testDb as unknown as Database, {
+      roomId,
+      userId: options.userId ?? OWNER,
+      authGeneration: options.authGeneration ?? 1,
+      fileId,
+      storage: {
+        cryptoVersion: options.cryptoVersion ?? ASSET_CRYPTO_VERSION,
+        utFileKey: options.utFileKey ?? `object-${fileId}`,
+        url: `https://storage.example.com/objects/${options.utFileKey ?? `object-${fileId}`}`,
+        byteLength: options.byteLength ?? CIPHERTEXT_BYTES,
+      },
+      now: new Date(),
+    });
+
+  const roomAssetRows = (roomId: string) =>
+    testDb
+      .select({
+        fileId: schema.collaborationAsset.excalidrawFileId,
+        generation: schema.collaborationAsset.authGeneration,
+        utFileKey: schema.collaborationAsset.utFileKey,
+        registeredBy: schema.collaborationAsset.registeredBy,
+      })
+      .from(schema.collaborationAsset)
+      .where(eq(schema.collaborationAsset.roomId, roomId));
+
+  it("answers for the current generation when the room has no assets", async () => {
     const room = await openRoom();
     await expect(
-      callerFor(OWNER).collaborationAsset.list({ roomId: room.roomId }),
+      callerFor(OWNER).collaborationAsset.resolve({
+        roomId: room.roomId,
+        fileIds: [FILE_A],
+      }),
     ).resolves.toEqual({
       roomId: room.roomId,
       authGeneration: 1,
-      fileIds: [],
+      assets: [],
+      // Absence is an answer, not an error: a peer's image element arrives before
+      // its ciphertext does, and the caller retries exactly these.
+      missing: [FILE_A],
     });
   });
 
-  it("registers ids once, ascending, and treats a repeat as success", async () => {
+  it("records an upload and resolves it back to where the ciphertext is", async () => {
     const room = await openRoom();
-    const first = await callerFor(OWNER).collaborationAsset.register({
+    expect(await upload(room.roomId, FILE_A, { utFileKey: "object-1" })).toBe(
+      "recorded",
+    );
+
+    const lookup = await callerFor(OWNER).collaborationAsset.resolve({
       roomId: room.roomId,
-      authGeneration: 1,
-      fileIds: [FILE_B, FILE_A],
-    });
-    expect(first).toEqual({
-      authGeneration: 1,
-      registered: [FILE_A, FILE_B],
-      alreadyPresent: [],
       fileIds: [FILE_A, FILE_B],
     });
-
-    // A retry after a dropped response must not fail and must not duplicate.
-    const retry = await callerFor(OWNER).collaborationAsset.register({
-      roomId: room.roomId,
-      authGeneration: 1,
-      fileIds: [FILE_A],
-    });
-    expect(retry).toEqual({
-      authGeneration: 1,
-      registered: [],
-      alreadyPresent: [FILE_A],
-      fileIds: [FILE_A, FILE_B],
-    });
-    expect(
-      await testDb
-        .select()
-        .from(schema.collaborationAsset)
-        .where(eq(schema.collaborationAsset.roomId, room.roomId)),
-    ).toHaveLength(2);
+    expect(lookup.assets).toEqual([
+      {
+        excalidrawFileId: FILE_A,
+        cryptoVersion: ASSET_CRYPTO_VERSION,
+        byteLength: CIPHERTEXT_BYTES,
+        url: "https://storage.example.com/objects/object-1",
+      },
+    ]);
+    expect(lookup.missing).toEqual([FILE_B]);
   });
 
-  it("collapses a batch that names the same asset twice", async () => {
-    const room = await openRoom();
-    const result = await callerFor(OWNER).collaborationAsset.register({
-      roomId: room.roomId,
-      authGeneration: 1,
-      fileIds: [FILE_A, FILE_A, FILE_A],
-    });
-    expect(result.registered).toEqual([FILE_A]);
-    expect(result.fileIds).toEqual([FILE_A]);
-  });
-
-  it("lets an editor register and refuses a viewer", async () => {
+  it("keeps the first upload of a file id and tells the loser to delete its object", async () => {
     const room = await openRoom();
     await addMember(room.roomId, EDITOR, "editor");
+    expect(await upload(room.roomId, FILE_A, { utFileKey: "first" })).toBe(
+      "recorded",
+    );
+
+    // Two peers pasting the same image race here by design. The bytes are the
+    // same image either way, so the loser's object simply has no referent.
+    expect(
+      await upload(room.roomId, FILE_A, {
+        userId: EDITOR,
+        utFileKey: "second",
+      }),
+    ).toBe("duplicate");
+
+    const rows = await roomAssetRows(room.roomId);
+    expect(rows).toEqual([
+      {
+        fileId: FILE_A,
+        generation: 1,
+        utFileKey: "first",
+        registeredBy: OWNER,
+      },
+    ]);
+  });
+
+  it("treats different file ids as different assets", async () => {
+    const room = await openRoom();
+    await upload(room.roomId, FILE_A, { utFileKey: "object-a" });
+    await upload(room.roomId, FILE_B, { utFileKey: "object-b" });
+
+    const lookup = await callerFor(OWNER).collaborationAsset.resolve({
+      roomId: room.roomId,
+      fileIds: [FILE_B, FILE_A],
+    });
+    expect(lookup.assets.map((asset) => asset.excalidrawFileId)).toEqual([
+      FILE_A,
+      FILE_B,
+    ]);
+    expect(lookup.missing).toEqual([]);
+  });
+
+  it("rejects an upload from a viewer, a stranger, and an unknown room", async () => {
+    const room = await openRoom();
     await addMember(room.roomId, VIEWER, "viewer");
 
+    expect(await upload(room.roomId, FILE_A, { userId: VIEWER })).toBe(
+      "rejected",
+    );
+    expect(await upload(room.roomId, FILE_A, { userId: STRANGER })).toBe(
+      "rejected",
+    );
+    expect(await upload("no-such-room", FILE_A)).toBe("rejected");
+    expect(await roomAssetRows(room.roomId)).toEqual([]);
+
+    // A viewer still reads assets: it renders the room, it just does not add to it.
+    await upload(room.roomId, FILE_A);
     await expect(
-      callerFor(EDITOR).collaborationAsset.register({
+      callerFor(VIEWER).collaborationAsset.resolve({
         roomId: room.roomId,
-        authGeneration: 1,
         fileIds: [FILE_A],
       }),
-    ).resolves.toMatchObject({ registered: [FILE_A] });
-
-    // A viewer receives the manifest but never extends it — the relay refuses
-    // its realtime mutations and this refuses the durable equivalent.
-    await expect(
-      callerFor(VIEWER).collaborationAsset.register({
-        roomId: room.roomId,
-        authGeneration: 1,
-        fileIds: [FILE_B],
-      }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(
-      callerFor(VIEWER).collaborationAsset.list({ roomId: room.roomId }),
-    ).resolves.toMatchObject({ fileIds: [FILE_A] });
+    ).resolves.toMatchObject({ missing: [] });
   });
 
-  it("refuses a stranger and an unknown room", async () => {
-    const room = await openRoom();
-    await expect(
-      callerFor(STRANGER).collaborationAsset.list({ roomId: room.roomId }),
-    ).rejects.toMatchObject({ code: "FORBIDDEN" });
-    await expect(
-      callerFor(OWNER).collaborationAsset.list({ roomId: "no-such-room" }),
-    ).rejects.toMatchObject({ code: "NOT_FOUND" });
-  });
-
-  it("refuses a registration filed under a stale generation", async () => {
+  it("rejects an upload sealed for a generation the room has moved past", async () => {
     const room = await openRoom();
     await callerFor(OWNER).collaborationRoom.rotateGeneration({
       roomId: room.roomId,
     });
 
+    // The ciphertext is bound to generation 1; filing it under 2 would produce a
+    // row nobody can ever open.
+    expect(await upload(room.roomId, FILE_A, { authGeneration: 1 })).toBe(
+      "rejected",
+    );
+    expect(await upload(room.roomId, FILE_A, { authGeneration: 2 })).toBe(
+      "recorded",
+    );
+  });
+
+  it("starts a rotated generation empty and queues the old objects for deletion", async () => {
+    const room = await openRoom();
+    await upload(room.roomId, FILE_A, { utFileKey: "old-object" });
+    await callerFor(OWNER).collaborationRoom.rotateGeneration({
+      roomId: room.roomId,
+    });
+
+    // The previous generation's ciphertext is unreadable now, so the new
+    // generation legitimately has nothing.
     await expect(
-      callerFor(OWNER).collaborationAsset.register({
+      callerFor(OWNER).collaborationAsset.resolve({
         roomId: room.roomId,
-        authGeneration: 1,
         fileIds: [FILE_A],
       }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-  });
-
-  it("starts a rotated generation from an empty manifest and retires the old one", async () => {
-    const room = await openRoom();
-    await callerFor(OWNER).collaborationAsset.register({
-      roomId: room.roomId,
-      authGeneration: 1,
-      fileIds: [FILE_A],
-    });
-
-    const rotated = await callerFor(OWNER).collaborationRoom.rotateGeneration({
-      roomId: room.roomId,
-    });
-    expect(rotated.authGeneration).toBe(2);
-
-    // The previous generation's assets are sealed under a key nobody can derive
-    // any more, so the new generation legitimately references nothing yet.
-    await expect(
-      callerFor(OWNER).collaborationAsset.list({ roomId: room.roomId }),
-    ).resolves.toEqual({
-      roomId: room.roomId,
+    ).resolves.toMatchObject({
       authGeneration: 2,
-      fileIds: [],
+      assets: [],
+      missing: [FILE_A],
     });
 
-    await callerFor(OWNER).collaborationAsset.register({
-      roomId: room.roomId,
+    await upload(room.roomId, FILE_B, {
       authGeneration: 2,
-      fileIds: [FILE_B],
+      utFileKey: "new-object",
     });
-    // Retention is bounded: the write that gave generation 2 a manifest is what
-    // retires generation 1's.
+    expect(await roomAssetRows(room.roomId)).toEqual([
+      {
+        fileId: FILE_B,
+        generation: 2,
+        utFileKey: "new-object",
+        registeredBy: OWNER,
+      },
+    ]);
+    // Deleting the row is what orphans the object, so the same transaction hands
+    // it to the cleanup worker.
     expect(
       await testDb
-        .select({ generation: schema.collaborationAsset.authGeneration })
-        .from(schema.collaborationAsset)
-        .where(eq(schema.collaborationAsset.roomId, room.roomId)),
-    ).toEqual([{ generation: 2 }]);
+        .select({
+          utFileKey: schema.deferredFileCleanup.utFileKey,
+          reason: schema.deferredFileCleanup.reason,
+          status: schema.deferredFileCleanup.status,
+        })
+        .from(schema.deferredFileCleanup),
+    ).toEqual([
+      {
+        utFileKey: "old-object",
+        reason: RETIRED_ASSET_CLEANUP_REASON,
+        status: "pending",
+      },
+    ]);
   });
 
-  it("bounds one request and the room's total asset count", async () => {
+  it("bounds the room's asset count and one lookup batch", async () => {
     const room = await openRoom();
     const ids = (count: number, prefix: string) =>
       Array.from({ length: count }, (_, index) =>
@@ -472,90 +549,68 @@ describe("collaboration asset manifest", () => {
       );
 
     await expect(
-      callerFor(OWNER).collaborationAsset.register({
+      callerFor(OWNER).collaborationAsset.resolve({
         roomId: room.roomId,
-        authGeneration: 1,
-        fileIds: ids(MAX_ASSET_REGISTRATION_BATCH + 1, "batch"),
+        fileIds: ids(MAX_ASSET_LOOKUP_BATCH + 1, "batch"),
       }),
     ).rejects.toThrow();
 
-    // Fill the generation to its ceiling in permitted batches, then prove the
-    // next asset is refused: an authorized member must not be able to grow the
-    // manifest without limit.
-    const all = ids(MAX_ROOM_ASSETS_PER_GENERATION, "fill");
-    for (
-      let index = 0;
-      index < all.length;
-      index += MAX_ASSET_REGISTRATION_BATCH
-    ) {
-      await callerFor(OWNER).collaborationAsset.register({
-        roomId: room.roomId,
-        authGeneration: 1,
-        fileIds: all.slice(index, index + MAX_ASSET_REGISTRATION_BATCH),
-      });
+    // Fill the generation to its ceiling, then prove the next upload is refused:
+    // an authorized member must not be able to grow object storage without limit.
+    for (const fileId of ids(MAX_ROOM_ASSETS_PER_GENERATION, "fill")) {
+      expect(await upload(room.roomId, fileId)).toBe("recorded");
     }
+    expect(await upload(room.roomId, FILE_A)).toBe("budget-exceeded");
+
+    // The refused asset really is absent rather than silently swallowed.
     await expect(
-      callerFor(OWNER).collaborationAsset.register({
+      callerFor(OWNER).collaborationAsset.resolve({
         roomId: room.roomId,
-        authGeneration: 1,
         fileIds: [FILE_A],
       }),
-    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-
-    // The refused asset really is absent, not silently swallowed.
-    const manifest = await callerFor(OWNER).collaborationAsset.list({
-      roomId: room.roomId,
-    });
-    expect(manifest.fileIds).toHaveLength(MAX_ROOM_ASSETS_PER_GENERATION);
-    expect(manifest.fileIds).not.toContain(FILE_A);
+    ).resolves.toMatchObject({ assets: [], missing: [FILE_A] });
   });
 
-  it("removes a room's manifest with the room", async () => {
+  it("refuses a ciphertext length no sealed asset could have", async () => {
     const room = await openRoom();
-    await callerFor(OWNER).collaborationAsset.register({
-      roomId: room.roomId,
-      authGeneration: 1,
-      fileIds: [FILE_A],
-    });
+    await expect(
+      upload(room.roomId, FILE_A, { byteLength: 0 }),
+    ).rejects.toThrow(/1\.\./);
+    await expect(
+      upload(room.roomId, FILE_A, {
+        byteLength: MAX_ASSET_CIPHERTEXT_BYTES + 1,
+      }),
+    ).rejects.toThrow();
+    expect(await roomAssetRows(room.roomId)).toEqual([]);
+  });
+
+  it("removes a room's assets with the room", async () => {
+    const room = await openRoom();
+    await upload(room.roomId, FILE_A);
 
     await testDb
       .delete(schema.collaborationRoom)
       .where(eq(schema.collaborationRoom.roomId, room.roomId));
 
-    expect(
-      await testDb
-        .select()
-        .from(schema.collaborationAsset)
-        .where(eq(schema.collaborationAsset.roomId, room.roomId)),
-    ).toEqual([]);
+    expect(await roomAssetRows(room.roomId)).toEqual([]);
   });
 
-  it("keeps a manifest entry when the member who registered it is deleted", async () => {
+  it("keeps an asset when the member who uploaded it is deleted", async () => {
     const room = await openRoom();
     await addMember(room.roomId, EDITOR, "editor");
-    await callerFor(EDITOR).collaborationAsset.register({
-      roomId: room.roomId,
-      authGeneration: 1,
-      fileIds: [FILE_A],
-    });
+    await upload(room.roomId, FILE_A, { userId: EDITOR });
 
     await testDb.delete(schema.user).where(eq(schema.user.id, EDITOR));
 
-    // Identity does not belong to whoever happened to upload first: the room
-    // still references the asset, so the entry survives with no registrant.
-    expect(
-      await testDb
-        .select({
-          fileId: schema.collaborationAsset.excalidrawFileId,
-          registeredBy: schema.collaborationAsset.registeredBy,
-        })
-        .from(schema.collaborationAsset)
-        .where(
-          and(
-            eq(schema.collaborationAsset.roomId, room.roomId),
-            eq(schema.collaborationAsset.authGeneration, 1),
-          ),
-        ),
-    ).toEqual([{ fileId: FILE_A, registeredBy: null }]);
+    // Identity does not belong to whoever happened to upload first: the room still
+    // references the asset, so the row survives with no uploader.
+    expect(await roomAssetRows(room.roomId)).toEqual([
+      {
+        fileId: FILE_A,
+        generation: 1,
+        utFileKey: `object-${FILE_A}`,
+        registeredBy: null,
+      },
+    ]);
   });
 });

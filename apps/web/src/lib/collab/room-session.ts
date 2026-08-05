@@ -13,9 +13,14 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 
 import {
+  createCollaborationAssetStore,
+  type AssetApi,
+} from "@/lib/collab/asset-store";
+import {
   createCollaborationSession,
   type BaselineOutcome,
   type CollaborationSceneApi,
+  type CollaborationSession,
 } from "@/lib/collab/collaboration-session";
 import {
   createCollaborationSnapshotStore,
@@ -88,6 +93,12 @@ export async function startCollaborationRoomSession(options: {
   username: string;
   /** Backend surface for the durable snapshot; the tRPC client satisfies it. */
   snapshotApi: SnapshotApi;
+  /**
+   * Backend surface for encrypted assets: the tRPC client resolves where
+   * ciphertext lives, the upload route stores it. Both halves are authorization
+   * only — neither can read what they carry.
+   */
+  assetApi: AssetApi;
   wrapRemoteApply: (apply: () => void) => void;
   /**
    * Synchronous check that the canvas still holds this room's scene. Scene
@@ -111,6 +122,26 @@ export async function startCollaborationRoomSession(options: {
   const unsubscribe = transport.subscribe({
     onConnectionStateChange: options.onConnectionStateChange,
   });
+
+  // Late-bound on purpose: the store hands opened assets to the session, and the
+  // session needs the store to ask for them. A download settles long after the
+  // element that referenced it was applied, so the dependency has to run in that
+  // direction — the alternative is the session polling for bytes that may never
+  // arrive.
+  let assetTarget: CollaborationSession | undefined;
+  const assetStore = await createCollaborationAssetStore({
+    api: options.assetApi,
+    roomId: options.roomId,
+    roomKey: options.roomKey,
+    authGeneration: options.authGeneration,
+    onAssetsResolved: (files) => {
+      assetTarget?.applyRemoteAssets(files);
+    },
+    onPublishRetryDue: () => {
+      assetTarget?.republishLocalAssets();
+    },
+  });
+
   const session = createCollaborationSession({
     transport,
     roomId: options.roomId,
@@ -124,10 +155,12 @@ export async function startCollaborationRoomSession(options: {
       roomKey: options.roomKey,
       authGeneration: options.authGeneration,
     }),
+    assetStore,
     wrapRemoteApply: options.wrapRemoteApply,
     canSyncScene: options.canSyncScene,
     onBaselineResolved: options.onBaselineResolved,
   });
+  assetTarget = session;
 
   // Upstream-style idle detection: pointer activity arms an idle timeout, tab
   // visibility flips between away and active.
@@ -180,6 +213,12 @@ export async function startCollaborationRoomSession(options: {
       const flushed = session.flushSnapshot();
       unsubscribe();
       session.destroy();
+      // Aborts in-flight transfers and drops the retry timer. Unlike the snapshot
+      // flush there is nothing to finish: an upload that has not landed carries
+      // bytes still present on this canvas, and a download that has not landed is
+      // for a canvas that is going away.
+      assetStore.destroy();
+      assetTarget = undefined;
       transport.close();
       return flushed;
     },
