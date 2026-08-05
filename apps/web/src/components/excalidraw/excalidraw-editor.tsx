@@ -119,29 +119,6 @@ export default function ExcalidrawEditor() {
     useCollaborationRoomKey();
   const [isCollaborationDialogOpen, setIsCollaborationDialogOpen] =
     useState(false);
-  const {
-    status: collaborationStatus,
-    role: collaborationRole,
-    isReadOnly: isCollaborationReadOnly,
-    isCollaborating,
-    errorMessage: collaborationErrorMessage,
-    onPointerUpdate: handleCollabPointerUpdate,
-    onSceneChange: handleCollabSceneChange,
-  } = useCollaborationRoom({
-    excalidrawAPI,
-    roomId: collaborationRoomId,
-    roomKey: collaborationRoomKey,
-    currentSceneId: currentSceneId ?? null,
-    username: session?.user?.name,
-    isAuthenticated: !!session,
-  });
-  const handleCanvasChange = useCallback<typeof handleSceneChange>(
-    (elements, appState, files) => {
-      handleSceneChange(elements, appState, files);
-      handleCollabSceneChange(elements, appState);
-    },
-    [handleSceneChange, handleCollabSceneChange],
-  );
   const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
@@ -157,6 +134,47 @@ export default function ExcalidrawEditor() {
     setSceneChangeDialogLoading,
     closeSceneChangeDialog,
   } = useSceneChangeConfirm();
+
+  // 畫布是否還有內容：加入共編前要用同一個判斷去問「未存內容要不要先存」。
+  const hasCurrentCanvasContent = useCallback(() => {
+    const elements =
+      (excalidrawAPI?.getSceneElements() as readonly ExcalidrawElement[]) ?? [];
+    return Array.isArray(elements)
+      ? elements.some((element: ExcalidrawElement) => !element.isDeleted)
+      : false;
+  }, [excalidrawAPI]);
+
+  const {
+    status: collaborationStatus,
+    role: collaborationRole,
+    isReadOnly: isCollaborationReadOnly,
+    isCollaborating,
+    errorMessage: collaborationErrorMessage,
+    ownsCanvas: isCanvasOwnedByRoom,
+    onPointerUpdate: handleCollabPointerUpdate,
+    onSceneChange: handleCollabSceneChange,
+  } = useCollaborationRoom({
+    excalidrawAPI,
+    roomId: collaborationRoomId,
+    roomKey: collaborationRoomKey,
+    currentSceneId: currentSceneId ?? null,
+    username: session?.user?.name,
+    isAuthenticated: !!session,
+    // 加入不是自己場景的 room 時，先用既有的「儲存／捨棄／取消」流程換掉本地
+    // 畫布；連線前完成，才不會有把無關場景廣播進 room 的窗口。
+    hasLocalContent: hasCurrentCanvasContent,
+    requestSceneChangeDecision,
+    closeSceneChangeConfirm: closeSceneChangeDialog,
+    uploadSceneToCloud,
+    clearCurrentScene,
+  });
+  const handleCanvasChange = useCallback<typeof handleSceneChange>(
+    (elements, appState, files) => {
+      handleSceneChange(elements, appState, files);
+      handleCollabSceneChange(elements, appState);
+    },
+    [handleSceneChange, handleCollabSceneChange],
+  );
 
   // 當雲端上傳進行中時，阻止關閉視窗/重整，直到使用者確認
   useConfirmBeforeUnload(uploadStatus === "uploading");
@@ -214,14 +232,7 @@ export default function ExcalidrawEditor() {
 
   // 建立帶確認的載入動作
   const { loadSceneWithConfirm } = useLoadSceneWithConfirm({
-    hasCurrentContent: () => {
-      const els =
-        (excalidrawAPI?.getSceneElements() as readonly ExcalidrawElement[]) ??
-        [];
-      return Array.isArray(els)
-        ? els.some((el: ExcalidrawElement) => !el.isDeleted)
-        : false;
-    },
+    hasCurrentContent: hasCurrentCanvasContent,
     requestSceneChangeDecision,
     setSceneChangeLoading: setSceneChangeDialogLoading,
     closeSceneChangeConfirm: closeSceneChangeDialog,
@@ -477,6 +488,7 @@ export default function ExcalidrawEditor() {
             handleSetSceneName={handleSetSceneName}
             sceneName={sceneName}
             showConfirmDialog={showWorkspaceCreateConfirm}
+            isCollaborating={isCanvasOwnedByRoom}
           />
 
           <SceneRenameDialog

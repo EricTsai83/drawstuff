@@ -4,7 +4,10 @@ import type {
   PeerId,
 } from "@drawstuff/collaboration/protocol";
 import type { RelayPeer } from "@drawstuff/collaboration/relay-protocol";
-import type { RoomChannelKey } from "@drawstuff/collaboration/room-auth";
+import type {
+  RoomChannelKey,
+  RoomRole,
+} from "@drawstuff/collaboration/room-auth";
 
 /**
  * Delivery sink one room member registers with the fanout. Implementations
@@ -48,6 +51,8 @@ export interface RoomFanout {
     channel: RoomChannelKey;
     clientId: ClientId;
     peerId: PeerId;
+    /** Verified from the join token; broadcast so peers can elect by role. */
+    role: RoomRole;
     subscriber: FanoutSubscriber;
   }): FanoutJoinResult;
   leave(channel: RoomChannelKey, peerId: PeerId): void;
@@ -65,6 +70,7 @@ export interface RoomFanout {
 type RoomMember = {
   readonly peerId: PeerId;
   readonly clientId: ClientId;
+  readonly role: RoomRole;
   readonly subscriber: FanoutSubscriber;
 };
 
@@ -99,9 +105,10 @@ export function createInMemoryRoomFanout(options?: {
   };
 
   const peersOf = (room: RoomState): RelayPeer[] =>
-    [...room.members.values()].map(({ peerId, clientId }) => ({
+    [...room.members.values()].map(({ peerId, clientId, role }) => ({
       peerId,
       clientId,
+      role,
     }));
 
   const broadcastPeers = (room: RoomState, excludePeerId?: PeerId): void => {
@@ -119,7 +126,7 @@ export function createInMemoryRoomFanout(options?: {
   };
 
   return {
-    join({ channel, clientId, peerId, subscriber }) {
+    join({ channel, clientId, peerId, role, subscriber }) {
       let room = rooms.get(channel);
       if (!room) {
         room = {
@@ -132,7 +139,7 @@ export function createInMemoryRoomFanout(options?: {
       if (room.members.has(peerId)) {
         throw new Error(`Peer ${peerId} is already a member of ${channel}`);
       }
-      room.members.set(peerId, { peerId, clientId, subscriber });
+      room.members.set(peerId, { peerId, clientId, role, subscriber });
       room.membershipVersion += 1;
       // Existing members learn about the joiner here; the joiner receives the
       // same snapshot in the join result (its `joined` acknowledgment), so it

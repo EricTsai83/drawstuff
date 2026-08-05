@@ -16,6 +16,7 @@ import {
   importSceneFilesBySceneId,
 } from "@/lib/import-data-from-db";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
 
 type ApplyRemoteSceneParams = {
   sceneId: string;
@@ -82,6 +83,10 @@ export function useApplyRemoteScene(
       // guarantees tracking is resumed even if an unexpected error occurs.
       suppressDirtyTracking();
       try {
+        // This is a genuine canvas replacement, so any collaboration room's
+        // claim on the canvas ends here — before the first write, in the same
+        // synchronous block, which is what a live session's `canSyncScene` reads.
+        releaseCanvasRoom();
         // 3. Update canvas — elements are shown immediately.
         //    If the scene has images, Excalidraw renders placeholder boxes for
         //    any fileIds not yet in its file store; we inject files right after.

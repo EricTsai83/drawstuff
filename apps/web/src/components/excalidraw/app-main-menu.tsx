@@ -46,6 +46,15 @@ type AppMainMenuProps = {
   handleSetSceneName: (name: string) => void;
   sceneName: string;
   showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
+  /**
+   * True while a collaboration room owns the canvas — from the moment the canvas
+   * is claimed, which is before the relay reports `connected`. Withholds
+   * upstream's file import: it replaces the canvas through engine internals
+   * without touching the scene session, so the room claim would survive and the
+   * imported scene would be broadcast into the room while the room's traffic
+   * reconciled into it.
+   */
+  isCollaborating?: boolean;
 };
 
 /**
@@ -63,6 +72,7 @@ function AppMainMenu({
   handleSetSceneName,
   sceneName,
   showConfirmDialog,
+  isCollaborating = false,
 }: AppMainMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -179,7 +189,12 @@ function AppMainMenu({
           {session && <RenameSceneItem onActivate={handleOpenRename} />}
           {session && <NewSceneItem onActivate={handleOpenNewSceneDialog} />}
 
-          <MainMenu.DefaultItems.LoadScene />
+          {/* Importing a file swaps the canvas inside the engine, so the room
+              claim would not be released: the imported scene would be published
+              into the room and the room's traffic would reconcile into it. There
+              is no defined meaning for "open a local file" as a room edit, so the
+              item is withheld rather than given a surprising one. */}
+          {!isCollaborating && <MainMenu.DefaultItems.LoadScene />}
           <MainMenu.DefaultItems.Export />
           <MainMenu.DefaultItems.SaveAsImage />
           <MainMenu.DefaultItems.SearchMenu />

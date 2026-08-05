@@ -8,11 +8,13 @@ import {
   index,
   integer,
   check,
+  primaryKey,
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
+import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 
 const createTable = pgTableCreator((name) => `excalidraw-ericts_${name}`);
 
@@ -366,6 +368,82 @@ const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
   },
 });
 
+/**
+ * 共編 room 的持久化 snapshot（Plan 15）。room 的所有 client 離線或 relay restart
+ * 之後，後來加入的人就是從這裡取得 baseline。
+ *
+ * 這一列只存密文：`ciphertext` 是 client 用 room key（purpose `snapshot`）封裝的
+ * bytes，伺服器沒有金鑰也沒有解密路徑。伺服器看得到的 metadata 一律與場景內容
+ * 無關——crypto 版本、revision、位元長度，以及**密文**的 checksum（對密文取
+ * hash，才不會變成驗證猜測明文的工具）。
+ *
+ * 主鍵是 (room_id, auth_generation)：generation 轉動之後舊密文在密碼學上已經不可
+ * 讀，所以新 generation 從「沒有 snapshot」開始才是正確狀態，而不是留著一份永遠
+ * 打不開的資料。寫入時會刪掉更舊 generation 的列，保留策略因此有界。
+ *
+ * 這和 owned-scene V4 save 是兩個互不覆寫的 lifecycle（ADR 0001）：那一份由場景
+ * 擁有者按下儲存時寫入 `scene.scene_data`，這一份由 room 內被選出的參與者定期
+ * 寫入，兩者永遠不會互相蓋掉。
+ */
+export const collaborationSnapshot = createTable(
+  "collaboration_snapshot",
+  {
+    roomId: varchar("room_id", { length: 64 })
+      .notNull()
+      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
+    authGeneration: integer("auth_generation").notNull(),
+    /** 每次成功寫入 +1；conditional write 用它擋掉舊 snapshot 覆寫新 snapshot。 */
+    revision: integer("revision").notNull(),
+    /** Sealed envelope 版本，對應 `SNAPSHOT_CRYPTO_VERSION`。 */
+    cryptoVersion: integer("crypto_version").notNull(),
+    ciphertext: bytea("ciphertext").notNull(),
+    /** 密文長度；和 `octet_length` 的 check 一起把單列大小限制住。 */
+    byteLength: integer("byte_length").notNull(),
+    /** 密文的 SHA-256 hex：偵測儲存層損壞，不洩漏明文資訊。 */
+    checksum: varchar("checksum", { length: 64 }).notNull(),
+    /** 最後一次成功寫入的成員；成員被刪除時保留 snapshot。 */
+    updatedBy: text("updated_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "collaboration_snapshot_room_generation_pk",
+      columns: [table.roomId, table.authGeneration],
+    }),
+    check(
+      "collaboration_snapshot_revision_positive",
+      sql`${table.revision} >= 1`,
+    ),
+    check(
+      "collaboration_snapshot_auth_generation_positive",
+      sql`${table.authGeneration} >= 1`,
+    ),
+    check(
+      "collaboration_snapshot_crypto_version_positive",
+      sql`${table.cryptoVersion} >= 1`,
+    ),
+    // 位元長度必須與密文一致，且不得超過 `MAX_SNAPSHOT_CIPHERTEXT_BYTES`：
+    // 授權成員也不能靠 snapshot 無界地長大資料庫。
+    check(
+      "collaboration_snapshot_byte_length_matches",
+      sql`${table.byteLength} = octet_length(${table.ciphertext})`,
+    ),
+    check(
+      "collaboration_snapshot_byte_length_bounded",
+      sql`${table.byteLength} between 1 and ${sql.raw(
+        String(MAX_SNAPSHOT_CIPHERTEXT_BYTES),
+      )}`,
+    ),
+  ],
+);
+
 export const sharedScene = createTable(
   "shared_scene",
   {
@@ -576,6 +654,21 @@ export const collaborationRoomRelations = relations(
       references: [user.id],
     }),
     members: many(collaborationRoomMember),
+    snapshots: many(collaborationSnapshot),
+  }),
+);
+
+export const collaborationSnapshotRelations = relations(
+  collaborationSnapshot,
+  ({ one }) => ({
+    room: one(collaborationRoom, {
+      fields: [collaborationSnapshot.roomId],
+      references: [collaborationRoom.roomId],
+    }),
+    updatedBy: one(user, {
+      fields: [collaborationSnapshot.updatedBy],
+      references: [user.id],
+    }),
   }),
 );
 
@@ -647,4 +740,5 @@ export const schema = {
   userLastActiveWorkspace,
   collaborationRoom,
   collaborationRoomMember,
+  collaborationSnapshot,
 };

@@ -23,10 +23,15 @@ export default defineConfig({
       {
         test: {
           name: "browser",
-          // The end-to-end codec is the only part whose correctness depends on
-          // the host's Web Crypto; the rest is plain TypeScript already covered
-          // by the node project.
-          include: ["tests/realtime-crypto.test.ts"],
+          // The end-to-end codecs are the only parts whose correctness depends
+          // on the host's Web Crypto; the rest is plain TypeScript already
+          // covered by the node project. Durable snapshots seal under the same
+          // primitives (AES-GCM, HKDF, SHA-256, base64) and are stored, so a
+          // browser divergence there would corrupt data rather than one frame.
+          include: [
+            "tests/realtime-crypto.test.ts",
+            "tests/snapshot.test.ts",
+          ],
           browser: {
             enabled: true,
             provider: playwright(),

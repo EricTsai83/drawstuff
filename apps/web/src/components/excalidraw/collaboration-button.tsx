@@ -14,11 +14,12 @@ type CollaborationButtonProps = {
 
 const LABEL: Record<CollaborationRoomStatus, string> = {
   idle: "共編",
+  preparing: "準備畫布中…",
   joining: "加入中…",
   connected: "共編中",
   disconnected: "已離線",
   unauthorized: "無法加入",
-  "scene-mismatch": "場景不符",
+  cancelled: "已取消",
   "missing-room-key": "連結不完整",
 };
 
@@ -39,7 +40,7 @@ export function CollaborationButton({
       )}
       onClick={onClick}
       aria-label={label}
-      aria-busy={status === "joining"}
+      aria-busy={status === "joining" || status === "preparing"}
     >
       {isReadOnly ? <Eye className="h-3 w-3" /> : <Users className="h-3 w-3" />}
       {label}

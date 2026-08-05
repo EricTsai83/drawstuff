@@ -29,7 +29,7 @@ export const PEER_B = peerIdSchema.parse("peer-b");
 /** Opaque placeholder: only the relay verifies token signatures. */
 export const JOIN_TOKEN = "test-join-token";
 /** Shared room key: every peer in these tests is in the same room. */
-const ROOM_KEY = roomKeySchema.parse(
+export const ROOM_KEY = roomKeySchema.parse(
   "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
 );
 

@@ -1,0 +1,205 @@
+import type { RoomId, SyncedElement } from "@drawstuff/collaboration/protocol";
+import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
+import {
+  decodeCollaborationSnapshot,
+  deriveSnapshotKey,
+  encodeCollaborationSnapshot,
+  openCollaborationSnapshot,
+  sealCollaborationSnapshot,
+  snapshotCiphertextChecksum,
+  SNAPSHOT_CRYPTO_VERSION,
+  SNAPSHOT_NO_REVISION,
+} from "@drawstuff/collaboration/snapshot";
+
+/**
+ * Client half of durable snapshot storage: the only place a snapshot is sealed
+ * or opened.
+ *
+ * The split mirrors the realtime one. Authorization comes from the backend (the
+ * room API decides who may read or write a baseline); confidentiality comes from
+ * the URL fragment (the room key, which never leaves the browser). So this module
+ * needs both, and the transport layer below it only ever handles base64
+ * ciphertext — there is no code path that could send a readable snapshot, because
+ * `save` seals before it calls the API and `load` opens after.
+ *
+ * Every failure is reported as a typed outcome rather than thrown. A snapshot
+ * that cannot be opened is a real, expected state — a link carrying the wrong
+ * key, or a generation that was rotated after the link was shared — and the
+ * caller has to distinguish it from "this room has no baseline yet": one is a
+ * dead end for the session, the other is a perfectly normal empty room.
+ */
+
+/** The backend surface this store needs; `api.useUtils().client` satisfies it. */
+export type SnapshotApi = {
+  get(input: { roomId: string }): Promise<{
+    authGeneration: number;
+    snapshot: {
+      revision: number;
+      cryptoVersion: number;
+      ciphertextBase64: string;
+      byteLength: number;
+      checksum: string;
+    } | null;
+  }>;
+  put(input: {
+    roomId: string;
+    /** Generation the ciphertext was sealed for; the server refuses a mismatch. */
+    authGeneration: number;
+    expectedRevision: number;
+    cryptoVersion: typeof SNAPSHOT_CRYPTO_VERSION;
+    ciphertextBase64: string;
+    checksum: string;
+  }): Promise<
+    | { status: "written"; revision: number }
+    | { status: "conflict"; currentRevision: number | undefined }
+  >;
+};
+
+export type LoadSnapshotResult =
+  | { status: "loaded"; revision: number; elements: readonly SyncedElement[] }
+  /** This room generation has no baseline yet; a fresh room looks like this. */
+  | { status: "empty" }
+  | {
+      status: "unreadable";
+      /**
+       * `wrong-key` covers a bad key, a rotated generation and tampered bytes
+       * alike — AES-GCM cannot tell them apart, and neither should a message
+       * shown to a user. `unavailable` is a transport or authorization failure,
+       * which a retry could still fix.
+       */
+      reason: "wrong-key" | "malformed" | "unavailable";
+    };
+
+export type SaveSnapshotResult =
+  | { status: "written"; revision: number }
+  | { status: "conflict"; currentRevision: number | undefined }
+  /** Sealing, encoding or the request failed; the caller retries on cadence. */
+  | { status: "failed" };
+
+export type CollaborationSnapshotStore = {
+  load(): Promise<LoadSnapshotResult>;
+  save(input: {
+    elements: readonly SyncedElement[];
+    /** Revision the caller believes is current, or `SNAPSHOT_NO_REVISION`. */
+    expectedRevision: number;
+  }): Promise<SaveSnapshotResult>;
+};
+
+const toBase64 = (bytes: Uint8Array): string => {
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+};
+
+const fromBase64 = (value: string): Uint8Array => {
+  const binary = atob(value);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+  return bytes;
+};
+
+export async function createCollaborationSnapshotStore(options: {
+  api: SnapshotApi;
+  roomId: RoomId;
+  /** End-to-end room key from the URL fragment; never from the backend. */
+  roomKey: RoomKey;
+  /** Authorization generation the session joined under. */
+  authGeneration: number;
+}): Promise<CollaborationSnapshotStore> {
+  const { api, roomId, authGeneration } = options;
+  // Derived once per session: the key is bound to (room, generation, purpose),
+  // and it is non-extractable, so it cannot end up in a log or an error payload.
+  const key = await deriveSnapshotKey({
+    roomKey: options.roomKey,
+    roomId,
+    authGeneration,
+  });
+
+  return {
+    async load() {
+      let response: Awaited<ReturnType<SnapshotApi["get"]>>;
+      try {
+        response = await api.get({ roomId });
+      } catch {
+        return { status: "unreadable", reason: "unavailable" };
+      }
+      const stored = response.snapshot;
+      if (!stored) return { status: "empty" };
+      // The generation the row belongs to is the one the key was derived for;
+      // a mismatch means the room rotated under us and the bytes are not ours
+      // to read.
+      if (
+        response.authGeneration !== authGeneration ||
+        stored.cryptoVersion !== SNAPSHOT_CRYPTO_VERSION
+      ) {
+        return { status: "unreadable", reason: "wrong-key" };
+      }
+
+      let ciphertext: Uint8Array;
+      try {
+        ciphertext = fromBase64(stored.ciphertextBase64);
+      } catch {
+        return { status: "unreadable", reason: "malformed" };
+      }
+      if (ciphertext.byteLength !== stored.byteLength) {
+        return { status: "unreadable", reason: "malformed" };
+      }
+      if ((await snapshotCiphertextChecksum(ciphertext)) !== stored.checksum) {
+        return { status: "unreadable", reason: "malformed" };
+      }
+
+      const opened = await openCollaborationSnapshot({
+        key,
+        ciphertext,
+        roomId,
+        authGeneration,
+        revision: stored.revision,
+      });
+      if (!opened.ok) return { status: "unreadable", reason: "wrong-key" };
+
+      const decoded = decodeCollaborationSnapshot(opened.plaintext, { roomId });
+      if (!decoded.ok) return { status: "unreadable", reason: "malformed" };
+      return {
+        status: "loaded",
+        revision: stored.revision,
+        elements: decoded.snapshot.elements,
+      };
+    },
+
+    async save({ elements, expectedRevision }) {
+      const encoded = encodeCollaborationSnapshot({ roomId, elements });
+      if (!encoded.ok) return { status: "failed" };
+      // The revision the bytes will live at is authenticated into the seal, so
+      // it has to be predicted here — which is exactly the revision the
+      // conditional write will produce if it wins.
+      const revision =
+        expectedRevision === SNAPSHOT_NO_REVISION ? 1 : expectedRevision + 1;
+      const sealed = await sealCollaborationSnapshot({
+        key,
+        plaintext: encoded.bytes,
+        roomId,
+        authGeneration,
+        revision,
+      });
+      if (!sealed.ok) return { status: "failed" };
+
+      try {
+        return await api.put({
+          roomId,
+          // Sent so the server stores the ciphertext under the generation it was
+          // sealed for, or refuses: a rotation racing this write would otherwise
+          // produce a row nobody can open.
+          authGeneration,
+          expectedRevision,
+          cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
+          ciphertextBase64: toBase64(sealed.ciphertext),
+          checksum: await snapshotCiphertextChecksum(sealed.ciphertext),
+        });
+      } catch {
+        return { status: "failed" };
+      }
+    },
+  };
+}

@@ -295,8 +295,9 @@ export function createRelayWebSocketTransport(
         // Malformed or oversize payloads are another client's protocol
         // violation; this receiver drops them and converges the same way.
         if (!decoded.ok) return;
+        const meta = { byteLength: opened.plaintext.byteLength };
         for (const subscriber of subscribers) {
-          subscriber.onMessage?.(decoded.message);
+          subscriber.onMessage?.(decoded.message, meta);
         }
       } catch {
         // A throwing subscriber must not break this channel's delivery order.

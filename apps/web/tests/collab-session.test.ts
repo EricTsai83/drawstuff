@@ -1,31 +1,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  clientIdSchema,
-  roomIdSchema,
-  type ClientId,
-  type CollaborationMessage,
-  type SceneMessage,
-  type SyncedElement,
-} from "@drawstuff/collaboration/protocol";
-import type { RoomRole } from "@drawstuff/collaboration/room-auth";
-import type { ConnectionState } from "@drawstuff/collaboration/transport";
-import {
-  createFakeCollaborationNetwork,
-  type FakeCollaborationNetwork,
-} from "@drawstuff/collaboration/testing";
-import type {
-  Collaborator,
-  OrderedExcalidrawElement,
-  SceneData,
-  SocketId,
-} from "@drawstuff/excalidraw-adapter/types";
+import { createFakeCollaborationNetwork } from "@drawstuff/collaboration/testing";
 
-import {
-  createCollaborationSession,
-  type CollaborationSceneApi,
-  type CollaborationSession,
-} from "@/lib/collab/collaboration-session";
 import {
   COLLAB_SCENE_FIXED_NOW,
   collabAppState,
@@ -33,182 +9,19 @@ import {
   editedElement,
   sortSceneById,
 } from "./support/collab-scene-fixtures";
-
-const ROOM_ID = roomIdSchema.parse("room-poc");
-/** The fake network models delivery, not token verification. */
-const JOIN_TOKEN = "test-join-token";
-
-type SceneHost = {
-  api: CollaborationSceneApi;
-  readonly elements: readonly OrderedExcalidrawElement[];
-  setElements(next: readonly OrderedExcalidrawElement[]): void;
-  readonly collaborators: ReadonlyMap<SocketId, Collaborator>;
-  /** captureUpdate of every element-carrying updateScene call, in order. */
-  readonly elementCaptureUpdates: readonly (string | undefined)[];
-};
-
-function createSceneHost(): SceneHost {
-  let elements: readonly OrderedExcalidrawElement[] = [];
-  let collaborators = new Map<SocketId, Collaborator>();
-  const elementCaptureUpdates: (string | undefined)[] = [];
-  const localState = {
-    editingTextElement: null,
-    newElement: null,
-    resizingElement: null,
-  };
-
-  return {
-    api: {
-      getSceneElementsIncludingDeleted: () => elements,
-      getAppState: () => localState,
-      updateScene(
-        sceneData: Pick<
-          SceneData,
-          "elements" | "collaborators" | "captureUpdate"
-        >,
-      ) {
-        if (sceneData.elements) {
-          elements = sceneData.elements as readonly OrderedExcalidrawElement[];
-          elementCaptureUpdates.push(sceneData.captureUpdate);
-        }
-        if (sceneData.collaborators) {
-          collaborators = sceneData.collaborators;
-        }
-      },
-    },
-    get elements() {
-      return elements;
-    },
-    setElements(next) {
-      elements = next;
-    },
-    get collaborators() {
-      return collaborators;
-    },
-    elementCaptureUpdates,
-  };
-}
-
-function createManualScheduler() {
-  const queue: (() => void)[] = [];
-  let cancelledCount = 0;
-  return {
-    schedule(flush: () => void): () => void {
-      queue.push(flush);
-      return () => {
-        const index = queue.indexOf(flush);
-        if (index !== -1) {
-          queue.splice(index, 1);
-          cancelledCount += 1;
-        }
-      };
-    },
-    /** Runs only the flushes queued before the call: a flush that re-schedules
-     *  itself (overflow retry) waits for the next runAll, mirroring "next
-     *  animation frame" semantics without looping forever. */
-    runAll(): void {
-      const batch = queue.splice(0);
-      for (const flush of batch) flush();
-    },
-    get pendingCount() {
-      return queue.length;
-    },
-    get cancelledCount() {
-      return cancelledCount;
-    },
-  };
-}
-
-type TestClient = {
-  host: SceneHost;
-  session: CollaborationSession;
-  scheduler: ReturnType<typeof createManualScheduler>;
-  clientId: ClientId;
-  /** Mutates the host scene, notifies the session, and runs the flush. */
-  edit(
-    mutate: (
-      elements: readonly OrderedExcalidrawElement[],
-    ) => readonly OrderedExcalidrawElement[],
-  ): void;
-};
-
-function createHarness() {
-  const network = createFakeCollaborationNetwork();
-  const clock = { now: COLLAB_SCENE_FIXED_NOW };
-
-  const createClient = (
-    name: string,
-    options: { role?: RoomRole } = {},
-  ): TestClient => {
-    const host = createSceneHost();
-    const scheduler = createManualScheduler();
-    const clientId = clientIdSchema.parse(name);
-    const session = createCollaborationSession({
-      transport: network.createTransport({ role: options.role }),
-      roomId: ROOM_ID,
-      clientId,
-      joinToken: JOIN_TOKEN,
-      username: name,
-      sceneApi: host.api,
-      scheduleSceneFlush: scheduler.schedule,
-      now: () => clock.now,
-    });
-    return {
-      host,
-      session,
-      scheduler,
-      clientId,
-      edit(mutate) {
-        host.setElements(mutate(host.elements));
-        session.handleLocalSceneChange(host.elements, collabAppState());
-        scheduler.runAll();
-      },
-    };
-  };
-
-  return { network, clock, createClient };
-}
-
-function expectConverged(a: TestClient, b: TestClient): void {
-  expect(sortSceneById(a.host.elements)).toEqual(
-    sortSceneById(b.host.elements),
-  );
-}
-
-/** Crafts protocol messages from a raw transport's connected session. */
-function createRawSender(network: FakeCollaborationNetwork, name: string) {
-  const transport = network.createTransport();
-  transport.connect({
-    roomId: ROOM_ID,
-    clientId: clientIdSchema.parse(name),
-    joinToken: JOIN_TOKEN,
-  });
-  const state = transport.getConnectionState();
-  if (state.status !== "connected") throw new Error("raw sender not connected");
-  const received: CollaborationMessage[] = [];
-  transport.subscribe({
-    onMessage: (message) => {
-      received.push(message);
-    },
-  });
-  let messageCounter = 0;
-  const sceneMessage = (input: {
-    type?: SceneMessage["type"];
-    sequence: number;
-    elements: readonly OrderedExcalidrawElement[];
-  }): SceneMessage => ({
-    protocolVersion: 1,
-    messageId: `raw-${(messageCounter += 1)}`,
-    roomId: state.roomId,
-    roomGeneration: state.roomGeneration,
-    senderClientId: state.clientId,
-    senderPeerId: state.peerId,
-    sequence: input.sequence,
-    type: input.type ?? "scene-update",
-    payload: { elements: input.elements as unknown as SyncedElement[] },
-  });
-  return { transport, state, received, sceneMessage };
-}
+import {
+  createHarness,
+  createManualScheduler,
+  createRawSender,
+  createSceneHost,
+  expectConverged,
+  JOIN_TOKEN,
+  ROOM_ID,
+  type TestClient,
+} from "./support/collab-session-harness";
+import { createCollaborationSession } from "@/lib/collab/collaboration-session";
+import { clientIdSchema } from "@drawstuff/collaboration/protocol";
+import type { ConnectionState } from "@drawstuff/collaboration/transport";
 
 describe("collaboration session over the fake network", () => {
   let harness: ReturnType<typeof createHarness>;
@@ -221,7 +34,7 @@ describe("collaboration session over the fake network", () => {
     bob = harness.createClient("client-bob");
     alice.session.connect();
     bob.session.connect();
-    harness.network.flush();
+    harness.settle();
   });
 
   it("converges add, move, style change and delete across two clients", () => {

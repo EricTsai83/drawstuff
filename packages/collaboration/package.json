@@ -10,6 +10,10 @@
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"
     },
+    "./join-barrier": {
+      "types": "./src/join-barrier.ts",
+      "default": "./src/join-barrier.ts"
+    },
     "./realtime-crypto": {
       "types": "./src/realtime-crypto.ts",
       "default": "./src/realtime-crypto.ts"
@@ -29,6 +33,10 @@
     "./room-token": {
       "types": "./src/room-token.ts",
       "default": "./src/room-token.ts"
+    },
+    "./snapshot": {
+      "types": "./src/snapshot.ts",
+      "default": "./src/snapshot.ts"
     },
     "./transport": {
       "types": "./src/transport.ts",
