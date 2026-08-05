@@ -115,19 +115,44 @@ Excalidraw file identity。
 Room asset metadata 使用**獨立 relation `collaboration_asset`**，不在 `file_record`
 增加第三個 nullable parent：
 
-| 面向      | `file_record`                     | `collaboration_asset`            |
-| --------- | --------------------------------- | -------------------------------- |
-| Parent    | scene／sharedScene                | room + `auth_generation`         |
-| Writer    | scene owner                       | room 內任何可編輯成員            |
-| 內容      | 明文壓縮後存於外部 object storage | 將由 room key 封裝（Plan 17）    |
-| Retention | 跟隨 scene 生命週期               | 跟隨授權世代，寫入時退休更舊世代 |
-| Cascade   | `scene` / `shared_scene`          | `collaboration_room`             |
+| 面向      | `file_record`                     | `collaboration_asset`                  |
+| --------- | --------------------------------- | -------------------------------------- |
+| Parent    | scene／sharedScene                | room + `auth_generation`               |
+| Writer    | scene owner                       | room 內任何可編輯成員                  |
+| 內容      | 明文壓縮後存於外部 object storage | room key 封裝後存於外部 object storage |
+| Retention | 跟隨 scene 生命週期               | 跟隨授權世代，寫入時退休更舊世代       |
+| Cascade   | `scene` / `shared_scene`          | `collaboration_room`                   |
 
 四種 lifecycle 混在同一組 nullable-polymorphic constraint 內無法表達上述差異，因此
-分表。`collaboration_asset` 只存身份（room、generation、`excalidraw_file_id`）與
-註冊者：位元組傳輸屬 Plan 17，尚不存在的欄位不預先建立。它也刻意不存 content
-hash——Excalidraw file id 本身就是明文位元組的摘要，再存一份只會給伺服器一個確認
-猜測明文的 oracle。
+分表。它也刻意不存 content hash——Excalidraw file id 本身就是明文位元組的摘要，再存
+一份只會給伺服器一個確認猜測明文的 oracle。
+
+### Asset byte transfer boundary（Plan 17，2026-08-05）
+
+Room asset 的位元組走**與 owned-scene 相同的 object storage**，但內容是 client 封裝
+好的密文；`collaboration_asset` 在身份欄位之外只增加「密文現在在哪」所需的最小集合：
+`crypto_version`、`ut_file_key`、`url`、`byte_length`。三個決策：
+
+- **一列存在即代表位元組已上傳。**沒有「已註冊但還沒有 bytes」的中間列。可用性只有
+  一種有意義的答案：peer 從 element 的 `fileId` 就知道要哪張圖，需要問的是「在哪、
+  到了沒」。因此 Plan 16 的 `collaborationAsset.list`／`register` 由單一
+  `resolve`（bounded batch → records + missing）取代並刪除。
+- **MIME type 與 data URL 只存在密文裡。**伺服器不看、也不需要看。把 MIME 複製成欄位
+  只會多出一份伺服器無法驗證、卻可能與密文不一致的斷言。
+- **密文不放進 Postgres。**Snapshot 是每個 room generation 一列、有 4 MiB 上限的
+  `bytea`；asset 是每個 generation 最多 512 個、每個近 3 MiB 的物件，放進 DB 會讓單一
+  room 的資料列成長到 GB 級。Object storage 是這種形狀的正確位置，而 E2EE 讓「storage
+  provider 看得到位元組」不再是機密性問題。
+
+授權保護的是**發現能力**：`resolve` 回傳的 URL 是取得密文的 capability，任何拿到它的
+人都能下載，機密性不依賴這一點——位元組由 room key 衍生的 asset key 封裝，後端與
+storage 都沒有金鑰。因此成員失去存取權後失去的是「找到新 URL 的能力」。這與
+readonly-share 資產的既有模型一致。
+
+Retention 與 Plan 15 的 snapshot 同源：世代轉動後舊世代密文在密碼學上不可讀，所以
+新世代寫入成功的那一刻退休舊世代的列，並在**同一個 transaction** 內把它們的
+`ut_file_key` 寫進 `deferred_file_cleanup`。刪列才是讓物件變成孤兒的動作，object
+storage 無法參與 transaction，佇列因此是唯一能讓兩者不脫勾的機制。
 
 `file_record` 保留 `content_hash` 作為 storage 層 lookup／dedup 提示（可為 null、
 無唯一性）。它不得再成為身份：hash 取自壓縮後的上傳 payload，payload metadata 帶

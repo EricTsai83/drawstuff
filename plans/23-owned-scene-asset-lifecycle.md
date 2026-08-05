@@ -50,7 +50,10 @@ Owned scene 的資產生命週期在併發下不會遺失已提交場景引用�
 
 ## Out of scope
 
-- 共編 room 資產的傳輸與加密（Plan 17）。
+- 共編 room 資產的傳輸與加密（Plan 17）；room 結束／過期後的 asset 與 snapshot
+  retention 屬 Plan 19。但注意 Plan 17 的世代退休**會寫進同一個 `deferred_file_cleanup`
+  佇列**（reason `collab-asset-generation-retired`），所以下方的 endpoint 拆分不能假設
+  只有 owned-scene GC 使用它。
 - Relay／backend 的 limits、metrics 與 load test（Plan 19）。
 - 改寫 stored document 或由伺服器產生 file id（違反 ADR 0001 native document
   boundary）。

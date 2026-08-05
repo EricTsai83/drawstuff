@@ -14,6 +14,10 @@ import {
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
+import {
+  MAX_ASSET_CIPHERTEXT_BYTES,
+  MAX_ASSET_URL_LENGTH,
+} from "@drawstuff/collaboration/asset";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 
 const createTable = pgTableCreator((name) => `excalidraw-ericts_${name}`);
@@ -445,11 +449,20 @@ export const collaborationSnapshot = createTable(
 );
 
 /**
- * 共編 room 引用的 binary asset 身份（Plan 16）。
+ * 共編 room 的 binary asset：身份（Plan 16）與密文所在位置（Plan 17）。
  *
- * 這是一張**只有身份的 manifest**：一列代表「這個 room 的這個授權世代引用了這個
- * Excalidraw file id」。位元組傳輸由 Plan 17 負責，所以這裡沒有 storage key、URL、
- * 密文、長度或 MIME type——現在還不存在的東西不先開欄位。
+ * 一列代表「這個 room 的這個授權世代有這個 Excalidraw file id 的密文，存在這個
+ * storage object」。身份是 (room, generation, `excalidraw_file_id`)，
+ * `ut_file_key`／`url` 只是「現在存在哪裡」——重新上傳會得到新 key，所以它不是身份，
+ * 只能由身份反查出來。
+ *
+ * 這張表**沒有純身份的列**：一列存在就代表位元組已經上傳完成。原因是可用性只有一種
+ * 有意義的答案——peer 從 element 的 `fileId` 知道要哪張圖，需要問的是「位元組在哪、
+ * 到了沒」。先寫一列「已註冊但還沒有 bytes」只會讓讀取端無法區分這兩件事。
+ *
+ * 也刻意沒有 MIME type 與 content hash：兩者都在密文裡（payload metadata），伺服器
+ * 看不到也不需要看到。把 MIME 複製到欄位上只會產生一份伺服器無法驗證、卻可能與
+ * 密文不一致的斷言。
  *
  * 為什麼不放進 `file_record`：那張表的 parent 是 scene／sharedScene、內容是明文
  * 壓縮後上傳到 UploadThing、retention 跟著 scene 走。Room asset 的 parent 是 room、
@@ -476,7 +489,18 @@ export const collaborationAsset = createTable(
     authGeneration: integer("auth_generation").notNull(),
     /** 不可變的 Excalidraw file id；在 (room, generation) 內唯一。 */
     excalidrawFileId: varchar("excalidraw_file_id", { length: 64 }).notNull(),
-    /** 首次註冊者；成員被刪除時保留 manifest（身份與註冊者無關）。 */
+    /** Sealed envelope 版本，對應 `ASSET_CRYPTO_VERSION`。 */
+    cryptoVersion: integer("crypto_version").notNull(),
+    /** 密文的 storage object 身份；清理與去重都用它。 */
+    utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
+    /**
+     * 密文目前的下載位置；不是身份，重新上傳會變。長度與
+     * `MAX_ASSET_URL_LENGTH` 同步：transfer contract 拒收的 URL 這裡也存不下。
+     */
+    url: varchar("url", { length: MAX_ASSET_URL_LENGTH }).notNull(),
+    /** 密文長度；下載前的上界檢查，且與 `MAX_ASSET_CIPHERTEXT_BYTES` 一起設限。 */
+    byteLength: integer("byte_length").notNull(),
+    /** 上傳者；成員被刪除時保留資產（身份與上傳者無關）。 */
     registeredBy: text("registered_by").references(() => user.id, {
       onDelete: "set null",
     }),
@@ -496,6 +520,17 @@ export const collaborationAsset = createTable(
     check(
       "collaboration_asset_excalidraw_file_id_shape",
       sql`${table.excalidrawFileId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
+    ),
+    check(
+      "collaboration_asset_crypto_version_positive",
+      sql`${table.cryptoVersion} >= 1`,
+    ),
+    // 授權成員也不能靠 asset 無界地長大 storage：單一資產的密文長度有上界。
+    check(
+      "collaboration_asset_byte_length_bounded",
+      sql`${table.byteLength} between 1 and ${sql.raw(
+        String(MAX_ASSET_CIPHERTEXT_BYTES),
+      )}`,
     ),
   ],
 );
