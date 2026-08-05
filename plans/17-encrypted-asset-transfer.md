@@ -180,9 +180,12 @@ adapter 107、relay 73）、`pnpm knip`（4/4）、
   是強保證；實際刪除由 `/api/maintenance/cleanup` 執行，而它每週一次、每次 50 筆，
   一次轉動最多 512 個 key 需要約 10 週排空。Plan 23 已把這個 endpoint 的七個問題（含
   「排空速度與 cron 頻率不匹配」）列入 in scope。
-- **`deriveRoomKey` 與 `REALTIME_CRYPTO_VERSION` 耦合（owner：Plan 19）**：realtime
+- **`deriveRoomKey` 與 `REALTIME_CRYPTO_VERSION` 耦合（owner：Plan 19 → 已由
+  [Plan 26](./26-purpose-scoped-key-derivation.md) 解決，2026-08-06）**：realtime
   envelope 升版會讓既有 room 的 asset 與 snapshot 同時不可讀，且失敗靜默。Blast radius
-  被 room TTL（預設 12 小時、上限 24 小時）限制在部署當下還活著的 room。
+  被 room TTL（預設 12 小時、上限 24 小時）限制在部署當下還活著的 room。Plan 26 已把版本號
+  從 HKDF info 移除，耦合本身不再存在；但「asset 解不開時靜默少圖」這一點仍成立，已記入
+  threat model T10 的殘留欄。
 
 ### 接受的偏離
 

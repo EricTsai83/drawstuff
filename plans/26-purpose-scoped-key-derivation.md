@@ -1,6 +1,6 @@
 # Plan 26：`deriveRoomKey` 改為 purpose-scoped，解除版本耦合
 
-- Status: Ready
+- Status: Completed
 - Depends on: 19
 - Expected change size: HKDF info 字串、對應測試、以及一份升版／部署程序
 
@@ -8,7 +8,9 @@
 
 ## 背景與依據
 
-`deriveRoomKey` 目前的 HKDF info 是
+> 以下描述的是**變更前**的狀態。現況見「執行紀錄」：info 已改為 `drawstuff-key/${purpose}`。
+
+`deriveRoomKey` 變更前的 HKDF info 是
 `drawstuff-key/v${REALTIME_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${purpose}`。
 兩個版本號都是 **envelope／協定** 版本，卻參與了**金鑰推導**，所以 realtime envelope 一升
 版，既有 room 的 `snapshot` 與 `asset` 密文會同時推導出不同金鑰、全部認證失敗。
@@ -67,10 +69,75 @@ pnpm test
 另需保存「升版 `REALTIME_CRYPTO_VERSION` 不影響 durable 金鑰」的測試輸出，以及部署當下的
 活躍 room 稽核結果。
 
+## 執行紀錄（2026-08-06）
+
+### Step 1 — 活躍 room 稽核
+
+對 `apps/web/.env` 的 `POSTGRES_URL`（Neon，`ap-southeast-1`）做唯讀盤點，稽核時點
+`2026-08-05T16:58:18Z`：
+
+| 表                          | rows | 說明                                                          |
+| --------------------------- | ---- | ------------------------------------------------------------- |
+| `collaboration_room`        | 1    | `status='active'` 1 筆，但 `expires_at` 已過期（未過期 0 筆） |
+| `collaboration_room_member` | 1    | 屬於上述已過期 room                                           |
+| `collaboration_snapshot`    | 0    | 沒有任何 durable 密文                                         |
+| `collaboration_asset`       | 0    | 沒有任何 asset 密文                                           |
+
+受影響範圍為零：`snapshot` 與 `asset` 兩個 purpose 沒有任何既存密文，唯一的 room 也已過期，
+`resolveRoomAccess` 對它回傳 `expired`（`apps/web/src/server/collab/rooms.ts:92`），不會再推導
+金鑰。另外 relay（`apps/collaboration-relay`）沒有任何部署設定、`COLLAB_RELAY_CONTROL_URL` 與
+`NEXT_PUBLIC_COLLAB_RELAY_URL` 都指向 `127.0.0.1:3005`，且 Plan 20 尚未執行，所以現階段不存在
+可被連上的線上 room。
+
+### Step 2 — 部署方式決定
+
+採 **排空既有 room**，不採短期雙推導。既有密文為 0 筆、唯一 room 已過期，雙推導會為零收益引入
+一個必須排定移除的 compatibility contract（違反索引共同規則 7、8）。停用窗口為零，因為沒有活著
+的 room 需要排空。
+
+### Step 4 — 部署程序執行
+
+1. 稽核（上表）確認 `expires_at > now()` 的 room 為 0 筆 — **已執行**。
+2. 因此不需要主動 end room，也不需要等待 TTL — **無待排空對象**。
+3. 部署 `roomKeyDerivationInfo` 變更。部署後任何新開的 room 都以新 info 推導。
+4. 未來若在有活躍 room 時再次變更推導輸入，必須重跑 Step 1 稽核，並在 `expires_at > now()`
+   的 room 歸零後才部署。
+
+### In scope 第 4 項的實際範圍（2026-08-06 修正）
+
+「密文不可讀對使用者非靜默」**只對 snapshot 成立**：snapshot 解不開會走到 `unreadable-room`
+（「這個 room 有已儲存的畫布，但無法用目前連結的金鑰解開。請向分享者索取最新的完整連結。」，
+`apps/web/src/hooks/excalidraw/use-collaboration-room.ts:151`），是明確且可行動的訊息。
+
+Asset 不是：`resolveAssetRecord` 對 `codec.open` 失敗一律回 `abandon`
+（`apps/web/src/lib/collab/asset-store.ts:466`），畫面只是少一張圖、沒有任何訊息。這是 Plan 17
+的既有決策（`asset-store.ts:55-62`「missing 不是錯誤」；`plans/17:184` 已記錄「失敗靜默」），
+不是本 plan 造成的，改它需要新增使用者可見狀態並動到 recovery state machine，超出本 plan 的
+變更規模，因此不在此處處理。
+
+Realtime frame 也一樣：`relay-client.ts:312` 對 open 失敗直接靜默丟棄。所以整個非靜默保證
+實際上**只由 snapshot 讀取這一個 oracle 承擔**——`unreadable-room` 的定義註解自己就說它
+terminal 的理由是「realtime frame 用同一把金鑰，否則 session 會 connected and permanently
+blind」。當 room 尚無 stored snapshot 時，oracle 不存在，三條路徑全靜默。
+
+對本次部署沒有影響：稽核為 0 筆 asset、0 筆 snapshot，該路徑不可達。這個殘留已交給
+**[Plan 30](./30-silent-key-mismatch-detection.md)**（2026-08-06 建立），並記在 threat model
+T10 殘留 (b)。任何未來在有活躍 room 時變更推導輸入的動作，都必須先確認 Plan 30 已完成，或
+明確承擔這個風險。
+
+### 未解掉的另一半：`COLLABORATION_PROTOCOL_VERSION`
+
+本 plan 的 Outcome 只涵蓋「推導金鑰」，字面上已達成。但同一個 transport 版本仍出現在 snapshot
+與 asset 的 **AAD** 與 **payload schema（`z.literal`）** 兩處，所以「純 transport 變更摧毀既有
+durable 資料」這個動機問題只解掉三處耦合中的一處。已交給
+**[Plan 31](./31-durable-format-protocol-decoupling.md)**（2026-08-06 建立），並記在 threat
+model T10 殘留 (a)。
+
 ## Done when
 
 - `REALTIME_CRYPTO_VERSION` 或 `COLLABORATION_PROTOCOL_VERSION` 的升版，可由測試證明不改變
   `snapshot` 與 `asset` 的推導金鑰。
 - 三個 purpose 的推導金鑰仍互不相同。
 - 部署程序已執行並記錄；若採用雙推導，其移除條件與 owner 已寫明。
-- 「密文不可讀」對使用者仍是明確且可行動的訊息，不是靜默失敗。
+- 「密文不可讀」對使用者仍是明確且可行動的訊息，不是靜默失敗。**（部分成立：只對 snapshot
+  成立，asset 仍靜默——見上方「In scope 第 4 項的實際範圍」。）**
