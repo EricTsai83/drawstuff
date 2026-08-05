@@ -3,33 +3,33 @@ import { z } from "zod";
 
 import {
   canonicalizeAssetIds,
-  collaborationAssetManifestSchema,
+  collaborationAssetLookupSchema,
   excalidrawFileIdSchema,
-  MAX_ASSET_REGISTRATION_BATCH,
+  MAX_ASSET_LOOKUP_BATCH,
 } from "@drawstuff/collaboration/asset";
-import {
-  roomAuthGenerationSchema,
-  roomRoleCanEditScene,
-} from "@drawstuff/collaboration/room-auth";
 
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
-import { listRoomAssets, registerRoomAssets } from "@/server/collab/assets";
-import {
-  lockRoom,
-  resolveRoomAccess,
-  type RoomAccess,
-} from "@/server/collab/rooms";
+import { resolveRoomAssets } from "@/server/collab/assets";
+import { resolveRoomAccess, type RoomAccess } from "@/server/collab/rooms";
 
 /**
- * Collaboration asset metadata API (Plan 16).
+ * Collaboration asset lookup API (Plan 16 identity, Plan 17 transfer).
  *
- * This is the identity half of the asset pipeline: peers agree on *which*
- * assets a room references before anything moves the bytes (Plan 17). The
- * authorization model is the room's, unchanged — `resolveRoomAccess` is the only
- * place a role is decided, reading the manifest requires room access, and adding
- * to it additionally requires a role that may mutate the scene. A viewer that
- * could extend the manifest would be editing the room's durable state through a
- * door the relay keeps shut.
+ * One question: *where are the bytes for these file ids, and which of them does
+ * this room not have yet?* A peer already knows which assets it needs — the file
+ * ids are on the image elements the realtime channel delivered — so it never
+ * needs the room's whole asset list, and there is no procedure that returns one.
+ *
+ * The authorization model is the room's, unchanged: `resolveRoomAccess` is the
+ * only place a role is decided, and reading requires room access. Writing is not
+ * here at all — an asset enters the room through the upload route, which is the
+ * only path that can pair a stored object with a record.
+ *
+ * What authorization protects is *discovery*. The URL this returns is a capability
+ * that anybody holding it can fetch, and confidentiality does not depend on that:
+ * the bytes behind it are sealed under a key derived from the room key, which the
+ * backend never sees. So a leaked URL exposes ciphertext, and a member who loses
+ * access loses the ability to find new URLs.
  */
 
 const roomIdInput = z.string().min(1).max(64);
@@ -58,15 +58,28 @@ const accessError = (access: Exclude<RoomAccess, { status: "ok" }>) => {
 
 export const collaborationAssetRouter = createTRPCRouter({
   /**
-   * The current generation's manifest.
+   * Resolves a bounded batch of file ids for the room's current generation.
    *
    * `authGeneration` comes from the room row, never from the caller: a client
-   * cannot ask for a retired generation's asset set, and a rotation makes the
-   * answer legitimately empty rather than stale.
+   * cannot ask for a retired generation's assets, and it could not open them
+   * anyway — the asset key is derived from the generation.
+   *
+   * Ids the room has no ciphertext for come back in `missing` rather than as an
+   * error. A peer broadcasts an image element the moment it is added and the
+   * upload lands a beat later, so "not yet" is the ordinary state of a fresh
+   * image; the caller retries those and only those.
    */
-  list: protectedProcedure
-    .input(z.object({ roomId: roomIdInput }))
-    .output(collaborationAssetManifestSchema)
+  resolve: protectedProcedure
+    .input(
+      z.object({
+        roomId: roomIdInput,
+        fileIds: z
+          .array(excalidrawFileIdSchema)
+          .min(1)
+          .max(MAX_ASSET_LOOKUP_BATCH),
+      }),
+    )
+    .output(collaborationAssetLookupSchema)
     .query(async ({ ctx, input }) => {
       const access = await resolveRoomAccess(ctx.db, {
         roomId: input.roomId,
@@ -75,87 +88,19 @@ export const collaborationAssetRouter = createTRPCRouter({
       });
       if (access.status !== "ok") throw accessError(access);
 
+      const fileIds = canonicalizeAssetIds(input.fileIds);
+      const assets = await resolveRoomAssets(ctx.db, {
+        roomId: access.room.roomId,
+        authGeneration: access.room.authGeneration,
+        fileIds,
+      });
+      const available = new Set(assets.map((asset) => asset.excalidrawFileId));
+
       return {
         roomId: access.room.roomId,
         authGeneration: access.room.authGeneration,
-        fileIds: await listRoomAssets(ctx.db, {
-          roomId: access.room.roomId,
-          authGeneration: access.room.authGeneration,
-        }),
+        assets,
+        missing: fileIds.filter((fileId) => !available.has(fileId)),
       };
-    }),
-
-  /**
-   * Claims asset ids for the current generation. Idempotent: re-registering an
-   * id already in the manifest is success, which is what makes a retry after a
-   * dropped response safe.
-   */
-  register: protectedProcedure
-    .input(
-      z.object({
-        roomId: roomIdInput,
-        /**
-         * Generation the caller believes it is in, and required to still be
-         * current. A manifest entry filed under a rotated generation would
-         * describe assets sealed under a key no member can derive.
-         */
-        authGeneration: roomAuthGenerationSchema,
-        fileIds: z
-          .array(excalidrawFileIdSchema)
-          .min(1)
-          .max(MAX_ASSET_REGISTRATION_BATCH),
-      }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const now = new Date();
-      const userId = ctx.auth.user.id;
-      const fileIds = canonicalizeAssetIds(input.fileIds);
-
-      // Authorization and the write share one transaction under the room lock,
-      // the ordering every room lifecycle mutation uses (Plan 13): without it a
-      // revocation committing in between would let a removed editor still
-      // extend the room's manifest.
-      return ctx.db.transaction(async (tx) => {
-        await lockRoom(tx, input.roomId);
-        const access = await resolveRoomAccess(tx, {
-          roomId: input.roomId,
-          userId,
-          now,
-        });
-        if (access.status !== "ok") throw accessError(access);
-        if (!roomRoleCanEditScene(access.role)) {
-          throw new TRPCError({
-            code: "FORBIDDEN",
-            message: "A viewer cannot register collaboration assets.",
-          });
-        }
-        if (input.authGeneration !== access.room.authGeneration) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message:
-              "This collaboration room's authorization generation has changed.",
-          });
-        }
-
-        const result = await registerRoomAssets(tx, {
-          roomId: access.room.roomId,
-          authGeneration: input.authGeneration,
-          fileIds,
-          userId,
-          now,
-        });
-        if ("code" in result) {
-          throw new TRPCError({
-            code: "PRECONDITION_FAILED",
-            message: `This room already references ${result.current} of ${result.limit} allowed assets.`,
-          });
-        }
-        return {
-          authGeneration: input.authGeneration,
-          registered: result.registered,
-          alreadyPresent: result.alreadyPresent,
-          fileIds: result.fileIds,
-        };
-      });
     }),
 });

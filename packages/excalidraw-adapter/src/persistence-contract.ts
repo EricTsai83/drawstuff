@@ -40,17 +40,36 @@ export function clearElementsForOfficialExport(
     });
 }
 
+/**
+ * Ids of the binary assets a set of elements still references, deduplicated.
+ *
+ * Reads elements opaquely, like the rest of this module: the caller may hand over
+ * engine elements, protocol elements, or a stored document's array, and the answer
+ * only depends on `fileId` and `isDeleted`. A deleted element references nothing —
+ * its image must not be fetched or kept alive by a tombstone.
+ */
+export function collectReferencedFileIds(
+  elements: readonly ExcalidrawElement[] | readonly unknown[],
+): string[] {
+  const fileIds = new Set<string>();
+  for (const element of elements) {
+    const value = objectOrEmpty(element);
+    const fileId = value.fileId;
+    if (!value.isDeleted && typeof fileId === "string" && fileId.length > 0) {
+      fileIds.add(fileId);
+    }
+  }
+  return [...fileIds];
+}
+
 export function filterReferencedFiles(
   elements: readonly ExcalidrawElement[] | readonly unknown[],
   files: BinaryFiles,
 ): BinaryFiles {
   const referencedFiles: BinaryFiles = {};
-  for (const element of elements) {
-    const value = objectOrEmpty(element);
-    const fileId = value.fileId;
-    if (!value.isDeleted && typeof fileId === "string" && fileId in files) {
-      referencedFiles[fileId] = files[fileId]!;
-    }
+  for (const fileId of collectReferencedFileIds(elements)) {
+    const file = files[fileId];
+    if (file) referencedFiles[fileId] = file;
   }
   return referencedFiles;
 }

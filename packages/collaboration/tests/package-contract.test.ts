@@ -96,10 +96,10 @@ describe("@drawstuff/collaboration package contract", () => {
     // a decryption key. Structural, so a future edit cannot quietly thread key
     // material through an envelope, a control frame, or a token claim.
     //
-    // Two modules qualify, and only because they *are* the crypto boundary:
+    // Three modules qualify, and only because they *are* the crypto boundary:
     // `realtime-crypto.ts` owns key derivation and realtime frames, and
-    // `snapshot.ts` seals durable snapshots under a second purpose-bound key it
-    // derives through that same module.
+    // `snapshot.ts` and `asset.ts` seal durable snapshots and binary assets
+    // under second and third purpose-bound keys they derive through it.
     const withKeyMaterial = listSourceFiles(sourceRoot)
       .filter((filePath) =>
         /roomKey|RoomKey|getRandomValues|subtle/.test(
@@ -108,7 +108,11 @@ describe("@drawstuff/collaboration package contract", () => {
       )
       .map((filePath) => path.relative(sourceRoot, filePath))
       .sort();
-    expect(withKeyMaterial).toEqual(["realtime-crypto.ts", "snapshot.ts"]);
+    expect(withKeyMaterial).toEqual([
+      "asset.ts",
+      "realtime-crypto.ts",
+      "snapshot.ts",
+    ]);
   });
 
   it("rejects package deep imports", () => {

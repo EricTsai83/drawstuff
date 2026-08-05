@@ -9,6 +9,7 @@ import {
   type SyncedElement,
 } from "@drawstuff/collaboration/protocol";
 import type { JoinBarrierOptions } from "@drawstuff/collaboration/join-barrier";
+import { roomKeySchema } from "@drawstuff/collaboration/realtime-crypto";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import { SNAPSHOT_NO_REVISION } from "@drawstuff/collaboration/snapshot";
 import {
@@ -16,12 +17,19 @@ import {
   type FakeCollaborationNetwork,
 } from "@drawstuff/collaboration/testing";
 import type {
+  BinaryFileData,
+  BinaryFiles,
   Collaborator,
   OrderedExcalidrawElement,
   SceneData,
   SocketId,
 } from "@drawstuff/excalidraw-adapter/types";
 
+import {
+  createCollaborationAssetStore,
+  type AssetApi,
+  type CollaborationAssetStore,
+} from "@/lib/collab/asset-store";
 import {
   createCollaborationSession,
   type BaselineOutcome,
@@ -38,6 +46,12 @@ import {
 export const ROOM_ID = roomIdSchema.parse("room-poc");
 /** The fake network models delivery, not token verification. */
 export const JOIN_TOKEN = "test-join-token";
+/** Authorization generation every client in these tests joined under. */
+export const AUTH_GENERATION = 1;
+/** Shared room key: asset sealing is real, so the key has to be a real one. */
+export const ROOM_KEY = roomKeySchema.parse(
+  "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
+);
 
 export type SceneHost = {
   api: CollaborationSceneApi;
@@ -46,12 +60,20 @@ export type SceneHost = {
   readonly collaborators: ReadonlyMap<SocketId, Collaborator>;
   /** captureUpdate of every element-carrying updateScene call, in order. */
   readonly elementCaptureUpdates: readonly (string | undefined)[];
+  /** The engine's file store; stands in for what `addFiles` writes into. */
+  readonly files: BinaryFiles;
+  /** Adds a file the way a local paste does, without notifying the session. */
+  putLocalFile(file: BinaryFileData): void;
+  /** One entry per `addFiles` call, holding the ids it carried. */
+  readonly addedFileBatches: readonly (readonly string[])[];
 };
 
 export function createSceneHost(): SceneHost {
   let elements: readonly OrderedExcalidrawElement[] = [];
   let collaborators = new Map<SocketId, Collaborator>();
   const elementCaptureUpdates: (string | undefined)[] = [];
+  const files: BinaryFiles = {};
+  const addedFileBatches: string[][] = [];
   const localState = {
     editingTextElement: null,
     newElement: null,
@@ -76,6 +98,11 @@ export function createSceneHost(): SceneHost {
           collaborators = sceneData.collaborators;
         }
       },
+      getFiles: () => files,
+      addFiles(added) {
+        addedFileBatches.push(added.map((file) => file.id));
+        for (const file of added) files[file.id] = file;
+      },
     },
     get elements() {
       return elements;
@@ -87,6 +114,11 @@ export function createSceneHost(): SceneHost {
       return collaborators;
     },
     elementCaptureUpdates,
+    files,
+    putLocalFile(file) {
+      files[file.id] = file;
+    },
+    addedFileBatches,
   };
 }
 
@@ -155,6 +187,21 @@ export function createManualTimers() {
     /** Live timer count; a torn-down session must leave none behind. */
     get pendingCount() {
       return timers.length;
+    },
+    /** The clock these timers run on, for code that also reads the time. */
+    get now() {
+      return now;
+    },
+    /**
+     * Earliest scheduled time among live timers, or `undefined` when idle. A
+     * timer due at `now` is a zero-delay re-arm — the shape of a spin.
+     */
+    get nextDueAt(): number | undefined {
+      let earliest: number | undefined;
+      for (const timer of timers) {
+        if (earliest === undefined || timer.at < earliest) earliest = timer.at;
+      }
+      return earliest;
     },
   };
 }
@@ -250,6 +297,217 @@ export function createSnapshotBackend() {
   };
 }
 
+/**
+ * In-memory stand-in for the asset backend: the room's asset records plus the
+ * object store the ciphertext lands in.
+ *
+ * Deliberately *not* a stand-in for the sealing. Unlike the snapshot backend
+ * above, what these tests need to establish is the whole round trip — a client
+ * seals, another client fetches and opens — so the bytes stored here are real
+ * ciphertext produced by the real codec against the room key, and `corrupt()`
+ * makes a real authentication failure rather than a simulated one.
+ *
+ * `withholdUploads` models the window that actually exists in production: a peer
+ * has broadcast an image element and its upload has not landed yet, which is
+ * exactly when a reader's lookup legitimately comes back `missing`.
+ */
+export function createAssetBackend() {
+  type StoredRecord = {
+    excalidrawFileId: string;
+    cryptoVersion: number;
+    byteLength: number;
+    url: string;
+  };
+  const records = new Map<string, StoredRecord>();
+  const objects = new Map<string, Uint8Array>();
+  /** Uploads accepted by storage but not yet recorded; see `withholdUploads`. */
+  const withheld: StoredRecord[] = [];
+  let resolveCalls = 0;
+  let uploadCalls = 0;
+  let fetchCalls = 0;
+  let withholdUploads = false;
+  let failResolve = false;
+  let failUploads = 0;
+  let nextKey = 0;
+  let peakConcurrentTransfers = 0;
+  let activeTransfers = 0;
+  let hangingResolve = false;
+  let resolveAborted = false;
+  let holdNextUpload = false;
+  let releaseUpload: (() => void) | undefined;
+
+  const trackTransfer = async <T>(task: () => Promise<T>): Promise<T> => {
+    activeTransfers += 1;
+    peakConcurrentTransfers = Math.max(
+      peakConcurrentTransfers,
+      activeTransfers,
+    );
+    try {
+      return await task();
+    } finally {
+      activeTransfers -= 1;
+    }
+  };
+
+  const urlFor = (key: string): string =>
+    `https://storage.test.invalid/objects/${key}`;
+  const keyFromUrl = (url: string): string | undefined => url.split("/").pop();
+
+  return {
+    get resolveCalls() {
+      return resolveCalls;
+    },
+    get uploadCalls() {
+      return uploadCalls;
+    },
+    get fetchCalls() {
+      return fetchCalls;
+    },
+    /** Ids the room currently has ciphertext for. */
+    storedIds(): string[] {
+      return [...records.keys()].sort();
+    },
+    /** Ciphertext as stored, for assertions about what the server can see. */
+    ciphertextFor(fileId: string): Uint8Array | undefined {
+      const record = records.get(fileId);
+      if (!record) return undefined;
+      const key = keyFromUrl(record.url);
+      return key ? objects.get(key) : undefined;
+    },
+    /** Holds uploads out of the record set until `releaseUploads`. */
+    withholdUploads(): void {
+      withholdUploads = true;
+    },
+    /** Lands every withheld upload, as a slow upload finishing would. */
+    releaseUploads(): void {
+      withholdUploads = false;
+      for (const record of withheld.splice(0)) {
+        if (!records.has(record.excalidrawFileId)) {
+          records.set(record.excalidrawFileId, record);
+        }
+      }
+    },
+    /** Makes `resolve` throw, as a transport failure would. */
+    setFailResolve(value: boolean): void {
+      failResolve = value;
+    },
+    /** Rejects the next `count` uploads, as a transient transport failure would. */
+    failNextUploads(count: number): void {
+      failUploads = count;
+    },
+    /** Makes the next upload hang until `releaseHeldUpload`, as a slow one would. */
+    holdNextUpload(): void {
+      holdNextUpload = true;
+    },
+    releaseHeldUpload(): void {
+      holdNextUpload = false;
+      const release = releaseUpload;
+      releaseUpload = undefined;
+      release?.();
+    },
+    /** Highest number of transfers this backend ever saw in flight at once. */
+    get peakConcurrentTransfers() {
+      return peakConcurrentTransfers;
+    },
+    /** Makes every `resolve` hang, the way an unanswered request does. */
+    hangResolve(): void {
+      hangingResolve = true;
+    },
+    /** True once a hanging `resolve` was cancelled through its signal. */
+    get resolveAborted() {
+      return resolveAborted;
+    },
+    /** Flips a ciphertext byte in storage: tampering the reader must refuse. */
+    corrupt(fileId: string): void {
+      const stored = this.ciphertextFor(fileId);
+      if (!stored) throw new Error(`no stored asset for ${fileId}`);
+      const last = stored.byteLength - 1;
+      stored[last] = (stored[last] ?? 0) ^ 0xff;
+    },
+
+    createApi(): AssetApi {
+      return {
+        resolve: ({ fileIds }, signal) => {
+          resolveCalls += 1;
+          if (failResolve) return Promise.reject(new Error("resolve failed"));
+          if (hangingResolve) {
+            // A request nothing answers: only the signal can end it, which is what
+            // teardown has to be able to do.
+            return new Promise((_, reject) => {
+              signal.addEventListener("abort", () => {
+                resolveAborted = true;
+                reject(new Error("aborted"));
+              });
+            });
+          }
+          const assets = fileIds
+            .map((fileId) => records.get(fileId))
+            .filter((record): record is StoredRecord => record !== undefined);
+          const available = new Set(
+            assets.map((asset) => asset.excalidrawFileId),
+          );
+          return Promise.resolve({
+            authGeneration: AUTH_GENERATION,
+            assets,
+            missing: fileIds.filter((fileId) => !available.has(fileId)),
+          });
+        },
+        upload: ({ excalidrawFileId, cryptoVersion, ciphertext }) =>
+          trackTransfer(async () => {
+            uploadCalls += 1;
+            if (failUploads > 0) {
+              failUploads -= 1;
+              throw new Error("upload failed");
+            }
+            if (holdNextUpload) {
+              holdNextUpload = false;
+              await new Promise<void>((resolve) => {
+                releaseUpload = resolve;
+              });
+            }
+            nextKey += 1;
+            const key = `object-${nextKey}`;
+            objects.set(key, Uint8Array.from(ciphertext));
+            const record: StoredRecord = {
+              excalidrawFileId,
+              cryptoVersion,
+              byteLength: ciphertext.byteLength,
+              url: urlFor(key),
+            };
+            if (withholdUploads) {
+              withheld.push(record);
+              return;
+            }
+            // Identity wins over arrival order, the way the real insert does.
+            if (!records.has(excalidrawFileId)) {
+              records.set(excalidrawFileId, record);
+            }
+            await Promise.resolve();
+          }),
+      };
+    },
+
+    /**
+     * `fetch` over the object store; the store reads ciphertext through this.
+     *
+     * Deliberately takes a macrotask to answer, so overlapping downloads really do
+     * overlap and `peakConcurrentTransfers` measures something.
+     */
+    createFetch(): typeof fetch {
+      return ((input: RequestInfo | URL) =>
+        trackTransfer(async () => {
+          fetchCalls += 1;
+          const url = typeof input === "string" ? input : String(input);
+          const key = keyFromUrl(url);
+          const bytes = key ? objects.get(key) : undefined;
+          await new Promise((resolve) => setTimeout(resolve, 0));
+          if (!bytes) return new Response(null, { status: 404 });
+          return new Response(Uint8Array.from(bytes), { status: 200 });
+        })) as typeof fetch;
+    },
+  };
+}
+
 export type TestClient = {
   host: SceneHost;
   session: CollaborationSession;
@@ -274,6 +532,7 @@ export function createHarness() {
     options: {
       role?: RoomRole;
       snapshotStore?: CollaborationSnapshotStore;
+      assetStore?: CollaborationAssetStore;
       canSyncScene?: () => boolean;
       joinBarrier?: JoinBarrierOptions;
     } = {},
@@ -291,6 +550,7 @@ export function createHarness() {
       username: name,
       sceneApi: host.api,
       snapshotStore: options.snapshotStore,
+      assetStore: options.assetStore,
       canSyncScene: options.canSyncScene,
       joinBarrier: options.joinBarrier,
       scheduleSceneFlush: scheduler.schedule,
@@ -330,8 +590,56 @@ export function createHarness() {
     throw new Error("collaboration exchange did not settle");
   };
 
-  return { network, clock, createClient, settle };
+  /**
+   * A client with a real asset store attached to a fake backend.
+   *
+   * The store hands opened assets to the session and the session asks the store
+   * for them, so the wiring is the same late binding production uses
+   * (`room-session.ts`): the callback is installed the moment the session exists.
+   * Retry backoff runs on the returned manual timers, so no assertion waits.
+   */
+  const createAssetClient = async (
+    name: string,
+    backend: AssetBackend,
+    options: {
+      role?: RoomRole;
+      snapshotStore?: CollaborationSnapshotStore;
+      canSyncScene?: () => boolean;
+      joinBarrier?: JoinBarrierOptions;
+    } = {},
+  ): Promise<AssetTestClient> => {
+    const assetTimers = createManualTimers();
+    let target: CollaborationSession | undefined;
+    const assetStore = await createCollaborationAssetStore({
+      api: backend.createApi(),
+      roomId: ROOM_ID,
+      roomKey: ROOM_KEY,
+      authGeneration: AUTH_GENERATION,
+      onAssetsResolved: (files) => {
+        target?.applyRemoteAssets(files);
+      },
+      onPublishRetryDue: () => {
+        target?.republishLocalAssets();
+      },
+      scheduleTimeout: assetTimers.schedule,
+      now: () => assetTimers.now,
+      fetchImpl: backend.createFetch(),
+    });
+    const client = createClient(name, { ...options, assetStore });
+    target = client.session;
+    return { ...client, assetStore, assetTimers };
+  };
+
+  return { network, clock, createClient, createAssetClient, settle };
 }
+
+export type AssetBackend = ReturnType<typeof createAssetBackend>;
+
+export type AssetTestClient = TestClient & {
+  assetStore: CollaborationAssetStore;
+  /** Drives the asset store's retry backoff. */
+  assetTimers: ReturnType<typeof createManualTimers>;
+};
 
 export function expectConverged(a: TestClient, b: TestClient): void {
   expect(sortSceneById(a.host.elements)).toEqual(

@@ -29,6 +29,7 @@ export default defineConfig({
           // primitives (AES-GCM, HKDF, SHA-256, base64) and are stored, so a
           // browser divergence there would corrupt data rather than one frame.
           include: [
+            "tests/asset.test.ts",
             "tests/realtime-crypto.test.ts",
             "tests/snapshot.test.ts",
           ],
