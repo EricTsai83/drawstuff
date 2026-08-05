@@ -33,6 +33,10 @@ import {
   EXCALIDRAW_USER_IDLE_STATE,
 } from "@drawstuff/excalidraw-adapter/client";
 import {
+  collectReferencedFileIds,
+  filterReferencedFiles,
+} from "@drawstuff/excalidraw-adapter/codec";
+import {
   createChangedElementTracker,
   getSyncableElements,
   reconcileRemoteElements,
@@ -40,6 +44,8 @@ import {
 } from "@drawstuff/excalidraw-adapter/reconcile";
 import type {
   AppState,
+  BinaryFileData,
+  BinaryFiles,
   Collaborator,
   ExcalidrawElement,
   ExcalidrawPointerUpdatePayload,
@@ -48,6 +54,7 @@ import type {
   SocketId,
 } from "@drawstuff/excalidraw-adapter/types";
 
+import type { CollaborationAssetStore } from "@/lib/collab/asset-store";
 import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
 
 /**
@@ -121,6 +128,13 @@ export type CollaborationSceneApi = {
   updateScene(
     sceneData: Pick<SceneData, "elements" | "collaborators" | "captureUpdate">,
   ): void;
+  /**
+   * The engine's binary file store. It is the session's cache of decrypted
+   * assets — the asset store keeps ids only — so "which images do I still need"
+   * and "which images can I publish" are both answered from here.
+   */
+  getFiles(): BinaryFiles;
+  addFiles(files: BinaryFileData[]): void;
 };
 
 export type CollaborationSessionOptions = {
@@ -139,6 +153,13 @@ export type CollaborationSessionOptions = {
    * live peers alone — used by tests that exercise peer sync in isolation.
    */
   snapshotStore?: CollaborationSnapshotStore;
+  /**
+   * Encrypted transfer for the binary assets the scene's image elements
+   * reference. Absent means images are not exchanged — used by tests that
+   * exercise element sync in isolation, which is also the honest description of
+   * what a session without it does.
+   */
+  assetStore?: CollaborationAssetStore;
   /**
    * Every canvas write triggered by remote input (scene deltas, snapshots and
    * presence) runs through this wrapper, so the host can suppress its own
@@ -189,6 +210,18 @@ export type CollaborationSession = {
   ): void;
   /** Wire to the editor `onPointerUpdate`: sends bounded-throttle presence. */
   handlePointerUpdate(payload: ExcalidrawPointerUpdatePayload): void;
+  /**
+   * Injects assets the asset store opened. Wired as the store's callback rather
+   * than pulled by the session, because a download settles whenever it settles —
+   * long after the element that referenced it was applied.
+   */
+  applyRemoteAssets(files: readonly BinaryFileData[]): void;
+  /**
+   * Re-offers the canvas's current images to the asset store. Wired to the store's
+   * upload-retry timer: a retry has to read the scene again, because the image
+   * that failed to upload may have been deleted since.
+   */
+  republishLocalAssets(): void;
   setIdleState(idleState: CollaborationIdleState): void;
   /**
    * Publishes the durable snapshot now, ignoring the cadence. Called when the
@@ -247,6 +280,7 @@ export function createCollaborationSession(
     username,
     sceneApi,
     snapshotStore,
+    assetStore,
     wrapRemoteApply = (apply) => {
       apply();
     },
@@ -374,6 +408,7 @@ export function createCollaborationSession(
     // is not yet the room's scene, and broadcasting it would push pre-join local
     // state into the room.
     if (barrier || !connected || !canEditScene()) return;
+    publishLocalAssets();
     const currentNow = now();
     const batch = tracker.extractChangedElements(
       sceneApi.getSceneElementsIncludingDeleted(),
@@ -399,6 +434,7 @@ export function createCollaborationSession(
     // holds them (nothing was marked sent), and the snapshot broadcast that
     // follows the baseline carries them.
     if (barrier || !connected || !canEditScene()) return;
+    publishLocalAssets();
     const currentNow = now();
     // Throttled full resync (upstream SYNC_FULL_SCENE_INTERVAL_MS): a
     // snapshot supersedes the delta and heals any receiver-side gaps.
@@ -492,6 +528,52 @@ export function createCollaborationSession(
       });
       tracker.markAdoptedRemoteElements(reconciled, elements);
     });
+    requestMissingAssets(elements);
+  };
+
+  /**
+   * Asks the asset store for the images the elements just applied reference and
+   * the canvas does not have.
+   *
+   * Driven by the *incoming* elements rather than by the whole scene, which is
+   * what keeps a delta cheap: a pointer-drag of an existing image references an
+   * id the canvas already holds and produces no request at all. A join baseline
+   * happens to be the whole scene, so the same call covers the late-joiner and
+   * page-refresh cases.
+   *
+   * Fire-and-forget on purpose. A missing or unopenable asset must never hold up
+   * element sync — the scene converges and the image either arrives later or does
+   * not.
+   */
+  function requestMissingAssets(elements: readonly SyncedElement[]): void {
+    if (!assetStore || destroyed || !canSyncScene()) return;
+    const files = sceneApi.getFiles();
+    const missing = collectReferencedFileIds(elements).filter(
+      (fileId) => !files[fileId],
+    );
+    if (missing.length === 0) return;
+    void assetStore.request(missing);
+  }
+
+  /**
+   * Publishes the images the local canvas holds and the room does not.
+   *
+   * Runs on the same coalesced flush as the outbound deltas, because that is when
+   * a newly added image is first broadcast: peers receive the element and the
+   * ciphertext lands moments later. The store decides what is actually new, so
+   * calling this repeatedly is how a failed upload is retried — and a scene with
+   * no files at all never walks its elements.
+   */
+  const publishLocalAssets = (): void => {
+    if (!assetStore || !canEditScene()) return;
+    const files = sceneApi.getFiles();
+    if (Object.keys(files).length === 0) return;
+    const referenced = filterReferencedFiles(
+      sceneApi.getSceneElementsIncludingDeleted(),
+      files,
+    );
+    const pending = Object.values(referenced);
+    if (pending.length > 0) void assetStore.publish(pending);
   };
 
   /**
@@ -927,6 +1009,19 @@ export function createCollaborationSession(
       // The flush reads the live scene from the API at send time, so
       // coalesced onChange bursts serialize the scene at most once per frame.
       scheduleFlush();
+    },
+    applyRemoteAssets(files) {
+      // Same guards as any other remote write: a canvas that no longer belongs to
+      // the room must not gain the room's images, and the write must not mark the
+      // scene dirty.
+      if (destroyed || files.length === 0 || !canSyncScene()) return;
+      wrapRemoteApply(() => {
+        sceneApi.addFiles([...files]);
+      });
+    },
+    republishLocalAssets() {
+      if (destroyed) return;
+      publishLocalAssets();
     },
     handlePointerUpdate(payload) {
       if (destroyed) return;

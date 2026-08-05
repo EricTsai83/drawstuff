@@ -8,6 +8,7 @@ import type { AppState, BinaryFiles } from "@excalidraw/excalidraw/types";
 import { describe, expect, it } from "vitest";
 
 import {
+  collectReferencedFileIds,
   createLocalExportDocument,
   createOwnedSceneDocumentV4,
   createReadonlyShareDocumentV4,
@@ -163,6 +164,18 @@ describe("Excalidraw persistence contract", () => {
     expect(readonly.assets).toEqual({});
     expect(JSON.stringify(readonly)).not.toContain("file-deleted");
     expect(JSON.stringify(readonly)).not.toContain('"theme"');
+  });
+  it("collects the asset ids live elements reference, and only those", () => {
+    // The asset pipeline asks this to decide what to fetch and what to publish, so
+    // a tombstone must not keep an image alive and an unreferenced file must not
+    // be transferred: `file-deleted` belongs to a deleted element and
+    // `file-orphan` to no element at all.
+    expect(collectReferencedFileIds(elements)).toEqual(["file-live"]);
+    // One id however many elements point at it: a scene with forty copies of one
+    // image is one download, not forty.
+    expect(collectReferencedFileIds([...elements, ...elements])).toEqual([
+      "file-live",
+    ]);
   });
 });
 

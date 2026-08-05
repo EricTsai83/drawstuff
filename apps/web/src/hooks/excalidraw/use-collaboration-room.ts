@@ -29,6 +29,7 @@ import {
   claimCanvasForRoom,
   releaseCanvasRoom,
 } from "@/lib/collab/canvas-room-marker";
+import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
 import type { BaselineOutcome } from "@/lib/collab/collaboration-session";
 import {
   startCollaborationRoomSession,
@@ -356,6 +357,16 @@ export function useCollaborationRoom(options: {
               utilsRef.current.client.collaborationSnapshot.get.query(input),
             put: (input) =>
               utilsRef.current.client.collaborationSnapshot.put.mutate(input),
+          },
+          // Same shape, and for the same reason: the store needs two plain async
+          // functions, one to find out where a room's ciphertext lives and one to
+          // put ciphertext there. Neither can read what it carries.
+          assetApi: {
+            resolve: (input, signal) =>
+              utilsRef.current.client.collaborationAsset.resolve.query(input, {
+                signal,
+              }),
+            upload: uploadCollaborationAsset,
           },
           wrapRemoteApply,
           canSyncScene: () => canvasBelongsToRoom(joined.roomId),

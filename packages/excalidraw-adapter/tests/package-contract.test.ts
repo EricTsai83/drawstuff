@@ -65,6 +65,7 @@ describe("@drawstuff/excalidraw-adapter package contract", () => {
         "EXCALIDRAW_PERSISTENCE_CONTRACT",
         "OFFICIAL_SERVER_APP_STATE_KEYS",
         "clearElementsForOfficialExport",
+        "collectReferencedFileIds",
         "createDrawstuffDocumentV4",
         "createLocalExportDocument",
         "createOwnedSceneDocumentV4",
