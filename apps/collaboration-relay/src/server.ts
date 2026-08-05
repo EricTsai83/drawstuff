@@ -18,6 +18,11 @@ import {
 import { createRelayControlRequestHandler } from "./control.ts";
 import { createInMemoryRoomFanout, type RoomFanout } from "./fanout.ts";
 import {
+  createSubjectRateLimiter,
+  DEFAULT_RELAY_RATE_LIMITS,
+  type SubjectRateLimiter,
+} from "./rate-limit.ts";
+import {
   createRelaySessionRegistry,
   type RelaySessionRegistry,
 } from "./sessions.ts";
@@ -33,13 +38,21 @@ type RelayLimits = RelayConnectionLimits & {
  *  handshake before it is terminated outright. */
 const CAPACITY_REJECT_GRACE_MS = 5_000;
 
+/**
+ * Approved in `docs/performance/collaboration-slo-capacity.md` (2026-08-06).
+ * Changing any of these requires a new approved revision of that document, not
+ * an edit here.
+ */
 const DEFAULT_RELAY_LIMITS: RelayLimits = {
   maxConnections: 256,
   maxConnectionsPerRoom: 32,
+  maxRooms: 128,
   maxBufferedBytes: 4 * 1_048_576,
   presenceDropBufferedBytes: 262_144,
   joinTimeoutMs: 10_000,
+  idleTimeoutMs: 15 * 60_000,
   heartbeatIntervalMs: 15_000,
+  rateLimits: DEFAULT_RELAY_RATE_LIMITS,
 };
 
 export type RelayServerOptions = {
@@ -54,6 +67,8 @@ export type RelayServerOptions = {
   fanout?: RoomFanout;
   sessions?: RelaySessionRegistry;
   limits?: Partial<RelayLimits>;
+  /** Join-attempt budget keyed by subject; tests inject one with a manual clock. */
+  subjectRateLimiter?: SubjectRateLimiter;
   generatePeerId?: () => PeerId;
 };
 
@@ -86,6 +101,10 @@ export async function createRelayServer(
   const limits: RelayLimits = { ...DEFAULT_RELAY_LIMITS, ...options.limits };
   const fanout = options.fanout ?? createInMemoryRoomFanout();
   const sessions = options.sessions ?? createRelaySessionRegistry();
+  // Server-owned, not per-connection: the budget it enforces is connect
+  // frequency, which only means something across sockets.
+  const subjectRateLimiter =
+    options.subjectRateLimiter ?? createSubjectRateLimiter();
   // Fail at startup, not on the first join: the secret is only reached inside
   // a socket message handler, where a throw would take the process down.
   const joinTokenSecret = options.joinTokenSecret;
@@ -133,6 +152,7 @@ export async function createRelayServer(
       fanout,
       sessions,
       limits,
+      subjectRateLimiter,
       generatePeerId,
       joinTokenSecret,
     });

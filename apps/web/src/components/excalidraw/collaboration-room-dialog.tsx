@@ -66,6 +66,7 @@ const STATUS_LABEL: Record<CollaborationRoomStatus, string> = {
   preparing: "準備畫布中…",
   joining: "加入中…",
   connected: "已連線",
+  "sync-blocked": "已連線，但畫布過大，已停止同步",
   reconnecting: "連線中斷，正在重新連線…",
   failed: "連線已停止",
   unauthorized: "無法加入",

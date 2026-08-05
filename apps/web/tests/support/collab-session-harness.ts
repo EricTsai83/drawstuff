@@ -43,6 +43,7 @@ import {
   type CollaborationSceneApi,
   type CollaborationSession,
   type JoinCredentialsResult,
+  type SceneSyncBlock,
 } from "@/lib/collab/collaboration-session";
 import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
 import {
@@ -526,6 +527,12 @@ export type TestClient = {
   baselineOutcomes: readonly BaselineOutcome[];
   /** Every recovery phase this client passed through, in order. */
   recoveryStates: readonly RecoveryState[];
+  /**
+   * Every size-block transition this client reported, in order. A `null` entry is
+   * a path resuming; the count matters as much as the values, because the realtime
+   * path re-fails on every flush and must not re-announce an unchanged block.
+   */
+  sceneSyncBlocks: readonly (SceneSyncBlock | null)[];
   /** How many times the client asked the backend for fresh credentials. */
   readonly tokenRefreshCount: number;
   /** Mutates the host scene, notifies the session, and runs the flush. */
@@ -568,6 +575,7 @@ export function createHarness(
     const clientId = clientIdSchema.parse(name);
     const baselineOutcomes: BaselineOutcome[] = [];
     const recoveryStates: RecoveryState[] = [];
+    const sceneSyncBlocks: (SceneSyncBlock | null)[] = [];
     const transport = network.createTransport({ role: options.role });
     let tokenRefreshCount = 0;
     const session = createCollaborationSession({
@@ -598,6 +606,7 @@ export function createHarness(
       scheduleTimeout: timers.schedule,
       onBaselineResolved: (outcome) => baselineOutcomes.push(outcome),
       onRecoveryStateChange: (state) => recoveryStates.push(state),
+      onSceneSyncBlockChange: (block) => sceneSyncBlocks.push(block),
       now: () => clock.now,
     });
     return {
@@ -609,6 +618,7 @@ export function createHarness(
       clientId,
       baselineOutcomes,
       recoveryStates,
+      sceneSyncBlocks,
       get tokenRefreshCount() {
         return tokenRefreshCount;
       },

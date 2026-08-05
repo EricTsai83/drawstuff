@@ -3,6 +3,7 @@
 import { TRPCClientError } from "@trpc/client";
 import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import {
   clientIdSchema,
@@ -32,7 +33,10 @@ import {
   releaseCanvasRoom,
 } from "@/lib/collab/canvas-room-marker";
 import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
-import type { JoinCredentialsResult } from "@/lib/collab/collaboration-session";
+import type {
+  JoinCredentialsResult,
+  SceneSyncBlock,
+} from "@/lib/collab/collaboration-session";
 import {
   startCollaborationRoomSession,
   toCollaborationUsername,
@@ -91,6 +95,13 @@ export type CollaborationRoomStatus =
   | "preparing"
   | "joining"
   | "connected"
+  /**
+   * Connected, but the canvas is past a locked size contract, so at least one
+   * publish path has stopped carrying it. Never reported as `connected`: a canvas
+   * that is not being published is exactly what "共編中" must not mean.
+   * `errorMessage` states which path stopped and what to do about it.
+   */
+  | "sync-blocked"
   /** The connection dropped and the session is retrying with backoff. */
   | "reconnecting"
   /** Recovery stopped for a stated reason; `errorMessage` carries it. */
@@ -146,6 +157,50 @@ const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
   "retry-limit":
     "多次重新連線都失敗，已停止重試。請確認網路連線後重新載入頁面。",
 };
+
+const BYTES_PER_MIB = 1_048_576;
+
+const toMib = (bytes: number): string =>
+  `${(bytes / BYTES_PER_MIB).toFixed(1)} MB`;
+
+/**
+ * What an oversize canvas means, per blocked path, and the one action that fixes
+ * it.
+ *
+ * Both halves are stated because a canvas can breach one contract without the
+ * other, and the consequences are different things to lose: realtime is what the
+ * other members stop receiving, durable is what a reload or a later joiner stops
+ * seeing. Exporting locally leads, the way it does upstream, because it is the
+ * only step that is guaranteed to work — "wait" is precisely what does not.
+ *
+ * Shrinking the canvas is offered with its real caveat rather than as a promise.
+ * A deleted element keeps flowing through sync as a tombstone for
+ * `DELETED_ELEMENT_SYNC_TIMEOUT_MS`, body included, so deleting content does not
+ * immediately reduce the payload; a reload starts from the compacted scene and
+ * does. Saying "just delete something" would be advice that visibly fails.
+ *
+ * Deliberately not a toast. This condition persists until the user acts on it, so
+ * it lives in the room status (`sync-blocked`) and this message, both of which
+ * stay on screen; a notification that fires once would be gone before the user
+ * finished the edit that caused it.
+ */
+function sceneSyncBlockMessage(block: SceneSyncBlock): string {
+  const parts: string[] = [];
+  if (block.realtime) {
+    parts.push(
+      `即時同步已停止：畫布 ${toMib(block.realtime.byteLength)} 超過單次傳送上限 ${toMib(block.realtime.maxByteLength)}，其他成員不會再收到你的變更。`,
+    );
+  }
+  if (block.durable) {
+    parts.push(
+      `雲端備份已停止：畫布 ${toMib(block.durable.byteLength)} 超過共編儲存上限 ${toMib(block.durable.maxByteLength)}，重新載入或稍後加入的人只會看到舊版本。`,
+    );
+  }
+  parts.push(
+    "請先用選單的「匯出圖片」或「儲存到檔案」把目前畫布存到本機，避免內容遺失。減少畫布內容可以恢復同步，但剛刪除的元素仍會佔用同步大小一段時間，必要時請重新載入頁面後再加入共編。",
+  );
+  return parts.join("");
+}
 
 /**
  * Turns a failed `collaborationRoom.join` into the credential refusal recovery
@@ -230,6 +285,15 @@ export function useCollaborationRoom(options: {
   const [status, setStatus] = useState<CollaborationRoomStatus>("idle");
   const [role, setRole] = useState<RoomRole | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  /**
+   * Set while the canvas is too large for a publish path; see `SceneSyncBlock`.
+   *
+   * Held separately from `status` rather than folded into it, because the two are
+   * independent facts about the same session: a recovery notification arrives on
+   * every phase change and would otherwise clear a block that is still true, and a
+   * reconnect does not make an oversize canvas fit.
+   */
+  const [syncBlock, setSyncBlock] = useState<SceneSyncBlock | null>(null);
   /**
    * True from the moment the canvas is claimed until the session is torn down.
    *
@@ -504,6 +568,29 @@ export function useCollaborationRoom(options: {
               setRoleWithdrawn(true);
             }
           },
+          onSceneSyncBlockChange: (block) => {
+            // Two surfaces, mirroring upstream's split in
+            // `excalidraw-app/collab/Collab.tsx`: an announcement at the moment
+            // of failure plus a persistent indicator. Upstream's `ErrorDialog` is
+            // rendered by the collab component itself, so it reaches every
+            // viewport, while its `CollabError` indicator sits inside
+            // `renderTopRightUI`, which returns `null` on mobile. The
+            // `sync-blocked` status below is our equivalent of that desktop-only
+            // indicator — so without a layout-independent announcement, a
+            // phone-sized viewport (and Drawstuff's 728–1071px band, where the
+            // button is hidden) would be told nothing at all.
+            //
+            // Announced once per transition, which is what upstream's
+            // `dialogNotifiedErrors` map buys: the session only reports a change
+            // of state, never a repeat. And as upstream does with
+            // `|| !this.isCollaborating()`, a block first discovered during
+            // teardown is still announced even though the status surface is
+            // already gone — for the leave flush that is the last word on whether
+            // the room's only copy of the work was stored.
+            if (block) toast.warning(sceneSyncBlockMessage(block));
+            if (cancelled) return;
+            setSyncBlock(block);
+          },
           onRecoveryStateChange: (state) => {
             if (cancelled) return;
             if (state.phase === "failed") {
@@ -558,6 +645,7 @@ export function useCollaborationRoom(options: {
       setRole(null);
       setRoleWithdrawn(false);
       setErrorMessage(null);
+      setSyncBlock(null);
     };
   }, [
     excalidrawAPI,
@@ -584,9 +672,30 @@ export function useCollaborationRoom(options: {
     [],
   );
 
+  // Derived, so neither fact overwrites the other: `status` is what the recovery
+  // machine says about the connection, `syncBlock` is what the publish paths say
+  // about the canvas, and only a session that is both connected and publishing
+  // may present itself as syncing.
+  //
+  // The two are reported at different altitudes on purpose. The *status* defers to
+  // the connection while one is being re-established — "重新連線中…" is both an
+  // honest "not syncing" and the more immediately useful fact. The *message* does
+  // not defer: the canvas being too large is true regardless of the socket, the
+  // backoff window can run for minutes, and it is precisely the window in which
+  // "get this work into a local file" matters most. Only a terminal failure's own
+  // message outranks it, because that one tells the user the session is over.
+  const isSyncBlocked = status === "connected" && syncBlock !== null;
+  const visibleStatus: CollaborationRoomStatus = isSyncBlocked
+    ? "sync-blocked"
+    : status;
+  const sizeWarning = syncBlock ? sceneSyncBlockMessage(syncBlock) : null;
+
   return {
-    status,
+    status: visibleStatus,
     role,
+    // Still a collaboration session, and the canvas still belongs to the room: the
+    // editor must keep withholding the actions that would replace it behind the
+    // session's back. Only the *claim to be in sync* is withdrawn above.
     isCollaborating: status === "connected",
     // Keyed to the canvas claim, not to the connection: a viewer's canvas belongs
     // to the room for the whole session, so letting the editor become writable
@@ -596,7 +705,7 @@ export function useCollaborationRoom(options: {
     isReadOnly:
       ownsCanvas &&
       (roleWithdrawn || (role !== null && !roomRoleCanEditScene(role))),
-    errorMessage,
+    errorMessage: errorMessage ?? sizeWarning,
     ownsCanvas,
     onPointerUpdate,
     onSceneChange,

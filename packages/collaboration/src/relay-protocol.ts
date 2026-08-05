@@ -235,6 +235,25 @@ export const RELAY_CLOSE_CODES = {
   membershipRevoked: 4007,
   /** The room generation was ended (or rotated) by its owner. */
   roomEnded: 4008,
+  /**
+   * The connection exceeded a published send-rate budget. Retryable on purpose:
+   * a token bucket refills, so the next attempt is a statement about a different
+   * second — and a client that genuinely keeps exceeding it spends the recovery
+   * retry budget and stops there with a stated reason.
+   */
+  rateLimited: 4009,
+  /**
+   * The connection joined but sent nothing for the idle budget. The heartbeat
+   * only proves the socket is alive, which is not the same as the session still
+   * being used; without this a forgotten tab holds a room slot forever.
+   */
+  idleTimeout: 4010,
+  /**
+   * The relay is already hosting its maximum number of rooms. Distinct from
+   * `relayAtCapacity` (too many *connections*) and `roomAtCapacity` (this room
+   * is full) so the disconnect-reason breakdown can tell the three apart.
+   */
+  relayRoomsAtCapacity: 4011,
 } as const;
 export type RelayCloseCode =
   (typeof RELAY_CLOSE_CODES)[keyof typeof RELAY_CLOSE_CODES];
@@ -249,9 +268,13 @@ export type RelayCloseCode =
  * explicitly, so they are the ones enumerated here — a terminal condition is
  * never inferred from silence.
  *
- * `roomAtCapacity` and `relayAtCapacity` count as transient because they are
- * statements about right now, and the retry budget (`./recovery.ts`) is what
- * stops a room that is permanently full from being retried forever.
+ * `roomAtCapacity`, `relayAtCapacity`, `relayRoomsAtCapacity`, `rateLimited` and
+ * `idleTimeout` all count as transient because they are statements about right
+ * now, and the retry budget (`./recovery.ts`) is what stops a condition that
+ * never clears from being retried forever. They reach `transient` through the
+ * default rather than through a case of their own — the enumerated cases are
+ * exactly the terminal ones, so a new capacity-style code is retryable by
+ * construction and cannot become terminal by omission.
  */
 export function disconnectReasonForCloseCode(
   code: number | undefined,

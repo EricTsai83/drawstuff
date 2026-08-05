@@ -1,7 +1,15 @@
 # Plan 20：漸進開放共編功能
 
 - Status: Ready
-- Depends on: Plan 19
+- Depends on: Plan 28、Plan 29（原為 Plan 19；2026-08-06 Plan 19 拆分後改指向 hardening
+  線的最後兩份）
+
+> **2026-08-06 新增的 gate**：retention（Plan 28）必須先落地。沒有它，`collaboration_snapshot`
+> 密文與 `collaboration_asset` 物件的累積速度等於開房速度、且沒有任何回收路徑——而漸進開放
+> 正是提高開房速度的動作。Plan 27（共編後端速率限制）同理應在開放前落地；若決定延後，本
+> plan 必須明確承擔「後端入口無速率上界，成員身分可被放大成後端負載」這個風險，不得默默
+> 開放。
+
 - Expected change size: feature flags、rollout checks 與操作文件
 
 ## Outcome
