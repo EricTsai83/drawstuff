@@ -141,6 +141,37 @@ export type BaselineOutcome =
    */
   | "snapshot-unavailable";
 
+/** How far past a locked size contract the scene is, on one publish path. */
+export type SceneSizeOverflow = {
+  readonly byteLength: number;
+  readonly maxByteLength: number;
+};
+
+/**
+ * A publish path has stopped carrying this client's scene because the scene
+ * exceeds the size contract that path is bound by.
+ *
+ * Reported rather than swallowed, because the failure is otherwise invisible and
+ * does not heal on its own: nothing is marked sent, so the tracker keeps the same
+ * pending set and the next `onChange` produces the identical refusal, while the
+ * socket stays open and the session keeps looking connected. That is the one
+ * shape of failure a user cannot discover — a canvas that quietly stops syncing
+ * while the UI still says it is collaborating.
+ *
+ * The two paths are tracked separately because they fail independently and mean
+ * different things: `realtime` is what the other members are no longer receiving,
+ * `durable` is what a reload or a later joiner will no longer see. Neither is
+ * terminal — both clear as soon as a send or a write is accepted, so removing
+ * content restores sync without a reconnect.
+ *
+ * The size contracts themselves are Plan 12/15 decisions and are not relaxed
+ * here: this is what the client does once one of them is hit.
+ */
+export type SceneSyncBlock = {
+  readonly realtime: SceneSizeOverflow | null;
+  readonly durable: SceneSizeOverflow | null;
+};
+
 /**
  * What the join established about the room's own state, which is what decides
  * how much of the local canvas may be published once the barrier opens.
@@ -299,6 +330,13 @@ export type CollaborationSessionOptions = {
   /** Reported once per connection when the join baseline resolves. */
   onBaselineResolved?: (outcome: BaselineOutcome) => void;
   /**
+   * Reported whenever the set of size-blocked publish paths changes, and `null`
+   * once every path is publishing again. See `SceneSyncBlock`: this is the only
+   * signal that distinguishes a session that is syncing from one that is merely
+   * still connected, so a caller that shows "collaborating" has to consume it.
+   */
+  onSceneSyncBlockChange?: (block: SceneSyncBlock | null) => void;
+  /**
    * Reported on every recovery phase change, including the terminal ones. This
    * is the session's honest connection status: `getConnectionState()` describes
    * the socket, this describes whether the room is coming back.
@@ -417,6 +455,7 @@ export function createCollaborationSession(
     scheduleTimeout = defaultScheduleTimeout,
     onBaselineResolved,
     onRecoveryStateChange,
+    onSceneSyncBlockChange,
     now = Date.now,
     fullSceneSyncIntervalMs = FULL_SCENE_SYNC_INTERVAL_MS,
     presenceThrottleMs = PRESENCE_THROTTLE_MS,
@@ -522,8 +561,67 @@ export function createCollaborationSession(
    *  the engine always receives a fresh Map. Bounded by room membership. */
   const collaborators = new Map<ClientId, Collaborator>();
 
+  /**
+   * Size-blocked publish paths; see `SceneSyncBlock`. Held as two independent
+   * slots rather than one flag because a scene can breach the realtime contract
+   * (1 MiB per message) and the durable one (4 MiB per snapshot) separately, and
+   * the two clear on different events.
+   */
+  let realtimeOverflow: SceneSizeOverflow | undefined;
+  let durableOverflow: SceneSizeOverflow | undefined;
   const notifyRecovery = (): void => {
     onRecoveryStateChange?.(recovery.state());
+  };
+
+  /**
+   * Reports the current set of blocked paths, and `null` once none are blocked.
+   *
+   * Only ever called on a *transition*, which is why the observed byte counts are
+   * latched by the setters below rather than refreshed. A blocked realtime path
+   * re-fails on every single flush, and each attempt measures a few bytes
+   * differently — a new `messageId`, a bumped sequence, a moved element — so
+   * reporting each measurement would push a fresh object at the caller once per
+   * animation frame for a condition that has not changed. The first measurement is
+   * the one worth keeping: it is the size at which sync stopped, and the number
+   * exists to give the user a sense of scale, not to track the canvas.
+   */
+  const notifySceneSyncBlock = (): void => {
+    onSceneSyncBlockChange?.(
+      realtimeOverflow || durableOverflow
+        ? {
+            realtime: realtimeOverflow ?? null,
+            durable: durableOverflow ?? null,
+          }
+        : null,
+    );
+  };
+
+  /** Latches the realtime block; a repeat of an already-reported block is a no-op. */
+  const noteSceneSendRefusedAsOversize = (
+    overflow: SceneSizeOverflow,
+  ): void => {
+    if (realtimeOverflow) return;
+    realtimeOverflow = overflow;
+    notifySceneSyncBlock();
+  };
+
+  /** A scene message the transport accepted: the realtime path carries us again. */
+  const noteSceneSendAccepted = (): void => {
+    if (!realtimeOverflow) return;
+    realtimeOverflow = undefined;
+    notifySceneSyncBlock();
+  };
+
+  const noteSnapshotRefusedAsOversize = (overflow: SceneSizeOverflow): void => {
+    if (durableOverflow) return;
+    durableOverflow = overflow;
+    notifySceneSyncBlock();
+  };
+
+  const noteSnapshotWritten = (): void => {
+    if (!durableOverflow) return;
+    durableOverflow = undefined;
+    notifySceneSyncBlock();
   };
 
   const clearReconnectTimer = (): void => {
@@ -706,10 +804,26 @@ export function createCollaborationSession(
    * nonce budget and a session that keeps trying would drop every edit silently.
    * A full outbound queue self-heals — nothing was marked sent, so the next flush
    * re-extracts the same elements.
+   *
+   * `oversize-payload` is the case that neither self-heals nor ends the session,
+   * so it is the one that has to be *reported*. The scene is past the locked
+   * per-message contract (Plan 12), which the relay enforces too, so no amount of
+   * retrying will get it through — but the session is otherwise healthy, and the
+   * fix is a local edit away. Keeping the connection and announcing that outbound
+   * sync has stopped is therefore the honest state; terminating would throw away
+   * a session the user can still recover, and staying quiet is the silent-stop
+   * this branch exists to remove.
    */
   const handleSceneSendError = (error: SendError): void => {
     if (error.code === "crypto-exhausted") {
       failRecovery("crypto-exhausted");
+      return;
+    }
+    if (error.code === "oversize-payload") {
+      noteSceneSendRefusedAsOversize({
+        byteLength: error.byteLength,
+        maxByteLength: error.maxByteLength,
+      });
       return;
     }
     if (error.code === "queue-overflow") {
@@ -739,6 +853,7 @@ export function createCollaborationSession(
     if (result.ok) {
       sceneSequence += 1;
       batch.markSent();
+      noteSceneSendAccepted();
       lastFullSceneSyncAt = currentNow;
       // Armed even though this published everything: this very snapshot can be
       // the message that gets dropped, and then nothing else would retry it. An
@@ -779,6 +894,7 @@ export function createCollaborationSession(
     if (result.ok) {
       sceneSequence += 1;
       batch.markSent();
+      noteSceneSendAccepted();
       return "sent";
     }
     // Nothing was marked sent, so the tracker still holds every pending
@@ -1274,7 +1390,16 @@ export function createCollaborationSession(
     ) as unknown as readonly SyncedElement[];
     const digest = await collaborationSnapshotDigest(elements);
     if ((destroyed && !force) || epoch !== joinEpoch) return;
-    if (digest === lastSnapshotDigest && !force) return;
+    if (digest === lastSnapshotDigest && !force) {
+      // Nothing to write — and that also means durability is *intact*, because
+      // `lastSnapshotDigest` is only ever set by a write that landed. This has to
+      // clear a latched block explicitly: an oversize edit that was subsequently
+      // undone leaves the canvas byte-identical to the stored baseline, so the
+      // write that would have cleared the block is exactly the write this return
+      // skips, and the room would stay marked as un-backed-up for good.
+      noteSnapshotWritten();
+      return;
+    }
 
     const run = async (): Promise<void> => {
       const result = await store.save({
@@ -1287,6 +1412,19 @@ export function createCollaborationSession(
       if (result.status === "written") {
         snapshotRevision = result.revision;
         lastSnapshotDigest = digest;
+        noteSnapshotWritten();
+        return;
+      }
+      // The scene is past the locked snapshot contract (Plan 15), so every
+      // remaining tick — and the leave flush that is the room's last chance to
+      // persist anything — will be refused for the same reason. Unlike a failed
+      // request this is not something waiting fixes, so it is surfaced instead of
+      // being dropped along with the other non-conflict outcomes below.
+      if (result.status === "oversize") {
+        noteSnapshotRefusedAsOversize({
+          byteLength: result.byteLength,
+          maxByteLength: result.maxByteLength,
+        });
         return;
       }
       if (result.status !== "conflict") return;
@@ -1323,6 +1461,17 @@ export function createCollaborationSession(
       if (retried.status === "written") {
         snapshotRevision = retried.revision;
         snapshotBaselineKnown = true;
+        noteSnapshotWritten();
+        return;
+      }
+      // Merging the winner can push a scene that fit on its own past the limit,
+      // and this is the last write the room will get — so the refusal is reported
+      // here too rather than only on the cadence path.
+      if (retried.status === "oversize") {
+        noteSnapshotRefusedAsOversize({
+          byteLength: retried.byteLength,
+          maxByteLength: retried.maxByteLength,
+        });
       }
     };
 

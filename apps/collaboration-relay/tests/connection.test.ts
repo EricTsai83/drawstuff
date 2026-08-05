@@ -27,6 +27,10 @@ import {
 } from "../src/connection.ts";
 import { createInMemoryRoomFanout, type RoomFanout } from "../src/fanout.ts";
 import {
+  createSubjectRateLimiter,
+  type SubjectRateLimiter,
+} from "../src/rate-limit.ts";
+import {
   createRelaySessionRegistry,
   type RelaySessionRegistry,
 } from "../src/sessions.ts";
@@ -58,9 +62,22 @@ class FakeSocket implements RelayConnectionSocket {
 
 const DEFAULT_LIMITS: RelayConnectionLimits = {
   maxConnectionsPerRoom: 8,
+  maxRooms: 8,
   maxBufferedBytes: 1_024,
   presenceDropBufferedBytes: 64,
   joinTimeoutMs: 5_000,
+  // Far above anything the non-rate-limit tests reach, so the budgets never
+  // become an invisible precondition of an unrelated assertion. The tests that
+  // exercise them narrow these deliberately.
+  idleTimeoutMs: 60 * 60_000,
+  rateLimits: {
+    sceneFramesPerSecond: 1_000,
+    sceneFramesBurst: 1_000,
+    sceneBytesPerSecond: 16 * 1_048_576,
+    sceneBytesBurst: 16 * 1_048_576,
+    presenceFramesPerSecond: 1_000,
+    presenceFramesBurst: 1_000,
+  },
 };
 
 let peerCounter = 0;
@@ -70,6 +87,11 @@ function setup(
     fanout?: RoomFanout;
     sessions?: RelaySessionRegistry;
     limits?: Partial<RelayConnectionLimits>;
+    subjectRateLimiter?: SubjectRateLimiter;
+    now?: () => number;
+    /** Elapsed-time source for the rate budgets and the idle deadline. Defaults
+     *  to `now`, so a test driving one clock drives both. */
+    monotonicNow?: () => number;
   } = {},
 ): {
   socket: FakeSocket;
@@ -94,9 +116,15 @@ function setup(
     fanout,
     sessions,
     limits: { ...DEFAULT_LIMITS, ...options.limits },
+    subjectRateLimiter:
+      options.subjectRateLimiter ??
+      createSubjectRateLimiter({
+        now: options.monotonicNow ?? options.now ?? (() => TEST_NOW_MS),
+      }),
     generatePeerId: () => peerIdSchema.parse(`peer-${++peerCounter}`),
     joinTokenSecret: TEST_ROOM_TOKEN_SECRET,
-    now: () => TEST_NOW_MS,
+    now: options.now ?? (() => TEST_NOW_MS),
+    monotonicNow: options.monotonicNow ?? options.now ?? (() => TEST_NOW_MS),
   });
   const join = (
     joinOptions: {
@@ -625,5 +653,291 @@ describe("relay connection authorization", () => {
         nowSeconds: TEST_NOW_SECONDS,
       }),
     ).toBe(0);
+  });
+});
+
+/**
+ * Plan 19 step 2: the relay bounded every untrusted input by *size* but not by
+ * *rate*, so a joined editor could send maximum-size frames as fast as it could
+ * produce them (threat model T6). Budgets are the approved ones from
+ * `docs/performance/collaboration-slo-capacity.md` §5.
+ */
+describe("relay connection rate budgets", () => {
+  /** A clock the test advances by hand, so bucket refill is stated, not waited on. */
+  const manualClock = (): {
+    now: () => number;
+    advance: (ms: number) => void;
+  } => {
+    let current = TEST_NOW_MS;
+    return {
+      now: () => current,
+      advance: (ms) => {
+        current += ms;
+      },
+    };
+  };
+
+  it("closes a connection that exceeds its scene frame budget", () => {
+    const clock = manualClock();
+    const { socket, connection, join } = setup({
+      now: clock.now,
+      limits: {
+        rateLimits: {
+          ...DEFAULT_LIMITS.rateLimits,
+          sceneFramesPerSecond: 10,
+          sceneFramesBurst: 3,
+        },
+      },
+    });
+    join();
+
+    for (let frame = 0; frame < 3; frame += 1) {
+      connection.handleBinaryFrame(sceneFrame());
+      expect(socket.closedWith).toBeUndefined();
+    }
+    connection.handleBinaryFrame(sceneFrame());
+
+    // Closed, not silently dropped: a dropped scene frame leaves a convergence
+    // gap the sender cannot detect, while a close is repaired by recovery.
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.rateLimited);
+    expect(connection.isJoined()).toBe(false);
+  });
+
+  it("refills the scene frame budget over time", () => {
+    const clock = manualClock();
+    const { socket, connection, join } = setup({
+      now: clock.now,
+      limits: {
+        rateLimits: {
+          ...DEFAULT_LIMITS.rateLimits,
+          sceneFramesPerSecond: 10,
+          sceneFramesBurst: 2,
+        },
+      },
+    });
+    join();
+
+    connection.handleBinaryFrame(sceneFrame());
+    connection.handleBinaryFrame(sceneFrame());
+    // 10/s means one token per 100 ms.
+    clock.advance(100);
+    connection.handleBinaryFrame(sceneFrame());
+    expect(socket.closedWith).toBeUndefined();
+
+    connection.handleBinaryFrame(sceneFrame());
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.rateLimited);
+  });
+
+  it("bounds scene bytes independently of frame count", () => {
+    const clock = manualClock();
+    const { socket, connection, join } = setup({
+      now: clock.now,
+      limits: {
+        rateLimits: {
+          ...DEFAULT_LIMITS.rateLimits,
+          sceneBytesPerSecond: 512,
+          sceneBytesBurst: 512,
+        },
+      },
+    });
+    join();
+
+    // Well inside the frame budget, over the byte budget: frame count alone is
+    // not a bound, because 30 frames of 1 MiB is 30 MiB/s.
+    connection.handleBinaryFrame(sceneFrame(400));
+    expect(socket.closedWith).toBeUndefined();
+    connection.handleBinaryFrame(sceneFrame(400));
+
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.rateLimited);
+  });
+
+  it("keeps the presence budget separate from the scene budget", () => {
+    const clock = manualClock();
+    const { socket, connection, join } = setup({
+      now: clock.now,
+      limits: {
+        rateLimits: {
+          ...DEFAULT_LIMITS.rateLimits,
+          sceneFramesPerSecond: 10,
+          sceneFramesBurst: 1,
+          presenceFramesPerSecond: 10,
+          presenceFramesBurst: 4,
+        },
+      },
+    });
+    join();
+
+    // Spending the scene budget must not spend the presence budget: the two
+    // channels have different cadences and different consequences for loss.
+    connection.handleBinaryFrame(sceneFrame());
+    for (let frame = 0; frame < 4; frame += 1) {
+      connection.handleBinaryFrame(presenceFrame());
+      expect(socket.closedWith).toBeUndefined();
+    }
+    connection.handleBinaryFrame(presenceFrame());
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.rateLimited);
+  });
+
+  it("reports an oversize frame as a protocol violation, not a throttle", () => {
+    const clock = manualClock();
+    const { socket, connection, join } = setup({
+      now: clock.now,
+      limits: {
+        rateLimits: {
+          ...DEFAULT_LIMITS.rateLimits,
+          sceneBytesPerSecond: 8,
+          sceneBytesBurst: 8,
+        },
+      },
+    });
+    join();
+
+    // The frame breaches both the size contract and the byte budget. The size
+    // contract wins, because the two need opposite client behaviour: a protocol
+    // violation is terminal, a throttle is retried.
+    connection.handleBinaryFrame(
+      sceneFrame(maxRelayDataFrameBytesFor("scene") + 1),
+    );
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.protocolViolation);
+  });
+});
+
+describe("relay connection idle budget", () => {
+  it("closes a joined connection that never sends a frame", () => {
+    // The injected clock advances with the fake timers: the idle deadline is a
+    // timer plus a timestamp check (so an active connection costs no timer
+    // churn), and the check is only meaningful if the two agree — which they do
+    // in production, where both are real time.
+    let current = TEST_NOW_MS;
+    const advance = (ms: number): void => {
+      current += ms;
+      vi.advanceTimersByTime(ms);
+    };
+    const { socket, connection, join } = setup({
+      now: () => current,
+      limits: { idleTimeoutMs: 60_000 },
+    });
+    join();
+
+    advance(59_999);
+    expect(socket.closedWith).toBeUndefined();
+    advance(1);
+
+    // The heartbeat only proves the socket is alive; a forgotten tab answers
+    // pings forever while holding a room slot.
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.idleTimeout);
+    expect(connection.isJoined()).toBe(false);
+  });
+
+  it("keeps a connection that keeps sending frames", () => {
+    let current = TEST_NOW_MS;
+    const { socket, connection, join } = setup({
+      now: () => current,
+      limits: { idleTimeoutMs: 60_000 },
+    });
+    join();
+
+    // A frame arriving inside the window must extend the deadline rather than
+    // only postponing the check.
+    for (let tick = 0; tick < 4; tick += 1) {
+      current += 40_000;
+      vi.advanceTimersByTime(40_000);
+      connection.handleBinaryFrame(sceneFrame());
+      expect(socket.closedWith).toBeUndefined();
+    }
+
+    current += 60_000;
+    vi.advanceTimersByTime(60_000);
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.idleTimeout);
+  });
+
+  it("leaves no idle timer behind after the socket closes", () => {
+    const { connection, join } = setup({ limits: { idleTimeoutMs: 60_000 } });
+    join();
+    connection.handleSocketClosed();
+
+    expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("relay room and join-rate capacity", () => {
+  it("refuses a join that would create a room beyond the room cap", () => {
+    const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
+    const first = setup({ fanout, limits: { maxRooms: 1 } });
+    first.join({ clientName: "client-a" });
+    expect(first.socket.closedWith).toBeUndefined();
+
+    const second = setup({ fanout, limits: { maxRooms: 1 } });
+    second.join({ clientName: "client-b", authGeneration: 2 });
+
+    // Distinct from `relayAtCapacity` and `roomAtCapacity` so the disconnect
+    // breakdown can tell "too many rooms" from "too many connections".
+    expect(second.socket.closedWith?.code).toBe(
+      RELAY_CLOSE_CODES.relayRoomsAtCapacity,
+    );
+  });
+
+  it("still admits members of a room the relay already hosts", () => {
+    const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
+    const first = setup({ fanout, limits: { maxRooms: 1 } });
+    first.join({ clientName: "client-a" });
+
+    // Joining an existing room adds no entry to the fanout's room map, so the
+    // room cap must not refuse it — otherwise a full relay locks out the members
+    // of the very rooms it is hosting.
+    const second = setup({ fanout, limits: { maxRooms: 1 } });
+    second.join({ clientName: "client-b" });
+
+    expect(second.socket.closedWith).toBeUndefined();
+    expect(fanout.memberCount(ROOM_CHANNEL)).toBe(2);
+  });
+
+  it("throttles repeated joins by the same subject across sockets", () => {
+    const subjectRateLimiter = createSubjectRateLimiter({
+      attemptsPerMinute: 60,
+      burst: 2,
+      now: () => TEST_NOW_MS,
+    });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const admitted = setup({ subjectRateLimiter });
+      admitted.join({ subject: "user-a" });
+      expect(admitted.socket.closedWith).toBeUndefined();
+      admitted.connection.handleSocketClosed();
+    }
+
+    // `maxConnections` bounds how many sockets exist at once, not how fast one
+    // subject churns through them — each churn costs a token verification and a
+    // fanout mutation.
+    const throttled = setup({ subjectRateLimiter });
+    throttled.join({ subject: "user-a" });
+    expect(throttled.socket.closedWith?.code).toBe(
+      RELAY_CLOSE_CODES.rateLimited,
+    );
+    expect(throttled.connection.isJoined()).toBe(false);
+
+    // A different subject is unaffected: the budget is per subject, not global.
+    const other = setup({ subjectRateLimiter });
+    other.join({ subject: "user-b", clientName: "client-b" });
+    expect(other.socket.closedWith).toBeUndefined();
+  });
+
+  it("does not spend a subject's join budget on an unauthorized attempt", () => {
+    const subjectRateLimiter = createSubjectRateLimiter({
+      attemptsPerMinute: 60,
+      burst: 1,
+      now: () => TEST_NOW_MS,
+    });
+    const rejected = setup({ subjectRateLimiter });
+    rejected.join({ subject: "user-a", token: "not-a-token" });
+    expect(rejected.socket.closedWith?.code).toBe(
+      RELAY_CLOSE_CODES.unauthorized,
+    );
+
+    // The budget is charged after authorization, so a flood of invalid tokens
+    // cannot lock a legitimate member out of their own budget.
+    const admitted = setup({ subjectRateLimiter });
+    admitted.join({ subject: "user-a" });
+    expect(admitted.socket.closedWith).toBeUndefined();
   });
 });

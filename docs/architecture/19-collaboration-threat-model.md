@@ -1,0 +1,125 @@
+# 共編 threat model 與 data-flow review
+
+- Plan: [19](../../plans/19-production-hardening.md) step 1
+- 建立日期：2026-08-05
+- 對象：realtime relay（`apps/collaboration-relay`）、共編後端（`apps/web` 的
+  `collaborationRoom` / `collaborationSnapshot` / `collaborationAsset` 與
+  `collaborationAssetUploader`）、client 共編路徑（`packages/collaboration`、
+  `apps/web/src/lib/collab`）
+- 狀態：**已完成 review，尚未實作缺口**。缺口欄位標註由哪一個 Plan 19 step 負責。
+
+這份文件的用途有兩個：作為 step 2「為每個 untrusted input 加入明確 limit」的清單來源，
+以及作為 step 4 privacy-safe metrics 的資料分級依據。它不重述 Plan 13/14 已鎖定的授權與
+加密設計，只記錄**信任邊界、跨界資料、以及目前沒有被任何機制擋住的東西**。
+
+## 1. 信任邊界與行為者
+
+| #   | 邊界                              | 兩側                                   | 誰可以到達                                       |
+| --- | --------------------------------- | -------------------------------------- | ------------------------------------------------ |
+| B1  | 瀏覽器 ↔ relay WebSocket          | 使用者裝置 / relay process             | 任何持有有效 join token 的已登入使用者           |
+| B2  | 瀏覽器 ↔ 共編後端 tRPC            | 使用者裝置 / Next.js server + Postgres | 任何已登入使用者（procedure 層再驗 room 存取權） |
+| B3  | 瀏覽器 ↔ object storage 上傳      | 使用者裝置 / UploadThing               | room 內 editor 以上角色                          |
+| B4  | 共編後端 → relay control endpoint | Next.js server / relay process         | 只有持有本次 action 的簽章 control token 者      |
+| B5  | URL fragment                      | 瀏覽器記憶體 + 使用者剪貼簿 / —        | 任何拿到完整連結的人                             |
+
+**行為者**：room owner、editor、viewer、已登入但非成員的使用者、未登入者、relay 營運者
+（可讀 relay 記憶體與日誌）、後端營運者（可讀 Postgres 與 object storage）、網路中間人。
+
+## 2. 跨界資料清單
+
+決定性的性質是：**scene plaintext 只存在於瀏覽器**。以下每一列都經程式碼確認。
+
+| 資料                               | 跨越        | 形式                                                                                             | 誰讀得懂                                        |
+| ---------------------------------- | ----------- | ------------------------------------------------------------------------------------------------ | ----------------------------------------------- |
+| Scene delta / snapshot message     | B1          | AES-GCM 密文（`realtime-crypto.ts` seal），relay 只看 1 byte channel prefix                      | 只有持 room key 的成員                          |
+| Presence（游標、選取、暱稱、idle） | B1          | 同上，密文                                                                                       | 同上                                            |
+| Join token                         | B1          | HMAC 簽章，claims 為 `role`／`gen`／`sub`／`arev`／`rexp`                                        | relay 驗簽即可；**不含任何 key material**       |
+| Durable snapshot                   | B2          | 密文 + `checksum` + `byteLength` + `revision`                                                    | 只有持 room key 的成員；後端只驗大小與 checksum |
+| Asset 密文                         | B3          | sealed envelope（`asset.ts`），檔名固定為 `collaboration-asset`、type `application/octet-stream` | 同上；storage 無法解讀                          |
+| Asset 身份與位置                   | B2          | `excalidrawFileId`、`cryptoVersion`、`byteLength`、storage URL                                   | 後端可讀（這是 metadata，非內容）               |
+| Room lifecycle                     | B2          | roomId、成員清單、角色、`authGeneration`、`authRevision`、`expiresAt`、`linkRole`                | 後端可讀                                        |
+| Control token                      | B4          | HMAC 簽章，claims 為 `rid`／`gen`／`sub`／`arev`／`action`                                       | relay 驗簽即可                                  |
+| **Room key**                       | **B5 only** | 32 bytes 隨機值，僅存在於 URL fragment 與瀏覽器                                                  | 任何拿到完整連結的人                            |
+
+### 由此得出的三條不變式
+
+1. **Relay 與後端都不是 scene 的讀者。** 任何讓它們讀得懂 scene 的變更都是設計層級的
+   回歸，不是最佳化。
+2. **Room key 只走 fragment。** 沒有任何 mutation、log、metric 或 error payload 可以攜帶
+   它；`deriveRoomKey` 產出的 `CryptoKey` 是 non-extractable。
+3. **授權與機密性方向相反。** 授權由後端下行（token），機密性由連結上行（fragment）。
+   因此「有 token 但沒有 key」是一個必須被明確處理的合法狀態，不是錯誤。
+
+## 3. Untrusted input 清單（step 2 的來源）
+
+### 3.1 Relay（B1／B4）
+
+| Input                           | 現有 limit                                                                                                                                     | 缺口                           |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------ |
+| WebSocket text frame（control） | 先量 wire bytes 再 parse，上限 `MAX_RELAY_CONTROL_FRAME_BYTES` = 65,536；超過即關閉                                                            | —                              |
+| WebSocket binary frame（data）  | ws `maxPayload` = `MAX_RELAY_DATA_FRAME_BYTES`；再依 channel 套 `maxRelayDataFrameBytesFor`（scene 1 MiB／presence 16 KiB + sealing overhead） | —                              |
+| Join token                      | HMAC 驗簽、TTL（預設 60s／上限 300s）、比對 `roomId`／`clientId`、`gen` 只取自 token、`rexp` 到期即關閉、`sessions.isRefused` 擋撤銷後的 token | —                              |
+| Control HTTP body               | `MAX_CONTROL_BODY_BYTES` = 4,096，超過回 413 且不續讀、關閉連線                                                                                | —                              |
+| 連線數                          | relay-wide `maxConnections` = 256；per-room `maxConnectionsPerRoom` = 32；超限以 close code 拒絕並在 5s 後強制 terminate                       | —                              |
+| 未 join 的連線                  | `joinTimeoutMs` = 10,000                                                                                                                       | —                              |
+| 失聯連線                        | heartbeat 15s，漏一次 pong 即 terminate（2×interval 上界）                                                                                     | —                              |
+| 慢速消費者                      | `maxBufferedBytes` = 4 MiB 關閉連線；presence 在 256 KiB 以上直接丟棄                                                                          | —                              |
+| 訊息速率                        | scene 30 frames/s（突發 60）+ 2 MiB/s（突發 4 MiB）、presence 40 frames/s（突發 80）；超限關閉連線（`rateLimited`）                            | —（step 2 已完成，2026-08-06） |
+| 已 join 但長期靜默的連線        | `idleTimeoutMs` = 15 分鐘（`idleTimeout`）                                                                                                     | —（step 2 已完成）             |
+| 連線嘗試速率／churn             | per-subject 10 次／分鐘，於授權通過後計費（`rateLimited`）                                                                                     | —（step 2 已完成）             |
+| Room 數                         | `maxRooms` = 128，只對會新建 room 的 join 計費（`relayRoomsAtCapacity`）                                                                       | —（step 2 已完成）             |
+
+### 3.2 共編後端（B2／B3）
+
+| Input                        | 現有 limit                                                                                                                                                                              | 缺口                                                                                                                   |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `collaborationRoom.*`        | `protectedProcedure` + `resolveRoomAccess` + 生命週期 mutation 一律在 room row lock 的單一交易內；room TTL 預設 12h、上限 24h                                                           | —                                                                                                                      |
+| `collaborationSnapshot.put`  | ciphertext 在開交易前先解碼並限制在 `[MIN_SNAPSHOT_SEALED_BYTES, MAX_SNAPSHOT_CIPHERTEXT_BYTES]`；`checksum`；`expectedRevision` 樂觀鎖；`authGeneration` 必須是當前世代；room row lock | —                                                                                                                      |
+| `collaborationSnapshot.get`  | 存取權檢查；`authGeneration` 取自 room row 而非呼叫者                                                                                                                                   | —                                                                                                                      |
+| `collaborationAsset.resolve` | `MAX_ASSET_LOOKUP_BATCH` = 64                                                                                                                                                           | —                                                                                                                      |
+| Asset 上傳                   | `maxFileSize` = `MAX_ASSET_CIPHERTEXT_BYTES`、`maxFileCount` = 1、必須是 editor 以上、`authGeneration` 必須當前、`MAX_ROOM_ASSETS_PER_GENERATION` = 512                                 | —                                                                                                                      |
+| **上述全部的呼叫速率**       | **無**（全 repo 無任何 rate limit 實作）                                                                                                                                                | **step 2**：`snapshot.put` 每次都是帶 row lock 的交易，`room.join` 每次 reconnect 都會呼叫；成員身分即可放大成後端負載 |
+| **結束／過期 room 的資料**   | **無回收路徑**（`end` 只把 status 設為 `ended`，過期只是 `expiresAt` 比對）                                                                                                             | **step 5**（被 Plan 23 step 4 阻擋）                                                                                   |
+
+### 3.3 Client（`packages/collaboration`）
+
+已有界，列在此處是因為 step 3 的 client budget 需要引用：join buffer 256 訊息／8 MiB、
+offline queue 2,048 元素／512 KiB／5 分鐘、outbound 4 MiB、inbound pending 2 MiB、
+replay cache 4,096 筆／60s、nonce 預算 2³² 次 seal（用盡即終止 session）。
+
+## 4. 威脅與現況
+
+| #   | 威脅                                           | 現有緩解                                                                                                           | 殘留                                                                                                                                                    |
+| --- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T1  | 非成員讀取 room 內容                           | 每次 join 都要後端簽的短命 token；`gen` 只取自 token，rotate 後舊 token 位於不同 channel                           | —                                                                                                                                                       |
+| T2  | Relay 營運者或中間人讀取 scene                 | 全部 payload 端到端加密；token 不帶 key                                                                            | 成立的前提是 room key 不外流（見 T7）                                                                                                                   |
+| T3  | 被移除的成員繼續留在線上                       | control endpoint 主動關閉既有 socket；`arev` cutoff 讓撤銷前簽發的 token 無法重新加入                              | relay 不可用時 `relayEnforced` 為 false，UI 會明確警告（不是靜默）                                                                                      |
+| T4  | Viewer 竄改 scene                              | relay 對每個 frame 做角色檢查；client 端也擋（避免自毀連線）；snapshot 與 asset 兩條 durable 路徑各自再驗一次角色  | —                                                                                                                                                       |
+| T5  | Replay／stale frame                            | 密文綁定 envelope 版本與協定版本；inbound gate 檢查 room/generation/sequence；replay cache                         | —                                                                                                                                                       |
+| T6  | 資源耗盡（單一成員）                           | 大小、連線數、buffer、join deadline、heartbeat 皆有界；**relay 側速率、idle、room 數已有界**（step 2，2026-08-06） | **後端側速率仍無界**（3.2）：`apps/web` 是 serverless，process-local 計數器不成立，需共享儲存——屬未核准的獨立決定                                       |
+| T7  | Room key 從連結外洩                            | key 只在 fragment，不進伺服器；rotate generation 會同時換 key，是真正的密碼學撤銷                                  | 使用者若貼出完整連結即失去機密性；屬 accepted limitation（連結即憑證）                                                                                  |
+| T8  | Telemetry 洩漏共編內容                         | 目前 relay 只有兩行啟動 log（監聽位址），沒有任何請求或訊息層級的 log                                              | **尚無 metrics／structured log 可言**，所以也還沒有分級規則 → step 4                                                                                    |
+| T9  | 結束的 room 無限期留存密文                     | —                                                                                                                  | **完全未緩解** → step 5（阻擋於 Plan 23 step 4）                                                                                                        |
+| T10 | `REALTIME_CRYPTO_VERSION` 升版讓既有密文不可讀 | —                                                                                                                  | HKDF info 為 `drawstuff-key/v${REALTIME_CRYPTO_VERSION}/p…/${purpose}`，realtime 升版會同時改變 `snapshot`／`asset` 的推導金鑰，且失敗是靜默的 → step 6 |
+| T11 | 超限 payload 讓畫布靜默停止同步                | **已緩解**（step 7，2026-08-05）：兩條路徑都回報可清除的 block，UI 停止宣稱在同步，訊息版面無關                    | —                                                                                                                                                       |
+| T12 | 單 instance 假設被默默違反                     | `createInMemoryRoomFanout` 的註解明說只對單 process 正確                                                           | 部署層尚未強制單 instance，多開一個就會產生互相看不到的 room → Plan 19 最後一項 in-scope                                                                |
+
+## 5. step 4 的資料分級（metrics／log 可以出現什麼）
+
+| 允許                                                               | 禁止                                                        |
+| ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| `roomId`、`authGeneration`、`peerId`、`clientId`（皆為 opaque id） | 使用者 email、暱稱（presence 內的 `username` 是使用者資料） |
+| 訊息**位元組數**、frame 計數、channel 名稱                         | 訊息內容、密文本體、任何 base64 片段                        |
+| close code、disconnect reason、decrypt 失敗**計數**                | 失敗訊息中夾帶的 payload                                    |
+| snapshot revision、conflict 計數                                   | snapshot ciphertext、checksum 之外的任何欄位                |
+| latency、event-loop lag、記憶體                                    | room key、derived key、token（含片段）                      |
+
+`sub`（使用者 id）在 relay 端只出現在 session registry 記憶體中；若 step 4 要把它放進
+log，必須先決定是否雜湊——本文件不預先批准。
+
+## 6. 待決事項
+
+1. **step 2 的速率限制數字**取決於 step 3 核准的 capacity；兩者一起實作。
+2. **step 4 的 `sub` 處理方式**（原值／雜湊／不記錄）需獨立決定。
+3. **T7 的連結即憑證模型**建議在 UI 明確說明（目前 dialog 已說明 fragment 是金鑰），
+   不需要程式變更。

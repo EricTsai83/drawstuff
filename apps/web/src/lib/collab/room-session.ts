@@ -22,6 +22,7 @@ import {
   type CollaborationSceneApi,
   type CollaborationSession,
   type JoinCredentialsResult,
+  type SceneSyncBlock,
 } from "@/lib/collab/collaboration-session";
 import {
   createCollaborationSnapshotStore,
@@ -123,6 +124,14 @@ export async function startCollaborationRoomSession(options: {
    * room is gone" are both `disconnected` sockets.
    */
   onRecoveryStateChange?: (state: RecoveryState) => void;
+  /**
+   * Reported when the canvas grows past a locked size contract and a publish path
+   * stops carrying it, and `null` once it fits again. Separate from the recovery
+   * state because it is not a connection condition: the socket is fine and the
+   * room is reachable, but this client's own scene can no longer be published, so
+   * a UI that only follows recovery would keep claiming everything is in sync.
+   */
+  onSceneSyncBlockChange?: (block: SceneSyncBlock | null) => void;
 }): Promise<CollaborationRoomHandle> {
   const sceneApi: CollaborationSceneApi = options.excalidrawApi;
   const transport = createRelayWebSocketTransport({
@@ -174,6 +183,7 @@ export async function startCollaborationRoomSession(options: {
     assetStore,
     wrapRemoteApply: options.wrapRemoteApply,
     canSyncScene: options.canSyncScene,
+    onSceneSyncBlockChange: options.onSceneSyncBlockChange,
     onRecoveryStateChange: (state) => {
       // A terminal recovery state ends this room's work, and the session can only
       // release what it owns. Everything wired up *around* it — the encrypted asset

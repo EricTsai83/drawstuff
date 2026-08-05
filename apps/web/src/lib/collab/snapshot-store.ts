@@ -73,6 +73,18 @@ export type LoadSnapshotResult =
 export type SaveSnapshotResult =
   | { status: "written"; revision: number }
   | { status: "conflict"; currentRevision: number | undefined }
+  /**
+   * The scene is larger than the locked snapshot contract, so nothing was
+   * sealed and nothing was sent.
+   *
+   * Separate from `failed` because the two need opposite handling. A failed
+   * write is a transient condition the next cadence tick usually resolves, so
+   * ignoring it is correct; an oversize scene will be refused on every tick
+   * until the user removes content, so ignoring it is a canvas that silently
+   * stops being backed up. A caller that cannot tell them apart has no way to
+   * say which one it is.
+   */
+  | { status: "oversize"; byteLength: number; maxByteLength: number }
   /** Sealing, encoding or the request failed; the caller retries on cadence. */
   | { status: "failed" };
 
@@ -170,7 +182,19 @@ export async function createCollaborationSnapshotStore(options: {
 
     async save({ elements, expectedRevision }) {
       const encoded = encodeCollaborationSnapshot({ roomId, elements });
-      if (!encoded.ok) return { status: "failed" };
+      if (!encoded.ok) {
+        // "Too big" is the one encoding failure the user can act on, and the
+        // only one that will still be true on the next tick, so it is reported
+        // as itself instead of being folded into the generic failure.
+        if (encoded.error.code === "oversize-snapshot") {
+          return {
+            status: "oversize",
+            byteLength: encoded.error.byteLength,
+            maxByteLength: encoded.error.maxByteLength,
+          };
+        }
+        return { status: "failed" };
+      }
       // The revision the bytes will live at is authenticated into the seal, so
       // it has to be predicted here — which is exactly the revision the
       // conditional write will produce if it wins.
