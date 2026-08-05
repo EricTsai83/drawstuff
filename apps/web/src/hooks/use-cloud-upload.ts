@@ -203,20 +203,20 @@ export function useCloudUpload(
             return false;
           }
 
-          // 上傳壓縮檔案（不加密），與 sceneId 關聯
-          const filesToUpload: File[] =
-            prepared.compressedFilesData.length > 0
-              ? prepared.compressedFilesData.map((f) => {
-                  const bufferForFile = normalizeToArrayBuffer(f.buffer);
-                  return new File(
-                    [bufferForFile],
-                    String((f as { id?: string }).id ?? "asset"),
-                    {
-                      type: "application/octet-stream",
-                    },
-                  );
-                })
-              : [];
+          // 上傳壓縮檔案（不加密），與 sceneId 關聯。Excalidraw file id 隨上傳
+          // input 顯式帶出，不再藏在檔名裡——檔名不是身份。
+          const filesToUpload: Array<{
+            file: File;
+            excalidrawFileId: string;
+          }> = prepared.compressedFilesData.map((f) => {
+            const bufferForFile = normalizeToArrayBuffer(f.buffer);
+            return {
+              file: new File([bufferForFile], "asset", {
+                type: "application/octet-stream",
+              }),
+              excalidrawFileId: f.id,
+            };
+          });
 
           const sceneName = options?.name ?? safeNameFromState;
           const sceneDescription = options?.description ?? "";
@@ -279,22 +279,25 @@ export function useCloudUpload(
           const uploadedAssetKeys: string[] = [];
 
           if (filesToUpload.length > 0) {
-            const perFileUploads = filesToUpload.map(async (file) => {
-              const buf = await file.arrayBuffer();
-              const digest = await crypto.subtle.digest("SHA-256", buf);
-              const hashArray = Array.from(new Uint8Array(digest));
-              const contentHash = hashArray
-                .map((b) => b.toString(16).padStart(2, "0"))
-                .join("");
-              const uploadResult = await assetUpload.startUpload([file], {
-                sceneId: sceneIdForCommit,
-                contentHash,
-              });
-              return assertSingleUploadResult(
-                uploadResult,
-                `Asset ${file.name}`,
-              );
-            });
+            const perFileUploads = filesToUpload.map(
+              async ({ file, excalidrawFileId }) => {
+                const buf = await file.arrayBuffer();
+                const digest = await crypto.subtle.digest("SHA-256", buf);
+                const hashArray = Array.from(new Uint8Array(digest));
+                const contentHash = hashArray
+                  .map((b) => b.toString(16).padStart(2, "0"))
+                  .join("");
+                const uploadResult = await assetUpload.startUpload([file], {
+                  sceneId: sceneIdForCommit,
+                  excalidrawFileId,
+                  contentHash,
+                });
+                return assertSingleUploadResult(
+                  uploadResult,
+                  `Asset ${excalidrawFileId}`,
+                );
+              },
+            );
 
             const settledUploads = await Promise.allSettled(perFileUploads);
             for (const entry of settledUploads) {

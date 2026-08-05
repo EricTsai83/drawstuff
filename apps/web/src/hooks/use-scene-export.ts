@@ -77,16 +77,14 @@ export function useSceneExport() {
           { profile: "readonly-share" },
         );
 
-        // 如果有文件需要上傳，先整理檔案
-        let filesToUpload: File[] = [];
-        if (sceneData.compressedFilesData.length > 0) {
-          filesToUpload = sceneData.compressedFilesData.map((file) => {
-            const safeBuffer = cloneToArrayBuffer(file.buffer);
-            return new File([safeBuffer], String(file.id), {
-              type: "application/octet-stream",
-            });
-          });
-        }
+        // 如果有文件需要上傳，先整理檔案。每個檔案帶自己的 Excalidraw file id
+        // 作為身份，檔名不承載任何意義。
+        const filesToUpload = sceneData.compressedFilesData.map((file) => ({
+          file: new File([cloneToArrayBuffer(file.buffer)], "asset", {
+            type: "application/octet-stream",
+          }),
+          excalidrawFileId: file.id,
+        }));
 
         // 使用 server action 保存場景（共享連結）
         const result = await handleSceneSave(
@@ -125,13 +123,23 @@ export function useSceneExport() {
         // 若上傳失敗，回滾 sharedScene 並中止流程，不儲存 scene data。
         if (filesToUpload.length > 0) {
           try {
-            const uploadResults = await startSharedUpload(filesToUpload, {
-              sharedSceneId: result.sharedSceneId,
-            });
+            // 一個上傳一個 call：身份必須逐檔帶入，且任一檔失敗都要回滾整個
+            // sharedScene，所以這裡等所有結果再判斷。
+            const sharedSceneId = result.sharedSceneId;
+            const uploadResults = await Promise.allSettled(
+              filesToUpload.map(({ file, excalidrawFileId }) =>
+                startSharedUpload([file], {
+                  sharedSceneId,
+                  excalidrawFileId,
+                }),
+              ),
+            );
 
-            // startUpload 可能不會丟錯，但回傳筆數不符合預期時視為失敗
-            const isUploadFailed =
-              uploadResults?.length !== filesToUpload.length;
+            // startUpload 可能不會丟錯，但沒有回傳恰好一筆時視為失敗
+            const isUploadFailed = uploadResults.some(
+              (entry) =>
+                entry.status === "rejected" || entry.value?.length !== 1,
+            );
             if (isUploadFailed) {
               setExportErrorMessage(
                 "Some files failed to upload. Export canceled.",

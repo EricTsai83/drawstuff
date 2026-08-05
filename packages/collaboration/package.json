@@ -6,6 +6,10 @@
   "type": "module",
   "sideEffects": false,
   "exports": {
+    "./asset": {
+      "types": "./src/asset.ts",
+      "default": "./src/asset.ts"
+    },
     "./protocol": {
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"

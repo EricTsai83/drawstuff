@@ -1,8 +1,6 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
-import {
-  FILE_UPLOAD_MAX_BYTES,
-  FILE_UPLOAD_MAX_COUNT,
-} from "@/config/app-constants";
+import { excalidrawFileIdSchema } from "@drawstuff/collaboration/asset";
+import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
 import { getMaxFileSizeString } from "@/lib/utils";
 import { QUERIES } from "@/server/db/queries";
 import { z } from "zod";
@@ -70,10 +68,17 @@ export const uploadRouter = {
   sharedSceneFileUploader: f({
     blob: {
       maxFileSize: getMaxFileSizeString(FILE_UPLOAD_MAX_BYTES),
-      maxFileCount: FILE_UPLOAD_MAX_COUNT,
+      maxFileCount: 1,
     },
   })
-    .input(z.object({ sharedSceneId: z.string().min(1).max(128) }))
+    .input(
+      z.object({
+        sharedSceneId: z.string().min(1).max(128),
+        // 一次一個檔案，因為身份必須顯式隨上傳帶入：檔名不是身份，
+        // 多檔共用一組 input 就無法為每個檔案指定它的 Excalidraw file id。
+        excalidrawFileId: excalidrawFileIdSchema,
+      }),
+    )
     .middleware(async ({ input }) => {
       // This code runs on your server before upload
       const session = await getServerSession();
@@ -90,6 +95,7 @@ export const uploadRouter = {
       return {
         userId: session.user.id,
         sharedSceneId,
+        excalidrawFileId: input.excalidrawFileId,
       };
     })
     .onUploadComplete(async ({ metadata, file }) => {
@@ -103,18 +109,22 @@ export const uploadRouter = {
             sharedSceneId: metadata.sharedSceneId,
             ownerId: metadata.userId,
             utFileKey: file.key,
-            name: file.name,
+            excalidrawFileId: metadata.excalidrawFileId,
             size: file.size,
             url: file.ufsUrl,
           });
           if ((result as unknown[]).length === 0) {
+            // 這個 sharedScene 已經有同一個 Excalidraw file id 的紀錄，代表這是
+            // 重試或重複上傳；剛上傳的 object 沒有引用者，刪掉。
             const ok = await deleteFileWithRetry(file.key, {
               sharedSceneId: metadata.sharedSceneId,
-              reason: "duplicate-shared-file",
+              excalidrawFileId: metadata.excalidrawFileId,
+              reason: "duplicate-file-id",
             });
             if (!ok) {
-              await enqueueDeferredCleanup(file.key, "duplicate-shared-file", {
+              await enqueueDeferredCleanup(file.key, "duplicate-file-id", {
                 sharedSceneId: metadata.sharedSceneId,
+                excalidrawFileId: metadata.excalidrawFileId,
               });
             }
             return {
@@ -149,16 +159,19 @@ export const uploadRouter = {
       };
     }),
 
-  // 新增：場景資產上傳（內容去重，強制 contentHash）
+  // 新增：場景資產上傳（身份為 sceneId + Excalidraw file id）
   sceneAssetUploader: f({
     blob: {
       maxFileSize: getMaxFileSizeString(FILE_UPLOAD_MAX_BYTES),
-      maxFileCount: FILE_UPLOAD_MAX_COUNT,
+      maxFileCount: 1,
     },
   })
     .input(
       z.object({
         sceneId: z.string().uuid(),
+        excalidrawFileId: excalidrawFileIdSchema,
+        // storage 層的 lookup 提示，不是身份：它取自壓縮後的上傳 payload，
+        // 同一張圖每次壓縮都會得到不同值。
         contentHash: z.string().regex(/^[a-f0-9]{64}$/),
       }),
     )
@@ -170,33 +183,35 @@ export const uploadRouter = {
       return {
         userId: session.user.id,
         sceneId: input.sceneId,
+        excalidrawFileId: input.excalidrawFileId,
         contentHash: input.contentHash,
       } as const;
     })
     .onUploadComplete(async ({ metadata, file }) => {
       const sceneId = metadata.sceneId;
-      const contentHash = (metadata as { contentHash: string }).contentHash;
+      const { contentHash, excalidrawFileId } = metadata;
       try {
         const result = await QUERIES.createFileRecord({
           sceneId,
           ownerId: metadata.userId,
           utFileKey: file.key,
           contentHash,
-          name: file.name,
+          excalidrawFileId,
           size: file.size,
           url: file.ufsUrl,
         });
         if ((result as unknown[]).length === 0) {
-          // 命中內容去重，刪除新檔
+          // 這個 scene 已經有同一個 Excalidraw file id 的紀錄：同一份位元組，
+          // 既有那筆一樣有效，剛上傳的 object 沒有引用者，刪掉。
           const ok = await deleteFileWithRetry(file.key, {
             sceneId,
-            reason: "duplicate-content",
-            contentHash,
+            reason: "duplicate-file-id",
+            excalidrawFileId,
           });
           if (!ok) {
-            await enqueueDeferredCleanup(file.key, "duplicate-content", {
+            await enqueueDeferredCleanup(file.key, "duplicate-file-id", {
               sceneId,
-              contentHash,
+              excalidrawFileId,
             });
           }
         }

@@ -13,6 +13,7 @@ const PublishedSceneViewer = dynamic(
 type PublishedSceneViewerWrapperProps = {
   sceneData: string;
   fileRecords: Array<{
+    excalidrawFileId: string;
     url: string;
   }>;
   sceneName: string;

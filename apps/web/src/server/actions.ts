@@ -19,6 +19,10 @@ import {
   type CreateOwnedSceneDraftResult,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
+import {
+  planSceneAssetCleanup,
+  readReferencedSceneAssetIds,
+} from "@/server/scene/referenced-assets";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -302,8 +306,8 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
   }
 
   try {
-    const ownerId = await QUERIES.getSceneOwnerId(sceneId);
-    if (!ownerId || ownerId !== session.user.id) {
+    const sceneRow = await QUERIES.getSceneOwnerAndData(sceneId);
+    if (!sceneRow || sceneRow.ownerId !== session.user.id) {
       return {
         success: false,
         errorMessage:
@@ -312,13 +316,29 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
     }
 
     const uniqueFileKeys = Array.from(new Set(fileKeys));
+    // The committed document decides what survives, not this failed save: a
+    // concurrent save may have committed a scene whose only record for an asset
+    // is the row *this* request's upload created (identity is per file id, so
+    // the second upload of the same image is refused as a retry). Deleting by
+    // uploaded key alone would take that scene's image with it.
+    const plan = planSceneAssetCleanup({
+      requestedKeys: uniqueFileKeys,
+      records: await QUERIES.getFileRecordsBySceneIdAndFileKeys(
+        sceneId,
+        uniqueFileKeys,
+      ),
+      referencedFileIds: await readReferencedSceneAssetIds(sceneRow.sceneData),
+    });
+
     await QUERIES.deleteFileRecordsBySceneIdAndFileKeys(
       sceneId,
-      uniqueFileKeys,
+      plan.deletableKeys,
     );
 
     const utapi = new UTApi();
-    for (const fileKey of uniqueFileKeys) {
+    // Only objects whose record is gone (or never existed) are removed; a
+    // retained record must keep its bytes.
+    for (const fileKey of plan.deletableKeys) {
       try {
         await utapi.deleteFiles([fileKey]);
       } catch (deleteErr) {
@@ -331,7 +351,7 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
       }
     }
 
-    return { success: true } as const;
+    return { success: true, retainedFileKeys: plan.retainedKeys } as const;
   } catch (error) {
     console.error("Error during cleanupSceneAssetUploadsAction:", error);
     return {

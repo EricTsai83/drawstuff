@@ -48,7 +48,8 @@ export async function importDataFromBackend(
 type CloudFileRecord = {
   utFileKey: string;
   url: string;
-  name: string;
+  /** Immutable Excalidraw file id; the identity the element's `fileId` matches. */
+  excalidrawFileId: string;
   size: number;
 };
 
@@ -124,6 +125,18 @@ async function importSceneFilesFromRecords(
       );
       const dataURL = decoder.decode(data);
       if (!dataURL.startsWith("data:")) {
+        return null;
+      }
+
+      // The record is the identity of an asset; the id inside the payload is a
+      // copy of it. They can only disagree if the wrong object was stored under
+      // this record, and injecting such a file would render one image where
+      // another belongs — so refuse it instead of trusting either side.
+      if (metadata.id !== record.excalidrawFileId) {
+        console.error("Asset payload does not match its record identity", {
+          recordFileId: record.excalidrawFileId,
+          payloadFileId: metadata.id,
+        });
         return null;
       }
 

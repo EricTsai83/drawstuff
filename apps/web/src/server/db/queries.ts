@@ -58,14 +58,21 @@ export const QUERIES = {
     return row?.ownerId;
   },
 
-  // 文件記錄相關查詢
+  /**
+   * 建立資產紀錄。身份是 parent scope + `excalidrawFileId`，重試冪等也由它保證：
+   * 同一個 file id 第二次寫入會落在 unique index 上而回傳空陣列，呼叫端據此把剛
+   * 上傳的 storage object 刪掉——同一個 file id 代表同一份位元組，已存在的那筆
+   * 一樣有效。
+   *
+   * `contentHash` 只是 storage 層的提示，不參與身份判斷，也不再擋下寫入。
+   */
   createFileRecord: async function ({
     sceneId,
     sharedSceneId,
     ownerId,
     utFileKey,
     contentHash,
-    name,
+    excalidrawFileId,
     size,
     url,
   }: {
@@ -74,7 +81,7 @@ export const QUERIES = {
     ownerId: string | null;
     utFileKey: string;
     contentHash?: string | null;
-    name: string;
+    excalidrawFileId: string;
     size: number;
     url: string;
   }) {
@@ -86,69 +93,56 @@ export const QUERIES = {
       throw new Error("Cannot provide both sceneId and sharedSceneId");
     }
 
-    // 冪等：sceneId 存在時，(sceneId, utFileKey) 唯一，重試不會重複寫入
-    if (sceneId) {
-      // 內容去重：若提供 contentHash，檢查同 scene 是否已存在
-      if (contentHash) {
-        const existing = await QUERIES.getFileRecordBySceneAndContentHash(
-          sceneId,
-          contentHash,
-        );
-        if (existing) {
-          return [] as const;
-        }
-      }
-      return await db
-        .insert(fileRecord)
-        .values({
-          sceneId,
-          sharedSceneId: null,
-          ownerId: ownerId ?? null,
-          utFileKey,
-          contentHash: contentHash ?? null,
-          name,
-          size,
-          url,
-        })
-        .onConflictDoNothing({
-          target: [fileRecord.sceneId, fileRecord.utFileKey],
-        })
-        .returning();
-    }
-
-    // sharedSceneId 路徑以檔名保存 Excalidraw file id，支援重試冪等
     return await db
       .insert(fileRecord)
       .values({
-        sceneId: null,
+        sceneId: sceneId ?? null,
         sharedSceneId: sharedSceneId ?? null,
         ownerId: ownerId ?? null,
         utFileKey,
-        contentHash: null,
-        name,
+        contentHash: contentHash ?? null,
+        excalidrawFileId,
         size,
         url,
       })
       .onConflictDoNothing({
-        target: [fileRecord.sharedSceneId, fileRecord.name],
+        target: sceneId
+          ? [fileRecord.sceneId, fileRecord.excalidrawFileId]
+          : [fileRecord.sharedSceneId, fileRecord.excalidrawFileId],
       })
       .returning();
   },
 
-  getFileRecordBySceneAndContentHash: async function (
-    sceneId: string,
-    contentHash: string,
-  ) {
+  /** Scene ownership plus the committed document, for retention decisions. */
+  getSceneOwnerAndData: async function (
+    id: string,
+  ): Promise<{ ownerId: string; sceneData: string | null } | undefined> {
     const [row] = await db
-      .select()
+      .select({ ownerId: scene.userId, sceneData: scene.sceneData })
+      .from(scene)
+      .where(eq(scene.id, id));
+    return row;
+  },
+
+  /** Identity of the records behind a set of storage keys, for one scene. */
+  getFileRecordsBySceneIdAndFileKeys: async function (
+    sceneId: string,
+    fileKeys: string[],
+  ) {
+    if (fileKeys.length === 0)
+      return [] as Array<{ utFileKey: string; excalidrawFileId: string }>;
+    return await db
+      .select({
+        utFileKey: fileRecord.utFileKey,
+        excalidrawFileId: fileRecord.excalidrawFileId,
+      })
       .from(fileRecord)
       .where(
         and(
           eq(fileRecord.sceneId, sceneId),
-          eq(fileRecord.contentHash, contentHash),
+          inArray(fileRecord.utFileKey, fileKeys),
         ),
       );
-    return row;
   },
 
   deleteFileRecordsBySceneIdAndFileKeys: async function (

@@ -110,6 +110,61 @@ Binary assets 不內嵌於 realtime element message。資產身份為 parent sco
 immutable `excalidraw_file_id`；filename、storage key 或 content hash 都不能取代
 Excalidraw file identity。
 
+### Asset relation boundary（Plan 16，2026-08-05）
+
+Room asset metadata 使用**獨立 relation `collaboration_asset`**，不在 `file_record`
+增加第三個 nullable parent：
+
+| 面向      | `file_record`                     | `collaboration_asset`            |
+| --------- | --------------------------------- | -------------------------------- |
+| Parent    | scene／sharedScene                | room + `auth_generation`         |
+| Writer    | scene owner                       | room 內任何可編輯成員            |
+| 內容      | 明文壓縮後存於外部 object storage | 將由 room key 封裝（Plan 17）    |
+| Retention | 跟隨 scene 生命週期               | 跟隨授權世代，寫入時退休更舊世代 |
+| Cascade   | `scene` / `shared_scene`          | `collaboration_room`             |
+
+四種 lifecycle 混在同一組 nullable-polymorphic constraint 內無法表達上述差異，因此
+分表。`collaboration_asset` 只存身份（room、generation、`excalidraw_file_id`）與
+註冊者：位元組傳輸屬 Plan 17，尚不存在的欄位不預先建立。它也刻意不存 content
+hash——Excalidraw file id 本身就是明文位元組的摘要，再存一份只會給伺服器一個確認
+猜測明文的 oracle。
+
+`file_record` 保留 `content_hash` 作為 storage 層 lookup／dedup 提示（可為 null、
+無唯一性）。它不得再成為身份：hash 取自壓縮後的上傳 payload，payload metadata 帶
+每次寫入都不同的時間戳，用它當身份會讓同一張圖每次存檔都新增一列。
+
+Asset identity 的共用 contract（file id 形狀、per-room 上限）由
+`@drawstuff/collaboration/asset` 擁有並由 `apps/web` 直接引用：它是
+transport-neutral domain contract，且 adapter 刻意不引入 zod。
+
+#### Accepted limitation：伺服器無法驗證 file id 與位元組相符
+
+Excalidraw file id 是**內容摘要，但由 client 計算**（`generateIdFromFile` 取 bytes
+的 SHA-1，digest 失敗時 fallback 為 `nanoid(40)`），並寫進元素的 `fileId`。伺服器
+無法把它變成可驗證的斷言：
+
+- **加密路徑（readonly-share、未來的 room asset）原理上不可能**：payload 由 client
+  以伺服器沒有的金鑰封裝（share link 的 key 在 URL fragment、room 用 room key）。
+- **未加密路徑（owned-scene）技術上可行但不採用**：伺服器得在 upload webhook 內解壓
+  最多 `FILE_UPLOAD_MAX_BYTES` 並重算 SHA-1，代價是 webhook 延遲、伺服器必須理解
+  asset payload 格式（目前上傳路徑對 payload 完全不透明，這正是它能同時服務加密與
+  未加密的原因），且同一條身份規則會在兩條路徑上有兩種強度。
+- 由伺服器產生 id 也不是選項：那需要改寫 stored document 內的 `fileId`，違反本 ADR
+  的 native document boundary（`validateOpaqueV4Write` 刻意把文件當不透明位元組）。
+
+採用的替代是**讀取端交叉比對**：以紀錄（`file_record.excalidraw_file_id` 或 room
+manifest）為身份權威，與 payload 內嵌 id 比對，不一致就拒絕注入。它對加密與未加密
+路徑同樣有效、不需要金鑰，能偵測「紀錄底下存到錯誤的物件」，但無法偵測「client 從
+一開始就用錯的 id 上傳對的 bytes」。後者的影響邊界是：身份以 parent 劃分且寫入需要
+該 parent 的授權，因此最壞情況只是該使用者自己的場景少一張圖，無法覆寫他人資產。
+
+Upstream `excalidraw-app`（lockfile-resolved 0.18.1）同樣不做任何伺服器端驗證：它把
+**storage 物件路徑本身當身份**（`ref(storage, "${prefix}/${id}")`，prefix 為
+`/files/shareLinks/${id}` 或 `/files/rooms/${roomId}`），下載時以請求的 id 作為
+`BinaryFileData.id`（payload metadata 只提供 mimeType/created），bytes 也是 client
+端加密。Drawstuff 因為使用 UploadThing（storage key 由服務端產生）才需要 DB 列做
+file id → storage key 的映射；語意與 upstream 一致，只是身份存在關聯式紀錄而非路徑。
+
 ### 「無 legacy code」契約
 
 Legacy 指已被新責任取代、且不再服務真實資料或 active rollout 的 runtime path、

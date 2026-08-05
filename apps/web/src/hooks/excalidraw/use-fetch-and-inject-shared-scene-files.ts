@@ -18,7 +18,13 @@ import type {
 import type { FileId } from "@drawstuff/excalidraw-adapter/types";
 
 // 穩定的空陣列參考：避免在 useEffect 依賴上造成不必要的重跑
-const EMPTY_FILE_RECORDS: ReadonlyArray<{ url: string }> = [];
+type SharedSceneFileRecord = {
+  /** Immutable Excalidraw file id; the identity the element's `fileId` matches. */
+  excalidrawFileId: string;
+  url: string;
+};
+
+const EMPTY_FILE_RECORDS: ReadonlyArray<SharedSceneFileRecord> = [];
 
 // 從後端取回後解壓/解密得到的檔案中繼資料
 type DecompressedMetadata = {
@@ -107,7 +113,7 @@ export function useFetchAndInjectSharedSceneFiles(
       // 1) 尚未有重試紀錄（首次嘗試）
       // 2) 未超過最大重試次數
       // 3) 已到達下一次允許嘗試的時間點
-      const targets = files.filter((f: { url: string }) => {
+      const targets = files.filter((f: SharedSceneFileRecord) => {
         const info = sceneRetryMap.get(f.url);
         if (!info) return true;
         if (info.attempts >= MAX_RETRIES) return false;
@@ -115,63 +121,76 @@ export function useFetchAndInjectSharedSceneFiles(
       });
 
       await Promise.allSettled(
-        targets.map(async ({ url }: { url: string }) => {
-          try {
-            // 將 AbortController 的 signal 傳入，讓請求可以在清理時被中止
-            const response = await fetch(url, { signal: controller.signal });
-            if (!response.ok) {
-              // 非 2xx：累加重試次數並計算下一次嘗試的時間（指數退避 + 抖動）
-              const prev = sceneRetryMap.get(url);
-              const attempts = (prev?.attempts ?? 0) + 1;
-              const delay =
-                BASE_DELAY_MS * Math.pow(BACKOFF_FACTOR, attempts - 1) +
-                Math.floor(Math.random() * JITTER_MS);
-              sceneRetryMap.set(url, {
-                attempts,
-                nextRetryAt: Date.now() + delay,
-              });
-              return;
-            }
+        targets.map(
+          async ({ excalidrawFileId, url }: SharedSceneFileRecord) => {
+            try {
+              // 將 AbortController 的 signal 傳入，讓請求可以在清理時被中止
+              const response = await fetch(url, { signal: controller.signal });
+              if (!response.ok) {
+                // 非 2xx：累加重試次數並計算下一次嘗試的時間（指數退避 + 抖動）
+                const prev = sceneRetryMap.get(url);
+                const attempts = (prev?.attempts ?? 0) + 1;
+                const delay =
+                  BASE_DELAY_MS * Math.pow(BACKOFF_FACTOR, attempts - 1) +
+                  Math.floor(Math.random() * JITTER_MS);
+                sceneRetryMap.set(url, {
+                  attempts,
+                  nextRetryAt: Date.now() + delay,
+                });
+                return;
+              }
 
-            const buf = new Uint8Array(await response.arrayBuffer());
-            const { metadata, data } =
-              await decompressData<DecompressedMetadata>(buf, {
-                decryptionKey: decryptionKeyParam,
-              });
+              const buf = new Uint8Array(await response.arrayBuffer());
+              const { metadata, data } =
+                await decompressData<DecompressedMetadata>(buf, {
+                  decryptionKey: decryptionKeyParam,
+                });
 
-            // 將解密後的資料轉為 Excalidraw 需要的 BinaryFileData
-            const id = metadata.id as unknown as FileId;
-            loaded[id] = {
-              id,
-              dataURL: decoder.decode(data) as DataURL,
-              mimeType: metadata.mimeType as BinaryFileData["mimeType"],
-              created: metadata.created,
-              lastRetrieved: metadata.lastRetrieved,
-            };
-            // 成功載入後即移除該 URL 的重試狀態
-            if (sceneRetryMap.has(url)) {
-              sceneRetryMap.delete(url);
+              // 紀錄才是資產身份，payload 內的 id 只是副本。兩者不一致代表這筆
+              // 紀錄底下存到了錯誤的物件，重試不會改變結果，所以直接放棄這筆而
+              // 不排下一次嘗試——注入它會把一張圖畫到另一張圖的位置。
+              if (metadata.id !== excalidrawFileId) {
+                sceneRetryMap.set(url, {
+                  attempts: MAX_RETRIES,
+                  nextRetryAt: Number.POSITIVE_INFINITY,
+                });
+                return;
+              }
+
+              // 將解密後的資料轉為 Excalidraw 需要的 BinaryFileData
+              const id = metadata.id as unknown as FileId;
+              loaded[id] = {
+                id,
+                dataURL: decoder.decode(data) as DataURL,
+                mimeType: metadata.mimeType as BinaryFileData["mimeType"],
+                created: metadata.created,
+                lastRetrieved: metadata.lastRetrieved,
+              };
+              // 成功載入後即移除該 URL 的重試狀態
+              if (sceneRetryMap.has(url)) {
+                sceneRetryMap.delete(url);
+              }
+            } catch (err: unknown) {
+              if (!(
+                err &&
+                typeof err === "object" &&
+                "name" in err &&
+                (err as { name?: string }).name === "AbortError"
+              )) {
+                // 例外但非中止：同樣按指數退避規則排定下一次嘗試
+                const prev = sceneRetryMap.get(url);
+                const attempts = (prev?.attempts ?? 0) + 1;
+                const delay =
+                  BASE_DELAY_MS * Math.pow(BACKOFF_FACTOR, attempts - 1) +
+                  Math.floor(Math.random() * JITTER_MS);
+                sceneRetryMap.set(url, {
+                  attempts,
+                  nextRetryAt: Date.now() + delay,
+                });
+              }
             }
-          } catch (err: unknown) {
-            if (!(
-              err &&
-              typeof err === "object" &&
-              "name" in err &&
-              (err as { name?: string }).name === "AbortError"
-            )) {
-              // 例外但非中止：同樣按指數退避規則排定下一次嘗試
-              const prev = sceneRetryMap.get(url);
-              const attempts = (prev?.attempts ?? 0) + 1;
-              const delay =
-                BASE_DELAY_MS * Math.pow(BACKOFF_FACTOR, attempts - 1) +
-                Math.floor(Math.random() * JITTER_MS);
-              sceneRetryMap.set(url, {
-                attempts,
-                nextRetryAt: Date.now() + delay,
-              });
-            }
-          }
-        }),
+          },
+        ),
       );
 
       if (controller.signal.aborted) {
