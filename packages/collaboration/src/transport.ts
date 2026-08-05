@@ -32,12 +32,25 @@ export type ConnectionState =
 export type RoomPeer = {
   readonly peerId: PeerId;
   readonly clientId: ClientId;
+  /** Role the server granted this peer's connection; see `ConnectionState`. */
+  readonly role: RoomRole;
+};
+
+/**
+ * What a receiver can know about an inbound message without inspecting it.
+ * `byteLength` is the decoded plaintext size, which is what a bounded receive
+ * buffer has to charge: the message object's own retained size is proportional
+ * to it, and a count-only bound would let a few maximum-size scene messages hold
+ * hundreds of megabytes.
+ */
+export type InboundMessageMeta = {
+  readonly byteLength: number;
 };
 
 export interface TransportSubscriber {
   onConnectionStateChange?(state: ConnectionState): void;
   /** Decoded, protocol-validated inbound message from another room peer. */
-  onMessage?(message: CollaborationMessage): void;
+  onMessage?(message: CollaborationMessage, meta: InboundMessageMeta): void;
   /** Current room membership including this transport's own peer. */
   onRoomPeersChange?(peers: readonly RoomPeer[]): void;
   /**

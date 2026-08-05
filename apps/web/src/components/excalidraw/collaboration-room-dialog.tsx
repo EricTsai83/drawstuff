@@ -63,11 +63,12 @@ const ROLE_LABEL: Record<RoomRole, string> = {
 
 const STATUS_LABEL: Record<CollaborationRoomStatus, string> = {
   idle: "未連線",
+  preparing: "準備畫布中…",
   joining: "加入中…",
   connected: "已連線",
   disconnected: "已離線",
   unauthorized: "無法加入",
-  "scene-mismatch": "場景不符",
+  cancelled: "已取消加入",
   "missing-room-key": "連結缺少金鑰",
 };
 

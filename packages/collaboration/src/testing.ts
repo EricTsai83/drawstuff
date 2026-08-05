@@ -112,7 +112,11 @@ export function createFakeCollaborationNetwork(
   const notifyMembership = (room: RoomState): void => {
     for (const member of room.members) {
       const peers: readonly RoomPeer[] = room.members.map(
-        ({ peerId, clientId }) => ({ peerId, clientId }),
+        ({ peerId, clientId, transport }) => ({
+          peerId,
+          clientId,
+          role: transport.role,
+        }),
       );
       for (const subscriber of member.transport.subscribers) {
         subscriber.onRoomPeersChange?.(peers);
@@ -305,7 +309,9 @@ export function createFakeCollaborationNetwork(
                 `Fake network delivered an undecodable message: ${decoded.error.code}`,
               );
             }
-            subscriber.onMessage?.(decoded.message);
+            subscriber.onMessage?.(decoded.message, {
+              byteLength: item.bytes.byteLength,
+            });
             delivered += 1;
           }
         }

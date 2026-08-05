@@ -97,7 +97,7 @@ describe("relay control frames", () => {
       peerId: PEER_A,
       roomGeneration: 7,
       role: "viewer",
-      peers: [{ peerId: PEER_A, clientId: CLIENT_A }],
+      peers: [{ peerId: PEER_A, clientId: CLIENT_A, role: "viewer" }],
     };
     expect(parseRelayServerControl(encodeRelayControl(joined))).toEqual(joined);
   });

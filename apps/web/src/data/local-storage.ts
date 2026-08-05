@@ -4,6 +4,7 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { STORAGE_KEYS } from "@/config/app-constants";
+import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
 
 // ====== 自行實作 Excalidraw 狀態相關 helper ======
 
@@ -173,6 +174,13 @@ export function loadCurrentSceneIdFromStorage(): string | undefined {
 export function saveCurrentSceneIdToStorage(id: string): void {
   if (!canUseLocalStorage()) return;
   try {
+    // Deliberately does NOT touch the collaboration canvas claim. Writing a scene
+    // id is not the same event as replacing the canvas: a guest in a room has no
+    // scene id at all, so its first cloud save arrives here with a brand-new id
+    // while the canvas is unchanged. Releasing on that would silently stop the
+    // guest's room sync mid-session. The claim is released where the canvas is
+    // actually swapped — see `clearCurrentSceneSessionFromStorage` and
+    // `use-apply-remote-scene.ts`.
     localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_ID, id);
   } catch (error: unknown) {
     console.error(error);
@@ -183,6 +191,10 @@ export function saveCurrentSceneIdToStorage(id: string): void {
 export function clearCurrentSceneSessionFromStorage(): void {
   if (!canUseLocalStorage()) return;
   try {
+    // Starting a new scene, or leaving one, does replace (or repurpose) the
+    // canvas, so the room's claim on it ends here — in the same synchronous block
+    // as the storage write, which is what the session's `canSyncScene` reads.
+    releaseCanvasRoom();
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
     localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);

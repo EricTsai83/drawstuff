@@ -163,7 +163,11 @@ describe("createRelayConnection", () => {
     if (ack?.control !== "joined") throw new Error("expected joined ack");
     expect(ack.roomId).toBe(ROOM_ID);
     expect(ack.roomGeneration).toBe(1_000);
-    expect(ack.peers).toEqual([{ peerId: ack.peerId, clientId: "client-a" }]);
+    // The role in the membership snapshot comes from the verified token, so a
+    // client's elections agree with what the relay actually enforces.
+    expect(ack.peers).toEqual([
+      { peerId: ack.peerId, clientId: "client-a", role: ack.role },
+    ]);
   });
 
   it("closes on malformed and oversize control frames", () => {

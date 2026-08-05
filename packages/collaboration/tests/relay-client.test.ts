@@ -96,7 +96,7 @@ const joinedNotice = (
   peerId: PEER_A,
   roomGeneration: 3,
   role: "editor",
-  peers: [{ peerId: PEER_A, clientId: CLIENT_A }],
+  peers: [{ peerId: PEER_A, clientId: CLIENT_A, role: "editor" }],
   ...overrides,
 });
 
@@ -200,8 +200,10 @@ describe("createRelayWebSocketTransport", () => {
     const state = connectedState(transport);
     expect(state.peerId).toBe(PEER_A);
     expect(state.roomGeneration).toBe(3);
+    // The role travels with membership so both client-side elections (who
+    // answers a newcomer, who writes the durable snapshot) can skip viewers.
     expect(peerUpdates.at(-1)).toEqual([
-      { peerId: PEER_A, clientId: CLIENT_A },
+      { peerId: PEER_A, clientId: CLIENT_A, role: "editor" },
     ]);
   });
 

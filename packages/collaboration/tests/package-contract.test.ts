@@ -17,12 +17,14 @@ const listSourceFiles = (root: string): string[] =>
 describe("@drawstuff/collaboration package contract", () => {
   it("exposes only the approved public entry points", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
+      "./join-barrier",
       "./protocol",
       "./realtime-crypto",
       "./relay-client",
       "./relay-protocol",
       "./room-auth",
       "./room-token",
+      "./snapshot",
       "./testing",
       "./transport",
     ]);
@@ -53,12 +55,14 @@ describe("@drawstuff/collaboration package contract", () => {
 
   it("resolves every public entry point to its source module", () => {
     const expectedEntries = {
+      "@drawstuff/collaboration/join-barrier": "join-barrier.ts",
       "@drawstuff/collaboration/protocol": "protocol.ts",
       "@drawstuff/collaboration/realtime-crypto": "realtime-crypto.ts",
       "@drawstuff/collaboration/relay-client": "relay-client.ts",
       "@drawstuff/collaboration/relay-protocol": "relay-protocol.ts",
       "@drawstuff/collaboration/room-auth": "room-auth.ts",
       "@drawstuff/collaboration/room-token": "room-token.ts",
+      "@drawstuff/collaboration/snapshot": "snapshot.ts",
       "@drawstuff/collaboration/testing": "testing.ts",
       "@drawstuff/collaboration/transport": "transport.ts",
     };
@@ -84,19 +88,25 @@ describe("@drawstuff/collaboration package contract", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("confines room key material to the crypto module", () => {
+  it("confines room key material to the crypto modules", () => {
     // The wire protocol, the relay client, and the token modules must never see
     // a room key: that is what lets the relay verify tokens it cannot turn into
     // a decryption key. Structural, so a future edit cannot quietly thread key
     // material through an envelope, a control frame, or a token claim.
+    //
+    // Two modules qualify, and only because they *are* the crypto boundary:
+    // `realtime-crypto.ts` owns key derivation and realtime frames, and
+    // `snapshot.ts` seals durable snapshots under a second purpose-bound key it
+    // derives through that same module.
     const withKeyMaterial = listSourceFiles(sourceRoot)
       .filter((filePath) =>
         /roomKey|RoomKey|getRandomValues|subtle/.test(
           readFileSync(filePath, "utf8"),
         ),
       )
-      .map((filePath) => path.relative(sourceRoot, filePath));
-    expect(withKeyMaterial).toEqual(["realtime-crypto.ts"]);
+      .map((filePath) => path.relative(sourceRoot, filePath))
+      .sort();
+    expect(withKeyMaterial).toEqual(["realtime-crypto.ts", "snapshot.ts"]);
   });
 
   it("rejects package deep imports", () => {

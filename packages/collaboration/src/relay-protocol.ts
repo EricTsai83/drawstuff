@@ -26,9 +26,17 @@ import { MAX_ROOM_TOKEN_BYTES, roomRoleSchema } from "./room-auth.ts";
  *   payload is AES-GCM ciphertext under a key that never leaves the clients.
  */
 
+/**
+ * One room member as the relay reports it. The role is included because both
+ * client-side elections need it: only a member that may edit the scene can
+ * answer a newcomer's full-sync request or write a durable snapshot, and
+ * electing a viewer would leave the room with neither. It is the role the relay
+ * already enforces per frame, echoed — not a client assertion.
+ */
 export const relayPeerSchema = z.strictObject({
   peerId: peerIdSchema,
   clientId: clientIdSchema,
+  role: roomRoleSchema,
 });
 export type RelayPeer = z.infer<typeof relayPeerSchema>;
 

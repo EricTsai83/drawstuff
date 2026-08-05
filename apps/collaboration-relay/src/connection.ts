@@ -208,6 +208,7 @@ export function createRelayConnection(options: {
         channel,
         clientId: control.clientId,
         peerId,
+        role,
         subscriber,
       });
       // Registered before the acknowledgment so a revocation racing the join

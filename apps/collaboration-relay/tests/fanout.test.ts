@@ -9,7 +9,10 @@ import {
 } from "@drawstuff/collaboration/protocol";
 import type { RelayPeer } from "@drawstuff/collaboration/relay-protocol";
 
-import { roomChannelKey } from "@drawstuff/collaboration/room-auth";
+import {
+  roomChannelKey,
+  type RoomRole,
+} from "@drawstuff/collaboration/room-auth";
 
 import {
   createInMemoryRoomFanout,
@@ -21,7 +24,7 @@ const CHANNEL_B = roomChannelKey(roomIdSchema.parse("room-b"), 1);
 
 let peerCounter = 0;
 
-function member(clientName: string) {
+function member(clientName: string, role: RoomRole = "editor") {
   const peerId = peerIdSchema.parse(`peer-${++peerCounter}`);
   const clientId = clientIdSchema.parse(clientName);
   const dataFrames: {
@@ -38,7 +41,7 @@ function member(clientName: string) {
       peersUpdates.push(peers);
     },
   };
-  return { peerId, clientId, subscriber, dataFrames, peersUpdates };
+  return { peerId, clientId, role, subscriber, dataFrames, peersUpdates };
 }
 
 describe("createInMemoryRoomFanout", () => {
@@ -48,7 +51,9 @@ describe("createInMemoryRoomFanout", () => {
     const b = member("client-b");
 
     const joinA = fanout.join({ channel: CHANNEL_A, ...a });
-    expect(joinA.peers).toEqual([{ peerId: a.peerId, clientId: a.clientId }]);
+    expect(joinA.peers).toEqual([
+      { peerId: a.peerId, clientId: a.clientId, role: "editor" },
+    ]);
     expect(a.peersUpdates).toHaveLength(0);
 
     const joinB = fanout.join({ channel: CHANNEL_A, ...b });
@@ -102,7 +107,7 @@ describe("createInMemoryRoomFanout", () => {
 
     fanout.leave(CHANNEL_A, b.peerId);
     expect(a.peersUpdates.at(-1)).toEqual([
-      { peerId: a.peerId, clientId: a.clientId },
+      { peerId: a.peerId, clientId: a.clientId, role: "editor" },
     ]);
     expect(fanout.memberCount(CHANNEL_A)).toBe(1);
 
@@ -181,7 +186,7 @@ describe("createInMemoryRoomFanout", () => {
     fanout.leave(CHANNEL_A, b.peerId);
 
     expect(c.peersUpdates.at(-1)).toEqual([
-      { peerId: c.peerId, clientId: c.clientId },
+      { peerId: c.peerId, clientId: c.clientId, role: "editor" },
     ]);
     expect(fanout.memberCount(CHANNEL_A)).toBe(1);
   });

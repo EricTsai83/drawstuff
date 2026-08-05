@@ -44,7 +44,7 @@ merge algorithm，皆不在這組計畫內。
 | [12](./12-stateless-relay-service.md)         | Completed                 | 建立獨立 realtime relay                                 | 11                 |
 | [13](./13-room-auth-and-lifecycle.md)         | Completed                 | 加入 room 權限與生命週期                                | 12                 |
 | [14](./14-e2ee-realtime-payloads.md)          | Completed                 | Relay 只看得到密文                                      | 13                 |
-| [15](./15-durable-collaboration-snapshots.md) | Ready                     | 建立獨立加密 snapshot                                   | 14                 |
+| [15](./15-durable-collaboration-snapshots.md) | Completed                 | 建立獨立加密 snapshot                                   | 14                 |
 | [16](./16-collaboration-asset-identity.md)    | Ready                     | 建立 collaboration asset metadata 邊界                  | 15                 |
 | [17](./17-encrypted-asset-transfer.md)        | Ready                     | 同步並保存圖片等 binary assets                          | 16                 |
 | [18](./18-reconnect-and-convergence.md)       | Ready                     | 驗證斷線、重連與 server restart                         | 17                 |
