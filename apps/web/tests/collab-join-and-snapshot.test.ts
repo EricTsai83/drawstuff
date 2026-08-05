@@ -143,7 +143,10 @@ describe("join barrier", () => {
     // but before any baseline arrived. A fetch-then-subscribe joiner would have
     // it in neither the baseline nor any later message.
     raw.transport.sendSceneMessage(
-      raw.sceneMessage({ sequence: 1, elements: [collabRectangle({ id: "live" })] }),
+      raw.sceneMessage({
+        sequence: 1,
+        elements: [collabRectangle({ id: "live" })],
+      }),
     );
     harness.network.flush();
     await drainAsync();

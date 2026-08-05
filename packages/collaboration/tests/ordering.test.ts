@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { createInboundMessageGate, roomIdSchema } from "../src/protocol.ts";
 import {
-  createInboundMessageGate,
-  roomIdSchema,
-} from "../src/protocol.ts";
-import { PEER_A, PEER_B, presenceMessage, ROOM_ID, sceneMessage } from "./helpers.ts";
+  PEER_A,
+  PEER_B,
+  presenceMessage,
+  ROOM_ID,
+  sceneMessage,
+} from "./helpers.ts";
 
 const createGate = () =>
   createInboundMessageGate({ roomId: ROOM_ID, roomGeneration: 1 });

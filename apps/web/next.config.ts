@@ -9,7 +9,10 @@ import type { NextConfig } from "next";
 const config: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   devIndicators: false,
-  transpilePackages: ["@drawstuff/collaboration", "@drawstuff/excalidraw-adapter"],
+  transpilePackages: [
+    "@drawstuff/collaboration",
+    "@drawstuff/excalidraw-adapter",
+  ],
   experimental: {
     // https://nextjs.org/docs/app/api-reference/config/next-config-js/authInterrupts
     authInterrupts: true,

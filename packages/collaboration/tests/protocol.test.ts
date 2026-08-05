@@ -15,7 +15,9 @@ import {
   sceneMessage,
 } from "./helpers.ts";
 
-const encodeOrThrow = (message: Parameters<typeof encodeCollaborationMessage>[0]) => {
+const encodeOrThrow = (
+  message: Parameters<typeof encodeCollaborationMessage>[0],
+) => {
   const encoded = encodeCollaborationMessage(message);
   if (!encoded.ok) {
     throw new Error(`Expected encodable message: ${encoded.error.code}`);
@@ -125,7 +127,10 @@ describe("collaboration protocol codec", () => {
     const encoded = encodeCollaborationMessage(message);
     expect(encoded).toMatchObject({
       ok: false,
-      error: { code: "oversize-payload", maxByteLength: MAX_PRESENCE_MESSAGE_BYTES },
+      error: {
+        code: "oversize-payload",
+        maxByteLength: MAX_PRESENCE_MESSAGE_BYTES,
+      },
     });
 
     // The same over-budget presence payload is also refused before parsing
@@ -134,7 +139,10 @@ describe("collaboration protocol codec", () => {
     expect(bytes.byteLength).toBeLessThan(MAX_SCENE_MESSAGE_BYTES);
     expect(decodeCollaborationMessage(bytes, "presence")).toMatchObject({
       ok: false,
-      error: { code: "oversize-payload", maxByteLength: MAX_PRESENCE_MESSAGE_BYTES },
+      error: {
+        code: "oversize-payload",
+        maxByteLength: MAX_PRESENCE_MESSAGE_BYTES,
+      },
     });
   });
 
@@ -222,9 +230,10 @@ describe("collaboration protocol codec", () => {
     };
 
     for (const invalid of [withExtraEnvelopeField, withFiles]) {
-      expect(
-        encodeCollaborationMessage(asMessage(invalid)),
-      ).toMatchObject({ ok: false, error: { code: "malformed-payload" } });
+      expect(encodeCollaborationMessage(asMessage(invalid))).toMatchObject({
+        ok: false,
+        error: { code: "malformed-payload" },
+      });
     }
   });
 
@@ -248,7 +257,10 @@ describe("collaboration protocol codec", () => {
     const withBinary = {
       ...sceneMessage({ sequence: 1 }),
       payload: {
-        elements: [element(), { ...element(), dataURL: "data:image/png;base64,AAAA" }],
+        elements: [
+          element(),
+          { ...element(), dataURL: "data:image/png;base64,AAAA" },
+        ],
       },
     };
 

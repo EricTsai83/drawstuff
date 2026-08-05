@@ -1,5 +1,13 @@
 // @vitest-environment node
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -78,7 +86,10 @@ const base64 = (bytes: Uint8Array): string =>
 
 /** 64 hex chars; the server stores it, it does not recompute it. */
 const checksum = (seed: string): string =>
-  seed.padEnd(64, "0").slice(0, 64).replace(/[^0-9a-f]/g, "a");
+  seed
+    .padEnd(64, "0")
+    .slice(0, 64)
+    .replace(/[^0-9a-f]/g, "a");
 
 const put = (
   userId: string,
@@ -100,7 +111,9 @@ const put = (
     checksum: input.checksum ?? checksum("ab"),
   });
 
-async function openRoom(options: { linkRole?: "none" | "viewer" | "editor" } = {}) {
+async function openRoom(
+  options: { linkRole?: "none" | "viewer" | "editor" } = {},
+) {
   const sceneId = await createScene(OWNER);
   const room = await callerFor(OWNER).collaborationRoom.create({
     sceneId,
@@ -382,7 +395,10 @@ describe("collaboration snapshot conditional writes", () => {
     const caller = callerFor(OWNER);
 
     await expect(
-      caller.collaborationSnapshot.put({ ...valid, checksum: "not-a-checksum" }),
+      caller.collaborationSnapshot.put({
+        ...valid,
+        checksum: "not-a-checksum",
+      }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     await expect(
       caller.collaborationSnapshot.put({
@@ -493,7 +509,9 @@ describe("collaboration snapshot conditional writes", () => {
         expectedRevision: SNAPSHOT_NO_REVISION,
       }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
-    expect(await testDb.select().from(schema.collaborationSnapshot)).toEqual([]);
+    expect(await testDb.select().from(schema.collaborationSnapshot)).toEqual(
+      [],
+    );
   });
 
   it("is dropped with its room, leaving no orphan ciphertext", async () => {
