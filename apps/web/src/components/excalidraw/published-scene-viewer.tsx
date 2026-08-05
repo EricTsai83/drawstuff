@@ -35,6 +35,8 @@ import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
 type PublishedSceneViewerProps = {
   sceneData: string;
   fileRecords: Array<{
+    /** Immutable Excalidraw file id; the identity the element's `fileId` matches. */
+    excalidrawFileId: string;
     url: string;
   }>;
   sceneName: string;
@@ -138,7 +140,7 @@ export function PublishedSceneViewer({
         const files: BinaryFiles = {};
 
         await Promise.allSettled(
-          fileRecords.map(async ({ url }) => {
+          fileRecords.map(async ({ excalidrawFileId, url }) => {
             const response = await fetch(url, {
               signal: controller.signal,
             });
@@ -149,6 +151,11 @@ export function PublishedSceneViewer({
               await decompressData<DecompressedFileMetadata>(fileBuffer, {
                 decryptionKey: "",
               });
+
+            // The record owns the identity; the id inside the payload is a copy.
+            // A disagreement means the wrong object is stored under this record,
+            // and rendering it would put one image where another belongs.
+            if (metadata.id !== excalidrawFileId) return;
 
             const id = metadata.id as FileId;
             files[id] = {

@@ -444,6 +444,62 @@ export const collaborationSnapshot = createTable(
   ],
 );
 
+/**
+ * 共編 room 引用的 binary asset 身份（Plan 16）。
+ *
+ * 這是一張**只有身份的 manifest**：一列代表「這個 room 的這個授權世代引用了這個
+ * Excalidraw file id」。位元組傳輸由 Plan 17 負責，所以這裡沒有 storage key、URL、
+ * 密文、長度或 MIME type——現在還不存在的東西不先開欄位。
+ *
+ * 為什麼不放進 `file_record`：那張表的 parent 是 scene／sharedScene、內容是明文
+ * 壓縮後上傳到 UploadThing、retention 跟著 scene 走。Room asset 的 parent 是 room、
+ * 內容將由 room key 加密、retention 跟著授權世代走，而 writer 可能是非 scene
+ * owner 的 editor。在 `file_record` 加第三個 nullable parent 只會讓
+ * nullable-polymorphic table 繼續擴張，四種 lifecycle 混在同一組 constraint 裡
+ * （ADR 0001 Plan 16 決策）。
+ *
+ * 主鍵是 (room_id, auth_generation, excalidraw_file_id)：與
+ * `collaboration_snapshot` 同一套 retention 語意——世代轉動後舊世代的密文在密碼學
+ * 上已不可讀，所以新世代從空 manifest 開始才是正確狀態；註冊時會清掉更舊世代的
+ * 列，保留量因此有界。前綴 (room_id, auth_generation) 直接服務「列出這個世代的
+ * manifest」，不需要額外索引。
+ *
+ * 這裡刻意沒有 content hash：Excalidraw file id 本身就是明文位元組的摘要，再存一份
+ * 內容雜湊不會增加 lookup 能力，只會給伺服器一個確認猜測明文的 oracle。
+ */
+export const collaborationAsset = createTable(
+  "collaboration_asset",
+  {
+    roomId: varchar("room_id", { length: 64 })
+      .notNull()
+      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
+    authGeneration: integer("auth_generation").notNull(),
+    /** 不可變的 Excalidraw file id；在 (room, generation) 內唯一。 */
+    excalidrawFileId: varchar("excalidraw_file_id", { length: 64 }).notNull(),
+    /** 首次註冊者；成員被刪除時保留 manifest（身份與註冊者無關）。 */
+    registeredBy: text("registered_by").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    primaryKey({
+      name: "collaboration_asset_room_generation_file_pk",
+      columns: [table.roomId, table.authGeneration, table.excalidrawFileId],
+    }),
+    check(
+      "collaboration_asset_auth_generation_positive",
+      sql`${table.authGeneration} >= 1`,
+    ),
+    check(
+      "collaboration_asset_excalidraw_file_id_shape",
+      sql`${table.excalidrawFileId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
+    ),
+  ],
+);
+
 export const sharedScene = createTable(
   "shared_scene",
   {
@@ -475,7 +531,21 @@ export const sharedScene = createTable(
   ],
 );
 
-// 新增：文件記錄表
+/**
+ * 已上傳到外部 object storage 的 scene／sharedScene 資產紀錄。
+ *
+ * 身份是 **parent scope + `excalidraw_file_id`**（Plan 16）：Excalidraw 的 file id
+ * 是圖片位元組的摘要，由 engine 產生且不可變，元素上的 `fileId` 也只認這個值。
+ * 先前用 `(scene_id, content_hash)` 當身份是錯的——hash 取自「壓縮後的上傳
+ * payload」，而 payload metadata 帶 `created`／`lastRetrieved` 時間戳，於是每次
+ * 存檔都算出新 hash、去重永不命中，同一張圖每存一次就多一列與一個孤兒 object。
+ *
+ * 兩個欄位刻意不是身份：
+ *
+ * - `content_hash` 只是 storage 層的 lookup／dedup 提示，可為 null，沒有唯一性。
+ * - `ut_file_key` 是 storage object 的身份，不是 Excalidraw 的身份；同一張圖重新
+ *   上傳會得到新 key，所以它無法用來判斷「這張圖是否已經在這個 scene 裡」。
+ */
 export const fileRecord = createTable(
   "file_record",
   {
@@ -496,7 +566,8 @@ export const fileRecord = createTable(
     ownerId: varchar("owner_id", { length: 256 }),
     utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
     contentHash: varchar("content_hash", { length: 64 }),
-    name: varchar("name", { length: 256 }).notNull(),
+    /** 不可變的 Excalidraw file id；與 parent scope 一起構成資產身份。 */
+    excalidrawFileId: varchar("excalidraw_file_id", { length: 64 }).notNull(),
     size: integer("size").notNull(),
     url: varchar("url", { length: 256 }).notNull(),
     createdAt: timestamp("created_at")
@@ -511,24 +582,25 @@ export const fileRecord = createTable(
     index("file_record_shared_scene_id_idx").on(table.sharedSceneId),
     index("file_record_owner_id_idx").on(table.ownerId),
     index("file_record_ut_file_key_idx").on(table.utFileKey),
-    // 內容去重：同一 scene 內同內容只保留一筆
-    uniqueIndex("file_record_scene_content_hash_unique").on(
+    // 身份唯一性，同時是上傳重試的冪等依據：同一個 file id 重試只會有一列。
+    uniqueIndex("file_record_scene_excalidraw_file_id_unique").on(
       table.sceneId,
-      table.contentHash,
+      table.excalidrawFileId,
     ),
-    // 唯一性：(scene_id, ut_file_key) 必須唯一，支援前端重試冪等
-    uniqueIndex("file_record_scene_ut_key_unique").on(
-      table.sceneId,
-      table.utFileKey,
-    ),
-    uniqueIndex("file_record_shared_scene_name_unique").on(
+    uniqueIndex("file_record_shared_scene_excalidraw_file_id_unique").on(
       table.sharedSceneId,
-      table.name,
+      table.excalidrawFileId,
     ),
     // DB 層 XOR 約束：scene_id 與 shared_scene_id 必須且只能有一個有值
     check(
       "file_record_scene_or_shared_xor",
       sql`num_nonnulls(${table.sceneId}, ${table.sharedSceneId}) = 1`,
+    ),
+    // 身份不得是空字串或任意字元：SHA-1 hex 與 upstream 的 `nanoid(40)` fallback
+    // 都落在這個字元集內。
+    check(
+      "file_record_excalidraw_file_id_shape",
+      sql`${table.excalidrawFileId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
     ),
   ],
 );
@@ -655,6 +727,21 @@ export const collaborationRoomRelations = relations(
     }),
     members: many(collaborationRoomMember),
     snapshots: many(collaborationSnapshot),
+    assets: many(collaborationAsset),
+  }),
+);
+
+export const collaborationAssetRelations = relations(
+  collaborationAsset,
+  ({ one }) => ({
+    room: one(collaborationRoom, {
+      fields: [collaborationAsset.roomId],
+      references: [collaborationRoom.roomId],
+    }),
+    registeredBy: one(user, {
+      fields: [collaborationAsset.registeredBy],
+      references: [user.id],
+    }),
   }),
 );
 
@@ -741,4 +828,5 @@ export const schema = {
   collaborationRoom,
   collaborationRoomMember,
   collaborationSnapshot,
+  collaborationAsset,
 };

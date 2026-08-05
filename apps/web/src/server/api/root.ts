@@ -1,4 +1,5 @@
 import { categoryRouter } from "@/server/api/routers/category";
+import { collaborationAssetRouter } from "@/server/api/routers/collaboration-asset";
 import { collaborationRoomRouter } from "@/server/api/routers/collaboration-room";
 import { collaborationSnapshotRouter } from "@/server/api/routers/collaboration-snapshot";
 import { sceneRouter } from "@/server/api/routers/scene";
@@ -13,6 +14,7 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  */
 export const appRouter = createTRPCRouter({
   category: categoryRouter,
+  collaborationAsset: collaborationAssetRouter,
   collaborationRoom: collaborationRoomRouter,
   collaborationSnapshot: collaborationSnapshotRouter,
   scene: sceneRouter,

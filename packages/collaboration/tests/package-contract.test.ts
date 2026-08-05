@@ -17,6 +17,7 @@ const listSourceFiles = (root: string): string[] =>
 describe("@drawstuff/collaboration package contract", () => {
   it("exposes only the approved public entry points", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
+      "./asset",
       "./join-barrier",
       "./protocol",
       "./realtime-crypto",
@@ -55,6 +56,7 @@ describe("@drawstuff/collaboration package contract", () => {
 
   it("resolves every public entry point to its source module", () => {
     const expectedEntries = {
+      "@drawstuff/collaboration/asset": "asset.ts",
       "@drawstuff/collaboration/join-barrier": "join-barrier.ts",
       "@drawstuff/collaboration/protocol": "protocol.ts",
       "@drawstuff/collaboration/realtime-crypto": "realtime-crypto.ts",

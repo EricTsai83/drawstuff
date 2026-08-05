@@ -25,7 +25,7 @@ export const sharedSceneRouter = createTRPCRouter({
         columns: {
           utFileKey: true,
           url: true,
-          name: true,
+          excalidrawFileId: true,
           size: true,
         },
       });
@@ -34,7 +34,7 @@ export const sharedSceneRouter = createTRPCRouter({
         files: results.map((r) => ({
           utFileKey: r.utFileKey,
           url: r.url,
-          name: r.name,
+          excalidrawFileId: r.excalidrawFileId,
           size: r.size,
         })),
       };

@@ -31,8 +31,7 @@ import {
   saveOwnedScene,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
-import { decompressData } from "@/lib/encode";
-import { parseDrawstuffDocument } from "@drawstuff/excalidraw-adapter/codec";
+import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -50,46 +49,15 @@ const publicSceneOutput = z.object({
   authorName: z.string().optional(),
   files: z.array(
     z.object({
+      excalidrawFileId: z.string(),
       url: z.string(),
     }),
   ),
 });
 
-type StoredSceneElement = {
-  isDeleted?: boolean;
-  type?: string;
-  fileId?: unknown;
-};
-
 function normalizeSearchTerm(search: string | undefined): string | null {
   const trimmed = search?.trim();
   return trimmed && trimmed.length > 0 ? trimmed.toLowerCase() : null;
-}
-
-async function getReferencedPublishedFileIds(
-  sceneData: string,
-): Promise<Set<string> | null> {
-  try {
-    const compressedBuffer = new Uint8Array(Buffer.from(sceneData, "base64"));
-    const { data } = await decompressData<Record<string, never>>(
-      compressedBuffer,
-      { decryptionKey: "" },
-    );
-    const parsed = parseDrawstuffDocument(new TextDecoder().decode(data));
-    const ids = new Set<string>();
-    for (const element of parsed.scene
-      .elements as readonly StoredSceneElement[]) {
-      if (element.isDeleted) continue;
-      if (element.type !== "image") continue;
-      if (typeof element.fileId === "string" && element.fileId.length > 0) {
-        ids.add(element.fileId);
-      }
-    }
-    return ids;
-  } catch (error) {
-    console.error("Failed to parse published scene file references:", error);
-    return null;
-  }
 }
 
 export const sceneRouter = createTRPCRouter({
@@ -655,7 +623,7 @@ export const sceneRouter = createTRPCRouter({
           fileRecords: {
             columns: {
               url: true,
-              name: true,
+              excalidrawFileId: true,
             },
           },
         },
@@ -665,14 +633,14 @@ export const sceneRouter = createTRPCRouter({
         return null;
       }
 
-      const referencedFileIds = await getReferencedPublishedFileIds(
+      const referencedFileIds = await readReferencedSceneAssetIds(
         publishedScene.sceneData,
       );
       const visibleFiles =
         referencedFileIds === null
           ? []
           : (publishedScene.fileRecords ?? []).filter((file) =>
-              referencedFileIds.has(file.name),
+              referencedFileIds.has(file.excalidrawFileId),
             );
 
       return {
@@ -685,6 +653,7 @@ export const sceneRouter = createTRPCRouter({
         publishedAt: publishedScene.publishedAt ?? undefined,
         authorName: publishedScene.user?.name ?? undefined,
         files: visibleFiles.map((file) => ({
+          excalidrawFileId: file.excalidrawFileId,
           url: file.url,
         })),
       };
@@ -704,9 +673,8 @@ export const sceneRouter = createTRPCRouter({
         columns: {
           utFileKey: true,
           url: true,
-          name: true,
+          excalidrawFileId: true,
           size: true,
-          contentHash: true,
         },
       });
 
@@ -714,9 +682,8 @@ export const sceneRouter = createTRPCRouter({
         files: results.map((r) => ({
           utFileKey: r.utFileKey,
           url: r.url,
-          name: r.name,
+          excalidrawFileId: r.excalidrawFileId,
           size: r.size,
-          contentHash: r.contentHash ?? undefined,
         })),
       } as const;
     }),

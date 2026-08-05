@@ -24,8 +24,6 @@ export const SCENE_FILE_IMPORT_MAX_BYTES = 2 * 1024 * 1024;
 // excalidraw constants
 export const ENCRYPTION_KEY_BITS = 128;
 
-export const FILE_UPLOAD_MAX_COUNT = 50;
-
 export const IMAGE_MIME_TYPES = {
   svg: "image/svg+xml",
   png: "image/png",
