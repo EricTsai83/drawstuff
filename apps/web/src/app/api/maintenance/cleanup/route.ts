@@ -1,166 +1,122 @@
 import { NextResponse } from "next/server";
-import { env } from "@/env";
-import { QUERIES } from "@/server/db/queries";
+import postgres from "postgres";
 import { UTApi } from "uploadthing/server";
+import { z } from "zod";
 
-// 基本的清理處理器：由外部 Cron 觸發
-export async function POST(request: Request) {
+import { env } from "@/env";
+import {
+  createUserPurgeJob,
+  MAINTENANCE_LOCK_KEY,
+  routineMaintenanceJobs,
+  runMaintenanceJobs,
+  type MaintenanceJob,
+} from "@/server/maintenance/jobs";
+
+/**
+ * Maintenance runner. The route owns authorization, job selection and
+ * single-flighting; each job owns its work and its own failure (see
+ * `@/server/maintenance/jobs`).
+ *
+ * Two entry points with different capabilities:
+ *
+ * - GET — what Vercel Cron sends (it only issues GET). Runs exactly the
+ *   routine job set; it takes no body, so nothing a GET carries can select
+ *   more than that. The user purge is structurally unreachable here.
+ * - POST — manual triggers. Same routine set, plus the explicitly confirmed
+ *   user purge via the request body.
+ *
+ * Both require `Authorization: Bearer <CRON_SECRET>`.
+ */
+
+const RequestBodySchema = z.object({
+  /**
+   * Explicit opt-in to the single-tenant user purge. Never part of a routine
+   * run: the cron path (GET) cannot express it, and the job additionally
+   * requires the owner email to be restated as confirmation. Defaults to a
+   * dry run.
+   */
+  userPurge: z
+    .object({
+      confirmKeepOwnerEmail: z.string().email(),
+      dryRun: z.boolean().default(true),
+    })
+    .optional(),
+});
+
+function unauthorized(request: Request): NextResponse | null {
   // 授權：僅接受 Authorization: Bearer <CRON_SECRET>
   const authHeader = request.headers.get("authorization");
   const expected = `Bearer ${env.CRON_SECRET}`;
   if (authHeader !== expected) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
+  return null;
+}
 
-  const utapi = new UTApi();
-
+async function runUnderLock(jobs: MaintenanceJob[]): Promise<NextResponse> {
+  // Single-flight：session advisory lock 需要固定的 PostgreSQL session，所以用
+  // 一條走 non-pooled URL 的專用連線。`POSTGRES_URL` 是 transaction-pooling 的
+  // pooler host——經過它，lock 與 unlock 可能落在不同的上游 session，鎖既擋不住
+  // 並行執行也可能洩漏。
+  const lockClient = postgres(env.POSTGRES_URL_NON_POOLING, { max: 1 });
   try {
-    // 1) 針對「非擁有者」先清 UploadThing 檔案，然後再刪除使用者（cascade 刪 DB）
-    const ownerEmail = env.CLEANUP_OWNER_EMAIL;
-    let deletedUsers = 0;
-    if (ownerEmail) {
-      // 收集非擁有者 userIds、其 scenes、以及所有相關檔案 keys
-      const userIds = await QUERIES.getUserIdsExceptEmail(ownerEmail);
-      const sceneIds = await QUERIES.getSceneIdsByUserIds(userIds);
-      const fileKeysByOwner = await QUERIES.getFileKeysByOwnerIds(userIds);
-      const fileKeysByScene = await QUERIES.getFileKeysBySceneIds(sceneIds);
-      const thumbKeys = await QUERIES.getSceneThumbnailKeysByUserIds(userIds);
-      const allKeys = Array.from(
-        new Set<string>([...fileKeysByOwner, ...fileKeysByScene, ...thumbKeys]),
-      );
-      // 刪遠端檔案（失敗則入佇列）
-      for (const key of allKeys) {
-        try {
+    const [row] = await lockClient<
+      { locked: boolean }[]
+    >`select pg_try_advisory_lock(${MAINTENANCE_LOCK_KEY}) as locked`;
+    if (!row?.locked) {
+      return NextResponse.json({ skipped: "already-running" });
+    }
+    try {
+      const utapi = new UTApi();
+      const report = await runMaintenanceJobs(jobs, {
+        deleteStorageFile: async (key) => {
           await utapi.deleteFiles([key]);
-        } catch {
-          await QUERIES.enqueueDeferredCleanup({
-            utFileKey: key,
-            reason: "delete-user",
-            context: { ownerEmail },
-          });
-        }
-      }
-      // 再刪除使用者（cascade 刪其 DB 資料）
-      const rows = await QUERIES.deleteUsersExceptEmail(ownerEmail);
-      deletedUsers = rows.length;
-    }
-
-    // 2) 刪除一個月前的 sharedScene 與其檔案（亦會觸發 deferred 清理機制）
-    const cutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const oldIds = await QUERIES.getSharedSceneIdsOlderThan(cutoff);
-    type OldFile = { utFileKey: string; sharedSceneId: string | null };
-    const oldFiles = (await QUERIES.getFileRecordsBySharedSceneIds(
-      oldIds,
-    )) as OldFile[];
-    // 先嘗試刪除遠端檔案（不阻斷 DB 刪除）
-    let deletedRemote = 0;
-    for (const f of oldFiles) {
-      try {
-        await utapi.deleteFiles([f.utFileKey]);
-        deletedRemote += 1;
-      } catch {
-        await QUERIES.enqueueDeferredCleanup({
-          utFileKey: f.utFileKey,
-          reason: "sharedScene_expired",
-          context: { sharedSceneId: f.sharedSceneId },
-        });
-      }
-    }
-    let deletedSharedCount: number;
-    {
-      const deletedShared = await QUERIES.deleteSharedScenesOlderThan(cutoff);
-      deletedSharedCount = Array.isArray(deletedShared)
-        ? deletedShared.length
-        : 0;
-    }
-
-    type DeferredCleanupTask = {
-      id: string;
-      utFileKey: string;
-      attempts: number | null;
-    };
-    const tasks = (await QUERIES.getDueDeferredCleanups(
-      50,
-    )) as DeferredCleanupTask[];
-    // 4) 刪除過期 sessions（含你的，因為與 user 無關）
-    let deletedExpiredSessionsCount: number;
-    {
-      const deletedExpiredSessions = await QUERIES.deleteExpiredSessions(
-        new Date(),
-      );
-      deletedExpiredSessionsCount = Array.isArray(deletedExpiredSessions)
-        ? deletedExpiredSessions.length
-        : 0;
-    }
-    // 5) 刪除已過期的 verification 記錄
-    let deletedExpiredVerificationsCount: number;
-    {
-      const deletedExpiredVerifications =
-        await QUERIES.deleteExpiredVerifications(new Date());
-      deletedExpiredVerificationsCount = Array.isArray(
-        deletedExpiredVerifications,
-      )
-        ? deletedExpiredVerifications.length
-        : 0;
-    }
-    // 6) 清理已完成/失敗且超過 30 天的延遲清理任務
-    const cleanupCutoff = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    let purgedDeferredCleanupsCount: number;
-    {
-      const purgedDeferredCleanups =
-        await QUERIES.purgeDeferredFileCleanupOlderThan(cleanupCutoff, [
-          "done",
-          "failed",
-        ]);
-      purgedDeferredCleanupsCount = Array.isArray(purgedDeferredCleanups)
-        ? purgedDeferredCleanups.length
-        : 0;
-    }
-    if (tasks.length === 0) {
-      return NextResponse.json({
-        processed: 0,
-        deletedUsers,
-        deletedExpiredSharedScenes: deletedSharedCount,
-        deletedRemoteFiles: deletedRemote,
-        deletedExpiredSessions: deletedExpiredSessionsCount,
-        deletedExpiredVerifications: deletedExpiredVerificationsCount,
-        purgedDeferredCleanups: purgedDeferredCleanupsCount,
+        },
+        now: () => new Date(),
       });
+      // 有 job 失敗回 500 讓 cron 監控看得到，但完整報告照附：成功的部分不因
+      // 一個失敗被蓋掉。
+      return NextResponse.json(report, {
+        status: report.failed > 0 ? 500 : 200,
+      });
+    } finally {
+      await lockClient`select pg_advisory_unlock(${MAINTENANCE_LOCK_KEY})`;
     }
-
-    let processed = 0;
-    for (const task of tasks) {
-      try {
-        await utapi.deleteFiles([task.utFileKey]);
-        await QUERIES.markDeferredCleanupDone(task.id);
-        processed += 1;
-      } catch (err: unknown) {
-        const attempts = task.attempts ?? 0;
-        if (attempts >= 5) {
-          await QUERIES.markDeferredCleanupFailed(task.id, String(err));
-        } else {
-          await QUERIES.rescheduleDeferredCleanup(
-            task.id,
-            attempts,
-            String(err),
-          );
-        }
-      }
-    }
-
-    return NextResponse.json({
-      processed,
-      total: tasks.length,
-      deletedUsers,
-      deletedExpiredSharedScenes: deletedSharedCount,
-      deletedRemoteFiles: deletedRemote,
-      deletedExpiredSessions: deletedExpiredSessionsCount,
-      deletedExpiredVerifications: deletedExpiredVerificationsCount,
-      purgedDeferredCleanups: purgedDeferredCleanupsCount,
-    });
-  } catch (error: unknown) {
-    return NextResponse.json({ error: String(error) }, { status: 500 });
+  } finally {
+    await lockClient.end();
   }
 }
 
-export const GET = POST; // GET 也可以觸發，方便暫時手動
+export async function GET(request: Request) {
+  return unauthorized(request) ?? (await runUnderLock(routineMaintenanceJobs()));
+}
+
+export async function POST(request: Request) {
+  const denied = unauthorized(request);
+  if (denied) return denied;
+
+  let rawBody: unknown = {};
+  try {
+    rawBody = await request.json();
+  } catch {
+    // 手動觸發可以不帶 body。
+  }
+  const parsedBody = RequestBodySchema.safeParse(rawBody ?? {});
+  if (!parsedBody.success) {
+    return NextResponse.json({ error: "invalid-body" }, { status: 400 });
+  }
+
+  const jobs: MaintenanceJob[] = [];
+  if (parsedBody.data.userPurge) {
+    jobs.push(
+      createUserPurgeJob({
+        keepOwnerEmail: env.CLEANUP_OWNER_EMAIL,
+        confirmKeepOwnerEmail: parsedBody.data.userPurge.confirmKeepOwnerEmail,
+        dryRun: parsedBody.data.userPurge.dryRun,
+      }),
+    );
+  }
+  jobs.push(...routineMaintenanceJobs());
+
+  return await runUnderLock(jobs);
+}

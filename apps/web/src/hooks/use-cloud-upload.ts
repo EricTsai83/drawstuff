@@ -7,6 +7,7 @@ import { api } from "@/trpc/react";
 import {
   cleanupSceneAssetUploadsAction,
   createSceneDraftAction,
+  readSceneAssetFileIdsAction,
   saveSceneAction,
 } from "@/server/actions";
 import { stringToBase64, toByteString } from "@/lib/encode";
@@ -278,8 +279,13 @@ export function useCloudUpload(
 
           const uploadedAssetKeys: string[] = [];
 
-          if (filesToUpload.length > 0) {
-            const perFileUploads = filesToUpload.map(
+          const uploadAssetFiles = async (
+            files: typeof filesToUpload,
+          ): Promise<boolean> => {
+            if (files.length === 0) {
+              return true;
+            }
+            const perFileUploads = files.map(
               async ({ file, excalidrawFileId }) => {
                 const buf = await file.arrayBuffer();
                 const digest = await crypto.subtle.digest("SHA-256", buf);
@@ -315,18 +321,43 @@ export function useCloudUpload(
                 "Asset upload failed before scene save:",
                 failedUpload.reason,
               );
-              markCurrentSceneDirty();
-              await cleanupUploadedAssetKeys(uploadedAssetKeys);
-              await rollbackCreatedDraft();
-              setStatus("error");
-              toast.error(t("app.cloudUpload.toast.error.upload"));
               return false;
+            }
+            return true;
+          };
+
+          // 只上傳這個場景還沒有的資產：既有場景先取一次已存的 file id 集合，
+          // 同一張圖重複存檔就不再產生「上傳 → 伺服器以身份衝突拒絕 → 刪除剛
+          // 上傳的物件」的往返。查詢失敗就退回全部上傳——伺服器端的身份唯一
+          // 性仍把重複當重試拒絕，只是多花流量。
+          let existingFileIds = new Set<string>();
+          if (!createdNewScene && filesToUpload.length > 0) {
+            try {
+              const assetState = await readSceneAssetFileIdsAction({
+                sceneId: sceneIdForCommit,
+              });
+              if (assetState.ok) {
+                existingFileIds = new Set(assetState.fileIds);
+              }
+            } catch (stateErr) {
+              console.error("Failed to read stored scene assets:", stateErr);
             }
           }
 
-          let result: Awaited<ReturnType<typeof saveSceneAction>>;
-          try {
-            result = await saveSceneAction({
+          const filesMissingOnScene = filesToUpload.filter(
+            ({ excalidrawFileId }) => !existingFileIds.has(excalidrawFileId),
+          );
+          if (!(await uploadAssetFiles(filesMissingOnScene))) {
+            markCurrentSceneDirty();
+            await cleanupUploadedAssetKeys(uploadedAssetKeys);
+            await rollbackCreatedDraft();
+            setStatus("error");
+            toast.error(t("app.cloudUpload.toast.error.upload"));
+            return false;
+          }
+
+          const commitScene = async () =>
+            await saveSceneAction({
               id: sceneIdForCommit,
               name: sceneName,
               description: sceneDescription,
@@ -335,6 +366,27 @@ export function useCloudUpload(
               categories: options?.categories,
               expectedRevision: expectedRevisionForCommit,
             });
+
+          let result: Awaited<ReturnType<typeof saveSceneAction>>;
+          try {
+            result = await commitScene();
+
+            if (!result.ok && result.error === APP_ERROR.SCENE_ASSETS_MISSING) {
+              // 伺服器拒絕提交缺少資產紀錄的文件（紀錄可能被並發清理或 GC
+              // 回收，或上面的 skip 讀到過期集合）。重新上傳缺少的資產後重試
+              // 一次；再失敗則走一般失敗路徑，場景保持 dirty。
+              const missingIds = new Set(result.missingFileIds ?? []);
+              const retryFiles = filesToUpload.filter(({ excalidrawFileId }) =>
+                missingIds.has(excalidrawFileId),
+              );
+              if (
+                missingIds.size > 0 &&
+                retryFiles.length === missingIds.size &&
+                (await uploadAssetFiles(retryFiles))
+              ) {
+                result = await commitScene();
+              }
+            }
           } catch (saveErr) {
             markCurrentSceneDirty();
             await cleanupUploadedAssetKeys(uploadedAssetKeys);

@@ -1,6 +1,6 @@
 # Plan 23：收斂 owned-scene asset lifecycle
 
-- Status: Ready
+- Status: Completed（2026-08-06，見文末 Verification notes）
 - Depends on: 16（獨立於 17–20 chain）
 - Expected change size: save-time asset validation、cleanup 序列化、unreferenced
   asset GC、upload skip 與 maintenance endpoint 責任拆分
@@ -162,3 +162,70 @@ request 數的前後比較。
 - 「被引用」的判斷只有一份實作，存檔驗證、清理保留與 GC 共用它。
 - Maintenance endpoint 的任一 job 失敗不影響其他 job，回應可看出是哪一個失敗；
   例行 cron 不再可能刪除使用者；endpoint 只接受 POST 且重疊呼叫不會重複處理。
+
+## Verification notes（2026-08-06）
+
+### 稽核與 GC（steps 1、5）
+
+以 `apps/web/scripts/audit-scene-asset-references.ts`（唯讀，與生產程式共用
+`readReferencedSceneAssetIds`）對唯一一個 Neon DB 執行：
+
+- **前**：39 個場景全部可解析（unreadable 0）、被引用 file id 56、**dangling 0**
+  （允許啟用存檔驗證）、unreferenced `file_record` **11**。
+- 以 `createUnreferencedAssetGcJob()`（與 endpoint 相同的 job 程式）執行 GC：
+  `deletedRecords: 11, deletedObjects: 11, enqueuedObjects: 0, truncated: false`。
+- **後**：`file_record`（scene scope）56 = 被引用 56，unreferenced **0**，dangling 0。
+- 冪等驗證：立刻重跑同一 job，`deletedRecords: 0`。
+
+### 存檔上傳量前後比較（step 6）
+
+skip 的判斷是「該 scene 已有這個 `excalidraw_file_id` 的紀錄」，因此對既有場景
+重複存檔（資產未變）的成本，可直接由稽核資料計得：
+
+- **前**：每次存檔重新上傳文件引用的全部資產。以現存 39 個場景全部重存一次計，
+  為 56 個 upload requests、6,411,485 bytes，**且每個上傳都再走一次「伺服器以身份
+  衝突拒絕 → 刪除剛上傳物件」的往返**（56 次 deleteFiles）。
+- **後**：同樣的重存為 0 個資產 upload request、0 bytes、0 次刪除往返；只有場景
+  新增的圖片才上傳。
+
+### UploadThing `customId` 評估（step 7）——不採用
+
+以 `~/.opensrc` 的 `uploadthing@7.7.4`（與 lockfile 版本一致）原始碼與 docs 驗證：
+
+- SDK 與 ingest 介面把 `customId` 當 nullable 不透明字串（`x-ut-custom-id`
+  header、`S.NullOr(S.String)`），全程式庫沒有唯一性宣告或衝突錯誤型別。
+- Docs 只說明它可作為 URL 別名（`/f/<CUSTOM_ID>`）與 `keyType: "customId"` 查詢，
+  未定義重複 `customId` 上傳是拒絕、覆寫還是併存；「重複上傳是否結構性不可能」
+  無法由原始碼證明，要驗證只能對生產 UploadThing app 做破壞性實測。
+- 結論：唯一性未被服務保證即不得當唯一鍵（本 plan 明定），且 step 6 的 upload
+  skip 已移除當初想靠 `customId` 消除的重複上傳往返，收益也已消失。維持 DB 列
+  （parent scope + `excalidraw_file_id`）作為身份的唯一權威。
+
+### Review（Codex GPT-5.6 Sol）與接受的偏離
+
+Pass 1 回傳 6 個 findings，全部接受並修正：
+
+1. **cron 用 GET 觸發**（P1）：Vercel Cron 只發 GET，原本「只保留 POST」會讓每週
+   例行維護 405。**偏離計畫文字**：恢復 `GET`，但它只跑例行 job 集合——GET 沒有
+   body，結構上不可能表達 user purge opt-in，仍需 `CRON_SECRET`。計畫的真正目標
+   （使用者清除移出例行 cron、破壞性操作不可裸 GET 觸發）不變。
+2. **advisory lock 走 pooled URL**（P1）：`POSTGRES_URL` 是 Neon `-pooler` host，
+   transaction pooling 下 session lock 的取得與釋放可能落在不同上游 session。改用
+   `POSTGRES_URL_NON_POOLING` 的專用連線。
+3. **GC 的 storage key 不耐 crash**（P2）：改為在刪除 `file_record` 的同一交易內
+   把 key 寫入 `deferred_file_cleanup`（durable outbox），由排最後的 drain 當次刪
+   物件；GC 本身不再直接碰 storage。
+4. **GC 掃描可能卡在固定第一批**（P2）：候選 scene id 改為全取後洗牌再套
+   `maxScenes` 上限，跨執行機率性涵蓋所有場景。
+5. **drain 預算未逐筆檢查**（P2）：deadline 改為每筆 task 前重查。
+6. **purge 部分失敗丟失逐帳號報告**（P2）：逐帳號 try/catch 記錄
+   `status: deleted/dry-run/failed`，失敗時以帶 detail 的 `MaintenanceJobError`
+   回報，runner 把 partial detail 附在 error outcome 上。
+
+Pass 2（修正後的最終 pass）：無 findings，reviewer 確認六個修正正確且無新回歸。
+
+### Checks
+
+`pnpm --filter @drawstuff/web typecheck`（通過）、`pnpm --filter @drawstuff/web
+test`（29 files / 363 tests 通過，含新增：save-time 驗證與三種順序 8、maintenance
+jobs 13、maintenance route 8）、`pnpm lint`（0 errors；adapter 5 個既有 warnings）。
