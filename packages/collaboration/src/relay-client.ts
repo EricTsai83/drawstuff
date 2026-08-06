@@ -89,6 +89,32 @@ export const DEFAULT_MAX_INBOUND_PENDING_BYTES = 2 * 1_048_576;
  */
 export const INBOUND_QUEUE_ENTRY_COST_BYTES = 512;
 
+/**
+ * Frames that must fail to open, with none ever opening, before the transport
+ * reports the room as unreadable (`onRoomUnreadable`).
+ *
+ * Why this cannot misjudge a healthy session:
+ *
+ * - **A wrong key fails 100% of the time.** Every frame in a room generation is
+ *   sealed under the same derived key, so the failure rate is not a probability
+ *   to sample — it is all or nothing. Any threshold is therefore reached as soon
+ *   as the room produces that many frames, and a larger one buys no accuracy, it
+ *   only delays the message in a quiet room.
+ * - **Not one.** A single frame may fail for reasons that are not the key:
+ *   corruption in transit, a peer's tampered payload, or a nonce the relay
+ *   duplicated. Those must stay silent (there is no plaintext fallback and the
+ *   session converges from snapshots), so the smallest usable threshold is one
+ *   that a lone bad frame cannot reach.
+ * - **Three is reached almost immediately when it is true.** Presence is sent
+ *   per pointer sample at ~30/s, and the join handshake alone produces a
+ *   `scene-init` from the elected responder, so a room with any live peer
+ *   crosses this within a fraction of a second of the first activity.
+ * - **One success closes it for good.** The counter only ever runs before the
+ *   first successful open, so a long session cannot accumulate its way into a
+ *   false verdict.
+ */
+export const REALTIME_UNREADABLE_FRAME_THRESHOLD = 3;
+
 export type RelayWebSocketTransportOptions = {
   /** Relay WebSocket endpoint, e.g. `ws://127.0.0.1:3005`. */
   url: string;
@@ -175,6 +201,91 @@ export function createRelayWebSocketTransport(
    * `connect()` so a stale reason cannot outlive the connection it describes.
    */
   let disconnectReason: DisconnectReason = "idle";
+
+  /**
+   * Aggregate evidence for `onRoomUnreadable`: whether any frame has ever
+   * opened, and how many have failed while none had.
+   *
+   * Held on the transport rather than on the connection because the question is
+   * about the *key*, which is a property of this transport's codec and outlives
+   * every socket it opens. A reconnect that keeps failing keeps accumulating,
+   * and a reconnect after a successful open can never re-arm.
+   *
+   * Bounded by construction: one flag plus one counter that stops the moment the
+   * verdict is reported, so this adds no unbounded state to a long session.
+   */
+  let openedAnyFrame = false;
+  let failedFrameOpens = 0;
+  let reportedUnreadable = false;
+  /**
+   * Frames accepted into an inbound queue whose `open` has not settled yet, and
+   * the id of the last one admitted.
+   *
+   * The verdict cannot be taken on the failures alone, because the two channels
+   * authenticate on *independent* chains: a valid scene frame can still be
+   * decrypting while three small unopenable presence frames finish ahead of it.
+   * Reading `openedAnyFrame` at that moment would call a healthy session's key
+   * wrong — and the verdict is terminal, so there is no correcting it afterwards.
+   */
+  let pendingFrameOpens = 0;
+  let lastAdmittedFrameId = 0;
+  /**
+   * The frames the armed verdict is waiting on: exactly those admitted at or
+   * before the moment it was armed (`…FenceFrameId`), and how many of them have
+   * yet to settle. `-1` means the verdict is not armed.
+   *
+   * A *cohort*, not "the queues are empty", because the second is not a state a
+   * busy room ever has to reach. Waiting for global quiescence would let a room
+   * that keeps producing traffic postpone the message indefinitely — a wrong link
+   * would stay silent for exactly as long as the room stays interesting, which is
+   * the failure this whole detector exists to remove. Frames admitted after the
+   * arming moment can only ever be more evidence for the same verdict, so nothing
+   * is lost by not waiting for them.
+   */
+  let verdictFenceFrameId = -1;
+  let verdictFenceRemaining = 0;
+
+  /**
+   * Records a frame that would not open, and arms the verdict once the failures
+   * alone can only mean the key.
+   *
+   * Deliberately no per-frame reporting: the per-frame policy stays silent (see
+   * `handleServerData`), and only the aggregate crosses into the caller.
+   */
+  const noteFrameOpenFailed = (): void => {
+    if (openedAnyFrame || reportedUnreadable) return;
+    // Saturating: past the threshold the count answers nothing further, and a
+    // counter that kept rising for every frame a wrong link ever receives is
+    // exactly the unbounded state this detector promised not to add.
+    if (failedFrameOpens < REALTIME_UNREADABLE_FRAME_THRESHOLD) {
+      failedFrameOpens += 1;
+    }
+    if (failedFrameOpens < REALTIME_UNREADABLE_FRAME_THRESHOLD) return;
+    if (verdictFenceFrameId >= 0) return;
+    // The failing frame is itself still pending — its own settle is what reports
+    // the verdict when nothing else was in flight.
+    verdictFenceFrameId = lastAdmittedFrameId;
+    verdictFenceRemaining = pendingFrameOpens;
+  };
+
+  /**
+   * Retires one frame from the armed verdict's cohort and reports once the whole
+   * cohort has settled.
+   *
+   * Called after every settled open, so a frame that succeeds while the verdict
+   * is armed cancels it permanently through `openedAnyFrame` — evidence that
+   * arrives late still counts, which is the whole point of deferring.
+   */
+  const settleUnreadableVerdict = (frameId: number): void => {
+    if (verdictFenceFrameId < 0) return;
+    if (frameId <= verdictFenceFrameId) verdictFenceRemaining -= 1;
+    if (verdictFenceRemaining > 0) return;
+    if (openedAnyFrame || reportedUnreadable) return;
+    reportedUnreadable = true;
+    for (const subscriber of subscribers) {
+      subscriber.onRoomUnreadable?.();
+    }
+  };
 
   const totalPendingBytes = (queues: ChannelQueues): number =>
     queues.scene.pendingBytes + queues.presence.pendingBytes;
@@ -296,6 +407,12 @@ export function createRelayWebSocketTransport(
     // turn, and it is only a view onto the socket's message buffer.
     const payload = Uint8Array.from(dataFrame.payload);
     queue.pendingBytes += queueCost;
+    // Counted at admission, not at decryption, so a frame waiting its turn on the
+    // *other* channel's chain still holds the verdict back. The id is what makes
+    // "was this frame already in flight when the verdict was armed" answerable.
+    pendingFrameOpens += 1;
+    lastAdmittedFrameId += 1;
+    const frameId = lastAdmittedFrameId;
     queue.tail = queue.tail.then(async () => {
       try {
         // Checked before decrypting, not just before delivering: a backlog left
@@ -308,8 +425,16 @@ export function createRelayWebSocketTransport(
         const opened = await cryptoCodec.open(payload, channel);
         // A wrong key, tampered ciphertext, or a replayed nonce is dropped
         // silently — there is no plaintext fallback — and the session stays up
-        // and converges via scene-init snapshots.
-        if (!opened.ok) return;
+        // and converges via scene-init snapshots. The three are indistinguishable
+        // at one frame, so only the aggregate can tell them apart:
+        // `noteFrameOpenFailed` plus `settleUnreadableVerdict` are what make
+        // "every frame failed and none ever succeeded" reportable without
+        // changing what happens to any individual frame.
+        if (!opened.ok) {
+          noteFrameOpenFailed();
+          return;
+        }
+        openedAnyFrame = true;
         if (active !== connection || !connection.session) return;
         const decoded = decodeCollaborationMessage(opened.plaintext, channel);
         // Malformed or oversize payloads are another client's protocol
@@ -323,6 +448,10 @@ export function createRelayWebSocketTransport(
         // A throwing subscriber must not break this channel's delivery order.
       } finally {
         queue.pendingBytes -= queueCost;
+        pendingFrameOpens -= 1;
+        // Every settled frame is a chance for the armed verdict to become
+        // reportable — or to be cancelled by a success that landed late.
+        settleUnreadableVerdict(frameId);
       }
     });
   };

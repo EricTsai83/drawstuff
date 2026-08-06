@@ -14,6 +14,7 @@ import {
 import {
   createRelayWebSocketTransport,
   INBOUND_QUEUE_ENTRY_COST_BYTES,
+  REALTIME_UNREADABLE_FRAME_THRESHOLD,
   type RelaySocketLike,
 } from "../src/relay-client.ts";
 import {
@@ -153,10 +154,14 @@ async function setup(
   const states: ConnectionState[] = [];
   const messages: CollaborationMessage[] = [];
   const peerUpdates: (readonly RoomPeer[])[] = [];
+  const unreadableVerdicts = { count: 0 };
   transport.subscribe({
     onConnectionStateChange: (state) => states.push(state),
     onMessage: (message) => messages.push(message),
     onRoomPeersChange: (peers) => peerUpdates.push(peers),
+    onRoomUnreadable: () => {
+      unreadableVerdicts.count += 1;
+    },
   });
   const connectAndJoin = (joinOptions?: {
     joined?: Partial<Extract<RelayServerControl, { control: "joined" }>>;
@@ -179,6 +184,7 @@ async function setup(
     states,
     messages,
     peerUpdates,
+    unreadableVerdicts,
     connectAndJoin,
   };
 }
@@ -899,5 +905,324 @@ describe("createRelayWebSocketTransport", () => {
         joinToken: JOIN_TOKEN,
       }),
     ).toThrow(/already connected/i);
+  });
+});
+
+/**
+ * The aggregate that makes a wrong key non-silent on the realtime path (Plan 30).
+ *
+ * Every frame here is *individually* handled exactly as it was before — dropped,
+ * with the session left up — so what is under test is only the verdict layered on
+ * top: when it fires, when it must not, and that it never fires twice.
+ */
+describe("unreadable-room verdict on the realtime path", () => {
+  /** A peer holding a different room key: every frame it seals fails to open. */
+  const strangerCodec = (): Promise<RealtimeCryptoCodec> =>
+    roomCodec({ roomKey: generateRoomKey() });
+
+  const remoteSceneMessage = (sequence: number): CollaborationMessage =>
+    sceneMessage({
+      sequence,
+      roomGeneration: 3,
+      senderClientId: CLIENT_B,
+      senderPeerId: PEER_B,
+    });
+
+  /**
+   * `setup` plus a completed-`open` counter and a way to wait on it.
+   *
+   * Nearly every assertion in this block is that something did *not* happen, and
+   * the inbound queue authenticates asynchronously — so "no verdict" only means
+   * anything once the frames have actually been through the codec. Waiting on the
+   * verdict itself cannot express that, and waiting on delivery cannot either:
+   * these frames are never delivered.
+   */
+  const setupCounted = async () => {
+    const counted = { opens: 0 };
+    const harness = await setup({
+      wrapCrypto: (inner) => ({
+        ...inner,
+        async open(frame, channel) {
+          try {
+            return await inner.open(frame, channel);
+          } finally {
+            counted.opens += 1;
+          }
+        },
+      }),
+    });
+    return {
+      ...harness,
+      /** Waits until exactly `count` frames have finished authenticating. */
+      awaitOpens: (count: number) =>
+        vi.waitFor(() => expect(counted.opens).toBe(count)),
+    };
+  };
+
+  it("reports the room once every arrived frame failed and none ever opened", async () => {
+    const {
+      transport,
+      messages,
+      unreadableVerdicts,
+      connectAndJoin,
+      awaitOpens,
+    } = await setupCounted();
+    const socket = connectAndJoin();
+    const stranger = await strangerCodec();
+
+    for (
+      let sequence = 1;
+      sequence <= REALTIME_UNREADABLE_FRAME_THRESHOLD;
+      sequence += 1
+    ) {
+      socket.receiveFrame(
+        await remoteFrame(stranger, remoteSceneMessage(sequence), "scene"),
+      );
+    }
+    await awaitOpens(REALTIME_UNREADABLE_FRAME_THRESHOLD);
+
+    expect(unreadableVerdicts.count).toBe(1);
+    // The per-frame policy is untouched: nothing was delivered, nothing was
+    // decoded, and the transport did not close itself. Ending the session is the
+    // session's decision to make from this evidence, not the transport's.
+    expect(messages).toEqual([]);
+    expect(transport.getConnectionState().status).toBe("connected");
+
+    // Once, not once per failing frame from here on — a wrong link keeps
+    // receiving traffic for as long as the room is busy.
+    socket.receiveFrame(
+      await remoteFrame(stranger, remoteSceneMessage(99), "scene"),
+    );
+    await awaitOpens(REALTIME_UNREADABLE_FRAME_THRESHOLD + 1);
+    expect(unreadableVerdicts.count).toBe(1);
+  });
+
+  it("stays silent for fewer failures than the threshold", async () => {
+    const { transport, unreadableVerdicts, connectAndJoin, awaitOpens } =
+      await setupCounted();
+    const socket = connectAndJoin();
+    const stranger = await strangerCodec();
+
+    for (
+      let sequence = 1;
+      sequence < REALTIME_UNREADABLE_FRAME_THRESHOLD;
+      sequence += 1
+    ) {
+      socket.receiveFrame(
+        await remoteFrame(stranger, remoteSceneMessage(sequence), "scene"),
+      );
+    }
+    await awaitOpens(REALTIME_UNREADABLE_FRAME_THRESHOLD - 1);
+
+    // A corrupted, tampered or replayed frame under a *correct* key looks exactly
+    // like this, and it must keep costing nothing but the frame.
+    expect(unreadableVerdicts.count).toBe(0);
+    expect(transport.getConnectionState().status).toBe("connected");
+  });
+
+  it("counts only frames that reached the codec, not everything that arrived", async () => {
+    const { unreadableVerdicts, connectAndJoin, awaitOpens } =
+      await setupCounted();
+    const socket = connectAndJoin();
+    const stranger = await strangerCodec();
+
+    // Rejected before the codec: too short to be a sealed frame, and an unknown
+    // channel byte. Neither is evidence about the key, and counting them would
+    // let a hostile relay end any session with three bytes.
+    socket.receiveFrame(new Uint8Array([0x01, 1, 2]));
+    socket.receiveFrame(new Uint8Array([0x7f, 1, 2]));
+    for (
+      let sequence = 1;
+      sequence < REALTIME_UNREADABLE_FRAME_THRESHOLD;
+      sequence += 1
+    ) {
+      socket.receiveFrame(
+        await remoteFrame(stranger, remoteSceneMessage(sequence), "scene"),
+      );
+    }
+
+    // The junk frames contributed nothing: the real failures are still one short.
+    await awaitOpens(REALTIME_UNREADABLE_FRAME_THRESHOLD - 1);
+    expect(unreadableVerdicts.count).toBe(0);
+  });
+
+  it("never reports a room after a single frame has opened", async () => {
+    const { messages, unreadableVerdicts, connectAndJoin, awaitOpens } =
+      await setupCounted();
+    const socket = connectAndJoin();
+    const peer = await roomCodec();
+    const stranger = await strangerCodec();
+
+    socket.receiveFrame(
+      await remoteFrame(peer, remoteSceneMessage(1), "scene"),
+    );
+    await vi.waitFor(() => expect(messages).toHaveLength(1));
+
+    // One success proves the key opens this room, so everything after it is
+    // corruption, tampering or replay — none of which may end the session, however
+    // many of them arrive.
+    const failures = REALTIME_UNREADABLE_FRAME_THRESHOLD * 4;
+    for (let sequence = 2; sequence <= failures + 1; sequence += 1) {
+      socket.receiveFrame(
+        await remoteFrame(stranger, remoteSceneMessage(sequence), "scene"),
+      );
+    }
+    await awaitOpens(failures + 1);
+
+    expect(messages).toHaveLength(1);
+    expect(unreadableVerdicts.count).toBe(0);
+  });
+
+  it("accumulates evidence across reconnects", async () => {
+    const { unreadableVerdicts, connectAndJoin, awaitOpens } =
+      await setupCounted();
+    const first = connectAndJoin();
+    const stranger = await strangerCodec();
+
+    // The question is about the *key*, which outlives any one socket — so a
+    // reconnect must not hand a wrong link a clean slate every time the network
+    // blips and leave the user staring at a blank canvas again.
+    for (
+      let sequence = 1;
+      sequence < REALTIME_UNREADABLE_FRAME_THRESHOLD;
+      sequence += 1
+    ) {
+      first.receiveFrame(
+        await remoteFrame(stranger, remoteSceneMessage(sequence), "scene"),
+      );
+    }
+    // Strictly before the reconnect: a socket that goes away drops whatever its
+    // queue still holds, so unauthenticated frames would prove nothing.
+    await awaitOpens(REALTIME_UNREADABLE_FRAME_THRESHOLD - 1);
+    expect(unreadableVerdicts.count).toBe(0);
+
+    first.serverClose(1006);
+    const second = connectAndJoin();
+    second.receiveFrame(
+      await remoteFrame(stranger, remoteSceneMessage(1), "scene"),
+    );
+    await awaitOpens(REALTIME_UNREADABLE_FRAME_THRESHOLD);
+
+    expect(unreadableVerdicts.count).toBe(1);
+  });
+
+  it("waits for a frame that is still decrypting on the other channel", async () => {
+    // `scene` and `presence` authenticate on independent chains, so a valid frame
+    // can still be in the codec while enough unopenable frames finish ahead of it
+    // on the other one. Judging at that moment would call a healthy session's key
+    // wrong — and the verdict is terminal, so there is no taking it back.
+    let releaseScene: (() => void) | undefined;
+    const counted = { opens: 0 };
+    const { messages, unreadableVerdicts, connectAndJoin } = await setup({
+      wrapCrypto: (inner) => ({
+        ...inner,
+        async open(frame, channel) {
+          if (channel === "scene" && !releaseScene) {
+            await new Promise<void>((resolve) => {
+              releaseScene = resolve;
+            });
+          }
+          try {
+            return await inner.open(frame, channel);
+          } finally {
+            counted.opens += 1;
+          }
+        },
+      }),
+    });
+    const socket = connectAndJoin();
+    const peer = await roomCodec();
+    const stranger = await strangerCodec();
+
+    // Received first, and held mid-decrypt.
+    socket.receiveFrame(
+      await remoteFrame(peer, remoteSceneMessage(1), "scene"),
+    );
+    await vi.waitFor(() => expect(releaseScene).toBeDefined());
+
+    // Meanwhile the whole threshold is reached on the presence chain.
+    for (
+      let sequence = 1;
+      sequence <= REALTIME_UNREADABLE_FRAME_THRESHOLD;
+      sequence += 1
+    ) {
+      socket.receiveFrame(
+        await remoteFrame(
+          stranger,
+          presenceMessage({
+            sequence,
+            roomGeneration: 3,
+            senderClientId: CLIENT_B,
+            senderPeerId: PEER_B,
+          }),
+          "presence",
+        ),
+      );
+    }
+    await vi.waitFor(() =>
+      expect(counted.opens).toBe(REALTIME_UNREADABLE_FRAME_THRESHOLD),
+    );
+    // The verdict is armed but must not have been taken.
+    expect(unreadableVerdicts.count).toBe(0);
+
+    releaseScene?.();
+    await vi.waitFor(() => expect(messages).toHaveLength(1));
+    // The late success cancels it for good rather than merely delaying it.
+    expect(unreadableVerdicts.count).toBe(0);
+  });
+
+  it("does not let later frames postpone a verdict that is already armed", async () => {
+    // The wait is fenced to the frames already in flight when the verdict armed,
+    // not to the queues going empty. A busy room never goes empty, and a wrong
+    // link must not stay silent for as long as the room stays interesting.
+    const gates: (() => void)[] = [];
+    const { unreadableVerdicts, connectAndJoin } = await setup({
+      wrapCrypto: (inner) => ({
+        ...inner,
+        async open(frame, channel) {
+          await new Promise<void>((resolve) => gates.push(resolve));
+          return inner.open(frame, channel);
+        },
+      }),
+    });
+    const socket = connectAndJoin();
+    const stranger = await strangerCodec();
+    let sequence = 0;
+    const admitFailingFrame = async (): Promise<void> => {
+      sequence += 1;
+      socket.receiveFrame(
+        await remoteFrame(stranger, remoteSceneMessage(sequence), "scene"),
+      );
+    };
+    /** Releases the frame currently held in the codec and lets it settle. */
+    const releaseOne = async (expectedGates: number): Promise<void> => {
+      await vi.waitFor(() => expect(gates).toHaveLength(expectedGates));
+      gates.shift()?.();
+      await vi.waitFor(() => expect(gates).toHaveLength(expectedGates - 1));
+    };
+
+    // Two failures settle, leaving the count one short of the threshold.
+    await admitFailingFrame();
+    await releaseOne(1);
+    await admitFailingFrame();
+    await releaseOne(1);
+    expect(unreadableVerdicts.count).toBe(0);
+
+    // Two more are admitted; releasing the first crosses the threshold and arms
+    // the verdict with the second still in flight.
+    await admitFailingFrame();
+    await admitFailingFrame();
+    await releaseOne(1);
+    expect(unreadableVerdicts.count).toBe(0);
+
+    // Traffic keeps coming *after* the arming moment. These are outside the
+    // cohort, so they must not extend the wait by even one frame.
+    await admitFailingFrame();
+    await admitFailingFrame();
+
+    // Draining only the last cohort member is enough to report.
+    await releaseOne(1);
+    await vi.waitFor(() => expect(unreadableVerdicts.count).toBe(1));
+    expect(gates).not.toHaveLength(0);
   });
 });

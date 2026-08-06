@@ -6,6 +6,10 @@ import type {
   SyncedElement,
 } from "@drawstuff/collaboration/protocol";
 import { createSeededRandom } from "@drawstuff/collaboration/testing";
+import type {
+  CollaborationTransport,
+  TransportSubscriber,
+} from "@drawstuff/collaboration/transport";
 import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 
 import { FULL_SCENE_SYNC_INTERVAL_MS } from "@/lib/collab/collaboration-session";
@@ -51,6 +55,39 @@ const TEST_RECOVERY = {
 
 /** Comfortably past any scheduled retry in these tests. */
 const PAST_EVERY_TIMER_MS = 10_000;
+
+/**
+ * A fake-network transport that can also deliver `onRoomUnreadable`.
+ *
+ * The fake network carries plaintext on purpose (see `testing.ts`), so it can
+ * never produce the failed decryptions this verdict is derived from. Injecting
+ * the verdict is the honest split: whether the transport reaches it from three
+ * unopenable frames is settled against real Web Crypto in
+ * `packages/collaboration/tests/relay-client.test.ts`; what the *session* does
+ * with it is settled here.
+ */
+function transportWithUnreadableProbe(inner: CollaborationTransport): {
+  transport: CollaborationTransport;
+  reportRoomUnreadable: () => void;
+} {
+  const subscribers = new Set<TransportSubscriber>();
+  return {
+    transport: {
+      ...inner,
+      subscribe(subscriber) {
+        subscribers.add(subscriber);
+        const unsubscribe = inner.subscribe(subscriber);
+        return () => {
+          subscribers.delete(subscriber);
+          unsubscribe();
+        };
+      },
+    },
+    reportRoomUnreadable() {
+      for (const subscriber of subscribers) subscriber.onRoomUnreadable?.();
+    },
+  };
+}
 
 /**
  * Complete scene of one client, as a comparable string.
@@ -688,6 +725,95 @@ describe("unrecoverable connection states", () => {
     expect(sceneMessages(seenByWatcher, wrongKey.clientId)).toEqual([]);
     expect(wrongKey.timers.pendingCount).toBe(0);
     expect(wrongKey.session.getConnectionState().status).toBe("disconnected");
+  });
+
+  it("stops when no realtime frame opens in a room that has no stored snapshot", async () => {
+    // Plan 30. The snapshot oracle answers `empty` here — truthfully, the room has
+    // never been persisted — so it establishes nothing about the key, and before
+    // this the session would have sat connected, blank and silent forever.
+    const backend = createSnapshotBackend();
+    const watcher = harness.createClient("client-watcher-2", {
+      recovery: TEST_RECOVERY,
+    });
+    watcher.session.connect();
+    harness.settle();
+    const seenByWatcher = observe(watcher);
+
+    const probe = transportWithUnreadableProbe(
+      harness.network.createTransport(),
+    );
+    const wrongKey = harness.createClient("client-blind", {
+      recovery: TEST_RECOVERY,
+      transport: probe.transport,
+      snapshotStore: backend.createStore(),
+    });
+    wrongKey.session.connect();
+    await harness.drainMicrotasks();
+    harness.settle();
+
+    // The join itself looks entirely healthy, which is the whole problem: an
+    // empty room is a legitimate baseline, so the client publishes its canvas and
+    // goes live with no indication that nothing it sends can be read.
+    expect(wrongKey.baselineOutcomes).toEqual(["empty"]);
+    expect(wrongKey.session.getRecoveryState()).toEqual({ phase: "live" });
+    const publishedBeforeVerdict = sceneMessages(
+      seenByWatcher,
+      wrongKey.clientId,
+    ).length;
+
+    probe.reportRoomUnreadable();
+
+    expect(wrongKey.session.getRecoveryState()).toEqual({
+      phase: "failed",
+      reason: "unreadable-room",
+    });
+    // Same teardown as the snapshot detector: the socket goes, and nothing is
+    // left running to keep publishing into a room this client cannot read.
+    expect(wrongKey.session.getConnectionState().status).toBe("disconnected");
+    expect(wrongKey.timers.pendingCount).toBe(0);
+
+    // A second verdict from a transport that has not been unsubscribed yet must
+    // not re-report the same failure.
+    const reportedFailures = wrongKey.recoveryStates.length;
+    probe.reportRoomUnreadable();
+    expect(wrongKey.recoveryStates).toHaveLength(reportedFailures);
+
+    // And the editor keeps calling in after a terminal state, so the session has
+    // to stop publishing rather than merely stop reconnecting.
+    wrongKey.edit((elements) => [...elements, rect("drawn-after-verdict")]);
+    harness.settle();
+    expect(sceneMessages(seenByWatcher, wrongKey.clientId)).toHaveLength(
+      publishedBeforeVerdict,
+    );
+  });
+
+  it("stops on the realtime verdict when the snapshot fetch keeps failing", async () => {
+    // The other room the snapshot oracle cannot cover: a baseline that never
+    // arrives. `snapshot-unavailable` is deliberately *not* terminal — it is
+    // transient and the session must survive it — so without the realtime verdict
+    // a wrong key here is as silent as in an unwritten room.
+    const backend = createSnapshotBackend();
+    backend.publish([]);
+    const probe = transportWithUnreadableProbe(
+      harness.network.createTransport(),
+    );
+    const client = harness.createClient("client-no-baseline", {
+      recovery: TEST_RECOVERY,
+      transport: probe.transport,
+      snapshotStore: backend.createStore({ outcome: "unavailable" }),
+    });
+    client.session.connect();
+    await harness.drainMicrotasks();
+    harness.settle();
+
+    expect(client.baselineOutcomes).toEqual(["snapshot-unavailable"]);
+    expect(client.session.getRecoveryState()).toEqual({ phase: "live" });
+
+    probe.reportRoomUnreadable();
+    expect(client.session.getRecoveryState()).toEqual({
+      phase: "failed",
+      reason: "unreadable-room",
+    });
   });
 
   it("does not retry a disconnect the caller asked for", () => {

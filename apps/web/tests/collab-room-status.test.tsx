@@ -3,15 +3,21 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
- * The room status surface for an oversize canvas (Plan 19 step 7).
+ * The room status surface: what a session that is connected but not entirely
+ * healthy tells the user, and how those facts rank against each other.
+ *
+ * Two conditions live here, and they are deliberately different in severity — an
+ * oversize canvas that has stopped publishing (Plan 19 step 7) and a room holding
+ * images this link cannot open (Plan 30). Neither ends the session, so neither
+ * appears in the recovery state, and both would otherwise be invisible.
  *
  * Everything below the hook is mocked, because what is under test is the hook's
  * own reporting decisions: which status a blocked session presents, whether the
- * actionable message survives a reconnect, and what happens when the block is
+ * actionable message survives a reconnect, and what happens when a condition is
  * discovered during teardown, at which point there is no room UI left to show it
  * in. Driving that through a real relay would prove nothing extra — the session
  * side of the same behaviour is covered against the real codec in
- * `collab-oversize-sync.test.ts`.
+ * `collab-oversize-sync.test.ts` and `collab-asset-transfer.test.ts`.
  */
 // Hoisted: `vi.mock` factories run before module-level initialization.
 const { toastWarning, startRoomSession, joinMutate, roomGetQuery } = vi.hoisted(
@@ -81,6 +87,7 @@ const OVERSIZE_DURABLE: SceneSyncBlock = {
 type SessionCallbacks = {
   onSceneSyncBlockChange: (block: SceneSyncBlock | null) => void;
   onRecoveryStateChange: (state: RecoveryState) => void;
+  onAssetsUnreadable: () => void;
 };
 
 const probe: { result?: UseCollaborationRoomResult } = {};
@@ -300,6 +307,65 @@ describe("room status for an oversize canvas", () => {
     session.onSceneSyncBlockChange(null);
 
     expect(toastWarning).not.toHaveBeenCalled();
+  });
+});
+
+describe("room status for images this link cannot open", () => {
+  it("says so without downgrading a session that is still syncing", async () => {
+    const session = await mountRoom();
+    await act(async () => {
+      session.onRecoveryStateChange({ phase: "live" });
+      session.onAssetsUnreadable();
+    });
+
+    // The elements still sync and the socket is fine, so calling this anything
+    // other than 共編中 would overstate it — the canvas is incomplete, not broken.
+    expect(probe.result?.status).toBe("connected");
+    expect(probe.result?.isCollaborating).toBe(true);
+    expect(probe.result?.errorMessage).toContain("圖片無法用目前的連結開啟");
+    // Layout-independent announcement, for the viewports that do not render the
+    // status area at all.
+    expect(toastWarning).toHaveBeenCalledTimes(1);
+    expect(String(toastWarning.mock.calls[0]?.[0])).toContain(
+      "圖片無法用目前的連結開啟",
+    );
+  });
+
+  it("lets the oversize warning outrank it", async () => {
+    const session = await mountRoom();
+    await act(async () => {
+      session.onRecoveryStateChange({ phase: "live" });
+      session.onAssetsUnreadable();
+      session.onSceneSyncBlockChange(OVERSIZE_REALTIME);
+    });
+
+    // Losing the user's own unpublished work is the more urgent of the two, and a
+    // single message area cannot say both at once.
+    expect(probe.result?.status).toBe("sync-blocked");
+    expect(probe.result?.errorMessage).toContain("即時同步已停止");
+
+    // Still true underneath, and it comes back once the canvas fits again.
+    await act(async () => {
+      session.onSceneSyncBlockChange(null);
+    });
+    expect(probe.result?.status).toBe("connected");
+    expect(probe.result?.errorMessage).toContain("圖片無法用目前的連結開啟");
+  });
+
+  it("lets a terminal failure's own message outrank it", async () => {
+    const session = await mountRoom();
+    await act(async () => {
+      session.onRecoveryStateChange({ phase: "live" });
+      session.onAssetsUnreadable();
+      session.onRecoveryStateChange({
+        phase: "failed",
+        reason: "unreadable-room",
+      });
+    });
+
+    expect(probe.result?.status).toBe("failed");
+    expect(probe.result?.errorMessage).toContain("無法用目前連結的金鑰解開");
+    expect(probe.result?.errorMessage).not.toContain("其他內容仍在正常同步");
   });
 });
 

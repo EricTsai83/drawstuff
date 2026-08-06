@@ -132,6 +132,14 @@ export async function startCollaborationRoomSession(options: {
    * a UI that only follows recovery would keep claiming everything is in sync.
    */
   onSceneSyncBlockChange?: (block: SceneSyncBlock | null) => void;
+  /**
+   * Reported once when the room turns out to hold images this link cannot open
+   * and none has ever opened. Separate from the recovery state on purpose: unlike
+   * an unreadable *scene*, unreadable images are not terminal — the elements
+   * still sync and the session is genuinely healthy — so this is a fact about the
+   * canvas's completeness, not about the connection.
+   */
+  onAssetsUnreadable?: () => void;
 }): Promise<CollaborationRoomHandle> {
   const sceneApi: CollaborationSceneApi = options.excalidrawApi;
   const transport = createRelayWebSocketTransport({
@@ -159,6 +167,10 @@ export async function startCollaborationRoomSession(options: {
     authGeneration: options.authGeneration,
     onAssetsResolved: (files) => {
       assetTarget?.applyRemoteAssets(files);
+    },
+    onAssetsUnreadable: options.onAssetsUnreadable,
+    onAssetsUnavailable: (fileIds) => {
+      assetTarget?.applyUnavailableAssets(fileIds);
     },
     onPublishRetryDue: () => {
       assetTarget?.republishLocalAssets();

@@ -103,27 +103,31 @@ pnpm test
 4. 未來若在有活躍 room 時再次變更推導輸入，必須重跑 Step 1 稽核，並在 `expires_at > now()`
    的 room 歸零後才部署。
 
-### In scope 第 4 項的實際範圍（2026-08-06 修正）
+### In scope 第 4 項的實際範圍（2026-08-06 修正；同日由 Plan 30 關閉）
 
-「密文不可讀對使用者非靜默」**只對 snapshot 成立**：snapshot 解不開會走到 `unreadable-room`
-（「這個 room 有已儲存的畫布，但無法用目前連結的金鑰解開。請向分享者索取最新的完整連結。」，
-`apps/web/src/hooks/excalidraw/use-collaboration-room.ts:151`），是明確且可行動的訊息。
-
-Asset 不是：`resolveAssetRecord` 對 `codec.open` 失敗一律回 `abandon`
-（`apps/web/src/lib/collab/asset-store.ts:466`），畫面只是少一張圖、沒有任何訊息。這是 Plan 17
-的既有決策（`asset-store.ts:55-62`「missing 不是錯誤」；`plans/17:184` 已記錄「失敗靜默」），
-不是本 plan 造成的，改它需要新增使用者可見狀態並動到 recovery state machine，超出本 plan 的
-變更規模，因此不在此處處理。
-
-Realtime frame 也一樣：`relay-client.ts:312` 對 open 失敗直接靜默丟棄。所以整個非靜默保證
-實際上**只由 snapshot 讀取這一個 oracle 承擔**——`unreadable-room` 的定義註解自己就說它
+**當時的狀態。**「密文不可讀對使用者非靜默」**只對 snapshot 成立**：snapshot 解不開會走到
+`unreadable-room`，是明確且可行動的訊息。Asset 不是：`codec.open` 失敗一律回 `abandon`
+（`apps/web/src/lib/collab/asset-store.ts`），畫面只是少一張圖、沒有任何訊息；這是 Plan 17 的
+既有決策（`asset-store.ts` 的「Why "missing" is not an error」；`plans/17:184` 已記錄「失敗
+靜默」）。Realtime frame 也一樣：`relay-client.ts` 對 open 失敗直接靜默丟棄。所以整個非靜默
+保證實際上**只由 snapshot 讀取這一個 oracle 承擔**——`unreadable-room` 的定義註解自己就說它
 terminal 的理由是「realtime frame 用同一把金鑰，否則 session 會 connected and permanently
 blind」。當 room 尚無 stored snapshot 時，oracle 不存在，三條路徑全靜默。
 
-對本次部署沒有影響：稽核為 0 筆 asset、0 筆 snapshot，該路徑不可達。這個殘留已交給
-**[Plan 30](./30-silent-key-mismatch-detection.md)**（2026-08-06 建立），並記在 threat model
-T10 殘留 (b)。任何未來在有活躍 room 時變更推導輸入的動作，都必須先確認 Plan 30 已完成，或
-明確承擔這個風險。
+當時對部署沒有影響：稽核為 0 筆 asset、0 筆 snapshot，該路徑不可達。
+
+**現況（[Plan 30](./30-silent-key-mismatch-detection.md)，2026-08-06 完成）。** 缺口已補上，
+做法是在三條路徑既有的單筆處置**之上**加一層聚合判定，單筆行為一律不動：
+
+- Realtime：`relay-client.ts` 累計 open 的成功／失敗，達
+  `REALTIME_UNREADABLE_FRAME_THRESHOLD` 筆失敗且從未成功過一次即回報 `onRoomUnreadable`，
+  session 走既有的 `unreadable-room` 終止。因此**沒有 stored snapshot 的 room 也非靜默**。
+- Asset：同一條規則產生使用者可見訊息（不終止 session，元素仍在同步）。
+- 兩者都以「成功開過一次即永久不再觸發」把「錯誤金鑰」與「個別損壞／被竄改」分開，所以單筆
+  損壞仍然靜默丟棄，session 不中斷。
+
+threat model T10 殘留 (b) 已同步標為關閉。未來在有活躍 room 時變更推導輸入，此路徑已具備非
+靜默保證。
 
 ### 未解掉的另一半：`COLLABORATION_PROTOCOL_VERSION`
 
@@ -139,5 +143,6 @@ model T10 殘留 (a)。
   `snapshot` 與 `asset` 的推導金鑰。
 - 三個 purpose 的推導金鑰仍互不相同。
 - 部署程序已執行並記錄；若採用雙推導，其移除條件與 owner 已寫明。
-- 「密文不可讀」對使用者仍是明確且可行動的訊息，不是靜默失敗。**（部分成立：只對 snapshot
-  成立，asset 仍靜默——見上方「In scope 第 4 項的實際範圍」。）**
+- 「密文不可讀」對使用者仍是明確且可行動的訊息，不是靜默失敗。**（2026-08-06 起完全成立：
+  當時只對 snapshot 成立，realtime 與 asset 的缺口已由 [Plan 30](./30-silent-key-mismatch-detection.md)
+  補上——見上方「In scope 第 4 項的實際範圍」。）**

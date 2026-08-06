@@ -51,6 +51,7 @@ import {
 import {
   createChangedElementTracker,
   getSyncableElements,
+  markImageElementsUnavailable,
   reconcileRemoteElements,
   type ReconciliationLocalState,
 } from "@drawstuff/excalidraw-adapter/reconcile";
@@ -379,6 +380,15 @@ export type CollaborationSession = {
    * long after the element that referenced it was applied.
    */
   applyRemoteAssets(files: readonly BinaryFileData[]): void;
+  /**
+   * Marks the image elements whose bytes this client will never obtain, so the
+   * canvas draws the engine's error placeholder rather than the loading one.
+   *
+   * Wired as the asset store's callback for the same reason `applyRemoteAssets`
+   * is: giving up on a download settles whenever it settles, long after the
+   * element that referenced it was applied.
+   */
+  applyUnavailableAssets(fileIds: readonly string[]): void;
   /**
    * Re-offers the canvas's current images to the asset store. Wired to the store's
    * upload-retry timer: a retry has to read the scene again, because the image
@@ -1318,6 +1328,10 @@ export function createCollaborationSession(
     // the room at all — realtime frames are sealed under a key derived from the
     // same material — so the session is terminal rather than merely stale. Failed
     // after the barrier reports the outcome, so the user still learns *why*.
+    //
+    // This is the *fast* detector, not the only one: a room with nothing stored
+    // yet answers `empty` here and never reaches this branch, which is why the
+    // transport's `onRoomUnreadable` verdict exists alongside it.
     if (unreadable) failRecovery("unreadable-room");
   };
 
@@ -1653,6 +1667,15 @@ export function createCollaborationSession(
     // `scene-init` reply (see `sceneInitNeedsReply`), which carries whatever we
     // lost — the same repair path a detected gap uses.
     onSceneSyncRequired: sendFullScene,
+    // Frames arrived and none of them ever opened, which is the same verdict the
+    // durable snapshot gives when it will not open — so it takes the same
+    // terminal reason. This is the detector for the room the snapshot oracle
+    // cannot cover: one with nothing stored yet, where the session would
+    // otherwise stay connected, blank and silent forever.
+    onRoomUnreadable: () => {
+      if (isStopped()) return;
+      failRecovery("unreadable-room");
+    },
   };
   unsubscribeTransport = transport.subscribe(subscriber);
 
@@ -1713,6 +1736,22 @@ export function createCollaborationSession(
       if (destroyed || files.length === 0 || !canSyncScene()) return;
       wrapRemoteApply(() => {
         sceneApi.addFiles([...files]);
+      });
+    },
+    applyUnavailableAssets(fileIds) {
+      if (destroyed || fileIds.length === 0 || !canSyncScene()) return;
+      wrapRemoteApply(() => {
+        const marked = markImageElementsUnavailable(
+          sceneApi.getSceneElementsIncludingDeleted(),
+          new Set(fileIds),
+        );
+        // Nothing on this canvas referenced those ids — the element may have been
+        // deleted while its download was still running.
+        if (!marked) return;
+        sceneApi.updateScene({
+          elements: marked,
+          captureUpdate: EXCALIDRAW_CAPTURE_UPDATE_ACTION.NEVER,
+        });
       });
     },
     republishLocalAssets() {
