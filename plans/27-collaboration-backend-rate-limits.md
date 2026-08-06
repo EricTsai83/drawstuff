@@ -1,6 +1,6 @@
 # Plan 27：共編後端速率限制
 
-- Status: Blocked — 需要「共享儲存」的決定
+- Status: Blocked — 方向已定（2026-08-06：引入 Redis 做共享計數），等資源申請與開通後動工
 - Depends on: 19
 - Expected change size: 共享計數儲存、tRPC 與上傳路徑的速率限制、對應測試
 

@@ -1,6 +1,7 @@
 # Plan 29：共編 load test 與 runbook
 
-- Status: Blocked — 依賴 Plan 25 與 Plan 32（Plan 24 已於 2026-08-06 完成）
+- Status: Blocked — SLO §6 有三條門檻尚無 metric 承載（原由 Plan 32 提供；2026-08-06
+  決定改走 Sentry，接入尚無 plan）。Plan 24、25 已於 2026-08-06 完成
 - Depends on: 19、24、25、32
 - Expected change size: load-test harness、報告、runbook 與 drill 紀錄
 

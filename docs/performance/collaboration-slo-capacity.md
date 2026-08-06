@@ -160,8 +160,8 @@ threat model T6 記錄的缺口：大小有界、速率無界。以下為**新�
 - **Relay 側（下表前六列）**：relay 是單一長生命週期 process，per-connection token bucket
   在記憶體中即為正確，無需新依賴。**step 2 實作。**
 - **後端側（下表後三列）**：`apps/web` 跑在 serverless function 上，process-local 計數器
-  在多個 invocation 之間不成立，因此需要一個共享儲存（Upstash Redis 之類）。**引入新的
-  外部依賴需要獨立決定，尚未核准**；在那之前後端速率限制維持缺口，並記在 threat model
+  在多個 invocation 之間不成立，因此需要一個共享儲存（Upstash Redis 之類）。**2026-08-06
+  已定案引入 Redis 做共享計數**；資源開通前後端速率限制維持缺口，並記在 threat model
   的 T6。
 
 | 限制                                   | 核准值                                      | 依據                                                                                                                                                                |
@@ -234,5 +234,5 @@ handshake 的時序（實測會動到 3 個測試檔的既有期望），因此�
 
 | 項目                   | 為什麼還沒定                                                                                                                      |
 | ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 後端速率限制的共享儲存 | `apps/web` 是 serverless，process-local 計數器不成立；需要引入外部依賴（Upstash Redis 之類），屬獨立決定                          |
+| 後端速率限制的共享儲存 | 2026-08-06 已定案：引入 Redis（Upstash 之類）做共享計數；資源尚未申請與開通，開通前缺口維持（threat model T6）                     |
 | 測試環境               | 2026-08-06 確認：無 staging，全部 local。因此 step 9 的 rollback 只能以 runbook drill 記錄，不會有實跑紀錄；這是明示的 limitation |
