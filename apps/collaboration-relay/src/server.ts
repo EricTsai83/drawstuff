@@ -41,6 +41,13 @@ type RelayLimits = RelayConnectionLimits & {
   maxConnections: number;
   /** Ping cadence; a socket that misses one full interval is terminated. */
   heartbeatIntervalMs: number;
+  /**
+   * Upper bound of the graceful-drain window (Plan 25). A drained socket that
+   * has not finished its close handshake by this deadline is terminated and
+   * counted — the drain must end, or a stuck peer would turn every restart
+   * into an operator judgement call.
+   */
+  drainTimeoutMs: number;
 };
 
 /** How long a capacity-rejected socket may take to finish the close
@@ -71,6 +78,11 @@ const DEFAULT_RELAY_LIMITS: RelayLimits = {
   joinTimeoutMs: 10_000,
   idleTimeoutMs: 15 * 60_000,
   heartbeatIntervalMs: 15_000,
+  // A close handshake normally completes within one round trip, so 10 s is
+  // generous headroom, and it stays well inside the process manager's
+  // kill timeout (see `pm2.config.cjs`) so SIGTERM never escalates to SIGKILL
+  // while sockets are still closing.
+  drainTimeoutMs: 10_000,
   rateLimits: DEFAULT_RELAY_RATE_LIMITS,
 };
 
@@ -98,6 +110,8 @@ export type RelayServer = {
   readonly url: string;
   /** HTTP origin of the server-to-server control endpoint. */
   readonly controlUrl: string;
+  /** Effective limits, for the deployment envelope's startup declaration. */
+  readonly limits: Readonly<RelayLimits>;
   connectionCount(): number;
   roomCount(): number;
   /** Authorized, currently joined sessions across all room generations. */
@@ -106,12 +120,20 @@ export type RelayServer = {
    * Marks the process unhealthy at `/healthz` so a rolling restart can hand
    * traffic over before this instance stops accepting it. Idempotent.
    *
-   * Health reporting is all this does: releasing the connections that are still
-   * attached is the graceful-drain sequence, which is Plan 25's scope. Plan 24
-   * owns only the signal, because a probe that reports a departing process as
-   * healthy makes every restart look like an outage instead of a handover.
+   * Health reporting is all this does — it is Plan 24's signal. Releasing the
+   * connections that are still attached is `drain()`.
    */
   beginDrain(): void;
+  /**
+   * The graceful-drain sequence (Plan 25): reports unhealthy, refuses new
+   * connections, and closes every attached connection with the retryable
+   * `relayRestarting` close code so clients rejoin the replacement process
+   * through their recovery backoff. Resolves once every connection present at
+   * drain start has closed, or at `drainTimeoutMs`, when the stragglers are
+   * terminated and counted — never later. Idempotent: every caller gets the
+   * same drain.
+   */
+  drain(): Promise<void>;
   /** Prometheus text exposition, identical to a `/metrics` scrape. */
   renderMetrics(): string;
   close(): Promise<void>;
@@ -148,9 +170,10 @@ export async function createRelayServer(
   const logger = options.logger ?? createRelayLogger();
 
   /**
-   * Draining is a health-reporting state, not a connection state: it flips
-   * `/healthz` to unhealthy so traffic moves elsewhere. `close()` enters it too,
-   * so a shutdown never reports itself healthy on the way out.
+   * Once true the process is on its way out: `/healthz` reports unhealthy, new
+   * connections are refused with the retryable `relayRestarting` code, and
+   * `drain()` is releasing (or has released) the attached ones. `close()`
+   * enters it too, so a shutdown never reports itself healthy on the way out.
    */
   let draining = false;
   const metrics: RelayMetrics = createRelayMetrics({
@@ -212,8 +235,46 @@ export async function createRelayServer(
   };
   const liveness = new WeakMap<WebSocket, SocketState>();
 
+  /**
+   * Closes a socket the relay refuses to serve, without creating connection
+   * state for it. ws keeps a closing socket tracked for up to 30s waiting for
+   * the close handshake, and refused sockets have no heartbeat state, so an
+   * unresponsive flood could grow the tracked set far past the cap;
+   * force-terminate on a short deadline instead.
+   */
+  const refuseConnection = (
+    socket: WebSocket,
+    closeCode: number,
+    reason: string,
+  ): void => {
+    socket.close(closeCode, reason);
+    const forceTerminate = setTimeout(
+      () => socket.terminate(),
+      CAPACITY_REJECT_GRACE_MS,
+    );
+    socket.once("close", () => clearTimeout(forceTerminate));
+  };
+
   server.on("connection", (socket) => {
     metrics.connectionOpened();
+    // Refusing before the capacity check: a draining process must not admit a
+    // connection it is about to close again, whatever its occupancy. The code
+    // is retryable, so the client's recovery backoff carries it to the
+    // replacement process rather than ending its session.
+    if (draining) {
+      metrics.connectionClosed("relayRestarting");
+      logger.info("relay.connection_rejected", {
+        closeCode: RELAY_CLOSE_CODES.relayRestarting,
+        closeReason: "relayRestarting",
+        connections: server.clients.size,
+      });
+      refuseConnection(
+        socket,
+        RELAY_CLOSE_CODES.relayRestarting,
+        "relay restarting",
+      );
+      return;
+    }
     if (server.clients.size > limits.maxConnections) {
       metrics.connectionClosed("relayAtCapacity");
       logger.warn("relay.connection_rejected", {
@@ -222,16 +283,11 @@ export async function createRelayServer(
         connections: server.clients.size,
         limit: limits.maxConnections,
       });
-      socket.close(RELAY_CLOSE_CODES.relayAtCapacity, "relay at capacity");
-      // ws keeps a closing socket tracked for up to 30s waiting for the
-      // close handshake. Rejected sockets have no heartbeat state, so an
-      // unresponsive flood could grow the tracked set far past the cap;
-      // force-terminate on a short deadline instead.
-      const forceTerminate = setTimeout(
-        () => socket.terminate(),
-        CAPACITY_REJECT_GRACE_MS,
+      refuseConnection(
+        socket,
+        RELAY_CLOSE_CODES.relayAtCapacity,
+        "relay at capacity",
       );
-      socket.once("close", () => clearTimeout(forceTerminate));
       return;
     }
 
@@ -312,22 +368,101 @@ export async function createRelayServer(
 
   let closed = false;
 
+  const beginDrain = (): void => {
+    if (draining) return;
+    draining = true;
+    logger.info("relay.draining", {
+      connections: server.clients.size,
+      rooms: fanout.roomCount(),
+      sessions: sessions.sessionCount(),
+    });
+  };
+
+  let drained: Promise<void> | undefined;
+
+  /**
+   * See {@link RelayServer.drain}. The bounded window waits on exactly the
+   * sockets present at drain start: a connection arriving mid-drain is refused
+   * with its own short force-terminate deadline, and waiting on it here would
+   * let a stream of doomed newcomers extend the drain without bound.
+   */
+  const drain = (): Promise<void> => {
+    drained ??= (async () => {
+      beginDrain();
+      const startedAt = monotonicNow();
+      const pending = new Set(server.clients);
+      let forcedTerminations = 0;
+      const closing = pending.size;
+      await new Promise<void>((resolve) => {
+        if (pending.size === 0) {
+          resolve();
+          return;
+        }
+        const deadline = setTimeout(() => {
+          // Anything still pending genuinely sat out the whole window: every
+          // close — graceful, heartbeat, peer-initiated — lands in `settle`.
+          // The close was already recorded as `relayRestarting` below, so the
+          // terminate is transport-level force only, counted here and in the
+          // `relay.drained` record rather than as a second disconnect.
+          forcedTerminations = pending.size;
+          for (const socket of pending) {
+            socket.terminate();
+          }
+          resolve();
+        }, limits.drainTimeoutMs);
+        const settle = (socket: WebSocket): void => {
+          pending.delete(socket);
+          if (pending.size === 0) {
+            clearTimeout(deadline);
+            resolve();
+          }
+        };
+        // Two phases on purpose. Closing a connection releases its room
+        // membership, and that release *synchronously* broadcasts the new peer
+        // list to the room's remaining members — a cascade that could close a
+        // still-open, over-budget member as a slow consumer before this loop
+        // reached it. Putting every socket into CLOSING first makes the
+        // cascade inert (`deliverPeers` skips non-open sockets), so phase two
+        // can attribute each close as `relayRestarting`, undisturbed.
+        for (const socket of pending) {
+          socket.once("close", () => settle(socket));
+          socket.close(RELAY_CLOSE_CODES.relayRestarting, "relay restarting");
+        }
+        for (const socket of pending) {
+          // Through the connection, not just the socket: `RelayConnection.close`
+          // records reason and close code together and releases the
+          // connection's own deadlines, so no competing close path (join
+          // deadline, idle budget, revocation) can re-attribute this
+          // disconnect mid-drain. Only a capacity-refused socket still inside
+          // its refusal grace has no connection; its close was recorded when
+          // it was refused.
+          liveness
+            .get(socket)
+            ?.connection.close(
+              RELAY_CLOSE_CODES.relayRestarting,
+              "relay restarting",
+            );
+        }
+      });
+      logger.info("relay.drained", {
+        connections: closing,
+        forcedTerminations,
+        durationMs: Math.round(monotonicNow() - startedAt),
+      });
+    })();
+    return drained;
+  };
+
   return {
     port,
     url: `ws://${host}:${port}`,
     controlUrl: `http://${host}:${port}`,
+    limits,
     connectionCount: () => server.clients.size,
     roomCount: () => fanout.roomCount(),
     sessionCount: () => sessions.sessionCount(),
-    beginDrain() {
-      if (draining) return;
-      draining = true;
-      logger.info("relay.draining", {
-        connections: server.clients.size,
-        rooms: fanout.roomCount(),
-        sessions: sessions.sessionCount(),
-      });
-    },
+    beginDrain,
+    drain,
     renderMetrics: () => metrics.render(),
     async close() {
       if (closed) return;

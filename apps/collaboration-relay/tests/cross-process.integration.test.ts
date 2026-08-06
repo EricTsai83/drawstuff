@@ -34,6 +34,8 @@ type LineStream = {
     description: string,
   ): Promise<string>;
   lines(): readonly string[];
+  /** Set once the process has exited; how it did is in the string. */
+  exitStatus(): string | undefined;
 };
 
 function spawnTsx(script: string, env: Record<string, string>): LineStream {
@@ -77,26 +79,36 @@ function spawnTsx(script: string, env: Record<string, string>): LineStream {
       return line;
     },
     lines: () => seenLines,
+    exitStatus: () => exited,
   };
+}
+
+/** Spawns the real relay entry point and resolves its listening URL. */
+async function spawnRelay(port: string): Promise<{
+  relay: LineStream;
+  url: string;
+}> {
+  const relay = spawnTsx(path.join("src", "main.ts"), {
+    PORT: port,
+    HOST: "127.0.0.1",
+    // The relay process refuses to start without the shared token secret,
+    // so the real startup contract is exercised here too.
+    COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
+  });
+  // The relay logs JSON lines (Plan 24), so the port is read out of the
+  // structured `relay.listening` record rather than out of prose.
+  const listeningLine = await relay.waitForLine(
+    (line) => line.includes(`"event":"relay.listening"`),
+    "relay process to start listening",
+  );
+  const { url } = JSON.parse(listeningLine) as { url?: string };
+  if (!url) throw new Error("relay did not report its url");
+  return { relay, url };
 }
 
 describe("cross-process relay integration", () => {
   it("converges clients in different processes through a relay process", async () => {
-    const relay = spawnTsx(path.join("src", "main.ts"), {
-      PORT: "0",
-      HOST: "127.0.0.1",
-      // The relay process refuses to start without the shared token secret,
-      // so the real startup contract is exercised here too.
-      COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
-    });
-    // The relay logs JSON lines (Plan 24), so the port is read out of the
-    // structured `relay.listening` record rather than out of prose.
-    const listeningLine = await relay.waitForLine(
-      (line) => line.includes(`"event":"relay.listening"`),
-      "relay process to start listening",
-    );
-    const { url } = JSON.parse(listeningLine) as { url?: string };
-    if (!url) throw new Error("relay did not report its url");
+    const { url } = await spawnRelay("0");
 
     const driver = spawnTsx(path.join("tests", "support", "client-driver.ts"), {
       RELAY_URL: url,
@@ -146,6 +158,87 @@ describe("cross-process relay integration", () => {
       ]);
     } finally {
       local.close();
+    }
+  });
+
+  it("drains on SIGTERM so every client retryably disconnects and rejoins the replacement", async () => {
+    const { relay, url } = await spawnRelay("0");
+    // The deployment envelope's startup declaration (Plan 25) comes from the
+    // real entry point, so this is where it is observable.
+    await relay.waitForLine(
+      (line) =>
+        line.includes(`"event":"relay.single_instance"`) &&
+        line.includes(`"instances":1`),
+      "the single-instance declaration",
+    );
+    const port = new URL(url).port;
+
+    const a = await createTestClient({
+      url,
+      roomId: ROOM_ID,
+      clientId: clientIdSchema.parse("client-drain-a"),
+      nonceSeed: 3,
+    });
+    const b = await createTestClient({
+      url,
+      roomId: ROOM_ID,
+      clientId: clientIdSchema.parse("client-drain-b"),
+      nonceSeed: 4,
+    });
+    try {
+      await a.connect();
+      await b.connect();
+      a.upsertElement("el-pre-drain", "before");
+      await waitUntil(
+        () => a.digest() === b.digest() && b.elementIds().length === 1,
+        "pre-drain convergence",
+      );
+
+      relay.child.kill("SIGTERM");
+      await a.waitForDisconnect();
+      await b.waitForDisconnect();
+      // Retryable, not terminal: the transport read the drain's close code as
+      // a transient condition, which is what recovery retries through.
+      expect(a.connectionState()).toEqual({
+        status: "disconnected",
+        reason: "transient",
+      });
+      expect(b.connectionState()).toEqual({
+        status: "disconnected",
+        reason: "transient",
+      });
+
+      // The drain ended inside its window with nothing left to force, and the
+      // ordered shutdown exited cleanly.
+      const drainedLine = await relay.waitForLine(
+        (line) => line.includes(`"event":"relay.drained"`),
+        "the drain completion record",
+      );
+      expect(JSON.parse(drainedLine)).toMatchObject({
+        connections: 2,
+        forcedTerminations: 0,
+      });
+      await waitUntil(
+        () => relay.exitStatus() !== undefined,
+        "the drained relay process to exit",
+      );
+      expect(relay.exitStatus()).toBe("exit code=0 signal=null");
+
+      // The replacement process binds the same address; the same clients
+      // rejoin it and converge on new edits.
+      await spawnRelay(port);
+      await a.connect();
+      await b.connect();
+      b.upsertElement("el-post-drain", "after");
+      await waitUntil(
+        () => a.digest() === b.digest() && a.elementIds().length === 2,
+        "post-drain convergence on the replacement process",
+        20_000,
+      );
+      expect(a.elementIds()).toEqual(["el-post-drain", "el-pre-drain"]);
+    } finally {
+      a.close();
+      b.close();
     }
   });
 });

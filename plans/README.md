@@ -60,16 +60,16 @@ merge algorithm，皆不在這組計畫內。
 | [30](./30-silent-key-mismatch-detection.md)       | Completed（2026-08-06）   | 金鑰不相容的非靜默偵測不再只依賴 snapshot               | 19、26             |
 | [23](./23-owned-scene-asset-lifecycle.md)         | Completed（2026-08-06）   | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
 | [31](./31-durable-format-protocol-decoupling.md)  | Completed（2026-08-06）   | durable 格式與 transport 版本解耦                       | 26                 |
-| [25](./25-relay-drain-and-deployment-envelope.md) | Ready                     | Graceful drain 與單 instance 部署封套                   | 19                 |
+| [25](./25-relay-drain-and-deployment-envelope.md) | Completed（2026-08-06）   | Graceful drain、max-memory watchdog 與單 instance 封套  | 19                 |
 | [32](./32-collaboration-client-telemetry.md)      | Blocked — 共享儲存決定    | Client／後端側共編 telemetry 上報                       | 24、30             |
 | [28](./28-room-scoped-retention.md)               | Ready                     | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
-| [29](./29-collaboration-load-test-and-runbook.md) | Blocked — 25、32          | Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
+| [29](./29-collaboration-load-test-and-runbook.md) | Blocked — 32              | Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
 | [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 共享儲存決定    | 共編後端入口的速率限制                                  | 19                 |
 | [34](./34-room-key-confirmation.md)               | Ready                     | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |
 | [20](./20-staged-rollout.md)                      | Blocked — 28、29          | 以 feature flag 漸進開放並可回滾                        | 28、29             |
 | [33](./33-peer-scoped-collaboration-identity.md)  | Ready                     | 身分收斂到 `peerId`，移除 client 選定的 `clientId`      | 31                 |
 
-排序理由，只記不顯而易見的部分：**23／25 兩份現在就能平行開始**（依賴全部已完成）。
+排序理由，只記不顯而易見的部分：23／25 兩份曾可平行開始，均已於 2026-08-06 完成。
 （31 原排在最前，因為成本隨時間上升——活資料越多越貴，且在它完成前任何
 `COLLABORATION_PROTOCOL_VERSION` 升版都會摧毀當下所有 room 的 snapshot 與 asset；已於
 2026-08-06 完成，稽核 0 筆活資料、以排空部署。30 同屬這一類，已於 2026-08-06 完成：realtime

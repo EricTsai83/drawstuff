@@ -77,14 +77,14 @@ Room 的形狀改以 size 分佈表達，一樣回答容量問題而不指名任
 `relay_connections_closed_total{reason}` 逐 close code 一個 label，`RELAY_CLOSE_CODES` 的
 每一個名稱都有，外加四個不帶 relay close code 的結束方式：
 
-| reason                                                                                                                                                                                                          | 來源                                       |
-| --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `protocolViolation`、`relayAtCapacity`、`roomAtCapacity`、`slowConsumer`、`joinTimeout`、`unauthorized`、`readOnlyRole`、`membershipRevoked`、`roomEnded`、`rateLimited`、`idleTimeout`、`relayRoomsAtCapacity` | relay 主動關閉，帶明確 close code          |
-| `normalClosure`                                                                                                                                                                                                 | client 自己的 `leave`（1000）              |
-| `heartbeatTimeout`                                                                                                                                                                                              | 漏一次 pong 被 terminate                   |
-| `peerClosed`                                                                                                                                                                                                    | 對端直接消失，relay 沒有主動關             |
-| `shutdown`                                                                                                                                                                                                      | process 關閉時 terminate                   |
-| `other`                                                                                                                                                                                                         | 非 relay 發出的其他 code（結構上不應出現） |
+| reason                                                                                                                                                                                                                             | 來源                                       |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
+| `protocolViolation`、`relayAtCapacity`、`roomAtCapacity`、`slowConsumer`、`joinTimeout`、`unauthorized`、`readOnlyRole`、`membershipRevoked`、`roomEnded`、`rateLimited`、`idleTimeout`、`relayRoomsAtCapacity`、`relayRestarting` | relay 主動關閉，帶明確 close code          |
+| `normalClosure`                                                                                                                                                                                                                    | client 自己的 `leave`（1000）              |
+| `heartbeatTimeout`                                                                                                                                                                                                                 | 漏一次 pong 被 terminate                   |
+| `peerClosed`                                                                                                                                                                                                                       | 對端直接消失，relay 沒有主動關             |
+| `shutdown`                                                                                                                                                                                                                         | process 關閉時 terminate                   |
+| `other`                                                                                                                                                                                                                            | 非 relay 發出的其他 code（結構上不應出現） |
 
 `rateLimited`、`idleTimeout`、`relayRoomsAtCapacity`、`slowConsumer`、`relayAtCapacity`、
 `roomAtCapacity` **必須各自可見**，這是 SLO §6 的判定資料，任何合併都會讓那條 SLO 無法量測。
@@ -122,14 +122,14 @@ terminate 期限），所以在 handshake 期間
 
 ### 4.1 §5「允許」欄位
 
-| §5 允許                                          | Metrics                                                             | Logs                                                                    |
-| ------------------------------------------------ | ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `roomId`、`authGeneration`、`peerId`、`clientId` | **刻意都不出現**（§3.1 的理由）                                     | `roomId`、`authGeneration`、`peerId`；`clientId` 只記 pseudonym（§4.3） |
-| 訊息位元組數、frame 計數、channel 名稱           | `relay_routed_bytes_total`、`relay_frames_routed_total{channel}` 等 | `byteLength`、`channel`（per-frame 記錄，預設關閉）                     |
-| close code、disconnect reason                    | `relay_connections_closed_total{reason}`                            | `closeCode`、`closeReason`、`joinRefusal`、`tokenFailure`               |
-| decrypt 失敗**計數**                             | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                      |
-| snapshot revision、conflict 計數                 | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                      |
-| latency、event-loop lag、記憶體                  | 兩個 histogram + 兩個 memory gauge                                  | 無（數值型觀測只走 metrics）                                            |
+| §5 允許                                          | Metrics                                                             | Logs                                                                                                                                                                                                                               |
+| ------------------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roomId`、`authGeneration`、`peerId`、`clientId` | **刻意都不出現**（§3.1 的理由）                                     | `roomId`、`authGeneration`、`peerId`；`clientId` 只記 pseudonym（§4.3）                                                                                                                                                            |
+| 訊息位元組數、frame 計數、channel 名稱           | `relay_routed_bytes_total`、`relay_frames_routed_total{channel}` 等 | `byteLength`、`channel`（per-frame 記錄，預設關閉）                                                                                                                                                                                |
+| close code、disconnect reason                    | `relay_connections_closed_total{reason}`                            | `closeCode`、`closeReason`、`joinRefusal`、`tokenFailure`                                                                                                                                                                          |
+| decrypt 失敗**計數**                             | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                                                                 |
+| snapshot revision、conflict 計數                 | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                                                                 |
+| latency、event-loop lag、記憶體                  | 兩個 histogram + 兩個 memory gauge                                  | 常態無（數值型觀測只走 metrics）；例外是 Plan 25 的兩個一次性事件——`relay.memory_limit_exceeded` 記觸發當下的 `rssBytes`／`maxRssBytes`（兩次 scrape 之間的尖峰否則不可見），`relay.drained` 記 `durationMs`／`forcedTerminations` |
 
 ### 4.2 §5「禁止」欄位
 

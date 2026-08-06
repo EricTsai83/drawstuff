@@ -222,7 +222,10 @@ handshake 的時序（實測會動到 3 個測試檔的既有期望），因此�
    [alerts 與 dashboards contract](../observability/collaboration-alerts-and-dashboards.md)。
    §6 的 decrypt failure 與 snapshot conflict 兩條門檻**目前仍無法判定**：它們發生在 client
    與後端而非 relay，其上報契約已定義但尚未實作（同文件 §5.1／§6）。
-4. **step 9**：graceful drain，以及依賴它的 §4.1 max-memory 自動重啟。
+4. ~~**step 9**：graceful drain，以及依賴它的 §4.1 max-memory 自動重啟。~~ — 完成
+   （2026-08-06，[Plan 25](../../plans/25-relay-drain-and-deployment-envelope.md)）。
+   drain 行為、單 instance 部署封套與 rolling restart 程序見
+   [relay 部署文件](../operations/collaboration-relay-deployment.md)。
 5. **step 8**：load test 逐項對照本文件；**數字不得因測不過而調整**——先排除環境差異、
    重跑，仍不過則修 implementation，只有新的核准版本可以改門檻。單 instance 決定已讓
    「fanout dependency outage」情境退化為 relay 重啟（§0）。

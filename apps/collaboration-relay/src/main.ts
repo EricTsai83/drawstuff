@@ -11,6 +11,7 @@ import {
 } from "./logger.ts";
 import { RELAY_HEALTH_PATH, RELAY_METRICS_PATH } from "./monitoring.ts";
 import { createRelayServer } from "./server.ts";
+import { createMaxMemoryWatchdog, MAX_RELAY_RSS_BYTES } from "./watchdog.ts";
 
 /**
  * Local/test entry point, and the process's configuration boundary: environment
@@ -64,12 +65,41 @@ for (const path of [
 ]) {
   logger.info("relay.endpoint", { path, url: `${server.controlUrl}${path}` });
 }
+// The deployment envelope's declaration (Plan 25): one instance is the whole
+// service, so these limits *are* the service's capacity and availability
+// ceiling (SLO §0) — stated at startup rather than left as an assumption.
+logger.info("relay.single_instance", {
+  instances: 1,
+  maxConnections: server.limits.maxConnections,
+  maxRooms: server.limits.maxRooms,
+  maxConnectionsPerRoom: server.limits.maxConnectionsPerRoom,
+  drainTimeoutMs: server.limits.drainTimeoutMs,
+  maxRssBytes: MAX_RELAY_RSS_BYTES,
+});
 
-const shutdown = (): void => {
-  // Reporting unhealthy before closing is the only ordering that lets a probe
-  // observe the handover. The graceful drain of attached connections is Plan 25.
-  server.beginDrain();
-  void server.close().then(() => process.exit(0));
+/**
+ * Every way out of the process goes through the same graceful drain: existing
+ * connections close with a retryable code inside a bounded window, so clients
+ * rejoin the replacement process instead of experiencing a mass 1006. The
+ * guard makes the exits compose — a SIGTERM landing mid-watchdog-drain (or a
+ * second SIGTERM) must not restart the sequence or race two exits.
+ */
+let shuttingDown = false;
+const shutdown = (exitCode: number): void => {
+  if (shuttingDown) return;
+  shuttingDown = true;
+  watchdog.stop();
+  void server
+    .drain()
+    .then(() => server.close())
+    .then(() => process.exit(exitCode));
 };
-process.on("SIGINT", shutdown);
-process.on("SIGTERM", shutdown);
+process.on("SIGINT", () => shutdown(0));
+process.on("SIGTERM", () => shutdown(0));
+
+// A non-zero exit distinguishes the memory-triggered restart from an ordered
+// shutdown in the process manager's log; the manager restarts either way.
+const watchdog = createMaxMemoryWatchdog({
+  logger,
+  onExceeded: () => shutdown(1),
+});

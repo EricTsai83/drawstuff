@@ -1,6 +1,6 @@
 # Plan 25：Relay graceful drain 與單 instance 部署封套
 
-- Status: Ready
+- Status: Completed（2026-08-06，見文末 Verification notes）
 - Depends on: 19
 - Expected change size: SIGTERM drain、max-memory watchdog、單 instance 部署設定與容量／
   availability 上限文件
@@ -66,3 +66,33 @@ pnpm test
 - `/healthz` 在 drain 期間回報不健康。
 - Max-memory watchdog 走 drain 而非硬殺。
 - 容量與 availability 上限已文件化，且超出容量是明確拒絕而非默默錯誤。
+
+## Verification notes（2026-08-06）
+
+- **Drain**：`RelayServer.drain()` 以兩階段關閉——先讓全部 socket 進入 CLOSING，再逐一走
+  `RelayConnection.close()` 記錄 `relayRestarting` (4012) + closeCode 並釋放該連線自己的
+  deadline，因此 join/idle/room-expiry/revocation 等競爭關閉路徑在 drain 中一律成為
+  no-op。到期未完成 handshake 的 socket 強制 terminate 並計入 `relay.drained` 的
+  `forcedTerminations`。新 close code 4012 由 `disconnectReasonForCloseCode` 的預設分支
+  歸為 transient（可重試 by construction）。
+- **Watchdog**：`src/watchdog.ts` 每 10 秒取樣 RSS，超過 1 GiB（SLO §4.1 核准值，非環境
+  變數）記錄一次 `relay.memory_limit_exceeded` 後走與 SIGTERM 同一條 drain 路徑，exit 1。
+- **部署封套**：`pm2.config.cjs`（fork、instances 1、kill_timeout 15 s > drain 視窗、刻意
+  不設硬殺式 `max_memory_restart`）；啟動宣告 `relay.single_instance` 記錄生效容量上限。
+  程序與上限文件：`docs/operations/collaboration-relay-deployment.md`。
+- **Checks**：`pnpm lint`（0 errors）、`pnpm typecheck`、`pnpm test`（1,028：collaboration
+  402、adapter 109、web 363、relay 154）。多 client 情境由
+  `tests/cross-process.integration.test.ts` 以真實 process 驗證：SIGTERM 後兩個 client 皆以
+  transient 原因斷線、`relay.drained` 為 `forcedTerminations: 0`、exit code 0、client 成功
+  重連到同 port 的新 process 並收斂。
+
+### Review（Codex GPT-5.6 Sol，兩個 pass）
+
+Pass 1 回傳 4 個 findings：接受 3 個（drain 期間的競爭計時器、`relay.connection_closed`
+缺 closeCode——兩者以「drain 改走 connection 層 close」一併修正；文件承認強制終止者會
+觀察到 1006），拒絕 1 個（晚到被拒 socket 不納入 `forcedTerminations`：有界性成立、拒絕
+當下已計數、1006/4012 對 client 行為相同）。Pass 2（最終）回傳 2 個 findings，皆接受並
+修正：fanout `leave()` 的同步 peers 廣播可在 drain 迴圈中把 buffer 超標的成員搶先關成
+`slowConsumer`（修正：drain 兩階段化 + `deliverPeers` 補上與 `deliverData` 相同的
+readyState 檢查）；部署文件更正為引用 `relayRestarting` 計數器而非修正後恆為 0 的
+`shutdown`。

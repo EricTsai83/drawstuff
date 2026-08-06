@@ -69,6 +69,7 @@ relay_connections_closed_total{reason="roomEnded"} 0
 relay_connections_closed_total{reason="rateLimited"} 0
 relay_connections_closed_total{reason="idleTimeout"} 0
 relay_connections_closed_total{reason="relayRoomsAtCapacity"} 0
+relay_connections_closed_total{reason="relayRestarting"} 0
 relay_connections_closed_total{reason="normalClosure"} 0
 relay_connections_closed_total{reason="heartbeatTimeout"} 0
 relay_connections_closed_total{reason="peerClosed"} 0

@@ -331,6 +331,27 @@ describe("createRelayConnection", () => {
     expect(b.socket.closedWith).toBeUndefined();
   });
 
+  it("leaves a closing, over-budget socket to its own close instead of re-attributing it", () => {
+    // The drain (Plan 25) closes every member with `relayRestarting` and only
+    // then releases memberships; each release broadcasts a peer list to the
+    // remaining members. A member whose buffer is over budget must not be
+    // stolen from that sequence and recorded as `slowConsumer` — its close was
+    // already initiated, and a send to a closing socket transmits nothing.
+    const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
+    const a = setup({ fanout });
+    const b = setup({ fanout });
+    a.join({ clientName: "client-a" });
+    b.join({ clientName: "client-b" });
+
+    b.socket.readyState = 2; // CLOSING
+    b.socket.bufferedAmount = DEFAULT_LIMITS.maxBufferedBytes + 1;
+    // Membership churn broadcasts a peers update to b.
+    a.connection.handleTextFrame(encodeRelayControl({ control: "leave" }));
+
+    expect(b.socket.closedWith).toBeUndefined();
+    expect(b.connection.isJoined()).toBe(true);
+  });
+
   it("disconnects a slow consumer instead of queueing scene frames", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
     const a = setup({ fanout });

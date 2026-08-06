@@ -104,6 +104,14 @@ export type RelayConnection = {
    * passing one here cannot double-count.
    */
   handleSocketClosed(reason?: RelayCloseReason): void;
+  /**
+   * Relay-initiated close with a published close code; the server's drain uses
+   * it so a drained connection is recorded exactly like every other
+   * relay-initiated close — reason and code together — and so the connection's
+   * own deadlines (join, idle, room expiry) are released at once instead of
+   * racing the drain window with a competing close of their own.
+   */
+  close(code: number, reason: string): void;
   isJoined(): boolean;
 };
 
@@ -287,6 +295,12 @@ export function createRelayConnection(options: {
     },
     deliverPeers(peers) {
       if (ended) return;
+      // Same rationale as `deliverData`: `send()` on a closing socket
+      // transmits nothing, so there is nothing to deliver and nothing to
+      // protect the buffer from. Without this, a drained socket (closing with
+      // `relayRestarting`) whose buffer is over budget would be re-attributed
+      // as a slow consumer by another drained member's leave broadcast.
+      if (socket.readyState !== SOCKET_OPEN) return;
       if (socket.bufferedAmount > limits.maxBufferedBytes) {
         end(RELAY_CLOSE_CODES.slowConsumer, "outbound buffer over budget");
         return;
@@ -566,6 +580,7 @@ export function createRelayConnection(options: {
       if (!ended) recordClose(reason, undefined);
       release();
     },
+    close: (code, reason) => end(code, reason),
     isJoined: () => membership !== undefined,
   };
 }
