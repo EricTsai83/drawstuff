@@ -16,6 +16,7 @@ import { MAX_ROOM_TOKEN_BYTES } from "@drawstuff/collaboration/room-auth";
 import { RELAY_CONTROL_PATH } from "../src/control.ts";
 import { createInMemoryRoomFanout, type RoomFanout } from "../src/fanout.ts";
 import { createRelayServer, type RelayServer } from "../src/server.ts";
+import { createTestLogger } from "./support/observability.ts";
 import {
   issueControlToken,
   issueJoinToken,
@@ -43,6 +44,9 @@ async function startServer(
 ): Promise<RelayServer> {
   const server = await createRelayServer({
     joinTokenSecret: TEST_ROOM_TOKEN_SECRET,
+    // A collecting logger, so structured logs stay assertable and out of the
+    // test runner's output.
+    logger: createTestLogger().logger,
     ...options,
   });
   cleanups.push(() => server.close());
@@ -162,8 +166,8 @@ describe("relay server integration", () => {
     const presenceLossFanout: RoomFanout = {
       ...inner,
       publish(channel, senderPeerId, messageChannel, frame) {
-        if (messageChannel === "presence") return;
-        inner.publish(channel, senderPeerId, messageChannel, frame);
+        if (messageChannel === "presence") return { intended: 0, delivered: 0 };
+        return inner.publish(channel, senderPeerId, messageChannel, frame);
       },
     };
     const server = await startServer({ fanout: presenceLossFanout });

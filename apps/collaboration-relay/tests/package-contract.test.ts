@@ -48,11 +48,14 @@ describe("@drawstuff/collaboration-relay package contract", () => {
     expect(violations).toEqual([]);
   });
 
-  it("keeps every frame-handling source free of logging", () => {
+  it("keeps every frame-handling source free of direct output", () => {
     // Plan 14 step 3: the relay handles ciphertext, but a log line is still a
-    // copy. Only `main.ts` may write output — it runs before any socket exists
-    // and only reports the bound URLs and a missing-secret startup failure — so
-    // no code path that has a frame in scope can emit one.
+    // copy. Plan 24 adds structured logs and keeps that property by making
+    // `logger.ts` the single sink: it is the only file that may write, its field
+    // type is a closed allowlist derived from the threat model's data
+    // classification, and every other module — including every one that has a
+    // frame in scope — can only reach output through it. A `process.stdout.write`
+    // appearing anywhere else is a log line that bypassed the allowlist.
     const offenders = listSourceFiles(sourceRoot)
       .filter((filePath) =>
         /\bconsole\s*\.|process\.(?:stdout|stderr)/.test(
@@ -60,7 +63,7 @@ describe("@drawstuff/collaboration-relay package contract", () => {
         ),
       )
       .map((filePath) => path.relative(sourceRoot, filePath));
-    expect(offenders).toEqual(["main.ts"]);
+    expect(offenders).toEqual(["logger.ts"]);
   });
 
   it("never derives or holds a room encryption key", () => {

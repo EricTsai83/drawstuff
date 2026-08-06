@@ -9,6 +9,7 @@ import type { DisconnectReason } from "@drawstuff/collaboration/transport";
 
 import { RELAY_CONTROL_PATH } from "../src/control.ts";
 import { createRelayServer, type RelayServer } from "../src/server.ts";
+import { createTestLogger } from "./support/observability.ts";
 import {
   issueControlToken,
   TEST_ROOM_TOKEN_SECRET,
@@ -57,6 +58,7 @@ async function startServer(port = 0): Promise<RelayServer> {
   const server = await createRelayServer({
     joinTokenSecret: TEST_ROOM_TOKEN_SECRET,
     port,
+    logger: createTestLogger().logger,
   });
   cleanups.push(() => server.close());
   return server;

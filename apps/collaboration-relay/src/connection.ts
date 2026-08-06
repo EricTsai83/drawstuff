@@ -16,6 +16,12 @@ import {
 import { verifyJoinToken } from "@drawstuff/collaboration/room-token";
 
 import type { FanoutSubscriber, RoomFanout } from "./fanout.ts";
+import type { RelayLogger } from "./logger.ts";
+import {
+  relayCloseReasonForCode,
+  type RelayCloseReason,
+  type RelayMetrics,
+} from "./metrics.ts";
 import {
   createConnectionRateLimiter,
   monotonicNow,
@@ -25,12 +31,26 @@ import {
 import type { RelaySessionHandle, RelaySessionRegistry } from "./sessions.ts";
 
 /**
+ * Standard `WebSocket.OPEN`. Fixed by the WebSocket API (CONNECTING 0, OPEN 1,
+ * CLOSING 2, CLOSED 3), so it is stated here rather than imported — the relay
+ * drives only the slice below, not a `ws` instance.
+ */
+const SOCKET_OPEN = 1;
+
+/**
  * The slice of a server-side WebSocket the connection logic drives. `ws`
  * sockets satisfy it directly; unit tests inject a fake with a controllable
  * `bufferedAmount` to exercise the slow-consumer policy deterministically.
  */
 export type RelayConnectionSocket = {
   readonly bufferedAmount: number;
+  /**
+   * Standard readyState. Needed because a peer-initiated close handshake leaves
+   * the socket in `CLOSING` while the relay has not yet seen the `close` event:
+   * `send()` in that state does not transmit, so a frame handed to it was not
+   * actually delivered.
+   */
+  readonly readyState: number;
   send(data: string | Uint8Array): void;
   close(code: number, reason: string): void;
 };
@@ -69,9 +89,21 @@ export type RelayConnectionLimits = {
 
 export type RelayConnection = {
   handleTextFrame(text: string): void;
-  handleBinaryFrame(frame: Uint8Array): void;
-  /** Socket closed for any reason: release membership and timers. */
-  handleSocketClosed(): void;
+  /**
+   * @param receivedAt Monotonic timestamp of the frame's arrival, so routing
+   * latency is measured from receipt as SLO §3.1 defines it rather than from the
+   * start of this call. Defaults to now for callers that do not have it.
+   */
+  handleBinaryFrame(frame: Uint8Array, receivedAt?: number): void;
+  /**
+   * Socket closed for any reason: release membership and timers.
+   *
+   * @param reason Attributed to this close only when the relay did not initiate
+   * it through a close code — a missed heartbeat, shutdown, or the peer simply
+   * going away. A relay-initiated close has already recorded its own reason, so
+   * passing one here cannot double-count.
+   */
+  handleSocketClosed(reason?: RelayCloseReason): void;
   isJoined(): boolean;
 };
 
@@ -89,6 +121,8 @@ export function createRelayConnection(options: {
   generatePeerId: () => PeerId;
   /** Shared secret the app signs room tokens with. */
   joinTokenSecret: string;
+  metrics: RelayMetrics;
+  logger: RelayLogger;
   /**
    * Wall clock. Used only where absolute time is the question: token expiry and
    * room expiry, both of which are claims about a moment in real time.
@@ -112,6 +146,8 @@ export function createRelayConnection(options: {
     subjectRateLimiter,
     generatePeerId,
     joinTokenSecret,
+    metrics,
+    logger,
     now = Date.now,
     monotonicNow: elapsedNow = monotonicNow,
   } = options;
@@ -123,8 +159,14 @@ export function createRelayConnection(options: {
   let membership:
     | {
         channel: RoomChannelKey;
+        roomId: string;
+        authGeneration: number;
         peerId: PeerId;
+        /** Pseudonym, not the value; see the note where it is computed. */
+        client: string;
         role: RoomRole;
+        subject: string;
+        joinedAt: number;
         session: RelaySessionHandle;
       }
     | undefined;
@@ -133,6 +175,30 @@ export function createRelayConnection(options: {
   /** Time of the last data frame this socket sent; drives the idle deadline. */
   let lastFrameAt = elapsedNow();
   let ended = false;
+
+  /**
+   * One line and one counter increment per closed connection, whatever closed
+   * it. Membership fields are included when there was one, so a disconnect can
+   * be traced to a room without a second lookup.
+   */
+  const recordClose = (
+    reason: RelayCloseReason,
+    closeCode: number | undefined,
+  ): void => {
+    metrics.connectionClosed(reason);
+    logger.info("relay.connection_closed", {
+      closeCode,
+      closeReason: reason,
+      roomId: membership?.roomId,
+      authGeneration: membership?.authGeneration,
+      peerId: membership?.peerId,
+      client: membership?.client,
+      subject: membership?.subject,
+      sessionDurationMs: membership
+        ? Math.round(elapsedNow() - membership.joinedAt)
+        : undefined,
+    });
+  };
 
   /** Idempotent resource release; every close path funnels through here. */
   const release = (): void => {
@@ -156,6 +222,8 @@ export function createRelayConnection(options: {
 
   const end = (code: number, reason: string): void => {
     if (ended) return;
+    // Before `release()`, which drops the membership the record describes.
+    recordClose(relayCloseReasonForCode(code), code);
     release();
     socket.close(code, reason);
   };
@@ -188,23 +256,34 @@ export function createRelayConnection(options: {
 
   const subscriber: FanoutSubscriber = {
     deliverData(channel, frame) {
-      if (ended) return;
+      if (ended) return false;
+      // `ended` tracks what the relay knows; the socket can already be closing
+      // because the peer started the handshake, and `send()` on a closing socket
+      // silently transmits nothing.
+      if (socket.readyState !== SOCKET_OPEN) return false;
       if (channel === "presence") {
         // Volatile channel: drop under backpressure. The presence family is
         // latest-wins per sender, so a dropped sample is repaired by the next
-        // one and never affects scene convergence.
-        if (socket.bufferedAmount > limits.presenceDropBufferedBytes) return;
+        // one and never affects scene convergence. Counted rather than silent:
+        // the drop is correct, but a rate of it is evidence about backpressure.
+        if (socket.bufferedAmount > limits.presenceDropBufferedBytes) {
+          metrics.presenceFrameDropped();
+          return false;
+        }
         socket.send(frame);
-        return;
+        metrics.frameDelivered(channel, frame.byteLength);
+        return true;
       }
       // Session-ordered channel: frames cannot be skipped, so a buffer that
       // stays over budget means the consumer is not draining. Disconnecting
       // bounds relay memory; the client heals by reconnecting.
       if (socket.bufferedAmount > limits.maxBufferedBytes) {
         end(RELAY_CLOSE_CODES.slowConsumer, "outbound buffer over budget");
-        return;
+        return false;
       }
       socket.send(frame);
+      metrics.frameDelivered(channel, frame.byteLength);
+      return true;
     },
     deliverPeers(peers) {
       if (ended) return;
@@ -235,6 +314,7 @@ export function createRelayConnection(options: {
         return;
       }
       if (membership) {
+        logger.warn("relay.join_refused", { joinRefusal: "already-joined" });
         end(RELAY_CLOSE_CODES.protocolViolation, "already joined");
         return;
       }
@@ -248,6 +328,15 @@ export function createRelayConnection(options: {
         expectedClientId: control.clientId,
       });
       if (!verified.ok) {
+        // Only the enumerated verdict, and deliberately *not* `roomId` or
+        // `clientId`: before the token verifies, both are unvalidated client
+        // strings, and `ID_PATTERN` (1–64 base64url characters) accepts a room
+        // key verbatim — a 43-character base64url value. A client could
+        // therefore put key or token material in either field and force a
+        // `wrong-room`/`wrong-client`/`bad-signature` refusal to get it written
+        // to the relay's log, which is exactly what threat model §5 forbids.
+        // Identifiers are logged only once the token has bound them.
+        logger.warn("relay.join_refused", { tokenFailure: verified.reason });
         end(
           RELAY_CLOSE_CODES.unauthorized,
           `join rejected: ${verified.reason}`,
@@ -255,6 +344,21 @@ export function createRelayConnection(options: {
         return;
       }
       const { role, gen, sub, arev, rexp } = verified.claims;
+      const subject = logger.pseudonym(sub);
+      // The client id is pseudonymized even though the token verified: the token
+      // binds whatever the client asked the app to sign, and `ID_PATTERN` accepts
+      // a room key, so a *valid* token can carry key material here. `roomId` needs
+      // no such treatment — the app generates it and a join only resolves against
+      // an existing room row.
+      const client = logger.pseudonym(control.clientId);
+      /** Shared by every refusal below, so a refused join is traceable. */
+      const joinContext = {
+        roomId: control.roomId,
+        authGeneration: gen,
+        client,
+        subject,
+        role,
+      };
       // Generation comes from the verified token, never from the client, so a
       // rotated room is a channel a stale token cannot address.
       const channel = roomChannelKey(control.roomId, gen);
@@ -262,6 +366,10 @@ export function createRelayConnection(options: {
       // though it is still signed and unexpired: closing the sockets of a
       // removed member is pointless if the same token can rejoin at once.
       if (sessions.isRefused(channel, sub, arev)) {
+        logger.warn("relay.join_refused", {
+          ...joinContext,
+          joinRefusal: "membership-revoked",
+        });
         end(
           RELAY_CLOSE_CODES.membershipRevoked,
           "authorization was revoked after this token was issued",
@@ -272,10 +380,20 @@ export function createRelayConnection(options: {
       // socket must not outlive it.
       const roomExpiryMs = rexp * 1000 - now();
       if (roomExpiryMs <= 0) {
+        logger.info("relay.join_refused", {
+          ...joinContext,
+          joinRefusal: "room-expired",
+        });
         end(RELAY_CLOSE_CODES.roomEnded, "room expired");
         return;
       }
       if (fanout.memberCount(channel) >= limits.maxConnectionsPerRoom) {
+        logger.warn("relay.join_refused", {
+          ...joinContext,
+          joinRefusal: "room-at-capacity",
+          members: fanout.memberCount(channel),
+          limit: limits.maxConnectionsPerRoom,
+        });
         end(RELAY_CLOSE_CODES.roomAtCapacity, "room at capacity");
         return;
       }
@@ -287,6 +405,12 @@ export function createRelayConnection(options: {
         fanout.memberCount(channel) === 0 &&
         fanout.roomCount() >= limits.maxRooms
       ) {
+        logger.warn("relay.join_refused", {
+          ...joinContext,
+          joinRefusal: "relay-rooms-at-capacity",
+          rooms: fanout.roomCount(),
+          limit: limits.maxRooms,
+        });
         end(RELAY_CLOSE_CODES.relayRoomsAtCapacity, "relay rooms at capacity");
         return;
       }
@@ -296,6 +420,10 @@ export function createRelayConnection(options: {
       // verified subject rather than by socket, because what it bounds is
       // connect/disconnect churn — which by definition spans sockets.
       if (!subjectRateLimiter.admitJoin(sub)) {
+        logger.warn("relay.join_refused", {
+          ...joinContext,
+          joinRefusal: "join-rate-limited",
+        });
         end(RELAY_CLOSE_CODES.rateLimited, "join rate budget exceeded");
         return;
       }
@@ -321,7 +449,24 @@ export function createRelayConnection(options: {
           end(RELAY_CLOSE_CODES.membershipRevoked, "membership revoked");
         },
       });
-      membership = { channel, peerId, role, session };
+      membership = {
+        channel,
+        roomId: control.roomId,
+        authGeneration: gen,
+        peerId,
+        client,
+        role,
+        subject,
+        joinedAt: elapsedNow(),
+        session,
+      };
+      metrics.connectionJoined();
+      logger.info("relay.join", {
+        ...joinContext,
+        peerId,
+        members: fanout.memberCount(channel),
+        rooms: fanout.roomCount(),
+      });
       clearTimeout(joinDeadline);
       // The idle budget starts at the join, not at the first frame: a socket that
       // joins and then says nothing is exactly the case this bounds.
@@ -343,7 +488,7 @@ export function createRelayConnection(options: {
         }),
       );
     },
-    handleBinaryFrame(frame) {
+    handleBinaryFrame(frame, receivedAt = elapsedNow()) {
       if (ended) return;
       if (!membership) {
         end(RELAY_CLOSE_CODES.protocolViolation, "data frame before join");
@@ -385,14 +530,40 @@ export function createRelayConnection(options: {
       }
       // Any accepted frame is evidence the session is in use.
       lastFrameAt = elapsedNow();
-      fanout.publish(
+      metrics.frameRouted(dataFrame.channel, frame.byteLength);
+      logger.frame({
+        roomId: membership.roomId,
+        authGeneration: membership.authGeneration,
+        peerId: membership.peerId,
+        channel: dataFrame.channel,
+        byteLength: frame.byteLength,
+      });
+      const routed = fanout.publish(
         membership.channel,
         membership.peerId,
         dataFrame.channel,
         frame,
       );
+      // SLO §3.1 measures receipt until the frame reached *every* other member's
+      // send, so only a publish that did all of that work is a valid sample. Two
+      // kinds are excluded: one with no recipients (a lone member does no fanout,
+      // so timing it would report the relay's fastest case for a room that has no
+      // routing to do), and one where a recipient was skipped — a presence frame
+      // dropped under backpressure or a slow consumer closed instead of written
+      // to. A skipped send is cheaper than a real one, so counting it would
+      // flatter the histogram exactly when the relay is under load. Both cases
+      // stay visible through `relay_presence_frames_dropped_total` and the
+      // `slowConsumer` disconnect counter.
+      if (routed.intended > 0 && routed.delivered === routed.intended) {
+        metrics.observeRoutingLatencySeconds(
+          (elapsedNow() - receivedAt) / 1_000,
+        );
+      }
     },
-    handleSocketClosed() {
+    handleSocketClosed(reason = "peerClosed") {
+      // A relay-initiated close already recorded its own reason; `ended` is how
+      // this path knows not to record a second one for the same connection.
+      if (!ended) recordClose(reason, undefined);
       release();
     },
     isJoined: () => membership !== undefined,

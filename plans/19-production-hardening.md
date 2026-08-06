@@ -22,7 +22,7 @@
 
 | 原 step                          | 現在在哪                                               | 狀態                       |
 | -------------------------------- | ------------------------------------------------------ | -------------------------- |
-| 4 metrics / alerts / dashboards  | [Plan 24](./24-collaboration-observability.md)         | Ready                      |
+| 4 metrics / alerts / dashboards  | [Plan 24](./24-collaboration-observability.md)         | Completed（2026-08-06）    |
 | 9 drain / restart + `RoomFanout` | [Plan 25](./25-relay-drain-and-deployment-envelope.md) | Ready                      |
 | 6 `deriveRoomKey` 版本策略       | [Plan 26](./26-purpose-scoped-key-derivation.md)       | Completed（2026-08-06）    |
 | 2 的後端半邊（速率限制）         | [Plan 27](./27-collaboration-backend-rate-limits.md)   | Blocked（共享儲存決定）    |

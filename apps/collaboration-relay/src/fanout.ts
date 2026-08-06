@@ -14,14 +14,31 @@ import type {
  * must not block: the relay applies its slow-consumer policy inside the sink.
  */
 export type FanoutSubscriber = {
-  /** A data frame published by another member of the same room. */
+  /**
+   * A data frame published by another member of the same room.
+   *
+   * Returns whether the frame actually reached `socket.send`. It may not:
+   * presence is dropped under backpressure, a slow scene consumer is closed
+   * instead, and an already-ended connection accepts nothing. The routing-latency
+   * SLO is defined as "handed to every other member's send", so the caller needs
+   * to know the difference — a skipped send is faster than a real one, and
+   * counting it would make the histogram flatter exactly under load.
+   */
   deliverData(
     channel: MessageChannel,
     frame: Uint8Array,
     senderPeerId: PeerId,
-  ): void;
+  ): boolean;
   /** Full room membership after a join/leave, including the receiver. */
   deliverPeers(peers: readonly RelayPeer[]): void;
+};
+
+/** Outcome of one publish: who it was meant for, and who it reached. */
+type FanoutPublishResult = {
+  /** Members other than the sender at publish time. */
+  intended: number;
+  /** Of those, the ones the frame was handed to `socket.send` for. */
+  delivered: number;
 };
 
 type FanoutJoinResult = {
@@ -56,15 +73,28 @@ export interface RoomFanout {
     subscriber: FanoutSubscriber;
   }): FanoutJoinResult;
   leave(channel: RoomChannelKey, peerId: PeerId): void;
-  /** Route one data frame to every other member of the room. */
+  /**
+   * Route one data frame to every other member of the room.
+   *
+   * Reports intended and actual recipients, which is what makes routing latency
+   * measurable against its definition: a publish with no recipients did no fanout
+   * work, and one where a recipient was skipped did not reach every member's
+   * send. Timing either as if it had would flatter the histogram.
+   */
   publish(
     channel: RoomChannelKey,
     senderPeerId: PeerId,
     messageChannel: MessageChannel,
     frame: Uint8Array,
-  ): void;
+  ): FanoutPublishResult;
   memberCount(channel: RoomChannelKey): number;
   roomCount(): number;
+  /**
+   * Member count of every live room, for the metrics room-size distribution.
+   * Deliberately counts only — no channel keys, so the exposition cannot leak
+   * the room list.
+   */
+  roomSizes(): readonly number[];
 }
 
 type RoomMember = {
@@ -161,17 +191,43 @@ export function createInMemoryRoomFanout(options?: {
     },
     publish(channel, senderPeerId, messageChannel, frame) {
       const room = rooms.get(channel);
-      if (!room?.members.has(senderPeerId)) return;
-      for (const member of room.members.values()) {
-        if (member.peerId === senderPeerId) continue;
-        member.subscriber.deliverData(messageChannel, frame, senderPeerId);
+      if (!room?.members.has(senderPeerId))
+        return { intended: 0, delivered: 0 };
+      // Snapshot the recipients before delivering any of them.
+      //
+      // A sink may synchronously remove *another* member: a slow consumer's
+      // `deliverData` closes itself, which re-enters `leave()`, which broadcasts
+      // membership, whose own buffer check can close a second member. Iterating
+      // the live Map would then skip that member entirely, so `intended` would
+      // never count someone who existed at publish time and a partial fanout
+      // would report itself as complete to the latency gate.
+      const recipients = [...room.members.values()].filter(
+        (member) => member.peerId !== senderPeerId,
+      );
+      let delivered = 0;
+      for (const member of recipients) {
+        // Re-checked against live membership, not just snapshotted: a member
+        // removed earlier in this same loop must not be delivered to, and making
+        // that the fanout's rule rather than the sink's keeps the accounting true
+        // whatever a subscriber does. It still counts as *intended*, because it
+        // was a member when the publish began and did not receive the frame.
+        if (!room.members.has(member.peerId)) continue;
+        if (
+          member.subscriber.deliverData(messageChannel, frame, senderPeerId)
+        ) {
+          delivered += 1;
+        }
       }
+      return { intended: recipients.length, delivered };
     },
     memberCount(channel) {
       return rooms.get(channel)?.members.size ?? 0;
     },
     roomCount() {
       return rooms.size;
+    },
+    roomSizes() {
+      return [...rooms.values()].map((room) => room.members.size);
     },
   };
 }

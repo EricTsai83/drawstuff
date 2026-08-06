@@ -1,7 +1,7 @@
 # Plan 29：共編 load test 與 runbook
 
-- Status: Blocked — 依賴 Plan 24、25
-- Depends on: 19、24、25
+- Status: Blocked — 依賴 Plan 25 與 Plan 32（Plan 24 已於 2026-08-06 完成）
+- Depends on: 19、24、25、32
 - Expected change size: load-test harness、報告、runbook 與 drill 紀錄
 
 > 2026-08-06 由 Plan 19 step 8／step 9 的驗證半邊與 runbook 拆出。
@@ -50,8 +50,12 @@
 
 ## Steps
 
-1. 等 Plan 24（否則沒有可讀的 metrics）與 Plan 25（否則沒有 drain 可測）。SLO 門檻已核准
-   （含修訂 R1，2026-08-06），可直接對照。
+1. 等 Plan 24（否則沒有可讀的 metrics）、Plan 25（否則沒有 drain 可測）與
+   [Plan 32](./32-collaboration-client-telemetry.md)。SLO 門檻已核准（含修訂 R1，
+   2026-08-06），可直接對照。**Plan 32 是硬前提**：SLO §6 的 session 成功率、decrypt
+   failure 與 snapshot conflict 率發生在 client 與後端而非 relay，Plan 24 只定義了上報契約、
+   沒有實作，所以在 Plan 32 完成前這三列沒有 metric 可對照，本 plan 的「逐項對照有明確判定」
+   無法成立。
 2. 建立 local load-test harness，輸出可存檔的 JSON 報告。
 3. 依序執行五個情境加 drain／restart 情境，保存報告。
 4. **若 large room 情境顯示 newcomer join storm 會觸發 `rateLimited` 斷線**，執行既有的
