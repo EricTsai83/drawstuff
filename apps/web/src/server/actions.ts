@@ -1,9 +1,9 @@
 "use server";
 
 import { db } from "@/server/db";
-import { sharedScene } from "@/server/db/schema";
+import { fileRecord, scene, sharedScene } from "@/server/db/schema";
 import { nanoid } from "nanoid";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { getServerSession } from "@/lib/auth/server";
 import { QUERIES } from "@/server/db/queries";
 import { UTApi } from "uploadthing/server";
@@ -157,6 +157,8 @@ export type SaveSceneResult =
       error: AppErrorCode;
       message?: string;
       data?: { id: string; revision: number; updatedAt: string };
+      /** Present on SCENE_ASSETS_MISSING: the file ids the client must upload. */
+      missingFileIds?: string[];
     };
 
 export async function createSceneDraftAction(
@@ -269,6 +271,13 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
         error: APP_ERROR.UNAUTHORIZED,
         message: saveResult.message,
       };
+    case "missing_assets":
+      return {
+        ok: false,
+        error: APP_ERROR.SCENE_ASSETS_MISSING,
+        message: saveResult.message,
+        missingFileIds: saveResult.missingFileIds,
+      };
     case "validation_failed":
       return {
         ok: false,
@@ -282,6 +291,45 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
         message: "Failed to save scene. Please try again later",
       };
   }
+}
+
+const ReadSceneAssetFileIdsInput = z.object({ sceneId: z.uuid() });
+
+export type ReadSceneAssetFileIdsResult =
+  { ok: true; fileIds: string[] } | { ok: false; errorMessage: string };
+
+/**
+ * The Excalidraw file ids this scene already stores, so a save can skip
+ * uploading bytes the scene has and drop the per-save "upload → identity
+ * conflict → delete the fresh object" round trip.
+ */
+export async function readSceneAssetFileIdsAction(
+  raw: unknown,
+): Promise<ReadSceneAssetFileIdsResult> {
+  const session = await getServerSession();
+  if (!session) {
+    return { ok: false, errorMessage: "Please sign in and try again" };
+  }
+
+  const parsed = ReadSceneAssetFileIdsInput.safeParse(raw);
+  if (!parsed.success) {
+    return { ok: false, errorMessage: "The submitted data format is invalid" };
+  }
+
+  const ownerId = await QUERIES.getSceneOwnerId(parsed.data.sceneId);
+  if (!ownerId || ownerId !== session.user.id) {
+    return {
+      ok: false,
+      errorMessage:
+        "Scene not found. It may have been deleted or you lack permission",
+    };
+  }
+
+  const rows = await db
+    .select({ excalidrawFileId: fileRecord.excalidrawFileId })
+    .from(fileRecord)
+    .where(eq(fileRecord.sceneId, parsed.data.sceneId));
+  return { ok: true, fileIds: rows.map((row) => row.excalidrawFileId) };
 }
 
 export async function cleanupSceneAssetUploadsAction(raw: unknown) {
@@ -306,34 +354,71 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
   }
 
   try {
-    const sceneRow = await QUERIES.getSceneOwnerAndData(sceneId);
-    if (!sceneRow || sceneRow.ownerId !== session.user.id) {
+    const uniqueFileKeys = Array.from(new Set(fileKeys));
+    // Read-decide-delete runs as one transaction under the scene row lock, so
+    // it serializes with saves: a save's row write holds the same lock while it
+    // verifies its references, so this cannot delete a record between that
+    // check and the save's commit — and it never decides against a document
+    // that a concurrent save is about to replace.
+    //
+    // Within the lock, the committed document decides what survives, not this
+    // failed save: a concurrent save may have committed a scene whose only
+    // record for an asset is the row *this* request's upload created (identity
+    // is per file id, so the second upload of the same image is refused as a
+    // retry). Deleting by uploaded key alone would take that scene's image
+    // with it.
+    const plan = await db.transaction(async (tx) => {
+      const [sceneRow] = await tx
+        .select({ ownerId: scene.userId, sceneData: scene.sceneData })
+        .from(scene)
+        .where(eq(scene.id, sceneId))
+        .for("update");
+      if (!sceneRow || sceneRow.ownerId !== session.user.id) {
+        return null;
+      }
+
+      const records = await tx
+        .select({
+          utFileKey: fileRecord.utFileKey,
+          excalidrawFileId: fileRecord.excalidrawFileId,
+        })
+        .from(fileRecord)
+        .where(
+          and(
+            eq(fileRecord.sceneId, sceneId),
+            inArray(fileRecord.utFileKey, uniqueFileKeys),
+          ),
+        );
+
+      const cleanupPlan = planSceneAssetCleanup({
+        requestedKeys: uniqueFileKeys,
+        records,
+        referencedFileIds: await readReferencedSceneAssetIds(
+          sceneRow.sceneData,
+        ),
+      });
+
+      if (cleanupPlan.deletableKeys.length > 0) {
+        await tx
+          .delete(fileRecord)
+          .where(
+            and(
+              eq(fileRecord.sceneId, sceneId),
+              inArray(fileRecord.utFileKey, cleanupPlan.deletableKeys),
+            ),
+          );
+      }
+
+      return cleanupPlan;
+    });
+
+    if (plan === null) {
       return {
         success: false,
         errorMessage:
           "Scene not found. It may have been deleted or you lack permission",
       } as const;
     }
-
-    const uniqueFileKeys = Array.from(new Set(fileKeys));
-    // The committed document decides what survives, not this failed save: a
-    // concurrent save may have committed a scene whose only record for an asset
-    // is the row *this* request's upload created (identity is per file id, so
-    // the second upload of the same image is refused as a retry). Deleting by
-    // uploaded key alone would take that scene's image with it.
-    const plan = planSceneAssetCleanup({
-      requestedKeys: uniqueFileKeys,
-      records: await QUERIES.getFileRecordsBySceneIdAndFileKeys(
-        sceneId,
-        uniqueFileKeys,
-      ),
-      referencedFileIds: await readReferencedSceneAssetIds(sceneRow.sceneData),
-    });
-
-    await QUERIES.deleteFileRecordsBySceneIdAndFileKeys(
-      sceneId,
-      plan.deletableKeys,
-    );
 
     const utapi = new UTApi();
     // Only objects whose record is gone (or never existed) are removed; a

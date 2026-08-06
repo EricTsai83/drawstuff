@@ -2,13 +2,20 @@ import "server-only";
 
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { db } from "@/server/db";
-import { category, scene, sceneCategory, workspace } from "@/server/db/schema";
+import {
+  category,
+  fileRecord,
+  scene,
+  sceneCategory,
+  workspace,
+} from "@/server/db/schema";
 import type {
   CreateSceneDraftInput,
   SaveSceneInput,
 } from "@/lib/schemas/scene";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import { validateStoredV4Write } from "@/server/excalidraw/persistence-guard";
+import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 
 type SaveOwnedSceneParams = {
   userId: string;
@@ -57,7 +64,49 @@ export type SaveOwnedSceneResult =
         updatedAt: Date;
       };
     }
-  | { status: "validation_failed"; message: string };
+  | { status: "validation_failed"; message: string }
+  | { status: "missing_assets"; message: string; missingFileIds: string[] };
+
+/**
+ * Raised inside the save transaction so the row write rolls back: a committed
+ * scene must never reference an asset that has no `file_record`, because the
+ * record is the only map from the document's file id to the stored bytes.
+ */
+class MissingSceneAssetsError extends Error {
+  constructor(readonly missingFileIds: string[]) {
+    super(
+      `Scene references assets with no stored record: ${missingFileIds.join(", ")}`,
+    );
+  }
+}
+
+/**
+ * Save-time asset validation. Runs after the scene row write in the same
+ * transaction, so the row lock the write took serializes this check against
+ * `cleanupSceneAssetUploadsAction` (which locks the row FOR UPDATE before
+ * deleting records): cleanup can never remove a record between this check and
+ * the commit it protects.
+ */
+async function assertReferencedAssetsRecorded(
+  tx: DbTransaction,
+  sceneId: string,
+  referencedFileIds: Set<string>,
+): Promise<void> {
+  if (referencedFileIds.size === 0) return;
+  const ids = Array.from(referencedFileIds);
+  const rows = await tx
+    .select({ excalidrawFileId: fileRecord.excalidrawFileId })
+    .from(fileRecord)
+    .where(
+      and(
+        eq(fileRecord.sceneId, sceneId),
+        inArray(fileRecord.excalidrawFileId, ids),
+      ),
+    );
+  const present = new Set(rows.map((row) => row.excalidrawFileId));
+  const missing = ids.filter((id) => !present.has(id));
+  if (missing.length > 0) throw new MissingSceneAssetsError(missing);
+}
 
 export async function createOwnedSceneDraft({
   userId,
@@ -128,6 +177,45 @@ export async function saveOwnedScene({
     };
   }
 
+  // Parsed once outside the transaction — the payload is fixed. `null` means
+  // the document cannot be read, which the write guard above already rejects;
+  // if it slips through anyway, refuse rather than commit unverifiable refs.
+  const referencedFileIds = await readReferencedSceneAssetIds(input.data);
+  if (referencedFileIds === null) {
+    return {
+      status: "validation_failed",
+      message: "Scene data rejected: unreadable-document",
+    };
+  }
+
+  try {
+    return await saveOwnedSceneInTransaction({
+      userId,
+      input,
+      now,
+      referencedFileIds,
+    });
+  } catch (error) {
+    if (error instanceof MissingSceneAssetsError) {
+      return {
+        status: "missing_assets",
+        message: error.message,
+        missingFileIds: error.missingFileIds,
+      };
+    }
+    throw error;
+  }
+}
+
+async function saveOwnedSceneInTransaction({
+  userId,
+  input,
+  now,
+  referencedFileIds,
+}: SaveOwnedSceneParams & {
+  now: Date;
+  referencedFileIds: Set<string>;
+}): Promise<SaveOwnedSceneResult> {
   return await db.transaction(async (tx) => {
     if (input.workspaceId !== undefined) {
       const [ownedWorkspace] = await tx
@@ -168,6 +256,12 @@ export async function saveOwnedScene({
           message: "Failed to create scene",
         } as const;
       }
+
+      await assertReferencedAssetsRecorded(
+        tx,
+        createdScene.id,
+        referencedFileIds,
+      );
 
       await syncSceneCategories(tx, {
         sceneId: createdScene.id,
@@ -274,6 +368,12 @@ export async function saveOwnedScene({
         },
       } as const;
     }
+
+    await assertReferencedAssetsRecorded(
+      tx,
+      updatedScene.id,
+      referencedFileIds,
+    );
 
     await syncSceneCategories(tx, {
       sceneId: updatedScene.id,

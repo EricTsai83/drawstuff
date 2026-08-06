@@ -29,7 +29,7 @@ merge algorithm，皆不在這組計畫內。
 
 **表格的排列即為執行順序**：已結束的（`Completed`／`Skipped`）依 plan 編號排在上半，
 未完成的 9 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
-從 Plan 23 那一列往下讀就是待辦。
+從 Plan 25 那一列往下讀就是待辦。
 
 | Plan                                              | 執行狀態                  | 結果                                                    | 依賴               |
 | ------------------------------------------------- | ------------------------- | ------------------------------------------------------- | ------------------ |
@@ -58,11 +58,11 @@ merge algorithm，皆不在這組計畫內。
 | [24](./24-collaboration-observability.md)         | Completed（2026-08-06）   | Relay metrics、structured logs、alerts contract         | 19                 |
 | [26](./26-purpose-scoped-key-derivation.md)       | Completed                 | `deriveRoomKey` 解除 envelope 版本耦合                  | 19                 |
 | [30](./30-silent-key-mismatch-detection.md)       | Completed（2026-08-06）   | 金鑰不相容的非靜默偵測不再只依賴 snapshot               | 19、26             |
+| [23](./23-owned-scene-asset-lifecycle.md)         | Completed（2026-08-06）   | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
 | [31](./31-durable-format-protocol-decoupling.md)  | Completed（2026-08-06）   | durable 格式與 transport 版本解耦                       | 26                 |
-| [23](./23-owned-scene-asset-lifecycle.md)         | Ready                     | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
 | [25](./25-relay-drain-and-deployment-envelope.md) | Ready                     | Graceful drain 與單 instance 部署封套                   | 19                 |
 | [32](./32-collaboration-client-telemetry.md)      | Blocked — 共享儲存決定    | Client／後端側共編 telemetry 上報                       | 24、30             |
-| [28](./28-room-scoped-retention.md)               | Blocked — Plan 23 step 4  | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
+| [28](./28-room-scoped-retention.md)               | Ready                     | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
 | [29](./29-collaboration-load-test-and-runbook.md) | Blocked — 25、32          | Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
 | [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 共享儲存決定    | 共編後端入口的速率限制                                  | 19                 |
 | [34](./34-room-key-confirmation.md)               | Ready                     | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |

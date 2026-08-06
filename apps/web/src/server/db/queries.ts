@@ -1,10 +1,9 @@
-import { eq, and, lte, ne, lt, inArray } from "drizzle-orm";
+import { eq, and, lte, lt, inArray, isNotNull, count } from "drizzle-orm";
 import { db } from "./index";
 import {
   scene,
   sharedScene,
   fileRecord,
-  user,
   deferredFileCleanup,
   session,
   verification,
@@ -113,53 +112,19 @@ export const QUERIES = {
       .returning();
   },
 
-  /** Scene ownership plus the committed document, for retention decisions. */
-  getSceneOwnerAndData: async function (
-    id: string,
-  ): Promise<{ ownerId: string; sceneData: string | null } | undefined> {
-    const [row] = await db
-      .select({ ownerId: scene.userId, sceneData: scene.sceneData })
-      .from(scene)
-      .where(eq(scene.id, id));
-    return row;
-  },
-
-  /** Identity of the records behind a set of storage keys, for one scene. */
-  getFileRecordsBySceneIdAndFileKeys: async function (
-    sceneId: string,
-    fileKeys: string[],
-  ) {
-    if (fileKeys.length === 0)
-      return [] as Array<{ utFileKey: string; excalidrawFileId: string }>;
-    return await db
-      .select({
-        utFileKey: fileRecord.utFileKey,
-        excalidrawFileId: fileRecord.excalidrawFileId,
-      })
+  /**
+   * Distinct scene ids that still have asset records, for the GC sweep. All of
+   * them: the caller samples its bounded batch from the full candidate set, so
+   * scenes beyond a fixed first page are not starved forever.
+   */
+  getSceneIdsWithFileRecords: async function () {
+    const rows = await db
+      .selectDistinct({ sceneId: fileRecord.sceneId })
       .from(fileRecord)
-      .where(
-        and(
-          eq(fileRecord.sceneId, sceneId),
-          inArray(fileRecord.utFileKey, fileKeys),
-        ),
-      );
-  },
-
-  deleteFileRecordsBySceneIdAndFileKeys: async function (
-    sceneId: string,
-    fileKeys: string[],
-  ) {
-    if (fileKeys.length === 0)
-      return [] as Array<typeof fileRecord.$inferSelect>;
-    return await db
-      .delete(fileRecord)
-      .where(
-        and(
-          eq(fileRecord.sceneId, sceneId),
-          inArray(fileRecord.utFileKey, fileKeys),
-        ),
-      )
-      .returning();
+      .where(isNotNull(fileRecord.sceneId));
+    return rows
+      .map((row) => row.sceneId)
+      .filter((id): id is string => id !== null);
   },
 
   getFileRecordsBySharedSceneId: async function (sharedSceneId: string) {
@@ -190,8 +155,7 @@ export const QUERIES = {
     return await db.insert(deferredFileCleanup).values(payload).returning();
   },
 
-  getDueDeferredCleanups: async function (limit = 50) {
-    const now = new Date();
+  getDueDeferredCleanups: async function (limit = 50, now = new Date()) {
     return await db
       .select()
       .from(deferredFileCleanup)
@@ -201,7 +165,22 @@ export const QUERIES = {
           lte(deferredFileCleanup.nextAttemptAt, now),
         ),
       )
+      .orderBy(deferredFileCleanup.nextAttemptAt)
       .limit(limit);
+  },
+
+  /** How many due tasks a bounded drain would still leave behind. */
+  countDueDeferredCleanups: async function (now = new Date()) {
+    const [row] = await db
+      .select({ value: count() })
+      .from(deferredFileCleanup)
+      .where(
+        and(
+          eq(deferredFileCleanup.status, "pending"),
+          lte(deferredFileCleanup.nextAttemptAt, now),
+        ),
+      );
+    return row?.value ?? 0;
   },
 
   markDeferredCleanupDone: async function (id: string) {
@@ -250,20 +229,6 @@ export const QUERIES = {
       .where(eq(deferredFileCleanup.id, id))
       .returning();
   },
-  // 清理：刪除除了擁有者之外的所有使用者（連鎖刪除其關聯資料）
-  deleteUsersExceptEmail: async function (ownerEmail: string) {
-    return await db.delete(user).where(ne(user.email, ownerEmail)).returning();
-  },
-
-  // 清理前置：取得除了擁有者之外的所有使用者 ID
-  getUserIdsExceptEmail: async function (ownerEmail: string) {
-    const rows = await db
-      .select({ id: user.id })
-      .from(user)
-      .where(ne(user.email, ownerEmail));
-    return rows.map((r) => r.id);
-  },
-
   // 清理前置：取得屬於多位使用者的場景 ID
   getSceneIdsByUserIds: async function (userIds: string[]) {
     if (userIds.length === 0) return [] as string[];
