@@ -254,6 +254,14 @@ export const RELAY_CLOSE_CODES = {
    * is full) so the disconnect-reason breakdown can tell the three apart.
    */
   relayRoomsAtCapacity: 4011,
+  /**
+   * The relay process is draining so it can be replaced: a deploy, a rolling
+   * restart, or the max-memory watchdog. Retryable on purpose — the condition
+   * is about *this* process, and the recovery backoff is what carries the
+   * client across the handover to the replacement. Sent both when an existing
+   * connection is drained and when a new connection arrives mid-drain.
+   */
+  relayRestarting: 4012,
 } as const;
 export type RelayCloseCode =
   (typeof RELAY_CLOSE_CODES)[keyof typeof RELAY_CLOSE_CODES];

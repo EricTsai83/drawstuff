@@ -37,7 +37,13 @@ type RelayLogEvent =
   | "relay.startup_failed"
   | "relay.listening"
   | "relay.endpoint"
+  /** The single-instance deployment declaration and its effective limits. */
+  | "relay.single_instance"
   | "relay.draining"
+  /** The drain window ended; carries what it closed and what it had to force. */
+  | "relay.drained"
+  /** RSS crossed the SLO §4.1 restart threshold; a drain-then-exit follows. */
+  | "relay.memory_limit_exceeded"
   | "relay.stopped"
   | "relay.connection_rejected"
   | "relay.join"
@@ -112,6 +118,21 @@ type RelayLogFields = {
   sessions?: number;
   members?: number;
   limit?: number;
+  /** Drained sockets the drain deadline had to terminate (Plan 25). */
+  forcedTerminations?: number;
+  /** Elapsed time of the operation the record describes. */
+  durationMs?: number;
+  /** Process resident set size, for the max-memory watchdog's record. */
+  rssBytes?: number;
+  /** SLO §4.1 max-memory restart threshold in effect. */
+  maxRssBytes?: number;
+  /** Deployment envelope: the number of relay instances, which is always 1. */
+  instances?: number;
+  /** Effective capacity limits, for the startup declaration. */
+  maxConnections?: number;
+  maxRooms?: number;
+  maxConnectionsPerRoom?: number;
+  drainTimeoutMs?: number;
   controlAction?: "end-room" | "revoke-member";
   controlOutcome?: RelayControlOutcome;
   closedSessions?: number;
@@ -152,6 +173,15 @@ const LOGGABLE_FIELDS: Record<keyof RelayLogFields, true> = {
   sessions: true,
   members: true,
   limit: true,
+  forcedTerminations: true,
+  durationMs: true,
+  rssBytes: true,
+  maxRssBytes: true,
+  instances: true,
+  maxConnections: true,
+  maxRooms: true,
+  maxConnectionsPerRoom: true,
+  drainTimeoutMs: true,
   controlAction: true,
   controlOutcome: true,
   closedSessions: true,
