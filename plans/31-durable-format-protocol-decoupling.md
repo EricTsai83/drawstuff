@@ -1,6 +1,6 @@
 # Plan 31：durable 格式與 transport 版本解耦（Plan 26 的另一半）
 
-- Status: Ready
+- Status: Completed（2026-08-06）
 - Depends on: 26
 - Expected change size: snapshot／asset 的 payload schema 與 AAD 字串、對應測試、以及一份
   與 Plan 26 同型的部署程序
@@ -100,6 +100,73 @@ pnpm knip
 
 另需保存「升版 `COLLABORATION_PROTOCOL_VERSION` 不影響既有 snapshot／asset 可讀性」的測試
 輸出，以及部署當下的稽核結果。
+
+## 執行紀錄（2026-08-06）
+
+### Step 1 — 稽核
+
+對 `apps/web/.env` 的 `POSTGRES_URL`（Neon，`ap-southeast-1`）做唯讀盤點，稽核時點
+`2026-08-06T06:51:00Z`（表名帶 `excalidraw-ericts_` 前綴）：
+
+| 表                       | rows | 說明                                             |
+| ------------------------ | ---- | ------------------------------------------------ |
+| `collaboration_room`     | 1    | `expires_at > now()` 的 active room **0 筆**    |
+| `collaboration_snapshot` | 0    | 沒有任何 durable snapshot 密文                   |
+| `collaboration_asset`    | 0    | 沒有任何 asset 密文                              |
+
+受影響範圍為零：沒有任何既存 durable 密文會因 AAD 或 strict schema 變更而不可讀。
+
+### Step 2 — `protocolVersion` 欄位處置：移除
+
+採**移除**，不採放寬保留。理由：(1) 稽核為 0 筆既存 payload，沒有任何舊資料需要靠放寬
+`z.literal` 維持可讀；(2)「純紀錄」的 transport 版本欄位正是本 plan 要移除的概念混雜——
+durable payload 內殘留一個與自身格式無關、不當閘門也不參與驗證的欄位，只會誤導後續讀者
+以為它 load-bearing；(3) 專案既定原則是不留無用途的 compatibility 痕跡。
+
+### Step 3 — 部署方式：排空
+
+與 Plan 26 相同：受影響資料 0 筆，versioned reader 會為零收益引入一個必須排定移除的
+compatibility contract（違反索引共同規則 7、8）。停用窗口為零。
+
+### Step 4 — 實作
+
+- `snapshot.ts`：`collaborationSnapshotSchema` 移除 `protocolVersion`；AAD 改為
+  `drawstuff-snapshot/v{SNAPSHOT_CRYPTO_VERSION}/{roomId}/g{gen}/r{rev}`，並把 label 抽成
+  exported 的 `snapshotAdditionalDataLabel`，使「transport 版本不進 durable AAD」成為
+  pinned contract 而非註解。
+- `asset.ts`：`assetPayloadMetadataSchema` 移除 `protocolVersion`；AAD 改為
+  `drawstuff-asset/v{ASSET_CRYPTO_VERSION}/{roomId}/g{gen}/{fileId}`，同樣 export
+  `assetAdditionalDataLabel`。
+- realtime 完全未動：`messages.ts`／`relay-protocol.ts` 的 `protocolVersion` schema 與
+  `drawstuff-realtime/v…/p…` AAD 維持原樣。
+- 回歸測試（`snapshot.test.ts`／`asset.test.ts` 各一組「transport protocol decoupling
+  (Plan 31)」）：(1) payload schema／metadata 不含 `protocolVersion`，且帶著該欄位的
+  pre-decoupling payload 被 strict schema 明確拒絕（這是有意的破壞性變更，由排空部署
+  承擔）；(2) seal 實際綁定的就是 exported label——用該 label 手動解密成功、用舊式含
+  `p{N}` 的 label 解密失敗（證明 transport 升版不可能使既有密文不可讀）、用自身 envelope
+  版本 +1 的 label 解密失敗（證明 durable 自己的版本仍然有效）。
+
+### 驗證輸出（2026-08-06）
+
+`pnpm lint`／`pnpm typecheck`／`pnpm knip` 全部 4/4 task 通過；`pnpm test` 通過
+（collaboration 402、web 334、relay 全數）。回歸測試（`vitest run -t "Plan 31"`）
+15 passed，含兩組「transport protocol decoupling (Plan 31)」。稽核輸出見 Step 1。
+
+### Step 5 — 部署程序執行
+
+1. 稽核（上表）確認 `expires_at > now()` 的 room 為 0 筆、snapshot 與 asset 均 0 筆 —
+   **已執行**。
+2. 無待排空對象，不需主動 end room 或等待 TTL。
+3. 部署 schema 與 AAD 變更；部署後新寫入的 snapshot／asset 一律使用新格式。
+4. 未來若在有活資料時再變更 durable AAD 或 strict schema，必須重跑 Step 1 稽核，並在
+   `expires_at > now()` 歸零後才部署，否則依索引共同規則 8 建立 versioned reader。
+5. Owner 確認（2026-08-06）：專案只有這一個資料庫，不存在其他環境的既存密文，本次
+   變更沒有任何可被破壞的資料。
+
+### Step 6 — 文件
+
+threat model T10 殘留 (a) 已標記關閉；T13 的「被 Plan 31 阻擋」註記已解除（Plan 33 因此
+轉為 Ready）。`snapshot.ts`／`asset.ts` 中描述舊耦合的註解已改寫為描述現行綁定。
 
 ## Done when
 

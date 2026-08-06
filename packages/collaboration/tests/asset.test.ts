@@ -4,7 +4,9 @@ import {
   ASSET_CRYPTO_VERSION,
   ASSET_PAYLOAD_HEADER_BYTES,
   ASSET_PAYLOAD_VERSION,
+  ASSET_SEALED_HEADER_BYTES,
   ASSET_SEALED_OVERHEAD_BYTES,
+  assetAdditionalDataLabel,
   canonicalizeAssetIds,
   collaborationAssetLookupSchema,
   collaborationAssetRecordSchema,
@@ -20,7 +22,10 @@ import {
   MIN_ASSET_CIPHERTEXT_BYTES,
   type AssetCryptoCodec,
 } from "../src/asset.ts";
-import { roomIdSchema } from "../src/protocol.ts";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  roomIdSchema,
+} from "../src/protocol.ts";
 import { deriveSnapshotKey } from "../src/snapshot.ts";
 import { roomKeySchema } from "../src/realtime-crypto.ts";
 import { ROOM_ID, ROOM_KEY } from "./helpers.ts";
@@ -445,6 +450,102 @@ describe("collaboration asset seal", () => {
     await expect(
       crypto.subtle.decrypt({ name: "AES-GCM", iv }, assetKey, ciphertext),
     ).resolves.toBeDefined();
+  });
+});
+
+describe("transport protocol decoupling (Plan 31)", () => {
+  // `COLLABORATION_PROTOCOL_VERSION` versions transport messages. A stored
+  // asset is durable state: if the transport version reached its payload
+  // metadata or its seal, a purely transport-side protocol bump would make
+  // every stored asset unreadable. These tests pin that it reaches neither,
+  // and that the asset's own versions still do.
+
+  it("refuses a pre-decoupling payload whose metadata still carries protocolVersion", () => {
+    // The strict metadata schema makes dropping the field a breaking change
+    // for stored payloads. That is deliberate and deployed by draining rooms
+    // (audited: no stored assets existed), so the legacy shape must be
+    // refused, not silently tolerated.
+    const metadataBytes = new TextEncoder().encode(
+      JSON.stringify({
+        payloadVersion: ASSET_PAYLOAD_VERSION,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        roomId: ROOM_ID,
+        excalidrawFileId: FILE_A,
+        mimeType: "image/png",
+      }),
+    );
+    const dataUrlBytes = new TextEncoder().encode(PNG_DATA_URL);
+    const bytes = new Uint8Array(
+      ASSET_PAYLOAD_HEADER_BYTES +
+        metadataBytes.byteLength +
+        dataUrlBytes.byteLength,
+    );
+    bytes[0] = ASSET_PAYLOAD_VERSION;
+    new DataView(bytes.buffer).setUint16(1, metadataBytes.byteLength);
+    bytes.set(metadataBytes, ASSET_PAYLOAD_HEADER_BYTES);
+    bytes.set(dataUrlBytes, ASSET_PAYLOAD_HEADER_BYTES + metadataBytes.byteLength);
+
+    const decoded = decodeCollaborationAssetPayload(bytes, {
+      roomId: ROOM_ID,
+      excalidrawFileId: FILE_A,
+    });
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) expect(decoded.error.code).toBe("malformed-asset");
+  });
+
+  it("binds the seal to the asset's own versions, never the transport's", async () => {
+    // The authenticated-data label is a pinned contract: envelope version,
+    // room, generation, file id — no transport segment.
+    expect(
+      assetAdditionalDataLabel({
+        roomId: ROOM_ID,
+        authGeneration: 2,
+        excalidrawFileId: FILE_A,
+      }),
+    ).toBe(`drawstuff-asset/v${ASSET_CRYPTO_VERSION}/${ROOM_ID}/g2/${FILE_A}`);
+
+    // And it is the label sealing actually binds: the sealed bytes open under
+    // exactly it, refuse the pre-decoupling label that carried the transport
+    // version (so a protocol bump cannot invalidate stored assets), and refuse
+    // a bumped envelope version (so the asset's own version still can).
+    const codec = await assetCodec();
+    const plaintext = payloadOf();
+    const sealed = await codec.seal({ excalidrawFileId: FILE_A, plaintext });
+    if (!sealed.ok) throw new Error("expected seal to succeed");
+    const key = await deriveAssetKey({
+      roomKey: ROOM_KEY,
+      roomId: ROOM_ID,
+      authGeneration: 1,
+    });
+    const iv = sealed.ciphertext.subarray(1, ASSET_SEALED_HEADER_BYTES);
+    const body = sealed.ciphertext.subarray(ASSET_SEALED_HEADER_BYTES);
+    const openUnder = (label: string): Promise<ArrayBuffer> =>
+      crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: iv as BufferSource,
+          additionalData: new TextEncoder().encode(label) as BufferSource,
+        },
+        key,
+        body as BufferSource,
+      );
+
+    const pinned = await openUnder(
+      assetAdditionalDataLabel({
+        roomId: ROOM_ID,
+        authGeneration: 1,
+        excalidrawFileId: FILE_A,
+      }),
+    );
+    expect(new Uint8Array(pinned)).toEqual(plaintext);
+    await expect(
+      openUnder(
+        `drawstuff-asset/v${ASSET_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${ROOM_ID}/g1/${FILE_A}`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      openUnder(`drawstuff-asset/v${ASSET_CRYPTO_VERSION + 1}/${ROOM_ID}/g1/${FILE_A}`),
+    ).rejects.toThrow();
   });
 });
 

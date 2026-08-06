@@ -188,9 +188,9 @@ reconnect 間的連續性，而伺服器結構上無法知道「這是同一個 
 **根治方向（2026-08-06 對照 upstream 後修正）**：正解不是改由伺服器產生，而是**移除
 `clientId`**——upstream 沒有 client 身分這個概念，collaborator 以伺服器產生的 `socket.id`
 為鍵，而我們早就有對應的 `peerId`。這件事由
-[Plan 33](../../plans/33-peer-scoped-collaboration-identity.md) 擁有，並被 Plan 31 阻擋
-（移除 envelope 欄位＝純 transport 升版，在 durable 格式解耦前會讓既有密文不可讀）。在那之前，
-上述兩個 contract test 就是有效的緩解。
+[Plan 33](../../plans/33-peer-scoped-collaboration-identity.md) 擁有，曾被 Plan 31 阻擋
+（移除 envelope 欄位＝純 transport 升版，在 durable 格式解耦前會讓既有密文不可讀）；Plan 31
+已於 2026-08-06 完成，阻擋解除。在 Plan 33 執行前，上述兩個 contract test 仍是有效的緩解。
 
 兩個 adversarial 測試守住這一條：一個把 room key 原文當 `roomId` 與 `clientId` 送出並讓驗簽失敗，
 另一個用**合法** token 帶著 key 當 `clientId` 成功加入，然後斷言 log 與 `/metrics` 全文都不含

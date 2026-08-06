@@ -1,10 +1,6 @@
 import { z } from "zod";
 
-import {
-  COLLABORATION_PROTOCOL_VERSION,
-  roomIdSchema,
-  type RoomId,
-} from "./messages.ts";
+import { roomIdSchema, type RoomId } from "./messages.ts";
 import {
   AES_GCM_TAG_BYTES,
   deriveRoomKey,
@@ -291,8 +287,6 @@ const asBufferSource = (view: Uint8Array): BufferSource => view as BufferSource;
  */
 const assetPayloadMetadataSchema = z.strictObject({
   payloadVersion: z.literal(ASSET_PAYLOAD_VERSION),
-  /** The wire protocol the asset was produced under. */
-  protocolVersion: z.literal(COLLABORATION_PROTOCOL_VERSION),
   roomId: roomIdSchema,
   excalidrawFileId: excalidrawFileIdSchema,
   mimeType: collaborationAssetMimeTypeSchema,
@@ -360,7 +354,6 @@ export function encodeCollaborationAssetPayload(input: {
 }): EncodeAssetResult {
   const metadata = assetPayloadMetadataSchema.safeParse({
     payloadVersion: ASSET_PAYLOAD_VERSION,
-    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
     roomId: input.roomId,
     excalidrawFileId: input.excalidrawFileId,
     mimeType: input.mimeType,
@@ -617,23 +610,36 @@ export interface AssetCryptoCodec {
 
 /**
  * Authenticated metadata. Everything a storage layer can see is bound to the
- * ciphertext: envelope version, wire protocol version, room, authorization
- * generation and the asset's own file id. Binding the file id is what makes
- * serving asset A's bytes under asset B's record a decryption failure rather
- * than a rendered image in the wrong place.
+ * ciphertext: envelope version, room, authorization generation and the asset's
+ * own file id. Binding the file id is what makes serving asset A's bytes under
+ * asset B's record a decryption failure rather than a rendered image in the
+ * wrong place.
+ *
+ * Deliberately free of `COLLABORATION_PROTOCOL_VERSION`: that versions
+ * transport messages, and a stored asset is durable state. It used to be bound
+ * here as well, which made every stored asset unreadable after a purely
+ * transport-side protocol bump; the asset's own envelope version is the only
+ * format version that belongs in this seal.
+ *
+ * Exported so the "no transport version reaches durable authenticated data"
+ * property is a pinned contract rather than a comment.
  */
+export function assetAdditionalDataLabel(params: {
+  roomId: RoomId;
+  authGeneration: number;
+  excalidrawFileId: string;
+}): string {
+  return `drawstuff-asset/v${ASSET_CRYPTO_VERSION}/${params.roomId}/g${roomAuthGenerationSchema.parse(
+    params.authGeneration,
+  )}/${excalidrawFileIdSchema.parse(params.excalidrawFileId)}`;
+}
+
 const assetAdditionalData = (params: {
   roomId: RoomId;
   authGeneration: number;
   excalidrawFileId: string;
 }): BufferSource =>
-  asBufferSource(
-    encoder.encode(
-      `drawstuff-asset/v${ASSET_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${params.roomId}/g${roomAuthGenerationSchema.parse(
-        params.authGeneration,
-      )}/${excalidrawFileIdSchema.parse(params.excalidrawFileId)}`,
-    ),
-  );
+  asBufferSource(encoder.encode(assetAdditionalDataLabel(params)));
 
 export async function createAssetCryptoCodec(options: {
   roomKey: RoomKey;
