@@ -6,7 +6,10 @@
  * tracker that keeps broadcast payloads proportional to what changed.
  */
 
-import type { ExcalidrawElement } from "@excalidraw/excalidraw/element/types";
+import type {
+  ExcalidrawElement,
+  OrderedExcalidrawElement,
+} from "@excalidraw/excalidraw/element/types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -14,6 +17,7 @@ import {
   DELETED_ELEMENT_SYNC_TIMEOUT_MS,
   getSyncableElements,
   isSyncableElement,
+  markImageElementsUnavailable,
   reconcileRemoteElements,
   type ReconciliationLocalState,
 } from "../src/reconcile";
@@ -361,5 +365,66 @@ describe("reconcileRemoteElements input safety", () => {
     reconcileRemoteElements(local, wireBatch, emptyLocalState);
 
     expect(wireBatch).toEqual(wireSnapshot);
+  });
+});
+
+describe("markImageElementsUnavailable", () => {
+  const imageElement = (
+    id: string,
+    fileId: string | null,
+    status: "pending" | "saved" | "error" = "saved",
+  ): OrderedExcalidrawElement =>
+    createSyncRectangle({
+      id,
+      index: "a1",
+      type: "image",
+      fileId,
+      status,
+      scale: [1, 1],
+      crop: null,
+      roundness: null,
+    });
+
+  it("marks only the images whose bytes are never coming", () => {
+    const elements = [
+      imageElement("img-gone", "file-gone"),
+      imageElement("img-fine", "file-fine"),
+      createSyncRectangle({ id: "rect", index: "a2" }),
+    ];
+
+    const marked = markImageElementsUnavailable(
+      elements,
+      new Set(["file-gone"]),
+    );
+    if (!marked) throw new Error("expected a marked scene");
+
+    expect(
+      marked.map((element) => (element as { status?: string }).status),
+    ).toEqual(["error", "saved", undefined]);
+    // The upstream version bump, so the mark converges like any other edit
+    // rather than being silently dropped by reconciliation.
+    expect(marked[0]?.version).toBe((elements[0]?.version ?? 0) + 1);
+    // Untouched elements keep their identity, so nothing else is rebroadcast.
+    expect(marked[1]).toBe(elements[1]);
+    expect(marked[2]).toBe(elements[2]);
+  });
+
+  it("reports no change rather than rewriting the scene", () => {
+    const elements = [
+      imageElement("img-already", "file-a", "error"),
+      imageElement("img-other", "file-b"),
+      // An image element that never got a file id references nothing.
+      imageElement("img-empty", null),
+    ];
+
+    // Nothing referenced, an id already marked, and an empty id set: all three
+    // must leave the caller free to skip the scene write entirely.
+    expect(
+      markImageElementsUnavailable(elements, new Set(["file-c"])),
+    ).toBeNull();
+    expect(
+      markImageElementsUnavailable(elements, new Set(["file-a"])),
+    ).toBeNull();
+    expect(markImageElementsUnavailable(elements, new Set())).toBeNull();
   });
 });

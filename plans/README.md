@@ -29,57 +29,61 @@ merge algorithm，皆不在這組計畫內。
 
 **表格的排列即為執行順序**：已結束的（`Completed`／`Skipped`）依 plan 編號排在上半，
 未完成的 10 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
-從 Plan 30 那一列往下讀就是待辦。
+從 Plan 31 那一列往下讀就是待辦。
 
-| Plan                                              | 執行狀態                   | 結果                                                    | 依賴               |
-| ------------------------------------------------- | -------------------------- | ------------------------------------------------------- | ------------------ |
-| [00](./00-architecture-contract.md)               | Completed                  | 鎖定 ownership 與不可破壞的相容性邊界                   | 無                 |
-| [01](./01-adapter-package-scaffold.md)            | Completed                  | 建立 internal adapter package                           | 00                 |
-| [02](./02-editor-render-bridge.md)                | Completed                  | 現有 editor 透過 adapter render                         | 01                 |
-| [03](./03-public-api-gap-audit.md)                | Completed                  | 決策 `minimal patch required`，確認 G1/G2/G3/G4         | 02                 |
-| [04](./04-minimal-upstream-seam.md)               | Skipped — 不修改 upstream  | 2026-08-01 決策：G1–G4 一律不以 patch 處理              | 03                 |
-| [05](./05-whiteboard-controller.md)               | Completed                  | 原生 UI 整合契約與 Menu 整備                            | 03                 |
-| [06](./06-custom-toolbar-shell.md)                | Completed                  | Dashboard 場景分類（category）                          | 05                 |
-| [07](./07-core-tool-controls.md)                  | Completed                  | 場景封存與還原（archive）                               | 05                 |
-| [08](./08-style-and-selection-controls.md)        | Skipped — 路線取消         | 自訂 toolbar／style controls 不再執行                   | —                  |
-| [09](./09-collaboration-contracts.md)             | Completed                  | 建立 transport-neutral 共編 contracts                   | 05                 |
-| [10](./10-reconciliation-adapter.md)              | Completed                  | 鎖定官方 merge semantics                                | 09                 |
-| [11](./11-local-two-client-poc.md)                | Completed                  | 在單一瀏覽器驗證兩個 client 收斂                        | 10                 |
-| [12](./12-stateless-relay-service.md)             | Completed                  | 建立獨立 realtime relay                                 | 11                 |
-| [13](./13-room-auth-and-lifecycle.md)             | Completed                  | 加入 room 權限與生命週期                                | 12                 |
-| [14](./14-e2ee-realtime-payloads.md)              | Completed                  | Relay 只看得到密文                                      | 13                 |
-| [15](./15-durable-collaboration-snapshots.md)     | Completed                  | 建立獨立加密 snapshot                                   | 14                 |
-| [16](./16-collaboration-asset-identity.md)        | Completed                  | 建立 collaboration asset metadata 邊界                  | 15                 |
-| [17](./17-encrypted-asset-transfer.md)            | Completed                  | 同步並保存圖片等 binary assets（密文）                  | 16                 |
-| [18](./18-reconnect-and-convergence.md)           | Completed                  | 驗證斷線、重連與 server restart                         | 17                 |
-| [19](./19-production-hardening.md)                | Completed                  | threat model、SLO、relay limits 與超限行為              | 18                 |
-| [21](./21-legacy-v2-v3-data-rewrite.md)           | Completed                  | 執行 V2/V3 舊資料 rewrite 並移除 legacy readers         | 02（獨立於 03–20） |
-| [22](./22-freedraw-pressure-backfill.md)          | Completed                  | freedraw pressure 欄位 backfill 並移除 read-time 修復層 | 21（獨立於 03–20） |
-| [24](./24-collaboration-observability.md)         | Completed（2026-08-06）    | Relay metrics、structured logs、alerts contract         | 19                 |
-| [26](./26-purpose-scoped-key-derivation.md)       | Completed                  | `deriveRoomKey` 解除 envelope 版本耦合                  | 19                 |
-| [30](./30-silent-key-mismatch-detection.md)       | Ready                      | 金鑰不相容的非靜默偵測不得只依賴 snapshot               | 19、26             |
-| [31](./31-durable-format-protocol-decoupling.md)  | Ready                      | durable 格式與 transport 版本解耦                       | 26                 |
-| [23](./23-owned-scene-asset-lifecycle.md)         | Ready                      | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
-| [25](./25-relay-drain-and-deployment-envelope.md) | Ready                      | Graceful drain 與單 instance 部署封套                   | 19                 |
-| [32](./32-collaboration-client-telemetry.md)      | Blocked — 共享儲存決定、30 | Client／後端側共編 telemetry 上報                       | 24、30             |
-| [28](./28-room-scoped-retention.md)               | Blocked — Plan 23 step 4   | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
-| [29](./29-collaboration-load-test-and-runbook.md) | Blocked — 25、32           | Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
-| [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 共享儲存決定     | 共編後端入口的速率限制                                  | 19                 |
-| [20](./20-staged-rollout.md)                      | Blocked — 28、29           | 以 feature flag 漸進開放並可回滾                        | 28、29             |
-| [33](./33-peer-scoped-collaboration-identity.md)  | Blocked — 31               | 身分收斂到 `peerId`，移除 client 選定的 `clientId`      | 31                 |
+| Plan                                              | 執行狀態                  | 結果                                                    | 依賴               |
+| ------------------------------------------------- | ------------------------- | ------------------------------------------------------- | ------------------ |
+| [00](./00-architecture-contract.md)               | Completed                 | 鎖定 ownership 與不可破壞的相容性邊界                   | 無                 |
+| [01](./01-adapter-package-scaffold.md)            | Completed                 | 建立 internal adapter package                           | 00                 |
+| [02](./02-editor-render-bridge.md)                | Completed                 | 現有 editor 透過 adapter render                         | 01                 |
+| [03](./03-public-api-gap-audit.md)                | Completed                 | 決策 `minimal patch required`，確認 G1/G2/G3/G4         | 02                 |
+| [04](./04-minimal-upstream-seam.md)               | Skipped — 不修改 upstream | 2026-08-01 決策：G1–G4 一律不以 patch 處理              | 03                 |
+| [05](./05-whiteboard-controller.md)               | Completed                 | 原生 UI 整合契約與 Menu 整備                            | 03                 |
+| [06](./06-custom-toolbar-shell.md)                | Completed                 | Dashboard 場景分類（category）                          | 05                 |
+| [07](./07-core-tool-controls.md)                  | Completed                 | 場景封存與還原（archive）                               | 05                 |
+| [08](./08-style-and-selection-controls.md)        | Skipped — 路線取消        | 自訂 toolbar／style controls 不再執行                   | —                  |
+| [09](./09-collaboration-contracts.md)             | Completed                 | 建立 transport-neutral 共編 contracts                   | 05                 |
+| [10](./10-reconciliation-adapter.md)              | Completed                 | 鎖定官方 merge semantics                                | 09                 |
+| [11](./11-local-two-client-poc.md)                | Completed                 | 在單一瀏覽器驗證兩個 client 收斂                        | 10                 |
+| [12](./12-stateless-relay-service.md)             | Completed                 | 建立獨立 realtime relay                                 | 11                 |
+| [13](./13-room-auth-and-lifecycle.md)             | Completed                 | 加入 room 權限與生命週期                                | 12                 |
+| [14](./14-e2ee-realtime-payloads.md)              | Completed                 | Relay 只看得到密文                                      | 13                 |
+| [15](./15-durable-collaboration-snapshots.md)     | Completed                 | 建立獨立加密 snapshot                                   | 14                 |
+| [16](./16-collaboration-asset-identity.md)        | Completed                 | 建立 collaboration asset metadata 邊界                  | 15                 |
+| [17](./17-encrypted-asset-transfer.md)            | Completed                 | 同步並保存圖片等 binary assets（密文）                  | 16                 |
+| [18](./18-reconnect-and-convergence.md)           | Completed                 | 驗證斷線、重連與 server restart                         | 17                 |
+| [19](./19-production-hardening.md)                | Completed                 | threat model、SLO、relay limits 與超限行為              | 18                 |
+| [21](./21-legacy-v2-v3-data-rewrite.md)           | Completed                 | 執行 V2/V3 舊資料 rewrite 並移除 legacy readers         | 02（獨立於 03–20） |
+| [22](./22-freedraw-pressure-backfill.md)          | Completed                 | freedraw pressure 欄位 backfill 並移除 read-time 修復層 | 21（獨立於 03–20） |
+| [24](./24-collaboration-observability.md)         | Completed（2026-08-06）   | Relay metrics、structured logs、alerts contract         | 19                 |
+| [26](./26-purpose-scoped-key-derivation.md)       | Completed                 | `deriveRoomKey` 解除 envelope 版本耦合                  | 19                 |
+| [30](./30-silent-key-mismatch-detection.md)       | Completed（2026-08-06）   | 金鑰不相容的非靜默偵測不再只依賴 snapshot               | 19、26             |
+| [31](./31-durable-format-protocol-decoupling.md)  | Ready                     | durable 格式與 transport 版本解耦                       | 26                 |
+| [23](./23-owned-scene-asset-lifecycle.md)         | Ready                     | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
+| [25](./25-relay-drain-and-deployment-envelope.md) | Ready                     | Graceful drain 與單 instance 部署封套                   | 19                 |
+| [32](./32-collaboration-client-telemetry.md)      | Blocked — 共享儲存決定    | Client／後端側共編 telemetry 上報                       | 24、30             |
+| [28](./28-room-scoped-retention.md)               | Blocked — Plan 23 step 4  | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
+| [29](./29-collaboration-load-test-and-runbook.md) | Blocked — 25、32          | Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
+| [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 共享儲存決定    | 共編後端入口的速率限制                                  | 19                 |
+| [34](./34-room-key-confirmation.md)               | Ready                     | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |
+| [20](./20-staged-rollout.md)                      | Blocked — 28、29          | 以 feature flag 漸進開放並可回滾                        | 28、29             |
+| [33](./33-peer-scoped-collaboration-identity.md)  | Blocked — 31              | 身分收斂到 `peerId`，移除 client 選定的 `clientId`      | 31                 |
 
-排序理由，只記不顯而易見的部分：**30／31／23／25 四份現在就能平行開始**（依賴全部已完成）；
-30 與 31 排在最前是因為兩者的成本隨時間上升——30 是漸進開放後才會大量踩到，31 是活資料越多
-越貴，而且在 31 完成前任何 `COLLABORATION_PROTOCOL_VERSION` 升版都會摧毀當下所有 room 的
-snapshot 與 asset。**「共享儲存（Upstash Redis 之類）要不要引入」不是 plan 而是一個決定**，
-它同時擋住 27 與 32，是目前最深的阻塞點。**33 排在最後**，因為它是唯一不擋 Plan 20 的一份。
-Plan 20 之前若決定延後 27（後端入口無速率上界）或 30（金鑰不符時三條路徑全靜默），Plan 20
-必須明確承擔對應風險。
+排序理由，只記不顯而易見的部分：**31／23／25 三份現在就能平行開始**（依賴全部已完成）；
+31 排在最前是因為成本隨時間上升——活資料越多越貴，而且在 31 完成前任何
+`COLLABORATION_PROTOCOL_VERSION` 升版都會摧毀當下所有 room 的 snapshot 與 asset。（30 同屬
+這一類，已於 2026-08-06 完成：realtime 與 asset 兩條路徑各自加上聚合判定，錯誤金鑰在尚無
+stored snapshot 的 room 上也非靜默。）**「共享儲存（Upstash Redis 之類）要不要引入」不是
+plan 而是一個決定**，它同時擋住 27 與 32，是目前最深的阻塞點。**33 排在最後**，因為它是唯一
+不擋 Plan 20 的一份。**34 排在 20 之前**：它關掉的是「錯誤連結把 room 的 snapshot 寫成沒有人
+打得開」，受害的是拿正確連結的人，而 schema 變更的成本隨活資料上升——現在稽核 0 筆 room，改動
+成本為零。Plan 20 之前若決定延後 27（後端入口無速率上界）或 34，必須明確承擔對應風險。
 
 2026-08-06：原 Plan 19「完成 production hardening」被拆分。它涵蓋 9 個 step、實際上是
 六個以上的 PR，違反本節開頭「每份 plan 對應一個可獨立 review、驗證與回滾的 PR」。Plan 19
 保留已完成的範圍（threat model、SLO、relay limits、超限行為），其餘成為 Plan 24–29；Plan 26
-的 review 再拆出 Plan 30／31，Plan 24 的 review 再拆出 Plan 32／33。
+的 review 再拆出 Plan 30／31，Plan 24 的 review 再拆出 Plan 32／33，Plan 30 的剩餘風險再拆出
+Plan 34。
 
 Plan 03 的稽核結論原為 `minimal patch required`（G1/G2/G3/G4 四個 confirmed
 gaps）。2026-08-01 owner 決策改採「不修改 upstream」原則後，Plan 04 標記為

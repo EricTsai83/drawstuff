@@ -1,5 +1,6 @@
 import {
   isInvisiblySmallElement,
+  newElementWith,
   reconcileElements,
   restoreElements,
 } from "@excalidraw/excalidraw";
@@ -82,6 +83,48 @@ export function isSyncableElement(
     return element.updated > now - DELETED_ELEMENT_SYNC_TIMEOUT_MS;
   }
   return !isInvisiblySmallElement(element);
+}
+
+/**
+ * Marks the image elements whose bytes this client will never obtain.
+ *
+ * The engine already draws two different placeholders for an image it cannot
+ * show — `status: "error"` gets a distinct glyph from the "still loading" one
+ * (`renderElement.ts`, `IMAGE_ERROR_PLACEHOLDER_IMG`) — so the distinction
+ * between "this image has not arrived yet" and "this image is never going to"
+ * is available through the element model alone. This is the upstream collab
+ * app's own mechanism (`updateStaleImageStatuses`, excalidraw-app/data/
+ * FileManager.ts), reached through the public `newElementWith`.
+ *
+ * Returns `null` when nothing changed, so a caller can skip the scene write
+ * entirely; `newElementWith` is itself idempotent, so re-marking an element
+ * already in error is not a version bump.
+ *
+ * The mark travels with the element on the next broadcast, exactly as it does
+ * upstream. That is not a leak of a local-only fact: the engine renders an
+ * image from the *bytes* in its file store, not from this field, so a peer that
+ * holds the image still draws it. The field only chooses which placeholder a
+ * client that lacks the bytes is shown.
+ */
+export function markImageElementsUnavailable(
+  elements: readonly OrderedExcalidrawElement[],
+  fileIds: ReadonlySet<string>,
+): readonly OrderedExcalidrawElement[] | null {
+  if (fileIds.size === 0) return null;
+  let changed = false;
+  const next = elements.map((element) => {
+    if (
+      element.type !== "image" ||
+      element.status === "error" ||
+      element.fileId === null ||
+      !fileIds.has(element.fileId)
+    ) {
+      return element;
+    }
+    changed = true;
+    return newElementWith(element, { status: "error" });
+  });
+  return changed ? next : null;
 }
 
 export function getSyncableElements(

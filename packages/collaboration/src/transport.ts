@@ -103,6 +103,26 @@ export interface TransportSubscriber {
    * it is volatile by design.
    */
   onSceneSyncRequired?(): void;
+  /**
+   * Realtime frames reached this transport and *none* of them could ever be
+   * opened, so the evidence says the key cannot open this room rather than that
+   * one frame was bad.
+   *
+   * This exists because the per-frame policy above it is deliberately silent: a
+   * wrong key, tampered ciphertext and a replayed nonce are indistinguishable at
+   * one frame, and dropping the frame is the right answer for the latter two. But
+   * silence per frame becomes silence per *session* when every frame fails, and
+   * the user then sees a connected, permanently blank canvas with no message —
+   * which until now was only caught by reading the durable snapshot, an oracle a
+   * room without a stored snapshot does not have.
+   *
+   * Reported at most once per transport, and never after any frame has opened: a
+   * single successful open proves the key is right, which makes every later
+   * failure corruption or replay rather than a key mismatch. A session that
+   * receives no frames at all reports nothing — "nobody is drawing" is not
+   * evidence of anything.
+   */
+  onRoomUnreadable?(): void;
 }
 
 export type SendError =

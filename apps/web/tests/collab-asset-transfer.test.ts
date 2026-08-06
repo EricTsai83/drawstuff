@@ -4,6 +4,7 @@ import {
   MAX_ASSET_DATA_URL_BYTES,
   MAX_ROOM_ASSETS_PER_GENERATION,
 } from "@drawstuff/collaboration/asset";
+import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type {
   BinaryFileData,
   DataURL,
@@ -42,6 +43,7 @@ import {
 
 const FILE_A = "a".repeat(40);
 const FILE_B = "b".repeat(40);
+const FILE_C = "c".repeat(40);
 
 /** A tiny but real PNG data URL; the payload only has to be a valid data URL. */
 const dataUrlFor = (marker: string): DataURL =>
@@ -268,7 +270,354 @@ describe("encrypted collaboration asset transfer", () => {
     expect(bob.assetTimers.pendingCount).toBe(0);
     expect(bob.host.files[FILE_A]).toBeUndefined();
     expect(bob.host.addedFileBatches).toEqual([]);
+
+    // Giving up marks the element, and the mark is ordinary scene state: it
+    // travels on the next broadcast exactly as it does upstream. The room
+    // converges *on the error*, which is the truth about this asset — the stored
+    // ciphertext is damaged for everybody, not just for Bob. Alice keeps
+    // rendering the image regardless, because the engine draws it from the bytes
+    // in her file store and not from this field.
+    await vi.waitFor(() => {
+      expect(bob.host.elements[0]).toMatchObject({ status: "error" });
+    });
+    bob.edit((elements) => elements);
+    harness.settle();
+
+    expect(alice.host.files[FILE_A]?.dataURL).toBe(dataUrlFor("w"));
     expectConverged(alice, bob);
+  });
+
+  /**
+   * Making "this link cannot open the room's images" visible without making a
+   * single damaged image noisy (Plan 30).
+   *
+   * The store's per-asset behaviour is unchanged throughout — every one of these
+   * assets is still abandoned without a retry and the scene still converges. What
+   * is under test is only the aggregate on top, which exists because "not uploaded
+   * yet" and "will never open" used to look identical on the canvas: a missing
+   * picture, and no message.
+   */
+  describe("telling an unopenable image from one that has not arrived", () => {
+    /** A link carrying a key that was never this room's. */
+    const STRANGER_KEY = generateRoomKey();
+
+    it("reports a room whose images this link cannot open", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      pasteImage(alice, FILE_A);
+      await expectStored(backend, [FILE_A]);
+
+      const stranger = await harness.createAssetClient(
+        "client-stranger",
+        backend,
+        {
+          roomKey: STRANGER_KEY,
+        },
+      );
+      stranger.session.connect();
+      harness.settle();
+
+      await vi.waitFor(() => {
+        expect(stranger.unreadableAssetReports.count).toBe(1);
+      });
+      // Reported, not repaired: the element still synced, the image simply is not
+      // there, and the session is otherwise healthy.
+      expect(stranger.host.files[FILE_A]).toBeUndefined();
+      expect(stranger.assetTimers.pendingCount).toBe(0);
+      expect(stranger.session.getRecoveryState()).toEqual({ phase: "live" });
+    });
+
+    it("reports assets sealed under an envelope version it cannot implement", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      pasteImage(alice, FILE_A);
+      await expectStored(backend, [FILE_A]);
+      // What an `ASSET_CRYPTO_VERSION` bump does to a room's existing assets: the
+      // key is right and the envelope is not, which is just as final and used to
+      // be just as silent.
+      backend.setStoredCryptoVersion(FILE_A, 99);
+
+      const bob = await harness.createAssetClient("client-bob", backend);
+      bob.session.connect();
+      harness.settle();
+
+      await vi.waitFor(() => {
+        expect(bob.unreadableAssetReports.count).toBe(1);
+      });
+      // Not even fetched: the version is decided from the record alone.
+      expect(backend.fetchCalls).toBe(0);
+    });
+
+    it("says nothing about an image the room has not stored yet", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      backend.withholdUploads();
+      pasteImage(alice, FILE_A);
+
+      const bob = await harness.createAssetClient("client-bob", backend);
+      bob.session.connect();
+      harness.settle();
+
+      // The lookup comes back `missing`, which is the ordinary race between an
+      // element and its bytes — the exact case this message must never claim.
+      await vi.waitFor(() => {
+        expect(bob.assetTimers.pendingCount).toBe(1);
+      });
+      expect(bob.unreadableAssetReports.count).toBe(0);
+
+      backend.releaseUploads();
+      await runRetry(bob);
+      await expectRendered(bob, FILE_A, dataUrlFor("w"));
+      expect(bob.unreadableAssetReports.count).toBe(0);
+    });
+
+    /**
+     * The engine draws a distinct placeholder for `status: "error"`
+     * (`IMAGE_ERROR_PLACEHOLDER_IMG`) and the ordinary one otherwise, so this
+     * field *is* the user-visible difference between "not here yet" and "not
+     * coming". Same mechanism the upstream collab app uses in
+     * `updateStaleImageStatuses`.
+     */
+    const imageStatusOf = (
+      client: AssetTestClient,
+      elementId: string,
+    ): unknown =>
+      (
+        client.host.elements.find((element) => element.id === elementId) as
+          { status?: unknown } | undefined
+      )?.status;
+
+    it("marks an image this link cannot open as errored on the canvas", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      pasteImage(alice, FILE_A);
+      await expectStored(backend, [FILE_A]);
+
+      const stranger = await harness.createAssetClient(
+        "client-stranger",
+        backend,
+        { roomKey: STRANGER_KEY },
+      );
+      stranger.session.connect();
+      harness.settle();
+
+      await vi.waitFor(() => {
+        expect(imageStatusOf(stranger, "img-aaaa")).toBe("error");
+      });
+      // The element itself still synced; only its picture is unavailable.
+      expect(stranger.host.elements).toHaveLength(1);
+      expect(stranger.host.files[FILE_A]).toBeUndefined();
+    });
+
+    it("leaves an image that has not arrived yet alone", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      const bob = await harness.createAssetClient("client-bob", backend);
+      alice.session.connect();
+      bob.session.connect();
+      harness.settle();
+
+      // The upload has not landed, so the lookup legitimately misses. Marking
+      // this one would be the same lie the old silence was, in the other
+      // direction: it says "never coming" about an image that is on its way.
+      backend.withholdUploads();
+      pasteImage(alice, FILE_A);
+      harness.settle();
+      await vi.waitFor(() => {
+        expect(backend.resolveCalls).toBeGreaterThanOrEqual(1);
+      });
+      expect(imageStatusOf(bob, "img-aaaa")).not.toBe("error");
+
+      backend.releaseUploads();
+      await runRetry(bob);
+      await expectRendered(bob, FILE_A, dataUrlFor("w"));
+      expect(imageStatusOf(bob, "img-aaaa")).not.toBe("error");
+    });
+
+    it("marks the local user's own image when it can never be published", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+
+      // Too large to seal: retrying cannot help, and before this the user was
+      // given no sign that their own image would never reach anybody.
+      pasteImage(
+        alice,
+        FILE_A,
+        imageFile(FILE_A, {
+          dataURL: `data:image/png;base64,${"A".repeat(
+            MAX_ASSET_DATA_URL_BYTES,
+          )}` as DataURL,
+        }),
+      );
+
+      await vi.waitFor(() => {
+        expect(imageStatusOf(alice, "img-aaaa")).toBe("error");
+      });
+      expect(backend.uploadCalls).toBe(0);
+    });
+
+    it("stays silent when one image is damaged but the link opens the room", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      pasteImage(alice, FILE_A);
+      pasteImage(alice, FILE_B);
+      await expectStored(backend, [FILE_A, FILE_B]);
+      backend.corrupt(FILE_B);
+
+      const bob = await harness.createAssetClient("client-bob", backend);
+      bob.session.connect();
+      harness.settle();
+
+      // One asset opening proves this link reads this room, so the other one is a
+      // damaged or tampered image, not a wrong link — and a message telling the
+      // user to ask for a new link would be advice that cannot help.
+      await expectRendered(bob, FILE_A, dataUrlFor("w"));
+      expect(bob.host.files[FILE_B]).toBeUndefined();
+      expect(bob.unreadableAssetReports.count).toBe(0);
+
+      // Per element, though: the damaged one is marked and the readable one is
+      // untouched. That is the whole point of doing this at element granularity
+      // rather than as one statement about the room.
+      await vi.waitFor(() => {
+        expect(imageStatusOf(bob, "img-bbbb")).toBe("error");
+      });
+      expect(imageStatusOf(bob, "img-aaaa")).not.toBe("error");
+
+      bob.edit((elements) => elements);
+      harness.settle();
+      expectConverged(alice, bob);
+    });
+
+    it("waits for a concurrent lookup that is still opening a readable image", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      pasteImage(alice, FILE_A);
+      pasteImage(alice, FILE_B);
+      await expectStored(backend, [FILE_A, FILE_B]);
+      backend.corrupt(FILE_B);
+
+      // Two `request` calls for disjoint ids run as separate lookups — which is
+      // what happens in production when new elements arrive while the retry timer
+      // is already fetching. Holding the *readable* one open forces the damaged
+      // lookup to finish first, which is the ordering that used to produce a
+      // false "this link cannot open the room's images".
+      const readableUrl = `object-1`;
+      let releaseReadable: (() => void) | undefined;
+      const bob = await harness.createAssetClient("client-bob", backend, {
+        wrapFetch: (inner) =>
+          ((input: RequestInfo | URL, init?: RequestInit) => {
+            const url = typeof input === "string" ? input : String(input);
+            if (!url.endsWith(readableUrl)) return inner(input, init);
+            return new Promise<Response>((resolve) => {
+              releaseReadable = () => resolve(inner(input, init));
+            });
+          }) as typeof fetch,
+      });
+
+      const readable = bob.assetStore.request([FILE_A]);
+      const damaged = bob.assetStore.request([FILE_B]);
+      await damaged;
+
+      // The damaged lookup is done and found nothing openable, but the other one
+      // has not had its chance yet.
+      expect(bob.unreadableAssetReports.count).toBe(0);
+
+      await vi.waitFor(() => expect(releaseReadable).toBeDefined());
+      releaseReadable?.();
+      await readable;
+
+      // One image opened, so the link reads this room: the other one is damaged,
+      // not unreachable, and must stay silent.
+      await expectRendered(bob, FILE_A, dataUrlFor("w"));
+      expect(bob.host.files[FILE_B]).toBeUndefined();
+      expect(bob.unreadableAssetReports.count).toBe(0);
+    });
+
+    it("does not let a later lookup postpone a report that is already due", async () => {
+      // The wait is fenced to the lookups already running when the evidence
+      // appeared, not to the store going idle. A room whose images keep being
+      // requested never goes idle, and the user would be told nothing for as long
+      // as that lasts.
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      pasteImage(alice, FILE_A);
+      pasteImage(alice, FILE_B);
+      pasteImage(alice, FILE_C);
+      await expectStored(backend, [FILE_A, FILE_B, FILE_C]);
+
+      // Every download is held, so a lookup only finishes when the test says so.
+      const heldFetches: (() => void)[] = [];
+      const bob = await harness.createAssetClient("client-bob", backend, {
+        roomKey: STRANGER_KEY,
+        wrapFetch: (inner) =>
+          ((input: RequestInfo | URL, init?: RequestInit) =>
+            new Promise<Response>((resolve) => {
+              heldFetches.push(() => resolve(inner(input, init)));
+            })) as typeof fetch,
+      });
+
+      // Two lookups are running when the first one finds an unopenable image, so
+      // the cohort is both of them.
+      const first = bob.assetStore.request([FILE_A]);
+      const second = bob.assetStore.request([FILE_B]);
+      await vi.waitFor(() => expect(heldFetches).toHaveLength(2));
+
+      heldFetches[0]?.();
+      await first;
+      // Armed, and still waiting on the other cohort member.
+      expect(bob.unreadableAssetReports.count).toBe(0);
+
+      // A third lookup starts *after* the arming moment. It is outside the
+      // cohort, so it must not extend the wait by one lookup more.
+      const later = bob.assetStore.request([FILE_C]);
+      await vi.waitFor(() => expect(heldFetches).toHaveLength(3));
+
+      heldFetches[1]?.();
+      await second;
+
+      // The cohort has drained: the report is due now, with `later` still open.
+      expect(bob.unreadableAssetReports.count).toBe(1);
+      heldFetches[2]?.();
+      await later;
+    });
+
+    it("reports at most once however many images cannot be opened", async () => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      alice.session.connect();
+      harness.settle();
+      pasteImage(alice, FILE_A);
+      await expectStored(backend, [FILE_A]);
+
+      const stranger = await harness.createAssetClient(
+        "client-stranger",
+        backend,
+        {
+          roomKey: STRANGER_KEY,
+        },
+      );
+      stranger.session.connect();
+      harness.settle();
+      await vi.waitFor(() => {
+        expect(stranger.unreadableAssetReports.count).toBe(1);
+      });
+
+      // A second unopenable image arrives later. The user has already been told
+      // the one thing they can act on; repeating it per image would be noise.
+      pasteImage(alice, FILE_B);
+      await expectStored(backend, [FILE_A, FILE_B]);
+      harness.settle();
+      await vi.waitFor(() => {
+        expect(backend.fetchCalls).toBeGreaterThanOrEqual(2);
+      });
+      expect(stranger.unreadableAssetReports.count).toBe(1);
+    });
   });
 
   it("refuses an oversize image and an unsupported type instead of uploading them", async () => {

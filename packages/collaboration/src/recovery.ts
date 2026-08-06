@@ -60,9 +60,17 @@ export type UnrecoverableReason =
    */
   | "generation-rotated"
   /**
-   * The room has stored state this client cannot decrypt — a link carrying the
-   * wrong key. Terminal because every realtime frame is sealed under the same
-   * derived key, so the session would sit connected and permanently blind.
+   * This client cannot decrypt the room — a link carrying the wrong key.
+   * Terminal because snapshot, realtime and asset ciphertext are all sealed under
+   * keys derived from the same material, so the session would sit connected and
+   * permanently blind.
+   *
+   * Two independent detectors reach it, and both are needed: the stored snapshot
+   * failing to open, and every realtime frame that arrives failing to open while
+   * none ever has (`TransportSubscriber.onRoomUnreadable`). The snapshot is the
+   * faster and more certain oracle, but a room that has not been persisted yet
+   * does not have one at all — and that is precisely the room where a silent
+   * failure lasts forever.
    */
   | "unreadable-room"
   /** A wire-contract violation; reconnecting would repeat it. */

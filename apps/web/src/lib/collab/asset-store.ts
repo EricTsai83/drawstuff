@@ -59,6 +59,13 @@ import type {
  * That is retried with backoff. A payload that fails to open or decode is the
  * opposite case — retrying cannot change it — so it is abandoned, and the scene
  * keeps syncing without the image rather than stalling on it.
+ *
+ * Abandoning is not the same as saying nothing, though, and the two used to be.
+ * "Not uploaded yet" and "this link will never open it" both showed the user the
+ * same blank space, so a room whose images are all sealed under a key this link
+ * does not have looked exactly like a room whose peers are merely slow. The
+ * per-asset handling is unchanged — see `onAssetsUnreadable` for the aggregate
+ * that makes the second case visible without making the first one noisy.
  */
 
 /** The backend surface this store needs; the tRPC client and the uploader satisfy it. */
@@ -280,7 +287,19 @@ const readBoundedBody = async (
 };
 
 /** Per-id outcome of one transfer attempt. */
-type TransferOutcome = "resolved" | "retry" | "abandon";
+type TransferOutcome =
+  | "resolved"
+  | "retry"
+  /** Retrying cannot fix it, and the reason is not the room key. */
+  | "abandon"
+  /**
+   * Abandoned because the ciphertext would not open under this room's derived
+   * key — a wrong key, a tampered body, or an envelope version this client does
+   * not implement. Handled exactly like `abandon`; it is split out only so the
+   * store can tell "this link cannot read the room's images" from every other
+   * reason an image never arrives.
+   */
+  | "undecryptable";
 
 export async function createCollaborationAssetStore(options: {
   api: AssetApi;
@@ -291,6 +310,30 @@ export async function createCollaborationAssetStore(options: {
   authGeneration: number;
   /** Called with every batch of opened assets, for injection into the canvas. */
   onAssetsResolved: (files: readonly BinaryFileData[]) => void;
+  /**
+   * The room has images this session cannot open, and it has never opened one.
+   *
+   * Called at most once, and only under that second condition, which is what
+   * separates the two failures a user cannot otherwise tell apart. "Not uploaded
+   * yet" is retried and never reports here; "will not open" is final, and until
+   * now looked identical — a canvas quietly short an image, with no message. One
+   * successful open means the link does read this room, so a later failure is a
+   * damaged or tampered asset and stays silent, exactly as a single bad realtime
+   * frame does.
+   */
+  onAssetsUnreadable?: () => void;
+  /**
+   * Ids this client has given up on, batched. Retrying cannot produce these
+   * images — the ciphertext will not open, the body disagrees with its record,
+   * the local file is too large to publish, or the upload budget is spent — so
+   * the canvas can say so instead of showing them as still loading.
+   *
+   * Separate from `onAssetsUnreadable`, which is one room-level statement about
+   * the *link*. This is per image and carries no claim about the key: it is the
+   * union of every terminal reason, which is exactly what "this picture is not
+   * coming" means to the person looking at the canvas.
+   */
+  onAssetsUnavailable?: (fileIds: readonly string[]) => void;
   /**
    * Asks the canvas to offer its files again after a failed upload.
    *
@@ -310,6 +353,8 @@ export async function createCollaborationAssetStore(options: {
     roomId,
     authGeneration,
     onAssetsResolved,
+    onAssetsUnreadable,
+    onAssetsUnavailable,
     onPublishRetryDue,
     scheduleTimeout = defaultScheduleTimeout,
     now = Date.now,
@@ -357,6 +402,101 @@ export async function createCollaborationAssetStore(options: {
   const transfers = createTransferGate(MAX_CONCURRENT_TRANSFERS);
 
   let cancelPublishRetry: (() => void) | undefined;
+
+  /**
+   * Aggregate evidence for `onAssetsUnreadable`, mirroring the realtime path's
+   * verdict (`TransportSubscriber.onRoomUnreadable`): one flag for "this link has
+   * opened something in this room", one for "already said so".
+   *
+   * The evidence is store-wide and so is the moment it is judged. Judging a
+   * batch on its own would be wrong twice over: a batch's records open
+   * concurrently, and — because `request` may be called again while an earlier
+   * one is still running — a *second* batch holding the room's only readable
+   * asset can still be in flight when the first one finishes with nothing. Either
+   * would report an unreadable room to a link that reads it fine, which is
+   * exactly the "one damaged image" case that has to stay silent.
+   */
+  let openedAnyAsset = false;
+  let reportedUnreadableAssets = false;
+  /**
+   * A flag, not a tally: the only question ever asked of it is whether *any*
+   * evidence exists, so counting every unopenable record a room ever serves would
+   * be an unbounded number kept for nothing.
+   */
+  let sawUndecryptableAsset = false;
+  /**
+   * Lookup batches still running, and the id of the last one started. A batch's
+   * `Promise.all` settles before its `finally`, so counting whole batches also
+   * covers every record inside one — no per-record bookkeeping is needed.
+   */
+  let assetFetchesInFlight = 0;
+  let lastAssetFetchId = 0;
+  /**
+   * The batches the armed evidence is waiting on: those already running when the
+   * first undecryptable record appeared, and how many are left. `-1` means no
+   * evidence yet.
+   *
+   * A cohort rather than "no batch is running", for the same reason the realtime
+   * verdict uses one: a room whose images keep being requested never goes quiet,
+   * and waiting for that would mean the user is told nothing for as long as the
+   * room stays busy.
+   */
+  let unreadableFenceFetchId = -1;
+  let unreadableFenceRemaining = 0;
+
+  /** Arms the evidence, fencing it to the lookups already in flight. */
+  const noteUndecryptableAsset = (): void => {
+    if (sawUndecryptableAsset || openedAnyAsset || reportedUnreadableAssets) {
+      return;
+    }
+    sawUndecryptableAsset = true;
+    // The batch that found it is itself still running, so its own teardown is
+    // what reports when no other lookup was open.
+    unreadableFenceFetchId = lastAssetFetchId;
+    unreadableFenceRemaining = assetFetchesInFlight;
+  };
+
+  /**
+   * Retires one batch from the armed cohort and reports once it has drained.
+   *
+   * Called from every batch's teardown, so a readable asset that lands in a
+   * concurrent batch cancels the report permanently through `openedAnyAsset`.
+   */
+  const settleUnreadableAssets = (fetchId: number): void => {
+    if (!sawUndecryptableAsset) return;
+    if (fetchId <= unreadableFenceFetchId) unreadableFenceRemaining -= 1;
+    if (unreadableFenceRemaining > 0) return;
+    if (destroyed || openedAnyAsset || reportedUnreadableAssets) return;
+    reportedUnreadableAssets = true;
+    onAssetsUnreadable?.();
+  };
+
+  /**
+   * Ids given up on since the last report, awaiting one batched notification.
+   *
+   * Batched rather than reported per id because the caller turns this into a
+   * scene write, and a late joiner with ten unopenable images must produce one
+   * canvas update, not ten.
+   */
+  let unavailableIds: string[] = [];
+
+  /**
+   * The single place an id is given up on. Centralised so a terminal failure
+   * cannot be added to `abandoned` without the canvas being told — the silent
+   * variant of exactly this is what Plan 30 exists to remove.
+   */
+  const abandon = (fileId: string): void => {
+    if (abandoned.has(fileId)) return;
+    abandoned.add(fileId);
+    unavailableIds.push(fileId);
+  };
+
+  const flushUnavailable = (): void => {
+    if (destroyed || unavailableIds.length === 0) return;
+    const reported = unavailableIds;
+    unavailableIds = [];
+    onAssetsUnavailable?.(reported);
+  };
 
   const forget = (fileId: string): void => {
     retrying.delete(fileId);
@@ -436,9 +576,12 @@ export async function createCollaborationAssetStore(options: {
     record: CollaborationAssetRecord,
   ): Promise<{ outcome: TransferOutcome; file?: BinaryFileData }> => {
     // A record sealed under an envelope version this client does not implement is
-    // not a transient failure: nothing here can ever open it.
+    // not a transient failure: nothing here can ever open it. Counted as
+    // undecryptable rather than merely abandoned — a version bump makes every
+    // pre-existing asset in the room unopenable at once, which is the "room full
+    // of images this link cannot show" case the user has to be told about.
     if (record.cryptoVersion !== codec.cryptoVersion) {
-      return { outcome: "abandon" };
+      return { outcome: "undecryptable" };
     }
     const limit = Math.min(record.byteLength, MAX_ASSET_CIPHERTEXT_BYTES);
 
@@ -454,7 +597,8 @@ export async function createCollaborationAssetStore(options: {
       return { outcome: "retry" };
     }
     // A body that disagrees with its record is not this asset, whichever is
-    // wrong; a retry would fetch the same bytes.
+    // wrong; a retry would fetch the same bytes. Not `undecryptable`: nothing was
+    // asked of the key here, so it is no evidence about the link.
     if (!ciphertext || ciphertext.byteLength !== record.byteLength) {
       return { outcome: "abandon" };
     }
@@ -463,8 +607,15 @@ export async function createCollaborationAssetStore(options: {
       excalidrawFileId: record.excalidrawFileId,
       ciphertext,
     });
-    if (!opened.ok) return { outcome: "abandon" };
+    if (!opened.ok) return { outcome: "undecryptable" };
+    // Latched on the *open*, not on the resolve: authentication passing is what
+    // proves this link reads this room, whatever the plaintext then turns out to
+    // contain.
+    openedAnyAsset = true;
 
+    // Authentication already succeeded, so the key is right and the room is
+    // readable — a payload this client cannot parse is a peer's protocol
+    // violation, and it stays as silent as it was.
     const decoded = decodeCollaborationAssetPayload(opened.plaintext, {
       roomId,
       excalidrawFileId: record.excalidrawFileId,
@@ -507,7 +658,7 @@ export async function createCollaborationAssetStore(options: {
       // single bad `fileId` on somebody's element would keep every other image in
       // the same message from ever loading.
       if (!EXCALIDRAW_FILE_ID_PATTERN.test(fileId)) {
-        abandoned.add(fileId);
+        abandon(fileId);
         continue;
       }
       needed.push(fileId);
@@ -553,6 +704,9 @@ export async function createCollaborationAssetStore(options: {
       // request that turned out to have nothing to fetch may still have queued an
       // id whose deadline has not arrived.
       armRetryTimer();
+      // One canvas update per request rather than per id or per batch: a late
+      // joiner with ten unopenable images must not produce ten scene writes.
+      flushUnavailable();
     }
   }
 
@@ -565,6 +719,9 @@ export async function createCollaborationAssetStore(options: {
     });
     for (const fileId of wanted) downloading.set(fileId, claim);
 
+    assetFetchesInFlight += 1;
+    lastAssetFetchId += 1;
+    const fetchId = lastAssetFetchId;
     try {
       for (
         let offset = 0;
@@ -588,7 +745,7 @@ export async function createCollaborationAssetStore(options: {
         // ours to open. The session is torn down on rotation, so this only guards
         // the window before that happens.
         if (lookup.authGeneration !== authGeneration) {
-          for (const fileId of batch) abandoned.add(fileId);
+          for (const fileId of batch) abandon(fileId);
           continue;
         }
 
@@ -609,12 +766,16 @@ export async function createCollaborationAssetStore(options: {
                 opened.push(result.file);
                 return;
               }
-              if (result.outcome === "abandon") {
-                abandoned.add(record.excalidrawFileId);
-                forget(record.excalidrawFileId);
+              if (result.outcome === "retry") {
+                deferRetry(record.excalidrawFileId);
                 return;
               }
-              deferRetry(record.excalidrawFileId);
+              // Both terminal outcomes drop the asset the same way; only the
+              // evidence flag distinguishes them, and it is judged store-wide
+              // once the armed cohort has drained (`settleUnreadableAssets`).
+              if (result.outcome === "undecryptable") noteUndecryptableAsset();
+              abandon(record.excalidrawFileId);
+              forget(record.excalidrawFileId);
             }),
           ),
         );
@@ -627,6 +788,11 @@ export async function createCollaborationAssetStore(options: {
       for (const fileId of wanted) {
         if (downloading.get(fileId) === claim) downloading.delete(fileId);
       }
+      assetFetchesInFlight -= 1;
+      // Judged only once the armed cohort has drained, so a readable asset in a
+      // lookup that was already running still gets to prove the link opens this
+      // room.
+      settleUnreadableAssets(fetchId);
       settle();
     }
   }
@@ -642,7 +808,7 @@ export async function createCollaborationAssetStore(options: {
     // retrying, and the element referencing it still syncs — peers simply do not
     // render it.
     if (!encoded.ok) {
-      abandoned.add(file.id);
+      abandon(file.id);
       return;
     }
     const sealed = await codec.seal({
@@ -650,7 +816,7 @@ export async function createCollaborationAssetStore(options: {
       plaintext: encoded.bytes,
     });
     if (!sealed.ok) {
-      abandoned.add(file.id);
+      abandon(file.id);
       return;
     }
     if (destroyed) return;
@@ -672,7 +838,7 @@ export async function createCollaborationAssetStore(options: {
     } catch {
       const attempts = (uploadAttempts.get(file.id) ?? 0) + 1;
       if (attempts >= MAX_PUBLISH_ATTEMPTS) {
-        abandoned.add(file.id);
+        abandon(file.id);
         uploadAttempts.delete(file.id);
         return;
       }
@@ -730,6 +896,10 @@ export async function createCollaborationAssetStore(options: {
           });
       }),
     );
+    // The local user's own images can be terminal too — too large to publish, an
+    // unsupported type, or an upload budget that ran out — and until now that was
+    // as silent as an unopenable download.
+    flushUnavailable();
   }
 
   return {

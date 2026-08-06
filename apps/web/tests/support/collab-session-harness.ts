@@ -10,7 +10,10 @@ import {
 } from "@drawstuff/collaboration/protocol";
 import type { JoinBarrierOptions } from "@drawstuff/collaboration/join-barrier";
 import type { OfflineChangeQueueOptions } from "@drawstuff/collaboration/offline-queue";
-import { roomKeySchema } from "@drawstuff/collaboration/realtime-crypto";
+import {
+  roomKeySchema,
+  type RoomKey,
+} from "@drawstuff/collaboration/realtime-crypto";
 import type {
   RecoveryPolicyOptions,
   RecoveryState,
@@ -426,6 +429,16 @@ export function createAssetBackend() {
     get resolveAborted() {
       return resolveAborted;
     },
+    /**
+     * Rewrites a stored record's envelope version, as an `ASSET_CRYPTO_VERSION`
+     * bump does to every asset already in a room: the ciphertext is untouched and
+     * a reader on the new version can never open it.
+     */
+    setStoredCryptoVersion(fileId: string, cryptoVersion: number): void {
+      const record = records.get(fileId);
+      if (!record) throw new Error(`no stored asset for ${fileId}`);
+      records.set(fileId, { ...record, cryptoVersion });
+    },
     /** Flips a ciphertext byte in storage: tampering the reader must refuse. */
     corrupt(fileId: string): void {
       const stored = this.ciphertextFor(fileId);
@@ -545,6 +558,13 @@ export type TestClient = {
 
 export type CreateClientOptions = {
   role?: RoomRole;
+  /**
+   * Transport to drive the session with, instead of a plain member of the fake
+   * network. Used to inject signals the fake network has no way to produce — it
+   * carries plaintext by design, so the transport-level verdicts that come out of
+   * *failed decryption* can only be delivered by wrapping it.
+   */
+  transport?: CollaborationTransport;
   snapshotStore?: CollaborationSnapshotStore;
   assetStore?: CollaborationAssetStore;
   canSyncScene?: () => boolean;
@@ -576,7 +596,8 @@ export function createHarness(
     const baselineOutcomes: BaselineOutcome[] = [];
     const recoveryStates: RecoveryState[] = [];
     const sceneSyncBlocks: (SceneSyncBlock | null)[] = [];
-    const transport = network.createTransport({ role: options.role });
+    const transport =
+      options.transport ?? network.createTransport({ role: options.role });
     let tokenRefreshCount = 0;
     const session = createCollaborationSession({
       transport,
@@ -658,28 +679,49 @@ export function createHarness(
   const createAssetClient = async (
     name: string,
     backend: AssetBackend,
-    options: Omit<CreateClientOptions, "assetStore"> = {},
+    options: Omit<CreateClientOptions, "assetStore"> & {
+      /**
+       * Room key for this client's asset codec. Defaults to the shared one; a
+       * different key is how a test models a link that cannot open the room's
+       * images, without stubbing the crypto.
+       */
+      roomKey?: RoomKey;
+      /**
+       * Wraps the backend's `fetch`. Lets a test hold one download open, which is
+       * the only way to order two concurrent lookups deterministically.
+       */
+      wrapFetch?: (inner: typeof fetch) => typeof fetch;
+    } = {},
   ): Promise<AssetTestClient> => {
     const assetTimers = createManualTimers();
+    const unreadableAssetReports = { count: 0 };
     let target: CollaborationSession | undefined;
     const assetStore = await createCollaborationAssetStore({
       api: backend.createApi(),
       roomId: ROOM_ID,
-      roomKey: ROOM_KEY,
+      roomKey: options.roomKey ?? ROOM_KEY,
       authGeneration: AUTH_GENERATION,
       onAssetsResolved: (files) => {
         target?.applyRemoteAssets(files);
+      },
+      onAssetsUnreadable: () => {
+        unreadableAssetReports.count += 1;
+      },
+      onAssetsUnavailable: (fileIds) => {
+        target?.applyUnavailableAssets(fileIds);
       },
       onPublishRetryDue: () => {
         target?.republishLocalAssets();
       },
       scheduleTimeout: assetTimers.schedule,
       now: () => assetTimers.now,
-      fetchImpl: backend.createFetch(),
+      fetchImpl: options.wrapFetch
+        ? options.wrapFetch(backend.createFetch())
+        : backend.createFetch(),
     });
     const client = createClient(name, { ...options, assetStore });
     target = client.session;
-    return { ...client, assetStore, assetTimers };
+    return { ...client, assetStore, assetTimers, unreadableAssetReports };
   };
 
   /**
@@ -729,6 +771,11 @@ export type AssetTestClient = TestClient & {
   assetStore: CollaborationAssetStore;
   /** Drives the asset store's retry backoff. */
   assetTimers: ReturnType<typeof createManualTimers>;
+  /**
+   * How many times the store reported that this link cannot open the room's
+   * images. Never more than one per session, and the count is what proves it.
+   */
+  readonly unreadableAssetReports: { readonly count: number };
 };
 
 export function expectConverged(a: TestClient, b: TestClient): void {

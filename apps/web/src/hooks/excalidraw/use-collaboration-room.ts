@@ -148,8 +148,12 @@ const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
     "這個共編 room 已被擁有者結束或重設，連線已停止。請向分享者索取新的連結。",
   "generation-rotated":
     "這個 room 的加密世代已更新，目前的連結無法再解密內容。請向分享者索取新的完整連結。",
+  // Reached from two detectors — an unopenable stored snapshot, and every
+  // realtime frame failing to open with none ever succeeding — so the wording
+  // must not promise that a stored canvas exists: the second detector is
+  // precisely the room that has not been persisted yet.
   "unreadable-room":
-    "這個 room 有已儲存的畫布，但無法用目前連結的金鑰解開。請向分享者索取最新的完整連結。",
+    "無法用目前連結的金鑰解開這個 room 的內容，連線已停止。請向分享者索取最新的完整連結。",
   "protocol-violation":
     "連線因通訊協定錯誤而中止。請重新載入頁面；若持續發生請回報。",
   "crypto-exhausted":
@@ -157,6 +161,23 @@ const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
   "retry-limit":
     "多次重新連線都失敗，已停止重試。請確認網路連線後重新載入頁面。",
 };
+
+/**
+ * What an unopenable image means, and what the user can actually do.
+ *
+ * Deliberately weaker than the terminal `unreadable-room` message above, because
+ * the situation is weaker: the elements still sync, the session is healthy, and
+ * only the pictures are missing. Stating that keeps the user from reading a
+ * partly-loaded canvas as a broken one — the failure mode this replaces was a
+ * canvas silently short an image, indistinguishable from a peer whose upload had
+ * not landed yet.
+ *
+ * Both causes are named because the fix differs and this client cannot tell them
+ * apart: AES-GCM authentication failing looks identical whether the key is wrong
+ * or the envelope version moved on.
+ */
+const UNREADABLE_ASSETS_MESSAGE =
+  "這個 room 有圖片無法用目前的連結開啟（金鑰不符，或圖片是用較新版本加密的）。畫布的其他內容仍在正常同步；若要看到這些圖片，請向分享者索取最新的完整連結。";
 
 const BYTES_PER_MIB = 1_048_576;
 
@@ -294,6 +315,15 @@ export function useCollaborationRoom(options: {
    * reconnect does not make an oversize canvas fit.
    */
   const [syncBlock, setSyncBlock] = useState<SceneSyncBlock | null>(null);
+  /**
+   * Set once the room turns out to hold images this link cannot open.
+   *
+   * Its own state rather than part of `status` because the session is not
+   * degraded: elements sync, the socket is fine, and calling this "共編中" is
+   * honest. What is *not* honest is showing an incomplete canvas with no
+   * explanation, which is what the store used to do.
+   */
+  const [assetsUnreadable, setAssetsUnreadable] = useState(false);
   /**
    * True from the moment the canvas is claimed until the session is torn down.
    *
@@ -591,6 +621,16 @@ export function useCollaborationRoom(options: {
             if (cancelled) return;
             setSyncBlock(block);
           },
+          // Same two surfaces as the block above, for the same reason: the
+          // persistent message lives in a status area the editor does not render
+          // on every viewport, so the announcement has to be layout-independent.
+          // The store reports this at most once per session, so neither surface
+          // needs its own deduplication.
+          onAssetsUnreadable: () => {
+            toast.warning(UNREADABLE_ASSETS_MESSAGE);
+            if (cancelled) return;
+            setAssetsUnreadable(true);
+          },
           onRecoveryStateChange: (state) => {
             if (cancelled) return;
             if (state.phase === "failed") {
@@ -646,6 +686,7 @@ export function useCollaborationRoom(options: {
       setRoleWithdrawn(false);
       setErrorMessage(null);
       setSyncBlock(null);
+      setAssetsUnreadable(false);
     };
   }, [
     excalidrawAPI,
@@ -689,6 +730,10 @@ export function useCollaborationRoom(options: {
     ? "sync-blocked"
     : status;
   const sizeWarning = syncBlock ? sceneSyncBlockMessage(syncBlock) : null;
+  // Ranked last of the three, because it is the least urgent true thing: a
+  // terminal failure ends the session, an oversize canvas risks losing the user's
+  // own work, and this only says some of the room's images will not render.
+  const assetWarning = assetsUnreadable ? UNREADABLE_ASSETS_MESSAGE : null;
 
   return {
     status: visibleStatus,
@@ -705,7 +750,7 @@ export function useCollaborationRoom(options: {
     isReadOnly:
       ownsCanvas &&
       (roleWithdrawn || (role !== null && !roomRoleCanEditScene(role))),
-    errorMessage: errorMessage ?? sizeWarning,
+    errorMessage: errorMessage ?? sizeWarning ?? assetWarning,
     ownsCanvas,
     onPointerUpdate,
     onSceneChange,

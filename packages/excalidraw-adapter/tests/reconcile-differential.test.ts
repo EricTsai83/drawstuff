@@ -151,6 +151,10 @@ describe("reconcile entry surface", () => {
       "createChangedElementTracker",
       "getSyncableElements",
       "isSyncableElement",
+      // Element-model write, and deliberately here rather than in `apps/web`:
+      // the "which placeholder does an unavailable image get" decision belongs
+      // to the same boundary that owns element identity and versioning.
+      "markImageElementsUnavailable",
       "reconcileRemoteElements",
     ]);
     const tracker = reconcileEntry.createChangedElementTracker();
