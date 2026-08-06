@@ -28,8 +28,8 @@ merge algorithm，皆不在這組計畫內。
 完成條件，其餘狀態都不代表已完成。
 
 **表格的排列即為執行順序**：已結束的（`Completed`／`Skipped`）依 plan 編號排在上半，
-未完成的 9 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
-從 Plan 25 那一列往下讀就是待辦。
+未完成的 6 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
+從 Plan 28 那一列往下讀就是待辦。
 
 | Plan                                              | 執行狀態                  | 結果                                                    | 依賴               |
 | ------------------------------------------------- | ------------------------- | ------------------------------------------------------- | ------------------ |
@@ -61,10 +61,10 @@ merge algorithm，皆不在這組計畫內。
 | [23](./23-owned-scene-asset-lifecycle.md)         | Completed（2026-08-06）   | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
 | [31](./31-durable-format-protocol-decoupling.md)  | Completed（2026-08-06）   | durable 格式與 transport 版本解耦                       | 26                 |
 | [25](./25-relay-drain-and-deployment-envelope.md) | Completed（2026-08-06）   | Graceful drain、max-memory watchdog 與單 instance 封套  | 19                 |
-| [32](./32-collaboration-client-telemetry.md)      | Blocked — 共享儲存決定    | Client／後端側共編 telemetry 上報                       | 24、30             |
+| [32](./32-collaboration-client-telemetry.md)      | Skipped — 改走 Sentry     | 共編 telemetry 不自建，之後需要監控時接 Sentry          | 24、30             |
 | [28](./28-room-scoped-retention.md)               | Ready                     | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
-| [29](./29-collaboration-load-test-and-runbook.md) | Blocked — 32              | Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
-| [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 共享儲存決定    | 共編後端入口的速率限制                                  | 19                 |
+| [29](./29-collaboration-load-test-and-runbook.md) | Blocked — §6 缺口（原 32）| Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
+| [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 等 Redis 開通   | 共編後端入口的速率限制                                  | 19                 |
 | [34](./34-room-key-confirmation.md)               | Ready                     | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |
 | [20](./20-staged-rollout.md)                      | Blocked — 28、29          | 以 feature flag 漸進開放並可回滾                        | 28、29             |
 | [33](./33-peer-scoped-collaboration-identity.md)  | Ready                     | 身分收斂到 `peerId`，移除 client 選定的 `clientId`      | 31                 |
@@ -73,8 +73,9 @@ merge algorithm，皆不在這組計畫內。
 （31 原排在最前，因為成本隨時間上升——活資料越多越貴，且在它完成前任何
 `COLLABORATION_PROTOCOL_VERSION` 升版都會摧毀當下所有 room 的 snapshot 與 asset；已於
 2026-08-06 完成，稽核 0 筆活資料、以排空部署。30 同屬這一類，已於 2026-08-06 完成：realtime
-與 asset 兩條路徑各自加上聚合判定，錯誤金鑰在尚無 stored snapshot 的 room 上也非靜默。）**「共享儲存（Upstash Redis 之類）要不要引入」不是
-plan 而是一個決定**，它同時擋住 27 與 32，是目前最深的阻塞點。**33 排在最後**，因為它是唯一
+與 asset 兩條路徑各自加上聚合判定，錯誤金鑰在尚無 stored snapshot 的 room 上也非靜默。）**「共享儲存（Upstash Redis 之類）要不要引入」原是懸而未決的決定**：32 已於
+2026-08-06 決定改走 Sentry（見下方註記），同日定案為 Plan 27 引入 Redis 做速率限制的
+共享計數——剩下的阻塞只是資源申請與開通，開通後 27 即為 Ready。**33 排在最後**，因為它是唯一
 不擋 Plan 20 的一份。**34 排在 20 之前**：它關掉的是「錯誤連結把 room 的 snapshot 寫成沒有人
 打得開」，受害的是拿正確連結的人，而 schema 變更的成本隨活資料上升——現在稽核 0 筆 room，改動
 成本為零。Plan 20 之前若決定延後 27（後端入口無速率上界）或 34，必須明確承擔對應風險。
@@ -84,6 +85,15 @@ plan 而是一個決定**，它同時擋住 27 與 32，是目前最深的阻塞
 保留已完成的範圍（threat model、SLO、relay limits、超限行為），其餘成為 Plan 24–29；Plan 26
 的 review 再拆出 Plan 30／31，Plan 24 的 review 再拆出 Plan 32／33，Plan 30 的剩餘風險再拆出
 Plan 34。
+
+2026-08-06：Plan 32 標記 `Skipped`。owner 決策：共編 telemetry 不自建上報與彙總，
+之後需要這類監控時接 Sentry——這把 Plan 24 列為獨立決定的「接上特定監控廠商」
+定案為接受，「共享儲存」的決定從此只關 Plan 27（速率限制）。後果：SLO §6 的三條
+缺口（session 成功率、decrypt failure、snapshot conflict 率）在 Sentry 接入前沒有
+承載，Plan 29 對這三列要嘛等承接 Sentry 接入的新 plan、要嘛以明示 limitation 記錄
+後先行。接入時 decrypt failure（門檻為 0）可由錯誤事件直接判定；兩條比率門檻需要
+分母事件，屆時一併決定承載方式。細節與被繼承的邊界見
+[Plan 32](./32-collaboration-client-telemetry.md) 的決策註記。
 
 Plan 03 的稽核結論原為 `minimal patch required`（G1/G2/G3/G4 四個 confirmed
 gaps）。2026-08-01 owner 決策改採「不修改 upstream」原則後，Plan 04 標記為

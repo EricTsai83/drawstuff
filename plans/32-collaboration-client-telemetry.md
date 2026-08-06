@@ -1,7 +1,6 @@
 # Plan 32：Client／後端側共編 telemetry 上報
 
-- Status: Blocked — 需要「共享儲存」的決定（與 [Plan 27](./27-collaboration-backend-rate-limits.md)
-  同一項），且 realtime 計數應接續 [Plan 30](./30-silent-key-mismatch-detection.md)
+- Status: Skipped — 2026-08-06 owner 決策：不自建 telemetry，之後需要監控時接 Sentry（見下）
 - Depends on: 24、30
 - Expected change size: client 端分類計數、一支 tRPC 上報 mutation、後端彙總出口與對應測試
 
@@ -10,6 +9,15 @@
 > [alerts contract §6](../docs/observability/collaboration-alerts-and-dashboards.md)），實作
 > 明確延後；而 Plan 30 的 Out of scope 又把「decrypt 失敗的 metrics」指回 Plan 24。兩份 plan
 > 互指，中間沒有 owner——本 plan 就是那個 owner。
+
+> 2026-08-06 owner 決策：本 plan 不執行。若之後需要這類監控，改採 Sentry，而非
+> 自建上報 mutation 與後端彙總——這把 Plan 24 明示為獨立決定的「接上特定監控
+> 廠商」定案為接受。屆時由新的小型 plan 承接 Sentry 接入，並繼承本 plan 仍然
+> 成立的兩條邊界：realtime 計數沿用 Plan 30、上報內容不得含任何 payload 片段
+> （見 Verification）。注意 Sentry 的錯誤事件只有分子：decrypt failure（門檻為
+> 0）可直接判定；session 成功率與 snapshot conflict 率是比率，需要成功／總數的
+> 分母事件，接入時要一併決定承載方式。原「共享儲存」阻擋原因隨本決策消滅——
+> 該決定從此只關 [Plan 27](./27-collaboration-backend-rate-limits.md)。
 
 ## 為什麼需要它
 
