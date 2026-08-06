@@ -28,8 +28,8 @@ merge algorithm，皆不在這組計畫內。
 完成條件，其餘狀態都不代表已完成。
 
 **表格的排列即為執行順序**：已結束的（`Completed`／`Skipped`）依 plan 編號排在上半，
-未完成的 10 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
-從 Plan 31 那一列往下讀就是待辦。
+未完成的 9 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
+從 Plan 23 那一列往下讀就是待辦。
 
 | Plan                                              | 執行狀態                  | 結果                                                    | 依賴               |
 | ------------------------------------------------- | ------------------------- | ------------------------------------------------------- | ------------------ |
@@ -58,7 +58,7 @@ merge algorithm，皆不在這組計畫內。
 | [24](./24-collaboration-observability.md)         | Completed（2026-08-06）   | Relay metrics、structured logs、alerts contract         | 19                 |
 | [26](./26-purpose-scoped-key-derivation.md)       | Completed                 | `deriveRoomKey` 解除 envelope 版本耦合                  | 19                 |
 | [30](./30-silent-key-mismatch-detection.md)       | Completed（2026-08-06）   | 金鑰不相容的非靜默偵測不再只依賴 snapshot               | 19、26             |
-| [31](./31-durable-format-protocol-decoupling.md)  | Ready                     | durable 格式與 transport 版本解耦                       | 26                 |
+| [31](./31-durable-format-protocol-decoupling.md)  | Completed（2026-08-06）   | durable 格式與 transport 版本解耦                       | 26                 |
 | [23](./23-owned-scene-asset-lifecycle.md)         | Ready                     | 收斂 owned-scene 資產清理競態、GC 與重複上傳            | 16（獨立於 17–20） |
 | [25](./25-relay-drain-and-deployment-envelope.md) | Ready                     | Graceful drain 與單 instance 部署封套                   | 19                 |
 | [32](./32-collaboration-client-telemetry.md)      | Blocked — 共享儲存決定    | Client／後端側共編 telemetry 上報                       | 24、30             |
@@ -67,13 +67,13 @@ merge algorithm，皆不在這組計畫內。
 | [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 共享儲存決定    | 共編後端入口的速率限制                                  | 19                 |
 | [34](./34-room-key-confirmation.md)               | Ready                     | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |
 | [20](./20-staged-rollout.md)                      | Blocked — 28、29          | 以 feature flag 漸進開放並可回滾                        | 28、29             |
-| [33](./33-peer-scoped-collaboration-identity.md)  | Blocked — 31              | 身分收斂到 `peerId`，移除 client 選定的 `clientId`      | 31                 |
+| [33](./33-peer-scoped-collaboration-identity.md)  | Ready                     | 身分收斂到 `peerId`，移除 client 選定的 `clientId`      | 31                 |
 
-排序理由，只記不顯而易見的部分：**31／23／25 三份現在就能平行開始**（依賴全部已完成）；
-31 排在最前是因為成本隨時間上升——活資料越多越貴，而且在 31 完成前任何
-`COLLABORATION_PROTOCOL_VERSION` 升版都會摧毀當下所有 room 的 snapshot 與 asset。（30 同屬
-這一類，已於 2026-08-06 完成：realtime 與 asset 兩條路徑各自加上聚合判定，錯誤金鑰在尚無
-stored snapshot 的 room 上也非靜默。）**「共享儲存（Upstash Redis 之類）要不要引入」不是
+排序理由，只記不顯而易見的部分：**23／25 兩份現在就能平行開始**（依賴全部已完成）。
+（31 原排在最前，因為成本隨時間上升——活資料越多越貴，且在它完成前任何
+`COLLABORATION_PROTOCOL_VERSION` 升版都會摧毀當下所有 room 的 snapshot 與 asset；已於
+2026-08-06 完成，稽核 0 筆活資料、以排空部署。30 同屬這一類，已於 2026-08-06 完成：realtime
+與 asset 兩條路徑各自加上聚合判定，錯誤金鑰在尚無 stored snapshot 的 room 上也非靜默。）**「共享儲存（Upstash Redis 之類）要不要引入」不是
 plan 而是一個決定**，它同時擋住 27 與 32，是目前最深的阻塞點。**33 排在最後**，因為它是唯一
 不擋 Plan 20 的一份。**34 排在 20 之前**：它關掉的是「錯誤連結把 room 的 snapshot 寫成沒有人
 打得開」，受害的是拿正確連結的人，而 schema 變更的成本隨活資料上升——現在稽核 0 筆 room，改動

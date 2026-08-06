@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   clientIdSchema,
+  COLLABORATION_PROTOCOL_VERSION,
   peerIdSchema,
   roomIdSchema,
   type SyncedElement,
@@ -9,6 +10,7 @@ import {
 import { roomKeySchema } from "../src/realtime-crypto.ts";
 import {
   collaborationSnapshotDigest,
+  collaborationSnapshotSchema,
   decodeCollaborationSnapshot,
   deriveSnapshotKey,
   electSnapshotWriter,
@@ -19,8 +21,10 @@ import {
   MIN_SNAPSHOT_SEALED_BYTES,
   openCollaborationSnapshot,
   sealCollaborationSnapshot,
+  snapshotAdditionalDataLabel,
   snapshotCiphertextChecksum,
   SNAPSHOT_CRYPTO_VERSION,
+  SNAPSHOT_SEALED_HEADER_BYTES,
   SNAPSHOT_SEALED_OVERHEAD_BYTES,
 } from "../src/snapshot.ts";
 import type { RoomPeer } from "../src/transport.ts";
@@ -99,7 +103,6 @@ describe("collaboration snapshot codec", () => {
       const raw = JSON.stringify({
         profile: "collaboration-snapshot",
         snapshotVersion: 1,
-        protocolVersion: 1,
         roomId: ROOM_ID,
         elements: [],
         [key]: { anything: true },
@@ -350,6 +353,95 @@ describe("collaboration snapshot sealing", () => {
     expect(await snapshotCiphertextChecksum(flipByte(ciphertext, 1))).not.toBe(
       checksum,
     );
+  });
+});
+
+describe("transport protocol decoupling (Plan 31)", () => {
+  // `COLLABORATION_PROTOCOL_VERSION` versions transport messages. A snapshot is
+  // durable state: if the transport version reached its payload schema or its
+  // seal, a purely transport-side protocol bump would make every stored
+  // snapshot unreadable. These tests pin that it reaches neither, and that the
+  // snapshot's own versions still do.
+
+  it("keeps the transport protocol version out of the payload schema", () => {
+    expect(Object.keys(collaborationSnapshotSchema.shape)).toEqual([
+      "profile",
+      "snapshotVersion",
+      "roomId",
+      "elements",
+    ]);
+  });
+
+  it("refuses a pre-decoupling payload that still carries protocolVersion", () => {
+    // The strict schema makes dropping the field a breaking change for stored
+    // payloads. That is deliberate and deployed by draining rooms (audited: no
+    // stored snapshots existed), so the legacy shape must be refused, not
+    // silently tolerated.
+    const raw = JSON.stringify({
+      profile: "collaboration-snapshot",
+      snapshotVersion: 1,
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+      roomId: ROOM_ID,
+      elements: [],
+    });
+    const decoded = decodeCollaborationSnapshot(
+      new TextEncoder().encode(raw),
+      { roomId: ROOM_ID },
+    );
+    expect(decoded.ok).toBe(false);
+    if (!decoded.ok) expect(decoded.error.code).toBe("malformed-snapshot");
+  });
+
+  it("binds the seal to the snapshot's own versions, never the transport's", async () => {
+    // The authenticated-data label is a pinned contract: envelope version,
+    // room, generation, revision — no transport segment.
+    expect(
+      snapshotAdditionalDataLabel({
+        roomId: ROOM_ID,
+        authGeneration: 2,
+        revision: 7,
+      }),
+    ).toBe(`drawstuff-snapshot/v${SNAPSHOT_CRYPTO_VERSION}/${ROOM_ID}/g2/r7`);
+
+    // And it is the label sealing actually binds: the sealed bytes open under
+    // exactly it, refuse the pre-decoupling label that carried the transport
+    // version (so a protocol bump cannot invalidate stored snapshots), and
+    // refuse a bumped envelope version (so the snapshot's own version still
+    // can).
+    const key = await snapshotKey();
+    const plaintext = new TextEncoder().encode("scene bytes");
+    const ciphertext = await seal(plaintext, { key });
+    const iv = ciphertext.subarray(1, SNAPSHOT_SEALED_HEADER_BYTES);
+    const body = ciphertext.subarray(SNAPSHOT_SEALED_HEADER_BYTES);
+    const openUnder = (label: string): Promise<ArrayBuffer> =>
+      crypto.subtle.decrypt(
+        {
+          name: "AES-GCM",
+          iv: iv as BufferSource,
+          additionalData: new TextEncoder().encode(label) as BufferSource,
+        },
+        key,
+        body as BufferSource,
+      );
+
+    const pinned = await openUnder(
+      snapshotAdditionalDataLabel({
+        roomId: ROOM_ID,
+        authGeneration: 1,
+        revision: 1,
+      }),
+    );
+    expect(new Uint8Array(pinned)).toEqual(plaintext);
+    await expect(
+      openUnder(
+        `drawstuff-snapshot/v${SNAPSHOT_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${ROOM_ID}/g1/r1`,
+      ),
+    ).rejects.toThrow();
+    await expect(
+      openUnder(
+        `drawstuff-snapshot/v${SNAPSHOT_CRYPTO_VERSION + 1}/${ROOM_ID}/g1/r1`,
+      ),
+    ).rejects.toThrow();
   });
 });
 

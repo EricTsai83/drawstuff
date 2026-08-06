@@ -1,7 +1,6 @@
 import { z } from "zod";
 
 import {
-  COLLABORATION_PROTOCOL_VERSION,
   roomIdSchema,
   syncedElementSchema,
   type RoomId,
@@ -128,8 +127,6 @@ export const FORBIDDEN_SNAPSHOT_KEYS = [
 export const collaborationSnapshotSchema = z.strictObject({
   profile: z.literal(COLLABORATION_SNAPSHOT_PROFILE),
   snapshotVersion: z.literal(COLLABORATION_SNAPSHOT_VERSION),
-  /** The wire protocol the elements were produced under. */
-  protocolVersion: z.literal(COLLABORATION_PROTOCOL_VERSION),
   roomId: roomIdSchema,
   /**
    * Syncable elements only, in scene order, with the same validation the
@@ -191,7 +188,6 @@ export function encodeCollaborationSnapshot(input: {
   const parsed = collaborationSnapshotSchema.safeParse({
     profile: COLLABORATION_SNAPSHOT_PROFILE,
     snapshotVersion: COLLABORATION_SNAPSHOT_VERSION,
-    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
     roomId: input.roomId,
     elements: input.elements,
   });
@@ -360,24 +356,37 @@ export type OpenSnapshotResult =
 
 /**
  * Authenticated metadata. Everything the store can see is bound to the
- * ciphertext: envelope version, wire protocol version, room, authorization
- * generation and revision. Binding the revision is what stops a store from
- * pairing revision N's bytes with revision M's metadata — it can still serve an
- * older (revision, ciphertext) pair intact, which is the part no client-side
- * check can rule out, but it cannot fabricate a consistent-looking mix.
+ * ciphertext: envelope version, room, authorization generation and revision.
+ * Binding the revision is what stops a store from pairing revision N's bytes
+ * with revision M's metadata — it can still serve an older (revision,
+ * ciphertext) pair intact, which is the part no client-side check can rule
+ * out, but it cannot fabricate a consistent-looking mix.
+ *
+ * Deliberately free of `COLLABORATION_PROTOCOL_VERSION`: that versions
+ * transport messages, and a snapshot is durable state. It used to be bound
+ * here as well, which made every stored snapshot unreadable after a purely
+ * transport-side protocol bump; the snapshot's own envelope version is the
+ * only format version that belongs in this seal.
+ *
+ * Exported so the "no transport version reaches durable authenticated data"
+ * property is a pinned contract rather than a comment.
  */
+export function snapshotAdditionalDataLabel(params: {
+  roomId: RoomId;
+  authGeneration: number;
+  revision: number;
+}): string {
+  return `drawstuff-snapshot/v${SNAPSHOT_CRYPTO_VERSION}/${params.roomId}/g${roomAuthGenerationSchema.parse(
+    params.authGeneration,
+  )}/r${snapshotRevisionSchema.parse(params.revision)}`;
+}
+
 const snapshotAdditionalData = (params: {
   roomId: RoomId;
   authGeneration: number;
   revision: number;
 }): BufferSource =>
-  asBufferSource(
-    encoder.encode(
-      `drawstuff-snapshot/v${SNAPSHOT_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${params.roomId}/g${roomAuthGenerationSchema.parse(
-        params.authGeneration,
-      )}/r${snapshotRevisionSchema.parse(params.revision)}`,
-    ),
-  );
+  asBufferSource(encoder.encode(snapshotAdditionalDataLabel(params)));
 
 export async function sealCollaborationSnapshot(options: {
   key: CryptoKey;

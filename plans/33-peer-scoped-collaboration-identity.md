@@ -1,6 +1,6 @@
 # Plan 33：共編身分收斂到 relay 產生的 `peerId`（移除 client 選定的 `clientId`）
 
-- Status: Blocked — 依賴 [Plan 31](./31-durable-format-protocol-decoupling.md)
+- Status: Ready（[Plan 31](./31-durable-format-protocol-decoupling.md) 已於 2026-08-06 完成）
 - Depends on: 31
 - Expected change size: message envelope、relay join frame、join token claims、transport
   contract、collaborator 身分，以及對應測試
@@ -48,19 +48,20 @@
 4. **要放棄的性質 upstream 自己也沒有。** 失去的是「跨 reconnect 的游標連續性」，而 upstream
    的 `socket.id` 每次重連都改變，同樣沒有。
 
-## 為什麼被阻擋
+## 為什麼曾被阻擋（2026-08-06 已解除）
 
 `senderClientId` 位於 message envelope，而 envelope 是 `z.strictObject` 搭配
 `protocolVersion: z.literal(COLLABORATION_PROTOCOL_VERSION)`。移除一個欄位就是一次**純
 transport 版本升版**，而 [Plan 31](./31-durable-format-protocol-decoupling.md) 的背景章節逐字
-記載了那件事今天的後果：
+記載了那件事**當時**的後果：
 
 > 一次純 transport 變更（例如新增一種 realtime 訊息型別、**改一個訊息欄位**）就會讓既有 room
 > 的 snapshot 與 asset 全部不可讀——而且是在 AAD 與 payload schema 兩處同時失效，因為
 > `z.literal` 是強制相等。
 
 所以這不是「要不要做」而是**順序**：Plan 31 把 durable 格式與 transport 版本解耦之後，這個
-變更才可能不摧毀既有資料。
+變更才可能不摧毀既有資料。Plan 31 已於 2026-08-06 完成——durable 格式不再綁 transport 版本，
+本 plan 的前置條件已滿足。
 
 ## Outcome
 
@@ -96,7 +97,7 @@ transport 版本升版**，而 [Plan 31](./31-durable-format-protocol-decoupling
 
 ## Steps
 
-1. 等 Plan 31。
+1. ~~等 Plan 31。~~ 已完成（2026-08-06）。
 2. 決定上一節的 `cid` 問題並記錄結論。
 3. 移除 envelope 的 `senderClientId` 與 transport／join frame／token claim 的 `clientId`。
 4. 把 collaborator 身分改為 `peerId`，含顯示名 fallback。
