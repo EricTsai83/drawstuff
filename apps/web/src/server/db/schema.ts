@@ -19,8 +19,22 @@ import {
   MAX_ASSET_URL_LENGTH,
 } from "@drawstuff/collaboration/asset";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 
 const createTable = pgTableCreator((name) => `excalidraw-ericts_${name}`);
+
+// 自定義 bytea 類型用於儲存二進位資料
+const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
+  dataType() {
+    return "bytea";
+  },
+  toDriver(value: Uint8Array): Buffer {
+    return Buffer.from(value);
+  },
+  fromDriver(value: Buffer): Uint8Array {
+    return new Uint8Array(value);
+  },
+});
 
 export const user = createTable("user", {
   id: text("id").primaryKey(),
@@ -280,6 +294,15 @@ export const collaborationRoom = createTable(
      * （invite-only）。匿名加入一律不支援：所有 room API 都要求登入 session。
      */
     linkRole: varchar("link_role", { length: 16 }).default("none").notNull(),
+    /**
+     * 金鑰檢查值（Plan 34）：room 建立與 generation rotate 後，由 owner 的
+     * client 用 purpose `keycheck` 的推導金鑰封裝一段固定明文寫入。client 在
+     * join 之前驗證，開不了即視同錯誤連結，因此錯誤金鑰不可能建立或覆寫
+     * snapshot。伺服器只保存密文，沒有金鑰也沒有驗證路徑；AAD 綁 room id 與
+     * authGeneration，跨 room／跨世代搬運無效。null 代表 owner 尚未（或未能）
+     * 寫入——client 端視為無法驗證而拒絕加入；rotate 會先清空再由 owner 重算。
+     */
+    keyCheck: bytea("key_check"),
     status: varchar("status", { length: 16 }).default("active").notNull(),
     expiresAt: timestamp("expires_at").notNull(),
     endedAt: timestamp("ended_at"),
@@ -316,6 +339,13 @@ export const collaborationRoom = createTable(
     check(
       "collaboration_room_link_role_supported",
       sql`${table.linkRole} in ('none', 'viewer', 'editor')`,
+    ),
+    // 檢查值是固定明文的密封結果，長度是常數：其他長度一律不是合法 envelope。
+    check(
+      "collaboration_room_key_check_length",
+      sql`${table.keyCheck} is null or octet_length(${table.keyCheck}) = ${sql.raw(
+        String(KEYCHECK_CIPHERTEXT_BYTES),
+      )}`,
     ),
   ],
 );
@@ -358,19 +388,6 @@ export const collaborationRoomMember = createTable(
     ),
   ],
 );
-
-// 自定義 bytea 類型用於儲存二進位資料
-const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
-  dataType() {
-    return "bytea";
-  },
-  toDriver(value: Uint8Array): Buffer {
-    return Buffer.from(value);
-  },
-  fromDriver(value: Buffer): Uint8Array {
-    return new Uint8Array(value);
-  },
-});
 
 /**
  * 共編 room 的持久化 snapshot（Plan 15）。room 的所有 client 離線或 relay restart

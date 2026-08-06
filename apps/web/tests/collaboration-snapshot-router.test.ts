@@ -528,3 +528,58 @@ describe("collaboration snapshot conditional writes", () => {
     expect(rows).toEqual([]);
   });
 });
+
+describe("collaboration snapshot reset (Plan 34)", () => {
+  it("lets the owner delete the current baseline so the room re-seeds", async () => {
+    const room = await openRoom();
+    await put(OWNER, {
+      roomId: room.roomId,
+      expectedRevision: SNAPSHOT_NO_REVISION,
+    });
+
+    const result = await callerFor(OWNER).collaborationSnapshot.reset({
+      roomId: room.roomId,
+    });
+    expect(result).toEqual({ reset: true });
+
+    const after = await callerFor(OWNER).collaborationSnapshot.get({
+      roomId: room.roomId,
+    });
+    expect(after.snapshot).toBeNull();
+
+    // The next write is a fresh seed at revision 1, not a continuation.
+    const reseeded = await put(OWNER, {
+      roomId: room.roomId,
+      expectedRevision: SNAPSHOT_NO_REVISION,
+    });
+    expect(reseeded).toEqual({ status: "written", revision: 1 });
+  });
+
+  it("reports when there was nothing to delete", async () => {
+    const room = await openRoom();
+    await expect(
+      callerFor(OWNER).collaborationSnapshot.reset({ roomId: room.roomId }),
+    ).resolves.toEqual({ reset: false });
+  });
+
+  it("refuses everyone but the owner — an editor's write access is not enough", async () => {
+    const room = await openRoom({ linkRole: "editor" });
+    await put(OWNER, {
+      roomId: room.roomId,
+      expectedRevision: SNAPSHOT_NO_REVISION,
+    });
+
+    // An editor may replace the baseline (visibly) but not discard it.
+    await expect(
+      callerFor(EDITOR).collaborationSnapshot.reset({ roomId: room.roomId }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      callerFor(null).collaborationSnapshot.reset({ roomId: room.roomId }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+
+    const kept = await callerFor(OWNER).collaborationSnapshot.get({
+      roomId: room.roomId,
+    });
+    expect(kept.snapshot).not.toBeNull();
+  });
+});

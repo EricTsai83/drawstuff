@@ -1,6 +1,14 @@
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 /**
  * The room status surface: what a session that is connected but not entirely
@@ -55,7 +63,12 @@ vi.mock("@/trpc/react", () => ({
   },
 }));
 
-import { roomKeySchema } from "@drawstuff/collaboration/realtime-crypto";
+import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import {
+  generateRoomKey,
+  roomKeySchema,
+} from "@drawstuff/collaboration/realtime-crypto";
 import type { RecoveryState } from "@drawstuff/collaboration/recovery";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
@@ -72,6 +85,17 @@ const ROOM_ID = "room-oversize";
 const ROOM_KEY = roomKeySchema.parse(
   "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
 );
+
+/** The room's stored key-check value, sealed for `ROOM_KEY` (Plan 34). */
+let keyCheckBase64: string;
+
+beforeAll(async () => {
+  keyCheckBase64 = await sealRoomKeyCheck({
+    roomKey: ROOM_KEY,
+    roomId: roomIdSchema.parse(ROOM_ID),
+    authGeneration: 1,
+  });
+});
 
 const OVERSIZE_REALTIME: SceneSyncBlock = {
   realtime: { byteLength: 2_200_000, maxByteLength: 1_048_576 },
@@ -97,7 +121,9 @@ const probe: { result?: UseCollaborationRoomResult } = {};
  * editor API, and a fresh object per render would tear the room down and rejoin
  * on every state change.
  */
-const EXCALIDRAW_API = {} as ExcalidrawImperativeAPI;
+const updateScene = vi.fn();
+const clearCurrentScene = vi.fn();
+const EXCALIDRAW_API = { updateScene } as unknown as ExcalidrawImperativeAPI;
 
 function Probe() {
   const result = useCollaborationRoom({
@@ -111,7 +137,7 @@ function Probe() {
     requestSceneChangeDecision: () => Promise.resolve("switch" as const),
     closeSceneChangeConfirm: () => undefined,
     uploadSceneToCloud: () => Promise.resolve(true),
-    clearCurrentScene: () => undefined,
+    clearCurrentScene,
   });
   useEffect(() => {
     probe.result = result;
@@ -130,8 +156,20 @@ let root: ReturnType<typeof createRoot> | undefined;
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-/** Mounts the hook and returns the callbacks the session was started with. */
-const mountRoom = async (): Promise<SessionCallbacks> => {
+/**
+ * The join now includes real Web Crypto work (the pre-join key check), whose
+ * completion is a task, not a microtask — so a single `act` pass no longer
+ * drains the whole join chain. Ticks the clock until the condition holds.
+ */
+const waitFor = async (predicate: () => boolean): Promise<void> => {
+  for (let attempt = 0; attempt < 50 && !predicate(); attempt += 1) {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+  }
+};
+
+const renderProbe = async (): Promise<void> => {
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -142,6 +180,12 @@ const mountRoom = async (): Promise<SessionCallbacks> => {
       </SceneSessionProvider>,
     );
   });
+};
+
+/** Mounts the hook and returns the callbacks the session was started with. */
+const mountRoom = async (): Promise<SessionCallbacks> => {
+  await renderProbe();
+  await waitFor(() => startRoomSession.mock.calls.length > 0);
   const started = startRoomSession.mock.calls[0]?.[0] as
     SessionCallbacks | undefined;
   if (!started) throw new Error("room session was never started");
@@ -160,10 +204,19 @@ const unmountRoom = (): void => {
 beforeEach(() => {
   toastWarning.mockClear();
   startRoomSession.mockClear();
+  joinMutate.mockClear();
+  roomGetQuery.mockClear();
+  updateScene.mockClear();
+  clearCurrentScene.mockClear();
   startRoomSession.mockImplementation(() =>
     Promise.resolve({ destroy: () => Promise.resolve() }),
   );
-  roomGetQuery.mockResolvedValue({ roomId: ROOM_ID, sceneId: "scene-1" });
+  roomGetQuery.mockResolvedValue({
+    roomId: ROOM_ID,
+    sceneId: "scene-1",
+    authGeneration: 1,
+    keyCheckBase64,
+  });
   joinMutate.mockResolvedValue({
     roomId: ROOM_ID,
     token: "join-token",
@@ -366,6 +419,110 @@ describe("room status for images this link cannot open", () => {
     expect(probe.result?.status).toBe("failed");
     expect(probe.result?.errorMessage).toContain("無法用目前連結的金鑰解開");
     expect(probe.result?.errorMessage).not.toContain("其他內容仍在正常同步");
+  });
+});
+
+describe("key check before join (Plan 34)", () => {
+  /** Mounts the hook and waits for the join attempt to be refused. */
+  const mountBlocked = async (): Promise<void> => {
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "failed");
+  };
+
+  it("refuses a wrong-key link before the canvas is touched", async () => {
+    roomGetQuery.mockResolvedValue({
+      roomId: ROOM_ID,
+      // Another scene, so a join that got past the check would have replaced
+      // the canvas — the assertions below are that it never got the chance.
+      sceneId: "scene-room",
+      authGeneration: 1,
+      keyCheckBase64: await sealRoomKeyCheck({
+        roomKey: generateRoomKey(),
+        roomId: roomIdSchema.parse(ROOM_ID),
+        authGeneration: 1,
+      }),
+    });
+
+    await mountBlocked();
+
+    expect(probe.result?.status).toBe("failed");
+    expect(probe.result?.failureReason).toBe("wrong-key-link");
+    expect(probe.result?.errorMessage).toContain("金鑰不正確");
+    expect(probe.result?.errorMessage).toContain("畫布沒有被變更");
+    // Refused before the join: the canvas was not cleared, no claim was
+    // taken, no token was minted and no session was started — which is what
+    // makes a wrong-key snapshot write impossible (the empty-room cell of
+    // Plan 30's table).
+    expect(clearCurrentScene).not.toHaveBeenCalled();
+    expect(updateScene).not.toHaveBeenCalled();
+    expect(joinMutate).not.toHaveBeenCalled();
+    expect(startRoomSession).not.toHaveBeenCalled();
+    expect(probe.result?.ownsCanvas).toBe(false);
+  });
+
+  it("treats a room with no check value as unverifiable, not as trusted", async () => {
+    roomGetQuery.mockResolvedValue({
+      roomId: ROOM_ID,
+      sceneId: "scene-room",
+      authGeneration: 1,
+      keyCheckBase64: null,
+    });
+
+    await mountBlocked();
+
+    expect(probe.result?.status).toBe("failed");
+    expect(probe.result?.failureReason).toBe("missing-key-check");
+    expect(probe.result?.errorMessage).toContain("尚未完成加密設定");
+    expect(joinMutate).not.toHaveBeenCalled();
+    expect(startRoomSession).not.toHaveBeenCalled();
+  });
+
+  it("refuses a join that lands on a generation other than the verified one", async () => {
+    // The rotate-while-in-the-prompt race: the check value was verified for
+    // generation 1, but by the time the token is minted the room is at 2 —
+    // this key was never verified for the generation the session would run
+    // under, so the session must not start.
+    joinMutate.mockResolvedValue({
+      roomId: ROOM_ID,
+      token: "join-token",
+      authGeneration: 2,
+      relayUrl: "ws://127.0.0.1:3105",
+    });
+
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "failed");
+
+    expect(probe.result?.status).toBe("failed");
+    expect(probe.result?.failureReason).toBe("generation-rotated");
+    expect(probe.result?.errorMessage).toContain("加密世代已更新");
+    expect(startRoomSession).not.toHaveBeenCalled();
+  });
+
+  it("lets the matching key through to the join", async () => {
+    // The default mock stores a value sealed for ROOM_KEY: mountRoom itself
+    // asserts the session started, so this pins that the gate passes the very
+    // key it exists to verify.
+    await mountRoom();
+    expect(joinMutate).toHaveBeenCalledTimes(1);
+    expect(startRoomSession).toHaveBeenCalledTimes(1);
+    expect(probe.result?.failureReason).toBeNull();
+  });
+
+  it("re-runs the whole join, gate included, on retryJoin", async () => {
+    // The owner's snapshot reset calls this instead of asking for a page
+    // reload: the failed attempt is torn down through the effect's cleanup and
+    // the join — key check and all — runs again.
+    await mountRoom();
+    expect(startRoomSession).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      probe.result?.retryJoin();
+    });
+    await waitFor(() => startRoomSession.mock.calls.length > 1);
+
+    expect(startRoomSession).toHaveBeenCalledTimes(2);
+    expect(joinMutate).toHaveBeenCalledTimes(2);
+    expect(roomGetQuery).toHaveBeenCalledTimes(2);
   });
 });
 

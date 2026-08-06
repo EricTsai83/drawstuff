@@ -2,8 +2,12 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 import { clientIdSchema } from "@drawstuff/collaboration/protocol";
-import { roomRoleSchema } from "@drawstuff/collaboration/room-auth";
+import {
+  roomAuthGenerationSchema,
+  roomRoleSchema,
+} from "@drawstuff/collaboration/room-auth";
 
 import { env } from "@/env";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
@@ -46,6 +50,19 @@ const roomIdInput = z.string().min(1).max(64);
 const ownerRoleSchema = roomRoleSchema.exclude(["owner"]);
 
 const linkRoleSchema = z.enum(["none", "viewer", "editor"]);
+
+/**
+ * Base64 of exactly `KEYCHECK_CIPHERTEXT_BYTES` bytes. The sealed key-check
+ * value has a constant size, so the base64 length is pinned too; the decoded
+ * length is still checked because base64 length alone is ambiguous by up to
+ * two padding bytes.
+ */
+const KEYCHECK_BASE64_LENGTH = Math.ceil(KEYCHECK_CIPHERTEXT_BYTES / 3) * 4;
+
+const keyCheckBase64Schema = z
+  .string()
+  .length(KEYCHECK_BASE64_LENGTH)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/);
 
 const accessError = (access: Exclude<RoomAccess, { status: "ok" }>) => {
   switch (access.status) {
@@ -235,7 +252,82 @@ export const collaborationRoomRouter = createTRPCRouter({
         ...roomSummary(access.room),
         role: access.role,
         members: await listRoomMembers(ctx.db, access.room.roomId),
+        /**
+         * The key-check value rides on `get` so verifying a link costs no
+         * extra round-trip, and `get` is what the client calls *before* it
+         * touches the canvas — the whole point is to refuse a wrong-key link
+         * before the user's canvas is cleared (Plan 34).
+         */
+        keyCheckBase64: access.room.keyCheck
+          ? Buffer.from(access.room.keyCheck).toString("base64")
+          : null,
       };
+    }),
+
+  /**
+   * Stores the room's key-check value (Plan 34). Owner-only, and only for the
+   * current generation: the value is sealed against (room, generation), so
+   * filing it under any other generation would store a value no link could
+   * ever verify against.
+   *
+   * The server cannot validate the ciphertext beyond its exact size — the room
+   * key never leaves the browser — so the owner's client is the only party
+   * that can produce it, right after `create` and `rotateGeneration` mint a
+   * fresh key. An upsert by design: re-running "開始共編" on a room whose key
+   * was lost replaces both the key and its check value.
+   */
+  setKeyCheck: protectedProcedure
+    .input(
+      z.object({
+        roomId: roomIdInput,
+        authGeneration: roomAuthGenerationSchema,
+        keyCheckBase64: keyCheckBase64Schema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const keyCheck = new Uint8Array(
+        Buffer.from(input.keyCheckBase64, "base64"),
+      );
+      if (keyCheck.byteLength !== KEYCHECK_CIPHERTEXT_BYTES) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "Key-check value size is out of range.",
+        });
+      }
+      const now = new Date();
+      await withLockedOwnedRoom(
+        ctx.db,
+        { roomId: input.roomId, userId: ctx.auth.user.id, now },
+        async (tx, room) => {
+          if (input.authGeneration !== room.authGeneration) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "This collaboration room's authorization generation has changed.",
+            });
+          }
+          // Immutable within a generation. `create` returns the existing
+          // active room, so without this a second "開始共編" would replace the
+          // verifier mid-generation: every link holding the original key would
+          // fail the gate, while the replacement key passes it but cannot open
+          // anything sealed before it — and the pre-join verification could be
+          // invalidated between `get` and `join`. Replacing the value is what
+          // `rotateGeneration` is for; it clears the column in the same update
+          // that moves the generation.
+          if (room.keyCheck !== null) {
+            throw new TRPCError({
+              code: "CONFLICT",
+              message:
+                "This room already has a key-check value; rotate the generation to replace it.",
+            });
+          }
+          await tx
+            .update(collaborationRoom)
+            .set({ keyCheck, updatedAt: now })
+            .where(eq(collaborationRoom.roomId, room.roomId));
+        },
+      );
+      return { set: true };
     }),
 
   /** Finds the caller's active room for a scene, if any. */
@@ -283,6 +375,19 @@ export const collaborationRoomRouter = createTRPCRouter({
         ctx.db,
         { roomId: input.roomId, userId, now },
         async (tx, access) => {
+          // No token for a room whose key cannot be verified (Plan 34). The
+          // client refuses such a room on its own, but that is a convention;
+          // this is the invariant — an unverifiable room can never hold a
+          // session, so nothing can write into it, whatever the client does.
+          // Null only ever spans the moment between create/rotate and the
+          // owner's setKeyCheck, before any link exists to share.
+          if (access.room.keyCheck === null) {
+            throw new TRPCError({
+              code: "PRECONDITION_FAILED",
+              message:
+                "This collaboration room's encryption is not set up yet.",
+            });
+          }
           // A link-role joiner becomes a visible, revocable participant.
           await ensureRoomMembership(tx, {
             roomId: access.room.roomId,
@@ -507,6 +612,11 @@ export const collaborationRoomRouter = createTRPCRouter({
             .set({
               authGeneration: lockedRoom.authGeneration + 1,
               authRevision: lockedRoom.authRevision + 1,
+              // The stored key-check value belongs to the previous generation
+              // and the key being retired; cleared here so the row never pairs
+              // a new generation with a stale value, and recomputed by the
+              // owner's client via `setKeyCheck` right after this returns.
+              keyCheck: null,
               updatedAt: now,
             })
             .where(eq(collaborationRoom.roomId, lockedRoom.roomId));

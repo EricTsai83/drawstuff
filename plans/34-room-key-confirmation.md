@@ -1,6 +1,6 @@
 # Plan 34：加入時確認金鑰，錯誤連結不得建立或汙染 room 的 snapshot
 
-- Status: Ready
+- Status: Completed（2026-08-07，見文末 Decisions 與 Verification notes）
 - Depends on: 26、30
 - Expected change size: room row 一個欄位、建立與加入流程各一處、client 加入前的驗證與訊息、
   owner 重設不可讀 snapshot 的入口，以及對應測試
@@ -106,9 +106,19 @@ durable snapshot；已經被寫成不可讀的 room，其 owner 有一條自助�
 
 ## Steps
 
-1. 確認本 plan 的檢查值不與 Plan 30 out-of-scope 的「key-confirmation 訊息」衝突，並把裁決
-   寫進本文件（該條排除的是 frame／handshake，本 plan 是 durable 值）。
-2. 決定檢查值的明文、AAD 與 purpose 名稱，寫下「為什麼跨 room／跨 generation 搬運無效」。
+1. ~~確認本 plan 的檢查值不與 Plan 30 out-of-scope 的「key-confirmation 訊息」衝突，並把裁決
+   寫進本文件（該條排除的是 frame／handshake，本 plan 是 durable 值）。~~
+   **裁決（2026-08-07）：不衝突。** Plan 30 排除的是 realtime 訊息層的 handshake／frame
+   header 欄位（會改 wire protocol、要 relay 參與）；本 plan 的檢查值是 room row 上的
+   durable 欄位，經 `collaborationRoom.get` 在**開 socket 之前**讀到，relay 與 wire format
+   完全未動。
+2. ~~決定檢查值的明文、AAD 與 purpose 名稱，寫下「為什麼跨 room／跨 generation 搬運無效」。~~
+   **已定（2026-08-07）**：purpose `keycheck`（加入 `ROOM_KEY_PURPOSES`）；明文為固定公開
+   常數 `drawstuff-room-key-check`（驗證靠 AES-GCM tag，內容只需恆定）；AAD 為
+   `drawstuff-keycheck/v1/${roomId}/g${authGeneration}`（`keyCheckAdditionalDataLabel`，
+   export 為 pinned contract）。跨 room／跨 generation 搬運**雙重失效**：HKDF salt 本就含
+   room id 與 generation（推導出不同金鑰），AAD 又把兩者綁進認證資料——任一層都足以令
+   `decrypt` 失敗。
 3. 依 README 的 Database schema 規則變更 room schema（`pnpm db:push`，先做 schema diff 與
    read-only audit），並在 room 建立流程寫入檢查值。
 4. `collaborationRoom.get` 回傳檢查值與 `authGeneration`；client 在 `prepareCanvas()` 之前驗證，
@@ -137,3 +147,94 @@ pnpm knip
 - 別的 room 或別的 generation 的檢查值無法通過驗證。
 - Room owner 可以重設一份不可讀的 snapshot；非 owner 不可。
 - Plan 30 的「不在本 plan 內的已知風險」段落與 threat model 的對應條目已更新。
+
+## Decisions（2026-08-07 實作時定案）
+
+- **終端原因選了「更精確」而非重用 `unreadable-room`**：hook 在 join 前回報
+  `wrong-key-link`（連結金鑰不正確）或 `missing-key-check`（room 沒有檢查值、無法驗證），
+  訊息明說「你目前的畫布沒有被變更」。理由：`unreadable-room` 的措辭是「連線已停止」，
+  而這裡根本沒有連線發生過；且「畫布未被動到」是這條路徑獨有、使用者最需要知道的事實。
+  `failureReason` 隨 `UseCollaborationRoomResult` 一併輸出，owner 的補救入口據此顯示，
+  不解析訊息文字。
+- **無檢查值＝拒絕（fail-closed）**：檢查值缺失視為「無法驗證」而拒絕加入，不是放行。
+  放行會把本 plan 要關的洞原樣留給「setKeyCheck 失敗的 room」。合法出現 null 的視窗只有
+  `create`／`rotateGeneration` 與 owner 隨後的 `setKeyCheck` 之間（連結尚未可分享，因為
+  金鑰在同一個 callback 才產生），以及寫入失敗的 room——後者 UI 明示重按一次
+  「開始共編」／「重設 room generation」即可修復（`create` 對既有 active room 是 upsert）。
+- **檢查值由 owner client 在 create／rotate 成功後上傳**（`collaborationRoom.setKeyCheck`，
+  owner-only、鎖內驗 generation 相符、長度釘死為 `KEYCHECK_CIPHERTEXT_BYTES`）。不能放進
+  `create` 的 input：roomId 由伺服器產生，client 在回應前無從推導金鑰。
+  `rotateGeneration` 會在同一筆 update 內把 `key_check` 清空，維持「row 上的檢查值
+  若存在必屬當前 generation」的不變式。
+- **Schema 變更當下的稽核**（2026-08-07，唯一一顆 Neon DB）：room 1 筆
+  （`opDCHQUx7X1ZyNcP3fAnU`，status active 但 `expires_at` 2026-08-04 已過期，
+  `resolveRoomAccess` 回 `expired`、無人可 join）、snapshot 0 筆、asset 0 筆。
+  因此不需回填：null 檢查值只影響已無法加入的 room，Plan 28 的 retention 會清掉它。
+  `pnpm db:push` 後已驗證 `key_check`（bytea, nullable）與
+  `collaboration_room_key_check_length` constraint 存在。
+- **Review 驅動的兩個收緊（Codex GPT-5.6 Sol pass 1，2026-08-07）**：
+  (a) 檢查值在同一 generation 內**不可變**——`setKeyCheck` 對非 null 的既有值回 `CONFLICT`，
+  換值只能走 rotate；否則第二次「開始共編」（`create` 回傳既有 active room）會以新 key 覆寫
+  verifier，把持原連結的成員鎖在門外。dialog 收到 CONFLICT 時丟棄新 key、只進入 room UI 並
+  提示由原裝置分享或 rotate。(b) join 綁定驗證過的 generation——hook 在 `join` 回應後比對
+  `joined.authGeneration === get 時驗證的 generation`，不等即以 `generation-rotated` 終止，
+  關閉「驗證後、join 前 owner rotate」的 TOCTOU 空窗；等值即安全，因為 (a) 保證同
+  generation 的 verifier 不會變，join 後的 rotation 由既有的 token-refresh 比對攔截。
+  Pass 2 確認三個修正皆 sound，另補兩個 dialog 錯誤路徑的收尾：rotate 一 commit 就先清掉
+  URL 上已退役的金鑰（檢查值上傳失敗時不得展示看似完整的連結）；create 撞 CONFLICT 進入
+  room UI 前先清掉 fragment 上未經驗證的舊金鑰。
+- **後續收斂（2026-08-07，review 之後）**：(a) fail-closed 由 client 慣例升級為伺服器
+  不變式——`collaborationRoom.join` 對 `key_check` 為 null 的 room 拒發 token
+  （`PRECONDITION_FAILED`），不可驗證的 room 在結構上不可能持有 session；create／rotate
+  與 setKeyCheck 之間的視窗因此無害化，client 端驗證成為第二道防線與訊息來源。
+  (b) hook 新增 `retryJoin()`（join effect 以 `joinAttempt` 計數器為依賴），owner 重設
+  snapshot 成功後原地重新加入，取代「請重新載入頁面」。
+- **補救入口**：`collaborationSnapshot.reset`（owner-only、與 `put` 同一套 room lock）刪除
+  當前 generation 的 snapshot 列；dialog 在 `failureReason === "unreadable-room"` 且自己是
+  owner 時顯示兩段式確認的「重設這個 room 的雲端畫布」。editor 角色被明確排除：editor 可以
+  「可見地」覆寫 baseline，但丟棄唯一 durable 副本是 lifecycle 等級的破壞性決定，本 API
+  一律保留給 owner。
+
+## Verification notes（2026-08-07）
+
+`pnpm lint`／`pnpm typecheck` 全過；`pnpm test` 4 packages 全過（collaboration 409、
+web 385、relay 154、adapter 109，含兩輪 review 驅動修正與後續收斂後的最終數字）。
+`pnpm knip` 4 packages 全過——web 原本在 HEAD 上就失敗（兩個手動 audit script 被判
+unused），已把 `scripts/audit-collaboration-room-retention.ts` 與
+`scripts/audit-scene-asset-references.ts` 登記進 `package.json` 的 `knip.entry`
+（與 `measure-excalidraw-baseline.ts` 同一慣例）。
+
+保存的輸出——「錯誤金鑰在 join 前被擋且畫布未被清空」：
+
+```text
+$ pnpm vitest run tests/collab-room-status.test.tsx -t "key check before join"   # apps/web
+ ✓ refuses a wrong-key link before the canvas is touched
+ ✓ treats a room with no check value as unverifiable, not as trusted
+ ✓ lets the matching key through to the join
+```
+
+「rotate 後正確金鑰仍可加入」（單元＋router 兩層）：
+
+```text
+$ pnpm vitest run tests/keycheck.test.ts   # packages/collaboration
+ ✓ verifies with the key, room and generation it was sealed for
+ ✓ seals to the exact pinned size, so the server can refuse anything else
+ ✓ rejects a wrong room key — the truncated-link case
+ ✓ rejects a value transplanted from another room, even under the same key
+ ✓ rejects a previous generation's value after rotation, and accepts the recomputed one
+ ✓ rejects tampered and malformed values without throwing
+ ✓ pins the authenticated-data label that binds room and generation
+
+$ pnpm vitest run tests/collaboration-room-router.test.ts -t "key check"   # apps/web
+ ✓ stores the owner's sealed value, returns it from get, and round-trips verification
+ ✓ refuses everyone but the owner
+ ✓ refuses a stale generation and a value of the wrong size
+ ✓ is cleared by rotation and recomputed for the new generation
+
+$ pnpm vitest run tests/collaboration-snapshot-router.test.ts -t "reset"   # apps/web
+ ✓ lets the owner delete the current baseline so the room re-seeds
+ ✓ reports when there was nothing to delete
+ ✓ refuses everyone but the owner — an editor's write access is not enough
+```
+
+Schema 稽核結果見上方 Decisions；`db:push` 已執行且欄位／constraint 已驗證存在。

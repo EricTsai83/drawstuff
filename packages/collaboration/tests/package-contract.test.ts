@@ -19,6 +19,7 @@ describe("@drawstuff/collaboration package contract", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./asset",
       "./join-barrier",
+      "./keycheck",
       "./offline-queue",
       "./protocol",
       "./realtime-crypto",
@@ -60,6 +61,7 @@ describe("@drawstuff/collaboration package contract", () => {
     const expectedEntries = {
       "@drawstuff/collaboration/asset": "asset.ts",
       "@drawstuff/collaboration/join-barrier": "join-barrier.ts",
+      "@drawstuff/collaboration/keycheck": "keycheck.ts",
       "@drawstuff/collaboration/offline-queue": "offline-queue.ts",
       "@drawstuff/collaboration/protocol": "protocol.ts",
       "@drawstuff/collaboration/realtime-crypto": "realtime-crypto.ts",
@@ -100,10 +102,11 @@ describe("@drawstuff/collaboration package contract", () => {
     // a decryption key. Structural, so a future edit cannot quietly thread key
     // material through an envelope, a control frame, or a token claim.
     //
-    // Three modules qualify, and only because they *are* the crypto boundary:
-    // `realtime-crypto.ts` owns key derivation and realtime frames, and
-    // `snapshot.ts` and `asset.ts` seal durable snapshots and binary assets
-    // under second and third purpose-bound keys they derive through it.
+    // Four modules qualify, and only because they *are* the crypto boundary:
+    // `realtime-crypto.ts` owns key derivation and realtime frames, while
+    // `snapshot.ts`, `asset.ts` and `keycheck.ts` seal durable snapshots,
+    // binary assets and the room's key-check value under further purpose-bound
+    // keys they derive through it.
     const withKeyMaterial = listSourceFiles(sourceRoot)
       .filter((filePath) =>
         /roomKey|RoomKey|getRandomValues|subtle/.test(
@@ -114,6 +117,7 @@ describe("@drawstuff/collaboration package contract", () => {
       .sort();
     expect(withKeyMaterial).toEqual([
       "asset.ts",
+      "keycheck.ts",
       "realtime-crypto.ts",
       "snapshot.ts",
     ]);
