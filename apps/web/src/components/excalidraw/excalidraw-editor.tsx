@@ -146,11 +146,13 @@ export default function ExcalidrawEditor() {
 
   const {
     status: collaborationStatus,
+    failureReason: collaborationFailureReason,
     role: collaborationRole,
     isReadOnly: isCollaborationReadOnly,
     isCollaborating,
     errorMessage: collaborationErrorMessage,
     ownsCanvas: isCanvasOwnedByRoom,
+    retryJoin: retryCollaborationJoin,
     onPointerUpdate: handleCollabPointerUpdate,
     onSceneChange: handleCollabSceneChange,
   } = useCollaborationRoom({
@@ -553,8 +555,10 @@ export default function ExcalidrawEditor() {
             roomKey={collaborationRoomKey}
             onRoomKeyChange={setCollaborationRoomKey}
             status={collaborationStatus}
+            failureReason={collaborationFailureReason}
             role={collaborationRole}
             errorMessage={collaborationErrorMessage}
+            onRetryJoin={retryCollaborationJoin}
           />
           <SceneCloudUploadDialog
             open={isCloudUploadDialogOpen}

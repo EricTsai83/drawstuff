@@ -30,9 +30,15 @@ import { pushSchema } from "drizzle-kit/api";
 import { and, eq } from "drizzle-orm";
 
 import {
+  KEYCHECK_CIPHERTEXT_BYTES,
+  sealRoomKeyCheck,
+  verifyRoomKeyCheck,
+} from "@drawstuff/collaboration/keycheck";
+import {
   clientIdSchema,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
+import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import { verifyJoinToken } from "@drawstuff/collaboration/room-token";
 
 import { createCaller } from "@/server/api/root";
@@ -97,6 +103,27 @@ const claimsOf = (
   const result = verify(token, options);
   if (!result.ok) throw new Error(`token rejected: ${result.reason}`);
   return result.claims;
+};
+
+/**
+ * Stores a key-check value for the room, which `join` requires (Plan 34): no
+ * token is issued for a room whose key cannot be verified. Tests that expect a
+ * join to succeed arm the room first, the way the owner's client does right
+ * after `create` and `rotateGeneration`.
+ */
+const armKeyCheck = async (room: {
+  roomId: string;
+  authGeneration: number;
+}) => {
+  await callerFor(OWNER).collaborationRoom.setKeyCheck({
+    roomId: room.roomId,
+    authGeneration: room.authGeneration,
+    keyCheckBase64: await sealRoomKeyCheck({
+      roomKey: generateRoomKey(),
+      roomId: roomIdSchema.parse(room.roomId),
+      authGeneration: room.authGeneration,
+    }),
+  });
 };
 
 beforeAll(async () => {
@@ -184,6 +211,7 @@ describe("collaboration room join tokens", () => {
     const sceneId = await createScene(OWNER);
     const caller = callerFor(OWNER);
     const room = await caller.collaborationRoom.create({ sceneId });
+    await armKeyCheck(room);
     const joined = await caller.collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_OWNER,
@@ -225,6 +253,7 @@ describe("collaboration room join tokens", () => {
       sceneId,
       linkRole: "viewer",
     });
+    await armKeyCheck(room);
     const joined = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_GUEST,
@@ -276,6 +305,7 @@ describe("collaboration room membership changes", () => {
       sceneId,
       linkRole,
     });
+    await armKeyCheck(room);
     await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_GUEST,
@@ -469,6 +499,7 @@ describe("collaboration room lifecycle", () => {
       sceneId,
       linkRole: "editor",
     });
+    await armKeyCheck(room);
     await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_GUEST,
@@ -506,6 +537,7 @@ describe("collaboration room lifecycle", () => {
       sceneId,
       linkRole: "editor",
     });
+    await armKeyCheck(room);
     const beforeRotation = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_GUEST,
@@ -529,6 +561,9 @@ describe("collaboration room lifecycle", () => {
       clientId: CLIENT_GUEST,
     });
     expect(oldClaims.gen).toBe(1);
+    // Rotation cleared the check value; the owner recomputes it for the new
+    // generation before the new link goes out, and joins resume only then.
+    await armKeyCheck({ roomId: room.roomId, authGeneration: 2 });
     const afterRotation = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_GUEST,
@@ -549,6 +584,7 @@ describe("collaboration room lifecycle", () => {
       sceneId,
       ttlMinutes: 30,
     });
+    await armKeyCheck(room);
     const joined = await owner.collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_OWNER,
@@ -585,6 +621,7 @@ describe("collaboration room lifecycle", () => {
       sceneId,
       linkRole: "editor",
     });
+    await armKeyCheck(room);
     const joined = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
       clientId: CLIENT_GUEST,
@@ -660,5 +697,223 @@ describe("collaboration room lifecycle", () => {
     expect(
       await callerFor(GUEST).collaborationRoom.getActiveForScene({ sceneId }),
     ).toMatchObject({ roomId: room.roomId, role: "viewer" });
+  });
+});
+
+describe("collaboration room key check (Plan 34)", () => {
+  it("stores the owner's sealed value, returns it from get, and round-trips verification", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({ sceneId });
+
+    // A room the owner has not finished setting up has no value to verify.
+    const before = await owner.collaborationRoom.get({ roomId: room.roomId });
+    expect(before.keyCheckBase64).toBeNull();
+
+    const roomKey = generateRoomKey();
+    const keyCheckBase64 = await sealRoomKeyCheck({
+      roomKey,
+      roomId: roomIdSchema.parse(room.roomId),
+      authGeneration: room.authGeneration,
+    });
+    await owner.collaborationRoom.setKeyCheck({
+      roomId: room.roomId,
+      authGeneration: room.authGeneration,
+      keyCheckBase64,
+    });
+
+    const after = await owner.collaborationRoom.get({ roomId: room.roomId });
+    expect(after.keyCheckBase64).toBe(keyCheckBase64);
+    // The whole point of the round-trip: the link's key verifies, a wrong
+    // (e.g. truncated) link's key does not.
+    await expect(
+      verifyRoomKeyCheck({
+        roomKey,
+        roomId: roomIdSchema.parse(room.roomId),
+        authGeneration: after.authGeneration,
+        keyCheckBase64: after.keyCheckBase64!,
+      }),
+    ).resolves.toBe(true);
+    await expect(
+      verifyRoomKeyCheck({
+        roomKey: generateRoomKey(),
+        roomId: roomIdSchema.parse(room.roomId),
+        authGeneration: after.authGeneration,
+        keyCheckBase64: after.keyCheckBase64!,
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("refuses everyone but the owner", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({
+      sceneId,
+      linkRole: "editor",
+    });
+    const keyCheckBase64 = await sealRoomKeyCheck({
+      roomKey: generateRoomKey(),
+      roomId: roomIdSchema.parse(room.roomId),
+      authGeneration: 1,
+    });
+
+    // A link-role editor can edit the scene, but the check value defines what
+    // every joiner's key is verified against — owner-only, like the rest of
+    // the room's shape.
+    await expect(
+      callerFor(GUEST).collaborationRoom.setKeyCheck({
+        roomId: room.roomId,
+        authGeneration: 1,
+        keyCheckBase64,
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    await expect(
+      callerFor(null).collaborationRoom.setKeyCheck({
+        roomId: room.roomId,
+        authGeneration: 1,
+        keyCheckBase64,
+      }),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+  });
+
+  it("refuses to issue a join token until the key check is armed", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({ sceneId });
+
+    // The client refuses an unverifiable room on its own, but that is a
+    // convention; this is the server-side invariant — no token, so no session
+    // can ever exist on a room whose key cannot be verified, whatever the
+    // client does.
+    await expect(
+      owner.collaborationRoom.join({
+        roomId: room.roomId,
+        clientId: CLIENT_OWNER,
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+
+    await armKeyCheck(room);
+    await expect(
+      owner.collaborationRoom.join({
+        roomId: room.roomId,
+        clientId: CLIENT_OWNER,
+      }),
+    ).resolves.toMatchObject({ roomId: room.roomId, role: "owner" });
+  });
+
+  it("is immutable within a generation: replacing the value requires rotation", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({ sceneId });
+    const roomId = roomIdSchema.parse(room.roomId);
+    const first = await sealRoomKeyCheck({
+      roomKey: generateRoomKey(),
+      roomId,
+      authGeneration: 1,
+    });
+    await owner.collaborationRoom.setKeyCheck({
+      roomId: room.roomId,
+      authGeneration: 1,
+      keyCheckBase64: first,
+    });
+
+    // A second create returns the same active room; letting its fresh key
+    // replace the verifier would lock out every holder of the original link.
+    const replacement = await sealRoomKeyCheck({
+      roomKey: generateRoomKey(),
+      roomId,
+      authGeneration: 1,
+    });
+    await expect(
+      owner.collaborationRoom.setKeyCheck({
+        roomId: room.roomId,
+        authGeneration: 1,
+        keyCheckBase64: replacement,
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    const kept = await owner.collaborationRoom.get({ roomId: room.roomId });
+    expect(kept.keyCheckBase64).toBe(first);
+  });
+
+  it("refuses a stale generation and a value of the wrong size", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({ sceneId });
+    const keyCheckBase64 = await sealRoomKeyCheck({
+      roomKey: generateRoomKey(),
+      roomId: roomIdSchema.parse(room.roomId),
+      authGeneration: 2,
+    });
+
+    // Sealed for a generation the room is not at: storing it would produce a
+    // value no current link could ever verify against.
+    await expect(
+      owner.collaborationRoom.setKeyCheck({
+        roomId: room.roomId,
+        authGeneration: 2,
+        keyCheckBase64,
+      }),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+
+    // Same base64 length as a real value, different decoded size: caught by
+    // the decoded-length check that backs the pinned column constraint.
+    await expect(
+      owner.collaborationRoom.setKeyCheck({
+        roomId: room.roomId,
+        authGeneration: 1,
+        keyCheckBase64: Buffer.from(
+          new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES + 1).fill(1),
+        ).toString("base64"),
+      }),
+    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
+  });
+
+  it("is cleared by rotation and recomputed for the new generation", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({ sceneId });
+    const oldValue = await sealRoomKeyCheck({
+      roomKey: generateRoomKey(),
+      roomId: roomIdSchema.parse(room.roomId),
+      authGeneration: 1,
+    });
+    await owner.collaborationRoom.setKeyCheck({
+      roomId: room.roomId,
+      authGeneration: 1,
+      keyCheckBase64: oldValue,
+    });
+
+    const rotated = await owner.collaborationRoom.rotateGeneration({
+      roomId: room.roomId,
+    });
+    // The stored value belonged to generation 1 and its retired key; a row
+    // pairing generation 2 with it would refuse every link, right and wrong.
+    const cleared = await owner.collaborationRoom.get({ roomId: room.roomId });
+    expect(cleared.keyCheckBase64).toBeNull();
+
+    // The rotate flow recomputes with the fresh key; the new link verifies.
+    const newKey = generateRoomKey();
+    const newValue = await sealRoomKeyCheck({
+      roomKey: newKey,
+      roomId: roomIdSchema.parse(room.roomId),
+      authGeneration: rotated.authGeneration,
+    });
+    await owner.collaborationRoom.setKeyCheck({
+      roomId: room.roomId,
+      authGeneration: rotated.authGeneration,
+      keyCheckBase64: newValue,
+    });
+    const recomputed = await owner.collaborationRoom.get({
+      roomId: room.roomId,
+    });
+    expect(recomputed.keyCheckBase64).toBe(newValue);
+    await expect(
+      verifyRoomKeyCheck({
+        roomKey: newKey,
+        roomId: roomIdSchema.parse(room.roomId),
+        authGeneration: rotated.authGeneration,
+        keyCheckBase64: recomputed.keyCheckBase64!,
+      }),
+    ).resolves.toBe(true);
   });
 });

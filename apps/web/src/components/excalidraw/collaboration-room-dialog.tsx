@@ -1,8 +1,11 @@
 "use client";
 
-import { useMemo } from "react";
+import { TRPCClientError } from "@trpc/client";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
+import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
   generateRoomKey,
   type RoomKey,
@@ -27,7 +30,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import type { CollaborationRoomStatus } from "@/hooks/excalidraw/use-collaboration-room";
+import type {
+  CollaborationFailureReason,
+  CollaborationRoomStatus,
+} from "@/hooks/excalidraw/use-collaboration-room";
 import { buildRoomInviteUrl } from "@/lib/collab/room-link";
 import { api } from "@/trpc/react";
 
@@ -86,8 +92,12 @@ export type CollaborationRoomDialogProps = {
   roomKey: RoomKey | null;
   onRoomKeyChange: (roomKey: RoomKey | null) => void;
   status: CollaborationRoomStatus;
+  /** Why a failed session failed; drives the owner's recovery entry point. */
+  failureReason: CollaborationFailureReason | null;
   role: RoomRole | null;
   errorMessage: string | null;
+  /** Re-runs the join after a repair (e.g. the owner reset the snapshot). */
+  onRetryJoin: () => void;
 };
 
 export function CollaborationRoomDialog({
@@ -99,10 +109,20 @@ export function CollaborationRoomDialog({
   roomKey,
   onRoomKeyChange,
   status,
+  failureReason,
   role,
   errorMessage,
+  onRetryJoin,
 }: CollaborationRoomDialogProps) {
   const utils = api.useUtils();
+  /** Two-step confirmation for the destructive snapshot reset. */
+  const [isResetArmed, setIsResetArmed] = useState(false);
+  // The armed state is a confirmation for one specific room's failure. It
+  // must not survive closing the dialog or switching to another room, or the
+  // second room would open one click away from deletion.
+  useEffect(() => {
+    setIsResetArmed(false);
+  }, [open, roomId, failureReason]);
   const roomQuery = api.collaborationRoom.get.useQuery(
     { roomId: roomId ?? "" },
     { enabled: open && !!roomId },
@@ -124,11 +144,73 @@ export function CollaborationRoomDialog({
     );
   };
 
+  /**
+   * Seals the key-check value for a freshly minted key and stores it. This is
+   * the write that makes the key verifiable before join (Plan 34), so both
+   * flows that mint a key — create and rotate — must not hand the key out
+   * until it lands: a link shared without it would be refused by every joiner
+   * as unverifiable.
+   */
+  const storeKeyCheck = async (params: {
+    roomId: string;
+    roomKey: RoomKey;
+    authGeneration: number;
+  }): Promise<void> => {
+    const keyCheckBase64 = await sealRoomKeyCheck({
+      roomKey: params.roomKey,
+      roomId: roomIdSchema.parse(params.roomId),
+      authGeneration: params.authGeneration,
+    });
+    await utils.client.collaborationRoom.setKeyCheck.mutate({
+      roomId: params.roomId,
+      authGeneration: params.authGeneration,
+      keyCheckBase64,
+    });
+  };
+
   const createRoom = api.collaborationRoom.create.useMutation({
     onSuccess: async (created) => {
       // The key is minted here and never sent with the mutation: the backend
-      // knows the room exists, not how to read it.
-      onRoomKeyChange(generateRoomKey());
+      // knows the room exists, not how to read it. Only the sealed check
+      // value travels, which reveals nothing about the key.
+      const nextKey = generateRoomKey();
+      try {
+        await storeKeyCheck({
+          roomId: created.roomId,
+          roomKey: nextKey,
+          authGeneration: created.authGeneration,
+        });
+      } catch (error) {
+        // `create` returns the scene's existing active room, whose key was
+        // minted by whoever set the check value first. The value is immutable
+        // within a generation — replacing it would lock out every holder of
+        // the original link — so this device's fresh key is discarded and the
+        // room is entered without one. The link hint already points at the
+        // remedy: share from the original device, or rotate the generation.
+        if (
+          error instanceof TRPCClientError &&
+          (error.data as { code?: unknown } | null | undefined)?.code ===
+            "CONFLICT"
+        ) {
+          // Whatever key is sitting in the URL fragment was not verified
+          // against this room; carrying it into the room UI would render a
+          // complete-looking invite link around the wrong key.
+          onRoomKeyChange(null);
+          onRoomIdChange(created.roomId);
+          await invalidateRoom();
+          toast.info(
+            "這個 room 已經有加密金鑰。請由原本建立連結的裝置分享完整連結，或用「重設 room generation」產生新金鑰。",
+          );
+          return;
+        }
+        // The room exists but is not joinable (no check value). Re-running
+        // 開始共編 returns the same active room and repairs it with a fresh
+        // key — so the one action offered is the one that fixes it.
+        toast.error("無法完成 room 的加密設定，請再按一次「開始共編」。");
+        await invalidateRoom();
+        return;
+      }
+      onRoomKeyChange(nextKey);
       onRoomIdChange(created.roomId);
       await invalidateRoom();
     },
@@ -179,12 +261,50 @@ export function CollaborationRoomDialog({
       reportRelayEnforcement(result.relayEnforced);
       // A new generation derives a new key from the room key, but a removed
       // member still holds that room key. Minting a fresh one is what actually
-      // takes reading access away, so rotation replaces both.
-      onRoomKeyChange(generateRoomKey());
+      // takes reading access away, so rotation replaces both. The rotation
+      // cleared the stored check value with it, so the new key's value must
+      // land before the new link is handed out.
+      //
+      // The old key is retired the moment the rotation commits, so it comes
+      // out of the URL first: if storing the new check value fails below, the
+      // dialog must show "缺少金鑰" rather than a complete-looking link built
+      // around a key that can no longer open anything.
+      onRoomKeyChange(null);
+      const nextKey = generateRoomKey();
+      if (roomId) {
+        try {
+          await storeKeyCheck({
+            roomId,
+            roomKey: nextKey,
+            authGeneration: result.authGeneration,
+          });
+        } catch {
+          toast.error(
+            "已更換 room generation，但加密設定未完成，新連結暫時無法使用。請再按一次「重設 room generation」。",
+          );
+          await invalidateRoom();
+          return;
+        }
+      }
+      onRoomKeyChange(nextKey);
       await invalidateRoom();
       toast.success(
         `已建立新的 room generation（${result.authGeneration}）並更換加密金鑰，請重新分享連結。`,
       );
+    },
+    onError: (error) => toast.error(error.message),
+  });
+
+  const resetSnapshot = api.collaborationSnapshot.reset.useMutation({
+    onSuccess: async () => {
+      setIsResetArmed(false);
+      await invalidateRoom();
+      toast.success(
+        "已重設這個 room 的雲端畫布，正在重新加入；room 會以下一位成員的畫布重新開始。",
+      );
+      // The failed session is only torn down by re-running the join; the
+      // deletion above is what made this retry able to succeed.
+      onRetryJoin();
     },
     onError: (error) => toast.error(error.message),
   });
@@ -242,6 +362,48 @@ export function CollaborationRoomDialog({
             </div>
             {errorMessage && (
               <p className="text-destructive text-sm">{errorMessage}</p>
+            )}
+
+            {/* The owner's recovery path for a snapshot nobody's link can
+                open (Plan 34): keyed to the failure reason, not the message
+                text, and only for the owner — the server enforces the same
+                restriction. Destructive, so it takes two clicks. */}
+            {isOwner && failureReason === "unreadable-room" && (
+              <div className="flex flex-col gap-2 rounded border p-3">
+                <p className="text-muted-foreground text-sm">
+                  如果你持有的是正確的連結，這通常代表 room
+                  的雲端畫布曾被錯誤金鑰寫入。你可以重設這個 room
+                  的雲端畫布：已儲存的共編內容會被刪除，room
+                  會以下一位加入成員的畫布重新開始。
+                </p>
+                {!isResetArmed ? (
+                  <Button
+                    variant="destructive"
+                    onClick={() => setIsResetArmed(true)}
+                  >
+                    重設這個 room 的雲端畫布…
+                  </Button>
+                ) : (
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="destructive"
+                      disabled={resetSnapshot.isPending}
+                      onClick={() => resetSnapshot.mutate({ roomId })}
+                    >
+                      {resetSnapshot.isPending
+                        ? "重設中…"
+                        : "確認刪除雲端畫布"}
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={resetSnapshot.isPending}
+                      onClick={() => setIsResetArmed(false)}
+                    >
+                      取消
+                    </Button>
+                  </div>
+                )}
+              </div>
             )}
 
             <div className="flex flex-col gap-2">

@@ -19,7 +19,11 @@ import {
   resolveRoomAccess,
   type RoomAccess,
 } from "@/server/collab/rooms";
-import { readRoomSnapshot, writeRoomSnapshot } from "@/server/collab/snapshots";
+import {
+  deleteRoomSnapshot,
+  readRoomSnapshot,
+  writeRoomSnapshot,
+} from "@/server/collab/snapshots";
 
 /**
  * Durable collaboration snapshot API (Plan 15).
@@ -201,6 +205,45 @@ export const collaborationSnapshotRouter = createTRPCRouter({
           userId,
           now,
         });
+      });
+    }),
+
+  /**
+   * Deletes the current generation's baseline so the room re-seeds from the
+   * next elected writer's canvas (Plan 34's recovery path for a snapshot
+   * sealed under the wrong key).
+   *
+   * Owner-only, and stricter than `put` on purpose: an editor replaces the
+   * baseline with content every member can immediately see and dispute, while
+   * a reset silently discards the room's only durable copy — a destructive
+   * lifecycle decision, which this API consistently reserves for the owner.
+   */
+  reset: protectedProcedure
+    .input(z.object({ roomId: roomIdInput }))
+    .mutation(async ({ ctx, input }) => {
+      const now = new Date();
+      const userId = ctx.auth.user.id;
+      // Same lock ordering as `put`: a reset must not race a cadence write
+      // into deleting a row it did not decide about.
+      return ctx.db.transaction(async (tx) => {
+        await lockRoom(tx, input.roomId);
+        const access = await resolveRoomAccess(tx, {
+          roomId: input.roomId,
+          userId,
+          now,
+        });
+        if (access.status !== "ok") throw accessError(access);
+        if (access.role !== "owner") {
+          throw new TRPCError({
+            code: "FORBIDDEN",
+            message: "Only the room owner can reset the room's cloud canvas.",
+          });
+        }
+        const deleted = await deleteRoomSnapshot(tx, {
+          roomId: access.room.roomId,
+          authGeneration: access.room.authGeneration,
+        });
+        return { reset: deleted };
       });
     }),
 });

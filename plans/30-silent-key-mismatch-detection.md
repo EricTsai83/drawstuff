@@ -175,6 +175,11 @@ room 層級訊息只說「這個 room 有圖片打不開」，說不出**哪幾�
 
 ### 不在本 plan 內的已知風險：錯誤金鑰仍可寫入 snapshot 汙染 room
 
+**已由 [Plan 34](./34-room-key-confirmation.md) 關閉（2026-08-07）**：room row 上的金鑰
+檢查值讓錯誤金鑰的 client 在 `collaborationRoom.join` 之前就被擋下（且不清空畫布），
+「唯一成員＋空 room」的寫入視窗不復存在；threat model T14 已改記為已緩解。以下保留
+當時的分析作為歷史脈絡。
+
 **已交給 [Plan 34](./34-room-key-confirmation.md)**（2026-08-06 建立，排在 Plan 20 之前；
 threat model T14）。錯誤金鑰的 client 在「room 無 stored snapshot」時，baseline 是 `empty`
 （誠實：room 確實沒東西），於是 `snapshotBaselineKnown` 為真。Plan 15 的

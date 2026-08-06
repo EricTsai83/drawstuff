@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { verifyRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import {
   clientIdSchema,
   roomIdSchema,
@@ -112,8 +113,23 @@ export type CollaborationRoomStatus =
   /** The link carries a room id but no usable end-to-end key. */
   | "missing-room-key";
 
+/**
+ * Why a session (or a join attempt) stopped for good. The recovery machine's
+ * reasons plus the two verdicts only the pre-join key check can produce — a
+ * link whose key fails the room's check value, and a room that has no check
+ * value to verify against. Exposed alongside the human-readable message so UI
+ * can key behaviour on the reason (the owner's snapshot-reset entry point
+ * appears only for `unreadable-room`) without parsing message text.
+ */
+export type CollaborationFailureReason =
+  | UnrecoverableReason
+  | "wrong-key-link"
+  | "missing-key-check";
+
 export type UseCollaborationRoomResult = {
   status: CollaborationRoomStatus;
+  /** Set while `status` is `failed`; `null` otherwise. */
+  failureReason: CollaborationFailureReason | null;
   role: RoomRole | null;
   isCollaborating: boolean;
   /** True while connected as a viewer: the editor renders in view mode. */
@@ -125,6 +141,13 @@ export type UseCollaborationRoomResult = {
    * that the session cannot observe (upstream's file import) while this holds.
    */
   ownsCanvas: boolean;
+  /**
+   * Tears the current attempt down and joins again with the same link. Exists
+   * for the states an action can genuinely repair — the owner resetting an
+   * unreadable snapshot being the one that motivated it — where "reload the
+   * page" was previously the only way to re-run the join.
+   */
+  retryJoin: () => void;
   onPointerUpdate: (payload: ExcalidrawPointerUpdatePayload) => void;
   onSceneChange: (
     elements: readonly OrderedExcalidrawElement[],
@@ -176,6 +199,28 @@ const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
  * apart: AES-GCM authentication failing looks identical whether the key is wrong
  * or the envelope version moved on.
  */
+/**
+ * A link whose key failed the room's check value, refused before the canvas
+ * was touched (Plan 34).
+ *
+ * Deliberately not the `unreadable-room` message: that one describes a
+ * *session* that stopped ("連線已停止") — here no connection was ever
+ * attempted, and the one fact the user most needs is that their canvas was
+ * left alone, which only this path can promise.
+ */
+const WRONG_KEY_LINK_MESSAGE =
+  "這個共編連結的加密金鑰不正確，因此沒有加入 room，你目前的畫布沒有被變更。請向分享者索取最新的完整連結（包含網址 # 之後的整段）。";
+
+/**
+ * A room with no key-check value cannot be verified, and an unverifiable link
+ * is refused rather than trusted: this is the rare, transient state of a room
+ * whose owner's `setKeyCheck` write failed — re-running 開始共編 (or rotating
+ * the generation) repairs it. Failing open here would re-open exactly the
+ * hole this plan closes.
+ */
+const MISSING_KEY_CHECK_MESSAGE =
+  "這個 room 尚未完成加密設定，無法驗證連結的金鑰，因此沒有加入。請 room 擁有者重新開啟共編（或重設 room generation）後再分享一次連結。";
+
 const UNREADABLE_ASSETS_MESSAGE =
   "這個 room 有圖片無法用目前的連結開啟（金鑰不符，或圖片是用較新版本加密的）。畫布的其他內容仍在正常同步；若要看到這些圖片，請向分享者索取最新的完整連結。";
 
@@ -303,7 +348,15 @@ export function useCollaborationRoom(options: {
   const utils = api.useUtils();
 
   const handleRef = useRef<CollaborationRoomHandle | null>(null);
+  /**
+   * Re-running the join is a state change, not a callback: the join lives in
+   * an effect, so the retry bumps a counter the effect depends on, which tears
+   * the failed attempt down through the normal cleanup and starts over.
+   */
+  const [joinAttempt, setJoinAttempt] = useState(0);
   const [status, setStatus] = useState<CollaborationRoomStatus>("idle");
+  const [failureReason, setFailureReason] =
+    useState<CollaborationFailureReason | null>(null);
   const [role, setRole] = useState<RoomRole | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   /**
@@ -496,6 +549,31 @@ export function useCollaborationRoom(options: {
           roomId: parsedRoomId.data,
         });
         if (cancelled) return;
+        // The key check comes before anything else the join does: before the
+        // canvas is prepared (so a wrong-key link never clears the user's
+        // work), before the claim, and before any token is minted. A link that
+        // fails it could only ever produce a session that is blind to the room
+        // and — in an empty room — would poison it with a snapshot nobody else
+        // can open (Plan 34).
+        if (room.keyCheckBase64 === null) {
+          setStatus("failed");
+          setFailureReason("missing-key-check");
+          setErrorMessage(MISSING_KEY_CHECK_MESSAGE);
+          return;
+        }
+        const keyCheckOk = await verifyRoomKeyCheck({
+          roomKey,
+          roomId: parsedRoomId.data,
+          authGeneration: room.authGeneration,
+          keyCheckBase64: room.keyCheckBase64,
+        });
+        if (cancelled) return;
+        if (!keyCheckOk) {
+          setStatus("failed");
+          setFailureReason("wrong-key-link");
+          setErrorMessage(WRONG_KEY_LINK_MESSAGE);
+          return;
+        }
         const isOpenScene = room.sceneId === canvasRef.current.currentSceneId;
         // The claim is deliberately *not* used to skip this. It is per tab, but
         // the restored canvas in localStorage is not: another tab that loaded an
@@ -519,6 +597,21 @@ export function useCollaborationRoom(options: {
             clientId,
           });
         if (cancelled) return;
+        // The key check was verified against the generation `get` reported, and
+        // the user may have sat in the canvas prompt between then and now — time
+        // enough for the owner to rotate. A join that comes back on a different
+        // generation would start a session whose key was never verified for it
+        // (and, in an empty generation, would seed a snapshot under that
+        // unverified key), so it is refused here. An equal generation is safe:
+        // the check value is immutable within a generation, and a rotation
+        // *after* this point disconnects the session, whose token refresh
+        // detects the moved generation.
+        if (joined.authGeneration !== room.authGeneration) {
+          setStatus("failed");
+          setFailureReason("generation-rotated");
+          setErrorMessage(FAILURE_MESSAGE["generation-rotated"]);
+          return;
+        }
         // Key derivation is asynchronous, so the effect can be torn down while
         // the session is still being built. Whatever comes back has to be
         // destroyed in that case: the closure variable the cleanup reads is
@@ -635,9 +728,11 @@ export function useCollaborationRoom(options: {
             if (cancelled) return;
             if (state.phase === "failed") {
               setStatus("failed");
+              setFailureReason(state.reason);
               setErrorMessage(FAILURE_MESSAGE[state.reason]);
               return;
             }
+            setFailureReason(null);
             setErrorMessage(null);
             if (state.phase === "live") {
               hasBeenLive = true;
@@ -682,6 +777,7 @@ export function useCollaborationRoom(options: {
       releaseCanvasRoom();
       setOwnsCanvas(false);
       setStatus("idle");
+      setFailureReason(null);
       setRole(null);
       setRoleWithdrawn(false);
       setErrorMessage(null);
@@ -694,10 +790,15 @@ export function useCollaborationRoom(options: {
     roomKey,
     isAuthenticated,
     clientId,
+    joinAttempt,
     wrapRemoteApply,
     suppressDirtyTracking,
     resumeDirtyTracking,
   ]);
+
+  const retryJoin = useCallback(() => {
+    setJoinAttempt((attempt) => attempt + 1);
+  }, []);
 
   const onPointerUpdate = useCallback(
     (payload: ExcalidrawPointerUpdatePayload) => {
@@ -737,6 +838,10 @@ export function useCollaborationRoom(options: {
 
   return {
     status: visibleStatus,
+    // Reported only while the status actually is a failure: the reason is a
+    // property of the failed state, not a sticky flag, and a stale one would
+    // keep the owner's destructive reset entry visible after a rejoin.
+    failureReason: status === "failed" ? failureReason : null,
     role,
     // Still a collaboration session, and the canvas still belongs to the room: the
     // editor must keep withholding the actions that would replace it behind the
@@ -752,6 +857,7 @@ export function useCollaborationRoom(options: {
       (roleWithdrawn || (role !== null && !roomRoleCanEditScene(role))),
     errorMessage: errorMessage ?? sizeWarning ?? assetWarning,
     ownsCanvas,
+    retryJoin,
     onPointerUpdate,
     onSceneChange,
   };

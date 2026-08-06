@@ -18,8 +18,9 @@ import { roomAuthGenerationSchema } from "./room-auth.ts";
  * one AES-GCM key per (room, authorization generation, purpose), which buys
  * two separations:
  *
- * - Realtime traffic, durable snapshots and binary assets use different
- *   purposes, so one leaked derived key never unlocks the others.
+ * - Realtime traffic, durable snapshots, binary assets and the room key-check
+ *   value use different purposes, so one leaked derived key never unlocks the
+ *   others.
  * - A room's authorization generation is part of the salt, so rotating it
  *   (`collaborationRoom.rotateGeneration`) produces a key that cannot open the
  *   previous generation's ciphertext.
@@ -140,10 +141,16 @@ export const DEFAULT_REPLAY_CACHE_TTL_MS = 60_000;
 
 /**
  * Purposes a room key may be stretched into. Realtime frames, durable
- * snapshots and binary assets each get their own derived key, so the same room
- * key can serve all three without any of them sharing key material.
+ * snapshots, binary assets and the room's key-check value each get their own
+ * derived key, so the same room key can serve all four without any of them
+ * sharing key material.
  */
-export const ROOM_KEY_PURPOSES = ["realtime", "snapshot", "asset"] as const;
+export const ROOM_KEY_PURPOSES = [
+  "realtime",
+  "snapshot",
+  "asset",
+  "keycheck",
+] as const;
 export type RoomKeyPurpose = (typeof ROOM_KEY_PURPOSES)[number];
 
 /**
