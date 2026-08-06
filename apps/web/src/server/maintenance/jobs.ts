@@ -1,15 +1,19 @@
 import "server-only";
 
-import { eq, inArray, ne } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import {
+  collaborationAsset,
+  collaborationRoom,
+  collaborationSnapshot,
   deferredFileCleanup,
   fileRecord,
   scene,
   user,
 } from "@/server/db/schema";
 import { QUERIES } from "@/server/db/queries";
+import { lockRoom } from "@/server/collab/rooms";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 
 /**
@@ -285,6 +289,228 @@ export function createUnreferencedAssetGcJob(
   };
 }
 
+/** Reason recorded on cleanup tasks room retention schedules. */
+export const ROOM_RETENTION_CLEANUP_REASON = "collab-room-retention";
+
+export type RoomRetentionOptions = {
+  /**
+   * How long a room must have been ended or expired before its durable data
+   * is reclaimed. Never immediate: room TTLs top out at 24h, so a room that
+   * left its live window a week ago cannot be one somebody is still using —
+   * while a freshly expired room may be seconds away from its owner
+   * refreshing it back to life.
+   */
+  graceMs?: number;
+  /** Rooms reclaimed per run. */
+  maxRooms?: number;
+  /**
+   * Asset objects enqueued per run. The drain that runs after this job is
+   * itself bounded (`maxTasks` defaults to 500), so a run must not enqueue
+   * more than the same run's drain can take — otherwise reclaimed objects sit
+   * in the queue for weeks of weekly crons, the exact mismatch Plan 23 fixed.
+   * The default leaves the drain headroom for other jobs' enqueues.
+   */
+  maxAssetObjects?: number;
+};
+
+/**
+ * Reclaims the durable data of rooms that ended or expired past the grace
+ * period — the Plan 15/17 gap: generations retire within a room, but nothing
+ * ever retired the room itself, so snapshots (Postgres ciphertext) and asset
+ * objects (storage) accumulated at the rate rooms were opened.
+ *
+ * Snapshot rows are deleted outright — the ciphertext lives in the row.
+ * Asset rows are deleted with their storage keys enqueued to the deferred
+ * cleanup queue **in the same transaction**: after the commit the row is the
+ * only pointer to the object, so the queue row must exist before it. The
+ * drain job, always ordered after this one, deletes the objects in the run.
+ *
+ * An expired room that is still `active` is flipped to `ended` first, in the
+ * same transaction under the room lock: the create mutation refreshes an
+ * expired-but-active room back to life (same roomId, same generation), and a
+ * room resurrected after its baseline and assets were reclaimed would greet
+ * rejoining members with nothing. Ending it makes create open a fresh room
+ * instead. No auth revision bump or relay push is needed — tokens carry the
+ * room expiry, so every session and token died with the room days ago. The
+ * room row itself stays, as history (unchanged from the end mutation).
+ *
+ * Eligibility is re-checked under the lock: between the candidate query and
+ * the lock, the owner may have refreshed the room.
+ *
+ * Bounded (rooms and enqueued objects per run, sized to the same run's drain
+ * capacity) and idempotent: an ended room is a candidate only while it still
+ * holds data, and an expired room stops being one the moment it is ended, so
+ * a rerun after a full sweep finds nothing.
+ */
+export function createRoomRetentionJob(
+  options: RoomRetentionOptions = {},
+): MaintenanceJob {
+  const { graceMs = 7 * DAY_MS, maxRooms = 50, maxAssetObjects = 400 } = options;
+  return {
+    name: "collab-room-retention",
+    run: async (deps) => {
+      const graceCutoff = new Date(deps.now().getTime() - graceMs);
+      // Column-typed comparisons only: a Date interpolated into a raw sql``
+      // fragment has no column mapping, and the postgres-js driver refuses to
+      // serialize it (PGlite in tests happens to accept it).
+      const endedPastGrace = and(
+        eq(collaborationRoom.status, "ended"),
+        or(
+          lt(collaborationRoom.endedAt, graceCutoff),
+          and(
+            isNull(collaborationRoom.endedAt),
+            lt(collaborationRoom.updatedAt, graceCutoff),
+          ),
+        ),
+      );
+      const expiredPastGrace = and(
+        eq(collaborationRoom.status, "active"),
+        lt(collaborationRoom.expiresAt, graceCutoff),
+      );
+      const holdsData = or(
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationSnapshot)
+            .where(eq(collaborationSnapshot.roomId, collaborationRoom.roomId)),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationAsset)
+            .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
+        ),
+      );
+      // An expired room is a candidate even with nothing to reclaim: as long
+      // as it stays `active` the create mutation can refresh it back to life,
+      // so ending it after the grace period is retention work too. An ended
+      // room only qualifies while it still holds data (once swept it drops
+      // out, which is what keeps reruns idempotent).
+      const candidates = await db
+        .select({ roomId: collaborationRoom.roomId })
+        .from(collaborationRoom)
+        .where(or(expiredPastGrace, and(endedPastGrace, holdsData)))
+        .limit(maxRooms + 1);
+      const truncated = candidates.length > maxRooms;
+
+      let roomsReclaimed = 0;
+      let endedExpiredRooms = 0;
+      let deletedSnapshots = 0;
+      let deletedSnapshotBytes = 0;
+      let enqueuedObjects = 0;
+      let budgetExhausted = false;
+
+      type ReclaimOutcome =
+        | { kind: "reclaimed"; wasExpiredActive: boolean; snapshots: number; snapshotBytes: number; assets: number }
+        /** Would push the run past the object budget; left for the next run. */
+        | { kind: "deferred" };
+
+      for (const candidate of candidates.slice(0, maxRooms)) {
+        if (enqueuedObjects >= maxAssetObjects) {
+          budgetExhausted = true;
+          break;
+        }
+        const now = deps.now();
+        const outcome = await db.transaction(
+          async (tx): Promise<ReclaimOutcome | null> => {
+            const room = await lockRoom(tx, candidate.roomId);
+            const eligible =
+              room !== undefined &&
+              (room.status === "ended"
+                ? (room.endedAt ?? room.updatedAt) < graceCutoff
+                : room.status === "active" && room.expiresAt < graceCutoff);
+            if (!eligible) return null;
+
+            // Rooms are reclaimed whole — a half-swept room would defeat the
+            // "candidates still hold data" idempotency — so the budget check
+            // happens before touching anything. The run's first room may
+            // exceed the budget on its own (per-room rows are bounded by the
+            // schema's per-generation asset cap); refusing it would starve it
+            // forever.
+            const [assetTally] = await tx
+              .select({ count: sql<number>`count(*)::int` })
+              .from(collaborationAsset)
+              .where(eq(collaborationAsset.roomId, room.roomId));
+            const assetCount = assetTally?.count ?? 0;
+            if (
+              enqueuedObjects > 0 &&
+              enqueuedObjects + assetCount > maxAssetObjects
+            ) {
+              return { kind: "deferred" };
+            }
+
+            if (room.status === "active") {
+              await tx
+                .update(collaborationRoom)
+                .set({ status: "ended", endedAt: now, updatedAt: now })
+                .where(eq(collaborationRoom.roomId, room.roomId));
+            }
+
+            const snapshots = await tx
+              .delete(collaborationSnapshot)
+              .where(eq(collaborationSnapshot.roomId, room.roomId))
+              .returning({ byteLength: collaborationSnapshot.byteLength });
+            const assets = await tx
+              .delete(collaborationAsset)
+              .where(eq(collaborationAsset.roomId, room.roomId))
+              .returning({
+                utFileKey: collaborationAsset.utFileKey,
+                authGeneration: collaborationAsset.authGeneration,
+              });
+            if (assets.length > 0) {
+              await tx.insert(deferredFileCleanup).values(
+                assets.map((asset) => ({
+                  utFileKey: asset.utFileKey,
+                  reason: ROOM_RETENTION_CLEANUP_REASON,
+                  context: JSON.stringify({
+                    roomId: room.roomId,
+                    authGeneration: asset.authGeneration,
+                  }),
+                  attempts: 0,
+                  nextAttemptAt: now,
+                  status: "pending" as const,
+                })),
+              );
+            }
+            return {
+              kind: "reclaimed",
+              wasExpiredActive: room.status === "active",
+              snapshots: snapshots.length,
+              snapshotBytes: snapshots.reduce(
+                (total, row) => total + row.byteLength,
+                0,
+              ),
+              assets: assets.length,
+            };
+          },
+        );
+        if (!outcome) continue;
+        if (outcome.kind === "deferred") {
+          budgetExhausted = true;
+          break;
+        }
+
+        // A data-less expired room is only ended, not "reclaimed".
+        if (outcome.snapshots > 0 || outcome.assets > 0) roomsReclaimed += 1;
+        if (outcome.wasExpiredActive) endedExpiredRooms += 1;
+        deletedSnapshots += outcome.snapshots;
+        deletedSnapshotBytes += outcome.snapshotBytes;
+        enqueuedObjects += outcome.assets;
+      }
+
+      return {
+        roomsReclaimed,
+        endedExpiredRooms,
+        deletedSnapshots,
+        deletedSnapshotBytes,
+        deletedAssetRows: enqueuedObjects,
+        enqueuedObjects,
+        truncated: truncated || budgetExhausted,
+      };
+    },
+  };
+}
+
 /** Fisher–Yates copy. */
 function shuffled<T>(items: readonly T[]): T[] {
   const result = [...items];
@@ -301,6 +527,13 @@ export type QueueDrainOptions = {
   maxTasks?: number;
   /** Wall-clock budget for the drain. */
   budgetMs?: number;
+  /**
+   * Absolute cutoff, from the route's execution envelope. The drain always
+   * runs last, so however long the jobs before it took, it must stop early
+   * enough for the run to report and unlock instead of being killed by the
+   * platform. The earlier of this and `budgetMs` wins.
+   */
+  deadlineAt?: Date;
 };
 
 /**
@@ -312,12 +545,16 @@ export type QueueDrainOptions = {
 export function createQueueDrainJob(
   options: QueueDrainOptions = {},
 ): MaintenanceJob {
-  const { batchSize = 50, maxTasks = 500, budgetMs = 60_000 } = options;
+  const { batchSize = 50, maxTasks = 500, budgetMs = 60_000, deadlineAt } = options;
   return {
     name: "drain-cleanup-queue",
     run: async (deps) => {
       const startedAtMs = deps.now().getTime();
-      const budgetSpent = () => deps.now().getTime() - startedAtMs >= budgetMs;
+      const deadlineMs = Math.min(
+        startedAtMs + budgetMs,
+        deadlineAt?.getTime() ?? Number.POSITIVE_INFINITY,
+      );
+      const budgetSpent = () => deps.now().getTime() >= deadlineMs;
       let processed = 0;
       let rescheduled = 0;
       let failed = 0;
@@ -471,13 +708,29 @@ export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
  * The job set a scheduled run executes. Deliberately excludes the user purge;
  * enqueue-capable jobs come before the drain.
  */
-export function routineMaintenanceJobs(): MaintenanceJob[] {
+export function routineMaintenanceJobs(
+  options: { drainDeadlineAt?: Date } = {},
+): MaintenanceJob[] {
   return [
     expiredSharedScenesJob,
     createUnreferencedAssetGcJob(),
+    createRoomRetentionJob(),
     expiredSessionsJob,
     expiredVerificationsJob,
     purgeFinishedQueueRowsJob,
-    createQueueDrainJob(),
+    // Sized to the producers' bounded aggregate per-run maximum — 500 from
+    // the asset GC plus 512 from room retention's permitted first-room
+    // overshoot — with headroom for failure enqueues and backlog, so the
+    // task cap alone can never leave a same-run enqueue undrained. The
+    // wall-clock budget makes the cap reachable — the default 60s covers
+    // nowhere near this many storage round trips — and `deadlineAt` keeps
+    // the drain inside the route's execution envelope no matter how long
+    // the jobs before it took; whatever gets cut off is reported in
+    // `remaining` and picked up next run.
+    createQueueDrainJob({
+      maxTasks: 1200,
+      budgetMs: 180_000,
+      deadlineAt: options.drainDeadlineAt,
+    }),
   ];
 }

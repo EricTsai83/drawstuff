@@ -151,6 +151,7 @@ describe("maintenance cleanup route", () => {
     expect(body.jobs?.map((job) => job.name)).toEqual([
       "expired-shared-scenes",
       "unreferenced-asset-gc",
+      "collab-room-retention",
       "expired-sessions",
       "expired-verifications",
       "purge-finished-queue-rows",
@@ -168,6 +169,7 @@ describe("maintenance cleanup route", () => {
     expect(body.jobs?.map((job) => job.name)).toEqual([
       "expired-shared-scenes",
       "unreferenced-asset-gc",
+      "collab-room-retention",
       "expired-sessions",
       "expired-verifications",
       "purge-finished-queue-rows",
