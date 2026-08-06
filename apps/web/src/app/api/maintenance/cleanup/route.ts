@@ -28,6 +28,26 @@ import {
  * Both require `Authorization: Bearer <CRON_SECRET>`.
  */
 
+/**
+ * The queue drain's task cap (1000) is only reachable if the function lives
+ * long enough: at one storage round trip per object, the platform default
+ * duration would kill the run mid-drain. 300s is within every Vercel plan's
+ * Fluid limit; the drain's own wall-clock budget stays below it so the run
+ * always ends by reporting, never by being killed.
+ */
+export const maxDuration = 300;
+
+/**
+ * The drain gets an absolute deadline inside the route envelope: however
+ * long the jobs before it ran, it must leave this much room for reporting
+ * and unlocking rather than letting the platform kill the run mid-flight.
+ */
+const DRAIN_DEADLINE_MARGIN_MS = 60_000;
+
+function drainDeadline(): Date {
+  return new Date(Date.now() + maxDuration * 1000 - DRAIN_DEADLINE_MARGIN_MS);
+}
+
 const RequestBodySchema = z.object({
   /**
    * Explicit opt-in to the single-tenant user purge. Never part of a routine
@@ -88,7 +108,12 @@ async function runUnderLock(jobs: MaintenanceJob[]): Promise<NextResponse> {
 }
 
 export async function GET(request: Request) {
-  return unauthorized(request) ?? (await runUnderLock(routineMaintenanceJobs()));
+  return (
+    unauthorized(request) ??
+    (await runUnderLock(
+      routineMaintenanceJobs({ drainDeadlineAt: drainDeadline() }),
+    ))
+  );
 }
 
 export async function POST(request: Request) {
@@ -116,7 +141,7 @@ export async function POST(request: Request) {
       }),
     );
   }
-  jobs.push(...routineMaintenanceJobs());
+  jobs.push(...routineMaintenanceJobs({ drainDeadlineAt: drainDeadline() }));
 
   return await runUnderLock(jobs);
 }

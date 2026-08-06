@@ -28,8 +28,8 @@ merge algorithm，皆不在這組計畫內。
 完成條件，其餘狀態都不代表已完成。
 
 **表格的排列即為執行順序**：已結束的（`Completed`／`Skipped`）依 plan 編號排在上半，
-未完成的 6 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
-從 Plan 28 那一列往下讀就是待辦。
+未完成的 5 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
+從 Plan 29 那一列往下讀就是待辦。
 
 | Plan                                              | 執行狀態                  | 結果                                                    | 依賴               |
 | ------------------------------------------------- | ------------------------- | ------------------------------------------------------- | ------------------ |
@@ -62,7 +62,7 @@ merge algorithm，皆不在這組計畫內。
 | [31](./31-durable-format-protocol-decoupling.md)  | Completed（2026-08-06）   | durable 格式與 transport 版本解耦                       | 26                 |
 | [25](./25-relay-drain-and-deployment-envelope.md) | Completed（2026-08-06）   | Graceful drain、max-memory watchdog 與單 instance 封套  | 19                 |
 | [32](./32-collaboration-client-telemetry.md)      | Skipped — 改走 Sentry     | 共編 telemetry 不自建，之後需要監控時接 Sentry          | 24、30             |
-| [28](./28-room-scoped-retention.md)               | Ready                     | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
+| [28](./28-room-scoped-retention.md)               | Completed（2026-08-06）   | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
 | [29](./29-collaboration-load-test-and-runbook.md) | Blocked — §6 缺口（原 32）| Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
 | [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 等 Redis 開通   | 共編後端入口的速率限制                                  | 19                 |
 | [34](./34-room-key-confirmation.md)               | Ready                     | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |
