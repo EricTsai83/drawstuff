@@ -207,8 +207,14 @@ export function createConnectionRateLimiter(options: {
  */
 export type SubjectRateLimiter = {
   admitJoin(subject: string): boolean;
-  /** Live entry count, for tests and for the step 4 metrics. */
+  /** Live entry count, for tests and for the Plan 24 metrics. */
   size(): number;
+  /**
+   * Entry cap this limiter fails open at. Exposed so `/metrics` publishes the
+   * limiter's own bound rather than a module default that an injected limiter
+   * may not share.
+   */
+  readonly maxTrackedSubjects: number;
 };
 
 /**
@@ -272,5 +278,6 @@ export function createSubjectRateLimiter(options?: {
       return entry.bucket.tryConsume();
     },
     size: () => entries.size,
+    maxTrackedSubjects,
   };
 }

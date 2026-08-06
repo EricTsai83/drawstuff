@@ -3,6 +3,8 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { roomChannelKey } from "@drawstuff/collaboration/room-auth";
 import { verifyRoomControlToken } from "@drawstuff/collaboration/room-token";
 
+import type { RelayLogger } from "./logger.ts";
+import type { RelayMetrics } from "./metrics.ts";
 import type { RelaySessionRegistry } from "./sessions.ts";
 
 /**
@@ -87,9 +89,17 @@ export function createRelayControlRequestHandler(options: {
   sessions: RelaySessionRegistry;
   /** Same secret the app signs room tokens with. */
   joinTokenSecret: string;
+  metrics: RelayMetrics;
+  logger: RelayLogger;
   now?: () => number;
 }): (request: IncomingMessage, response: ServerResponse) => void {
-  const { sessions, joinTokenSecret, now = Date.now } = options;
+  const {
+    sessions,
+    joinTokenSecret,
+    metrics,
+    logger,
+    now = Date.now,
+  } = options;
 
   const handle = async (
     request: IncomingMessage,
@@ -97,10 +107,12 @@ export function createRelayControlRequestHandler(options: {
   ): Promise<void> => {
     const path = (request.url ?? "").split("?")[0];
     if (path !== RELAY_CONTROL_PATH) {
+      metrics.controlRequest("rejected");
       respond(response, 404, { error: "not-found" });
       return;
     }
     if (request.method !== "POST") {
+      metrics.controlRequest("rejected");
       response.setHeader("allow", "POST");
       respond(response, 405, { error: "method-not-allowed" });
       return;
@@ -108,6 +120,7 @@ export function createRelayControlRequestHandler(options: {
 
     const body = await readBody(request);
     if (!body.ok) {
+      metrics.controlRequest("rejected");
       // The rest of the body is never read, so the connection cannot be
       // reused: answer and close it.
       respond(
@@ -123,11 +136,13 @@ export function createRelayControlRequestHandler(options: {
     try {
       parsedJson = JSON.parse(body.raw) as unknown;
     } catch {
+      metrics.controlRequest("rejected");
       respond(response, 400, { error: "malformed-body" });
       return;
     }
     const parsedBody = controlRequestBodySchema(parsedJson);
     if (!parsedBody) {
+      metrics.controlRequest("rejected");
       respond(response, 400, { error: "malformed-body" });
       return;
     }
@@ -138,6 +153,11 @@ export function createRelayControlRequestHandler(options: {
       nowSeconds: Math.floor(now() / 1000),
     });
     if (!verified.ok) {
+      metrics.controlRequest("unauthorized");
+      logger.warn("relay.control", {
+        controlOutcome: "unauthorized",
+        tokenFailure: verified.reason,
+      });
       respond(response, 401, { error: "unauthorized" });
       return;
     }
@@ -155,11 +175,27 @@ export function createRelayControlRequestHandler(options: {
       claims.action === "end-room"
         ? sessions.endChannel(channel, cutoff)
         : sessions.revokeMember(channel, claims.sub, cutoff);
+    metrics.controlRequest("applied");
+    // `sub` is pseudonymized here for the same reason as on the join path: a
+    // revocation names a user, and naming them in a log is what §5 forbids.
+    logger.info("relay.control", {
+      controlAction: claims.action,
+      controlOutcome: "applied",
+      roomId: claims.rid,
+      authGeneration: claims.gen,
+      subject:
+        claims.action === "revoke-member"
+          ? logger.pseudonym(claims.sub)
+          : undefined,
+      closedSessions: closed,
+    });
     respond(response, 200, { action: claims.action, closed });
   };
 
   return (request, response) => {
     void handle(request, response).catch(() => {
+      metrics.controlRequest("failed");
+      logger.error("relay.control", { controlOutcome: "failed" });
       if (!response.headersSent) {
         respond(response, 500, { error: "control-failed" });
         return;

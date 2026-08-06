@@ -89,11 +89,13 @@ describe("cross-process relay integration", () => {
       // so the real startup contract is exercised here too.
       COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
     });
+    // The relay logs JSON lines (Plan 24), so the port is read out of the
+    // structured `relay.listening` record rather than out of prose.
     const listeningLine = await relay.waitForLine(
-      (line) => line.includes("listening on "),
+      (line) => line.includes(`"event":"relay.listening"`),
       "relay process to start listening",
     );
-    const url = listeningLine.split("listening on ").at(-1);
+    const { url } = JSON.parse(listeningLine) as { url?: string };
     if (!url) throw new Error("relay did not report its url");
 
     const driver = spawnTsx(path.join("tests", "support", "client-driver.ts"), {

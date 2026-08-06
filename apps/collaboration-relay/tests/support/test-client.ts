@@ -115,6 +115,12 @@ export async function createTestClient(options: {
   /** Room key; a different key makes every payload unreadable to this client. */
   roomKey?: RoomKey;
   /**
+   * Display name carried inside presence payloads. Defaults to the client id;
+   * a distinct value lets a test assert that user data never reaches a log line
+   * or a metric even though the client id legitimately does.
+   */
+  username?: string;
+  /**
    * Socket constructor, so a test can wrap the real socket and inject delivery
    * faults (`./faulty-socket.ts`). Defaults to the transport's own `WebSocket`.
    */
@@ -323,7 +329,7 @@ export async function createTestClient(options: {
         payload: {
           pointer: { x, y, tool: "pointer" },
           button: "up",
-          username: clientId,
+          username: options.username ?? clientId,
           selectedElementIds: [],
           idleState: "active",
         },

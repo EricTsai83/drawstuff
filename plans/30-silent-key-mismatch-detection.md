@@ -75,8 +75,10 @@ frame 或單一 asset 的偶發失敗仍然靜默、不中斷 session。
   帶 sender 身份，也刻意不做 session handshake；本 plan 只用既有的成功／失敗訊號。
 - 改變單一 frame 或單一 asset 失敗時的處置（仍然丟棄／abandon）。
 - 讓 relay 或後端參與判定。它們看不到明文，也不該知道 client 能不能解開。
-- Decrypt 失敗的 metrics／structured log。那是 Plan 24 的範圍；本 plan 只處理**使用者可見
-  狀態**。兩者互補但不得互相阻擋。
+- Decrypt 失敗的 metrics／上報。分級與載體契約由 Plan 24 定義，**實作與後端彙總屬
+  [Plan 32](./32-collaboration-client-telemetry.md)**（Plan 24 依其 in scope 只做定義，因此
+  這裡不能只指向它）。本 plan 只處理**使用者可見狀態**。三者互補但不得互相阻擋——不過本
+  plan 在 realtime 路徑建立的成功／失敗計數就是 Plan 32 要消費的那一組，不應再有第二套。
 - 修改 `asset-store` 的 retry／GC／清理語意（Plan 23 的範圍）。
 
 ## Steps

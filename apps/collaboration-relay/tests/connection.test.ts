@@ -26,6 +26,8 @@ import {
   type RelayConnectionSocket,
 } from "../src/connection.ts";
 import { createInMemoryRoomFanout, type RoomFanout } from "../src/fanout.ts";
+import type { RelayLogger } from "../src/logger.ts";
+import type { RelayMetrics } from "../src/metrics.ts";
 import {
   createSubjectRateLimiter,
   type SubjectRateLimiter,
@@ -34,6 +36,10 @@ import {
   createRelaySessionRegistry,
   type RelaySessionRegistry,
 } from "../src/sessions.ts";
+import {
+  createTestLogger,
+  createTestMetrics,
+} from "./support/observability.ts";
 import {
   issueJoinToken,
   TEST_NOW_MS,
@@ -46,6 +52,9 @@ const ROOM_CHANNEL = roomChannelKey(ROOM_ID, 1);
 
 class FakeSocket implements RelayConnectionSocket {
   bufferedAmount = 0;
+  /** `WebSocket.OPEN`; a test sets `2` (`CLOSING`) to model a peer-initiated
+   *  close handshake, in which `send()` transmits nothing. */
+  readyState = 1;
   readonly sentText: string[] = [];
   readonly sentBinary: Uint8Array[] = [];
   closedWith: { code: number; reason: string } | undefined;
@@ -88,6 +97,8 @@ function setup(
     sessions?: RelaySessionRegistry;
     limits?: Partial<RelayConnectionLimits>;
     subjectRateLimiter?: SubjectRateLimiter;
+    metrics?: RelayMetrics;
+    logger?: RelayLogger;
     now?: () => number;
     /** Elapsed-time source for the rate budgets and the idle deadline. Defaults
      *  to `now`, so a test driving one clock drives both. */
@@ -123,6 +134,8 @@ function setup(
       }),
     generatePeerId: () => peerIdSchema.parse(`peer-${++peerCounter}`),
     joinTokenSecret: TEST_ROOM_TOKEN_SECRET,
+    metrics: options.metrics ?? createTestMetrics(),
+    logger: options.logger ?? createTestLogger().logger,
     now: options.now ?? (() => TEST_NOW_MS),
     monotonicNow: options.monotonicNow ?? options.now ?? (() => TEST_NOW_MS),
   });
@@ -296,6 +309,26 @@ describe("createRelayConnection", () => {
 
     expect(b.socket.closedWith).toBeUndefined();
     expect(b.socket.sentBinary).toEqual([sceneFrame()]);
+  });
+
+  it("delivers nothing to a socket the peer is already closing", () => {
+    // `ended` only becomes true when the relay sees the `close` event, but a
+    // peer-initiated handshake leaves the socket in `CLOSING` before that, and
+    // `send()` in that state transmits nothing. Delivering anyway would count a
+    // frame that never left the process.
+    const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
+    const a = setup({ fanout });
+    const b = setup({ fanout });
+    a.join({ clientName: "client-a" });
+    b.join({ clientName: "client-b" });
+
+    b.socket.readyState = 2; // CLOSING
+    a.connection.handleBinaryFrame(sceneFrame());
+
+    expect(b.socket.sentBinary).toHaveLength(0);
+    // Not a slow consumer: the buffer is fine, the socket is simply going away,
+    // so it must not be attributed to backpressure.
+    expect(b.socket.closedWith).toBeUndefined();
   });
 
   it("disconnects a slow consumer instead of queueing scene frames", () => {

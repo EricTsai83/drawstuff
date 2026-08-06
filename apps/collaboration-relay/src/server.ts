@@ -13,13 +13,22 @@ import { assertRoomTokenSecret } from "@drawstuff/collaboration/room-token";
 
 import {
   createRelayConnection,
+  type RelayConnection,
   type RelayConnectionLimits,
 } from "./connection.ts";
 import { createRelayControlRequestHandler } from "./control.ts";
 import { createInMemoryRoomFanout, type RoomFanout } from "./fanout.ts";
+import { createRelayLogger, type RelayLogger } from "./logger.ts";
+import {
+  createRelayMetrics,
+  type RelayCloseReason,
+  type RelayMetrics,
+} from "./metrics.ts";
+import { createRelayMonitoringRequestHandler } from "./monitoring.ts";
 import {
   createSubjectRateLimiter,
   DEFAULT_RELAY_RATE_LIMITS,
+  monotonicNow,
   type SubjectRateLimiter,
 } from "./rate-limit.ts";
 import {
@@ -37,6 +46,16 @@ type RelayLimits = RelayConnectionLimits & {
 /** How long a capacity-rejected socket may take to finish the close
  *  handshake before it is terminated outright. */
 const CAPACITY_REJECT_GRACE_MS = 5_000;
+
+/**
+ * Event-loop lag sampling cadence.
+ *
+ * The relay's fanout is synchronous, so event-loop lag is the only signal that
+ * routing has started to queue (SLO §4.2). 100 ms gives ~300 samples per 30 s,
+ * which is what the alert window needs to resolve a p99, while costing one timer
+ * for the process.
+ */
+const EVENT_LOOP_SAMPLE_INTERVAL_MS = 100;
 
 /**
  * Approved in `docs/performance/collaboration-slo-capacity.md` (2026-08-06).
@@ -70,6 +89,8 @@ export type RelayServerOptions = {
   /** Join-attempt budget keyed by subject; tests inject one with a manual clock. */
   subjectRateLimiter?: SubjectRateLimiter;
   generatePeerId?: () => PeerId;
+  /** Structured log sink; defaults to JSON lines on stdout. */
+  logger?: RelayLogger;
 };
 
 export type RelayServer = {
@@ -81,6 +102,18 @@ export type RelayServer = {
   roomCount(): number;
   /** Authorized, currently joined sessions across all room generations. */
   sessionCount(): number;
+  /**
+   * Marks the process unhealthy at `/healthz` so a rolling restart can hand
+   * traffic over before this instance stops accepting it. Idempotent.
+   *
+   * Health reporting is all this does: releasing the connections that are still
+   * attached is the graceful-drain sequence, which is Plan 25's scope. Plan 24
+   * owns only the signal, because a probe that reports a departing process as
+   * healthy makes every restart look like an outage instead of a handover.
+   */
+  beginDrain(): void;
+  /** Prometheus text exposition, identical to a `/metrics` scrape. */
+  renderMetrics(): string;
   close(): Promise<void>;
 };
 
@@ -112,10 +145,52 @@ export async function createRelayServer(
   const generatePeerId =
     options.generatePeerId ??
     ((): PeerId => peerIdSchema.parse(`peer-${randomUUID()}`));
+  const logger = options.logger ?? createRelayLogger();
 
-  const httpServer: Server = createServer(
-    createRelayControlRequestHandler({ sessions, joinTokenSecret }),
-  );
+  /**
+   * Draining is a health-reporting state, not a connection state: it flips
+   * `/healthz` to unhealthy so traffic moves elsewhere. `close()` enters it too,
+   * so a shutdown never reports itself healthy on the way out.
+   */
+  let draining = false;
+  const metrics: RelayMetrics = createRelayMetrics({
+    sources: {
+      connections: () => server.clients.size,
+      rooms: () => fanout.roomCount(),
+      roomSizes: () => fanout.roomSizes(),
+      sessions: () => sessions.sessionCount(),
+      revocationCutoffs: () => sessions.cutoffCount(),
+      trackedSubjects: () => subjectRateLimiter.size(),
+      draining: () => draining,
+      residentMemoryBytes: () => process.memoryUsage.rss(),
+      heapUsedBytes: () => process.memoryUsage().heapUsed,
+      droppedLogRecords: () => logger.droppedRecords(),
+      rejectedLogFields: () => logger.rejectedFields(),
+      limits: {
+        maxConnections: limits.maxConnections,
+        maxRooms: limits.maxRooms,
+        maxConnectionsPerRoom: limits.maxConnectionsPerRoom,
+        maxTrackedSubjects: subjectRateLimiter.maxTrackedSubjects,
+      },
+    },
+  });
+
+  const handleMonitoringRequest = createRelayMonitoringRequestHandler({
+    metrics,
+    isDraining: () => draining,
+  });
+  const handleControlRequest = createRelayControlRequestHandler({
+    sessions,
+    joinTokenSecret,
+    metrics,
+    logger,
+  });
+  const httpServer: Server = createServer((request, response) => {
+    // Monitoring first, and unauthenticated: a scrape or a probe must not depend
+    // on the control endpoint's token path being healthy.
+    if (handleMonitoringRequest(request, response)) return;
+    handleControlRequest(request, response);
+  });
   const server = new WebSocketServer({
     server: httpServer,
     // Transport-level cap; exact per-channel budgets are enforced per frame.
@@ -124,10 +199,29 @@ export async function createRelayServer(
   httpServer.listen(options.port ?? 0, host);
   await once(httpServer, "listening");
 
-  const liveness = new WeakMap<WebSocket, { isAlive: boolean }>();
+  /**
+   * Per-socket server-side state. `terminationReason` is how a relay-initiated
+   * `terminate()` — which sends no close code — tells the connection why it is
+   * going away, so a missed heartbeat and a shutdown stay distinguishable from a
+   * peer that simply disconnected.
+   */
+  type SocketState = {
+    isAlive: boolean;
+    connection: RelayConnection;
+    terminationReason?: RelayCloseReason;
+  };
+  const liveness = new WeakMap<WebSocket, SocketState>();
 
   server.on("connection", (socket) => {
+    metrics.connectionOpened();
     if (server.clients.size > limits.maxConnections) {
+      metrics.connectionClosed("relayAtCapacity");
+      logger.warn("relay.connection_rejected", {
+        closeCode: RELAY_CLOSE_CODES.relayAtCapacity,
+        closeReason: "relayAtCapacity",
+        connections: server.clients.size,
+        limit: limits.maxConnections,
+      });
       socket.close(RELAY_CLOSE_CODES.relayAtCapacity, "relay at capacity");
       // ws keeps a closing socket tracked for up to 30s waiting for the
       // close handshake. Rejected sockets have no heartbeat state, so an
@@ -141,12 +235,6 @@ export async function createRelayServer(
       return;
     }
 
-    const state = { isAlive: true };
-    liveness.set(socket, state);
-    socket.on("pong", () => {
-      state.isAlive = true;
-    });
-
     const connection = createRelayConnection({
       socket,
       fanout,
@@ -155,22 +243,33 @@ export async function createRelayServer(
       subjectRateLimiter,
       generatePeerId,
       joinTokenSecret,
+      metrics,
+      logger,
+    });
+
+    const state: SocketState = { isAlive: true, connection };
+    liveness.set(socket, state);
+    socket.on("pong", () => {
+      state.isAlive = true;
     });
 
     socket.on("message", (data, isBinary) => {
+      // Stamped before any decoding, so routing latency is measured from receipt
+      // as SLO §3.1 defines it.
+      const receivedAt = monotonicNow();
       const bytes = Array.isArray(data)
         ? Buffer.concat(data)
         : data instanceof ArrayBuffer
           ? Buffer.from(data)
           : data;
       if (isBinary) {
-        connection.handleBinaryFrame(new Uint8Array(bytes));
+        connection.handleBinaryFrame(new Uint8Array(bytes), receivedAt);
       } else {
         connection.handleTextFrame(bytes.toString("utf8"));
       }
     });
     socket.on("close", () => {
-      connection.handleSocketClosed();
+      connection.handleSocketClosed(state.terminationReason);
     });
     socket.on("error", () => {
       // `close` always follows `error`; cleanup happens there.
@@ -185,6 +284,7 @@ export async function createRelayServer(
       const state = liveness.get(socket);
       if (!state) continue;
       if (!state.isAlive) {
+        state.terminationReason = "heartbeatTimeout";
         socket.terminate();
         continue;
       }
@@ -192,6 +292,19 @@ export async function createRelayServer(
       socket.ping();
     }
   }, limits.heartbeatIntervalMs);
+
+  let lastEventLoopSampleAt = monotonicNow();
+  const eventLoopSampler = setInterval(() => {
+    const sampledAt = monotonicNow();
+    // The interval's overshoot is the lag: how much longer than the nominal
+    // period the loop took to come back to this timer.
+    const lagMs = Math.max(
+      0,
+      sampledAt - lastEventLoopSampleAt - EVENT_LOOP_SAMPLE_INTERVAL_MS,
+    );
+    lastEventLoopSampleAt = sampledAt;
+    metrics.observeEventLoopLagSeconds(lagMs / 1_000);
+  }, EVENT_LOOP_SAMPLE_INTERVAL_MS);
 
   const address = httpServer.address();
   const port =
@@ -206,14 +319,30 @@ export async function createRelayServer(
     connectionCount: () => server.clients.size,
     roomCount: () => fanout.roomCount(),
     sessionCount: () => sessions.sessionCount(),
+    beginDrain() {
+      if (draining) return;
+      draining = true;
+      logger.info("relay.draining", {
+        connections: server.clients.size,
+        rooms: fanout.roomCount(),
+        sessions: sessions.sessionCount(),
+      });
+    },
+    renderMetrics: () => metrics.render(),
     async close() {
       if (closed) return;
       closed = true;
+      // A process on its way out must not answer a probe with "ok", whether or
+      // not anything called `beginDrain()` first.
+      draining = true;
       clearInterval(heartbeat);
+      clearInterval(eventLoopSampler);
       // Terminating (not closing) makes shutdown deterministic: 'close'
       // events still fire, releasing every room membership via the
       // connection cleanup path.
       for (const socket of server.clients) {
+        const state = liveness.get(socket);
+        if (state) state.terminationReason = "shutdown";
         socket.terminate();
       }
       await new Promise<void>((resolve, reject) => {
@@ -226,6 +355,7 @@ export async function createRelayServer(
       await new Promise<void>((resolve, reject) => {
         httpServer.close((error) => (error ? reject(error) : resolve()));
       });
+      logger.info("relay.stopped");
     },
   };
 }

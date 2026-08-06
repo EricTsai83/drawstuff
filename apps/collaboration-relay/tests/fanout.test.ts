@@ -36,6 +36,8 @@ function member(clientName: string, role: RoomRole = "editor") {
   const subscriber: FanoutSubscriber = {
     deliverData(channel, frame, senderPeerId) {
       dataFrames.push({ channel, frame, senderPeerId });
+      // A member that always accepts, so `publish` reports full delivery.
+      return true;
     },
     deliverPeers(peers) {
       peersUpdates.push(peers);
@@ -196,5 +198,43 @@ describe("createInMemoryRoomFanout", () => {
     const a = member("client-a");
     fanout.join({ channel: CHANNEL_A, ...a });
     expect(() => fanout.join({ channel: CHANNEL_A, ...a })).toThrow(/already/i);
+  });
+
+  it("counts a member removed mid-publish as intended but not delivered", () => {
+    // The routing-latency gate trusts `intended === delivered` to mean "every
+    // member of this room got the frame". A sink that synchronously removes a
+    // *later* member — which happens for real when a slow consumer's close
+    // re-enters leave() and the membership broadcast then closes a second slow
+    // consumer — must not make that comparison come out true for a partial
+    // fanout, so recipients are fixed before any of them is delivered to.
+    const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
+    const sender = member("client-sender");
+    const a = member("client-a");
+    const b = member("client-b");
+    const evictB: FanoutSubscriber = {
+      deliverData(channel, frame, senderPeerId) {
+        fanout.leave(CHANNEL_A, b.peerId);
+        return a.subscriber.deliverData(channel, frame, senderPeerId);
+      },
+      deliverPeers: (peers) => a.subscriber.deliverPeers(peers),
+    };
+    // Joined in this order so A is delivered to — and evicts B — before the loop
+    // reaches B; members are iterated in insertion order.
+    fanout.join({ channel: CHANNEL_A, ...sender });
+    fanout.join({ channel: CHANNEL_A, ...a, subscriber: evictB });
+    fanout.join({ channel: CHANNEL_A, ...b });
+
+    const result = fanout.publish(
+      CHANNEL_A,
+      sender.peerId,
+      "scene",
+      new Uint8Array([0x01]),
+    );
+
+    // Both A and B were members when the publish started, so both are intended.
+    expect(result.intended).toBe(2);
+    // B was gone before its turn, so its sink reports no delivery.
+    expect(result.delivered).toBe(1);
+    expect(b.dataFrames).toHaveLength(0);
   });
 });

@@ -22,6 +22,7 @@ import {
   type RoomFanout,
 } from "../src/fanout.ts";
 import { createRelayServer, type RelayServer } from "../src/server.ts";
+import { createTestLogger } from "./support/observability.ts";
 import { TEST_ROOM_TOKEN_SECRET } from "./support/room-tokens.ts";
 import {
   createTestClient,
@@ -71,7 +72,7 @@ function recordingFanout(): { fanout: RoomFanout; routed: RoutedFrame[] } {
           frame: Uint8Array.from(frame),
           senderPeerId,
         });
-        inner.publish(channel, senderPeerId, messageChannel, frame);
+        return inner.publish(channel, senderPeerId, messageChannel, frame);
       },
     },
   };
@@ -95,7 +96,12 @@ function hostileFanout(): RoomFanout {
       inner.leave(channel, peerId);
     },
     publish(channel, senderPeerId, messageChannel, frame) {
-      inner.publish(channel, senderPeerId, messageChannel, frame);
+      const routed = inner.publish(
+        channel,
+        senderPeerId,
+        messageChannel,
+        frame,
+      );
       const tampered = Uint8Array.from(frame);
       tampered[tampered.length - 1] = (tampered.at(-1) ?? 0) ^ 0xff;
       for (const [peerId, subscriber] of subscribers) {
@@ -103,6 +109,7 @@ function hostileFanout(): RoomFanout {
         subscriber.deliverData(messageChannel, frame, senderPeerId);
         subscriber.deliverData(messageChannel, tampered, senderPeerId);
       }
+      return routed;
     },
   };
 }
@@ -111,6 +118,7 @@ async function startServer(fanout: RoomFanout): Promise<RelayServer> {
   const server = await createRelayServer({
     joinTokenSecret: TEST_ROOM_TOKEN_SECRET,
     fanout,
+    logger: createTestLogger().logger,
   });
   cleanups.push(() => server.close());
   return server;

@@ -1,0 +1,133 @@
+# HELP relay_connections Currently open WebSocket connections.
+# TYPE relay_connections gauge
+relay_connections 2
+# HELP relay_connections_limit Approved relay-wide connection cap (SLO section 2).
+# TYPE relay_connections_limit gauge
+relay_connections_limit 256
+# HELP relay_rooms Currently live rooms.
+# TYPE relay_rooms gauge
+relay_rooms 1
+# HELP relay_rooms_limit Approved room cap (SLO section 2).
+# TYPE relay_rooms_limit gauge
+relay_rooms_limit 128
+# HELP relay_room_members_limit Approved per-room member cap (SLO section 2).
+# TYPE relay_room_members_limit gauge
+relay_room_members_limit 32
+# HELP relay_rooms_by_member_count Live rooms grouped by member count; no room is named.
+# TYPE relay_rooms_by_member_count gauge
+relay_rooms_by_member_count{members="1"} 0
+relay_rooms_by_member_count{members="2"} 1
+relay_rooms_by_member_count{members="3-4"} 0
+relay_rooms_by_member_count{members="5-8"} 0
+relay_rooms_by_member_count{members="9-16"} 0
+relay_rooms_by_member_count{members="17-32"} 0
+relay_rooms_by_member_count{members="33+"} 0
+# HELP relay_room_members_max Member count of the largest live room.
+# TYPE relay_room_members_max gauge
+relay_room_members_max 2
+# HELP relay_sessions Authorized joined sessions across all room generations.
+# TYPE relay_sessions gauge
+relay_sessions 2
+# HELP relay_revocation_cutoffs Live revocation cutoffs held by the session registry.
+# TYPE relay_revocation_cutoffs gauge
+relay_revocation_cutoffs 0
+# HELP relay_tracked_subjects Subjects with a live join-rate budget entry.
+# TYPE relay_tracked_subjects gauge
+relay_tracked_subjects 2
+# HELP relay_tracked_subjects_limit Entry cap of the join-rate budget map; at the cap it fails open.
+# TYPE relay_tracked_subjects_limit gauge
+relay_tracked_subjects_limit 1024
+# HELP relay_process_resident_memory_bytes Process resident set size (SLO section 4.1).
+# TYPE relay_process_resident_memory_bytes gauge
+relay_process_resident_memory_bytes 105922560
+# HELP relay_process_heap_used_bytes Process heap in use.
+# TYPE relay_process_heap_used_bytes gauge
+relay_process_heap_used_bytes 17993808
+# HELP relay_draining 1 while the process is draining and reports itself unhealthy.
+# TYPE relay_draining gauge
+relay_draining 0
+# HELP relay_log_records_dropped_total Log records dropped because the output stream was backed up.
+# TYPE relay_log_records_dropped_total counter
+relay_log_records_dropped_total 0
+# HELP relay_log_fields_rejected_total Log fields refused by the field allowlist; non-zero is a code defect.
+# TYPE relay_log_fields_rejected_total counter
+relay_log_fields_rejected_total 0
+# HELP relay_connections_opened_total WebSocket connections accepted by the relay process.
+# TYPE relay_connections_opened_total counter
+relay_connections_opened_total 2
+# HELP relay_connections_closed_total Connections closed, by disconnect reason (SLO section 6).
+# TYPE relay_connections_closed_total counter
+relay_connections_closed_total{reason="protocolViolation"} 0
+relay_connections_closed_total{reason="relayAtCapacity"} 0
+relay_connections_closed_total{reason="roomAtCapacity"} 0
+relay_connections_closed_total{reason="slowConsumer"} 0
+relay_connections_closed_total{reason="joinTimeout"} 0
+relay_connections_closed_total{reason="unauthorized"} 0
+relay_connections_closed_total{reason="readOnlyRole"} 0
+relay_connections_closed_total{reason="membershipRevoked"} 0
+relay_connections_closed_total{reason="roomEnded"} 0
+relay_connections_closed_total{reason="rateLimited"} 0
+relay_connections_closed_total{reason="idleTimeout"} 0
+relay_connections_closed_total{reason="relayRoomsAtCapacity"} 0
+relay_connections_closed_total{reason="normalClosure"} 0
+relay_connections_closed_total{reason="heartbeatTimeout"} 0
+relay_connections_closed_total{reason="peerClosed"} 0
+relay_connections_closed_total{reason="shutdown"} 0
+relay_connections_closed_total{reason="other"} 0
+# HELP relay_joins_total Authorized joins that reached the room fanout.
+# TYPE relay_joins_total counter
+relay_joins_total 2
+# HELP relay_frames_routed_total Inbound data frames accepted and routed, by channel.
+# TYPE relay_frames_routed_total counter
+relay_frames_routed_total{channel="scene"} 16
+relay_frames_routed_total{channel="presence"} 12
+# HELP relay_routed_bytes_total Wire bytes of inbound data frames accepted and routed, by channel.
+# TYPE relay_routed_bytes_total counter
+relay_routed_bytes_total{channel="scene"} 6429
+relay_routed_bytes_total{channel="presence"} 4480
+# HELP relay_frames_delivered_total Data frames written towards a member socket, by channel.
+# TYPE relay_frames_delivered_total counter
+relay_frames_delivered_total{channel="scene"} 15
+relay_frames_delivered_total{channel="presence"} 12
+# HELP relay_delivered_bytes_total Wire bytes written towards member sockets, by channel.
+# TYPE relay_delivered_bytes_total counter
+relay_delivered_bytes_total{channel="scene"} 6160
+relay_delivered_bytes_total{channel="presence"} 4480
+# HELP relay_presence_frames_dropped_total Presence frames dropped because the receiver's buffer was over budget.
+# TYPE relay_presence_frames_dropped_total counter
+relay_presence_frames_dropped_total 0
+# HELP relay_control_requests_total Control endpoint requests, by outcome.
+# TYPE relay_control_requests_total counter
+relay_control_requests_total{outcome="applied"} 0
+relay_control_requests_total{outcome="unauthorized"} 0
+relay_control_requests_total{outcome="rejected"} 0
+relay_control_requests_total{outcome="failed"} 0
+# HELP relay_routing_latency_seconds Frame receipt until it reached every other room member's socket send.
+# TYPE relay_routing_latency_seconds histogram
+relay_routing_latency_seconds_bucket{le="0.0001"} 25
+relay_routing_latency_seconds_bucket{le="0.00025"} 26
+relay_routing_latency_seconds_bucket{le="0.0005"} 27
+relay_routing_latency_seconds_bucket{le="0.001"} 27
+relay_routing_latency_seconds_bucket{le="0.0025"} 27
+relay_routing_latency_seconds_bucket{le="0.005"} 27
+relay_routing_latency_seconds_bucket{le="0.01"} 27
+relay_routing_latency_seconds_bucket{le="0.02"} 27
+relay_routing_latency_seconds_bucket{le="0.05"} 27
+relay_routing_latency_seconds_bucket{le="0.1"} 27
+relay_routing_latency_seconds_bucket{le="+Inf"} 27
+relay_routing_latency_seconds_sum 0.001040209999999888
+relay_routing_latency_seconds_count 27
+# HELP relay_event_loop_lag_seconds Sampled event-loop delay; the relay's fanout is synchronous.
+# TYPE relay_event_loop_lag_seconds histogram
+relay_event_loop_lag_seconds_bucket{le="0.001"} 2
+relay_event_loop_lag_seconds_bucket{le="0.005"} 4
+relay_event_loop_lag_seconds_bucket{le="0.01"} 4
+relay_event_loop_lag_seconds_bucket{le="0.02"} 4
+relay_event_loop_lag_seconds_bucket{le="0.05"} 4
+relay_event_loop_lag_seconds_bucket{le="0.1"} 4
+relay_event_loop_lag_seconds_bucket{le="0.25"} 4
+relay_event_loop_lag_seconds_bucket{le="0.5"} 4
+relay_event_loop_lag_seconds_bucket{le="1"} 4
+relay_event_loop_lag_seconds_bucket{le="+Inf"} 4
+relay_event_loop_lag_seconds_sum 0.0039595420000000554
+relay_event_loop_lag_seconds_count 4

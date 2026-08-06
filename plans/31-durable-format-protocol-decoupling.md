@@ -7,6 +7,10 @@
 
 > 2026-08-06 由 Plan 26 的 review 殘留拆出（threat model T10 殘留 (a)）。Plan 26 解掉了
 > **三處**同類耦合中的**一處**。
+>
+> 本 plan 也是 [Plan 33](./33-peer-scoped-collaboration-identity.md) 的前置：移除 envelope 的
+> `senderClientId` 正是下方所說的「改一個訊息欄位」，在解耦完成前會讓既有 durable 密文全部
+> 不可讀。
 
 ## 背景與依據
 
