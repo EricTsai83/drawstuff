@@ -1,17 +1,15 @@
 # 共編 alerts 與 dashboards contract
 
-- Plan: [24](../../plans/24-collaboration-observability.md)
+- Status: Current
 - 建立日期：2026-08-06
 - 門檻來源：[SLO 文件](../performance/collaboration-slo-capacity.md) §2／§3／§4／§6
   （含修訂 R1）。**本文件不提出任何新門檻**；每一列都指回該文件的節號。
-- 資料分級來源：[threat model](../architecture/19-collaboration-threat-model.md) §5。
+- 資料分級來源：[threat model](../architecture/collaboration-threat-model.md) §5。
 - Metrics 實際輸出範例：[`relay-metrics-sample.txt`](./relay-metrics-sample.txt)
   （2026-08-06 由真實 session 產生，兩名成員、16 個 scene frame、12 個 presence frame）。
 
 ## 1. 這份文件解決什麼
 
-Plan 24 之前，relay 只有兩行啟動 log（threat model T8）：容量、延遲、斷線原因與失敗計數
-**沒有任何一項有數字**，所以 SLO 文件的門檻無法被判定，Plan 29 的 load test 也沒有東西可讀。
 本文件是「已核准的門檻」與「實際存在的 metric」之間的對照表：每一個 alert 都必須能指回
 SLO 的節號與一個真的會出現在 `/metrics` 的 series，否則它不成立。
 
@@ -29,11 +27,11 @@ endpoint 之前處理——scrape 與 probe 不應該依賴 token 路徑是否�
 讓 relay 對非 room 成員多發一份秘密。使它安全的是內容本身：`/metrics` 的每一個 label value
 都來自程式碼內的封閉集合（channel 名稱、close reason 名稱、room size bucket），沒有 room id、
 沒有 `sub`、沒有 payload；`/healthz` 只回一個狀態字。因此剩下的暴露面只有「容量資訊」，
-而**把這個 port 擋在公網之外屬於部署封套（[Plan 25](../../plans/25-relay-drain-and-deployment-envelope.md)）的責任**，不是這裡的授權決定。
+而**把這個 port 擋在公網之外屬於
+[部署封套](../operations/collaboration-relay-deployment.md)的責任**，不是這裡的授權決定。
 
-`/healthz` 在 drain 中回報 503 是 rolling restart 的換手訊號。Plan 24 只擁有這個**訊號**
-（`RelayServer.beginDrain()`，`close()` 也會進入該狀態）；真正排空既有連線是 Plan 25 的
-graceful drain。
+`/healthz` 在 drain 中回報 503 是 restart 的換手訊號；`RelayServer.beginDrain()` 與
+`close()` 都會進入該狀態，並由 graceful drain 排空既有連線。
 
 ## 3. Metric 清單
 
@@ -70,7 +68,7 @@ Room 的形狀改以 size 分佈表達，一樣回答容量問題而不指名任
 為什麼 `/metrics` 不需要 reset 語意、可以被多個 scraper 讀。
 
 **沒有 recipient 的 publish 不計入 routing latency**：只有一名成員的 room 不做任何 fanout，
-把它計進去會讓「沒有路由工作的 room」變成 relay 的最快案例，污染 Plan 29 的判定。
+把它計進去會讓「沒有路由工作的 room」變成 relay 的最快案例，污染延遲判定。
 
 ### 3.3 斷線原因（SLO §6）
 
@@ -124,12 +122,12 @@ terminate 期限），所以在 handshake 期間
 
 | §5 允許                                          | Metrics                                                             | Logs                                                                                                                                                                                                                               |
 | ------------------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `roomId`、`authGeneration`、`peerId`、`clientId` | **刻意都不出現**（§3.1 的理由）                                     | `roomId`、`authGeneration`、`peerId`；`clientId` 只記 pseudonym（§4.3）                                                                                                                                                            |
+| `roomId`、`authGeneration`、`peerId`             | **刻意都不出現**（§3.1 的理由）                                     | `roomId`、`authGeneration`、`peerId`（`clientId` 已整個移除，§4.3）                                                                                                                                                                |
 | 訊息位元組數、frame 計數、channel 名稱           | `relay_routed_bytes_total`、`relay_frames_routed_total{channel}` 等 | `byteLength`、`channel`（per-frame 記錄，預設關閉）                                                                                                                                                                                |
 | close code、disconnect reason                    | `relay_connections_closed_total{reason}`                            | `closeCode`、`closeReason`、`joinRefusal`、`tokenFailure`                                                                                                                                                                          |
 | decrypt 失敗**計數**                             | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                                                                 |
 | snapshot revision、conflict 計數                 | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                                                                 |
-| latency、event-loop lag、記憶體                  | 兩個 histogram + 兩個 memory gauge                                  | 常態無（數值型觀測只走 metrics）；例外是 Plan 25 的兩個一次性事件——`relay.memory_limit_exceeded` 記觸發當下的 `rssBytes`／`maxRssBytes`（兩次 scrape 之間的尖峰否則不可見），`relay.drained` 記 `durationMs`／`forcedTerminations` |
+| latency、event-loop lag、記憶體                  | 兩個 histogram + 兩個 memory gauge                                  | 常態無（數值型觀測只走 metrics）；例外是兩個部署事件——`relay.memory_limit_exceeded` 記觸發當下的 `rssBytes`／`maxRssBytes`，`relay.drained` 記 `durationMs`／`forcedTerminations`                                                        |
 
 ### 4.2 §5「禁止」欄位
 
@@ -162,39 +160,28 @@ terminate 期限），所以在 handshake 期間
 
 ### 4.3 Client 選的識別碼一律不記原值
 
-`roomIdSchema`／`clientIdSchema` 都是 `/^[A-Za-z0-9_-]{1,64}$/`，而 room key 是**同一個字母集
-的 43 個字元**——換句話說，**一個 room key 是合法的 room id**。因此若 join 失敗時記錄
-`roomId`／`clientId`，client 就可以把金鑰或 token 材料塞進那兩個欄位、故意觸發
-`wrong-room`／`wrong-client`／`bad-signature`，把禁止片段寫進 relay 的 log。
+`roomIdSchema` 是 `/^[A-Za-z0-9_-]{1,64}$/`，而 room key 是**同一個字母集的 43 個字元**——
+換句話說，**一個 room key 是合法的 room id**。因此若 join 失敗時記錄 `roomId`，client 就可以
+把金鑰或 token 材料塞進該欄位、故意觸發 `wrong-room`／`bad-signature`，把禁止片段寫進 relay
+的 log。
 
 所以驗簽失敗時**只記錄列舉的 `tokenFailure`**，不記任何識別碼。
 
-**但驗簽通過也不夠。** `collaborationRoom.join` 的 input 是 `z.string().pipe(clientIdSchema)`，
-它把呼叫者給的 `clientId` **原樣簽進 token**，所以已授權成員可以取得一個 `clientId` 就是自己
-room key 的**合法** token。因此 relay 對 `clientId` 一律只記 pseudonym（log 欄位 `client`，與
-`subject` 共用同一把 per-process HMAC key）。
+驗簽通過後，`roomId` 可以記原值：它由後端 `nanoid` 產生，且 join 必須對上既有的 room row，
+所以它是真正的 opaque id。`peerId` 由 relay 自己產生。
 
-`roomId` 不需要這個處理：它由後端 `nanoid` 產生，且 join 必須對上既有的 room row，所以它是真正
-的 opaque id。`peerId` 由 relay 自己產生。
+**`clientId` 已整個移除**：join 只帶 room 與 token，token claims 裡沒有任何 client 選定的字串，log 欄位
+`client`（clientId 的 pseudonym）與 token 的 `cid` claim 一併消失。這是 2026-08-06 對照
+upstream 後確定的根治方向——upstream 沒有 client 身分這個概念，collaborator 以伺服器產生的
+`socket.id` 為鍵，而我們的對應物是 `peerId`。歷史脈絡（為何不是改由伺服器產生 `clientId`、
+與 durable transport-version 解耦的現況見 threat model T10／T13 與
+[system design](../architecture/collaboration-system-design.md)。
 
-**不打算改成由伺服器產生 `clientId`**，這是刻意的判斷而非延後：它唯一的職責是游標／presence 在
-reconnect 間的連續性，而伺服器結構上無法知道「這是同一個 editor instance」；更關鍵的是，那也
-關不掉這個類別——client 想把自己的金鑰交給伺服器，任何字串欄位都可以。因此真正的不變式是
-**「client 提供的字串不得進入伺服器端的持久紀錄」**，由兩個 contract test 強制：relay 側的
-`package-contract.test.ts`（只有 `logger.ts` 能寫輸出）與後端側的
+移除後的不變式仍然成立且仍需守住：**「client 提供的字串不得進入伺服器端的持久紀錄」**——
+`roomId` 在驗簽前仍是 client 提供的字串。由 contract test 強制：relay 側的
+`package-contract.test.ts`（只有 `logger.ts` 能寫輸出）、adversarial 測試（把 room key 原文當
+`roomId` 送出並讓驗簽失敗，斷言 log 與 `/metrics` 全文不含該金鑰），以及後端側的
 `apps/web/tests/collaboration-server-logging-contract.test.ts`（共編路徑不得有任何輸出）。
-完整依據見 threat model T13。
-
-**根治方向（2026-08-06 對照 upstream 後修正）**：正解不是改由伺服器產生，而是**移除
-`clientId`**——upstream 沒有 client 身分這個概念，collaborator 以伺服器產生的 `socket.id`
-為鍵，而我們早就有對應的 `peerId`。這件事由
-[Plan 33](../../plans/33-peer-scoped-collaboration-identity.md) 擁有，曾被 Plan 31 阻擋
-（移除 envelope 欄位＝純 transport 升版，在 durable 格式解耦前會讓既有密文不可讀）；Plan 31
-已於 2026-08-06 完成，阻擋解除。在 Plan 33 執行前，上述兩個 contract test 仍是有效的緩解。
-
-兩個 adversarial 測試守住這一條：一個把 room key 原文當 `roomId` 與 `clientId` 送出並讓驗簽失敗，
-另一個用**合法** token 帶著 key 當 `clientId` 成功加入，然後斷言 log 與 `/metrics` 全文都不含
-該金鑰。
 
 ### 4.4 `sub` 的處理（結案 threat model §6 待決事項 2）
 
@@ -223,12 +210,10 @@ log 收集端的 pipe，`process.stdout.write` 在 OS 緩衝滿了之後會回�
 
 ## 5. Alerts
 
-門檻全部取自 SLO 文件，`recording` 欄的 PromQL 是判定式。`runbook` 指向
-[Plan 29](../../plans/29-collaboration-load-test-and-runbook.md) 必須建立的
-`docs/operations/collaboration-runbook.md` 之節號——**這些節名是本文件對 Plan 29 的要求**，
-Plan 29 完成前它們是尚未存在的目標。
+門檻全部取自 SLO 文件，`recording` 欄的 PromQL 是判定式。最後一欄的 R1–R7 是回應類別，
+用來把相關訊號分組；目前沒有對應的完整 incident runbook 或演練紀錄。
 
-| Alert                           | 判定式                                                                                                                                                                   | 門檻（來源）                          | Runbook |
+| Alert                           | 判定式                                                                                                                                                                   | 門檻（來源）                          | Response |
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- | ------- |
 | `RelayConnectionsNearCapacity`  | `relay_connections / relay_connections_limit > 0.75` 持續 5m                                                                                                             | 目標 192／硬上限 256（§2）            | R1      |
 | `RelayRoomsNearCapacity`        | `relay_rooms / relay_rooms_limit > 0.75` 持續 5m                                                                                                                         | 目標 96／硬上限 128（§2）             | R1      |
@@ -242,8 +227,8 @@ Plan 29 完成前它們是尚未存在的目標。
 
 **門檻與評估視窗是兩件事。** 上表「門檻」欄的每一個數字都來自 SLO 的指定節號，本文件不新增
 任何門檻。相對地，`持續 5m`／`持續 10m` 這類**評估視窗**是實作參數，只有 SLO §4.2 的 `持續 30s`
-是 SLO 自己指定的；其餘視窗由 Plan 29 的 runbook 在演練後調整，而調整它們不改變「多少才算違反」，
-因此不需要 SLO 修訂版。
+是 SLO 自己指定的；其餘視窗是目前採用的 operational 參數。調整它們不改變「多少才算違反」，
+因此不需要 SLO 修訂版，但應以實際事件資料校正。
 
 `RelayLogFieldsRejected` 不是 SLO 門檻而是**正確性斷言**：允許清單拒絕掉任何欄位，就代表有呼叫
 端傳了型別相容但夾帶禁止欄位的物件（本文件 §4.2 第 3 點），穩態必為 0。
@@ -264,15 +249,15 @@ Plan 29 完成前它們是尚未存在的目標。
 | 容量拒絕速率                   | `relay_connections_closed_total{reason=~"relayAtCapacity\|roomAtCapacity\|relayRoomsAtCapacity"}` | SLO §2 只核准佔用目標與硬上限，**沒有要求零拒絕**；`roomAtCapacity` 更是單一 room 觸及成員上限的正常執行結果。75% 的 near-capacity alert 本來就會更早觸發，所以這裡不需要一個發明的門檻 |
 | Presence 丟棄比率              | `relay_presence_frames_dropped_total` 對 `relay_frames_delivered_total{channel="presence"}`       | §4.1 只核准了 `presenceDropBufferedBytes` 這個**緩衝大小**決定，沒有核准丟棄率門檻                                                                                                      |
 | `idleTimeout`、`normalClosure` | `relay_connections_closed_total{reason=…}`                                                        | 兩者都是預期行為                                                                                                                                                                        |
-| 被丟棄的 log 記錄              | `relay_log_records_dropped_total`                                                                 | 非零代表 log 收集端停住，屬部署面問題；門檻由 Plan 29 的 runbook 決定                                                                                                                   |
+| 被丟棄的 log 記錄              | `relay_log_records_dropped_total`                                                                 | 非零代表 log 收集端停住，屬部署面問題；目前沒有核准的 alert 門檻                                                                                                                       |
 | 超限 block 發生率              | 不在 relay（見 §6）                                                                               | SLO §6 明示「僅記錄，不設門檻」——那是使用者的畫布大小，不是服務品質                                                                                                                     |
 
 ### 5.2 Liveness alerts（非 SLO 門檻）
 
 這兩個不是從 SLO 門檻推導的，而是「這個 process 還在不在」的存活偵測。SLO §0 已把共編定為單點
-故障並要求寫進 runbook，所以它們指回 §0 與真實訊號；其**視窗是 operational 參數**，同上文。
+故障，所以它們指回 §0 與真實訊號；其**視窗是 operational 參數**，同上文。
 
-| Alert           | 判定式                                                        | 依據           | Runbook |
+| Alert           | 判定式                                                        | 依據           | Response |
 | --------------- | ------------------------------------------------------------- | -------------- | ------- |
 | `RelayDraining` | `relay_draining == 1` 持續超過一次 rolling restart 的預期時長 | §0（單點故障） | R7      |
 | `RelayDown`     | `/metrics` scrape 連續失敗                                    | §0（單點故障） | R7      |
@@ -283,7 +268,7 @@ Plan 29 完成前它們是尚未存在的目標。
 alert——每個 alert 都必須指回一個真實存在的 series。這裡登記的是「還缺什麼」，以及缺口關閉後
 alert 應該叫什麼名字。載體契約見 §6，實作屬後續 plan。
 
-| 未來的 alert 名稱            | 已核准門檻（來源）                     | 為什麼 relay 測不到                                                                | 缺的 metric                                                        | Runbook |
+| 未來的 alert 名稱            | 已核准門檻（來源）                     | 為什麼 relay 測不到                                                                | 缺的 metric                                                        | Response |
 | ---------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------- |
 | `CollabSessionSuccessRate`   | ≥ 99%（§6）                            | 「成功」的定義是 baseline resolved，那是 client 端事件；relay 只看得到 socket 開了 | `collab_sessions_started_total`、`collab_baselines_resolved_total` | R7      |
 | `CollabDecryptFailure`       | 穩態應為 0，任何持續非零即 alert（§6） | 解密發生在瀏覽器；relay 讀不懂 payload，也不該讀得懂                               | `collab_decrypt_failures_total{surface}`                           | R5      |
@@ -291,8 +276,8 @@ alert 應該叫什麼名字。載體契約見 §6，實作屬後續 plan。
 
 ## 6. Client／後端側 decrypt failure 與 snapshot conflict 的上報契約
 
-Plan 24 的範圍是**定義**這兩項的上報位置與載體（in scope：「明確定義它們的上報位置與載體」；
-out of scope：接上任何特定監控廠商）。以下是契約，實作屬後續 plan。
+以下定義 client／後端 telemetry 的上報位置與載體。這是尚未實作的介面契約，不代表目前
+已有 metric 或接上任何監控廠商。
 
 ### 6.1 為什麼不能走 relay
 
@@ -310,9 +295,8 @@ untrusted input，而且會讓「relay 不是 scene 的讀者」這條不變式�
 | asset 解不開          | `apps/web/src/lib/collab/asset-store.ts` → `abandon`                                    | 放棄該 asset                              |
 | snapshot conflict     | `apps/web/src/lib/collab/snapshot-store.ts` → `{ status: "conflict", currentRevision }` | `collaboration-session.ts` 合併後重試一次 |
 
-這三條解密路徑「單獨看都刻意靜默、但沒有任何地方聚合成『是金鑰錯了』」正是
-[Plan 30](../../plans/30-silent-key-mismatch-detection.md) 的問題；本契約提供的是它需要的
-計數載體，兩者不重複。
+Realtime 與 asset 已在 client 端聚合成功／失敗訊號，用來產生使用者可見的錯誤金鑰判定；
+本節另外定義 privacy-safe 的營運計數載體，兩者不得各自建立第二套計數語意。
 
 ### 6.3 載體
 
@@ -320,15 +304,16 @@ untrusted input，而且會讓「relay 不是 scene 的讀者」這條不變式�
   `protectedProcedure` + `resolveRoomAccess`，與其他共編 procedure 同一條授權路徑。
 - **批次**：client 在記憶體中累計，以固定 cadence（建議沿用 `SNAPSHOT_INTERVAL_MS` = 30s）
   或 session 結束時送一次。**不得每次失敗送一次**——那會讓解密失敗變成後端的放大器。
-- **允許欄位**：`roomId`、`authGeneration`、`clientId`，以及分類計數
+- **允許欄位**：`roomId`、`authGeneration`、`peerId`（唯一的共編身分；
+  `clientId` 已移除），以及分類計數
   `{ realtimeDecryptFailures, snapshotDecryptFailures, assetDecryptFailures,
 snapshotConflicts, snapshotWrites, sessionsStarted, baselinesResolved }`。
   **只有計數，沒有任何 payload、checksum、密文片段、訊息 id 或 element id。**
   兩個分母都是必要的，否則對應的 SLO 算不出來：`snapshotWrites` 供 §6 的「≤ 5% of writes」，
   `sessionsStarted`／`baselinesResolved` 供 §6 的 session 成功率——後者的「成功」定義是
   baseline resolved，而只有 client 知道 baseline 有沒有 resolve。
-- **速率**：屬 [Plan 27](../../plans/27-collaboration-backend-rate-limits.md) 的後端速率限制
-  範圍；在共享儲存決定之前，client 端的 cadence 是唯一的上界，這點必須寫進實作時的 plan。
+- **速率**：屬 [backend rate limits](../../plans/backend-rate-limits.md) 的後端速率限制
+  範圍；Redis 開通前，client 端 cadence 仍是唯一上界，不能被描述為服務端防護。
 - **後端出口**：後端把它彙總成與 §3 同名慣例的 metric
   （`collab_decrypt_failures_total{surface}`、`collab_snapshot_conflicts_total`、
   `collab_snapshot_writes_total`、`collab_sessions_started_total`、
@@ -349,12 +334,11 @@ snapshotConflicts, snapshotWrites, sessionsStarted, baselinesResolved }`。
 
 ## 8. 已知缺口
 
-- §5.3 登記的三個 SLO 門檻在 §6 的上報契約被實作之前無法判定。實作的 owner 是
-  [Plan 32](../../plans/32-collaboration-client-telemetry.md)，它被兩件事阻擋：共享儲存的
-  決定（與 Plan 27 同一項）與 Plan 30 的 realtime 計數。**Plan 29 依賴它**——少了它，SLO §6
-  有三列沒有 metric 可對照。
-- Runbook 的 R1–R7 節由 Plan 29 建立；在那之前 alert 的 runbook 欄是目標而非連結。
-- Max-memory 自動重啟（SLO §4.1，1 GiB）依賴 Plan 25 的 graceful drain，不在本 plan。
+- §5.3 登記的三個 SLO 門檻沒有 telemetry carrier，因此目前無法判定；這是明示接受的
+  monitoring limitation。
+- R1–R7 目前只是 response 分組，沒有完整 incident runbook、staging drill 或正式演練。
+- Max-memory 自動重啟（SLO §4.1，1 GiB）與 graceful drain 已實作；操作程序見
+  [relay 部署文件](../operations/collaboration-relay-deployment.md)。
 - `relay-metrics-sample.txt` 仍由人手重新產生，但**漂移已被測試擋住**：
   `tests/metrics.test.ts` 斷言該檔的 family 名稱與型別集合與現行 exposition 完全一致，所以
   新增、移除或改型任何一個 family 而忘了更新範例，測試就會失敗。範例中的**數值**（RSS、

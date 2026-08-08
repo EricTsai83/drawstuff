@@ -4,7 +4,7 @@
 - Date: 2026-08-01
 - 出處：Plan 05（2026-08-01）
 - Reference engine: lockfile-resolved `@excalidraw/excalidraw@0.18.1`
-- 前置決策：`docs/architecture/03-public-api-gap-audit.md`
+- 前置決策：`docs/architecture/excalidraw-public-api-gap-audit.md`
 - 前置決策：**不修改 upstream**（不 patch、不 fork）。public API 沒有的能力必須
   先與 owner 討論，不得自行開 seam。
 
@@ -25,7 +25,7 @@ dialogs），產品功能**只透過 upstream 的 public props 與 render slots*
 | app 對 upstream DOM 做全域查詢 | `no-restricted-syntax`（禁止 `document.querySelector*` 等） | `apps/web/eslint.config.ts` |
 
 升級 `@excalidraw/excalidraw` 時 **typecheck 與 test 必須都跑**，兩者抓到的方向不同
-（理由見 `docs/architecture/03-public-api-gap-audit.md`
+（理由見 `docs/architecture/excalidraw-public-api-gap-audit.md`
 §「Confirmed gaps 與 reproduction test 對照」）。
 
 ## 我們依賴的 upstream public surface
@@ -74,7 +74,7 @@ UI。其餘一律沿用 upstream 預設。
 `getSceneElementsIncludingDeleted`、`scrollToContent`、`updateScene`（全部由
 editor 一側使用）。
 
-改寫 elements 時遵守 `docs/architecture/03-public-api-gap-audit.md`
+改寫 elements 時遵守 `docs/architecture/excalidraw-public-api-gap-audit.md`
 §「Capability matrix」#4（含 §「逐項說明」的 `#4 selected element actions`）的
 規則：一律用 `getSceneElementsIncludingDeleted()` 取來源、用 `newElementWith`
 產生新物件，不得就地 mutate。
@@ -98,7 +98,7 @@ runtime tripwire：`it("pins the upstream export utilities the host renders scen
 | `WelcomeScreen` | `Center`（`Logo`／`Heading`／`Menu`／`MenuItemLoadScene`／`MenuItemHelp`／`MenuItemLink`）、`Hints`（`MenuHint`／`ToolbarHint`／`HelpHint`） | `components/excalidraw/app-welcome-screen.tsx` |
 | `Stats` | `StatsRows`、`StatsRow` | `components/excalidraw/custom-stats.tsx` |
 
-`Footer` 在 mobile 不會掛載（`docs/architecture/03-public-api-gap-audit.md`
+`Footer` 在 mobile 不會掛載（`docs/architecture/excalidraw-public-api-gap-audit.md`
 §「Capability matrix」#7a），mobile 可用的 slot 只有 `MainMenu` 與
 `renderTopRightUI`。
 
@@ -167,12 +167,12 @@ social links menu，iframe embed 變成靜態畫面，原生手勢改由上述 h
    class name、`data-testid`、DOM 結構。`document.querySelector` 等全域查詢已由
    `no-restricted-syntax` 在 `apps/web/src/**` 全面禁止。
 4. **不得用 CSS override 隱藏或改寫 upstream UI**
-   （`docs/architecture/03-public-api-gap-audit.md` §「被否決的設計（不得進入
+   （`docs/architecture/excalidraw-public-api-gap-audit.md` §「被否決的設計（不得進入
    production）」已否決 `.App-toolbar { display: none }` 這類做法）。
 5. **不得用 timer polling 讀 `getAppState()`**，也不得對 editor container 派送
    合成 `KeyboardEvent` 來觸發 upstream action。
 6. **不得在 `onChange` 內掃描全 scene**
-   （`docs/architecture/03-public-api-gap-audit.md`
+   （`docs/architecture/excalidraw-public-api-gap-audit.md`
    §「Notification／render cost 評估」）。
 
 ## Accepted limitations

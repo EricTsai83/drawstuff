@@ -11,7 +11,7 @@
   editor UI 而不再需要，G3 為 accepted limitation。本文件其餘內容為 stock
   0.18.1 的稽核事實，維持有效，capability matrix 與 tripwire tests 持續守護
   「只依賴 public API」的邊界。整合面的規則見
-  `docs/architecture/05-native-ui-integration-contract.md`。
+  `docs/architecture/native-ui-integration-contract.md`。
 
 ## Context
 

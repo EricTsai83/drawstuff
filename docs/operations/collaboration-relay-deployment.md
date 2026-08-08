@@ -1,10 +1,10 @@
 # 共編 relay 部署封套與 rolling restart
 
-- Plan: [25](../../plans/25-relay-drain-and-deployment-envelope.md)
+- Status: Current
 - 建立日期：2026-08-06
 - 相關文件：[SLO 與 capacity](../performance/collaboration-slo-capacity.md)（容量數字的唯一來源）、
   [alerts 與 dashboards contract](../observability/collaboration-alerts-and-dashboards.md)
-- Runbook 的撰寫與 drill 屬 Plan 29；本文件只記錄部署形狀、上限與重啟程序本身。
+- 本文件是目前可用的部署與重啟程序。現階段沒有另外一份完整 incident runbook。
 
 ## 1. 單 instance 部署封套
 
@@ -46,7 +46,7 @@ availability 上限。** 數字唯一來源是 SLO 文件，此處僅彙整。
 
 超出容量一律是**明確的 close code 拒絕，不是默默錯誤**；三個容量 code 對 client 都是可
 重試（transient）的，由 recovery 的 retry budget 決定何時放棄。共編是單點故障：relay
-不可用時，一般單人 editor 完全不受影響（Plan 19 已驗證），受影響的只有進行中的共編
+不可用時，一般單人 editor 完全不受影響，受影響的只有進行中的共編
 session。
 
 ## 3. Graceful drain 與 rolling restart
@@ -111,7 +111,11 @@ SLO §4.1 的最後防線（upstream `max_memory_restart` 的對應物）：
 
 ## 5. 已知限制
 
-- 無 staging 環境（SLO §8，2026-08-06 確認）：重啟程序只能在 local 驗證與 runbook drill
-  中演練（Plan 29），不會有 staging 實跑紀錄。
+- 沒有 staging 環境、internal／beta／GA cohort、server-controlled staged rollout，或
+  共編專用 kill switch。需要停止共編時，使用既有部署或環境設定停用 relay。
+- 沒有完整 incident runbook，也沒有 staging rollback／incident drill；本文件的 restart
+  程序與 alerts contract 是目前的操作依據。
+- 服務容量沒有經正式 load test 驗證；SLO 數字是設計 budget，不是 production capacity
+  已達成的聲明。
 - Drain 只保護 relay 自己的重啟。宿主機重開、kernel OOM kill 等仍是硬殺；client 對 1006
-  的處理同樣是 transient 重試，收斂由 reconnect 的 snapshot handshake 修復（Plan 18）。
+  的處理同樣是 transient 重試，收斂由 reconnect 的 snapshot handshake 修復。
