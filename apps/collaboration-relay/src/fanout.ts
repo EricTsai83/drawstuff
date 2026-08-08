@@ -1,5 +1,4 @@
 import type {
-  ClientId,
   MessageChannel,
   PeerId,
 } from "@drawstuff/collaboration/protocol";
@@ -50,7 +49,7 @@ type FanoutJoinResult = {
 /**
  * Room routing boundary of the relay. The relay core only talks to this
  * interface, so the production multi-instance fanout (selected and validated
- * in Plan 19) can replace the process-local implementation without touching
+ * approved for a future multi-instance architecture can replace this implementation without touching
  * connection handling. The in-memory implementation below is correct for a
  * single process only — it must not be mistaken for a horizontally scalable
  * architecture.
@@ -66,7 +65,6 @@ type FanoutJoinResult = {
 export interface RoomFanout {
   join(member: {
     channel: RoomChannelKey;
-    clientId: ClientId;
     peerId: PeerId;
     /** Verified from the join token; broadcast so peers can elect by role. */
     role: RoomRole;
@@ -99,7 +97,6 @@ export interface RoomFanout {
 
 type RoomMember = {
   readonly peerId: PeerId;
-  readonly clientId: ClientId;
   readonly role: RoomRole;
   readonly subscriber: FanoutSubscriber;
 };
@@ -135,9 +132,8 @@ export function createInMemoryRoomFanout(options?: {
   };
 
   const peersOf = (room: RoomState): RelayPeer[] =>
-    [...room.members.values()].map(({ peerId, clientId, role }) => ({
+    [...room.members.values()].map(({ peerId, role }) => ({
       peerId,
-      clientId,
       role,
     }));
 
@@ -156,7 +152,7 @@ export function createInMemoryRoomFanout(options?: {
   };
 
   return {
-    join({ channel, clientId, peerId, role, subscriber }) {
+    join({ channel, peerId, role, subscriber }) {
       let room = rooms.get(channel);
       if (!room) {
         room = {
@@ -169,7 +165,7 @@ export function createInMemoryRoomFanout(options?: {
       if (room.members.has(peerId)) {
         throw new Error(`Peer ${peerId} is already a member of ${channel}`);
       }
-      room.members.set(peerId, { peerId, clientId, role, subscriber });
+      room.members.set(peerId, { peerId, role, subscriber });
       room.membershipVersion += 1;
       // Existing members learn about the joiner here; the joiner receives the
       // same snapshot in the join result (its `joined` acknowledgment), so it

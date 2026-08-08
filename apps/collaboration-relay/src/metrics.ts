@@ -2,7 +2,7 @@ import type { MessageChannel } from "@drawstuff/collaboration/protocol";
 import { RELAY_CLOSE_CODES } from "@drawstuff/collaboration/relay-protocol";
 
 /**
- * Relay metrics in Prometheus text format (Plan 24).
+ * Relay metrics in Prometheus text format.
  *
  * Hand-written rather than `prom-client`. The relay exposes about twenty series
  * and needs exactly three line shapes from the exposition format; a new
@@ -17,7 +17,7 @@ import { RELAY_CLOSE_CODES } from "@drawstuff/collaboration/relay-protocol";
  * exposition, so cardinality is bounded by construction.
  *
  * Room ids are absent even though
- * `docs/architecture/19-collaboration-threat-model.md` §5 would permit them:
+ * `docs/architecture/collaboration-threat-model.md` §5 would permit them:
  * a per-room series would publish the room list to anything that can read the
  * endpoint *and* grow without bound as rooms churn. Room shape is exposed as a
  * size distribution instead, which answers the capacity question without naming

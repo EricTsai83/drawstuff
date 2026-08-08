@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
-  clientIdSchema,
   decodeCollaborationMessage,
   roomIdSchema,
   type MessageChannel,
@@ -40,8 +39,8 @@ import {
  */
 
 const ROOM_ID = roomIdSchema.parse("room-e2ee");
-const CLIENT_A = clientIdSchema.parse("client-a");
-const CLIENT_B = clientIdSchema.parse("client-b");
+const CLIENT_A = "client-a";
+const CLIENT_B = "client-b";
 
 const SECRET_LABEL = "top-secret-drawing-label";
 
@@ -126,14 +125,14 @@ async function startServer(fanout: RoomFanout): Promise<RelayServer> {
 
 async function member(
   url: string,
-  clientId: typeof CLIENT_A,
+  clientName: string,
   nonceSeed: number,
   overrides: { roomKey?: RoomKey } = {},
 ): Promise<TestClient> {
   const client = await createTestClient({
     url,
     roomId: ROOM_ID,
-    clientId,
+    clientName,
     nonceSeed,
     ...overrides,
   });

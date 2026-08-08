@@ -200,7 +200,10 @@ describe("collaboration protocol codec", () => {
   });
 
   it("rejects unknown protocol versions before shape validation", () => {
-    const future = { ...sceneMessage({ sequence: 1 }), protocolVersion: 2 };
+    const future = {
+      ...sceneMessage({ sequence: 1 }),
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION + 1,
+    };
 
     const decoded = decodeCollaborationMessage(
       new TextEncoder().encode(JSON.stringify(future)),
@@ -209,7 +212,10 @@ describe("collaboration protocol codec", () => {
 
     expect(decoded).toEqual({
       ok: false,
-      error: { code: "unknown-protocol-version", receivedVersion: 2 },
+      error: {
+        code: "unknown-protocol-version",
+        receivedVersion: COLLABORATION_PROTOCOL_VERSION + 1,
+      },
     });
     expect(
       decodeCollaborationMessage(new TextEncoder().encode("{}"), "scene"),
@@ -282,7 +288,7 @@ describe("collaboration protocol codec", () => {
     expect(roomIdSchema.safeParse("A-valid_room-42").success).toBe(true);
   });
 
-  it("pins protocol version 1 as the only active writer", () => {
-    expect(COLLABORATION_PROTOCOL_VERSION).toBe(1);
+  it("pins protocol version 2 as the only active writer", () => {
+    expect(COLLABORATION_PROTOCOL_VERSION).toBe(2);
   });
 });

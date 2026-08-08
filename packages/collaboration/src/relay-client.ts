@@ -4,7 +4,6 @@ import {
 } from "./codec.ts";
 import {
   COLLABORATION_PROTOCOL_VERSION,
-  type ClientId,
   type CollaborationMessage,
   type PeerId,
   type RoomId,
@@ -184,7 +183,6 @@ export function createRelayWebSocketTransport(
   type ActiveConnection = {
     socket: RelaySocketLike;
     roomId: RoomId;
-    clientId: ClientId;
     session?: { peerId: PeerId; roomGeneration: number; role: RoomRole };
     /** Sealing, not yet handed to the socket — `bufferedAmount` cannot see it. */
     readonly outbound: ChannelQueues;
@@ -297,7 +295,6 @@ export function createRelayWebSocketTransport(
     return {
       status: "connected",
       roomId: active.roomId,
-      clientId: active.clientId,
       peerId: active.session.peerId,
       roomGeneration: active.session.roomGeneration,
       role: active.session.role,
@@ -480,7 +477,6 @@ export function createRelayWebSocketTransport(
     }
     if (
       message.roomId !== connection.roomId ||
-      message.senderClientId !== connection.clientId ||
       message.senderPeerId !== connection.session.peerId ||
       message.roomGeneration !== connection.session.roomGeneration
     ) {
@@ -534,7 +530,7 @@ export function createRelayWebSocketTransport(
 
   return {
     getConnectionState: connectionState,
-    connect({ roomId, clientId, joinToken }) {
+    connect({ roomId, joinToken }) {
       if (closed) throw new Error("Transport is closed");
       if (active) throw new Error("Transport is already connected");
       if (joinToken.length === 0) {
@@ -547,7 +543,6 @@ export function createRelayWebSocketTransport(
       const connection: ActiveConnection = {
         socket,
         roomId,
-        clientId,
         outbound: newQueues(),
         inbound: newQueues(),
       };
@@ -560,7 +555,6 @@ export function createRelayWebSocketTransport(
             control: "join",
             protocolVersion: COLLABORATION_PROTOCOL_VERSION,
             roomId,
-            clientId,
             token: joinToken,
           }),
         );

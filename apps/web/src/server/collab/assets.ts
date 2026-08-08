@@ -200,7 +200,7 @@ export type AssetUploadOutcome =
  * and a membership revocation, a role downgrade, or a generation rotation can
  * commit while it is in flight. Re-checking here — inside the lock, in the same
  * transaction as the insert, the ordering every room lifecycle mutation uses
- * (Plan 13) — is what makes "was allowed when it started" mean "is allowed now".
+ * — is what makes "was allowed when it started" mean "is allowed now".
  *
  * The generation check is the sharpest of the three: the ciphertext is sealed
  * against a specific generation, so filing it under any other one would produce a

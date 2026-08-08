@@ -34,10 +34,7 @@ import {
   sealRoomKeyCheck,
   verifyRoomKeyCheck,
 } from "@drawstuff/collaboration/keycheck";
-import {
-  clientIdSchema,
-  roomIdSchema,
-} from "@drawstuff/collaboration/protocol";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import { verifyJoinToken } from "@drawstuff/collaboration/room-token";
 
@@ -56,9 +53,6 @@ const testDb = drizzle(client, { schema });
 const OWNER = "user-owner";
 const GUEST = "user-guest";
 const STRANGER = "user-stranger";
-
-const CLIENT_OWNER = clientIdSchema.parse("client-owner");
-const CLIENT_GUEST = clientIdSchema.parse("client-guest");
 
 function callerFor(userId: string | null) {
   const ctx = {
@@ -84,7 +78,6 @@ const verify = (
   token: string,
   options: {
     roomId: string;
-    clientId: typeof CLIENT_OWNER;
     nowSeconds?: number;
   },
 ) =>
@@ -93,13 +86,9 @@ const verify = (
     secret: TOKEN_SECRET,
     nowSeconds: options.nowSeconds ?? Math.floor(Date.now() / 1000),
     expectedRoomId: roomIdSchema.parse(options.roomId),
-    expectedClientId: options.clientId,
   });
 
-const claimsOf = (
-  token: string,
-  options: { roomId: string; clientId: typeof CLIENT_OWNER },
-) => {
+const claimsOf = (token: string, options: { roomId: string }) => {
   const result = verify(token, options);
   if (!result.ok) throw new Error(`token rejected: ${result.reason}`);
   return result.claims;
@@ -200,21 +189,19 @@ describe("collaboration room creation", () => {
     await expect(
       callerFor(null).collaborationRoom.join({
         roomId: "any-room",
-        clientId: CLIENT_GUEST,
       }),
     ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
   });
 });
 
 describe("collaboration room join tokens", () => {
-  it("issues an owner token bound to the room, generation, user and client", async () => {
+  it("issues an owner token bound to the room, generation and user", async () => {
     const sceneId = await createScene(OWNER);
     const caller = callerFor(OWNER);
     const room = await caller.collaborationRoom.create({ sceneId });
     await armKeyCheck(room);
     const joined = await caller.collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_OWNER,
     });
 
     expect(joined.role).toBe("owner");
@@ -222,13 +209,11 @@ describe("collaboration room join tokens", () => {
     expect(joined.tokenExpiresAt).toBeGreaterThan(Date.now());
     const claims = claimsOf(joined.token, {
       roomId: room.roomId,
-      clientId: CLIENT_OWNER,
     });
     expect(claims).toMatchObject({
       rid: room.roomId,
       gen: 1,
       sub: OWNER,
-      cid: CLIENT_OWNER,
       role: "owner",
     });
     // A token is authorization only: no key material, ever.
@@ -242,7 +227,6 @@ describe("collaboration room join tokens", () => {
     await expect(
       callerFor(GUEST).collaborationRoom.join({
         roomId: room.roomId,
-        clientId: CLIENT_GUEST,
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
   });
@@ -256,12 +240,11 @@ describe("collaboration room join tokens", () => {
     await armKeyCheck(room);
     const joined = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
 
     expect(joined.role).toBe("viewer");
     expect(
-      claimsOf(joined.token, { roomId: room.roomId, clientId: CLIENT_GUEST })
+      claimsOf(joined.token, { roomId: room.roomId })
         .role,
     ).toBe("viewer");
     const room2 = await callerFor(OWNER).collaborationRoom.get({
@@ -278,7 +261,6 @@ describe("collaboration room join tokens", () => {
     await expect(
       caller.collaborationRoom.join({
         roomId: "missing-room",
-        clientId: CLIENT_OWNER,
       }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
 
@@ -290,7 +272,6 @@ describe("collaboration room join tokens", () => {
     await expect(
       caller.collaborationRoom.join({
         roomId: room.roomId,
-        clientId: CLIENT_OWNER,
       }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
   });
@@ -308,7 +289,6 @@ describe("collaboration room membership changes", () => {
     await armKeyCheck(room);
     await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     relayControlCalls.length = 0;
     return room;
@@ -335,7 +315,6 @@ describe("collaboration room membership changes", () => {
     ]);
     const rejoined = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     expect(rejoined.role).toBe("editor");
   });
@@ -344,7 +323,6 @@ describe("collaboration room membership changes", () => {
     const room = await setupRoom();
     const beforeRemoval = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     relayControlCalls.length = 0;
 
@@ -362,7 +340,6 @@ describe("collaboration room membership changes", () => {
     await expect(
       callerFor(GUEST).collaborationRoom.join({
         roomId: room.roomId,
-        clientId: CLIENT_GUEST,
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
 
@@ -372,7 +349,6 @@ describe("collaboration room membership changes", () => {
     expect(
       verify(beforeRemoval.token, {
         roomId: room.roomId,
-        clientId: CLIENT_GUEST,
       }).ok,
     ).toBe(true);
     const members = await callerFor(OWNER).collaborationRoom.get({
@@ -396,7 +372,6 @@ describe("collaboration room membership changes", () => {
     });
     const rejoined = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     expect(rejoined.role).toBe("viewer");
   });
@@ -464,7 +439,6 @@ describe("collaboration room membership changes", () => {
     await expect(
       stranger.collaborationRoom.join({
         roomId: room.roomId,
-        clientId: CLIENT_GUEST,
       }),
     ).rejects.toMatchObject({ code: "FORBIDDEN" });
     expect(
@@ -502,7 +476,6 @@ describe("collaboration room lifecycle", () => {
     await armKeyCheck(room);
     await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     relayControlCalls.length = 0;
 
@@ -519,7 +492,6 @@ describe("collaboration room lifecycle", () => {
     await expect(
       callerFor(GUEST).collaborationRoom.join({
         roomId: room.roomId,
-        clientId: CLIENT_GUEST,
       }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
     expect(
@@ -540,7 +512,6 @@ describe("collaboration room lifecycle", () => {
     await armKeyCheck(room);
     const beforeRotation = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     relayControlCalls.length = 0;
 
@@ -558,7 +529,6 @@ describe("collaboration room lifecycle", () => {
     // the cryptographic-revocation hook, distinct from removing a member.
     const oldClaims = claimsOf(beforeRotation.token, {
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     expect(oldClaims.gen).toBe(1);
     // Rotation cleared the check value; the owner recomputes it for the new
@@ -566,12 +536,10 @@ describe("collaboration room lifecycle", () => {
     await armKeyCheck({ roomId: room.roomId, authGeneration: 2 });
     const afterRotation = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     expect(
       claimsOf(afterRotation.token, {
         roomId: room.roomId,
-        clientId: CLIENT_GUEST,
       }).gen,
     ).toBe(2);
     expect(afterRotation.authGeneration).toBe(2);
@@ -587,11 +555,9 @@ describe("collaboration room lifecycle", () => {
     await armKeyCheck(room);
     const joined = await owner.collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_OWNER,
     });
     const claims = claimsOf(joined.token, {
       roomId: room.roomId,
-      clientId: CLIENT_OWNER,
     });
     // Without this the relay could only refuse the next join, leaving an
     // already-connected socket alive past the room's lifetime.
@@ -624,7 +590,6 @@ describe("collaboration room lifecycle", () => {
     await armKeyCheck(room);
     const joined = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     relayControlCalls.length = 0;
 
@@ -634,7 +599,6 @@ describe("collaboration room lifecycle", () => {
     });
     const tokenRevision = claimsOf(joined.token, {
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     }).arev;
     const cutoff = relayControlCalls[0] as { authRevision: number };
     // Ordering by revision rather than by wall clock is what makes the cutoff
@@ -652,12 +616,10 @@ describe("collaboration room lifecycle", () => {
     const regrantCutoff = relayControlCalls[1] as { authRevision: number };
     const rejoined = await callerFor(GUEST).collaborationRoom.join({
       roomId: room.roomId,
-      clientId: CLIENT_GUEST,
     });
     expect(
       claimsOf(rejoined.token, {
         roomId: room.roomId,
-        clientId: CLIENT_GUEST,
       }).arev,
     ).toBeGreaterThanOrEqual(regrantCutoff.authRevision);
   });
@@ -788,7 +750,6 @@ describe("collaboration room key check (Plan 34)", () => {
     await expect(
       owner.collaborationRoom.join({
         roomId: room.roomId,
-        clientId: CLIENT_OWNER,
       }),
     ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
 
@@ -796,7 +757,6 @@ describe("collaboration room key check (Plan 34)", () => {
     await expect(
       owner.collaborationRoom.join({
         roomId: room.roomId,
-        clientId: CLIENT_OWNER,
       }),
     ).resolves.toMatchObject({ roomId: room.roomId, role: "owner" });
   });

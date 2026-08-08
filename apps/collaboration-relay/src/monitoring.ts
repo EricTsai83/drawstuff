@@ -3,7 +3,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { RELAY_METRICS_CONTENT_TYPE, type RelayMetrics } from "./metrics.ts";
 
 /**
- * Monitoring endpoints (Plan 24), served on the relay's own HTTP listener
+ * Monitoring endpoints served on the relay's own HTTP listener
  * alongside the control endpoint.
  *
  * Both are unauthenticated on purpose: a metrics scrape and a health probe come
@@ -13,7 +13,7 @@ import { RELAY_METRICS_CONTENT_TYPE, type RelayMetrics } from "./metrics.ts";
  * contain — see `./metrics.ts` for why no room id, subject or payload can reach
  * the exposition, and note that `/healthz` answers with a status word and nothing
  * else. Keeping the port off the public internet is the deployment envelope's job
- * (Plan 25), not an authorization decision here.
+ * in the deployment envelope, not an authorization decision here.
  *
  * The two endpoints answer different questions and must not be merged.
  * `/metrics` describes capacity; `/healthz` states only whether this process
@@ -46,7 +46,7 @@ export function createRelayMonitoringRequestHandler(options: {
   metrics: RelayMetrics;
   /**
    * True once the process has begun draining. Draining must read as unhealthy:
-   * that is the signal a rolling restart hands over on (Plan 25).
+   * that is the signal a restart hands over on.
    */
   isDraining: () => boolean;
 }): (request: IncomingMessage, response: ServerResponse) => boolean {

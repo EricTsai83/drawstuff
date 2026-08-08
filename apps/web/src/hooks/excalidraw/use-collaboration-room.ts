@@ -1,15 +1,11 @@
 "use client";
 
 import { TRPCClientError } from "@trpc/client";
-import { nanoid } from "nanoid";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { verifyRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
-import {
-  clientIdSchema,
-  roomIdSchema,
-} from "@drawstuff/collaboration/protocol";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import {
@@ -72,7 +68,7 @@ import { api } from "@/trpc/react";
  * ## Joining a room whose scene you do not have
  *
  * A session publishes the local canvas once it is synced, so joining with an
- * unrelated scene loaded would push that scene's content into the room. Plan 13
+ * unrelated scene loaded would push that scene's content into the room. The initial
  * avoided the leak by refusing such a join outright; this hook removes that
  * restriction the way the leak actually has to be closed — by making the canvas
  * the room's *before* the socket opens:
@@ -201,7 +197,7 @@ const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
  */
 /**
  * A link whose key failed the room's check value, refused before the canvas
- * was touched (Plan 34).
+ * was touched.
  *
  * Deliberately not the `unreadable-room` message: that one describes a
  * *session* that stopped ("連線已停止") — here no connection was ever
@@ -420,12 +416,6 @@ export function useCollaborationRoom(options: {
   const canvasRef = useRef(options);
   canvasRef.current = options;
 
-  /** Stable identity of this editor instance; the join token is bound to it. */
-  const clientId = useMemo(
-    () => clientIdSchema.parse(`client-${nanoid(16)}`),
-    [],
-  );
-
   // Remote input must not mark the scene dirty: suppress tracking for the
   // synchronous onChange the write triggers and resume one frame later
   // (same pattern as use-apply-remote-scene.ts).
@@ -554,7 +544,7 @@ export function useCollaborationRoom(options: {
         // work), before the claim, and before any token is minted. A link that
         // fails it could only ever produce a session that is blind to the room
         // and — in an empty room — would poison it with a snapshot nobody else
-        // can open (Plan 34).
+        // can open.
         if (room.keyCheckBase64 === null) {
           setStatus("failed");
           setFailureReason("missing-key-check");
@@ -594,7 +584,6 @@ export function useCollaborationRoom(options: {
         const joined =
           await utilsRef.current.client.collaborationRoom.join.mutate({
             roomId: parsedRoomId.data,
-            clientId,
           });
         if (cancelled) return;
         // The key check was verified against the generation `get` reported, and
@@ -631,7 +620,6 @@ export function useCollaborationRoom(options: {
             const refreshed =
               await utilsRef.current.client.collaborationRoom.join.mutate({
                 roomId: parsedRoomId.data,
-                clientId,
               });
             return {
               ok: true,
@@ -647,12 +635,11 @@ export function useCollaborationRoom(options: {
           excalidrawApi: excalidrawAPI,
           relayUrl: joined.relayUrl,
           roomId: joined.roomId,
-          clientId,
           joinToken: joined.token,
           refreshJoinToken,
           roomKey,
           authGeneration: joined.authGeneration,
-          username: toCollaborationUsername(usernameRef.current, clientId),
+          username: toCollaborationUsername(usernameRef.current),
           // Adapted rather than passed through: the store's contract is two
           // plain async functions, which keeps it testable without tRPC.
           snapshotApi: {
@@ -789,7 +776,6 @@ export function useCollaborationRoom(options: {
     roomId,
     roomKey,
     isAuthenticated,
-    clientId,
     joinAttempt,
     wrapRemoteApply,
     suppressDirtyTracking,

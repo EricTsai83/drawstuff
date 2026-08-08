@@ -1,9 +1,8 @@
 import {
-  clientIdSchema,
+  COLLABORATION_PROTOCOL_VERSION,
   peerIdSchema,
   roomIdSchema,
   syncedElementSchema,
-  type ClientId,
   type PeerId,
   type PresenceMessage,
   type RoomId,
@@ -22,8 +21,6 @@ import type {
 } from "../src/transport.ts";
 
 export const ROOM_ID = roomIdSchema.parse("room-alpha");
-export const CLIENT_A = clientIdSchema.parse("client-a");
-export const CLIENT_B = clientIdSchema.parse("client-b");
 export const PEER_A = peerIdSchema.parse("peer-a");
 export const PEER_B = peerIdSchema.parse("peer-b");
 /** Opaque placeholder: only the relay verifies token signatures. */
@@ -63,7 +60,6 @@ export function element(
 type EnvelopeOverrides = {
   roomId?: RoomId;
   roomGeneration?: number;
-  senderClientId?: ClientId;
   senderPeerId?: PeerId;
 };
 
@@ -75,11 +71,10 @@ export function sceneMessage(
   },
 ): SceneMessage {
   return {
-    protocolVersion: 1,
+    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
     messageId: nextMessageId(),
     roomId: input.roomId ?? ROOM_ID,
     roomGeneration: input.roomGeneration ?? 1,
-    senderClientId: input.senderClientId ?? CLIENT_A,
     senderPeerId: input.senderPeerId ?? PEER_A,
     sequence: input.sequence,
     type: input.type ?? "scene-update",
@@ -94,11 +89,10 @@ export function presenceMessage(
   },
 ): PresenceMessage {
   return {
-    protocolVersion: 1,
+    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
     messageId: nextMessageId(),
     roomId: input.roomId ?? ROOM_ID,
     roomGeneration: input.roomGeneration ?? 1,
-    senderClientId: input.senderClientId ?? CLIENT_A,
     senderPeerId: input.senderPeerId ?? PEER_A,
     sequence: input.sequence,
     type: "presence",
@@ -128,7 +122,6 @@ export function connectedState(
 const sessionEnvelope = (state: ConnectedState): EnvelopeOverrides => ({
   roomId: state.roomId,
   roomGeneration: state.roomGeneration,
-  senderClientId: state.clientId,
   senderPeerId: state.peerId,
 });
 

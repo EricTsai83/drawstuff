@@ -3,7 +3,7 @@ import "server-only";
 import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
-import type { ClientId, RoomId } from "@drawstuff/collaboration/protocol";
+import type { RoomId } from "@drawstuff/collaboration/protocol";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
   DEFAULT_JOIN_TOKEN_TTL_SECONDS,
@@ -148,9 +148,10 @@ export type IssuedJoinToken = {
 
 /**
  * Mints one short-lived join token. The claims carry authorization only —
- * room, generation, user, client instance, role and expiry. No encryption key
- * material is ever placed in a token or logged alongside it: the relay is an
- * authorization boundary, not a key distribution channel.
+ * room, generation, user, role and expiry. No client-provided string is ever
+ * signed, and no encryption key material is ever placed in a token
+ * or logged alongside it: the relay is an authorization boundary, not a key
+ * distribution channel.
  */
 export function issueRoomJoinToken(params: {
   room: Pick<
@@ -159,7 +160,6 @@ export function issueRoomJoinToken(params: {
   >;
   role: RoomRole;
   userId: string;
-  clientId: ClientId;
   secret: string;
   now: Date;
   ttlSeconds?: number;
@@ -177,7 +177,6 @@ export function issueRoomJoinToken(params: {
       rid: roomId,
       gen: params.room.authGeneration,
       sub: params.userId,
-      cid: params.clientId,
       role: params.role,
       // Read under the room lock, so the relay can order this token against
       // every revocation cutoff without relying on either side's clock.

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  COLLABORATION_PROTOCOL_VERSION,
   decodeCollaborationMessage,
   encodeCollaborationMessage,
   type CollaborationMessage,
@@ -31,8 +32,6 @@ import type {
   RoomPeer,
 } from "../src/transport.ts";
 import {
-  CLIENT_A,
-  CLIENT_B,
   connectedState,
   JOIN_TOKEN,
   PEER_A,
@@ -97,12 +96,12 @@ const joinedNotice = (
   overrides: Partial<Extract<RelayServerControl, { control: "joined" }>> = {},
 ): RelayServerControl => ({
   control: "joined",
-  protocolVersion: 1,
+  protocolVersion: COLLABORATION_PROTOCOL_VERSION,
   roomId: ROOM_ID,
   peerId: PEER_A,
   roomGeneration: 3,
   role: "editor",
-  peers: [{ peerId: PEER_A, clientId: CLIENT_A, role: "editor" }],
+  peers: [{ peerId: PEER_A, role: "editor" }],
   ...overrides,
 });
 
@@ -168,7 +167,6 @@ async function setup(
   }): FakeSocket => {
     transport.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     const socket = sockets.at(-1);
@@ -198,9 +196,8 @@ describe("createRelayWebSocketTransport", () => {
     const join = parseRelayClientControl(socket.sentText[0] ?? "");
     expect(join).toEqual({
       control: "join",
-      protocolVersion: 1,
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       token: JOIN_TOKEN,
     });
 
@@ -213,9 +210,7 @@ describe("createRelayWebSocketTransport", () => {
     expect(state.roomGeneration).toBe(3);
     // The role travels with membership so both client-side elections (who
     // answers a newcomer, who writes the durable snapshot) can skip viewers.
-    expect(peerUpdates.at(-1)).toEqual([
-      { peerId: PEER_A, clientId: CLIENT_A, role: "editor" },
-    ]);
+    expect(peerUpdates.at(-1)).toEqual([{ peerId: PEER_A, role: "editor" }]);
   });
 
   it("sends sealed frames on the matching channel, never plaintext", async () => {
@@ -289,7 +284,6 @@ describe("createRelayWebSocketTransport", () => {
     const { transport, sockets } = await setup();
     transport.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     sockets[0]?.open();
@@ -376,7 +370,6 @@ describe("createRelayWebSocketTransport", () => {
     const remote = sceneMessage({
       sequence: 1,
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     });
     socket.receiveFrame(await remoteFrame(peer, remote, "scene"));
@@ -437,7 +430,6 @@ describe("createRelayWebSocketTransport", () => {
     const peer = await roomCodec();
     const envelope = {
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     };
     const frames = await Promise.all(
@@ -462,7 +454,6 @@ describe("createRelayWebSocketTransport", () => {
     const peer = await roomCodec();
     const envelope = {
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     };
     const first = sceneMessage({ sequence: 1, ...envelope });
@@ -508,7 +499,6 @@ describe("createRelayWebSocketTransport", () => {
     const real = sceneMessage({
       sequence: 1,
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     });
     socket.receiveFrame(await remoteFrame(peer, real, "scene"));
@@ -530,7 +520,6 @@ describe("createRelayWebSocketTransport", () => {
     const peer = await roomCodec();
     const envelope = {
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     };
     const frames = await Promise.all(
@@ -571,7 +560,6 @@ describe("createRelayWebSocketTransport", () => {
     const peer = await roomCodec();
     const envelope = {
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     };
     const sceneFrames = await Promise.all(
@@ -616,7 +604,6 @@ describe("createRelayWebSocketTransport", () => {
     const peer = await roomCodec();
     const envelope = {
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     };
     const backlog = await Promise.all(
@@ -642,7 +629,6 @@ describe("createRelayWebSocketTransport", () => {
     // frame is delivered rather than queued behind the abandoned backlog.
     transport.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     const second = sockets.at(-1);
@@ -652,7 +638,6 @@ describe("createRelayWebSocketTransport", () => {
     const fresh = sceneMessage({
       sequence: 1,
       roomGeneration: 4,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     });
     second.receiveFrame(await remoteFrame(peer, fresh, "scene"));
@@ -706,7 +691,6 @@ describe("createRelayWebSocketTransport", () => {
     const remote = sceneMessage({
       sequence: 1,
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     });
     const frame = await remoteFrame(peer, remote, "scene");
@@ -769,7 +753,6 @@ describe("createRelayWebSocketTransport", () => {
 
     transport.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     expect(transport.getConnectionState()).toEqual({
@@ -791,7 +774,6 @@ describe("createRelayWebSocketTransport", () => {
     const { transport, sockets } = await setup();
     transport.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     const socket = sockets[0];
@@ -822,7 +804,6 @@ describe("createRelayWebSocketTransport", () => {
 
     transport.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     const second = sockets.at(-1);
@@ -846,7 +827,6 @@ describe("createRelayWebSocketTransport", () => {
         sceneMessage({
           sequence: 1,
           roomGeneration: 3,
-          senderClientId: CLIENT_B,
           senderPeerId: PEER_B,
         }),
         "scene",
@@ -885,7 +865,6 @@ describe("createRelayWebSocketTransport", () => {
     expect(() =>
       transport.connect({
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         joinToken: JOIN_TOKEN,
       }),
     ).toThrow(/closed/i);
@@ -901,7 +880,6 @@ describe("createRelayWebSocketTransport", () => {
     expect(() =>
       transport.connect({
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         joinToken: JOIN_TOKEN,
       }),
     ).toThrow(/already connected/i);
@@ -924,7 +902,6 @@ describe("unreadable-room verdict on the realtime path", () => {
     sceneMessage({
       sequence,
       roomGeneration: 3,
-      senderClientId: CLIENT_B,
       senderPeerId: PEER_B,
     });
 
@@ -1152,7 +1129,6 @@ describe("unreadable-room verdict on the realtime path", () => {
           presenceMessage({
             sequence,
             roomGeneration: 3,
-            senderClientId: CLIENT_B,
             senderPeerId: PEER_B,
           }),
           "presence",

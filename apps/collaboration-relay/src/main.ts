@@ -65,7 +65,7 @@ for (const path of [
 ]) {
   logger.info("relay.endpoint", { path, url: `${server.controlUrl}${path}` });
 }
-// The deployment envelope's declaration (Plan 25): one instance is the whole
+// The deployment envelope's declaration: one instance is the whole
 // service, so these limits *are* the service's capacity and availability
 // ceiling (SLO §0) — stated at startup rather than left as an assumption.
 logger.info("relay.single_instance", {

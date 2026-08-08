@@ -1,9 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  clientIdSchema,
-  roomIdSchema,
-} from "@drawstuff/collaboration/protocol";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { createSeededRandom } from "@drawstuff/collaboration/testing";
 import type { DisconnectReason } from "@drawstuff/collaboration/transport";
 
@@ -43,8 +40,8 @@ import {
  */
 
 const ROOM_ID = roomIdSchema.parse("room-reconnect");
-const CLIENT_A = clientIdSchema.parse("client-a");
-const CLIENT_B = clientIdSchema.parse("client-b");
+const CLIENT_A = "client-a";
+const CLIENT_B = "client-b";
 const SUBJECT_A = "user-a";
 
 const cleanups: (() => void | Promise<void>)[] = [];
@@ -66,7 +63,7 @@ async function startServer(port = 0): Promise<RelayServer> {
 
 async function client(
   url: string,
-  clientId: typeof CLIENT_A,
+  clientName: string,
   nonceSeed: number,
   overrides: {
     subject?: string;
@@ -76,7 +73,7 @@ async function client(
   const testClient = await createTestClient({
     url,
     roomId: ROOM_ID,
-    clientId,
+    clientName,
     nonceSeed,
     ...overrides,
   });

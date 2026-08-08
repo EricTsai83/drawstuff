@@ -483,7 +483,10 @@ describe("transport protocol decoupling (Plan 31)", () => {
     bytes[0] = ASSET_PAYLOAD_VERSION;
     new DataView(bytes.buffer).setUint16(1, metadataBytes.byteLength);
     bytes.set(metadataBytes, ASSET_PAYLOAD_HEADER_BYTES);
-    bytes.set(dataUrlBytes, ASSET_PAYLOAD_HEADER_BYTES + metadataBytes.byteLength);
+    bytes.set(
+      dataUrlBytes,
+      ASSET_PAYLOAD_HEADER_BYTES + metadataBytes.byteLength,
+    );
 
     const decoded = decodeCollaborationAssetPayload(bytes, {
       roomId: ROOM_ID,
@@ -544,7 +547,9 @@ describe("transport protocol decoupling (Plan 31)", () => {
       ),
     ).rejects.toThrow();
     await expect(
-      openUnder(`drawstuff-asset/v${ASSET_CRYPTO_VERSION + 1}/${ROOM_ID}/g1/${FILE_A}`),
+      openUnder(
+        `drawstuff-asset/v${ASSET_CRYPTO_VERSION + 1}/${ROOM_ID}/g1/${FILE_A}`,
+      ),
     ).rejects.toThrow();
   });
 });

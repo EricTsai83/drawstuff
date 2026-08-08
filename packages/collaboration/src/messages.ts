@@ -3,9 +3,14 @@ import { z } from "zod";
 /**
  * Version of the realtime collaboration wire protocol. This is independent
  * from the Drawstuff scene document version (currently V4): documents version
- * persisted payloads, this versions transport messages.
+ * persisted payloads, this versions transport messages. Durable formats
+ * (snapshots, assets) are decoupled from it, so bumping it never
+ * affects stored ciphertext.
+ *
+ * v2: removed `senderClientId` — collaboration identity is the
+ * relay-assigned `peerId` only.
  */
-export const COLLABORATION_PROTOCOL_VERSION = 1;
+export const COLLABORATION_PROTOCOL_VERSION = 2;
 
 /**
  * Hard cap applied to raw encoded bytes before any JSON parsing. Messages
@@ -23,10 +28,6 @@ const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const roomIdSchema = z.string().regex(ID_PATTERN).brand<"RoomId">();
 export type RoomId = z.infer<typeof roomIdSchema>;
-
-/** Stable identity of one editor instance; survives reconnects. */
-export const clientIdSchema = z.string().regex(ID_PATTERN).brand<"ClientId">();
-export type ClientId = z.infer<typeof clientIdSchema>;
 
 /**
  * One connected session of a client. A reconnect produces a new `PeerId`, so
@@ -78,7 +79,6 @@ const messageEnvelopeFields = {
   messageId: z.string().regex(ID_PATTERN),
   roomId: roomIdSchema,
   roomGeneration: z.int().positive(),
-  senderClientId: clientIdSchema,
   senderPeerId: peerIdSchema,
   sequence: z.int().positive(),
 };

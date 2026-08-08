@@ -10,7 +10,7 @@ import {
 import { roomAuthGenerationSchema } from "./room-auth.ts";
 
 /**
- * Collaboration assets: identity (Plan 16) and encrypted transfer (Plan 17).
+ * Collaboration asset identity and encrypted transfer.
  *
  * An asset is a binary file an image element points at. Its identity is the
  * pair *parent scope + Excalidraw file id*, and nothing else:
@@ -36,7 +36,7 @@ import { roomAuthGenerationSchema } from "./room-auth.ts";
  *   now, not which image an element references; re-uploading the same image
  *   yields a new key.
  *
- * Plan 17 adds the bytes. Two formats live here, both versioned independently
+ * The byte-transfer contract adds a second format; both are versioned independently
  * of the realtime frame format because they are sealed under a different derived
  * key and evolve on their own schedule:
  *

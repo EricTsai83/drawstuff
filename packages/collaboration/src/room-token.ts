@@ -1,6 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
-import type { ClientId, RoomId } from "./messages.ts";
+import type { RoomId } from "./messages.ts";
 import {
   joinTokenClaimsSchema,
   MAX_CONTROL_TOKEN_TTL_SECONDS,
@@ -86,8 +86,7 @@ export type RoomTokenFailureReason =
   | "expired"
   /** Issued in the future beyond the allowed clock skew. */
   | "not-yet-valid"
-  | "wrong-room"
-  | "wrong-client";
+  | "wrong-room";
 
 export type RoomTokenVerification<Claims> =
   { ok: true; claims: Claims } | { ok: false; reason: RoomTokenFailureReason };
@@ -153,10 +152,10 @@ const checkLifetime = (
 
 /**
  * Full join-token check: signature, format version, audience, lifetime, and
- * the binding to the room and client instance the handshake declares. The
- * authorization generation is never declared on the wire — the relay derives
- * its routing key from the verified `gen` claim, so a client cannot steer a
- * token into another generation's channel.
+ * the binding to the room the handshake declares. The authorization
+ * generation is never declared on the wire — the relay derives its routing
+ * key from the verified `gen` claim, so a client cannot steer a token into
+ * another generation's channel.
  *
  * Signature validity alone does not authorize a join: a token issued before a
  * revocation is still correctly signed, so the caller must also check it
@@ -168,7 +167,6 @@ export function verifyJoinToken(options: {
   /** Epoch seconds. */
   nowSeconds: number;
   expectedRoomId: RoomId;
-  expectedClientId: ClientId;
 }): RoomTokenVerification<JoinTokenClaims> {
   const signed = verifySignedPayload(options.token, options.secret);
   if (!signed.ok) return signed;
@@ -200,9 +198,6 @@ export function verifyJoinToken(options: {
 
   if (claims.rid !== options.expectedRoomId) {
     return { ok: false, reason: "wrong-room" };
-  }
-  if (claims.cid !== options.expectedClientId) {
-    return { ok: false, reason: "wrong-client" };
   }
   return { ok: true, claims };
 }

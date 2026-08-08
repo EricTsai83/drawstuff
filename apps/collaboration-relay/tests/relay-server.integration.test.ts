@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket as WsClient } from "ws";
 
 import {
-  clientIdSchema,
+  COLLABORATION_PROTOCOL_VERSION,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
 import {
@@ -29,8 +29,8 @@ import {
 } from "./support/test-client.ts";
 
 const ROOM_ID = roomIdSchema.parse("room-integration");
-const CLIENT_A = clientIdSchema.parse("client-a");
-const CLIENT_B = clientIdSchema.parse("client-b");
+const CLIENT_A = "client-a";
+const CLIENT_B = "client-b";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -55,14 +55,14 @@ async function startServer(
 
 async function client(
   url: string,
-  clientId: typeof CLIENT_A,
+  clientName: string,
   nonceSeed: number,
   overrides: { role?: "owner" | "editor" | "viewer"; subject?: string } = {},
 ): Promise<TestClient> {
   const testClient = await createTestClient({
     url,
     roomId: ROOM_ID,
-    clientId,
+    clientName,
     nonceSeed,
     ...overrides,
   });
@@ -132,11 +132,19 @@ describe("relay server integration", () => {
       () => a.peers().length === 2 && b.peers().length === 2,
       "membership to propagate",
     );
-    const clientIds = a
+    // Peers carry only relay-generated identity, and both members see the
+    // same snapshot of it.
+    const peerIds = a
       .peers()
-      .map((peer) => peer.clientId)
+      .map((peer) => peer.peerId)
       .sort();
-    expect(clientIds).toEqual(["client-a", "client-b"]);
+    expect(new Set(peerIds).size).toBe(2);
+    expect(
+      b
+        .peers()
+        .map((peer) => peer.peerId)
+        .sort(),
+    ).toEqual(peerIds);
 
     b.disconnect();
     await waitUntil(() => a.peers().length === 1, "leave to propagate");
@@ -259,12 +267,10 @@ describe("relay server integration", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_B,
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_B,
           issuedAtSeconds: Math.floor(Date.now() / 1000),
         }),
       }),
@@ -278,12 +284,10 @@ describe("relay server integration", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_A,
           issuedAtSeconds: Math.floor(Date.now() / 1000),
         }),
       }),
@@ -302,12 +306,10 @@ describe("relay server integration", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_A,
           issuedAtSeconds: Math.floor(Date.now() / 1000),
         }),
       }),
@@ -336,12 +338,10 @@ describe("relay server integration", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_A,
           issuedAtSeconds: Math.floor(Date.now() / 1000),
         }),
       }),
@@ -382,12 +382,10 @@ describe("relay room authorization and lifecycle", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_B,
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_B,
           secret: "some-other-secret-that-is-long-enough-01",
           issuedAtSeconds: nowSeconds(),
         }),
@@ -403,7 +401,7 @@ describe("relay room authorization and lifecycle", () => {
     const viewer = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
-      clientId: CLIENT_B,
+      clientName: CLIENT_B,
       nonceSeed: 2,
       role: "viewer",
     });
@@ -442,12 +440,10 @@ describe("relay room authorization and lifecycle", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_B,
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_B,
           role: "viewer",
           issuedAtSeconds: nowSeconds(),
         }),
@@ -524,14 +520,14 @@ describe("relay room authorization and lifecycle", () => {
     const oldGeneration = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
+      clientName: CLIENT_A,
       nonceSeed: 1,
       authGeneration: 1,
     });
     const newGeneration = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
-      clientId: CLIENT_B,
+      clientName: CLIENT_B,
       nonceSeed: 2,
       authGeneration: 2,
     });
@@ -570,7 +566,6 @@ describe("relay room authorization and lifecycle", () => {
     // The revoked member keeps the token their browser already holds.
     const staleToken = issueJoinToken({
       roomId: ROOM_ID,
-      clientId: CLIENT_B,
       subject: "user-guest",
       // Issued under the revision that the revocation below supersedes; the
       // wall clock still has to be real, or the relay rejects it as unexpired.
@@ -580,7 +575,7 @@ describe("relay room authorization and lifecycle", () => {
     const guest = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
-      clientId: CLIENT_B,
+      clientName: CLIENT_B,
       nonceSeed: 2,
       subject: "user-guest",
       joinToken: staleToken,
@@ -608,9 +603,8 @@ describe("relay room authorization and lifecycle", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_B,
         token: staleToken,
       }),
     );
@@ -674,7 +668,6 @@ describe("relay room authorization and lifecycle", () => {
     const wrongAudience = await postControl(server, {
       token: issueJoinToken({
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         issuedAtSeconds: nowSeconds(),
       }),
     });

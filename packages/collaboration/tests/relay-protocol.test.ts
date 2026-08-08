@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  COLLABORATION_PROTOCOL_VERSION,
   encodeCollaborationMessage,
   MAX_PRESENCE_MESSAGE_BYTES,
   MAX_SCENE_MESSAGE_BYTES,
@@ -20,13 +21,7 @@ import {
   parseRelayServerControl,
   type RelayServerControl,
 } from "../src/relay-protocol.ts";
-import {
-  CLIENT_A,
-  JOIN_TOKEN,
-  PEER_A,
-  ROOM_ID,
-  sceneMessage,
-} from "./helpers.ts";
+import { JOIN_TOKEN, PEER_A, ROOM_ID, sceneMessage } from "./helpers.ts";
 
 describe("relay data frames", () => {
   it("round-trips a codec-encoded scene message", () => {
@@ -75,9 +70,8 @@ describe("relay control frames", () => {
   it("round-trips client controls", () => {
     const join = {
       control: "join",
-      protocolVersion: 1,
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       token: JOIN_TOKEN,
     } as const;
     expect(parseRelayClientControl(encodeRelayControl(join))).toEqual(join);
@@ -92,12 +86,12 @@ describe("relay control frames", () => {
   it("round-trips server controls", () => {
     const joined: RelayServerControl = {
       control: "joined",
-      protocolVersion: 1,
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
       roomId: ROOM_ID,
       peerId: PEER_A,
       roomGeneration: 7,
       role: "viewer",
-      peers: [{ peerId: PEER_A, clientId: CLIENT_A, role: "viewer" }],
+      peers: [{ peerId: PEER_A, role: "viewer" }],
     };
     expect(parseRelayServerControl(encodeRelayControl(joined))).toEqual(joined);
   });
@@ -126,9 +120,9 @@ describe("relay control frames", () => {
       parseRelayClientControl(
         JSON.stringify({
           control: "join",
-          protocolVersion: 2,
+          protocolVersion: COLLABORATION_PROTOCOL_VERSION - 1,
           roomId: ROOM_ID,
-          clientId: CLIENT_A,
+          token: JOIN_TOKEN,
         }),
       ),
     ).toBeUndefined();
@@ -136,9 +130,9 @@ describe("relay control frames", () => {
       parseRelayClientControl(
         JSON.stringify({
           control: "join",
-          protocolVersion: 1,
+          protocolVersion: COLLABORATION_PROTOCOL_VERSION,
           roomId: "bad room id!",
-          clientId: CLIENT_A,
+          token: JOIN_TOKEN,
         }),
       ),
     ).toBeUndefined();

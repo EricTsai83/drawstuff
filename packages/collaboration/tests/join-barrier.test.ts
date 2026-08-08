@@ -7,7 +7,6 @@ import {
   electSnapshotResponder,
 } from "../src/join-barrier.ts";
 import {
-  clientIdSchema,
   peerIdSchema,
   type PeerId,
   type SceneMessage,
@@ -113,7 +112,6 @@ describe("createJoinBarrier", () => {
 describe("electSnapshotResponder", () => {
   const peer = (name: string, role: RoomPeer["role"] = "editor"): RoomPeer => ({
     peerId: peerIdSchema.parse(name),
-    clientId: clientIdSchema.parse(`client-${name}`),
     role,
   });
   const ids = (...names: string[]): ReadonlySet<PeerId> =>

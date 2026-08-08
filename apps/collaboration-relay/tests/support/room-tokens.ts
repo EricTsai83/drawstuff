@@ -1,4 +1,4 @@
-import type { ClientId, RoomId } from "@drawstuff/collaboration/protocol";
+import type { RoomId } from "@drawstuff/collaboration/protocol";
 import {
   DEFAULT_CONTROL_TOKEN_TTL_SECONDS,
   DEFAULT_JOIN_TOKEN_TTL_SECONDS,
@@ -26,7 +26,6 @@ export const TEST_NOW_SECONDS = Math.floor(TEST_NOW_MS / 1000);
 
 export function issueJoinToken(options: {
   roomId: RoomId;
-  clientId: ClientId;
   role?: RoomRole;
   authGeneration?: number;
   subject?: string;
@@ -48,8 +47,7 @@ export function issueJoinToken(options: {
       aud: ROOM_TOKEN_AUDIENCES.join,
       rid: options.roomId,
       gen: options.authGeneration ?? 1,
-      sub: options.subject ?? `user-${options.clientId}`,
-      cid: options.clientId,
+      sub: options.subject ?? "user-test",
       role: options.role ?? "editor",
       arev: options.authRevision ?? 1,
       rexp: options.roomExpiresAtSeconds ?? issuedAt + 3_600,

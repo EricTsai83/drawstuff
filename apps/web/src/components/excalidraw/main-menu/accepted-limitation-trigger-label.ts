@@ -29,7 +29,7 @@ import { useEffect } from "react";
  *
  * DO NOT COPY THIS PATTERN. Every other product feature must mount through an
  * upstream public prop or slot — see
- * `docs/architecture/05-native-ui-integration-contract.md`.
+ * `docs/architecture/native-ui-integration-contract.md`.
  */
 const MAIN_MENU_TRIGGER_SELECTOR = '[data-testid="main-menu-trigger"]';
 

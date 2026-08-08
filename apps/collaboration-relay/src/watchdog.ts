@@ -17,7 +17,7 @@ const SAMPLE_INTERVAL_MS = 10_000;
 
 /**
  * Watches the process RSS and reports — once — when it crosses the SLO §4.1
- * restart threshold (Plan 25).
+ * restart threshold in the deployment envelope.
  *
  * The watchdog only observes and notifies: acting on the breach is
  * `onExceeded`'s job, and the caller wires it to the same graceful drain a

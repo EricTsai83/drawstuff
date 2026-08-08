@@ -13,7 +13,7 @@ import { resolveRoomAssets } from "@/server/collab/assets";
 import { resolveRoomAccess, type RoomAccess } from "@/server/collab/rooms";
 
 /**
- * Collaboration asset lookup API (Plan 16 identity, Plan 17 transfer).
+ * Collaboration asset lookup API for canonical identity and encrypted transfer.
  *
  * One question: *where are the bytes for these file ids, and which of them does
  * this room not have yet?* A peer already knows which assets it needs — the file

@@ -25,7 +25,7 @@ const documentLookupMethods =
  * is banned outright in app source; the single sanctioned exception is
  * exempted below. Element-scoped lookups (`ref.current.querySelector(...)`)
  * stay allowed — only roots that reach the whole document are matched.
- * See docs/architecture/05-native-ui-integration-contract.md.
+ * See docs/architecture/native-ui-integration-contract.md.
  */
 const upstreamDomLookupRestrictions = [
   // document.querySelector(...)

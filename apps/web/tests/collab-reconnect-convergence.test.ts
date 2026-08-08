@@ -21,6 +21,7 @@ import {
 import {
   createHarness,
   createSnapshotBackend,
+  peerIdOf,
   ROOM_ID,
   type TestClient,
 } from "./support/collab-session-harness";
@@ -138,13 +139,12 @@ const observe = (client: TestClient): CollaborationMessage[] => {
 
 const sceneMessages = (
   received: readonly CollaborationMessage[],
-  senderClientId?: string,
+  senderPeerId?: string,
 ): SceneMessage[] =>
   received.filter(
     (message): message is SceneMessage =>
       message.type !== "presence" &&
-      (senderClientId === undefined ||
-        message.senderClientId === senderClientId),
+      (senderPeerId === undefined || message.senderPeerId === senderPeerId),
   );
 
 const idsOf = (message: SceneMessage): string[] =>
@@ -232,7 +232,9 @@ describe("reconnect recovery", () => {
     );
     await harness.advanceAndSettle([rejoiner], PAST_EVERY_TIMER_MS);
 
-    const published = sceneMessages(seenByBob, rejoiner.clientId);
+    // A reconnect is a new relay session, so the rejoin publishes under the
+    // fresh peerId the relay assigned to it.
+    const published = sceneMessages(seenByBob, peerIdOf(rejoiner));
     // A delta, not a snapshot, and carrying exactly what the room was missing —
     // `shared-2` never changed and is not re-sent.
     expect(published[0]?.type).toBe("scene-update");
@@ -292,7 +294,7 @@ describe("reconnect recovery", () => {
 
     // The rejoin publish itself is the snapshot, rather than a delta followed by
     // a repair: one bounded full sync converges from any starting state.
-    expect(sceneMessages(seenByBob, tight.clientId)[0]?.type).toBe(
+    expect(sceneMessages(seenByBob, peerIdOf(tight))[0]?.type).toBe(
       "scene-init",
     );
     expectAllConverged([alice, bob, tight]);
@@ -316,7 +318,7 @@ describe("reconnect recovery", () => {
     harness.clock.now += 60_000;
     await harness.advanceAndSettle([stale], PAST_EVERY_TIMER_MS);
 
-    expect(sceneMessages(seenByBob, stale.clientId)[0]?.type).toBe(
+    expect(sceneMessages(seenByBob, peerIdOf(stale))[0]?.type).toBe(
       "scene-init",
     );
     expectAllConverged([alice, bob, stale]);
@@ -418,7 +420,7 @@ describe("reconnect recovery", () => {
       // activity and the budget is never re-earned.
       harness.network.flush();
       published.push(
-        sceneMessages(seenByAlice, lonely.clientId).filter(
+        sceneMessages(seenByAlice, peerIdOf(lonely)).filter(
           (message) => message.type === "scene-init",
         ).length,
       );
@@ -713,6 +715,9 @@ describe("unrecoverable connection states", () => {
     // must not be published into a room this client cannot read.
     wrongKey.host.setElements([rect("local-only")]);
     wrongKey.session.connect();
+    // Captured while the socket is up: the terminal verdict below disconnects
+    // the session, and a disconnected session has no peerId to ask for.
+    const wrongKeyPeerId = peerIdOf(wrongKey);
     await harness.drainMicrotasks();
     harness.settle();
 
@@ -722,7 +727,7 @@ describe("unrecoverable connection states", () => {
       reason: "unreadable-room",
     });
     // Nothing was published, and nothing is left running.
-    expect(sceneMessages(seenByWatcher, wrongKey.clientId)).toEqual([]);
+    expect(sceneMessages(seenByWatcher, wrongKeyPeerId)).toEqual([]);
     expect(wrongKey.timers.pendingCount).toBe(0);
     expect(wrongKey.session.getConnectionState().status).toBe("disconnected");
   });
@@ -756,9 +761,12 @@ describe("unrecoverable connection states", () => {
     // goes live with no indication that nothing it sends can be read.
     expect(wrongKey.baselineOutcomes).toEqual(["empty"]);
     expect(wrongKey.session.getRecoveryState()).toEqual({ phase: "live" });
+    // Captured while live: the verdict below disconnects the session, and the
+    // messages already seen carry this connection's peerId.
+    const wrongKeyPeerId = peerIdOf(wrongKey);
     const publishedBeforeVerdict = sceneMessages(
       seenByWatcher,
-      wrongKey.clientId,
+      wrongKeyPeerId,
     ).length;
 
     probe.reportRoomUnreadable();
@@ -782,7 +790,7 @@ describe("unrecoverable connection states", () => {
     // to stop publishing rather than merely stop reconnecting.
     wrongKey.edit((elements) => [...elements, rect("drawn-after-verdict")]);
     harness.settle();
-    expect(sceneMessages(seenByWatcher, wrongKey.clientId)).toHaveLength(
+    expect(sceneMessages(seenByWatcher, wrongKeyPeerId)).toHaveLength(
       publishedBeforeVerdict,
     );
   });

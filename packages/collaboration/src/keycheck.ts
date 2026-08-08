@@ -8,7 +8,7 @@ import {
 import { roomAuthGenerationSchema } from "./room-auth.ts";
 
 /**
- * Room key-check value (Plan 34): proof, readable before joining, that the key
+ * Room key-check value: proof, readable before joining, that the key
  * in a link is the room's key.
  *
  * An empty room has no ciphertext at all, so nothing that already exists can

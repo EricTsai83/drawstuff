@@ -3,7 +3,6 @@ import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
-import { clientIdSchema } from "@drawstuff/collaboration/protocol";
 import {
   roomAuthGenerationSchema,
   roomRoleSchema,
@@ -35,7 +34,7 @@ import {
 } from "@/server/db/schema";
 
 /**
- * Collaboration room lifecycle and authorization API (Plan 13).
+ * Collaboration room lifecycle and authorization API.
  *
  * Every procedure is `protectedProcedure`: anonymous room access is off, and
  * turning it on would require a deliberate new decision, not a config flag.
@@ -256,7 +255,7 @@ export const collaborationRoomRouter = createTRPCRouter({
          * The key-check value rides on `get` so verifying a link costs no
          * extra round-trip, and `get` is what the client calls *before* it
          * touches the canvas — the whole point is to refuse a wrong-key link
-         * before the user's canvas is cleared (Plan 34).
+         * before the user's canvas is cleared.
          */
         keyCheckBase64: access.room.keyCheck
           ? Buffer.from(access.room.keyCheck).toString("base64")
@@ -265,7 +264,7 @@ export const collaborationRoomRouter = createTRPCRouter({
     }),
 
   /**
-   * Stores the room's key-check value (Plan 34). Owner-only, and only for the
+   * Stores the room's key-check value. Owner-only, and only for the
    * current generation: the value is sealed against (room, generation), so
    * filing it under any other generation would store a value no link could
    * ever verify against.
@@ -353,17 +352,14 @@ export const collaborationRoomRouter = createTRPCRouter({
     }),
 
   /**
-   * Issues a short-lived join token for one client instance. This is the only
-   * way a client can reach the relay, and the token is bound to the role
-   * resolved here, so a viewer cannot obtain an editor connection.
+   * Issues a short-lived join token. This is the only way a client can reach
+   * the relay, and the token is bound to the role resolved here, so a viewer
+   * cannot obtain an editor connection. The input deliberately carries no
+   * client-selected identity: nothing the caller provides is signed
+   * into the token.
    */
   join: protectedProcedure
-    .input(
-      z.object({
-        roomId: roomIdInput,
-        clientId: z.string().pipe(clientIdSchema),
-      }),
-    )
+    .input(z.object({ roomId: roomIdInput }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.auth.user.id;
       const now = new Date();
@@ -375,7 +371,7 @@ export const collaborationRoomRouter = createTRPCRouter({
         ctx.db,
         { roomId: input.roomId, userId, now },
         async (tx, access) => {
-          // No token for a room whose key cannot be verified (Plan 34). The
+          // No token for a room whose key cannot be verified. The
           // client refuses such a room on its own, but that is a convention;
           // this is the invariant — an unverifiable room can never hold a
           // session, so nothing can write into it, whatever the client does.
@@ -399,7 +395,6 @@ export const collaborationRoomRouter = createTRPCRouter({
             room: access.room,
             role: access.role,
             userId,
-            clientId: input.clientId,
             secret: env.COLLAB_JOIN_TOKEN_SECRET,
             now,
           });

@@ -155,7 +155,7 @@ export async function writeRoomSnapshot(
 /**
  * Deletes the baseline for one room generation, so the room re-seeds from the
  * next writer's canvas. This is the owner's recovery path for a snapshot
- * nobody holding the room's link can open (Plan 34): the server cannot decide
+ * nobody holding the room's link can open: the server cannot decide
  * unreadability itself — it has no key — so the deletion only ever happens on
  * the owner's explicit, confirmed request. Returns whether a row existed.
  */

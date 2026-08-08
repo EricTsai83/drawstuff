@@ -2,10 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 
-import {
-  clientIdSchema,
-  roomIdSchema,
-} from "@drawstuff/collaboration/protocol";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 
 import { TEST_ROOM_TOKEN_SECRET } from "./support/room-tokens.ts";
 import { createTestClient, waitUntil } from "./support/test-client.ts";
@@ -113,7 +110,7 @@ describe("cross-process relay integration", () => {
     const driver = spawnTsx(path.join("tests", "support", "client-driver.ts"), {
       RELAY_URL: url,
       RELAY_ROOM_ID: ROOM_ID,
-      RELAY_CLIENT_ID: "client-driver",
+      RELAY_CLIENT_NAME: "client-driver",
       RELAY_NONCE_SEED: "9",
       RELAY_ELEMENT_PREFIX: "el-driver",
       RELAY_ELEMENT_COUNT: "3",
@@ -126,7 +123,7 @@ describe("cross-process relay integration", () => {
     const local = await createTestClient({
       url,
       roomId: ROOM_ID,
-      clientId: clientIdSchema.parse("client-local"),
+      clientName: "client-local",
       nonceSeed: 1,
     });
     try {
@@ -176,13 +173,13 @@ describe("cross-process relay integration", () => {
     const a = await createTestClient({
       url,
       roomId: ROOM_ID,
-      clientId: clientIdSchema.parse("client-drain-a"),
+      clientName: "client-drain-a",
       nonceSeed: 3,
     });
     const b = await createTestClient({
       url,
       roomId: ROOM_ID,
-      clientId: clientIdSchema.parse("client-drain-b"),
+      clientName: "client-drain-b",
       nonceSeed: 4,
     });
     try {

@@ -263,12 +263,12 @@ export const sceneCategory = createTable(
 );
 
 /**
- * 共編 room（Plan 13）。一個 room 綁定一個 scene，room 的授權由這裡決定，relay
+ * 共編 room。一個 room 綁定一個 scene，room 的授權由這裡決定，relay
  * 只驗證由本表簽出的短效 join token。
  *
  * `authGeneration` 是「授權世代」，與 relay 在記憶體中發放的 session epoch
  * （`roomGeneration`）不同：授權世代寫在 DB、只在需要讓既有 token 全部失效時
- * 遞增（未來 Plan 14 的 room key 也綁在同一個世代上）。移除成員只會阻止新連線
+ * 遞增；room key 也綁在同一個世代上。移除成員只會阻止新連線
  * 與新訊息；要做密碼學撤銷必須遞增世代。
  */
 export const collaborationRoom = createTable(
@@ -295,7 +295,7 @@ export const collaborationRoom = createTable(
      */
     linkRole: varchar("link_role", { length: 16 }).default("none").notNull(),
     /**
-     * 金鑰檢查值（Plan 34）：room 建立與 generation rotate 後，由 owner 的
+     * 金鑰檢查值：room 建立與 generation rotate 後，由 owner 的
      * client 用 purpose `keycheck` 的推導金鑰封裝一段固定明文寫入。client 在
      * join 之前驗證，開不了即視同錯誤連結，因此錯誤金鑰不可能建立或覆寫
      * snapshot。伺服器只保存密文，沒有金鑰也沒有驗證路徑；AAD 綁 room id 與
@@ -390,7 +390,7 @@ export const collaborationRoomMember = createTable(
 );
 
 /**
- * 共編 room 的持久化 snapshot（Plan 15）。room 的所有 client 離線或 relay restart
+ * 共編 room 的持久化 snapshot。room 的所有 client 離線或 relay restart
  * 之後，後來加入的人就是從這裡取得 baseline。
  *
  * 這一列只存密文：`ciphertext` 是 client 用 room key（purpose `snapshot`）封裝的
@@ -466,7 +466,7 @@ export const collaborationSnapshot = createTable(
 );
 
 /**
- * 共編 room 的 binary asset：身份（Plan 16）與密文所在位置（Plan 17）。
+ * 共編 room 的 binary asset：身份與密文所在位置。
  *
  * 一列代表「這個 room 的這個授權世代有這個 Excalidraw file id 的密文，存在這個
  * storage object」。身份是 (room, generation, `excalidraw_file_id`)，
@@ -486,7 +486,7 @@ export const collaborationSnapshot = createTable(
  * 內容將由 room key 加密、retention 跟著授權世代走，而 writer 可能是非 scene
  * owner 的 editor。在 `file_record` 加第三個 nullable parent 只會讓
  * nullable-polymorphic table 繼續擴張，四種 lifecycle 混在同一組 constraint 裡
- * （ADR 0001 Plan 16 決策）。
+ * （見 ADR 0001 的 asset relation boundary）。
  *
  * 主鍵是 (room_id, auth_generation, excalidraw_file_id)：與
  * `collaboration_snapshot` 同一套 retention 語意——世代轉動後舊世代的密文在密碼學
@@ -586,7 +586,7 @@ export const sharedScene = createTable(
 /**
  * 已上傳到外部 object storage 的 scene／sharedScene 資產紀錄。
  *
- * 身份是 **parent scope + `excalidraw_file_id`**（Plan 16）：Excalidraw 的 file id
+ * 身份是 **parent scope + `excalidraw_file_id`**：Excalidraw 的 file id
  * 是圖片位元組的摘要，由 engine 產生且不可變，元素上的 `fileId` 也只認這個值。
  * 先前用 `(scene_id, content_hash)` 當身份是錯的——hash 取自「壓縮後的上傳
  * payload」，而 payload metadata 帶 `created`／`lastRetrieved` 時間戳，於是每次

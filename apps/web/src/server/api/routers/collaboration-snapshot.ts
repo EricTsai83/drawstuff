@@ -26,7 +26,7 @@ import {
 } from "@/server/collab/snapshots";
 
 /**
- * Durable collaboration snapshot API (Plan 15).
+ * Durable collaboration snapshot API.
  *
  * The authorization model is the room's, unchanged: `resolveRoomAccess` is the
  * only place a role is decided, reading requires room access, and writing
@@ -162,7 +162,7 @@ export const collaborationSnapshotRouter = createTRPCRouter({
       }
 
       // Authorization and the write share one transaction under the room lock,
-      // the same ordering every room lifecycle mutation uses (Plan 13). Without
+      // the same ordering every room lifecycle mutation uses. Without
       // it, a removal or a downgrade committing between the access check and the
       // write would let an already-revoked editor still replace the room's
       // durable baseline.
@@ -210,7 +210,7 @@ export const collaborationSnapshotRouter = createTRPCRouter({
 
   /**
    * Deletes the current generation's baseline so the room re-seeds from the
-   * next elected writer's canvas (Plan 34's recovery path for a snapshot
+   * next elected writer's canvas (the recovery path for a snapshot
    * sealed under the wrong key).
    *
    * Owner-only, and stricter than `put` on purpose: an editor replaces the

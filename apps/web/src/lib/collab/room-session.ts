@@ -1,4 +1,4 @@
-import type { ClientId, RoomId } from "@drawstuff/collaboration/protocol";
+import type { RoomId } from "@drawstuff/collaboration/protocol";
 import {
   createRealtimeCryptoCodec,
   type RoomKey,
@@ -32,10 +32,9 @@ import {
 /**
  * Runtime wiring for one authorized collaboration room: realtime crypto codec +
  * relay transport + collaboration session + upstream-style idle detection.
- * Everything it needs to authorize the connection (room, client instance, join
- * token) is supplied by the caller, which obtained it from
- * `collaborationRoom.join`; this module never decides access and never sees the
- * signing secret.
+ * Everything it needs to authorize the connection (room, join token) is
+ * supplied by the caller, which obtained it from `collaborationRoom.join`;
+ * this module never decides access and never sees the signing secret.
  *
  * The room key is the other half, and it comes from the other direction: the
  * caller reads it from the URL fragment, never from the backend. That split is
@@ -67,21 +66,21 @@ export type CollaborationRoomHandle = {
   destroy(): Promise<void>;
 };
 
+/**
+ * Trims and bounds the display name. Returns "" for an unnamed user: the
+ * session substitutes `guest-<peerId suffix>` per connection, because the
+ * relay-assigned peer id does not exist before the join completes.
+ */
 export function toCollaborationUsername(
   rawName: string | null | undefined,
-  clientId: ClientId,
 ): string {
-  return (
-    rawName?.trim().slice(0, MAX_USERNAME_LENGTH) ||
-    `guest-${clientId.slice(-4)}`
-  );
+  return rawName?.trim().slice(0, MAX_USERNAME_LENGTH) ?? "";
 }
 
 export async function startCollaborationRoomSession(options: {
   excalidrawApi: ExcalidrawImperativeAPI;
   relayUrl: string;
   roomId: RoomId;
-  clientId: ClientId;
   /** Short-lived token from the app backend; the relay verifies it. */
   joinToken: string;
   /**
@@ -180,7 +179,6 @@ export async function startCollaborationRoomSession(options: {
   const session = createCollaborationSession({
     transport,
     roomId: options.roomId,
-    clientId: options.clientId,
     joinToken: options.joinToken,
     authGeneration: options.authGeneration,
     refreshJoinToken: options.refreshJoinToken,

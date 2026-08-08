@@ -7,7 +7,6 @@ export {
   type MessageChannel,
 } from "./codec.ts";
 export {
-  clientIdSchema,
   COLLABORATION_PROTOCOL_VERSION,
   collaborationMessageSchema,
   FORBIDDEN_BINARY_ELEMENT_KEYS,
@@ -20,7 +19,6 @@ export {
   sceneInitMessageSchema,
   sceneUpdateMessageSchema,
   syncedElementSchema,
-  type ClientId,
   type CollaborationMessage,
   type PeerId,
   type PresenceMessage,

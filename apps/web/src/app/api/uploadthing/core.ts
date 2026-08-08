@@ -251,7 +251,7 @@ export const uploadRouter = {
     }),
 
   /**
-   * 共編 room 資產上傳（Plan 17）。身份是 room + 授權世代 + Excalidraw file id。
+   * 共編 room 資產上傳。身份是 room + 授權世代 + Excalidraw file id。
    *
    * 上傳的位元組是**客戶端封裝好的密文**：明文的 data URL 與 MIME type 都在密文裡，
    * 由 room key 衍生的 asset key 保護，而 room key 只存在於 URL fragment 與瀏覽器
@@ -260,7 +260,7 @@ export const uploadRouter = {
    * 授權檢查做兩次而不是一次，因為兩者擋的是不同的事：middleware 在上傳前擋掉沒有
    * 權限的人（不讓他把位元組送進 storage），webhook 在寫入前再檢一次，擋掉「上傳期間
    * 權限被撤銷或世代被轉動」。第二次檢查在 room lock 的交易內，與每一個 room
-   * lifecycle mutation 同一套順序（Plan 13）。
+   * lifecycle mutation 同一套順序。
    */
   collaborationAssetUploader: f({
     blob: {

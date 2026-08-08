@@ -2,7 +2,6 @@ import { z } from "zod";
 
 import type { MessageChannel } from "./codec.ts";
 import {
-  clientIdSchema,
   COLLABORATION_PROTOCOL_VERSION,
   MAX_PRESENCE_MESSAGE_BYTES,
   MAX_SCENE_MESSAGE_BYTES,
@@ -36,7 +35,6 @@ import type { DisconnectReason } from "./transport.ts";
  */
 export const relayPeerSchema = z.strictObject({
   peerId: peerIdSchema,
-  clientId: clientIdSchema,
   role: roomRoleSchema,
 });
 export type RelayPeer = z.infer<typeof relayPeerSchema>;
@@ -44,14 +42,16 @@ export type RelayPeer = z.infer<typeof relayPeerSchema>;
 /**
  * Join request. The room token is mandatory: the relay has no unauthenticated
  * join path, so an unauthorized client can neither subscribe to nor publish
- * into a room. The declared `roomId`/`clientId` must match the token claims,
- * and the room's authorization generation is taken from the token only.
+ * into a room. The declared `roomId` must match the token claims, and the
+ * room's authorization generation is taken from the token only. The join
+ * deliberately carries no client-selected identity: session identity
+ * is the relay-assigned `peerId`, so no client-provided string is ever signed
+ * or recorded.
  */
 export const relayJoinRequestSchema = z.strictObject({
   control: z.literal("join"),
   protocolVersion: z.literal(COLLABORATION_PROTOCOL_VERSION),
   roomId: roomIdSchema,
-  clientId: clientIdSchema,
   token: z.string().min(1).max(MAX_ROOM_TOKEN_BYTES),
 });
 export type RelayJoinRequest = z.infer<typeof relayJoinRequestSchema>;

@@ -1,9 +1,8 @@
 import { expect } from "vitest";
 
 import {
-  clientIdSchema,
+  COLLABORATION_PROTOCOL_VERSION,
   roomIdSchema,
-  type ClientId,
   type CollaborationMessage,
   type SceneMessage,
   type SyncedElement,
@@ -536,7 +535,6 @@ export type TestClient = {
   transport: CollaborationTransport;
   scheduler: ReturnType<typeof createManualScheduler>;
   timers: ReturnType<typeof createManualTimers>;
-  clientId: ClientId;
   baselineOutcomes: readonly BaselineOutcome[];
   /** Every recovery phase this client passed through, in order. */
   recoveryStates: readonly RecoveryState[];
@@ -592,7 +590,6 @@ export function createHarness(
     const host = createSceneHost();
     const scheduler = createManualScheduler();
     const timers = createManualTimers();
-    const clientId = clientIdSchema.parse(name);
     const baselineOutcomes: BaselineOutcome[] = [];
     const recoveryStates: RecoveryState[] = [];
     const sceneSyncBlocks: (SceneSyncBlock | null)[] = [];
@@ -602,7 +599,6 @@ export function createHarness(
     const session = createCollaborationSession({
       transport,
       roomId: ROOM_ID,
-      clientId,
       joinToken: JOIN_TOKEN,
       authGeneration: AUTH_GENERATION,
       refreshJoinToken: async () => {
@@ -636,7 +632,6 @@ export function createHarness(
       transport,
       scheduler,
       timers,
-      clientId,
       baselineOutcomes,
       recoveryStates,
       sceneSyncBlocks,
@@ -784,15 +779,18 @@ export function expectConverged(a: TestClient, b: TestClient): void {
   );
 }
 
+/** Peer identity of a client's current connection; new on every reconnect. */
+export function peerIdOf(client: TestClient): string {
+  const state = client.session.getConnectionState();
+  if (state.status !== "connected") throw new Error("client not connected");
+  return state.peerId;
+}
+
 /** Crafts protocol messages from a raw transport's connected session. */
-export function createRawSender(
-  network: FakeCollaborationNetwork,
-  name: string,
-) {
+export function createRawSender(network: FakeCollaborationNetwork) {
   const transport = network.createTransport();
   transport.connect({
     roomId: ROOM_ID,
-    clientId: clientIdSchema.parse(name),
     joinToken: JOIN_TOKEN,
   });
   const state = transport.getConnectionState();
@@ -809,11 +807,10 @@ export function createRawSender(
     sequence: number;
     elements: readonly OrderedExcalidrawElement[];
   }): SceneMessage => ({
-    protocolVersion: 1,
+    protocolVersion: COLLABORATION_PROTOCOL_VERSION,
     messageId: `raw-${(messageCounter += 1)}`,
     roomId: state.roomId,
     roomGeneration: state.roomGeneration,
-    senderClientId: state.clientId,
     senderPeerId: state.peerId,
     sequence: input.sequence,
     type: input.type ?? "scene-update",

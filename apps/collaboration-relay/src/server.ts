@@ -42,7 +42,7 @@ type RelayLimits = RelayConnectionLimits & {
   /** Ping cadence; a socket that misses one full interval is terminated. */
   heartbeatIntervalMs: number;
   /**
-   * Upper bound of the graceful-drain window (Plan 25). A drained socket that
+   * Upper bound of the graceful-drain window. A drained socket that
    * has not finished its close handshake by this deadline is terminated and
    * counted — the drain must end, or a stuck peer would turn every restart
    * into an operator judgement call.
@@ -120,12 +120,12 @@ export type RelayServer = {
    * Marks the process unhealthy at `/healthz` so a rolling restart can hand
    * traffic over before this instance stops accepting it. Idempotent.
    *
-   * Health reporting is all this does — it is Plan 24's signal. Releasing the
+   * Health reporting is all this does. Releasing the
    * connections that are still attached is `drain()`.
    */
   beginDrain(): void;
   /**
-   * The graceful-drain sequence (Plan 25): reports unhealthy, refuses new
+   * The graceful-drain sequence: reports unhealthy, refuses new
    * connections, and closes every attached connection with the retryable
    * `relayRestarting` close code so clients rejoin the replacement process
    * through their recovery backoff. Resolves once every connection present at
@@ -145,7 +145,7 @@ export type RelayServer = {
  * state, no binary payloads, and no persistence — a restart only drops
  * connections and starts fresh room epochs.
  *
- * Authorization is token-based (Plan 13): every join must present a short-lived
+ * Authorization is token-based: every join must present a short-lived
  * token signed by the app, and membership changes reach already-connected
  * sockets through the control endpoint served on the same port.
  */

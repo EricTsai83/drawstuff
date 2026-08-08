@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  clientIdSchema,
   peerIdSchema,
   roomIdSchema,
   type MessageChannel,
@@ -24,9 +23,8 @@ const CHANNEL_B = roomChannelKey(roomIdSchema.parse("room-b"), 1);
 
 let peerCounter = 0;
 
-function member(clientName: string, role: RoomRole = "editor") {
+function member(role: RoomRole = "editor") {
   const peerId = peerIdSchema.parse(`peer-${++peerCounter}`);
-  const clientId = clientIdSchema.parse(clientName);
   const dataFrames: {
     channel: MessageChannel;
     frame: Uint8Array;
@@ -43,19 +41,17 @@ function member(clientName: string, role: RoomRole = "editor") {
       peersUpdates.push(peers);
     },
   };
-  return { peerId, clientId, role, subscriber, dataFrames, peersUpdates };
+  return { peerId, role, subscriber, dataFrames, peersUpdates };
 }
 
 describe("createInMemoryRoomFanout", () => {
   it("returns membership to the joiner and notifies existing members", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const a = member("client-a");
-    const b = member("client-b");
+    const a = member();
+    const b = member();
 
     const joinA = fanout.join({ channel: CHANNEL_A, ...a });
-    expect(joinA.peers).toEqual([
-      { peerId: a.peerId, clientId: a.clientId, role: "editor" },
-    ]);
+    expect(joinA.peers).toEqual([{ peerId: a.peerId, role: "editor" }]);
     expect(a.peersUpdates).toHaveLength(0);
 
     const joinB = fanout.join({ channel: CHANNEL_A, ...b });
@@ -69,9 +65,9 @@ describe("createInMemoryRoomFanout", () => {
 
   it("routes frames to other members only, within the room", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const a = member("client-a");
-    const b = member("client-b");
-    const other = member("client-other");
+    const a = member();
+    const b = member();
+    const other = member();
     fanout.join({ channel: CHANNEL_A, ...a });
     fanout.join({ channel: CHANNEL_A, ...b });
     fanout.join({ channel: CHANNEL_B, ...other });
@@ -88,7 +84,7 @@ describe("createInMemoryRoomFanout", () => {
 
   it("ignores publishes from non-members", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const a = member("client-a");
+    const a = member();
     fanout.join({ channel: CHANNEL_A, ...a });
 
     fanout.publish(
@@ -102,14 +98,14 @@ describe("createInMemoryRoomFanout", () => {
 
   it("broadcasts membership on leave and releases empty rooms", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const a = member("client-a");
-    const b = member("client-b");
+    const a = member();
+    const b = member();
     fanout.join({ channel: CHANNEL_A, ...a });
     fanout.join({ channel: CHANNEL_A, ...b });
 
     fanout.leave(CHANNEL_A, b.peerId);
     expect(a.peersUpdates.at(-1)).toEqual([
-      { peerId: a.peerId, clientId: a.clientId, role: "editor" },
+      { peerId: a.peerId, role: "editor" },
     ]);
     expect(fanout.memberCount(CHANNEL_A)).toBe(1);
 
@@ -122,25 +118,25 @@ describe("createInMemoryRoomFanout", () => {
     let clock = 5_000;
     const fanout = createInMemoryRoomFanout({ now: () => clock });
 
-    const first = fanout.join({ channel: CHANNEL_A, ...member("client-a") });
+    const first = fanout.join({ channel: CHANNEL_A, ...member() });
     expect(first.roomGeneration).toBe(5_000);
 
     // Same-millisecond delete/recreate churn must still advance the epoch.
     fanout.leave(CHANNEL_A, peerIdSchema.parse(`peer-${peerCounter}`));
-    const second = fanout.join({ channel: CHANNEL_A, ...member("client-a") });
+    const second = fanout.join({ channel: CHANNEL_A, ...member() });
     expect(second.roomGeneration).toBe(5_001);
 
     // Once the clock moves past the counter, epochs follow the clock again.
     clock = 9_000;
     fanout.leave(CHANNEL_A, peerIdSchema.parse(`peer-${peerCounter}`));
-    const third = fanout.join({ channel: CHANNEL_A, ...member("client-a") });
+    const third = fanout.join({ channel: CHANNEL_A, ...member() });
     expect(third.roomGeneration).toBe(9_000);
   });
 
   it("shares one generation among concurrent members of a room", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const joinA = fanout.join({ channel: CHANNEL_A, ...member("client-a") });
-    const joinB = fanout.join({ channel: CHANNEL_A, ...member("client-b") });
+    const joinA = fanout.join({ channel: CHANNEL_A, ...member() });
+    const joinB = fanout.join({ channel: CHANNEL_A, ...member() });
     expect(joinB.roomGeneration).toBe(joinA.roomGeneration);
   });
 
@@ -151,7 +147,7 @@ describe("createInMemoryRoomFanout", () => {
         roomIdSchema.parse(`room-${index % 50}`),
         1,
       );
-      const churnMember = member(`client-${index}`);
+      const churnMember = member();
       fanout.join({ channel, ...churnMember });
       fanout.publish(channel, churnMember.peerId, "scene", new Uint8Array([1]));
       fanout.leave(channel, churnMember.peerId);
@@ -161,8 +157,8 @@ describe("createInMemoryRoomFanout", () => {
 
   it("never delivers a stale membership snapshot after a reentrant leave", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const a = member("client-a");
-    const c = member("client-c");
+    const a = member();
+    const c = member();
     // A behaves like a slow consumer: receiving a membership update makes
     // the connection layer close it, which re-enters leave() while the
     // outer broadcast is still iterating.
@@ -178,7 +174,7 @@ describe("createInMemoryRoomFanout", () => {
       },
     };
     fanout.join({ channel: CHANNEL_A, ...a, subscriber: reentrantA });
-    const b = member("client-b");
+    const b = member();
     fanout.join({ channel: CHANNEL_A, ...b });
     fanout.join({ channel: CHANNEL_A, ...c });
 
@@ -188,14 +184,14 @@ describe("createInMemoryRoomFanout", () => {
     fanout.leave(CHANNEL_A, b.peerId);
 
     expect(c.peersUpdates.at(-1)).toEqual([
-      { peerId: c.peerId, clientId: c.clientId, role: "editor" },
+      { peerId: c.peerId, role: "editor" },
     ]);
     expect(fanout.memberCount(CHANNEL_A)).toBe(1);
   });
 
   it("rejects a duplicate peer id within a room", () => {
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const a = member("client-a");
+    const a = member();
     fanout.join({ channel: CHANNEL_A, ...a });
     expect(() => fanout.join({ channel: CHANNEL_A, ...a })).toThrow(/already/i);
   });
@@ -208,9 +204,9 @@ describe("createInMemoryRoomFanout", () => {
     // consumer — must not make that comparison come out true for a partial
     // fanout, so recipients are fixed before any of them is delivered to.
     const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
-    const sender = member("client-sender");
-    const a = member("client-a");
-    const b = member("client-b");
+    const sender = member();
+    const a = member();
+    const b = member();
     const evictB: FanoutSubscriber = {
       deliverData(channel, frame, senderPeerId) {
         fanout.leave(CHANNEL_A, b.peerId);
