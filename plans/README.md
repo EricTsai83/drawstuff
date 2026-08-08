@@ -28,7 +28,7 @@ merge algorithm，皆不在這組計畫內。
 完成條件，其餘狀態都不代表已完成。
 
 **表格的排列即為執行順序**：已結束的（`Completed`／`Skipped`）依 plan 編號排在上半，
-未完成的 5 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
+未完成的 4 份依「接下來該做的順序」排在下半，且該順序已滿足所有依賴。上半只是紀錄，
 從 Plan 29 那一列往下讀就是待辦。
 
 | Plan                                              | 執行狀態                  | 結果                                                    | 依賴               |
@@ -63,9 +63,9 @@ merge algorithm，皆不在這組計畫內。
 | [25](./25-relay-drain-and-deployment-envelope.md) | Completed（2026-08-06）   | Graceful drain、max-memory watchdog 與單 instance 封套  | 19                 |
 | [32](./32-collaboration-client-telemetry.md)      | Skipped — 改走 Sentry     | 共編 telemetry 不自建，之後需要監控時接 Sentry          | 24、30             |
 | [28](./28-room-scoped-retention.md)               | Completed（2026-08-06）   | 回收結束／過期 room 的 snapshot 與 asset                | 19、23             |
+| [34](./34-room-key-confirmation.md)               | Completed（2026-08-07）   | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |
 | [29](./29-collaboration-load-test-and-runbook.md) | Blocked — §6 缺口（原 32）| Load test 六情境、runbook 與 drill                      | 19、24、25、32     |
 | [27](./27-collaboration-backend-rate-limits.md)   | Blocked — 等 Redis 開通   | 共編後端入口的速率限制                                  | 19                 |
-| [34](./34-room-key-confirmation.md)               | Ready                     | 加入時確認金鑰，錯誤連結不得汙染 room snapshot          | 26、30             |
 | [20](./20-staged-rollout.md)                      | Blocked — 28、29          | 以 feature flag 漸進開放並可回滾                        | 28、29             |
 | [33](./33-peer-scoped-collaboration-identity.md)  | Ready                     | 身分收斂到 `peerId`，移除 client 選定的 `clientId`      | 31                 |
 
@@ -77,8 +77,9 @@ merge algorithm，皆不在這組計畫內。
 2026-08-06 決定改走 Sentry（見下方註記），同日定案為 Plan 27 引入 Redis 做速率限制的
 共享計數——剩下的阻塞只是資源申請與開通，開通後 27 即為 Ready。**33 排在最後**，因為它是唯一
 不擋 Plan 20 的一份。**34 排在 20 之前**：它關掉的是「錯誤連結把 room 的 snapshot 寫成沒有人
-打得開」，受害的是拿正確連結的人，而 schema 變更的成本隨活資料上升——現在稽核 0 筆 room，改動
-成本為零。Plan 20 之前若決定延後 27（後端入口無速率上界）或 34，必須明確承擔對應風險。
+打得開」，受害的是拿正確連結的人，而 schema 變更的成本隨活資料上升——稽核 0 筆 room 時改動
+成本為零，已於 2026-08-07 完成。Plan 20 之前若決定延後 27（後端入口無速率上界），必須明確
+承擔對應風險。
 
 2026-08-06：原 Plan 19「完成 production hardening」被拆分。它涵蓋 9 個 step、實際上是
 六個以上的 PR，違反本節開頭「每份 plan 對應一個可獨立 review、驗證與回滾的 PR」。Plan 19
