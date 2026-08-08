@@ -22,7 +22,7 @@ import {
   verifyJoinToken,
   verifyRoomControlToken,
 } from "../src/room-token.ts";
-import { CLIENT_A, CLIENT_B, ROOM_ID } from "./helpers.ts";
+import { ROOM_ID } from "./helpers.ts";
 import { roomIdSchema } from "../src/protocol.ts";
 
 const SECRET = "join-token-secret-for-unit-tests-0123456789";
@@ -38,7 +38,6 @@ const claims = (overrides: Partial<JoinTokenClaims> = {}): JoinTokenClaims => ({
   rid: ROOM_ID,
   gen: 1,
   sub: "user-1",
-  cid: CLIENT_A,
   role: "editor",
   arev: 1,
   rexp: NOW_SECONDS + 3_600,
@@ -51,7 +50,6 @@ const verify = (token: string, nowSeconds = NOW_SECONDS) =>
     secret: SECRET,
     nowSeconds,
     expectedRoomId: ROOM_ID,
-    expectedClientId: CLIENT_A,
   });
 
 const payloadOf = (token: string): Record<string, unknown> =>
@@ -122,7 +120,6 @@ describe("join tokens", () => {
         secret: weak,
         nowSeconds: NOW_SECONDS,
         expectedRoomId: ROOM_ID,
-        expectedClientId: CLIENT_A,
       }),
     ).toThrow(/at least/i);
   });
@@ -182,15 +179,12 @@ describe("join tokens", () => {
     expect(verify(token)).toEqual({ ok: false, reason: "invalid-claims" });
   });
 
-  it("binds the token to one room and one client instance", () => {
+  it("binds the token to one room", () => {
     const otherRoom = signJoinToken(
       claims({ rid: roomIdSchema.parse("room-beta") }),
       SECRET,
     );
     expect(verify(otherRoom)).toEqual({ ok: false, reason: "wrong-room" });
-
-    const otherClient = signJoinToken(claims({ cid: CLIENT_B }), SECRET);
-    expect(verify(otherClient)).toEqual({ ok: false, reason: "wrong-client" });
   });
 
   it("rejects a control token presented as a join token", () => {

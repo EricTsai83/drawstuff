@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket as WsClient } from "ws";
 
 import {
-  clientIdSchema,
+  COLLABORATION_PROTOCOL_VERSION,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
 import {
@@ -43,8 +43,8 @@ import {
  */
 
 const ROOM_ID = roomIdSchema.parse("room-observability");
-const CLIENT_A = clientIdSchema.parse("client-a");
-const CLIENT_B = clientIdSchema.parse("client-b");
+const CLIENT_A = "client-a";
+const CLIENT_B = "client-b";
 const SUBJECT_A = "user-observability-a";
 /** Presence carries this; the relay must never be able to write it down. */
 const USERNAME_A = "Ada Lovelace";
@@ -87,7 +87,7 @@ async function startServer(
 
 async function client(
   url: string,
-  clientId: typeof CLIENT_A,
+  clientName: string,
   nonceSeed: number,
   overrides: {
     role?: "owner" | "editor" | "viewer";
@@ -98,7 +98,7 @@ async function client(
   const testClient = await createTestClient({
     url,
     roomId: ROOM_ID,
-    clientId,
+    clientName,
     nonceSeed,
     ...overrides,
   });
@@ -152,12 +152,10 @@ const joinRawViewer = async (
   socket.send(
     encodeRelayControl({
       control: "join",
-      protocolVersion: 1,
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       token: issueJoinToken({
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         role: "viewer",
         subject: SUBJECT_A,
         issuedAtSeconds: Math.floor(Date.now() / 1000),
@@ -434,12 +432,10 @@ describe("relay metrics from a real session", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_A,
           issuedAtSeconds: Math.floor(Date.now() / 1000),
         }),
       }),
@@ -467,14 +463,13 @@ describe("relay telemetry data classification", () => {
     const { server, logs, routed } = await startServer({ logFrames: true });
     const joinToken = issueJoinToken({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       subject: SUBJECT_A,
       issuedAtSeconds: Math.floor(Date.now() / 1000),
     });
     const a = await createTestClient({
       url: server.url,
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
+      clientName: CLIENT_A,
       nonceSeed: 1,
       subject: SUBJECT_A,
       username: USERNAME_A,
@@ -520,19 +515,18 @@ describe("relay telemetry data classification", () => {
     // The exposition additionally carries no room-scoped identifier at all, so a
     // scrape cannot enumerate rooms or members.
     expect(exposition).not.toContain(ROOM_ID);
-    expect(exposition).not.toContain(CLIENT_A);
 
-    // What the logs *do* carry: the app-generated identifiers, plus pseudonyms in
-    // place of both caller-supplied ones.
+    // What the logs *do* carry: relay-generated or token-verified fields only —
+    // the app's identifiers, the relay's own peer id, and a pseudonym in place
+    // of the authenticated subject.
     const join = logs.recordsOf("relay.join")[0];
     expect(join).toMatchObject({
       roomId: ROOM_ID,
       authGeneration: 1,
       role: "editor",
     });
+    expect(typeof join?.peerId).toBe("string");
     expect(join?.subject).toBe(logs.logger.pseudonym(SUBJECT_A));
-    expect(join?.client).toBe(logs.logger.pseudonym(CLIENT_A));
-    expect(join).not.toHaveProperty("clientId");
     expect(logs.recordsOf("relay.frame").length).toBeGreaterThan(0);
     expect(logs.recordsOf("relay.frame")[0]).toMatchObject({
       channel: "scene",
@@ -575,11 +569,11 @@ describe("relay telemetry data classification", () => {
   });
 
   it("logs no identifier a client chose before its token bound them", async () => {
-    // `roomIdSchema`/`clientIdSchema` accept 1-64 base64url characters, and a
-    // room key is 43 characters from the same alphabet — so a room key is a
-    // *valid* room id. A client can therefore put key material in either field
-    // and force a verification failure to get it written to the relay's log,
-    // unless the refusal path logs no client-chosen identifier at all.
+    // `roomIdSchema` accepts 1-64 base64url characters, and a room key is 43
+    // characters from the same alphabet — so a room key is a *valid* room id.
+    // A client can therefore put key material in the field and force a
+    // verification failure to get it written to the relay's log, unless the
+    // refusal path logs no client-chosen identifier at all.
     const { server, logs } = await startServer();
     const socket = await openRawSocket(server.url);
     const closed = new Promise<number>((resolve) =>
@@ -588,13 +582,11 @@ describe("relay telemetry data classification", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
-        // The room key, verbatim, in both identifier fields.
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        // The room key, verbatim, as the room id.
         roomId: roomIdSchema.parse(TEST_ROOM_KEY),
-        clientId: clientIdSchema.parse(TEST_ROOM_KEY),
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: CLIENT_A,
           issuedAtSeconds: Math.floor(Date.now() / 1000),
         }),
       }),
@@ -604,49 +596,8 @@ describe("relay telemetry data classification", () => {
     const refusal = logs.recordsOf("relay.join_refused")[0];
     expect(refusal).toMatchObject({ tokenFailure: "wrong-room" });
     expect(refusal).not.toHaveProperty("roomId");
-    expect(refusal).not.toHaveProperty("client");
     expect(logs.lines().join("")).not.toContain(TEST_ROOM_KEY);
     expect(server.renderMetrics()).not.toContain(TEST_ROOM_KEY);
-  });
-
-  it("logs no room key even when a *valid* token carries it as the client id", async () => {
-    // The pre-verification rule is not enough on its own. `collaborationRoom.join`
-    // takes `clientId` from the caller (`z.string().pipe(clientIdSchema)`) and
-    // signs it as given, so an authorized member can obtain a genuinely valid
-    // token whose client id is its own room key. Logging the *verified* value
-    // would then write key material to the log, which is why the client id is
-    // pseudonymized rather than recorded.
-    const { server, logs } = await startServer({ logFrames: true });
-    const keyAsClientId = clientIdSchema.parse(TEST_ROOM_KEY);
-    const a = await createTestClient({
-      url: server.url,
-      roomId: ROOM_ID,
-      clientId: keyAsClientId,
-      nonceSeed: 5,
-      subject: SUBJECT_A,
-    });
-    cleanups.push(() => a.close());
-    await a.connect();
-    a.upsertElement("el-1", "joined with a key-shaped client id");
-    await waitUntil(
-      () => logs.recordsOf("relay.join").length > 0,
-      "the join to be logged",
-    );
-
-    // The join really did succeed, so this is the post-verification path.
-    expect(server.sessionCount()).toBe(1);
-    const join = logs.recordsOf("relay.join")[0];
-    expect(join?.client).toBe(logs.logger.pseudonym(keyAsClientId));
-    expect(logs.lines().join("")).not.toContain(TEST_ROOM_KEY);
-    expect(server.renderMetrics()).not.toContain(TEST_ROOM_KEY);
-
-    // And it stays out of the close record too.
-    a.disconnect();
-    await waitUntil(
-      () => logs.recordsOf("relay.connection_closed").length > 0,
-      "the close to be logged",
-    );
-    expect(logs.lines().join("")).not.toContain(TEST_ROOM_KEY);
   });
 
   it("records a refused join by its enumerated reason, never by token content", async () => {
@@ -659,7 +610,6 @@ describe("relay telemetry data classification", () => {
     });
     const forged = `${issueJoinToken({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       issuedAtSeconds: Math.floor(Date.now() / 1000),
     })}tampered`;
     const closed = new Promise<number>((resolve) =>
@@ -668,9 +618,8 @@ describe("relay telemetry data classification", () => {
     socket.send(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         token: forged,
       }),
     );

@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { clientIdSchema, roomIdSchema, type RoomId } from "./messages.ts";
+import { roomIdSchema, type RoomId } from "./messages.ts";
 
 /**
  * Room authorization contract shared by the Drawstuff app (the only token
@@ -50,7 +50,7 @@ export const roomAuthRevisionSchema = z.int().positive();
 /**
  * Authorization generation of a room, assigned and stored by the app. It is
  * NOT the relay's `roomGeneration`: that one is a per-connection session epoch
- * the relay mints in memory (Plan 12) so stale frames from an earlier socket
+ * the relay mints in memory so stale frames from an earlier socket
  * are rejected. This one is durable and only advances when the room's
  * authorization — and later its encryption key — must be invalidated.
  */
@@ -116,9 +116,14 @@ const commonClaims = {
 };
 
 /**
- * Join token. Bound to one room, one authorization generation, one user, one
- * client instance and one role, so it cannot be replayed into another room or
- * lent to a second editor instance.
+ * Join token. Bound to one room, one authorization generation, one user and
+ * one role, so it cannot be replayed into another room or used past a
+ * revocation. Deliberately not bound to an editor instance: the only
+ * per-connection identity is the relay-assigned `peerId`, so no client-chosen
+ * string is ever signed — which is what keeps key material out of the claims
+ * (threat model T13). Another tab of the same user could reuse an unexpired
+ * token, but that user can mint another token at will, so the binding never
+ * separated two principals.
  */
 export const joinTokenClaimsSchema = z.strictObject({
   ...commonClaims,
@@ -126,7 +131,6 @@ export const joinTokenClaimsSchema = z.strictObject({
   rid: roomIdSchema,
   gen: roomAuthGenerationSchema,
   sub: subjectSchema,
-  cid: clientIdSchema,
   role: roomRoleSchema,
   /** Authorization revision this token was issued under. */
   arev: roomAuthRevisionSchema,
@@ -188,7 +192,6 @@ export const roomTokenClaimKeys = {
     "rid",
     "gen",
     "sub",
-    "cid",
     "role",
     "arev",
     "rexp",

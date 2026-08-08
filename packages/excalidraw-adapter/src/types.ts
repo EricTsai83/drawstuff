@@ -39,7 +39,7 @@ export type ExcalidrawCanvasProps = Pick<
   | "theme"
   | "UIOptions"
   | "validateEmbeddable"
-  // Viewer-role collaboration renders the editor read-only (Plan 13).
+  // Viewer-role collaboration renders the editor read-only.
   | "viewModeEnabled"
 >;
 

@@ -4,7 +4,6 @@ import {
 } from "./codec.ts";
 import {
   peerIdSchema,
-  type ClientId,
   type CollaborationMessage,
   type PeerId,
   type RoomId,
@@ -114,9 +113,7 @@ export interface FakeCollaborationNetwork {
 interface FakeTransportInternal {
   readonly subscribers: Set<TransportSubscriber>;
   readonly role: RoomRole;
-  session:
-    | { roomId: RoomId; clientId: ClientId; peerId: PeerId; generation: number }
-    | undefined;
+  session: { roomId: RoomId; peerId: PeerId; generation: number } | undefined;
   closed: boolean;
   /** Why the last session ended; mirrors the real transport's contract. */
   disconnectReason: DisconnectReason;
@@ -125,7 +122,6 @@ interface FakeTransportInternal {
 interface RoomMember {
   readonly transport: FakeTransportInternal;
   readonly peerId: PeerId;
-  readonly clientId: ClientId;
 }
 
 interface RoomState {
@@ -189,9 +185,8 @@ export function createFakeCollaborationNetwork(
   const notifyMembership = (room: RoomState): void => {
     for (const member of room.members) {
       const peers: readonly RoomPeer[] = room.members.map(
-        ({ peerId, clientId, transport }) => ({
+        ({ peerId, transport }) => ({
           peerId,
-          clientId,
           role: transport.role,
         }),
       );
@@ -213,7 +208,6 @@ export function createFakeCollaborationNetwork(
     return {
       status: "connected",
       roomId: transport.session.roomId,
-      clientId: transport.session.clientId,
       peerId: transport.session.peerId,
       roomGeneration: transport.session.generation,
       role: transport.role,
@@ -261,7 +255,6 @@ export function createFakeCollaborationNetwork(
     if (
       message.roomId !== session.roomId ||
       message.senderPeerId !== session.peerId ||
-      message.senderClientId !== session.clientId ||
       message.roomGeneration !== session.generation
     ) {
       return { ok: false, error: { code: "stale-session" } };
@@ -298,7 +291,7 @@ export function createFakeCollaborationNetwork(
 
       const transport: CollaborationTransport = {
         getConnectionState: () => connectionStateOf(internal),
-        connect({ roomId, clientId, joinToken }) {
+        connect({ roomId, joinToken }) {
           if (internal.closed) {
             throw new Error("Transport is closed");
           }
@@ -321,11 +314,10 @@ export function createFakeCollaborationNetwork(
           const peerId = peerIdSchema.parse(`peer-${nextPeerNumber++}`);
           internal.session = {
             roomId,
-            clientId,
             peerId,
             generation: room.generation,
           };
-          room.members.push({ transport: internal, peerId, clientId });
+          room.members.push({ transport: internal, peerId });
           notifyConnectionState(internal);
           notifyMembership(room);
         },

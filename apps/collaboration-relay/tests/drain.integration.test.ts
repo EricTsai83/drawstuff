@@ -3,10 +3,7 @@ import { connect as netConnect, type Socket } from "node:net";
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket as WsClient } from "ws";
 
-import {
-  clientIdSchema,
-  roomIdSchema,
-} from "@drawstuff/collaboration/protocol";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
   disconnectReasonForCloseCode,
   RELAY_CLOSE_CODES,
@@ -30,8 +27,8 @@ import {
  */
 
 const ROOM_ID = roomIdSchema.parse("room-drain");
-const CLIENT_A = clientIdSchema.parse("client-a");
-const CLIENT_B = clientIdSchema.parse("client-b");
+const CLIENT_A = "client-a";
+const CLIENT_B = "client-b";
 
 const cleanups: (() => void | Promise<void>)[] = [];
 afterEach(async () => {
@@ -55,13 +52,13 @@ async function startServer(
 
 async function joinedClient(
   url: string,
-  clientId: typeof CLIENT_A,
+  clientName: string,
   nonceSeed: number,
 ): Promise<TestClient> {
   const testClient = await createTestClient({
     url,
     roomId: ROOM_ID,
-    clientId,
+    clientName,
     nonceSeed,
   });
   cleanups.push(() => testClient.close());

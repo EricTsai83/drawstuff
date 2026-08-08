@@ -1,9 +1,9 @@
 import {
   COLLABORATION_PROTOCOL_VERSION,
   createInboundMessageGate,
-  type ClientId,
   type CollaborationMessage,
   type InboundMessageGate,
+  type PeerId,
   type PresenceMessage,
   type RoomId,
   type SceneMessage,
@@ -165,7 +165,7 @@ export type SceneSizeOverflow = {
  * terminal — both clear as soon as a send or a write is accepted, so removing
  * content restores sync without a reconnect.
  *
- * The size contracts themselves are Plan 12/15 decisions and are not relaxed
+ * The size contracts are locked protocol/snapshot decisions and are not relaxed
  * here: this is what the client does once one of them is hit.
  */
 export type SceneSyncBlock = {
@@ -268,7 +268,6 @@ export type JoinCredentialsResult =
 export type CollaborationSessionOptions = {
   transport: CollaborationTransport;
   roomId: RoomId;
-  clientId: ClientId;
   /**
    * Short-lived join token from `collaborationRoom.join`, already minted for the
    * first attempt. The session never decides its own role: the granted role comes
@@ -288,6 +287,12 @@ export type CollaborationSessionOptions = {
    * revoked member's reconnect fail where it should, at authorization time.
    */
   refreshJoinToken: () => Promise<JoinCredentialsResult>;
+  /**
+   * Display name carried in presence. Empty means unnamed: the session falls
+   * back to `guest-<peerId suffix>` per connection, because the peer id — the
+   * only collaboration identity — is assigned by the relay and
+   * does not exist until the join completes.
+   */
   username: string;
   sceneApi: CollaborationSceneApi;
   /**
@@ -450,7 +455,6 @@ export function createCollaborationSession(
   const {
     transport,
     roomId,
-    clientId,
     joinToken,
     authGeneration,
     refreshJoinToken,
@@ -567,9 +571,11 @@ export function createCollaborationSession(
   let lastSelectedElementIds: readonly string[] = [];
   let idleState: CollaborationIdleState = "active";
 
-  /** Latest presence per collaborator client; replaced wholesale on apply so
-   *  the engine always receives a fresh Map. Bounded by room membership. */
-  const collaborators = new Map<ClientId, Collaborator>();
+  /** Latest presence per collaborator peer; replaced wholesale on apply so
+   *  the engine always receives a fresh Map. Bounded by room membership. A
+   *  reconnect is a new peer, so its cursor is rebuilt rather than carried
+   *  over — the same behaviour as upstream's socket-keyed collaborators. */
+  const collaborators = new Map<PeerId, Collaborator>();
 
   /**
    * Size-blocked publish paths; see `SceneSyncBlock`. Held as two independent
@@ -643,7 +649,7 @@ export function createCollaborationSession(
   const beginAttempt = (): void => {
     recovery.start();
     notifyRecovery();
-    transport.connect({ roomId, clientId, joinToken: credentials.token });
+    transport.connect({ roomId, joinToken: credentials.token });
   };
 
   /**
@@ -752,7 +758,7 @@ export function createCollaborationSession(
         token: refreshed.token,
         authGeneration: refreshed.authGeneration,
       };
-      transport.connect({ roomId, clientId, joinToken: credentials.token });
+      transport.connect({ roomId, joinToken: credentials.token });
     })();
   };
 
@@ -768,7 +774,6 @@ export function createCollaborationSession(
     | "messageId"
     | "roomId"
     | "roomGeneration"
-    | "senderClientId"
     | "senderPeerId"
     | "sequence"
   >;
@@ -781,15 +786,14 @@ export function createCollaborationSession(
     messageId: nextMessageId(),
     roomId: session.roomId,
     roomGeneration: session.roomGeneration,
-    senderClientId: session.clientId,
     senderPeerId: session.peerId,
     sequence,
   });
 
   const applyCollaborators = (): void => {
     const next = new Map<SocketId, Collaborator>();
-    for (const [collaboratorClientId, collaborator] of collaborators) {
-      next.set(collaboratorClientId as unknown as SocketId, collaborator);
+    for (const [collaboratorPeerId, collaborator] of collaborators) {
+      next.set(collaboratorPeerId as unknown as SocketId, collaborator);
     }
     wrapRemoteApply(() => {
       sceneApi.updateScene({ collaborators: next });
@@ -817,7 +821,7 @@ export function createCollaborationSession(
    *
    * `oversize-payload` is the case that neither self-heals nor ends the session,
    * so it is the one that has to be *reported*. The scene is past the locked
-   * per-message contract (Plan 12), which the relay enforces too, so no amount of
+   * per-message contract, which the relay enforces too, so no amount of
    * retrying will get it through — but the session is otherwise healthy, and the
    * fix is a local edit away. Keeping the connection and announcing that outbound
    * sync has stopped is therefore the honest state; terminating would throw away
@@ -1025,7 +1029,7 @@ export function createCollaborationSession(
       payload: {
         pointer: lastPointer,
         button: lastButton,
-        username,
+        username: username || `guest-${connected.peerId.slice(-4)}`,
         selectedElementIds: [...lastSelectedElementIds],
         idleState,
       },
@@ -1055,8 +1059,8 @@ export function createCollaborationSession(
       username: message.payload.username,
       selectedElementIds,
       userState: USER_IDLE_STATE_BY_PRESENCE[message.payload.idleState],
-      id: message.senderClientId,
-      socketId: message.senderClientId as unknown as SocketId,
+      id: message.senderPeerId,
+      socketId: message.senderPeerId as unknown as SocketId,
     };
   };
 
@@ -1429,7 +1433,7 @@ export function createCollaborationSession(
         noteSnapshotWritten();
         return;
       }
-      // The scene is past the locked snapshot contract (Plan 15), so every
+      // The scene is past the locked snapshot contract, so every
       // remaining tick — and the leave flush that is the room's last chance to
       // persist anything — will be refused for the same reason. Unlike a failed
       // request this is not something waiting fixes, so it is surfaced instead of
@@ -1540,7 +1544,14 @@ export function createCollaborationSession(
     if (message.type === "presence") {
       // Presence never enters the barrier: it carries no scene state, so holding
       // it would only make other people's cursors lag behind the join.
-      collaborators.set(message.senderClientId, toCollaborator(message));
+      //
+      // Only from current members: presence settles asynchronously (decryption
+      // queue) while membership updates synchronously, so a frame queued before
+      // a peer left can land after the prune. Re-inserting it would resurrect
+      // the departed cursor — and since a reconnect is a new peerId, nothing
+      // would ever overwrite the stale key until the next membership change.
+      if (!knownPeerIds.has(message.senderPeerId)) return;
+      collaborators.set(message.senderPeerId, toCollaborator(message));
       applyCollaborators();
       return;
     }
@@ -1587,9 +1598,7 @@ export function createCollaborationSession(
       lastFullSceneSyncAt = Number.NEGATIVE_INFINITY;
       lastPresenceSentAt = Number.NEGATIVE_INFINITY;
       knownPeerIds = new Set([state.peerId]);
-      roomPeers = [
-        { peerId: state.peerId, clientId: state.clientId, role: state.role },
-      ];
+      roomPeers = [{ peerId: state.peerId, role: state.role }];
       snapshotRevision = SNAPSHOT_NO_REVISION;
       snapshotBaselineKnown = false;
       lastSnapshotDigest = undefined;
@@ -1632,11 +1641,10 @@ export function createCollaborationSession(
     knownPeerIds = new Set(peers.map((peer) => peer.peerId));
     roomPeers = peers;
 
-    const activeClientIds = new Set(peers.map((peer) => peer.clientId));
     let membershipChanged = false;
-    for (const collaboratorClientId of [...collaborators.keys()]) {
-      if (!activeClientIds.has(collaboratorClientId)) {
-        collaborators.delete(collaboratorClientId);
+    for (const collaboratorPeerId of [...collaborators.keys()]) {
+      if (!knownPeerIds.has(collaboratorPeerId)) {
+        collaborators.delete(collaboratorPeerId);
         membershipChanged = true;
       }
     }

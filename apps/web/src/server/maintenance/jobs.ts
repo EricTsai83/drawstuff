@@ -186,7 +186,7 @@ export type UnreferencedAssetGcOptions = {
 
 /**
  * Reclaims `file_record` rows (and their storage objects) that the committed
- * scene document no longer references — the accumulation Plan 16's identity
+ * scene document no longer references — the accumulation that canonical asset identity
  * change surfaced. Shares `readReferencedSceneAssetIds` with save-time
  * validation and aborted-save cleanup so "referenced" has exactly one meaning,
  * and takes the same scene row lock so it serializes with both.
@@ -307,7 +307,7 @@ export type RoomRetentionOptions = {
    * Asset objects enqueued per run. The drain that runs after this job is
    * itself bounded (`maxTasks` defaults to 500), so a run must not enqueue
    * more than the same run's drain can take — otherwise reclaimed objects sit
-   * in the queue for weeks of weekly crons, the exact mismatch Plan 23 fixed.
+   * in the queue for weeks of weekly crons, recreating the producer/drain mismatch this job fixed.
    * The default leaves the drain headroom for other jobs' enqueues.
    */
   maxAssetObjects?: number;
@@ -315,7 +315,7 @@ export type RoomRetentionOptions = {
 
 /**
  * Reclaims the durable data of rooms that ended or expired past the grace
- * period — the Plan 15/17 gap: generations retire within a room, but nothing
+ * period: generations retire within a room, but nothing
  * ever retired the room itself, so snapshots (Postgres ciphertext) and asset
  * objects (storage) accumulated at the rate rooms were opened.
  *
@@ -538,7 +538,7 @@ export type QueueDrainOptions = {
 
 /**
  * Bounded queue drain. Replaces the fixed take-50: one run clears a normal
- * backlog (the Plan 16 cleanup left 262 keys waiting ~6 weekly runs), while
+ * backlog (the historical duplicate cleanup left 262 keys waiting ~6 weekly runs), while
  * the task, batch and wall-clock caps keep it finite. Runs last so keys
  * enqueued by earlier jobs in the same run are processed immediately.
  */

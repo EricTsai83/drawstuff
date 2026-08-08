@@ -12,8 +12,6 @@ import type {
 } from "../src/transport.ts";
 import {
   asMessage,
-  CLIENT_A,
-  CLIENT_B,
   connectedState,
   element,
   JOIN_TOKEN,
@@ -27,10 +25,9 @@ const setupPair = () => {
   const network = createFakeCollaborationNetwork();
   const first = network.createTransport();
   const second = network.createTransport();
-  first.connect({ roomId: ROOM_ID, clientId: CLIENT_A, joinToken: JOIN_TOKEN });
+  first.connect({ roomId: ROOM_ID, joinToken: JOIN_TOKEN });
   second.connect({
     roomId: ROOM_ID,
-    clientId: CLIENT_B,
     joinToken: JOIN_TOKEN,
   });
   return { network, first, second };
@@ -52,7 +49,6 @@ describe("fake collaboration network", () => {
     expect(firstState.roomGeneration).toBe(1);
     expect(secondState.roomGeneration).toBe(1);
     expect(firstState.peerId).not.toBe(secondState.peerId);
-    expect(firstState.clientId).toBe(CLIENT_A);
   });
 
   it("reports room membership to every member as peers join and leave", () => {
@@ -63,21 +59,21 @@ describe("fake collaboration network", () => {
 
     first.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
+    const firstPeerId = connectedState(first).peerId;
     const second = network.createTransport();
     second.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_B,
       joinToken: JOIN_TOKEN,
     });
+    const secondPeerId = connectedState(second).peerId;
     second.disconnect();
 
-    expect(rosters.map((peers) => peers.map((peer) => peer.clientId))).toEqual([
-      [CLIENT_A],
-      [CLIENT_A, CLIENT_B],
-      [CLIENT_A],
+    expect(rosters.map((peers) => peers.map((peer) => peer.peerId))).toEqual([
+      [firstPeerId],
+      [firstPeerId, secondPeerId],
+      [firstPeerId],
     ]);
   });
 
@@ -103,13 +99,11 @@ describe("fake collaboration network", () => {
     const receivers = [network.createTransport(), network.createTransport()];
     sender.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     const inboxes = receivers.map((receiver) => {
       receiver.connect({
         roomId: ROOM_ID,
-        clientId: CLIENT_B,
         joinToken: JOIN_TOKEN,
       });
       return collectMessages(receiver);
@@ -170,7 +164,6 @@ describe("fake collaboration network", () => {
     });
     first.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
 
@@ -209,12 +202,10 @@ describe("fake collaboration network", () => {
     const second = network.createTransport();
     first.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     second.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_B,
       joinToken: JOIN_TOKEN,
     });
     const state = connectedState(first);
@@ -267,7 +258,6 @@ describe("fake collaboration network", () => {
     const third = network.createTransport();
     third.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
 
@@ -295,7 +285,6 @@ describe("fake collaboration network", () => {
 
     first.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     expect(connectedState(first).roomGeneration).toBe(2);
@@ -347,12 +336,10 @@ describe("fake collaboration network", () => {
     const second = network.createTransport();
     first.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     second.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_B,
       joinToken: JOIN_TOKEN,
     });
     const states: ConnectionState["status"][] = [];
@@ -364,7 +351,6 @@ describe("fake collaboration network", () => {
           try {
             first.connect({
               roomId: ROOM_ID,
-              clientId: CLIENT_A,
               joinToken: JOIN_TOKEN,
             });
           } catch (error) {
@@ -380,7 +366,9 @@ describe("fake collaboration network", () => {
 
     expect(states).toEqual(["closed"]);
     expect(reconnectError).toBeInstanceOf(Error);
-    expect(rosters.at(-1)?.map((peer) => peer.clientId)).toEqual([CLIENT_B]);
+    expect(rosters.at(-1)?.map((peer) => peer.peerId)).toEqual([
+      connectedState(second).peerId,
+    ]);
   });
 
   it("queues messages sent from subscriber callbacks for the next flush", () => {
@@ -419,7 +407,6 @@ describe("fake collaboration network", () => {
 
     transport.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     transport.disconnect();
@@ -429,7 +416,6 @@ describe("fake collaboration network", () => {
     expect(() =>
       transport.connect({
         roomId: ROOM_ID,
-        clientId: CLIENT_A,
         joinToken: JOIN_TOKEN,
       }),
     ).toThrow(/closed/);
@@ -442,7 +428,6 @@ describe("fake collaboration network", () => {
     })();
     late.connect({
       roomId: ROOM_ID,
-      clientId: CLIENT_A,
       joinToken: JOIN_TOKEN,
     });
     expect(lateStates).toEqual([]);

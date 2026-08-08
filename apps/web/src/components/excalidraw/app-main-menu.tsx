@@ -61,7 +61,7 @@ type AppMainMenuProps = {
  * Skeleton for the native `MainMenu` slot: it owns the menu composition, the
  * dialogs that must stay mounted outside the menu, and nothing else. Adding a
  * product action means adding one item component under `./main-menu/` and
- * mounting it here — see docs/architecture/05-native-ui-integration-contract.md.
+ * mounting it here — see docs/architecture/native-ui-integration-contract.md.
  */
 function AppMainMenu({
   userChosenTheme,

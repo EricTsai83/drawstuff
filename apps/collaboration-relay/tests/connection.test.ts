@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  clientIdSchema,
+  COLLABORATION_PROTOCOL_VERSION,
   peerIdSchema,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
@@ -149,21 +149,20 @@ function setup(
       token?: string;
     } = {},
   ): void => {
-    const clientId = clientIdSchema.parse(joinOptions.clientName ?? "client-a");
     connection.handleTextFrame(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId,
         token:
           joinOptions.token ??
           issueJoinToken({
             roomId: ROOM_ID,
-            clientId,
             role: joinOptions.role,
             authGeneration: joinOptions.authGeneration,
-            subject: joinOptions.subject,
+            subject:
+              joinOptions.subject ??
+              `user-${joinOptions.clientName ?? "client-a"}`,
             roomExpiresAtSeconds: joinOptions.roomExpiresAtSeconds,
           }),
       }),
@@ -206,9 +205,7 @@ describe("createRelayConnection", () => {
     expect(ack.roomGeneration).toBe(1_000);
     // The role in the membership snapshot comes from the verified token, so a
     // client's elections agree with what the relay actually enforces.
-    expect(ack.peers).toEqual([
-      { peerId: ack.peerId, clientId: "client-a", role: ack.role },
-    ]);
+    expect(ack.peers).toEqual([{ peerId: ack.peerId, role: ack.role }]);
   });
 
   it("closes on malformed and oversize control frames", () => {
@@ -385,12 +382,15 @@ describe("createRelayConnection", () => {
     a.join({ clientName: "client-a" });
     b.join({ clientName: "client-b" });
 
+    const bAck = parseRelayServerControl(b.socket.sentText[0] ?? "");
+    if (bAck?.control !== "joined") throw new Error("expected joined ack");
+
     a.connection.handleSocketClosed();
     expect(fanout.memberCount(ROOM_CHANNEL)).toBe(1);
     const lastPeers = parseRelayServerControl(b.socket.sentText.at(-1) ?? "");
     expect(lastPeers?.control).toBe("peers");
     if (lastPeers?.control !== "peers") throw new Error("expected peers");
-    expect(lastPeers.peers.map((peer) => peer.clientId)).toEqual(["client-b"]);
+    expect(lastPeers.peers.map((peer) => peer.peerId)).toEqual([bAck.peerId]);
   });
 
   it("closes sockets that never join within the deadline", () => {
@@ -433,7 +433,6 @@ describe("relay connection authorization", () => {
       () =>
         issueJoinToken({
           roomId: ROOM_ID,
-          clientId: clientIdSchema.parse("client-a"),
           secret: "an-entirely-different-secret-0123456789",
         }),
     ],
@@ -442,7 +441,6 @@ describe("relay connection authorization", () => {
       () => {
         const token = issueJoinToken({
           roomId: ROOM_ID,
-          clientId: clientIdSchema.parse("client-a"),
           role: "viewer",
         });
         const [payload = "", signature = ""] = token.split(".");
@@ -461,7 +459,6 @@ describe("relay connection authorization", () => {
       () =>
         issueJoinToken({
           roomId: ROOM_ID,
-          clientId: clientIdSchema.parse("client-a"),
           issuedAtSeconds: TEST_NOW_SECONDS - 3_600,
           ttlSeconds: 60,
         }),
@@ -471,15 +468,6 @@ describe("relay connection authorization", () => {
       () =>
         issueJoinToken({
           roomId: roomIdSchema.parse("room-other"),
-          clientId: clientIdSchema.parse("client-a"),
-        }),
-    ],
-    [
-      "a token minted for another client instance",
-      () =>
-        issueJoinToken({
-          roomId: ROOM_ID,
-          clientId: clientIdSchema.parse("client-zzz"),
         }),
     ],
     ["a token that is not a token at all", () => "garbage"],
@@ -499,9 +487,8 @@ describe("relay connection authorization", () => {
     connection.handleTextFrame(
       JSON.stringify({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: "client-a",
       }),
     );
     // No token means the frame does not even parse as a join request.
@@ -589,7 +576,6 @@ describe("relay connection authorization", () => {
       subject: "user-removed",
       token: issueJoinToken({
         roomId: ROOM_ID,
-        clientId: clientIdSchema.parse("client-a"),
         subject: "user-removed",
         authRevision: 1,
       }),
@@ -623,7 +609,6 @@ describe("relay connection authorization", () => {
       subject: "user-guest",
       token: issueJoinToken({
         roomId: ROOM_ID,
-        clientId: clientIdSchema.parse("client-a"),
         subject: "user-guest",
         // Re-granting bumps the revision, so this token outranks the cutoff.
         authRevision: 3,
@@ -679,12 +664,10 @@ describe("relay connection authorization", () => {
     connection.handleTextFrame(
       encodeRelayControl({
         control: "join",
-        protocolVersion: 1,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId: ROOM_ID,
-        clientId: clientIdSchema.parse("client-a"),
         token: issueJoinToken({
           roomId: ROOM_ID,
-          clientId: clientIdSchema.parse("client-a"),
           roomExpiresAtSeconds: TEST_NOW_SECONDS - 1,
         }),
       }),

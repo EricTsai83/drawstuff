@@ -129,7 +129,7 @@ describe("persisted scene restore boundary", () => {
     expectRestoredDefaults(decoded.elements[0]);
   });
 
-  // Tripwire for plans/22-freedraw-pressure-backfill.md: upstream restore does
+  // Tripwire for the stored-data backfill invariant: upstream restore does
   // NOT default `pressures`/`simulatePressure`, and its SVG export silently
   // drops any freedraw stroke missing them. Stored rows were backfilled once;
   // the writer must never strip the pair again.

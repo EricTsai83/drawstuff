@@ -1,5 +1,5 @@
 /**
- * Read-only audit of collaboration room retention (Plan 28).
+ * Read-only audit of collaboration room retention.
  *
  * For every collaboration room, reports whether it is still live, ended, or
  * expired, and what durable data it still holds:

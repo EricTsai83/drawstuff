@@ -7,18 +7,18 @@ import { describe, expect, it } from "vitest";
  * record.
  *
  * The relay already enforces this for itself — `logger.ts` is its only output
- * sink, its field type is a closed allowlist, and `clientId` is pseudonymized
- * there because the value is caller-supplied and `ID_PATTERN` accepts a
- * 43-character room key verbatim. The backend currently satisfies the same rule,
- * but only by accident: the collaboration server paths happen to contain no
- * logging at all.
+ * sink, its field type is a closed allowlist, and caller-supplied values like
+ * the token subject are pseudonymized there. The backend currently satisfies
+ * the same rule, but only by accident: the collaboration server paths happen to
+ * contain no logging at all.
  *
- * An accident is not an invariant. `collaborationRoom.join` takes `clientId`
- * from the caller and signs it as given, so the day someone adds a
+ * An accident is not an invariant. These paths take caller-supplied identifiers
+ * — `roomId`, asset file ids — as given, and `ID_PATTERN` accepts a
+ * 43-character room key verbatim, so the day someone adds a
  * `console.log({ input })` to one of these files — the most ordinary debugging
- * move there is — a room key becomes loggable through a *valid* request. This
- * test is what turns "happens to be true" into "stays true", and it fails on
- * exactly that edit.
+ * move there is — a pasted room key becomes loggable through a *valid* request.
+ * This test is what turns "happens to be true" into "stays true", and it fails
+ * on exactly that edit.
  *
  * Scope is deliberately the collaboration server paths rather than all of
  * `apps/web`: the rest of the app has legitimate logging, and a rule nobody can

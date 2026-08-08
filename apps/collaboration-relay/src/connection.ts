@@ -170,8 +170,6 @@ export function createRelayConnection(options: {
         roomId: string;
         authGeneration: number;
         peerId: PeerId;
-        /** Pseudonym, not the value; see the note where it is computed. */
-        client: string;
         role: RoomRole;
         subject: string;
         joinedAt: number;
@@ -200,7 +198,6 @@ export function createRelayConnection(options: {
       roomId: membership?.roomId,
       authGeneration: membership?.authGeneration,
       peerId: membership?.peerId,
-      client: membership?.client,
       subject: membership?.subject,
       sessionDurationMs: membership
         ? Math.round(elapsedNow() - membership.joinedAt)
@@ -339,16 +336,15 @@ export function createRelayConnection(options: {
         secret: joinTokenSecret,
         nowSeconds: Math.floor(now() / 1000),
         expectedRoomId: control.roomId,
-        expectedClientId: control.clientId,
       });
       if (!verified.ok) {
-        // Only the enumerated verdict, and deliberately *not* `roomId` or
-        // `clientId`: before the token verifies, both are unvalidated client
-        // strings, and `ID_PATTERN` (1–64 base64url characters) accepts a room
-        // key verbatim — a 43-character base64url value. A client could
-        // therefore put key or token material in either field and force a
-        // `wrong-room`/`wrong-client`/`bad-signature` refusal to get it written
-        // to the relay's log, which is exactly what threat model §5 forbids.
+        // Only the enumerated verdict, and deliberately *not* `roomId`: before
+        // the token verifies it is an unvalidated client string, and
+        // `ID_PATTERN` (1–64 base64url characters) accepts a room key verbatim
+        // — a 43-character base64url value. A client could therefore put key
+        // or token material in the field and force a
+        // `wrong-room`/`bad-signature` refusal to get it written to the
+        // relay's log, which is exactly what threat model §5 forbids.
         // Identifiers are logged only once the token has bound them.
         logger.warn("relay.join_refused", { tokenFailure: verified.reason });
         end(
@@ -359,17 +355,10 @@ export function createRelayConnection(options: {
       }
       const { role, gen, sub, arev, rexp } = verified.claims;
       const subject = logger.pseudonym(sub);
-      // The client id is pseudonymized even though the token verified: the token
-      // binds whatever the client asked the app to sign, and `ID_PATTERN` accepts
-      // a room key, so a *valid* token can carry key material here. `roomId` needs
-      // no such treatment — the app generates it and a join only resolves against
-      // an existing room row.
-      const client = logger.pseudonym(control.clientId);
       /** Shared by every refusal below, so a refused join is traceable. */
       const joinContext = {
         roomId: control.roomId,
         authGeneration: gen,
-        client,
         subject,
         role,
       };
@@ -444,7 +433,6 @@ export function createRelayConnection(options: {
       const peerId = generatePeerId();
       const joined = fanout.join({
         channel,
-        clientId: control.clientId,
         peerId,
         role,
         subscriber,
@@ -468,7 +456,6 @@ export function createRelayConnection(options: {
         roomId: control.roomId,
         authGeneration: gen,
         peerId,
-        client,
         role,
         subject,
         joinedAt: elapsedNow(),

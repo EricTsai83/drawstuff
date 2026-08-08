@@ -28,7 +28,7 @@ type DecodedPersistedScene = {
  *
  * Freedraw `pressures`/`simulatePressure` are NOT restored by upstream (its
  * SVG export reads `pressures[i]` unguarded and silently drops the stroke).
- * Stored rows were backfilled once (plans/22-freedraw-pressure-backfill.md);
+ * Stored rows were backfilled before this reader became the only supported path;
  * a round-trip tripwire in excalidraw-persisted-scene-restore.test.ts keeps
  * the writer from ever stripping the pair again.
  *

@@ -17,11 +17,11 @@ import {
   createSceneHost,
   expectConverged,
   JOIN_TOKEN,
+  peerIdOf,
   ROOM_ID,
   type TestClient,
 } from "./support/collab-session-harness";
 import { createCollaborationSession } from "@/lib/collab/collaboration-session";
-import { clientIdSchema } from "@drawstuff/collaboration/protocol";
 import type { ConnectionState } from "@drawstuff/collaboration/transport";
 
 describe("collaboration session over the fake network", () => {
@@ -135,7 +135,7 @@ describe("collaboration session over the fake network", () => {
   });
 
   it("keeps only the newest state for duplicate and out-of-order messages", () => {
-    const raw = createRawSender(harness.network, "client-raw");
+    const raw = createRawSender(harness.network);
     harness.network.flush(); // membership + snapshot exchange
 
     const base = collabRectangle({ id: "rx" });
@@ -162,7 +162,7 @@ describe("collaboration session over the fake network", () => {
   });
 
   it("answers a detected sequence gap with a snapshot exchange", () => {
-    const raw = createRawSender(harness.network, "client-raw");
+    const raw = createRawSender(harness.network);
     harness.network.flush();
     raw.received.length = 0;
 
@@ -223,6 +223,33 @@ describe("collaboration session over the fake network", () => {
     });
   });
 
+  it("drops late presence from a departed peer instead of resurrecting its cursor", () => {
+    alice.session.handlePointerUpdate({
+      pointer: { x: 5, y: 5, tool: "pointer" },
+      button: "up",
+      pointersMap: new Map(),
+    });
+    expect(harness.network.pendingMessageCount()).toBe(1);
+
+    // Membership updates synchronously while the presence frame is still
+    // queued — the same shape as a decryption settling after the prune.
+    alice.session.disconnect();
+    harness.network.flush();
+    expect(bob.host.collaborators.size).toBe(0);
+
+    // A rejoin is a new peerId; the rebuilt cursor must be keyed by it alone,
+    // with no stale entry left under the previous session's identity.
+    alice.session.connect();
+    harness.settle();
+    alice.session.handlePointerUpdate({
+      pointer: { x: 9, y: 9, tool: "pointer" },
+      button: "up",
+      pointersMap: new Map(),
+    });
+    harness.network.flush();
+    expect([...bob.host.collaborators.keys()]).toEqual([peerIdOf(alice)]);
+  });
+
   it("throttles pointer presence to the configured window", () => {
     const pointerUpdate = (x: number) =>
       alice.session.handlePointerUpdate({
@@ -251,7 +278,6 @@ describe("collaboration session over the fake network", () => {
     const session = createCollaborationSession({
       transport: tinyHarness.createTransport(),
       roomId: ROOM_ID,
-      clientId: clientIdSchema.parse("client-tiny"),
       joinToken: JOIN_TOKEN,
       authGeneration: AUTH_GENERATION,
       refreshJoinToken: () =>
@@ -270,7 +296,6 @@ describe("collaboration session over the fake network", () => {
     const receiverSession = createCollaborationSession({
       transport: tinyHarness.createTransport(),
       roomId: ROOM_ID,
-      clientId: clientIdSchema.parse("client-rx"),
       joinToken: JOIN_TOKEN,
       authGeneration: AUTH_GENERATION,
       refreshJoinToken: () =>
@@ -371,7 +396,7 @@ describe("collaboration session over the fake network", () => {
   });
 
   it("rebroadcasts a full snapshot once the sync interval elapses", () => {
-    const raw = createRawSender(harness.network, "client-raw");
+    const raw = createRawSender(harness.network);
     harness.network.flush();
     raw.received.length = 0;
 
@@ -455,7 +480,6 @@ describe("scene attachment guard", () => {
     const session = createCollaborationSession({
       transport: network.createTransport(),
       roomId: ROOM_ID,
-      clientId: clientIdSchema.parse("client-attached"),
       joinToken: JOIN_TOKEN,
       authGeneration: AUTH_GENERATION,
       refreshJoinToken: () =>
@@ -470,7 +494,7 @@ describe("scene attachment guard", () => {
       now: () => COLLAB_SCENE_FIXED_NOW,
       canSyncScene: () => attached,
     });
-    const peer = createRawSender(network, "client-peer");
+    const peer = createRawSender(network);
     session.connect();
     network.flush();
 

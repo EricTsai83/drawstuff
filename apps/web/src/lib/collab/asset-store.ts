@@ -483,7 +483,7 @@ export async function createCollaborationAssetStore(options: {
   /**
    * The single place an id is given up on. Centralised so a terminal failure
    * cannot be added to `abandoned` without the canvas being told — the silent
-   * variant of exactly this is what Plan 30 exists to remove.
+   * variant of exactly this is what aggregate unreadable-room detection removes.
    */
   const abandon = (fileId: string): void => {
     if (abandoned.has(fileId)) return;

@@ -7,13 +7,13 @@ import type { RoomTokenFailureReason } from "@drawstuff/collaboration/room-token
 import type { RelayCloseReason, RelayControlOutcome } from "./metrics.ts";
 
 /**
- * Structured relay logs (Plan 24), one JSON object per line.
+ * Structured relay logs, one JSON object per line.
  *
  * This module is the relay's only output sink. Everything else in `src/` is
  * forbidden from writing to stdout or stderr — asserted by
  * `tests/package-contract.test.ts` — so there is exactly one place where a log
  * line can be produced and exactly one place to audit against the data
- * classification in `docs/architecture/19-collaboration-threat-model.md` §5.
+ * classification in `docs/architecture/collaboration-threat-model.md` §5.
  *
  * The classification is enforced twice, because one layer is not enough.
  * {@link RelayLogFields} is a *closed* set of typed fields with no `message`,
@@ -65,7 +65,7 @@ const LEVEL_ORDER: Record<RelayLogLevel, number> = {
  * The complete set of loggable fields.
  *
  * Allowed by threat model §5 and present here: opaque ids (`roomId`,
- * `authGeneration`, `peerId`, `clientId`), byte and frame counts, channel names,
+ * `authGeneration`, `peerId`), byte and frame counts, channel names,
  * close codes and disconnect reasons, latency and occupancy numbers.
  *
  * Forbidden by §5 and structurally absent: message content, ciphertext or any
@@ -74,7 +74,7 @@ const LEVEL_ORDER: Record<RelayLogLevel, number> = {
  * anyway because presence payloads are sealed.
  *
  * `subject` is the one field that needs a decision rather than a rule. §6 left it
- * open; Plan 24 resolves it as a pseudonym only — see
+ * open; the observability contract permits only a pseudonym — see
  * {@link RelayLoggerOptions.subjectSalt}.
  */
 type RelayLogFields = {
@@ -83,18 +83,6 @@ type RelayLogFields = {
   authGeneration?: number;
   /** Relay-generated, so it is opaque by construction. */
   peerId?: string;
-  /**
-   * Pseudonym of the client id, never the value itself.
-   *
-   * `clientId` looks like an opaque id and threat model §5 lists it as loggable,
-   * but the premise does not hold: `collaborationRoom.join` takes it from the
-   * caller (`z.string().pipe(clientIdSchema)`) and signs it as given, and
-   * `ID_PATTERN` accepts a 43-character room key. So an authorized client can
-   * obtain a *valid* token whose `clientId` is its own room key, and logging the
-   * verified value would write key material to the log. Pseudonymizing keeps what
-   * the field is for — correlating one client's lines — without that.
-   */
-  client?: string;
   role?: RoomRole;
   /** Pseudonym of the token `sub`, never the raw id. */
   subject?: string;
@@ -118,7 +106,7 @@ type RelayLogFields = {
   sessions?: number;
   members?: number;
   limit?: number;
-  /** Drained sockets the drain deadline had to terminate (Plan 25). */
+  /** Drained sockets the drain deadline had to terminate. */
   forcedTerminations?: number;
   /** Elapsed time of the operation the record describes. */
   durationMs?: number;
@@ -158,7 +146,6 @@ const LOGGABLE_FIELDS: Record<keyof RelayLogFields, true> = {
   roomId: true,
   authGeneration: true,
   peerId: true,
-  client: true,
   role: true,
   subject: true,
   channel: true,
@@ -218,9 +205,8 @@ export type RelayLogger = {
   /** True when {@link RelayLogger.frame} will actually write. */
   readonly logsFrames: boolean;
   /**
-   * Pseudonymizes a value that must be correlatable but not recorded: the token
-   * `sub`, and the client id — which despite its name is caller-supplied and can
-   * therefore carry anything `ID_PATTERN` accepts, including a room key.
+   * Pseudonymizes a value that must be correlatable but not recorded: the
+   * token `sub`.
    */
   pseudonym(value: string): string;
   /** Records the sink refused because its stream was backed up. */

@@ -6,8 +6,6 @@ import {
 } from "../src/testing.ts";
 import type { CollaborationMessage } from "../src/protocol.ts";
 import {
-  CLIENT_A,
-  CLIENT_B,
   connectedState,
   element,
   JOIN_TOKEN,
@@ -31,10 +29,9 @@ const setupPair = (
   const network = createFakeCollaborationNetwork(options);
   const first = network.createTransport();
   const second = network.createTransport();
-  first.connect({ roomId: ROOM_ID, clientId: CLIENT_A, joinToken: JOIN_TOKEN });
+  first.connect({ roomId: ROOM_ID, joinToken: JOIN_TOKEN });
   second.connect({
     roomId: ROOM_ID,
-    clientId: CLIENT_B,
     joinToken: JOIN_TOKEN,
   });
   const received: CollaborationMessage[] = [];

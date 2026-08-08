@@ -146,7 +146,7 @@ export function CollaborationRoomDialog({
 
   /**
    * Seals the key-check value for a freshly minted key and stores it. This is
-   * the write that makes the key verifiable before join (Plan 34), so both
+   * the write that makes the key verifiable before join, so both
    * flows that mint a key — create and rotate — must not hand the key out
    * until it lands: a link shared without it would be refused by every joiner
    * as unverifiable.
@@ -365,7 +365,7 @@ export function CollaborationRoomDialog({
             )}
 
             {/* The owner's recovery path for a snapshot nobody's link can
-                open (Plan 34): keyed to the failure reason, not the message
+                open: keyed to the failure reason, not the message
                 text, and only for the owner — the server enforces the same
                 restriction. Destructive, so it takes two clicks. */}
             {isOwner && failureReason === "unreadable-room" && (

@@ -1,7 +1,6 @@
 import {
   COLLABORATION_PROTOCOL_VERSION,
   createInboundMessageGate,
-  type ClientId,
   type CollaborationMessage,
   type InboundMessageGate,
   type PresenceMessage,
@@ -101,23 +100,28 @@ export type TestClient = {
 export async function createTestClient(options: {
   url: string;
   roomId: RoomId;
-  clientId: ClientId;
+  /**
+   * Test-local label for this client. Identity on the wire is the
+   * relay-generated `peerId`; the name only seeds the token subject and the
+   * presence username defaults, and labels timeout messages.
+   */
+  clientName: string;
   /** Distinct per client so concurrently created nonces never collide. */
   nonceSeed: number;
   /** Role the minted join token grants; defaults to `editor`. */
   role?: RoomRole;
   /** Room authorization generation the token is bound to. */
   authGeneration?: number;
-  /** Authenticated user the token is issued for; defaults per client id. */
+  /** Authenticated user the token is issued for; defaults per client name. */
   subject?: string;
   /** Overrides the minted token entirely (invalid-token cases). */
   joinToken?: string;
   /** Room key; a different key makes every payload unreadable to this client. */
   roomKey?: RoomKey;
   /**
-   * Display name carried inside presence payloads. Defaults to the client id;
-   * a distinct value lets a test assert that user data never reaches a log line
-   * or a metric even though the client id legitimately does.
+   * Display name carried inside presence payloads. Defaults to the client
+   * name; a distinct value lets a test assert that user data never reaches a
+   * log line or a metric.
    */
   username?: string;
   /**
@@ -126,7 +130,7 @@ export async function createTestClient(options: {
    */
   createSocket?: (url: string) => RelaySocketLike;
 }): Promise<TestClient> {
-  const { url, roomId, clientId } = options;
+  const { url, roomId, clientName } = options;
   const transport = createRelayWebSocketTransport({
     url,
     createSocket: options.createSocket,
@@ -156,7 +160,6 @@ export async function createTestClient(options: {
     | "messageId"
     | "roomId"
     | "roomGeneration"
-    | "senderClientId"
     | "senderPeerId"
     | "sequence"
   >;
@@ -169,7 +172,6 @@ export async function createTestClient(options: {
     messageId: `m-${++messageCounter}`,
     roomId: session.roomId,
     roomGeneration: session.roomGeneration,
-    senderClientId: session.clientId,
     senderPeerId: session.peerId,
     sequence,
   });
@@ -264,15 +266,13 @@ export async function createTestClient(options: {
     async connect() {
       transport.connect({
         roomId,
-        clientId,
         joinToken:
           options.joinToken ??
           issueJoinToken({
             roomId,
-            clientId,
             role: options.role,
             authGeneration: options.authGeneration,
-            subject: options.subject,
+            subject: options.subject ?? `user-${clientName}`,
             // Real tokens over a real socket: the wall clock is what the relay
             // verifies against here, so no fixed test clock is used.
             issuedAtSeconds: Math.floor(Date.now() / 1000),
@@ -280,13 +280,13 @@ export async function createTestClient(options: {
       });
       await waitUntil(
         () => connected !== undefined,
-        `client ${clientId} to join ${roomId}`,
+        `client ${clientName} to join ${roomId}`,
       );
     },
     waitForDisconnect() {
       return waitUntil(
         () => connected === undefined,
-        `client ${clientId} to lose its session`,
+        `client ${clientName} to lose its session`,
       );
     },
     disconnect() {
@@ -329,7 +329,7 @@ export async function createTestClient(options: {
         payload: {
           pointer: { x, y, tool: "pointer" },
           button: "up",
-          username: options.username ?? clientId,
+          username: options.username ?? clientName,
           selectedElementIds: [],
           idleState: "active",
         },

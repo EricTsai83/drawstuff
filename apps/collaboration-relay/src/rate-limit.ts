@@ -1,5 +1,5 @@
 /**
- * Token buckets for the relay's send-rate budgets (Plan 19 step 2).
+ * Token buckets for the relay's send-rate budgets.
  *
  * The relay already bounds every untrusted input by *size*: control frames,
  * data frames, control bodies, connection counts, outbound buffers. What it did
@@ -207,7 +207,7 @@ export function createConnectionRateLimiter(options: {
  */
 export type SubjectRateLimiter = {
   admitJoin(subject: string): boolean;
-  /** Live entry count, for tests and for the Plan 24 metrics. */
+  /** Live entry count for tests and relay metrics. */
   size(): number;
   /**
    * Entry cap this limiter fails open at. Exposed so `/metrics` publishes the

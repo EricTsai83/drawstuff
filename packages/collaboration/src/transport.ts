@@ -1,5 +1,4 @@
 import type {
-  ClientId,
   CollaborationMessage,
   PeerId,
   PresenceMessage,
@@ -52,7 +51,6 @@ export type ConnectionState =
   | {
       status: "connected";
       roomId: RoomId;
-      clientId: ClientId;
       /** Session identity assigned by the transport; new on every connect. */
       peerId: PeerId;
       /** Room epoch assigned at join time; stamped on every outbound message. */
@@ -68,7 +66,6 @@ export type ConnectionState =
 
 export type RoomPeer = {
   readonly peerId: PeerId;
-  readonly clientId: ClientId;
   /** Role the server granted this peer's connection; see `ConnectionState`. */
   readonly role: RoomRole;
 };
@@ -183,7 +180,6 @@ export interface CollaborationTransport {
   getConnectionState(): ConnectionState;
   connect(session: {
     roomId: RoomId;
-    clientId: ClientId;
     /** Short-lived join token from the app backend, verified by the relay. */
     joinToken: string;
   }): void;

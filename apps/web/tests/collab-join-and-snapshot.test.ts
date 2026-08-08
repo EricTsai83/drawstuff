@@ -129,7 +129,7 @@ describe("join barrier", () => {
     const backend = createSnapshotBackend();
     // A raw peer publishes without any session logic, so it never answers a
     // newcomer — which is exactly the window this test needs to stay open.
-    const raw = createRawSender(harness.network, "client-raw");
+    const raw = createRawSender(harness.network);
     backend.publish(asSyncedElements([collabRectangle({ id: "stored" })]));
 
     const bob = harness.createClient("client-bob", {
@@ -781,7 +781,7 @@ describe("durable snapshot cadence", () => {
   it("repairs a viewer's overflowed join by re-reading the durable baseline", async () => {
     const backend = createSnapshotBackend();
     backend.publish(asSyncedElements([collabRectangle({ id: "stored" })]));
-    const raw = createRawSender(harness.network, "client-raw");
+    const raw = createRawSender(harness.network);
 
     const viewer = harness.createClient("client-viewer", {
       role: "viewer",

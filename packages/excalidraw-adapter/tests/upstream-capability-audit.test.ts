@@ -8,7 +8,7 @@
  * assertion passes today and fails the moment upstream closes the gap. The
  * `public API` cases are spikes proving the capability needs no seam.
  *
- * See docs/architecture/03-public-api-gap-audit.md for the capability matrix.
+ * See docs/architecture/excalidraw-public-api-gap-audit.md for the capability matrix.
  */
 
 import { readFileSync } from "node:fs";
@@ -264,7 +264,7 @@ describe("upstream 0.18.1 public API surface", () => {
  * renders today, so an upstream upgrade that drops one of them fails `tsc`
  * (`as const satisfies readonly (keyof T)[]`) and an upgrade that adds a
  * sibling fails `assertNoUnauditedKeys`. See
- * docs/architecture/05-native-ui-integration-contract.md.
+ * docs/architecture/native-ui-integration-contract.md.
  */
 describe("host integration surface (native UI integration contract)", () => {
   /** Upstream slot components hang sub-components off a component object. */
@@ -966,7 +966,7 @@ describe("undo/redo (confirmed gap)", () => {
     // `registerAction` can add an action but cannot invoke one, so the only
     // remaining trigger is a synthetic keyboard event on the editor container —
     // a DOM-level workaround the native UI integration contract forbids in
-    // production code (docs/architecture/05-native-ui-integration-contract.md
+    // production code (docs/architecture/native-ui-integration-contract.md
     // §禁止事項).
     expect(imperativeApiKeys).toContain("registerAction");
   });

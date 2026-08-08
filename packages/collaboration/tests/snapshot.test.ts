@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  clientIdSchema,
   COLLABORATION_PROTOCOL_VERSION,
   peerIdSchema,
   roomIdSchema,
@@ -384,10 +383,9 @@ describe("transport protocol decoupling (Plan 31)", () => {
       roomId: ROOM_ID,
       elements: [],
     });
-    const decoded = decodeCollaborationSnapshot(
-      new TextEncoder().encode(raw),
-      { roomId: ROOM_ID },
-    );
+    const decoded = decodeCollaborationSnapshot(new TextEncoder().encode(raw), {
+      roomId: ROOM_ID,
+    });
     expect(decoded.ok).toBe(false);
     if (!decoded.ok) expect(decoded.error.code).toBe("malformed-snapshot");
   });
@@ -448,7 +446,6 @@ describe("transport protocol decoupling (Plan 31)", () => {
 describe("electSnapshotWriter", () => {
   const peer = (name: string, role: RoomPeer["role"]): RoomPeer => ({
     peerId: peerIdSchema.parse(name),
-    clientId: clientIdSchema.parse(`client-${name}`),
     role,
   });
 

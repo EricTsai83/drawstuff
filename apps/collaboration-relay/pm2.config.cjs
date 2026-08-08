@@ -1,5 +1,5 @@
 /**
- * Deployment envelope for the collaboration relay (Plan 25).
+ * Deployment envelope for the collaboration relay.
  *
  * Single instance in fork mode is an approved architectural decision, not a
  * default left in place: the fanout's room state is process-local, and SLO §0

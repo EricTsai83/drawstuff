@@ -1,7 +1,4 @@
-import {
-  clientIdSchema,
-  roomIdSchema,
-} from "@drawstuff/collaboration/protocol";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 
 import { createTestClient } from "./test-client.ts";
 
@@ -12,19 +9,21 @@ import { createTestClient } from "./test-client.ts";
  */
 const url = process.env.RELAY_URL;
 const roomIdRaw = process.env.RELAY_ROOM_ID;
-const clientIdRaw = process.env.RELAY_CLIENT_ID;
+const clientName = process.env.RELAY_CLIENT_NAME;
 const nonceSeed = Number(process.env.RELAY_NONCE_SEED ?? "1");
 const elementPrefix = process.env.RELAY_ELEMENT_PREFIX ?? "el-driver";
 const elementCount = Number(process.env.RELAY_ELEMENT_COUNT ?? "3");
 
-if (!url || !roomIdRaw || !clientIdRaw) {
-  throw new Error("RELAY_URL, RELAY_ROOM_ID, and RELAY_CLIENT_ID are required");
+if (!url || !roomIdRaw || !clientName) {
+  throw new Error(
+    "RELAY_URL, RELAY_ROOM_ID, and RELAY_CLIENT_NAME are required",
+  );
 }
 
 const client = await createTestClient({
   url,
   roomId: roomIdSchema.parse(roomIdRaw),
-  clientId: clientIdSchema.parse(clientIdRaw),
+  clientName,
   nonceSeed,
 });
 
@@ -32,7 +31,7 @@ await client.connect();
 console.log("ready");
 
 for (let index = 0; index < elementCount; index += 1) {
-  client.upsertElement(`${elementPrefix}-${index}`, `from-${clientIdRaw}`);
+  client.upsertElement(`${elementPrefix}-${index}`, `from-${clientName}`);
 }
 
 let lastDigest = "";
