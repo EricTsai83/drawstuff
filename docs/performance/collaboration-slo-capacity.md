@@ -58,7 +58,7 @@ process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作
 | 項目                   | 目前預設（硬上限）            | 核准值                       | 依據                                                                                                                               |
 | ---------------------- | ----------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 同時連線數／instance   | 256（`maxConnections`）       | **目標 192，硬上限維持 256** | 目標設在硬上限的 75%，讓 reconnect storm 有 25% 的吸收空間。若目標等於上限，一次 relay 重啟後的重連潮會直接撞 `relayAtCapacity`    |
-| 同時 room 數／instance | 128（`maxRooms`）             | **目標 96，硬上限 128**      | 每 room 平均 2 名成員的常見形狀下，96 room ≈ 192 連線；超限以 `relayRoomsAtCapacity` 明確拒絕                                    |
+| 同時 room 數／instance | 128（`maxRooms`）             | **目標 96，硬上限 128**      | 每 room 平均 2 名成員的常見形狀下，96 room ≈ 192 連線；超限以 `relayRoomsAtCapacity` 明確拒絕                                      |
 | 單一 room 成員數       | 32（`maxConnectionsPerRoom`） | **維持 32**                  | fanout 是 O(members) 同步迴圈；32 名成員 × 1 MiB scene frame = 單次 publish 最多 31 MiB 的 socket 寫入，已是單 instance 的合理上界 |
 
 ## 3. 延遲 SLO
@@ -129,14 +129,14 @@ per-room 上限、沒有 backpressure，socket.io 內部緩衝無界——記憶
 因此真正的防護放在「先擋住異常流量」而不是「砍掉正常流量的排水空間」：把排水空間從
 4 MiB 砍到 2 MiB 只會讓合法的慢速消費者更早被踢，而異常流量本來就該由 §5 的速率限制擋。
 
-| 項目                        | 核准值                                   | 依據                                                                                            |
-| --------------------------- | ---------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `maxBufferedBytes`          | **維持 4 MiB**                           | 一個最大 scene frame 是 1 MiB + sealing overhead；4 MiB 給合法慢速消費者四個 frame 的排水空間   |
-| `maxConnections`            | **維持 256**                             | 同上；容量目標 192 已留 25% 給 reconnect storm                                                  |
-| `presenceDropBufferedBytes` | **維持 256 KiB**                         | presence 是 volatile，丟棄無成本                                                                |
-| Process RSS                 | **目標 ≤ 512 MiB，alert 持續 > 768 MiB** | 目標是「常態 + 少數卡住的連線」的實際量級，不是名目最壞情況；alert 用來抓真正的異常             |
-| Max-memory 自動重啟         | **1 GiB，graceful drain 後退出**         | upstream `max_memory_restart` 的對應物，作為最後防線；不得硬殺                                   |
-| 每連線常態記憶體            | **目標 ≤ 256 KiB**                       | 常態 buffered ≈ 0；此值尚未經正式容量測試驗證                                                   |
+| 項目                        | 核准值                                   | 依據                                                                                          |
+| --------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
+| `maxBufferedBytes`          | **維持 4 MiB**                           | 一個最大 scene frame 是 1 MiB + sealing overhead；4 MiB 給合法慢速消費者四個 frame 的排水空間 |
+| `maxConnections`            | **維持 256**                             | 同上；容量目標 192 已留 25% 給 reconnect storm                                                |
+| `presenceDropBufferedBytes` | **維持 256 KiB**                         | presence 是 volatile，丟棄無成本                                                              |
+| Process RSS                 | **目標 ≤ 512 MiB，alert 持續 > 768 MiB** | 目標是「常態 + 少數卡住的連線」的實際量級，不是名目最壞情況；alert 用來抓真正的異常           |
+| Max-memory 自動重啟         | **1 GiB，graceful drain 後退出**         | upstream `max_memory_restart` 的對應物，作為最後防線；不得硬殺                                |
+| 每連線常態記憶體            | **目標 ≤ 256 KiB**                       | 常態 buffered ≈ 0；此值尚未經正式容量測試驗證                                                 |
 
 Max-memory 自動重啟與 graceful drain 已實作；超限時先排空再由 process manager 重啟，避免
 主動製造一次全員硬斷線。
@@ -159,10 +159,13 @@ threat model T6 記錄的缺口：大小有界、速率無界。以下為**新�
 
 - **Relay 側（下表前六列）**：relay 是單一長生命週期 process，per-connection token bucket
   在記憶體中即為正確，已實作且無需新依賴。
-- **後端側（下表後三列）**：`apps/web` 跑在 serverless function 上，process-local 計數器
-  在多個 invocation 之間不成立，因此需要一個共享儲存（Upstash Redis 之類）。**2026-08-06
-  已定案引入 Redis 做共享計數**；資源開通前後端速率限制維持缺口，並記在 threat model
-  的 T6。
+- **後端側（下表後五列）**：`apps/web` 跑在 serverless function 上，process-local 計數器
+  在多個 invocation 之間不成立，因此需要一個共享儲存。**2026-08-08 Upstash Redis 已開通，
+  並核准以官方 Redis／Ratelimit SDK 做共享計數**；四個入口與 snapshot leave 的一個保留
+  limiter 皆已實作，計數存於
+  Upstash Redis，key prefix 為 `drawstuff:collab:ratelimit:v1:<operation>`，演算法為
+  sliding window（避免 fixed window 邊界瞬間穿透兩倍流量），且明確關閉 `ephemeralCache`
+  ——process-local cache 會讓某個剛好熱著的 instance 回答，那正是本設計要避免的東西。
 
 | 限制                                   | 核准值                                      | 依據                                                                                                                                                                |
 | -------------------------------------- | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -174,7 +177,32 @@ threat model T6 記錄的缺口：大小有界、速率無界。以下為**新�
 | 連線嘗試／subject                      | **10 次／分鐘**                             | recovery 的 `DEFAULT_MAX_RECONNECT_ATTEMPTS` = 10，其 backoff 上限 30s，正常客戶端一分鐘內不會超過                                                                  |
 | `collaborationRoom.join`／使用者       | **20 次／分鐘**                             | 同上，含首次 join 與換裝置                                                                                                                                          |
 | `collaborationSnapshot.put`／room      | **6 次／分鐘**                              | cadence 為 `SNAPSHOT_INTERVAL_MS` = 30s = 2 次／分鐘；6 次容納 leave flush 與 conflict retry                                                                        |
+| Snapshot finalization／使用者／room    | **2 次／分鐘**                              | 只在上述 room budget 已明確拒絕 `leave` 時使用；容納 final write 與一次 conflict retry，且 client 偽造 leave 也只能取得兩次額外 request                             |
 | Asset 上傳／使用者                     | **60 次／分鐘**                             | `MAX_ROOM_ASSETS_PER_GENERATION` = 512 已是總量上限；此值只擋速率                                                                                                   |
+| `collaborationAsset.resolve`／使用者   | **120 次／分鐘**                            | 滿載 room 為 512 ÷ 64 = 8 batches；最多 4 輪 scheduled lookup = 32 calls／tab，120 可容納三個同時 cold-load 的滿載分頁並留餘裕                                      |
+
+### 後端限制的失效模式：fail open（2026-08-08 核准）
+
+速率限制是額外的濫用與容量保護，不是 authorization boundary，這句話直接決定失效方向。
+Upstash timeout（明確設為 **750 ms**，不用 SDK 預設的 5 秒）、network failure 與 SDK
+exception 一律 **fail open**：請求照常進入既有檢查，並記一筆結構化 degradation event
+（事件名 + operation + cause 兩個封閉列舉，不含 identifier、endpoint 或 error payload），
+使相同故障可被聚合告警而不必逐筆 grep。
+
+`degraded` 不是 rate limited：不回 429，也不消耗 client 的 retry budget。降級期間，登入、
+room role、generation 是否為當前世代、payload／batch 大小、每 generation 512 assets，以及
+Relay 既有 token bucket 全部維持 fail closed。每個 limiter decision 對 Redis **只呼叫一次**、
+不重試（在已經遲了 750 ms 的 decision 裡重試只會在故障當下放大延遲）。一般 request 只有一個
+decision；只有 `snapshot-put` 已明確拒絕的 leave request 會再檢查一次獨立的 finalization reserve，
+因此最多兩次。任何路徑都不切換成 process-local counter（那會產生一個看似全域、實際上每個
+instance 各一份的限制）。
+
+真正超限時，tRPC 回 `TOO_MANY_REQUESTS`（HTTP 429），UploadThing presign POST 由
+`apps/web/src/app/api/uploadthing/route.ts` 的 wrapper 直接回 HTTP 429；兩者都帶
+machine-readable 的 `reset`／`retryAfterMs`，並在 HTTP 層設 `Retry-After`。Client 將其歸類為
+transient，且不早於 server 指定的 reset time 重試，既有 bounded retry budget 不變。
+
+若未來改為 fail closed，無法判定 limit 時應回 503 而非 429；目前不採用該策略。
 
 ### 修訂 R1（2026-08-06 核准）
 
@@ -215,8 +243,12 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
 - Relay capacity, room count, frame/churn limits, idle timeout, metrics, structured logs, graceful
   drain, and max-memory restart are implemented. Alert-to-metric mappings are defined in the
   [alerts contract](../observability/collaboration-alerts-and-dashboards.md).
-- Shared backend rate limits are not implemented because Redis is not yet provisioned. The complete
-  required scope is [backend rate limits](../../plans/backend-rate-limits.md).
+- Shared backend rate limits are implemented on Upstash Redis for all four collaboration entry
+  points, plus the bounded snapshot-finalization reserve in §5, with fail-open degradation and 429
+  responses carrying a machine-readable reset. Scope and rationale:
+  [backend rate limits](../../plans/backend-rate-limits.md) and its
+  [follow-up](../../plans/backend-rate-limit-followups.md). WAF/edge
+  rate limiting remains a possible future layer and is not part of this contract.
 - Session success, decrypt failure, and snapshot conflict occur outside the relay. Their carrier
   contract exists, but no client/backend telemetry implementation carries them, so the corresponding
   §6 thresholds cannot currently be evaluated.

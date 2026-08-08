@@ -15,13 +15,19 @@ reconciliation run on clients.
 browser
   ├─ native elements ─→ @drawstuff/excalidraw-adapter (official reconcile semantics)
   ├─ encrypted realtime frames ⇄ collaboration relay (opaque bounded fanout)
-  └─ encrypted snapshot/asset requests ⇄ apps/web ⇄ PostgreSQL/object storage
+  └─ encrypted snapshot/asset requests ⇄ apps/web
+                                           ├─ shared limit decisions ⇄ Upstash Redis
+                                           └─ durable data ⇄ PostgreSQL/object storage
 ```
 
 `@drawstuff/collaboration` owns transport-neutral messages, validation, crypto, ordering, join
 barriers, offline queues, and recovery policy. `apps/web` binds those contracts to authenticated
 room APIs and the editor. The relay imports only server-safe protocol entries; it cannot decrypt or
 persist a scene.
+
+Upstash stores expiring rate-limit window state only. It receives canonical user/room identifiers
+used as counter keys, but no room key, plaintext scene, ciphertext snapshot, asset bytes or storage
+capability. PostgreSQL and object storage remain the only durable collaboration stores.
 
 Scene messages contain native syncable elements. Presence is volatile and independent from scene
 delivery. Binary asset bytes never travel inside scene messages.
@@ -103,13 +109,157 @@ room/generation. A client that does not know a valid baseline cannot overwrite i
 
 Snapshot writers merge the winner after a revision conflict before retrying. Periodic cadence and
 forced leave flush share authorization, role, generation, baseline-known, and revision guards.
+
 Joining a room claims the tab's canvas independently of cloud scene ownership; a guest never saves
-over the owner's scene. Replacing or clearing the canvas releases the claim and tears down
-collaboration-owned resources.
+over the owner's scene. The claim is committed in this order:
+
+1. Fetch room metadata and verify the fragment-held key against the generation's key check. A bad
+   or incomplete link stops before changing the canvas or minting a token.
+2. If the room's owned scene is not already open, resolve local work through the existing
+   save/discard/cancel prompt, clear the scene session and empty the canvas. Retries never repeat
+   this preparation.
+3. Mint the join token through the bounded rate-limit-aware join call, then verify that the returned
+   authorization generation is still the one whose key check passed.
+4. Claim the canvas in tab-scoped storage and only then construct the session and open the socket.
+   No inbound frame can exist before this point.
+
+A refused join, an exhausted retry budget, or a generation race therefore leaves no collaboration
+claim. If session construction fails after the claim, that start path releases it immediately.
+Replacing or clearing the canvas also releases the claim and tears down collaboration-owned
+resources. Canvas preparation is still a user-approved commit: if the user chose to discard local
+work and the later join fails, the system does not reconstruct the discarded canvas.
 
 Recovery classifies disconnects into terminal, retryable, and generation-rotation outcomes. A
 bounded exponential backoff reconnects, obtains a new `peerId`, rebuilds presence, and uses the same
 join barrier to converge. Relay restart never touches PostgreSQL or owned-scene state.
+
+## Shared backend rate limits
+
+### Why the counter is a separate shared service
+
+The collaboration relay is one long-lived process, so its connection and frame token buckets are
+correctly process-local. `apps/web` runs in serverless functions: a process-local counter there
+would be one independent limit per warm invocation and would change strength whenever the platform
+scaled. Backend entry-point limits therefore use one module-scoped `@upstash/redis` client and
+`@upstash/ratelimit` sliding windows in Upstash Redis.
+
+Redis credentials are server-only deployment configuration. Missing or malformed credentials fail
+environment validation before serving requests. Once a deployment is correctly configured,
+request-time Redis failure follows the fail-open contract below.
+
+The limiter owns the versioned namespace
+`drawstuff:collab:ratelimit:v1:<operation>`. The SDK owns window expiry and key cleanup;
+`ephemeralCache` is disabled so no warm function instance can answer authoritatively from local
+memory. An incompatible algorithm or key-meaning change requires a new namespace version.
+
+| Operation           | Canonical identifier        | Sliding window | Protected work                                                      |
+| ------------------- | --------------------------- | -------------- | ------------------------------------------------------------------- |
+| `join`              | authenticated `userId`      | 20/minute      | Room lookup, access resolution and join-token minting               |
+| `snapshot-put`      | resolved canonical `roomId` | 6/minute       | Room lock, authorization transaction and conditional snapshot write |
+| `snapshot-finalize` | canonical `(roomId,userId)` | 2/minute       | Leave snapshot after the normal room budget explicitly refuses it   |
+| `asset-upload`      | authenticated `userId`      | 60/minute      | UploadThing presign, storage upload and asset commit                |
+| `asset-resolve`     | authenticated `userId`      | 120/minute     | Room lookup and bounded asset-location batch                        |
+
+Identifiers come from authenticated or already-resolved server state, never from a caller-selected
+rate-limit key. User-scoped checks run after authentication and input validation but before room
+lookup. Snapshot ciphertext is decoded and size-bounded first; then an unlocked pre-access and
+editor-role check resolves the canonical room before spending its room budget. The actual snapshot
+authorization is repeated under the room lock in the write transaction, so the limiter placement
+does not weaken revocation or generation races.
+
+Asset upload is counted only on the authenticated client presign POST. UploadThing callbacks and
+error hooks use the same route but do not spend the budget: they are storage-provider traffic, and
+counting them would let a successful upload charge itself more than once. The wrapper owns the 429
+because UploadThing 7.7.4 cannot represent `TOO_MANY_REQUESTS` from FileRoute middleware without
+turning it into the wrong HTTP status.
+
+### Decision and degradation flow
+
+```text
+authenticated + structurally valid request
+  └─ primary shared limiter decision (one Redis call, no retry)
+       ├─ allowed  ───────────────→ authorization/hard guards → protected work
+       ├─ degraded ───────────────→ authorization/hard guards → protected work
+       └─ limited
+            ├─ ordinary request ──→ HTTP 429 + reset metadata
+            └─ leave snapshot
+                 └─ finalization decision (one Redis call, no retry)
+                      ├─ allowed/degraded → authorization transaction → write
+                      └─ limited          → HTTP 429 + reset metadata
+```
+
+Each limiter decision makes exactly one SDK call, and the Redis transport has retries disabled.
+Ordinary requests therefore make one Redis call. Only a leave snapshot whose primary room budget
+returns an explicit refusal can make a second call against the finalization reserve. A timeout is
+`degraded`, not `limited`, so it proceeds without checking the reserve.
+
+The limiter timeout is 750 ms rather than the SDK's five-second default. Timeout, network error and
+SDK exception fail open and emit one structured `collab.ratelimit.degraded` event containing only
+the closed `operation` and `cause` enums. They never expose an identifier, endpoint, credential or
+raw SDK error. Rate limiting is capacity and abuse protection, not an authorization boundary:
+authentication, room role, current generation, payload and batch bounds, the 512-assets-per-
+generation cap, row locks and conditional revisions all continue to fail closed.
+
+No local fallback is installed during an outage. It would look shared while actually producing a
+different answer in each serverless instance. There is also no inline retry: retrying an ambiguous
+non-idempotent counter operation could spend multiple tokens and would amplify latency during the
+incident the timeout is intended to contain.
+
+### Leave snapshot finalization reserve
+
+`collaborationSnapshot.put` carries `intent: "cadence" | "leave"`; omitted intent defaults to
+`cadence` for compatibility. Intent is an untrusted scheduling hint, not proof that a tab is
+actually closing. Every request first checks the normal six-per-minute room budget. Only an
+explicit normal-budget refusal plus `leave` reaches `snapshot-finalize`, keyed by the canonical room
+and authenticated user.
+
+The reserve has two tokens per user-room per minute: one for the captured final scene and one for
+the existing single conflict-merge retry. Calling every write `leave` therefore buys only two
+bounded extra attempts, never a bypass. All ordinary role, generation, baseline-known and
+optimistic-revision guards still apply, and a second reserve refusal is returned as 429.
+
+Forced flushes intentionally ignore the client's cadence cooldown and writer election. They wait
+for an in-flight cadence write, capture the canvas once, survive synchronous React teardown, and on
+conflict load and merge the winner before one retry. This closes the reproducible case where the
+last participant leaves after the room cadence budget is exhausted. It does not guarantee delivery
+if the browser process is killed, the device is offline, or the request never leaves the process;
+the project deliberately does not add IndexedDB pending snapshots, Background Sync, or a durable
+client job queue for that residual side-project risk.
+
+### 429 and client scheduling contract
+
+A real refusal is `TOO_MANY_REQUESTS` and carries machine-readable `reset` and `retryAfterMs` data.
+tRPC also sets `Retry-After`; the UploadThing wrapper returns the same semantics in an app-owned,
+non-cacheable JSON body. Human-readable messages are never parsed to drive scheduling.
+
+- Bootstrap join retries only machine-readable rate limits, waits until the server deadline, and
+  counts the first call within a maximum of three attempts. Teardown cancels the wait. Exhaustion is
+  reported as `rate-limited`, not `unauthorized`, and occurs before the canvas claim.
+- Reconnect folds the server deadline into the existing bounded recovery backoff; it does not grant
+  an extra attempt or create an unbounded retry loop.
+- Snapshot cadence records a `notBefore` deadline and skips ticks inside the refused window. A leave
+  flush still attempts because it has the separate bounded reserve described above.
+- Asset resolve and upload track deadlines per file. One rate-limited file cannot pull unrelated
+  files back inside their windows, and the existing bounded retry/concurrency limits remain the
+  outer cap.
+
+### Verification and deployment boundary
+
+Configuration, decision states, request ordering, 429 transport metadata, client scheduling,
+cross-invocation semantics and TTL cleanup are covered with SDK configuration inspection, mocked
+Redis responses, an in-memory shared-window model and process-local PGlite databases. Tests never
+read or mutate the operator's Upstash or PostgreSQL data.
+
+There is currently no isolated Redis database for a live integration smoke test. Consequently the
+suite does not independently prove deployed credentials, real Upstash network behavior, or a real
+key expiring across separate serverless processes. Exercising those claims against the operational
+database is intentionally deferred until a disposable database and test-only key prefix exist.
+This is an accepted verification boundary, not permission to use production data as test state.
+
+A timed-out Redis request may have executed server-side even though the application proceeded as
+`degraded`, leaving at most one ambiguous token for that decision. Transport retries are disabled,
+so the ambiguity is not multiplied. Eliminating it would require an idempotency protocol whose
+complexity is not justified for this self-hosted side project.
 
 ## Encrypted assets
 
@@ -130,9 +280,12 @@ object keys in `deferred_file_cleanup`. Full room and owned-scene retention beha
 
 - The relay is intentionally a single instance with process-local fanout. Its hard limits and
   graceful restart behavior are part of the deployment envelope.
-- Relay-side connection and frame rate limits are implemented. Shared backend limits for join,
-  snapshot writes, asset uploads, and asset resolution remain required before public testing; see
-  [backend rate limits](../../plans/backend-rate-limits.md).
+- Relay-side connection/frame limits and the shared backend limits described above are implemented.
+  WAF or edge rate limiting remains a possible additional layer, not part of the current contract.
+  See
+  [backend rate limits](../../plans/backend-rate-limits.md), its
+  [follow-up](../../plans/backend-rate-limit-followups.md), and
+  [SLO §5](../performance/collaboration-slo-capacity.md).
 - Relay metrics and privacy-safe structured logs exist. Client/session success, decrypt-failure,
   and snapshot-conflict SLOs currently have no telemetry carrier.
 - There is no staged rollout cohort system, collaboration-specific kill switch, staging environment,

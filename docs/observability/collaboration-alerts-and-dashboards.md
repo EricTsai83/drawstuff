@@ -120,14 +120,14 @@ terminate 期限），所以在 handshake 期間
 
 ### 4.1 §5「允許」欄位
 
-| §5 允許                                          | Metrics                                                             | Logs                                                                                                                                                                                                                               |
-| ------------------------------------------------ | ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `roomId`、`authGeneration`、`peerId`             | **刻意都不出現**（§3.1 的理由）                                     | `roomId`、`authGeneration`、`peerId`（`clientId` 已整個移除，§4.3）                                                                                                                                                                |
-| 訊息位元組數、frame 計數、channel 名稱           | `relay_routed_bytes_total`、`relay_frames_routed_total{channel}` 等 | `byteLength`、`channel`（per-frame 記錄，預設關閉）                                                                                                                                                                                |
-| close code、disconnect reason                    | `relay_connections_closed_total{reason}`                            | `closeCode`、`closeReason`、`joinRefusal`、`tokenFailure`                                                                                                                                                                          |
-| decrypt 失敗**計數**                             | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                                                                 |
-| snapshot revision、conflict 計數                 | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                                                                 |
-| latency、event-loop lag、記憶體                  | 兩個 histogram + 兩個 memory gauge                                  | 常態無（數值型觀測只走 metrics）；例外是兩個部署事件——`relay.memory_limit_exceeded` 記觸發當下的 `rssBytes`／`maxRssBytes`，`relay.drained` 記 `durationMs`／`forcedTerminations`                                                        |
+| §5 允許                                | Metrics                                                             | Logs                                                                                                                                                                              |
+| -------------------------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `roomId`、`authGeneration`、`peerId`   | **刻意都不出現**（§3.1 的理由）                                     | `roomId`、`authGeneration`、`peerId`（`clientId` 已整個移除，§4.3）                                                                                                               |
+| 訊息位元組數、frame 計數、channel 名稱 | `relay_routed_bytes_total`、`relay_frames_routed_total{channel}` 等 | `byteLength`、`channel`（per-frame 記錄，預設關閉）                                                                                                                               |
+| close code、disconnect reason          | `relay_connections_closed_total{reason}`                            | `closeCode`、`closeReason`、`joinRefusal`、`tokenFailure`                                                                                                                         |
+| decrypt 失敗**計數**                   | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                |
+| snapshot revision、conflict 計數       | 不在 relay（§5.3）                                                  | 不在 relay（§5.3）                                                                                                                                                                |
+| latency、event-loop lag、記憶體        | 兩個 histogram + 兩個 memory gauge                                  | 常態無（數值型觀測只走 metrics）；例外是兩個部署事件——`relay.memory_limit_exceeded` 記觸發當下的 `rssBytes`／`maxRssBytes`，`relay.drained` 記 `durationMs`／`forcedTerminations` |
 
 ### 4.2 §5「禁止」欄位
 
@@ -214,16 +214,16 @@ log 收集端的 pipe，`process.stdout.write` 在 OS 緩衝滿了之後會回�
 用來把相關訊號分組；目前沒有對應的完整 incident runbook 或演練紀錄。
 
 | Alert                           | 判定式                                                                                                                                                                   | 門檻（來源）                          | Response |
-| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- | ------- |
-| `RelayConnectionsNearCapacity`  | `relay_connections / relay_connections_limit > 0.75` 持續 5m                                                                                                             | 目標 192／硬上限 256（§2）            | R1      |
-| `RelayRoomsNearCapacity`        | `relay_rooms / relay_rooms_limit > 0.75` 持續 5m                                                                                                                         | 目標 96／硬上限 128（§2）             | R1      |
-| `RelayRoutingLatencyP95`        | `histogram_quantile(0.95, rate(relay_routing_latency_seconds_bucket[5m])) > 0.005`                                                                                       | p95 ≤ 5 ms（§3.1）                    | R2      |
-| `RelayRoutingLatencyP99`        | `histogram_quantile(0.99, rate(relay_routing_latency_seconds_bucket[5m])) > 0.02`                                                                                        | p99 ≤ 20 ms（§3.1）                   | R2      |
-| `RelayEventLoopLagP99`          | `histogram_quantile(0.99, rate(relay_event_loop_lag_seconds_bucket[30s])) > 0.1` 持續 30s                                                                                | 持續 30s p99 > 100 ms（§4.2）         | R2      |
-| `RelayResidentMemoryHigh`       | `relay_process_resident_memory_bytes > 805306368` 持續 10m                                                                                                               | 持續 > 768 MiB（§4.1）                | R3      |
-| `RelayUnexpectedDisconnectRate` | `sum(rate(relay_connections_closed_total{reason=~"protocolViolation\|relayAtCapacity\|roomAtCapacity\|slowConsumer"}[30m])) / sum(rate(relay_joins_total[30m])) > 0.005` | ≤ 0.5% of sessions（§6）              | R1／R4  |
-| `RelaySlowConsumerRate`         | `sum(rate(relay_connections_closed_total{reason="slowConsumer"}[30m])) / sum(rate(relay_joins_total[30m])) > 0.001`                                                      | ≤ 0.1% of sessions（§6）              | R3      |
-| `RelayLogFieldsRejected`        | `increase(relay_log_fields_rejected_total[1h]) > 0`                                                                                                                      | 非零即程式缺陷，非門檻（本文件 §4.2） | R5      |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------- | -------- |
+| `RelayConnectionsNearCapacity`  | `relay_connections / relay_connections_limit > 0.75` 持續 5m                                                                                                             | 目標 192／硬上限 256（§2）            | R1       |
+| `RelayRoomsNearCapacity`        | `relay_rooms / relay_rooms_limit > 0.75` 持續 5m                                                                                                                         | 目標 96／硬上限 128（§2）             | R1       |
+| `RelayRoutingLatencyP95`        | `histogram_quantile(0.95, rate(relay_routing_latency_seconds_bucket[5m])) > 0.005`                                                                                       | p95 ≤ 5 ms（§3.1）                    | R2       |
+| `RelayRoutingLatencyP99`        | `histogram_quantile(0.99, rate(relay_routing_latency_seconds_bucket[5m])) > 0.02`                                                                                        | p99 ≤ 20 ms（§3.1）                   | R2       |
+| `RelayEventLoopLagP99`          | `histogram_quantile(0.99, rate(relay_event_loop_lag_seconds_bucket[30s])) > 0.1` 持續 30s                                                                                | 持續 30s p99 > 100 ms（§4.2）         | R2       |
+| `RelayResidentMemoryHigh`       | `relay_process_resident_memory_bytes > 805306368` 持續 10m                                                                                                               | 持續 > 768 MiB（§4.1）                | R3       |
+| `RelayUnexpectedDisconnectRate` | `sum(rate(relay_connections_closed_total{reason=~"protocolViolation\|relayAtCapacity\|roomAtCapacity\|slowConsumer"}[30m])) / sum(rate(relay_joins_total[30m])) > 0.005` | ≤ 0.5% of sessions（§6）              | R1／R4   |
+| `RelaySlowConsumerRate`         | `sum(rate(relay_connections_closed_total{reason="slowConsumer"}[30m])) / sum(rate(relay_joins_total[30m])) > 0.001`                                                      | ≤ 0.1% of sessions（§6）              | R3       |
+| `RelayLogFieldsRejected`        | `increase(relay_log_fields_rejected_total[1h]) > 0`                                                                                                                      | 非零即程式缺陷，非門檻（本文件 §4.2） | R5       |
 
 **門檻與評估視窗是兩件事。** 上表「門檻」欄的每一個數字都來自 SLO 的指定節號，本文件不新增
 任何門檻。相對地，`持續 5m`／`持續 10m` 這類**評估視窗**是實作參數，只有 SLO §4.2 的 `持續 30s`
@@ -249,7 +249,7 @@ log 收集端的 pipe，`process.stdout.write` 在 OS 緩衝滿了之後會回�
 | 容量拒絕速率                   | `relay_connections_closed_total{reason=~"relayAtCapacity\|roomAtCapacity\|relayRoomsAtCapacity"}` | SLO §2 只核准佔用目標與硬上限，**沒有要求零拒絕**；`roomAtCapacity` 更是單一 room 觸及成員上限的正常執行結果。75% 的 near-capacity alert 本來就會更早觸發，所以這裡不需要一個發明的門檻 |
 | Presence 丟棄比率              | `relay_presence_frames_dropped_total` 對 `relay_frames_delivered_total{channel="presence"}`       | §4.1 只核准了 `presenceDropBufferedBytes` 這個**緩衝大小**決定，沒有核准丟棄率門檻                                                                                                      |
 | `idleTimeout`、`normalClosure` | `relay_connections_closed_total{reason=…}`                                                        | 兩者都是預期行為                                                                                                                                                                        |
-| 被丟棄的 log 記錄              | `relay_log_records_dropped_total`                                                                 | 非零代表 log 收集端停住，屬部署面問題；目前沒有核准的 alert 門檻                                                                                                                       |
+| 被丟棄的 log 記錄              | `relay_log_records_dropped_total`                                                                 | 非零代表 log 收集端停住，屬部署面問題；目前沒有核准的 alert 門檻                                                                                                                        |
 | 超限 block 發生率              | 不在 relay（見 §6）                                                                               | SLO §6 明示「僅記錄，不設門檻」——那是使用者的畫布大小，不是服務品質                                                                                                                     |
 
 ### 5.2 Liveness alerts（非 SLO 門檻）
@@ -258,9 +258,9 @@ log 收集端的 pipe，`process.stdout.write` 在 OS 緩衝滿了之後會回�
 故障，所以它們指回 §0 與真實訊號；其**視窗是 operational 參數**，同上文。
 
 | Alert           | 判定式                                                        | 依據           | Response |
-| --------------- | ------------------------------------------------------------- | -------------- | ------- |
-| `RelayDraining` | `relay_draining == 1` 持續超過一次 rolling restart 的預期時長 | §0（單點故障） | R7      |
-| `RelayDown`     | `/metrics` scrape 連續失敗                                    | §0（單點故障） | R7      |
+| --------------- | ------------------------------------------------------------- | -------------- | -------- |
+| `RelayDraining` | `relay_draining == 1` 持續超過一次 rolling restart 的預期時長 | §0（單點故障） | R7       |
+| `RelayDown`     | `/metrics` scrape 連續失敗                                    | §0（單點故障） | R7       |
 
 ### 5.3 尚未可判定的 SLO 缺口（**不是** alert）
 
@@ -269,10 +269,27 @@ alert——每個 alert 都必須指回一個真實存在的 series。這裡登�
 alert 應該叫什麼名字。載體契約見 §6，實作屬後續 plan。
 
 | 未來的 alert 名稱            | 已核准門檻（來源）                     | 為什麼 relay 測不到                                                                | 缺的 metric                                                        | Response |
-| ---------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ------- |
-| `CollabSessionSuccessRate`   | ≥ 99%（§6）                            | 「成功」的定義是 baseline resolved，那是 client 端事件；relay 只看得到 socket 開了 | `collab_sessions_started_total`、`collab_baselines_resolved_total` | R7      |
-| `CollabDecryptFailure`       | 穩態應為 0，任何持續非零即 alert（§6） | 解密發生在瀏覽器；relay 讀不懂 payload，也不該讀得懂                               | `collab_decrypt_failures_total{surface}`                           | R5      |
-| `CollabSnapshotConflictRate` | ≤ 5% of writes（§6）                   | conflict 是後端 `collaborationSnapshot.put` 的樂觀鎖結果                           | `collab_snapshot_conflicts_total`、`collab_snapshot_writes_total`  | R6      |
+| ---------------------------- | -------------------------------------- | ---------------------------------------------------------------------------------- | ------------------------------------------------------------------ | -------- |
+| `CollabSessionSuccessRate`   | ≥ 99%（§6）                            | 「成功」的定義是 baseline resolved，那是 client 端事件；relay 只看得到 socket 開了 | `collab_sessions_started_total`、`collab_baselines_resolved_total` | R7       |
+| `CollabDecryptFailure`       | 穩態應為 0，任何持續非零即 alert（§6） | 解密發生在瀏覽器；relay 讀不懂 payload，也不該讀得懂                               | `collab_decrypt_failures_total{surface}`                           | R5       |
+| `CollabSnapshotConflictRate` | ≤ 5% of writes（§6）                   | conflict 是後端 `collaborationSnapshot.put` 的樂觀鎖結果                           | `collab_snapshot_conflicts_total`、`collab_snapshot_writes_total`  | R6       |
+
+### 5.4 後端速率限制降級（已實作訊號，非 relay）
+
+這一項與 §5.3 相反：訊號已經存在，只是它不在 relay，而在 `apps/web` 的 serverless function
+上。SLO §5 的四個後端入口限制與 snapshot finalization reserve 都 fail open，所以「限制目前沒有在生效」是一個**不會自己顯現**的
+狀態——請求照常成功，只是上界暫時消失了。這正是它必須被觀測的原因。
+
+| 項目     | 內容                                                                                                                                                                       |
+| -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 載體     | 一行 JSON structured log，`event: "collab.ratelimit.degraded"`                                                                                                             |
+| 欄位     | `operation`（`join`／`snapshot-put`／`snapshot-finalize`／`asset-upload`／`asset-resolve`）、`cause`（`timeout`／`exception`）；**沒有其他欄位**                           |
+| 為什麼   | 兩個封閉列舉讓相同故障可以聚合成率，而不是只能逐筆 grep                                                                                                                    |
+| 禁止     | identifier（`userId`／`roomId`）、Upstash endpoint 或 token、原始 error payload——Upstash SDK 的 error message 內含 REST URL 與呼叫時用的 token（threat model §5 禁止欄位） |
+| 建議判定 | 該事件的速率持續非零，即代表限制在該期間未生效；門檻屬 operational 參數，SLO 未核准數字                                                                                    |
+
+`degraded` 不是超限，因此**不得**與 429 混在同一個訊號裡：前者是「限制暫時不在」，後者是
+「限制正在生效」，把兩者相加會讓一次 Upstash 故障看起來像一波濫用。
 
 ## 6. Client／後端側 decrypt failure 與 snapshot conflict 的上報契約
 
@@ -312,8 +329,10 @@ snapshotConflicts, snapshotWrites, sessionsStarted, baselinesResolved }`。
   兩個分母都是必要的，否則對應的 SLO 算不出來：`snapshotWrites` 供 §6 的「≤ 5% of writes」，
   `sessionsStarted`／`baselinesResolved` 供 §6 的 session 成功率——後者的「成功」定義是
   baseline resolved，而只有 client 知道 baseline 有沒有 resolve。
-- **速率**：屬 [backend rate limits](../../plans/backend-rate-limits.md) 的後端速率限制
-  範圍；Redis 開通前，client 端 cadence 仍是唯一上界，不能被描述為服務端防護。
+- **速率**：[backend rate limits](../../plans/backend-rate-limits.md) 已為 join、snapshot put、
+  asset upload 與 asset resolve 建立共享上界，但**不包含**這支尚未存在的 telemetry
+  procedure。它實作時必須自己接上同一個共享 limiter（並在 SLO §5 新增一列核准值）；在那之前，
+  client 端 cadence 仍是唯一上界，不能被描述為服務端防護。
 - **後端出口**：後端把它彙總成與 §3 同名慣例的 metric
   （`collab_decrypt_failures_total{surface}`、`collab_snapshot_conflicts_total`、
   `collab_snapshot_writes_total`、`collab_sessions_started_total`、
