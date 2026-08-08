@@ -63,6 +63,8 @@ vi.mock("@/trpc/react", () => ({
   },
 }));
 
+import { TRPCClientError } from "@trpc/client";
+
 import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
@@ -75,11 +77,13 @@ import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/type
 import { CollaborationButton } from "@/components/excalidraw/collaboration-button";
 import { SceneSessionProvider } from "@/hooks/scene-session-context";
 import {
+  MAX_INITIAL_JOIN_ATTEMPTS,
   useCollaborationRoom,
   type CollaborationRoomStatus,
   type UseCollaborationRoomResult,
 } from "@/hooks/excalidraw/use-collaboration-room";
 import type { SceneSyncBlock } from "@/lib/collab/collaboration-session";
+import { readCanvasRoomId } from "@/lib/collab/canvas-room-marker";
 
 const ROOM_ID = "room-oversize";
 const ROOM_KEY = roomKeySchema.parse(
@@ -202,6 +206,7 @@ const unmountRoom = (): void => {
 };
 
 beforeEach(() => {
+  sessionStorage.clear();
   toastWarning.mockClear();
   startRoomSession.mockClear();
   joinMutate.mockClear();
@@ -508,6 +513,27 @@ describe("key check before join (Plan 34)", () => {
     expect(probe.result?.failureReason).toBeNull();
   });
 
+  it("claims the canvas after join succeeds but before the session can receive frames", async () => {
+    startRoomSession.mockImplementationOnce(() => {
+      expect(joinMutate).toHaveBeenCalledTimes(1);
+      expect(readCanvasRoomId()).toBe(ROOM_ID);
+      return Promise.resolve({ destroy: () => Promise.resolve() });
+    });
+
+    await mountRoom();
+    expect(probe.result?.ownsCanvas).toBe(true);
+  });
+
+  it("releases the new claim when session construction fails", async () => {
+    startRoomSession.mockRejectedValueOnce(new Error("session failed"));
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "unauthorized");
+
+    expect(joinMutate).toHaveBeenCalledTimes(1);
+    expect(probe.result?.ownsCanvas).toBe(false);
+    expect(readCanvasRoomId()).toBeNull();
+  });
+
   it("re-runs the whole join, gate included, on retryJoin", async () => {
     // The owner's snapshot reset calls this instead of asking for a page
     // reload: the failed attempt is torn down through the effect's cleanup and
@@ -523,6 +549,160 @@ describe("key check before join (Plan 34)", () => {
     expect(startRoomSession).toHaveBeenCalledTimes(2);
     expect(joinMutate).toHaveBeenCalledTimes(2);
     expect(roomGetQuery).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("the first join being rate limited", () => {
+  /**
+   * The bootstrap join is the one `classifyJoinFailure` never sees: there is no
+   * session yet, so its failure used to land in the effect's catch-all and be
+   * reported as `unauthorized` — terminal, and about the wrong thing. Being over
+   * a shared budget says nothing about whether this client may be here.
+   *
+   * Driven through the real hook rather than the helper alone, because what
+   * broke was the wiring: the helper can be perfect and still never be called.
+   */
+  const RETRY_AFTER_MS = 40_000;
+
+  /** A refusal shaped exactly as `errorFormatter` puts it on the wire. */
+  const rateLimited = (
+    retryAfterMs: number = RETRY_AFTER_MS,
+  ): TRPCClientError<never> => {
+    const error = new TRPCClientError<never>(
+      "Too many collaboration requests. Please retry shortly.",
+    );
+    Object.assign(error, {
+      data: {
+        code: "TOO_MANY_REQUESTS",
+        rateLimit: { reset: 1_770_000_000_000, retryAfterMs },
+      },
+    });
+    return error;
+  };
+
+  const withCode = (code: string): TRPCClientError<never> => {
+    const error = new TRPCClientError<never>(code);
+    Object.assign(error, { data: { code } });
+    return error;
+  };
+
+  it("waits out one refusal and then joins, never reporting unauthorized", async () => {
+    const seen: (string | undefined)[] = [];
+    // A short deadline so this one runs on the real clock, end to end through
+    // the hook: the timing itself is pinned separately below.
+    joinMutate.mockRejectedValueOnce(rateLimited(5));
+    await renderProbe();
+    await waitFor(() => {
+      seen.push(probe.result?.status);
+      return startRoomSession.mock.calls.length > 0;
+    });
+
+    expect(joinMutate).toHaveBeenCalledTimes(2);
+    expect(startRoomSession).toHaveBeenCalledTimes(1);
+    // The status a user would have been shown at any point in between.
+    expect(seen).not.toContain("unauthorized");
+  });
+
+  it("does not re-join before the server's stated reset", async () => {
+    vi.useFakeTimers();
+    try {
+      joinMutate.mockRejectedValueOnce(rateLimited());
+      await renderProbe();
+      // Drain the join chain up to the wait without letting the clock move.
+      for (let tick = 0; tick < 20; tick += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+      }
+      expect(joinMutate).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS - 1);
+      });
+      expect(joinMutate).toHaveBeenCalledTimes(1);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(2);
+      });
+      expect(joinMutate).toHaveBeenCalledTimes(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives up after a bounded number of attempts, as rate-limited not unauthorized", async () => {
+    joinMutate.mockRejectedValue(rateLimited());
+    vi.useFakeTimers();
+    try {
+      await renderProbe();
+      for (let round = 0; round < 6; round += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
+        });
+      }
+      expect(joinMutate).toHaveBeenCalledTimes(MAX_INITIAL_JOIN_ATTEMPTS);
+      expect(startRoomSession).not.toHaveBeenCalled();
+      // The whole point: a spent budget is "later", not "you may not".
+      expect(probe.result?.status).toBe("rate-limited");
+      expect(probe.result?.status).not.toBe("unauthorized");
+      expect(probe.result?.errorMessage).toContain("不是權限問題");
+      // `failureReason` belongs to the recovery machine's terminal states, and
+      // this never reached a session.
+      expect(probe.result?.failureReason).toBeNull();
+      expect(probe.result?.ownsCanvas).toBe(false);
+      expect(readCanvasRoomId()).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("issues no further join once the component is torn down mid-wait", async () => {
+    joinMutate.mockRejectedValue(rateLimited());
+    vi.useFakeTimers();
+    try {
+      await renderProbe();
+      for (let tick = 0; tick < 20; tick += 1) {
+        await act(async () => {
+          await vi.advanceTimersByTimeAsync(0);
+        });
+      }
+      expect(joinMutate).toHaveBeenCalledTimes(1);
+
+      unmountRoom();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS * 4);
+      });
+      // The wait is released rather than left pending, so the loop resumes,
+      // sees the teardown and stops — no request, and no state written into an
+      // unmounted tree.
+      expect(joinMutate).toHaveBeenCalledTimes(1);
+      expect(startRoomSession).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still reports a genuine refusal as unauthorized, with no retry", async () => {
+    // The guard on the whole change: only a machine-readable rate limit is
+    // retried. An authorization failure must not become a loop, and must not be
+    // softened into "try later".
+    joinMutate.mockRejectedValue(withCode("FORBIDDEN"));
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "unauthorized");
+
+    expect(joinMutate).toHaveBeenCalledTimes(1);
+    expect(probe.result?.status).toBe("unauthorized");
+    expect(startRoomSession).not.toHaveBeenCalled();
+    expect(probe.result?.ownsCanvas).toBe(false);
+    expect(readCanvasRoomId()).toBeNull();
+  });
+
+  it("does not retry an ordinary failure that carries no deadline", async () => {
+    joinMutate.mockRejectedValue(new Error("offline"));
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "unauthorized");
+
+    expect(joinMutate).toHaveBeenCalledTimes(1);
   });
 });
 

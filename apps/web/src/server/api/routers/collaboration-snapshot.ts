@@ -24,6 +24,10 @@ import {
   readRoomSnapshot,
   writeRoomSnapshot,
 } from "@/server/collab/snapshots";
+import {
+  checkCollaborationRateLimit,
+  enforceCollaborationRateLimitDecision,
+} from "@/server/rate-limit/collaboration";
 
 /**
  * Durable collaboration snapshot API.
@@ -136,6 +140,12 @@ export const collaborationSnapshotRouter = createTRPCRouter({
          * ever open — and the write would retire the readable row it replaced.
          */
         authGeneration: roomAuthGenerationSchema,
+        /**
+         * Untrusted scheduling hint. A caller may label an ordinary write as a
+         * leave, so the only extra privilege it can unlock is another small,
+         * independently rate-limited budget — never authorization or a bypass.
+         */
+        intent: z.enum(["cadence", "leave"]).default("cadence"),
         expectedRevision: expectedSnapshotRevisionSchema,
         cryptoVersion: z.literal(SNAPSHOT_CRYPTO_VERSION),
         ciphertextBase64: ciphertextBase64Schema,
@@ -160,6 +170,44 @@ export const collaborationSnapshotRouter = createTRPCRouter({
           message: "Snapshot ciphertext size is out of range.",
         });
       }
+
+      // This limiter's budget belongs to the *room*, not to the caller, which
+      // makes the order it runs in part of its correctness: a caller who has
+      // not been shown to have access must not be able to spend a room's
+      // budget, or exhausting somebody else's snapshot writes would cost
+      // nothing but a room id. So access is resolved first — unlocked, and
+      // therefore explicitly *not* the authorization decision; that stays
+      // inside the transaction below, which is the only place a write happens.
+      // The role check is repeated here for the same reason: a viewer cannot
+      // write, so a viewer must not be able to spend the writers' budget.
+      const preAccess = await resolveRoomAccess(ctx.db, {
+        roomId: input.roomId,
+        userId,
+        now,
+      });
+      if (preAccess.status !== "ok") throw accessError(preAccess);
+      if (!roomRoleCanEditScene(preAccess.role)) {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "A viewer cannot publish a collaboration snapshot.",
+        });
+      }
+      // Before the row lock and before the transaction opens: a refusal must
+      // not have taken a lock other writers are queued behind.
+      let rateLimitDecision = await checkCollaborationRateLimit({
+        operation: "snapshot-put",
+        identifier: preAccess.room.roomId,
+      });
+      if (rateLimitDecision.status === "limited" && input.intent === "leave") {
+        // Two tokens cover a final write and its one allowed conflict retry.
+        // JSON encoding avoids ambiguous concatenation while keeping both
+        // components canonical server-side values.
+        rateLimitDecision = await checkCollaborationRateLimit({
+          operation: "snapshot-finalize",
+          identifier: JSON.stringify([preAccess.room.roomId, userId]),
+        });
+      }
+      enforceCollaborationRateLimitDecision(rateLimitDecision);
 
       // Authorization and the write share one transaction under the room lock,
       // the same ordering every room lifecycle mutation uses. Without

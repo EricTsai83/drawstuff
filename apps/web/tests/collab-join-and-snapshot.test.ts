@@ -629,6 +629,7 @@ describe("durable snapshot cadence", () => {
     await alice.session.flushSnapshot();
     expect(backend.revision).toBe(1);
     expect(backend.elements.map((el) => el.id)).toEqual(["r1"]);
+    expect(backend.saveIntents).toEqual(["leave"]);
   });
 
   it("completes the leave flush even though teardown happens in the same tick", async () => {
@@ -695,6 +696,7 @@ describe("durable snapshot cadence", () => {
       "first",
       "last",
     ]);
+    expect(backend.saveIntents).toEqual(["cadence", "leave"]);
   });
 
   it("merges and retries a forced flush that loses the revision race", async () => {
@@ -723,6 +725,7 @@ describe("durable snapshot cadence", () => {
       "mine",
       "theirs",
     ]);
+    expect(backend.saveIntents).toEqual(["leave", "leave"]);
     expect(backend.revision).toBe(2);
   });
 

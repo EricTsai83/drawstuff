@@ -21,6 +21,12 @@ export default defineConfig({
       COLLAB_JOIN_TOKEN_SECRET: "web-test-room-token-secret-0123456789",
       COLLAB_RELAY_CONTROL_URL: "http://127.0.0.1:3105",
       NEXT_PUBLIC_COLLAB_RELAY_URL: "ws://127.0.0.1:3105",
+      // Present so the shared rate-limit module can build its module-scope
+      // client at import time. Constructing the Upstash REST client opens no
+      // connection; every test that exercises a limiter decision supplies its
+      // own double rather than reaching this endpoint.
+      UPSTASH_REDIS_REST_URL: "https://ratelimit.invalid",
+      UPSTASH_REDIS_REST_TOKEN: "web-test-upstash-token",
     },
     unstubGlobals: true,
     setupFiles: ["./tests/setup.ts"],

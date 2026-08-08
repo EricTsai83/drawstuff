@@ -32,6 +32,7 @@ import {
   collaborationRoomMember,
   scene,
 } from "@/server/db/schema";
+import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
 
 /**
  * Collaboration room lifecycle and authorization API.
@@ -362,6 +363,15 @@ export const collaborationRoomRouter = createTRPCRouter({
     .input(z.object({ roomId: roomIdInput }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.auth.user.id;
+      // After authentication and input validation, before the room lookup: the
+      // budget belongs to the caller's own identity, so it costs no database
+      // work to refuse, and a caller cannot spend anybody else's. Redis being
+      // degraded only skips this — the lock, the access resolution and the
+      // key-check requirement below are unaffected.
+      await enforceCollaborationRateLimit({
+        operation: "join",
+        identifier: userId,
+      });
       const now = new Date();
       // Resolving access, recording membership and signing the token all run
       // under the room lock, so a revocation that commits mid-request either

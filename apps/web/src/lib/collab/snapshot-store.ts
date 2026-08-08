@@ -11,6 +11,8 @@ import {
   SNAPSHOT_NO_REVISION,
 } from "@drawstuff/collaboration/snapshot";
 
+import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
+
 /**
  * Client half of durable snapshot storage: the only place a snapshot is sealed
  * or opened.
@@ -43,6 +45,8 @@ export type SnapshotApi = {
   }>;
   put(input: {
     roomId: string;
+    /** Scheduling hint only; the server never treats this as authorization. */
+    intent: "cadence" | "leave";
     /** Generation the ciphertext was sealed for; the server refuses a mismatch. */
     authGeneration: number;
     expectedRevision: number;
@@ -85,6 +89,14 @@ export type SaveSnapshotResult =
    * say which one it is.
    */
   | { status: "oversize"; byteLength: number; maxByteLength: number }
+  /**
+   * The room's shared write budget is spent. Retryable — unlike `oversize` the
+   * scene is fine and unlike `failed` the server said exactly when — so it is
+   * reported as itself, carrying the deadline the caller must not write before.
+   * Folding it into `failed` would leave the caller retrying on its own cadence
+   * into a window that has not reset, spending the budget it is waiting for.
+   */
+  | { status: "rate-limited"; retryAfterMs: number }
   /** Sealing, encoding or the request failed; the caller retries on cadence. */
   | { status: "failed" };
 
@@ -94,6 +106,8 @@ export type CollaborationSnapshotStore = {
     elements: readonly SyncedElement[];
     /** Revision the caller believes is current, or `SNAPSHOT_NO_REVISION`. */
     expectedRevision: number;
+    /** A leave flush may use the server's separate bounded finalization reserve. */
+    intent?: "cadence" | "leave";
   }): Promise<SaveSnapshotResult>;
 };
 
@@ -180,7 +194,7 @@ export async function createCollaborationSnapshotStore(options: {
       };
     },
 
-    async save({ elements, expectedRevision }) {
+    async save({ elements, expectedRevision, intent = "cadence" }) {
       const encoded = encodeCollaborationSnapshot({ roomId, elements });
       if (!encoded.ok) {
         // "Too big" is the one encoding failure the user can act on, and the
@@ -212,6 +226,7 @@ export async function createCollaborationSnapshotStore(options: {
       try {
         return await api.put({
           roomId,
+          intent,
           // Sent so the server stores the ciphertext under the generation it was
           // sealed for, or refuses: a rotation racing this write would otherwise
           // produce a row nobody can open.
@@ -221,7 +236,10 @@ export async function createCollaborationSnapshotStore(options: {
           ciphertextBase64: toBase64(sealed.ciphertext),
           checksum: await snapshotCiphertextChecksum(sealed.ciphertext),
         });
-      } catch {
+      } catch (error) {
+        const retryAfterMs = rateLimitRetryAfterMs(error);
+        if (retryAfterMs !== null)
+          return { status: "rate-limited", retryAfterMs };
         return { status: "failed" };
       }
     },

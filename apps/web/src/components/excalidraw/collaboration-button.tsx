@@ -23,6 +23,9 @@ const LABEL: Record<CollaborationRoomStatus, string> = {
   reconnecting: "重新連線中…",
   failed: "連線已停止",
   unauthorized: "無法加入",
+  // Not "無法加入": the link works and the account has access; only the shared
+  // join budget is spent, and it refills.
+  "rate-limited": "請稍後再試",
   cancelled: "已取消",
   "missing-room-key": "連結不完整",
 };

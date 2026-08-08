@@ -11,6 +11,7 @@ import superjson from "superjson";
 import { ZodError } from "zod";
 import { db } from "@/server/db";
 import { type auth } from "@/lib/auth";
+import { rateLimitMetadataOf } from "@/server/rate-limit/collaboration";
 
 type AuthObject = Awaited<ReturnType<typeof auth.api.getSession>>;
 
@@ -52,6 +53,12 @@ const t = initTRPC.context<typeof createTRPCContext>().create({
         ...shape.data,
         zodError:
           error.cause instanceof ZodError ? error.cause.flatten() : null,
+        /**
+         * Machine-readable retry deadline for `TOO_MANY_REQUESTS`, and `null`
+         * for every other error. A client must be able to decide "retry, but
+         * not before this instant" without reading the human-readable message.
+         */
+        rateLimit: rateLimitMetadataOf(error.cause),
       },
     };
   },

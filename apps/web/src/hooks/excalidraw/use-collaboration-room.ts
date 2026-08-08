@@ -34,6 +34,7 @@ import type {
   JoinCredentialsResult,
   SceneSyncBlock,
 } from "@/lib/collab/collaboration-session";
+import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 import {
   startCollaborationRoomSession,
   toCollaborationUsername,
@@ -78,12 +79,15 @@ import { api } from "@/trpc/react";
  * 2. The canvas is emptied and the scene session cleared, which also drops the
  *    guest's `currentSceneId`. A guest must never adopt the owner's scene id —
  *    its own save would then try to overwrite somebody else's scene.
- * 3. The canvas is claimed for the room, and only then does the session connect
+ * 3. The join mutation succeeds and its authorization generation is checked.
+ *    A refused or exhausted join therefore leaves no collaboration ownership
+ *    marker behind.
+ * 4. The canvas is claimed for the room, and only then does the session connect
  *    and receive the room's baseline from an elected peer or from the durable
  *    snapshot.
  *
  * Because step 2 leaves the guest without a scene id, `canSyncScene` cannot be a
- * scene-id comparison any more; it is the canvas claim from step 3.
+ * scene-id comparison any more; it is the canvas claim from step 4.
  */
 
 export type CollaborationRoomStatus =
@@ -104,6 +108,16 @@ export type CollaborationRoomStatus =
   /** Recovery stopped for a stated reason; `errorMessage` carries it. */
   | "failed"
   | "unauthorized"
+  /**
+   * The shared join budget refused this client and the bounded wait ran out.
+   *
+   * Deliberately its own status rather than `unauthorized`: nothing is wrong
+   * with this link or this account, and telling the user otherwise sends them
+   * to ask for access they already have. Deliberately not `failed` either —
+   * that status carries a `failureReason` from the recovery machine, and this
+   * never reached a session.
+   */
+  | "rate-limited"
   /** The user declined to give up the current canvas, so no join happened. */
   | "cancelled"
   /** The link carries a room id but no usable end-to-end key. */
@@ -118,9 +132,7 @@ export type CollaborationRoomStatus =
  * appears only for `unreadable-room`) without parsing message text.
  */
 export type CollaborationFailureReason =
-  | UnrecoverableReason
-  | "wrong-key-link"
-  | "missing-key-check";
+  UnrecoverableReason | "wrong-key-link" | "missing-key-check";
 
 export type UseCollaborationRoomResult = {
   status: CollaborationRoomStatus;
@@ -217,6 +229,17 @@ const WRONG_KEY_LINK_MESSAGE =
 const MISSING_KEY_CHECK_MESSAGE =
   "這個 room 尚未完成加密設定，無法驗證連結的金鑰，因此沒有加入。請 room 擁有者重新開啟共編（或重設 room generation）後再分享一次連結。";
 
+/**
+ * The shared join budget refused this client for longer than the bounded wait.
+ *
+ * Says "later", not "no". The previous behaviour reported this through the
+ * catch-all as `unauthorized`, which reads as a permissions problem — and the
+ * one thing a user does about that is ask for access they already have, or
+ * reload, which spends more of the very budget they are waiting on.
+ */
+const JOIN_RATE_LIMITED_MESSAGE =
+  "目前加入共編的次數過於頻繁，暫時無法加入。這不是權限問題，請稍等一分鐘後再重新開啟連結。";
+
 const UNREADABLE_ASSETS_MESSAGE =
   "這個 room 有圖片無法用目前的連結開啟（金鑰不符，或圖片是用較新版本加密的）。畫布的其他內容仍在正常同步；若要看到這些圖片，請向分享者索取最新的完整連結。";
 
@@ -285,7 +308,7 @@ function sceneSyncBlockMessage(block: SceneSyncBlock): string {
  * expired, which is exactly why it must not read as "unavailable": retrying it
  * would spend the whole budget and then report the wrong reason.
  */
-function classifyJoinFailure(error: unknown): JoinCredentialsResult {
+export function classifyJoinFailure(error: unknown): JoinCredentialsResult {
   const code =
     error instanceof TRPCClientError
       ? (error.data as { code?: unknown } | null | undefined)?.code
@@ -298,9 +321,77 @@ function classifyJoinFailure(error: unknown): JoinCredentialsResult {
     case "PRECONDITION_FAILED":
     case "NOT_FOUND":
       return { ok: false, retry: false, failure: "room-ended" };
+    // Over the shared join budget. Transient by construction, so it takes the
+    // retry path — but with the server's own reset time attached, because
+    // retrying inside the window would spend the very budget being waited on
+    // and push the deadline out. The deadline is read off `data.rateLimit`,
+    // never off the message.
+    case "TOO_MANY_REQUESTS":
+      return {
+        ok: false,
+        retry: true,
+        retryAfterMs: rateLimitRetryAfterMs(error) ?? undefined,
+      };
     default:
       return { ok: false, retry: true };
   }
+}
+
+/** Bootstrap join attempts, counting the first. */
+export const MAX_INITIAL_JOIN_ATTEMPTS = 3;
+
+export type BootstrapJoinOutcome<T> =
+  | { status: "joined"; value: T }
+  /** Torn down mid-wait; the caller must not touch state. */
+  | { status: "cancelled" }
+  /** Still refused after the bounded wait; nothing was joined. */
+  | { status: "rate-limited" };
+
+/**
+ * Runs the *first* join, waiting out a rate limit instead of reporting one.
+ *
+ * `classifyJoinFailure` above covers reconnects, which is only half the story:
+ * the bootstrap join has no session yet, so its failure lands in the effect's
+ * catch-all and used to be reported as `unauthorized` — terminal, and wrong.
+ * Nothing about being over a shared budget says this client may not be here.
+ *
+ * Three properties make this safe to retry where a blanket retry would not be:
+ *
+ * - **Only a rate limit.** The deadline has to be machine-readable on the
+ *   error; anything else is rethrown untouched, so an authorization refusal
+ *   reaches the existing handler exactly as before and never becomes a loop.
+ * - **Never early.** The wait is the server's own `retryAfterMs`. Retrying
+ *   inside the window spends the budget being waited on and pushes the deadline
+ *   further out.
+ * - **Bounded and cancellable.** Three attempts, and `isCancelled` is consulted
+ *   before every one — including immediately after a wait — so a component torn
+ *   down mid-window issues no further mutation.
+ *
+ * It deliberately retries only the join call. Re-running the whole bootstrap
+ * would re-prompt for the canvas the user already gave up.
+ */
+export async function joinWithRateLimitRetry<T>(options: {
+  attempt: () => Promise<T>;
+  isCancelled: () => boolean;
+  /** Resolves after `ms`, or early when the caller is torn down. */
+  wait: (ms: number) => Promise<void>;
+  maxAttempts?: number;
+}): Promise<BootstrapJoinOutcome<T>> {
+  const maxAttempts = options.maxAttempts ?? MAX_INITIAL_JOIN_ATTEMPTS;
+  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    if (options.isCancelled()) return { status: "cancelled" };
+    try {
+      return { status: "joined", value: await options.attempt() };
+    } catch (error) {
+      const retryAfterMs = rateLimitRetryAfterMs(error);
+      if (retryAfterMs === null) throw error;
+      if (attempt === maxAttempts) break;
+      await options.wait(retryAfterMs);
+    }
+  }
+  return options.isCancelled()
+    ? { status: "cancelled" }
+    : { status: "rate-limited" };
 }
 
 export function useCollaborationRoom(options: {
@@ -478,6 +569,7 @@ export function useCollaborationRoom(options: {
 
     let cancelled = false;
     let handle: CollaborationRoomHandle | undefined;
+    let claimedDuringStart = false;
     /** Separates the first join from every reconnect after it. */
     let hasBeenLive = false;
     setStatus("joining");
@@ -531,6 +623,26 @@ export function useCollaborationRoom(options: {
       return true;
     };
 
+    /**
+     * Waits out a rate-limit window, or gives up the moment the effect is torn
+     * down. Resolving on teardown rather than clearing the timer and stranding
+     * the promise is what lets the retry loop reach its `isCancelled` check and
+     * stop before it can issue another mutation.
+     */
+    let releaseJoinWait: (() => void) | undefined;
+    const waitBeforeRejoin = (ms: number): Promise<void> =>
+      new Promise<void>((resolve) => {
+        const timer = setTimeout(() => {
+          releaseJoinWait = undefined;
+          resolve();
+        }, ms);
+        releaseJoinWait = () => {
+          clearTimeout(timer);
+          releaseJoinWait = undefined;
+          resolve();
+        };
+      });
+
     const start = async (): Promise<void> => {
       try {
         // Which scene the room is for decides whether the canvas has to be
@@ -572,20 +684,29 @@ export function useCollaborationRoom(options: {
         // room. Asking again is the only answer that cannot be wrong.
         if (!isOpenScene && !(await prepareCanvas())) return;
         if (cancelled) return;
-        // The claim is what `canSyncScene` reads, and it has to be in place
-        // before the first inbound frame can be applied. It also puts the editor
-        // into "this canvas is the room's" mode, which withholds the actions that
-        // would replace the canvas behind the session's back.
-        claimCanvasForRoom(parsedRoomId.data);
-        setOwnsCanvas(true);
-
         // The token is fetched imperatively so it is minted immediately before
         // the socket opens: join tokens are short-lived by design.
-        const joined =
-          await utilsRef.current.client.collaborationRoom.join.mutate({
-            roomId: parsedRoomId.data,
-          });
-        if (cancelled) return;
+        //
+        // Only this call is retried, never the bootstrap around it: the canvas
+        // above has already been prepared and claimed, and re-running that would
+        // re-prompt the user for work they already gave up.
+        const joinOutcome = await joinWithRateLimitRetry({
+          attempt: () =>
+            utilsRef.current.client.collaborationRoom.join.mutate({
+              roomId: parsedRoomId.data,
+            }),
+          isCancelled: () => cancelled,
+          wait: waitBeforeRejoin,
+        });
+        if (cancelled || joinOutcome.status === "cancelled") return;
+        if (joinOutcome.status === "rate-limited") {
+          // Not `unauthorized`: this link and this account are fine, and the
+          // room is joinable again once the window rolls.
+          setStatus("rate-limited");
+          setErrorMessage(JOIN_RATE_LIMITED_MESSAGE);
+          return;
+        }
+        const joined = joinOutcome.value;
         // The key check was verified against the generation `get` reported, and
         // the user may have sat in the canvas prompt between then and now — time
         // enough for the owner to rotate. A join that comes back on a different
@@ -601,6 +722,13 @@ export function useCollaborationRoom(options: {
           setErrorMessage(FAILURE_MESSAGE["generation-rotated"]);
           return;
         }
+        // Commit the canvas claim only after join and generation validation
+        // succeed. No socket exists yet, so this is still before the first
+        // inbound frame; a refused/exhausted join no longer leaves a tab in
+        // collaboration-owned mode without a session.
+        claimCanvasForRoom(parsedRoomId.data);
+        claimedDuringStart = true;
+        setOwnsCanvas(true);
         // Key derivation is asynchronous, so the effect can be torn down while
         // the session is still being built. Whatever comes back has to be
         // destroyed in that case: the closure variable the cleanup reads is
@@ -744,6 +872,14 @@ export function useCollaborationRoom(options: {
         handleRef.current = handle;
       } catch (error) {
         if (cancelled) return;
+        // A synchronous/asynchronous failure while constructing the session is
+        // still a failed join. Release only the claim made by this start path;
+        // successful sessions are released by the effect cleanup below.
+        if (claimedDuringStart) {
+          releaseCanvasRoom();
+          claimedDuringStart = false;
+          setOwnsCanvas(false);
+        }
         setStatus("unauthorized");
         setErrorMessage(
           error instanceof Error
@@ -756,6 +892,9 @@ export function useCollaborationRoom(options: {
 
     return () => {
       cancelled = true;
+      // Ends any rate-limit wait immediately; the loop then sees `cancelled`
+      // and returns without another join.
+      releaseJoinWait?.();
       handleRef.current = null;
       // The leave flush outlives this cleanup by design; React cannot await it.
       void handle?.destroy();
