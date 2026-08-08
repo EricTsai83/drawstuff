@@ -5,6 +5,7 @@ import { env } from "@/env";
 import { appRouter } from "@/server/api/root";
 import { createTRPCContext } from "@/server/api/trpc";
 import { auth } from "@/lib/auth";
+import { collaborationRateLimitResponseMeta } from "@/server/rate-limit/collaboration";
 
 /**
  * This wraps the `createTRPCContext` helper and provides the required context for the tRPC API when
@@ -21,6 +22,9 @@ const handler = (req: NextRequest) =>
     req,
     router: appRouter,
     createContext: () => createContext(req),
+    // Adds `Retry-After` to a batch that carries a rate-limit refusal; a no-op
+    // for every other response.
+    responseMeta: collaborationRateLimitResponseMeta,
     onError:
       env.NODE_ENV === "development"
         ? ({ path, error }) => {

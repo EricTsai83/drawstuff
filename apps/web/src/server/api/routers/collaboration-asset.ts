@@ -11,6 +11,7 @@ import {
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { resolveRoomAssets } from "@/server/collab/assets";
 import { resolveRoomAccess, type RoomAccess } from "@/server/collab/rooms";
+import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
 
 /**
  * Collaboration asset lookup API for canonical identity and encrypted transfer.
@@ -81,6 +82,13 @@ export const collaborationAssetRouter = createTRPCRouter({
     )
     .output(collaborationAssetLookupSchema)
     .query(async ({ ctx, input }) => {
+      // User-scoped, and taken before the room lookup: the batch is already
+      // bounded at `MAX_ASSET_LOOKUP_BATCH` ids, so what is left to bound is
+      // how often one caller may ask — and refusing here costs no query.
+      await enforceCollaborationRateLimit({
+        operation: "asset-resolve",
+        identifier: ctx.auth.user.id,
+      });
       const access = await resolveRoomAccess(ctx.db, {
         roomId: input.roomId,
         userId: ctx.auth.user.id,

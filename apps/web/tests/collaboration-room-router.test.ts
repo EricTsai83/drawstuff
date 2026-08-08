@@ -12,6 +12,19 @@ import {
 vi.mock("server-only", () => ({}));
 
 /**
+ * These tests are about the routers' own behaviour, so the shared rate limiter
+ * is stubbed to "allowed": leaving it live would send every procedure call at a
+ * Redis that does not exist, and the fail-open path would then quietly decide
+ * every assertion here. Enforcement itself — including that a real limit
+ * produces a 429 and that a degraded limiter still fails closed on every hard
+ * guard — is covered in `collaboration-rate-limit-routers.test.ts`.
+ */
+vi.mock("@/server/rate-limit/collaboration", () => ({
+  enforceCollaborationRateLimit: () => Promise.resolve(),
+  rateLimitMetadataOf: () => null,
+}));
+
+/**
  * The relay is a separate process; its side of enforcement is covered by the
  * relay integration tests. Here the push itself is the assertion: a membership
  * change must reach the relay so sockets that already joined are closed.

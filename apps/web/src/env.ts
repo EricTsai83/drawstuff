@@ -33,6 +33,18 @@ export const env = createEnv({
     COLLAB_JOIN_TOKEN_SECRET: z.string().min(32),
     /** Origin of the relay's control endpoint (server-to-server only). */
     COLLAB_RELAY_CONTROL_URL: z.string().url(),
+    /**
+     * Upstash Redis REST credentials for the shared collaboration rate limits.
+     * Server-side only and never `NEXT_PUBLIC_*`: the token is a full
+     * read/write capability on the counter store.
+     *
+     * Validated here so a missing or malformed credential is a deployment
+     * configuration error that fails at boot, rather than a request-time
+     * degradation — the fail-open path exists for a Redis that is configured
+     * and unreachable, not for one that was never configured.
+     */
+    UPSTASH_REDIS_REST_URL: z.string().url(),
+    UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
   },
 
   /**
@@ -70,6 +82,8 @@ export const env = createEnv({
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
     COLLAB_JOIN_TOKEN_SECRET: process.env.COLLAB_JOIN_TOKEN_SECRET,
     COLLAB_RELAY_CONTROL_URL: process.env.COLLAB_RELAY_CONTROL_URL,
+    UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
+    UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
     NEXT_PUBLIC_COLLAB_RELAY_URL: process.env.NEXT_PUBLIC_COLLAB_RELAY_URL,
   },

@@ -230,6 +230,7 @@ export function createSnapshotBackend() {
   let revision = SNAPSHOT_NO_REVISION;
   let elements: readonly SyncedElement[] = [];
   const saves: { expectedRevision: number; count: number }[] = [];
+  const saveIntents: ("cadence" | "leave")[] = [];
   /** Loads held open by `deferLoad`, released together. */
   const deferred: (() => void)[] = [];
   let loads = 0;
@@ -253,6 +254,10 @@ export function createSnapshotBackend() {
     /** Conditional writes recorded in order, for asserting retry behaviour. */
     get saves(): readonly { expectedRevision: number; count: number }[] {
       return saves;
+    },
+    /** Scheduling intent recorded separately so existing revision assertions stay focused. */
+    get saveIntents(): readonly ("cadence" | "leave")[] {
+      return saveIntents;
     },
     /** Completes every load this backend is holding open. */
     resolveDeferredLoads(): void {
@@ -290,8 +295,9 @@ export function createSnapshotBackend() {
           }
           return { status: "loaded" as const, revision, elements };
         },
-        save: ({ elements: next, expectedRevision }) => {
+        save: ({ elements: next, expectedRevision, intent = "cadence" }) => {
           saves.push({ expectedRevision, count: next.length });
+          saveIntents.push(intent);
           if (expectedRevision !== revision) {
             return Promise.resolve({
               status: "conflict" as const,

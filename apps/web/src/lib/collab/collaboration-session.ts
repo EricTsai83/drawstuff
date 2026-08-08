@@ -251,8 +251,16 @@ export type JoinCredentials = {
  * next token request can distinguish them, so the terminal reasons live here.
  */
 export type JoinCredentialsRefusal =
-  /** Transport or backend failure of unknown cause; retried with backoff. */
-  | { retry: true }
+  /**
+   * Transport or backend failure of unknown cause; retried with backoff.
+   *
+   * `retryAfterMs` is present when the backend named a deadline — today only a
+   * rate limit does. It raises the recovery backoff for that one attempt and
+   * never lowers it, and it does not grant an extra attempt: a rate limit is
+   * transient, not terminal, so the existing bounded budget is what stops a
+   * client that keeps being refused.
+   */
+  | { retry: true; retryAfterMs?: number }
   /** Terminal, with the reason to report. */
   | {
       retry: false;
@@ -565,6 +573,22 @@ export function createCollaborationSession(
   let snapshotWriteInFlight = false;
   /** The write currently settling, so a leave flush can queue behind it. */
   let inFlightWrite: Promise<void> | undefined;
+  /**
+   * Earliest instant the room's shared snapshot budget will accept another
+   * write, as stated by the backend's last refusal.
+   *
+   * Held here rather than in the store because the cadence is here: the store
+   * reports the deadline, the session is what decides not to call again.
+   *
+   * It binds the **cadence only**. A forced leave flush ignores it, because the
+   * two sides of that trade are not comparable. A refused sliding-window request
+   * consumes nothing — `@upstash/ratelimit` returns before it increments, so an
+   * attempt that loses takes no token from the members who stayed and moves no
+   * deadline — while skipping the flush can lose the room's newest state for
+   * good: a leave may be the room emptying out, and teardown stops the cadence,
+   * so there is no later tick to pick the edit up.
+   */
+  let snapshotWriteNotBefore = 0;
 
   let lastPointer: PresencePayload["pointer"] | undefined;
   let lastButton: PresencePayload["button"] = "up";
@@ -694,7 +718,15 @@ export function createCollaborationSession(
    * Applies the recovery policy to a lost connection: schedule the next attempt,
    * stop with a stated reason, or ignore it because we asked for it.
    */
-  const handleConnectionLoss = (reason: DisconnectReason): void => {
+  const handleConnectionLoss = (
+    reason: DisconnectReason,
+    /**
+     * A server-stated deadline the next attempt must not precede. Raises the
+     * recovery machine's own backoff; never lowers it, and never changes how
+     * many attempts remain.
+     */
+    notBeforeMs = 0,
+  ): void => {
     const next = recovery.lost(reason);
     if (next.phase === "failed") {
       // A terminal reason reported by the transport takes the same teardown as
@@ -707,11 +739,14 @@ export function createCollaborationSession(
     notifyRecovery();
     if (next.phase !== "waiting") return;
     clearReconnectTimer();
-    cancelReconnectTimer = scheduleTimeout(() => {
-      cancelReconnectTimer = undefined;
-      if (destroyed || terminated) return;
-      reconnect();
-    }, next.delayMs);
+    cancelReconnectTimer = scheduleTimeout(
+      () => {
+        cancelReconnectTimer = undefined;
+        if (destroyed || terminated) return;
+        reconnect();
+      },
+      Math.max(next.delayMs, notBeforeMs),
+    );
   };
 
   /**
@@ -744,7 +779,7 @@ export function createCollaborationSession(
           failRecovery(refreshed.failure);
           return;
         }
-        handleConnectionLoss("transient");
+        handleConnectionLoss("transient", refreshed.retryAfterMs);
         return;
       }
       // The room's generation moved under us, so this session's derived keys can
@@ -1394,6 +1429,7 @@ export function createCollaborationSession(
       !connected ||
       barrier ||
       !canEditScene() ||
+      (!force && now() < snapshotWriteNotBefore) ||
       (!force && !isElectedSnapshotWriter())
     ) {
       return;
@@ -1423,6 +1459,7 @@ export function createCollaborationSession(
       const result = await store.save({
         elements,
         expectedRevision: snapshotRevision,
+        intent: force ? "leave" : "cadence",
       });
       // A write that settles after a reconnect must not seed the new session's
       // revision with the old one's answer.
@@ -1443,6 +1480,16 @@ export function createCollaborationSession(
           byteLength: result.byteLength,
           maxByteLength: result.maxByteLength,
         });
+        return;
+      }
+      // The room's shared write budget is spent. Retryable, and the next
+      // cadence tick is the retry — but not before the window the server named,
+      // because a tick inside it is a round trip that cannot succeed. It holds
+      // back the cadence only: a forced flush still attempts, since a refused
+      // request costs the room nothing and a skipped final flush costs it the
+      // scene.
+      if (result.status === "rate-limited") {
+        snapshotWriteNotBefore = now() + result.retryAfterMs;
         return;
       }
       if (result.status !== "conflict") return;
@@ -1474,12 +1521,17 @@ export function createCollaborationSession(
       const retried = await store.save({
         elements: merged,
         expectedRevision: winner.revision,
+        intent: "leave",
       });
       if (epoch !== joinEpoch) return;
       if (retried.status === "written") {
         snapshotRevision = retried.revision;
         snapshotBaselineKnown = true;
         noteSnapshotWritten();
+        return;
+      }
+      if (retried.status === "rate-limited") {
+        snapshotWriteNotBefore = now() + retried.retryAfterMs;
         return;
       }
       // Merging the winner can push a scene that fit on its own past the limit,

@@ -17,6 +17,8 @@ import type {
   FileId,
 } from "@drawstuff/excalidraw-adapter/types";
 
+import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
+
 /**
  * Client half of encrypted asset transfer: the only place an asset is sealed or
  * opened.
@@ -398,10 +400,24 @@ export async function createCollaborationAssetStore(options: {
     MAX_TRACKED_IDS,
     (evicted) => retryQueue.delete(evicted),
   );
-  const uploadAttempts = createBoundedIdMap<number>(MAX_TRACKED_IDS);
+  /**
+   * Backoff state for uploads, mirroring `retrying` on the download side.
+   *
+   * The deadline has to live per file rather than only in the store's timer,
+   * because the timer is not the only way back into `publish`: an ordinary scene
+   * flush re-offers the whole current file set, so a user who simply keeps
+   * drawing after a rate limit would otherwise re-attempt inside the window,
+   * lose, and burn the bounded attempt budget until the image is abandoned.
+   */
+  const uploadRetrying = createBoundedIdMap<{
+    attempts: number;
+    notBefore: number;
+  }>(MAX_TRACKED_IDS);
   const transfers = createTransferGate(MAX_CONCURRENT_TRANSFERS);
 
   let cancelPublishRetry: (() => void) | undefined;
+  /** When the armed publish retry is due; `0` when no timer is live. */
+  let publishRetryDueAt = 0;
 
   /**
    * Aggregate evidence for `onAssetsUnreadable`, mirroring the realtime path's
@@ -510,13 +526,19 @@ export async function createCollaborationAssetStore(options: {
    * Past the chain the deadline stays and nothing is queued — the id is then only
    * re-requested if new traffic references it, which is what keeps a genuinely
    * absent asset from being either given up on or polled for.
+   *
+   * `notBeforeMs` is the server's own reset deadline when the failure was a
+   * rate limit. It raises the delay and never lowers it: the local backoff is
+   * this client's politeness, the server's deadline is a fact about a shared
+   * budget, and retrying before it can only spend a token that was going to be
+   * refused anyway. The attempt still counts, so the bounded chain is unchanged.
    */
-  const deferRetry = (fileId: string): void => {
+  const deferRetry = (fileId: string, notBeforeMs = 0): void => {
     if (destroyed) return;
     const attempts = (retrying.get(fileId)?.attempts ?? 0) + 1;
     retrying.set(fileId, {
       attempts,
-      notBefore: now() + retryDelayMs(attempts),
+      notBefore: now() + Math.max(retryDelayMs(attempts), notBeforeMs),
     });
     if (attempts < MAX_SCHEDULED_DOWNLOAD_ATTEMPTS) retryQueue.add(fileId);
   };
@@ -735,8 +757,12 @@ export async function createCollaborationAssetStore(options: {
             { roomId, fileIds: batch },
             controller.signal,
           );
-        } catch {
-          for (const fileId of batch) deferRetry(fileId);
+        } catch (error) {
+          // A refused lookup is transient whatever the reason, so the existing
+          // bounded chain already covers it; a rate limit only moves the
+          // deadline out to the window the server named.
+          const notBefore = rateLimitRetryAfterMs(error) ?? 0;
+          for (const fileId of batch) deferRetry(fileId, notBefore);
           continue;
         }
         if (destroyed) return;
@@ -834,46 +860,94 @@ export async function createCollaborationAssetStore(options: {
       // Our own bytes are already on the canvas: recording the id as resolved is
       // what stops this client from downloading the image it just uploaded.
       resolved.add(file.id);
-      uploadAttempts.delete(file.id);
-    } catch {
-      const attempts = (uploadAttempts.get(file.id) ?? 0) + 1;
+      uploadRetrying.delete(file.id);
+    } catch (error) {
+      const attempts = (uploadRetrying.get(file.id)?.attempts ?? 0) + 1;
       if (attempts >= MAX_PUBLISH_ATTEMPTS) {
         abandon(file.id);
-        uploadAttempts.delete(file.id);
+        uploadRetrying.delete(file.id);
         return;
       }
-      uploadAttempts.set(file.id, attempts);
+      // The server's reset deadline raises the local backoff, never lowers it.
+      // One delay is computed and used for both the file's own deadline and the
+      // timer, so the timer never fires before the file it was armed for is
+      // eligible.
+      const delayMs = Math.max(
+        retryDelayMs(attempts),
+        rateLimitRetryAfterMs(error) ?? 0,
+      );
+      uploadRetrying.set(file.id, { attempts, notBefore: now() + delayMs });
       // A timer, not "the next scene flush": a user who pastes an image and then
       // stops drawing produces no further flush, so a transient upload failure
-      // would otherwise mean the image never reaches anybody.
-      schedulePublishRetry(attempts);
+      // would otherwise mean the image never reaches anybody. A rate limit is
+      // one such transient failure — it consumes an attempt like any other, it
+      // just cannot be retried before the server's window resets.
+      schedulePublishRetry(now() + delayMs);
     }
   };
 
   /**
-   * Asks the canvas to offer its files again after a failed upload.
+   * Asks the canvas to offer its files again once the deferred work is due.
    *
    * One timer for the store: several failed uploads share the round, and the round
    * re-reads the scene rather than replaying a captured file set, so an image the
    * user deleted in the meantime is simply not retried.
+   *
+   * The armed deadline is tracked, and a later one replaces it. Keeping the
+   * first-armed timer would let an ordinary failure's short backoff pin the
+   * round, dragging a rate-limited sibling back inside the window it was told to
+   * wait out — and each of those losing attempts is one of three it gets.
    */
-  const schedulePublishRetry = (attempts: number): void => {
-    if (destroyed || cancelPublishRetry || !onPublishRetryDue) return;
-    cancelPublishRetry = scheduleTimeout(() => {
-      cancelPublishRetry = undefined;
-      if (destroyed) return;
-      onPublishRetryDue();
-    }, retryDelayMs(attempts));
+  const schedulePublishRetry = (dueAt: number): void => {
+    if (destroyed || !onPublishRetryDue) return;
+    if (cancelPublishRetry && publishRetryDueAt >= dueAt) return;
+    cancelPublishRetry?.();
+    publishRetryDueAt = dueAt;
+    cancelPublishRetry = scheduleTimeout(
+      () => {
+        cancelPublishRetry = undefined;
+        publishRetryDueAt = 0;
+        if (destroyed) return;
+        onPublishRetryDue();
+      },
+      Math.max(0, dueAt - now()),
+    );
   };
 
   async function publish(files: readonly BinaryFileData[]): Promise<void> {
     if (destroyed) return;
-    const pending = files.filter(
-      (file) =>
-        !available.has(file.id) &&
-        !abandoned.has(file.id) &&
-        !uploading.has(file.id),
-    );
+    const at = now();
+    const pending: BinaryFileData[] = [];
+    /** Earliest deadline among files held back only by their own window. */
+    let earliestDeferred: number | undefined;
+    for (const file of files) {
+      if (
+        available.has(file.id) ||
+        abandoned.has(file.id) ||
+        uploading.has(file.id)
+      ) {
+        continue;
+      }
+      const state = uploadRetrying.get(file.id);
+      // Every path back in respects the deadline, not just the timer — this is
+      // the one that catches an ordinary scene flush. Being skipped is neither
+      // an attempt nor a failure: nothing is counted and nothing is given up on,
+      // so the bounded budget is still three real tries rather than three
+      // refusals inside a window that was never going to accept them.
+      if (state && state.notBefore > at) {
+        if (
+          earliestDeferred === undefined ||
+          state.notBefore < earliestDeferred
+        ) {
+          earliestDeferred = state.notBefore;
+        }
+        continue;
+      }
+      pending.push(file);
+    }
+    // A round can defer everything it was offered. Those files are still owed a
+    // retry, and if the caller stops drawing nothing else will ask for them.
+    if (earliestDeferred !== undefined) schedulePublishRetry(earliestDeferred);
     if (pending.length === 0) return;
 
     // Claimed and released *per file*, not per batch. A batch-wide claim would
@@ -912,6 +986,7 @@ export async function createCollaborationAssetStore(options: {
       cancelRetry = undefined;
       cancelPublishRetry?.();
       cancelPublishRetry = undefined;
+      publishRetryDueAt = 0;
       retryQueue = new Set();
       // Aborts fetches, uploads and lookups alike: every network call this store
       // makes carries this signal.
@@ -919,7 +994,7 @@ export async function createCollaborationAssetStore(options: {
       downloading.clear();
       uploading.clear();
       retrying.clear();
-      uploadAttempts.clear();
+      uploadRetrying.clear();
     },
   };
 }

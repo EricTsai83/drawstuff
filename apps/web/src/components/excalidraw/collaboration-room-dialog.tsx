@@ -76,6 +76,7 @@ const STATUS_LABEL: Record<CollaborationRoomStatus, string> = {
   reconnecting: "連線中斷，正在重新連線…",
   failed: "連線已停止",
   unauthorized: "無法加入",
+  "rate-limited": "加入次數過於頻繁，請稍後再試",
   cancelled: "已取消加入",
   "missing-room-key": "連結缺少金鑰",
 };
