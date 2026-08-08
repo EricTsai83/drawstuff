@@ -6,13 +6,13 @@
 
 ## Public-testing prerequisites
 
-1. [Backend rate limits](./backend-rate-limits.md) — `Blocked`，等待 Redis 開通。限制 join、
+1. [Backend rate limits](./backend-rate-limits.md) — `Ready`。Upstash Redis 已開通；限制 join、
    snapshot write、asset upload 與 asset resolve 的共享呼叫速率。
 2. [Operator data retirement](./operator-data-retirement.md) — `Ready`。提供 scene、room、account
    三種 admin 清理能力，完整沿用現有 object、room 與 relational lifecycle。
 
 兩份工作都必須在公開測試前完成。Rate limit 限制濫用的量；operator retirement 處理濫用或
-測試後的資料清理。兩者可在 Redis 開通前後各自實作，但公開測試需要同時滿足。
+測試後的資料清理。兩者可獨立實作，但公開測試需要同時滿足。
 
 ## Completion rule
 

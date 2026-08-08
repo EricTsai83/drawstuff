@@ -63,17 +63,32 @@ metrics. This prevents the limiter itself from becoming an unbounded memory sink
 
 ### Web backend and storage
 
-| Input              | Implemented control                                                                                             | Current gap                               |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- | ----------------------------------------- |
-| Room procedures    | Protected procedure, centralized access resolution, room-row lock for lifecycle writes, 12h default/24h max TTL | Shared call-rate limit is not implemented |
-| Snapshot put       | Decode/size bound before transaction, ciphertext checksum, current generation, row lock, optimistic revision    | Shared call-rate limit is not implemented |
-| Asset resolve      | Access check and max 64 IDs per batch                                                                           | Shared call-rate limit is not implemented |
-| Asset upload       | One object/request, ciphertext size bound, owner/editor role, current generation, max 512 assets/generation     | Shared call-rate limit is not implemented |
-| Ended/expired data | Seven-day grace, bounded idempotent maintenance job, transactional deferred object cleanup                      | —                                         |
+| Input              | Implemented control                                                                                                                                                                                         | Current gap |
+| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
+| Room procedures    | Protected procedure, centralized access resolution, room-row lock for lifecycle writes, 12h default/24h max TTL, 20 joins/user/minute                                                                       | —           |
+| Snapshot put       | Decode/size bound before transaction, ciphertext checksum, current generation, row lock, optimistic revision, 6 writes/room/minute; after an explicit refusal, leave-only reserve 2 writes/user/room/minute | —           |
+| Asset resolve      | Access check, max 64 IDs per batch, 120 lookups/user/minute                                                                                                                                                 | —           |
+| Asset upload       | One object/request, ciphertext size bound, owner/editor role, current generation, max 512 assets/generation, 60 presigns/user/minute                                                                        | —           |
+| Ended/expired data | Seven-day grace, bounded idempotent maintenance job, transactional deferred object cleanup                                                                                                                  | —           |
 
-The missing shared backend limiter is tracked in
-[backend rate limits](../../plans/backend-rate-limits.md) and is required before public testing.
-Serverless process-local counters are not a valid substitute.
+The four entry-point limits and the snapshot leave-only reserve are shared counters in Upstash Redis
+(`@upstash/redis` + `@upstash/ratelimit`, sliding window, key prefix
+`drawstuff:collab:ratelimit:v1:<operation>`), because `apps/web` runs on serverless functions where
+a process-local counter is one limit per warm instance rather than a limit. Approved values are in
+[SLO §5](../performance/collaboration-slo-capacity.md); the implementation scope is
+[backend rate limits](../../plans/backend-rate-limits.md) and its
+[follow-up](../../plans/backend-rate-limit-followups.md).
+
+A rate limit is capacity and abuse protection, not an authorization boundary, so Redis failure
+fails **open**: a 750 ms timeout or an SDK exception is reported as `degraded`, the request
+proceeds, and a structured event is emitted. Every control in the table above other than the rate
+limit stays fail-closed while that is happening — including authentication, room role, generation
+currency, payload and batch bounds, and the 512-assets-per-generation cap. `degraded` never becomes
+a 429, so it cannot consume a client's retry budget. Each limiter decision makes exactly one Redis
+call and is never retried. Ordinary requests make one decision; only a leave snapshot explicitly
+refused by the room budget checks the separate two-token finalization reserve, for at most two calls.
+No path substitutes a process-local counter, which would present one independent limit per instance
+as a global one.
 
 ### Client
 
@@ -84,29 +99,32 @@ work and releases timers, object URLs, sockets, and caches.
 
 ## Threats and current disposition
 
-| ID  | Threat                                                     | Control or accepted limitation                                                                                                                                                                                                                                                  |
-| --- | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T1  | Non-member reads room content                              | Every join requires an authorized short-lived token; generation rotation isolates old tokens and keys.                                                                                                                                                                          |
-| T2  | Relay/operator/intermediary reads scene                    | All scene, presence, snapshot, and asset content is end-to-end encrypted; relay has no crypto key or persistence dependency.                                                                                                                                                    |
-| T3  | Removed member remains online                              | Relay control disconnects live sockets and authorization-revision cutoff rejects earlier tokens. If control delivery fails, UI reports enforcement failure rather than claiming success.                                                                                        |
-| T4  | Viewer mutates scene                                       | Relay rejects scene frames from viewer sessions; UI read-only state is secondary defense.                                                                                                                                                                                       |
-| T5  | Oversize/buffer abuse                                      | Raw-byte bounds precede decode; connection, room, buffer, queue, replay, asset, and snapshot limits are explicit.                                                                                                                                                               |
-| T6  | Authorized caller amplifies load                           | Relay traffic/churn limits are implemented. Backend join/snapshot/asset call rates remain unbounded across serverless invocations until shared Redis limits are implemented.                                                                                                    |
-| T7  | Room key leaks from shared link                            | Accepted limitation: the complete link is a bearer secret. UI identifies the fragment as the key; generation rotation is the cryptographic revocation path.                                                                                                                     |
-| T8  | Telemetry leaks content or identity                        | Relay logger is the only sink, fields are a closed type plus runtime allowlist, metrics have bounded label sets, pre-verification failures log only enums, and integration tests scan complete logs/metrics for prohibited values. Subject IDs use per-process HMAC pseudonyms. |
-| T9  | Ended room retains ciphertext forever                      | Seven-day-grace retention deletes snapshot rows and transactionally enqueues asset objects for cleanup; expired active rooms become ended under lock.                                                                                                                           |
-| T10 | One format-version change destroys unrelated durable data  | HKDF is purpose-scoped and version-neutral. Realtime AAD binds transport version; snapshot and asset payload/AAD bind only their own versions. Aggregate open-failure detection prevents silent wrong-key sessions while isolated corruption remains non-terminal.              |
-| T11 | Oversize local change silently stops sync                  | Client exposes a clearable blocked state and stops claiming synchronization until content is reduced.                                                                                                                                                                           |
-| T12 | Process-local fanout is accidentally scaled horizontally   | Deployment config, startup declaration, documentation, and monitoring enforce one process. Multi-instance operation requires a new architecture.                                                                                                                                |
-| T13 | Client-selected identifier smuggles key material into logs | Eliminated at the source: there is no `clientId`; join carries room and token, peer identity is relay-created `peerId`. Before token verification even `roomId` is not logged.                                                                                                  |
-| T14 | Wrong-key client seeds or overwrites snapshot              | Key check is verified before canvas takeover and join; missing verifier fails closed on both backend and client. A verifier is immutable within a generation, rotation clears/recomputes it, and owner can explicitly reset unreadable snapshot.                                |
-| T15 | Relay suppresses frames                                    | Accepted availability limitation. A relay can always drop or refuse traffic, and a quiet room is indistinguishable from suppression without false positives. Metrics expose routing inactivity; confidentiality is unaffected.                                                  |
+| ID  | Threat                                                     | Control or accepted limitation                                                                                                                                                                                                                                                                                                                       |
+| --- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| T1  | Non-member reads room content                              | Every join requires an authorized short-lived token; generation rotation isolates old tokens and keys.                                                                                                                                                                                                                                               |
+| T2  | Relay/operator/intermediary reads scene                    | All scene, presence, snapshot, and asset content is end-to-end encrypted; relay has no crypto key or persistence dependency.                                                                                                                                                                                                                         |
+| T3  | Removed member remains online                              | Relay control disconnects live sockets and authorization-revision cutoff rejects earlier tokens. If control delivery fails, UI reports enforcement failure rather than claiming success.                                                                                                                                                             |
+| T4  | Viewer mutates scene                                       | Relay rejects scene frames from viewer sessions; UI read-only state is secondary defense.                                                                                                                                                                                                                                                            |
+| T5  | Oversize/buffer abuse                                      | Raw-byte bounds precede decode; connection, room, buffer, queue, replay, asset, and snapshot limits are explicit.                                                                                                                                                                                                                                    |
+| T6  | Authorized caller amplifies load                           | Relay traffic/churn limits are implemented. Backend join, snapshot-write, asset-upload and asset-resolve rates are bounded by shared Redis counters that hold across serverless invocations; a real refusal is a 429 with a machine-readable reset, and Redis failure fails open as observable degradation while every hard guard stays fail-closed. |
+| T7  | Room key leaks from shared link                            | Accepted limitation: the complete link is a bearer secret. UI identifies the fragment as the key; generation rotation is the cryptographic revocation path.                                                                                                                                                                                          |
+| T8  | Telemetry leaks content or identity                        | Relay logger is the only sink, fields are a closed type plus runtime allowlist, metrics have bounded label sets, pre-verification failures log only enums, and integration tests scan complete logs/metrics for prohibited values. Subject IDs use per-process HMAC pseudonyms.                                                                      |
+| T9  | Ended room retains ciphertext forever                      | Seven-day-grace retention deletes snapshot rows and transactionally enqueues asset objects for cleanup; expired active rooms become ended under lock.                                                                                                                                                                                                |
+| T10 | One format-version change destroys unrelated durable data  | HKDF is purpose-scoped and version-neutral. Realtime AAD binds transport version; snapshot and asset payload/AAD bind only their own versions. Aggregate open-failure detection prevents silent wrong-key sessions while isolated corruption remains non-terminal.                                                                                   |
+| T11 | Oversize local change silently stops sync                  | Client exposes a clearable blocked state and stops claiming synchronization until content is reduced.                                                                                                                                                                                                                                                |
+| T12 | Process-local fanout is accidentally scaled horizontally   | Deployment config, startup declaration, documentation, and monitoring enforce one process. Multi-instance operation requires a new architecture.                                                                                                                                                                                                     |
+| T13 | Client-selected identifier smuggles key material into logs | Eliminated at the source: there is no `clientId`; join carries room and token, peer identity is relay-created `peerId`. Before token verification even `roomId` is not logged.                                                                                                                                                                       |
+| T14 | Wrong-key client seeds or overwrites snapshot              | Key check is verified before canvas takeover and join; missing verifier fails closed on both backend and client. A verifier is immutable within a generation, rotation clears/recomputes it, and owner can explicitly reset unreadable snapshot.                                                                                                     |
+| T15 | Relay suppresses frames                                    | Accepted availability limitation. A relay can always drop or refuse traffic, and a quiet room is indistinguishable from suppression without false positives. Metrics expose routing inactivity; confidentiality is unaffected.                                                                                                                       |
 
 ## Observability data classification
 
 Allowed fields are opaque `roomId` after verification, `authGeneration`, relay-created `peerId`,
 byte counts, frame counts, channel enum, close/disconnect enums, aggregate decrypt/conflict counts,
-snapshot revision, latency, event-loop lag, and memory.
+snapshot revision, latency, event-loop lag, and memory. The backend rate limiter's degradation event
+adds two closed enums — the operation and the cause (`timeout` or `exception`) — and nothing else:
+it carries no identifier, no Redis endpoint, and no error payload, because an Upstash SDK error
+message embeds the REST URL and the token it was called with.
 
 Forbidden fields are email, display name/presence username, message content, ciphertext/base64
 fragments, payload-derived error details, room/derived keys, token or token fragments, snapshot
