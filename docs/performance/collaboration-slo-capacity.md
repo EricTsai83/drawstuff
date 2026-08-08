@@ -1,11 +1,12 @@
 # 共編 SLO 與 capacity
 
-- Plan: [19](../../plans/19-production-hardening.md) step 3
+- Status: Approved design budget
 - 建立日期：2026-08-05
-- 狀態：**Approved（2026-08-06）**，含**修訂 R1（2026-08-06 核准）**。本文件的數字即為
-  Plan 24／29 的判定依據；load-test report 必須逐項對照。數字不得因測不過而調整——先排除
-  環境差異、重跑，仍不過則修 implementation；只有新的核准版本可以改門檻。
-- 核准時的兩項決定（見 §4.1 與 §8）：
+- 狀態：**Approved（2026-08-06）**，含**修訂 R1（2026-08-06 核准）**。本文件的數字是
+  implementation、metrics 與 alerts 的共同 budget。服務容量尚未經正式 load test 驗證，
+  因此這些數字不是 production capacity 已達成的聲明。未來驗證失敗時應先排除環境差異並修正
+  implementation；只有新的核准版本可以改門檻。
+- 核准時的兩項決定（見 §4.1 與 §7）：
   1. **記憶體不靠砍排水空間**：`maxBufferedBytes` 與 `maxConnections` 都維持原值，改以
      RSS alert 加 max-memory 自動重啟收尾。
   2. **不支援水平擴展**：強制單 instance，與 upstream 一致。
@@ -29,14 +30,15 @@ process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作
 - 本文件所有數字都是**單一 instance** 的數字，同時就是整個服務的容量與 availability 上限。
 - 超出容量必須以明確 close code 拒絕（`relayAtCapacity`／`roomAtCapacity` 已存在），
   不得默默錯誤。
-- step 8／9 的「fanout dependency outage」與「fanout partition」情境**不適用**——沒有外部
-  fanout 依賴。前者退化為 relay process 重啟（Plan 18 已覆蓋）。
-- 共編是單點故障，必須寫進 runbook：relay 不可用時一般單人 editor 不受影響（Plan 19
-  Done when 已要求）。
+- 「fanout dependency outage」與「fanout partition」情境不適用——沒有外部 fanout 依賴；
+  前者退化為 relay process 重啟。
+- 共編是單點故障。Relay 不可用時一般單人 editor 不受影響；部署與重啟程序見
+  [relay 部署文件](../operations/collaboration-relay-deployment.md)。
 
 ## 1. 已鎖定、不在本文件範圍的數字
 
-以下由 Plan 12／14／15 鎖定，列出僅為讓 SLO 可推導；**不隨本文件調整**。
+以下是 protocol、crypto 與 snapshot contract 鎖定的數字，列出僅為讓 SLO 可推導；
+**不隨本文件調整**。
 
 | 契約                       | 值                  | 出處                             |
 | -------------------------- | ------------------- | -------------------------------- |
@@ -56,16 +58,14 @@ process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作
 | 項目                   | 目前預設（硬上限）            | 核准值                       | 依據                                                                                                                               |
 | ---------------------- | ----------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
 | 同時連線數／instance   | 256（`maxConnections`）       | **目標 192，硬上限維持 256** | 目標設在硬上限的 75%，讓 reconnect storm 有 25% 的吸收空間。若目標等於上限，一次 relay 重啟後的重連潮會直接撞 `relayAtCapacity`    |
-| 同時 room 數／instance | 無獨立上限                    | **目標 96，硬上限 128**      | 每 room 平均 2 名成員的常見形狀下，96 room ≈ 192 連線。需要新增 room 數上限（目前只有連線數上限）                                  |
+| 同時 room 數／instance | 128（`maxRooms`）             | **目標 96，硬上限 128**      | 每 room 平均 2 名成員的常見形狀下，96 room ≈ 192 連線；超限以 `relayRoomsAtCapacity` 明確拒絕                                    |
 | 單一 room 成員數       | 32（`maxConnectionsPerRoom`） | **維持 32**                  | fanout 是 O(members) 同步迴圈；32 名成員 × 1 MiB scene frame = 單次 publish 最多 31 MiB 的 socket 寫入，已是單 instance 的合理上界 |
-
-room 數上限目前不存在，需在 step 2 新增（`fanout.roomCount()` 已可讀，只缺 join 時的檢查）。
 
 ## 3. 延遲 SLO
 
 分兩層，因為兩者可觀測的位置不同。
 
-### 3.1 Relay routing latency（server 端可測，load test 的主要 gate）
+### 3.1 Relay routing latency（server 端可測）
 
 定義：binary frame 收到 → 該 frame 已交給該 room 全部其他成員的 `socket.send`。
 
@@ -78,7 +78,7 @@ room 數上限目前不存在，需在 step 2 新增（`fanout.roomCount()` 已�
 ### 3.2 End-to-end room latency（client 端可測）
 
 定義：sender 的 flush 送出 → receiver 已把元素套進畫布。含 seal／open 與 reconcile，
-不含使用者網路變異，因此 load test 必須在受控網路下測。
+不含使用者網路變異，因此未來驗證必須在受控網路下量測。
 
 | 分位 | 核准門檻 | 依據                                                                                                             |
 | ---- | -------- | ---------------------------------------------------------------------------------------------------------------- |
@@ -98,7 +98,7 @@ room 數上限目前不存在，需在 step 2 新增（`fanout.roomCount()` 已�
 | 10-element delta into 10k                | p95 ≤ 10 ms       |
 | 編輯互動 p95（`excalidraw-baseline.md`） | ≤ 140 ms          |
 
-step 8 的 large-room 情境必須同時回報這四項，不得只回報 relay 端數字。
+Large-room 驗證必須同時回報這四項，不得只回報 relay 端數字。
 
 ## 4. 資源上限
 
@@ -135,11 +135,11 @@ per-room 上限、沒有 backpressure，socket.io 內部緩衝無界——記憶
 | `maxConnections`            | **維持 256**                             | 同上；容量目標 192 已留 25% 給 reconnect storm                                                  |
 | `presenceDropBufferedBytes` | **維持 256 KiB**                         | presence 是 volatile，丟棄無成本                                                                |
 | Process RSS                 | **目標 ≤ 512 MiB，alert 持續 > 768 MiB** | 目標是「常態 + 少數卡住的連線」的實際量級，不是名目最壞情況；alert 用來抓真正的異常             |
-| Max-memory 自動重啟         | **1 GiB，graceful drain 後退出**         | upstream `max_memory_restart` 的對應物，作為最後防線。必須走 step 9 的 graceful drain，不得硬殺 |
-| 每連線常態記憶體            | **目標 ≤ 256 KiB**                       | 常態 buffered ≈ 0，此值只覆蓋 ws 結構與 session registry 項目；load test 需實測填入             |
+| Max-memory 自動重啟         | **1 GiB，graceful drain 後退出**         | upstream `max_memory_restart` 的對應物，作為最後防線；不得硬殺                                   |
+| 每連線常態記憶體            | **目標 ≤ 256 KiB**                       | 常態 buffered ≈ 0；此值尚未經正式容量測試驗證                                                   |
 
-Max-memory 自動重啟依賴 step 9 的 graceful drain（否則重啟本身就會製造一次全員斷線），
-因此**它在 step 9 實作，不在 step 2**。
+Max-memory 自動重啟與 graceful drain 已實作；超限時先排空再由 process manager 重啟，避免
+主動製造一次全員硬斷線。
 
 ### 4.2 Event-loop lag
 
@@ -151,14 +151,14 @@ Relay 的 fanout 是同步的，因此 event-loop lag 是唯一能反映「路�
 | p99   | ≤ 50 ms               |
 | Alert | 持續 30s p99 > 100 ms |
 
-## 5. 速率限制（step 2 實作）
+## 5. 速率限制
 
 threat model T6 記錄的缺口：大小有界、速率無界。以下為**新增**限制。
 
 實作分兩批，因為兩邊的執行模型不同：
 
 - **Relay 側（下表前六列）**：relay 是單一長生命週期 process，per-connection token bucket
-  在記憶體中即為正確，無需新依賴。**step 2 實作。**
+  在記憶體中即為正確，已實作且無需新依賴。
 - **後端側（下表後三列）**：`apps/web` 跑在 serverless function 上，process-local 計數器
   在多個 invocation 之間不成立，因此需要一個共享儲存（Upstash Redis 之類）。**2026-08-06
   已定案引入 Redis 做共享計數**；資源開通前後端速率限制維持缺口，並記在 threat model
@@ -195,10 +195,9 @@ deadline 改用 monotonic 的 `performance.now()`，且 bucket 的時間戳只�
 mark），因此 wall-clock 校正不會憑空發出 refill、也不會提早關閉活躍連線。Wall clock 仍用於
 token 與 room expiry——那兩個是絕對時間的主張。
 
-**已知的後續項目（不在 step 2）**：newcomer handshake 的重複廣播本身是既有浪費——
+**已知限制**：newcomer handshake 的重複廣播本身是既有浪費——
 `scene-init` 是廣播而非單播，所以一份就能滿足當下所有等待中的 newcomer。合併它會改變 join
-handshake 的時序（實測會動到 3 個測試檔的既有期望），因此屬於獨立的變更，不在 step 2 內
-順手做；在那之前由放大的突發吸收。
+handshake 的時序，因此不在目前的 capacity contract 內調整；現行突發預算吸收這個行為。
 
 ## 6. 錯誤與斷線率 SLO
 
@@ -211,28 +210,16 @@ handshake 的時序（實測會動到 3 個測試檔的既有期望），因此�
 | Snapshot conflict 率                                | ≤ 5% of writes                       | writer election 應讓 conflict 稀少；持續偏高代表 election 失效                                                                        |
 | 超限 block 發生率                                   | 僅記錄，不設門檻                     | 這是使用者的畫布大小，不是服務品質                                                                                                    |
 
-## 7. 執行順序
+## 7. Implementation status and accepted limits
 
-1. ~~本文件核准~~ — 完成（2026-08-06）。
-2. **step 2**：§5 前六列的 relay 速率限制 + idle timeout + §2 的 room 數上限。
-   §5 後三列（後端速率限制）等共享儲存的決定。
-3. ~~**step 4**：metrics 與 structured logs，alert 門檻取自 §3／§4／§6，資料分級遵循
-   threat model §5。~~ — 完成（2026-08-06，[Plan 24](../../plans/24-collaboration-observability.md)）。
-   每個 alert 與其來源 metric、本文件節號、runbook 節的對照見
-   [alerts 與 dashboards contract](../observability/collaboration-alerts-and-dashboards.md)。
-   §6 的 decrypt failure 與 snapshot conflict 兩條門檻**目前仍無法判定**：它們發生在 client
-   與後端而非 relay，其上報契約已定義但尚未實作（同文件 §5.1／§6）。
-4. ~~**step 9**：graceful drain，以及依賴它的 §4.1 max-memory 自動重啟。~~ — 完成
-   （2026-08-06，[Plan 25](../../plans/25-relay-drain-and-deployment-envelope.md)）。
-   drain 行為、單 instance 部署封套與 rolling restart 程序見
-   [relay 部署文件](../operations/collaboration-relay-deployment.md)。
-5. **step 8**：load test 逐項對照本文件；**數字不得因測不過而調整**——先排除環境差異、
-   重跑，仍不過則修 implementation，只有新的核准版本可以改門檻。單 instance 決定已讓
-   「fanout dependency outage」情境退化為 relay 重啟（§0）。
-
-## 8. 尚未核准的相關決定
-
-| 項目                   | 為什麼還沒定                                                                                                                      |
-| ---------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| 後端速率限制的共享儲存 | 2026-08-06 已定案：引入 Redis（Upstash 之類）做共享計數；資源尚未申請與開通，開通前缺口維持（threat model T6）                     |
-| 測試環境               | 2026-08-06 確認：無 staging，全部 local。因此 step 9 的 rollback 只能以 runbook drill 記錄，不會有實跑紀錄；這是明示的 limitation |
+- Relay capacity, room count, frame/churn limits, idle timeout, metrics, structured logs, graceful
+  drain, and max-memory restart are implemented. Alert-to-metric mappings are defined in the
+  [alerts contract](../observability/collaboration-alerts-and-dashboards.md).
+- Shared backend rate limits are not implemented because Redis is not yet provisioned. The complete
+  required scope is [backend rate limits](../../plans/backend-rate-limits.md).
+- Session success, decrypt failure, and snapshot conflict occur outside the relay. Their carrier
+  contract exists, but no client/backend telemetry implementation carries them, so the corresponding
+  §6 thresholds cannot currently be evaluated.
+- There is no staging environment, formal load-test report, complete incident runbook, or incident
+  drill. Capacity targets remain design budgets and must not be presented as verified production
+  capacity.

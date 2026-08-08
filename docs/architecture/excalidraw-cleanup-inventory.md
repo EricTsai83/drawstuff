@@ -100,20 +100,15 @@ editor entry。後續新增的暫時 UI path 必須由建立它的 plan 同時�
 | Owned Whiteboard V3 reader                                               | 已移除（Plan 21，2026-08-01）              | Plan 21：production `scene` 沒有任何 `document_version = 3` row（before counts 只有 2 → 37、4 → 2），`shared_scene` 沒有 legacy row，reader/codec/fixture/test 已刪除；V3 payload 改由明確 rejection 擋下並有測試，不落入 raw `.excalidraw` reader |
 | Optional historical V4 `engine.version` 與 `theme` read tolerance        | 已移除（Plan 21，2026-08-01）              | Plan 21：型別欄位與 tolerance branch 已刪除，reader 只回傳 canonical V4 shape，`engine.version` 與非 contract `appState` key（`theme`）在讀取時丟棄、不再寫回；rewrite 未涵蓋的 2 個既有 V4 row 仍可讀，只是這些欄位不再是 document 的一部分 |
 | `tests/fixtures/excalidraw-0.18.1/**`、`native-excalidraw-elements.json` | Upstream/native semantic evidence          | 已搬至 `packages/excalidraw-adapter/tests/fixtures/`（Plan 02，`1dbc07be`）；upgrade 時 version，不可用較小 fixture 覆蓋                      |
-| Plan 00 large-scene/controller fixtures                                  | Cross-plan performance contract            | 各後續 plan 使用相同 fixture；Plan 20 cleanup 只能移除 rollout-only measurements，不能刪共同 regression fixture                               |
+| Large-scene/controller fixtures                                          | Cross-change performance contract           | 所有後續變更使用相同 fixture；共同 regression fixture 不得因未採 staged rollout 而刪除                                                        |
 
 ## Feature flags
 
-Plan 00 snapshot 在 `apps/web` 未發現 editor、toolbar 或 collaboration feature flag。
-已規劃但尚不存在的 flags 有明確 owner：
-
-| Future flag                               | 建立 plan | 唯一 removal owner                                                                                      |
-| ----------------------------------------- | --------- | ------------------------------------------------------------------------------------------------------- |
-| Custom toolbar rollout                    | Plan 06   | Plan 08 parity cutover                                                                                  |
-| Local two-client POC dev/test flag        | Plan 11   | 未設定 flag 的 production build 已排除 entry/runtime；Plan 12 接入 relay 時刪除 flag、BroadcastChannel transport、idle/test hook 與 POC runtime wiring |
-| Room create/join/durable snapshot rollout | Plan 20   | Plan 20 一般開放後移除 rollout-only flags；只保留不選擇第二套 implementation 的 operational kill switch |
-
-禁止新增未列 owner、expiry 與 removal condition 的 flag。
+目前 `apps/web` 沒有 editor、toolbar 或 collaboration feature flag。早期 POC 的 dev/test
+flag 與 runtime wiring 已在 relay 接線時刪除；room create/join/durable snapshot 沒有
+rollout-only flag。本站不採 internal／beta／GA staged rollout，也沒有共編專用 kill switch；
+需要停止服務時使用既有部署或環境設定。新增任何 flag 仍必須有 owner、expiry 與 removal
+condition，且不得保留第二套 product implementation。
 
 ## Database scripts、schema 與 proposals
 
@@ -121,7 +116,7 @@ Plan 00 snapshot 在 `apps/web` 未發現 editor、toolbar 或 collaboration fea
 | -------------------------------------------------------------------------- | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `apps/web/src/server/db/schema.ts`                                         | Drizzle schema 唯一來源，保留                         | 所有 schema plans；共同 DB push-only policy                                                                                                         |
 | `apps/web/scripts/migrate-excalidraw-v4.ts` 與 `migrate:excalidraw-v4`     | 已執行並刪除（Plan 21，2026-08-01）                   | Plan 21：production rewrite 已完成（37 rows，after counts 只剩 V4 → 39），script、`migrate:excalidraw-v4` entry 與 `knip.entry` 參照都已刪除。偏離：rollback 只依靠執行前的 provider snapshot，plan 原定的 production-like clone drill 與 restore drill **未執行**。證據見下方「Plan 21 完成證據」；不得複製第二支 job |
-| `file_record.name` / `(scene_id, content_hash)` identity constraints       | 已刪除（Plan 16，2026-08-05）                         | Plan 16：`excalidraw_file_id` 成為身份。`name` 欄位、`file_record_scene_content_hash_unique`、`file_record_shared_scene_name_unique`、`file_record_scene_ut_key_unique` 與 `getFileRecordBySceneAndContentHash` 全部刪除；`content_hash` 降為無唯一性的 storage 提示。Backfill（67 填值／262 重複列刪除）已執行並刪除 script。偏離：production-like clone drill 未執行，改以全表 JSON 備份 + 還原演練取代（比照 Plan 21／22），證據見 `plans/16-collaboration-asset-identity.md` |
+| `file_record.name` / `(scene_id, content_hash)` identity constraints       | 已刪除（2026-08-05）                                 | `excalidraw_file_id` 是身份；舊欄位、identity indexes 與 lookup 已刪除，`content_hash` 只保留為 storage 提示。Backfill 填入 67 筆並移除 262 筆重複列；目前規則見 [data lifecycle](./data-lifecycle.md) |
 | Migration file、migration SQL、shadow migration directory、schema proposal | Snapshot 中不存在，且禁止未經同意新增                 | 任何 plan 遇到 Drizzle/DDL blocker 必須停止並詢問使用者                                                                                             |
 
 ## Exports、dependencies 與 test-only paths
@@ -208,4 +203,4 @@ Rollback 依靠 `--execute` 前由使用者確認的 provider snapshot。**明�
 | 掃描                                                  | 結果                                        |
 | ----------------------------------------------------- | ------------------------------------------- |
 | `rg -n "documentVersion" packages/excalidraw-adapter` | 無命中                                      |
-| `rg -n "migrate-excalidraw-v4\|migrate:excalidraw-v4"` | 只剩本文件與 `plans/` 的歷史敘述，無 code/config 命中 |
+| `rg -n "migrate-excalidraw-v4\|migrate:excalidraw-v4"` | 只剩本文件的歷史敘述，無 code/config 命中 |

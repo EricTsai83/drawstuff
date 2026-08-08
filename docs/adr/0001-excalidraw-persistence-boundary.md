@@ -94,9 +94,9 @@ version 是不同 namespace；不得互相當作 compatibility gate。
 
 若 public API 無法提供必要能力，必須先以 lockfile-resolved source、reproduction 與
 performance evidence 證明缺口（結果記錄在
-`docs/architecture/03-public-api-gap-audit.md`），並由 owner 決定是否開最小
+`docs/architecture/excalidraw-public-api-gap-audit.md`），並由 owner 決定是否開最小
 upstream seam；目前的決策是**不修改 upstream**
-（`docs/architecture/05-native-ui-integration-contract.md`）。完整 engine rewrite
+（`docs/architecture/native-ui-integration-contract.md`）。完整 engine rewrite
 不列為替代方案。
 
 ### Collaboration readiness
