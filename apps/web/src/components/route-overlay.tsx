@@ -39,25 +39,23 @@ export function RouteOverlay({
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent
         aria-label={t(titleKey)}
-        className="top-6 h-[calc(100dvh-1.5rem)] w-4/5 max-w-none translate-y-0 gap-0 overflow-y-auto rounded-none p-0 sm:max-w-none"
+        className="inset-0 grid h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none p-0 sm:inset-auto sm:top-6 sm:left-1/2 sm:h-[calc(100dvh-3rem)] sm:w-[calc(100%-3rem)] sm:max-w-5xl sm:-translate-x-1/2 sm:rounded-xl lg:w-4/5 lg:max-w-7xl"
       >
-        <DialogHeader
-          className={cn(
-            "px-6 pt-12 pb-6 text-center",
-            variant === "dashboard" && "sr-only",
-          )}
-        >
-          <DialogTitle className="text-2xl leading-tight font-semibold lg:text-3xl">
+        <DialogHeader className="app-safe-header bg-popover sticky top-0 border-b py-4 pr-14 text-left">
+          <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
             {t(titleKey)}
           </DialogTitle>
-          {descriptionKey && (
-            <DialogDescription>{t(descriptionKey)}</DialogDescription>
-          )}
+          <DialogDescription className={cn(!descriptionKey && "sr-only")}>
+            {descriptionKey
+              ? t(descriptionKey)
+              : t("workspace.route.description")}
+          </DialogDescription>
         </DialogHeader>
         <div
           className={cn(
-            "w-full px-6 pb-6",
-            variant === "dashboard" && "contents",
+            "min-h-0 w-full overflow-y-auto overscroll-contain",
+            variant === "default" &&
+              "px-[var(--app-surface-gutter)] pt-6 pb-[max(var(--app-safe-area-bottom),1.5rem)]",
           )}
         >
           {children}

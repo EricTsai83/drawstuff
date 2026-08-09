@@ -10,8 +10,17 @@ test("keeps the restored official Excalidraw composition", async ({ page }) => {
     "Menu",
   );
   await expect(page.locator("canvas").first()).toBeVisible();
-  if ((page.viewportSize()?.width ?? 0) >= 728) {
-    await expect(page.getByRole("button", { name: /^Untitled/ })).toBeVisible();
+  const sceneNameTrigger = page.getByRole("button", {
+    name: /Rename scene: Untitled/,
+  });
+  if (await sceneNameTrigger.isVisible().catch(() => false)) {
+    await expect(sceneNameTrigger).toBeVisible();
+  } else {
+    await activate(page.getByTestId("main-menu-trigger"));
+    await expect(
+      page.getByTestId("dropdown-menu").getByText(/^Untitled-/),
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
   }
 });
 

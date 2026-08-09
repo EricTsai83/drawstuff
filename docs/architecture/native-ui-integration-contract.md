@@ -54,7 +54,7 @@ adapter 的 `ExcalidrawCanvasProps`（`packages/excalidraw-adapter/src/types.ts`
 | `onLibraryChange`    | editor | 顯示個人 Library 的匿名／載入／儲存／錯誤狀態；不以此 callback 重寫 upstream merge 語意                      |
 | `onPointerUpdate`    | editor | 共編 presence（pointer／button）廣播來源（Plan 11 POC）                                                      |
 | `renderCustomStats`  | editor | Stats 面板加上 storage 用量                                                                                  |
-| `renderTopRightUI`   | editor | 右上角雲端儲存／分享按鈕                                                                                     |
+| `renderTopRightUI`   | editor | compact product-action menu 或 regular／wide 共編、雲端儲存與分享 controls                                   |
 | `theme`              | editor | 跟隨 app 主題                                                                                                |
 | `UIOptions`          | editor | 見下表                                                                                                       |
 | `validateEmbeddable` | editor | 補充 embed 網域白名單                                                                                        |
@@ -126,6 +126,26 @@ panel 與當次 session 的官方安裝，但沒有 backend durability。
 §「Capability matrix」#7a），mobile 可用的 slot 只有 `MainMenu` 與
 `renderTopRightUI`。
 
+### Responsive action contract
+
+Canvas slot composition 只信任 upstream 傳給 `renderTopRightUI` 的 `isMobile`；app 不複製
+upstream 的 mobile 判斷。Host desktop controls 的密度只使用 `globals.css` 中唯一的
+`canvas-wide`（1072px）breakpoint：regular slot 顯示 icon controls，wide slot 才加入文字。
+
+`excalidraw-editor.tsx` 建立一份 typed `CanvasProductActions`，共編、雲端儲存與分享的所有
+presentation 都使用同一個 handler 與狀態來源：
+
+- mobile top-right 不重複呈現 product actions；這些操作統一收進 Main Menu；
+- regular top-right 直接呈現三個 icon controls，不以 `invisible` 保留 breakpoint 空窗；
+- wide top-right 顯示較高資訊密度，但不使用固定翻譯字寬；
+- Scene 名稱／Rename、Share、Collaborate、Save、Dashboard 與 storage status 遵守互斥
+  presentation：desktop 只使用外層 controls／Footer，mobile 只使用 Main Menu。因此 mobile
+  不依賴不會掛載的 Footer，也不會與 desktop 入口同時出現。
+
+一般 app surface 使用 Tailwind `sm`（640px）與 `lg`（1024px）。safe-area、surface gutter 與
+dialog viewport height 由 `globals.css` 的 host tokens 統一提供；不得在個別 surface 重複寫一套
+裝置判斷。
+
 ## Published viewer（靜態 SVG）
 
 `/p/[slug]` **不掛載 editor**。`components/excalidraw/published-scene-viewer.tsx`
@@ -141,6 +161,9 @@ reset。主題切換時重新 export（`exportWithDarkMode`），其餘互動完
 - 不需要 `validateEmbeddable`：靜態輸出沒有開 `renderEmbeddables`，embeddable
   不會被載入成 iframe，所以沒有網域白名單問題。
 - 不再需要任何 CSS override 去隱藏 upstream 的 UI（見 §Accepted limitations 第 2 點）。
+- header 使用全站 safe-area token，mobile controls 與 menu action 至少 44px；compact menu
+  保留作者資訊，長 scene／author name 由可量測的 header 可用寬度截斷。stage 擁有
+  `touch-none` pan／zoom 與 overflow，不允許手勢變成 document scroll。
 
 pan/zoom 的數學是純函式，單元測試在 `apps/web/tests/svg-pan-zoom.test.ts`
 （zoom-at-point 不變量、clamp、fit 計算）。
@@ -157,8 +180,8 @@ social links menu，iframe embed 變成靜態畫面，原生手勢改由上述 h
    檔名為 `<action>-item.tsx`，只負責「一個產品動作」。
 2. 只做「開一個 dialog／導頁／呼叫一個 handler」的動作，用共用的
    `MenuActionItem`（`main-menu/menu-action-item.tsx`）；它固定使用 upstream 的
-   `dropdown-menu-item dropdown-menu-item-base` class，並處理 click 與
-   Enter／Space。需要 upstream 行為（例如自動關 menu）時才直接用
+   `dropdown-menu-item dropdown-menu-item-base` class 並渲染原生 button，鍵盤啟用交給
+   button semantics。需要 upstream 行為（例如自動關 menu）時才直接用
    `MainMenu.Item`／`MainMenu.ItemCustom`。
 3. Item 自己讀 i18n（`useAppI18n`）與自己的 icon；label 不要由骨架傳進來。
 4. 在 `app-main-menu.tsx` 加一行掛載；需要登入才顯示就寫成

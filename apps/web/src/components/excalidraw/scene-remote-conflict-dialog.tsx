@@ -10,6 +10,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { CloudDownload, CopyPlus, Pause } from "lucide-react";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import { CONFIRM_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
 
 type Props = {
   open: boolean;
@@ -34,7 +35,10 @@ export function SceneRemoteConflictDialog({
         onOpenChange(next);
       }}
     >
-      <DialogContent className="sm:max-w-md" showCloseButton={false}>
+      <DialogContent
+        className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}
+        showCloseButton={false}
+      >
         <DialogHeader className="pr-8">
           <DialogTitle className="text-lg font-semibold">
             {t("scene.conflict.title")}

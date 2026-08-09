@@ -42,7 +42,7 @@ export function StorageWarning({ className }: StorageWarningProps) {
   const bunImage = getBunImage(usagePercent);
 
   return (
-    <div className={className}>
+    <div className={className} data-testid="storage-usage">
       <div className="relative size-6 shrink-0">
         <Image
           src={bunImage.src}
@@ -60,7 +60,7 @@ export function StorageWarning({ className }: StorageWarningProps) {
         />
       </div>
 
-      <div className="ml-2 text-xs text-[#39393e] dark:text-[#b8b8b8]">
+      <div className="text-muted-foreground ml-2 min-w-0 truncate text-xs">
         {t("stats.usedStorage", {
           percent: usagePercent.toFixed(1),
           capacity: nFormatter(STORAGE_MAX_CAPACITY, 1),

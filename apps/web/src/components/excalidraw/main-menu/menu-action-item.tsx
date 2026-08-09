@@ -6,6 +6,9 @@ type MenuActionItemProps = {
   icon: ReactNode;
   label: string;
   onActivate: () => void;
+  detail?: string;
+  disabled?: boolean;
+  busy?: boolean;
 };
 
 /**
@@ -20,21 +23,25 @@ export function MenuActionItem({
   icon,
   label,
   onActivate,
+  detail,
+  disabled = false,
+  busy = false,
 }: MenuActionItemProps) {
   return (
-    <div
+    <button
+      type="button"
       className="dropdown-menu-item dropdown-menu-item-base"
       onClick={onActivate}
-      onKeyDown={(event) => {
-        if (event.key !== "Enter" && event.key !== " ") {
-          return;
-        }
-        event.preventDefault();
-        onActivate();
-      }}
+      disabled={disabled}
+      aria-busy={busy}
     >
       {icon}
-      {label}
-    </div>
+      <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+      {detail && (
+        <span className="text-muted-foreground max-w-28 truncate text-xs">
+          {detail}
+        </span>
+      )}
+    </button>
   );
 }

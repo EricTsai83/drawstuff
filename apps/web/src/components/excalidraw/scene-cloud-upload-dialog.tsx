@@ -31,6 +31,10 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
+import {
+  FORM_DIALOG_CONTENT_CLASS_NAME,
+  DIALOG_ACTIONS_CLASS_NAME,
+} from "@/components/responsive-dialog-layout";
 
 type SceneCloudUploadDialogProps = {
   open: boolean;
@@ -177,7 +181,7 @@ export function SceneCloudUploadDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
-        className="rounded-xl px-6 py-5 sm:max-w-lg"
+        className={FORM_DIALOG_CONTENT_CLASS_NAME}
         initialFocus={false}
         data-prevent-outside-click="true"
       >
@@ -194,7 +198,7 @@ export function SceneCloudUploadDialog({
           <form
             onSubmit={form.handleSubmit((vals) => void handleConfirm(vals))}
             noValidate
-            className="grid gap-4"
+            className="flex flex-col gap-4"
           >
             <FormField
               control={form.control}
@@ -272,7 +276,7 @@ export function SceneCloudUploadDialog({
               </div>
             </div>
 
-            <div className="flex justify-end gap-2">
+            <div className={DIALOG_ACTIONS_CLASS_NAME}>
               <Button
                 type="button"
                 variant="outline"

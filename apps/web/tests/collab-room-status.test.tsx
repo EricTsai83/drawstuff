@@ -282,10 +282,9 @@ describe("room status for an oversize canvas", () => {
       session.onSceneSyncBlockChange(OVERSIZE_REALTIME);
     });
 
-    // The `sync-blocked` status lives in the top-right controls, which the editor
-    // does not render on mobile (and hides between 728px and 1071px), so the
-    // status alone would tell those viewports nothing. Upstream splits the same
-    // way: a viewport-independent dialog plus a desktop-only indicator.
+    // The shared product-action model keeps the persistent state visible in
+    // compact, regular and wide presentations. The toast remains an immediate,
+    // layout-independent announcement of the transition.
     expect(toastWarning).toHaveBeenCalledTimes(1);
     expect(String(toastWarning.mock.calls[0]?.[0])).toContain(
       "Live sync stopped",

@@ -296,7 +296,7 @@ function WorkspaceDropdownComponent(
                       }
                     }}
                   >
-                    <div className="flex w-0 grow space-x-2 overflow-hidden">
+                    <div className="flex w-0 grow gap-2 overflow-hidden">
                       <div className="flex flex-col overflow-hidden">
                         {creating ? (
                           <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
@@ -335,7 +335,7 @@ function WorkspaceDropdownComponent(
                       key={option.id}
                       onSelect={() => handleSelect(option)}
                     >
-                      <div className="flex w-0 grow space-x-2 overflow-hidden">
+                      <div className="flex w-0 grow gap-2 overflow-hidden">
                         <div className="flex flex-col overflow-hidden">
                           <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
                             {option.name}

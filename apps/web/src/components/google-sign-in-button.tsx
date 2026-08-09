@@ -1,8 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { signInWithGoogle } from "@/lib/auth/client";
 
@@ -36,7 +36,7 @@ export function GoogleSignInButton({
     <Button
       size="lg"
       variant="secondary"
-      className="w-64 cursor-pointer border border-zinc-400 text-base font-bold"
+      className="w-full cursor-pointer text-base font-bold sm:w-64"
       onClick={() => handleClick()}
       disabled={isSigningIn}
       aria-busy={isSigningIn}
@@ -44,7 +44,7 @@ export function GoogleSignInButton({
     >
       {isSigningIn ? (
         <>
-          <Loader2 className="size-5 animate-spin" />
+          <Spinner data-icon="inline-start" aria-hidden="true" />
           {resolvedPendingLabel}
         </>
       ) : (

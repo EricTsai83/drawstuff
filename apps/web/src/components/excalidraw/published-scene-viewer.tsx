@@ -31,6 +31,8 @@ import { DrawstuffLogo } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
+import { buttonVariants } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 type PublishedSceneViewerProps = {
   sceneData: string;
@@ -75,11 +77,17 @@ const ZOOM_STEP = 1.2;
 /** Breathing room left around the scene when framing it. */
 const FIT_MARGIN = 32;
 
-const ICON_BTN =
-  "inline-flex h-10 w-10 items-center justify-center rounded-md p-0 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+const ICON_BTN = buttonVariants({
+  variant: "ghost",
+  size: "icon-lg",
+  className: "size-11 text-muted-foreground",
+});
 
-const TEXT_BTN =
-  "inline-flex h-10 min-w-10 items-center justify-center rounded-md px-2.5 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground";
+const TEXT_BTN = buttonVariants({
+  variant: "ghost",
+  size: "lg",
+  className: "min-w-11 text-xs text-muted-foreground",
+});
 
 const CONTROLS_MENU =
   "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
@@ -327,19 +335,19 @@ export function PublishedSceneViewer({
   const isLoading = !sceneSvg && !loadError;
 
   return (
-    <div className="flex h-full w-full flex-col">
+    <div className="flex h-full w-full flex-col overflow-hidden">
       {/* ── Header ── */}
       {uiVisible && (
         <header
           ref={headerRef}
-          className="border-border bg-background relative flex h-12 shrink-0 items-center justify-between gap-2 border-b px-3 sm:px-5"
+          className="app-safe-header border-border bg-background relative flex min-h-12 shrink-0 items-center justify-between gap-2 border-b py-2"
         >
           <Link
             ref={headerLeftRef}
             href="/"
             className="z-10 flex shrink-0 items-center gap-1.5 px-2"
           >
-            <DrawstuffLogo className="h-4 w-4 text-indigo-500 dark:text-gray-300" />
+            <DrawstuffLogo className="size-4" />
             <span className="hidden text-lg font-medium sm:inline">
               drawstuff
             </span>
@@ -377,7 +385,7 @@ export function PublishedSceneViewer({
               aria-expanded={controlsMenuOpen}
               title={t("welcomeScreen.app.menuHint")}
             >
-              <Menu className="h-4 w-4" />
+              <Menu aria-hidden="true" />
             </button>
 
             <div
@@ -390,6 +398,11 @@ export function PublishedSceneViewer({
               aria-hidden={!controlsMenuOpen}
               inert={!controlsMenuOpen}
             >
+              {authorName && (
+                <div className="text-muted-foreground max-w-48 truncate px-2 py-2 text-xs lg:hidden">
+                  {authorName}
+                </div>
+              )}
               <button
                 type="button"
                 onClick={() => zoomBy(1 / ZOOM_STEP)}
@@ -397,7 +410,7 @@ export function PublishedSceneViewer({
                 aria-label={t("public.viewer.zoomOut")}
                 title={t("public.viewer.zoomOut")}
               >
-                <ZoomOut className="h-4 w-4" />
+                <ZoomOut aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -406,7 +419,7 @@ export function PublishedSceneViewer({
                 aria-label={t("public.viewer.zoomIn")}
                 title={t("public.viewer.zoomIn")}
               >
-                <ZoomIn className="h-4 w-4" />
+                <ZoomIn aria-hidden="true" />
               </button>
               <div className="bg-border my-1 h-px w-4" />
               <button
@@ -425,7 +438,7 @@ export function PublishedSceneViewer({
                 aria-label={t("public.viewer.reset")}
                 title={t("public.viewer.reset")}
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                <RefreshCw aria-hidden="true" />
               </button>
               <div className="bg-border my-1 h-px w-4" />
               <button
@@ -436,9 +449,9 @@ export function PublishedSceneViewer({
                 title={themeLabel}
               >
                 {browserActiveTheme === "light" ? (
-                  <Sun className="h-4 w-4" />
+                  <Sun aria-hidden="true" />
                 ) : (
-                  <Moon className="h-4 w-4" />
+                  <Moon aria-hidden="true" />
                 )}
               </button>
               <button
@@ -448,7 +461,7 @@ export function PublishedSceneViewer({
                 aria-label={t("public.viewer.hideUI")}
                 title={t("public.viewer.hideUI")}
               >
-                <EyeOff className="h-4 w-4" />
+                <EyeOff aria-hidden="true" />
               </button>
             </div>
 
@@ -460,7 +473,7 @@ export function PublishedSceneViewer({
                 aria-label={t("public.viewer.zoomOut")}
                 title={t("public.viewer.zoomOut")}
               >
-                <ZoomOut className="h-4 w-4" />
+                <ZoomOut aria-hidden="true" />
               </button>
               <button
                 type="button"
@@ -469,7 +482,7 @@ export function PublishedSceneViewer({
                 aria-label={t("public.viewer.zoomIn")}
                 title={t("public.viewer.zoomIn")}
               >
-                <ZoomIn className="h-4 w-4" />
+                <ZoomIn aria-hidden="true" />
               </button>
               <div className="bg-border mx-1 h-4 w-px" />
               <button
@@ -488,7 +501,7 @@ export function PublishedSceneViewer({
                 aria-label={t("public.viewer.reset")}
                 title={t("public.viewer.reset")}
               >
-                <RefreshCw className="h-3.5 w-3.5" />
+                <RefreshCw aria-hidden="true" />
               </button>
               <div className="bg-border mx-1 h-4 w-px" />
             </div>
@@ -507,7 +520,7 @@ export function PublishedSceneViewer({
             aria-label={t("public.viewer.showUI")}
             title={t("public.viewer.showUI")}
           >
-            <Eye className="h-4 w-4" />
+            <Eye aria-hidden="true" />
           </button>
         )}
 
@@ -537,8 +550,8 @@ export function PublishedSceneViewer({
 
         {isLoading && (
           <div className="bg-background absolute inset-0 flex flex-col items-center justify-center gap-4">
-            <div className="flex h-10 w-10 items-center justify-center">
-              <div className="border-primary/30 border-t-primary h-7 w-7 animate-spin rounded-full border-2" />
+            <div className="flex size-11 items-center justify-center">
+              <Spinner className="size-7" aria-hidden="true" />
             </div>
             <p className="text-muted-foreground animate-pulse text-sm">
               {t("public.viewer.loading")}

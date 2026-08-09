@@ -1,15 +1,11 @@
 "use client";
 
-import {
-  CloudOff,
-  CloudUpload,
-  CheckCircle2,
-  Loader2,
-  AlertCircle,
-} from "lucide-react";
+import { CloudOff, CloudUpload, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth/client";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 
 export type UploadStatus =
   "idle" | "uploading" | "success" | "error" | "offline";
@@ -36,29 +32,25 @@ export function CloudUploadButton({
   }
 
   const config = getStatusConfig(status, t, errorMessage);
-  const Icon = config.icon;
 
   return (
-    <div
-      className={cn(
-        // desktop 和 mobile 的 visibility 設定
-        "min-[728px]:pointer-events-none min-[728px]:invisible min-[1072px]:pointer-events-auto min-[1072px]:visible",
-        // 基本樣式 - 使用專案的設計系統
-        "flex items-center justify-center",
-        "h-[36px] w-[36px] rounded-lg backdrop-blur-sm",
-        "transition-colors duration-300 ease-out",
-        "shadow-xs hover:shadow-sm",
-        // 背景顏色 - 從配置對象獲取
-        config.bgClass,
-        // 互動效果
-        onClick && "cursor-pointer",
-        className,
-      )}
+    <Button
+      type="button"
+      size="canvas-icon"
+      variant={config.variant}
+      className={cn("size-9", className)}
       title={config.tooltip}
       onClick={onClick}
+      disabled={!onClick || status === "uploading"}
+      aria-label={config.tooltip}
+      aria-busy={status === "uploading"}
     >
-      <Icon className={cn("h-4 w-4", config.iconClass)} />
-    </div>
+      {status === "uploading" ? (
+        <Spinner aria-hidden="true" />
+      ) : (
+        <config.icon aria-hidden="true" />
+      )}
+    </Button>
   );
 }
 
@@ -72,36 +64,31 @@ function getStatusConfig(
       return {
         icon: CloudUpload,
         tooltip: t("app.cloudUpload.tooltip.idle"),
-        bgClass: "bg-secondary",
-        iconClass: "text-secondary-foreground",
+        variant: "canvas" as const,
       };
     case "uploading":
       return {
-        icon: Loader2,
+        icon: CloudUpload,
         tooltip: t("app.cloudUpload.tooltip.uploading"),
-        bgClass: "bg-secondary",
-        iconClass: "text-secondary-foreground animate-spin",
+        variant: "canvas" as const,
       };
     case "success":
       return {
         icon: CheckCircle2,
         tooltip: t("app.cloudUpload.tooltip.success"),
-        bgClass: "bg-secondary",
-        iconClass: "text-secondary-foreground",
+        variant: "canvas" as const,
       };
     case "error":
       return {
         icon: AlertCircle,
         tooltip: errorMessage ?? t("app.cloudUpload.tooltip.error"),
-        bgClass: "bg-destructive/85 border-destructive/30",
-        iconClass: "text-white",
+        variant: "destructive" as const,
       };
     case "offline":
       return {
         icon: CloudOff,
         tooltip: t("app.cloudUpload.tooltip.offline"),
-        bgClass: "bg-secondary",
-        iconClass: "text-secondary-foreground",
+        variant: "canvas" as const,
       };
   }
 }

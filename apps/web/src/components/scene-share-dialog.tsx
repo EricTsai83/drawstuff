@@ -6,9 +6,13 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { CopyButton } from "@/components/copy-button";
+import {
+  FORM_DIALOG_CONTENT_CLASS_NAME,
+  COPY_LINK_ROW_CLASS_NAME,
+} from "@/components/responsive-dialog-layout";
+import { Field, FieldLabel } from "@/components/ui/field";
 
 type SceneShareDialogProps = {
   sceneUrl: string;
@@ -25,7 +29,10 @@ export function SceneShareDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent initialFocus={false}>
+      <DialogContent
+        initialFocus={false}
+        className={FORM_DIALOG_CONTENT_CLASS_NAME}
+      >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
             {t("labels.share")}
@@ -34,13 +41,13 @@ export function SceneShareDialog({
             {t("share.scene.description")}
           </DialogDescription>
         </DialogHeader>
-        <div className="flex items-center gap-2">
-          <div className="grid flex-1 gap-2">
-            <Label htmlFor="link" className="sr-only">
+        <div className={COPY_LINK_ROW_CLASS_NAME}>
+          <Field className="flex-1">
+            <FieldLabel htmlFor="link" className="sr-only">
               {t("share.scene.link")}
-            </Label>
+            </FieldLabel>
             <Input id="link" value={sceneUrl} readOnly />
-          </div>
+          </Field>
           <CopyButton textToCopy={sceneUrl} />
         </div>
         <div className="mt-2 flex items-center gap-2 text-xs">

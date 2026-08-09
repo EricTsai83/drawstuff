@@ -51,18 +51,17 @@ describe("workspace management routes", () => {
     }
   });
 
-  it("uses a shared wide overlay shell with centered route headings", () => {
+  it("uses one responsive overlay shell with owned header and content scrolling", () => {
     const source = readFileSync(
       resolve(import.meta.dirname, "../src/components/route-overlay.tsx"),
       "utf8",
     );
 
-    expect(source).toContain("w-4/5");
-    expect(source).toContain("sm:max-w-none");
-    expect(source).toContain("px-6 pt-12 pb-6 text-center");
-    expect(source).toContain(
-      "text-2xl leading-tight font-semibold lg:text-3xl",
-    );
-    expect(source).toContain('variant === "dashboard" && "contents"');
+    expect(source).toContain("inset-0 grid h-dvh");
+    expect(source).toContain("sm:w-[calc(100%-3rem)]");
+    expect(source).toContain("lg:w-4/5");
+    expect(source).toContain("grid-rows-[auto_minmax(0,1fr)]");
+    expect(source).toContain("min-h-0 w-full overflow-y-auto");
+    expect(source).toContain("app-safe-header");
   });
 });

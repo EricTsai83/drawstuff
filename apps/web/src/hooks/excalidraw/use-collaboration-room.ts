@@ -811,12 +811,9 @@ export function useCollaborationRoom(options: {
             // `excalidraw-app/collab/Collab.tsx`: an announcement at the moment
             // of failure plus a persistent indicator. Upstream's `ErrorDialog` is
             // rendered by the collab component itself, so it reaches every
-            // viewport, while its `CollabError` indicator sits inside
-            // `renderTopRightUI`, which returns `null` on mobile. The
-            // `sync-blocked` status below is our equivalent of that desktop-only
-            // indicator — so without a layout-independent announcement, a
-            // phone-sized viewport (and Drawstuff's 728–1071px band, where the
-            // button is hidden) would be told nothing at all.
+            // viewport. Drawstuff also keeps the persistent indicator in its
+            // compact, regular and wide product-action presentations; the
+            // announcement still reports the transition immediately.
             //
             // Announced once per transition, which is what upstream's
             // `dialogNotifiedErrors` map buys: the session only reports a change

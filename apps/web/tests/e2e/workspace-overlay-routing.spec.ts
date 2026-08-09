@@ -48,8 +48,14 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
   if (!viewport || !dialogBox) {
     throw new Error("Dashboard overlay dimensions are unavailable");
   }
-  expect(dialogBox.width).toBeGreaterThan(viewport.width * 0.75);
-  expect(dialogBox.width).toBeLessThan(viewport.width * 0.85);
+  if (viewport.width < 640) {
+    expect(dialogBox.width).toBeGreaterThan(viewport.width * 0.96);
+  } else if (viewport.width < 1024) {
+    expect(dialogBox.width).toBeGreaterThan(viewport.width * 0.9);
+  } else {
+    expect(dialogBox.width).toBeGreaterThan(viewport.width * 0.7);
+    expect(dialogBox.width).toBeLessThan(viewport.width * 0.82);
+  }
   expect(dialogBox.height).toBeGreaterThan(viewport.height * 0.9);
   await expect(canvasRoot).toHaveAttribute(
     "data-workspace-routing-instance",

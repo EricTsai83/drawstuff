@@ -5,7 +5,11 @@ import { DashboardListFallback } from "@/components/skeleton/dashboard-list-fall
 import { getServerSession } from "@/lib/auth/server";
 import { HydrateClient, api } from "@/trpc/server";
 
-export default async function DashboardContent() {
+export default async function DashboardContent({
+  showHeading = true,
+}: {
+  showHeading?: boolean;
+}) {
   const session = await getServerSession();
 
   if (!session) return <AuthRequired />;
@@ -14,9 +18,9 @@ export default async function DashboardContent() {
   void api.scene.getUserScenesInfinite.prefetch({ limit: 10 });
 
   return (
-    <Suspense fallback={<DashboardListFallback />}>
+    <Suspense fallback={<DashboardListFallback showHeading={showHeading} />}>
       <HydrateClient>
-        <SceneSearchList />
+        <SceneSearchList showHeading={showHeading} />
       </HydrateClient>
     </Suspense>
   );

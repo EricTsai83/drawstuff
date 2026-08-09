@@ -88,9 +88,9 @@ navigation system. The topmost local modal owns Escape and focus until it closes
 | `/workspaces/new`             | Create Workspace workflow             | Form draft is local state                             |
 | `/workspaces/<id>/settings`   | Settings for one workspace            | Form and deletion confirmation are local state        |
 
-Dashboard search, archive and category filters may use query parameters because they describe a
-repeatable view. `panel=settings`, `dialog=rename`, `dialog=delete` and typed confirmation text are
-not URL state.
+Dashboard search, publish, archive and category filters use query parameters because they describe
+a repeatable view. `panel=settings`, `dialog=rename`, `dialog=delete` and typed confirmation text
+are not URL state.
 
 Every overlay destination has two presentations backed by the same content component:
 
@@ -101,6 +101,25 @@ intercepted page   in-app soft navigation → modal surface over preserved Canva
 
 Content components do not know which presentation owns them. The canonical wrapper supplies
 explicit navigation links; the intercepted wrapper supplies backdrop, focus and history close.
+
+### Responsive presentation contract
+
+The route destination and interception ownership do not change with viewport size. Only the shared
+`RouteOverlay` presentation changes:
+
+| Tier                 | Intercepted presentation                                           |
+| -------------------- | ------------------------------------------------------------------ |
+| compact `<640px`     | full viewport `100dvh` surface; no decorative Canvas strip         |
+| regular `640–1023px` | near-full-width surface with a consistent outer gutter             |
+| wide `≥1024px`       | 80vw constrained surface that preserves the Canvas-overlay context |
+
+The route header is always present and stays outside the content scroll region. It owns the Title,
+description and Dialog close control; the body owns overscroll-contained scrolling and safe-area
+bottom padding. Canonical `WorkspaceManagementShell` shares the same gutter/safe-area tokens but
+keeps explicit document navigation instead of imitating modal history semantics.
+
+Login interception uses the same Base UI-backed shadcn Dialog primitive. There is no separate
+backdrop-click, focus-trap or scroll-lock implementation.
 
 ## Target route tree
 
@@ -343,6 +362,8 @@ history-close semantics.
 - Backdrop click follows the same guarded close path as the close button.
 - Body scroll is locked while the route overlay is active and restored when the slot becomes null.
 - Dashboard's long content owns internal scrolling without moving the Canvas.
+- Compact overlays fill the viewport; regular overlays are near-full width; wide overlays remain
+  constrained. Presentation changes never remount or move the parallel-slot Canvas owner.
 - Toasts remain global but do not capture focus.
 - Route transitions announce the destination title and do not rely only on visual animation.
 
@@ -414,6 +435,8 @@ navigation, browser Back/Forward and responsive layouts.
 7. Direct entry is usable without relying on browser history.
 8. Workspace deletion coordinates route, server data and Canvas session lifecycle as one user-visible
    operation.
+9. Responsive layout is presentation-only: URL semantics, content ownership and close lifecycle are
+   identical at every tier.
 
 ## Implementation notes
 
