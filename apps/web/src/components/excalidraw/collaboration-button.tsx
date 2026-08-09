@@ -57,10 +57,11 @@ export function CollaborationButton({
       : label;
   return (
     <Button
-      variant={status === "connected" ? "default" : "secondary"}
+      variant="canvas"
+      size="canvas"
       className={cn(
         "min-[728px]:pointer-events-none min-[728px]:invisible min-[1072px]:pointer-events-auto min-[1072px]:visible",
-        "flex h-[36px] items-center justify-center gap-2 rounded-[8px] font-normal whitespace-nowrap",
+        "font-normal",
       )}
       onClick={onClick}
       aria-label={accessibleLabel}

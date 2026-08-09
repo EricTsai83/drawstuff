@@ -33,15 +33,15 @@ export function TopRightControls({
 
   return (
     <>
-      <CollaborationButton
-        status={collaborationStatus}
-        isReadOnly={isCollaborationReadOnly}
-        onClick={onCollaborationClick}
-      />
       <CloudUploadButton
         status={cloudUploadStatus}
         errorMessage={t("collaboration.error.network")}
         onClick={onCloudUploadClick}
+      />
+      <CollaborationButton
+        status={collaborationStatus}
+        isReadOnly={isCollaborationReadOnly}
+        onClick={onCollaborationClick}
       />
       <ShareSceneButton
         exportStatus={linkExportStatus}
