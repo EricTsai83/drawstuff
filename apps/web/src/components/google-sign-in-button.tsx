@@ -5,7 +5,15 @@ import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { signInWithGoogle } from "@/lib/auth/client";
 
-export function GoogleSignInButton() {
+type GoogleSignInButtonProps = {
+  label?: string;
+  pendingLabel?: string;
+};
+
+export function GoogleSignInButton({
+  label = "Continue with Google",
+  pendingLabel = "Connecting...",
+}: GoogleSignInButtonProps) {
   const [isSigningIn, setIsSigningIn] = useState(false);
 
   const handleClick = async () => {
@@ -33,7 +41,7 @@ export function GoogleSignInButton() {
       {isSigningIn ? (
         <>
           <Loader2 className="size-5 animate-spin" />
-          Connecting...
+          {pendingLabel}
         </>
       ) : (
         <>
@@ -61,7 +69,7 @@ export function GoogleSignInButton() {
             ></path>
             <path fill="none" d="M0 0h48v48H0z"></path>
           </svg>
-          Continue with Google
+          {label}
         </>
       )}
     </Button>

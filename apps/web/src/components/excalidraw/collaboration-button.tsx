@@ -4,6 +4,7 @@ import { Eye, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { CollaborationRoomStatus } from "@/hooks/excalidraw/use-collaboration-room";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { cn } from "@/lib/utils";
 
 type CollaborationButtonProps = {
@@ -12,22 +13,22 @@ type CollaborationButtonProps = {
   onClick: () => void;
 };
 
-const LABEL: Record<CollaborationRoomStatus, string> = {
-  idle: "共編",
-  preparing: "準備畫布中…",
-  joining: "加入中…",
-  connected: "共編中",
-  // Deliberately not "共編中": the session is connected but the canvas is too
+const LABEL_KEY: Record<CollaborationRoomStatus, string> = {
+  idle: "collaboration.status.idle",
+  preparing: "collaboration.status.preparing",
+  joining: "collaboration.status.joining",
+  connected: "collaboration.status.connected",
+  // Deliberately not "Collaborating": the session is connected but the canvas is too
   // large to publish, and this label is the always-visible half of saying so.
-  "sync-blocked": "同步已停止",
-  reconnecting: "重新連線中…",
-  failed: "連線已停止",
-  unauthorized: "無法加入",
-  // Not "無法加入": the link works and the account has access; only the shared
+  "sync-blocked": "collaboration.status.syncBlocked",
+  reconnecting: "collaboration.status.reconnecting",
+  failed: "collaboration.status.failed",
+  unauthorized: "collaboration.status.unauthorized",
+  // Not "Unable to join": the link works and the account has access; only the shared
   // join budget is spent, and it refills.
-  "rate-limited": "請稍後再試",
-  cancelled: "已取消",
-  "missing-room-key": "連結不完整",
+  "rate-limited": "collaboration.status.rateLimited",
+  cancelled: "collaboration.status.cancelled",
+  "missing-room-key": "collaboration.status.missingRoomKey",
 };
 
 /** Opens the room dialog and reflects the live room state, including the
@@ -37,18 +38,23 @@ export function CollaborationButton({
   isReadOnly,
   onClick,
 }: CollaborationButtonProps) {
+  const { t } = useAppI18n();
+  const readOnlyLabel = t("collaboration.status.readOnly");
+  const statusLabel = t(LABEL_KEY[status]);
   // A stopped sync outranks the read-only badge in the *visible* label, and a
   // demoted editor is exactly why: the block is latched on the session, so it
   // survives the reconnect a role change forces, and the user is left holding work
   // that can now never be published. "僅檢視" would state the lesser half of that.
   const label =
-    status === "sync-blocked" || !isReadOnly ? LABEL[status] : "僅檢視";
+    status === "sync-blocked" || !isReadOnly ? statusLabel : readOnlyLabel;
   // The accessible name cannot make the same trade. `aria-label` replaces the
   // element's content, and the icon carries no text, so a read-only session whose
   // label was taken over by the block would lose "僅檢視" entirely for assistive
   // technology. Both facts go in the name; only the on-screen label is abridged.
   const accessibleLabel =
-    isReadOnly && label !== "僅檢視" ? `${label}（僅檢視）` : label;
+    isReadOnly && label !== readOnlyLabel
+      ? t("collaboration.status.readOnlyWithStatus", { status: label })
+      : label;
   return (
     <Button
       variant={status === "connected" ? "default" : "secondary"}
