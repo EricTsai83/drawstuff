@@ -42,21 +42,81 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
   await expect(page).toHaveURL(/\/dashboard$/);
   const dashboardDialog = page.getByRole("dialog", { name: "Dashboard" });
   await expect(dashboardDialog).toBeVisible();
+  const dashboardViewport = page.locator('[data-slot="dialog-viewport"]', {
+    has: dashboardDialog,
+  });
+  await expect(dashboardViewport).toBeVisible();
 
   const viewport = page.viewportSize();
-  const dialogBox = await dashboardDialog.boundingBox();
-  if (!viewport || !dialogBox) {
+  if (!viewport) {
     throw new Error("Dashboard overlay dimensions are unavailable");
   }
-  if (viewport.width < 640) {
-    expect(dialogBox.width).toBeGreaterThan(viewport.width * 0.96);
-  } else if (viewport.width < 1024) {
-    expect(dialogBox.width).toBeGreaterThan(viewport.width * 0.9);
-  } else {
-    expect(dialogBox.width).toBeGreaterThan(viewport.width * 0.7);
-    expect(dialogBox.width).toBeLessThan(viewport.width * 0.82);
+  const dialogLayout = await dashboardDialog.evaluate((element) => {
+    const style = window.getComputedStyle(element);
+    return {
+      height: Number.parseFloat(style.height),
+      marginTop: Number.parseFloat(style.marginTop),
+      maxHeight: style.maxHeight,
+      width: Number.parseFloat(style.width),
+    };
+  });
+  expect(dialogLayout.width).toBeCloseTo(viewport.width * 0.8, 0);
+  expect(dialogLayout.height).toBeCloseTo(viewport.height - 64, 0);
+  expect(dialogLayout.marginTop).toBeCloseTo(32, 0);
+  expect(
+    viewport.height - (dialogLayout.marginTop + dialogLayout.height),
+  ).toBeCloseTo(32, 0);
+  expect(dialogLayout.maxHeight).toBe("none");
+  const viewportBox = await dashboardViewport.boundingBox();
+  if (!viewportBox) {
+    throw new Error("Dashboard scroll viewport dimensions are unavailable");
   }
-  expect(dialogBox.height).toBeGreaterThan(viewport.height * 0.9);
+  expect(viewportBox.x).toBeCloseTo(0, 0);
+  expect(viewportBox.x + viewportBox.width).toBeCloseTo(viewport.width, 0);
+  await expect
+    .poll(() =>
+      dashboardViewport.evaluate((element) => {
+        const style = window.getComputedStyle(element);
+        const popup = element.querySelector('[data-slot="dialog-content"]');
+        return {
+          hasHorizontalOverflow: element.scrollWidth > element.clientWidth,
+          overflowX: style.overflowX,
+          overflowY: style.overflowY,
+          overscrollBehavior: style.overscrollBehavior,
+          popupOverflowY: popup
+            ? window.getComputedStyle(popup).overflowY
+            : null,
+        };
+      }),
+    )
+    .toEqual({
+      hasHorizontalOverflow: false,
+      overflowX: "hidden",
+      overflowY: "auto",
+      overscrollBehavior: "contain",
+      popupOverflowY: "visible",
+    });
+
+  await dashboardDialog.evaluate((element, height) => {
+    const probe = document.createElement("div");
+    probe.dataset.overlayHeightProbe = "true";
+    probe.style.height = `${height}px`;
+    element.append(probe);
+  }, viewport.height * 2);
+  await expect
+    .poll(() => dashboardDialog.evaluate((element) => element.clientHeight))
+    .toBeGreaterThan(viewport.height * 2);
+  await expect
+    .poll(() =>
+      dashboardViewport.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    )
+    .toBe(true);
+  await dashboardDialog
+    .locator('[data-overlay-height-probe="true"]')
+    .evaluate((element) => element.remove());
+
   await expect(canvasRoot).toHaveAttribute(
     "data-workspace-routing-instance",
     "preserved",

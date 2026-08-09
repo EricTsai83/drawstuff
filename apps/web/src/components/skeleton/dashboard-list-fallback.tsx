@@ -6,7 +6,7 @@ export function DashboardListFallback({
   showHeading?: boolean;
 }) {
   return (
-    <div className="flex w-full flex-col gap-5 p-4 pt-0 sm:p-6 sm:pt-0">
+    <div className="flex max-w-full min-w-0 flex-col gap-5 overflow-x-clip p-4 pt-0 sm:p-6 sm:pt-0">
       <div className="flex flex-col gap-4 pt-6 pb-2 sm:pt-10 sm:pb-4">
         {showHeading && (
           <h1 className="text-center text-2xl font-semibold lg:text-3xl">
