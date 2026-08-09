@@ -1,12 +1,13 @@
 import { useEffect, useCallback } from "react";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import { cleanUnusedFiles, saveToLocalStorage } from "@/lib/excalidraw";
+import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
 
 export const useBeforeUnload = (
   excalidrawAPI: ExcalidrawImperativeAPI | null,
 ) => {
   const handleBeforeUnload = useCallback(() => {
-    if (!excalidrawAPI) return;
+    if (!excalidrawAPI || isLocalScenePersistencePaused()) return;
 
     const elements = excalidrawAPI.getSceneElements();
     const appState = excalidrawAPI.getAppState();

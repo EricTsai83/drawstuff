@@ -19,12 +19,17 @@ import { SceneSwitchConfirmDialog } from "@/components/excalidraw/scene-switch-c
 import NewSceneDialog from "@/components/excalidraw/new-scene-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
+import {
+  SignOutConfirmDialog,
+  type SignOutChoice,
+} from "@/components/excalidraw/sign-out-confirm-dialog";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { api } from "@/trpc/react";
 import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 import { useCreateNewScene } from "@/hooks/excalidraw/use-create-new-scene";
 import { useSceneRename } from "@/hooks/excalidraw/use-scene-rename";
+import { clearCanvasForSignOut } from "@/lib/sign-out";
 import { useMainMenuTriggerAccessibleName } from "./main-menu/accepted-limitation-trigger-label";
 import { AccountItem } from "./main-menu/account-item";
 import { DashboardLinkItem } from "./main-menu/dashboard-link-item";
@@ -44,6 +49,7 @@ type AppMainMenuProps = {
   onLangCodeChange: (langCode: string) => void;
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   handleSetSceneName: (name: string) => void;
+  cancelPendingSceneSave: () => void;
   sceneName: string;
   showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
   /**
@@ -70,6 +76,7 @@ function AppMainMenu({
   onLangCodeChange,
   excalidrawAPI,
   handleSetSceneName,
+  cancelPendingSceneSave,
   sceneName,
   showConfirmDialog,
   isCollaborating = false,
@@ -82,6 +89,9 @@ function AppMainMenu({
   const [renameOpen, setRenameOpen] = useState(false);
   const [newSceneOpen, setNewSceneOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [signOutConfirmOpen, setSignOutConfirmOpen] = useState(false);
+  const [isSigningOut, setIsSigningOut] = useState(false);
+  const signOutInFlightRef = useRef(false);
   const [confirmWorkspaceId, setConfirmWorkspaceId] = useState<
     string | undefined
   >(undefined);
@@ -100,7 +110,12 @@ function AppMainMenu({
     },
   });
   const { workspaces, lastActiveWorkspaceId } = useWorkspaceOptions();
-  const { currentWorkspaceId } = useSceneSession();
+  const {
+    currentWorkspaceId,
+    isDirty,
+    clearCurrentScene: clearSceneSession,
+    suppressDirtyTracking,
+  } = useSceneSession();
 
   useMainMenuTriggerAccessibleName(langCode);
 
@@ -148,15 +163,82 @@ function AppMainMenu({
     closeMenu();
   }, [closeMenu]);
 
-  const handleSignOut = async () => {
-    await authClient.signOut({
-      fetchOptions: {
-        onSuccess: () => {
-          router.refresh();
+  const signOutAndClearCanvas = useCallback(async (): Promise<void> => {
+    if (signOutInFlightRef.current) return;
+    signOutInFlightRef.current = true;
+    setIsSigningOut(true);
+    try {
+      await authClient.signOut({
+        fetchOptions: {
+          onSuccess: () => {
+            try {
+              clearCanvasForSignOut({
+                excalidrawAPI,
+                cancelPendingSceneSave,
+                clearCurrentScene: clearSceneSession,
+                suppressDirtyTracking,
+              });
+            } finally {
+              // A hard navigation releases image bytes still retained by the
+              // canvas engine and resets the sign-out persistence lock.
+              window.location.replace(window.location.origin);
+            }
+          },
         },
-      },
-    });
-  };
+      });
+    } finally {
+      signOutInFlightRef.current = false;
+      setIsSigningOut(false);
+    }
+  }, [
+    cancelPendingSceneSave,
+    clearSceneSession,
+    excalidrawAPI,
+    suppressDirtyTracking,
+  ]);
+
+  const hasUnsavedCanvas = useCallback((): boolean => {
+    if (isDirty) return true;
+    if (currentSceneId) return false;
+    return (excalidrawAPI?.getSceneElements().length ?? 0) > 0;
+  }, [currentSceneId, excalidrawAPI, isDirty]);
+
+  const handleSignOut = useCallback(async (): Promise<void> => {
+    if (hasUnsavedCanvas()) {
+      closeMenu();
+      setSignOutConfirmOpen(true);
+      return;
+    }
+    await signOutAndClearCanvas();
+  }, [closeMenu, hasUnsavedCanvas, signOutAndClearCanvas]);
+
+  const handleSignOutChoice = useCallback(
+    async (choice: SignOutChoice): Promise<void> => {
+      if (choice === "cancel") {
+        setSignOutConfirmOpen(false);
+        return;
+      }
+
+      setIsSigningOut(true);
+      if (choice === "save") {
+        const saved = await uploadSceneToCloud({
+          workspaceId: currentWorkspaceId ?? lastActiveWorkspaceId,
+          suppressSuccessToast: true,
+        });
+        if (!saved) {
+          setIsSigningOut(false);
+          return;
+        }
+      }
+      await signOutAndClearCanvas();
+    },
+    [
+      currentWorkspaceId,
+      lastActiveWorkspaceId,
+      signOutAndClearCanvas,
+      uploadSceneToCloud,
+    ],
+  );
 
   return (
     <>
@@ -260,6 +342,14 @@ function AppMainMenu({
       <WorkspaceSettingsDialog
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+      />
+      <SignOutConfirmDialog
+        open={signOutConfirmOpen}
+        onOpenChange={setSignOutConfirmOpen}
+        onChoose={(choice) => {
+          void handleSignOutChoice(choice);
+        }}
+        isLoading={isSigningOut}
       />
     </>
   );

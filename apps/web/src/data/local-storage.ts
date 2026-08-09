@@ -15,6 +15,22 @@ function canUseLocalStorage(): boolean {
   );
 }
 
+const SCENE_SESSION_STORAGE_KEYS = [
+  STORAGE_KEYS.CURRENT_SCENE_ID,
+  STORAGE_KEYS.CURRENT_SCENE_REVISION,
+  STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY,
+  STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID,
+] as const;
+
+const LOCAL_SCENE_STORAGE_KEYS = [
+  STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
+  STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
+  STORAGE_KEYS.LOCAL_STORAGE_FILES,
+  STORAGE_KEYS.VERSION_DATA_STATE,
+  STORAGE_KEYS.VERSION_FILES,
+  ...SCENE_SESSION_STORAGE_KEYS,
+] as const;
+
 function getDefaultAppState(): Partial<AppState> {
   return {
     theme: "light",
@@ -195,10 +211,28 @@ export function clearCurrentSceneSessionFromStorage(): void {
     // canvas, so the room's claim on it ends here — in the same synchronous block
     // as the storage write, which is what the session's `canSyncScene` reads.
     releaseCanvasRoom();
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_ID);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_REVISION);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_IS_DIRTY);
-    localStorage.removeItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID);
+    for (const key of SCENE_SESSION_STORAGE_KEYS) {
+      localStorage.removeItem(key);
+    }
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+/**
+ * Removes every browser-persisted value that can disclose or restore the
+ * current canvas. User preferences and the separately user-scoped library are
+ * deliberately preserved.
+ */
+export function clearLocalSceneStorage(): void {
+  // The collaboration claim lives in sessionStorage and must be released even
+  // when localStorage is unavailable.
+  releaseCanvasRoom();
+  if (!canUseLocalStorage()) return;
+  try {
+    for (const key of LOCAL_SCENE_STORAGE_KEYS) {
+      localStorage.removeItem(key);
+    }
   } catch (error: unknown) {
     console.error(error);
   }

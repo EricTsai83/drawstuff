@@ -73,6 +73,11 @@ export const appTranslations: AppTranslations = {
     "menu.settings": "Settings",
     "auth.signIn": "Sign in",
     "auth.signOut": "Sign out",
+    "auth.signOutConfirm.title": "Save before signing out?",
+    "auth.signOutConfirm.description":
+      "Signing out clears the current canvas and its images from this browser. Save your latest changes first if you want to keep them.",
+    "auth.signOutConfirm.save": "Save, then sign out",
+    "auth.signOutConfirm.discard": "Discard and sign out",
     "auth.loading": "Loading sign-in page...",
     "auth.continueWithGoogle": "Continue with Google",
     "auth.connecting": "Connecting...",
@@ -538,6 +543,11 @@ export const appTranslations: AppTranslations = {
     "menu.settings": "設定",
     "auth.signIn": "登入",
     "auth.signOut": "登出",
+    "auth.signOutConfirm.title": "登出前要先儲存嗎？",
+    "auth.signOutConfirm.description":
+      "登出會清除這個瀏覽器中的目前畫布與圖片。若要保留最新變更，請先儲存。",
+    "auth.signOutConfirm.save": "儲存後登出",
+    "auth.signOutConfirm.discard": "捨棄並登出",
     "auth.loading": "正在載入登入頁面…",
     "auth.continueWithGoogle": "使用 Google 繼續",
     "auth.connecting": "連線中…",
