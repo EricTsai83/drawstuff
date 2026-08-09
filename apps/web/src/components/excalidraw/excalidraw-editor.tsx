@@ -85,7 +85,8 @@ export default function ExcalidrawEditor() {
   } = useSceneSession();
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
-  const { data: session } = authClient.useSession();
+  const { data: session, isPending: isAuthenticationPending } =
+    authClient.useSession();
   // 只在編輯器中、且使用者已登入時啟用 Dashboard 快捷鍵
   useDashboardShortcut(!!session);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
@@ -547,6 +548,8 @@ export default function ExcalidrawEditor() {
           <CollaborationRoomDialog
             open={isCollaborationDialogOpen}
             onOpenChange={setIsCollaborationDialogOpen}
+            isAuthenticated={!!session}
+            isAuthenticationPending={isAuthenticationPending}
             sceneId={currentSceneId ?? null}
             roomId={collaborationRoomId}
             onRoomIdChange={(nextRoomId) => {

@@ -13,6 +13,7 @@ import {
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 
 import { CopyButton } from "@/components/copy-button";
+import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -34,6 +35,7 @@ import type {
   CollaborationFailureReason,
   CollaborationRoomStatus,
 } from "@/hooks/excalidraw/use-collaboration-room";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { buildRoomInviteUrl } from "@/lib/collab/room-link";
 import { api } from "@/trpc/react";
 
@@ -84,6 +86,9 @@ const STATUS_LABEL: Record<CollaborationRoomStatus, string> = {
 export type CollaborationRoomDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Auth is resolved by the editor so unauthenticated dialogs make no API calls. */
+  isAuthenticated: boolean;
+  isAuthenticationPending: boolean;
   /** Cloud scene id; a room can only be started for a saved scene. */
   sceneId: string | null;
   /** Active room id from the URL, if the editor is in a room. */
@@ -104,6 +109,8 @@ export type CollaborationRoomDialogProps = {
 export function CollaborationRoomDialog({
   open,
   onOpenChange,
+  isAuthenticated,
+  isAuthenticationPending,
   sceneId,
   roomId,
   onRoomIdChange,
@@ -115,7 +122,25 @@ export function CollaborationRoomDialog({
   errorMessage,
   onRetryJoin,
 }: CollaborationRoomDialogProps) {
+  const { t } = useAppI18n();
   const utils = api.useUtils();
+  const authRequiredMessage = t("collaboration.authRequired");
+  const reportRoomError = (error: unknown): void => {
+    if (
+      error instanceof TRPCClientError &&
+      (error.data as { code?: unknown } | null | undefined)?.code ===
+        "UNAUTHORIZED"
+    ) {
+      toast.error(authRequiredMessage);
+      return;
+    }
+
+    toast.error(
+      error instanceof Error
+        ? error.message
+        : t("collaboration.error.operationFailed"),
+    );
+  };
   /** Two-step confirmation for the destructive snapshot reset. */
   const [isResetArmed, setIsResetArmed] = useState(false);
   // The armed state is a confirmation for one specific room's failure. It
@@ -126,7 +151,9 @@ export function CollaborationRoomDialog({
   }, [open, roomId, failureReason]);
   const roomQuery = api.collaborationRoom.get.useQuery(
     { roomId: roomId ?? "" },
-    { enabled: open && !!roomId },
+    {
+      enabled: open && !isAuthenticationPending && isAuthenticated && !!roomId,
+    },
   );
   const room = roomQuery.data ?? null;
   const isOwner = room?.role === "owner";
@@ -215,7 +242,7 @@ export function CollaborationRoomDialog({
       onRoomIdChange(created.roomId);
       await invalidateRoom();
     },
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
   const endRoom = api.collaborationRoom.end.useMutation({
     onSuccess: async (result) => {
@@ -227,7 +254,7 @@ export function CollaborationRoomDialog({
       await invalidateRoom();
       onOpenChange(false);
     },
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
   const leaveRoom = api.collaborationRoom.leave.useMutation({
     onSuccess: async (result) => {
@@ -237,25 +264,25 @@ export function CollaborationRoomDialog({
       await invalidateRoom();
       onOpenChange(false);
     },
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
   const removeMember = api.collaborationRoom.removeMember.useMutation({
     onSuccess: async (result) => {
       reportRelayEnforcement(result.relayEnforced);
       await invalidateRoom();
     },
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
   const setMemberRole = api.collaborationRoom.setMemberRole.useMutation({
     onSuccess: async (result) => {
       reportRelayEnforcement(result.relayEnforced);
       await invalidateRoom();
     },
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
   const setLinkRole = api.collaborationRoom.setLinkRole.useMutation({
     onSuccess: invalidateRoom,
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
   const rotateGeneration = api.collaborationRoom.rotateGeneration.useMutation({
     onSuccess: async (result) => {
@@ -293,7 +320,7 @@ export function CollaborationRoomDialog({
         `已建立新的 room generation（${result.authGeneration}）並更換加密金鑰，請重新分享連結。`,
       );
     },
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
 
   const resetSnapshot = api.collaborationSnapshot.reset.useMutation({
@@ -307,7 +334,7 @@ export function CollaborationRoomDialog({
       // deletion above is what made this retry able to succeed.
       onRetryJoin();
     },
-    onError: (error) => toast.error(error.message),
+    onError: reportRoomError,
   });
 
   const roomUrl = useMemo(() => {
@@ -319,26 +346,44 @@ export function CollaborationRoomDialog({
     });
   }, [roomId, roomKey]);
 
+  const dialogDescription = isAuthenticationPending
+    ? t("collaboration.authChecking")
+    : !isAuthenticated
+      ? authRequiredMessage
+      : roomId
+        ? t("collaboration.shareDescription")
+        : sceneId
+          ? t("collaboration.createDescription")
+          : t("collaboration.saveFirst");
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent initialFocus={false}>
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">即時共編</DialogTitle>
-          <DialogDescription>
-            共編連結只對已登入的 Drawstuff 使用者有效，不支援匿名加入。
-          </DialogDescription>
+          <DialogTitle className="text-xl font-bold">
+            {t("collaboration.title")}
+          </DialogTitle>
+          <DialogDescription>{dialogDescription}</DialogDescription>
         </DialogHeader>
 
-        {!roomId && (
-          <div className="flex flex-col gap-3">
-            <p className="text-muted-foreground text-sm">
-              {sceneId
-                ? "為這個場景開啟共編 room，並把連結分享給協作者。"
-                : "請先把場景儲存到雲端，才能開啟共編 room。"}
-            </p>
+        {!isAuthenticationPending && !isAuthenticated && (
+          <div className="flex justify-center">
+            <GoogleSignInButton
+              label={t("auth.continueWithGoogle")}
+              pendingLabel={t("auth.connecting")}
+            />
+          </div>
+        )}
+
+        {!isAuthenticationPending && isAuthenticated && !roomId && (
+          <div className="flex flex-col">
             <Button
               disabled={!sceneId || createRoom.isPending}
               onClick={() => {
+                if (!isAuthenticated) {
+                  toast.error(authRequiredMessage);
+                  return;
+                }
                 if (!sceneId) return;
                 createRoom.mutate({ sceneId, linkRole: "none" });
               }}
@@ -348,7 +393,7 @@ export function CollaborationRoomDialog({
           </div>
         )}
 
-        {roomId && (
+        {!isAuthenticationPending && isAuthenticated && roomId && (
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 text-sm">
               <span className="font-medium">連線狀態</span>
@@ -391,9 +436,7 @@ export function CollaborationRoomDialog({
                       disabled={resetSnapshot.isPending}
                       onClick={() => resetSnapshot.mutate({ roomId })}
                     >
-                      {resetSnapshot.isPending
-                        ? "重設中…"
-                        : "確認刪除雲端畫布"}
+                      {resetSnapshot.isPending ? "重設中…" : "確認刪除雲端畫布"}
                     </Button>
                     <Button
                       variant="secondary"

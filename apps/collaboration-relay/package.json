@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node --env-file=../web/.env --watch --import tsx src/main.ts",
     "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
