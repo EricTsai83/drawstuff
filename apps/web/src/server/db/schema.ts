@@ -20,6 +20,10 @@ import {
 } from "@drawstuff/collaboration/asset";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
+import {
+  PERSONAL_LIBRARY_FORMAT_VERSION,
+  PERSONAL_LIBRARY_MAX_COMPRESSED_BYTES,
+} from "@/lib/personal-library";
 
 const createTable = pgTableCreator((name) => `excalidraw-ericts_${name}`);
 
@@ -51,6 +55,52 @@ export const user = createTable("user", {
     .$defaultFn(() => /* @__PURE__ */ new Date())
     .notNull(),
 });
+
+/** One durable, scene-independent Excalidraw Library snapshot per user. */
+export const personalLibrary = createTable(
+  "personal_library",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    revision: integer("revision").default(1).notNull(),
+    formatVersion: integer("format_version")
+      .default(PERSONAL_LIBRARY_FORMAT_VERSION)
+      .notNull(),
+    compressedData: bytea("compressed_data").notNull(),
+    byteLength: integer("byte_length").notNull(),
+    checksum: varchar("checksum", { length: 64 }).notNull(),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    check("personal_library_revision_positive", sql`${table.revision} >= 1`),
+    check(
+      "personal_library_format_version_supported",
+      sql`${table.formatVersion} = ${sql.raw(
+        String(PERSONAL_LIBRARY_FORMAT_VERSION),
+      )}`,
+    ),
+    check(
+      "personal_library_byte_length_matches",
+      sql`${table.byteLength} = octet_length(${table.compressedData})`,
+    ),
+    check(
+      "personal_library_byte_length_bounded",
+      sql`${table.byteLength} between 1 and ${sql.raw(
+        String(PERSONAL_LIBRARY_MAX_COMPRESSED_BYTES),
+      )}`,
+    ),
+    check(
+      "personal_library_checksum_shape",
+      sql`${table.checksum} ~ '^[0-9a-f]{64}$'`,
+    ),
+  ],
+);
 
 export const session = createTable("session", {
   id: text("id").primaryKey(),
@@ -692,13 +742,24 @@ export const deferredFileCleanup = createTable(
 );
 
 // 定義表格關聯
-export const userRelations = relations(user, ({ many }) => ({
+export const userRelations = relations(user, ({ one, many }) => ({
   sessions: many(session),
   accounts: many(account),
   workspaces: many(workspace),
   scenes: many(scene),
   sharedScenes: many(sharedScene),
+  personalLibrary: one(personalLibrary),
 }));
+
+export const personalLibraryRelations = relations(
+  personalLibrary,
+  ({ one }) => ({
+    user: one(user, {
+      fields: [personalLibrary.userId],
+      references: [user.id],
+    }),
+  }),
+);
 
 // 新增 session 關聯定義
 export const sessionRelations = relations(session, ({ one }) => ({
@@ -865,6 +926,7 @@ export const fileRecordRelations = relations(fileRecord, ({ one }) => ({
 
 export const schema = {
   user,
+  personalLibrary,
   session,
   account,
   verification,

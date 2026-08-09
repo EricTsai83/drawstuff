@@ -15,6 +15,8 @@ import {
   ExcalidrawWelcomeScreen,
   exportCanvasToBlob,
   restoreScene,
+  restoreExcalidrawLibraryItems,
+  useExcalidrawLibrary,
   useExcalidrawI18n,
 } from "../src/client.ts";
 
@@ -31,6 +33,8 @@ describe("real upstream client surface", () => {
       ExcalidrawWelcomeScreen,
       exportCanvasToBlob,
       restoreScene,
+      restoreExcalidrawLibraryItems,
+      useExcalidrawLibrary,
       useExcalidrawI18n,
     ]).not.toContain(undefined);
   });

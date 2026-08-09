@@ -5,6 +5,7 @@ import { collaborationSnapshotRouter } from "@/server/api/routers/collaboration-
 import { sceneRouter } from "@/server/api/routers/scene";
 import { workspaceRouter } from "@/server/api/routers/workspace";
 import { sharedSceneRouter } from "@/server/api/routers/shared-scene";
+import { personalLibraryRouter } from "@/server/api/routers/personal-library";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
 
 /**
@@ -17,6 +18,7 @@ export const appRouter = createTRPCRouter({
   collaborationAsset: collaborationAssetRouter,
   collaborationRoom: collaborationRoomRouter,
   collaborationSnapshot: collaborationSnapshotRouter,
+  personalLibrary: personalLibraryRouter,
   scene: sceneRouter,
   sharedScene: sharedSceneRouter,
   workspace: workspaceRouter,

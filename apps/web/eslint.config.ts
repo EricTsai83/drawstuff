@@ -3,7 +3,8 @@ import nextLintConfig from "eslint-config-next/core-web-vitals";
 import drizzle from "eslint-plugin-drizzle";
 
 const adapterDeepImportRestriction = {
-  regex: "^@drawstuff/excalidraw-adapter/(?!client$|codec$|reconcile$|types$)",
+  regex:
+    "^@drawstuff/excalidraw-adapter/(?!client$|codec$|library$|reconcile$|types$)",
   message:
     "Import an explicit @drawstuff/excalidraw-adapter public entry point.",
 };

@@ -4,7 +4,7 @@ import {
   ExcalidrawCanvas,
   ExcalidrawFooter as Footer,
 } from "@drawstuff/excalidraw-adapter/client";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
 import type {
@@ -66,6 +66,9 @@ import { useCollaborationRoomKey } from "@/hooks/excalidraw/use-collaboration-ro
 import { CollaborationRoomDialog } from "@/components/excalidraw/collaboration-room-dialog";
 import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
+import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
+import type { PersonalLibrarySyncStatus } from "@/lib/personal-library-adapter";
 
 // 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
 const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
@@ -89,6 +92,31 @@ export default function ExcalidrawEditor() {
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
   const { data: session, isPending: isAuthenticationPending } =
     authClient.useSession();
+  const libraryIdentity = isAuthenticationPending
+    ? "auth-pending"
+    : session?.user.id
+      ? `user:${session.user.id}`
+      : "anonymous";
+  const [librarySyncStatus, setLibrarySyncStatus] =
+    useState<PersonalLibrarySyncStatus>("checking-auth");
+  const readyLibraryIdentityRef = useRef<string | null>(null);
+  const hasShownAnonymousLibraryNoticeRef = useRef(false);
+  const libraryReturnUrl = getCanonicalLibraryReturnUrl(window.location.href);
+  const handleLibraryControllerReady = useCallback(() => {
+    readyLibraryIdentityRef.current = libraryIdentity;
+  }, [libraryIdentity]);
+  const handleLibraryChange = useCallback(() => {
+    if (
+      isAuthenticationPending ||
+      session ||
+      readyLibraryIdentityRef.current !== libraryIdentity ||
+      hasShownAnonymousLibraryNoticeRef.current
+    ) {
+      return;
+    }
+    hasShownAnonymousLibraryNoticeRef.current = true;
+    toast.info(t("library.anonymous.saveNotice"));
+  }, [isAuthenticationPending, libraryIdentity, session, t]);
   // 只在編輯器中、且使用者已登入時啟用 Dashboard 快捷鍵
   useDashboardShortcut(!!session);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
@@ -479,11 +507,21 @@ export default function ExcalidrawEditor() {
             },
           }}
           langCode={langCode}
+          libraryReturnUrl={libraryReturnUrl}
+          onLibraryChange={handleLibraryChange}
           theme={browserActiveTheme}
           renderTopRightUI={renderTopRightUI}
           renderCustomStats={renderCustomStats}
           validateEmbeddable={embedUrlValidator}
         >
+          <PersonalLibraryController
+            key={libraryIdentity}
+            excalidrawAPI={excalidrawAPI ?? null}
+            userId={session?.user.id ?? null}
+            isAuthenticationPending={isAuthenticationPending}
+            onStatusChange={setLibrarySyncStatus}
+            onReady={handleLibraryControllerReady}
+          />
           <AppMainMenu
             userChosenTheme={userChosenTheme}
             setTheme={setTheme}
@@ -527,6 +565,7 @@ export default function ExcalidrawEditor() {
               latestShareableLink={latestShareableLink}
               isShareDialogOpen={isShareDialogOpen}
               onShareDialogOpenChange={setIsShareDialogOpen}
+              librarySyncStatus={librarySyncStatus}
             />
           </Footer>
 

@@ -16,13 +16,13 @@ dialogs），產品功能**只透過 upstream 的 public props 與 render slots*
 
 這份契約由測試守護，不只是文件：
 
-| 守護對象 | 機制 | 位置 |
-| -------- | ---- | ---- |
-| 我們用到的 prop／slot 被 upstream 移除 | `as const satisfies readonly (keyof T)[]` → `tsc --noEmit` 失敗 | `packages/excalidraw-adapter/tests/upstream-capability-audit.test.ts`（`describe("host integration surface (native UI integration contract)")`） |
-| upstream 新增 prop／slot／option（可能代表既有 workaround 可以移除） | `assertNoUnauditedKeys<Exclude<keyof T, audited>>()` → `tsc --noEmit` 失敗 | 同上 |
-| upstream 新增／移除 module export | `Object.keys(upstream)` runtime 斷言 | 同上（同一份 upstream public-API 稽核 suite） |
-| app 直接 import canvas engine 或 adapter 內部路徑 | `no-restricted-imports` | `eslint.config.ts` |
-| app 對 upstream DOM 做全域查詢 | `no-restricted-syntax`（禁止 `document.querySelector*` 等） | `apps/web/eslint.config.ts` |
+| 守護對象                                                             | 機制                                                                       | 位置                                                                                                                                             |
+| -------------------------------------------------------------------- | -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 我們用到的 prop／slot 被 upstream 移除                               | `as const satisfies readonly (keyof T)[]` → `tsc --noEmit` 失敗            | `packages/excalidraw-adapter/tests/upstream-capability-audit.test.ts`（`describe("host integration surface (native UI integration contract)")`） |
+| upstream 新增 prop／slot／option（可能代表既有 workaround 可以移除） | `assertNoUnauditedKeys<Exclude<keyof T, audited>>()` → `tsc --noEmit` 失敗 | 同上                                                                                                                                             |
+| upstream 新增／移除 module export                                    | `Object.keys(upstream)` runtime 斷言                                       | 同上（同一份 upstream public-API 稽核 suite）                                                                                                    |
+| app 直接 import canvas engine 或 adapter 內部路徑                    | `no-restricted-imports`                                                    | `eslint.config.ts`                                                                                                                               |
+| app 對 upstream DOM 做全域查詢                                       | `no-restricted-syntax`（禁止 `document.querySelector*` 等）                | `apps/web/eslint.config.ts`                                                                                                                      |
 
 升級 `@excalidraw/excalidraw` 時 **typecheck 與 test 必須都跑**，兩者抓到的方向不同
 （理由見 `docs/architecture/excalidraw-public-api-gap-audit.md`
@@ -42,21 +42,23 @@ published viewer 不再掛載 engine，改為渲染 `exportToSvg` 的靜態輸�
 adapter 的 `ExcalidrawCanvasProps`（`packages/excalidraw-adapter/src/types.ts`）
 是這份清單的唯一入口，audit 測試會斷言兩者完全相同。
 
-| Prop | 使用者 | 用途 |
-| ---- | ------ | ---- |
-| `children` | editor | 掛載 `MainMenu`／`Footer`／`WelcomeScreen` 與 dialogs |
-| `excalidrawAPI` | editor | 取得 `ExcalidrawImperativeAPI` |
-| `initialData` | editor | 初始場景（Promise） |
-| `isCollaborating` | editor | 共編 session 啟用時通知 engine（Plan 11 POC） |
-| `langCode` | editor | 語言切換 |
-| `onChange` | editor | 場景持久化與 dirty tracking；共編啟用時同時餵 changed-element tracker |
-| `onPointerUpdate` | editor | 共編 presence（pointer／button）廣播來源（Plan 11 POC） |
-| `renderCustomStats` | editor | Stats 面板加上 storage 用量 |
-| `renderTopRightUI` | editor | 右上角雲端儲存／分享按鈕 |
-| `theme` | editor | 跟隨 app 主題 |
-| `UIOptions` | editor | 見下表 |
-| `validateEmbeddable` | editor | 補充 embed 網域白名單 |
-| `viewModeEnabled` | editor | 共編 viewer role 的唯讀 UI；server authorization 仍是唯一權限來源 |
+| Prop                 | 使用者 | 用途                                                                                                         |
+| -------------------- | ------ | ------------------------------------------------------------------------------------------------------------ |
+| `children`           | editor | 掛載 `MainMenu`／`Footer`／`WelcomeScreen` 與 dialogs                                                        |
+| `excalidrawAPI`      | editor | 取得 `ExcalidrawImperativeAPI`                                                                               |
+| `initialData`        | editor | 初始場景（Promise）                                                                                          |
+| `isCollaborating`    | editor | 共編 session 啟用時通知 engine（Plan 11 POC）                                                                |
+| `langCode`           | editor | 語言切換                                                                                                     |
+| `libraryReturnUrl`   | editor | 讓官方 catalog 的 install link 回到 canonical editor root；不得包含 scene／room query 或 fragment capability |
+| `onChange`           | editor | 場景持久化與 dirty tracking；共編啟用時同時餵 changed-element tracker                                        |
+| `onLibraryChange`    | editor | 顯示個人 Library 的匿名／載入／儲存／錯誤狀態；不以此 callback 重寫 upstream merge 語意                      |
+| `onPointerUpdate`    | editor | 共編 presence（pointer／button）廣播來源（Plan 11 POC）                                                      |
+| `renderCustomStats`  | editor | Stats 面板加上 storage 用量                                                                                  |
+| `renderTopRightUI`   | editor | 右上角雲端儲存／分享按鈕                                                                                     |
+| `theme`              | editor | 跟隨 app 主題                                                                                                |
+| `UIOptions`          | editor | 見下表                                                                                                       |
+| `validateEmbeddable` | editor | 補充 embed 網域白名單                                                                                        |
+| `viewModeEnabled`    | editor | 共編 viewer role 的唯讀 UI；server authorization 仍是唯一權限來源                                            |
 
 `zenModeEnabled` **已不在清單內**：它只有舊 published viewer 用得到，viewer 改成靜態 SVG
 後已移除。`viewModeEnabled` 不再服務 published viewer，但共編 viewer role 需要它呈現唯讀 editor，
@@ -83,22 +85,42 @@ editor 一側使用）。
 
 ### 其他 public utilities
 
-| Utility | 使用者 | 用途 |
-| ------- | ------ | ---- |
-| `exportToSvg`（adapter：`exportSceneToSvg`） | published viewer | 把場景渲染成靜態 `SVGSVGElement`，不啟動 editor |
-| `exportToBlob`（adapter：`exportCanvasToBlob`） | `lib/excalidraw.ts` | PNG 匯出與縮圖 |
-| `restore`（adapter：`restoreScene`） | `lib/persisted-scene.ts` | 持久化資料的唯一 restore 邊界 |
+| Utility                                         | 使用者                   | 用途                                            |
+| ----------------------------------------------- | ------------------------ | ----------------------------------------------- |
+| `exportToSvg`（adapter：`exportSceneToSvg`）    | published viewer         | 把場景渲染成靜態 `SVGSVGElement`，不啟動 editor |
+| `exportToBlob`（adapter：`exportCanvasToBlob`） | `lib/excalidraw.ts`      | PNG 匯出與縮圖                                  |
+| `restore`（adapter：`restoreScene`）            | `lib/persisted-scene.ts` | 持久化資料的唯一 restore 邊界                   |
 
 runtime tripwire：`it("pins the upstream export utilities the host renders scenes through")`。
 
+### Library integration
+
+原生 Library panel、import／export、item restore 與 merge 都由 Excalidraw 擁有。Drawstuff
+不替換 panel，也不以 DOM、CSS 或 private API 改寫它；分類、搜尋、collection 與 catalog
+metadata 不在 host integration surface。
+
+adapter 的 `./library` public entry point 是唯一 Library 邊界，提供 upstream Library types、
+`useExcalidrawLibrary`、`restoreExcalidrawLibraryItems`，以及安全的官方 Library fetch。Web app
+只負責 user-scoped persistence adapter、canonical return URL、官方 origin allowlist 與同步狀態。
+完整 `LibraryItems` snapshot 仍由 upstream restore，app 不建立第二套 item／element schema。
+
+官方安裝只接受 `https://libraries.excalidraw.com` 的 `.excalidrawlib` URL。client 在交給
+upstream restore／merge 前限制 response bytes，且 redirect 後的最終 URL 仍須位於相同
+allowlisted origin。`libraryReturnUrl` 固定為 editor origin root，因此 scene query、協作 room id
+與 fragment key 不會被送到第三方 catalog，也不會被 `#addLibrary` 回程覆寫。
+
+登入身分切換時，controller 會先在沒有 persistence listener 的階段清空 engine 記憶體，再掛載
+新身分的 adapter；這個順序避免前一帳號的 Library 被保存到下一帳號。匿名模式仍可使用原生
+panel 與當次 session 的官方安裝，但沒有 backend durability。
+
 ### Render slots
 
-| Slot | 使用的成員 | 掛載處 |
-| ---- | ---------- | ------ |
-| `MainMenu` | `Item`、`ItemCustom`、`Separator`、`DefaultItems`（`LoadScene`／`Export`／`SaveAsImage`／`SearchMenu`／`Help`／`ClearCanvas`／`ToggleTheme`／`ChangeCanvasBackground`） | `components/excalidraw/app-main-menu.tsx` + `components/excalidraw/main-menu/*`（只有 editor） |
-| `Footer` | 只有 children | `components/excalidraw/editor-footer.tsx` |
-| `WelcomeScreen` | `Center`（`Logo`／`Heading`／`Menu`／`MenuItemLoadScene`／`MenuItemHelp`／`MenuItemLink`）、`Hints`（`MenuHint`／`ToolbarHint`／`HelpHint`） | `components/excalidraw/app-welcome-screen.tsx` |
-| `Stats` | `StatsRows`、`StatsRow` | `components/excalidraw/custom-stats.tsx` |
+| Slot            | 使用的成員                                                                                                                                                              | 掛載處                                                                                         |
+| --------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `MainMenu`      | `Item`、`ItemCustom`、`Separator`、`DefaultItems`（`LoadScene`／`Export`／`SaveAsImage`／`SearchMenu`／`Help`／`ClearCanvas`／`ToggleTheme`／`ChangeCanvasBackground`） | `components/excalidraw/app-main-menu.tsx` + `components/excalidraw/main-menu/*`（只有 editor） |
+| `Footer`        | 只有 children                                                                                                                                                           | `components/excalidraw/editor-footer.tsx`                                                      |
+| `WelcomeScreen` | `Center`（`Logo`／`Heading`／`Menu`／`MenuItemLoadScene`／`MenuItemHelp`／`MenuItemLink`）、`Hints`（`MenuHint`／`ToolbarHint`／`HelpHint`）                            | `components/excalidraw/app-welcome-screen.tsx`                                                 |
+| `Stats`         | `StatsRows`、`StatsRow`                                                                                                                                                 | `components/excalidraw/custom-stats.tsx`                                                       |
 
 `Footer` 在 mobile 不會掛載（`docs/architecture/excalidraw-public-api-gap-audit.md`
 §「Capability matrix」#7a），mobile 可用的 slot 只有 `MainMenu` 與
