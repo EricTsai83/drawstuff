@@ -9,6 +9,7 @@ type Props = {
   latestShareableLink?: string | null;
   isShareDialogOpen: boolean;
   onShareDialogOpenChange: (open: boolean) => void;
+  workspaceId?: string;
 };
 
 export function EditorFooter(props: Props) {
@@ -17,6 +18,7 @@ export function EditorFooter(props: Props) {
     latestShareableLink,
     isShareDialogOpen,
     onShareDialogOpenChange,
+    workspaceId,
   } = props;
 
   const { t } = useStandaloneI18n();
@@ -24,7 +26,10 @@ export function EditorFooter(props: Props) {
     <>
       <div className="ml-2.5 flex items-center gap-2.5">
         {showDashboardShortcut && (
-          <DashboardLinkButton ariaLabel={t("labels.openDashboard")} />
+          <DashboardLinkButton
+            ariaLabel={t("labels.openDashboard")}
+            workspaceId={workspaceId}
+          />
         )}
         <StorageWarning
           className={cn(

@@ -55,6 +55,14 @@ type SceneSessionContextValue = {
   suppressDirtyTracking: (safetyNetMs?: number) => void;
   resumeDirtyTracking: () => void;
   shouldSuppressDirtyTracking: () => boolean;
+  registerCanvasLifecycle: (lifecycle: CanvasLifecycle) => () => void;
+  isCanvasCollaborationActive: () => boolean;
+  resetCanvasAfterWorkspaceDeletion: () => void;
+};
+
+type CanvasLifecycle = {
+  isCollaborationActive: () => boolean;
+  resetAfterWorkspaceDeletion: () => void;
 };
 
 const SceneSessionContext = createContext<SceneSessionContextValue | null>(
@@ -86,6 +94,7 @@ export function SceneSessionProvider({
   // a time-based expiry acts as a safety net so suppression never leaks.
   const suppressedRef = useRef(false);
   const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const canvasLifecycleRef = useRef<CanvasLifecycle | null>(null);
 
   const doSuppress = useCallback(
     (safetyNetMs: number = SUPPRESS_SAFETY_NET_MS) => {
@@ -232,6 +241,29 @@ export function SceneSessionProvider({
     [],
   );
 
+  const registerCanvasLifecycle = useCallback((lifecycle: CanvasLifecycle) => {
+    canvasLifecycleRef.current = lifecycle;
+    return () => {
+      if (canvasLifecycleRef.current === lifecycle) {
+        canvasLifecycleRef.current = null;
+      }
+    };
+  }, []);
+
+  const isCanvasCollaborationActive = useCallback(
+    () => canvasLifecycleRef.current?.isCollaborationActive() ?? false,
+    [],
+  );
+
+  const resetCanvasAfterWorkspaceDeletion = useCallback(() => {
+    const reset = canvasLifecycleRef.current?.resetAfterWorkspaceDeletion;
+    if (reset) {
+      reset();
+      return;
+    }
+    clearCurrentScene();
+  }, [clearCurrentScene]);
+
   // Clean up the safety-net timer on unmount to avoid firing into a stale ref.
   useEffect(() => {
     return () => {
@@ -258,6 +290,9 @@ export function SceneSessionProvider({
       suppressDirtyTracking,
       resumeDirtyTracking,
       shouldSuppressDirtyTracking,
+      registerCanvasLifecycle,
+      isCanvasCollaborationActive,
+      resetCanvasAfterWorkspaceDeletion,
     }),
     [
       currentSceneId,
@@ -275,6 +310,9 @@ export function SceneSessionProvider({
       suppressDirtyTracking,
       resumeDirtyTracking,
       shouldSuppressDirtyTracking,
+      registerCanvasLifecycle,
+      isCanvasCollaborationActive,
+      resetCanvasAfterWorkspaceDeletion,
     ],
   );
 

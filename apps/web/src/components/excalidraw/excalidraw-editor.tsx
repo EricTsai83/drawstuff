@@ -68,6 +68,7 @@ import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
+import { clearCanvasForWorkspaceDeletion } from "@/lib/workspace-deletion";
 
 // 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
 const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
@@ -86,6 +87,8 @@ export default function ExcalidrawEditor() {
     isSessionReady,
     updateLastSyncedRevision,
     currentWorkspaceId,
+    clearCurrentScene: clearSceneSession,
+    registerCanvasLifecycle,
   } = useSceneSession();
   const [initialDataPromise, setInitialDataPromise] =
     useState<Promise<ExcalidrawInitialDataState | null> | null>(null);
@@ -98,7 +101,7 @@ export default function ExcalidrawEditor() {
       : "anonymous";
   const libraryReturnUrl = getCanonicalLibraryReturnUrl(window.location.href);
   // 只在編輯器中、且使用者已登入時啟用 Dashboard 快捷鍵
-  useDashboardShortcut(!!session);
+  useDashboardShortcut(!!session, currentWorkspaceId);
   const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
   const {
     exportScene,
@@ -185,6 +188,30 @@ export default function ExcalidrawEditor() {
     uploadSceneToCloud,
     clearCurrentScene,
   });
+
+  useEffect(
+    () =>
+      registerCanvasLifecycle({
+        isCollaborationActive: () => isCanvasOwnedByRoom,
+        resetAfterWorkspaceDeletion: () =>
+          clearCanvasForWorkspaceDeletion({
+            excalidrawAPI: excalidrawAPI ?? null,
+            cancelPendingSceneSave,
+            clearCurrentScene: clearSceneSession,
+            suppressDirtyTracking,
+            resumeDirtyTracking,
+          }),
+      }),
+    [
+      cancelPendingSceneSave,
+      clearSceneSession,
+      excalidrawAPI,
+      isCanvasOwnedByRoom,
+      registerCanvasLifecycle,
+      resumeDirtyTracking,
+      suppressDirtyTracking,
+    ],
+  );
   const handleCanvasChange = useCallback<typeof handleSceneChange>(
     (elements, appState, files) => {
       handleSceneChange(elements, appState, files);
@@ -547,6 +574,7 @@ export default function ExcalidrawEditor() {
               latestShareableLink={latestShareableLink}
               isShareDialogOpen={isShareDialogOpen}
               onShareDialogOpenChange={setIsShareDialogOpen}
+              workspaceId={currentWorkspaceId}
             />
           </Footer>
 

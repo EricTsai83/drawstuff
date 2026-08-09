@@ -53,6 +53,10 @@ export const appTranslations: AppTranslations = {
     "buttons.create": "Create",
     "buttons.confirm": "Confirm",
     "buttons.close": "Close",
+    "workspace.navigation": "Workspace navigation",
+    "workspace.back": "Back",
+    "workspace.descriptionLabel": "Description (optional)",
+    "workspace.descriptionLimit": "Up to 100 characters.",
     "labels.fileTitle": "File title",
     "labels.description": "Description",
     "labels.copy": "Copy",
@@ -259,6 +263,7 @@ export const appTranslations: AppTranslations = {
     "dashboard.workspace.createFailed": "Failed to create workspace",
     "dashboard.workspace.nameInvalid": "Please enter a valid workspace name",
     "workspace.settings.title": "Settings",
+    "workspace.settings.general": "General",
     "workspace.settings.title.rename": "Rename Workspace",
     "workspace.settings.title.delete": "Delete Workspace",
     "workspace.settings.description":
@@ -282,6 +287,8 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.toast.updateFailed": "Failed to update workspace",
     "workspace.settings.toast.deleted": "Workspace deleted",
     "workspace.settings.toast.deleteFailed": "Failed to delete workspace",
+    "workspace.settings.toast.missing":
+      "This workspace no longer exists. Returning to the dashboard.",
     "workspace.settings.nameLabel": "Workspace Name",
     "workspace.settings.namePlaceholder": "Workspace name",
     "workspace.settings.selectActiveFirst": "Select an active workspace first.",
@@ -297,6 +304,12 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.typeWorkspaceNameToConfirm":
       "Type workspace name to confirm",
     "workspace.settings.confirmDeleteAction": "Confirm delete",
+    "workspace.settings.currentCanvasWarningTitle":
+      "This workspace contains the current canvas scene.",
+    "workspace.settings.currentCanvasWarningBody":
+      "Deleting it will also clear the current scene, local draft, and undo history.",
+    "workspace.settings.collaborationBlocked":
+      "Leave the collaboration room before deleting this workspace.",
     "search.placeholder":
       "Search scenes by name, description, category, or project...",
     "search.resultsCount": 'Found {count} results for "{query}"',
@@ -524,6 +537,10 @@ export const appTranslations: AppTranslations = {
     "buttons.create": "建立",
     "buttons.confirm": "確認",
     "buttons.close": "關閉",
+    "workspace.navigation": "工作空間導覽",
+    "workspace.back": "返回",
+    "workspace.descriptionLabel": "描述（選填）",
+    "workspace.descriptionLimit": "最多 100 個字元。",
     "labels.fileTitle": "檔案名稱",
     "labels.description": "描述",
     "labels.copy": "複製",
@@ -716,6 +733,7 @@ export const appTranslations: AppTranslations = {
     "dashboard.workspace.createFailed": "建立工作空間失敗",
     "dashboard.workspace.nameInvalid": "請輸入有效的工作空間名稱",
     "workspace.settings.title": "設定",
+    "workspace.settings.general": "一般",
     "workspace.settings.title.rename": "重新命名工作空間",
     "workspace.settings.title.delete": "刪除工作空間",
     "workspace.settings.description": "編輯工作空間資訊並管理高風險操作。",
@@ -735,6 +753,8 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.toast.updateFailed": "更新工作空間失敗",
     "workspace.settings.toast.deleted": "已刪除工作空間",
     "workspace.settings.toast.deleteFailed": "刪除工作空間失敗",
+    "workspace.settings.toast.missing":
+      "此工作空間已不存在，正在返回場景列表。",
     "workspace.settings.nameLabel": "工作空間名稱",
     "workspace.settings.namePlaceholder": "工作空間名稱",
     "workspace.settings.selectActiveFirst": "請先選擇啟用的工作空間。",
@@ -748,6 +768,12 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.typeNameToConfirm": "請輸入「{name}」以確認",
     "workspace.settings.typeWorkspaceNameToConfirm": "請輸入工作空間名稱以確認",
     "workspace.settings.confirmDeleteAction": "確認刪除",
+    "workspace.settings.currentCanvasWarningTitle":
+      "此工作空間包含目前畫布場景。",
+    "workspace.settings.currentCanvasWarningBody":
+      "刪除後也會清除目前場景、本機草稿與復原紀錄。",
+    "workspace.settings.collaborationBlocked":
+      "請先離開共編 room，再刪除此工作空間。",
     "search.placeholder": "以名稱、描述、分類或專案名稱搜尋場景...",
     "search.resultsCount": '找到 {count} 筆結果，關鍵字："{query}"',
     "search.showingCount": "共顯示 {total} 個場景",

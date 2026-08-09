@@ -6,6 +6,7 @@ import { Home, PanelsTopLeft } from "lucide-react";
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 import { buttonVariants } from "@/components/ui/button";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { routes } from "@/lib/routes";
 
 export default function NotFound() {
   const { t } = useStandaloneI18n();
@@ -33,7 +34,7 @@ export default function NotFound() {
 
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
           <Link
-            href="/"
+            href={routes.canvas}
             className={buttonVariants({
               className: "w-full sm:w-auto",
             })}
@@ -42,7 +43,7 @@ export default function NotFound() {
             {t("navigation.backToCanvas")}
           </Link>
           <Link
-            href="/dashboard"
+            href={routes.dashboard()}
             className={buttonVariants({
               variant: "outline",
               className: "w-full sm:w-auto",
