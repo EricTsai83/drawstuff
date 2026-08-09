@@ -107,8 +107,12 @@ export default function ExcalidrawEditor() {
     latestShareableLink,
     resetExportStatus,
   } = useSceneExport();
-  const { sceneName, handleSceneChange, handleSetSceneName } =
-    useScenePersistence(excalidrawAPI);
+  const {
+    sceneName,
+    handleSceneChange,
+    handleSetSceneName,
+    cancelPendingSceneSave,
+  } = useScenePersistence(excalidrawAPI);
   const {
     status: uploadStatus,
     uploadSceneToCloud,
@@ -509,6 +513,7 @@ export default function ExcalidrawEditor() {
             sceneName={sceneName}
             showConfirmDialog={showWorkspaceCreateConfirm}
             isCollaborating={isCanvasOwnedByRoom}
+            cancelPendingSceneSave={cancelPendingSceneSave}
           />
 
           <SceneRenameDialog

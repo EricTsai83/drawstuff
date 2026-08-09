@@ -28,7 +28,9 @@
 
 export type LocalScenePersistenceLock =
   /** A room owns this canvas and no owned scene backs it (a guest). */
-  "collaboration-guest-canvas";
+  | "collaboration-guest-canvas"
+  /** Sign-out is clearing the canvas and must not let unload write it back. */
+  | "sign-out";
 
 const locks = new Set<LocalScenePersistenceLock>();
 

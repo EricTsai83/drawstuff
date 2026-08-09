@@ -18,6 +18,7 @@ export type UseScenePersistenceResult = {
     files: BinaryFiles,
   ) => void;
   handleSetSceneName: (newName: string) => void;
+  cancelPendingSceneSave: () => void;
 };
 
 export function useScenePersistence(
@@ -101,5 +102,10 @@ export function useScenePersistence(
     [excalidrawAPI],
   );
 
-  return { sceneName, handleSceneChange, handleSetSceneName };
+  return {
+    sceneName,
+    handleSceneChange,
+    handleSetSceneName,
+    cancelPendingSceneSave: cancelPendingSave,
+  };
 }
