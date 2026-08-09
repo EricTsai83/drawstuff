@@ -10,12 +10,12 @@ defines ownership and compatibility rules; it is not an implementation history.
 
 ## Ownership
 
-| Component                        | Owns                                                                                                                               | Must not own                                                                      |
-| -------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
-| `@drawstuff/excalidraw-adapter`  | The only upstream integration boundary, native document codecs, render bridge, reconciliation wrapper, and upstream contract tests | Product UI, transport, room lifecycle, or another element model                   |
-| `apps/web`                       | Product layout, dialogs, menus, persistence UI, authentication, and collaboration composition                                      | A direct Excalidraw dependency, canvas engine, merge algorithm, or history engine |
-| `@drawstuff/collaboration`       | Transport-neutral protocol, crypto, recovery, room/presence contracts, and collaboration orchestration                             | React/Next.js UI, relay process, persistence, or canvas primitives                |
-| `@drawstuff/collaboration-relay` | Authenticated connections, bounded opaque fanout, health, metrics, and graceful drain                                              | React, app code, adapter code, scene plaintext, or durable canvas state           |
+| Component                        | Owns                                                                                                                                        | Must not own                                                                                    |
+| -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| `@drawstuff/excalidraw-adapter`  | The only upstream integration boundary, native document/Library restore, render bridge, reconciliation wrapper, and upstream contract tests | Product UI, transport, room lifecycle, user persistence, or another element model               |
+| `apps/web`                       | Product layout, dialogs, menus, user-scoped Library persistence, persistence UI, authentication, and collaboration composition              | A direct Excalidraw dependency, canvas engine, Library/scene merge algorithm, or history engine |
+| `@drawstuff/collaboration`       | Transport-neutral protocol, crypto, recovery, room/presence contracts, and collaboration orchestration                                      | React/Next.js UI, relay process, persistence, or canvas primitives                              |
+| `@drawstuff/collaboration-relay` | Authenticated connections, bounded opaque fanout, health, metrics, and graceful drain                                                       | React, app code, adapter code, scene plaintext, or durable canvas state                         |
 
 The allowed dependency graph is:
 
@@ -43,6 +43,7 @@ Excalidraw remains the sole owner of:
 - bindings and bound-text/linear-element invariants;
 - undo/redo history;
 - restore, cleaning, and serialization semantics;
+- complete `LibraryItems`, Library item restoration, and Library merge semantics;
 - `reconcileElements` conflict resolution and merge ordering.
 
 Drawstuff must not copy or reimplement those responsibilities. Missing public customization APIs
@@ -50,6 +51,12 @@ are accepted product constraints unless the owner explicitly approves a new inte
 The current policy is to keep the native editor UI and use only public props and render slots: no
 patch, fork, private API, DOM workaround, or CSS override may be introduced except the isolated,
 documented accessibility limitation in the native UI contract.
+
+Personal Library storage crosses the same adapter boundary: the web app persists one compressed,
+revisioned snapshot per authenticated user, while the adapter delegates item restore and merge to
+upstream. The row is user-scoped rather than scene-, workspace-, or collaboration-scoped. Official
+catalog installation is a one-time bounded import; stored content is the complete upstream snapshot,
+not a catalog ID or source URL, so normal loads never depend on the catalog being reachable.
 
 ## Native document and compatibility boundary
 

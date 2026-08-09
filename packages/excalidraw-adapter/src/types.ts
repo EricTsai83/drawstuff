@@ -1,4 +1,10 @@
-import type { ExcalidrawProps } from "@excalidraw/excalidraw/types";
+import type {
+  ExcalidrawProps,
+  LibraryItem,
+  LibraryItems,
+  LibraryItemsSource,
+} from "@excalidraw/excalidraw/types";
+import type { LibraryPersistenceAdapter } from "@excalidraw/excalidraw/data/library";
 
 export type {
   AppState,
@@ -13,6 +19,9 @@ export type {
   SceneData,
   SocketId,
   UIAppState,
+  LibraryItem,
+  LibraryItems,
+  LibraryItemsSource,
 } from "@excalidraw/excalidraw/types";
 export type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
 export type {
@@ -32,7 +41,9 @@ export type ExcalidrawCanvasProps = Pick<
   | "initialData"
   | "isCollaborating"
   | "langCode"
+  | "libraryReturnUrl"
   | "onChange"
+  | "onLibraryChange"
   | "onPointerUpdate"
   | "renderCustomStats"
   | "renderTopRightUI"
@@ -42,6 +53,11 @@ export type ExcalidrawCanvasProps = Pick<
   // Viewer-role collaboration renders the editor read-only.
   | "viewModeEnabled"
 >;
+
+export type ExcalidrawLibraryItem = LibraryItem;
+export type ExcalidrawLibraryItems = LibraryItems;
+export type ExcalidrawLibraryItemsSource = LibraryItemsSource;
+export type ExcalidrawLibraryPersistenceAdapter = LibraryPersistenceAdapter;
 
 export type ExcalidrawValidateEmbeddable =
   ExcalidrawProps["validateEmbeddable"];

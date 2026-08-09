@@ -3,7 +3,7 @@ import tseslint from "typescript-eslint";
 import drizzle from "eslint-plugin-drizzle";
 
 const adapterDeepImportRestriction = {
-  regex: "^@drawstuff/excalidraw-adapter/(?!client$|codec$|types$)",
+  regex: "^@drawstuff/excalidraw-adapter/(?!client$|codec$|library$|types$)",
   message:
     "Import an explicit @drawstuff/excalidraw-adapter public entry point.",
 };

@@ -8,10 +8,7 @@
 
 1. [Operator data retirement](./operator-data-retirement.md) — `Ready`。提供 scene、room、account
    三種 admin 清理能力，完整沿用現有 object、room 與 relational lifecycle。
-2. [Personal Excalidraw Library](./personal-excalidraw-library.md) — `Ready`。沿用官方 panel，新增
-   user-scoped 完整 Library persistence、官方 Library 一次性安裝與跨裝置載入。
-
-Operator retirement 仍是公開測試前置。Personal Library 是獨立產品工作，不是公開測試 gate。
+   Operator retirement 仍是公開測試前置。
 
 ## Completion rule
 

@@ -4,19 +4,43 @@
 - Persistence boundary: [ADR 0001](../adr/0001-excalidraw-persistence-boundary.md)
 - Operational conventions: [engineering conventions](../operations/engineering-conventions.md)
 
-This document defines how owned-scene assets and room-scoped encrypted data are retained and
-retired. Database rows and object-storage bytes are separate resources; deletion must preserve their
-transaction boundary through the durable cleanup outbox.
+This document defines how user-scoped Library data, owned-scene assets, and room-scoped encrypted
+data are retained and retired. Database rows and object-storage bytes are separate resources;
+deletion must preserve their transaction boundary through the durable cleanup outbox.
 
 ## Lifecycle matrix
 
 | Data                   | Identity                                         | Active retention                           | Retirement path                                                             |
 | ---------------------- | ------------------------------------------------ | ------------------------------------------ | --------------------------------------------------------------------------- |
+| Personal Library       | user id                                          | One optimistic-revision snapshot per user  | Account deletion cascades the PostgreSQL row                                |
 | Owned-scene document   | scene id + document revision                     | Until owner deletion                       | Owner/admin scene deletion; relational cascade plus deferred object cleanup |
 | Owned-scene asset      | scene id + `excalidraw_file_id`                  | While the committed document references it | Unreferenced-asset GC deletes the row and enqueues its storage key          |
 | Collaboration snapshot | room id + auth generation                        | One optimistic-revision row per generation | Old generation retirement, room retention, or owner reset                   |
 | Collaboration asset    | room id + auth generation + `excalidraw_file_id` | At most 512 per generation                 | Old generation or room retention deletes rows and enqueues storage keys     |
 | Room metadata          | room id                                          | Active, ended, or within retention grace   | Expired active rooms become ended; the row remains as lifecycle history     |
+
+## Personal Library
+
+`personal_library` stores one complete upstream `{ libraryItems }` snapshot per authenticated user.
+It is independent of scene, workspace, and collaboration-room identity, so switching scenes reads
+the same Library while switching accounts clears engine memory before the next user's snapshot is
+loaded. The user foreign key uses `ON DELETE CASCADE`; Library data has no object-storage resource or
+deferred-cleanup work.
+
+The snapshot uses the existing pako compression envelope and records a format version, compressed
+byte length, SHA-256 checksum, optimistic revision, and timestamps. The request is bounded before
+base64 decode, after decode, and after decompression. The server validates only the envelope and
+basic item/element structure; the client crosses the adapter-owned upstream restore boundary before
+placing items into the engine. Current approved bounds and fixture evidence are recorded in
+[personal Library bounds](../performance/personal-library-bounds.md).
+
+The backend row is the only durable source of truth. There is no IndexedDB mirror, offline queue,
+Background Sync, binary asset storage, catalog metadata, source URL, or catalog ID. An official
+Library URL is fetched only during installation; the resulting complete items are merged and saved,
+and later loads do not contact the catalog. Anonymous users may use the native Library panel for the
+current page session but receive no backend durability. If a save or revision check fails, current
+in-memory items remain usable and the UI reports an unsaved/error state; closing the page can lose
+those unsaved changes.
 
 ## Owned-scene assets
 

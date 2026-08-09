@@ -17,6 +17,10 @@
       "types": "./src/codec.ts",
       "default": "./src/codec.ts"
     },
+    "./library": {
+      "types": "./src/client.ts",
+      "default": "./src/client.ts"
+    },
     "./reconcile": {
       "types": "./src/reconcile.ts",
       "default": "./src/reconcile.ts"
