@@ -75,9 +75,8 @@ The four entry-point limits and the snapshot leave-only reserve are shared count
 (`@upstash/redis` + `@upstash/ratelimit`, sliding window, key prefix
 `drawstuff:collab:ratelimit:v1:<operation>`), because `apps/web` runs on serverless functions where
 a process-local counter is one limit per warm instance rather than a limit. Approved values are in
-[SLO §5](../performance/collaboration-slo-capacity.md); the implementation scope is
-[backend rate limits](../../plans/backend-rate-limits.md) and its
-[follow-up](../../plans/backend-rate-limit-followups.md).
+[SLO §5](../performance/collaboration-slo-capacity.md); the complete request and degradation flow is
+part of the current [collaboration system design](./collaboration-system-design.md).
 
 A rate limit is capacity and abuse protection, not an authorization boundary, so Redis failure
 fails **open**: a 750 ms timeout or an SDK exception is reported as `degraded`, the request

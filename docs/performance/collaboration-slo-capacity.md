@@ -245,10 +245,10 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
   [alerts contract](../observability/collaboration-alerts-and-dashboards.md).
 - Shared backend rate limits are implemented on Upstash Redis for all four collaboration entry
   points, plus the bounded snapshot-finalization reserve in §5, with fail-open degradation and 429
-  responses carrying a machine-readable reset. Scope and rationale:
-  [backend rate limits](../../plans/backend-rate-limits.md) and its
-  [follow-up](../../plans/backend-rate-limit-followups.md). WAF/edge
-  rate limiting remains a possible future layer and is not part of this contract.
+  responses carrying a machine-readable reset. Scope and rationale are documented in the current
+  [collaboration system design](../architecture/collaboration-system-design.md) and
+  [threat model](../architecture/collaboration-threat-model.md). WAF/edge rate limiting remains a
+  possible future layer and is not part of this contract.
 - Session success, decrypt failure, and snapshot conflict occur outside the relay. Their carrier
   contract exists, but no client/backend telemetry implementation carries them, so the corresponding
   §6 thresholds cannot currently be evaluated.

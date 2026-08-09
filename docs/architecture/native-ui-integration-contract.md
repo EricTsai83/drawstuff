@@ -56,9 +56,11 @@ adapter 的 `ExcalidrawCanvasProps`（`packages/excalidraw-adapter/src/types.ts`
 | `theme` | editor | 跟隨 app 主題 |
 | `UIOptions` | editor | 見下表 |
 | `validateEmbeddable` | editor | 補充 embed 網域白名單 |
+| `viewModeEnabled` | editor | 共編 viewer role 的唯讀 UI；server authorization 仍是唯一權限來源 |
 
-`viewModeEnabled`／`zenModeEnabled` **已不在清單內**：它們只有舊 viewer 用得到，
-viewer 改成靜態 SVG 後兩者都被移除，adapter 也不再 expose。
+`zenModeEnabled` **已不在清單內**：它只有舊 published viewer 用得到，viewer 改成靜態 SVG
+後已移除。`viewModeEnabled` 不再服務 published viewer，但共編 viewer role 需要它呈現唯讀 editor，
+因此仍由 adapter expose；後端 room role authorization 不依賴這項 UI prop。
 
 ### `UIOptions.canvasActions`
 

@@ -329,7 +329,7 @@ snapshotConflicts, snapshotWrites, sessionsStarted, baselinesResolved }`。
   兩個分母都是必要的，否則對應的 SLO 算不出來：`snapshotWrites` 供 §6 的「≤ 5% of writes」，
   `sessionsStarted`／`baselinesResolved` 供 §6 的 session 成功率——後者的「成功」定義是
   baseline resolved，而只有 client 知道 baseline 有沒有 resolve。
-- **速率**：[backend rate limits](../../plans/backend-rate-limits.md) 已為 join、snapshot put、
+- **速率**：[collaboration system design](../architecture/collaboration-system-design.md) 已為 join、snapshot put、
   asset upload 與 asset resolve 建立共享上界，但**不包含**這支尚未存在的 telemetry
   procedure。它實作時必須自己接上同一個共享 limiter（並在 SLO §5 新增一列核准值）；在那之前，
   client 端 cadence 仍是唯一上界，不能被描述為服務端防護。
