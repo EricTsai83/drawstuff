@@ -8,8 +8,7 @@
 營運者若直接下 SQL 刪除其他人的資料，會繞過 object cleanup、relay lifecycle 與 durable
 補償機制。此工作中的「退役」涵蓋 scene、room 與整個帳號，不是只做 retention job。
 
-本工作與 [backend rate limits](./backend-rate-limits.md) 都是公開測試前置：rate limit 限制濫用
-的量，本文件處理濫用與測試資料的完整清理。
+Backend rate limits 已完成；本文件是剩餘的公開測試前置，負責處理濫用與測試資料的完整清理。
 
 ## Outcome
 

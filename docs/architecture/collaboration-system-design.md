@@ -282,10 +282,9 @@ object keys in `deferred_file_cleanup`. Full room and owned-scene retention beha
   graceful restart behavior are part of the deployment envelope.
 - Relay-side connection/frame limits and the shared backend limits described above are implemented.
   WAF or edge rate limiting remains a possible additional layer, not part of the current contract.
-  See
-  [backend rate limits](../../plans/backend-rate-limits.md), its
-  [follow-up](../../plans/backend-rate-limit-followups.md), and
-  [SLO §5](../performance/collaboration-slo-capacity.md).
+  See [SLO §5](../performance/collaboration-slo-capacity.md), the
+  [threat model](./collaboration-threat-model.md), and the
+  [observability contract](../observability/collaboration-alerts-and-dashboards.md).
 - Relay metrics and privacy-safe structured logs exist. Client/session success, decrypt-failure,
   and snapshot-conflict SLOs currently have no telemetry carrier.
 - There is no staged rollout cohort system, collaboration-specific kill switch, staging environment,

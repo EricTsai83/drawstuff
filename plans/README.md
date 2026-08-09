@@ -4,15 +4,14 @@
 [`docs/`](../docs/) 為唯一來源；已完成或跳過工作的理由與證據留在 git history 與合併紀錄，
 不在此目錄維護歷史狀態表。
 
-## Public-testing prerequisites
+## Active plans
 
-1. [Backend rate limits](./backend-rate-limits.md) — `Ready`。Upstash Redis 已開通；限制 join、
-   snapshot write、asset upload 與 asset resolve 的共享呼叫速率。
-2. [Operator data retirement](./operator-data-retirement.md) — `Ready`。提供 scene、room、account
+1. [Operator data retirement](./operator-data-retirement.md) — `Ready`。提供 scene、room、account
    三種 admin 清理能力，完整沿用現有 object、room 與 relational lifecycle。
+2. [Personal Excalidraw Library](./personal-excalidraw-library.md) — `Ready`。沿用官方 panel，新增
+   user-scoped 完整 Library persistence、官方 Library 一次性安裝與跨裝置載入。
 
-兩份工作都必須在公開測試前完成。Rate limit 限制濫用的量；operator retirement 處理濫用或
-測試後的資料清理。兩者可獨立實作，但公開測試需要同時滿足。
+Operator retirement 仍是公開測試前置。Personal Library 是獨立產品工作，不是公開測試 gate。
 
 ## Completion rule
 
