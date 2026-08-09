@@ -95,7 +95,7 @@ export const appTranslations: AppTranslations = {
     "collaboration.status.cancelled": "Cancelled",
     "collaboration.status.missingRoomKey": "Incomplete link",
     "collaboration.status.readOnly": "View only",
-    "collaboration.status.readOnlyWithStatus": "{status} (view only)",
+    "collaboration.status.readOnlyWithStatus": "{status} (View only)",
     "collaboration.error.network": "Network connection failed",
     "collaboration.error.operationFailed":
       "The collaboration action failed. Please try again.",

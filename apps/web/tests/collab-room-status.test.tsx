@@ -63,6 +63,25 @@ vi.mock("@/trpc/react", () => ({
   },
 }));
 
+vi.mock("@/hooks/use-app-i18n", () => ({
+  useAppI18n: () => ({
+    langCode: "en",
+    t: (key: string, values?: Record<string, string | number>) => {
+      const translations: Record<string, string> = {
+        "collaboration.status.connected": "Collaborating",
+        "collaboration.status.idle": "Collaborate",
+        "collaboration.status.readOnly": "View only",
+        "collaboration.status.readOnlyWithStatus": "{status} (View only)",
+        "collaboration.status.syncBlocked": "Sync stopped",
+      };
+      const template = translations[key] ?? key;
+      return template.replace(/\{(\w+)\}/g, (_match, name: string) =>
+        String(values?.[name] ?? ""),
+      );
+    },
+  }),
+}));
+
 import { TRPCClientError } from "@trpc/client";
 
 import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
@@ -734,8 +753,8 @@ describe("collaboration button label", () => {
 
   it("keeps the read-only badge for an ordinary viewer", () => {
     const rendered = renderButton({ status: "connected", isReadOnly: true });
-    expect(rendered.visible).toContain("僅檢視");
-    expect(rendered.accessibleName).toBe("僅檢視");
+    expect(rendered.visible).toContain("View only");
+    expect(rendered.accessibleName).toBe("View only");
   });
 
   it("shows the stopped-sync label even for a read-only session", () => {
@@ -743,11 +762,17 @@ describe("collaboration button label", () => {
     // the reconnect the change forces, so this session holds work it can never
     // publish. "僅檢視" alone would understate that.
     const rendered = renderButton({ status: "sync-blocked", isReadOnly: true });
-    expect(rendered.visible).toContain("同步已停止");
-    expect(rendered.visible).not.toContain("共編中");
+    expect(rendered.visible).toContain("Sync stopped");
+    expect(rendered.visible).not.toContain("Collaborating");
     // `aria-label` replaces the content and the icon carries no text, so the
     // accessible name has to state both facts or read-only is lost entirely.
-    expect(rendered.accessibleName).toContain("同步已停止");
-    expect(rendered.accessibleName).toContain("僅檢視");
+    expect(rendered.accessibleName).toContain("Sync stopped");
+    expect(rendered.accessibleName).toContain("View only");
+  });
+
+  it("uses the active language for the idle label", () => {
+    const rendered = renderButton({ status: "idle", isReadOnly: false });
+    expect(rendered.visible).toContain("Collaborate");
+    expect(rendered.visible).not.toContain("共編");
   });
 });
