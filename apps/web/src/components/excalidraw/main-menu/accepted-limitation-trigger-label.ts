@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { translateApp } from "@/lib/i18n-shared";
 
 /**
  * ACCEPTED LIMITATION — the single sanctioned DOM workaround in this repo.
@@ -33,15 +34,13 @@ import { useEffect } from "react";
  */
 const MAIN_MENU_TRIGGER_SELECTOR = '[data-testid="main-menu-trigger"]';
 
-const MAIN_MENU_TRIGGER_ACCESSIBLE_NAME = "Menu";
-
 /** Labels the trigger if it is already mounted, reporting whether it was found. */
-function labelMainMenuTrigger(): boolean {
+function labelMainMenuTrigger(label: string): boolean {
   const trigger = document.querySelector<HTMLButtonElement>(
     MAIN_MENU_TRIGGER_SELECTOR,
   );
   if (!trigger) return false;
-  trigger.setAttribute("aria-label", MAIN_MENU_TRIGGER_ACCESSIBLE_NAME);
+  trigger.setAttribute("aria-label", label);
   return true;
 }
 
@@ -49,11 +48,11 @@ function labelMainMenuTrigger(): boolean {
  * Labels the trigger now, or waits for the tunnel to mount it. Returns the
  * teardown for the pending observation.
  */
-function repairMainMenuTriggerAccessibleName(): () => void {
-  if (labelMainMenuTrigger()) return () => undefined;
+function repairMainMenuTriggerAccessibleName(label: string): () => void {
+  if (labelMainMenuTrigger(label)) return () => undefined;
 
   const observer = new MutationObserver(() => {
-    if (labelMainMenuTrigger()) observer.disconnect();
+    if (labelMainMenuTrigger(label)) observer.disconnect();
   });
   observer.observe(document.body, { childList: true, subtree: true });
   return () => observer.disconnect();
@@ -64,5 +63,11 @@ function repairMainMenuTriggerAccessibleName(): () => void {
  * tunneled trigger, dropping the repaired attribute.
  */
 export function useMainMenuTriggerAccessibleName(langCode: string): void {
-  useEffect(() => repairMainMenuTriggerAccessibleName(), [langCode]);
+  useEffect(
+    () =>
+      repairMainMenuTriggerAccessibleName(
+        translateApp(langCode, "welcomeScreen.app.menuHint"),
+      ),
+    [langCode],
+  );
 }

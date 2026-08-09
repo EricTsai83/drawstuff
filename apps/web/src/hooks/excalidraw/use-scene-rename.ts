@@ -5,12 +5,14 @@ import { toast } from "sonner";
 import { loadCurrentSceneIdFromStorage } from "@/data/local-storage";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { api } from "@/trpc/react";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 /**
  * Renames the current cloud scene, retrying once when the id is not persisted
  * yet (freshly created scenes) or when the server has not caught up.
  */
 export function useSceneRename(currentSceneId: string | null | undefined) {
+  const { t } = useStandaloneI18n();
   const utils = api.useUtils();
   const renameSceneMutation = api.scene.renameScene.useMutation();
   const pendingRenameRef = useRef<string | undefined>(undefined);
@@ -57,12 +59,12 @@ export function useSceneRename(currentSceneId: string | null | undefined) {
               }, 300);
               return;
             }
-            toast.error("Failed to update scene name. Please try again.");
+            toast.error(t("errors.failedToUpdateSceneName"));
           },
         },
       );
     },
-    [renameSceneMutation, utils, updateLastSyncedRevision],
+    [renameSceneMutation, utils, updateLastSyncedRevision, t],
   );
 
   // 若剛拿到新 id，且有待辦改名，補送 rename

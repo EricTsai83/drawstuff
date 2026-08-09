@@ -21,8 +21,8 @@ import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { workspaceDescriptionSchema } from "@/lib/schemas/workspace";
 import { SCENE_NAME_MAX_LENGTH } from "@/lib/schemas/scene";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import {
   Form,
   FormControl,
@@ -50,13 +50,18 @@ export function SceneCloudUploadDialog({
   excalidrawAPI,
   onConfirm,
 }: SceneCloudUploadDialogProps) {
+  const { t } = useAppI18n();
   const schema = z.object({
     name: z
       .string()
       .trim()
-      .max(SCENE_NAME_MAX_LENGTH, "Name is too long")
+      .max(SCENE_NAME_MAX_LENGTH, t("validation.nameTooLong"))
       .optional(),
-    description: workspaceDescriptionSchema,
+    description: z
+      .string()
+      .trim()
+      .max(100, t("validation.descriptionTooLong"))
+      .optional(),
   });
   type FormValues = z.infer<typeof schema>;
   const form = useForm<FormValues>({
@@ -84,8 +89,8 @@ export function SceneCloudUploadDialog({
     onSuccess: async () => {
       await utils.workspace.listWithMeta.invalidate();
     },
-    onError: (err) => {
-      toast.error(err.message ?? "Failed to create workspace");
+    onError: () => {
+      toast.error(t("dashboard.workspace.createFailed"));
     },
   });
 
@@ -141,7 +146,7 @@ export function SceneCloudUploadDialog({
   // form handles submit via onSubmit
 
   async function handleConfirm(values: FormValues): Promise<void> {
-    const finalName = (values.name ?? "").trim() || "Untitled";
+    const finalName = (values.name ?? "").trim() || t("labels.untitled");
     let workspaceIdToUse: string | undefined = selectedWorkspaceId;
     if (pendingNewWorkspaceName?.trim()) {
       try {
@@ -150,8 +155,8 @@ export function SceneCloudUploadDialog({
         });
         workspaceIdToUse = created.id;
         setPendingNewWorkspaceName(undefined);
-      } catch (err) {
-        toast.error((err as Error)?.message ?? "Failed to create workspace");
+      } catch {
+        toast.error(t("dashboard.workspace.createFailed"));
         return;
       }
     }
@@ -177,9 +182,11 @@ export function SceneCloudUploadDialog({
         data-prevent-outside-click="true"
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">Save Scene</DialogTitle>
+          <DialogTitle className="text-xl font-bold">
+            {t("scene.save.title")}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Save scene to cloud
+            {t("scene.save.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -195,10 +202,10 @@ export function SceneCloudUploadDialog({
               rules={{ required: false }}
               render={() => (
                 <FormItem>
-                  <FormLabel>Scene name</FormLabel>
+                  <FormLabel>{t("labels.sceneName")}</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="Enter a scene name"
+                      placeholder={t("placeholders.sceneName")}
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize="off"
@@ -212,7 +219,9 @@ export function SceneCloudUploadDialog({
             />
 
             <div className="grid gap-3">
-              <FormLabel id="scene-workspace-label">Workspace</FormLabel>
+              <FormLabel id="scene-workspace-label">
+                {t("labels.workspace")}
+              </FormLabel>
               <div aria-labelledby="scene-workspace-label">
                 <WorkspaceDropdown
                   options={workspaceOptions}
@@ -236,12 +245,12 @@ export function SceneCloudUploadDialog({
               render={() => (
                 <FormItem>
                   <FormLabel htmlFor="scene-description-input">
-                    Description
+                    {t("labels.description")}
                   </FormLabel>
                   <FormControl>
                     <Textarea
                       id="scene-description-input"
-                      placeholder="Add a short description"
+                      placeholder={t("placeholders.description")}
                       className="h-24 resize-none"
                       {...form.register("description")}
                     />
@@ -252,7 +261,9 @@ export function SceneCloudUploadDialog({
             />
 
             <div className="grid gap-3">
-              <FormLabel id="scene-categories-label">Categories</FormLabel>
+              <FormLabel id="scene-categories-label">
+                {t("labels.categories")}
+              </FormLabel>
               <div aria-labelledby="scene-categories-label">
                 <SearchableAndCreatableSelector
                   value={categoryOptions}
@@ -266,12 +277,12 @@ export function SceneCloudUploadDialog({
                 type="button"
                 variant="outline"
                 onClick={handleCancel}
-                aria-label="Cancel save"
+                aria-label={t("scene.save.cancelLabel")}
               >
-                Cancel
+                {t("buttons.cancel")}
               </Button>
-              <Button type="submit" aria-label="Confirm save">
-                Save
+              <Button type="submit" aria-label={t("scene.save.confirmLabel")}>
+                {t("buttons.save")}
               </Button>
             </div>
           </form>

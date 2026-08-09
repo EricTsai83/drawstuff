@@ -6,6 +6,7 @@ import type {
   BinaryFiles,
   ExcalidrawImperativeAPI,
 } from "@drawstuff/excalidraw-adapter/types";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import type {
   ExcalidrawElement,
   NonDeletedExcalidrawElement,
@@ -32,26 +33,30 @@ export function useExportHandlers({
   isUploading,
   excalidrawAPI,
 }: ExportDeps) {
-  const handleSaveToDisk = useCallback(function handleSaveToDisk(
-    elements: readonly NonDeletedExcalidrawElement[],
-    appState: Partial<AppState>,
-    files: BinaryFiles,
-  ): void {
-    try {
-      saveSceneJsonToDisk(elements, appState, files);
-      toast.success("File saved to disk successfully!");
-    } catch (err: unknown) {
-      const errorObj = err instanceof Error ? err : new Error(String(err));
-      console.error(errorObj);
-      toast.error("Failed to save file. Please try again.");
-    }
-  }, []);
+  const { t } = useStandaloneI18n();
+  const handleSaveToDisk = useCallback(
+    function handleSaveToDisk(
+      elements: readonly NonDeletedExcalidrawElement[],
+      appState: Partial<AppState>,
+      files: BinaryFiles,
+    ): void {
+      try {
+        saveSceneJsonToDisk(elements, appState, files);
+        toast.success(t("toast.export.fileSaved"));
+      } catch (err: unknown) {
+        const errorObj = err instanceof Error ? err : new Error(String(err));
+        console.error(errorObj);
+        toast.error(t("toast.export.fileSaveFailed"));
+      }
+    },
+    [t],
+  );
 
   const handleCloudUpload = useCallback(async (): Promise<void> => {
     try {
       const ok = await uploadSceneToCloud();
       if (ok) {
-        toast.success("Successfully uploaded to cloud!");
+        toast.success(t("toast.cloud.uploaded"));
       } else {
         // 交由上層（Editor）統一處理錯誤 toast 與狀態重置
       }
@@ -60,7 +65,7 @@ export function useExportHandlers({
       console.error(errorObj);
       // 交由上層（Editor）統一處理錯誤 toast 與狀態重置
     }
-  }, [uploadSceneToCloud]);
+  }, [uploadSceneToCloud, t]);
 
   const handleExportLink = useCallback(async (): Promise<void> => {
     if (isExporting || isUploading) return;

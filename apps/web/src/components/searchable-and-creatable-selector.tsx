@@ -6,6 +6,7 @@ import MultipleSelector, {
 } from "@/components/ui/multiple-selector";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 function SearchableAndCreatableSelector({
   value,
@@ -14,6 +15,7 @@ function SearchableAndCreatableSelector({
   value?: Option[];
   onChange?: (value: Option[]) => void;
 }) {
+  const { t } = useStandaloneI18n();
   const utils = api.useUtils();
 
   const handleSearch = async (keyword: string) => {
@@ -31,7 +33,7 @@ function SearchableAndCreatableSelector({
           label: categoryItem.name,
         }));
     } catch {
-      toast.error("Failed to get categories", {
+      toast.error(t("category.selector.loadFailed"), {
         duration: Infinity,
         closeButton: true,
       });
@@ -48,15 +50,15 @@ function SearchableAndCreatableSelector({
         onSearch={handleSearch}
         defaultOptions={[]}
         creatable
-        placeholder="Type or create a category"
+        placeholder={t("category.selector.placeholder")}
         loadingIndicator={
           <p className="text-muted-foreground py-2 text-center text-lg leading-10">
-            Searching...
+            {t("category.selector.searching")}
           </p>
         }
         emptyIndicator={
           <p className="text-muted-foreground w-full text-center text-lg leading-10">
-            No matching results.
+            {t("category.selector.empty")}
           </p>
         }
       />

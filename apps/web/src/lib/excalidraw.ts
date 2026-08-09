@@ -32,6 +32,7 @@ import {
 import { ensureInitialAppState } from "@drawstuff/excalidraw-adapter/codec";
 import { createLocalExportDocument } from "@drawstuff/excalidraw-adapter/codec";
 import { getBaseUrl } from "@/lib/base-url";
+import { translateApp } from "@/lib/i18n-shared";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
@@ -48,10 +49,12 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
 
     if (jsonBackendMatch) {
       // 若本地有資料，提示是否覆蓋
+      const langCode =
+        localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE) ?? "en";
       const shareableLinkConfirmDialog = {
-        title: "載入分享連結內容？",
-        description: "此操作將覆蓋目前畫布內容。",
-        actionLabel: "覆蓋並載入",
+        title: translateApp(langCode, "sharedScene.confirm.title"),
+        description: translateApp(langCode, "sharedScene.confirm.description"),
+        actionLabel: translateApp(langCode, "sharedScene.confirm.action"),
       };
 
       try {

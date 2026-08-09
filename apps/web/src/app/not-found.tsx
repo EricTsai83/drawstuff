@@ -1,10 +1,15 @@
+"use client";
+
 import Link from "next/link";
 import { Home, PanelsTopLeft } from "lucide-react";
 
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 import { buttonVariants } from "@/components/ui/button";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 export default function NotFound() {
+  const { t } = useStandaloneI18n();
+
   return (
     <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-4 py-10">
       <section
@@ -20,11 +25,10 @@ export default function NotFound() {
           id="not-found-title"
           className="max-w-lg text-3xl font-bold tracking-normal text-balance sm:text-4xl"
         >
-          This drawing space does not exist.
+          {t("notFound.title")}
         </h1>
         <p className="text-muted-foreground mt-4 max-w-md text-sm leading-6 text-balance">
-          The page may have been moved, deleted, or shared with a broken link.
-          Return to the canvas or open your dashboard to find another scene.
+          {t("notFound.description")}
         </p>
 
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
@@ -35,7 +39,7 @@ export default function NotFound() {
             })}
           >
             <Home data-icon="inline-start" aria-hidden="true" />
-            Back to canvas
+            {t("navigation.backToCanvas")}
           </Link>
           <Link
             href="/dashboard"
@@ -45,7 +49,7 @@ export default function NotFound() {
             })}
           >
             <PanelsTopLeft data-icon="inline-start" aria-hidden="true" />
-            Open dashboard
+            {t("labels.openDashboard")}
           </Link>
         </div>
       </section>

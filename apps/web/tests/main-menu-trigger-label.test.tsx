@@ -77,7 +77,7 @@ describe("main menu trigger accessible name (accepted limitation)", () => {
     const remounted = mountUpstreamTrigger();
     await flush();
 
-    expect(remounted.getAttribute("aria-label")).toBe("Menu");
+    expect(remounted.getAttribute("aria-label")).toBe("選單");
   });
 
   it("stops observing once the trigger is labelled", async () => {

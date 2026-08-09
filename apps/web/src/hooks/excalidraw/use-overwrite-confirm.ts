@@ -10,6 +10,7 @@ import {
 } from "@/lib/excalidraw";
 import { triggerBlobDownload } from "@/lib/download";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 export type UseOverwriteConfirmArgs = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
@@ -31,6 +32,7 @@ export function useOverwriteConfirm(
   props: UseOverwriteConfirmArgs,
 ): UseOverwriteConfirmResult {
   const { excalidrawAPI, onSceneNotFoundError } = props;
+  const { t } = useStandaloneI18n();
   const cloudUpload = useCloudUpload(() => {
     // 當場景找不到時，關閉當前 dialog 並通知上層
     handleClose();
@@ -97,11 +99,11 @@ export function useOverwriteConfirm(
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       console.error("Export image failed:", errorObj);
-      toast.error("Failed to export image. Please try again.");
+      toast.error(t("toast.export.imageFailed"));
     } finally {
       handleClose();
     }
-  }, [excalidrawAPI, handleClose]);
+  }, [excalidrawAPI, handleClose, t]);
 
   const handleSaveToDisk = useCallback(() => {
     const scene = getCurrentSceneSnapshot(excalidrawAPI);
@@ -112,32 +114,32 @@ export function useOverwriteConfirm(
         scene.appState,
         scene.files,
       );
-      toast.success("File saved to disk successfully!");
+      toast.success(t("toast.export.fileSaved"));
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       console.error("Save failed:", errorObj);
-      toast.error("Failed to save file. Please try again.");
+      toast.error(t("toast.export.fileSaveFailed"));
     } finally {
       handleClose();
     }
-  }, [excalidrawAPI, handleClose]);
+  }, [excalidrawAPI, handleClose, t]);
 
   const handleUploadToCloud = useCallback(async () => {
     try {
       const ok = await cloudUpload.uploadSceneToCloud();
       if (ok) {
-        toast.success("Successfully uploaded to cloud!");
+        toast.success(t("toast.cloud.uploaded"));
       } else {
-        toast.error("Failed to upload to cloud. Please try again.");
+        toast.error(t("toast.cloud.uploadFailed"));
       }
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));
       console.error("Cloud upload error:", errorObj);
-      toast.error("Failed to upload to cloud. Please try again.");
+      toast.error(t("toast.cloud.uploadFailed"));
     } finally {
       handleClose();
     }
-  }, [cloudUpload, handleClose]);
+  }, [cloudUpload, handleClose, t]);
 
   return {
     open: isOpen,

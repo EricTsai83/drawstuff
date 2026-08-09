@@ -2,6 +2,7 @@ import { z } from "zod";
 import { categoryNameSchema } from "@/lib/schemas/category";
 
 export const SCENE_NAME_MAX_LENGTH = 255;
+export const SCENE_DESCRIPTION_MAX_LENGTH = 500;
 export const SCENE_DATA_MAX_LENGTH = 5 * 1024 * 1024;
 const SCENE_CATEGORY_MAX_COUNT = 50;
 
@@ -13,7 +14,10 @@ export const sceneNameSchema = z
   .min(1, "Name is required")
   .max(SCENE_NAME_MAX_LENGTH, "Name is too long");
 
-export const sceneDescriptionSchema = z.string().max(500).optional();
+export const sceneDescriptionSchema = z
+  .string()
+  .max(SCENE_DESCRIPTION_MAX_LENGTH)
+  .optional();
 
 const sceneWorkspaceIdSchema = z.uuid().optional();
 

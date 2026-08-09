@@ -24,6 +24,7 @@ import {
   resumeLocalScenePersistence,
 } from "@/data/local-scene-persistence";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import {
   canvasBelongsToRoom,
   claimCanvasForRoom,
@@ -171,26 +172,19 @@ export type UseCollaborationRoomResult = {
  *
  * None of them echoes the room key or the fragment.
  */
-const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
-  unauthorized:
-    "目前無法取得這個共編 room 的存取權，連線已停止。請確認你仍是成員，或向擁有者重新索取邀請。",
-  "membership-revoked": "你的共編權限已被移除，連線已結束。",
-  "room-ended":
-    "這個共編 room 已被擁有者結束或重設，連線已停止。請向分享者索取新的連結。",
-  "generation-rotated":
-    "這個 room 的加密世代已更新，目前的連結無法再解密內容。請向分享者索取新的完整連結。",
+const FAILURE_MESSAGE_KEY: Record<UnrecoverableReason, string> = {
+  unauthorized: "collaboration.failure.unauthorized",
+  "membership-revoked": "collaboration.failure.membershipRevoked",
+  "room-ended": "collaboration.failure.roomEnded",
+  "generation-rotated": "collaboration.failure.generationRotated",
   // Reached from two detectors — an unopenable stored snapshot, and every
   // realtime frame failing to open with none ever succeeding — so the wording
   // must not promise that a stored canvas exists: the second detector is
   // precisely the room that has not been persisted yet.
-  "unreadable-room":
-    "無法用目前連結的金鑰解開這個 room 的內容，連線已停止。請向分享者索取最新的完整連結。",
-  "protocol-violation":
-    "連線因通訊協定錯誤而中止。請重新載入頁面；若持續發生請回報。",
-  "crypto-exhausted":
-    "這個連線的加密額度已用盡，無法繼續安全傳送。請由擁有者重設 room generation 後重新加入。",
-  "retry-limit":
-    "多次重新連線都失敗，已停止重試。請確認網路連線後重新載入頁面。",
+  "unreadable-room": "collaboration.failure.unreadableRoom",
+  "protocol-violation": "collaboration.failure.protocolViolation",
+  "crypto-exhausted": "collaboration.failure.cryptoExhausted",
+  "retry-limit": "collaboration.failure.retryLimit",
 };
 
 /**
@@ -216,8 +210,7 @@ const FAILURE_MESSAGE: Record<UnrecoverableReason, string> = {
  * attempted, and the one fact the user most needs is that their canvas was
  * left alone, which only this path can promise.
  */
-const WRONG_KEY_LINK_MESSAGE =
-  "這個共編連結的加密金鑰不正確，因此沒有加入 room，你目前的畫布沒有被變更。請向分享者索取最新的完整連結（包含網址 # 之後的整段）。";
+const WRONG_KEY_LINK_MESSAGE_KEY = "collaboration.failure.wrongKey";
 
 /**
  * A room with no key-check value cannot be verified, and an unverifiable link
@@ -226,8 +219,7 @@ const WRONG_KEY_LINK_MESSAGE =
  * the generation) repairs it. Failing open here would re-open exactly the
  * hole this plan closes.
  */
-const MISSING_KEY_CHECK_MESSAGE =
-  "這個 room 尚未完成加密設定，無法驗證連結的金鑰，因此沒有加入。請 room 擁有者重新開啟共編（或重設 room generation）後再分享一次連結。";
+const MISSING_KEY_CHECK_MESSAGE_KEY = "collaboration.failure.missingKeyCheck";
 
 /**
  * The shared join budget refused this client for longer than the bounded wait.
@@ -237,11 +229,9 @@ const MISSING_KEY_CHECK_MESSAGE =
  * one thing a user does about that is ask for access they already have, or
  * reload, which spends more of the very budget they are waiting on.
  */
-const JOIN_RATE_LIMITED_MESSAGE =
-  "目前加入共編的次數過於頻繁，暫時無法加入。這不是權限問題，請稍等一分鐘後再重新開啟連結。";
+const JOIN_RATE_LIMITED_MESSAGE_KEY = "collaboration.failure.rateLimited";
 
-const UNREADABLE_ASSETS_MESSAGE =
-  "這個 room 有圖片無法用目前的連結開啟（金鑰不符，或圖片是用較新版本加密的）。畫布的其他內容仍在正常同步；若要看到這些圖片，請向分享者索取最新的完整連結。";
+const UNREADABLE_ASSETS_MESSAGE_KEY = "collaboration.warning.unreadableAssets";
 
 const BYTES_PER_MIB = 1_048_576;
 
@@ -269,22 +259,29 @@ const toMib = (bytes: number): string =>
  * stay on screen; a notification that fires once would be gone before the user
  * finished the edit that caused it.
  */
-function sceneSyncBlockMessage(block: SceneSyncBlock): string {
+function sceneSyncBlockMessage(
+  block: SceneSyncBlock,
+  t: ReturnType<typeof useStandaloneI18n>["t"],
+): string {
   const parts: string[] = [];
   if (block.realtime) {
     parts.push(
-      `即時同步已停止：畫布 ${toMib(block.realtime.byteLength)} 超過單次傳送上限 ${toMib(block.realtime.maxByteLength)}，其他成員不會再收到你的變更。`,
+      t("collaboration.warning.realtimeTooLarge", {
+        size: toMib(block.realtime.byteLength),
+        limit: toMib(block.realtime.maxByteLength),
+      }),
     );
   }
   if (block.durable) {
     parts.push(
-      `雲端備份已停止：畫布 ${toMib(block.durable.byteLength)} 超過共編儲存上限 ${toMib(block.durable.maxByteLength)}，重新載入或稍後加入的人只會看到舊版本。`,
+      t("collaboration.warning.backupTooLarge", {
+        size: toMib(block.durable.byteLength),
+        limit: toMib(block.durable.maxByteLength),
+      }),
     );
   }
-  parts.push(
-    "請先用選單的「匯出圖片」或「儲存到檔案」把目前畫布存到本機，避免內容遺失。減少畫布內容可以恢復同步，但剛刪除的元素仍會佔用同步大小一段時間，必要時請重新載入頁面後再加入共編。",
-  );
-  return parts.join("");
+  parts.push(t("collaboration.warning.tooLargeAdvice"));
+  return parts.join(" ");
 }
 
 /**
@@ -431,6 +428,9 @@ export function useCollaborationRoom(options: {
     // the join effect deliberately reads this through `canvasRef` instead.
     currentSceneId,
   } = options;
+  const { t } = useStandaloneI18n();
+  const tRef = useRef(t);
+  tRef.current = t;
   const { suppressDirtyTracking, resumeDirtyTracking } = useSceneSession();
   const utils = api.useUtils();
 
@@ -553,7 +553,7 @@ export function useCollaborationRoom(options: {
     const parsedRoomId = roomIdSchema.safeParse(roomId);
     if (!parsedRoomId.success) {
       setStatus("unauthorized");
-      setErrorMessage("這個共編連結格式不正確。");
+      setErrorMessage(tRef.current("collaboration.failure.invalidLink"));
       return;
     }
     // Checked before any token is requested: without the key there is nothing a
@@ -561,9 +561,7 @@ export function useCollaborationRoom(options: {
     // an attempt. The message never echoes the fragment.
     if (!roomKey) {
       setStatus("missing-room-key");
-      setErrorMessage(
-        "這個共編連結缺少加密金鑰（連結的 # 之後那一段）。請向分享者索取完整連結。",
-      );
+      setErrorMessage(tRef.current("collaboration.failure.missingRoomKey"));
       return;
     }
 
@@ -588,9 +586,7 @@ export function useCollaborationRoom(options: {
         if (cancelled) return false;
         if (decision === "cancel") {
           setStatus("cancelled");
-          setErrorMessage(
-            "已取消加入共編：目前畫布沒有變更，仍是你原本的場景。",
-          );
+          setErrorMessage(tRef.current("collaboration.failure.cancelled"));
           return false;
         }
         if (decision === "save") {
@@ -600,7 +596,9 @@ export function useCollaborationRoom(options: {
           if (cancelled) return false;
           if (!saved) {
             setStatus("cancelled");
-            setErrorMessage("儲存目前場景失敗，因此沒有加入共編。請重試。");
+            setErrorMessage(
+              tRef.current("collaboration.failure.saveBeforeJoin"),
+            );
             return false;
           }
         }
@@ -660,7 +658,7 @@ export function useCollaborationRoom(options: {
         if (room.keyCheckBase64 === null) {
           setStatus("failed");
           setFailureReason("missing-key-check");
-          setErrorMessage(MISSING_KEY_CHECK_MESSAGE);
+          setErrorMessage(tRef.current(MISSING_KEY_CHECK_MESSAGE_KEY));
           return;
         }
         const keyCheckOk = await verifyRoomKeyCheck({
@@ -673,7 +671,7 @@ export function useCollaborationRoom(options: {
         if (!keyCheckOk) {
           setStatus("failed");
           setFailureReason("wrong-key-link");
-          setErrorMessage(WRONG_KEY_LINK_MESSAGE);
+          setErrorMessage(tRef.current(WRONG_KEY_LINK_MESSAGE_KEY));
           return;
         }
         const isOpenScene = room.sceneId === canvasRef.current.currentSceneId;
@@ -703,7 +701,7 @@ export function useCollaborationRoom(options: {
           // Not `unauthorized`: this link and this account are fine, and the
           // room is joinable again once the window rolls.
           setStatus("rate-limited");
-          setErrorMessage(JOIN_RATE_LIMITED_MESSAGE);
+          setErrorMessage(tRef.current(JOIN_RATE_LIMITED_MESSAGE_KEY));
           return;
         }
         const joined = joinOutcome.value;
@@ -719,7 +717,9 @@ export function useCollaborationRoom(options: {
         if (joined.authGeneration !== room.authGeneration) {
           setStatus("failed");
           setFailureReason("generation-rotated");
-          setErrorMessage(FAILURE_MESSAGE["generation-rotated"]);
+          setErrorMessage(
+            tRef.current(FAILURE_MESSAGE_KEY["generation-rotated"]),
+          );
           return;
         }
         // Commit the canvas claim only after join and generation validation
@@ -825,7 +825,8 @@ export function useCollaborationRoom(options: {
             // teardown is still announced even though the status surface is
             // already gone — for the leave flush that is the last word on whether
             // the room's only copy of the work was stored.
-            if (block) toast.warning(sceneSyncBlockMessage(block));
+            if (block)
+              toast.warning(sceneSyncBlockMessage(block, tRef.current));
             if (cancelled) return;
             setSyncBlock(block);
           },
@@ -835,7 +836,7 @@ export function useCollaborationRoom(options: {
           // The store reports this at most once per session, so neither surface
           // needs its own deduplication.
           onAssetsUnreadable: () => {
-            toast.warning(UNREADABLE_ASSETS_MESSAGE);
+            toast.warning(tRef.current(UNREADABLE_ASSETS_MESSAGE_KEY));
             if (cancelled) return;
             setAssetsUnreadable(true);
           },
@@ -844,7 +845,7 @@ export function useCollaborationRoom(options: {
             if (state.phase === "failed") {
               setStatus("failed");
               setFailureReason(state.reason);
-              setErrorMessage(FAILURE_MESSAGE[state.reason]);
+              setErrorMessage(tRef.current(FAILURE_MESSAGE_KEY[state.reason]));
               return;
             }
             setFailureReason(null);
@@ -884,7 +885,7 @@ export function useCollaborationRoom(options: {
         setErrorMessage(
           error instanceof Error
             ? error.message
-            : "無法加入共編 room，請確認你仍有存取權限。",
+            : tRef.current("collaboration.failure.joinFailed"),
         );
       }
     };
@@ -955,11 +956,13 @@ export function useCollaborationRoom(options: {
   const visibleStatus: CollaborationRoomStatus = isSyncBlocked
     ? "sync-blocked"
     : status;
-  const sizeWarning = syncBlock ? sceneSyncBlockMessage(syncBlock) : null;
+  const sizeWarning = syncBlock ? sceneSyncBlockMessage(syncBlock, t) : null;
   // Ranked last of the three, because it is the least urgent true thing: a
   // terminal failure ends the session, an oversize canvas risks losing the user's
   // own work, and this only says some of the room's images will not render.
-  const assetWarning = assetsUnreadable ? UNREADABLE_ASSETS_MESSAGE : null;
+  const assetWarning = assetsUnreadable
+    ? t(UNREADABLE_ASSETS_MESSAGE_KEY)
+    : null;
 
   return {
     status: visibleStatus,

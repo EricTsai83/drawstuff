@@ -20,7 +20,6 @@ import { cn } from "@/lib/utils";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { workspaceNameSchema } from "@/lib/schemas/workspace";
 import { Loader2, TriangleAlert } from "lucide-react";
 import {
   Form,
@@ -84,7 +83,13 @@ export default function WorkspaceSettingsDialog({
   const canEdit = !!active;
 
   // RHF schema 與初始化
-  const schema = z.object({ name: workspaceNameSchema });
+  const schema = z.object({
+    name: z
+      .string()
+      .trim()
+      .min(1, t("validation.nameRequired"))
+      .max(60, t("validation.nameTooLong")),
+  });
   type FormValues = z.infer<typeof schema>;
   const form = useForm<FormValues>({
     resolver: zodResolver(schema),

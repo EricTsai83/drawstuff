@@ -372,10 +372,10 @@ export function PublishedSceneViewer({
               type="button"
               onClick={() => setControlsMenuOpen((open) => !open)}
               className={`${ICON_BTN} lg:hidden`}
-              aria-label="Menu"
+              aria-label={t("welcomeScreen.app.menuHint")}
               aria-controls="published-viewer-controls-menu"
               aria-expanded={controlsMenuOpen}
-              title="Menu"
+              title={t("welcomeScreen.app.menuHint")}
             >
               <Menu className="h-4 w-4" />
             </button>

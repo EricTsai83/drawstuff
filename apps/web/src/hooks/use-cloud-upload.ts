@@ -144,7 +144,8 @@ export function useCloudUpload(
             true,
           );
           const safeNameFromState =
-            (appState.name ?? "Untitled").trim() || "Untitled";
+            (appState.name ?? t("labels.untitled")).trim() ||
+            t("labels.untitled");
 
           // 依據 mode 推導有效的 sceneId 與行為
           const mode = options?.mode;
@@ -187,9 +188,7 @@ export function useCloudUpload(
             }
             if (lastSyncedRevisionRef.current === undefined) {
               setStatus("error");
-              toast.error(
-                "Unable to verify scene version. Please reload and try again.",
-              );
+              toast.error(t("toast.scene.versionCheckFailed"));
               return false;
             }
           }
@@ -200,7 +199,7 @@ export function useCloudUpload(
             options?.workspaceId ?? currentWorkspaceIdRef.current;
           if (!effectiveWorkspaceId) {
             setStatus("error");
-            toast.error("Workspace is required to upload");
+            toast.error(t("toast.workspace.required"));
             return false;
           }
 
