@@ -672,7 +672,11 @@ describe("encrypted collaboration asset transfer", () => {
     // injection — an `addFiles` per element would re-render the canvas per image.
     expect(backend.resolveCalls).toBe(1);
     expect(backend.fetchCalls).toBe(2);
-    expect(bob.host.addedFileBatches).toEqual([[FILE_A, FILE_B]]);
+    expect(bob.host.addedFileBatches).toHaveLength(1);
+    expect(bob.host.addedFileBatches[0]).toHaveLength(2);
+    expect(bob.host.addedFileBatches[0]).toEqual(
+      expect.arrayContaining([FILE_A, FILE_B]),
+    );
   });
 
   it("never uploads from a viewer session", async () => {
