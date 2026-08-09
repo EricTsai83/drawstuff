@@ -11,6 +11,7 @@ import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { getBaseUrl } from "@/lib/base-url";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
+import { APP_ERROR } from "@/lib/errors";
 
 function cloneToArrayBuffer(
   fileBuffer: Uint8Array<ArrayBufferLike>,
@@ -94,7 +95,9 @@ export function useSceneExport() {
 
         // 若未取得 sharedSceneId，直接回報錯誤
         if (!result.sharedSceneId) {
-          console.error("Failed to export scene:", result.errorMessage);
+          if (result.errorCode !== APP_ERROR.UNAUTHORIZED) {
+            console.error("Failed to export scene:", result.errorMessage);
+          }
           setExportErrorMessage(
             result.errorMessage ?? "Failed to export scene",
           );

@@ -27,6 +27,7 @@ import {
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
   errorMessage: string | null;
+  errorCode: AppErrorCode | null;
 };
 
 // 處理場景保存
@@ -40,6 +41,7 @@ export async function handleSceneSave(
     return {
       sharedSceneId: null,
       errorMessage: "Please sign in and try again",
+      errorCode: APP_ERROR.UNAUTHORIZED,
     };
   }
 
@@ -51,6 +53,7 @@ export async function handleSceneSave(
     return {
       sharedSceneId: null,
       errorMessage: `Scene data rejected: ${persistenceStatus}`,
+      errorCode: APP_ERROR.VALIDATION_FAILED,
     };
   }
 
@@ -69,18 +72,20 @@ export async function handleSceneSave(
     if (result.length > 0 && result[0]?.sharedSceneId) {
       const sharedSceneId = result[0].sharedSceneId;
 
-      return { sharedSceneId, errorMessage: null };
+      return { sharedSceneId, errorMessage: null, errorCode: null };
     }
 
     return {
       sharedSceneId: null,
       errorMessage: "Failed to save scene. Please try again later",
+      errorCode: APP_ERROR.SAVE_FAILED,
     };
   } catch (error) {
     console.error("Error in handleSceneSave:", error);
     return {
       sharedSceneId: null,
       errorMessage: "Failed to create shareable link. Please try again later",
+      errorCode: APP_ERROR.CREATE_FAILED,
     };
   }
 }
