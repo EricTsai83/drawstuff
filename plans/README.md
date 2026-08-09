@@ -9,6 +9,9 @@
 1. [Operator data retirement](./operator-data-retirement.md) — `Ready`。提供 scene、room、account
    三種 admin 清理能力，完整沿用現有 object、room 與 relational lifecycle。
    Operator retirement 仍是公開測試前置。
+2. [Web RWD 重新設計](./responsive-web-design.md) — `Ready`。建立 Canvas、Dashboard、workspace
+   route surfaces、dialogs 與 published viewer 的 responsive contract，補齊 mobile／tablet 的
+   核心操作入口與跨 viewport 驗收矩陣。
 
 ## Completion rule
 
