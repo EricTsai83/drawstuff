@@ -18,7 +18,6 @@ import { useRouter } from "next/navigation";
 import { SceneSwitchConfirmDialog } from "@/components/excalidraw/scene-switch-confirm-dialog";
 import NewSceneDialog from "@/components/excalidraw/new-scene-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
-import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import {
   SignOutConfirmDialog,
   type SignOutChoice,
@@ -41,6 +40,7 @@ import { SettingsItem } from "./main-menu/settings-item";
 import { SocialLinksItem } from "./main-menu/social-links-item";
 import { ThemeItem } from "./main-menu/theme-item";
 import { WorkspaceSwitcherItem } from "./main-menu/workspace-switcher-item";
+import { routes } from "@/lib/routes";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -83,8 +83,6 @@ function AppMainMenu({
 }: AppMainMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
-  // 控制 Settings Dialog（渲染在主選單外，避免被一起卸載）
-  const [settingsOpen, setSettingsOpen] = useState(false);
   // 控制 Rename / New Scene（渲染在主選單外）
   const [renameOpen, setRenameOpen] = useState(false);
   const [newSceneOpen, setNewSceneOpen] = useState(false);
@@ -116,6 +114,7 @@ function AppMainMenu({
     clearCurrentScene: clearSceneSession,
     suppressDirtyTracking,
   } = useSceneSession();
+  const settingsWorkspaceId = currentWorkspaceId ?? lastActiveWorkspaceId;
 
   useMainMenuTriggerAccessibleName(langCode);
 
@@ -155,11 +154,6 @@ function AppMainMenu({
 
   const handleOpenNewSceneDialog = useCallback(() => {
     setNewSceneOpen(true);
-    closeMenu();
-  }, [closeMenu]);
-
-  const handleOpenSettings = useCallback(() => {
-    setSettingsOpen(true);
     closeMenu();
   }, [closeMenu]);
 
@@ -267,7 +261,12 @@ function AppMainMenu({
               showConfirmDialog={showConfirmDialog}
             />
           )}
-          {session && <DashboardLinkItem onNavigate={closeMenu} />}
+          {session && (
+            <DashboardLinkItem
+              onNavigate={closeMenu}
+              workspaceId={currentWorkspaceId ?? lastActiveWorkspaceId}
+            />
+          )}
           {session && <RenameSceneItem onActivate={handleOpenRename} />}
           {session && <NewSceneItem onActivate={handleOpenNewSceneDialog} />}
 
@@ -282,7 +281,16 @@ function AppMainMenu({
           <MainMenu.DefaultItems.SearchMenu />
           <MainMenu.DefaultItems.Help />
           <MainMenu.DefaultItems.ClearCanvas />
-          {session && <SettingsItem onActivate={handleOpenSettings} />}
+          {session && (
+            <SettingsItem
+              href={
+                settingsWorkspaceId
+                  ? routes.workspaceSettings(settingsWorkspaceId)
+                  : undefined
+              }
+              onNavigate={closeMenu}
+            />
+          )}
           <MainMenu.Separator />
           <AccountItem user={session?.user ?? null} onSignOut={handleSignOut} />
 
@@ -330,7 +338,7 @@ function AppMainMenu({
           setConfirmOpen(false);
           if (!confirmWorkspaceId) return;
           if (choice === "openExisting") {
-            router.push(`/dashboard?workspaceId=${confirmWorkspaceId}`);
+            router.push(routes.dashboard(confirmWorkspaceId));
           } else if (choice === "newEmpty") {
             // 先更新最後啟用的 workspace，避免 Dialog 預設讀到舊值
             void setLastActiveWorkspace(confirmWorkspaceId).finally(() => {
@@ -338,10 +346,6 @@ function AppMainMenu({
             });
           }
         }}
-      />
-      <WorkspaceSettingsDialog
-        open={settingsOpen}
-        onOpenChange={setSettingsOpen}
       />
       <SignOutConfirmDialog
         open={signOutConfirmOpen}

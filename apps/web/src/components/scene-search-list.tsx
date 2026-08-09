@@ -1,49 +1,28 @@
 "use client";
 
-import { useMemo, useEffect, useState, useRef, type FormEvent } from "react";
+import { useMemo, useEffect, useState, useRef } from "react";
 import { useQueryState } from "nuqs";
 import { z } from "zod";
-import {
-  Loader2,
-  Pencil,
-  Plus,
-  Search,
-  Settings2,
-  Tag,
-  Trash2,
-} from "lucide-react";
+import { Plus, Search, Settings2, Tag } from "lucide-react";
+import Link from "next/link";
 import { Input } from "@/components/ui/input";
 import { StatefulButton } from "@/components/stateful-button";
 import { SceneCard } from "./scene-card";
 import { SceneGridSkeleton } from "@/components/skeleton/scene-grid-skeleton";
-import { useEscapeKey } from "@/hooks/use-escape-key";
-import { usePathname, useRouter } from "next/navigation";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
-import WorkspaceSettingsDialog from "@/components/excalidraw/workspace-settings-dialog";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
-import { loadCurrentSceneWorkspaceIdFromStorage } from "@/data/local-storage";
-import { useSearchParams } from "next/navigation";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { Button } from "@/components/ui/button";
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuGroup,
   DropdownMenuItem,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { workspaceNameSchema } from "@/lib/schemas/workspace";
 import { CategoryManagementDialog } from "@/components/category-management-dialog";
-import { toast } from "sonner";
+import { routes } from "@/lib/routes";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
@@ -52,23 +31,13 @@ type PublishFilter = "all" | "public" | "private";
 type ArchiveFilter = "active" | "archived";
 
 export function SceneSearchList() {
-  const router = useRouter();
-  const pathname = usePathname();
   const {
     workspaces,
     lastActiveWorkspaceId,
     isLoading: isLoadingWorkspaces,
   } = useWorkspaceOptions();
-  const params = useSearchParams();
   const { t } = useStandaloneI18n();
-
-  const paramWorkspaceId = params.get("workspaceId") ?? undefined;
-  const [overrideWorkspaceId, setOverrideWorkspaceId] = useState<
-    string | undefined
-  >(() => paramWorkspaceId ?? loadCurrentSceneWorkspaceIdFromStorage());
-  const [createWorkspaceOpen, setCreateWorkspaceOpen] = useState(false);
-  const [deleteWorkspaceOpen, setDeleteWorkspaceOpen] = useState(false);
-  const [renameWorkspaceOpen, setRenameWorkspaceOpen] = useState(false);
+  const [workspaceId, setWorkspaceId] = useQueryState("workspaceId");
   const [searchQuery, setSearchQuery] = useQueryState("search", {
     defaultValue: "",
     clearOnDefault: true,
@@ -102,21 +71,25 @@ export function SceneSearchList() {
     }
   }, [categoryFilter, categories, setCategoryFilter]);
 
-  useEscapeKey(() => router.back());
-
-  const effectiveWorkspaceId = overrideWorkspaceId ?? lastActiveWorkspaceId;
+  const queryWorkspace = useMemo(
+    () => workspaces.find((workspace) => workspace.id === workspaceId),
+    [workspaces, workspaceId],
+  );
+  const effectiveWorkspaceId = queryWorkspace?.id ?? lastActiveWorkspaceId;
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === effectiveWorkspaceId),
-    [workspaces, effectiveWorkspaceId],
+    [effectiveWorkspaceId, workspaces],
   );
 
   useEffect(() => {
-    if (!overrideWorkspaceId || isLoadingWorkspaces) return;
-    const workspaceIds = new Set(workspaces.map((workspace) => workspace.id));
-    if (!workspaceIds.has(overrideWorkspaceId)) {
-      setOverrideWorkspaceId(undefined);
+    if (!workspaceId || isLoadingWorkspaces) return;
+    if (
+      !z.uuid().safeParse(workspaceId).success ||
+      !workspaces.some((workspace) => workspace.id === workspaceId)
+    ) {
+      void setWorkspaceId(null);
     }
-  }, [overrideWorkspaceId, workspaces, isLoadingWorkspaces]);
+  }, [workspaceId, workspaces, isLoadingWorkspaces, setWorkspaceId]);
 
   const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
     api.scene.getUserScenesInfinite.useInfiniteQuery(
@@ -129,13 +102,13 @@ export function SceneSearchList() {
       },
       {
         getNextPageParam: (last: SceneInfinitePage) => last.nextCursor,
+        enabled: !isLoadingWorkspaces && !!effectiveWorkspaceId,
         refetchOnWindowFocus: true,
         refetchOnReconnect: true,
       },
     );
 
   // 當 workspace 或搜尋字串變動時，React Query 會依 key 自動重置/重新抓取。
-  // 這裡同步確保 overrideWorkspaceId 是由使用者操作後立即生效的。
   useEffect(() => {
     // 變動時滾回頂部，避免 UX 不連貫
     window?.scrollTo?.({ top: 0, behavior: "instant" as ScrollBehavior });
@@ -145,19 +118,6 @@ export function SceneSearchList() {
     activeCategoryId,
     activeArchiveFilter,
   ]);
-
-  // 若 URL 上帶有 workspaceId，取得後即從 URL 移除（保留其他參數），
-  // 並以本地覆蓋值維持當前 workspace 過濾，避免畫面閃爍。
-  useEffect(() => {
-    if (!paramWorkspaceId) return;
-    setOverrideWorkspaceId(
-      (prev: string | undefined) => prev ?? paramWorkspaceId,
-    );
-    const next = new URLSearchParams(params.toString());
-    next.delete("workspaceId");
-    const qs = next.toString();
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-  }, [paramWorkspaceId, pathname, router, params]);
 
   function doesSceneMatchQuery(item: SceneListItem, q: string): boolean {
     const inName = item.name.toLowerCase().includes(q);
@@ -261,8 +221,8 @@ export function SceneSearchList() {
         <div className="flex items-center justify-end gap-2">
           <div className="w-48 sm:w-64">
             <WorkspaceSelector
-              value={overrideWorkspaceId ?? lastActiveWorkspaceId}
-              onChange={(id: string) => setOverrideWorkspaceId(id)}
+              value={effectiveWorkspaceId}
+              onChange={(id: string) => void setWorkspaceId(id)}
             />
           </div>
           <DropdownMenu>
@@ -279,65 +239,29 @@ export function SceneSearchList() {
               }
             />
             <DropdownMenuContent align="end">
-              <DropdownMenuItem
-                onSelect={() =>
-                  requestAnimationFrame(() => setCreateWorkspaceOpen(true))
-                }
-              >
-                <Plus className="size-4" />
-                {t("dashboard.workspace.create")}
-              </DropdownMenuItem>
-              <DropdownMenuItem
-                disabled={!selectedWorkspace}
-                onSelect={() =>
-                  requestAnimationFrame(() => setRenameWorkspaceOpen(true))
-                }
-              >
-                <Pencil className="size-4" />
-                {t("dashboard.workspace.rename")}
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
-              <DropdownMenuItem
-                variant="destructive"
-                disabled={!selectedWorkspace}
-                onSelect={() =>
-                  requestAnimationFrame(() => setDeleteWorkspaceOpen(true))
-                }
-              >
-                <Trash2 className="size-4" />
-                {t("dashboard.workspace.delete")}
-              </DropdownMenuItem>
+              <DropdownMenuGroup>
+                <DropdownMenuItem render={<Link href={routes.newWorkspace} />}>
+                  <Plus />
+                  {t("dashboard.workspace.create")}
+                </DropdownMenuItem>
+                <DropdownMenuItem
+                  disabled={!selectedWorkspace}
+                  render={
+                    selectedWorkspace ? (
+                      <Link
+                        href={routes.workspaceSettings(selectedWorkspace.id)}
+                      />
+                    ) : undefined
+                  }
+                >
+                  <Settings2 />
+                  {t("dashboard.workspace.manage")}
+                </DropdownMenuItem>
+              </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
       </div>
-
-      <CreateWorkspaceDialog
-        open={createWorkspaceOpen}
-        onOpenChange={setCreateWorkspaceOpen}
-        onCreated={(workspaceId) => {
-          setOverrideWorkspaceId(workspaceId);
-        }}
-      />
-      <WorkspaceSettingsDialog
-        open={renameWorkspaceOpen}
-        onOpenChange={setRenameWorkspaceOpen}
-        workspaceId={selectedWorkspace?.id}
-        mode="rename"
-        onRenamed={(workspaceId: string) => {
-          setOverrideWorkspaceId(workspaceId);
-          setRenameWorkspaceOpen(false);
-        }}
-      />
-      <WorkspaceSettingsDialog
-        open={deleteWorkspaceOpen}
-        onOpenChange={setDeleteWorkspaceOpen}
-        workspaceId={selectedWorkspace?.id}
-        mode="delete"
-        onDeleted={() => {
-          setOverrideWorkspaceId(undefined);
-        }}
-      />
 
       {/* Search Bar */}
       <SceneSearchBar
@@ -579,114 +503,6 @@ function SceneSearchBar({ searchQuery, onSearchChange }: SceneSearchBarProps) {
         className="h-10 pl-10 text-base"
       />
     </div>
-  );
-}
-
-type CreateWorkspaceDialogProps = {
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  onCreated: (workspaceId: string) => void;
-};
-
-function CreateWorkspaceDialog({
-  open,
-  onOpenChange,
-  onCreated,
-}: CreateWorkspaceDialogProps) {
-  const { t } = useStandaloneI18n();
-  const utils = api.useUtils();
-  const [name, setName] = useState("");
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const createWorkspaceMutation = api.workspace.create.useMutation({
-    onSuccess: async (workspace) => {
-      await utils.workspace.listWithMeta.invalidate();
-      onCreated(workspace.id);
-      toast.success(t("dashboard.workspace.created", { name: workspace.name }));
-      onOpenChange(false);
-    },
-    onError: (error) => {
-      toast.error(error.message ?? t("dashboard.workspace.createFailed"));
-    },
-  });
-
-  useEffect(() => {
-    if (!open) {
-      setName("");
-      setErrorMessage(null);
-    }
-  }, [open]);
-
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    const parsed = workspaceNameSchema.safeParse(name);
-    if (!parsed.success) {
-      setErrorMessage(
-        parsed.error.issues[0]?.message ?? t("dashboard.workspace.nameInvalid"),
-      );
-      return;
-    }
-
-    setErrorMessage(null);
-    try {
-      await createWorkspaceMutation.mutateAsync({ name: parsed.data });
-    } catch {
-      // The mutation onError handler already shows a user-facing toast.
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
-        <DialogHeader>
-          <DialogTitle>{t("dashboard.workspace.create")}</DialogTitle>
-          <DialogDescription>
-            {t("dashboard.workspace.createDialog.description")}
-          </DialogDescription>
-        </DialogHeader>
-        <form
-          className="space-y-4"
-          onSubmit={(event) => void handleSubmit(event)}
-        >
-          <div className="space-y-2">
-            <Input
-              value={name}
-              onChange={(event) => {
-                setName(event.target.value);
-                if (errorMessage) {
-                  setErrorMessage(null);
-                }
-              }}
-              placeholder={t("dashboard.workspace.namePlaceholder")}
-              autoFocus
-            />
-            {errorMessage ? (
-              <p className="text-destructive text-sm">{errorMessage}</p>
-            ) : null}
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => onOpenChange(false)}
-              disabled={createWorkspaceMutation.isPending}
-            >
-              {t("buttons.cancel")}
-            </Button>
-            <Button type="submit" disabled={createWorkspaceMutation.isPending}>
-              {createWorkspaceMutation.isPending ? (
-                <>
-                  <Loader2 className="size-4 animate-spin" />
-                  {t("dashboard.workspace.creating")}
-                </>
-              ) : (
-                t("buttons.create")
-              )}
-            </Button>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
   );
 }
 

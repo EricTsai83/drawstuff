@@ -1,7 +1,6 @@
 # Workspace overlay routing system design
 
-- Status: Proposed
-- Implementation plan: [Workspace 管理 Overlay Routing](../../plans/workspace-overlay-routing.md)
+- Status: Current
 - Framework contract: [Next.js Parallel Routes](https://nextjs.org/docs/app/api-reference/file-conventions/parallel-routes),
   [Intercepting Routes](https://nextjs.org/docs/app/api-reference/file-conventions/intercepting-routes), and
   [`default.js`](https://nextjs.org/docs/app/api-reference/file-conventions/default)
@@ -10,9 +9,9 @@ This document defines the target navigation and UI contract for route-level work
 surfaces. It explains what the user sees during soft navigation, hard navigation, Back/Forward and
 slot clearing, and it separates those responsibilities from local dialogs and Canvas persistence.
 
-The design is proposed until the linked implementation plan is complete. After implementation and
-verification, this document becomes the current routing contract and the plan is removed according
-to `plans/README.md`.
+This is the current routing contract. Route builders live in `apps/web/src/lib/routes.ts`, the
+shared presentations live in `route-overlay.tsx` and `workspace-management-shell.tsx`, and each
+destination composes the same content from its canonical and intercepted page.
 
 ## Problem statement
 
@@ -81,13 +80,13 @@ navigation system. The topmost local modal owns Escape and focus until it closes
 
 ## Route model
 
-| URL | Destination meaning | Query/local state policy |
-| --- | --- | --- |
-| `/` | Canvas | Canvas/session state only |
-| `/dashboard` | Scene Dashboard | Optional filters in query |
+| URL                           | Destination meaning                   | Query/local state policy                              |
+| ----------------------------- | ------------------------------------- | ----------------------------------------------------- |
+| `/`                           | Canvas                                | Canvas/session state only                             |
+| `/dashboard`                  | Scene Dashboard                       | Optional filters in query                             |
 | `/dashboard?workspaceId=<id>` | Scene browser scoped to one workspace | `workspaceId` is browser context, not a Canvas switch |
-| `/workspaces/new` | Create Workspace workflow | Form draft is local state |
-| `/workspaces/<id>/settings` | Settings for one workspace | Form and deletion confirmation are local state |
+| `/workspaces/new`             | Create Workspace workflow             | Form draft is local state                             |
+| `/workspaces/<id>/settings`   | Settings for one workspace            | Form and deletion confirmation are local state        |
 
 Dashboard search, archive and category filters may use query parameters because they describe a
 repeatable view. `panel=settings`, `dialog=rename`, `dialog=delete` and typed confirmation text are
@@ -238,10 +237,10 @@ Route tests must protect this precedence.
 
 ### Summary matrix
 
-| File | Trigger | User-visible result |
-| --- | --- | --- |
-| `default.tsx` | Hard load cannot reconstruct the slot | Canonical/base page only; no overlay |
-| `page.tsx` | Soft navigation explicitly reaches `/` | Original Canvas becomes active |
+| File                     | Trigger                                         | User-visible result                         |
+| ------------------------ | ----------------------------------------------- | ------------------------------------------- |
+| `default.tsx`            | Hard load cannot reconstruct the slot           | Canonical/base page only; no overlay        |
+| `page.tsx`               | Soft navigation explicitly reaches `/`          | Original Canvas becomes active              |
 | `[...catchAll]/page.tsx` | Soft navigation reaches another non-overlay URL | New base page appears without stale overlay |
 
 ## Navigation and UX sequences
@@ -324,13 +323,13 @@ Canvas layout, preserving Canvas is not part of this subsystem's contract.
 
 ## History policy
 
-| Action | Router operation | Reason |
-| --- | --- | --- |
-| Open Dashboard/Settings/Create | `push` via Link/router | Back should return to previous context |
-| Cancel intercepted form | `back` | Restore the exact opener and its query filters |
-| Successful Create | `replace` to selected Dashboard | Completed form must not reappear on Back |
-| Successful Delete | `replace` to fallback Dashboard | Deleted Settings URL must not reappear |
-| Canonical-page exit | explicit Link | Direct entry may not have safe same-app history |
+| Action                         | Router operation                | Reason                                          |
+| ------------------------------ | ------------------------------- | ----------------------------------------------- |
+| Open Dashboard/Settings/Create | `push` via Link/router          | Back should return to previous context          |
+| Cancel intercepted form        | `back`                          | Restore the exact opener and its query filters  |
+| Successful Create              | `replace` to selected Dashboard | Completed form must not reappear on Back        |
+| Successful Delete              | `replace` to fallback Dashboard | Deleted Settings URL must not reappear          |
+| Canonical-page exit            | explicit Link                   | Direct entry may not have safe same-app history |
 
 Route content must not call `router.back()` directly. Only the intercepted presentation owns
 history-close semantics.
@@ -415,3 +414,20 @@ navigation, browser Back/Forward and responsive layouts.
 7. Direct entry is usable without relying on browser history.
 8. Workspace deletion coordinates route, server data and Canvas session lifecycle as one user-visible
    operation.
+
+## Implementation notes
+
+- `@overlay/default.tsx`, `@overlay/page.tsx` and `@overlay/[...catchAll]/page.tsx` deliberately
+  remain separate even though each returns `null`; their hard-load, root-clear and stale-slot-clear
+  responsibilities differ.
+- `RouteOverlay` composes the project's Base UI-backed shadcn Dialog, so focus trapping, inert
+  background state, Escape, backdrop close, scroll locking and focus return share one owner.
+- Dashboard `workspaceId` remains in `nuqs` URL state. It filters the browser only and never calls
+  `workspace.setLastActive` or changes `SceneSessionContext.currentWorkspaceId`.
+- The Canvas registers its collaboration status and safe reset callback with `SceneSessionContext`.
+  Deleting the current Canvas workspace first blocks active room claims; after server success it
+  cancels pending name persistence, clears scene identity/revision/dirty/workspace state, releases
+  the room claim, clears local scene storage, resets Excalidraw under dirty suppression and resumes
+  tracking on the next frame.
+- Dynamic Settings pages validate UUID syntax before querying and use an ownership-scoped server
+  read. Malformed, missing and unowned workspace IDs all resolve to the same not-found UI.

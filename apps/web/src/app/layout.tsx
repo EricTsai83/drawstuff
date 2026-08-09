@@ -25,11 +25,11 @@ const geist = Geist({
 
 export default function RootLayout({
   auth,
-  dashboard,
+  overlay,
   children,
 }: Readonly<{
   auth: React.ReactNode;
-  dashboard: React.ReactNode;
+  overlay: React.ReactNode;
   children: React.ReactNode;
 }>) {
   return (
@@ -52,9 +52,9 @@ export default function RootLayout({
             />
             <NuqsAdapter>
               <SceneSessionProvider>
-                <div>{auth}</div>
-                <div>{dashboard}</div>
                 {children}
+                {overlay}
+                {auth}
                 <Toaster />
                 <TailwindIndicator />
               </SceneSessionProvider>

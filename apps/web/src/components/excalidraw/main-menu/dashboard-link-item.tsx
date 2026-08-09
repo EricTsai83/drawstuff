@@ -4,14 +4,21 @@ import { ExcalidrawMainMenu as MainMenu } from "@drawstuff/excalidraw-adapter/cl
 import Link from "next/link";
 import { PanelsTopLeft } from "lucide-react";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import { routes } from "@/lib/routes";
 
-export function DashboardLinkItem({ onNavigate }: { onNavigate: () => void }) {
+export function DashboardLinkItem({
+  onNavigate,
+  workspaceId,
+}: {
+  onNavigate: () => void;
+  workspaceId?: string;
+}) {
   const { t } = useAppI18n();
 
   return (
     <MainMenu.ItemCustom>
       <Link
-        href="/dashboard"
+        href={routes.dashboard(workspaceId)}
         className="dropdown-menu-item dropdown-menu-item-base"
         onClick={onNavigate}
       >

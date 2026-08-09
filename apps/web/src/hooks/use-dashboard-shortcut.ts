@@ -2,8 +2,9 @@
 
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
+import { routes } from "@/lib/routes";
 
-export function useDashboardShortcut(enabled = true) {
+export function useDashboardShortcut(enabled = true, workspaceId?: string) {
   const router = useRouter();
 
   useEffect(() => {
@@ -24,10 +25,10 @@ export function useDashboardShortcut(enabled = true) {
       }
       // 僅在我們要處理時才阻止預設行為（例如瀏覽器書籤）
       event.preventDefault();
-      router.push("/dashboard");
+      router.push(routes.dashboard(workspaceId));
       return;
     }
     document.addEventListener("keydown", onKeyDown);
     return () => document.removeEventListener("keydown", onKeyDown);
-  }, [enabled, router]);
+  }, [enabled, router, workspaceId]);
 }

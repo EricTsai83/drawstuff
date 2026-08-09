@@ -13,6 +13,40 @@ import {
 import { TRPCError } from "@trpc/server";
 
 export const workspaceRouter = createTRPCRouter({
+  getOwned: protectedProcedure
+    .input(z.object({ id: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const [ownedWorkspace] = await ctx.db
+        .select({
+          id: workspace.id,
+          name: workspace.name,
+          description: workspace.description,
+          createdAt: workspace.createdAt,
+          updatedAt: workspace.updatedAt,
+        })
+        .from(workspace)
+        .where(
+          and(
+            eq(workspace.id, input.id),
+            eq(workspace.userId, ctx.auth.user.id),
+          ),
+        )
+        .limit(1);
+
+      if (!ownedWorkspace) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Workspace not found",
+        });
+      }
+
+      return {
+        ...ownedWorkspace,
+        createdAt: ownedWorkspace.createdAt.toISOString(),
+        updatedAt: ownedWorkspace.updatedAt.toISOString(),
+      };
+    }),
+
   // 一次回傳清單與 meta（default / lastActive）
   listWithMeta: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.auth.user.id;
@@ -170,8 +204,8 @@ export const workspaceRouter = createTRPCRouter({
         .limit(1);
       if (owned?.userId !== userId) {
         throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Invalid workspace",
+          code: "NOT_FOUND",
+          message: "Workspace not found",
         });
       }
 
@@ -202,8 +236,8 @@ export const workspaceRouter = createTRPCRouter({
         .limit(1);
       if (owned?.userId !== userId) {
         throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Invalid workspace",
+          code: "NOT_FOUND",
+          message: "Workspace not found",
         });
       }
 
@@ -247,8 +281,8 @@ export const workspaceRouter = createTRPCRouter({
         .limit(1);
       if (target?.userId !== userId) {
         throw new TRPCError({
-          code: "FORBIDDEN",
-          message: "Invalid workspace",
+          code: "NOT_FOUND",
+          message: "Workspace not found",
         });
       }
 

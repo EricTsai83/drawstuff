@@ -1,5 +1,11 @@
-import DashboardPageContent from "@/components/modal-pages/dashboard-page-content";
+import DashboardContent from "@/components/modal-pages/dashboard-content";
+import { WorkspaceManagementShell } from "@/components/workspace-management-shell";
+import { routes } from "@/lib/routes";
 
 export default function DashboardPage() {
-  return <DashboardPageContent />;
+  return (
+    <WorkspaceManagementShell backHref={routes.canvas}>
+      <DashboardContent />
+    </WorkspaceManagementShell>
+  );
 }

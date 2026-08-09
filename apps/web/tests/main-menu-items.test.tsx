@@ -1,6 +1,7 @@
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as ExcalidrawClientModule from "@drawstuff/excalidraw-adapter/client";
 
 /**
  * What blocks a main-menu item from rendering in isolation is the i18n hook
@@ -17,9 +18,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
  * exercise the session-gated ones either.
  */
 
-vi.mock("@drawstuff/excalidraw-adapter/client", () => ({
-  useExcalidrawI18n: () => ({ t: (key: string) => key, langCode: "en" }),
-}));
+vi.mock("@drawstuff/excalidraw-adapter/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof ExcalidrawClientModule>();
+  return {
+    ...actual,
+    useExcalidrawI18n: () => ({ t: (key: string) => key, langCode: "en" }),
+  };
+});
 
 import { MenuActionItem } from "@/components/excalidraw/main-menu/menu-action-item";
 import { NewSceneItem } from "@/components/excalidraw/main-menu/new-scene-item";
@@ -123,7 +128,6 @@ describe("MenuActionItem wrappers", () => {
   const wrappers = [
     { name: "RenameSceneItem", Item: RenameSceneItem, label: "Rename scene" },
     { name: "NewSceneItem", Item: NewSceneItem, label: "New scene" },
-    { name: "SettingsItem", Item: SettingsItem, label: "Settings" },
   ];
 
   it.each(wrappers)("$name renders its translated label", ({ Item, label }) => {
@@ -150,6 +154,32 @@ describe("MenuActionItem wrappers", () => {
     pressKey(renderedItem(), "Enter");
 
     expect(onActivate).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("SettingsItem", () => {
+  it("navigates to workspace settings and closes the native menu", () => {
+    const onNavigate = vi.fn();
+    render(
+      <SettingsItem
+        href="/workspaces/00000000-0000-4000-8000-000000000001/settings"
+        onNavigate={onNavigate}
+      />,
+    );
+
+    const link = container.querySelector("a");
+    expect(link?.textContent).toContain("Settings");
+    expect(link?.getAttribute("href")).toBe(
+      "/workspaces/00000000-0000-4000-8000-000000000001/settings",
+    );
+    act(() => link?.click());
+    expect(onNavigate).toHaveBeenCalledTimes(1);
+  });
+
+  it("is disabled when no workspace can be resolved", () => {
+    render(<SettingsItem onNavigate={vi.fn()} />);
+    expect(container.querySelector("a")).toBeNull();
+    expect(container.querySelector('[aria-disabled="true"]')).not.toBeNull();
   });
 });
 

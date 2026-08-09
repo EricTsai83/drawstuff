@@ -2,11 +2,13 @@ import Link from "next/link";
 import { PanelsTopLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { KeyboardEvent, MouseEvent } from "react";
+import { routes } from "@/lib/routes";
 
 type DashboardLinkButtonProps = {
   readonly ariaLabel: string;
   readonly className?: string;
   readonly onClick?: (event: MouseEvent<HTMLAnchorElement>) => void;
+  readonly workspaceId?: string;
 };
 
 function handleKeyDown(event: KeyboardEvent<HTMLAnchorElement>): void {
@@ -21,10 +23,11 @@ export function DashboardLinkButton({
   ariaLabel,
   className,
   onClick,
+  workspaceId,
 }: DashboardLinkButtonProps): React.ReactNode {
   return (
     <Link
-      href="/dashboard"
+      href={routes.dashboard(workspaceId)}
       aria-label={ariaLabel}
       className={cn("focus-visible:outline-none", className)}
       tabIndex={0}
