@@ -9,6 +9,9 @@
 1. [Operator data retirement](./operator-data-retirement.md) — `Ready`。提供 scene、room、account
    三種 admin 清理能力，完整沿用現有 object、room 與 relational lifecycle。
    Operator retirement 仍是公開測試前置。
+2. [Workspace 管理 Overlay Routing](./workspace-overlay-routing.md) — `Ready`。以 persistent Canvas
+   layout、單一 `@overlay` slot 與多個 canonical/intercepted destination 統整 Dashboard、
+   Workspace Create／Settings，並守住刪除目前 Canvas workspace 的 session lifecycle。
 
 ## Completion rule
 
