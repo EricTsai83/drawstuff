@@ -60,6 +60,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { SCENE_GRID_CLASS_NAME } from "@/components/scene-grid-layout";
+import { cn } from "@/lib/utils";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
@@ -264,7 +265,7 @@ export function SceneSearchList({
   const yourSceneItems = filteredItems.slice(5);
 
   return (
-    <div className="flex w-full flex-col gap-5 p-4 pt-0 sm:p-6 sm:pt-0">
+    <div className="flex max-w-full min-w-0 flex-col gap-5 overflow-x-clip p-4 pt-0 sm:p-6 sm:pt-0">
       {/* Header Section */}
       <div className="flex flex-col gap-4 pt-6 pb-2 sm:pt-10 sm:pb-4">
         {showHeading && (
@@ -317,7 +318,7 @@ export function SceneSearchList({
         </div>
       </div>
 
-      <div className="grid items-start gap-3 lg:grid-cols-[minmax(16rem,1fr)_auto]">
+      <div className="flex min-w-0 flex-col gap-3">
         <SceneSearchBar
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
@@ -515,7 +516,7 @@ function DashboardFilters({
       </div>
       <div className="hidden lg:block">
         <FilterFields
-          inline
+          layout="toolbar"
           {...{
             categories,
             publish,
@@ -541,10 +542,11 @@ function FilterFields({
   onArchiveChange,
   onCategoryChange,
   onManageCategories,
-  inline = false,
-}: DashboardFiltersProps & { inline?: boolean }) {
+  layout = "stacked",
+}: DashboardFiltersProps & { layout?: "stacked" | "toolbar" }) {
   const { t } = useStandaloneI18n();
   const id = useId();
+  const isToolbar = layout === "toolbar";
   const publishOptions: Array<{ value: PublishFilter; label: string }> = [
     { value: "all", label: t("dashboard.filter.all") },
     { value: "public", label: t("dashboard.filter.public") },
@@ -556,8 +558,13 @@ function FilterFields({
   ];
 
   return (
-    <FieldGroup className={inline ? "flex-row items-end gap-3" : undefined}>
-      <FieldSet className={inline ? "gap-2" : undefined}>
+    <FieldGroup
+      className={cn(
+        isToolbar &&
+          "grid grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(10rem,0.8fr)_auto] items-end gap-4",
+      )}
+    >
+      <FieldSet className={cn("gap-2", isToolbar && "min-w-0")}>
         <FieldLegend variant="label">
           {t("dashboard.filters.publish")}
         </FieldLegend>
@@ -583,7 +590,7 @@ function FilterFields({
           ))}
         </RadioGroup>
       </FieldSet>
-      <FieldSet className={inline ? "gap-2" : undefined}>
+      <FieldSet className={cn("gap-2", isToolbar && "min-w-0")}>
         <FieldLegend variant="label">
           {t("dashboard.filters.archive")}
         </FieldLegend>
@@ -609,7 +616,7 @@ function FilterFields({
           ))}
         </RadioGroup>
       </FieldSet>
-      <Field className={inline ? "w-48" : undefined}>
+      <Field className={cn("max-w-64", isToolbar && "max-w-none min-w-0")}>
         <FieldLabel>{t("dashboard.filters.category")}</FieldLabel>
         <Select
           value={category ?? "all"}
@@ -637,14 +644,17 @@ function FilterFields({
       <Button
         type="button"
         variant="ghost"
-        size={inline ? "icon" : "sm"}
-        className={inline ? undefined : "justify-start"}
+        size="sm"
+        className={cn(
+          "justify-start",
+          isToolbar && "self-end whitespace-nowrap",
+        )}
         onClick={onManageCategories}
         aria-label={t("dashboard.category.manage")}
         title={t("dashboard.category.manage")}
       >
-        <Tag data-icon={inline ? undefined : "inline-start"} />
-        {!inline && t("dashboard.category.manage")}
+        <Tag data-icon="inline-start" />
+        {t("dashboard.category.manage")}
       </Button>
     </FieldGroup>
   );

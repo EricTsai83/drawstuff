@@ -11,6 +11,7 @@ export default async function WorkspaceSettingsOverlayPage({
     <RouteOverlay
       titleKey="workspace.settings.title"
       descriptionKey="workspace.settings.description"
+      variant="centered"
     >
       <WorkspaceSettingsRouteContent workspaceId={workspaceId} />
     </RouteOverlay>

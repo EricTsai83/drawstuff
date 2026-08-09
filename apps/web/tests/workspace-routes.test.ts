@@ -51,17 +51,70 @@ describe("workspace management routes", () => {
     }
   });
 
-  it("uses one responsive overlay shell with owned header and content scrolling", () => {
+  it("keeps dashboard scrolling on the outer overlay without horizontal overflow", () => {
     const source = readFileSync(
       resolve(import.meta.dirname, "../src/components/route-overlay.tsx"),
       "utf8",
     );
 
-    expect(source).toContain("inset-0 grid h-dvh");
-    expect(source).toContain("sm:w-[calc(100%-3rem)]");
-    expect(source).toContain("lg:w-4/5");
-    expect(source).toContain("grid-rows-[auto_minmax(0,1fr)]");
-    expect(source).toContain("min-h-0 w-full overflow-y-auto");
+    expect(source).toContain("min-h-[calc(100dvh-4rem)]");
+    expect(source).toContain("max-h-none");
+    expect(source).toContain(
+      '"fixed inset-0 z-50 overflow-x-hidden overflow-y-auto overscroll-contain"',
+    );
+    expect(source).toContain("overflow-visible");
+    expect(source).toContain('? "contents"');
+  });
+
+  it("uses the same outer-scroll panel layout for non-dashboard overlays", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "../src/components/route-overlay.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain(
+      'viewportClassName="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto overscroll-contain"',
+    );
+    expect(source).toContain("mx-auto my-8");
+    expect(source).toContain("w-4/5");
+    expect(source).not.toContain("min-h-0 w-full overflow-y-auto");
     expect(source).toContain("app-safe-header");
+  });
+
+  it("uses the same centered overlay header for dashboard and settings", () => {
+    const overlaySource = readFileSync(
+      resolve(import.meta.dirname, "../src/components/route-overlay.tsx"),
+      "utf8",
+    );
+    const settingsSource = readFileSync(
+      resolve(
+        import.meta.dirname,
+        "../src/app/@overlay/(.)workspaces/[workspaceId]/settings/page.tsx",
+      ),
+      "utf8",
+    );
+
+    expect(overlaySource).toContain("px-14 pt-6 pb-4 text-center sm:pt-10");
+    expect(overlaySource).toContain(
+      '"text-2xl leading-tight font-semibold lg:text-3xl"',
+    );
+    expect(overlaySource).toContain("(!descriptionKey || isCentered)");
+    expect(settingsSource).toContain('variant="centered"');
+  });
+
+  it("uses a full-width desktop filter toolbar below the search field", () => {
+    const source = readFileSync(
+      resolve(import.meta.dirname, "../src/components/scene-search-list.tsx"),
+      "utf8",
+    );
+
+    expect(source).toContain('className="flex min-w-0 flex-col gap-3"');
+    expect(source).toContain('layout="toolbar"');
+    expect(source).toContain(
+      "grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)_minmax(10rem,0.8fr)_auto]",
+    );
+    expect(source).toContain(
+      'className="flex min-h-8 flex-wrap items-center gap-x-4 gap-y-2"',
+    );
   });
 });

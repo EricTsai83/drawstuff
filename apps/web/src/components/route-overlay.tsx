@@ -16,7 +16,7 @@ type RouteOverlayProps = {
   children: React.ReactNode;
   titleKey: string;
   descriptionKey?: string;
-  variant?: "default" | "dashboard";
+  variant?: "default" | "dashboard" | "centered";
 };
 
 export function RouteOverlay({
@@ -28,6 +28,8 @@ export function RouteOverlay({
   const router = useRouter();
   const { t } = useStandaloneI18n();
   const closingRef = useRef(false);
+  const isDashboard = variant === "dashboard";
+  const isCentered = variant === "centered";
 
   const close = useCallback(() => {
     if (closingRef.current) return;
@@ -39,13 +41,31 @@ export function RouteOverlay({
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent
         aria-label={t(titleKey)}
-        className="inset-0 grid h-dvh max-h-none w-full max-w-none translate-x-0 translate-y-0 grid-rows-[auto_minmax(0,1fr)] gap-0 overflow-hidden rounded-none p-0 sm:inset-auto sm:top-6 sm:left-1/2 sm:h-[calc(100dvh-3rem)] sm:w-[calc(100%-3rem)] sm:max-w-5xl sm:-translate-x-1/2 sm:rounded-xl lg:w-4/5 lg:max-w-7xl"
+        viewportClassName="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto overscroll-contain"
+        className="relative top-auto left-auto mx-auto my-8 block max-h-none min-h-[calc(100dvh-4rem)] w-4/5 max-w-none translate-x-0 translate-y-0 gap-0 overflow-visible rounded-none p-0 sm:max-w-none"
       >
-        <DialogHeader className="app-safe-header bg-popover sticky top-0 border-b py-4 pr-14 text-left">
-          <DialogTitle className="text-lg leading-tight font-semibold sm:text-xl">
+        <DialogHeader
+          className={cn(
+            isDashboard
+              ? "sr-only"
+              : isCentered
+                ? "app-safe-header bg-popover sticky top-0 z-10 border-b px-14 pt-6 pb-4 text-center sm:pt-10"
+                : "app-safe-header bg-popover sticky top-0 border-b py-4 pr-14 text-left",
+          )}
+        >
+          <DialogTitle
+            className={cn(
+              isCentered
+                ? "text-2xl leading-tight font-semibold lg:text-3xl"
+                : !isDashboard &&
+                    "text-lg leading-tight font-semibold sm:text-xl",
+            )}
+          >
             {t(titleKey)}
           </DialogTitle>
-          <DialogDescription className={cn(!descriptionKey && "sr-only")}>
+          <DialogDescription
+            className={cn((!descriptionKey || isCentered) && "sr-only")}
+          >
             {descriptionKey
               ? t(descriptionKey)
               : t("workspace.route.description")}
@@ -53,9 +73,9 @@ export function RouteOverlay({
         </DialogHeader>
         <div
           className={cn(
-            "min-h-0 w-full overflow-y-auto overscroll-contain",
-            variant === "default" &&
-              "px-[var(--app-surface-gutter)] pt-6 pb-[max(var(--app-safe-area-bottom),1.5rem)]",
+            isDashboard
+              ? "contents"
+              : "w-full px-[var(--app-surface-gutter)] pt-6 pb-[max(var(--app-safe-area-bottom),1.5rem)]",
           )}
         >
           {children}
