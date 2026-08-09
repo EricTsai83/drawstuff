@@ -17,14 +17,14 @@ function getShareButtonConfig(status: ExportStatus, t: (k: string) => string) {
       icon: <Loader2 className="h-4 w-4 animate-spin" />,
       label: t("app.export.link.loading"),
       disabled: true,
-      variant: "secondary" as const,
+      variant: "canvas" as const,
     };
   }
   return {
     icon: <Link className="h-3 w-3" />,
     label: t("labels.share"),
     disabled: false,
-    variant: "default" as const,
+    variant: "canvas" as const,
   };
 }
 
@@ -40,14 +40,13 @@ export function ShareSceneButton({
       className={cn(
         // desktop 和 mobile 的 visibility 設定
         "min-[728px]:pointer-events-none min-[728px]:invisible min-[1072px]:pointer-events-auto min-[1072px]:visible",
-        "flex items-center justify-center gap-2 font-normal whitespace-nowrap",
+        "font-normal",
         "w-[12ch] transition-[width] duration-300 ease-in-out",
-        // Enforce exact height 36px regardless of Button size variants
-        "h-[36px] rounded-[8px]",
         {
           "w-[16ch]": exportStatus === "exporting",
         },
       )}
+      size="canvas"
       variant={buttonConfig.variant}
       disabled={buttonConfig.disabled}
       onClick={onClick}

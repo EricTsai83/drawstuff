@@ -72,22 +72,22 @@ function getStatusConfig(
       return {
         icon: CloudUpload,
         tooltip: t("app.cloudUpload.tooltip.idle"),
-        bgClass: "bg-primary",
-        iconClass: "text-white",
+        bgClass: "bg-secondary",
+        iconClass: "text-secondary-foreground",
       };
     case "uploading":
       return {
         icon: Loader2,
         tooltip: t("app.cloudUpload.tooltip.uploading"),
-        bgClass: "bg-primary/85 dark:bg-secondary",
-        iconClass: "text-white animate-spin",
+        bgClass: "bg-secondary",
+        iconClass: "text-secondary-foreground animate-spin",
       };
     case "success":
       return {
         icon: CheckCircle2,
         tooltip: t("app.cloudUpload.tooltip.success"),
-        bgClass: "bg-primary",
-        iconClass: "text-white",
+        bgClass: "bg-secondary",
+        iconClass: "text-secondary-foreground",
       };
     case "error":
       return {
@@ -100,8 +100,8 @@ function getStatusConfig(
       return {
         icon: CloudOff,
         tooltip: t("app.cloudUpload.tooltip.offline"),
-        bgClass: "bg-muted/30 dark:bg-muted/20",
-        iconClass: "text-[#39393e] dark:text-[#b8b8b8]",
+        bgClass: "bg-secondary",
+        iconClass: "text-secondary-foreground",
       };
   }
 }
