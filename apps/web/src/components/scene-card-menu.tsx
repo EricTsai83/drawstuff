@@ -27,6 +27,7 @@ import {
   ArchiveRestore,
 } from "lucide-react";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { cn } from "@/lib/utils";
 
 type WorkspaceOption = {
   id: string;
@@ -94,22 +95,25 @@ export function SceneCardMenu({
         render={
           <Button
             variant="secondary"
-            size="icon"
-            className="bg-background/80 hover:bg-background h-6 w-6"
+            size="icon-lg"
+            className="bg-background/80 hover:bg-background size-11"
             onClick={(e) => e.stopPropagation()}
             aria-label={t("menu.moreOptions")}
           >
-            <EllipsisVertical className="h-3 w-3" />
+            <EllipsisVertical aria-hidden="true" />
           </Button>
         }
       />
-      <DropdownMenuContent align="end" className="w-48">
+      <DropdownMenuContent
+        align="end"
+        className="w-56 max-w-[calc(100vw-2rem)] [&_[data-slot=dropdown-menu-item]]:min-h-11 [&_[data-slot=dropdown-menu-sub-trigger]]:min-h-11"
+      >
         <DropdownMenuItem onClick={onImport}>
-          <Download className="hover:text-accent-foreground mr-2 h-4 w-4" />
+          <Download aria-hidden="true" />
           {t("menu.importScene")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={onEdit}>
-          <Edit className="hover:text-accent-foreground mr-2 h-4 w-4" />
+          <Edit aria-hidden="true" />
           {t("menu.sceneSettings")}
         </DropdownMenuItem>
         {showMoveSubmenu && (
@@ -118,10 +122,10 @@ export function SceneCardMenu({
               onClick={(e) => e.stopPropagation()}
               className="gap-0"
             >
-              <ArrowRightLeft className="hover:text-accent-foreground mr-2 h-4 w-4" />
+              <ArrowRightLeft aria-hidden="true" />
               {t("menu.moveToWorkspace")}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+            <DropdownMenuSubContent>
               {otherWorkspaces.map((ws) => (
                 <DropdownMenuItem
                   key={ws.id}
@@ -142,10 +146,10 @@ export function SceneCardMenu({
               onClick={(e) => e.stopPropagation()}
               className="gap-0"
             >
-              <Tag className="hover:text-accent-foreground mr-2 h-4 w-4" />
+              <Tag aria-hidden="true" />
               {t("menu.categories")}
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent className="max-h-60 overflow-y-auto">
+            <DropdownMenuSubContent>
               {categories.map((categoryOption) => {
                 const assigned = assignedIds.has(categoryOption.id);
                 return (
@@ -158,9 +162,8 @@ export function SceneCardMenu({
                     }}
                   >
                     <Check
-                      className={
-                        assigned ? "mr-2 h-4 w-4" : "mr-2 h-4 w-4 opacity-0"
-                      }
+                      className={cn(!assigned && "opacity-0")}
+                      aria-hidden="true"
                     />
                     <span className="truncate">{categoryOption.name}</span>
                   </DropdownMenuItem>
@@ -173,15 +176,15 @@ export function SceneCardMenu({
         {isPublished ? (
           <>
             <DropdownMenuItem onClick={onOpenPublicLink}>
-              <ExternalLink className="mr-2 h-4 w-4" />
+              <ExternalLink aria-hidden="true" />
               {t("publish.menu.openLink")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onCopyPublicLink}>
-              <Copy className="mr-2 h-4 w-4" />
+              <Copy aria-hidden="true" />
               {t("publish.menu.copyLink")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={onUnpublish}>
-              <Globe className="mr-2 h-4 w-4" />
+              <Globe aria-hidden="true" />
               {t("publish.menu.unpublish")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -189,7 +192,7 @@ export function SceneCardMenu({
         ) : (
           <>
             <DropdownMenuItem onClick={onPublish}>
-              <Globe className="mr-2 h-4 w-4" />
+              <Globe aria-hidden="true" />
               {t("publish.menu.publish")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
@@ -198,17 +201,17 @@ export function SceneCardMenu({
         {isArchived ? (
           <>
             <DropdownMenuItem onClick={onUnarchive}>
-              <ArchiveRestore className="mr-2 h-4 w-4" />
+              <ArchiveRestore aria-hidden="true" />
               {t("archive.menu.unarchive")}
             </DropdownMenuItem>
             <DropdownMenuItem variant="destructive" onClick={onDelete}>
-              <Trash2 className="hover:text-destructive-foreground mr-2 h-4 w-4" />
+              <Trash2 aria-hidden="true" />
               {t("buttons.delete")}
             </DropdownMenuItem>
           </>
         ) : (
           <DropdownMenuItem onClick={onArchive}>
-            <Archive className="mr-2 h-4 w-4" />
+            <Archive aria-hidden="true" />
             {t("archive.menu.archive")}
           </DropdownMenuItem>
         )}

@@ -41,6 +41,8 @@ import { SocialLinksItem } from "./main-menu/social-links-item";
 import { ThemeItem } from "./main-menu/theme-item";
 import { WorkspaceSwitcherItem } from "./main-menu/workspace-switcher-item";
 import { routes } from "@/lib/routes";
+import type { CanvasProductActions } from "./canvas-product-actions";
+import { ProductActionsItems } from "./main-menu/product-actions-items";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -61,6 +63,8 @@ type AppMainMenuProps = {
    * reconciled into it.
    */
   isCollaborating?: boolean;
+  productActions: CanvasProductActions;
+  compactPresentation: boolean;
 };
 
 /**
@@ -80,6 +84,8 @@ function AppMainMenu({
   sceneName,
   showConfirmDialog,
   isCollaborating = false,
+  productActions,
+  compactPresentation,
 }: AppMainMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -238,7 +244,7 @@ function AppMainMenu({
     <>
       <MainMenu>
         <div ref={menuRef} className="max-w-full overflow-x-hidden">
-          <SceneTitle sceneName={sceneName} />
+          {compactPresentation && <SceneTitle sceneName={sceneName} />}
           {session && (
             <WorkspaceSwitcherItem
               workspaces={workspaces}
@@ -261,14 +267,22 @@ function AppMainMenu({
               showConfirmDialog={showConfirmDialog}
             />
           )}
-          {session && (
+          {session && compactPresentation && (
             <DashboardLinkItem
               onNavigate={closeMenu}
               workspaceId={currentWorkspaceId ?? lastActiveWorkspaceId}
             />
           )}
-          {session && <RenameSceneItem onActivate={handleOpenRename} />}
+          {compactPresentation && (
+            <RenameSceneItem onActivate={handleOpenRename} />
+          )}
           {session && <NewSceneItem onActivate={handleOpenNewSceneDialog} />}
+          {compactPresentation && (
+            <ProductActionsItems
+              actions={productActions}
+              onDismiss={closeMenu}
+            />
+          )}
 
           {/* Importing a file swaps the canvas inside the engine, so the room
               claim would not be released: the imported scene would be published

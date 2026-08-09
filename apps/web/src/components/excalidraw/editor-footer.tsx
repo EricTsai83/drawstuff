@@ -5,6 +5,7 @@ import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { DashboardLinkButton } from "@/components/excalidraw/dashboard-link-button";
 
 type Props = {
+  showDesktopActions: boolean;
   showDashboardShortcut: boolean;
   latestShareableLink?: string | null;
   isShareDialogOpen: boolean;
@@ -14,6 +15,7 @@ type Props = {
 
 export function EditorFooter(props: Props) {
   const {
+    showDesktopActions,
     showDashboardShortcut,
     latestShareableLink,
     isShareDialogOpen,
@@ -24,21 +26,22 @@ export function EditorFooter(props: Props) {
   const { t } = useStandaloneI18n();
   return (
     <>
-      <div className="ml-2.5 flex items-center gap-2.5">
-        {showDashboardShortcut && (
-          <DashboardLinkButton
-            ariaLabel={t("labels.openDashboard")}
-            workspaceId={workspaceId}
-          />
-        )}
-        <StorageWarning
-          className={cn(
-            "flex h-9 items-center justify-center rounded-[10px] p-2.5",
-            "bg-[#e9ecef] hover:bg-[#f1f0ff]",
-            "dark:bg-[#232329] dark:hover:bg-[#2d2d38]",
+      {showDesktopActions && (
+        <div className="ml-2.5 flex items-center gap-2.5">
+          {showDashboardShortcut && (
+            <DashboardLinkButton
+              ariaLabel={t("labels.openDashboard")}
+              workspaceId={workspaceId}
+            />
           )}
-        />
-      </div>
+          <StorageWarning
+            className={cn(
+              "flex h-9 items-center justify-center rounded-[10px] p-2.5",
+              "bg-secondary text-secondary-foreground hover:bg-muted",
+            )}
+          />
+        </div>
+      )}
 
       {latestShareableLink && (
         <SceneShareDialog

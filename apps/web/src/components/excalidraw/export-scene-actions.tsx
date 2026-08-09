@@ -151,7 +151,7 @@ function ExportAction({ config }: { config: ExportActionConfig }) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="space-y-2">
+      <div className="flex flex-col gap-2">
         <h3 className="text-foreground text-lg font-semibold">{title}</h3>
         <p className="text-muted-foreground text-sm leading-relaxed">
           {subtitle}

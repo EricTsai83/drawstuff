@@ -9,11 +9,15 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import { useState, useRef, useEffect, type ReactElement } from "react";
+import {
+  FORM_DIALOG_CONTENT_CLASS_NAME,
+  DIALOG_ACTIONS_CLASS_NAME,
+} from "@/components/responsive-dialog-layout";
 
 type SceneRenameDialogProps = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
@@ -108,7 +112,7 @@ export function SceneRenameDialog({
       {trigger && <DialogTrigger render={trigger} nativeButton={false} />}
 
       <DialogContent
-        className="rounded-xl px-6 py-5 sm:max-w-md"
+        className={FORM_DIALOG_CONTENT_CLASS_NAME}
         data-prevent-outside-click="true"
       >
         <DialogHeader>
@@ -120,11 +124,11 @@ export function SceneRenameDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid flex-1 gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="scene-name-input" className="sr-only">
+        <FieldGroup className="flex-1 gap-4">
+          <Field>
+            <FieldLabel htmlFor="scene-name-input" className="sr-only">
               {t("labels.fileTitle")}
-            </Label>
+            </FieldLabel>
             <Input
               ref={inputRef}
               id="scene-name-input"
@@ -137,9 +141,9 @@ export function SceneRenameDialog({
               autoCapitalize="off"
               spellCheck="false"
             />
-          </div>
+          </Field>
 
-          <div className="flex justify-end gap-2">
+          <div className={DIALOG_ACTIONS_CLASS_NAME}>
             <Button variant="outline" onClick={handleClose}>
               {t("buttons.cancel")}
             </Button>
@@ -150,7 +154,7 @@ export function SceneRenameDialog({
               {t("buttons.confirm")}
             </Button>
           </div>
-        </div>
+        </FieldGroup>
       </DialogContent>
     </Dialog>
   );

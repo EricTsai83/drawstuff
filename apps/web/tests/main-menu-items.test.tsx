@@ -44,18 +44,12 @@ function render(ui: ReactElement): void {
   act(() => root.render(ui));
 }
 
-function renderedItem(): HTMLDivElement {
-  const item = container.querySelector("div");
+function renderedItem(): HTMLElement {
+  const item = container.querySelector<HTMLElement>(".dropdown-menu-item");
   if (!item) {
     throw new Error("the menu item did not render");
   }
   return item;
-}
-
-function pressKey(element: Element, key: string): void {
-  act(() => {
-    element.dispatchEvent(new KeyboardEvent("keydown", { bubbles: true, key }));
-  });
 }
 
 beforeEach(() => {
@@ -99,28 +93,11 @@ describe("MenuActionItem", () => {
     expect(onActivate).toHaveBeenCalledTimes(1);
   });
 
-  it.each(["Enter", " "])("activates on %j", (key) => {
-    const onActivate = vi.fn();
-    render(
-      <MenuActionItem icon={null} label="Rename" onActivate={onActivate} />,
-    );
+  it("uses a native button for keyboard activation", () => {
+    render(<MenuActionItem icon={null} label="Rename" onActivate={vi.fn()} />);
 
-    pressKey(renderedItem(), key);
-
-    expect(onActivate).toHaveBeenCalledTimes(1);
-  });
-
-  it("ignores every other key", () => {
-    const onActivate = vi.fn();
-    render(
-      <MenuActionItem icon={null} label="Rename" onActivate={onActivate} />,
-    );
-
-    for (const key of ["a", "Escape", "Tab", "ArrowDown"]) {
-      pressKey(renderedItem(), key);
-    }
-
-    expect(onActivate).not.toHaveBeenCalled();
+    expect(renderedItem().tagName).toBe("BUTTON");
+    expect(renderedItem().getAttribute("type")).toBe("button");
   });
 });
 
@@ -143,15 +120,6 @@ describe("MenuActionItem wrappers", () => {
     act(() => {
       renderedItem().click();
     });
-
-    expect(onActivate).toHaveBeenCalledTimes(1);
-  });
-
-  it.each(wrappers)("$name activates on Enter", ({ Item }) => {
-    const onActivate = vi.fn();
-    render(<Item onActivate={onActivate} />);
-
-    pressKey(renderedItem(), "Enter");
 
     expect(onActivate).toHaveBeenCalledTimes(1);
   });
@@ -202,11 +170,13 @@ describe("SocialLinksItem", () => {
 });
 
 describe("SceneTitle", () => {
-  it("renders the scene name and stays hidden on the wide layout", () => {
+  it("renders the scene name for compact menu presentations", () => {
     render(<SceneTitle sceneName="Quarterly plan" />);
 
-    const title = renderedItem();
+    const title = container.querySelector("div");
+    expect(title).not.toBeNull();
+    if (!title) return;
     expect(title.textContent).toBe("Quarterly plan");
-    expect(title.className).toContain("min-[728px]:hidden");
+    expect(title.className).not.toContain("hidden");
   });
 });

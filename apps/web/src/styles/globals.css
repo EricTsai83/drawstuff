@@ -7,6 +7,7 @@
 @source "../../node_modules/@uploadthing/react/dist";
 
 @theme inline {
+  --breakpoint-canvas-wide: 67rem;
   --font-heading: var(--font-sans);
   --font-sans: var(--font-sans);
   --color-sidebar-ring: var(--sidebar-ring);
@@ -53,6 +54,14 @@
 }
 
 :root {
+  --app-safe-area-top: env(safe-area-inset-top, 0px);
+  --app-safe-area-right: env(safe-area-inset-right, 0px);
+  --app-safe-area-bottom: env(safe-area-inset-bottom, 0px);
+  --app-safe-area-left: env(safe-area-inset-left, 0px);
+  --app-surface-gutter: 1rem;
+  --app-dialog-max-height: calc(
+    100dvh - var(--app-safe-area-top) - var(--app-safe-area-bottom) - 2rem
+  );
   --background: #ffffff;
   --foreground: #1b1b1f;
   --card: #ffffff;
@@ -89,6 +98,12 @@
   --sidebar-accent-foreground: #1b1b1f;
   --sidebar-border: #c5c5d0;
   --sidebar-ring: #4440bf;
+}
+
+@media (min-width: 640px) {
+  :root {
+    --app-surface-gutter: 1.5rem;
+  }
 }
 
 .dark {
@@ -142,6 +157,20 @@
   button:not(:disabled),
   [role="button"]:not(:disabled) {
     cursor: pointer;
+  }
+}
+
+@layer components {
+  .app-safe-header {
+    padding-top: max(var(--app-safe-area-top), 1rem);
+    padding-right: max(var(--app-safe-area-right), var(--app-surface-gutter));
+    padding-left: max(var(--app-safe-area-left), var(--app-surface-gutter));
+  }
+
+  .app-safe-footer {
+    padding-right: max(var(--app-safe-area-right), var(--app-surface-gutter));
+    padding-bottom: max(var(--app-safe-area-bottom), 1rem);
+    padding-left: max(var(--app-safe-area-left), var(--app-surface-gutter));
   }
 }
 

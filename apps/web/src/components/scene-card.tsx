@@ -377,11 +377,11 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   return (
     <>
       <Card
-        className="h-64 cursor-pointer gap-2 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg"
+        className="cursor-pointer gap-3 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg"
         onDoubleClick={handleDoubleClickCard}
       >
         <CardHeader className="p-0">
-          <div className="relative h-32 overflow-hidden">
+          <div className="relative aspect-video min-h-32 overflow-hidden">
             <Image
               src={item.thumbnail ?? "/placeholder.svg"}
               alt={item.name}
@@ -406,7 +406,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                 {item.workspaceName ?? ""}
               </Badge>
             </div>
-            <div className="absolute top-3 right-3 flex gap-2">
+            <div className="absolute top-1 right-1 flex gap-2">
               <SceneCardMenu
                 onImport={handleImportScene}
                 onEdit={handleEditScene}
@@ -432,7 +432,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
           </div>
         </CardHeader>
 
-        <CardContent className="h-18">
+        <CardContent className="flex min-w-0 flex-1 flex-col gap-2">
           <div className="flex min-w-0 items-center gap-2">
             <OverflowTooltip
               delayDuration={600}
@@ -448,7 +448,7 @@ export function SceneCard({ item }: { item: SceneListItem }) {
                 <TooltipTrigger
                   render={
                     <span className="text-muted-foreground hover:text-foreground shrink-0">
-                      <Info className="h-4 w-4" />
+                      <Info aria-hidden="true" />
                     </span>
                   }
                 />
@@ -465,12 +465,12 @@ export function SceneCard({ item }: { item: SceneListItem }) {
               </Tooltip>
             ) : null}
           </div>
-          <div className="mt-1 h-10 overflow-hidden">
-            <p className="text-muted-foreground line-clamp-2 text-sm">
+          <div>
+            <p className="text-muted-foreground text-sm break-words">
               {item.description || t("dashboard.descriptionPlaceholder")}
             </p>
           </div>
-          <div className="mb-2 flex h-10 flex-wrap gap-1 overflow-hidden">
+          <div className="flex flex-wrap gap-1">
             {item.categories.map((categoryItem) => (
               <Badge
                 key={categoryItem.id}
@@ -483,9 +483,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
           </div>
         </CardContent>
 
-        <CardFooter>
+        <CardFooter className="mt-auto">
           <div className="text-muted-foreground flex items-center text-xs">
-            <Clock className="mr-1 h-3 w-3" />
+            <Clock data-icon="inline-start" aria-hidden="true" />
             <span>{t("labels.updatedTimeAgo", { time: timeAgo })}</span>
           </div>
         </CardFooter>

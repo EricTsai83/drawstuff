@@ -20,9 +20,9 @@ export function WorkspaceManagementShell({
   const { t } = useStandaloneI18n();
 
   return (
-    <main className="bg-background fixed inset-0 z-40 overflow-y-auto">
+    <main className="bg-background fixed inset-0 z-40 overflow-y-auto overscroll-contain">
       <nav
-        className="mx-auto flex w-full max-w-6xl p-4"
+        className="app-safe-header bg-background sticky top-0 z-10 mx-auto flex w-full max-w-6xl py-3"
         aria-label={t("workspace.navigation")}
       >
         <Button
@@ -34,7 +34,7 @@ export function WorkspaceManagementShell({
           {t("workspace.back")}
         </Button>
       </nav>
-      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-4 pb-12">
+      <div className="mx-auto flex w-full max-w-6xl flex-col gap-6 px-[var(--app-surface-gutter)] pb-[max(var(--app-safe-area-bottom),3rem)]">
         {titleKey && (
           <header className="flex flex-col gap-2">
             <h1 className="text-2xl font-semibold">{t(titleKey)}</h1>

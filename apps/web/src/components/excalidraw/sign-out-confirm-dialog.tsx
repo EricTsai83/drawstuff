@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import { CONFIRM_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
 
 export type SignOutChoice = "save" | "discard" | "cancel";
 
@@ -35,7 +36,7 @@ export function SignOutConfirmDialog({
         if (!isLoading) onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}>
         <DialogHeader>
           <DialogTitle>{t("auth.signOutConfirm.title")}</DialogTitle>
           <DialogDescription>

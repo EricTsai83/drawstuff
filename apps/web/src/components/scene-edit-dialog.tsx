@@ -16,6 +16,16 @@ import { Textarea } from "@/components/ui/textarea";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import {
+  FORM_DIALOG_CONTENT_CLASS_NAME,
+  DIALOG_ACTIONS_CLASS_NAME,
+} from "@/components/responsive-dialog-layout";
+import {
+  Field,
+  FieldDescription,
+  FieldGroup,
+  FieldLabel,
+} from "@/components/ui/field";
 
 type SceneEditDialogProps = {
   open: boolean;
@@ -133,7 +143,7 @@ export function SceneEditDialog({
   return (
     <Dialog open={open} onOpenChange={onOpenChange} disablePointerDismissal>
       <DialogContent
-        className="rounded-xl px-6 py-5 sm:max-w-lg"
+        className={FORM_DIALOG_CONTENT_CLASS_NAME}
         initialFocus={false}
       >
         <DialogHeader>
@@ -145,11 +155,9 @@ export function SceneEditDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
-          <div className="grid gap-2">
-            <label className="text-sm font-medium">
-              {t("labels.sceneName")}
-            </label>
+        <FieldGroup className="gap-4">
+          <Field>
+            <FieldLabel>{t("labels.sceneName")}</FieldLabel>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
@@ -159,12 +167,12 @@ export function SceneEditDialog({
               autoCapitalize="off"
               spellCheck={false}
             />
-          </div>
+          </Field>
 
-          <div className="grid gap-2">
-            <label className="text-sm font-medium" id="scene-workspace-label">
+          <Field>
+            <FieldLabel id="scene-workspace-label">
               {t("labels.workspace")}
-            </label>
+            </FieldLabel>
             <div aria-labelledby="scene-workspace-label">
               <WorkspaceDropdown
                 options={workspaces}
@@ -177,19 +185,16 @@ export function SceneEditDialog({
               />
             </div>
             {pendingNewWorkspaceName ? (
-              <p className="text-muted-foreground text-xs">
+              <FieldDescription>
                 {t("workspace.pending", { name: pendingNewWorkspaceName })}
-              </p>
+              </FieldDescription>
             ) : null}
-          </div>
+          </Field>
 
-          <div className="grid gap-2">
-            <label
-              className="text-sm font-medium"
-              htmlFor="scene-description-input"
-            >
+          <Field>
+            <FieldLabel htmlFor="scene-description-input">
               {t("labels.description")}
-            </label>
+            </FieldLabel>
             <Textarea
               id="scene-description-input"
               value={description}
@@ -197,21 +202,21 @@ export function SceneEditDialog({
               placeholder={t("placeholders.description")}
               className="h-24 resize-none"
             />
-          </div>
+          </Field>
 
-          <div className="grid gap-2">
-            <label className="text-sm font-medium" id="scene-categories-label">
+          <Field>
+            <FieldLabel id="scene-categories-label">
               {t("labels.categories")}
-            </label>
+            </FieldLabel>
             <div aria-labelledby="scene-categories-label">
               <SearchableAndCreatableSelector
                 value={categoryOptions}
                 onChange={setCategoryOptions}
               />
             </div>
-          </div>
+          </Field>
 
-          <div className="flex justify-end gap-2">
+          <div className={DIALOG_ACTIONS_CLASS_NAME}>
             <Button
               type="button"
               variant="outline"
@@ -228,7 +233,7 @@ export function SceneEditDialog({
               {t("buttons.save")}
             </Button>
           </div>
-        </div>
+        </FieldGroup>
       </DialogContent>
     </Dialog>
   );

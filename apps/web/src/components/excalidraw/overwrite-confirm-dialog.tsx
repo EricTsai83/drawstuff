@@ -16,6 +16,7 @@ import { importFromLocalStorage } from "@/data/local-storage";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { parseSharedSceneHash } from "@/lib/utils";
 import { importSharedSceneFilesBySharedSceneId } from "@/lib/import-data-from-db";
+import { WORKFLOW_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
 
 export function OverwriteConfirmDialog({
   excalidrawAPI,
@@ -135,7 +136,7 @@ export function OverwriteConfirmDialog({
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent
         aria-label={t("overwriteConfirm.modal.shareableLink.title")}
-        className="z-1000 sm:max-w-xl md:max-w-2xl"
+        className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
       >
         <DialogTitle className="text-lg font-semibold">
           {t("overwriteConfirm.modal.shareableLink.title")}
@@ -160,7 +161,7 @@ export function OverwriteConfirmDialog({
             className="justify-start gap-4 sm:min-w-40 sm:justify-center sm:gap-2"
             onClick={() => handleExportImage()}
           >
-            <ImageIcon className="h-4 w-4" />
+            <ImageIcon data-icon="inline-start" aria-hidden="true" />
             {t("overwriteConfirm.action.exportToImage.button")}
           </Button>
           <Button
@@ -170,7 +171,7 @@ export function OverwriteConfirmDialog({
             className="justify-start gap-4 sm:min-w-40 sm:justify-center sm:gap-2"
             onClick={() => handleSaveToDisk()}
           >
-            <Download className="h-4 w-4" />
+            <Download data-icon="inline-start" aria-hidden="true" />
             {t("overwriteConfirm.action.saveToDisk.button")}
           </Button>
           <Button
@@ -180,7 +181,7 @@ export function OverwriteConfirmDialog({
             className="justify-start gap-4 sm:min-w-40 sm:justify-center sm:gap-2"
             onClick={() => handleUploadToCloud()}
           >
-            <CloudUpload className="h-4 w-4" />
+            <CloudUpload data-icon="inline-start" aria-hidden="true" />
             {t("app.overwriteConfirm.action.uploadToCloud.button")}
           </Button>
         </DialogFooter>

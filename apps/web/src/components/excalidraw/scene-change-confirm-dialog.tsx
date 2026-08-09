@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import { CONFIRM_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
 
 type Props = {
   open: boolean;
@@ -28,7 +29,7 @@ export function SceneChangeConfirmDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}>
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold">
             {t("scene.change.title")}

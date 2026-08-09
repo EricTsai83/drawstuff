@@ -57,7 +57,10 @@ export function AuthRequired({
 
   if (showCard) {
     return (
-      <div className={cn("flex justify-center", className)} {...props}>
+      <div
+        className={cn("flex justify-center px-4 sm:px-6", className)}
+        {...props}
+      >
         <Card className="w-full max-w-md">
           <CardContent>{content}</CardContent>
         </Card>

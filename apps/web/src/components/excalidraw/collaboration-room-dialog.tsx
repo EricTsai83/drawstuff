@@ -27,6 +27,7 @@ import { Label } from "@/components/ui/label";
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -38,6 +39,11 @@ import type {
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { buildRoomInviteUrl } from "@/lib/collab/room-link";
 import { api } from "@/trpc/react";
+import {
+  WORKFLOW_DIALOG_CONTENT_CLASS_NAME,
+  COPY_LINK_ROW_CLASS_NAME,
+  DIALOG_ACTIONS_CLASS_NAME,
+} from "@/components/responsive-dialog-layout";
 
 /**
  * Minimal room lifecycle UI: start a room for the current scene, share its
@@ -348,7 +354,10 @@ export function CollaborationRoomDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent initialFocus={false}>
+      <DialogContent
+        initialFocus={false}
+        className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
+      >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
             {t("collaboration.title")}
@@ -444,7 +453,7 @@ export function CollaborationRoomDialog({
             )}
 
             <div className="flex flex-col gap-2">
-              <div className="flex items-end gap-2">
+              <div className={COPY_LINK_ROW_CLASS_NAME}>
                 <div className="grid flex-1 gap-2">
                   <Label htmlFor="collab-room-link">
                     {t("collaboration.link.label")}
@@ -461,7 +470,7 @@ export function CollaborationRoomDialog({
             </div>
 
             {isOwner && room && (
-              <div className="grid gap-2">
+              <div className={COPY_LINK_ROW_CLASS_NAME}>
                 <Label htmlFor="collab-link-role">
                   {t("collaboration.linkPermission")}
                 </Label>
@@ -479,13 +488,15 @@ export function CollaborationRoomDialog({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    {(["none", "viewer", "editor"] as LinkRole[]).map(
-                      (linkRole) => (
-                        <SelectItem key={linkRole} value={linkRole}>
-                          {t(LINK_ROLE_LABEL_KEY[linkRole])}
-                        </SelectItem>
-                      ),
-                    )}
+                    <SelectGroup>
+                      {(["none", "viewer", "editor"] as LinkRole[]).map(
+                        (linkRole) => (
+                          <SelectItem key={linkRole} value={linkRole}>
+                            {t(LINK_ROLE_LABEL_KEY[linkRole])}
+                          </SelectItem>
+                        ),
+                      )}
+                    </SelectGroup>
                   </SelectContent>
                 </Select>
               </div>
@@ -557,7 +568,7 @@ export function CollaborationRoomDialog({
               </div>
             )}
 
-            <div className="flex flex-wrap items-center gap-2">
+            <div className={DIALOG_ACTIONS_CLASS_NAME}>
               {isOwner ? (
                 <>
                   <Button

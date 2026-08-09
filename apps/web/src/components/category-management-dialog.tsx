@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type FormEvent } from "react";
-import { Check, Loader2, Pencil, Trash2, X } from "lucide-react";
+import { Check, Pencil, Trash2, X } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,6 +26,9 @@ import {
 import { api, type RouterOutputs } from "@/trpc/react";
 import { categoryNameSchema } from "@/lib/schemas/category";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { FORM_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
+import { Spinner } from "@/components/ui/spinner";
+import { Field, FieldGroup } from "@/components/ui/field";
 
 type CategoryListItem = RouterOutputs["category"]["list"][number];
 
@@ -127,7 +130,7 @@ export function CategoryManagementDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={onOpenChange}>
-        <DialogContent className="sm:max-w-md">
+        <DialogContent className={FORM_DIALOG_CONTENT_CLASS_NAME}>
           <DialogHeader>
             <DialogTitle>{t("category.manage.title")}</DialogTitle>
             <DialogDescription>
@@ -135,26 +138,34 @@ export function CategoryManagementDialog({
             </DialogDescription>
           </DialogHeader>
 
-          <form className="flex gap-2" onSubmit={handleCreate}>
-            <Input
-              value={newName}
-              onChange={(event) => setNewName(event.target.value)}
-              placeholder={t("category.manage.namePlaceholder")}
-              autoFocus
-            />
-            <Button
-              type="submit"
-              disabled={createMutation.isPending || newName.trim().length === 0}
-            >
-              {createMutation.isPending ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                t("buttons.create")
-              )}
-            </Button>
+          <form onSubmit={handleCreate}>
+            <FieldGroup>
+              <Field orientation="responsive">
+                <Input
+                  value={newName}
+                  onChange={(event) => setNewName(event.target.value)}
+                  placeholder={t("category.manage.namePlaceholder")}
+                  aria-label={t("category.manage.namePlaceholder")}
+                  autoFocus
+                />
+                <Button
+                  type="submit"
+                  className="w-full sm:w-auto"
+                  disabled={
+                    createMutation.isPending || newName.trim().length === 0
+                  }
+                >
+                  {createMutation.isPending ? (
+                    <Spinner data-icon="inline-start" aria-hidden="true" />
+                  ) : (
+                    t("buttons.create")
+                  )}
+                </Button>
+              </Field>
+            </FieldGroup>
           </form>
 
-          <div className="max-h-72 space-y-1 overflow-y-auto">
+          <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
             {isLoading ? (
               <p className="text-muted-foreground py-4 text-center text-sm">
                 {t("dashboard.loading")}
@@ -193,7 +204,10 @@ export function CategoryManagementDialog({
                         onClick={() => handleRenameSubmit(categoryItem.id)}
                       >
                         {renameMutation.isPending ? (
-                          <Loader2 className="size-4 animate-spin" />
+                          <Spinner
+                            data-icon="inline-start"
+                            aria-hidden="true"
+                          />
                         ) : (
                           <Check className="size-4" />
                         )}
