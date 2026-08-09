@@ -18,7 +18,11 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { sceneDescriptionSchema, sceneNameSchema } from "@/lib/schemas/scene";
+import {
+  SCENE_DESCRIPTION_MAX_LENGTH,
+  SCENE_NAME_MAX_LENGTH,
+} from "@/lib/schemas/scene";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import {
   Form,
   FormControl,
@@ -51,6 +55,7 @@ function NewSceneDialog({
   presetContentMode,
   onConfirm,
 }: NewSceneDialogProps) {
+  const { t } = useAppI18n();
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
     string | undefined
   >(undefined);
@@ -61,8 +66,15 @@ function NewSceneDialog({
   // content selection is controlled by react-hook-form (contentMode)
 
   const schema = z.object({
-    name: sceneNameSchema,
-    description: sceneDescriptionSchema,
+    name: z
+      .string()
+      .trim()
+      .min(1, t("validation.nameRequired"))
+      .max(SCENE_NAME_MAX_LENGTH, t("validation.nameTooLong")),
+    description: z
+      .string()
+      .max(SCENE_DESCRIPTION_MAX_LENGTH, t("validation.descriptionTooLong"))
+      .optional(),
     contentMode: z.union([z.literal("keep"), z.literal("reset")]),
   });
   type FormValues = z.infer<typeof schema>;
@@ -168,9 +180,11 @@ function NewSceneDialog({
         data-prevent-outside-click="true"
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">New Scene</DialogTitle>
+          <DialogTitle className="text-xl font-bold">
+            {t("scene.new.title")}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Create a new scene
+            {t("scene.new.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -186,10 +200,10 @@ function NewSceneDialog({
               rules={{ required: false }}
               render={() => (
                 <FormItem>
-                  <FormLabel>Scene name</FormLabel>
+                  <FormLabel>{t("labels.sceneName")}</FormLabel>
                   <FormControl>
                     <Input
-                      placeholder="Enter a scene name"
+                      placeholder={t("placeholders.sceneName")}
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize="off"
@@ -208,10 +222,10 @@ function NewSceneDialog({
               rules={{ required: false }}
               render={() => (
                 <FormItem>
-                  <FormLabel>Description (optional)</FormLabel>
+                  <FormLabel>{t("scene.new.descriptionLabel")}</FormLabel>
                   <FormControl>
                     <Textarea
-                      placeholder="Add a short description"
+                      placeholder={t("placeholders.description")}
                       autoComplete="off"
                       autoCorrect="off"
                       autoCapitalize="off"
@@ -226,7 +240,9 @@ function NewSceneDialog({
             />
 
             <div className="grid gap-3">
-              <FormLabel id="new-scene-workspace-label">Workspace</FormLabel>
+              <FormLabel id="new-scene-workspace-label">
+                {t("labels.workspace")}
+              </FormLabel>
               <div aria-labelledby="new-scene-workspace-label">
                 <WorkspaceDropdown
                   options={workspaceOptions}
@@ -249,7 +265,7 @@ function NewSceneDialog({
               rules={{ required: true }}
               render={() => (
                 <FormItem>
-                  <FormLabel>Content</FormLabel>
+                  <FormLabel>{t("labels.content")}</FormLabel>
                   <FormControl>
                     <RadioGroup
                       value={form.watch("contentMode")}
@@ -263,20 +279,20 @@ function NewSceneDialog({
                         <RadioGroupItem
                           value="reset"
                           id="new-scene-content-reset"
-                          aria-label="Reset to empty canvas"
+                          aria-label={t("scene.new.reset")}
                         />
                         <FormLabel htmlFor="new-scene-content-reset">
-                          Reset to empty canvas
+                          {t("scene.new.reset")}
                         </FormLabel>
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <RadioGroupItem
                           value="keep"
                           id="new-scene-content-keep"
-                          aria-label="Keep current canvas content"
+                          aria-label={t("scene.new.keep")}
                         />
                         <FormLabel htmlFor="new-scene-content-keep">
-                          Keep current canvas content
+                          {t("scene.new.keep")}
                         </FormLabel>
                       </div>
                     </RadioGroup>
@@ -291,12 +307,12 @@ function NewSceneDialog({
                 type="button"
                 variant="outline"
                 onClick={handleCancel}
-                aria-label="Cancel"
+                aria-label={t("buttons.cancel")}
               >
-                Cancel
+                {t("buttons.cancel")}
               </Button>
-              <Button type="submit" aria-label="Create scene">
-                Create
+              <Button type="submit" aria-label={t("scene.new.createLabel")}>
+                {t("buttons.create")}
               </Button>
             </div>
           </form>

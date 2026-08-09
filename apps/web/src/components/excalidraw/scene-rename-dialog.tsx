@@ -112,9 +112,11 @@ export function SceneRenameDialog({
         data-prevent-outside-click="true"
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">Rename scene</DialogTitle>
+          <DialogTitle className="text-xl font-bold">
+            {t("menu.renameScene")}
+          </DialogTitle>
           <DialogDescription className="sr-only">
-            Rename scene
+            {t("scene.rename.description")}
           </DialogDescription>
         </DialogHeader>
 

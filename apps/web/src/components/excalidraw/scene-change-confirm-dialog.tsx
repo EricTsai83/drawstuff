@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 type Props = {
   open: boolean;
@@ -23,17 +24,17 @@ export function SceneChangeConfirmDialog({
   onChoose,
   isLoading = false,
 }: Props) {
+  const { t } = useAppI18n();
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold">
-            Switch scene?
+            {t("scene.change.title")}
           </DialogTitle>
           <DialogDescription>
-            {isLoading
-              ? "Processing..."
-              : "Save current scene before switching to another?"}
+            {isLoading ? t("common.processing") : t("scene.change.description")}
           </DialogDescription>
         </DialogHeader>
 
@@ -44,18 +45,18 @@ export function SceneChangeConfirmDialog({
               variant="default"
               disabled={isLoading}
               onClick={() => onChoose("save")}
-              aria-label="Save, then switch"
+              aria-label={t("scene.change.save")}
             >
-              Save, then switch
+              {t("scene.change.save")}
             </Button>
             <Button
               type="button"
               variant="outline"
               disabled={isLoading}
               onClick={() => onChoose("switch")}
-              aria-label="Switch without saving"
+              aria-label={t("scene.change.discard")}
             >
-              Switch without saving
+              {t("scene.change.discard")}
             </Button>
             <Button
               type="button"
@@ -65,9 +66,9 @@ export function SceneChangeConfirmDialog({
                 onChoose("cancel");
                 onOpenChange(false);
               }}
-              aria-label="Cancel"
+              aria-label={t("buttons.cancel")}
             >
-              Cancel
+              {t("buttons.cancel")}
             </Button>
           </div>
         </DialogFooter>

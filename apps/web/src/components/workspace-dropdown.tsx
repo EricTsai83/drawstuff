@@ -173,8 +173,8 @@ function WorkspaceDropdownComponent(
           setSelectedWorkspace(undefined);
           setPendingCreatedName(name);
         }
-      } catch (err) {
-        toast.error((err as Error)?.message ?? "Failed to create workspace");
+      } catch {
+        toast.error(t("dashboard.workspace.createFailed"));
         return;
       } finally {
         setCreating(false);
@@ -189,6 +189,7 @@ function WorkspaceDropdownComponent(
       onCreateSuccess,
       normalizedQuery,
       creating,
+      t,
     ],
   );
 
@@ -203,7 +204,9 @@ function WorkspaceDropdownComponent(
             slim === true && "w-20",
           )}
           disabled={disabled}
-          aria-label={`Current workspace: ${triggerLabel ?? options[0]?.name ?? "None"}`}
+          aria-label={t("workspace.current", {
+            name: triggerLabel ?? options[0]?.name ?? t("workspace.none"),
+          })}
           {...restProps}
         >
           <div className="flex w-0 grow items-center gap-2 overflow-hidden">
@@ -261,7 +264,7 @@ function WorkspaceDropdownComponent(
                 e.stopPropagation();
               }}
             >
-              <CommandEmpty>No workspace found.</CommandEmpty>
+              <CommandEmpty>{t("workspace.empty")}</CommandEmpty>
               <CommandGroup>
                 {canCreate && (
                   <CommandItem
@@ -277,18 +280,13 @@ function WorkspaceDropdownComponent(
                       const name = normalizedQuery;
                       if (showConfirmDialog) {
                         showConfirmDialog({
-                          title: "Create workspace?",
-                          description: (
-                            <>
-                              This will create a new workspace named{" "}
-                              <span className="text-base font-medium">
-                                {name}
-                              </span>
-                              .
-                            </>
+                          title: t("workspace.createConfirm.title"),
+                          description: t(
+                            "workspace.createConfirm.description",
+                            { name },
                           ),
-                          confirmText: "Create",
-                          cancelText: "Cancel",
+                          confirmText: t("buttons.create"),
+                          cancelText: t("buttons.cancel"),
                           onConfirm: async () => {
                             await handleCreate(name);
                           },
@@ -302,13 +300,13 @@ function WorkspaceDropdownComponent(
                       <div className="flex flex-col overflow-hidden">
                         {creating ? (
                           <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
-                            Creating...
+                            {t("workspace.create.pending")}
                           </span>
                         ) : (
                           <span className="overflow-hidden text-ellipsis whitespace-nowrap hover:cursor-pointer">
                             <span className="border-primary/30 bg-primary/10 text-primary inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-sm font-semibold">
                               <Plus className="h-3 w-3" />
-                              Create
+                              {t("workspace.create.action")}
                             </span>
                             <span className="ml-2 font-medium">
                               {normalizedQuery}

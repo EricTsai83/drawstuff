@@ -6,6 +6,7 @@ import { useEffect } from "react";
 
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 export type AppError = Error & {
   digest?: string;
@@ -17,6 +18,7 @@ type ErrorPageProps = {
 };
 
 export function ErrorPage({ error, reset }: ErrorPageProps) {
+  const { t } = useStandaloneI18n();
   useEffect(() => {
     console.error(error);
   }, [error]);
@@ -35,23 +37,23 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
           id="error-page-title"
           className="text-destructive max-w-lg text-3xl font-bold sm:text-4xl"
         >
-          Something went wrong
+          {t("errorPage.title")}
         </h1>
         <p className="text-muted-foreground mt-4 max-w-md text-sm leading-6 text-balance">
-          Try reloading the page. If the problem continues, return to the canvas
-          and open your scene again.
+          {t("errorPage.description")}
         </p>
 
         {error.digest ? (
           <p className="text-muted-foreground bg-muted mt-6 rounded-md px-3 py-2 text-xs">
-            Error ID: <code className="font-mono">{error.digest}</code>
+            {t("errorPage.id")}{" "}
+            <code className="font-mono">{error.digest}</code>
           </p>
         ) : null}
 
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
           <Button type="button" onClick={reset} className="w-full sm:w-auto">
             <RefreshCw data-icon="inline-start" aria-hidden="true" />
-            Try again
+            {t("errorPage.retry")}
           </Button>
           <Link
             href="/"
@@ -61,7 +63,7 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
             })}
           >
             <Home data-icon="inline-start" aria-hidden="true" />
-            Back to canvas
+            {t("navigation.backToCanvas")}
           </Link>
         </div>
       </section>

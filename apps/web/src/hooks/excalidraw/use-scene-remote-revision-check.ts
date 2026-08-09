@@ -7,6 +7,7 @@ import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
 import { resolveSceneSyncAction } from "@/lib/scene-sync";
 import { isApplyResultAcceptable } from "@/hooks/excalidraw/use-apply-remote-scene";
 import type { SceneConflictInfo } from "@/hooks/use-cloud-upload";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -57,6 +58,7 @@ export function useSceneRemoteRevisionCheck({
   externalConflict,
   onExternalConflictHandled,
 }: UseSceneRemoteRevisionCheckParams) {
+  const { t } = useStandaloneI18n();
   const {
     currentSceneId,
     lastSyncedRevision,
@@ -157,15 +159,13 @@ export function useSceneRemoteRevisionCheck({
         if (applied) {
           ignoredConflictKeyRef.current = undefined;
           if (!suppressToast) {
-            toast.success("Loaded the latest remote scene.");
+            toast.success(t("toast.scene.remoteLoaded"));
           }
         }
       } catch (error) {
         console.error("Failed to check remote revision:", error);
         if (!suppressToast) {
-          toast.error(
-            `Failed to load remote scene: ${error instanceof Error ? error.message : "unknown error"}`,
-          );
+          toast.error(t("toast.scene.remoteLoadFailed"));
         }
       } finally {
         inFlightRef.current = false;
@@ -181,6 +181,7 @@ export function useSceneRemoteRevisionCheck({
       getActiveTheme,
       openConflict,
       shouldSuppressDirtyTracking,
+      t,
     ],
   );
 
@@ -207,7 +208,7 @@ export function useSceneRemoteRevisionCheck({
             ignoredConflictKeyRef.current = undefined;
             clearConflict();
           } else {
-            toast.error("Failed to load the remote scene. Please try again.");
+            toast.error(t("toast.scene.remoteLoadFailed"));
           }
           return;
         }
@@ -221,9 +222,9 @@ export function useSceneRemoteRevisionCheck({
         if (saved) {
           ignoredConflictKeyRef.current = undefined;
           clearConflict();
-          toast.success("Saved local changes as a new scene.");
+          toast.success(t("toast.scene.localCopySaved"));
         } else {
-          toast.error("Failed to save local changes as a new scene.");
+          toast.error(t("toast.scene.localCopyFailed"));
         }
       } finally {
         setIsConflictLoading(false);
@@ -237,6 +238,7 @@ export function useSceneRemoteRevisionCheck({
       getActiveTheme,
       uploadSceneToCloud,
       workspaceId,
+      t,
     ],
   );
 

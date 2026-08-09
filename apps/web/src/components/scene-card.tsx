@@ -232,9 +232,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
       console.error(err);
       const trpcCode = (err as { data?: { code?: string } })?.data?.code;
       if (trpcCode === "CONFLICT") {
-        toast.error("Scene was updated elsewhere. Refresh and try again.");
+        toast.error(t("toast.scene.remoteConflict"));
       } else {
-        toast.error("Failed to save scene. Please try again.");
+        toast.error(t("toast.scene.saveFailed"));
       }
     }
   };

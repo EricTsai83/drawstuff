@@ -101,10 +101,10 @@ export function useLoadSceneWithConfirm({
           }
         }
 
-        toast.success("Scene loaded");
+        toast.success(t("toast.scene.loaded"));
       } catch (error) {
         console.error("Failed to load specified scene", error);
-        toast.error("Failed to load scene");
+        toast.error(t("toast.scene.loadFailed"));
       }
     },
     [

@@ -5,6 +5,7 @@ import {
   MIME_TYPES,
   SCENE_FILE_IMPORT_MAX_BYTES,
 } from "@/config/app-constants";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { nFormatter } from "@/lib/utils";
 
 const MEDIA_MIME_PREFIXES = ["image/", "video/", "audio/"] as const;
@@ -33,6 +34,7 @@ export function useSceneImportFileGuard(
   options?: SceneImportFileGuardOptions,
 ): void {
   const maxBytes = options?.maxBytes ?? SCENE_FILE_IMPORT_MAX_BYTES;
+  const { t } = useStandaloneI18n();
 
   const shouldValidateFile = useCallback((file: File): boolean => {
     const fileType = file.type?.toLowerCase() ?? "";
@@ -66,11 +68,15 @@ export function useSceneImportFileGuard(
       }
 
       toast.error(
-        `匯入失敗：${oversizedFile.name} (${nFormatter(oversizedFile.size, 2)}) 超過上限 ${nFormatter(maxBytes, 2)}`,
+        t("import.error.fileTooLarge", {
+          name: oversizedFile.name,
+          size: nFormatter(oversizedFile.size, 2),
+          limit: nFormatter(maxBytes, 2),
+        }),
       );
       return true;
     },
-    [maxBytes, shouldValidateFile],
+    [maxBytes, shouldValidateFile, t],
   );
 
   useEffect(() => {

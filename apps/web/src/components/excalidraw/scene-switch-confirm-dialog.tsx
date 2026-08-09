@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 type Props = {
   open: boolean;
@@ -24,23 +25,19 @@ export function SceneSwitchConfirmDialog({
   toWorkspaceName,
   onChoose,
 }: Props) {
+  const { t } = useAppI18n();
+  const from = fromWorkspaceName ?? t("scene.switchWorkspace.current");
+  const to = toWorkspaceName ?? t("scene.switchWorkspace.selected");
+
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-lg font-semibold">
-            Switch Workspace
+            {t("scene.switchWorkspace.title")}
           </DialogTitle>
           <DialogDescription>
-            Switch from{" "}
-            <span className="text-foreground text-base font-semibold">
-              {fromWorkspaceName ?? "current workspace"}
-            </span>{" "}
-            to{" "}
-            <span className="text-foreground text-base font-semibold">
-              {toWorkspaceName ?? "selected workspace"}
-            </span>
-            .
+            {t("scene.switchWorkspace.description", { from, to })}
           </DialogDescription>
         </DialogHeader>
 
@@ -48,16 +45,16 @@ export function SceneSwitchConfirmDialog({
           <Button
             variant="default"
             onClick={() => onChoose("openExisting")}
-            aria-label="Open existing scene in this workspace"
+            aria-label={t("scene.switchWorkspace.openExisting")}
           >
-            Open existing scene in this workspace
+            {t("scene.switchWorkspace.openExisting")}
           </Button>
           <Button
             variant="outline"
             onClick={() => onChoose("newEmpty")}
-            aria-label="Create a new empty scene"
+            aria-label={t("scene.switchWorkspace.createEmpty")}
           >
-            Create a new empty scene
+            {t("scene.switchWorkspace.createEmpty")}
           </Button>
         </div>
       </DialogContent>

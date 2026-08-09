@@ -36,7 +36,7 @@ function AppWelcomeScreen() {
             shortcut={null}
             icon={<Github className="size-4" />}
           >
-            GitHub Repository
+            {t("welcomeScreen.github")}
           </WelcomeScreen.Center.MenuItemLink>
         </WelcomeScreen.Center.Menu>
       </WelcomeScreen.Center>

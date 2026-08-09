@@ -65,11 +65,13 @@ import { useCollaborationRoom } from "@/hooks/excalidraw/use-collaboration-room"
 import { useCollaborationRoomKey } from "@/hooks/excalidraw/use-collaboration-room-key";
 import { CollaborationRoomDialog } from "@/components/excalidraw/collaboration-room-dialog";
 import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 // 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
 const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
 
 export default function ExcalidrawEditor() {
+  const { t } = useStandaloneI18n();
   useSceneImportFileGuard();
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();
@@ -380,14 +382,14 @@ export default function ExcalidrawEditor() {
       return () => clearTimeout(timer);
     }
     if (uploadStatus === "error") {
-      toast.error("Failed to upload to cloud. Please try again.");
+      toast.error(t("toast.cloud.uploadFailed"));
       const timer = setTimeout(() => {
         resetStatus();
       }, 1500);
       return () => clearTimeout(timer);
     }
     return;
-  }, [uploadStatus, resetStatus]);
+  }, [uploadStatus, resetStatus, t]);
 
   useEffect(() => {
     // 同步 Excalidraw appState.theme 與目前主題，避免載入/初始狀態殘留舊主題
@@ -411,7 +413,7 @@ export default function ExcalidrawEditor() {
       const message =
         typeof exportErrorMessage === "string"
           ? exportErrorMessage
-          : "Failed to export scene. Please try again.";
+          : t("errors.failedToExportScene");
       toast.error(message);
       const timer = setTimeout(() => {
         resetExportStatus();
@@ -419,7 +421,7 @@ export default function ExcalidrawEditor() {
       return () => clearTimeout(timer);
     }
     return;
-  }, [exportStatus, exportErrorMessage, resetExportStatus]);
+  }, [exportStatus, exportErrorMessage, resetExportStatus, t]);
 
   const handleShareLinkClick = useCallback(async (): Promise<void> => {
     await handleExportLink();
@@ -512,9 +514,7 @@ export default function ExcalidrawEditor() {
                       }
                     },
                     onError: () =>
-                      toast.error(
-                        "Failed to update scene name. Please try again.",
-                      ),
+                      toast.error(t("errors.failedToUpdateSceneName")),
                   },
                 );
               }

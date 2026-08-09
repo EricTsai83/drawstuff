@@ -169,7 +169,7 @@ function ExportAction({ config }: { config: ExportActionConfig }) {
         onClick={onClick}
         aria-busy={loading}
       >
-        {loading ? (loadingLabel ?? "Processing...") : buttonLabel}
+        {loading ? (loadingLabel ?? buttonLabel) : buttonLabel}
       </Button>
     </div>
   );

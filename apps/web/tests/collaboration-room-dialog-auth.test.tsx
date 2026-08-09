@@ -48,25 +48,22 @@ vi.mock("@/components/google-sign-in-button", () => ({
   ),
 }));
 
-vi.mock("@/hooks/use-app-i18n", () => ({
-  useAppI18n: () => ({
-    langCode: "en",
-    t: (key: string) =>
-      ({
-        "auth.connecting": "Connecting...",
-        "auth.continueWithGoogle": "Continue with Google",
-        "collaboration.authRequired":
-          "Sign in to create or join a collaboration room.",
-        "collaboration.createDescription":
-          "Create a room and share its link with collaborators.",
-        "collaboration.error.operationFailed":
-          "The collaboration action failed. Please try again.",
-        "collaboration.shareDescription":
-          "Share the complete link to invite collaborators.",
-        "collaboration.title": "Live collaboration",
-      })[key] ?? key,
-  }),
-}));
+vi.mock("@/hooks/use-app-i18n", async () => {
+  const { translateApp } = await vi.importActual<{
+    translateApp: (
+      langCode: string,
+      key: string,
+      values?: Record<string, string | number>,
+    ) => string;
+  }>("@/lib/i18n-shared");
+  return {
+    useAppI18n: () => ({
+      langCode: "en",
+      t: (key: string, values?: Record<string, string | number>) =>
+        translateApp("en", key, values),
+    }),
+  };
+});
 
 vi.mock("@/trpc/react", () => {
   const idleMutation = { isPending: false, mutate: idleMutate };
@@ -174,7 +171,7 @@ describe("collaboration room authentication guard", () => {
     );
     expect(container?.textContent).toContain("Continue with Google");
     expect(container?.textContent).not.toContain("不支援匿名加入");
-    expect(container?.textContent).not.toContain("開始共編");
+    expect(container?.textContent).not.toContain("Start collaboration");
     expect(createMutate).not.toHaveBeenCalled();
     expect(roomGetUseQuery).toHaveBeenCalledWith(
       { roomId: "room-from-link" },
@@ -186,7 +183,7 @@ describe("collaboration room authentication guard", () => {
     renderDialog({ isAuthenticated: true });
     const startButton = Array.from(
       container?.querySelectorAll("button") ?? [],
-    ).find((button) => button.textContent === "開始共編");
+    ).find((button) => button.textContent === "Start collaboration");
 
     expect(startButton).toBeDefined();
     act(() => {

@@ -15,6 +15,7 @@ import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type SceneEditDialogProps = {
   open: boolean;
@@ -39,6 +40,7 @@ export function SceneEditDialog({
   initial,
   onConfirm,
 }: SceneEditDialogProps) {
+  const { t } = useStandaloneI18n();
   const [name, setName] = useState<string>(initial.name ?? "");
   const [description, setDescription] = useState<string>(
     initial.description ?? "",
@@ -120,7 +122,7 @@ export function SceneEditDialog({
 
   function handleConfirm(): void {
     onConfirm({
-      name: (name ?? "").trim() || "Untitled",
+      name: (name ?? "").trim() || t("labels.untitled"),
       description: (description ?? "").trim(),
       categories: parsedCategories,
       workspaceId: selectedWorkspaceId,
@@ -136,20 +138,22 @@ export function SceneEditDialog({
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
-            Scene Settings
+            {t("scene.settings.title")}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Scene settings
+            {t("scene.settings.title")}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-4">
           <div className="grid gap-2">
-            <label className="text-sm font-medium">Scene name</label>
+            <label className="text-sm font-medium">
+              {t("labels.sceneName")}
+            </label>
             <Input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Enter a scene name"
+              placeholder={t("placeholders.sceneName")}
               autoComplete="off"
               autoCorrect="off"
               autoCapitalize="off"
@@ -159,7 +163,7 @@ export function SceneEditDialog({
 
           <div className="grid gap-2">
             <label className="text-sm font-medium" id="scene-workspace-label">
-              Workspace
+              {t("labels.workspace")}
             </label>
             <div aria-labelledby="scene-workspace-label">
               <WorkspaceDropdown
@@ -174,7 +178,7 @@ export function SceneEditDialog({
             </div>
             {pendingNewWorkspaceName ? (
               <p className="text-muted-foreground text-xs">
-                Will create workspace: {pendingNewWorkspaceName}
+                {t("workspace.pending", { name: pendingNewWorkspaceName })}
               </p>
             ) : null}
           </div>
@@ -184,20 +188,20 @@ export function SceneEditDialog({
               className="text-sm font-medium"
               htmlFor="scene-description-input"
             >
-              Description
+              {t("labels.description")}
             </label>
             <Textarea
               id="scene-description-input"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="Add a short description"
+              placeholder={t("placeholders.description")}
               className="h-24 resize-none"
             />
           </div>
 
           <div className="grid gap-2">
             <label className="text-sm font-medium" id="scene-categories-label">
-              Categories
+              {t("labels.categories")}
             </label>
             <div aria-labelledby="scene-categories-label">
               <SearchableAndCreatableSelector
@@ -212,16 +216,16 @@ export function SceneEditDialog({
               type="button"
               variant="outline"
               onClick={() => onOpenChange(false)}
-              aria-label="Cancel edit"
+              aria-label={t("scene.settings.cancelLabel")}
             >
-              Cancel
+              {t("buttons.cancel")}
             </Button>
             <Button
               type="button"
               onClick={handleConfirm}
-              aria-label="Confirm edit"
+              aria-label={t("scene.settings.confirmLabel")}
             >
-              Save
+              {t("buttons.save")}
             </Button>
           </div>
         </div>

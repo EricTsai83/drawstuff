@@ -61,7 +61,7 @@ export const LanguageSelector = ({
           />
         }
       >
-        <SelectValue placeholder="Select a language" />
+        <SelectValue placeholder={t("buttons.selectLanguage")} />
       </SelectTrigger>
       <SelectContent data-prevent-outside-click>
         <SelectGroup>

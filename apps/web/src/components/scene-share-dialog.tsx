@@ -31,21 +31,24 @@ export function SceneShareDialog({
             {t("labels.share")}
           </DialogTitle>
           <DialogDescription className="sr-only">
-            Link to this scene. Anyone who has this link will be able to view
-            it.
+            {t("share.scene.description")}
           </DialogDescription>
         </DialogHeader>
         <div className="flex items-center gap-2">
           <div className="grid flex-1 gap-2">
             <Label htmlFor="link" className="sr-only">
-              Link
+              {t("share.scene.link")}
             </Label>
             <Input id="link" value={sceneUrl} readOnly />
           </div>
           <CopyButton textToCopy={sceneUrl} />
         </div>
         <div className="mt-2 flex items-center gap-2 text-xs">
-          <span role="img" aria-label="lock" className="text-yellow-400">
+          <span
+            role="img"
+            aria-label={t("share.scene.lock")}
+            className="text-yellow-400"
+          >
             🔒
           </span>
           {t("alerts.uploadedSecurly")}

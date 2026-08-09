@@ -12,6 +12,7 @@ import { useUploadThing } from "@/lib/uploadthing";
 import { getBaseUrl } from "@/lib/base-url";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import { APP_ERROR } from "@/lib/errors";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 function cloneToArrayBuffer(
   fileBuffer: Uint8Array<ArrayBufferLike>,
@@ -24,6 +25,7 @@ function cloneToArrayBuffer(
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
 export function useSceneExport() {
+  const { t } = useStandaloneI18n();
   const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(
     null,
@@ -40,7 +42,7 @@ export function useSceneExport() {
       },
       onUploadError: (error) => {
         console.error("Error occurred while uploading files", error);
-        setExportErrorMessage("Error occurred while uploading files");
+        setExportErrorMessage(t("errors.failedToExportScene"));
         setExportStatus("error");
       },
       onUploadBegin: (fileName) => {
@@ -56,13 +58,13 @@ export function useSceneExport() {
       files: BinaryFiles,
     ): Promise<string | null> => {
       if (exportStatus === "exporting") {
-        setExportErrorMessage("Export already in progress");
+        setExportErrorMessage(t("errors.exportInProgress"));
         setExportStatus("error");
         return null;
       }
 
       if (elements.length === 0) {
-        setExportErrorMessage("Cannot export empty canvas");
+        setExportErrorMessage(t("errors.emptyCanvas"));
         setExportStatus("error");
         return null;
       }
@@ -98,9 +100,7 @@ export function useSceneExport() {
           if (result.errorCode !== APP_ERROR.UNAUTHORIZED) {
             console.error("Failed to export scene:", result.errorMessage);
           }
-          setExportErrorMessage(
-            result.errorMessage ?? "Failed to export scene",
-          );
+          setExportErrorMessage(t("errors.failedToExportScene"));
           setExportStatus("error");
           return null;
         }
@@ -144,16 +144,14 @@ export function useSceneExport() {
                 entry.status === "rejected" || entry.value?.length !== 1,
             );
             if (isUploadFailed) {
-              setExportErrorMessage(
-                "Some files failed to upload. Export canceled.",
-              );
+              setExportErrorMessage(t("errors.failedToExportScene"));
               await rollbackSharedScene(result.sharedSceneId);
               setExportStatus("error");
               return null;
             }
           } catch (uploadErr) {
             console.error("File upload failed:", uploadErr);
-            setExportErrorMessage("File upload failed. Export canceled.");
+            setExportErrorMessage(t("errors.failedToExportScene"));
             await rollbackSharedScene(result.sharedSceneId);
             setExportStatus("error");
             return null;
@@ -170,12 +168,12 @@ export function useSceneExport() {
         return shareableUrlString;
       } catch (error) {
         console.error("Error during scene export:", error);
-        setExportErrorMessage("Error during scene export");
+        setExportErrorMessage(t("errors.failedToExportScene"));
         setExportStatus("error");
         return null;
       }
     },
-    [startSharedUpload, exportStatus],
+    [startSharedUpload, exportStatus, t],
   );
 
   const resetExportStatus = useCallback(() => {

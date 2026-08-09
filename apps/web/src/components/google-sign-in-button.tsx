@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { signInWithGoogle } from "@/lib/auth/client";
 
 type GoogleSignInButtonProps = {
@@ -11,10 +12,13 @@ type GoogleSignInButtonProps = {
 };
 
 export function GoogleSignInButton({
-  label = "Continue with Google",
-  pendingLabel = "Connecting...",
+  label,
+  pendingLabel,
 }: GoogleSignInButtonProps) {
+  const { t } = useStandaloneI18n();
   const [isSigningIn, setIsSigningIn] = useState(false);
+  const resolvedLabel = label ?? t("auth.continueWithGoogle");
+  const resolvedPendingLabel = pendingLabel ?? t("auth.connecting");
 
   const handleClick = async () => {
     if (isSigningIn) return;
@@ -41,7 +45,7 @@ export function GoogleSignInButton({
       {isSigningIn ? (
         <>
           <Loader2 className="size-5 animate-spin" />
-          {pendingLabel}
+          {resolvedPendingLabel}
         </>
       ) : (
         <>
@@ -69,7 +73,7 @@ export function GoogleSignInButton({
             ></path>
             <path fill="none" d="M0 0h48v48H0z"></path>
           </svg>
-          {label}
+          {resolvedLabel}
         </>
       )}
     </Button>

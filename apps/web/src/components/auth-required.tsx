@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth/client";
 import { GoogleSignInButton } from "./google-sign-in-button";
 import { Card, CardContent } from "@/components/ui/card";
+import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 
 type AuthRequiredProps = {
   className?: string;
@@ -14,12 +15,15 @@ type AuthRequiredProps = {
 
 export function AuthRequired({
   className,
-  title = "Sign in required",
-  description = "Please sign in to access this feature",
+  title,
+  description,
   showCard = true,
   ...props
 }: AuthRequiredProps) {
+  const { t } = useStandaloneI18n();
   const { data: session, isPending } = authClient.useSession();
+  const resolvedTitle = title ?? t("auth.required.title");
+  const resolvedDescription = description ?? t("auth.required.description");
 
   // Don't render if user is authenticated or still loading
   if (isPending || session) {
@@ -29,20 +33,22 @@ export function AuthRequired({
   const content = (
     <div className="flex flex-col items-center gap-6 text-center">
       <div className="flex flex-col items-center gap-2">
-        <h2 className="text-foreground text-xl font-bold">{title}</h2>
-        <p className="text-muted-foreground max-w-md text-sm">{description}</p>
+        <h2 className="text-foreground text-xl font-bold">{resolvedTitle}</h2>
+        <p className="text-muted-foreground max-w-md text-sm">
+          {resolvedDescription}
+        </p>
       </div>
 
       <GoogleSignInButton />
 
       <div className="text-muted-foreground *:[a]:hover:text-primary text-xs text-balance *:[a]:underline *:[a]:underline-offset-4">
-        By signing in, you agree to our{" "}
-        <a href="#" tabIndex={0} aria-label="Terms of Service">
-          Terms of Service
+        {t("auth.agreement.signIn")}{" "}
+        <a href="#" tabIndex={0} aria-label={t("auth.terms")}>
+          {t("auth.terms")}
         </a>{" "}
-        and{" "}
-        <a href="#" tabIndex={0} aria-label="Privacy Policy">
-          Privacy Policy
+        {t("auth.and")}{" "}
+        <a href="#" tabIndex={0} aria-label={t("auth.privacy")}>
+          {t("auth.privacy")}
         </a>
         .
       </div>

@@ -63,24 +63,22 @@ vi.mock("@/trpc/react", () => ({
   },
 }));
 
-vi.mock("@/hooks/use-app-i18n", () => ({
-  useAppI18n: () => ({
-    langCode: "en",
-    t: (key: string, values?: Record<string, string | number>) => {
-      const translations: Record<string, string> = {
-        "collaboration.status.connected": "Collaborating",
-        "collaboration.status.idle": "Collaborate",
-        "collaboration.status.readOnly": "View only",
-        "collaboration.status.readOnlyWithStatus": "{status} (View only)",
-        "collaboration.status.syncBlocked": "Sync stopped",
-      };
-      const template = translations[key] ?? key;
-      return template.replace(/\{(\w+)\}/g, (_match, name: string) =>
-        String(values?.[name] ?? ""),
-      );
-    },
-  }),
-}));
+vi.mock("@/hooks/use-app-i18n", async () => {
+  const { translateApp } = await vi.importActual<{
+    translateApp: (
+      langCode: string,
+      key: string,
+      values?: Record<string, string | number>,
+    ) => string;
+  }>("@/lib/i18n-shared");
+  return {
+    useAppI18n: () => ({
+      langCode: "en",
+      t: (key: string, values?: Record<string, string | number>) =>
+        translateApp("en", key, values),
+    }),
+  };
+});
 
 import { TRPCClientError } from "@trpc/client";
 
@@ -269,8 +267,8 @@ describe("room status for an oversize canvas", () => {
     });
 
     expect(probe.result?.status).toBe("sync-blocked");
-    expect(probe.result?.errorMessage).toContain("即時同步已停止");
-    expect(probe.result?.errorMessage).toContain("本機");
+    expect(probe.result?.errorMessage).toContain("Live sync stopped");
+    expect(probe.result?.errorMessage).toContain("save the scene");
     // The canvas still belongs to the room, so the editor must keep withholding
     // the actions that would replace it behind the session's back.
     expect(probe.result?.isCollaborating).toBe(true);
@@ -289,7 +287,9 @@ describe("room status for an oversize canvas", () => {
     // status alone would tell those viewports nothing. Upstream splits the same
     // way: a viewport-independent dialog plus a desktop-only indicator.
     expect(toastWarning).toHaveBeenCalledTimes(1);
-    expect(String(toastWarning.mock.calls[0]?.[0])).toContain("即時同步已停止");
+    expect(String(toastWarning.mock.calls[0]?.[0])).toContain(
+      "Live sync stopped",
+    );
 
     // One announcement per *reported transition*. The hook announces whatever it
     // is told, so what keeps a blocked canvas from announcing once per flush is
@@ -320,7 +320,7 @@ describe("room status for an oversize canvas", () => {
       });
     });
     expect(probe.result?.status).toBe("reconnecting");
-    expect(probe.result?.errorMessage).toContain("雲端備份已停止");
+    expect(probe.result?.errorMessage).toContain("Cloud backup stopped");
 
     // Back online with the same oversize canvas: blocked again, not "共編中".
     await act(async () => {
@@ -338,8 +338,8 @@ describe("room status for an oversize canvas", () => {
     });
 
     expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.errorMessage).toContain("已被擁有者結束");
-    expect(probe.result?.errorMessage).not.toContain("即時同步已停止");
+    expect(probe.result?.errorMessage).toContain("ended or reset");
+    expect(probe.result?.errorMessage).not.toContain("Live sync stopped");
   });
 
   it("clears the warning once every path publishes again", async () => {
@@ -371,7 +371,9 @@ describe("room status for an oversize canvas", () => {
     session.onSceneSyncBlockChange(OVERSIZE_DURABLE);
 
     expect(toastWarning).toHaveBeenCalledTimes(1);
-    expect(String(toastWarning.mock.calls[0]?.[0])).toContain("雲端備份已停止");
+    expect(String(toastWarning.mock.calls[0]?.[0])).toContain(
+      "Cloud backup stopped",
+    );
   });
 
   it("does not announce a block that cleared during teardown", async () => {
@@ -399,12 +401,12 @@ describe("room status for images this link cannot open", () => {
     // other than 共編中 would overstate it — the canvas is incomplete, not broken.
     expect(probe.result?.status).toBe("connected");
     expect(probe.result?.isCollaborating).toBe(true);
-    expect(probe.result?.errorMessage).toContain("圖片無法用目前的連結開啟");
+    expect(probe.result?.errorMessage).toContain("images cannot be opened");
     // Layout-independent announcement, for the viewports that do not render the
     // status area at all.
     expect(toastWarning).toHaveBeenCalledTimes(1);
     expect(String(toastWarning.mock.calls[0]?.[0])).toContain(
-      "圖片無法用目前的連結開啟",
+      "images cannot be opened",
     );
   });
 
@@ -419,14 +421,14 @@ describe("room status for images this link cannot open", () => {
     // Losing the user's own unpublished work is the more urgent of the two, and a
     // single message area cannot say both at once.
     expect(probe.result?.status).toBe("sync-blocked");
-    expect(probe.result?.errorMessage).toContain("即時同步已停止");
+    expect(probe.result?.errorMessage).toContain("Live sync stopped");
 
     // Still true underneath, and it comes back once the canvas fits again.
     await act(async () => {
       session.onSceneSyncBlockChange(null);
     });
     expect(probe.result?.status).toBe("connected");
-    expect(probe.result?.errorMessage).toContain("圖片無法用目前的連結開啟");
+    expect(probe.result?.errorMessage).toContain("images cannot be opened");
   });
 
   it("lets a terminal failure's own message outrank it", async () => {
@@ -441,8 +443,8 @@ describe("room status for images this link cannot open", () => {
     });
 
     expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.errorMessage).toContain("無法用目前連結的金鑰解開");
-    expect(probe.result?.errorMessage).not.toContain("其他內容仍在正常同步");
+    expect(probe.result?.errorMessage).toContain("cannot decrypt the room");
+    expect(probe.result?.errorMessage).not.toContain("still syncing");
   });
 });
 
@@ -471,8 +473,8 @@ describe("key check before join (Plan 34)", () => {
 
     expect(probe.result?.status).toBe("failed");
     expect(probe.result?.failureReason).toBe("wrong-key-link");
-    expect(probe.result?.errorMessage).toContain("金鑰不正確");
-    expect(probe.result?.errorMessage).toContain("畫布沒有被變更");
+    expect(probe.result?.errorMessage).toContain("wrong encryption key");
+    expect(probe.result?.errorMessage).toContain("canvas was not changed");
     // Refused before the join: the canvas was not cleared, no claim was
     // taken, no token was minted and no session was started — which is what
     // makes a wrong-key snapshot write impossible (the empty-room cell of
@@ -496,7 +498,9 @@ describe("key check before join (Plan 34)", () => {
 
     expect(probe.result?.status).toBe("failed");
     expect(probe.result?.failureReason).toBe("missing-key-check");
-    expect(probe.result?.errorMessage).toContain("尚未完成加密設定");
+    expect(probe.result?.errorMessage).toContain(
+      "encryption setup is incomplete",
+    );
     expect(joinMutate).not.toHaveBeenCalled();
     expect(startRoomSession).not.toHaveBeenCalled();
   });
@@ -518,7 +522,7 @@ describe("key check before join (Plan 34)", () => {
 
     expect(probe.result?.status).toBe("failed");
     expect(probe.result?.failureReason).toBe("generation-rotated");
-    expect(probe.result?.errorMessage).toContain("加密世代已更新");
+    expect(probe.result?.errorMessage).toContain("old encryption key");
     expect(startRoomSession).not.toHaveBeenCalled();
   });
 
@@ -664,7 +668,7 @@ describe("the first join being rate limited", () => {
       // The whole point: a spent budget is "later", not "you may not".
       expect(probe.result?.status).toBe("rate-limited");
       expect(probe.result?.status).not.toBe("unauthorized");
-      expect(probe.result?.errorMessage).toContain("不是權限問題");
+      expect(probe.result?.errorMessage).toContain("not a permissions issue");
       // `failureReason` belongs to the recovery machine's terminal states, and
       // this never reached a session.
       expect(probe.result?.failureReason).toBeNull();

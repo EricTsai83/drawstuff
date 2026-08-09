@@ -57,30 +57,30 @@ import { api } from "@/trpc/react";
 
 type LinkRole = "none" | "viewer" | "editor";
 
-const LINK_ROLE_LABEL: Record<LinkRole, string> = {
-  none: "僅受邀成員",
-  viewer: "有連結者可檢視",
-  editor: "有連結者可編輯",
+const LINK_ROLE_LABEL_KEY: Record<LinkRole, string> = {
+  none: "collaboration.linkRole.none",
+  viewer: "collaboration.linkRole.viewer",
+  editor: "collaboration.linkRole.editor",
 };
 
-const ROLE_LABEL: Record<RoomRole, string> = {
-  owner: "擁有者",
-  editor: "可編輯",
-  viewer: "僅檢視",
+const ROLE_LABEL_KEY: Record<RoomRole, string> = {
+  owner: "collaboration.role.owner",
+  editor: "collaboration.role.editor",
+  viewer: "collaboration.role.viewer",
 };
 
-const STATUS_LABEL: Record<CollaborationRoomStatus, string> = {
-  idle: "未連線",
-  preparing: "準備畫布中…",
-  joining: "加入中…",
-  connected: "已連線",
-  "sync-blocked": "已連線，但畫布過大，已停止同步",
-  reconnecting: "連線中斷，正在重新連線…",
-  failed: "連線已停止",
-  unauthorized: "無法加入",
-  "rate-limited": "加入次數過於頻繁，請稍後再試",
-  cancelled: "已取消加入",
-  "missing-room-key": "連結缺少金鑰",
+const STATUS_LABEL_KEY: Record<CollaborationRoomStatus, string> = {
+  idle: "collaboration.dialogStatus.idle",
+  preparing: "collaboration.dialogStatus.preparing",
+  joining: "collaboration.dialogStatus.joining",
+  connected: "collaboration.dialogStatus.connected",
+  "sync-blocked": "collaboration.dialogStatus.syncBlocked",
+  reconnecting: "collaboration.dialogStatus.reconnecting",
+  failed: "collaboration.dialogStatus.failed",
+  unauthorized: "collaboration.dialogStatus.unauthorized",
+  "rate-limited": "collaboration.dialogStatus.rateLimited",
+  cancelled: "collaboration.dialogStatus.cancelled",
+  "missing-room-key": "collaboration.dialogStatus.missingRoomKey",
 };
 
 export type CollaborationRoomDialogProps = {
@@ -135,11 +135,7 @@ export function CollaborationRoomDialog({
       return;
     }
 
-    toast.error(
-      error instanceof Error
-        ? error.message
-        : t("collaboration.error.operationFailed"),
-    );
+    toast.error(t("collaboration.error.operationFailed"));
   };
   /** Two-step confirmation for the destructive snapshot reset. */
   const [isResetArmed, setIsResetArmed] = useState(false);
@@ -167,9 +163,7 @@ export function CollaborationRoomDialog({
     if (enforced) return;
     // The change is recorded, but sockets that already joined may still be
     // live: never present unenforced revocation as complete.
-    toast.warning(
-      "已更新權限，但目前無法通知 relay；已連線的成員可能仍在線上。",
-    );
+    toast.warning(t("collaboration.toast.relayUnavailable"));
   };
 
   /**
@@ -226,15 +220,13 @@ export function CollaborationRoomDialog({
           onRoomKeyChange(null);
           onRoomIdChange(created.roomId);
           await invalidateRoom();
-          toast.info(
-            "這個 room 已經有加密金鑰。請由原本建立連結的裝置分享完整連結，或用「重設 room generation」產生新金鑰。",
-          );
+          toast.info(t("collaboration.toast.keyConflict"));
           return;
         }
         // The room exists but is not joinable (no check value). Re-running
         // 開始共編 returns the same active room and repairs it with a fresh
         // key — so the one action offered is the one that fixes it.
-        toast.error("無法完成 room 的加密設定，請再按一次「開始共編」。");
+        toast.error(t("collaboration.toast.keySetupFailed"));
         await invalidateRoom();
         return;
       }
@@ -307,9 +299,7 @@ export function CollaborationRoomDialog({
             authGeneration: result.authGeneration,
           });
         } catch {
-          toast.error(
-            "已更換 room generation，但加密設定未完成，新連結暫時無法使用。請再按一次「重設 room generation」。",
-          );
+          toast.error(t("collaboration.toast.rotationSetupFailed"));
           await invalidateRoom();
           return;
         }
@@ -317,7 +307,9 @@ export function CollaborationRoomDialog({
       onRoomKeyChange(nextKey);
       await invalidateRoom();
       toast.success(
-        `已建立新的 room generation（${result.authGeneration}）並更換加密金鑰，請重新分享連結。`,
+        t("collaboration.toast.rotationSuccess", {
+          generation: result.authGeneration,
+        }),
       );
     },
     onError: reportRoomError,
@@ -327,9 +319,7 @@ export function CollaborationRoomDialog({
     onSuccess: async () => {
       setIsResetArmed(false);
       await invalidateRoom();
-      toast.success(
-        "已重設這個 room 的雲端畫布，正在重新加入；room 會以下一位成員的畫布重新開始。",
-      );
+      toast.success(t("collaboration.toast.snapshotReset"));
       // The failed session is only torn down by re-running the join; the
       // deletion above is what made this retry able to succeed.
       onRetryJoin();
@@ -388,7 +378,9 @@ export function CollaborationRoomDialog({
                 createRoom.mutate({ sceneId, linkRole: "none" });
               }}
             >
-              {createRoom.isPending ? "建立中…" : "開始共編"}
+              {createRoom.isPending
+                ? t("collaboration.action.creating")
+                : t("collaboration.action.start")}
             </Button>
           </div>
         )}
@@ -396,13 +388,15 @@ export function CollaborationRoomDialog({
         {!isAuthenticationPending && isAuthenticated && roomId && (
           <div className="flex flex-col gap-4">
             <div className="flex items-center gap-2 text-sm">
-              <span className="font-medium">連線狀態</span>
+              <span className="font-medium">
+                {t("collaboration.connectionStatus")}
+              </span>
               <span className="text-muted-foreground">
-                {STATUS_LABEL[status]}
+                {t(STATUS_LABEL_KEY[status])}
               </span>
               {role && (
                 <span className="bg-muted rounded px-2 py-0.5 text-xs">
-                  {ROLE_LABEL[role]}
+                  {t(ROLE_LABEL_KEY[role])}
                 </span>
               )}
             </div>
@@ -417,17 +411,14 @@ export function CollaborationRoomDialog({
             {isOwner && failureReason === "unreadable-room" && (
               <div className="flex flex-col gap-2 rounded border p-3">
                 <p className="text-muted-foreground text-sm">
-                  如果你持有的是正確的連結，這通常代表 room
-                  的雲端畫布曾被錯誤金鑰寫入。你可以重設這個 room
-                  的雲端畫布：已儲存的共編內容會被刪除，room
-                  會以下一位加入成員的畫布重新開始。
+                  {t("collaboration.recovery.description")}
                 </p>
                 {!isResetArmed ? (
                   <Button
                     variant="destructive"
                     onClick={() => setIsResetArmed(true)}
                   >
-                    重設這個 room 的雲端畫布…
+                    {t("collaboration.recovery.reset")}
                   </Button>
                 ) : (
                   <div className="flex items-center gap-2">
@@ -436,14 +427,16 @@ export function CollaborationRoomDialog({
                       disabled={resetSnapshot.isPending}
                       onClick={() => resetSnapshot.mutate({ roomId })}
                     >
-                      {resetSnapshot.isPending ? "重設中…" : "確認刪除雲端畫布"}
+                      {resetSnapshot.isPending
+                        ? t("collaboration.recovery.resetting")
+                        : t("collaboration.recovery.confirmReset")}
                     </Button>
                     <Button
                       variant="secondary"
                       disabled={resetSnapshot.isPending}
                       onClick={() => setIsResetArmed(false)}
                     >
-                      取消
+                      {t("collaboration.recovery.cancel")}
                     </Button>
                   </div>
                 )}
@@ -453,21 +446,25 @@ export function CollaborationRoomDialog({
             <div className="flex flex-col gap-2">
               <div className="flex items-end gap-2">
                 <div className="grid flex-1 gap-2">
-                  <Label htmlFor="collab-room-link">共編連結</Label>
+                  <Label htmlFor="collab-room-link">
+                    {t("collaboration.link.label")}
+                  </Label>
                   <Input id="collab-room-link" value={roomUrl} readOnly />
                 </div>
                 <CopyButton textToCopy={roomUrl} />
               </div>
               <p className="text-muted-foreground text-xs">
                 {roomKey
-                  ? "連結的 # 之後是這個 room 的加密金鑰，只存在瀏覽器與連結中，不會傳到伺服器。請完整複製整段連結。"
-                  : "這個連結缺少加密金鑰，複製後對方無法加入。請由建立 room 的裝置分享完整連結，或重設 room generation 以產生新金鑰。"}
+                  ? t("collaboration.link.keyPresent")
+                  : t("collaboration.link.keyMissing")}
               </p>
             </div>
 
             {isOwner && room && (
               <div className="grid gap-2">
-                <Label htmlFor="collab-link-role">連結權限</Label>
+                <Label htmlFor="collab-link-role">
+                  {t("collaboration.linkPermission")}
+                </Label>
                 <Select
                   value={room.linkRole}
                   disabled={setLinkRole.isPending}
@@ -485,7 +482,7 @@ export function CollaborationRoomDialog({
                     {(["none", "viewer", "editor"] as LinkRole[]).map(
                       (linkRole) => (
                         <SelectItem key={linkRole} value={linkRole}>
-                          {LINK_ROLE_LABEL[linkRole]}
+                          {t(LINK_ROLE_LABEL_KEY[linkRole])}
                         </SelectItem>
                       ),
                     )}
@@ -496,7 +493,7 @@ export function CollaborationRoomDialog({
 
             {room && room.members.length > 0 && (
               <div className="flex flex-col gap-2">
-                <Label>成員</Label>
+                <Label>{t("collaboration.members")}</Label>
                 <ul className="flex flex-col gap-2">
                   {room.members.map((member) => (
                     <li
@@ -509,11 +506,11 @@ export function CollaborationRoomDialog({
                         }
                       >
                         {member.name ?? member.userId}
-                        {member.revoked && "（已移除）"}
+                        {member.revoked && t("collaboration.member.revoked")}
                       </span>
                       <span className="flex items-center gap-2">
                         <span className="text-muted-foreground text-xs">
-                          {ROLE_LABEL[member.role]}
+                          {t(ROLE_LABEL_KEY[member.role])}
                         </span>
                         {isOwner && member.role !== "owner" && (
                           <>
@@ -533,8 +530,8 @@ export function CollaborationRoomDialog({
                               }
                             >
                               {member.role === "viewer"
-                                ? "改為可編輯"
-                                : "改為僅檢視"}
+                                ? t("collaboration.member.makeEditor")
+                                : t("collaboration.member.makeViewer")}
                             </Button>
                             {!member.revoked && (
                               <Button
@@ -548,7 +545,7 @@ export function CollaborationRoomDialog({
                                   })
                                 }
                               >
-                                移除
+                                {t("collaboration.member.remove")}
                               </Button>
                             )}
                           </>
@@ -568,15 +565,15 @@ export function CollaborationRoomDialog({
                     disabled={endRoom.isPending}
                     onClick={() => endRoom.mutate({ roomId })}
                   >
-                    結束共編
+                    {t("collaboration.action.end")}
                   </Button>
                   <Button
                     variant="secondary"
                     disabled={rotateGeneration.isPending}
                     onClick={() => rotateGeneration.mutate({ roomId })}
-                    title="讓所有既有 join token 失效，並在新的 room generation 重新開始"
+                    title={t("collaboration.action.rotateTitle")}
                   >
-                    重設 room generation
+                    {t("collaboration.action.rotate")}
                   </Button>
                 </>
               ) : (
@@ -585,7 +582,7 @@ export function CollaborationRoomDialog({
                   disabled={leaveRoom.isPending}
                   onClick={() => leaveRoom.mutate({ roomId })}
                 >
-                  離開共編
+                  {t("collaboration.action.leave")}
                 </Button>
               )}
             </div>

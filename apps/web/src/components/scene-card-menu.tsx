@@ -97,7 +97,7 @@ export function SceneCardMenu({
             size="icon"
             className="bg-background/80 hover:bg-background h-6 w-6"
             onClick={(e) => e.stopPropagation()}
-            aria-label="More options"
+            aria-label={t("menu.moreOptions")}
           >
             <EllipsisVertical className="h-3 w-3" />
           </Button>
