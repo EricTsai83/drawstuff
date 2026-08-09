@@ -3,15 +3,12 @@ import { StorageWarning } from "@/components/storage-warning";
 import { SceneShareDialog } from "@/components/scene-share-dialog";
 import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
 import { DashboardLinkButton } from "@/components/excalidraw/dashboard-link-button";
-import { LibrarySyncStatus } from "@/components/excalidraw/library-sync-status";
-import type { PersonalLibrarySyncStatus } from "@/lib/personal-library-adapter";
 
 type Props = {
   showDashboardShortcut: boolean;
   latestShareableLink?: string | null;
   isShareDialogOpen: boolean;
   onShareDialogOpenChange: (open: boolean) => void;
-  librarySyncStatus: PersonalLibrarySyncStatus;
 };
 
 export function EditorFooter(props: Props) {
@@ -20,7 +17,6 @@ export function EditorFooter(props: Props) {
     latestShareableLink,
     isShareDialogOpen,
     onShareDialogOpenChange,
-    librarySyncStatus,
   } = props;
 
   const { t } = useStandaloneI18n();
@@ -37,7 +33,6 @@ export function EditorFooter(props: Props) {
             "dark:bg-[#232329] dark:hover:bg-[#2d2d38]",
           )}
         />
-        <LibrarySyncStatus status={librarySyncStatus} />
       </div>
 
       {latestShareableLink && (

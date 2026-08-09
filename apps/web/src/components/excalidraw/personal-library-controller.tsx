@@ -14,8 +14,8 @@ type Props = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   userId: string | null;
   isAuthenticationPending: boolean;
-  onStatusChange: (status: PersonalLibrarySyncStatus) => void;
-  onReady: () => void;
+  onStatusChange?: (status: PersonalLibrarySyncStatus) => void;
+  onReady?: () => void;
 };
 
 export function PersonalLibraryController({
@@ -40,12 +40,12 @@ export function PersonalLibraryController({
         get: () => client.personalLibrary.get.query(),
         put: (input) => client.personalLibrary.put.mutate(input),
       },
-      onStatus: (status) => statusCallbackRef.current(status),
+      onStatus: (status) => statusCallbackRef.current?.(status),
     });
   }, [isAuthenticationPending, userId]);
 
   useEffect(() => {
-    onStatusChange(
+    onStatusChange?.(
       isAuthenticationPending
         ? "checking-auth"
         : userId
@@ -62,11 +62,11 @@ export function PersonalLibraryController({
       .then(() => {
         if (!active) return;
         resetApiRef.current = excalidrawAPI;
-        readyCallbackRef.current();
+        readyCallbackRef.current?.();
         setIsMemoryReset(true);
       })
       .catch(() => {
-        if (active) statusCallbackRef.current("error");
+        if (active) statusCallbackRef.current?.("error");
       });
     return () => {
       active = false;
@@ -77,7 +77,7 @@ export function PersonalLibraryController({
     <PersonalLibraryRuntime
       excalidrawAPI={excalidrawAPI}
       adapter={adapter}
-      onInstallError={() => statusCallbackRef.current("error")}
+      onInstallError={() => statusCallbackRef.current?.("error")}
     />
   ) : null;
 }
