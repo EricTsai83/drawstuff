@@ -43,16 +43,16 @@ Use publishing when you want a stable, read-only page that can be opened directl
 
 ## Tech Stack
 
-| Layer | Technology |
-| --- | --- |
-| Framework | Next.js 16, React 19 |
-| Drawing Engine | Excalidraw |
-| API Layer | tRPC v11 |
-| Database | PostgreSQL, Drizzle ORM |
-| Auth | Better Auth, Google OAuth |
-| File Storage | UploadThing |
-| UI | Tailwind CSS v4, Base UI, Sonner |
-| Utilities | Zod, nuqs, date-fns |
+| Layer          | Technology                       |
+| -------------- | -------------------------------- |
+| Framework      | Next.js 16, React 19             |
+| Drawing Engine | Excalidraw                       |
+| API Layer      | tRPC v11                         |
+| Database       | PostgreSQL, Drizzle ORM          |
+| Auth           | Better Auth, Google OAuth        |
+| File Storage   | UploadThing                      |
+| UI             | Tailwind CSS v4, Base UI, Sonner |
+| Utilities      | Zod, nuqs, date-fns              |
 
 ## Project Structure
 
@@ -71,8 +71,8 @@ src/
 
 ### Prerequisites
 
-- Node.js 20+
-- pnpm 10+
+- Node.js 24+
+- pnpm 11+
 - PostgreSQL database
 - UploadThing token
 - Google OAuth credentials
@@ -88,7 +88,7 @@ cd drawstuff
 pnpm install
 
 # Copy environment variables
-cp .env.example .env
+cp apps/web/.env.example apps/web/.env
 
 # Push database schema
 pnpm db:push
@@ -123,11 +123,51 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 # Storage and app config
 UPLOADTHING_TOKEN=your-uploadthing-token
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
+NEXT_PUBLIC_COLLAB_RELAY_URL=ws://localhost:3105
 
 # Maintenance
 CRON_SECRET=strong-random-string
 CLEANUP_OWNER_EMAIL=your.email@example.com
 ```
+
+## First Administrator Setup
+
+Administrative access is stored in PostgreSQL under the immutable Better Auth user ID. Email is
+used only once to locate an email-verified, Google-linked account during bootstrap; normal admin
+authorization never compares email and does not use an `ADMIN_*` environment variable.
+
+For the first deployment:
+
+1. Configure the server environment and apply the schema:
+
+   ```bash
+   pnpm db:push
+   ```
+
+2. Deploy the application, then sign in to that deployment once with the Google account that will
+   become the first operator. The login must happen in the target environment so Better Auth creates
+   its `user` and Google `account` rows in the correct database.
+3. From a trusted machine or protected one-off release job with the same target environment loaded,
+   run:
+
+   ```bash
+   pnpm admin:bootstrap --email operator@example.com
+   ```
+
+4. Verify that the command reports `Granted operator access`. Re-running it for the same account is
+   safe and reports that the operator is already active. Once any active operator exists, bootstrap
+   refuses to grant a different account; later access changes must use the audited `/admin`
+   management interface.
+5. Sign in as that account and open `/admin`. The page performs a server-side grant check before it
+   renders, and every query or mutation repeats the same database-backed authorization check. Use
+   the interface to search accounts; selecting **Manage** opens the dedicated
+   `/admin/users/[userId]` page for grants, room termination, and scene or account retirement.
+   High-risk actions require typing the immutable target ID. Active operators also see an **Admin
+   console** entry in the authenticated Canvas main menu.
+
+Do not expose database credentials to the browser or implement bootstrap as a public endpoint. For
+production schema checks, audit queries, retirement procedures, and recovery guidance, follow the
+[administrative data retirement runbook](./docs/operations/admin-data-retirement.md).
 
 ## Useful Scripts
 
@@ -143,6 +183,7 @@ pnpm format:check
 pnpm format:write
 pnpm db:push
 pnpm db:studio
+pnpm admin:bootstrap --email operator@example.com
 ```
 
 ## Maintenance Endpoint

@@ -104,7 +104,18 @@ remaining object work for the next run.
 
 ## Operator retirement
 
-Owner-scoped deletion is implemented. Cross-user scene, room, and account retirement through the
-same cleanup paths is not yet implemented and is required before public testing; see
-[operator data retirement](../../plans/operator-data-retirement.md). Direct SQL deletion is not an
-acceptable substitute because it bypasses object cleanup, relay shutdown, and audit records.
+Cross-user scene, room, and account retirement uses the same lifecycle services as owner-scoped
+deletion. Scene retirement removes storage objects or records failures in `deferred_file_cleanup`;
+room retirement advances authorization and pushes relay shutdown; account retirement ends owned
+rooms and retires scenes before deleting the Better Auth user row and its relational dependents.
+Direct SQL deletion is not an acceptable substitute because it bypasses those guarantees.
+
+Administrative authorization is DB-backed. Better Auth authenticates the caller, then
+`adminProcedure` requires an active `operator` row in `admin_grant` keyed by the internal user ID.
+Email is used only by the locked, first-admin bootstrap command to locate a verified Google-linked
+account; it is never checked on normal requests. Bootstrap closes after the first active grant.
+
+Each accepted administrative mutation first inserts a `started` row in `admin_audit_event`, then
+marks it `succeeded` or `failed`. Audit rows deliberately have no foreign key to the actor or target,
+so account retirement cannot erase the security record. Operational provisioning and invocation are
+documented in [admin data retirement](../operations/admin-data-retirement.md).

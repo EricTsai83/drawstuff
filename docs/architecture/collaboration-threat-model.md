@@ -140,3 +140,21 @@ Relay metrics and structured logs are implemented. Session-success, browser decr
 snapshot-conflict SLOs currently have a defined privacy-safe carrier contract but no implementation,
 so those three SLO thresholds cannot drive alerts. Telemetry, if added, must use authenticated,
 bounded backend aggregation rather than a new untrusted relay channel.
+
+## Administrative data retirement
+
+Production operators can retire another user's scene, room, or account through a narrowly scoped
+server API. This is intentionally a privileged capability: a compromised operator session could
+destroy user data or terminate live collaboration sessions.
+
+- Better Auth establishes the caller's stable user ID; an active DB-backed `admin_grant` authorizes
+  the operator. Email and client-side UI state are not request-time authorization inputs.
+- Every endpoint uses `adminProcedure`, accepts only a concrete target identifier, and reuses the
+  same lifecycle services as owner-initiated deletion. There is no impersonation or arbitrary-query
+  endpoint.
+- Account retirement cannot target the active administrator and requires the target ID twice.
+- Every accepted operation persists audit intent before execution and records success/failure in
+  `admin_audit_event`, without scene plaintext or room key material. Audit rows survive target
+  account deletion.
+- Storage deletion failures enter `deferred_file_cleanup`; room retirement advances authorization
+  and pushes relay control so existing sessions are closed.
