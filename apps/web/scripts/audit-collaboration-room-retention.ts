@@ -48,14 +48,14 @@ async function main() {
         coalesce(s.bytes, 0)::int as "snapshotBytes",
         coalesce(a.rows, 0)::int as "assetRows",
         coalesce(a.bytes, 0)::int as "assetBytes"
-      from "excalidraw-ericts_collaboration_room" r
+      from "drawstuff_collaboration_room" r
       left join (
         select room_id, count(*) as rows, sum(byte_length) as bytes
-        from "excalidraw-ericts_collaboration_snapshot" group by room_id
+        from "drawstuff_collaboration_snapshot" group by room_id
       ) s on s.room_id = r.room_id
       left join (
         select room_id, count(*) as rows, sum(byte_length) as bytes
-        from "excalidraw-ericts_collaboration_asset" group by room_id
+        from "drawstuff_collaboration_asset" group by room_id
       ) a on a.room_id = r.room_id
       order by r.created_at`;
 
@@ -68,8 +68,7 @@ async function main() {
     const holdsData = (room: RoomRow) =>
       room.snapshotRows > 0 || room.assetRows > 0;
     const pastGrace = (room: RoomRow) =>
-      !isLive(room) &&
-      leftLiveWindowAt(room).getTime() < graceCutoff.getTime();
+      !isLive(room) && leftLiveWindowAt(room).getTime() < graceCutoff.getTime();
     const reclaimable = (room: RoomRow) => pastGrace(room) && holdsData(room);
     // Data-less but still refreshable by the create mutation: retention ends
     // these rather than reclaiming anything from them.
@@ -99,8 +98,8 @@ async function main() {
             rooms.filter((room) => !isLive(room) && holdsData(room)),
           ),
           reclaimablePastGrace: summarize(rooms.filter(reclaimable)),
-          endableEmptyExpiredPastGrace: rooms.filter(endableEmptyExpired)
-            .length,
+          endableEmptyExpiredPastGrace:
+            rooms.filter(endableEmptyExpired).length,
           reclaimableRooms: rooms.filter(reclaimable).map((room) => ({
             roomId: room.roomId,
             status: room.status,

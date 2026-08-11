@@ -8,5 +8,5 @@ export default {
   dbCredentials: {
     url: env.POSTGRES_URL,
   },
-  tablesFilter: ["excalidraw-ericts_*"],
+  tablesFilter: ["drawstuff_*"],
 } satisfies Config;

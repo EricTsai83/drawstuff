@@ -25,7 +25,7 @@ import {
   PERSONAL_LIBRARY_MAX_COMPRESSED_BYTES,
 } from "@/lib/personal-library";
 
-const createTable = pgTableCreator((name) => `excalidraw-ericts_${name}`);
+const createTable = pgTableCreator((name) => `drawstuff_${name}`);
 
 // 自定義 bytea 類型用於儲存二進位資料
 const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
