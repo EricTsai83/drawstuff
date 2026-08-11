@@ -23,7 +23,9 @@
         "POSTGRES_URL_NO_SSL",
         "POSTGRES_USER",
         "SKIP_ENV_VALIDATION",
-        "UPLOADTHING_TOKEN"
+        "UPLOADTHING_TOKEN",
+        "UPSTASH_REDIS_REST_TOKEN",
+        "UPSTASH_REDIS_REST_URL"
       ],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
       "outputs": [".next/**", "!.next/cache/**"]
