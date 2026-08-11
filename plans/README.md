@@ -6,9 +6,7 @@
 
 ## Active plans
 
-1. [Operator data retirement](./operator-data-retirement.md) — `Ready`。提供 scene、room、account
-   三種 admin 清理能力，完整沿用現有 object、room 與 relational lifecycle。
-   Operator retirement 仍是公開測試前置。
+目前沒有 active plan。
 
 ## Completion rule
 
