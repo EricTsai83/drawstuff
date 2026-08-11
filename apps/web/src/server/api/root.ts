@@ -7,6 +7,7 @@ import { workspaceRouter } from "@/server/api/routers/workspace";
 import { sharedSceneRouter } from "@/server/api/routers/shared-scene";
 import { personalLibraryRouter } from "@/server/api/routers/personal-library";
 import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
+import { adminRouter } from "@/server/api/routers/admin";
 
 /**
  * This is the primary router for your server.
@@ -14,6 +15,7 @@ import { createCallerFactory, createTRPCRouter } from "@/server/api/trpc";
  * All routers added in /api/routers should be manually added here.
  */
 export const appRouter = createTRPCRouter({
+  admin: adminRouter,
   category: categoryRouter,
   collaborationAsset: collaborationAssetRouter,
   collaborationRoom: collaborationRoomRouter,

@@ -25,13 +25,13 @@ import {
 import { TRPCError } from "@trpc/server";
 import { QUERIES } from "@/server/db/queries";
 import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
-import { UTApi } from "uploadthing/server";
 import { nanoid } from "nanoid";
 import {
   saveOwnedScene,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
+import { retireScene } from "@/server/admin/retirement";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -399,37 +399,7 @@ export const sceneRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
       }
 
-      const thumbnailKey = await QUERIES.getSceneThumbnailKey(input.id);
-
-      // 2) 收集此場景所有 UploadThing 檔案的 key（場景資產 + 縮圖）
-      const assetKeys = await QUERIES.getFileKeysBySceneIds([input.id]);
-      const allKeys = Array.from(
-        new Set<string>([
-          ...assetKeys,
-          ...(thumbnailKey ? [thumbnailKey] : []),
-        ]),
-      );
-
-      // 3) 嘗試刪除遠端檔案（逐一刪除，錯誤則入延遲清理）
-      if (allKeys.length > 0) {
-        const utapi = new UTApi();
-        for (const key of allKeys) {
-          try {
-            await utapi.deleteFiles([key]);
-          } catch {
-            await QUERIES.enqueueDeferredCleanup({
-              utFileKey: key,
-              reason: "delete-scene",
-              context: { sceneId: input.id },
-            });
-          }
-        }
-      }
-
-      // 4) 刪除場景（連鎖刪除 scene_categories 與 file_record）
-      await ctx.db
-        .delete(scene)
-        .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)));
+      await retireScene({ db: ctx.db, sceneId: input.id });
 
       return { success: true };
     }),

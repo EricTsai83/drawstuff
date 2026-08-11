@@ -11,6 +11,7 @@ import superjson from "superjson";
 import { ZodError } from "zod";
 import { db } from "@/server/db";
 import { type auth } from "@/lib/auth";
+import { getActiveOperatorGrant } from "@/server/admin/access";
 import { rateLimitMetadataOf } from "@/server/rate-limit/collaboration";
 
 type AuthObject = Awaited<ReturnType<typeof auth.api.getSession>>;
@@ -141,3 +142,17 @@ const isAuthed = t.middleware(({ ctx, next }) => {
  * @see https://clerk.com/docs/references/nextjs/trpc
  */
 export const protectedProcedure = t.procedure.use(isAuthed);
+
+const isAdmin = t.middleware(async ({ ctx, next }) => {
+  if (!ctx.auth?.session) {
+    throw new TRPCError({ code: "UNAUTHORIZED" });
+  }
+  const grant = await getActiveOperatorGrant(ctx.db, ctx.auth.user.id);
+  if (!grant) {
+    throw new TRPCError({ code: "FORBIDDEN" });
+  }
+  return next({ ctx: { auth: ctx.auth, adminGrant: grant } });
+});
+
+/** Authenticated procedure restricted to an active durable operator grant. */
+export const adminProcedure = t.procedure.use(isAdmin);

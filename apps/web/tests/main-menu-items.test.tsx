@@ -126,6 +126,19 @@ describe("MenuActionItem wrappers", () => {
 });
 
 describe("SettingsItem", () => {
+  it("aligns with the native item spacing", () => {
+    render(
+      <SettingsItem
+        href="/workspaces/00000000-0000-4000-8000-000000000001/settings"
+        onNavigate={vi.fn()}
+      />,
+    );
+
+    expect(container.firstElementChild?.classList.contains("mt-0!")).toBe(
+      true,
+    );
+  });
+
   it("navigates to workspace settings and closes the native menu", () => {
     const onNavigate = vi.fn();
     render(

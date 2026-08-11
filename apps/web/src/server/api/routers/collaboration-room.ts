@@ -17,7 +17,6 @@ import {
   DEFAULT_ROOM_TTL_MINUTES,
   ensureRoomMembership,
   issueRoomJoinToken,
-  listActiveRoomMemberIds,
   listRoomMembers,
   lockRoom,
   MAX_ROOM_TTL_MINUTES,
@@ -33,6 +32,7 @@ import {
   scene,
 } from "@/server/db/schema";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
+import { endRoom } from "@/server/admin/retirement";
 
 /**
  * Collaboration room lifecycle and authorization API.
@@ -645,41 +645,17 @@ export const collaborationRoomRouter = createTRPCRouter({
   end: protectedProcedure
     .input(z.object({ roomId: roomIdInput }))
     .mutation(async ({ ctx, input }) => {
-      const now = new Date();
-      const {
-        room,
-        memberCount,
-        authRevision: revisionAfterEnd,
-      } = await withLockedOwnedRoom(
-        ctx.db,
-        { roomId: input.roomId, userId: ctx.auth.user.id, now },
-        async (tx, lockedRoom) => {
-          await tx
-            .update(collaborationRoom)
-            .set({ status: "ended", endedAt: now, updatedAt: now })
-            .where(eq(collaborationRoom.roomId, lockedRoom.roomId));
-          // Membership rows stay as the room's history; the room is closed.
-          const active = await listActiveRoomMemberIds(tx, lockedRoom.roomId);
-          return {
-            room: lockedRoom,
-            memberCount: active.length,
-            authRevision: await bumpRoomAuthRevision(tx, lockedRoom, now),
-          };
-        },
-      );
-      // Only the current generation can hold members: every rotation ends the
-      // generation it left behind, and the lock above kept this read current.
-      const relay = await pushRelayRoomControl({
-        action: "end-room",
-        roomId: room.roomId,
-        authGeneration: room.authGeneration,
-        authRevision: revisionAfterEnd,
-        now,
+      const result = await endRoom({
+        db: ctx.db,
+        roomId: input.roomId,
+        ownerUserId: ctx.auth.user.id,
       });
+      if (!result.found)
+        throw new TRPCError({ code: "NOT_FOUND", message: "Room not found." });
       return {
         ended: true,
-        memberCount,
-        relayEnforced: relay.enforced,
+        memberCount: result.memberCount,
+        relayEnforced: result.relayEnforced,
       };
     }),
 });
