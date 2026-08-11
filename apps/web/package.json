@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "admin:bootstrap": "node --env-file-if-exists=.env --import tsx scripts/bootstrap-admin.ts",
     "build": "next build",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
@@ -24,6 +25,8 @@
   "knip": {
     "entry": [
       "scripts/audit-collaboration-room-retention.ts",
+      "scripts/bootstrap-admin.ts",
+      "src/server/admin/bootstrap.ts",
       "scripts/audit-scene-asset-references.ts",
       "scripts/measure-excalidraw-baseline.ts",
       "tests/e2e/**/*.ts",

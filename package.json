@@ -5,6 +5,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "admin:bootstrap": "pnpm --filter @drawstuff/web admin:bootstrap",
     "audit:ci": "pnpm audit --prod --audit-level=low",
     "baseline:performance": "pnpm --filter @drawstuff/web baseline:performance",
     "baseline:performance:e2e": "pnpm --filter @drawstuff/web baseline:performance:e2e",

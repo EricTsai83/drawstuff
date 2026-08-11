@@ -43,6 +43,7 @@ import { WorkspaceSwitcherItem } from "./main-menu/workspace-switcher-item";
 import { routes } from "@/lib/routes";
 import type { CanvasProductActions } from "./canvas-product-actions";
 import { ProductActionsItems } from "./main-menu/product-actions-items";
+import { AdminLinkItem } from "./main-menu/admin-link-item";
 
 type AppMainMenuProps = {
   userChosenTheme: UserChosenTheme;
@@ -103,6 +104,14 @@ function AppMainMenu({
     string | undefined
   >(undefined);
   const { data: session } = authClient.useSession();
+  const { data: adminAccess } = api.admin.access.useQuery(
+    { userId: session?.user.id ?? "" },
+    {
+      enabled: Boolean(session?.user.id),
+      retry: false,
+      staleTime: 60_000,
+    },
+  );
   const { uploadSceneToCloud, clearCurrentScene, currentSceneId } =
     useCloudUpload(() => {
       // 若找不到場景（理論上新建時不會），忽略
@@ -304,6 +313,9 @@ function AppMainMenu({
               }
               onNavigate={closeMenu}
             />
+          )}
+          {session && adminAccess?.isOperator && (
+            <AdminLinkItem onNavigate={closeMenu} />
           )}
           <MainMenu.Separator />
           <AccountItem user={session?.user ?? null} onSignOut={handleSignOut} />

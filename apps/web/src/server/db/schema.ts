@@ -10,6 +10,7 @@ import {
   check,
   primaryKey,
   uniqueIndex,
+  foreignKey,
 } from "drizzle-orm/pg-core";
 import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
@@ -133,6 +134,61 @@ export const account = createTable("account", {
   updatedAt: timestamp("updated_at").notNull(),
 });
 
+/** Durable privileged-role assignment. Email is never an authorization key. */
+export const adminGrant = createTable(
+  "admin_grant",
+  {
+    userId: text("user_id")
+      .primaryKey()
+      .references(() => user.id, { onDelete: "cascade" }),
+    role: varchar("role", { length: 32 }).default("operator").notNull(),
+    grantSource: varchar("grant_source", { length: 32 }).notNull(),
+    grantedByUserId: text("granted_by_user_id").references(() => user.id, {
+      onDelete: "set null",
+    }),
+    grantedAt: timestamp("granted_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    revokedAt: timestamp("revoked_at"),
+  },
+  (table) => [
+    index("admin_grant_active_idx").on(table.role, table.revokedAt),
+    check("admin_grant_role_supported", sql`${table.role} = 'operator'`),
+    check(
+      "admin_grant_source_supported",
+      sql`${table.grantSource} in ('bootstrap', 'operator')`,
+    ),
+  ],
+);
+
+/** Append-oriented security audit retained independently of a deleted target account. */
+export const adminAuditEvent = createTable(
+  "admin_audit_event",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    actorUserId: text("actor_user_id"),
+    action: varchar("action", { length: 64 }).notNull(),
+    targetType: varchar("target_type", { length: 32 }).notNull(),
+    targetId: text("target_id").notNull(),
+    status: varchar("status", { length: 16 }).default("started").notNull(),
+    error: text("error"),
+    occurredAt: timestamp("occurred_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    completedAt: timestamp("completed_at"),
+  },
+  (table) => [
+    index("admin_audit_actor_time_idx").on(table.actorUserId, table.occurredAt),
+    index("admin_audit_target_idx").on(table.targetType, table.targetId),
+    check(
+      "admin_audit_status_supported",
+      sql`${table.status} in ('started', 'succeeded', 'failed')`,
+    ),
+  ],
+);
+
 export const verification = createTable("verification", {
   id: text("id").primaryKey(),
   identifier: text("identifier").notNull(),
@@ -178,14 +234,17 @@ export const userDefaultWorkspace = createTable(
     userId: text("user_id")
       .primaryKey()
       .references(() => user.id, { onDelete: "cascade" }),
-    workspaceId: uuid("workspace_id")
-      .notNull()
-      .references(() => workspace.id, { onDelete: "restrict" }),
+    workspaceId: uuid("workspace_id").notNull(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
   },
   (table) => [
+    foreignKey({
+      name: "default_workspace_workspace_fk",
+      columns: [table.workspaceId],
+      foreignColumns: [workspace.id],
+    }).onDelete("restrict"),
     index("user_default_workspace_user_id_idx").on(table.userId),
     index("user_default_workspace_workspace_id_idx").on(table.workspaceId),
   ],
@@ -195,17 +254,23 @@ export const userDefaultWorkspace = createTable(
 export const userLastActiveWorkspace = createTable(
   "user_last_active_workspace",
   {
-    userId: text("user_id")
-      .primaryKey()
-      .references(() => user.id, { onDelete: "cascade" }),
-    workspaceId: uuid("workspace_id")
-      .notNull()
-      .references(() => workspace.id, { onDelete: "restrict" }),
+    userId: text("user_id").primaryKey(),
+    workspaceId: uuid("workspace_id").notNull(),
     updatedAt: timestamp("updated_at")
       .$defaultFn(() => new Date())
       .notNull(),
   },
   (table) => [
+    foreignKey({
+      name: "last_workspace_user_fk",
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "last_workspace_workspace_fk",
+      columns: [table.workspaceId],
+      foreignColumns: [workspace.id],
+    }).onDelete("restrict"),
     index("user_last_active_workspace_user_id_idx").on(table.userId),
     index("user_last_active_workspace_workspace_id_idx").on(table.workspaceId),
   ],
@@ -410,12 +475,8 @@ export const collaborationRoomMember = createTable(
     id: uuid("id")
       .primaryKey()
       .$defaultFn(() => crypto.randomUUID()),
-    roomId: varchar("room_id", { length: 64 })
-      .notNull()
-      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
-    userId: text("user_id")
-      .notNull()
-      .references(() => user.id, { onDelete: "cascade" }),
+    roomId: varchar("room_id", { length: 64 }).notNull(),
+    userId: text("user_id").notNull(),
     role: varchar("role", { length: 16 }).notNull(),
     revokedAt: timestamp("revoked_at"),
     createdAt: timestamp("created_at")
@@ -426,6 +487,16 @@ export const collaborationRoomMember = createTable(
       .notNull(),
   },
   (table) => [
+    foreignKey({
+      name: "collab_member_room_fk",
+      columns: [table.roomId],
+      foreignColumns: [collaborationRoom.roomId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "collab_member_user_fk",
+      columns: [table.userId],
+      foreignColumns: [user.id],
+    }).onDelete("cascade"),
     // join 時是 (room, user) 單筆查詢；唯一索引同時擋掉重複 membership。
     uniqueIndex("collaboration_room_member_room_user_unique").on(
       table.roomId,
@@ -459,9 +530,7 @@ export const collaborationRoomMember = createTable(
 export const collaborationSnapshot = createTable(
   "collaboration_snapshot",
   {
-    roomId: varchar("room_id", { length: 64 })
-      .notNull()
-      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
+    roomId: varchar("room_id", { length: 64 }).notNull(),
     authGeneration: integer("auth_generation").notNull(),
     /** 每次成功寫入 +1；conditional write 用它擋掉舊 snapshot 覆寫新 snapshot。 */
     revision: integer("revision").notNull(),
@@ -473,9 +542,7 @@ export const collaborationSnapshot = createTable(
     /** 密文的 SHA-256 hex：偵測儲存層損壞，不洩漏明文資訊。 */
     checksum: varchar("checksum", { length: 64 }).notNull(),
     /** 最後一次成功寫入的成員；成員被刪除時保留 snapshot。 */
-    updatedBy: text("updated_by").references(() => user.id, {
-      onDelete: "set null",
-    }),
+    updatedBy: text("updated_by"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -484,6 +551,16 @@ export const collaborationSnapshot = createTable(
       .notNull(),
   },
   (table) => [
+    foreignKey({
+      name: "collab_snapshot_room_fk",
+      columns: [table.roomId],
+      foreignColumns: [collaborationRoom.roomId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "collab_snapshot_updated_by_fk",
+      columns: [table.updatedBy],
+      foreignColumns: [user.id],
+    }).onDelete("set null"),
     primaryKey({
       name: "collaboration_snapshot_room_generation_pk",
       columns: [table.roomId, table.authGeneration],
@@ -550,9 +627,7 @@ export const collaborationSnapshot = createTable(
 export const collaborationAsset = createTable(
   "collaboration_asset",
   {
-    roomId: varchar("room_id", { length: 64 })
-      .notNull()
-      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
+    roomId: varchar("room_id", { length: 64 }).notNull(),
     authGeneration: integer("auth_generation").notNull(),
     /** 不可變的 Excalidraw file id；在 (room, generation) 內唯一。 */
     excalidrawFileId: varchar("excalidraw_file_id", { length: 64 }).notNull(),
@@ -568,14 +643,22 @@ export const collaborationAsset = createTable(
     /** 密文長度；下載前的上界檢查，且與 `MAX_ASSET_CIPHERTEXT_BYTES` 一起設限。 */
     byteLength: integer("byte_length").notNull(),
     /** 上傳者；成員被刪除時保留資產（身份與上傳者無關）。 */
-    registeredBy: text("registered_by").references(() => user.id, {
-      onDelete: "set null",
-    }),
+    registeredBy: text("registered_by"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
   },
   (table) => [
+    foreignKey({
+      name: "collab_asset_room_fk",
+      columns: [table.roomId],
+      foreignColumns: [collaborationRoom.roomId],
+    }).onDelete("cascade"),
+    foreignKey({
+      name: "collab_asset_registered_by_fk",
+      columns: [table.registeredBy],
+      foreignColumns: [user.id],
+    }).onDelete("set null"),
     primaryKey({
       name: "collaboration_asset_room_generation_file_pk",
       columns: [table.roomId, table.authGeneration, table.excalidrawFileId],
@@ -658,12 +741,7 @@ export const fileRecord = createTable(
     sceneId: uuid("scene_id").references(() => scene.id, {
       onDelete: "cascade",
     }),
-    sharedSceneId: text("shared_scene_id").references(
-      () => sharedScene.sharedSceneId,
-      {
-        onDelete: "cascade",
-      },
-    ),
+    sharedSceneId: text("shared_scene_id"),
     // 文件相關信息
     ownerId: varchar("owner_id", { length: 256 }),
     utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
@@ -680,6 +758,11 @@ export const fileRecord = createTable(
       .notNull(),
   },
   (table) => [
+    foreignKey({
+      name: "file_record_shared_scene_fk",
+      columns: [table.sharedSceneId],
+      foreignColumns: [sharedScene.sharedSceneId],
+    }).onDelete("cascade"),
     index("file_record_scene_id_idx").on(table.sceneId),
     index("file_record_shared_scene_id_idx").on(table.sharedSceneId),
     index("file_record_owner_id_idx").on(table.ownerId),
@@ -926,6 +1009,8 @@ export const fileRecordRelations = relations(fileRecord, ({ one }) => ({
 
 export const schema = {
   user,
+  adminGrant,
+  adminAuditEvent,
   personalLibrary,
   session,
   account,

@@ -15,7 +15,7 @@ export function SettingsItem({
   const { t } = useAppI18n();
 
   return (
-    <MainMenu.ItemCustom>
+    <MainMenu.ItemCustom className="mt-0!">
       {href ? (
         <Link
           href={href}

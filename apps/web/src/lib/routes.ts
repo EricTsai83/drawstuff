@@ -1,4 +1,5 @@
 export const routes = {
+  admin: "/admin",
   canvas: "/",
   dashboard(workspaceId?: string): string {
     if (!workspaceId) return "/dashboard";
