@@ -28,7 +28,7 @@ async function main() {
   try {
     const scenes = await sql<
       { id: string; sceneData: string | null }[]
-    >`select id, scene_data as "sceneData" from "excalidraw-ericts_scene"`;
+    >`select id, scene_data as "sceneData" from "drawstuff_scene"`;
     type AssetRecord = {
       sceneId: string;
       excalidrawFileId: string;
@@ -40,7 +40,7 @@ async function main() {
       AssetRecord[]
     >`select scene_id as "sceneId", excalidraw_file_id as "excalidrawFileId",
              ut_file_key as "utFileKey", size, created_at as "createdAt"
-      from "excalidraw-ericts_file_record" where scene_id is not null`;
+      from "drawstuff_file_record" where scene_id is not null`;
 
     const recordsByScene = new Map<string, AssetRecord[]>();
     for (const record of records) {
