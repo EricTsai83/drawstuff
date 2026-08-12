@@ -1,7 +1,4 @@
-import type {
-  MessageChannel,
-  PeerId,
-} from "@drawstuff/collaboration/protocol";
+import type { MessageChannel, PeerId } from "@drawstuff/collaboration/protocol";
 import type { RelayPeer } from "@drawstuff/collaboration/relay-protocol";
 import type {
   RoomChannelKey,

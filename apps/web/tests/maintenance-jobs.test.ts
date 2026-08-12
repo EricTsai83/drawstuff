@@ -328,7 +328,6 @@ describe("unreferenced asset GC", () => {
     expect(detail).toMatchObject({ deletedRecords: 1, truncated: true });
     expect(await recordKeys(sceneId)).toHaveLength(1);
   });
-
 });
 
 describe("bounded queue drain", () => {
@@ -528,7 +527,11 @@ describe("collab room retention", () => {
       expiresAt: new Date(Date.now() + 12 * HOUR_MS),
       endedAt: new Date(Date.now() - HOUR_MS),
     });
-    for (const roomId of ["room-live", "room-just-expired", "room-just-ended"]) {
+    for (const roomId of [
+      "room-live",
+      "room-just-expired",
+      "room-just-ended",
+    ]) {
       await insertSnapshot(roomId);
       await insertAsset(roomId, FILE_A, `${roomId}-key`);
     }
@@ -538,7 +541,11 @@ describe("collab room retention", () => {
 
     expect(detail).toMatchObject({ roomsReclaimed: 0, enqueuedObjects: 0 });
     expect(deletedKeys).toEqual([]);
-    for (const roomId of ["room-live", "room-just-expired", "room-just-ended"]) {
+    for (const roomId of [
+      "room-live",
+      "room-just-expired",
+      "room-just-ended",
+    ]) {
       expect(await snapshotCount(roomId)).toBe(1);
       expect(await assetCount(roomId)).toBe(1);
     }
@@ -633,7 +640,10 @@ describe("collab room retention", () => {
     // run must not enqueue more than that drain can take. Rooms are processed
     // whole; the first room may exceed the budget alone (per-room rows are
     // schema-bounded) rather than starve forever.
-    for (const [index, roomId] of ["room-budget-1", "room-budget-2"].entries()) {
+    for (const [index, roomId] of [
+      "room-budget-1",
+      "room-budget-2",
+    ].entries()) {
       await insertRoom({
         roomId,
         status: "ended",
@@ -651,7 +661,9 @@ describe("collab room retention", () => {
     const { deps } = makeDeps();
     // Budget of 1 < first room's 2 assets: the first room is still reclaimed
     // whole, the second is deferred and the run reports truncation.
-    const first = await createRoomRetentionJob({ maxAssetObjects: 1 }).run(deps);
+    const first = await createRoomRetentionJob({ maxAssetObjects: 1 }).run(
+      deps,
+    );
     expect(first).toMatchObject({
       roomsReclaimed: 1,
       enqueuedObjects: 2,
@@ -690,7 +702,9 @@ describe("collab room retention", () => {
     // Rerunnable: the next run picks up what the cap left behind.
     const second = await createRoomRetentionJob({ maxRooms: 1 }).run(deps);
     expect(second).toMatchObject({ roomsReclaimed: 1, truncated: false });
-    expect((await snapshotCount("room-cap-1")) + (await snapshotCount("room-cap-2"))).toBe(0);
+    expect(
+      (await snapshotCount("room-cap-1")) + (await snapshotCount("room-cap-2")),
+    ).toBe(0);
   });
 });
 

@@ -46,11 +46,7 @@ export function ErrorPage({ error, reset }: ErrorPageProps) {
         </p>
 
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
-          <Button
-            type="button"
-            onClick={reset}
-            className="w-full sm:w-auto"
-          >
+          <Button type="button" onClick={reset} className="w-full sm:w-auto">
             <RefreshCw data-icon="inline-start" aria-hidden="true" />
             {t("errorPage.retry")}
           </Button>

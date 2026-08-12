@@ -256,10 +256,7 @@ describe("collaboration room join tokens", () => {
     });
 
     expect(joined.role).toBe("viewer");
-    expect(
-      claimsOf(joined.token, { roomId: room.roomId })
-        .role,
-    ).toBe("viewer");
+    expect(claimsOf(joined.token, { roomId: room.roomId }).role).toBe("viewer");
     const room2 = await callerFor(OWNER).collaborationRoom.get({
       roomId: room.roomId,
     });
