@@ -169,7 +169,10 @@ export async function verifyRoomKeyCheck(options: {
       {
         name: "AES-GCM",
         iv: asBufferSource(
-          ciphertext.subarray(VERSION_BYTES, VERSION_BYTES + REALTIME_NONCE_BYTES),
+          ciphertext.subarray(
+            VERSION_BYTES,
+            VERSION_BYTES + REALTIME_NONCE_BYTES,
+          ),
         ),
         additionalData: additionalDataFor(options),
       },

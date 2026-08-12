@@ -345,7 +345,11 @@ export type RoomRetentionOptions = {
 export function createRoomRetentionJob(
   options: RoomRetentionOptions = {},
 ): MaintenanceJob {
-  const { graceMs = 7 * DAY_MS, maxRooms = 50, maxAssetObjects = 400 } = options;
+  const {
+    graceMs = 7 * DAY_MS,
+    maxRooms = 50,
+    maxAssetObjects = 400,
+  } = options;
   return {
     name: "collab-room-retention",
     run: async (deps) => {
@@ -401,7 +405,13 @@ export function createRoomRetentionJob(
       let budgetExhausted = false;
 
       type ReclaimOutcome =
-        | { kind: "reclaimed"; wasExpiredActive: boolean; snapshots: number; snapshotBytes: number; assets: number }
+        | {
+            kind: "reclaimed";
+            wasExpiredActive: boolean;
+            snapshots: number;
+            snapshotBytes: number;
+            assets: number;
+          }
         /** Would push the run past the object budget; left for the next run. */
         | { kind: "deferred" };
 
@@ -545,7 +555,12 @@ export type QueueDrainOptions = {
 export function createQueueDrainJob(
   options: QueueDrainOptions = {},
 ): MaintenanceJob {
-  const { batchSize = 50, maxTasks = 500, budgetMs = 60_000, deadlineAt } = options;
+  const {
+    batchSize = 50,
+    maxTasks = 500,
+    budgetMs = 60_000,
+    deadlineAt,
+  } = options;
   return {
     name: "drain-cleanup-queue",
     run: async (deps) => {
@@ -565,7 +580,8 @@ export function createQueueDrainJob(
           exhaustedBudget = true;
           break;
         }
-        const remainingAllowance = maxTasks - (processed + rescheduled + failed);
+        const remainingAllowance =
+          maxTasks - (processed + rescheduled + failed);
         const tasks = await QUERIES.getDueDeferredCleanups(
           Math.min(batchSize, remainingAllowance),
           deps.now(),

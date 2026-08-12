@@ -134,9 +134,7 @@ describe("SettingsItem", () => {
       />,
     );
 
-    expect(container.firstElementChild?.classList.contains("mt-0!")).toBe(
-      true,
-    );
+    expect(container.firstElementChild?.classList.contains("mt-0!")).toBe(true);
   });
 
   it("navigates to workspace settings and closes the native menu", () => {
