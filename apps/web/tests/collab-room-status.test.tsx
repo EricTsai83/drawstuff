@@ -608,6 +608,39 @@ describe("the first join being rate limited", () => {
     return error;
   };
 
+  /**
+   * Lets the real Web Crypto key check finish before fake timers take over.
+   *
+   * Crypto completion is an event-loop task rather than a timer or microtask,
+   * so advancing a fake clock an arbitrary number of zero-length ticks can
+   * still leave the hook before its first join on a busy CI runner. Holding the
+   * first mutation open gives us a deterministic handoff: once it is called,
+   * install the fake clock, reject it, and let the hook schedule the retry on
+   * that clock.
+   */
+  const enterRateLimitedWait = async (
+    error: TRPCClientError<never>,
+  ): Promise<void> => {
+    let rejectFirstJoin: ((reason?: unknown) => void) | undefined;
+    joinMutate.mockImplementationOnce(
+      () =>
+        new Promise<never>((_resolve, reject) => {
+          rejectFirstJoin = reject;
+        }),
+    );
+
+    await renderProbe();
+    await waitFor(() => rejectFirstJoin !== undefined);
+    const rejectJoin = rejectFirstJoin;
+    if (!rejectJoin) throw new Error("join mutation was never started");
+
+    vi.useFakeTimers();
+    await act(async () => {
+      rejectJoin(error);
+      await vi.advanceTimersByTimeAsync(0);
+    });
+  };
+
   it("waits out one refusal and then joins, never reporting unauthorized", async () => {
     const seen: (string | undefined)[] = [];
     // A short deadline so this one runs on the real clock, end to end through
@@ -626,16 +659,8 @@ describe("the first join being rate limited", () => {
   });
 
   it("does not re-join before the server's stated reset", async () => {
-    vi.useFakeTimers();
     try {
-      joinMutate.mockRejectedValueOnce(rateLimited());
-      await renderProbe();
-      // Drain the join chain up to the wait without letting the clock move.
-      for (let tick = 0; tick < 20; tick += 1) {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(0);
-        });
-      }
+      await enterRateLimitedWait(rateLimited());
       expect(joinMutate).toHaveBeenCalledTimes(1);
 
       await act(async () => {
@@ -654,10 +679,9 @@ describe("the first join being rate limited", () => {
 
   it("gives up after a bounded number of attempts, as rate-limited not unauthorized", async () => {
     joinMutate.mockRejectedValue(rateLimited());
-    vi.useFakeTimers();
     try {
-      await renderProbe();
-      for (let round = 0; round < 6; round += 1) {
+      await enterRateLimitedWait(rateLimited());
+      for (let attempt = 1; attempt < MAX_INITIAL_JOIN_ATTEMPTS; attempt += 1) {
         await act(async () => {
           await vi.advanceTimersByTimeAsync(RETRY_AFTER_MS);
         });
@@ -680,14 +704,8 @@ describe("the first join being rate limited", () => {
 
   it("issues no further join once the component is torn down mid-wait", async () => {
     joinMutate.mockRejectedValue(rateLimited());
-    vi.useFakeTimers();
     try {
-      await renderProbe();
-      for (let tick = 0; tick < 20; tick += 1) {
-        await act(async () => {
-          await vi.advanceTimersByTimeAsync(0);
-        });
-      }
+      await enterRateLimitedWait(rateLimited());
       expect(joinMutate).toHaveBeenCalledTimes(1);
 
       unmountRoom();
