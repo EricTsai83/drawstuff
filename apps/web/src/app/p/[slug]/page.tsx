@@ -1,9 +1,15 @@
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
+import { cache } from "react";
 import PublishedSceneViewerWrapper from "@/components/excalidraw/published-scene-viewer-wrapper";
 import { api } from "@/trpc/server";
 
 export const dynamic = "force-dynamic";
+
+// generateMetadata 與 page 在同一個 request 各查一次，以 React cache 去重
+const getPublishedScene = cache((slug: string) =>
+  api.scene.getPublishedSceneBySlug({ slug }),
+);
 
 type PublishedScenePageProps = {
   params: Promise<{
@@ -15,7 +21,7 @@ export async function generateMetadata({
   params,
 }: PublishedScenePageProps): Promise<Metadata> {
   const { slug } = await params;
-  const scene = await api.scene.getPublishedSceneBySlug({ slug });
+  const scene = await getPublishedScene(slug);
 
   if (!scene) {
     return { title: "Not Found" };
@@ -52,7 +58,7 @@ export default async function PublishedScenePage({
   params,
 }: PublishedScenePageProps) {
   const { slug } = await params;
-  const scene = await api.scene.getPublishedSceneBySlug({ slug });
+  const scene = await getPublishedScene(slug);
 
   if (!scene) {
     notFound();

@@ -37,16 +37,10 @@ export function useSceneExport() {
   const { startUpload: startSharedUpload } = useUploadThing(
     "sharedSceneFileUploader",
     {
-      onClientUploadComplete: async (res) => {
-        console.log("Files uploaded successfully!", res);
-      },
       onUploadError: (error) => {
         console.error("Error occurred while uploading files", error);
         setExportErrorMessage(t("errors.failedToExportScene"));
         setExportStatus("error");
-      },
-      onUploadBegin: (fileName) => {
-        console.log("Upload has begun for", fileName);
       },
     },
   );
@@ -164,7 +158,6 @@ export function useSceneExport() {
 
         setLatestShareableLink(shareableUrlString);
         setExportStatus("success");
-        console.log("Scene exported successfully:", result.sharedSceneId);
         return shareableUrlString;
       } catch (error) {
         console.error("Error during scene export:", error);

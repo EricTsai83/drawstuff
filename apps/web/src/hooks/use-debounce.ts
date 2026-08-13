@@ -1,6 +1,6 @@
 import { useCallback, useRef } from "react";
 
-export function useDebounce<T extends (...args: any[]) => void>(
+export function useDebounce<T extends (...args: never[]) => void>(
   fn: T,
   delay: number,
 ) {

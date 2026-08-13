@@ -153,6 +153,7 @@ export const sceneRouter = createTRPCRouter({
         categoryId: z.uuid().optional(),
         search: z.string().optional(),
         archived: z.boolean().default(false),
+        isPublished: z.boolean().optional(),
       }),
     )
     .output(
@@ -190,6 +191,9 @@ export const sceneRouter = createTRPCRouter({
       if (input.workspaceId) {
         whereClauses.push(eq(scene.workspaceId, input.workspaceId));
       }
+      if (input.isPublished !== undefined) {
+        whereClauses.push(eq(scene.isPublished, input.isPublished));
+      }
       // 注意：relational query 的 where 會把內嵌 sql 中其他表的欄位重寫成主表
       // alias（造成 "scene"."category_id" 這類錯誤欄位），因此跨表條件一律用
       // query builder 子查詢表達，讓子查詢維持自己的 alias context。
@@ -208,7 +212,12 @@ export const sceneRouter = createTRPCRouter({
 
       const normalizedSearch = normalizeSearchTerm(input.search);
       if (normalizedSearch) {
-        const pattern = `%${normalizedSearch}%`;
+        // 跳脫 LIKE 萬用字元（Postgres 預設 escape 為反斜線），維持字面比對語意
+        const escapedSearch = normalizedSearch.replace(
+          /[\\%_]/g,
+          (char) => `\\${char}`,
+        );
+        const pattern = `%${escapedSearch}%`;
         whereClauses.push(
           or(
             ilike(scene.name, pattern),

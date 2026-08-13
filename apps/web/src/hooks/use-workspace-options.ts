@@ -16,6 +16,9 @@ type UseWorkspaceOptionsParams = {
   staleTimeMs?: number;
 };
 
+// module-level 常數：查詢尚未回來時回傳穩定 identity，避免每 render 產生新陣列
+const EMPTY_WORKSPACES: WorkspaceOption[] = [];
+
 export function useWorkspaceOptions(params: UseWorkspaceOptionsParams = {}) {
   const { data: session } = authClient.useSession();
   const isAuthenticated = !!session;
@@ -37,7 +40,8 @@ export function useWorkspaceOptions(params: UseWorkspaceOptionsParams = {}) {
   const lastActiveWorkspaceId =
     workspacesData?.lastActiveWorkspaceId ?? undefined;
 
-  const workspaces: WorkspaceOption[] = workspacesData?.workspaces ?? [];
+  const workspaces: WorkspaceOption[] =
+    workspacesData?.workspaces ?? EMPTY_WORKSPACES;
 
   return {
     workspaces,

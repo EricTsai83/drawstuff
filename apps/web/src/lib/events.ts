@@ -46,3 +46,14 @@ export function dispatchLanguageChange(detail: LanguageChangeDetail): void {
   if (typeof window === "undefined") return;
   window.dispatchEvent(new CustomEvent(LANGUAGE_CHANGE_EVENT, { detail }));
 }
+
+/**
+ * 場景寫入 localStorage 後派發的事件，讓 storage 用量顯示等 listener
+ * 以事件驅動重算，取代常駐輪詢。
+ */
+export const LOCAL_SCENE_SAVED_EVENT = "exc:local-scene-saved" as const;
+
+export function dispatchLocalSceneSaved(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(new CustomEvent(LOCAL_SCENE_SAVED_EVENT));
+}
