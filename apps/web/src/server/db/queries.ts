@@ -1,4 +1,14 @@
-import { eq, and, lte, lt, inArray, isNotNull, count } from "drizzle-orm";
+import {
+  eq,
+  and,
+  or,
+  lte,
+  lt,
+  inArray,
+  isNull,
+  isNotNull,
+  count,
+} from "drizzle-orm";
 import { db } from "./index";
 import {
   scene,
@@ -30,10 +40,17 @@ export const QUERIES = {
     return row?.thumbnailFileKey ?? undefined;
   },
 
-  // 更新場景縮圖（URL 與 file key）
+  // 條件更新場景縮圖：只在縮圖仍是呼叫端讀到的 key（或尚未設定）時生效。
+  // 讀 key 與寫 key 是兩個 statement，沒有 CAS 的話兩個並發上傳交錯會讓
+  // 其中一個新 key 永久孤兒（縮圖沒有 GC 兜底）；落敗方（回傳空陣列）由
+  // 呼叫端回收自己剛上傳的物件。
   updateSceneThumbnail: async function (
     id: string,
-    args: { thumbnailUrl: string; thumbnailFileKey: string },
+    args: {
+      thumbnailUrl: string;
+      thumbnailFileKey: string;
+      expectedThumbnailFileKey: string | null;
+    },
   ) {
     return await db
       .update(scene)
@@ -43,7 +60,17 @@ export const QUERIES = {
         lastUpdated: new Date(),
         updatedAt: new Date(),
       })
-      .where(eq(scene.id, id))
+      .where(
+        and(
+          eq(scene.id, id),
+          args.expectedThumbnailFileKey === null
+            ? isNull(scene.thumbnailFileKey)
+            : or(
+                isNull(scene.thumbnailFileKey),
+                eq(scene.thumbnailFileKey, args.expectedThumbnailFileKey),
+              ),
+        ),
+      )
       .returning();
   },
 
@@ -237,36 +264,6 @@ export const QUERIES = {
       .from(scene)
       .where(inArray(scene.userId, userIds));
     return rows.map((r) => r.id);
-  },
-
-  // 清理前置：取得多位使用者的場景縮圖 key（非空）
-  getSceneThumbnailKeysByUserIds: async function (userIds: string[]) {
-    if (userIds.length === 0) return [] as string[];
-    const rows = await db
-      .select({ key: scene.thumbnailFileKey })
-      .from(scene)
-      .where(inArray(scene.userId, userIds));
-    return rows.map((r) => r.key).filter((k): k is string => !!k);
-  },
-
-  // 清理前置：依 ownerIds 取得 file_record 的 utFileKey
-  getFileKeysByOwnerIds: async function (ownerIds: string[]) {
-    if (ownerIds.length === 0) return [] as string[];
-    const rows = await db
-      .select({ key: fileRecord.utFileKey })
-      .from(fileRecord)
-      .where(inArray(fileRecord.ownerId, ownerIds));
-    return rows.map((r) => r.key);
-  },
-
-  // 清理前置：依 sceneIds 取得 file_record 的 utFileKey
-  getFileKeysBySceneIds: async function (sceneIds: string[]) {
-    if (sceneIds.length === 0) return [] as string[];
-    const rows = await db
-      .select({ key: fileRecord.utFileKey })
-      .from(fileRecord)
-      .where(inArray(fileRecord.sceneId, sceneIds));
-    return rows.map((r) => r.key);
   },
 
   // 清理：取得早於指定時間的 sharedScene IDs

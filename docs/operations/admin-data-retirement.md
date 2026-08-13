@@ -99,8 +99,9 @@ target ID to be typed before submission. The underlying audited procedures are:
 
 Account retirement rejects the currently authenticated administrator. Do not replace these calls
 with SQL deletion. After an operation, verify its `admin_audit_event` status and inspect
-`deferred_file_cleanup` for storage work awaiting retry. For room operations, also confirm relay
-enforcement was reported.
+`deferred_file_cleanup` for the enqueued storage keys — retirement never deletes storage objects
+inline; routine maintenance's bounded queue drain deletes them. For room operations, also confirm
+relay enforcement was reported.
 
 Granting requires an existing, email-verified Better Auth account linked to Google. Operators
 cannot revoke themselves; another active operator must perform the revocation, preventing an

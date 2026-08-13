@@ -6,10 +6,15 @@ import {
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { and, eq } from "drizzle-orm";
 import {
+  scene,
   workspace,
   userDefaultWorkspace,
   userLastActiveWorkspace,
 } from "@/server/db/schema";
+import {
+  collectSceneStorageKeys,
+  enqueueStorageKeyCleanup,
+} from "@/server/storage/reclaim";
 import { TRPCError } from "@trpc/server";
 
 export const workspaceRouter = createTRPCRouter({
@@ -306,36 +311,70 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
-      // 若 lastActive 指向此 workspace，事先調整
-      if (lastActiveMapping?.workspaceId === input.id) {
-        if (
-          defaultMapping?.workspaceId &&
-          defaultMapping.workspaceId !== input.id
-        ) {
-          await ctx.db
-            .insert(userLastActiveWorkspace)
-            .values({
-              userId,
-              workspaceId: defaultMapping.workspaceId,
-              updatedAt: new Date(),
-            })
-            .onConflictDoUpdate({
-              target: userLastActiveWorkspace.userId,
-              set: {
+      await ctx.db.transaction(async (tx) => {
+        // 若 lastActive 指向此 workspace，事先調整
+        if (lastActiveMapping?.workspaceId === input.id) {
+          if (
+            defaultMapping?.workspaceId &&
+            defaultMapping.workspaceId !== input.id
+          ) {
+            await tx
+              .insert(userLastActiveWorkspace)
+              .values({
+                userId,
                 workspaceId: defaultMapping.workspaceId,
                 updatedAt: new Date(),
-              },
-            });
-        } else {
-          // 若沒有 default 映射，直接刪除 lastActive 記錄以解除限制
-          await ctx.db
-            .delete(userLastActiveWorkspace)
-            .where(eq(userLastActiveWorkspace.userId, userId));
+              })
+              .onConflictDoUpdate({
+                target: userLastActiveWorkspace.userId,
+                set: {
+                  workspaceId: defaultMapping.workspaceId,
+                  updatedAt: new Date(),
+                },
+              });
+          } else {
+            // 若沒有 default 映射，直接刪除 lastActive 記錄以解除限制
+            await tx
+              .delete(userLastActiveWorkspace)
+              .where(eq(userLastActiveWorkspace.userId, userId));
+          }
         }
-      }
 
-      // 刪除 workspace（會因 scene 的 FK 連動刪除其場景）
-      await ctx.db.delete(workspace).where(eq(workspace.id, input.id));
+        // 先鎖 workspace row 再枚舉：move／create scene 進這個 workspace 需要
+        // 它的 FOREIGN KEY（KEY SHARE lock），會被 FOR UPDATE 擋住，所以枚舉後
+        // 不可能再有 scene 進來、逃過 key 收集。同時重新驗證歸屬。
+        const [lockedWorkspace] = await tx
+          .select({ id: workspace.id })
+          .from(workspace)
+          .where(
+            and(eq(workspace.id, input.id), eq(workspace.userId, userId)),
+          )
+          .for("update");
+        if (!lockedWorkspace) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Workspace not found",
+          });
+        }
+
+        // 刪除 workspace 會 cascade 掉場景與其 file_record／room／asset 列；
+        // storage 物件的 key 必須在同一個 transaction 內進 cleanup outbox，
+        // 否則 row 一旦刪除就沒有任何指向物件的線索（GC 只掃還存在的 scene）。
+        const workspaceScenes = await tx
+          .select({ id: scene.id })
+          .from(scene)
+          .where(eq(scene.workspaceId, input.id))
+          .orderBy(scene.id)
+          .for("update");
+        const keys = await collectSceneStorageKeys(
+          tx,
+          workspaceScenes.map(({ id }) => id),
+        );
+        await enqueueStorageKeyCleanup(tx, keys, "delete-workspace", {
+          workspaceId: input.id,
+        });
+        await tx.delete(workspace).where(eq(workspace.id, input.id));
+      });
 
       return { success: true } as const;
     }),

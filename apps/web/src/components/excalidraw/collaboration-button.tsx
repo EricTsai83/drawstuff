@@ -26,6 +26,9 @@ export const COLLABORATION_LABEL_KEY: Record<CollaborationRoomStatus, string> =
     reconnecting: "collaboration.status.reconnecting",
     failed: "collaboration.status.failed",
     unauthorized: "collaboration.status.unauthorized",
+    // Retryable bootstrap failure: not an authorization verdict, so it must not
+    // borrow the "unable to join" wording that sends users asking for access.
+    "join-failed": "collaboration.status.joinFailed",
     // Not "Unable to join": the link works and the account has access; only the shared
     // join budget is spent, and it refills.
     "rate-limited": "collaboration.status.rateLimited",

@@ -25,8 +25,9 @@ export function clearCanvasForSignOut({
 
   try {
     clearCurrentScene();
-    // `clearCurrentScene` resumes dirty tracking as part of its normal scene
-    // lifecycle, so suppress again before resetScene emits its change event.
+    // Hold dirty tracking across resetScene's synchronous change event. The
+    // hold is never resumed here on purpose: the hard navigation below leaves
+    // this realm, and the safety net covers the window until it does.
     suppressDirtyTracking();
     excalidrawAPI?.resetScene();
   } finally {

@@ -156,6 +156,7 @@ function Probe() {
     isAuthenticated: true,
     hasLocalContent: () => false,
     requestSceneChangeDecision: () => Promise.resolve("switch" as const),
+    resolveSceneChangeDecision: () => undefined,
     closeSceneChangeConfirm: () => undefined,
     uploadSceneToCloud: () => Promise.resolve(true),
     clearCurrentScene,
@@ -549,7 +550,8 @@ describe("key check before join (Plan 34)", () => {
   it("releases the new claim when session construction fails", async () => {
     startRoomSession.mockRejectedValueOnce(new Error("session failed"));
     await renderProbe();
-    await waitFor(() => probe.result?.status === "unauthorized");
+    // A construction failure is retryable, not an authorization verdict.
+    await waitFor(() => probe.result?.status === "join-failed");
 
     expect(joinMutate).toHaveBeenCalledTimes(1);
     expect(probe.result?.ownsCanvas).toBe(false);
@@ -740,9 +742,56 @@ describe("the first join being rate limited", () => {
   it("does not retry an ordinary failure that carries no deadline", async () => {
     joinMutate.mockRejectedValue(new Error("offline"));
     await renderProbe();
-    await waitFor(() => probe.result?.status === "unauthorized");
+    await waitFor(() => probe.result?.status === "join-failed");
 
     expect(joinMutate).toHaveBeenCalledTimes(1);
+    expect(probe.result?.status).toBe("join-failed");
+  });
+});
+
+describe("bootstrap join failure classification", () => {
+  /**
+   * The catch-all around `start()` used to report *every* throw — an offline
+   * fetch, a 5xx, a crypto failure — as `unauthorized`, with the raw
+   * `error.message` as the user-facing text. Only a stated authorization
+   * verdict may read as one; everything else is retryable and says so.
+   */
+  const withCode = (code: string): TRPCClientError<never> => {
+    const error = new TRPCClientError<never>(code);
+    Object.assign(error, { data: { code } });
+    return error;
+  };
+
+  it("reports a network failure as retryable, never as unauthorized", async () => {
+    roomGetQuery.mockRejectedValue(new TypeError("Failed to fetch"));
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "join-failed");
+
+    expect(probe.result?.status).toBe("join-failed");
+    // Translated and generic — the thrown message is not an explanation.
+    expect(probe.result?.errorMessage).toContain("usually temporary");
+    expect(probe.result?.errorMessage).not.toContain("Failed to fetch");
+  });
+
+  it("keeps a stated authorization refusal terminal, with its own message", async () => {
+    joinMutate.mockRejectedValue(withCode("FORBIDDEN"));
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "unauthorized");
+
+    expect(probe.result?.status).toBe("unauthorized");
+    // The classified message, not the raw error text.
+    expect(probe.result?.errorMessage).toContain("access was removed");
+    expect(probe.result?.errorMessage).not.toBe("FORBIDDEN");
+  });
+
+  it("reports an ended room as the room ending, not as this account's fault", async () => {
+    joinMutate.mockRejectedValue(withCode("NOT_FOUND"));
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "failed");
+
+    expect(probe.result?.status).toBe("failed");
+    expect(probe.result?.failureReason).toBe("room-ended");
+    expect(probe.result?.errorMessage).toContain("ended or reset");
   });
 });
 

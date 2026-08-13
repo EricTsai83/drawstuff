@@ -108,7 +108,19 @@ export type CollaborationRoomStatus =
   | "reconnecting"
   /** Recovery stopped for a stated reason; `errorMessage` carries it. */
   | "failed"
+  /**
+   * The backend refused this account: only an `UNAUTHORIZED`/`FORBIDDEN`
+   * verdict lands here. Everything else that can break a join — an offline
+   * browser, a 5xx, a crypto failure — is `join-failed` below, because telling
+   * a user with a dropped connection to go ask for access is wrong twice.
+   */
   | "unauthorized"
+  /**
+   * The bootstrap join broke for a retryable reason (network, backend error,
+   * session construction). Nothing says this client may not be here; opening
+   * the link again is expected to work.
+   */
+  | "join-failed"
   /**
    * The shared join budget refused this client and the bounded wait ran out.
    *
@@ -230,6 +242,15 @@ const MISSING_KEY_CHECK_MESSAGE_KEY = "collaboration.failure.missingKeyCheck";
  * reload, which spends more of the very budget they are waiting on.
  */
 const JOIN_RATE_LIMITED_MESSAGE_KEY = "collaboration.failure.rateLimited";
+
+/**
+ * The bootstrap join failed for a reason worth retrying. Deliberately a
+ * translated, generic message rather than the thrown `error.message`: what
+ * lands here ranges from a fetch that never left the machine to a crypto
+ * failure, none of which a raw message explains — and several of which would
+ * previously masquerade as an authorization problem.
+ */
+const JOIN_RETRYABLE_MESSAGE_KEY = "collaboration.failure.joinFailed";
 
 const UNREADABLE_ASSETS_MESSAGE_KEY = "collaboration.warning.unreadableAssets";
 
@@ -410,6 +431,13 @@ export function useCollaborationRoom(options: {
   hasLocalContent: () => boolean;
   /** The editor's existing three-way prompt for replacing the canvas. */
   requestSceneChangeDecision: () => Promise<"save" | "switch" | "cancel">;
+  /**
+   * Settles a pending `requestSceneChangeDecision` from outside the dialog.
+   * The join effect's cleanup resolves a still-open prompt as "cancel" —
+   * a teardown mid-decision otherwise leaves the dialog open forever, with
+   * nobody awaiting the answer.
+   */
+  resolveSceneChangeDecision: (choice: "save" | "switch" | "cancel") => void;
   closeSceneChangeConfirm: () => void;
   /** Saves the current canvas to the cloud; false means the save failed. */
   uploadSceneToCloud: (opts?: {
@@ -430,7 +458,6 @@ export function useCollaborationRoom(options: {
   } = options;
   const { t } = useStandaloneI18n();
   const tRef = useRef(t);
-  tRef.current = t;
   const { suppressDirtyTracking, resumeDirtyTracking } = useSceneSession();
   const utils = api.useUtils();
 
@@ -501,11 +528,18 @@ export function useCollaborationRoom(options: {
    * once, whether the canvas has to be replaced at all.
    */
   const usernameRef = useRef(username);
-  usernameRef.current = username;
   const utilsRef = useRef(utils);
-  utilsRef.current = utils;
   const canvasRef = useRef(options);
-  canvasRef.current = options;
+  // Synchronized after commit rather than assigned in the render body: a
+  // concurrent render that is thrown away must not leave its uncommitted
+  // values behind in the refs. Declared before the join effect so the refs are
+  // current by the time it runs.
+  useEffect(() => {
+    tRef.current = t;
+    usernameRef.current = username;
+    utilsRef.current = utils;
+    canvasRef.current = options;
+  });
 
   // Remote input must not mark the scene dirty: suppress tracking for the
   // synchronous onChange the write triggers and resume one frame later
@@ -519,6 +553,22 @@ export function useCollaborationRoom(options: {
         requestAnimationFrame(() => {
           resumeDirtyTracking();
         });
+      }
+    },
+    [suppressDirtyTracking, resumeDirtyTracking],
+  );
+
+  // Presence-only writes release their hold synchronously instead. They arrive
+  // at ~30fps per peer, so a frame-deferred resume would keep a suppression
+  // window open continuously in any room with two members — and a local edit
+  // landing inside it would never mark the scene dirty.
+  const wrapPresenceApply = useCallback(
+    (apply: () => void) => {
+      suppressDirtyTracking();
+      try {
+        apply();
+      } finally {
+        resumeDirtyTracking();
       }
     },
     [suppressDirtyTracking, resumeDirtyTracking],
@@ -568,6 +618,8 @@ export function useCollaborationRoom(options: {
     let cancelled = false;
     let handle: CollaborationRoomHandle | undefined;
     let claimedDuringStart = false;
+    /** True while `prepareCanvas` is awaiting the user's three-way decision. */
+    let pendingSceneDecision = false;
     /** Separates the first join from every reconnect after it. */
     let hasBeenLive = false;
     setStatus("joining");
@@ -582,7 +634,13 @@ export function useCollaborationRoom(options: {
       const editor = canvasRef.current;
       if (editor.hasLocalContent()) {
         setStatus("preparing");
-        const decision = await editor.requestSceneChangeDecision();
+        pendingSceneDecision = true;
+        let decision: "save" | "switch" | "cancel";
+        try {
+          decision = await editor.requestSceneChangeDecision();
+        } finally {
+          pendingSceneDecision = false;
+        }
         if (cancelled) return false;
         if (decision === "cancel") {
           setStatus("cancelled");
@@ -787,6 +845,7 @@ export function useCollaborationRoom(options: {
             upload: uploadCollaborationAsset,
           },
           wrapRemoteApply,
+          wrapPresenceApply,
           canSyncScene: () => canvasBelongsToRoom(joined.roomId),
           // Role only: the granted role is a property of the socket, and it must
           // survive a reconnect window so a viewer's editor does not briefly
@@ -878,12 +937,26 @@ export function useCollaborationRoom(options: {
           claimedDuringStart = false;
           setOwnsCanvas(false);
         }
-        setStatus("unauthorized");
-        setErrorMessage(
-          error instanceof Error
-            ? error.message
-            : tRef.current("collaboration.failure.joinFailed"),
-        );
+        // Classified the same way a reconnect refusal is, and never shown raw:
+        // only a stated authorization verdict may read as one. Everything else
+        // — an offline browser, a 5xx, a failed key derivation — is retryable,
+        // and reporting it as `unauthorized` sends the user to ask for access
+        // they already have.
+        const refusal = classifyJoinFailure(error);
+        if (!refusal.ok && !refusal.retry) {
+          if (refusal.failure === "room-ended") {
+            // The same terminal verdict recovery would report for this room.
+            setStatus("failed");
+            setFailureReason("room-ended");
+            setErrorMessage(tRef.current(FAILURE_MESSAGE_KEY["room-ended"]));
+            return;
+          }
+          setStatus("unauthorized");
+          setErrorMessage(tRef.current(FAILURE_MESSAGE_KEY[refusal.failure]));
+          return;
+        }
+        setStatus("join-failed");
+        setErrorMessage(tRef.current(JOIN_RETRYABLE_MESSAGE_KEY));
       }
     };
     void start();
@@ -893,6 +966,13 @@ export function useCollaborationRoom(options: {
       // Ends any rate-limit wait immediately; the loop then sees `cancelled`
       // and returns without another join.
       releaseJoinWait?.();
+      // A teardown while the user was still deciding must not strand the
+      // scene-change dialog: nothing else would resolve the pending promise or
+      // close it. Resolving as "cancel" keeps their canvas untouched.
+      if (pendingSceneDecision) {
+        canvasRef.current.resolveSceneChangeDecision("cancel");
+        canvasRef.current.closeSceneChangeConfirm();
+      }
       handleRef.current = null;
       // The leave flush outlives this cleanup by design; React cannot await it.
       void handle?.destroy();
@@ -915,6 +995,7 @@ export function useCollaborationRoom(options: {
     isAuthenticated,
     joinAttempt,
     wrapRemoteApply,
+    wrapPresenceApply,
     suppressDirtyTracking,
     resumeDirtyTracking,
   ]);
