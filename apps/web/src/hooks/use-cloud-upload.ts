@@ -88,15 +88,22 @@ export function useCloudUpload(
   lastSyncedRevisionRef.current = lastSyncedRevision;
   const utils = api.useUtils();
   const { t } = useStandaloneI18n();
-  const assetUpload = useUploadThing("sceneAssetUploader", {
-    onUploadError: () => {
-      setStatus("error");
+  // 只解構 startUpload：useUploadThing 回傳物件每次 render 都是新的，
+  // 只有 startUpload 是穩定 identity，放進 deps 才不會讓 callback 每次重建
+  const { startUpload: startAssetUpload } = useUploadThing(
+    "sceneAssetUploader",
+    {
+      onUploadError: () => {
+        setStatus("error");
+      },
+      onUploadBegin: () => {
+        setStatus("uploading");
+      },
     },
-    onUploadBegin: () => {
-      setStatus("uploading");
-    },
-  });
-  const thumbnailUpload = useUploadThing("sceneThumbnailUploader");
+  );
+  const { startUpload: startThumbnailUpload } = useUploadThing(
+    "sceneThumbnailUploader",
+  );
   const { mutateAsync: deleteSceneAsync } = api.scene.deleteScene.useMutation();
 
   type UploadOptions = {
@@ -292,7 +299,7 @@ export function useCloudUpload(
                 const contentHash = hashArray
                   .map((b) => b.toString(16).padStart(2, "0"))
                   .join("");
-                const uploadResult = await assetUpload.startUpload([file], {
+                const uploadResult = await startAssetUpload([file], {
                   sceneId: sceneIdForCommit,
                   excalidrawFileId,
                   contentHash,
@@ -427,7 +434,7 @@ export function useCloudUpload(
             const thumbnailFile = new File([pngBlob], "thumbnail.png", {
               type: "image/png",
             });
-            const thumbnailResult = await thumbnailUpload.startUpload(
+            const thumbnailResult = await startThumbnailUpload(
               [thumbnailFile],
               {
                 sceneId: id,
@@ -473,8 +480,8 @@ export function useCloudUpload(
       }
     },
     [
-      assetUpload,
-      thumbnailUpload,
+      startAssetUpload,
+      startThumbnailUpload,
       deleteSceneAsync,
       excalidrawAPI,
       utils,

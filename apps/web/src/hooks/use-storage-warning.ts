@@ -3,6 +3,7 @@ import {
   getElementsStorageSize,
   getTotalStorageSize,
 } from "@/data/local-storage";
+import { LOCAL_SCENE_SAVED_EVENT } from "@/lib/events";
 import { nFormatter } from "@/lib/utils";
 
 type StorageSizes = { scene: number; total: number };
@@ -45,18 +46,27 @@ export function useStorageWarning() {
     }
   }, []);
 
-  // 定期檢查儲存空間變化
+  // 事件驅動重算：場景寫入 localStorage 後與分頁回到前景時，取代常駐輪詢
   useEffect(() => {
-    // 初始化時計算一次
     calculateAndFormatSizes();
 
-    // 設置定期檢查，每 2 秒檢查一次
-    const interval = setInterval(() => {
-      calculateAndFormatSizes();
-    }, 2000);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        calculateAndFormatSizes();
+      }
+    };
+    window.addEventListener(LOCAL_SCENE_SAVED_EVENT, calculateAndFormatSizes);
+    // 原生 storage 事件涵蓋其他同源分頁的 localStorage 寫入（自訂事件不跨 document）
+    window.addEventListener("storage", calculateAndFormatSizes);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
 
     return () => {
-      clearInterval(interval);
+      window.removeEventListener(
+        LOCAL_SCENE_SAVED_EVENT,
+        calculateAndFormatSizes,
+      );
+      window.removeEventListener("storage", calculateAndFormatSizes);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
     };
   }, [calculateAndFormatSizes]);
 

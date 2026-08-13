@@ -24,14 +24,14 @@ export function DashboardListFallback({
       </div>
 
       <section className="flex flex-col gap-4">
-        <div className="border-t border-gray-200 pt-4">
+        <div className="border-border border-t pt-4">
           <div className="bg-muted h-6 w-48 rounded" />
         </div>
         <SceneGridSkeleton count={5} />
       </section>
 
       <section className="flex flex-col gap-4">
-        <div className="border-t border-gray-200 pt-4">
+        <div className="border-border border-t pt-4">
           <div className="bg-muted h-6 w-32 rounded" />
         </div>
         <SceneGridSkeleton count={5} />

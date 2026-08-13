@@ -32,6 +32,7 @@ import {
 import { ensureInitialAppState } from "@drawstuff/excalidraw-adapter/codec";
 import { createLocalExportDocument } from "@drawstuff/excalidraw-adapter/codec";
 import { getBaseUrl } from "@/lib/base-url";
+import { dispatchLocalSceneSaved } from "@/lib/events";
 import { translateApp } from "@/lib/i18n-shared";
 
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
@@ -231,7 +232,6 @@ export function cleanUnusedFiles(
     return {};
   }
 
-  const fileIdsInFiles = Object.keys(files);
   // 僅考慮非刪除元素，確保暫刪元素不會讓其引用的檔案被儲存
   const nonDeletedElements = getNonDeletedElements(elements);
   const fileIdsInElements = new Set<string>();
@@ -248,12 +248,6 @@ export function cleanUnusedFiles(
       filteredFiles[fileId] = files[fileId];
     }
   });
-
-  const cleanedCount =
-    fileIdsInFiles.length - Object.keys(filteredFiles).length;
-  if (cleanedCount > 0) {
-    console.log(`beforeunload: 清理了 ${cleanedCount} 個未使用的文件`);
-  }
 
   return filteredFiles;
 }
@@ -312,6 +306,7 @@ export function saveToLocalStorage(
       STORAGE_KEYS.LOCAL_STORAGE_FILES,
       JSON.stringify(files),
     );
+    dispatchLocalSceneSaved();
   } catch (error) {
     console.error("beforeunload 儲存數據失敗:", error);
   }

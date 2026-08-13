@@ -4,7 +4,7 @@ import { formatDistanceToNow } from "date-fns";
 import { zhTW } from "date-fns/locale";
 import { Clock, Info } from "lucide-react";
 import Image from "next/image";
-import { useState, useEffect, useCallback } from "react";
+import { memo, useState, useCallback } from "react";
 import { toast } from "sonner";
 import {
   Card,
@@ -23,7 +23,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { SceneCardMenu } from "@/components/scene-card-menu";
+import {
+  SceneCardMenu,
+  type SceneCardMenuAction,
+} from "@/components/scene-card-menu";
 import { api } from "@/trpc/react";
 import type { RouterOutputs } from "@/trpc/react";
 import { useRouter } from "next/navigation";
@@ -39,12 +42,25 @@ import {
 } from "@/components/ui/tooltip";
 import { copyTextToSystemClipboard } from "@/lib/utils";
 import { getPublishedSceneUrl } from "@/lib/published-scene";
-import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
 
-export function SceneCard({ item }: { item: SceneListItem }) {
+export type SceneCardWorkspaceOption = { id: string; name: string };
+export type SceneCardCategoryOption = { id: string; name: string };
+
+type SceneCardProps = {
+  item: SceneListItem;
+  // 查詢提升到列表層以 props 傳入，避免每張卡片各掛一份 query stack
+  workspaces: SceneCardWorkspaceOption[];
+  categories: SceneCardCategoryOption[] | undefined;
+};
+
+export const SceneCard = memo(function SceneCard({
+  item,
+  workspaces,
+  categories,
+}: SceneCardProps) {
   const { t, langCode } = useStandaloneI18n();
   const {
     currentSceneId,
@@ -57,7 +73,6 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     locale: langCode === "zh-TW" ? zhTW : undefined,
   });
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
-  const [isDeleting, setIsDeleting] = useState(false);
   const [isEditOpen, setIsEditOpen] = useState(false);
   const router = useRouter();
 
@@ -66,12 +81,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
   const moveToWorkspaceMutation = api.scene.moveToWorkspace.useMutation();
   const assignCategoryMutation = api.category.assignToScene.useMutation();
   const unassignCategoryMutation = api.category.unassignFromScene.useMutation();
-  const { data: categoryOptions } = api.category.list.useQuery();
   const publishSceneMutation = api.scene.publish.useMutation();
   const unpublishSceneMutation = api.scene.unpublish.useMutation();
   const archiveSceneMutation = api.scene.archive.useMutation();
   const unarchiveSceneMutation = api.scene.unarchive.useMutation();
-  const { workspaces } = useWorkspaceOptions();
 
   const invalidateSceneQueries = useCallback(
     (sceneId?: string) =>
@@ -95,15 +108,10 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     },
     onError: (error) => {
       console.error("Failed to delete scene:", error);
+      toast.error(t("toast.scene.deleteFailed"));
     },
   });
-
-  // 確保 AlertDialog 關閉時重置載入狀態
-  useEffect(() => {
-    if (!showDeleteDialog) {
-      setIsDeleting(false);
-    }
-  }, [showDeleteDialog]);
+  const isDeleting = deleteSceneMutation.isPending;
 
   const loadScene = useCallback(() => {
     if (item.id === currentSceneId) {
@@ -122,13 +130,9 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     setShowDeleteDialog(true);
   }, []);
 
-  const handleConfirmDelete = useCallback(async () => {
-    setIsDeleting(true);
-    try {
-      await deleteSceneMutation.mutateAsync({ id: item.id });
-    } catch {
-      // 錯誤已在 mutation 的 onError 中處理
-    }
+  const handleConfirmDelete = useCallback(() => {
+    // 成功/失敗皆由 mutation callbacks 處理；失敗時 isPending 復位，dialog 可再操作
+    deleteSceneMutation.mutate({ id: item.id });
   }, [deleteSceneMutation, item.id]);
 
   const handleImportScene = useCallback(
@@ -180,11 +184,11 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     ],
   );
 
-  const handleEditScene = (e: React.MouseEvent) => {
+  const handleEditScene = useCallback((e: React.MouseEvent) => {
     e.stopPropagation();
     // 延遲一個 tick，避免與 DropdownMenu 的點擊事件衝突導致 Dialog 立即關閉
     setTimeout(() => setIsEditOpen(true), 0);
-  };
+  }, []);
 
   const handleConfirmEdit = async (payload: {
     name: string;
@@ -369,6 +373,50 @@ export function SceneCard({ item }: { item: SceneListItem }) {
 
   const handleDoubleClickCard = loadScene;
 
+  const handleMenuAction = useCallback(
+    (action: SceneCardMenuAction, e: React.MouseEvent) => {
+      switch (action) {
+        case "import":
+          handleImportScene(e);
+          break;
+        case "edit":
+          handleEditScene(e);
+          break;
+        case "delete":
+          handleDeleteClick(e);
+          break;
+        case "publish":
+          void handlePublishScene(e);
+          break;
+        case "unpublish":
+          void handleUnpublishScene(e);
+          break;
+        case "copyPublicLink":
+          void handleCopyPublicLink(e);
+          break;
+        case "openPublicLink":
+          handleOpenPublicLink(e);
+          break;
+        case "archive":
+          void handleArchiveChange(e, true);
+          break;
+        case "unarchive":
+          void handleArchiveChange(e, false);
+          break;
+      }
+    },
+    [
+      handleImportScene,
+      handleEditScene,
+      handleDeleteClick,
+      handlePublishScene,
+      handleUnpublishScene,
+      handleCopyPublicLink,
+      handleOpenPublicLink,
+      handleArchiveChange,
+    ],
+  );
+
   return (
     <>
       <Card
@@ -403,24 +451,18 @@ export function SceneCard({ item }: { item: SceneListItem }) {
             </div>
             <div className="absolute top-1 right-1 flex gap-2">
               <SceneCardMenu
-                onImport={handleImportScene}
-                onEdit={handleEditScene}
-                onDelete={handleDeleteClick}
-                onPublish={handlePublishScene}
-                onUnpublish={handleUnpublishScene}
-                onCopyPublicLink={handleCopyPublicLink}
-                onOpenPublicLink={handleOpenPublicLink}
-                isPublished={item.isPublished}
-                isArchived={item.isArchived}
-                onArchive={(event) => void handleArchiveChange(event, true)}
-                onUnarchive={(event) => void handleArchiveChange(event, false)}
-                currentWorkspaceId={item.workspaceId}
+                scene={{
+                  isPublished: item.isPublished,
+                  isArchived: item.isArchived,
+                  workspaceId: item.workspaceId,
+                  assignedCategoryIds: item.categories.map(
+                    (categoryItem) => categoryItem.id,
+                  ),
+                }}
                 workspaces={workspaces}
+                categories={categories}
+                onAction={handleMenuAction}
                 onMoveToWorkspace={handleMoveToWorkspace}
-                categories={categoryOptions}
-                assignedCategoryIds={item.categories.map(
-                  (categoryItem) => categoryItem.id,
-                )}
                 onToggleCategory={handleToggleCategory}
               />
             </div>
@@ -486,40 +528,46 @@ export function SceneCard({ item }: { item: SceneListItem }) {
         </CardFooter>
       </Card>
 
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{t("dialog.delete.title")}</AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("dialog.delete.description", { name: item.name })}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={isDeleting}>
-              {t("buttons.cancel")}
-            </AlertDialogCancel>
-            <AlertDialogAction
-              onClick={handleConfirmDelete}
-              disabled={isDeleting}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-            >
-              {isDeleting ? t("buttons.deleting") : t("buttons.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      {showDeleteDialog && (
+        <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{t("dialog.delete.title")}</AlertDialogTitle>
+              <AlertDialogDescription>
+                {t("dialog.delete.description", { name: item.name })}
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={isDeleting}>
+                {t("buttons.cancel")}
+              </AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleConfirmDelete}
+                disabled={isDeleting}
+                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              >
+                {isDeleting ? t("buttons.deleting") : t("buttons.delete")}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
 
-      <SceneEditDialog
-        open={isEditOpen}
-        onOpenChange={setIsEditOpen}
-        initial={{
-          name: item.name,
-          description: item.description,
-          categories: item.categories.map((categoryItem) => categoryItem.name),
-          workspaceId: item.workspaceId,
-        }}
-        onConfirm={handleConfirmEdit}
-      />
+      {isEditOpen && (
+        <SceneEditDialog
+          open={isEditOpen}
+          onOpenChange={setIsEditOpen}
+          initial={{
+            name: item.name,
+            description: item.description,
+            categories: item.categories.map(
+              (categoryItem) => categoryItem.name,
+            ),
+            workspaceId: item.workspaceId,
+          }}
+          onConfirm={handleConfirmEdit}
+        />
+      )}
     </>
   );
-}
+});

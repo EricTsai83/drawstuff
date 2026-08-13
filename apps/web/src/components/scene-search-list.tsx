@@ -13,7 +13,11 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { Input } from "@/components/ui/input";
-import { SceneCard } from "./scene-card";
+import {
+  SceneCard,
+  type SceneCardCategoryOption,
+  type SceneCardWorkspaceOption,
+} from "./scene-card";
 import { SceneGridSkeleton } from "@/components/skeleton/scene-grid-skeleton";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
@@ -101,7 +105,11 @@ export function SceneSearchList({
     clearOnDefault: true,
   });
   const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
-  const { data: categories } = api.category.list.useQuery();
+  const {
+    data: categories,
+    isError: isCategoriesError,
+    refetch: refetchCategories,
+  } = api.category.list.useQuery();
   const activeArchiveFilter: ArchiveFilter =
     archiveFilter === "archived" ? "archived" : "active";
   const activePublishFilter: PublishFilter =
@@ -142,25 +150,42 @@ export function SceneSearchList({
     }
   }, [workspaceId, workspaces, isLoadingWorkspaces, setWorkspaceId]);
 
-  const { data, isLoading, isFetchingNextPage, hasNextPage, fetchNextPage } =
-    api.scene.getUserScenesInfinite.useInfiniteQuery(
-      {
-        limit: 10,
-        workspaceId: effectiveWorkspaceId,
-        categoryId: activeCategoryId,
-        search: searchQuery || undefined,
-        archived: activeArchiveFilter === "archived",
-      },
-      {
-        getNextPageParam: (last: SceneInfinitePage) => last.nextCursor,
-        enabled: !isLoadingWorkspaces && !!effectiveWorkspaceId,
-        refetchOnWindowFocus: true,
-        refetchOnReconnect: true,
-      },
-    );
+  const {
+    data,
+    isLoading,
+    isError,
+    isFetchingNextPage,
+    hasNextPage,
+    fetchNextPage,
+    refetch,
+  } = api.scene.getUserScenesInfinite.useInfiniteQuery(
+    {
+      limit: 10,
+      workspaceId: effectiveWorkspaceId,
+      categoryId: activeCategoryId,
+      search: searchQuery || undefined,
+      archived: activeArchiveFilter === "archived",
+      isPublished:
+        activePublishFilter === "all"
+          ? undefined
+          : activePublishFilter === "public",
+    },
+    {
+      getNextPageParam: (last: SceneInfinitePage) => last.nextCursor,
+      enabled: !isLoadingWorkspaces && !!effectiveWorkspaceId,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+    },
+  );
 
   // 當 workspace 或搜尋字串變動時，React Query 會依 key 自動重置/重新抓取。
+  const isFirstScrollResetRef = useRef(true);
   useEffect(() => {
+    // 首次 mount 不捲動，避免重設 overlay 底下畫布的捲動位置
+    if (isFirstScrollResetRef.current) {
+      isFirstScrollResetRef.current = false;
+      return;
+    }
     // 變動時滾回頂部，避免 UX 不連貫
     window?.scrollTo?.({ top: 0, behavior: "instant" as ScrollBehavior });
   }, [
@@ -170,19 +195,7 @@ export function SceneSearchList({
     activeArchiveFilter,
   ]);
 
-  function doesSceneMatchQuery(item: SceneListItem, q: string): boolean {
-    const inName = item.name.toLowerCase().includes(q);
-    const inDesc = item.description.toLowerCase().includes(q);
-    const inCats = item.categories.some((cat) =>
-      cat.name.toLowerCase().includes(q),
-    );
-    const inWorkspace = item.workspaceName?.toLowerCase().includes(q) ?? false;
-    const matches = [inName, inDesc, inCats, inWorkspace].some(
-      (v: boolean) => v === true,
-    );
-    return matches;
-  }
-
+  // 搜尋與 publish/archive/category 篩選皆由 server 處理，client 不再重複過濾。
   const allItems = useMemo<SceneListItem[]>(() => {
     const pages: SceneInfinitePage[] = data?.pages ?? [];
     const aggregated: SceneListItem[] = [];
@@ -191,44 +204,6 @@ export function SceneSearchList({
     }
     return aggregated;
   }, [data]);
-
-  const filteredItems = useMemo<SceneListItem[]>(() => {
-    return allItems.filter((item) => {
-      const matchesSearch = searchQuery
-        ? doesSceneMatchQuery(item, searchQuery.toLowerCase())
-        : true;
-      const matchesPublishFilter =
-        activePublishFilter === "all"
-          ? true
-          : activePublishFilter === "public"
-            ? item.isPublished
-            : !item.isPublished;
-
-      return matchesSearch && matchesPublishFilter;
-    });
-  }, [searchQuery, allItems, activePublishFilter]);
-
-  // 若目前篩選後還不足以填滿兩個區塊，就主動抓下一頁避免空白或卡在 loading。
-  useEffect(() => {
-    const filteringActive = Boolean(
-      searchQuery || activePublishFilter !== "all",
-    );
-    const needPrefetch =
-      hasNextPage &&
-      !isFetchingNextPage &&
-      (filteredItems.length <= 5 ||
-        (filteringActive && filteredItems.length === 0));
-    if (needPrefetch) {
-      void fetchNextPage();
-    }
-  }, [
-    filteredItems.length,
-    hasNextPage,
-    isFetchingNextPage,
-    fetchNextPage,
-    searchQuery,
-    activePublishFilter,
-  ]);
 
   // IntersectionObserver sentinel
   const sentinelRef = useRef<HTMLDivElement | null>(null);
@@ -261,8 +236,8 @@ export function SceneSearchList({
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
   // Split items into "Recently modified by you" and "Your scenes" sections
-  const recentlyModifiedItems = filteredItems.slice(0, 5);
-  const yourSceneItems = filteredItems.slice(5);
+  const recentlyModifiedItems = allItems.slice(0, 5);
+  const yourSceneItems = allItems.slice(5);
 
   return (
     <div className="flex max-w-full min-w-0 flex-col gap-5 overflow-x-clip p-4 pt-0 sm:p-6 sm:pt-0">
@@ -333,87 +308,137 @@ export function SceneSearchList({
           onCategoryChange={(id) => void setCategoryFilter(id ?? "")}
           onManageCategories={() => setManageCategoriesOpen(true)}
         />
+        {/* 分類查詢單獨失敗時就地提示並提供重試，不遮蔽已載入的場景清單；
+            場景查詢也失敗時交由下方整頁錯誤狀態統一處理（其重試會一併重試分類） */}
+        {isCategoriesError && !isError && (
+          <div className="text-muted-foreground flex items-center gap-2 text-sm">
+            <span>{t("dashboard.categoriesLoadFailed")}</span>
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => void refetchCategories()}
+            >
+              <RotateCcw data-icon="inline-start" />
+              {t("buttons.retry")}
+            </Button>
+          </div>
+        )}
       </div>
       <CategoryManagementDialog
         open={manageCategoriesOpen}
         onOpenChange={setManageCategoriesOpen}
       />
 
-      {/* Recently modified by you Section */}
-      <section className="flex flex-col gap-4">
-        <div className="border-t border-gray-200 pt-4">
-          <h2 className="text-lg font-medium">
-            {t("dashboard.recentlyModified")}
-          </h2>
-        </div>
-        {isLoading ? (
-          <SceneGridSkeleton count={5} />
-        ) : recentlyModifiedItems.length > 0 ? (
-          <SceneGrid items={recentlyModifiedItems} />
-        ) : (
-          <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">
-              {t("dashboard.noRecentlyModifiedScenes")}
-            </div>
+      {isError ? (
+        <div className="border-border border-t py-12 text-center">
+          <div className="text-muted-foreground text-lg">
+            {t("dashboard.loadFailed")}
           </div>
-        )}
-      </section>
-
-      {/* Your scenes Section */}
-      <section className="flex flex-col gap-4">
-        <div className="border-t border-gray-200 pt-4">
-          <h2 className="text-lg font-medium">{t("dashboard.yourScenes")}</h2>
+          <div className="text-muted-foreground mt-2 text-sm">
+            {t("dashboard.loadFailed.hint")}
+          </div>
+          <Button
+            type="button"
+            variant="outline"
+            className="mt-4"
+            onClick={() => {
+              void refetch();
+              if (isCategoriesError) void refetchCategories();
+            }}
+          >
+            <RotateCcw data-icon="inline-start" />
+            {t("buttons.retry")}
+          </Button>
         </div>
-        {isLoading ? (
-          <SceneGridSkeleton count={5} />
-        ) : yourSceneItems.length > 0 ? (
-          <>
-            <SceneGrid items={yourSceneItems} />
-            <div ref={sentinelRef} />
-            {isFetchingNextPage && <SceneGridSkeleton count={5} />}
-            {!hasNextPage && !isFetchingNextPage && (
+      ) : (
+        <>
+          {/* Recently modified by you Section */}
+          <section className="flex flex-col gap-4">
+            <div className="border-border border-t pt-4">
+              <h2 className="text-lg font-medium">
+                {t("dashboard.recentlyModified")}
+              </h2>
+            </div>
+            {isLoading ? (
+              <SceneGridSkeleton count={5} />
+            ) : recentlyModifiedItems.length > 0 ? (
+              <SceneGrid
+                items={recentlyModifiedItems}
+                workspaces={workspaces}
+                categories={categories}
+              />
+            ) : (
+              <div className="py-8 text-center">
+                <div className="text-muted-foreground text-lg">
+                  {t("dashboard.noRecentlyModifiedScenes")}
+                </div>
+              </div>
+            )}
+          </section>
+
+          {/* Your scenes Section */}
+          <section className="flex flex-col gap-4">
+            <div className="border-border border-t pt-4">
+              <h2 className="text-lg font-medium">
+                {t("dashboard.yourScenes")}
+              </h2>
+            </div>
+            {isLoading ? (
+              <SceneGridSkeleton count={5} />
+            ) : yourSceneItems.length > 0 ? (
+              <>
+                <SceneGrid
+                  items={yourSceneItems}
+                  workspaces={workspaces}
+                  categories={categories}
+                />
+                <div ref={sentinelRef} />
+                {isFetchingNextPage && <SceneGridSkeleton count={5} />}
+                {!hasNextPage && !isFetchingNextPage && (
+                  <div className="text-muted-foreground py-6 text-center text-sm">
+                    {t("dashboard.reachedEnd")}
+                  </div>
+                )}
+              </>
+            ) : hasNextPage ? (
+              <div className="py-8 text-center">
+                <div className="text-muted-foreground text-lg">
+                  {t("dashboard.loading")}
+                </div>
+              </div>
+            ) : allItems.length > 0 ? (
               <div className="text-muted-foreground py-6 text-center text-sm">
                 {t("dashboard.reachedEnd")}
               </div>
+            ) : (
+              <div className="py-8 text-center">
+                <div className="text-muted-foreground text-lg">
+                  {t(
+                    activeArchiveFilter === "archived"
+                      ? "dashboard.noArchivedScenes"
+                      : "dashboard.noScenesFound",
+                  )}
+                </div>
+                <div className="text-muted-foreground mt-2 text-sm">
+                  {t(
+                    activeArchiveFilter === "archived"
+                      ? "dashboard.noArchivedScenes.hint"
+                      : "dashboard.noScenesFound.hint",
+                  )}
+                </div>
+              </div>
             )}
-          </>
-        ) : hasNextPage ? (
-          <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">
-              {t("dashboard.loading")}
-            </div>
-          </div>
-        ) : filteredItems.length > 0 ? (
-          <div className="text-muted-foreground py-6 text-center text-sm">
-            {t("dashboard.reachedEnd")}
-          </div>
-        ) : (
-          <div className="py-8 text-center">
-            <div className="text-muted-foreground text-lg">
-              {t(
-                activeArchiveFilter === "archived"
-                  ? "dashboard.noArchivedScenes"
-                  : "dashboard.noScenesFound",
-              )}
-            </div>
-            <div className="text-muted-foreground mt-2 text-sm">
-              {t(
-                activeArchiveFilter === "archived"
-                  ? "dashboard.noArchivedScenes.hint"
-                  : "dashboard.noScenesFound.hint",
-              )}
-            </div>
-          </div>
-        )}
-      </section>
+          </section>
 
-      {/* Show results count if searching */}
-      {searchQuery && (
-        <SceneResultsCount
-          totalItems={allItems.length}
-          filteredCount={filteredItems.length}
-          searchQuery={searchQuery}
-        />
+          {/* Show results count if searching */}
+          {searchQuery && (
+            <SceneResultsCount
+              loadedCount={allItems.length}
+              searchQuery={searchQuery}
+            />
+          )}
+        </>
       )}
     </div>
   );
@@ -685,31 +710,38 @@ function SceneSearchBar({ searchQuery, onSearchChange }: SceneSearchBarProps) {
 }
 
 type SceneResultsCountProps = {
-  totalItems: number;
-  filteredCount: number;
+  loadedCount: number;
   searchQuery: string;
 };
 
 function SceneResultsCount({
-  totalItems,
-  filteredCount,
+  loadedCount,
   searchQuery,
 }: SceneResultsCountProps) {
   const { t } = useStandaloneI18n();
   return (
     <div className="text-muted-foreground text-sm">
-      {searchQuery
-        ? t("search.resultsCount", { count: filteredCount, query: searchQuery })
-        : t("search.showingCount", { total: totalItems })}
+      {t("search.resultsCount", { count: loadedCount, query: searchQuery })}
     </div>
   );
 }
 
-function SceneGrid({ items }: { items: SceneListItem[] }) {
+type SceneGridProps = {
+  items: SceneListItem[];
+  workspaces: SceneCardWorkspaceOption[];
+  categories: SceneCardCategoryOption[] | undefined;
+};
+
+function SceneGrid({ items, workspaces, categories }: SceneGridProps) {
   return (
     <div className={SCENE_GRID_CLASS_NAME}>
       {items.map((item) => (
-        <SceneCard key={item.id} item={item} />
+        <SceneCard
+          key={item.id}
+          item={item}
+          workspaces={workspaces}
+          categories={categories}
+        />
       ))}
     </div>
   );

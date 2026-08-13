@@ -6,6 +6,26 @@ import "./src/env.ts";
 
 import type { NextConfig } from "next";
 
+// UploadThing 檔案網域為 <appId>.ufs.sh，appId 藏在 token（base64 JSON）裡。
+// 從 env 導出 hostname，避免硬編特定 app id；解析失敗時退回萬用網域。
+function getUploadThingHostname(): string {
+  try {
+    const token = process.env.UPLOADTHING_TOKEN;
+    if (token) {
+      const parsed: unknown = JSON.parse(
+        Buffer.from(token, "base64").toString("utf8"),
+      );
+      const appId = (parsed as { appId?: unknown }).appId;
+      if (typeof appId === "string" && appId.length > 0) {
+        return `${appId}.ufs.sh`;
+      }
+    }
+  } catch {
+    // token 格式不符時走 fallback
+  }
+  return "*.ufs.sh";
+}
+
 const config: NextConfig = {
   allowedDevOrigins: ["127.0.0.1"],
   devIndicators: false,
@@ -19,7 +39,11 @@ const config: NextConfig = {
   },
   images: {
     remotePatterns: [
-      { protocol: "https", hostname: "0tdnyn6tr7.ufs.sh", pathname: "/f/*" },
+      {
+        protocol: "https",
+        hostname: getUploadThingHostname(),
+        pathname: "/f/*",
+      },
     ],
   },
 };

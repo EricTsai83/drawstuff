@@ -39,55 +39,50 @@ type CategoryOption = {
   name: string;
 };
 
-type SceneCardMenuProps = {
-  onImport: (e: React.MouseEvent) => void;
-  onEdit: (e: React.MouseEvent) => void;
-  onDelete: (e: React.MouseEvent) => void;
-  onPublish: (e: React.MouseEvent) => void;
-  onUnpublish: (e: React.MouseEvent) => void;
-  onCopyPublicLink: (e: React.MouseEvent) => void;
-  onOpenPublicLink: (e: React.MouseEvent) => void;
+export type SceneCardMenuAction =
+  | "import"
+  | "edit"
+  | "delete"
+  | "publish"
+  | "unpublish"
+  | "copyPublicLink"
+  | "openPublicLink"
+  | "archive"
+  | "unarchive";
+
+type SceneCardMenuScene = {
   isPublished: boolean;
   isArchived: boolean;
-  onArchive: (e: React.MouseEvent) => void;
-  onUnarchive: (e: React.MouseEvent) => void;
-  currentWorkspaceId?: string;
+  workspaceId?: string;
+  assignedCategoryIds: string[];
+};
+
+type SceneCardMenuProps = {
+  scene: SceneCardMenuScene;
   workspaces?: WorkspaceOption[];
-  onMoveToWorkspace?: (workspaceId: string) => void;
   categories?: CategoryOption[];
-  assignedCategoryIds?: string[];
+  onAction: (action: SceneCardMenuAction, e: React.MouseEvent) => void;
+  onMoveToWorkspace?: (workspaceId: string) => void;
   onToggleCategory?: (categoryId: string, assigned: boolean) => void;
 };
 
 export function SceneCardMenu({
-  onImport,
-  onEdit,
-  onDelete,
-  onPublish,
-  onUnpublish,
-  onCopyPublicLink,
-  onOpenPublicLink,
-  isPublished,
-  isArchived,
-  onArchive,
-  onUnarchive,
-  currentWorkspaceId,
+  scene,
   workspaces,
-  onMoveToWorkspace,
   categories,
-  assignedCategoryIds,
+  onAction,
+  onMoveToWorkspace,
   onToggleCategory,
 }: SceneCardMenuProps) {
   const { t } = useStandaloneI18n();
+  const { isPublished, isArchived, workspaceId, assignedCategoryIds } = scene;
 
-  const otherWorkspaces = workspaces?.filter(
-    (ws) => ws.id !== currentWorkspaceId,
-  );
+  const otherWorkspaces = workspaces?.filter((ws) => ws.id !== workspaceId);
   const showMoveSubmenu =
     onMoveToWorkspace && otherWorkspaces && otherWorkspaces.length > 0;
   const showCategorySubmenu =
     onToggleCategory && categories && categories.length > 0;
-  const assignedIds = new Set(assignedCategoryIds ?? []);
+  const assignedIds = new Set(assignedCategoryIds);
 
   return (
     <DropdownMenu>
@@ -108,11 +103,11 @@ export function SceneCardMenu({
         align="end"
         className="w-56 max-w-[calc(100vw-2rem)] [&_[data-slot=dropdown-menu-item]]:min-h-11 [&_[data-slot=dropdown-menu-sub-trigger]]:min-h-11"
       >
-        <DropdownMenuItem onClick={onImport}>
+        <DropdownMenuItem onClick={(e) => onAction("import", e)}>
           <Download aria-hidden="true" />
           {t("menu.importScene")}
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={onEdit}>
+        <DropdownMenuItem onClick={(e) => onAction("edit", e)}>
           <Edit aria-hidden="true" />
           {t("menu.sceneSettings")}
         </DropdownMenuItem>
@@ -175,15 +170,15 @@ export function SceneCardMenu({
         <DropdownMenuSeparator />
         {isPublished ? (
           <>
-            <DropdownMenuItem onClick={onOpenPublicLink}>
+            <DropdownMenuItem onClick={(e) => onAction("openPublicLink", e)}>
               <ExternalLink aria-hidden="true" />
               {t("publish.menu.openLink")}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onCopyPublicLink}>
+            <DropdownMenuItem onClick={(e) => onAction("copyPublicLink", e)}>
               <Copy aria-hidden="true" />
               {t("publish.menu.copyLink")}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={onUnpublish}>
+            <DropdownMenuItem onClick={(e) => onAction("unpublish", e)}>
               <Globe aria-hidden="true" />
               {t("publish.menu.unpublish")}
             </DropdownMenuItem>
@@ -191,7 +186,7 @@ export function SceneCardMenu({
           </>
         ) : (
           <>
-            <DropdownMenuItem onClick={onPublish}>
+            <DropdownMenuItem onClick={(e) => onAction("publish", e)}>
               <Globe aria-hidden="true" />
               {t("publish.menu.publish")}
             </DropdownMenuItem>
@@ -200,17 +195,20 @@ export function SceneCardMenu({
         )}
         {isArchived ? (
           <>
-            <DropdownMenuItem onClick={onUnarchive}>
+            <DropdownMenuItem onClick={(e) => onAction("unarchive", e)}>
               <ArchiveRestore aria-hidden="true" />
               {t("archive.menu.unarchive")}
             </DropdownMenuItem>
-            <DropdownMenuItem variant="destructive" onClick={onDelete}>
+            <DropdownMenuItem
+              variant="destructive"
+              onClick={(e) => onAction("delete", e)}
+            >
               <Trash2 aria-hidden="true" />
               {t("buttons.delete")}
             </DropdownMenuItem>
           </>
         ) : (
-          <DropdownMenuItem onClick={onArchive}>
+          <DropdownMenuItem onClick={(e) => onAction("archive", e)}>
             <Archive aria-hidden="true" />
             {t("archive.menu.archive")}
           </DropdownMenuItem>

@@ -53,6 +53,7 @@ export const appTranslations: AppTranslations = {
     "buttons.create": "Create",
     "buttons.confirm": "Confirm",
     "buttons.close": "Close",
+    "buttons.retry": "Retry",
     "workspace.navigation": "Workspace navigation",
     "workspace.route.description": "Workspace route content",
     "workspace.back": "Back",
@@ -254,6 +255,10 @@ export const appTranslations: AppTranslations = {
     "dashboard.noScenesFound": "No scenes found",
     "dashboard.noScenesFound.hint":
       "Try adjusting your search terms or browse all scenes",
+    "dashboard.loadFailed": "Failed to load scenes",
+    "dashboard.categoriesLoadFailed": "Failed to load categories.",
+    "dashboard.loadFailed.hint":
+      "Something went wrong while loading your scenes. Please try again.",
     "dashboard.sceneAlreadyOpen": "You're already editing this scene.",
     "dashboard.filter.all": "All",
     "dashboard.filter.public": "Public",
@@ -331,8 +336,7 @@ export const appTranslations: AppTranslations = {
       "Leave the collaboration room before deleting this workspace.",
     "search.placeholder":
       "Search scenes by name, description, category, or project...",
-    "search.resultsCount": 'Found {count} results for "{query}"',
-    "search.showingCount": "Showing {total} scenes",
+    "search.resultsCount": 'Loaded {count} results for "{query}"',
     "menu.importScene": "Import scene",
     "menu.sceneSettings": "Scene settings",
     "menu.moveToWorkspace": "Move to workspace",
@@ -499,6 +503,7 @@ export const appTranslations: AppTranslations = {
     "toast.scene.loaded": "Scene loaded.",
     "toast.scene.loadFailed": "Failed to load scene.",
     "toast.scene.saveFailed": "Failed to save scene. Try again.",
+    "toast.scene.deleteFailed": "Failed to delete scene. Try again.",
     "toast.scene.remoteConflict":
       "The scene was updated elsewhere. Refresh and try again.",
     "toast.scene.versionCheckFailed":
@@ -556,6 +561,7 @@ export const appTranslations: AppTranslations = {
     "buttons.create": "建立",
     "buttons.confirm": "確認",
     "buttons.close": "關閉",
+    "buttons.retry": "重試",
     "workspace.navigation": "工作空間導覽",
     "workspace.route.description": "工作空間路由內容",
     "workspace.back": "返回",
@@ -744,6 +750,9 @@ export const appTranslations: AppTranslations = {
     "dashboard.reachedEnd": "已到清單底部。",
     "dashboard.noScenesFound": "找不到場景",
     "dashboard.noScenesFound.hint": "嘗試調整搜尋關鍵字，或瀏覽全部場景",
+    "dashboard.loadFailed": "場景載入失敗",
+    "dashboard.categoriesLoadFailed": "分類載入失敗。",
+    "dashboard.loadFailed.hint": "載入場景時發生錯誤，請再試一次。",
     "dashboard.sceneAlreadyOpen": "您已正在編輯此場景。",
     "dashboard.filter.all": "全部",
     "dashboard.filter.public": "公開",
@@ -812,8 +821,7 @@ export const appTranslations: AppTranslations = {
     "workspace.settings.collaborationBlocked":
       "請先離開共編 room，再刪除此工作空間。",
     "search.placeholder": "以名稱、描述、分類或專案名稱搜尋場景...",
-    "search.resultsCount": '找到 {count} 筆結果，關鍵字："{query}"',
-    "search.showingCount": "共顯示 {total} 個場景",
+    "search.resultsCount": '已載入 {count} 筆結果，關鍵字："{query}"',
     "menu.importScene": "匯入場景",
     "menu.sceneSettings": "場景設定",
     "menu.moveToWorkspace": "移至工作空間",
@@ -966,6 +974,7 @@ export const appTranslations: AppTranslations = {
     "toast.scene.loaded": "已載入場景。",
     "toast.scene.loadFailed": "載入場景失敗。",
     "toast.scene.saveFailed": "儲存場景失敗，請再試一次。",
+    "toast.scene.deleteFailed": "刪除場景失敗，請再試一次。",
     "toast.scene.remoteConflict": "場景已在其他地方更新，請重新整理後再試。",
     "toast.scene.versionCheckFailed": "無法確認場景版本，請重新載入後再試。",
     "toast.workspace.required": "請先選擇工作空間再上傳。",

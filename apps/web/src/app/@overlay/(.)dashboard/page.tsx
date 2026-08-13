@@ -1,10 +1,14 @@
 import DashboardContent from "@/components/modal-pages/dashboard-content";
 import { RouteOverlay } from "@/components/route-overlay";
 
-export default function DashboardOverlayPage() {
+export default async function DashboardOverlayPage({
+  searchParams,
+}: {
+  searchParams: Promise<Record<string, string | string[] | undefined>>;
+}) {
   return (
     <RouteOverlay titleKey="dashboard.title" variant="dashboard">
-      <DashboardContent />
+      <DashboardContent searchParams={await searchParams} />
     </RouteOverlay>
   );
 }
