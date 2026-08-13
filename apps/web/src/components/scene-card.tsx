@@ -193,18 +193,13 @@ export function SceneCard({ item }: { item: SceneListItem }) {
     workspaceId?: string;
   }) => {
     try {
-      let dataString = item.sceneData;
-      let expectedRevision = item.revision;
-      if (!dataString) {
-        const full: RouterOutputs["scene"]["getScene"] =
-          await utils.scene.getScene.fetch({ id: item.id });
-        dataString = full?.sceneData ?? undefined;
-        const fetchedRevision: unknown = full?.revision;
-        expectedRevision =
-          typeof fetchedRevision === "number"
-            ? fetchedRevision
-            : expectedRevision;
-      }
+      // 列表 payload 不再帶 sceneData：儲存前一律單抓完整場景。
+      const full: RouterOutputs["scene"]["getScene"] =
+        await utils.scene.getScene.fetch({ id: item.id });
+      const dataString = full?.sceneData ?? undefined;
+      const fetchedRevision: unknown = full?.revision;
+      const expectedRevision =
+        typeof fetchedRevision === "number" ? fetchedRevision : item.revision;
       if (!dataString || expectedRevision === undefined) {
         console.error("Failed to edit: missing scene data");
         return;

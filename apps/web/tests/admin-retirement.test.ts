@@ -93,18 +93,16 @@ beforeEach(async () => {
 
 describe("admin data retirement", () => {
   it("exposes a fail-closed navigation hint without granting admin access", async () => {
-    await expect(
-      callerFor("admin-user").admin.access({ userId: "admin-user" }),
-    ).resolves.toEqual({ isOperator: true });
-    await expect(
-      callerFor("other-user").admin.access({ userId: "other-user" }),
-    ).resolves.toEqual({ isOperator: false });
-    await expect(
-      callerFor("other-user").admin.access({ userId: "admin-user" }),
-    ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    await expect(
-      callerFor(null).admin.access({ userId: "admin-user" }),
-    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    // 身份一律取自 session：procedure 不再收 userId，也就沒有替別人查詢的路徑。
+    await expect(callerFor("admin-user").admin.access()).resolves.toEqual({
+      isOperator: true,
+    });
+    await expect(callerFor("other-user").admin.access()).resolves.toEqual({
+      isOperator: false,
+    });
+    await expect(callerFor(null).admin.access()).rejects.toMatchObject({
+      code: "UNAUTHORIZED",
+    });
   });
 
   it("rejects unauthenticated and non-admin callers", async () => {

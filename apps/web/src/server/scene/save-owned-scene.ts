@@ -436,12 +436,33 @@ async function syncSceneCategories(
     );
 
     if (namesToCreate.length > 0) {
+      // 同使用者兩個並發 save 可能同時引入同名新分類：不處理 conflict 的話
+      // 23505 會讓整個 save transaction rollback、使用者丟失存檔。落敗方
+      // skip 掉 insert 後重查一次拿贏家的 id。
       const created = await tx
         .insert(category)
         .values(namesToCreate.map((name) => ({ name, userId })))
+        .onConflictDoNothing({ target: [category.userId, category.name] })
         .returning({ id: category.id, name: category.name });
       for (const c of created) {
         nameToId.set(c.name, c.id);
+      }
+      const missingNames = namesToCreate.filter(
+        (name) => !nameToId.has(name),
+      );
+      if (missingNames.length > 0) {
+        const concurrent = await tx
+          .select({ id: category.id, name: category.name })
+          .from(category)
+          .where(
+            and(
+              eq(category.userId, userId),
+              inArray(category.name, missingNames),
+            ),
+          );
+        for (const c of concurrent) {
+          nameToId.set(c.name, c.id);
+        }
       }
     }
 

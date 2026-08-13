@@ -174,7 +174,7 @@ describe("collaboration room authentication guard", () => {
     expect(container?.textContent).not.toContain("Start collaboration");
     expect(createMutate).not.toHaveBeenCalled();
     expect(roomGetUseQuery).toHaveBeenCalledWith(
-      { roomId: "room-from-link" },
+      { roomId: "room-from-link", includeRevokedMembers: true },
       { enabled: false },
     );
   });
@@ -189,10 +189,8 @@ describe("collaboration room authentication guard", () => {
     act(() => {
       startButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
-    expect(createMutate).toHaveBeenCalledWith({
-      sceneId: "scene-1",
-      linkRole: "none",
-    });
+    // linkRole 不再隨 create 送出：重開既有房間不得重設連結權限（plan 03 M7）。
+    expect(createMutate).toHaveBeenCalledWith({ sceneId: "scene-1" });
   });
 
   it("turns a late unauthorized response into a useful message", () => {

@@ -23,6 +23,7 @@ import {
   planSceneAssetCleanup,
   readReferencedSceneAssetIds,
 } from "@/server/scene/referenced-assets";
+import { checkSharedSceneRateLimit } from "@/server/rate-limit/shared-scene";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -54,6 +55,20 @@ export async function handleSceneSave(
       sharedSceneId: null,
       errorMessage: `Scene data rejected: ${persistenceStatus}`,
       errorCode: APP_ERROR.VALIDATION_FAILED,
+    };
+  }
+
+  // 每次呼叫最多寫入 5 MiB、row 存活 30 天：per-user 限流擋住重複灌寫。
+  // degraded（Redis 不可用）放行——限流是容量保護，不是授權邊界。
+  const rateLimitDecision = await checkSharedSceneRateLimit({
+    operation: "create",
+    identifier: session.user.id,
+  });
+  if (rateLimitDecision.status === "limited") {
+    return {
+      sharedSceneId: null,
+      errorMessage: "Too many share links created. Please retry shortly",
+      errorCode: APP_ERROR.RATE_LIMITED,
     };
   }
 

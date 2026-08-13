@@ -18,6 +18,7 @@ deletion must preserve their transaction boundary through the durable cleanup ou
 | Collaboration snapshot | room id + auth generation                        | One optimistic-revision row per generation | Old generation retirement, room retention, or owner reset                   |
 | Collaboration asset    | room id + auth generation + `excalidraw_file_id` | At most 512 per generation                 | Old generation or room retention deletes rows and enqueues storage keys     |
 | Room metadata          | room id                                          | Active, ended, or within retention grace   | Expired active rooms become ended; the row remains as lifecycle history     |
+| Shared scene (link)    | shared scene id (nanoid)                         | 30 days from creation                      | Bounded maintenance job deletes rows after handling their storage objects   |
 
 ## Personal Library
 
@@ -93,6 +94,17 @@ Routine maintenance runs named jobs independently so one failure does not suppre
 that enqueue object cleanup run before the bounded queue drain. The route uses a non-pooled advisory
 lock for single flight, an absolute deadline, per-job outcomes, and bounded work counts. Routine cron
 does not include account purge.
+
+Every routine job is bounded per run; a backlog is worked through across runs instead of one
+unbounded run starving the jobs queued behind it. Expired shared scenes (30-day retention) are
+reclaimed oldest-first under scene/object caps and the route deadline, one transaction per scene in
+the standard deletion shape: the shared-scene row is locked `FOR UPDATE` (serializing against
+file-record inserts, which need its `FOR KEY SHARE`), its storage keys enter the cleanup outbox, and
+the row is deleted — no inline storage call. The unreferenced-asset GC takes its bounded random
+scene sample in SQL (`ORDER BY random() LIMIT n`) so the full candidate id set never enters memory.
+Creating a shared scene is rate limited per user, and the public shared-scene read procedures per
+client IP, on the same Upstash fail-open pipeline as the collaboration limits (key prefix
+`drawstuff:shared-scene:ratelimit:v1`).
 
 ## Collaboration generation retirement
 

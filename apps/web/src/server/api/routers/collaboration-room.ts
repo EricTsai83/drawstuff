@@ -21,6 +21,8 @@ import {
   lockRoom,
   MAX_ROOM_TTL_MINUTES,
   resolveRoomAccess,
+  roomAccessError,
+  roomIdInputSchema,
   type Database,
   type RoomAccess,
   type RoomRecord,
@@ -30,6 +32,7 @@ import {
   collaborationRoom,
   collaborationRoomMember,
   scene,
+  user,
 } from "@/server/db/schema";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
 import { endRoom } from "@/server/admin/retirement";
@@ -44,7 +47,7 @@ import { endRoom } from "@/server/admin/retirement";
  * input to token issuance.
  */
 
-const roomIdInput = z.string().min(1).max(64);
+const roomIdInput = roomIdInputSchema;
 
 /** Only the owner may change a room's shape or membership. */
 const ownerRoleSchema = roomRoleSchema.exclude(["owner"]);
@@ -63,28 +66,6 @@ const keyCheckBase64Schema = z
   .string()
   .length(KEYCHECK_BASE64_LENGTH)
   .regex(/^[A-Za-z0-9+/]+={0,2}$/);
-
-const accessError = (access: Exclude<RoomAccess, { status: "ok" }>) => {
-  switch (access.status) {
-    case "not-found":
-      return new TRPCError({ code: "NOT_FOUND", message: "Room not found." });
-    case "ended":
-      return new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "This collaboration room has ended.",
-      });
-    case "expired":
-      return new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "This collaboration room has expired.",
-      });
-    case "forbidden":
-      return new TRPCError({
-        code: "FORBIDDEN",
-        message: "You do not have access to this collaboration room.",
-      });
-  }
-};
 
 const roomSummary = (room: RoomRecord) => ({
   roomId: room.roomId,
@@ -115,7 +96,7 @@ async function withLockedRoom<T>(
   return db.transaction(async (tx) => {
     await lockRoom(tx, params.roomId);
     const access = await resolveRoomAccess(tx, params);
-    if (access.status !== "ok") throw accessError(access);
+    if (access.status !== "ok") throw roomAccessError(access);
     return body(tx, access);
   });
 }
@@ -147,7 +128,14 @@ export const collaborationRoomRouter = createTRPCRouter({
     .input(
       z.object({
         sceneId: z.uuid(),
-        linkRole: linkRoleSchema.default("none"),
+        /**
+         * Optional on purpose: omitted means "leave the room's link role
+         * alone". Re-running 開始共編 refreshes an existing room's window, and
+         * a default here would silently reset a link-editor room back to
+         * invite-only in the same write. Only a brand-new room falls back to
+         * `none`.
+         */
+        linkRole: linkRoleSchema.optional(),
         ttlMinutes: z
           .number()
           .int()
@@ -188,7 +176,13 @@ export const collaborationRoomRouter = createTRPCRouter({
       if (existing) {
         const [refreshed] = await ctx.db
           .update(collaborationRoom)
-          .set({ expiresAt, linkRole: input.linkRole, updatedAt: now })
+          .set({
+            expiresAt,
+            updatedAt: now,
+            ...(input.linkRole !== undefined
+              ? { linkRole: input.linkRole }
+              : {}),
+          })
           .where(
             and(
               eq(collaborationRoom.roomId, existing.roomId),
@@ -209,7 +203,7 @@ export const collaborationRoomRouter = createTRPCRouter({
           roomId: createRoomId(),
           sceneId: input.sceneId,
           ownerId: userId,
-          linkRole: input.linkRole,
+          linkRole: input.linkRole ?? "none",
           expiresAt,
           createdAt: now,
           updatedAt: now,
@@ -240,18 +234,26 @@ export const collaborationRoomRouter = createTRPCRouter({
 
   /** Room state for the collaboration panel; requires room access. */
   get: protectedProcedure
-    .input(z.object({ roomId: roomIdInput }))
+    .input(
+      z.object({
+        roomId: roomIdInput,
+        /** Revoked members ride along only when the caller asks for them. */
+        includeRevokedMembers: z.boolean().default(false),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const access = await resolveRoomAccess(ctx.db, {
         roomId: input.roomId,
         userId: ctx.auth.user.id,
         now: new Date(),
       });
-      if (access.status !== "ok") throw accessError(access);
+      if (access.status !== "ok") throw roomAccessError(access);
       return {
         ...roomSummary(access.room),
         role: access.role,
-        members: await listRoomMembers(ctx.db, access.room.roomId),
+        members: await listRoomMembers(ctx.db, access.room.roomId, {
+          includeRevoked: input.includeRevokedMembers,
+        }),
         /**
          * The key-check value rides on `get` so verifying a link costs no
          * extra round-trip, and `get` is what the client calls *before* it
@@ -345,6 +347,8 @@ export const collaborationRoomRouter = createTRPCRouter({
         roomId: room.roomId,
         userId: ctx.auth.user.id,
         now: new Date(),
+        // Already read above; resolving access must not re-fetch the row.
+        room,
       });
       // Not authorized is reported as "no room": a scene's collaboration state
       // is not something an unauthorized caller gets to observe.
@@ -509,6 +513,18 @@ export const collaborationRoomRouter = createTRPCRouter({
               message: "The room owner's role cannot be changed.",
             });
           }
+          // A grant for an unknown user must be NOT_FOUND, not the FK
+          // violation the insert below would otherwise surface as a 500.
+          const targetUser = await tx.query.user.findFirst({
+            where: eq(user.id, input.userId),
+            columns: { id: true },
+          });
+          if (!targetUser) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "User not found.",
+            });
+          }
           await tx
             .insert(collaborationRoomMember)
             .values({
@@ -571,7 +587,7 @@ export const collaborationRoomRouter = createTRPCRouter({
               message: "The room owner cannot be removed.",
             });
           }
-          await tx
+          const revoked = await tx
             .update(collaborationRoomMember)
             .set({ revokedAt: now, updatedAt: now })
             .where(
@@ -580,7 +596,16 @@ export const collaborationRoomRouter = createTRPCRouter({
                 eq(collaborationRoomMember.userId, input.userId),
                 isNull(collaborationRoomMember.revokedAt),
               ),
-            );
+            )
+            .returning({ id: collaborationRoomMember.id });
+          // Unknown user or never-joined member: report NOT_FOUND instead of
+          // silently claiming a removal (and bumping the revision for nothing).
+          if (revoked.length === 0) {
+            throw new TRPCError({
+              code: "NOT_FOUND",
+              message: "This user is not an active member of the room.",
+            });
+          }
           return {
             room: lockedRoom,
             authRevision: await bumpRoomAuthRevision(tx, lockedRoom, now),

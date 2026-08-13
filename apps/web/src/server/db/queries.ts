@@ -8,6 +8,7 @@ import {
   isNull,
   isNotNull,
   count,
+  sql,
 } from "drizzle-orm";
 import { db } from "./index";
 import {
@@ -140,15 +141,22 @@ export const QUERIES = {
   },
 
   /**
-   * Distinct scene ids that still have asset records, for the GC sweep. All of
-   * them: the caller samples its bounded batch from the full candidate set, so
-   * scenes beyond a fixed first page are not starved forever.
+   * A random sample of distinct scene ids that still have asset records, for
+   * the GC sweep. Randomized in SQL (`ORDER BY random() LIMIT n`) so no scene
+   * can sit permanently outside a fixed first batch, without reading every
+   * candidate id into memory first.
    */
-  getSceneIdsWithFileRecords: async function () {
-    const rows = await db
+  sampleSceneIdsWithFileRecords: async function (limit: number) {
+    const distinctSceneIds = db
       .selectDistinct({ sceneId: fileRecord.sceneId })
       .from(fileRecord)
-      .where(isNotNull(fileRecord.sceneId));
+      .where(isNotNull(fileRecord.sceneId))
+      .as("distinct_scene_ids");
+    const rows = await db
+      .select({ sceneId: distinctSceneIds.sceneId })
+      .from(distinctSceneIds)
+      .orderBy(sql`random()`)
+      .limit(limit);
     return rows
       .map((row) => row.sceneId)
       .filter((id): id is string => id !== null);
@@ -266,31 +274,15 @@ export const QUERIES = {
     return rows.map((r) => r.id);
   },
 
-  // 清理：取得早於指定時間的 sharedScene IDs
-  getSharedSceneIdsOlderThan: async function (cutoff: Date) {
+  // 清理：取得早於指定時間的 sharedScene IDs（最舊優先，有界）
+  getSharedSceneIdsOlderThan: async function (cutoff: Date, limit: number) {
     const rows = await db
       .select({ id: sharedScene.sharedSceneId })
       .from(sharedScene)
-      .where(lt(sharedScene.createdAt, cutoff));
-    return rows.map((r) => r.id);
-  },
-
-  // 清理：批次查詢 sharedSceneIds 對應的檔案紀錄
-  getFileRecordsBySharedSceneIds: async function (sharedSceneIds: string[]) {
-    if (sharedSceneIds.length === 0)
-      return [] as Array<typeof fileRecord.$inferSelect>;
-    return await db
-      .select()
-      .from(fileRecord)
-      .where(inArray(fileRecord.sharedSceneId, sharedSceneIds));
-  },
-
-  // 清理：刪除早於指定時間的 sharedScene（連鎖刪除其檔案紀錄）
-  deleteSharedScenesOlderThan: async function (cutoff: Date) {
-    return await db
-      .delete(sharedScene)
       .where(lt(sharedScene.createdAt, cutoff))
-      .returning();
+      .orderBy(sharedScene.createdAt)
+      .limit(limit);
+    return rows.map((r) => r.id);
   },
 
   // 清理：刪除已過期的 sessions（expiresAt < now）

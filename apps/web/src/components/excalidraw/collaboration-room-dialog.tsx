@@ -153,7 +153,8 @@ export function CollaborationRoomDialog({
     setIsResetArmed(false);
   }, [open, roomId, failureReason]);
   const roomQuery = api.collaborationRoom.get.useQuery(
-    { roomId: roomId ?? "" },
+    // 成員面板要能顯示（並復原）已移除的成員，所以明確要求 revoked rows。
+    { roomId: roomId ?? "", includeRevokedMembers: true },
     {
       enabled: open && !isAuthenticationPending && isAuthenticated && !!roomId,
     },
@@ -385,7 +386,8 @@ export function CollaborationRoomDialog({
                   return;
                 }
                 if (!sceneId) return;
-                createRoom.mutate({ sceneId, linkRole: "none" });
+                // 不帶 linkRole：重開既有房間只延長時效，不得重設連結權限。
+                createRoom.mutate({ sceneId });
               }}
             >
               {createRoom.isPending

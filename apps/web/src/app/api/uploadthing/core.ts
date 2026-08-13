@@ -15,7 +15,7 @@ import {
   commitRoomAssetUpload,
   type AssetUploadOutcome,
 } from "@/server/collab/assets";
-import { resolveRoomAccess } from "@/server/collab/rooms";
+import { resolveRoomAccess, roomIdInputSchema } from "@/server/collab/rooms";
 import { db } from "@/server/db";
 import { QUERIES } from "@/server/db/queries";
 import { replaceSceneThumbnail } from "@/server/scene/thumbnail-replace";
@@ -184,7 +184,7 @@ export const uploadRouter = {
   })
     .input(
       z.object({
-        sceneId: z.string().uuid(),
+        sceneId: z.uuid(),
         excalidrawFileId: excalidrawFileIdSchema,
         // storage 層的 lookup 提示，不是身份：它取自壓縮後的上傳 payload，
         // 同一張圖每次壓縮都會得到不同值。
@@ -271,7 +271,7 @@ export const uploadRouter = {
   })
     .input(
       z.object({
-        roomId: z.string().min(1).max(64),
+        roomId: roomIdInputSchema,
         /**
          * 密文封裝時所用的世代。要求它仍然是當前世代：封裝綁定了世代，存到別的
          * 世代底下只會產生沒有人能解開的一列。
@@ -380,7 +380,7 @@ export const uploadRouter = {
   })
     .input(
       z.object({
-        sceneId: z.string().uuid(),
+        sceneId: z.uuid(),
       }),
     )
     .middleware(async ({ input }) => {

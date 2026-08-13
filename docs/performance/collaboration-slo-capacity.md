@@ -197,6 +197,11 @@ decision；只有 `snapshot-put` 已明確拒絕的 leave request 會再檢查�
 因此最多兩次。任何路徑都不切換成 process-local counter（那會產生一個看似全域、實際上每個
 instance 各一份的限制）。
 
+Shared-scene（分享連結）後端沿用同一條 decision pipeline 與失效模式，但屬於獨立的 key
+namespace（`drawstuff:shared-scene:ratelimit:v1:<operation>`）且**不在本節核准表的契約內**：
+建立 shared scene 為每使用者 10 次／分鐘（單次呼叫最多寫入 5 MiB、row 存活 30 天），兩個
+公開讀取 procedure 合計為每客戶端 IP 120 次／分鐘。
+
 真正超限時，tRPC 回 `TOO_MANY_REQUESTS`（HTTP 429），UploadThing presign POST 由
 `apps/web/src/app/api/uploadthing/route.ts` 的 wrapper 直接回 HTTP 429；兩者都帶
 machine-readable 的 `reset`／`retryAfterMs`，並在 HTTP 層設 `Retry-After`。Client 將其歸類為

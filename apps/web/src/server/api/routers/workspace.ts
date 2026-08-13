@@ -19,7 +19,7 @@ import { TRPCError } from "@trpc/server";
 
 export const workspaceRouter = createTRPCRouter({
   getOwned: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .query(async ({ ctx, input }) => {
       const [ownedWorkspace] = await ctx.db
         .select({
@@ -197,7 +197,7 @@ export const workspaceRouter = createTRPCRouter({
 
   // 設定最後啟用的 workspace
   setLastActive: protectedProcedure
-    .input(z.object({ workspaceId: z.string().uuid() }))
+    .input(z.object({ workspaceId: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.auth.user.id;
 
@@ -274,7 +274,7 @@ export const workspaceRouter = createTRPCRouter({
 
   // 刪除 workspace（禁止刪除預設 workspace）。同時處理 lastActive 指向。
   delete: protectedProcedure
-    .input(z.object({ id: z.string().uuid() }))
+    .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.auth.user.id;
 
