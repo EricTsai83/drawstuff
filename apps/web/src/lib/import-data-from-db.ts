@@ -46,7 +46,8 @@ export async function importDataFromBackend(
 }
 
 type CloudFileRecord = {
-  utFileKey: string;
+  /** 只有 owner-only 的 scene 端點回傳；公開的 shared-scene 端點不洩漏。 */
+  utFileKey?: string;
   url: string;
   /** Immutable Excalidraw file id; the identity the element's `fileId` matches. */
   excalidrawFileId: string;

@@ -168,7 +168,6 @@ export const sceneRouter = createTRPCRouter({
             workspaceId: z.uuid().optional(),
             workspaceName: z.string().optional(),
             thumbnail: z.string().optional(),
-            sceneData: z.string().optional(),
             isArchived: z.boolean(),
             isPublished: z.boolean(),
             publishedSlug: z.string().optional(),
@@ -256,6 +255,9 @@ export const sceneRouter = createTRPCRouter({
 
       const rows = await ctx.db.query.scene.findMany({
         where: and(...whereClauses),
+        // 列表不載 sceneData：單筆上限 5 MiB、limit 上限 100，帶著它一頁最壞
+        // ~500 MB。需要完整資料的 consumer 走 getScene 單抓。
+        columns: { sceneData: false },
         orderBy: (sceneTbl, { desc }) => [
           desc(sceneTbl.updatedAt),
           desc(sceneTbl.id),
@@ -300,7 +302,6 @@ export const sceneRouter = createTRPCRouter({
           workspaceId: s.workspaceId ?? undefined,
           workspaceName: s.workspace?.name ?? undefined,
           thumbnail: s.thumbnailUrl ?? undefined,
-          sceneData: s.sceneData ?? undefined,
           isArchived: s.isArchived,
           isPublished: s.isPublished,
           publishedSlug: s.publishedSlug ?? undefined,

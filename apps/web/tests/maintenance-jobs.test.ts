@@ -30,6 +30,7 @@ import { eq } from "drizzle-orm";
 import * as schema from "@/server/db/schema";
 import { QUERIES } from "@/server/db/queries";
 import {
+  createExpiredSharedScenesJob,
   createQueueDrainJob,
   createRoomRetentionJob,
   createUnreferencedAssetGcJob,
@@ -249,6 +250,152 @@ describe("runMaintenanceJobs", () => {
       status: "error",
       detail: { completed: ["a"] },
     });
+  });
+});
+
+describe("expired shared scenes", () => {
+  const sharedSceneRow = async (id: string, ageDays: number) => {
+    await testDb.insert(schema.sharedScene).values({
+      sharedSceneId: id,
+      ownerId: OWNER,
+      createdAt: new Date(Date.now() - ageDays * DAY_MS),
+    });
+  };
+  const sharedFile = (
+    sharedSceneId: string,
+    utFileKey: string,
+    excalidrawFileId = FILE_A,
+  ) =>
+    testDb.insert(schema.fileRecord).values({
+      sharedSceneId,
+      ownerId: OWNER,
+      utFileKey,
+      excalidrawFileId,
+      size: 32,
+      url: `https://files.example/${utFileKey}`,
+    });
+  const remainingSharedSceneIds = async () =>
+    (
+      await testDb
+        .select({ id: schema.sharedScene.sharedSceneId })
+        .from(schema.sharedScene)
+    ).map((row) => row.id);
+
+  it("reclaims oldest-first up to the scene cap, enqueueing keys in the delete transaction", async () => {
+    await sharedSceneRow("expired-oldest", 40);
+    await sharedSceneRow("expired-middle", 35);
+    await sharedSceneRow("expired-newest", 31);
+    await sharedSceneRow("live", 1);
+    await sharedFile("expired-oldest", "key-oldest");
+    await sharedFile("expired-middle", "key-middle");
+
+    const { deps, deletedKeys } = makeDeps();
+    const detail = await createExpiredSharedScenesJob({
+      maxSharedScenes: 2,
+    }).run(deps);
+
+    expect(detail).toMatchObject({
+      deletedSharedScenes: 2,
+      enqueuedObjects: 2,
+      truncated: true,
+    });
+    // No inline storage call: the drain owns object deletion.
+    expect(deletedKeys).toEqual([]);
+    const queued = await testDb.select().from(schema.deferredFileCleanup);
+    expect(queued.map((row) => row.utFileKey).sort()).toEqual([
+      "key-middle",
+      "key-oldest",
+    ]);
+    expect(queued.every((row) => row.status === "pending")).toBe(true);
+    expect((await remainingSharedSceneIds()).sort()).toEqual([
+      "expired-newest",
+      "live",
+    ]);
+  });
+
+  it("lets the first scene exceed the object budget and defers the rest", async () => {
+    // A shared scene has no schema cap on records: refusing an oversized
+    // first scene would starve it forever, so it may exceed the budget on
+    // its own and the following scenes wait for the next run.
+    await sharedSceneRow("expired-a", 40);
+    await sharedSceneRow("expired-b", 35);
+    await sharedFile("expired-a", "key-a1");
+    await sharedFile("expired-a", "key-a2", FILE_B);
+    await sharedFile("expired-b", "key-b1");
+
+    const { deps } = makeDeps();
+    const detail = await createExpiredSharedScenesJob({ maxObjects: 1 }).run(
+      deps,
+    );
+
+    expect(detail).toMatchObject({
+      deletedSharedScenes: 1,
+      enqueuedObjects: 2,
+      truncated: true,
+    });
+    expect(await remainingSharedSceneIds()).toEqual(["expired-b"]);
+  });
+
+  it("defers a non-first scene whose records would cross the object budget", async () => {
+    // The overshoot allowance belongs to the FIRST scene only: a later scene
+    // is probed under the row lock and deferred, so one oversized non-first
+    // scene cannot blow past the budget the drain was sized for.
+    await sharedSceneRow("expired-small", 40);
+    await sharedSceneRow("expired-large", 35);
+    await sharedFile("expired-small", "key-s1");
+    await sharedFile("expired-large", "key-l1");
+    await sharedFile("expired-large", "key-l2", FILE_B);
+
+    const { deps } = makeDeps();
+    const detail = await createExpiredSharedScenesJob({ maxObjects: 2 }).run(
+      deps,
+    );
+
+    expect(detail).toMatchObject({
+      deletedSharedScenes: 1,
+      enqueuedObjects: 1,
+      truncated: true,
+    });
+    expect(await remainingSharedSceneIds()).toEqual(["expired-large"]);
+    const queued = await testDb.select().from(schema.deferredFileCleanup);
+    expect(queued.map((row) => row.utFileKey)).toEqual(["key-s1"]);
+  });
+
+  it("stops at the absolute deadline without deleting unprocessed rows", async () => {
+    await sharedSceneRow("expired-a", 40);
+    await sharedFile("expired-a", "key-a");
+
+    const { deps } = makeDeps();
+    const detail = await createExpiredSharedScenesJob({
+      deadlineAt: new Date(Date.now() - 1),
+    }).run(deps);
+
+    expect(detail).toMatchObject({
+      deletedSharedScenes: 0,
+      enqueuedObjects: 0,
+      truncated: true,
+    });
+    expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
+    expect(await remainingSharedSceneIds()).toEqual(["expired-a"]);
+  });
+
+  it("hands its objects to the same run's drain", async () => {
+    await sharedSceneRow("expired-a", 40);
+    await sharedFile("expired-a", "key-a");
+
+    const { deps, deletedKeys } = makeDeps();
+    const report = await runMaintenanceJobs(
+      [createExpiredSharedScenesJob(), createQueueDrainJob()],
+      deps,
+    );
+
+    expect(report.failed).toBe(0);
+    expect(deletedKeys).toEqual(["key-a"]);
+    expect(await remainingSharedSceneIds()).toEqual([]);
+    const drain = report.jobs.at(-1);
+    if (drain?.status !== "ok") throw new Error("expected drain to succeed");
+    expect(drain.detail.processed).toBe(1);
+    expect(drain.detail.remaining).toBe(0);
   });
 });
 

@@ -17,7 +17,8 @@ import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import {
   lockRoom,
   resolveRoomAccess,
-  type RoomAccess,
+  roomAccessError,
+  roomIdInputSchema,
 } from "@/server/collab/rooms";
 import {
   deleteRoomSnapshot,
@@ -44,7 +45,7 @@ import {
  * then the decoded length, so an oversize payload is never materialized twice.
  */
 
-const roomIdInput = z.string().min(1).max(64);
+const roomIdInput = roomIdInputSchema;
 
 /**
  * Base64 of at most `MAX_SNAPSHOT_CIPHERTEXT_BYTES` bytes. Standard alphabet
@@ -59,28 +60,6 @@ const ciphertextBase64Schema = z
   .min(4)
   .max(MAX_CIPHERTEXT_BASE64_LENGTH)
   .regex(/^[A-Za-z0-9+/]+={0,2}$/);
-
-const accessError = (access: Exclude<RoomAccess, { status: "ok" }>) => {
-  switch (access.status) {
-    case "not-found":
-      return new TRPCError({ code: "NOT_FOUND", message: "Room not found." });
-    case "ended":
-      return new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "This collaboration room has ended.",
-      });
-    case "expired":
-      return new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "This collaboration room has expired.",
-      });
-    case "forbidden":
-      return new TRPCError({
-        code: "FORBIDDEN",
-        message: "You do not have access to this collaboration room.",
-      });
-  }
-};
 
 export const collaborationSnapshotRouter = createTRPCRouter({
   /**
@@ -99,7 +78,7 @@ export const collaborationSnapshotRouter = createTRPCRouter({
         userId: ctx.auth.user.id,
         now: new Date(),
       });
-      if (access.status !== "ok") throw accessError(access);
+      if (access.status !== "ok") throw roomAccessError(access);
 
       const snapshot = await readRoomSnapshot(ctx.db, {
         roomId: access.room.roomId,
@@ -185,7 +164,7 @@ export const collaborationSnapshotRouter = createTRPCRouter({
         userId,
         now,
       });
-      if (preAccess.status !== "ok") throw accessError(preAccess);
+      if (preAccess.status !== "ok") throw roomAccessError(preAccess);
       if (!roomRoleCanEditScene(preAccess.role)) {
         throw new TRPCError({
           code: "FORBIDDEN",
@@ -221,7 +200,7 @@ export const collaborationSnapshotRouter = createTRPCRouter({
           userId,
           now,
         });
-        if (access.status !== "ok") throw accessError(access);
+        if (access.status !== "ok") throw roomAccessError(access);
         // A viewer receives the baseline but never defines it. The relay refuses
         // its realtime mutations; this refuses the durable equivalent.
         if (!roomRoleCanEditScene(access.role)) {
@@ -280,7 +259,7 @@ export const collaborationSnapshotRouter = createTRPCRouter({
           userId,
           now,
         });
-        if (access.status !== "ok") throw accessError(access);
+        if (access.status !== "ok") throw roomAccessError(access);
         if (access.role !== "owner") {
           throw new TRPCError({
             code: "FORBIDDEN",

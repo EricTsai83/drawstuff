@@ -1,7 +1,9 @@
 import "server-only";
 
-import { and, eq, isNull } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, asc, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
+import { z } from "zod";
 
 import type { RoomId } from "@drawstuff/collaboration/protocol";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
@@ -78,13 +80,52 @@ export type RoomAccess =
   /** Authenticated, but not authorized for this room (or revoked). */
   | { status: "forbidden" };
 
+/** The tRPC input shape every room-scoped procedure shares. */
+export const roomIdInputSchema = z.string().min(1).max(64);
+
+/** The one mapping from a refused `RoomAccess` to the error a router throws. */
+export function roomAccessError(
+  access: Exclude<RoomAccess, { status: "ok" }>,
+): TRPCError {
+  switch (access.status) {
+    case "not-found":
+      return new TRPCError({ code: "NOT_FOUND", message: "Room not found." });
+    case "ended":
+      return new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "This collaboration room has ended.",
+      });
+    case "expired":
+      return new TRPCError({
+        code: "PRECONDITION_FAILED",
+        message: "This collaboration room has expired.",
+      });
+    case "forbidden":
+      return new TRPCError({
+        code: "FORBIDDEN",
+        message: "You do not have access to this collaboration room.",
+      });
+  }
+}
+
 export async function resolveRoomAccess(
   db: RoomDatabase,
-  params: { roomId: string; userId: string; now: Date },
+  params: {
+    roomId: string;
+    userId: string;
+    now: Date;
+    /**
+     * A room row the caller already read (or locked). Passing it skips the
+     * redundant lookup; authorization semantics are unchanged.
+     */
+    room?: RoomRecord;
+  },
 ): Promise<RoomAccess> {
-  const room = await db.query.collaborationRoom.findFirst({
-    where: eq(collaborationRoom.roomId, params.roomId),
-  });
+  const room =
+    params.room ??
+    (await db.query.collaborationRoom.findFirst({
+      where: eq(collaborationRoom.roomId, params.roomId),
+    }));
   if (!room) return { status: "not-found" };
   if (room.status !== "active") return { status: "ended" };
   // Expiry is checked here rather than by a sweeper, so an expired room stops
@@ -221,13 +262,34 @@ export type RoomMemberSummary = {
   revoked: boolean;
 };
 
+/**
+ * A membership listing is never unbounded: a link-role room records every
+ * joiner, so a widely shared link accumulates rows without limit, and the
+ * panel polls this. Earliest members first — the owner's row is created with
+ * the room, so it is always inside the cap.
+ */
+export const MAX_LISTED_ROOM_MEMBERS = 200;
+
 export async function listRoomMembers(
   db: RoomDatabase,
   roomId: string,
+  options: { includeRevoked?: boolean } = {},
 ): Promise<RoomMemberSummary[]> {
   const rows = await db.query.collaborationRoomMember.findMany({
-    where: eq(collaborationRoomMember.roomId, roomId),
+    // Revoked rows only on explicit request: they are decisions worth showing
+    // an owner, not payload every poll of the panel should carry.
+    where: options.includeRevoked
+      ? eq(collaborationRoomMember.roomId, roomId)
+      : and(
+          eq(collaborationRoomMember.roomId, roomId),
+          isNull(collaborationRoomMember.revokedAt),
+        ),
     with: { user: { columns: { name: true } } },
+    orderBy: [
+      asc(collaborationRoomMember.createdAt),
+      asc(collaborationRoomMember.id),
+    ],
+    limit: MAX_LISTED_ROOM_MEMBERS,
   });
   return rows.map((row) => ({
     userId: row.userId,

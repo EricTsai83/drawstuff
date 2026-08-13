@@ -1,4 +1,3 @@
-import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import {
@@ -10,7 +9,11 @@ import {
 
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { resolveRoomAssets } from "@/server/collab/assets";
-import { resolveRoomAccess, type RoomAccess } from "@/server/collab/rooms";
+import {
+  resolveRoomAccess,
+  roomAccessError,
+  roomIdInputSchema,
+} from "@/server/collab/rooms";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
 
 /**
@@ -33,29 +36,7 @@ import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration
  * access loses the ability to find new URLs.
  */
 
-const roomIdInput = z.string().min(1).max(64);
-
-const accessError = (access: Exclude<RoomAccess, { status: "ok" }>) => {
-  switch (access.status) {
-    case "not-found":
-      return new TRPCError({ code: "NOT_FOUND", message: "Room not found." });
-    case "ended":
-      return new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "This collaboration room has ended.",
-      });
-    case "expired":
-      return new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "This collaboration room has expired.",
-      });
-    case "forbidden":
-      return new TRPCError({
-        code: "FORBIDDEN",
-        message: "You do not have access to this collaboration room.",
-      });
-  }
-};
+const roomIdInput = roomIdInputSchema;
 
 export const collaborationAssetRouter = createTRPCRouter({
   /**
@@ -94,7 +75,7 @@ export const collaborationAssetRouter = createTRPCRouter({
         userId: ctx.auth.user.id,
         now: new Date(),
       });
-      if (access.status !== "ok") throw accessError(access);
+      if (access.status !== "ok") throw roomAccessError(access);
 
       const fileIds = canonicalizeAssetIds(input.fileIds);
       const assets = await resolveRoomAssets(ctx.db, {

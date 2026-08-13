@@ -10,6 +10,7 @@ import {
   deferredFileCleanup,
   fileRecord,
   scene,
+  sharedScene,
   user,
 } from "@/server/db/schema";
 import { QUERIES } from "@/server/db/queries";
@@ -103,48 +104,135 @@ export async function runMaintenanceJobs(
   };
 }
 
-/** Storage delete with the standing fallback: enqueue for the drain to retry. */
-async function deleteOrEnqueue(
-  deps: MaintenanceDeps,
-  key: string,
-  reason: string,
-  context: Record<string, unknown>,
-): Promise<"deleted" | "enqueued"> {
-  try {
-    await deps.deleteStorageFile(key);
-    return "deleted";
-  } catch {
-    await QUERIES.enqueueDeferredCleanup({ utFileKey: key, reason, context });
-    return "enqueued";
-  }
-}
-
-export const expiredSharedScenesJob: MaintenanceJob = {
-  name: "expired-shared-scenes",
-  run: async (deps) => {
-    const cutoff = new Date(deps.now().getTime() - 30 * DAY_MS);
-    const ids = await QUERIES.getSharedSceneIdsOlderThan(cutoff);
-    const files = await QUERIES.getFileRecordsBySharedSceneIds(ids);
-    let deletedObjects = 0;
-    let enqueuedObjects = 0;
-    for (const file of files) {
-      const outcome = await deleteOrEnqueue(
-        deps,
-        file.utFileKey,
-        "sharedScene_expired",
-        { sharedSceneId: file.sharedSceneId },
-      );
-      if (outcome === "deleted") deletedObjects += 1;
-      else enqueuedObjects += 1;
-    }
-    const deleted = await QUERIES.deleteSharedScenesOlderThan(cutoff);
-    return {
-      deletedSharedScenes: deleted.length,
-      deletedObjects,
-      enqueuedObjects,
-    };
-  },
+export type ExpiredSharedScenesOptions = {
+  /** Shared scenes reclaimed per run (oldest first). */
+  maxSharedScenes?: number;
+  /**
+   * Asset objects enqueued per run, sized to the same run's drain capacity
+   * (same rationale as room retention). The first scene may exceed it on its
+   * own — shared scenes have no schema cap on records, and refusing one
+   * forever would starve it.
+   */
+  maxObjects?: number;
+  /**
+   * Absolute cutoff, from the route's execution envelope. This job runs
+   * first, so a backlog here must not eat the budget every job behind it
+   * (including the drain) needs to run at all.
+   */
+  deadlineAt?: Date;
 };
+
+/**
+ * Reclaims shared scenes past their 30-day retention, bounded like every
+ * other maintenance job: a backlog is worked through oldest-first across
+ * runs instead of one unbounded run that starves the jobs queued behind it.
+ *
+ * Each scene is reclaimed in its own transaction with the shared-scene row
+ * locked `FOR UPDATE`, its storage keys inserted into the cleanup outbox,
+ * and the row deleted — the standard deletion shape (see
+ * `collectUserStorageKeys`). The lock is what closes the upload race: a
+ * `file_record` insert needs the parent's `FOR KEY SHARE`, which conflicts
+ * with the lock, so no new key can land between key collection and the
+ * cascade that would orphan its object. No storage call happens inline; the
+ * drain — always ordered after this job — deletes the objects, so per-scene
+ * work is database-only and the between-scene deadline/budget checks bound
+ * the run for real.
+ */
+export function createExpiredSharedScenesJob(
+  options: ExpiredSharedScenesOptions = {},
+): MaintenanceJob {
+  const { maxSharedScenes = 200, maxObjects = 500, deadlineAt } = options;
+  return {
+    name: "expired-shared-scenes",
+    run: async (deps) => {
+      const cutoff = new Date(deps.now().getTime() - 30 * DAY_MS);
+      const ids = await QUERIES.getSharedSceneIdsOlderThan(
+        cutoff,
+        maxSharedScenes + 1,
+      );
+      const truncatedScenes = ids.length > maxSharedScenes;
+      const deadlineMs = deadlineAt?.getTime() ?? Number.POSITIVE_INFINITY;
+
+      let deletedSharedScenes = 0;
+      let enqueuedObjects = 0;
+      let budgetExhausted = false;
+
+      type ReclaimOutcome =
+        | { kind: "reclaimed"; enqueued: number }
+        /** Would push the run past the object budget; left for the next run. */
+        | { kind: "deferred" };
+
+      for (const sharedSceneId of ids.slice(0, maxSharedScenes)) {
+        if (
+          deps.now().getTime() >= deadlineMs ||
+          (enqueuedObjects > 0 && enqueuedObjects >= maxObjects)
+        ) {
+          budgetExhausted = true;
+          break;
+        }
+        const now = deps.now();
+        const outcome = await db.transaction(
+          async (tx): Promise<ReclaimOutcome | null> => {
+            const [row] = await tx
+              .select({ createdAt: sharedScene.createdAt })
+              .from(sharedScene)
+              .where(eq(sharedScene.sharedSceneId, sharedSceneId))
+              .for("update");
+            // Gone (a rollback or another run got here first): nothing to do.
+            if (!row || row.createdAt >= cutoff) return null;
+
+            // Scenes are reclaimed whole, so the budget check probes the
+            // scene's own count before touching anything (same shape as room
+            // retention): records are uncapped, and admitting a scene on the
+            // running total alone would let one oversized non-first scene
+            // blow past the budget. Only the run's first scene may exceed it
+            // — refusing it would starve it forever.
+            const [tally] = await tx
+              .select({ count: sql<number>`count(*)::int` })
+              .from(fileRecord)
+              .where(eq(fileRecord.sharedSceneId, sharedSceneId));
+            const recordCount = tally?.count ?? 0;
+            if (
+              enqueuedObjects > 0 &&
+              enqueuedObjects + recordCount > maxObjects
+            ) {
+              return { kind: "deferred" };
+            }
+
+            const records = await tx
+              .select({ key: fileRecord.utFileKey })
+              .from(fileRecord)
+              .where(eq(fileRecord.sharedSceneId, sharedSceneId));
+            const count = await enqueueStorageKeyCleanup(
+              tx,
+              records.map((record) => record.key),
+              "sharedScene_expired",
+              { sharedSceneId },
+              now,
+            );
+            await tx
+              .delete(sharedScene)
+              .where(eq(sharedScene.sharedSceneId, sharedSceneId));
+            return { kind: "reclaimed", enqueued: count };
+          },
+        );
+        if (!outcome) continue;
+        if (outcome.kind === "deferred") {
+          budgetExhausted = true;
+          break;
+        }
+        deletedSharedScenes += 1;
+        enqueuedObjects += outcome.enqueued;
+      }
+
+      return {
+        deletedSharedScenes,
+        enqueuedObjects,
+        truncated: truncatedScenes || budgetExhausted,
+      };
+    },
+  };
+}
 
 export const expiredSessionsJob: MaintenanceJob = {
   name: "expired-sessions",
@@ -213,11 +301,13 @@ export function createUnreferencedAssetGcJob(
     name: "unreferenced-asset-gc",
     run: async (deps) => {
       const graceCutoff = new Date(deps.now().getTime() - graceMs);
-      // All candidates, shuffled: a bounded run takes a random maxScenes-sized
-      // sample, so no scene can sit permanently outside a fixed first batch
-      // (referenced records keep their scene in the candidate set forever, so
-      // a stable prefix would starve everything behind it).
-      const sceneIds = shuffled(await QUERIES.getSceneIdsWithFileRecords());
+      // A bounded random sample, taken in SQL: no scene can sit permanently
+      // outside a fixed first batch (referenced records keep their scene in
+      // the candidate set forever, so a stable prefix would starve everything
+      // behind it) — and the full candidate id set never enters memory.
+      const sceneIds = await QUERIES.sampleSceneIdsWithFileRecords(
+        maxScenes + 1,
+      );
       const truncatedScenes = sceneIds.length > maxScenes;
 
       let scenesScanned = 0;
@@ -525,16 +615,6 @@ export function createRoomRetentionJob(
   };
 }
 
-/** Fisher–Yates copy. */
-function shuffled<T>(items: readonly T[]): T[] {
-  const result = [...items];
-  for (let i = result.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [result[i], result[j]] = [result[j]!, result[i]!];
-  }
-  return result;
-}
-
 export type QueueDrainOptions = {
   batchSize?: number;
   /** Tasks handled per run, successful or not. */
@@ -741,14 +821,18 @@ export function routineMaintenanceJobs(
   options: { drainDeadlineAt?: Date } = {},
 ): MaintenanceJob[] {
   return [
-    expiredSharedScenesJob,
+    // Backstopped by the same absolute deadline as the drain: its own caps
+    // are the working bound, the deadline only stops a pathological backlog
+    // from letting the run be killed mid-flight.
+    createExpiredSharedScenesJob({ deadlineAt: options.drainDeadlineAt }),
     createUnreferencedAssetGcJob(),
     createRoomRetentionJob(),
     expiredSessionsJob,
     expiredVerificationsJob,
     purgeFinishedQueueRowsJob,
-    // Sized to the producers' bounded aggregate per-run maximum — 500 from
-    // the asset GC plus 512 from room retention's permitted first-room
+    // Sized to the producers' bounded aggregate per-run maximum — ~500 from
+    // expired shared scenes (plus its permitted first-scene overshoot), 500
+    // from the asset GC, and 512 from room retention's permitted first-room
     // overshoot — with headroom for failure enqueues and backlog, so the
     // task cap alone can never leave a same-run enqueue undrained. The
     // wall-clock budget makes the cap reachable — the default 60s covers
@@ -757,7 +841,7 @@ export function routineMaintenanceJobs(
     // the jobs before it took; whatever gets cut off is reported in
     // `remaining` and picked up next run.
     createQueueDrainJob({
-      maxTasks: 1200,
+      maxTasks: 1800,
       budgetMs: 180_000,
       deadlineAt: options.drainDeadlineAt,
     }),

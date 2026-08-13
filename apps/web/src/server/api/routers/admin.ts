@@ -18,7 +18,7 @@ import {
   createTRPCRouter,
   protectedProcedure,
 } from "@/server/api/trpc";
-import { type Database } from "@/server/collab/rooms";
+import { roomIdInputSchema, type Database } from "@/server/collab/rooms";
 import {
   adminAuditEvent,
   adminGrant,
@@ -47,12 +47,17 @@ async function audited<T>(params: {
     });
     return result;
   } catch (error) {
-    await completeAdminAudit({
-      db: params.db,
-      auditId,
-      status: "failed",
-      error,
-    });
+    try {
+      await completeAdminAudit({
+        db: params.db,
+        auditId,
+        status: "failed",
+        error,
+      });
+    } catch (auditError) {
+      // 記錄失敗不得蓋掉原始錯誤：caller 要看到的是操作為什麼失敗。
+      console.error("Failed to complete admin audit event:", auditError);
+    }
     throw error;
   }
 }
@@ -61,18 +66,15 @@ const notFound = (message: string) =>
   new TRPCError({ code: "NOT_FOUND", message });
 
 export const adminRouter = createTRPCRouter({
-  access: protectedProcedure
-    .input(z.object({ userId: z.string().min(1) }))
-    .query(async ({ ctx, input }) => {
-      if (input.userId !== ctx.auth.user.id) {
-        throw new TRPCError({ code: "BAD_REQUEST" });
-      }
-      return {
-        isOperator: Boolean(
-          await getActiveOperatorGrant(ctx.db, ctx.auth.user.id),
-        ),
-      };
-    }),
+  // 只回答「呼叫者自己」是否為 operator：身份來自 session，不收也不驗任何
+  // caller 提供的 userId。
+  access: protectedProcedure.query(async ({ ctx }) => {
+    return {
+      isOperator: Boolean(
+        await getActiveOperatorGrant(ctx.db, ctx.auth.user.id),
+      ),
+    };
+  }),
   overview: adminProcedure.query(async ({ ctx }) => {
     const [users, scenes, activeRooms, pendingCleanup] = await Promise.all([
       ctx.db.select({ value: count() }).from(user),
@@ -321,7 +323,7 @@ export const adminRouter = createTRPCRouter({
       return result;
     }),
   endRoom: adminProcedure
-    .input(z.object({ roomId: z.string().min(1).max(64) }))
+    .input(z.object({ roomId: roomIdInputSchema }))
     .mutation(async ({ ctx, input }) => {
       const result = await audited({
         db: ctx.db,

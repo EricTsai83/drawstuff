@@ -188,6 +188,12 @@ describe("collaboration room creation", () => {
       .from(schema.collaborationRoom)
       .where(eq(schema.collaborationRoom.sceneId, sceneId));
     expect(rooms).toHaveLength(1);
+
+    // Omitted linkRole means "leave it alone": refreshing the window must not
+    // silently reset a link-editor room back to invite-only.
+    const third = await caller.collaborationRoom.create({ sceneId });
+    expect(third.roomId).toBe(first.roomId);
+    expect(third.linkRole).toBe("viewer");
   });
 
   it("refuses a scene the caller does not own, and refuses anonymous callers", async () => {
@@ -361,12 +367,40 @@ describe("collaboration room membership changes", () => {
         roomId: room.roomId,
       }).ok,
     ).toBe(true);
+    // Revoked rows are decisions, not default payload: the panel must ask for
+    // them explicitly, and a plain poll no longer carries them.
     const members = await callerFor(OWNER).collaborationRoom.get({
       roomId: room.roomId,
+      includeRevokedMembers: true,
     });
     expect(
       members.members.find((member) => member.userId === GUEST),
     ).toMatchObject({ revoked: true });
+    const defaultMembers = await callerFor(OWNER).collaborationRoom.get({
+      roomId: room.roomId,
+    });
+    expect(
+      defaultMembers.members.find((member) => member.userId === GUEST),
+    ).toBeUndefined();
+  });
+
+  it("reports NOT_FOUND for member changes aimed at unknown or never-joined users", async () => {
+    const room = await setupRoom();
+    // Formerly a raw FK violation (500) — an unknown user is a NOT_FOUND.
+    await expect(
+      callerFor(OWNER).collaborationRoom.setMemberRole({
+        roomId: room.roomId,
+        userId: "no-such-user",
+        role: "viewer",
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    // Formerly a silent `{ removed: true }` that bumped the auth revision.
+    await expect(
+      callerFor(OWNER).collaborationRoom.removeMember({
+        roomId: room.roomId,
+        userId: STRANGER,
+      }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
   });
 
   it("reinstates a removed member only through an explicit role grant", async () => {

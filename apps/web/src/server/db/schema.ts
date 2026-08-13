@@ -1,3 +1,7 @@
+// 刻意沒有 `import "server-only"`：這個檔案是 drizzle-kit 的 schema 入口
+// （drizzle.config.ts），drizzle-kit 在一般 Node 條件下載入它，server-only 會
+// 直接 throw、`db:push` 隨之失效。這裡只有表定義，沒有連線與秘密；真正開
+// live 連線的 `./index.ts` 才掛 guard，client bundle 只要碰到 db 就會炸。
 import {
   pgTableCreator,
   text,
@@ -337,8 +341,14 @@ export const scene = createTable(
   (table) => [
     index("scene_user_id_idx").on(table.userId),
     index("scene_workspace_id_idx").on(table.workspaceId),
-    index("scene_name_idx").on(table.name),
-    index("scene_last_updated_idx").on(table.lastUpdated),
+    // Dashboard keyset pagination：userId 等值 + (updatedAt, id) 降冪，cursor
+    // 條件走 index range。名稱／last_updated 的單欄索引已移除：搜尋是
+    // leading-wildcard ilike（用不到 btree），也沒有查詢以 last_updated 排序。
+    index("scene_user_updated_idx").on(
+      table.userId,
+      table.updatedAt.desc(),
+      table.id.desc(),
+    ),
     index("scene_published_idx").on(table.isPublished),
     uniqueIndex("scene_published_slug_unique").on(table.publishedSlug),
     check("scene_revision_positive", sql`${table.revision} >= 1`),
@@ -819,8 +829,13 @@ export const deferredFileCleanup = createTable(
   },
   (table) => [
     index("deferred_cleanup_key_idx").on(table.utFileKey),
-    index("deferred_cleanup_next_attempt_idx").on(table.nextAttemptAt),
-    index("deferred_cleanup_status_idx").on(table.status),
+    // Drain 熱查詢是 status='pending' AND next_attempt_at <= now ORDER BY
+    // next_attempt_at：複合索引讓每批直接走 index range，取代原本兩個單欄索引
+    // 的 bitmap-AND + sort。
+    index("deferred_cleanup_status_next_attempt_idx").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
   ],
 );
 

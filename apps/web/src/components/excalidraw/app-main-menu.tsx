@@ -104,14 +104,11 @@ function AppMainMenu({
     string | undefined
   >(undefined);
   const { data: session } = authClient.useSession();
-  const { data: adminAccess } = api.admin.access.useQuery(
-    { userId: session?.user.id ?? "" },
-    {
-      enabled: Boolean(session?.user.id),
-      retry: false,
-      staleTime: 60_000,
-    },
-  );
+  const { data: adminAccess } = api.admin.access.useQuery(undefined, {
+    enabled: Boolean(session?.user.id),
+    retry: false,
+    staleTime: 60_000,
+  });
   const { uploadSceneToCloud, clearCurrentScene, currentSceneId } =
     useCloudUpload(() => {
       // 若找不到場景（理論上新建時不會），忽略

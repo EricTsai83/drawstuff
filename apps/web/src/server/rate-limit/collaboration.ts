@@ -188,7 +188,7 @@ export type CollaborationRateLimiter = {
  * and which failure mode".
  */
 function reportDegradation(
-  operation: CollaborationRateLimitOperation,
+  operation: string,
   cause: "timeout" | "exception",
 ): void {
   console.warn(
@@ -211,7 +211,10 @@ function reportDegradation(
  */
 export async function evaluateCollaborationRateLimit(
   limiter: CollaborationRateLimiter,
-  operation: CollaborationRateLimitOperation,
+  // Open string on purpose: other backends (shared-scene) reuse this decision
+  // pipeline with their own operation names; the closed collaboration enum
+  // stays the contract for this module's own limiter table.
+  operation: string,
   identifier: string,
   now: () => number = Date.now,
 ): Promise<CollaborationRateLimitDecision> {

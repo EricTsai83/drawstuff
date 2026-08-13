@@ -7,5 +7,6 @@ export const APP_ERROR = {
   INTERNAL_ERROR: "INTERNAL_ERROR",
   CREATE_FAILED: "CREATE_FAILED",
   SAVE_FAILED: "SAVE_FAILED",
+  RATE_LIMITED: "RATE_LIMITED",
 } as const;
 export type AppErrorCode = (typeof APP_ERROR)[keyof typeof APP_ERROR];
