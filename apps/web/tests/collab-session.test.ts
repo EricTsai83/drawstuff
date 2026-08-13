@@ -223,6 +223,42 @@ describe("collaboration session over the fake network", () => {
     });
   });
 
+  it("routes presence writes through the presence wrapper, not the remote-apply one", () => {
+    const wraps: string[] = [];
+    const carol = harness.createClient("client-carol", {
+      wrapRemoteApply: (apply) => {
+        wraps.push("remote");
+        apply();
+      },
+      wrapPresenceApply: (apply) => {
+        wraps.push("presence");
+        apply();
+      },
+    });
+    carol.session.connect();
+    harness.settle();
+    wraps.length = 0; // the join exchange applies scene state; not under test
+
+    alice.session.handlePointerUpdate({
+      pointer: { x: 10, y: 20, tool: "pointer" },
+      button: "down",
+      pointersMap: new Map(),
+    });
+    harness.network.flush();
+
+    // The cursor landed, and only the presence path carried it: a host whose
+    // remote-apply wrapper defers its cleanup by a frame must not have that
+    // window opened ~30 times per second per peer for writes with no scene
+    // state in them.
+    expect(carol.host.collaborators.size).toBe(1);
+    expect(wraps).toEqual(["presence"]);
+
+    // Scene traffic still runs through the remote-apply wrapper.
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.network.flush();
+    expect(wraps).toContain("remote");
+  });
+
   it("drops late presence from a departed peer instead of resurrecting its cursor", () => {
     alice.session.handlePointerUpdate({
       pointer: { x: 5, y: 5, tool: "pointer" },

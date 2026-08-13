@@ -84,6 +84,7 @@ const STATUS_LABEL_KEY: Record<CollaborationRoomStatus, string> = {
   reconnecting: "collaboration.dialogStatus.reconnecting",
   failed: "collaboration.dialogStatus.failed",
   unauthorized: "collaboration.dialogStatus.unauthorized",
+  "join-failed": "collaboration.dialogStatus.joinFailed",
   "rate-limited": "collaboration.dialogStatus.rateLimited",
   cancelled: "collaboration.dialogStatus.cancelled",
   "missing-room-key": "collaboration.dialogStatus.missingRoomKey",

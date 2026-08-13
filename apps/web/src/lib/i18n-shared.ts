@@ -121,6 +121,7 @@ export const appTranslations: AppTranslations = {
     "collaboration.status.reconnecting": "Reconnecting...",
     "collaboration.status.failed": "Connection stopped",
     "collaboration.status.unauthorized": "Unable to join",
+    "collaboration.status.joinFailed": "Join failed",
     "collaboration.status.rateLimited": "Try again later",
     "collaboration.status.cancelled": "Cancelled",
     "collaboration.status.missingRoomKey": "Incomplete link",
@@ -147,6 +148,7 @@ export const appTranslations: AppTranslations = {
     "collaboration.dialogStatus.reconnecting": "Reconnecting...",
     "collaboration.dialogStatus.failed": "Connection stopped",
     "collaboration.dialogStatus.unauthorized": "Unable to join",
+    "collaboration.dialogStatus.joinFailed": "Join failed. Try again.",
     "collaboration.dialogStatus.rateLimited": "Too many attempts. Try later.",
     "collaboration.dialogStatus.cancelled": "Join cancelled",
     "collaboration.dialogStatus.missingRoomKey": "Link is missing its key",
@@ -222,7 +224,7 @@ export const appTranslations: AppTranslations = {
     "collaboration.failure.saveBeforeJoin":
       "The current scene could not be saved, so the room was not joined. Try again.",
     "collaboration.failure.joinFailed":
-      "Unable to join the collaboration room. Check that you still have access.",
+      "Could not join the room. This is usually temporary — check your connection and open the link again.",
     "import.error.fileTooLarge":
       "Import failed: {name} ({size}) exceeds the {limit} limit.",
     "sharedScene.confirm.title": "Load shared scene?",
@@ -617,6 +619,7 @@ export const appTranslations: AppTranslations = {
     "collaboration.status.reconnecting": "重新連線中…",
     "collaboration.status.failed": "連線已停止",
     "collaboration.status.unauthorized": "無法加入",
+    "collaboration.status.joinFailed": "加入失敗",
     "collaboration.status.rateLimited": "請稍後再試",
     "collaboration.status.cancelled": "已取消",
     "collaboration.status.missingRoomKey": "連結不完整",
@@ -641,6 +644,7 @@ export const appTranslations: AppTranslations = {
     "collaboration.dialogStatus.reconnecting": "正在重新連線…",
     "collaboration.dialogStatus.failed": "連線已停止",
     "collaboration.dialogStatus.unauthorized": "無法加入",
+    "collaboration.dialogStatus.joinFailed": "加入失敗，請再試一次",
     "collaboration.dialogStatus.rateLimited": "嘗試次數過多，請稍後再試",
     "collaboration.dialogStatus.cancelled": "已取消加入",
     "collaboration.dialogStatus.missingRoomKey": "連結缺少金鑰",
@@ -714,7 +718,7 @@ export const appTranslations: AppTranslations = {
     "collaboration.failure.saveBeforeJoin":
       "無法儲存目前場景，因此未加入共編。請再試一次。",
     "collaboration.failure.joinFailed":
-      "無法加入共編 room，請確認你仍有存取權限。",
+      "暫時無法加入共編 room，通常是網路或伺服器問題，請稍後重新開啟連結。",
     "import.error.fileTooLarge": "匯入失敗：{name}（{size}）超過上限 {limit}。",
     "sharedScene.confirm.title": "載入分享連結內容？",
     "sharedScene.confirm.description": "此操作將覆蓋目前畫布內容。",

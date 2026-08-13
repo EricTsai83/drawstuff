@@ -18,6 +18,7 @@ import {
 import { resolveRoomAccess } from "@/server/collab/rooms";
 import { db } from "@/server/db";
 import { QUERIES } from "@/server/db/queries";
+import { replaceSceneThumbnail } from "@/server/scene/thumbnail-replace";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth/server";
 import { UTApi } from "uploadthing/server";
@@ -392,22 +393,15 @@ export const uploadRouter = {
     .onUploadComplete(async ({ metadata, file }) => {
       const sceneId = metadata.sceneId;
       try {
-        const oldKey = await QUERIES.getSceneThumbnailKey(sceneId);
-        await QUERIES.updateSceneThumbnail(sceneId, {
-          thumbnailUrl: file.ufsUrl,
-          thumbnailFileKey: file.key,
+        // CAS 替換：兩個並發上傳交錯時恰好一個 key 存活，落敗 key（無論是
+        // 舊縮圖或這次落敗的上傳）由 helper 刪除或進 durable queue。
+        await replaceSceneThumbnail({
+          sceneId,
+          fileKey: file.key,
+          fileUrl: file.ufsUrl,
+          deleteObject: (key) =>
+            deleteFileWithRetry(key, { sceneId, reason: "replace-thumbnail" }),
         });
-        if (oldKey && oldKey !== file.key) {
-          const ok = await deleteFileWithRetry(oldKey, {
-            sceneId,
-            reason: "replace-thumbnail",
-          });
-          if (!ok) {
-            await enqueueDeferredCleanup(oldKey, "replace-thumbnail", {
-              sceneId,
-            });
-          }
-        }
       } catch (error) {
         console.error("Error updating scene thumbnail:", error);
         const ok = await deleteFileWithRetry(file.key, {

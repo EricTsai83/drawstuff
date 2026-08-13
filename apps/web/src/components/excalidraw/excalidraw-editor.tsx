@@ -188,6 +188,7 @@ export default function ExcalidrawEditor() {
     // 畫布；連線前完成，才不會有把無關場景廣播進 room 的窗口。
     hasLocalContent: hasCurrentCanvasContent,
     requestSceneChangeDecision,
+    resolveSceneChangeDecision,
     closeSceneChangeConfirm: closeSceneChangeDialog,
     uploadSceneToCloud,
     clearCurrentScene,

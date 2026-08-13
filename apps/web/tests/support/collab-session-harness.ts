@@ -572,6 +572,8 @@ export type CreateClientOptions = {
   snapshotStore?: CollaborationSnapshotStore;
   assetStore?: CollaborationAssetStore;
   canSyncScene?: () => boolean;
+  wrapRemoteApply?: (apply: () => void) => void;
+  wrapPresenceApply?: (apply: () => void) => void;
   joinBarrier?: JoinBarrierOptions;
   offlineQueue?: OfflineChangeQueueOptions;
   recovery?: RecoveryPolicyOptions;
@@ -621,6 +623,8 @@ export function createHarness(
       snapshotStore: options.snapshotStore,
       assetStore: options.assetStore,
       canSyncScene: options.canSyncScene,
+      wrapRemoteApply: options.wrapRemoteApply,
+      wrapPresenceApply: options.wrapPresenceApply,
       joinBarrier: options.joinBarrier,
       offlineQueue: options.offlineQueue,
       recovery: options.recovery,

@@ -90,30 +90,35 @@ export function SceneSessionProvider({
   // Used to skip redundant localStorage writes on the high-frequency onChange path.
   const isDirtyRef = useRef(isDirty);
   const [isSessionReady, setIsSessionReady] = useState(false);
-  // Dirty-tracking suppression: a boolean flag is the primary mechanism;
-  // a time-based expiry acts as a safety net so suppression never leaks.
-  const suppressedRef = useRef(false);
-  const suppressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Dirty-tracking suppression is reference-counted: independent suppressors
+  // overlap (a collaboration write and a remote-scene apply can hold windows in
+  // the same frame), so a resume releases exactly one hold instead of clearing
+  // the flag out from under the others. Each entry is the hold's own safety-net
+  // timer, so a caller that forgets to resume leaks nothing past the timeout;
+  // the array's length is the live hold count.
+  const suppressTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
   const canvasLifecycleRef = useRef<CanvasLifecycle | null>(null);
 
   const doSuppress = useCallback(
     (safetyNetMs: number = SUPPRESS_SAFETY_NET_MS) => {
-      suppressedRef.current = true;
-      if (suppressTimerRef.current) clearTimeout(suppressTimerRef.current);
-      suppressTimerRef.current = setTimeout(() => {
-        suppressedRef.current = false;
-        suppressTimerRef.current = null;
+      const timer = setTimeout(() => {
+        const timers = suppressTimersRef.current;
+        const index = timers.indexOf(timer);
+        if (index !== -1) timers.splice(index, 1);
       }, safetyNetMs);
+      suppressTimersRef.current.push(timer);
     },
     [],
   );
 
   const doResume = useCallback(() => {
-    suppressedRef.current = false;
-    if (suppressTimerRef.current) {
-      clearTimeout(suppressTimerRef.current);
-      suppressTimerRef.current = null;
-    }
+    // Windows nest (a synchronous presence window opens and closes inside a
+    // frame-deferred element window), so a resume releases the *newest* hold.
+    // Releasing the oldest would hand a leaked outer hold an ever-newer safety
+    // timer: continuous presence churn keeps replacing the surviving timer, and
+    // the leak never expires. An unmatched resume finds nothing and is a no-op.
+    const timer = suppressTimersRef.current.pop();
+    if (timer !== undefined) clearTimeout(timer);
   }, []);
 
   const syncCurrentScene = useCallback(
@@ -157,13 +162,15 @@ export function SceneSessionProvider({
     setLastSyncedRevision(undefined);
     setIsDirty(false);
     isDirtyRef.current = false;
-    doResume();
+    // Deliberately does not release suppression holds: callers that suppress
+    // around this (joining a room clears the scene inside its own window) own
+    // their hold, and a leaked hold self-releases via its safety-net timer.
     try {
       clearCurrentSceneSessionFromStorage();
     } catch {
       // ignore storage errors
     }
-  }, [doResume]);
+  }, []);
 
   const reloadSceneSession = useCallback(() => {
     try {
@@ -237,7 +244,7 @@ export function SceneSessionProvider({
   }, [doResume]);
 
   const shouldSuppressDirtyTracking = useCallback(
-    () => suppressedRef.current,
+    () => suppressTimersRef.current.length > 0,
     [],
   );
 
@@ -264,12 +271,11 @@ export function SceneSessionProvider({
     clearCurrentScene();
   }, [clearCurrentScene]);
 
-  // Clean up the safety-net timer on unmount to avoid firing into a stale ref.
+  // Clean up the safety-net timers on unmount to avoid firing into a stale ref.
   useEffect(() => {
+    const timers = suppressTimersRef.current;
     return () => {
-      if (suppressTimerRef.current) {
-        clearTimeout(suppressTimerRef.current);
-      }
+      for (const timer of timers.splice(0)) clearTimeout(timer);
     };
   }, []);
 

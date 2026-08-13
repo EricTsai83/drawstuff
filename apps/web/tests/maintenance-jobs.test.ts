@@ -730,6 +730,21 @@ describe("user purge", () => {
       size: 32,
       url: "https://files.example/key-x",
     });
+    await testDb.insert(schema.collaborationRoom).values({
+      roomId: "room-intruder",
+      sceneId: row.id,
+      ownerId: "intruder",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await testDb.insert(schema.collaborationAsset).values({
+      roomId: "room-intruder",
+      authGeneration: 1,
+      excalidrawFileId: FILE_B,
+      cryptoVersion: 1,
+      utFileKey: "room-key-x",
+      url: "https://files.example/room-key-x",
+      byteLength: 16,
+    });
   };
 
   const userIds = async () =>
@@ -771,8 +786,7 @@ describe("user purge", () => {
         userId: "intruder",
         email: "x@example.com",
         scenes: 1,
-        assetObjects: 1,
-        thumbnailObjects: 1,
+        storageObjects: 3,
         status: "dry-run",
       },
     ]);
@@ -781,7 +795,7 @@ describe("user purge", () => {
     expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
   });
 
-  it("deletes non-owner accounts and their objects when confirmed", async () => {
+  it("deletes non-owner accounts, queues every owned key, and the drain reclaims them", async () => {
     await seedOtherUser();
     const { deps, deletedKeys } = makeDeps();
     const detail = await createUserPurgeJob({
@@ -793,13 +807,27 @@ describe("user purge", () => {
     expect(detail).toMatchObject({
       dryRun: false,
       users: 1,
-      deletedObjects: 2,
-      enqueuedObjects: 0,
+      enqueuedObjects: 3,
     });
     expect(await userIds()).toEqual([OWNER]);
-    expect(deletedKeys.sort()).toEqual(["key-x", "thumb-x"]);
-    // Cascade removed the intruder's scene and records.
+    // The purge itself touches no storage; the keys wait durably in the queue.
+    expect(deletedKeys).toEqual([]);
+    const queued = await testDb.select().from(schema.deferredFileCleanup);
+    expect(
+      queued.map((task) => [task.utFileKey, task.reason, task.status]).sort(),
+    ).toEqual([
+      ["key-x", "delete-user", "pending"],
+      ["room-key-x", "delete-user", "pending"],
+      ["thumb-x", "delete-user", "pending"],
+    ]);
+    // Cascade removed the intruder's scene, records, room, and room assets.
     expect(await testDb.select().from(schema.scene)).toEqual([]);
     expect(await testDb.select().from(schema.fileRecord)).toEqual([]);
+    expect(await testDb.select().from(schema.collaborationAsset)).toEqual([]);
+
+    // The drain — ordered after the purge in its run — deletes the objects.
+    const drain = await createQueueDrainJob().run(deps);
+    expect(drain).toMatchObject({ processed: 3, remaining: 0 });
+    expect(deletedKeys.sort()).toEqual(["key-x", "room-key-x", "thumb-x"]);
   });
 });

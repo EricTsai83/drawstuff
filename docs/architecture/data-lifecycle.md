@@ -61,12 +61,33 @@ The client asks which file IDs already exist and uploads only missing assets. Re
 scene must not upload or delete asset objects. Storage-provider custom IDs are not trusted as unique
 because the provider contract does not guarantee uniqueness.
 
+Scene thumbnails are replaced compare-and-set: the update lands only while the scene still holds the
+key the upload handler read (or none), so two interleaved uploads leave exactly one referenced key.
+The losing key — the previous thumbnail on success, the fresh upload when the CAS misses — is deleted
+or routed to the deferred-cleanup queue. Thumbnails have no GC sweep; the CAS is what prevents
+orphans.
+
 ## Deferred object cleanup
 
 PostgreSQL and object storage cannot share one transaction. Any operation that makes an object
 orphaned therefore deletes the owning row and inserts its `ut_file_key` into
 `deferred_file_cleanup` in the same database transaction. The queue is the durable outbox; object
 deletion is retried independently and queue rows retain failure state.
+
+Scene deletion, workspace deletion, account retirement, and the single-tenant purge all follow this
+shape: the deleting transaction collects every storage key its cascade will orphan — asset records,
+scene thumbnails, and the assets of collaboration rooms bound to the deleted scenes or owned by the
+deleted user — and inserts the keys into the outbox before the rows go. No deletion path calls
+storage inline; deleting objects first would let a mid-loop crash leave live rows pointing at
+missing objects, and deleting rows without enqueueing would strand objects the GC can never find
+(it sweeps only scenes that still exist).
+
+Collection locks every parent row (user, workspace, scene, shared scene, room) `FOR UPDATE` before
+reading its keys. Writers that add keys either take the same lock (asset uploads lock the room row,
+thumbnail replacement updates the scene row) or need the parent's `FOR KEY SHARE` for their foreign
+key (file-record inserts), and both conflict with `FOR UPDATE` — so no key can land between
+collection and the cascade that would orphan it. Outbox inserts are chunked so a many-thousand-object
+account stays under the bind-parameter limit without leaving the transaction.
 
 Routine maintenance runs named jobs independently so one failure does not suppress later work. Jobs
 that enqueue object cleanup run before the bounded queue drain. The route uses a non-pooled advisory
@@ -105,10 +126,13 @@ remaining object work for the next run.
 ## Operator retirement
 
 Cross-user scene, room, and account retirement uses the same lifecycle services as owner-scoped
-deletion. Scene retirement removes storage objects or records failures in `deferred_file_cleanup`;
-room retirement advances authorization and pushes relay shutdown; account retirement ends owned
-rooms and retires scenes before deleting the Better Auth user row and its relational dependents.
-Direct SQL deletion is not an acceptable substitute because it bypasses those guarantees.
+deletion. Scene retirement deletes the scene row and enqueues every owned storage key in one
+transaction; room termination advances authorization and pushes relay shutdown. Account retirement
+collects every user-owned storage key, enqueues it, and cascade-deletes the Better Auth user row in
+a single transaction — no per-scene or per-object round trips, so a large account cannot time out
+half-retired — then pushes best-effort relay `end-room` control for rooms that were still active
+(the deleted room row already guarantees no new join token can be signed). Direct SQL deletion is
+not an acceptable substitute because it bypasses those guarantees.
 
 Administrative authorization is DB-backed. Better Auth authenticates the caller, then
 `adminProcedure` requires an active `operator` row in `admin_grant` keyed by the internal user ID.

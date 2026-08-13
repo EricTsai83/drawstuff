@@ -48,6 +48,7 @@ import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
 import { createCaller } from "@/server/api/root";
 import type { createTRPCContext } from "@/server/api/trpc";
+import { retireScene } from "@/server/admin/retirement";
 import * as schema from "@/server/db/schema";
 
 type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
@@ -227,14 +228,14 @@ describe("admin data retirement", () => {
     ]);
   });
 
-  it("retires another user's scene and durably queues failed object cleanup", async () => {
+  it("retires another user's scene by enqueueing every owned key in the delete transaction", async () => {
     const [target] = await testDb
       .insert(schema.scene)
       .values({
         userId: "target-user",
         name: "Target",
         sceneData: "stub",
-        thumbnailFileKey: "fail-key",
+        thumbnailFileKey: "thumb-key",
       })
       .returning({ id: schema.scene.id });
     if (!target) throw new Error("scene insert failed");
@@ -246,22 +247,41 @@ describe("admin data retirement", () => {
       size: 1,
       url: "https://example.com/a",
     });
+    await testDb.insert(schema.collaborationRoom).values({
+      roomId: "room-scene",
+      sceneId: target.id,
+      ownerId: "target-user",
+      expiresAt: new Date(Date.now() + 60_000),
+    });
+    await testDb.insert(schema.collaborationAsset).values({
+      roomId: "room-scene",
+      authGeneration: 1,
+      excalidrawFileId: "a".repeat(40),
+      cryptoVersion: 1,
+      utFileKey: "room-asset-key",
+      url: "https://example.com/room-asset",
+      byteLength: 16,
+    });
 
     await expect(
       callerFor("admin-user").admin.retireScene({ sceneId: target.id }),
     ).resolves.toMatchObject({
       found: true,
-      deletedObjects: 1,
-      enqueuedObjects: 1,
+      enqueuedObjects: 3,
     });
     expect(await testDb.select().from(schema.scene)).toEqual([]);
+    expect(await testDb.select().from(schema.fileRecord)).toEqual([]);
+    expect(await testDb.select().from(schema.collaborationAsset)).toEqual([]);
+    // Rows first, objects later: retirement itself never touches storage.
+    expect(storageDeletes).toEqual([]);
+    const queued = await testDb.select().from(schema.deferredFileCleanup);
     expect(
-      (await testDb.select().from(schema.deferredFileCleanup))[0],
-    ).toMatchObject({
-      utFileKey: "fail-key",
-      reason: "delete-scene",
-      status: "pending",
-    });
+      queued.map((task) => [task.utFileKey, task.reason, task.status]).sort(),
+    ).toEqual([
+      ["asset-key", "delete-scene", "pending"],
+      ["room-asset-key", "delete-scene", "pending"],
+      ["thumb-key", "delete-scene", "pending"],
+    ]);
     expect(await testDb.select().from(schema.adminAuditEvent)).toEqual([
       expect.objectContaining({
         actorUserId: "admin-user",
@@ -269,6 +289,24 @@ describe("admin data retirement", () => {
         status: "succeeded",
       }),
     ]);
+  });
+
+  it("refuses owner-scoped scene retirement for a non-owner and keeps the scene", async () => {
+    const [target] = await testDb
+      .insert(schema.scene)
+      .values({ userId: "target-user", name: "Target", sceneData: "stub" })
+      .returning({ id: schema.scene.id });
+    if (!target) throw new Error("scene insert failed");
+
+    await expect(
+      retireScene({
+        db: testDb as unknown as Parameters<typeof retireScene>[0]["db"],
+        sceneId: target.id,
+        ownerUserId: "other-user",
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await testDb.select().from(schema.scene)).toHaveLength(1);
+    expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
   });
 
   it("ends any room, advances authorization, and pushes relay control", async () => {
@@ -300,7 +338,7 @@ describe("admin data retirement", () => {
     ]);
   });
 
-  it("retires an account through room and scene lifecycles, then cascades auth rows", async () => {
+  it("retires an account in one transaction, queues every owned key, then pushes relay shutdown", async () => {
     await testDb.insert(schema.session).values({
       id: "session-target",
       token: "token-target",
@@ -319,14 +357,50 @@ describe("admin data retirement", () => {
     });
     const [target] = await testDb
       .insert(schema.scene)
-      .values({ userId: "target-user", name: "Target", sceneData: "stub" })
+      .values({
+        userId: "target-user",
+        name: "Target",
+        sceneData: "stub",
+        thumbnailFileKey: "thumb-key",
+      })
       .returning({ id: schema.scene.id });
     if (!target) throw new Error("scene insert failed");
+    await testDb.insert(schema.fileRecord).values({
+      sceneId: target.id,
+      ownerId: "target-user",
+      utFileKey: "asset-key",
+      excalidrawFileId: "asset-id",
+      size: 1,
+      url: "https://example.com/a",
+    });
     await testDb.insert(schema.collaborationRoom).values({
       roomId: "room-account",
       sceneId: target.id,
       ownerId: "target-user",
       expiresAt: new Date(Date.now() + 60_000),
+    });
+    await testDb.insert(schema.collaborationAsset).values({
+      roomId: "room-account",
+      authGeneration: 1,
+      excalidrawFileId: "a".repeat(40),
+      cryptoVersion: 1,
+      utFileKey: "room-asset-key",
+      url: "https://example.com/room-asset",
+      byteLength: 16,
+    });
+    // Owner-scoped shared-scene record: found by the ownerId query, not by
+    // the scene-scoped collection.
+    await testDb.insert(schema.sharedScene).values({
+      sharedSceneId: "shared-target",
+      ownerId: "target-user",
+    });
+    await testDb.insert(schema.fileRecord).values({
+      sharedSceneId: "shared-target",
+      ownerId: "target-user",
+      utFileKey: "shared-asset-key",
+      excalidrawFileId: "shared-asset-id",
+      size: 1,
+      url: "https://example.com/shared-asset",
     });
 
     await expect(
@@ -334,7 +408,13 @@ describe("admin data retirement", () => {
         userId: "target-user",
         confirmUserId: "target-user",
       }),
-    ).resolves.toMatchObject({ found: true, scenes: 1, rooms: 1 });
+    ).resolves.toMatchObject({
+      found: true,
+      scenes: 1,
+      rooms: 1,
+      enqueuedObjects: 4,
+      relayEnforcedRooms: 1,
+    });
     expect(
       await testDb.query.user.findFirst({
         where: eq(schema.user.id, "target-user"),
@@ -343,6 +423,25 @@ describe("admin data retirement", () => {
     expect(await testDb.select().from(schema.session)).toEqual([]);
     expect(await testDb.select().from(schema.account)).toEqual([]);
     expect(await testDb.select().from(schema.collaborationRoom)).toEqual([]);
-    expect(relayCalls).toHaveLength(1);
+    expect(await testDb.select().from(schema.collaborationAsset)).toEqual([]);
+    expect(storageDeletes).toEqual([]);
+    const queued = await testDb.select().from(schema.deferredFileCleanup);
+    expect(
+      queued.map((task) => [task.utFileKey, task.reason, task.status]).sort(),
+    ).toEqual([
+      ["asset-key", "delete-user", "pending"],
+      ["room-asset-key", "delete-user", "pending"],
+      ["shared-asset-key", "delete-user", "pending"],
+      ["thumb-key", "delete-user", "pending"],
+    ]);
+    // The relay push happens after the commit with the revision cutoff a
+    // lifecycle bump would have produced.
+    expect(relayCalls).toEqual([
+      expect.objectContaining({
+        action: "end-room",
+        roomId: "room-account",
+        authRevision: 2,
+      }),
+    ]);
   });
 });

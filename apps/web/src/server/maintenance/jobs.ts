@@ -15,6 +15,10 @@ import {
 import { QUERIES } from "@/server/db/queries";
 import { lockRoom } from "@/server/collab/rooms";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
+import {
+  collectUserStorageKeys,
+  enqueueStorageKeyCleanup,
+} from "@/server/storage/reclaim";
 
 /**
  * Maintenance work as named jobs. Each job owns exactly one responsibility and
@@ -656,7 +660,6 @@ export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
         .where(ne(user.email, params.keepOwnerEmail));
 
       const accounts: JobDetail[] = [];
-      let deletedObjects = 0;
       let enqueuedObjects = 0;
       let failedAccounts = 0;
 
@@ -671,30 +674,40 @@ export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
         accounts.push(account);
         try {
           const sceneIds = await QUERIES.getSceneIdsByUserIds([candidate.id]);
-          const assetKeys = new Set([
-            ...(await QUERIES.getFileKeysByOwnerIds([candidate.id])),
-            ...(await QUERIES.getFileKeysBySceneIds(sceneIds)),
-          ]);
-          const thumbnailKeys = await QUERIES.getSceneThumbnailKeysByUserIds([
-            candidate.id,
-          ]);
           account.scenes = sceneIds.length;
-          account.assetObjects = assetKeys.size;
-          account.thumbnailObjects = thumbnailKeys.length;
 
           if (params.dryRun) {
+            const keys = await collectUserStorageKeys(db, candidate.id);
+            account.storageObjects = keys.size;
             account.status = "dry-run";
             continue;
           }
 
-          for (const key of [...assetKeys, ...thumbnailKeys]) {
-            const outcome = await deleteOrEnqueue(deps, key, "delete-user", {
-              userId: candidate.id,
-            });
-            if (outcome === "deleted") deletedObjects += 1;
-            else enqueuedObjects += 1;
-          }
-          await db.delete(user).where(eq(user.id, candidate.id));
+          // Same shape as account retirement: every storage key the account
+          // holds (asset records, thumbnails, owned-room assets) enters the
+          // cleanup outbox in the transaction that cascade-deletes the user,
+          // and the drain — ordered after this job — deletes the objects.
+          const enqueued = await db.transaction(async (tx) => {
+            // Same serialization as account retirement: the user row lock
+            // blocks new scenes/rooms/shared scenes landing mid-collection.
+            await tx
+              .select({ id: user.id })
+              .from(user)
+              .where(eq(user.id, candidate.id))
+              .for("update");
+            const keys = await collectUserStorageKeys(tx, candidate.id);
+            const count = await enqueueStorageKeyCleanup(
+              tx,
+              keys,
+              "delete-user",
+              { userId: candidate.id },
+              deps.now(),
+            );
+            await tx.delete(user).where(eq(user.id, candidate.id));
+            return count;
+          });
+          account.storageObjects = enqueued;
+          enqueuedObjects += enqueued;
           account.status = "deleted";
         } catch (error) {
           account.status = "failed";
@@ -707,7 +720,7 @@ export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
         dryRun: params.dryRun,
         users: accounts.length,
         accounts,
-        ...(params.dryRun ? {} : { deletedObjects, enqueuedObjects }),
+        ...(params.dryRun ? {} : { enqueuedObjects }),
       };
       if (failedAccounts > 0) {
         throw new MaintenanceJobError(

@@ -323,6 +323,15 @@ export type CollaborationSessionOptions = {
    */
   wrapRemoteApply?: (apply: () => void) => void;
   /**
+   * Presence-only canvas writes (the collaborator map) run through this wrapper
+   * instead of `wrapRemoteApply`. They carry no scene state, so a host whose
+   * remote-apply wrapper defers its cleanup (dirty-tracking suppression released
+   * a frame later) can pass a synchronous wrapper here — presence arrives at
+   * ~30fps per peer, and deferred windows at that rate overlap without end.
+   * Defaults to `wrapRemoteApply`.
+   */
+  wrapPresenceApply?: (apply: () => void) => void;
+  /**
    * Coalesces local scene flushes and returns a cancel function. Defaults to
    * one animation frame with a short timer backstop; tests inject a manual
    * scheduler for determinism.
@@ -473,6 +482,7 @@ export function createCollaborationSession(
     wrapRemoteApply = (apply) => {
       apply();
     },
+    wrapPresenceApply = wrapRemoteApply,
     scheduleSceneFlush = defaultScheduleSceneFlush,
     scheduleTimeout = defaultScheduleTimeout,
     onBaselineResolved,
@@ -573,6 +583,13 @@ export function createCollaborationSession(
   let snapshotWriteInFlight = false;
   /** The write currently settling, so a leave flush can queue behind it. */
   let inFlightWrite: Promise<void> | undefined;
+  /**
+   * Whether the most recent write lost a revision conflict. A leave flush that
+   * queued behind that write consults this — not `snapshotBaselineKnown`, which
+   * the conflict path may have already repaired by re-reading the winner — to
+   * decide that its own save must be made to conflict and merge.
+   */
+  let lastSnapshotWriteConflicted = false;
   /**
    * Earliest instant the room's shared snapshot budget will accept another
    * write, as stated by the backend's last refusal.
@@ -702,10 +719,25 @@ export function createCollaborationSession(
     cancelPendingFlush?.();
     cancelPendingFlush = undefined;
     clearSceneRepair();
+    clearBaselineTimeout();
+    stopSnapshotCadence();
     offlineQueue.clear();
-    transport.disconnect();
+    // Unsubscribed *before* the disconnect, and the connection state cleared
+    // here rather than in the subscriber: a transport that reports the drop
+    // asynchronously (or not at all) must not leave a terminated session
+    // holding `connected`, a live barrier, or peers' cursors on the canvas.
     unsubscribeTransport?.();
     unsubscribeTransport = undefined;
+    transport.disconnect();
+    connected = undefined;
+    gate = undefined;
+    roomPeers = [];
+    barrier?.dispose();
+    barrier = undefined;
+    if (collaborators.size > 0) {
+      collaborators.clear();
+      applyCollaborators();
+    }
   };
 
   const failRecovery = (reason: UnrecoverableReason): void => {
@@ -830,7 +862,7 @@ export function createCollaborationSession(
     for (const [collaboratorPeerId, collaborator] of collaborators) {
       next.set(collaboratorPeerId as unknown as SocketId, collaborator);
     }
-    wrapRemoteApply(() => {
+    wrapPresenceApply(() => {
       sceneApi.updateScene({ collaborators: next });
     });
   };
@@ -1417,11 +1449,15 @@ export function createCollaborationSession(
    */
   const writeSnapshot = async (params?: { force?: boolean }): Promise<void> => {
     const force = params?.force === true;
-    // A leave flush queues behind the cadence write rather than dropping.
-    if (force && inFlightWrite) {
-      await inFlightWrite.catch(() => undefined);
-    }
+    // Every precondition is evaluated *before* the first await, and the scene is
+    // captured with them. A leave flush is issued by a teardown that closes the
+    // transport in the same tick — `connected` is cleared synchronously, and the
+    // canvas may be handed to another scene moments later — so a guard or a
+    // scene read on the far side of an await would see the torn-down world and
+    // drop the room's last edits. The write itself goes over tRPC and needs no
+    // live socket, so deciding now and writing later is sound.
     if (
+      terminated ||
       (destroyed && !force) ||
       !snapshotStore ||
       !snapshotBaselineKnown ||
@@ -1442,6 +1478,28 @@ export function createCollaborationSession(
       sceneApi.getSceneElementsIncludingDeleted(),
       now(),
     ) as unknown as readonly SyncedElement[];
+    // A leave flush queues behind the cadence write rather than dropping. The
+    // cadence write carries the scene from *before* the edits this flush was
+    // asked to persist, so waiting — with the decision to write already made —
+    // is what keeps the newest state from losing to the older write's revision.
+    const preWaitRevision = snapshotRevision;
+    let awaitedWriteConflicted = false;
+    if (force && inFlightWrite) {
+      await inFlightWrite.catch(() => undefined);
+      awaitedWriteConflicted = lastSnapshotWriteConflicted;
+    }
+    // The awaited write may have *lost* a revision conflict: it then adopted
+    // the winner's revision, and the elements captured above predate whatever
+    // the winner stored. Writing them under the adopted revision would sail
+    // through the conditional write and erase the winner — whether or not the
+    // conflict path managed to re-read the winner onto the canvas before this
+    // ran, which is why the conflict itself is tracked rather than inferred
+    // from `snapshotBaselineKnown`. Falling back to the revision captured with
+    // the scene makes this save conflict too and routes it through the
+    // merge-and-retry below.
+    const expectedRevision = awaitedWriteConflicted
+      ? preWaitRevision
+      : snapshotRevision;
     const digest = await collaborationSnapshotDigest(elements);
     if ((destroyed && !force) || epoch !== joinEpoch) return;
     if (digest === lastSnapshotDigest && !force) {
@@ -1458,7 +1516,7 @@ export function createCollaborationSession(
     const run = async (): Promise<void> => {
       const result = await store.save({
         elements,
-        expectedRevision: snapshotRevision,
+        expectedRevision,
         intent: force ? "leave" : "cadence",
       });
       // A write that settles after a reconnect must not seed the new session's
@@ -1493,6 +1551,7 @@ export function createCollaborationSession(
         return;
       }
       if (result.status !== "conflict") return;
+      lastSnapshotWriteConflicted = true;
 
       // Not just the revision: the winner stored elements this client has not
       // read, so claiming to supersede them without merging would erase them.
@@ -1546,6 +1605,7 @@ export function createCollaborationSession(
     };
 
     snapshotWriteInFlight = true;
+    lastSnapshotWriteConflicted = false;
     const write = run();
     inFlightWrite = write;
     try {

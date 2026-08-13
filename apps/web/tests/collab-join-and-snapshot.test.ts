@@ -699,6 +699,145 @@ describe("durable snapshot cadence", () => {
     expect(backend.saveIntents).toEqual(["cadence", "leave"]);
   });
 
+  it("persists the last edit when the transport closes while a cadence write is in flight", async () => {
+    const backend = createSnapshotBackend();
+    let releaseSave: (() => void) | undefined;
+    const store = backend.createStore();
+    const gatedStore = {
+      load: store.load,
+      save: async (input: Parameters<typeof store.save>[0]) => {
+        if (!releaseSave) {
+          await new Promise<void>((resolve) => {
+            releaseSave = resolve;
+          });
+        }
+        return store.save(input);
+      },
+    };
+    const alice = harness.createClient("client-alice", {
+      snapshotStore: gatedStore,
+    });
+    alice.session.connect();
+    await settle(harness);
+    alice.edit((elements) => [...elements, collabRectangle({ id: "first" })]);
+    await settle(harness);
+
+    // A cadence write starts and stalls mid-save.
+    alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await drainAsync();
+
+    // One more edit lands inside the stalled window, and the tab closes. This
+    // is `room-session.destroy()` exactly: the flush is requested first, but
+    // the transport closes in the same tick, so the session hears the drop —
+    // and loses `connected` — long before the stalled write settles. The flush
+    // decision must therefore be made before waiting, or the room's durable
+    // baseline stops at "first" forever.
+    alice.edit((elements) => [...elements, collabRectangle({ id: "last" })]);
+    const flushed = alice.session.flushSnapshot();
+    alice.transport.close();
+    alice.session.destroy();
+    releaseSave?.();
+    await flushed;
+    await drainAsync();
+
+    expect(backend.elements.map((el) => el.id).sort()).toEqual([
+      "first",
+      "last",
+    ]);
+    expect(backend.saveIntents).toEqual(["cadence", "leave"]);
+  });
+
+  it("merges the winner when the awaited cadence write lost a conflict during teardown", async () => {
+    const backend = createSnapshotBackend();
+    let releaseSave: (() => void) | undefined;
+    const store = backend.createStore();
+    const gatedStore = {
+      load: store.load,
+      save: async (input: Parameters<typeof store.save>[0]) => {
+        if (!releaseSave) {
+          await new Promise<void>((resolve) => {
+            releaseSave = resolve;
+          });
+        }
+        return store.save(input);
+      },
+    };
+    const alice = harness.createClient("client-alice", {
+      snapshotStore: gatedStore,
+    });
+    alice.session.connect();
+    await settle(harness);
+    alice.edit((elements) => [...elements, collabRectangle({ id: "mine" })]);
+    await settle(harness);
+
+    // The cadence write stalls mid-save…
+    alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await drainAsync();
+    // …and another leaver wins the revision race while it hangs.
+    backend.publish(asSyncedElements([collabRectangle({ id: "theirs" })]));
+
+    // Teardown queues the leave flush behind the stalled write. That write
+    // loses its conflict and — because the session is destroyed — adopts the
+    // winner's revision without reading the winner's elements. The queued
+    // flush must not write the captured scene under that adopted revision:
+    // it would pass the conditional write and erase "theirs" for good.
+    const flushed = alice.session.flushSnapshot();
+    alice.transport.close();
+    alice.session.destroy();
+    releaseSave?.();
+    await flushed;
+    await drainAsync();
+
+    expect(backend.elements.map((el) => el.id).sort()).toEqual([
+      "mine",
+      "theirs",
+    ]);
+  });
+
+  it("merges the winner even when the conflict re-read finishes before teardown", async () => {
+    const backend = createSnapshotBackend();
+    let releaseSave: (() => void) | undefined;
+    const store = backend.createStore();
+    const gatedStore = {
+      load: store.load,
+      save: async (input: Parameters<typeof store.save>[0]) => {
+        if (!releaseSave) {
+          await new Promise<void>((resolve) => {
+            releaseSave = resolve;
+          });
+        }
+        return store.save(input);
+      },
+    };
+    const alice = harness.createClient("client-alice", {
+      snapshotStore: gatedStore,
+    });
+    alice.session.connect();
+    await settle(harness);
+    alice.edit((elements) => [...elements, collabRectangle({ id: "mine" })]);
+    await settle(harness);
+
+    alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await drainAsync();
+    backend.publish(asSyncedElements([collabRectangle({ id: "theirs" })]));
+
+    // The flush is awaited *without* tearing the session down (the handle
+    // returns the promise for exactly such callers), so the conflicted cadence
+    // write completes its baseline re-read: the baseline is known again and
+    // the winner's revision adopted. The captured scene still predates the
+    // winner, so the flush must conflict and merge rather than trust the
+    // repaired baseline and overwrite "theirs".
+    const flushed = alice.session.flushSnapshot();
+    releaseSave?.();
+    await flushed;
+    await drainAsync();
+
+    expect(backend.elements.map((el) => el.id).sort()).toEqual([
+      "mine",
+      "theirs",
+    ]);
+  });
+
   it("merges and retries a forced flush that loses the revision race", async () => {
     const backend = createSnapshotBackend();
     const alice = harness.createClient("client-alice", {
@@ -832,5 +971,56 @@ describe("durable snapshot cadence", () => {
     alice.timers.advance(SNAPSHOT_INTERVAL_MS * 3);
     await drainAsync();
     expect(backend.saves).toEqual([]);
+  });
+
+  it("cleans up after a terminal failure without the transport's disconnect notice", async () => {
+    const backend = createSnapshotBackend();
+    backend.publish(asSyncedElements([collabRectangle({ id: "stored" })]));
+
+    // A transport that reports the drop asynchronously — which a terminated
+    // session never hears, because it unsubscribes as part of terminating. The
+    // session must clear its own state and timers rather than wait for a
+    // notification that relay-client happens to deliver synchronously today.
+    const inner = harness.network.createTransport();
+    const transport: typeof inner = {
+      ...inner,
+      subscribe: (subscriber) => {
+        let active = true;
+        const unsubscribe = inner.subscribe({
+          ...subscriber,
+          onConnectionStateChange: (state) => {
+            if (state.status !== "disconnected") {
+              subscriber.onConnectionStateChange?.(state);
+              return;
+            }
+            queueMicrotask(() => {
+              if (active) subscriber.onConnectionStateChange?.(state);
+            });
+          },
+        });
+        return () => {
+          active = false;
+          unsubscribe();
+        };
+      },
+    };
+
+    const alice = harness.createClient("client-alice", {
+      transport,
+      snapshotStore: backend.createStore({ outcome: "wrong-key" }),
+    });
+    alice.session.connect();
+    await settle(harness);
+
+    expect(alice.recoveryStates.at(-1)).toMatchObject({
+      phase: "failed",
+      reason: "unreadable-room",
+    });
+    // No cadence tick, join deadline or repair timer survives termination…
+    expect(alice.timers.pendingCount).toBe(0);
+    // …and the leave flush of a terminated session writes nothing.
+    await alice.session.flushSnapshot();
+    expect(backend.saves).toEqual([]);
+    expect(backend.elements.map((el) => el.id)).toEqual(["stored"]);
   });
 });

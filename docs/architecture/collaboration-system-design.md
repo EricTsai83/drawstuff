@@ -108,7 +108,19 @@ or binary bytes. They are encrypted client-side and stored as one optimistic-rev
 room/generation. A client that does not know a valid baseline cannot overwrite it.
 
 Snapshot writers merge the winner after a revision conflict before retrying. Periodic cadence and
-forced leave flush share authorization, role, generation, baseline-known, and revision guards.
+forced leave flush share authorization, role, generation, baseline-known, and revision guards. The
+flush evaluates those guards and captures the scene *before* it waits on anything: teardown closes
+the transport in the same tick the flush is requested, and the write itself travels over tRPC, so a
+guard consulted after an await would veto the one write that persists the room's last edits. A
+session that reaches a terminal recovery state clears its own connection state, timers, and
+collaborator cursors and refuses further snapshot writes — it never depends on the transport
+announcing the disconnect, synchronously or at all.
+
+Remote canvas writes run inside the host's dirty-tracking suppression, which is reference-counted:
+overlapping windows (element applies resume a frame later; other suppressors may be open in the
+same frame) release exactly one hold each, never each other's. Presence-only writes take a separate
+synchronous window — at ~30fps per peer, frame-deferred windows would overlap continuously and a
+local edit would never mark the scene dirty.
 
 Joining a room claims the tab's canvas independently of cloud scene ownership; a guest never saves
 over the owner's scene. The claim is committed in this order:
@@ -124,7 +136,12 @@ over the owner's scene. The claim is committed in this order:
    No inbound frame can exist before this point.
 
 A refused join, an exhausted retry budget, or a generation race therefore leaves no collaboration
-claim. If session construction fails after the claim, that start path releases it immediately.
+claim. If session construction fails after the claim, that start path releases the claim and every
+partially built resource — the transport subscription, the socket, the asset store — immediately.
+A bootstrap join failure is classified from the backend's error code, exactly like a reconnect
+refusal: only a stated `UNAUTHORIZED`/`FORBIDDEN` verdict reads as an authorization problem, an
+ended room reads as the room ending, and everything else (network, 5xx, crypto, construction) is
+reported as a retryable join failure with a translated message, never the raw error text.
 Replacing or clearing the canvas also releases the claim and tears down collaboration-owned
 resources. Canvas preparation is still a user-approved commit: if the user chose to discard local
 work and the later join fails, the system does not reconstruct the discarded canvas.

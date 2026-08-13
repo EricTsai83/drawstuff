@@ -2,7 +2,6 @@ import "server-only";
 
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
-import { UTApi } from "uploadthing/server";
 
 import { pushRelayRoomControl } from "@/server/collab/relay-control";
 import {
@@ -11,74 +10,51 @@ import {
   lockRoom,
   type Database,
 } from "@/server/collab/rooms";
+import { collaborationRoom, scene, user } from "@/server/db/schema";
 import {
-  collaborationRoom,
-  deferredFileCleanup,
-  fileRecord,
-  scene,
-  user,
-} from "@/server/db/schema";
+  collectSceneStorageKeys,
+  collectUserStorageKeys,
+  enqueueStorageKeyCleanup,
+} from "@/server/storage/reclaim";
 
-type StorageDelete = (key: string) => Promise<void>;
-
-const defaultStorageDelete: StorageDelete = async (key) => {
-  await new UTApi().deleteFiles([key]);
-};
-
-async function deleteOrEnqueue(
-  db: Database,
-  deleteStorageFile: StorageDelete,
-  key: string,
-  reason: "delete-scene" | "delete-user",
-  context: Record<string, string>,
-): Promise<"deleted" | "enqueued"> {
-  try {
-    await deleteStorageFile(key);
-    return "deleted";
-  } catch (error) {
-    await db.insert(deferredFileCleanup).values({
-      utFileKey: key,
-      reason,
-      context: JSON.stringify(context),
-      lastError: String(error),
-    });
-    return "enqueued";
-  }
-}
-
+/**
+ * Deletes a scene and everything it owns. Row deletion and the storage-key
+ * enqueue commit in one transaction; the maintenance drain deletes the
+ * objects afterwards. Deleting storage first (the old order) could crash
+ * mid-loop and leave a live scene row pointing at objects that no longer
+ * exist — the reverse leaves at worst an already-queued key.
+ */
 export async function retireScene(params: {
   db: Database;
   sceneId: string;
-  deleteStorageFile?: StorageDelete;
+  /** When set, only this owner may retire the scene; anyone else is refused. */
+  ownerUserId?: string;
 }) {
-  const target = await params.db.query.scene.findFirst({
-    where: eq(scene.id, params.sceneId),
-    columns: { id: true, thumbnailFileKey: true },
-  });
-  if (!target) return { found: false, deletedObjects: 0, enqueuedObjects: 0 };
-
-  const records = await params.db
-    .select({ key: fileRecord.utFileKey })
-    .from(fileRecord)
-    .where(eq(fileRecord.sceneId, params.sceneId));
-  const keys = new Set(records.map(({ key }) => key));
-  if (target.thumbnailFileKey) keys.add(target.thumbnailFileKey);
-
-  let deletedObjects = 0;
-  let enqueuedObjects = 0;
-  for (const key of keys) {
-    const result = await deleteOrEnqueue(
-      params.db,
-      params.deleteStorageFile ?? defaultStorageDelete,
-      key,
+  return await params.db.transaction(async (tx) => {
+    // The scene row lock serializes with save-time validation and asset
+    // cleanup, which take the same lock before touching file records.
+    const [target] = await tx
+      .select({ id: scene.id, userId: scene.userId })
+      .from(scene)
+      .where(eq(scene.id, params.sceneId))
+      .for("update");
+    if (!target) return { found: false as const, enqueuedObjects: 0 };
+    if (params.ownerUserId && target.userId !== params.ownerUserId) {
+      throw new TRPCError({
+        code: "FORBIDDEN",
+        message: "Only the scene owner can perform this action.",
+      });
+    }
+    const keys = await collectSceneStorageKeys(tx, [params.sceneId]);
+    const enqueuedObjects = await enqueueStorageKeyCleanup(
+      tx,
+      keys,
       "delete-scene",
       { sceneId: params.sceneId },
     );
-    if (result === "deleted") deletedObjects += 1;
-    else enqueuedObjects += 1;
-  }
-  await params.db.delete(scene).where(eq(scene.id, params.sceneId));
-  return { found: true, deletedObjects, enqueuedObjects };
+    await tx.delete(scene).where(eq(scene.id, params.sceneId));
+    return { found: true as const, enqueuedObjects };
+  });
 }
 
 export async function endRoom(params: {
@@ -128,49 +104,94 @@ export async function endRoom(params: {
   };
 }
 
-export async function retireAccount(params: {
-  db: Database;
-  userId: string;
-  deleteStorageFile?: StorageDelete;
-}) {
-  const target = await params.db.query.user.findFirst({
-    where: eq(user.id, params.userId),
-    columns: { id: true },
-  });
-  if (!target) return { found: false, scenes: 0, rooms: 0 };
-
-  const ownedScenes = await params.db
-    .select({ id: scene.id })
-    .from(scene)
-    .where(eq(scene.userId, params.userId));
-  const sceneIds = ownedScenes.map(({ id }) => id);
-  const rooms = await params.db
-    .select({ id: collaborationRoom.roomId })
-    .from(collaborationRoom)
-    .where(eq(collaborationRoom.ownerId, params.userId));
-  for (const room of rooms) await endRoom({ db: params.db, roomId: room.id });
-  for (const ownedScene of ownedScenes) {
-    await retireScene({
-      db: params.db,
-      sceneId: ownedScene.id,
-      deleteStorageFile: params.deleteStorageFile,
-    });
-  }
-
-  // Shared-scene objects are owner-scoped but not necessarily attached to an owned scene.
-  const remainingRecords = await params.db
-    .select({ key: fileRecord.utFileKey })
-    .from(fileRecord)
-    .where(eq(fileRecord.ownerId, params.userId));
-  for (const { key } of remainingRecords) {
-    await deleteOrEnqueue(
-      params.db,
-      params.deleteStorageFile ?? defaultStorageDelete,
-      key,
+/**
+ * Deletes an account and everything it owns in one bounded transaction:
+ * every storage key the user's data holds goes into the cleanup outbox and
+ * the user row's cascade removes all dependent rows. No per-scene or
+ * per-object round trips — the old shape issued one storage call per object
+ * and one transaction per room, so a large account timed out half-retired.
+ *
+ * Relay shutdown for rooms that were still active is pushed after the commit,
+ * best-effort: the room rows are gone, so no new join token can ever be
+ * signed; the push only closes sockets that already joined. `authRevision + 1`
+ * is the cutoff a lifecycle bump would have produced.
+ */
+export async function retireAccount(params: { db: Database; userId: string }) {
+  const retired = await params.db.transaction(async (tx) => {
+    // The user row lock blocks anything new being created under this account
+    // (scenes, shared scenes, rooms all take the user's FOREIGN KEY) while the
+    // keys are collected and the cascade runs.
+    const [target] = await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.id, params.userId))
+      .for("update");
+    if (!target) return null;
+    const ownedScenes = await tx
+      .select({ id: scene.id })
+      .from(scene)
+      .where(eq(scene.userId, params.userId));
+    // The collector takes every remaining lock in the shared deletion order
+    // (shared scene → scene → room); the room rows are therefore already
+    // locked when they are read below, which also serializes with join-token
+    // issuance — no token can be minted from a room this transaction is about
+    // to delete.
+    const keys = await collectUserStorageKeys(tx, params.userId);
+    const rooms = await tx
+      .select({
+        roomId: collaborationRoom.roomId,
+        status: collaborationRoom.status,
+        authGeneration: collaborationRoom.authGeneration,
+        authRevision: collaborationRoom.authRevision,
+      })
+      .from(collaborationRoom)
+      .where(eq(collaborationRoom.ownerId, params.userId))
+      .orderBy(collaborationRoom.roomId)
+      .for("update");
+    const enqueuedObjects = await enqueueStorageKeyCleanup(
+      tx,
+      keys,
       "delete-user",
       { userId: params.userId },
     );
+    await tx.delete(user).where(eq(user.id, params.userId));
+    return { rooms, scenes: ownedScenes.length, enqueuedObjects };
+  });
+  if (!retired) {
+    return {
+      found: false as const,
+      scenes: 0,
+      rooms: 0,
+      enqueuedObjects: 0,
+      relayEnforcedRooms: 0,
+    };
   }
-  await params.db.delete(user).where(eq(user.id, params.userId));
-  return { found: true, scenes: sceneIds.length, rooms: rooms.length };
+
+  // Bounded parallelism: each push can wait out the relay's 3s timeout, so a
+  // serial loop over many rooms could run for minutes after the commit.
+  let relayEnforcedRooms = 0;
+  const now = new Date();
+  const activeRooms = retired.rooms.filter((room) => room.status === "active");
+  const RELAY_PUSH_BATCH = 5;
+  for (let start = 0; start < activeRooms.length; start += RELAY_PUSH_BATCH) {
+    const results = await Promise.all(
+      activeRooms.slice(start, start + RELAY_PUSH_BATCH).map((room) =>
+        pushRelayRoomControl({
+          action: "end-room",
+          roomId: room.roomId,
+          authGeneration: room.authGeneration,
+          authRevision: room.authRevision + 1,
+          now,
+        }),
+      ),
+    );
+    relayEnforcedRooms += results.filter((relay) => relay.enforced).length;
+  }
+  return {
+    found: true as const,
+    scenes: retired.scenes,
+    rooms: retired.rooms.length,
+    enqueuedObjects: retired.enqueuedObjects,
+    relayEnforcedRooms,
+  };
 }

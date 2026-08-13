@@ -10,7 +10,11 @@ import {
 } from "@drawstuff/collaboration/asset";
 import { roomRoleCanEditScene } from "@drawstuff/collaboration/room-auth";
 
-import { collaborationAsset, deferredFileCleanup } from "@/server/db/schema";
+import {
+  collaborationAsset,
+  deferredFileCleanup,
+  user,
+} from "@/server/db/schema";
 import {
   lockRoom,
   resolveRoomAccess,
@@ -218,6 +222,16 @@ export async function commitRoomAssetUpload(
   },
 ): Promise<AssetUploadOutcome> {
   return db.transaction(async (tx) => {
+    // Uploader's user row before the room row: account retirement locks the
+    // user FOR UPDATE and then the rooms, and the `registered_by` insert
+    // below needs this row's FOR KEY SHARE — taking it first keeps every
+    // user/room acquisition in the same order, so an upload racing the
+    // uploader's own retirement queues instead of deadlocking.
+    await tx
+      .select({ id: user.id })
+      .from(user)
+      .where(eq(user.id, params.userId))
+      .for("key share");
     await lockRoom(tx, params.roomId);
     const access = await resolveRoomAccess(tx, {
       roomId: params.roomId,

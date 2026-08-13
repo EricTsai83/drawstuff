@@ -16,6 +16,7 @@ import type {
 import {
   createCollaborationAssetStore,
   type AssetApi,
+  type CollaborationAssetStore,
 } from "@/lib/collab/asset-store";
 import {
   createCollaborationSession,
@@ -26,6 +27,7 @@ import {
 } from "@/lib/collab/collaboration-session";
 import {
   createCollaborationSnapshotStore,
+  type CollaborationSnapshotStore,
   type SnapshotApi,
 } from "@/lib/collab/snapshot-store";
 
@@ -111,6 +113,13 @@ export async function startCollaborationRoomSession(options: {
   assetApi: AssetApi;
   wrapRemoteApply: (apply: () => void) => void;
   /**
+   * Wrapper for presence-only canvas writes (collaborator cursors). Kept
+   * separate from `wrapRemoteApply` so the host can release its dirty-tracking
+   * suppression synchronously for writes that carry no scene state; see
+   * `CollaborationSessionOptions.wrapPresenceApply`.
+   */
+  wrapPresenceApply?: (apply: () => void) => void;
+  /**
    * Synchronous check that the canvas still holds this room's scene. Scene
    * loading replaces the canvas before React re-renders, so the session has to
    * consult a synchronous source of truth rather than a prop.
@@ -159,22 +168,41 @@ export async function startCollaborationRoomSession(options: {
   // direction — the alternative is the session polling for bytes that may never
   // arrive.
   let assetTarget: CollaborationSession | undefined;
-  const assetStore = await createCollaborationAssetStore({
-    api: options.assetApi,
-    roomId: options.roomId,
-    roomKey: options.roomKey,
-    authGeneration: options.authGeneration,
-    onAssetsResolved: (files) => {
-      assetTarget?.applyRemoteAssets(files);
-    },
-    onAssetsUnreadable: options.onAssetsUnreadable,
-    onAssetsUnavailable: (fileIds) => {
-      assetTarget?.applyUnavailableAssets(fileIds);
-    },
-    onPublishRetryDue: () => {
-      assetTarget?.republishLocalAssets();
-    },
-  });
+  let assetStore: CollaborationAssetStore | undefined;
+  let snapshotStore: CollaborationSnapshotStore;
+  try {
+    assetStore = await createCollaborationAssetStore({
+      api: options.assetApi,
+      roomId: options.roomId,
+      roomKey: options.roomKey,
+      authGeneration: options.authGeneration,
+      onAssetsResolved: (files) => {
+        assetTarget?.applyRemoteAssets(files);
+      },
+      onAssetsUnreadable: options.onAssetsUnreadable,
+      onAssetsUnavailable: (fileIds) => {
+        assetTarget?.applyUnavailableAssets(fileIds);
+      },
+      onPublishRetryDue: () => {
+        assetTarget?.republishLocalAssets();
+      },
+    });
+    snapshotStore = await createCollaborationSnapshotStore({
+      api: options.snapshotApi,
+      roomId: options.roomId,
+      roomKey: options.roomKey,
+      authGeneration: options.authGeneration,
+    });
+  } catch (error) {
+    // Key derivation for either store can reject after the transport already
+    // exists. The caller's catch only releases the canvas claim, so what was
+    // built here has to be released here — otherwise the subscription, the
+    // asset store's abort controller and the socket all outlive the failed join.
+    unsubscribe();
+    assetStore?.destroy();
+    transport.close();
+    throw error;
+  }
 
   const session = createCollaborationSession({
     transport,
@@ -184,14 +212,10 @@ export async function startCollaborationRoomSession(options: {
     refreshJoinToken: options.refreshJoinToken,
     username: options.username,
     sceneApi,
-    snapshotStore: await createCollaborationSnapshotStore({
-      api: options.snapshotApi,
-      roomId: options.roomId,
-      roomKey: options.roomKey,
-      authGeneration: options.authGeneration,
-    }),
+    snapshotStore,
     assetStore,
     wrapRemoteApply: options.wrapRemoteApply,
+    wrapPresenceApply: options.wrapPresenceApply,
     canSyncScene: options.canSyncScene,
     onSceneSyncBlockChange: options.onSceneSyncBlockChange,
     onRecoveryStateChange: (state) => {
@@ -245,7 +269,7 @@ export async function startCollaborationRoomSession(options: {
     idleTimerId = undefined;
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     unsubscribe();
-    assetStore.destroy();
+    assetStore?.destroy();
     assetTarget = undefined;
     transport.close();
   }
@@ -270,8 +294,8 @@ export async function startCollaborationRoomSession(options: {
       // has to compute is asynchronous and every teardown would otherwise abort
       // it in the same tick. It cannot be awaited (React cleanup is synchronous),
       // so the promise is returned for callers that can. After a terminal failure
-      // it resolves immediately without writing — the write requires a connection,
-      // which is exactly what a terminal failure does not have.
+      // it resolves immediately without writing — a terminated session may no
+      // longer vouch for the canvas, so its flush is refused at the guard.
       const flushed = session.flushSnapshot();
       // Aborts in-flight asset transfers and drops the retry timer. Unlike the
       // snapshot flush there is nothing to finish: an upload that has not landed
