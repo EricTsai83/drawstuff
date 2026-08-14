@@ -1,13 +1,11 @@
 "use client";
 
-import { TRPCClientError } from "@trpc/client";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { verifyRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
-import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import {
   roomRoleCanEditScene,
   type RoomRole,
@@ -25,24 +23,44 @@ import {
 } from "@/data/local-scene-persistence";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { useAppI18n } from "@/hooks/use-app-i18n";
-import type { AppTranslationKey } from "@/lib/i18n";
 import {
   canvasBelongsToRoom,
   claimCanvasForRoom,
   releaseCanvasRoom,
 } from "@/lib/collab/canvas-room-marker";
 import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
-import type {
-  JoinCredentialsResult,
-  SceneSyncBlock,
-} from "@/lib/collab/collaboration-session";
-import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
+import {
+  FAILURE_MESSAGE_KEY,
+  JOIN_RATE_LIMITED_MESSAGE_KEY,
+  JOIN_RETRYABLE_MESSAGE_KEY,
+  MISSING_KEY_CHECK_MESSAGE_KEY,
+  sceneSyncBlockMessage,
+  UNREADABLE_ASSETS_MESSAGE_KEY,
+  WRONG_KEY_LINK_MESSAGE_KEY,
+} from "@/lib/collab/collaboration-messages";
+import type { JoinCredentialsResult } from "@/lib/collab/collaboration-session";
+import type { CanvasHandoffOutcome } from "@/hooks/excalidraw/use-canvas-handoff";
+import {
+  classifyJoinFailure,
+  joinWithRateLimitRetry,
+} from "@/lib/collab/join-failure";
+import {
+  initialRoomState,
+  roomStateReducer,
+  type CollaborationFailureReason,
+  type CollaborationRoomStatus,
+} from "@/lib/collab/room-state-reducer";
 import {
   startCollaborationRoomSession,
   toCollaborationUsername,
   type CollaborationRoomHandle,
 } from "@/lib/collab/room-session";
 import { api } from "@/trpc/react";
+
+export type {
+  CollaborationFailureReason,
+  CollaborationRoomStatus,
+} from "@/lib/collab/room-state-reducer";
 
 /**
  * Drives one collaboration room from the editor: prepares the canvas, exchanges
@@ -51,6 +69,12 @@ import { api } from "@/trpc/react";
  *
  * The room id is a locator only — the backend decides the role, and a viewer's
  * session is read-only on the server whatever this hook reports.
+ *
+ * The pieces live where they can be tested without React: the join-failure
+ * classification and the bounded bootstrap retry in `lib/collab/join-failure.ts`,
+ * the user-facing wording in `lib/collab/collaboration-messages.ts`, and the
+ * state machine in `lib/collab/room-state-reducer.ts`. This hook owns the
+ * effect: canvas preparation, the join exchange, session wiring and teardown.
  *
  * ## Losing the connection
  *
@@ -71,10 +95,8 @@ import { api } from "@/trpc/react";
  * ## Joining a room whose scene you do not have
  *
  * A session publishes the local canvas once it is synced, so joining with an
- * unrelated scene loaded would push that scene's content into the room. The initial
- * avoided the leak by refusing such a join outright; this hook removes that
- * restriction the way the leak actually has to be closed — by making the canvas
- * the room's *before* the socket opens:
+ * unrelated scene loaded would push that scene's content into the room. The
+ * leak is closed by making the canvas the room's *before* the socket opens:
  *
  * 1. Unsaved local work is resolved through the editor's existing
  *    save/discard/cancel prompt. Cancelling means no connection is attempted.
@@ -91,63 +113,6 @@ import { api } from "@/trpc/react";
  * Because step 2 leaves the guest without a scene id, `canSyncScene` cannot be a
  * scene-id comparison any more; it is the canvas claim from step 4.
  */
-
-export type CollaborationRoomStatus =
-  | "idle"
-  /** Resolving unsaved local work before the canvas is handed to the room. */
-  | "preparing"
-  | "joining"
-  | "connected"
-  /**
-   * Connected, but the canvas is past a locked size contract, so at least one
-   * publish path has stopped carrying it. Never reported as `connected`: a canvas
-   * that is not being published is exactly what "共編中" must not mean.
-   * `errorMessage` states which path stopped and what to do about it.
-   */
-  | "sync-blocked"
-  /** The connection dropped and the session is retrying with backoff. */
-  | "reconnecting"
-  /** Recovery stopped for a stated reason; `errorMessage` carries it. */
-  | "failed"
-  /**
-   * The backend refused this account: only an `UNAUTHORIZED`/`FORBIDDEN`
-   * verdict lands here. Everything else that can break a join — an offline
-   * browser, a 5xx, a crypto failure — is `join-failed` below, because telling
-   * a user with a dropped connection to go ask for access is wrong twice.
-   */
-  | "unauthorized"
-  /**
-   * The bootstrap join broke for a retryable reason (network, backend error,
-   * session construction). Nothing says this client may not be here; opening
-   * the link again is expected to work.
-   */
-  | "join-failed"
-  /**
-   * The shared join budget refused this client and the bounded wait ran out.
-   *
-   * Deliberately its own status rather than `unauthorized`: nothing is wrong
-   * with this link or this account, and telling the user otherwise sends them
-   * to ask for access they already have. Deliberately not `failed` either —
-   * that status carries a `failureReason` from the recovery machine, and this
-   * never reached a session.
-   */
-  | "rate-limited"
-  /** The user declined to give up the current canvas, so no join happened. */
-  | "cancelled"
-  /** The link carries a room id but no usable end-to-end key. */
-  | "missing-room-key";
-
-/**
- * Why a session (or a join attempt) stopped for good. The recovery machine's
- * reasons plus the two verdicts only the pre-join key check can produce — a
- * link whose key fails the room's check value, and a room that has no check
- * value to verify against. Exposed alongside the human-readable message so UI
- * can key behaviour on the reason (the owner's snapshot-reset entry point
- * appears only for `unreadable-room`) without parsing message text.
- */
-export type CollaborationFailureReason =
-  UnrecoverableReason | "wrong-key-link" | "missing-key-check";
-
 export type UseCollaborationRoomResult = {
   status: CollaborationRoomStatus;
   /** Set while `status` is `failed`; `null` otherwise. */
@@ -177,247 +142,6 @@ export type UseCollaborationRoomResult = {
   ) => void;
 };
 
-/**
- * What each terminal recovery reason means for the user, and what they can do
- * about it. Every reason gets a message: an unexplained "stopped reconnecting" is
- * indistinguishable from a hang, and the action differs per reason — ask for
- * access, ask for a new link, or reload.
- *
- * None of them echoes the room key or the fragment.
- */
-const FAILURE_MESSAGE_KEY: Record<UnrecoverableReason, AppTranslationKey> = {
-  unauthorized: "collaboration.failure.unauthorized",
-  "membership-revoked": "collaboration.failure.membershipRevoked",
-  "room-ended": "collaboration.failure.roomEnded",
-  "generation-rotated": "collaboration.failure.generationRotated",
-  // Reached from two detectors — an unopenable stored snapshot, and every
-  // realtime frame failing to open with none ever succeeding — so the wording
-  // must not promise that a stored canvas exists: the second detector is
-  // precisely the room that has not been persisted yet.
-  "unreadable-room": "collaboration.failure.unreadableRoom",
-  "protocol-violation": "collaboration.failure.protocolViolation",
-  // Not the protocol-violation wording: an outdated tab is repaired by a
-  // reload, and telling its user to report a bug would send them away from
-  // the one action that fixes it.
-  "unsupported-protocol-version":
-    "collaboration.failure.unsupportedProtocolVersion",
-  "crypto-exhausted": "collaboration.failure.cryptoExhausted",
-  "retry-limit": "collaboration.failure.retryLimit",
-};
-
-/**
- * What an unopenable image means, and what the user can actually do.
- *
- * Deliberately weaker than the terminal `unreadable-room` message above, because
- * the situation is weaker: the elements still sync, the session is healthy, and
- * only the pictures are missing. Stating that keeps the user from reading a
- * partly-loaded canvas as a broken one — the failure mode this replaces was a
- * canvas silently short an image, indistinguishable from a peer whose upload had
- * not landed yet.
- *
- * Both causes are named because the fix differs and this client cannot tell them
- * apart: AES-GCM authentication failing looks identical whether the key is wrong
- * or the envelope version moved on.
- */
-/**
- * A link whose key failed the room's check value, refused before the canvas
- * was touched.
- *
- * Deliberately not the `unreadable-room` message: that one describes a
- * *session* that stopped ("連線已停止") — here no connection was ever
- * attempted, and the one fact the user most needs is that their canvas was
- * left alone, which only this path can promise.
- */
-const WRONG_KEY_LINK_MESSAGE_KEY = "collaboration.failure.wrongKey";
-
-/**
- * A room with no key-check value cannot be verified, and an unverifiable link
- * is refused rather than trusted: this is the rare, transient state of a room
- * whose owner's `setKeyCheck` write failed — re-running 開始共編 (or rotating
- * the generation) repairs it. Failing open here would re-open exactly the
- * hole this plan closes.
- */
-const MISSING_KEY_CHECK_MESSAGE_KEY = "collaboration.failure.missingKeyCheck";
-
-/**
- * The shared join budget refused this client for longer than the bounded wait.
- *
- * Says "later", not "no". The previous behaviour reported this through the
- * catch-all as `unauthorized`, which reads as a permissions problem — and the
- * one thing a user does about that is ask for access they already have, or
- * reload, which spends more of the very budget they are waiting on.
- */
-const JOIN_RATE_LIMITED_MESSAGE_KEY = "collaboration.failure.rateLimited";
-
-/**
- * The bootstrap join failed for a reason worth retrying. Deliberately a
- * translated, generic message rather than the thrown `error.message`: what
- * lands here ranges from a fetch that never left the machine to a crypto
- * failure, none of which a raw message explains — and several of which would
- * previously masquerade as an authorization problem.
- */
-const JOIN_RETRYABLE_MESSAGE_KEY = "collaboration.failure.joinFailed";
-
-const UNREADABLE_ASSETS_MESSAGE_KEY = "collaboration.warning.unreadableAssets";
-
-const BYTES_PER_MIB = 1_048_576;
-
-const toMib = (bytes: number): string =>
-  `${(bytes / BYTES_PER_MIB).toFixed(1)} MB`;
-
-/**
- * What an oversize canvas means, per blocked path, and the one action that fixes
- * it.
- *
- * Both halves are stated because a canvas can breach one contract without the
- * other, and the consequences are different things to lose: realtime is what the
- * other members stop receiving, durable is what a reload or a later joiner stops
- * seeing. Exporting locally leads, the way it does upstream, because it is the
- * only step that is guaranteed to work — "wait" is precisely what does not.
- *
- * Shrinking the canvas is offered with its real caveat rather than as a promise.
- * A deleted element keeps flowing through sync as a tombstone for
- * `DELETED_ELEMENT_SYNC_TIMEOUT_MS`, body included, so deleting content does not
- * immediately reduce the payload; a reload starts from the compacted scene and
- * does. Saying "just delete something" would be advice that visibly fails.
- *
- * Deliberately not a toast. This condition persists until the user acts on it, so
- * it lives in the room status (`sync-blocked`) and this message, both of which
- * stay on screen; a notification that fires once would be gone before the user
- * finished the edit that caused it.
- */
-function sceneSyncBlockMessage(
-  block: SceneSyncBlock,
-  t: ReturnType<typeof useAppI18n>["t"],
-): string {
-  const parts: string[] = [];
-  if (block.realtime) {
-    parts.push(
-      t("collaboration.warning.realtimeTooLarge", {
-        size: toMib(block.realtime.byteLength),
-        limit: toMib(block.realtime.maxByteLength),
-      }),
-    );
-  }
-  if (block.durable) {
-    parts.push(
-      t("collaboration.warning.backupTooLarge", {
-        size: toMib(block.durable.byteLength),
-        limit: toMib(block.durable.maxByteLength),
-      }),
-    );
-  }
-  parts.push(t("collaboration.warning.tooLargeAdvice"));
-  return parts.join(" ");
-}
-
-/**
- * Turns a failed `collaborationRoom.join` into the credential refusal recovery
- * acts on.
- *
- * This is the only place that can make the call. The relay closes a socket as soon
- * as the app withdraws the authorization it holds, and it uses one close code for
- * both "removed from the room" and "role changed" — and a role change *must*
- * reconnect, because the role travels in the token. So the relay's close is always
- * retried, and this request is where a client that genuinely cannot come back is
- * stopped.
- *
- * Read off the tRPC error code rather than the message, and deliberately
- * conservative: only the codes that state a refusal are terminal, so an
- * unrecognized failure is retried. A retried refusal costs one round-trip and
- * lands here again; a terminal verdict on a transient failure would abandon a
- * session that was coming back.
- *
- * `PRECONDITION_FAILED` is `accessError`'s answer for a room that has ended or
- * expired, which is exactly why it must not read as "unavailable": retrying it
- * would spend the whole budget and then report the wrong reason.
- */
-export function classifyJoinFailure(error: unknown): JoinCredentialsResult {
-  const code =
-    error instanceof TRPCClientError
-      ? (error.data as { code?: unknown } | null | undefined)?.code
-      : undefined;
-  switch (code) {
-    case "FORBIDDEN":
-      return { ok: false, retry: false, failure: "membership-revoked" };
-    case "UNAUTHORIZED":
-      return { ok: false, retry: false, failure: "unauthorized" };
-    case "PRECONDITION_FAILED":
-    case "NOT_FOUND":
-      return { ok: false, retry: false, failure: "room-ended" };
-    // Over the shared join budget. Transient by construction, so it takes the
-    // retry path — but with the server's own reset time attached, because
-    // retrying inside the window would spend the very budget being waited on
-    // and push the deadline out. The deadline is read off `data.rateLimit`,
-    // never off the message.
-    case "TOO_MANY_REQUESTS":
-      return {
-        ok: false,
-        retry: true,
-        retryAfterMs: rateLimitRetryAfterMs(error) ?? undefined,
-      };
-    default:
-      return { ok: false, retry: true };
-  }
-}
-
-/** Bootstrap join attempts, counting the first. */
-export const MAX_INITIAL_JOIN_ATTEMPTS = 3;
-
-export type BootstrapJoinOutcome<T> =
-  | { status: "joined"; value: T }
-  /** Torn down mid-wait; the caller must not touch state. */
-  | { status: "cancelled" }
-  /** Still refused after the bounded wait; nothing was joined. */
-  | { status: "rate-limited" };
-
-/**
- * Runs the *first* join, waiting out a rate limit instead of reporting one.
- *
- * `classifyJoinFailure` above covers reconnects, which is only half the story:
- * the bootstrap join has no session yet, so its failure lands in the effect's
- * catch-all and used to be reported as `unauthorized` — terminal, and wrong.
- * Nothing about being over a shared budget says this client may not be here.
- *
- * Three properties make this safe to retry where a blanket retry would not be:
- *
- * - **Only a rate limit.** The deadline has to be machine-readable on the
- *   error; anything else is rethrown untouched, so an authorization refusal
- *   reaches the existing handler exactly as before and never becomes a loop.
- * - **Never early.** The wait is the server's own `retryAfterMs`. Retrying
- *   inside the window spends the budget being waited on and pushes the deadline
- *   further out.
- * - **Bounded and cancellable.** Three attempts, and `isCancelled` is consulted
- *   before every one — including immediately after a wait — so a component torn
- *   down mid-window issues no further mutation.
- *
- * It deliberately retries only the join call. Re-running the whole bootstrap
- * would re-prompt for the canvas the user already gave up.
- */
-export async function joinWithRateLimitRetry<T>(options: {
-  attempt: () => Promise<T>;
-  isCancelled: () => boolean;
-  /** Resolves after `ms`, or early when the caller is torn down. */
-  wait: (ms: number) => Promise<void>;
-  maxAttempts?: number;
-}): Promise<BootstrapJoinOutcome<T>> {
-  const maxAttempts = options.maxAttempts ?? MAX_INITIAL_JOIN_ATTEMPTS;
-  for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (options.isCancelled()) return { status: "cancelled" };
-    try {
-      return { status: "joined", value: await options.attempt() };
-    } catch (error) {
-      const retryAfterMs = rateLimitRetryAfterMs(error);
-      if (retryAfterMs === null) throw error;
-      if (attempt === maxAttempts) break;
-      await options.wait(retryAfterMs);
-    }
-  }
-  return options.isCancelled()
-    ? { status: "cancelled" }
-    : { status: "rate-limited" };
-}
-
 export function useCollaborationRoom(options: {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   /** Room id from the shareable link; `null` disables collaboration. */
@@ -433,24 +157,22 @@ export function useCollaborationRoom(options: {
   username: string | null | undefined;
   /** Collaboration requires an authenticated session. */
   isAuthenticated: boolean;
-  /** True when the canvas holds work that would be lost by joining. */
-  hasLocalContent: () => boolean;
-  /** The editor's existing three-way prompt for replacing the canvas. */
-  requestSceneChangeDecision: () => Promise<"save" | "switch" | "cancel">;
   /**
-   * Settles a pending `requestSceneChangeDecision` from outside the dialog.
-   * The join effect's cleanup resolves a still-open prompt as "cancel" —
-   * a teardown mid-decision otherwise leaves the dialog open forever, with
-   * nobody awaiting the answer.
+   * Makes the on-screen canvas this room's scene before anything connects:
+   * unsaved work is resolved through the editor's prompt, then the scene
+   * session and the canvas are cleared. See `useCanvasHandoff`, which owns the
+   * whole sequence — this hook only consumes the outcome.
    */
-  resolveSceneChangeDecision: (choice: "save" | "switch" | "cancel") => void;
-  closeSceneChangeConfirm: () => void;
-  /** Saves the current canvas to the cloud; false means the save failed. */
-  uploadSceneToCloud: (opts?: {
-    suppressSuccessToast?: boolean;
-  }) => Promise<boolean>;
-  /** Drops the local scene session (id, revision, dirty state). */
-  clearCurrentScene: () => void;
+  prepareCanvasForRoom: (params: {
+    isCancelled: () => boolean;
+    onDecisionPrompt: () => void;
+  }) => Promise<CanvasHandoffOutcome>;
+  /**
+   * Settles a still-open canvas prompt as "cancel" and closes it. The join
+   * effect's cleanup calls this — a teardown mid-decision otherwise leaves the
+   * dialog open forever, with nobody awaiting the answer.
+   */
+  cancelPendingCanvasDecision: () => void;
 }): UseCollaborationRoomResult {
   const {
     excalidrawAPI,
@@ -474,52 +196,8 @@ export function useCollaborationRoom(options: {
    * the failed attempt down through the normal cleanup and starts over.
    */
   const [joinAttempt, setJoinAttempt] = useState(0);
-  const [status, setStatus] = useState<CollaborationRoomStatus>("idle");
-  const [failureReason, setFailureReason] =
-    useState<CollaborationFailureReason | null>(null);
-  const [role, setRole] = useState<RoomRole | null>(null);
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  /**
-   * Set while the canvas is too large for a publish path; see `SceneSyncBlock`.
-   *
-   * Held separately from `status` rather than folded into it, because the two are
-   * independent facts about the same session: a recovery notification arrives on
-   * every phase change and would otherwise clear a block that is still true, and a
-   * reconnect does not make an oversize canvas fit.
-   */
-  const [syncBlock, setSyncBlock] = useState<SceneSyncBlock | null>(null);
-  /**
-   * Set once the room turns out to hold images this link cannot open.
-   *
-   * Its own state rather than part of `status` because the session is not
-   * degraded: elements sync, the socket is fine, and calling this "共編中" is
-   * honest. What is *not* honest is showing an incomplete canvas with no
-   * explanation, which is what the store used to do.
-   */
-  const [assetsUnreadable, setAssetsUnreadable] = useState(false);
-  /**
-   * True from the moment the canvas is claimed until the session is torn down.
-   *
-   * Distinct from `isCollaborating`, and that distinction is the point: the claim
-   * is taken *before* the join token is minted and the key derived, so a status of
-   * "connected" would leave a window in which the canvas already belongs to the
-   * room while the editor still offers the actions that replace it.
-   */
-  const [ownsCanvas, setOwnsCanvas] = useState(false);
-  /**
-   * True once the app has withdrawn this connection's authorization and a new
-   * grant has not arrived yet.
-   *
-   * The relay closes with `membership-revoked` both when a member is removed and
-   * when their *role* is changed — a role change has to force a reconnect, because
-   * the role travels in the token. So during that reconnect the role this hook is
-   * holding may no longer be the user's, and continuing to accept edits on the
-   * strength of it is how a demoted editor produces work the reconnected viewer can
-   * never publish: locally newer than the room, refused by the relay, permanently
-   * divergent. A transient drop is different — the role is unchanged, so editing
-   * continues and the offline queue carries it.
-   */
-  const [roleWithdrawn, setRoleWithdrawn] = useState(false);
+  const [state, dispatch] = useReducer(roomStateReducer, initialRoomState);
+  const { status, syncBlock, assetsUnreadable, ownsCanvas } = state;
 
   /**
    * Read at connect time instead of being effect dependencies: a display name
@@ -608,80 +286,62 @@ export function useCollaborationRoom(options: {
     if (!excalidrawAPI || !roomId || !isAuthenticated) return;
     const parsedRoomId = roomIdSchema.safeParse(roomId);
     if (!parsedRoomId.success) {
-      setStatus("unauthorized");
-      setErrorMessage(tRef.current("collaboration.failure.invalidLink"));
+      dispatch({
+        type: "join-blocked",
+        status: "unauthorized",
+        errorMessage: tRef.current("collaboration.failure.invalidLink"),
+      });
       return;
     }
     // Checked before any token is requested: without the key there is nothing a
     // session could do, and asking the backend for a token would only advertise
     // an attempt. The message never echoes the fragment.
     if (!roomKey) {
-      setStatus("missing-room-key");
-      setErrorMessage(tRef.current("collaboration.failure.missingRoomKey"));
+      dispatch({
+        type: "join-blocked",
+        status: "missing-room-key",
+        errorMessage: tRef.current("collaboration.failure.missingRoomKey"),
+      });
       return;
     }
 
     let cancelled = false;
     let handle: CollaborationRoomHandle | undefined;
     let claimedDuringStart = false;
-    /** True while `prepareCanvas` is awaiting the user's three-way decision. */
-    let pendingSceneDecision = false;
     /** Separates the first join from every reconnect after it. */
     let hasBeenLive = false;
-    setStatus("joining");
-    setErrorMessage(null);
+    dispatch({ type: "join-started" });
 
     /**
      * Makes the on-screen canvas this room's scene before anything connects.
      * Returns false when the user declined, which is the only way to keep their
-     * work: once the canvas is claimed the room's baseline replaces it.
+     * work: once the canvas is claimed the room's baseline replaces it. The
+     * canvas sequence itself lives in `useCanvasHandoff`; this maps its outcome
+     * onto the room status.
      */
     const prepareCanvas = async (): Promise<boolean> => {
-      const editor = canvasRef.current;
-      if (editor.hasLocalContent()) {
-        setStatus("preparing");
-        pendingSceneDecision = true;
-        let decision: "save" | "switch" | "cancel";
-        try {
-          decision = await editor.requestSceneChangeDecision();
-        } finally {
-          pendingSceneDecision = false;
-        }
-        if (cancelled) return false;
-        if (decision === "cancel") {
-          setStatus("cancelled");
-          setErrorMessage(tRef.current("collaboration.failure.cancelled"));
-          return false;
-        }
-        if (decision === "save") {
-          const saved = await editor.uploadSceneToCloud({
-            suppressSuccessToast: true,
-          });
-          if (cancelled) return false;
-          if (!saved) {
-            setStatus("cancelled");
-            setErrorMessage(
-              tRef.current("collaboration.failure.saveBeforeJoin"),
-            );
-            return false;
-          }
-        }
-        editor.closeSceneChangeConfirm();
-        setStatus("joining");
-      }
-      // Clearing the scene session drops this client's `currentSceneId`, so a
-      // later save creates the guest's own scene instead of overwriting the
-      // room owner's. It also releases any previous canvas claim, which is why
-      // the new claim comes after it.
-      suppressDirtyTracking();
-      try {
-        editor.clearCurrentScene();
-        excalidrawAPI.updateScene({ elements: [] });
-      } finally {
-        requestAnimationFrame(() => {
-          resumeDirtyTracking();
+      const outcome = await canvasRef.current.prepareCanvasForRoom({
+        isCancelled: () => cancelled,
+        onDecisionPrompt: () => dispatch({ type: "preparing-canvas" }),
+      });
+      if (cancelled || outcome === "torn-down") return false;
+      if (outcome === "declined") {
+        dispatch({
+          type: "join-blocked",
+          status: "cancelled",
+          errorMessage: tRef.current("collaboration.failure.cancelled"),
         });
+        return false;
       }
+      if (outcome === "save-failed") {
+        dispatch({
+          type: "join-blocked",
+          status: "cancelled",
+          errorMessage: tRef.current("collaboration.failure.saveBeforeJoin"),
+        });
+        return false;
+      }
+      dispatch({ type: "join-started" });
       return true;
     };
 
@@ -720,9 +380,11 @@ export function useCollaborationRoom(options: {
         // and — in an empty room — would poison it with a snapshot nobody else
         // can open.
         if (room.keyCheckBase64 === null) {
-          setStatus("failed");
-          setFailureReason("missing-key-check");
-          setErrorMessage(tRef.current(MISSING_KEY_CHECK_MESSAGE_KEY));
+          dispatch({
+            type: "failed",
+            reason: "missing-key-check",
+            errorMessage: tRef.current(MISSING_KEY_CHECK_MESSAGE_KEY),
+          });
           return;
         }
         const keyCheckOk = await verifyRoomKeyCheck({
@@ -733,9 +395,11 @@ export function useCollaborationRoom(options: {
         });
         if (cancelled) return;
         if (!keyCheckOk) {
-          setStatus("failed");
-          setFailureReason("wrong-key-link");
-          setErrorMessage(tRef.current(WRONG_KEY_LINK_MESSAGE_KEY));
+          dispatch({
+            type: "failed",
+            reason: "wrong-key-link",
+            errorMessage: tRef.current(WRONG_KEY_LINK_MESSAGE_KEY),
+          });
           return;
         }
         const isOpenScene = room.sceneId === canvasRef.current.currentSceneId;
@@ -764,8 +428,11 @@ export function useCollaborationRoom(options: {
         if (joinOutcome.status === "rate-limited") {
           // Not `unauthorized`: this link and this account are fine, and the
           // room is joinable again once the window rolls.
-          setStatus("rate-limited");
-          setErrorMessage(tRef.current(JOIN_RATE_LIMITED_MESSAGE_KEY));
+          dispatch({
+            type: "join-blocked",
+            status: "rate-limited",
+            errorMessage: tRef.current(JOIN_RATE_LIMITED_MESSAGE_KEY),
+          });
           return;
         }
         const joined = joinOutcome.value;
@@ -779,11 +446,13 @@ export function useCollaborationRoom(options: {
         // *after* this point disconnects the session, whose token refresh
         // detects the moved generation.
         if (joined.authGeneration !== room.authGeneration) {
-          setStatus("failed");
-          setFailureReason("generation-rotated");
-          setErrorMessage(
-            tRef.current(FAILURE_MESSAGE_KEY["generation-rotated"]),
-          );
+          dispatch({
+            type: "failed",
+            reason: "generation-rotated",
+            errorMessage: tRef.current(
+              FAILURE_MESSAGE_KEY["generation-rotated"],
+            ),
+          });
           return;
         }
         // Commit the canvas claim only after join and generation validation
@@ -792,7 +461,7 @@ export function useCollaborationRoom(options: {
         // collaboration-owned mode without a session.
         claimCanvasForRoom(parsedRoomId.data);
         claimedDuringStart = true;
-        setOwnsCanvas(true);
+        dispatch({ type: "canvas-claimed" });
         // Key derivation is asynchronous, so the effect can be torn down while
         // the session is still being built. Whatever comes back has to be
         // destroyed in that case: the closure variable the cleanup reads is
@@ -856,19 +525,18 @@ export function useCollaborationRoom(options: {
           // Role only: the granted role is a property of the socket, and it must
           // survive a reconnect window so a viewer's editor does not briefly
           // become writable while the session is retrying.
-          onConnectionStateChange: (state) => {
+          onConnectionStateChange: (connectionState) => {
             if (cancelled) return;
-            if (state.status === "connected") {
-              setRole(state.role);
+            if (connectionState.status === "connected") {
               // The server just stated the role, so it is authoritative again.
-              setRoleWithdrawn(false);
+              dispatch({ type: "role-granted", role: connectionState.role });
               return;
             }
             if (
-              state.status === "disconnected" &&
-              state.reason === "membership-revoked"
+              connectionState.status === "disconnected" &&
+              connectionState.reason === "membership-revoked"
             ) {
-              setRoleWithdrawn(true);
+              dispatch({ type: "role-withdrawn" });
             }
           },
           onSceneSyncBlockChange: (block) => {
@@ -890,7 +558,7 @@ export function useCollaborationRoom(options: {
             if (block)
               toast.warning(sceneSyncBlockMessage(block, tRef.current));
             if (cancelled) return;
-            setSyncBlock(block);
+            dispatch({ type: "sync-block-changed", block });
           },
           // Same two surfaces as the block above, for the same reason: the
           // persistent message lives in a status area the editor does not render
@@ -900,31 +568,36 @@ export function useCollaborationRoom(options: {
           onAssetsUnreadable: () => {
             toast.warning(tRef.current(UNREADABLE_ASSETS_MESSAGE_KEY));
             if (cancelled) return;
-            setAssetsUnreadable(true);
+            dispatch({ type: "assets-unreadable" });
           },
-          onRecoveryStateChange: (state) => {
+          onRecoveryStateChange: (recoveryState) => {
             if (cancelled) return;
-            if (state.phase === "failed") {
-              setStatus("failed");
-              setFailureReason(state.reason);
-              setErrorMessage(tRef.current(FAILURE_MESSAGE_KEY[state.reason]));
+            if (recoveryState.phase === "failed") {
+              dispatch({
+                type: "failed",
+                reason: recoveryState.reason,
+                errorMessage: tRef.current(
+                  FAILURE_MESSAGE_KEY[recoveryState.reason],
+                ),
+              });
               return;
             }
-            setFailureReason(null);
-            setErrorMessage(null);
-            if (state.phase === "live") {
+            if (recoveryState.phase === "live") {
               hasBeenLive = true;
-              setStatus("connected");
+              dispatch({ type: "recovery-progressed", status: "connected" });
               return;
             }
-            if (state.phase === "idle") {
-              setStatus("idle");
+            if (recoveryState.phase === "idle") {
+              dispatch({ type: "recovery-progressed", status: "idle" });
               return;
             }
             // Before the first successful join this is still the join; after it,
             // it is a reconnect. The difference is the whole point of the status:
             // "this is slow" versus "this broke and is coming back".
-            setStatus(hasBeenLive ? "reconnecting" : "joining");
+            dispatch({
+              type: "recovery-progressed",
+              status: hasBeenLive ? "reconnecting" : "joining",
+            });
           },
         });
         if (cancelled) {
@@ -941,7 +614,7 @@ export function useCollaborationRoom(options: {
         if (claimedDuringStart) {
           releaseCanvasRoom();
           claimedDuringStart = false;
-          setOwnsCanvas(false);
+          dispatch({ type: "canvas-released" });
         }
         // Classified the same way a reconnect refusal is, and never shown raw:
         // only a stated authorization verdict may read as one. Everything else
@@ -952,17 +625,25 @@ export function useCollaborationRoom(options: {
         if (!refusal.ok && !refusal.retry) {
           if (refusal.failure === "room-ended") {
             // The same terminal verdict recovery would report for this room.
-            setStatus("failed");
-            setFailureReason("room-ended");
-            setErrorMessage(tRef.current(FAILURE_MESSAGE_KEY["room-ended"]));
+            dispatch({
+              type: "failed",
+              reason: "room-ended",
+              errorMessage: tRef.current(FAILURE_MESSAGE_KEY["room-ended"]),
+            });
             return;
           }
-          setStatus("unauthorized");
-          setErrorMessage(tRef.current(FAILURE_MESSAGE_KEY[refusal.failure]));
+          dispatch({
+            type: "join-blocked",
+            status: "unauthorized",
+            errorMessage: tRef.current(FAILURE_MESSAGE_KEY[refusal.failure]),
+          });
           return;
         }
-        setStatus("join-failed");
-        setErrorMessage(tRef.current(JOIN_RETRYABLE_MESSAGE_KEY));
+        dispatch({
+          type: "join-blocked",
+          status: "join-failed",
+          errorMessage: tRef.current(JOIN_RETRYABLE_MESSAGE_KEY),
+        });
       }
     };
     void start();
@@ -975,24 +656,14 @@ export function useCollaborationRoom(options: {
       // A teardown while the user was still deciding must not strand the
       // scene-change dialog: nothing else would resolve the pending promise or
       // close it. Resolving as "cancel" keeps their canvas untouched.
-      if (pendingSceneDecision) {
-        canvasRef.current.resolveSceneChangeDecision("cancel");
-        canvasRef.current.closeSceneChangeConfirm();
-      }
+      canvasRef.current.cancelPendingCanvasDecision();
       handleRef.current = null;
       // The leave flush outlives this cleanup by design; React cannot await it.
       void handle?.destroy();
       // The canvas is no longer a room's scene: dropping the claim stops any
       // late callback from writing room state onto it.
       releaseCanvasRoom();
-      setOwnsCanvas(false);
-      setStatus("idle");
-      setFailureReason(null);
-      setRole(null);
-      setRoleWithdrawn(false);
-      setErrorMessage(null);
-      setSyncBlock(null);
-      setAssetsUnreadable(false);
+      dispatch({ type: "torn-down" });
     };
   }, [
     excalidrawAPI,
@@ -1053,8 +724,8 @@ export function useCollaborationRoom(options: {
     // Reported only while the status actually is a failure: the reason is a
     // property of the failed state, not a sticky flag, and a stale one would
     // keep the owner's destructive reset entry visible after a rejoin.
-    failureReason: status === "failed" ? failureReason : null,
-    role,
+    failureReason: status === "failed" ? state.failureReason : null,
+    role: state.role,
     // Still a collaboration session, and the canvas still belongs to the room: the
     // editor must keep withholding the actions that would replace it behind the
     // session's back. Only the *claim to be in sync* is withdrawn above.
@@ -1066,8 +737,9 @@ export function useCollaborationRoom(options: {
     // still holds — see `roleWithdrawn`.
     isReadOnly:
       ownsCanvas &&
-      (roleWithdrawn || (role !== null && !roomRoleCanEditScene(role))),
-    errorMessage: errorMessage ?? sizeWarning ?? assetWarning,
+      (state.roleWithdrawn ||
+        (state.role !== null && !roomRoleCanEditScene(state.role))),
+    errorMessage: state.errorMessage ?? sizeWarning ?? assetWarning,
     ownsCanvas,
     retryJoin,
     onPointerUpdate,

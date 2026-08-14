@@ -37,8 +37,7 @@ import {
 } from "./export-scene-actions";
 import { closeExcalidrawDialog } from "@/lib/excalidraw";
 import { TopRightControls } from "./top-right-controls";
-import { SceneCloudUploadDialog } from "@/components/excalidraw/scene-cloud-upload-dialog";
-import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confirm-dialog";
+import { EditorDialogs } from "@/components/excalidraw/editor-dialogs";
 import { useFetchAndInjectSharedSceneFiles } from "@/hooks/excalidraw/use-fetch-and-inject-shared-scene-files";
 import { useLanguagePreference } from "@/hooks/use-language-preference";
 import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
@@ -46,8 +45,11 @@ import { useExportHandlers } from "@/hooks/excalidraw/use-export-handlers";
 import { EditorFooter } from "@/components/excalidraw/editor-footer";
 import { useDashboardShortcut } from "@/hooks/use-dashboard-shortcut";
 import { LOAD_SCENE_EVENT, type LoadSceneRequestDetail } from "@/lib/events";
-import { SceneChangeConfirmDialog } from "./scene-change-confirm-dialog";
 import { api } from "@/trpc/react";
+import { useCanvasHandoff } from "@/hooks/excalidraw/use-canvas-handoff";
+import { useEditorDialogs } from "@/hooks/excalidraw/use-editor-dialogs";
+import { useEditorStatusToasts } from "@/hooks/excalidraw/use-editor-status-toasts";
+import { useSaveShortcut } from "@/hooks/excalidraw/use-save-shortcut";
 import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confirm";
 import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-confirm";
 import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm";
@@ -55,7 +57,6 @@ import GlobalConfirmDialog from "@/components/confirm-dialog";
 import { useSceneImportFileGuard } from "@/hooks/excalidraw/use-scene-import-file-guard";
 import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
 import { useSceneRemoteRevisionCheck } from "@/hooks/excalidraw/use-scene-remote-revision-check";
-import { SceneRemoteConflictDialog } from "@/components/excalidraw/scene-remote-conflict-dialog";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import {
   createEmbedUrlValidator,
@@ -63,7 +64,6 @@ import {
 } from "@/config/embed-allowlist";
 import { useCollaborationRoom } from "@/hooks/excalidraw/use-collaboration-room";
 import { useCollaborationRoomKey } from "@/hooks/excalidraw/use-collaboration-room-key";
-import { CollaborationRoomDialog } from "@/components/excalidraw/collaboration-room-dialog";
 import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
@@ -100,10 +100,24 @@ export default function ExcalidrawEditor() {
     : session?.user.id
       ? `user:${session.user.id}`
       : "anonymous";
-  const libraryReturnUrl = getCanonicalLibraryReturnUrl(window.location.href);
+  // Canonicalization is pure string work on a URL that only changes with a
+  // navigation, so one computation per mount is enough.
+  const libraryReturnUrl = useMemo(
+    () => getCanonicalLibraryReturnUrl(window.location.href),
+    [],
+  );
   // 只在編輯器中、且使用者已登入時啟用 Dashboard 快捷鍵
   useDashboardShortcut(!!session, currentWorkspaceId);
-  const [isShareDialogOpen, setIsShareDialogOpen] = useState(false);
+  const {
+    isShareDialogOpen,
+    setIsShareDialogOpen,
+    isCollaborationDialogOpen,
+    setIsCollaborationDialogOpen,
+    openCollaborationDialog,
+    isCloudUploadDialogOpen,
+    setIsCloudUploadDialogOpen,
+    openCloudUploadDialog,
+  } = useEditorDialogs();
   const [isMobileCanvasSlot, setIsMobileCanvasSlot] = useState<boolean | null>(
     null,
   );
@@ -128,9 +142,7 @@ export default function ExcalidrawEditor() {
     clearCurrentScene,
     lastConflict,
     clearLastConflict,
-  } = useCloudUpload(() => {
-    setIsCloudUploadDialogOpen(true);
-  }, excalidrawAPI);
+  } = useCloudUpload(openCloudUploadDialog, excalidrawAPI);
   const { applyRemoteScene } = useApplyRemoteScene(excalidrawAPI);
   // 共編 room：room id 放在 query string（連結即邀請，權限仍由後端決定），
   // 端到端金鑰只放在 URL fragment，永遠不會隨 request 送到伺服器。
@@ -139,9 +151,6 @@ export default function ExcalidrawEditor() {
   );
   const [collaborationRoomKey, setCollaborationRoomKey] =
     useCollaborationRoomKey();
-  const [isCollaborationDialogOpen, setIsCollaborationDialogOpen] =
-    useState(false);
-  const [isCloudUploadDialogOpen, setIsCloudUploadDialogOpen] = useState(false);
   const { langCode, handleLangCodeChange } = useLanguagePreference();
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
   const utils = api.useUtils();
@@ -166,6 +175,20 @@ export default function ExcalidrawEditor() {
       : false;
   }, [excalidrawAPI]);
 
+  // 加入不是自己場景的 room 時，先用既有的「儲存／捨棄／取消」流程換掉本地
+  // 畫布；連線前完成，才不會有把無關場景廣播進 room 的窗口。room hook 只收
+  // 這一個交接動作與它的取消入口，不再收六個零散 callback。
+  const { prepareCanvasForRoom, cancelPendingCanvasDecision } =
+    useCanvasHandoff({
+      excalidrawAPI,
+      hasLocalContent: hasCurrentCanvasContent,
+      requestSceneChangeDecision,
+      resolveSceneChangeDecision,
+      closeSceneChangeConfirm: closeSceneChangeDialog,
+      uploadSceneToCloud,
+      clearCurrentScene,
+    });
+
   const {
     status: collaborationStatus,
     failureReason: collaborationFailureReason,
@@ -184,14 +207,8 @@ export default function ExcalidrawEditor() {
     currentSceneId: currentSceneId ?? null,
     username: session?.user?.name,
     isAuthenticated: !!session,
-    // 加入不是自己場景的 room 時，先用既有的「儲存／捨棄／取消」流程換掉本地
-    // 畫布；連線前完成，才不會有把無關場景廣播進 room 的窗口。
-    hasLocalContent: hasCurrentCanvasContent,
-    requestSceneChangeDecision,
-    resolveSceneChangeDecision,
-    closeSceneChangeConfirm: closeSceneChangeDialog,
-    uploadSceneToCloud,
-    clearCurrentScene,
+    prepareCanvasForRoom,
+    cancelPendingCanvasDecision,
   });
 
   useEffect(
@@ -391,49 +408,42 @@ export default function ExcalidrawEditor() {
   const handleCloudUpload = useCallback(async (): Promise<void> => {
     // 若尚未儲存過，先開啟命名/標籤/描述 Dialog
     if (!currentSceneId) {
-      setIsCloudUploadDialogOpen(true);
+      openCloudUploadDialog();
       return;
     }
     await uploadSceneToCloud({ workspaceId: currentWorkspaceId });
-  }, [uploadSceneToCloud, currentSceneId, currentWorkspaceId]);
+  }, [
+    uploadSceneToCloud,
+    currentSceneId,
+    currentWorkspaceId,
+    openCloudUploadDialog,
+  ]);
 
-  useEffect(() => {
-    if (!session) return;
+  const handleCloudUploadConfirm = useCallback(
+    (input: {
+      name: string;
+      description: string;
+      categories: string[];
+      workspaceId?: string;
+    }) => {
+      // 先把名稱寫回 Excalidraw appState（透過既有 helper）
+      handleSetSceneName(input.name);
+      void uploadSceneToCloud(input);
+    },
+    [handleSetSceneName, uploadSceneToCloud],
+  );
 
-    function onKeyDown(event: KeyboardEvent): void {
-      if (event.isComposing || event.repeat) return;
-      if (!(event.metaKey || event.ctrlKey)) return;
-      if (event.shiftKey || event.altKey) return;
-      if (event.key.toLowerCase() !== "s" && event.code !== "KeyS") return;
+  // 攔截瀏覽器原生儲存快捷鍵，改走專案的雲端儲存流程。
+  useSaveShortcut({ enabled: !!session, onSave: handleCloudUpload });
 
-      // 攔截瀏覽器原生儲存快捷鍵，改走專案的雲端儲存流程。
-      event.preventDefault();
-      event.stopPropagation();
-      void handleCloudUpload();
-    }
-
-    // 用 capture phase 盡量比瀏覽器/元件內部快捷鍵更早接手 Cmd/Ctrl+S。
-    window.addEventListener("keydown", onKeyDown, { capture: true });
-    return () =>
-      window.removeEventListener("keydown", onKeyDown, { capture: true });
-  }, [session, handleCloudUpload]);
-
-  useEffect(() => {
-    if (uploadStatus === "success") {
-      const timer = setTimeout(() => {
-        resetStatus();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-    if (uploadStatus === "error") {
-      toast.error(t("toast.cloud.uploadFailed"));
-      const timer = setTimeout(() => {
-        resetStatus();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-    return;
-  }, [uploadStatus, resetStatus, t]);
+  // 上傳／匯出狀態的短暫顯示與錯誤 toast。
+  useEditorStatusToasts({
+    uploadStatus,
+    resetUploadStatus: resetStatus,
+    exportStatus,
+    exportErrorMessage,
+    resetExportStatus,
+  });
 
   useEffect(() => {
     // 同步 Excalidraw appState.theme 與目前主題，避免載入/初始狀態殘留舊主題
@@ -446,34 +456,9 @@ export default function ExcalidrawEditor() {
     }
   }, [excalidrawAPI, browserActiveTheme]);
 
-  useEffect(() => {
-    if (exportStatus === "success") {
-      const timer = setTimeout(() => {
-        resetExportStatus();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-    if (exportStatus === "error") {
-      const message =
-        typeof exportErrorMessage === "string"
-          ? exportErrorMessage
-          : t("errors.failedToExportScene");
-      toast.error(message);
-      const timer = setTimeout(() => {
-        resetExportStatus();
-      }, 1500);
-      return () => clearTimeout(timer);
-    }
-    return;
-  }, [exportStatus, exportErrorMessage, resetExportStatus, t]);
-
   const handleShareLinkClick = useCallback(async (): Promise<void> => {
     await handleExportLink();
   }, [handleExportLink]);
-
-  const openCollaborationDialog = useCallback(() => {
-    setIsCollaborationDialogOpen(true);
-  }, []);
 
   const productActions = useMemo<CanvasProductActions>(
     () => ({
@@ -614,61 +599,41 @@ export default function ExcalidrawEditor() {
           </Footer>
 
           <AppWelcomeScreen />
-          <SceneChangeConfirmDialog
-            open={isSceneChangeDialogOpen}
-            onOpenChange={handleSceneChangeDialogOpenChange}
-            onChoose={resolveSceneChangeDecision}
-            isLoading={Boolean(isSceneChangeDialogLoading)}
-          />
-          <OverwriteConfirmDialog
+          <EditorDialogs
             excalidrawAPI={excalidrawAPI}
-            clearCurrentSceneId={clearCurrentScene}
-            onSceneNotFoundError={() => {
-              setIsCloudUploadDialogOpen(true);
+            sceneChange={{
+              open: isSceneChangeDialogOpen,
+              onOpenChange: handleSceneChangeDialogOpenChange,
+              onChoose: resolveSceneChangeDecision,
+              isLoading: Boolean(isSceneChangeDialogLoading),
             }}
-          />
-          <SceneRemoteConflictDialog {...conflictDialog} />
-          <CollaborationRoomDialog
-            open={isCollaborationDialogOpen}
-            onOpenChange={setIsCollaborationDialogOpen}
-            isAuthenticated={!!session}
-            isAuthenticationPending={isAuthenticationPending}
-            sceneId={currentSceneId ?? null}
-            roomId={collaborationRoomId}
-            onRoomIdChange={(nextRoomId) => {
-              void setCollaborationRoomId(nextRoomId);
+            overwrite={{
+              clearCurrentSceneId: clearCurrentScene,
+              onSceneNotFoundError: openCloudUploadDialog,
             }}
-            roomKey={collaborationRoomKey}
-            onRoomKeyChange={setCollaborationRoomKey}
-            status={collaborationStatus}
-            failureReason={collaborationFailureReason}
-            role={collaborationRole}
-            errorMessage={collaborationErrorMessage}
-            onRetryJoin={retryCollaborationJoin}
-          />
-          <SceneCloudUploadDialog
-            open={isCloudUploadDialogOpen}
-            onOpenChange={setIsCloudUploadDialogOpen}
-            excalidrawAPI={excalidrawAPI}
-            onConfirm={({
-              name,
-              description,
-              categories,
-              workspaceId,
-            }: {
-              name: string;
-              description: string;
-              categories: string[];
-              workspaceId?: string;
-            }) => {
-              // 先把名稱寫回 Excalidraw appState（透過既有 helper）
-              handleSetSceneName(name);
-              void uploadSceneToCloud({
-                name,
-                description,
-                categories,
-                workspaceId,
-              });
+            remoteConflict={conflictDialog}
+            collaboration={{
+              open: isCollaborationDialogOpen,
+              onOpenChange: setIsCollaborationDialogOpen,
+              isAuthenticated: !!session,
+              isAuthenticationPending,
+              sceneId: currentSceneId ?? null,
+              roomId: collaborationRoomId,
+              onRoomIdChange: (nextRoomId) => {
+                void setCollaborationRoomId(nextRoomId);
+              },
+              roomKey: collaborationRoomKey,
+              onRoomKeyChange: setCollaborationRoomKey,
+              status: collaborationStatus,
+              failureReason: collaborationFailureReason,
+              role: collaborationRole,
+              errorMessage: collaborationErrorMessage,
+              onRetryJoin: retryCollaborationJoin,
+            }}
+            cloudUpload={{
+              open: isCloudUploadDialogOpen,
+              onOpenChange: setIsCloudUploadDialogOpen,
+              onConfirm: handleCloudUploadConfirm,
             }}
           />
         </ExcalidrawCanvas>

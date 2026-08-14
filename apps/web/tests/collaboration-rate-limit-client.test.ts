@@ -14,7 +14,7 @@ import type {
   FileId,
 } from "@drawstuff/excalidraw-adapter/types";
 
-import { classifyJoinFailure } from "@/hooks/excalidraw/use-collaboration-room";
+import { classifyJoinFailure } from "@/lib/collab/join-failure";
 import {
   createCollaborationAssetStore,
   type AssetApi,

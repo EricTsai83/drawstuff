@@ -12,6 +12,7 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 
 import {
+  collabAppState,
   collabImage,
   collabRectangle,
   editedElement,
@@ -249,6 +250,100 @@ describe("encrypted collaboration asset transfer", () => {
     );
     harness.settle();
     await expectRendered(bob, FILE_A, dataUrlFor("w"));
+  });
+
+  /**
+   * The offer the session hands the store is coalesced, and these lock what the
+   * coalescing must never swallow: an image only becomes publishable when a live
+   * element references it, and a session that was down owes the room a real
+   * offer rather than a cache hit.
+   */
+  it("publishes an image whose element appears after its bytes", async () => {
+    const alice = await harness.createAssetClient("client-alice", backend);
+    alice.session.connect();
+    harness.settle();
+
+    // One referenced image and one whose bytes are in the engine's file store
+    // with nothing referencing them yet. The publishable set is {A}; the
+    // file-store key set is already its final {A, B}.
+    alice.host.putLocalFile(imageFile(FILE_B));
+    pasteImage(alice, FILE_A);
+    alice.edit((elements) => [...elements, collabRectangle({ id: "r1" })]);
+    harness.settle();
+    await expectStored(backend, [FILE_A]);
+
+    // B's element lands. The file-store keys did not change, so a cache keyed on
+    // them would skip this flush and B would never reach the room.
+    alice.edit((elements) => [
+      ...elements,
+      collabImage({ id: "img-late", fileId: FILE_B }),
+    ]);
+    await expectStored(backend, [FILE_A, FILE_B]);
+  });
+
+  it("re-offers a pending upload after a reconnect", async () => {
+    const alice = await harness.createAssetClient("client-alice", backend);
+    alice.session.connect();
+    harness.settle();
+
+    // The upload fails while the image is pasted, so the store owes it a retry.
+    backend.failNextUploads(1);
+    pasteImage(alice, FILE_A);
+    harness.settle();
+    await vi.waitFor(() => {
+      expect(backend.uploadCalls).toBe(1);
+    });
+    expect(backend.storedIds()).toEqual([]);
+
+    // The session drops and the store's retry fires while it is down: there is
+    // no live role, so the re-offer is refused and that timer is spent.
+    alice.session.disconnect();
+    harness.network.flush();
+    await runRetry(alice);
+    expect(backend.storedIds()).toEqual([]);
+
+    // The rejoin publish is now the only thing left that can carry the image,
+    // and the referenced id set is unchanged — so it must not be treated as a
+    // cache hit.
+    alice.session.connect();
+    harness.settle();
+    await expectStored(backend, [FILE_A]);
+  });
+
+  it("re-offers a failed upload after its element is deleted and restored", async () => {
+    const alice = await harness.createAssetClient("client-alice", backend);
+    alice.session.connect();
+    harness.settle();
+
+    backend.failNextUploads(1);
+    pasteImage(alice, FILE_A);
+    harness.settle();
+    await vi.waitFor(() => {
+      expect(backend.uploadCalls).toBe(1);
+    });
+    expect(backend.storedIds()).toEqual([]);
+
+    // The element is deleted before the store's retry fires, so both the flush
+    // and the retry have nothing publishable and the retry is spent.
+    const withImage = alice.host.elements;
+    alice.edit((elements) =>
+      elements.map((element) =>
+        element.type === "image"
+          ? editedElement(element, { isDeleted: true })
+          : element,
+      ),
+    );
+    harness.settle();
+    await runRetry(alice);
+    expect(backend.storedIds()).toEqual([]);
+
+    // Undo brings the image back. The offer is identical to the one that failed,
+    // so a latch held across the empty set would skip this flush for good.
+    alice.host.setElements(withImage);
+    alice.session.handleLocalSceneChange(alice.host.elements, collabAppState());
+    alice.scheduler.runAll();
+    harness.settle();
+    await expectStored(backend, [FILE_A]);
   });
 
   it("refuses tampered ciphertext without retrying it", async () => {
