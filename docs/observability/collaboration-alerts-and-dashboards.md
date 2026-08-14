@@ -77,7 +77,7 @@ Room 的形狀改以 size 分佈表達，一樣回答容量問題而不指名任
 
 | reason                                                                                                                                                                                                                             | 來源                                       |
 | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------ |
-| `protocolViolation`、`relayAtCapacity`、`roomAtCapacity`、`slowConsumer`、`joinTimeout`、`unauthorized`、`readOnlyRole`、`membershipRevoked`、`roomEnded`、`rateLimited`、`idleTimeout`、`relayRoomsAtCapacity`、`relayRestarting` | relay 主動關閉，帶明確 close code          |
+| `protocolViolation`、`internalError`、`relayAtCapacity`、`roomAtCapacity`、`slowConsumer`、`joinTimeout`、`unauthorized`、`readOnlyRole`、`membershipRevoked`、`roomEnded`、`rateLimited`、`idleTimeout`、`relayRoomsAtCapacity`、`relayRestarting` | relay 主動關閉，帶明確 close code          |
 | `normalClosure`                                                                                                                                                                                                                    | client 自己的 `leave`（1000）              |
 | `heartbeatTimeout`                                                                                                                                                                                                                 | 漏一次 pong 被 terminate                   |
 | `peerClosed`                                                                                                                                                                                                                       | 對端直接消失，relay 沒有主動關             |
@@ -221,9 +221,10 @@ log 收集端的 pipe，`process.stdout.write` 在 OS 緩衝滿了之後會回�
 | `RelayRoutingLatencyP99`        | `histogram_quantile(0.99, rate(relay_routing_latency_seconds_bucket[5m])) > 0.02`                                                                                        | p99 ≤ 20 ms（§3.1）                   | R2       |
 | `RelayEventLoopLagP99`          | `histogram_quantile(0.99, rate(relay_event_loop_lag_seconds_bucket[30s])) > 0.1` 持續 30s                                                                                | 持續 30s p99 > 100 ms（§4.2）         | R2       |
 | `RelayResidentMemoryHigh`       | `relay_process_resident_memory_bytes > 805306368` 持續 10m                                                                                                               | 持續 > 768 MiB（§4.1）                | R3       |
-| `RelayUnexpectedDisconnectRate` | `sum(rate(relay_connections_closed_total{reason=~"protocolViolation\|relayAtCapacity\|roomAtCapacity\|slowConsumer"}[30m])) / sum(rate(relay_joins_total[30m])) > 0.005` | ≤ 0.5% of sessions（§6）              | R1／R4   |
+| `RelayUnexpectedDisconnectRate` | `sum(rate(relay_connections_closed_total{reason=~"protocolViolation\|internalError\|relayAtCapacity\|roomAtCapacity\|slowConsumer"}[30m])) / sum(rate(relay_joins_total[30m])) > 0.005` | ≤ 0.5% of sessions（§6）              | R1／R4   |
 | `RelaySlowConsumerRate`         | `sum(rate(relay_connections_closed_total{reason="slowConsumer"}[30m])) / sum(rate(relay_joins_total[30m])) > 0.001`                                                      | ≤ 0.1% of sessions（§6）              | R3       |
 | `RelayLogFieldsRejected`        | `increase(relay_log_fields_rejected_total[1h]) > 0`                                                                                                                      | 非零即程式缺陷，非門檻（本文件 §4.2） | R5       |
+| `RelayInternalError`            | `increase(relay_connections_closed_total{reason="internalError"}[1h]) > 0`                                                                                               | 非零即程式缺陷，非門檻（見下）        | R5       |
 
 **門檻與評估視窗是兩件事。** 上表「門檻」欄的每一個數字都來自 SLO 的指定節號，本文件不新增
 任何門檻。相對地，`持續 5m`／`持續 10m` 這類**評估視窗**是實作參數，只有 SLO §4.2 的 `持續 30s`
@@ -232,6 +233,12 @@ log 收集端的 pipe，`process.stdout.write` 在 OS 緩衝滿了之後會回�
 
 `RelayLogFieldsRejected` 不是 SLO 門檻而是**正確性斷言**：允許清單拒絕掉任何欄位，就代表有呼叫
 端傳了型別相容但夾帶禁止欄位的物件（本文件 §4.2 第 3 點），穩態必為 0。
+
+`RelayInternalError` 是同一類斷言。`internalError` 只由 frame-dispatch 的最後一道 exception
+guard 發出（`relay.frame_dispatch_failed`），代表 relay 自己的程式在訊息路徑上 throw——與
+capacity 或 slowConsumer 這類負載現象不同，它穩態必為 0。它同時計入
+`RelayUnexpectedDisconnectRate`，但該比率門檻是 0.5% of sessions：一個只影響單一成員的決定性
+缺陷可能永遠不觸線，所以缺陷的第一次出現由這條斷言型 alert 負責看見。
 
 **比率的兩側必須以相同 label 集合聚合。** 上表兩個比率 alert 的分子與分母都包在 `sum()` 裡，
 這不是風格問題：`sum(rate(A))` 會丟掉 scrape 加上的 `job`／`instance`，而未聚合的 `rate(B)` 會

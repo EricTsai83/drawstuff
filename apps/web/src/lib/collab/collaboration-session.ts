@@ -518,7 +518,13 @@ export function createCollaborationSession(
   let gate: InboundMessageGate | undefined;
   const tracker = createChangedElementTracker();
 
-  const recovery = createRecoveryMachine(options.recovery);
+  // The session's clock is also the recovery machine's clock unless the
+  // caller separates them: the live-stability window must measure time on the
+  // same source as the deadlines around it, and tests drive one clock for both.
+  const recovery = createRecoveryMachine({
+    now: options.now,
+    ...options.recovery,
+  });
   /**
    * Bounded accounting of what changed while the session was down, and the only
    * thing that decides whether a reconnect can be a delta.

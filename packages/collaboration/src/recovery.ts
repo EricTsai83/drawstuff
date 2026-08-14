@@ -33,10 +33,20 @@ import type { DisconnectReason } from "./transport.ts";
  *
  * `syncing` is not cosmetic: it is the window in which the join barrier holds
  * inbound traffic and the canvas is not yet the room's scene. Reaching `live`
- * requires the baseline to have resolved, which is also what resets the retry
- * budget — a connection that opens and dies before syncing is not progress, and
- * counting it as such would turn a crash-looping relay into an unbounded retry
- * loop at the fastest possible cadence.
+ * requires the baseline to have resolved — a connection that opens and dies
+ * before syncing is not progress, and counting it as such would turn a
+ * crash-looping relay into an unbounded retry loop at the fastest possible
+ * cadence.
+ *
+ * Going `live` alone does not clear the retry budget either: the session must
+ * *stay* live for `liveStabilityMs` first. A defect that reproduces right
+ * after every successful baseline — a relay bug on the first post-sync frame,
+ * say — produces a session that syncs and dies within a second, over and over;
+ * clearing the budget on `synced()` would retry that loop forever at the first
+ * backoff delay. With the stability window, each short-lived live session
+ * keeps spending the same budget and the loop ends in `retry-limit` like any
+ * other hopeless retry. An ordinary relay restart is unaffected: sessions live
+ * far longer than the window between restarts, so their budget is clear.
  */
 
 /**
@@ -129,15 +139,37 @@ export const DEFAULT_RECONNECT_MAX_DELAY_MS = 30_000;
  */
 export const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
 
+/**
+ * How long a session must stay live before the retry budget is considered
+ * repaid. Long enough that a defect firing on the first post-sync activity
+ * cannot repay its own budget, and far shorter than the gap between any two
+ * legitimate relay restarts (deploys and the memory watchdog operate on
+ * minutes, not seconds), so a session that rides out a restart keeps a clear
+ * budget.
+ */
+export const DEFAULT_LIVE_STABILITY_MS = 30_000;
+
 export type RecoveryPolicyOptions = {
   baseDelayMs?: number;
   maxDelayMs?: number;
   maxAttempts?: number;
   /**
+   * See {@link DEFAULT_LIVE_STABILITY_MS}. Zero restores "any resolved
+   * baseline clears the budget".
+   */
+  liveStabilityMs?: number;
+  /**
    * Jitter source, injectable so the fault-injection suite runs on a seeded
    * generator instead of `Math.random`.
    */
   random?: () => number;
+  /**
+   * Monotonic elapsed-time source for the live-stability window; defaults to
+   * `performance.now`. Injectable so tests state live lifetimes instead of
+   * waiting them out. Elapsed time, not wall time: a clock correction must not
+   * lengthen or shorten how long a session counts as having been live.
+   */
+  now?: () => number;
 };
 
 /**
@@ -223,8 +255,9 @@ export interface RecoveryMachine {
   /** The socket joined the room. Legal from `connecting`. */
   connected(): void;
   /**
-   * The join baseline resolved, so the session is live and the retry budget is
-   * spent-free again. Legal from `syncing`.
+   * The join baseline resolved, so the session is live. Legal from `syncing`.
+   * The retry budget clears only once the session has *stayed* live for the
+   * stability window — see the module note on short-lived live sessions.
    */
   synced(): void;
   /**
@@ -253,7 +286,9 @@ export function createRecoveryMachine(
     baseDelayMs = DEFAULT_RECONNECT_BASE_DELAY_MS,
     maxDelayMs = DEFAULT_RECONNECT_MAX_DELAY_MS,
     maxAttempts = DEFAULT_MAX_RECONNECT_ATTEMPTS,
+    liveStabilityMs = DEFAULT_LIVE_STABILITY_MS,
     random = Math.random,
+    now = (): number => performance.now(),
   } = options;
   if (!Number.isSafeInteger(baseDelayMs) || baseDelayMs <= 0) {
     throw new Error(
@@ -270,10 +305,17 @@ export function createRecoveryMachine(
       `maxAttempts must be a positive integer, received ${maxAttempts}`,
     );
   }
+  if (!Number.isSafeInteger(liveStabilityMs) || liveStabilityMs < 0) {
+    throw new Error(
+      `liveStabilityMs must be a non-negative integer, received ${liveStabilityMs}`,
+    );
+  }
 
   let state: RecoveryState = { phase: "idle" };
-  /** Consecutive attempts since the last time the session went `live`. */
+  /** Consecutive attempts since the last time the session was stably live. */
   let attempt = 0;
+  /** When the current `live` phase began; undefined outside `live`. */
+  let liveAt: number | undefined;
 
   const illegal = (event: string): Error =>
     new Error(`recovery: ${event} is not legal in phase "${state.phase}"`);
@@ -296,9 +338,11 @@ export function createRecoveryMachine(
 
     synced() {
       if (state.phase !== "syncing") throw illegal("synced()");
-      // Progress, not merely a socket: only a resolved baseline clears the
-      // budget, so a relay that accepts joins and drops them still backs off.
-      attempt = 0;
+      // The budget is NOT cleared here. A resolved baseline is progress, but a
+      // defect that fires on the first post-sync activity would repay its own
+      // budget on every loop; whether this session was real progress is
+      // decided in `lost()`, from how long it stayed live.
+      liveAt = now();
       state = { phase: "live" };
     },
 
@@ -306,6 +350,12 @@ export function createRecoveryMachine(
       if (state.phase === "idle" || state.phase === "failed") return state;
       if (state.phase === "waiting") {
         throw illegal(`lost(${reason})`);
+      }
+      // Stably live sessions repay the budget; ones that died inside the
+      // window keep spending it, exactly like a pre-baseline failure.
+      if (state.phase === "live" && liveAt !== undefined) {
+        if (now() - liveAt >= liveStabilityMs) attempt = 0;
+        liveAt = undefined;
       }
       const verdict = classifyDisconnect(reason);
       if (verdict.action === "stop") {
@@ -346,6 +396,7 @@ export function createRecoveryMachine(
 
     stop() {
       attempt = 0;
+      liveAt = undefined;
       state = { phase: "idle" };
     },
   };
