@@ -104,6 +104,33 @@ async function spawnRelay(port: string): Promise<{
 }
 
 describe("cross-process relay integration", () => {
+  it("reports a bind failure as a structured record and exits nonzero", async () => {
+    // Plan 07 L2: EADDRINUSE used to escape as a raw stack on stderr,
+    // violating the "logger is the only output" contract. The startup path now
+    // reports it through the same structured sink as every other record.
+    const { url } = await spawnRelay("0");
+    const port = new URL(url).port;
+
+    const duplicate = spawnTsx(path.join("src", "main.ts"), {
+      PORT: port,
+      HOST: "127.0.0.1",
+      COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
+    });
+    const failedLine = await duplicate.waitForLine(
+      (line) => line.includes(`"event":"relay.startup_failed"`),
+      "the structured bind-failure record",
+    );
+    expect(JSON.parse(failedLine)).toMatchObject({
+      level: "error",
+      port: Number(port),
+    });
+    await waitUntil(
+      () => duplicate.exitStatus() !== undefined,
+      "the duplicate process to exit",
+    );
+    expect(duplicate.exitStatus()).toBe("exit code=1 signal=null");
+  });
+
   it("converges clients in different processes through a relay process", async () => {
     const { url } = await spawnRelay("0");
 

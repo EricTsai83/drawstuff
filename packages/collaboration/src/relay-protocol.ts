@@ -262,6 +262,17 @@ export const RELAY_CLOSE_CODES = {
    * `unsupportedJoinProtocolVersionOf`.
    */
   unsupportedProtocolVersion: 4013,
+  /**
+   * A frame handler threw inside the relay — the relay's own defect, not the
+   * client's. Honesty is the point of the distinct code: `protocolViolation`
+   * would tell the client "you are broken, report a bug" and end the session
+   * terminally for a failure the client did not cause. Deliberately *not*
+   * enumerated in `disconnectReasonForCloseCode`, so it reads as `transient`
+   * by construction: a reconnect is worth one try, and a relay defect that
+   * keeps reproducing spends the recovery retry budget and stops with a
+   * stated reason instead of retrying forever.
+   */
+  internalError: 4014,
 } as const;
 export type RelayCloseCode =
   (typeof RELAY_CLOSE_CODES)[keyof typeof RELAY_CLOSE_CODES];

@@ -111,12 +111,16 @@ export const DEFAULT_RELAY_RATE_LIMITS: RelayRateLimits = {
   /*
    * Paced by the client's display refresh rate, not by a fixed interval.
    *
-   * `defaultScheduleSceneFlush` races `requestAnimationFrame` against a 32 ms
-   * timer and takes whichever fires first, so the timer is a *backstop* for a
-   * throttled tab — not a minimum interval. A continuous drag on a 60 Hz display
-   * therefore sustains ~60 frames/s, and ~120/s on a 120 Hz display; upstream is
-   * paced the same way (its `syncElements` broadcasts per change with no
-   * throttle). 240/s is 2x the fastest legitimate cadence.
+   * `defaultScheduleSceneFlush` races `requestAnimationFrame` against a
+   * `SCENE_FLUSH_BACKSTOP_MS` timer and takes whichever fires first, so the
+   * timer is a *backstop* for a throttled tab — not a minimum interval. A
+   * continuous drag on a 60 Hz display therefore sustains ~60 frames/s, and
+   * `MAX_EXPECTED_DISPLAY_REFRESH_HZ`/s on the fastest display the budgets
+   * plan for; upstream is paced the same way (its `syncElements` broadcasts
+   * per change with no throttle). 240/s is 2x that fastest legitimate cadence.
+   * The pacing constants live in `@drawstuff/collaboration/client-pacing`, and
+   * `tests/rate-limit.test.ts` pins these budgets to them: a client pacing
+   * change fails that contract test instead of silently invalidating budgets.
    *
    * The frame count is not the resource bound — the byte budget below is. What
    * this stops is a pathological flood of tiny frames, each of which still costs
@@ -142,7 +146,8 @@ export const DEFAULT_RELAY_RATE_LIMITS: RelayRateLimits = {
    */
   sceneBytesPerSecond: 2 * 1_048_576,
   sceneBytesBurst: 8 * 1_048_576,
-  // Client presence is throttled to one sample per 33 ms ≈ 30/s.
+  // Client presence is throttled to one sample per `PRESENCE_THROTTLE_MS`
+  // (33 ms ≈ 30/s); pinned by the same contract test as the scene budgets.
   presenceFramesPerSecond: 40,
   presenceFramesBurst: 80,
 };

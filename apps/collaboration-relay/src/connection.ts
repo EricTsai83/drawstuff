@@ -39,6 +39,13 @@ import type { RelaySessionHandle, RelaySessionRegistry } from "./sessions.ts";
 const SOCKET_OPEN = 1;
 
 /**
+ * Longest delay `setTimeout` honors (2^31 − 1 ms, ~24.8 days); Node clamps
+ * anything above it to ~1 ms. A deadline further out than this must be armed
+ * in bounded hops that re-check the wall clock, or it fires immediately.
+ */
+const MAX_TIMEOUT_DELAY_MS = 2 ** 31 - 1;
+
+/**
  * The slice of a server-side WebSocket the connection logic drives. `ws`
  * sockets satisfy it directly; unit tests inject a fake with a controllable
  * `bufferedAmount` to exercise the slow-consumer policy deterministically.
@@ -246,6 +253,32 @@ export function createRelayConnection(options: {
    * connection costs one timestamp write per frame instead of a
    * clearTimeout/setTimeout pair, and an idle one costs a single timer per window.
    */
+  /**
+   * Arms the room-expiry deadline against the wall clock.
+   *
+   * `rexp` is only bounded below by token validation, so the remaining lifetime
+   * can exceed what one `setTimeout` honors — and an over-long delay is clamped
+   * to ~1 ms, which would close every join of a long-lived room with "room
+   * expired" right after its `joined` ack. A deadline past the cap advances in
+   * `MAX_TIMEOUT_DELAY_MS` hops that re-check the wall clock; one within it
+   * arms a single plain timer, exactly as before.
+   */
+  const armRoomExpiryTimer = (roomExpiresAtMs: number): void => {
+    const remainingMs = roomExpiresAtMs - now();
+    if (remainingMs <= MAX_TIMEOUT_DELAY_MS) {
+      roomExpiryTimer = setTimeout(() => {
+        roomExpiryTimer = undefined;
+        end(RELAY_CLOSE_CODES.roomEnded, "room expired");
+      }, remainingMs);
+      return;
+    }
+    roomExpiryTimer = setTimeout(() => {
+      roomExpiryTimer = undefined;
+      if (ended) return;
+      armRoomExpiryTimer(roomExpiresAtMs);
+    }, MAX_TIMEOUT_DELAY_MS);
+  };
+
   const armIdleTimer = (delayMs: number): void => {
     if (idleTimer !== undefined) clearTimeout(idleTimer);
     idleTimer = setTimeout(() => {
@@ -291,7 +324,7 @@ export function createRelayConnection(options: {
       metrics.frameDelivered(channel, frame.byteLength);
       return true;
     },
-    deliverPeers(peers) {
+    deliverPeers(encodedPeers) {
       if (ended) return;
       // Same rationale as `deliverData`: `send()` on a closing socket
       // transmits nothing, so there is nothing to deliver and nothing to
@@ -303,7 +336,7 @@ export function createRelayConnection(options: {
         end(RELAY_CLOSE_CODES.slowConsumer, "outbound buffer over budget");
         return;
       }
-      socket.send(encodeRelayControl({ control: "peers", peers: [...peers] }));
+      socket.send(encodedPeers);
     },
   };
 
@@ -489,10 +522,7 @@ export function createRelayConnection(options: {
       // joins and then says nothing is exactly the case this bounds.
       lastFrameAt = elapsedNow();
       armIdleTimer(limits.idleTimeoutMs);
-      roomExpiryTimer = setTimeout(() => {
-        roomExpiryTimer = undefined;
-        end(RELAY_CLOSE_CODES.roomEnded, "room expired");
-      }, roomExpiryMs);
+      armRoomExpiryTimer(rexp * 1000);
       socket.send(
         encodeRelayControl({
           control: "joined",

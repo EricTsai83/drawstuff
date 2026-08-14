@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   peerIdSchema,
@@ -6,7 +6,12 @@ import {
   type MessageChannel,
   type PeerId,
 } from "@drawstuff/collaboration/protocol";
-import type { RelayPeer } from "@drawstuff/collaboration/relay-protocol";
+import {
+  encodeRelayControl,
+  parseRelayServerControl,
+  type RelayPeer,
+} from "@drawstuff/collaboration/relay-protocol";
+import type * as RelayProtocol from "@drawstuff/collaboration/relay-protocol";
 
 import {
   roomChannelKey,
@@ -18,10 +23,26 @@ import {
   type FanoutSubscriber,
 } from "../src/fanout.ts";
 
+// Wrapped in a spy so the encode-once broadcast contract is assertable: a
+// membership broadcast must encode the snapshot once, not once per member.
+vi.mock("@drawstuff/collaboration/relay-protocol", async (importOriginal) => {
+  const actual = await importOriginal<typeof RelayProtocol>();
+  return { ...actual, encodeRelayControl: vi.fn(actual.encodeRelayControl) };
+});
+
 const CHANNEL_A = roomChannelKey(roomIdSchema.parse("room-a"), 1);
 const CHANNEL_B = roomChannelKey(roomIdSchema.parse("room-b"), 1);
 
 let peerCounter = 0;
+
+/** Decodes the pre-encoded `peers` frame a sink receives back into peers. */
+const peersOfEncoded = (encodedPeers: string): readonly RelayPeer[] => {
+  const parsed = parseRelayServerControl(encodedPeers);
+  if (parsed?.control !== "peers") {
+    throw new Error("expected an encoded peers frame");
+  }
+  return parsed.peers;
+};
 
 function member(role: RoomRole = "editor") {
   const peerId = peerIdSchema.parse(`peer-${++peerCounter}`);
@@ -37,8 +58,8 @@ function member(role: RoomRole = "editor") {
       // A member that always accepts, so `publish` reports full delivery.
       return true;
     },
-    deliverPeers(peers) {
-      peersUpdates.push(peers);
+    deliverPeers(encodedPeers) {
+      peersUpdates.push(peersOfEncoded(encodedPeers));
     },
   };
   return { peerId, role, subscriber, dataFrames, peersUpdates };
@@ -165,8 +186,8 @@ describe("createInMemoryRoomFanout", () => {
     let armed = false;
     const reentrantA: FanoutSubscriber = {
       deliverData: a.subscriber.deliverData.bind(a.subscriber),
-      deliverPeers(peers) {
-        a.peersUpdates.push(peers);
+      deliverPeers(encodedPeers) {
+        a.peersUpdates.push(peersOfEncoded(encodedPeers));
         if (armed) {
           armed = false;
           fanout.leave(CHANNEL_A, a.peerId);
@@ -187,6 +208,24 @@ describe("createInMemoryRoomFanout", () => {
       { peerId: c.peerId, role: "editor" },
     ]);
     expect(fanout.memberCount(CHANNEL_A)).toBe(1);
+  });
+
+  it("encodes the membership snapshot once per broadcast, not once per member", () => {
+    // Plan 07 L1: `broadcastPeers` used to let every member's sink encode the
+    // same snapshot again — a join storm in a full room paid members² encodes
+    // inside the synchronous fanout.
+    const fanout = createInMemoryRoomFanout({ now: () => 1_000 });
+    for (let index = 0; index < 4; index += 1) {
+      fanout.join({ channel: CHANNEL_A, ...member() });
+    }
+
+    vi.mocked(encodeRelayControl).mockClear();
+    const joiner = member();
+    fanout.join({ channel: CHANNEL_A, ...joiner });
+
+    // One encode covers the whole broadcast to the four existing members; the
+    // joiner gets its snapshot un-encoded in the join result.
+    expect(vi.mocked(encodeRelayControl)).toHaveBeenCalledTimes(1);
   });
 
   it("rejects a duplicate peer id within a room", () => {
@@ -212,7 +251,7 @@ describe("createInMemoryRoomFanout", () => {
         fanout.leave(CHANNEL_A, b.peerId);
         return a.subscriber.deliverData(channel, frame, senderPeerId);
       },
-      deliverPeers: (peers) => a.subscriber.deliverPeers(peers),
+      deliverPeers: (encodedPeers) => a.subscriber.deliverPeers(encodedPeers),
     };
     // Joined in this order so A is delivered to — and evicts B — before the loop
     // reaches B; members are iterated in insertion order.

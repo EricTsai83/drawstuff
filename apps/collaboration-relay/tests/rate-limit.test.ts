@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  MAX_EXPECTED_DISPLAY_REFRESH_HZ,
+  PRESENCE_THROTTLE_MS,
+  SCENE_FLUSH_BACKSTOP_MS,
+} from "@drawstuff/collaboration/client-pacing";
+
+import {
   createConnectionRateLimiter,
   createSubjectRateLimiter,
   createTokenBucket,
@@ -299,5 +305,40 @@ describe("approved default budgets vs real client cadences", () => {
         byteLength: 8,
       }),
     ).toBe(false);
+  });
+});
+
+/**
+ * Plan 07 L5: the default budgets encode assumptions about how fast the client
+ * *sends*, and those assumptions used to live only in prose. Pinning the
+ * budgets to the shared client-pacing constants makes a client pacing change
+ * fail here instead of silently loosening or over-tightening the budgets.
+ */
+describe("default budgets against the client pacing contract", () => {
+  it("keeps the presence budget ahead of the client presence cadence", () => {
+    const clientPresencePerSecond = 1_000 / PRESENCE_THROTTLE_MS;
+    expect(
+      DEFAULT_RELAY_RATE_LIMITS.presenceFramesPerSecond,
+    ).toBeGreaterThanOrEqual(clientPresencePerSecond);
+    // The burst must at least absorb one full second at the sustained rate, or
+    // a legitimate client resuming from a hiccup is refused on arrival.
+    expect(
+      DEFAULT_RELAY_RATE_LIMITS.presenceFramesBurst,
+    ).toBeGreaterThanOrEqual(DEFAULT_RELAY_RATE_LIMITS.presenceFramesPerSecond);
+  });
+
+  it("keeps the scene frame budget at 2x the fastest legitimate flush cadence", () => {
+    // Flushes are display-paced with a timer backstop for throttled tabs, so
+    // the fastest legitimate cadence is whichever of the two fires more often.
+    const fastestFlushHz = Math.max(
+      MAX_EXPECTED_DISPLAY_REFRESH_HZ,
+      1_000 / SCENE_FLUSH_BACKSTOP_MS,
+    );
+    expect(DEFAULT_RELAY_RATE_LIMITS.sceneFramesPerSecond).toBe(
+      2 * fastestFlushHz,
+    );
+    expect(DEFAULT_RELAY_RATE_LIMITS.sceneFramesBurst).toBeGreaterThanOrEqual(
+      DEFAULT_RELAY_RATE_LIMITS.sceneFramesPerSecond,
+    );
   });
 });

@@ -6,6 +6,7 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { peerIdSchema, type PeerId } from "@drawstuff/collaboration/protocol";
 import {
+  MAX_RELAY_CONTROL_FRAME_BYTES,
   MAX_RELAY_DATA_FRAME_BYTES,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
@@ -100,6 +101,12 @@ export type RelayServerOptions = {
   limits?: Partial<RelayLimits>;
   /** Join-attempt budget keyed by subject; tests inject one with a manual clock. */
   subjectRateLimiter?: SubjectRateLimiter;
+  /**
+   * Grace a refused socket gets to finish its close handshake before it is
+   * terminated outright; defaults to {@link CAPACITY_REJECT_GRACE_MS}. Tests
+   * shorten it so the force-terminate path is observable without real waits.
+   */
+  capacityRejectGraceMs?: number;
   generatePeerId?: () => PeerId;
   /** Structured log sink; defaults to JSON lines on stdout. */
   logger?: RelayLogger;
@@ -214,13 +221,17 @@ export async function createRelayServer(
     if (handleMonitoringRequest(request, response)) return;
     handleControlRequest(request, response);
   });
+  httpServer.listen(options.port ?? 0, host);
+  // Attached only after the bind succeeded: `ws` re-emits the HTTP server's
+  // 'error' events on the WebSocketServer, where nothing listens — so an
+  // EADDRINUSE during startup would throw uncaught before this function's own
+  // rejection (via `once`) could reach the caller's structured error handling.
+  await once(httpServer, "listening");
   const server = new WebSocketServer({
     server: httpServer,
     // Transport-level cap; exact per-channel budgets are enforced per frame.
     maxPayload: MAX_RELAY_DATA_FRAME_BYTES,
   });
-  httpServer.listen(options.port ?? 0, host);
-  await once(httpServer, "listening");
 
   /**
    * Per-socket server-side state. `terminationReason` is how a relay-initiated
@@ -242,6 +253,8 @@ export async function createRelayServer(
    * unresponsive flood could grow the tracked set far past the cap;
    * force-terminate on a short deadline instead.
    */
+  const capacityRejectGraceMs =
+    options.capacityRejectGraceMs ?? CAPACITY_REJECT_GRACE_MS;
   const refuseConnection = (
     socket: WebSocket,
     closeCode: number,
@@ -250,7 +263,7 @@ export async function createRelayServer(
     socket.close(closeCode, reason);
     const forceTerminate = setTimeout(
       () => socket.terminate(),
-      CAPACITY_REJECT_GRACE_MS,
+      capacityRejectGraceMs,
     );
     socket.once("close", () => clearTimeout(forceTerminate));
   };
@@ -318,10 +331,36 @@ export async function createRelayServer(
         : data instanceof ArrayBuffer
           ? Buffer.from(data)
           : data;
-      if (isBinary) {
-        connection.handleBinaryFrame(new Uint8Array(bytes), receivedAt);
-      } else {
-        connection.handleTextFrame(bytes.toString("utf8"));
+      try {
+        if (isBinary) {
+          connection.handleBinaryFrame(new Uint8Array(bytes), receivedAt);
+        } else {
+          // Raw wire bytes first: ws's `maxPayload` admits text frames up to
+          // the much larger scene budget, so without this check an over-budget
+          // control frame buys a full UTF-8 decode before it is refused.
+          if (bytes.length > MAX_RELAY_CONTROL_FRAME_BYTES) {
+            connection.close(
+              RELAY_CLOSE_CODES.protocolViolation,
+              "oversize control frame",
+            );
+            return;
+          }
+          connection.handleTextFrame(bytes.toString("utf8"));
+        }
+      } catch {
+        // Last line of defense for the frame path: a throw anywhere above must
+        // cost this connection, never the process — an escaped exception here
+        // is the mass 1006 disconnect `main.ts` promises cannot happen. The
+        // error object itself is not loggable (the structured log's field set
+        // is closed), so the record carries the event alone.
+        logger.error("relay.frame_dispatch_failed", {
+          closeCode: RELAY_CLOSE_CODES.internalError,
+        });
+        try {
+          connection.close(RELAY_CLOSE_CODES.internalError, "internal error");
+        } catch {
+          socket.terminate();
+        }
       }
     });
     socket.on("close", () => {

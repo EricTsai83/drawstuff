@@ -49,6 +49,11 @@ type RelayLogEvent =
   | "relay.join"
   | "relay.join_refused"
   | "relay.connection_closed"
+  /** A frame handler threw; the offending connection was closed, not the process. */
+  | "relay.frame_dispatch_failed"
+  /** Process-level last resort; a graceful drain-then-exit follows. */
+  | "relay.uncaught_exception"
+  | "relay.unhandled_rejection"
   | "relay.frame"
   | "relay.control";
 

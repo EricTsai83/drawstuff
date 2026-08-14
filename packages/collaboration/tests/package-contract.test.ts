@@ -18,6 +18,7 @@ describe("@drawstuff/collaboration package contract", () => {
   it("exposes only the approved public entry points", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./asset",
+      "./client-pacing",
       "./join-barrier",
       "./keycheck",
       "./offline-queue",

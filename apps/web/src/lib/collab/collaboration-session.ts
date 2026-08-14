@@ -1,4 +1,8 @@
 import {
+  PRESENCE_THROTTLE_MS,
+  SCENE_FLUSH_BACKSTOP_MS,
+} from "@drawstuff/collaboration/client-pacing";
+import {
   COLLABORATION_PROTOCOL_VERSION,
   createInboundMessageGate,
   type CollaborationMessage,
@@ -72,12 +76,13 @@ import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
 
 /**
  * Mirrors the upstream collab app's cadence: deltas coalesce per animation
- * frame, presence is throttled to ~30fps (`CURSOR_SYNC_TIMEOUT`), and a full
- * snapshot is rebroadcast at most every 20s while edits happen
- * (`SYNC_FULL_SCENE_INTERVAL_MS`) so dropped deltas always heal.
+ * frame, presence is throttled to ~30fps (`PRESENCE_THROTTLE_MS`, imported
+ * from the shared client-pacing contract the relay's rate budgets are sized
+ * against), and a full snapshot is rebroadcast at most every 20s while edits
+ * happen (`SYNC_FULL_SCENE_INTERVAL_MS`) so dropped deltas always heal.
  */
 export const FULL_SCENE_SYNC_INTERVAL_MS = 20_000;
-export const PRESENCE_THROTTLE_MS = 33;
+export { PRESENCE_THROTTLE_MS };
 
 /**
  * How often the elected writer publishes the durable snapshot. Much slower than
@@ -97,10 +102,6 @@ export const SNAPSHOT_INTERVAL_MS = 30_000;
  * the alternative is a permanent full-scene heartbeat from every member.
  */
 export const MAX_SCENE_REPAIR_ATTEMPTS = 3;
-
-/** Longest scene-flush coalescing window when animation frames are throttled
- *  (hidden tab): a plain timer backstop keeps outbound deltas moving. */
-const SCENE_FLUSH_BACKSTOP_MS = 32;
 
 const MAX_PRESENCE_SELECTED_ELEMENT_IDS = 256;
 const MAX_PRESENCE_ELEMENT_ID_LENGTH = 64;
