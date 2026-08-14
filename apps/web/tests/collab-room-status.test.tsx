@@ -86,11 +86,11 @@ import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/type
 import { CollaborationButton } from "@/components/excalidraw/collaboration-button";
 import { SceneSessionProvider } from "@/hooks/scene-session-context";
 import {
-  MAX_INITIAL_JOIN_ATTEMPTS,
   useCollaborationRoom,
   type CollaborationRoomStatus,
   type UseCollaborationRoomResult,
 } from "@/hooks/excalidraw/use-collaboration-room";
+import { MAX_INITIAL_JOIN_ATTEMPTS } from "@/lib/collab/join-failure";
 import type { SceneSyncBlock } from "@/lib/collab/collaboration-session";
 import { readCanvasRoomId } from "@/lib/collab/canvas-room-marker";
 
@@ -137,6 +137,17 @@ const probe: { result?: UseCollaborationRoomResult } = {};
 const updateScene = vi.fn();
 const clearCurrentScene = vi.fn();
 const EXCALIDRAW_API = { updateScene } as unknown as ExcalidrawImperativeAPI;
+/**
+ * Stands in for `useCanvasHandoff`, performing the same observable canvas
+ * writes the real handoff does — so "the canvas was never touched" can still be
+ * asserted through `clearCurrentScene`/`updateScene`.
+ */
+const prepareCanvasForRoom = vi.fn(async () => {
+  clearCurrentScene();
+  updateScene({ elements: [] });
+  return "prepared" as const;
+});
+const cancelPendingCanvasDecision = vi.fn();
 
 function Probe() {
   const result = useCollaborationRoom({
@@ -146,12 +157,8 @@ function Probe() {
     currentSceneId: "scene-1",
     username: "tester",
     isAuthenticated: true,
-    hasLocalContent: () => false,
-    requestSceneChangeDecision: () => Promise.resolve("switch" as const),
-    resolveSceneChangeDecision: () => undefined,
-    closeSceneChangeConfirm: () => undefined,
-    uploadSceneToCloud: () => Promise.resolve(true),
-    clearCurrentScene,
+    prepareCanvasForRoom,
+    cancelPendingCanvasDecision,
   });
   useEffect(() => {
     probe.result = result;
@@ -223,6 +230,8 @@ beforeEach(() => {
   roomGetQuery.mockClear();
   updateScene.mockClear();
   clearCurrentScene.mockClear();
+  prepareCanvasForRoom.mockClear();
+  cancelPendingCanvasDecision.mockClear();
   startRoomSession.mockImplementation(() =>
     Promise.resolve({ destroy: () => Promise.resolve() }),
   );

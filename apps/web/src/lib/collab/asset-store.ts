@@ -1,23 +1,20 @@
 import {
   createAssetCryptoCodec,
-  decodeCollaborationAssetPayload,
-  encodeCollaborationAssetPayload,
-  EXCALIDRAW_FILE_ID_PATTERN,
-  MAX_ASSET_CIPHERTEXT_BYTES,
-  MAX_ASSET_LOOKUP_BATCH,
   MAX_ROOM_ASSETS_PER_GENERATION,
   type ASSET_CRYPTO_VERSION,
   type CollaborationAssetRecord,
 } from "@drawstuff/collaboration/asset";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
-import type {
-  BinaryFileData,
-  DataURL,
-  FileId,
-} from "@drawstuff/excalidraw-adapter/types";
+import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 
-import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
+import { createAssetDownloader } from "@/lib/collab/asset-download";
+import { createAssetPublisher } from "@/lib/collab/asset-publish";
+import { createUnreadableAssetVerdict } from "@/lib/collab/asset-unreadable-verdict";
+import {
+  createBoundedIdSet,
+  createTransferGate,
+} from "@/lib/collab/bounded-containers";
 
 /**
  * Client half of encrypted asset transfer: the only place an asset is sealed or
@@ -68,6 +65,16 @@ import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
  * does not have looked exactly like a room whose peers are merely slow. The
  * per-asset handling is unchanged — see `onAssetsUnreadable` for the aggregate
  * that makes the second case visible without making the first one noisy.
+ *
+ * ## How the module is split
+ *
+ * This file owns what uploads and downloads *share*: the id verdicts
+ * (`resolved`/`abandoned`/`available`), the transfer budget, the retry pacing
+ * policy, the batched "given up" report, and teardown. The transfer halves live
+ * in `asset-download.ts` and `asset-publish.ts` and receive that shared state as
+ * an explicit context; the room-level unreadable verdict is its own small
+ * machine in `asset-unreadable-verdict.ts`, and the generic bounded containers
+ * are in `bounded-containers.ts`.
  */
 
 /** The backend surface this store needs; the tRPC client and the uploader satisfy it. */
@@ -114,18 +121,6 @@ export type CollaborationAssetStore = {
   destroy(): void;
 };
 
-/**
- * Scheduled retries per download, counting the first attempt.
- *
- * Only the timer chain is bounded, not the id: an asset that is merely *not
- * uploaded yet* is never given up on permanently, because the peer that has it may
- * simply be slow. What stops it from becoming a request loop is the deadline —
- * after the chain ends, a further attempt happens only when new traffic asks for
- * the id again, and never sooner than `MAX_RETRY_DELAY_MS` after the last one.
- */
-const MAX_SCHEDULED_DOWNLOAD_ATTEMPTS = 4;
-/** Attempts per upload, counting the first. */
-const MAX_PUBLISH_ATTEMPTS = 3;
 const RETRY_BASE_DELAY_MS = 1_000;
 const RETRY_BACKOFF_FACTOR = 2;
 const RETRY_JITTER_MS = 250;
@@ -144,92 +139,6 @@ const MAX_CONCURRENT_TRANSFERS = 4;
 /** Every id set and id map is capped at the room's own budget. */
 const MAX_TRACKED_IDS = MAX_ROOM_ASSETS_PER_GENERATION;
 
-/**
- * Insertion-ordered map with FIFO eviction; the oldest entry is always first.
- *
- * `onEvict` exists because a bounded map is only safe if everything derived from
- * it is dropped with it: an id whose retry state was evicted while something else
- * still listed it would look like an id with no deadline, which reads as "due
- * now".
- */
-const createBoundedIdMap = <T>(
-  limit: number,
-  onEvict?: (id: string) => void,
-) => {
-  const entries = new Map<string, T>();
-  return {
-    get: (id: string): T | undefined => entries.get(id),
-    has: (id: string): boolean => entries.has(id),
-    set(id: string, value: T): void {
-      if (!entries.has(id)) {
-        while (entries.size >= limit) {
-          const oldest = entries.keys().next();
-          if (oldest.done) break;
-          entries.delete(oldest.value);
-          onEvict?.(oldest.value);
-        }
-      }
-      entries.set(id, value);
-    },
-    delete(id: string): void {
-      entries.delete(id);
-    },
-    clear(): void {
-      entries.clear();
-    },
-    get size(): number {
-      return entries.size;
-    },
-  };
-};
-
-type BoundedIdSet = {
-  has(id: string): boolean;
-  add(id: string): void;
-  delete(id: string): void;
-  readonly size: number;
-};
-
-const createBoundedIdSet = (limit: number): BoundedIdSet => {
-  const ids = createBoundedIdMap<true>(limit);
-  return {
-    has: (id) => ids.has(id),
-    add: (id) => {
-      ids.set(id, true);
-    },
-    delete: (id) => {
-      ids.delete(id);
-    },
-    get size() {
-      return ids.size;
-    },
-  };
-};
-
-/**
- * Store-wide transfer budget.
- *
- * A slot is either held by a running transfer or handed directly to the next
- * waiter, so the count can neither drift nor be exceeded by callers that overlap.
- */
-const createTransferGate = (limit: number) => {
-  let active = 0;
-  const waiting: (() => void)[] = [];
-  return {
-    async run<T>(task: () => Promise<T>): Promise<T> {
-      if (active < limit) active += 1;
-      else await new Promise<void>((resolve) => waiting.push(resolve));
-      try {
-        return await task();
-      } finally {
-        const next = waiting.shift();
-        if (next) next();
-        else active -= 1;
-      }
-    },
-  };
-};
-
 const defaultScheduleTimeout = (
   run: () => void,
   delayMs: number,
@@ -243,65 +152,6 @@ const retryDelayMs = (attempts: number): number =>
     RETRY_BASE_DELAY_MS * RETRY_BACKOFF_FACTOR ** (attempts - 1),
     MAX_RETRY_DELAY_MS,
   ) + Math.floor(Math.random() * RETRY_JITTER_MS);
-
-/**
- * Reads a response body without ever holding more than `maxBytes`.
- *
- * `arrayBuffer()` would decide the size after materializing it, which is the one
- * thing a bound has to prevent — the record's declared length is what this trusts,
- * and a body that exceeds it is cancelled mid-stream.
- */
-const readBoundedBody = async (
-  response: Response,
-  maxBytes: number,
-): Promise<Uint8Array | null> => {
-  const body = response.body;
-  if (!body) {
-    // No streaming body (a non-streaming fetch implementation): the declared
-    // length is still enforced, just after the fact.
-    const buffer = new Uint8Array(await response.arrayBuffer());
-    return buffer.byteLength <= maxBytes ? buffer : null;
-  }
-  const reader = body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  try {
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      total += value.byteLength;
-      if (total > maxBytes) {
-        await reader.cancel();
-        return null;
-      }
-      chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return bytes;
-};
-
-/** Per-id outcome of one transfer attempt. */
-type TransferOutcome =
-  | "resolved"
-  | "retry"
-  /** Retrying cannot fix it, and the reason is not the room key. */
-  | "abandon"
-  /**
-   * Abandoned because the ciphertext would not open under this room's derived
-   * key — a wrong key, a tampered body, or an envelope version this client does
-   * not implement. Handled exactly like `abandon`; it is split out only so the
-   * store can tell "this link cannot read the room's images" from every other
-   * reason an image never arrives.
-   */
-  | "undecryptable";
 
 export async function createCollaborationAssetStore(options: {
   api: AssetApi;
@@ -374,6 +224,7 @@ export async function createCollaborationAssetStore(options: {
 
   const controller = new AbortController();
   let destroyed = false;
+  const isDestroyed = (): boolean => destroyed;
 
   /** Ids already handed to the canvas; never downloaded twice. */
   const resolved = createBoundedIdSet(MAX_TRACKED_IDS);
@@ -381,111 +232,7 @@ export async function createCollaborationAssetStore(options: {
   const abandoned = createBoundedIdSet(MAX_TRACKED_IDS);
   /** Ids this client has uploaded or seen in the room. */
   const available = createBoundedIdSet(MAX_TRACKED_IDS);
-  /**
-   * One shared download per id, so concurrent requests do not duplicate work.
-   * Bounded by the transfer gate rather than by a cap: an entry exists only while
-   * a transfer is claimed, so this cannot outgrow what is in flight.
-   */
-  const downloading = new Map<string, Promise<void>>();
-  const uploading = new Map<string, Promise<void>>();
-  let cancelRetry: (() => void) | undefined;
-  /**
-   * Ids awaiting a scheduled retry. Never outlives `retrying`: an entry evicted
-   * there is dropped here too, or it would sit in the queue with no deadline —
-   * which the timer would read as "due now" and re-request in a tight loop.
-   */
-  let retryQueue = new Set<string>();
-  /** Backoff state for ids that failed in a way a later attempt could fix. */
-  const retrying = createBoundedIdMap<{ attempts: number; notBefore: number }>(
-    MAX_TRACKED_IDS,
-    (evicted) => retryQueue.delete(evicted),
-  );
-  /**
-   * Backoff state for uploads, mirroring `retrying` on the download side.
-   *
-   * The deadline has to live per file rather than only in the store's timer,
-   * because the timer is not the only way back into `publish`: an ordinary scene
-   * flush re-offers the whole current file set, so a user who simply keeps
-   * drawing after a rate limit would otherwise re-attempt inside the window,
-   * lose, and burn the bounded attempt budget until the image is abandoned.
-   */
-  const uploadRetrying = createBoundedIdMap<{
-    attempts: number;
-    notBefore: number;
-  }>(MAX_TRACKED_IDS);
   const transfers = createTransferGate(MAX_CONCURRENT_TRANSFERS);
-
-  let cancelPublishRetry: (() => void) | undefined;
-  /** When the armed publish retry is due; `0` when no timer is live. */
-  let publishRetryDueAt = 0;
-
-  /**
-   * Aggregate evidence for `onAssetsUnreadable`, mirroring the realtime path's
-   * verdict (`TransportSubscriber.onRoomUnreadable`): one flag for "this link has
-   * opened something in this room", one for "already said so".
-   *
-   * The evidence is store-wide and so is the moment it is judged. Judging a
-   * batch on its own would be wrong twice over: a batch's records open
-   * concurrently, and — because `request` may be called again while an earlier
-   * one is still running — a *second* batch holding the room's only readable
-   * asset can still be in flight when the first one finishes with nothing. Either
-   * would report an unreadable room to a link that reads it fine, which is
-   * exactly the "one damaged image" case that has to stay silent.
-   */
-  let openedAnyAsset = false;
-  let reportedUnreadableAssets = false;
-  /**
-   * A flag, not a tally: the only question ever asked of it is whether *any*
-   * evidence exists, so counting every unopenable record a room ever serves would
-   * be an unbounded number kept for nothing.
-   */
-  let sawUndecryptableAsset = false;
-  /**
-   * Lookup batches still running, and the id of the last one started. A batch's
-   * `Promise.all` settles before its `finally`, so counting whole batches also
-   * covers every record inside one — no per-record bookkeeping is needed.
-   */
-  let assetFetchesInFlight = 0;
-  let lastAssetFetchId = 0;
-  /**
-   * The batches the armed evidence is waiting on: those already running when the
-   * first undecryptable record appeared, and how many are left. `-1` means no
-   * evidence yet.
-   *
-   * A cohort rather than "no batch is running", for the same reason the realtime
-   * verdict uses one: a room whose images keep being requested never goes quiet,
-   * and waiting for that would mean the user is told nothing for as long as the
-   * room stays busy.
-   */
-  let unreadableFenceFetchId = -1;
-  let unreadableFenceRemaining = 0;
-
-  /** Arms the evidence, fencing it to the lookups already in flight. */
-  const noteUndecryptableAsset = (): void => {
-    if (sawUndecryptableAsset || openedAnyAsset || reportedUnreadableAssets) {
-      return;
-    }
-    sawUndecryptableAsset = true;
-    // The batch that found it is itself still running, so its own teardown is
-    // what reports when no other lookup was open.
-    unreadableFenceFetchId = lastAssetFetchId;
-    unreadableFenceRemaining = assetFetchesInFlight;
-  };
-
-  /**
-   * Retires one batch from the armed cohort and reports once it has drained.
-   *
-   * Called from every batch's teardown, so a readable asset that lands in a
-   * concurrent batch cancels the report permanently through `openedAnyAsset`.
-   */
-  const settleUnreadableAssets = (fetchId: number): void => {
-    if (!sawUndecryptableAsset) return;
-    if (fetchId <= unreadableFenceFetchId) unreadableFenceRemaining -= 1;
-    if (unreadableFenceRemaining > 0) return;
-    if (destroyed || openedAnyAsset || reportedUnreadableAssets) return;
-    reportedUnreadableAssets = true;
-    onAssetsUnreadable?.();
-  };
 
   /**
    * Ids given up on since the last report, awaiting one batched notification.
@@ -514,487 +261,64 @@ export async function createCollaborationAssetStore(options: {
     onAssetsUnavailable?.(reported);
   };
 
-  const forget = (fileId: string): void => {
-    retrying.delete(fileId);
-    retryQueue.delete(fileId);
-  };
+  const verdict = createUnreadableAssetVerdict({
+    onAssetsUnreadable,
+    isDestroyed,
+  });
 
-  /**
-   * Records a retryable failure and, while the scheduled chain lasts, queues the
-   * id for another attempt.
-   *
-   * Past the chain the deadline stays and nothing is queued — the id is then only
-   * re-requested if new traffic references it, which is what keeps a genuinely
-   * absent asset from being either given up on or polled for.
-   *
-   * `notBeforeMs` is the server's own reset deadline when the failure was a
-   * rate limit. It raises the delay and never lowers it: the local backoff is
-   * this client's politeness, the server's deadline is a fact about a shared
-   * budget, and retrying before it can only spend a token that was going to be
-   * refused anyway. The attempt still counts, so the bounded chain is unchanged.
-   */
-  const deferRetry = (fileId: string, notBeforeMs = 0): void => {
-    if (destroyed) return;
-    const attempts = (retrying.get(fileId)?.attempts ?? 0) + 1;
-    retrying.set(fileId, {
-      attempts,
-      notBefore: now() + Math.max(retryDelayMs(attempts), notBeforeMs),
-    });
-    if (attempts < MAX_SCHEDULED_DOWNLOAD_ATTEMPTS) retryQueue.add(fileId);
-  };
+  const downloader = createAssetDownloader({
+    resolve: api.resolve,
+    roomId,
+    authGeneration,
+    codec,
+    fetchImpl,
+    signal: controller.signal,
+    isDestroyed,
+    now,
+    scheduleTimeout,
+    retryDelayMs,
+    maxTrackedIds: MAX_TRACKED_IDS,
+    transfers,
+    resolved,
+    abandoned,
+    available,
+    abandon,
+    flushUnavailable,
+    verdict,
+    onAssetsResolved,
+  });
 
-  /**
-   * Arms the timer for whatever the last request deferred.
-   *
-   * Called once a request has released its claims, and that ordering is the whole
-   * point: a timer armed mid-request could fire while the request that scheduled
-   * it still holds the id, and the retry would be deduplicated against it — losing
-   * the chain and leaving the asset waiting for unrelated traffic.
-   *
-   * One timer for the whole queue rather than one per id: a room that gains ten
-   * images at once must produce one retry round, not ten. It fires at the earliest
-   * deadline and takes only the ids that are actually due — jitter means the rest
-   * of the queue is a few hundred milliseconds behind, and draining them here
-   * would hand them to `request`, which filters them out and would then have
-   * nothing left to re-arm from.
-   */
-  const armRetryTimer = (): void => {
-    if (destroyed || cancelRetry) return;
-    let earliest = Number.POSITIVE_INFINITY;
-    for (const fileId of [...retryQueue]) {
-      const state = retrying.get(fileId);
-      // No state means the entry was evicted: it is not owed a retry, and
-      // treating it as due would make this a zero-delay loop.
-      if (!state) {
-        retryQueue.delete(fileId);
-        continue;
-      }
-      if (state.notBefore < earliest) earliest = state.notBefore;
-    }
-    if (retryQueue.size === 0) return;
-    const delay = Math.max(0, earliest - now());
-    cancelRetry = scheduleTimeout(() => {
-      cancelRetry = undefined;
-      if (destroyed) return;
-      const at = now();
-      const due: string[] = [];
-      for (const fileId of [...retryQueue]) {
-        const state = retrying.get(fileId);
-        if (!state) {
-          retryQueue.delete(fileId);
-          continue;
-        }
-        if (state.notBefore > at) continue;
-        due.push(fileId);
-        retryQueue.delete(fileId);
-      }
-      // Whatever stayed queued gets its own timer as soon as this request lets go.
-      void request(due);
-      if (due.length === 0) armRetryTimer();
-    }, delay);
-  };
-
-  const openRecord = async (
-    record: CollaborationAssetRecord,
-  ): Promise<{ outcome: TransferOutcome; file?: BinaryFileData }> => {
-    // A record sealed under an envelope version this client does not implement is
-    // not a transient failure: nothing here can ever open it. Counted as
-    // undecryptable rather than merely abandoned — a version bump makes every
-    // pre-existing asset in the room unopenable at once, which is the "room full
-    // of images this link cannot show" case the user has to be told about.
-    if (record.cryptoVersion !== codec.cryptoVersion) {
-      return { outcome: "undecryptable" };
-    }
-    const limit = Math.min(record.byteLength, MAX_ASSET_CIPHERTEXT_BYTES);
-
-    let ciphertext: Uint8Array | null;
-    try {
-      const response = await fetchImpl(record.url, {
-        signal: controller.signal,
-      });
-      if (!response.ok) return { outcome: "retry" };
-      ciphertext = await readBoundedBody(response, limit);
-    } catch {
-      // Abort included: the caller is gone, and `destroyed` stops the retry.
-      return { outcome: "retry" };
-    }
-    // A body that disagrees with its record is not this asset, whichever is
-    // wrong; a retry would fetch the same bytes. Not `undecryptable`: nothing was
-    // asked of the key here, so it is no evidence about the link.
-    if (!ciphertext || ciphertext.byteLength !== record.byteLength) {
-      return { outcome: "abandon" };
-    }
-
-    const opened = await codec.open({
-      excalidrawFileId: record.excalidrawFileId,
-      ciphertext,
-    });
-    if (!opened.ok) return { outcome: "undecryptable" };
-    // Latched on the *open*, not on the resolve: authentication passing is what
-    // proves this link reads this room, whatever the plaintext then turns out to
-    // contain.
-    openedAnyAsset = true;
-
-    // Authentication already succeeded, so the key is right and the room is
-    // readable — a payload this client cannot parse is a peer's protocol
-    // violation, and it stays as silent as it was.
-    const decoded = decodeCollaborationAssetPayload(opened.plaintext, {
-      roomId,
-      excalidrawFileId: record.excalidrawFileId,
-    });
-    if (!decoded.ok) return { outcome: "abandon" };
-
-    return {
-      outcome: "resolved",
-      file: {
-        id: decoded.payload.excalidrawFileId as FileId,
-        dataURL: decoded.payload.dataUrl as DataURL,
-        mimeType: decoded.payload.mimeType,
-        // The room is the origin of these bytes for this client, so the
-        // timestamps describe *this* retrieval. Copying a sender's clock would
-        // put another machine's time into local file bookkeeping.
-        created: Date.now(),
-        lastRetrieved: Date.now(),
-      },
-    };
-  };
-
-  /**
-   * Fetches a batch of ids, and only ids nothing else is already fetching.
-   *
-   * Ids skipped because a download is in flight are not dropped: the caller waits
-   * for that download and asks again for whatever it did not deliver. Without that
-   * step a request arriving mid-download would vanish — and since the download in
-   * progress has already recorded its own retry, nothing would ever come back to
-   * it.
-   */
-  async function request(fileIds: readonly string[]): Promise<void> {
-    if (destroyed) return;
-    const at = now();
-    const unique = [...new Set(fileIds)].sort();
-    const needed: string[] = [];
-    for (const fileId of unique) {
-      if (resolved.has(fileId) || abandoned.has(fileId)) continue;
-      // Validated per id, not per batch. These ids come off remote elements, and
-      // the lookup API rejects a whole batch containing one malformed id — so a
-      // single bad `fileId` on somebody's element would keep every other image in
-      // the same message from ever loading.
-      if (!EXCALIDRAW_FILE_ID_PATTERN.test(fileId)) {
-        abandon(fileId);
-        continue;
-      }
-      needed.push(fileId);
-    }
-    const joinable = needed.filter((fileId) => downloading.has(fileId));
-    const wanted: string[] = [];
-    for (const fileId of needed) {
-      if (downloading.has(fileId)) continue;
-      const state = retrying.get(fileId);
-      // Rate limit per id: traffic that keeps naming an asset the room does not
-      // have must not turn into a lookup per message. An id that is merely early
-      // stays queued so its own deadline still gets a timer.
-      if (state && state.notBefore > at) {
-        if (state.attempts < MAX_SCHEDULED_DOWNLOAD_ATTEMPTS) {
-          retryQueue.add(fileId);
-        }
-        continue;
-      }
-      wanted.push(fileId);
-    }
-
-    try {
-      if (wanted.length > 0) await fetchBatch(wanted);
-      if (joinable.length === 0 || destroyed) return;
-
-      await Promise.all(
-        joinable
-          .map((fileId) => downloading.get(fileId))
-          .filter((claim): claim is Promise<void> => claim !== undefined),
-      );
-      if (destroyed) return;
-      const unresolved = joinable.filter(
-        (fileId) =>
-          !resolved.has(fileId) &&
-          !abandoned.has(fileId) &&
-          !downloading.has(fileId),
-      );
-      // Terminates: every id is now resolved, abandoned, rate limited, or claimed
-      // by a newer download, and each of those cases filters it out above.
-      if (unresolved.length > 0) await request(unresolved);
-    } finally {
-      // Armed here rather than inside `fetchBatch` so every path re-arms — a
-      // request that turned out to have nothing to fetch may still have queued an
-      // id whose deadline has not arrived.
-      armRetryTimer();
-      // One canvas update per request rather than per id or per batch: a late
-      // joiner with ten unopenable images must not produce ten scene writes.
-      flushUnavailable();
-    }
-  }
-
-  async function fetchBatch(wanted: readonly string[]): Promise<void> {
-    // Claimed before the first await so a second `request` in the same tick joins
-    // this download instead of starting another.
-    let settle = (): void => undefined;
-    const claim = new Promise<void>((resolve) => {
-      settle = resolve;
-    });
-    for (const fileId of wanted) downloading.set(fileId, claim);
-
-    assetFetchesInFlight += 1;
-    lastAssetFetchId += 1;
-    const fetchId = lastAssetFetchId;
-    try {
-      for (
-        let offset = 0;
-        offset < wanted.length;
-        offset += MAX_ASSET_LOOKUP_BATCH
-      ) {
-        const batch = wanted.slice(offset, offset + MAX_ASSET_LOOKUP_BATCH);
-        let lookup: Awaited<ReturnType<AssetApi["resolve"]>>;
-        try {
-          lookup = await api.resolve(
-            { roomId, fileIds: batch },
-            controller.signal,
-          );
-        } catch (error) {
-          // A refused lookup is transient whatever the reason, so the existing
-          // bounded chain already covers it; a rate limit only moves the
-          // deadline out to the window the server named.
-          const notBefore = rateLimitRetryAfterMs(error) ?? 0;
-          for (const fileId of batch) deferRetry(fileId, notBefore);
-          continue;
-        }
-        if (destroyed) return;
-        // The generation the records belong to is the one the key was derived
-        // for; a mismatch means the room rotated under us and these bytes are not
-        // ours to open. The session is torn down on rotation, so this only guards
-        // the window before that happens.
-        if (lookup.authGeneration !== authGeneration) {
-          for (const fileId of batch) abandon(fileId);
-          continue;
-        }
-
-        for (const fileId of lookup.missing) deferRetry(fileId);
-
-        const opened: BinaryFileData[] = [];
-        await Promise.all(
-          lookup.assets.map((record) =>
-            // Every download waits for a slot in the store-wide budget, so a
-            // second overlapping request cannot double the bytes in memory.
-            transfers.run(async () => {
-              available.add(record.excalidrawFileId);
-              const result = await openRecord(record);
-              if (destroyed) return;
-              if (result.outcome === "resolved" && result.file) {
-                resolved.add(record.excalidrawFileId);
-                forget(record.excalidrawFileId);
-                opened.push(result.file);
-                return;
-              }
-              if (result.outcome === "retry") {
-                deferRetry(record.excalidrawFileId);
-                return;
-              }
-              // Both terminal outcomes drop the asset the same way; only the
-              // evidence flag distinguishes them, and it is judged store-wide
-              // once the armed cohort has drained (`settleUnreadableAssets`).
-              if (result.outcome === "undecryptable") noteUndecryptableAsset();
-              abandon(record.excalidrawFileId);
-              forget(record.excalidrawFileId);
-            }),
-          ),
-        );
-        if (destroyed) return;
-        // One injection per batch: `addFiles` triggers an engine re-render, and a
-        // late joiner loading ten images must not cause ten of them.
-        if (opened.length > 0) onAssetsResolved(opened);
-      }
-    } finally {
-      for (const fileId of wanted) {
-        if (downloading.get(fileId) === claim) downloading.delete(fileId);
-      }
-      assetFetchesInFlight -= 1;
-      // Judged only once the armed cohort has drained, so a readable asset in a
-      // lookup that was already running still gets to prove the link opens this
-      // room.
-      settleUnreadableAssets(fetchId);
-      settle();
-    }
-  }
-
-  const publishOne = async (file: BinaryFileData): Promise<void> => {
-    const encoded = encodeCollaborationAssetPayload({
-      roomId,
-      excalidrawFileId: file.id,
-      mimeType: file.mimeType,
-      dataUrl: file.dataURL,
-    });
-    // An oversize image or an unsupported type cannot become publishable by
-    // retrying, and the element referencing it still syncs — peers simply do not
-    // render it.
-    if (!encoded.ok) {
-      abandon(file.id);
-      return;
-    }
-    const sealed = await codec.seal({
-      excalidrawFileId: file.id,
-      plaintext: encoded.bytes,
-    });
-    if (!sealed.ok) {
-      abandon(file.id);
-      return;
-    }
-    if (destroyed) return;
-
-    try {
-      await api.upload({
-        roomId,
-        authGeneration,
-        excalidrawFileId: file.id,
-        cryptoVersion: codec.cryptoVersion,
-        ciphertext: sealed.ciphertext,
-        signal: controller.signal,
-      });
-      available.add(file.id);
-      // Our own bytes are already on the canvas: recording the id as resolved is
-      // what stops this client from downloading the image it just uploaded.
-      resolved.add(file.id);
-      uploadRetrying.delete(file.id);
-    } catch (error) {
-      const attempts = (uploadRetrying.get(file.id)?.attempts ?? 0) + 1;
-      if (attempts >= MAX_PUBLISH_ATTEMPTS) {
-        abandon(file.id);
-        uploadRetrying.delete(file.id);
-        return;
-      }
-      // The server's reset deadline raises the local backoff, never lowers it.
-      // One delay is computed and used for both the file's own deadline and the
-      // timer, so the timer never fires before the file it was armed for is
-      // eligible.
-      const delayMs = Math.max(
-        retryDelayMs(attempts),
-        rateLimitRetryAfterMs(error) ?? 0,
-      );
-      uploadRetrying.set(file.id, { attempts, notBefore: now() + delayMs });
-      // A timer, not "the next scene flush": a user who pastes an image and then
-      // stops drawing produces no further flush, so a transient upload failure
-      // would otherwise mean the image never reaches anybody. A rate limit is
-      // one such transient failure — it consumes an attempt like any other, it
-      // just cannot be retried before the server's window resets.
-      schedulePublishRetry(now() + delayMs);
-    }
-  };
-
-  /**
-   * Asks the canvas to offer its files again once the deferred work is due.
-   *
-   * One timer for the store: several failed uploads share the round, and the round
-   * re-reads the scene rather than replaying a captured file set, so an image the
-   * user deleted in the meantime is simply not retried.
-   *
-   * The armed deadline is tracked, and a later one replaces it. Keeping the
-   * first-armed timer would let an ordinary failure's short backoff pin the
-   * round, dragging a rate-limited sibling back inside the window it was told to
-   * wait out — and each of those losing attempts is one of three it gets.
-   */
-  const schedulePublishRetry = (dueAt: number): void => {
-    if (destroyed || !onPublishRetryDue) return;
-    if (cancelPublishRetry && publishRetryDueAt >= dueAt) return;
-    cancelPublishRetry?.();
-    publishRetryDueAt = dueAt;
-    cancelPublishRetry = scheduleTimeout(
-      () => {
-        cancelPublishRetry = undefined;
-        publishRetryDueAt = 0;
-        if (destroyed) return;
-        onPublishRetryDue();
-      },
-      Math.max(0, dueAt - now()),
-    );
-  };
-
-  async function publish(files: readonly BinaryFileData[]): Promise<void> {
-    if (destroyed) return;
-    const at = now();
-    const pending: BinaryFileData[] = [];
-    /** Earliest deadline among files held back only by their own window. */
-    let earliestDeferred: number | undefined;
-    for (const file of files) {
-      if (
-        available.has(file.id) ||
-        abandoned.has(file.id) ||
-        uploading.has(file.id)
-      ) {
-        continue;
-      }
-      const state = uploadRetrying.get(file.id);
-      // Every path back in respects the deadline, not just the timer — this is
-      // the one that catches an ordinary scene flush. Being skipped is neither
-      // an attempt nor a failure: nothing is counted and nothing is given up on,
-      // so the bounded budget is still three real tries rather than three
-      // refusals inside a window that was never going to accept them.
-      if (state && state.notBefore > at) {
-        if (
-          earliestDeferred === undefined ||
-          state.notBefore < earliestDeferred
-        ) {
-          earliestDeferred = state.notBefore;
-        }
-        continue;
-      }
-      pending.push(file);
-    }
-    // A round can defer everything it was offered. Those files are still owed a
-    // retry, and if the caller stops drawing nothing else will ask for them.
-    if (earliestDeferred !== undefined) schedulePublishRetry(earliestDeferred);
-    if (pending.length === 0) return;
-
-    // Claimed and released *per file*, not per batch. A batch-wide claim would
-    // still be held by a slow sibling when the retry timer for a fast failure
-    // fires, and the retry would skip the very file it was scheduled for.
-    await Promise.all(
-      pending.map((file) => {
-        let settle = (): void => undefined;
-        const claim = new Promise<void>((resolve) => {
-          settle = resolve;
-        });
-        uploading.set(file.id, claim);
-        // Uploads share the download budget: peak memory is four transfers
-        // whatever mix they are.
-        return transfers
-          .run(() => publishOne(file))
-          .finally(() => {
-            if (uploading.get(file.id) === claim) uploading.delete(file.id);
-            settle();
-          });
-      }),
-    );
-    // The local user's own images can be terminal too — too large to publish, an
-    // unsupported type, or an upload budget that ran out — and until now that was
-    // as silent as an unopenable download.
-    flushUnavailable();
-  }
+  const publisher = createAssetPublisher({
+    upload: api.upload,
+    roomId,
+    authGeneration,
+    codec,
+    signal: controller.signal,
+    isDestroyed,
+    now,
+    scheduleTimeout,
+    retryDelayMs,
+    maxTrackedIds: MAX_TRACKED_IDS,
+    transfers,
+    resolved,
+    abandoned,
+    available,
+    abandon,
+    flushUnavailable,
+    onPublishRetryDue,
+  });
 
   return {
-    publish,
-    request,
+    publish: publisher.publish,
+    request: downloader.request,
     destroy() {
       if (destroyed) return;
       destroyed = true;
-      cancelRetry?.();
-      cancelRetry = undefined;
-      cancelPublishRetry?.();
-      cancelPublishRetry = undefined;
-      publishRetryDueAt = 0;
-      retryQueue = new Set();
+      downloader.dispose();
+      publisher.dispose();
       // Aborts fetches, uploads and lookups alike: every network call this store
       // makes carries this signal.
       controller.abort();
-      downloading.clear();
-      uploading.clear();
-      retrying.clear();
-      uploadRetrying.clear();
     },
   };
 }

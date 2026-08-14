@@ -111,9 +111,17 @@ export type CollaborationSnapshotStore = {
   }): Promise<SaveSnapshotResult>;
 };
 
+// Chunked so a multi-MiB snapshot does not do per-byte string concatenation
+// (quadratic) on the main thread; 8 KiB stays well under argument-count limits.
+const BASE64_CHUNK_BYTES = 8192;
+
 const toBase64 = (bytes: Uint8Array): string => {
   let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
+  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) {
+    binary += String.fromCharCode(
+      ...bytes.subarray(offset, offset + BASE64_CHUNK_BYTES),
+    );
+  }
   return btoa(binary);
 };
 

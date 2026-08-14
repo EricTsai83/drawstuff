@@ -205,6 +205,9 @@ describe("collaboration session over the fake network", () => {
       pointersMap: new Map(),
     });
     harness.network.flush();
+    // Presence application is coalesced per frame; the manual scheduler is
+    // that frame.
+    bob.scheduler.runAll();
 
     const seenByBob = [...bob.host.collaborators.values()];
     expect(seenByBob).toHaveLength(1);
@@ -218,6 +221,7 @@ describe("collaboration session over the fake network", () => {
     harness.clock.now += 40; // past the presence throttle window
     alice.session.setIdleState("idle");
     harness.network.flush();
+    bob.scheduler.runAll();
     expect([...bob.host.collaborators.values()][0]).toMatchObject({
       userState: "idle",
     });
@@ -245,6 +249,7 @@ describe("collaboration session over the fake network", () => {
       pointersMap: new Map(),
     });
     harness.network.flush();
+    carol.scheduler.runAll();
 
     // The cursor landed, and only the presence path carried it: a host whose
     // remote-apply wrapper defers its cleanup by a frame must not have that
@@ -283,6 +288,7 @@ describe("collaboration session over the fake network", () => {
       pointersMap: new Map(),
     });
     harness.network.flush();
+    bob.scheduler.runAll();
     expect([...bob.host.collaborators.keys()]).toEqual([peerIdOf(alice)]);
   });
 
@@ -373,6 +379,7 @@ describe("collaboration session over the fake network", () => {
       pointersMap: new Map(),
     });
     harness.network.flush();
+    bob.scheduler.runAll();
     expect(bob.host.collaborators.size).toBe(1);
 
     alice.session.disconnect();
@@ -483,6 +490,7 @@ describe("viewer role", () => {
     });
     expect(harness.network.pendingMessageCount()).toBe(1);
     harness.network.flush();
+    editor.scheduler.runAll();
     expect(
       [...editor.host.collaborators.values()].map(
         (collaborator) => collaborator.username,
