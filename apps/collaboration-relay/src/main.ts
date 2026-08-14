@@ -10,7 +10,7 @@ import {
   type RelayLogger,
 } from "./logger.ts";
 import { RELAY_HEALTH_PATH, RELAY_METRICS_PATH } from "./monitoring.ts";
-import { createRelayServer } from "./server.ts";
+import { createRelayServer, type RelayServer } from "./server.ts";
 import { createMaxMemoryWatchdog, MAX_RELAY_RSS_BYTES } from "./watchdog.ts";
 
 /**
@@ -18,7 +18,12 @@ import { createMaxMemoryWatchdog, MAX_RELAY_RSS_BYTES } from "./watchdog.ts";
  * variables are read here and nowhere else, so every other module takes its
  * behaviour from arguments.
  */
-const port = Number(process.env.PORT ?? "3005");
+const DEFAULT_PORT = 3005;
+const configuredPort = process.env.PORT;
+const parsedPort = configuredPort === undefined ? DEFAULT_PORT : Number(configuredPort);
+const portIsValid =
+  Number.isInteger(parsedPort) && parsedPort >= 0 && parsedPort <= 65_535;
+const port = portIsValid ? parsedPort : DEFAULT_PORT;
 const host = process.env.HOST ?? "127.0.0.1";
 
 const LOG_LEVELS: readonly RelayLogLevel[] = ["debug", "info", "warn", "error"];
@@ -38,6 +43,13 @@ if (configuredLevel !== undefined && level === undefined) {
   logger.warn("relay.starting", { configKey: "COLLAB_RELAY_LOG_LEVEL" });
 }
 
+// Same treatment for PORT: `Number("abc")` is NaN, and handing that to
+// `listen` throws a raw stack straight to stderr — bypassing the logger, which
+// is the process's only sanctioned output. Fall back to the default and say so.
+if (!portIsValid) {
+  logger.warn("relay.starting", { configKey: "PORT", port });
+}
+
 /**
  * The relay refuses to start without the room token secret it shares with the
  * app: an unauthenticated relay would accept any join, so this is a hard
@@ -54,7 +66,16 @@ try {
   process.exit(1);
 }
 
-const server = await createRelayServer({ port, host, joinTokenSecret, logger });
+let server: RelayServer;
+try {
+  server = await createRelayServer({ port, host, joinTokenSecret, logger });
+} catch {
+  // EADDRINUSE and friends: a bind failure must leave a structured record, not
+  // a raw stack on stderr. The error's own text is not loggable (the field set
+  // is closed), but the address it failed on is what an operator acts on.
+  logger.error("relay.startup_failed", { host, port });
+  process.exit(1);
+}
 // The cross-process integration test reads the `relay.listening` record to learn
 // the port; the rest is the endpoint inventory this process now serves.
 logger.info("relay.listening", { host, port: server.port, url: server.url });
@@ -96,6 +117,19 @@ const shutdown = (exitCode: number): void => {
 };
 process.on("SIGINT", () => shutdown(0));
 process.on("SIGTERM", () => shutdown(0));
+// The last-resort exits take the same drain: without these handlers a stray
+// throw (or rejection) anywhere outside a guarded path kills the process with
+// the exact mass 1006 the guard above exists to prevent. The per-connection
+// frame guard in `server.ts` handles the known paths; this is the backstop for
+// everything else.
+process.on("uncaughtException", () => {
+  logger.error("relay.uncaught_exception");
+  shutdown(1);
+});
+process.on("unhandledRejection", () => {
+  logger.error("relay.unhandled_rejection");
+  shutdown(1);
+});
 
 // A non-zero exit distinguishes the memory-triggered restart from an ordered
 // shutdown in the process manager's log; the manager restarts either way.

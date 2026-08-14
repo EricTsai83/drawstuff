@@ -3,11 +3,14 @@ import { WebSocket as WsClient } from "ws";
 
 import {
   COLLABORATION_PROTOCOL_VERSION,
+  peerIdSchema,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
 import {
+  disconnectReasonForCloseCode,
   encodeRelayControl,
   maxRelayDataFrameBytesFor,
+  MAX_RELAY_CONTROL_FRAME_BYTES,
   MAX_RELAY_DATA_FRAME_BYTES,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
@@ -27,6 +30,7 @@ import {
   waitUntil,
   type TestClient,
 } from "./support/test-client.ts";
+import { openUnresponsiveSocket } from "./support/unresponsive-socket.ts";
 
 const ROOM_ID = roomIdSchema.parse("room-integration");
 const CLIENT_A = "client-a";
@@ -326,6 +330,91 @@ describe("relay server integration", () => {
     const server = await startServer({ limits: { joinTimeoutMs: 100 } });
     const socket = await rawSocket(server.url);
     expect(await closeCodeOf(socket)).toBe(RELAY_CLOSE_CODES.joinTimeout);
+  });
+
+  it("closes an oversize text frame before decoding it", async () => {
+    // Plan 07 L3: ws's transport cap admits text frames up to the much larger
+    // scene budget, so the control-frame budget must be applied to the raw
+    // bytes ahead of the UTF-8 decode.
+    const server = await startServer();
+    const socket = await rawSocket(server.url);
+    socket.send("x".repeat(MAX_RELAY_CONTROL_FRAME_BYTES + 1));
+    expect(await closeCodeOf(socket)).toBe(RELAY_CLOSE_CODES.protocolViolation);
+  });
+
+  it("survives a throw inside the frame path, closing only the offending connection", async () => {
+    // Plan 07 M1: the one live throw path in frame dispatch is a duplicate
+    // relay-assigned peer id, which makes `fanout.join` throw while a join is
+    // being handled. Before the dispatch guard that throw escaped the message
+    // handler and killed the process — a mass 1006 for every other connection.
+    const logs = createTestLogger();
+    const fixedPeerId = peerIdSchema.parse("peer-fixed");
+    const server = await startServer({
+      logger: logs.logger,
+      generatePeerId: () => fixedPeerId,
+    });
+    const first = await rawSocket(server.url);
+    first.send(
+      encodeRelayControl({
+        control: "join",
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        roomId: ROOM_ID,
+        token: issueJoinToken({
+          roomId: ROOM_ID,
+          subject: "user-first",
+          issuedAtSeconds: nowSeconds(),
+        }),
+      }),
+    );
+    await waitUntil(() => server.sessionCount() === 1, "first client to join");
+
+    const second = await rawSocket(server.url);
+    second.send(
+      encodeRelayControl({
+        control: "join",
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        roomId: ROOM_ID,
+        token: issueJoinToken({
+          roomId: ROOM_ID,
+          subject: "user-second",
+          issuedAtSeconds: nowSeconds(),
+        }),
+      }),
+    );
+    expect(await closeCodeOf(second)).toBe(RELAY_CLOSE_CODES.internalError);
+    // The relay's own defect must read as retryable on the client side — the
+    // recovery retry budget bounds a defect that keeps reproducing — and never
+    // as "this client is broken".
+    expect(disconnectReasonForCloseCode(RELAY_CLOSE_CODES.internalError)).toBe(
+      "transient",
+    );
+
+    // The failure was recorded, and it cost exactly one connection: the
+    // process, the room, and the existing member all survived.
+    expect(logs.recordsOf("relay.frame_dispatch_failed")).toHaveLength(1);
+    expect(server.sessionCount()).toBe(1);
+    expect(first.readyState).toBe(first.OPEN);
+  });
+
+  it("force-terminates a capacity-refused socket that sits out the close handshake", async () => {
+    // Plan 07 L4a: a refused socket has no heartbeat state, so an unresponsive
+    // one must be reclaimed by the refusal grace deadline, not trusted to
+    // finish the close handshake.
+    const server = await startServer({
+      limits: { maxConnections: 0 },
+      capacityRejectGraceMs: 250,
+    });
+    await openUnresponsiveSocket(server.port, (cleanup) =>
+      cleanups.push(cleanup),
+    );
+    await waitUntil(
+      () => server.connectionCount() === 1,
+      "the socket to be accepted and refused",
+    );
+    await waitUntil(
+      () => server.connectionCount() === 0,
+      "the refusal grace to force-terminate the unresponsive socket",
+    );
   });
 
   it("terminates unresponsive sockets via the heartbeat", async () => {

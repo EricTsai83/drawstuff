@@ -1,9 +1,12 @@
-import { connect as netConnect, type Socket } from "node:net";
+import type { Socket } from "node:net";
 
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket as WsClient } from "ws";
 
-import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  roomIdSchema,
+} from "@drawstuff/collaboration/protocol";
 import {
   disconnectReasonForCloseCode,
   RELAY_CLOSE_CODES,
@@ -12,12 +15,16 @@ import {
 import { RELAY_HEALTH_PATH } from "../src/monitoring.ts";
 import { createRelayServer, type RelayServer } from "../src/server.ts";
 import { createTestLogger, type TestLogger } from "./support/observability.ts";
-import { TEST_ROOM_TOKEN_SECRET } from "./support/room-tokens.ts";
+import {
+  issueJoinToken,
+  TEST_ROOM_TOKEN_SECRET,
+} from "./support/room-tokens.ts";
 import {
   createTestClient,
   waitUntil,
   type TestClient,
 } from "./support/test-client.ts";
+import { openUnresponsiveSocket } from "./support/unresponsive-socket.ts";
 
 /**
  * Plan 25: the graceful-drain sequence. A restart or replacement must not be a
@@ -78,37 +85,8 @@ const rawSocket = (url: string): Promise<WsClient> => {
 const closeCodeOf = (socket: WsClient): Promise<number> =>
   new Promise((resolve) => socket.once("close", (code) => resolve(code)));
 
-/**
- * A WebSocket connection that will never complete a close handshake: the
- * upgrade is performed by hand and every relay frame after it — including the
- * close frame the drain sends — is read and ignored. This is the socket the
- * bounded window exists for.
- */
-const unresponsiveSocket = (port: number): Promise<Socket> => {
-  const socket = netConnect(port, "127.0.0.1");
-  cleanups.push(() => {
-    socket.destroy();
-  });
-  return new Promise((resolve, reject) => {
-    socket.once("error", reject);
-    socket.once("data", () => resolve(socket));
-    socket.write(
-      [
-        "GET / HTTP/1.1",
-        "Host: 127.0.0.1",
-        "Upgrade: websocket",
-        "Connection: Upgrade",
-        "Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==",
-        "Sec-WebSocket-Version: 13",
-        "",
-        "",
-      ].join("\r\n"),
-    );
-    socket.on("data", () => {
-      // Swallow everything, answer nothing.
-    });
-  });
-};
+const unresponsiveSocket = (port: number): Promise<Socket> =>
+  openUnresponsiveSocket(port, (cleanup) => cleanups.push(cleanup));
 
 describe("relay graceful drain", () => {
   it("treats the drain close code as retryable on the client side", () => {
@@ -199,6 +177,90 @@ describe("relay graceful drain", () => {
     expect(server.renderMetrics()).toContain(
       'relay_connections_closed_total{reason="joinTimeout"} 0',
     );
+  });
+
+  it("attributes a genuinely backpressured member to the drain, not the slow-consumer policy", async () => {
+    // The two-phase ordering guarantee, exercised over real ws sockets: a
+    // member whose outbound buffer is over budget at drain time must leave as
+    // `relayRestarting` — phase one puts every socket into CLOSING before any
+    // membership release can broadcast a peers update into its full buffer and
+    // steal the close as `slowConsumer`.
+    const { server, logs } = await startServer({
+      limits: {
+        maxBufferedBytes: 64 * 1024,
+        // Equal on purpose: the moment a presence drop is observable, the
+        // buffer is provably over the scene budget too.
+        presenceDropBufferedBytes: 64 * 1024,
+        drainTimeoutMs: 500,
+        rateLimits: {
+          sceneFramesPerSecond: 1_000_000,
+          sceneFramesBurst: 1_000_000,
+          sceneBytesPerSecond: 1_000_000_000,
+          sceneBytesBurst: 1_000_000_000,
+          presenceFramesPerSecond: 1_000_000,
+          presenceFramesBurst: 1_000_000,
+        },
+      },
+    });
+    const join = (socket: WsClient, subject: string): void => {
+      socket.send(
+        JSON.stringify({
+          control: "join",
+          protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+          roomId: ROOM_ID,
+          token: issueJoinToken({
+            roomId: ROOM_ID,
+            subject,
+            issuedAtSeconds: Math.floor(Date.now() / 1000),
+          }),
+        }),
+      );
+    };
+    const stalled = await rawSocket(server.url);
+    join(stalled, "user-stalled");
+    const sender = await rawSocket(server.url);
+    join(sender, "user-sender");
+    await waitUntil(() => server.sessionCount() === 2, "both members to join");
+
+    // The stalled member stops reading; presence frames pile up in its
+    // server-side socket buffer until the relay observes real backpressure.
+    stalled.pause();
+    const presence = new Uint8Array(16_000);
+    presence[0] = 0x02;
+    const droppedPresence = (): number => {
+      const match = /relay_presence_frames_dropped_total (\d+)/.exec(
+        server.renderMetrics(),
+      );
+      return match ? Number(match[1]) : 0;
+    };
+    await waitUntil(
+      () => {
+        if (droppedPresence() > 0) return true;
+        for (let burst = 0; burst < 20; burst += 1) sender.send(presence);
+        return false;
+      },
+      "the stalled member's outbound buffer to exceed the scene budget",
+      // How fast the buffer fills depends on the OS's socket buffer sizes, so
+      // this wait gets explicit headroom over the default.
+      30_000,
+    );
+
+    await server.drain();
+
+    const drained = logs.recordsOf("relay.drained");
+    expect(drained).toHaveLength(1);
+    expect(drained[0]).toMatchObject({ connections: 2 });
+    // Both disconnects belong to the drain; the over-budget buffer never
+    // re-attributed the stalled member as a slow consumer.
+    expect(server.renderMetrics()).toContain(
+      'relay_connections_closed_total{reason="relayRestarting"} 2',
+    );
+    expect(server.renderMetrics()).toContain(
+      'relay_connections_closed_total{reason="slowConsumer"} 0',
+    );
+    for (const record of logs.recordsOf("relay.connection_closed")) {
+      expect(record).toMatchObject({ closeReason: "relayRestarting" });
+    }
   });
 
   it("is idempotent: concurrent callers share one drain", async () => {

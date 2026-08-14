@@ -10,6 +10,10 @@
       "types": "./src/asset.ts",
       "default": "./src/asset.ts"
     },
+    "./client-pacing": {
+      "types": "./src/client-pacing.ts",
+      "default": "./src/client-pacing.ts"
+    },
     "./protocol": {
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"

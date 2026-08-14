@@ -677,6 +677,50 @@ describe("relay connection authorization", () => {
     expect(connection.isJoined()).toBe(false);
   });
 
+  it("does not expire a far-future room right after the joined ack", () => {
+    // Plan 07 M2: `rexp` is only bounded below, so a room lifetime past
+    // setTimeout's 2^31−1 ms cap (~24.8 days) used to be clamped to ~1 ms and
+    // close every join with "room expired" right after its acknowledgment.
+    const { socket, connection, join } = setup();
+    join({ roomExpiresAtSeconds: TEST_NOW_SECONDS + 30 * 24 * 60 * 60 });
+    expect(connection.isJoined()).toBe(true);
+
+    vi.advanceTimersByTime(60_000);
+    expect(socket.closedWith).toBeUndefined();
+    expect(connection.isJoined()).toBe(true);
+  });
+
+  it("closes the session when a far-future room expiry actually arrives", () => {
+    const DAY_MS = 24 * 60 * 60 * 1000;
+    let current = TEST_NOW_MS;
+    const advance = (ms: number): void => {
+      current += ms;
+      vi.advanceTimersByTime(ms);
+    };
+    const { socket, connection, join } = setup({
+      now: () => current,
+      // At the setTimeout cap, not above it: the idle deadline is a plain
+      // timer and must stay clamp-free while the room deadline hops past it.
+      limits: { idleTimeoutMs: 2 ** 31 - 1 },
+    });
+    join({ roomExpiresAtSeconds: TEST_NOW_SECONDS + 30 * 24 * 60 * 60 });
+
+    advance(20 * DAY_MS);
+    // A frame keeps the idle budget out of the way of the expiry under test.
+    connection.handleBinaryFrame(sceneFrame());
+    expect(socket.closedWith).toBeUndefined();
+
+    // Past the first ~24.8-day hop: the deadline re-arms for the remainder
+    // instead of firing early or getting lost.
+    advance(6 * DAY_MS);
+    expect(socket.closedWith).toBeUndefined();
+    expect(connection.isJoined()).toBe(true);
+
+    advance(5 * DAY_MS);
+    expect(socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.roomEnded);
+    expect(connection.isJoined()).toBe(false);
+  });
+
   it("refuses a join for a room that has already expired", () => {
     const { socket, connection } = setup();
     connection.handleTextFrame(

@@ -1,5 +1,8 @@
 import type { MessageChannel, PeerId } from "@drawstuff/collaboration/protocol";
-import type { RelayPeer } from "@drawstuff/collaboration/relay-protocol";
+import {
+  encodeRelayControl,
+  type RelayPeer,
+} from "@drawstuff/collaboration/relay-protocol";
 import type {
   RoomChannelKey,
   RoomRole,
@@ -25,8 +28,14 @@ export type FanoutSubscriber = {
     frame: Uint8Array,
     senderPeerId: PeerId,
   ): boolean;
-  /** Full room membership after a join/leave, including the receiver. */
-  deliverPeers(peers: readonly RelayPeer[]): void;
+  /**
+   * Full room membership after a join/leave, including the receiver, as one
+   * pre-encoded `peers` control frame. Encoded once per broadcast by the
+   * fanout: the frame is identical for every member, and re-encoding it per
+   * sink made a join/leave in a full room O(members²) work inside the
+   * synchronous fanout. Backpressure policy stays in the sink.
+   */
+  deliverPeers(encodedPeers: string): void;
 };
 
 /** Outcome of one publish: who it was meant for, and who it reached. */
@@ -136,7 +145,13 @@ export function createInMemoryRoomFanout(options?: {
 
   const broadcastPeers = (room: RoomState, excludePeerId?: PeerId): void => {
     const version = room.membershipVersion;
-    const peers = peersOf(room);
+    // One encode per broadcast, not one per member: the frame is the same for
+    // everyone, and a join storm in a full room otherwise pays members²
+    // encodes inside the synchronous fanout (event-loop lag SLO §4.2).
+    const encodedPeers = encodeRelayControl({
+      control: "peers",
+      peers: peersOf(room),
+    });
     for (const member of room.members.values()) {
       if (member.peerId === excludePeerId) continue;
       // A sink may synchronously close a slow member, re-entering leave()
@@ -144,7 +159,7 @@ export function createInMemoryRoomFanout(options?: {
       // rest of this now-stale snapshot would overwrite that newer state,
       // so the outdated broadcast aborts instead.
       if (room.membershipVersion !== version) return;
-      member.subscriber.deliverPeers(peers);
+      member.subscriber.deliverPeers(encodedPeers);
     }
   };
 
