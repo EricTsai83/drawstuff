@@ -39,7 +39,7 @@ export function OverwriteConfirmDialog({
     excalidrawAPI,
     onSceneNotFoundError,
   });
-  const { t, langCode } = useAppI18n();
+  const { t } = useAppI18n();
 
   function handleDialogOpenChange(nextOpen: boolean) {
     if (!nextOpen) {
@@ -54,7 +54,7 @@ export function OverwriteConfirmDialog({
     handleConfirm();
   }
 
-  // Listen for #json=... hash changes so we can prompt using i18n within Excalidraw context
+  // Listen for #json=... hash changes so we can prompt before overwriting the canvas
   useEffect(() => {
     function onHashChange() {
       const parsed = parseSharedSceneHash();
@@ -66,14 +66,8 @@ export function OverwriteConfirmDialog({
       const current = getCurrentSceneSnapshot(excalidrawAPI);
       const hasCurrentScene = !!current && current.elements.length > 0;
 
-      const shareableLinkConfirmDialog = {
-        title: t("overwriteConfirm.modal.shareableLink.title"),
-        description: t("app.overwriteConfirm.modal.shareableLink.description"),
-        actionLabel: t("overwriteConfirm.modal.shareableLink.button"),
-      } as const;
-
       const proceedPromise = hasCurrentScene
-        ? openConfirmModal(shareableLinkConfirmDialog)
+        ? openConfirmModal()
         : Promise.resolve(true);
 
       proceedPromise
@@ -130,7 +124,7 @@ export function OverwriteConfirmDialog({
 
     window.addEventListener("hashchange", onHashChange);
     return () => window.removeEventListener("hashchange", onHashChange);
-  }, [excalidrawAPI, t, langCode, clearCurrentSceneId]);
+  }, [excalidrawAPI, clearCurrentSceneId]);
 
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>

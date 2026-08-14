@@ -4,6 +4,7 @@ import { Eye, Users } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import type { CollaborationRoomStatus } from "@/hooks/excalidraw/use-collaboration-room";
+import type { AppTranslate, AppTranslationKey } from "@/lib/i18n";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { cn } from "@/lib/utils";
 
@@ -14,32 +15,34 @@ type CollaborationButtonProps = {
   presentation?: "regular" | "wide" | "responsive";
 };
 
-export const COLLABORATION_LABEL_KEY: Record<CollaborationRoomStatus, string> =
-  {
-    idle: "collaboration.status.idle",
-    preparing: "collaboration.status.preparing",
-    joining: "collaboration.status.joining",
-    connected: "collaboration.status.connected",
-    // Deliberately not "Collaborating": the session is connected but the canvas is too
-    // large to publish, and this label is the always-visible half of saying so.
-    "sync-blocked": "collaboration.status.syncBlocked",
-    reconnecting: "collaboration.status.reconnecting",
-    failed: "collaboration.status.failed",
-    unauthorized: "collaboration.status.unauthorized",
-    // Retryable bootstrap failure: not an authorization verdict, so it must not
-    // borrow the "unable to join" wording that sends users asking for access.
-    "join-failed": "collaboration.status.joinFailed",
-    // Not "Unable to join": the link works and the account has access; only the shared
-    // join budget is spent, and it refills.
-    "rate-limited": "collaboration.status.rateLimited",
-    cancelled: "collaboration.status.cancelled",
-    "missing-room-key": "collaboration.status.missingRoomKey",
-  };
+export const COLLABORATION_LABEL_KEY: Record<
+  CollaborationRoomStatus,
+  AppTranslationKey
+> = {
+  idle: "collaboration.status.idle",
+  preparing: "collaboration.status.preparing",
+  joining: "collaboration.status.joining",
+  connected: "collaboration.status.connected",
+  // Deliberately not "Collaborating": the session is connected but the canvas is too
+  // large to publish, and this label is the always-visible half of saying so.
+  "sync-blocked": "collaboration.status.syncBlocked",
+  reconnecting: "collaboration.status.reconnecting",
+  failed: "collaboration.status.failed",
+  unauthorized: "collaboration.status.unauthorized",
+  // Retryable bootstrap failure: not an authorization verdict, so it must not
+  // borrow the "unable to join" wording that sends users asking for access.
+  "join-failed": "collaboration.status.joinFailed",
+  // Not "Unable to join": the link works and the account has access; only the shared
+  // join budget is spent, and it refills.
+  "rate-limited": "collaboration.status.rateLimited",
+  cancelled: "collaboration.status.cancelled",
+  "missing-room-key": "collaboration.status.missingRoomKey",
+};
 
 export function getCollaborationPresentation(
   status: CollaborationRoomStatus,
   isReadOnly: boolean,
-  t: (key: string, values?: Record<string, string | number>) => string,
+  t: AppTranslate,
 ): { label: string; accessibleLabel: string } {
   const readOnlyLabel = t("collaboration.status.readOnly");
   const statusLabel = t(COLLABORATION_LABEL_KEY[status]);

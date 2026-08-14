@@ -183,7 +183,8 @@ social links menu，iframe embed 變成靜態畫面，原生手勢改由上述 h
    `dropdown-menu-item dropdown-menu-item-base` class 並渲染原生 button，鍵盤啟用交給
    button semantics。需要 upstream 行為（例如自動關 menu）時才直接用
    `MainMenu.Item`／`MainMenu.ItemCustom`。
-3. Item 自己讀 i18n（`useAppI18n`）與自己的 icon；label 不要由骨架傳進來。
+3. Item 自己讀 i18n（`useAppI18n`，字串來源見
+   [應用層 i18n 架構](./i18n-architecture.md)）與自己的 icon；label 不要由骨架傳進來。
 4. 在 `app-main-menu.tsx` 加一行掛載；需要登入才顯示就寫成
    `{session && <XxxItem … />}`。
 5. 需要 dialog 就把 dialog 渲染在 `<MainMenu>` **之外**，state 放在骨架。
@@ -193,11 +194,12 @@ social links menu，iframe embed 變成靜態畫面，原生手勢改由上述 h
 ### 測試要求
 
 - 每個 item 都要有獨立單元測試：`apps/web/tests/main-menu-items.test.tsx`。
-- 在 Excalidraw 樹外單獨渲染時，會 throw 的是 **i18n hook chain**
-  （`useAppI18n` → adapter `useI18n` → upstream `jotai-scope` `createIsolation()`
-  的 isolated `useAtomValue`），不是 `MainMenu.Item`／`ItemCustom` 本身
-  （它們只是套用預設 context 的 button／div）。單元測試請 mock
-  `@drawstuff/excalidraw-adapter/client` 的 `useExcalidrawI18n`，其餘照常渲染。
+- 應用層字串由 `I18nProvider` 下發（見
+  [應用層 i18n 架構](./i18n-architecture.md)），`useAppI18n` 不再經過 adapter 的
+  `useI18n`，因此 item 在 Excalidraw 樹外也能單獨渲染：單元測試只要包一層
+  `<I18nProvider initialLanguage="en" initialDictionary={en}>`，不需要 mock
+  `useExcalidrawI18n`。`MainMenu.Item`／`ItemCustom` 本身從來不是障礙
+  （它們只是套用預設 context 的 button／div）。
 - **已知缺口：** `workspace-switcher-item`、`dashboard-link-item`、`account-item`、
   `theme-item`、`language-item` 目前只有間接覆蓋。
   `apps/web/tests/e2e/excalidraw-smoke.spec.ts` **不會登入**，所以需要 session

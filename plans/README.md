@@ -11,13 +11,11 @@
 
 1. [04-dashboard-ui-fixes.md](04-dashboard-ui-fixes.md) —
    dashboard/UI 修復（刪除 dialog 鎖死、filter page-walk、per-card observers 等）
-2. [05-i18n-architecture.md](05-i18n-architecture.md) —
-   i18n hydration mismatch 與型別化/拆 bundle
-3. [06-shared-packages-consolidation.md](06-shared-packages-consolidation.md) —
+2. [06-shared-packages-consolidation.md](06-shared-packages-consolidation.md) —
    sealed-envelope 去重、relay-control 契約入套件、eslint/turbo 收斂
-4. [07-relay-hardening.md](07-relay-hardening.md) —
+3. [07-relay-hardening.md](07-relay-hardening.md) —
    relay exception guard、timer clamp、O(N²) broadcast 編碼
-5. [08-collab-client-modularization.md](08-collab-client-modularization.md) —
+4. [08-collab-client-modularization.md](08-collab-client-modularization.md) —
    四個巨型檔案拆分 + 熱路徑效能
 
 ## Completion rule

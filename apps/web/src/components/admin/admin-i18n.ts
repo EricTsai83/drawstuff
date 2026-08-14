@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
-import { formatPlaceholders, type PlaceholderValues } from "@/lib/i18n-shared";
+import { useAppI18n } from "@/hooks/use-app-i18n";
+import { formatPlaceholders, type PlaceholderValues } from "@/lib/i18n";
 
 const en = {
   "role.admin": "Admin",
@@ -243,20 +243,15 @@ export type AdminTranslate = (
 ) => string;
 
 export function useAdminI18n() {
-  const { langCode } = useStandaloneI18n();
-  const supportedLangCode = langCode === "zh-TW" ? "zh-TW" : "en";
-
-  useEffect(() => {
-    document.documentElement.lang = supportedLangCode;
-  }, [supportedLangCode]);
+  // langCode 已由 I18nProvider 正規化為 app 支援語言，`<html lang>` 也由 provider 維護
+  const { langCode } = useAppI18n();
 
   const t = useCallback<AdminTranslate>(
-    (key, values) =>
-      formatPlaceholders(translations[supportedLangCode][key], values),
-    [supportedLangCode],
+    (key, values) => formatPlaceholders(translations[langCode][key], values),
+    [langCode],
   );
 
-  return { t, langCode: supportedLangCode } as const;
+  return { t, langCode } as const;
 }
 
 const valueTranslationKeys = {

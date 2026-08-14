@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
 import { useSceneSession } from "@/hooks/scene-session-context";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { routes } from "@/lib/routes";
 import { workspaceUpdateSchema } from "@/lib/schemas/workspace";
@@ -43,7 +43,7 @@ export function WorkspaceSettingsContent({
   workspace: WorkspaceSettingsTarget;
 }) {
   const router = useRouter();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const utils = api.useUtils();
   const { workspaces, defaultWorkspaceId, lastActiveWorkspaceId, isLoading } =
     useWorkspaceOptions({ staleTimeMs: 0 });

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth/client";
 import { GoogleSignInButton } from "./google-sign-in-button";
 import { Card, CardContent } from "@/components/ui/card";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 type AuthRequiredProps = {
   className?: string;
@@ -20,7 +20,7 @@ export function AuthRequired({
   showCard = true,
   ...props
 }: AuthRequiredProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const { data: session, isPending } = authClient.useSession();
   const resolvedTitle = title ?? t("auth.required.title");
   const resolvedDescription = description ?? t("auth.required.description");

@@ -1,7 +1,7 @@
 import { cn } from "@/lib/utils";
 import { StorageWarning } from "@/components/storage-warning";
 import { SceneShareDialog } from "@/components/scene-share-dialog";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { DashboardLinkButton } from "@/components/excalidraw/dashboard-link-button";
 
 type Props = {
@@ -23,7 +23,7 @@ export function EditorFooter(props: Props) {
     workspaceId,
   } = props;
 
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   return (
     <>
       {showDesktopActions && (

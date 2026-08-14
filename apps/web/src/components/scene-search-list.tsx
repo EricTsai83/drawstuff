@@ -22,7 +22,7 @@ import { SceneGridSkeleton } from "@/components/skeleton/scene-grid-skeleton";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -82,7 +82,7 @@ export function SceneSearchList({
     lastActiveWorkspaceId,
     isLoading: isLoadingWorkspaces,
   } = useWorkspaceOptions();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const [workspaceId, setWorkspaceId] = useQueryState("workspaceId");
   const [searchQuery, setSearchQuery] = useQueryState("search", {
     defaultValue: "",
@@ -465,7 +465,7 @@ function DashboardFilters({
   onCategoryChange,
   onManageCategories,
 }: DashboardFiltersProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const activeCount =
     Number(publish !== "all") +
     Number(archive !== "active") +
@@ -569,7 +569,7 @@ function FilterFields({
   onManageCategories,
   layout = "stacked",
 }: DashboardFiltersProps & { layout?: "stacked" | "toolbar" }) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const id = useId();
   const isToolbar = layout === "toolbar";
   const publishOptions: Array<{ value: PublishFilter; label: string }> = [
@@ -691,7 +691,7 @@ type SceneSearchBarProps = {
 };
 
 function SceneSearchBar({ searchQuery, onSearchChange }: SceneSearchBarProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   return (
     <div className="relative">
       <Search
@@ -718,7 +718,7 @@ function SceneResultsCount({
   loadedCount,
   searchQuery,
 }: SceneResultsCountProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   return (
     <div className="text-muted-foreground text-sm">
       {t("search.resultsCount", { count: loadedCount, query: searchQuery })}

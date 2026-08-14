@@ -7,7 +7,7 @@ import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
 import { resolveSceneSyncAction } from "@/lib/scene-sync";
 import { isApplyResultAcceptable } from "@/hooks/excalidraw/use-apply-remote-scene";
 import type { SceneConflictInfo } from "@/hooks/use-cloud-upload";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -58,7 +58,7 @@ export function useSceneRemoteRevisionCheck({
   externalConflict,
   onExternalConflictHandled,
 }: UseSceneRemoteRevisionCheckParams) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const {
     currentSceneId,
     lastSyncedRevision,

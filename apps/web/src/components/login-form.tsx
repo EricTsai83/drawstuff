@@ -1,14 +1,14 @@
 "use client";
 
 import { cn } from "@/lib/utils";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { GoogleSignInButton } from "./google-sign-in-button";
 
 export function LoginForm({
   className,
   ...props
 }: React.ComponentProps<"div">) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <div className={cn("flex flex-col gap-6", className)} {...props}>

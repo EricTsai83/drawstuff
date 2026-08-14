@@ -6,7 +6,7 @@ import type {
   BinaryFiles,
   ExcalidrawImperativeAPI,
 } from "@drawstuff/excalidraw-adapter/types";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import type {
   ExcalidrawElement,
   NonDeletedExcalidrawElement,
@@ -33,7 +33,7 @@ export function useExportHandlers({
   isUploading,
   excalidrawAPI,
 }: ExportDeps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const handleSaveToDisk = useCallback(
     function handleSaveToDisk(
       elements: readonly NonDeletedExcalidrawElement[],

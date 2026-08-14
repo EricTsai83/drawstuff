@@ -22,6 +22,7 @@ import {
   SignOutConfirmDialog,
   type SignOutChoice,
 } from "@/components/excalidraw/sign-out-confirm-dialog";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { api } from "@/trpc/react";
@@ -128,7 +129,9 @@ function AppMainMenu({
   } = useSceneSession();
   const settingsWorkspaceId = currentWorkspaceId ?? lastActiveWorkspaceId;
 
-  useMainMenuTriggerAccessibleName(langCode);
+  const { t } = useAppI18n();
+
+  useMainMenuTriggerAccessibleName(t("welcomeScreen.app.menuHint"), langCode);
 
   const setLastActiveWorkspace = useCallback(
     (workspaceId: string) => setLastActiveMutation.mutateAsync({ workspaceId }),

@@ -3,7 +3,7 @@
 import { useCallback } from "react";
 import { toast } from "sonner";
 import { useSceneSession } from "@/hooks/scene-session-context";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 export type LoadSceneParams = {
   sceneId: string;
@@ -44,7 +44,7 @@ export function useLoadSceneWithConfirm({
   getActiveTheme,
 }: UseLoadSceneWithConfirmParams) {
   const { currentSceneId } = useSceneSession();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const loadSceneWithConfirm = useCallback(
     async ({ sceneId, workspaceId }: LoadSceneParams) => {
       try {

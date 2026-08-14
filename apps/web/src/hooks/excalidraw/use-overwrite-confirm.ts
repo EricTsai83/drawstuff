@@ -10,7 +10,7 @@ import {
 } from "@/lib/excalidraw";
 import { triggerBlobDownload } from "@/lib/download";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 export type UseOverwriteConfirmArgs = {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
@@ -32,7 +32,7 @@ export function useOverwriteConfirm(
   props: UseOverwriteConfirmArgs,
 ): UseOverwriteConfirmResult {
   const { excalidrawAPI, onSceneNotFoundError } = props;
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const cloudUpload = useCloudUpload(() => {
     // 當場景找不到時，關閉當前 dialog 並通知上層
     handleClose();

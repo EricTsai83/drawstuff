@@ -5,7 +5,7 @@ import {
   MIME_TYPES,
   SCENE_FILE_IMPORT_MAX_BYTES,
 } from "@/config/app-constants";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { nFormatter } from "@/lib/utils";
 
 const MEDIA_MIME_PREFIXES = ["image/", "video/", "audio/"] as const;
@@ -34,7 +34,7 @@ export function useSceneImportFileGuard(
   options?: SceneImportFileGuardOptions,
 ): void {
   const maxBytes = options?.maxBytes ?? SCENE_FILE_IMPORT_MAX_BYTES;
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   const shouldValidateFile = useCallback((file: File): boolean => {
     const fileType = file.type?.toLowerCase() ?? "";

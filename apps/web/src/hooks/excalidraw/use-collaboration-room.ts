@@ -24,7 +24,8 @@ import {
   resumeLocalScenePersistence,
 } from "@/data/local-scene-persistence";
 import { useSceneSession } from "@/hooks/scene-session-context";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { AppTranslationKey } from "@/lib/i18n";
 import {
   canvasBelongsToRoom,
   claimCanvasForRoom,
@@ -184,7 +185,7 @@ export type UseCollaborationRoomResult = {
  *
  * None of them echoes the room key or the fragment.
  */
-const FAILURE_MESSAGE_KEY: Record<UnrecoverableReason, string> = {
+const FAILURE_MESSAGE_KEY: Record<UnrecoverableReason, AppTranslationKey> = {
   unauthorized: "collaboration.failure.unauthorized",
   "membership-revoked": "collaboration.failure.membershipRevoked",
   "room-ended": "collaboration.failure.roomEnded",
@@ -282,7 +283,7 @@ const toMib = (bytes: number): string =>
  */
 function sceneSyncBlockMessage(
   block: SceneSyncBlock,
-  t: ReturnType<typeof useStandaloneI18n>["t"],
+  t: ReturnType<typeof useAppI18n>["t"],
 ): string {
   const parts: string[] = [];
   if (block.realtime) {
@@ -456,7 +457,7 @@ export function useCollaborationRoom(options: {
     // the join effect deliberately reads this through `canvasRef` instead.
     currentSceneId,
   } = options;
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const tRef = useRef(t);
   const { suppressDirtyTracking, resumeDirtyTracking } = useSceneSession();
   const utils = api.useUtils();

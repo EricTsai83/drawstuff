@@ -6,7 +6,7 @@ import { Dialog as DialogPrimitive } from "@base-ui/react/dialog";
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { XIcon } from "lucide-react";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 function Dialog({ ...props }: DialogPrimitive.Root.Props) {
   return <DialogPrimitive.Root data-slot="dialog" {...props} />;
@@ -59,7 +59,7 @@ function DialogContent({
   showCloseButton?: boolean;
   viewportClassName?: string;
 }) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <DialogPortal>
@@ -113,7 +113,7 @@ function DialogFooter({
 }: React.ComponentProps<"div"> & {
   showCloseButton?: boolean;
 }) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <div

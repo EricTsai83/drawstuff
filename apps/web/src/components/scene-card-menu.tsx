@@ -26,7 +26,7 @@ import {
   Archive,
   ArchiveRestore,
 } from "lucide-react";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { cn } from "@/lib/utils";
 
 type WorkspaceOption = {
@@ -74,7 +74,7 @@ export function SceneCardMenu({
   onMoveToWorkspace,
   onToggleCategory,
 }: SceneCardMenuProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const { isPublished, isArchived, workspaceId, assignedCategoryIds } = scene;
 
   const otherWorkspaces = workspaces?.filter((ws) => ws.id !== workspaceId);

@@ -1,4 +1,3 @@
-import { type ReactNode } from "react";
 import { restoreScene } from "@drawstuff/excalidraw-adapter/client";
 import { importDataFromBackend } from "./import-data-from-db";
 import type { ImportedDataState } from "@drawstuff/excalidraw-adapter/types";
@@ -37,21 +36,12 @@ export async function loadScene(
   };
 }
 
-export type OverwriteConfirmRequest = {
-  title: string;
-  description: ReactNode;
-  actionLabel: string;
-};
-
-type OverwriteConfirmHandler = (
-  request: OverwriteConfirmRequest,
-) => Promise<boolean>;
+// 對話框文案由 OverwriteConfirmDialog 自己用 useAppI18n 以 key 翻譯（語言切換時
+// 會跟著 re-render），因此這裡只負責「開啟並等待使用者決定」，不攜帶任何字串。
+type OverwriteConfirmHandler = () => Promise<boolean>;
 
 let overwriteConfirmHandler: OverwriteConfirmHandler | null = null;
-const pendingOverwriteConfirmRequests: Array<{
-  request: OverwriteConfirmRequest;
-  resolve: (value: boolean) => void;
-}> = [];
+const pendingOverwriteConfirmRequests: Array<(value: boolean) => void> = [];
 
 export function setOverwriteConfirmHandler(
   handler: OverwriteConfirmHandler | null,
@@ -60,22 +50,22 @@ export function setOverwriteConfirmHandler(
   if (!handler) return;
   // flush pending requests if any
   while (pendingOverwriteConfirmRequests.length > 0) {
-    const { request, resolve } = pendingOverwriteConfirmRequests.shift()!;
-    handler(request)
+    const resolve = pendingOverwriteConfirmRequests.shift()!;
+    handler()
       .then(resolve)
       .catch(() => resolve(false));
   }
 }
 
-export async function openConfirmModal(request: OverwriteConfirmRequest) {
+export async function openConfirmModal() {
   return new Promise<boolean>((resolve) => {
     if (overwriteConfirmHandler) {
-      overwriteConfirmHandler(request)
+      overwriteConfirmHandler()
         .then(resolve)
         .catch(() => resolve(false));
       return;
     }
     // if handler not yet registered (e.g., early during initial render), queue it
-    pendingOverwriteConfirmRequests.push({ request, resolve });
+    pendingOverwriteConfirmRequests.push(resolve);
   });
 }

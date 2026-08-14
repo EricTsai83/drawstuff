@@ -8,7 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { CopyButton } from "@/components/copy-button";
 import {
   FORM_DIALOG_CONTENT_CLASS_NAME,
@@ -27,7 +27,7 @@ export function SceneShareDialog({
   open,
   onOpenChange,
 }: SceneShareDialogProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>

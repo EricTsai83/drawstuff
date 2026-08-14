@@ -9,13 +9,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { AppTranslationKey } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 
 type RouteOverlayProps = {
   children: React.ReactNode;
-  titleKey: string;
-  descriptionKey?: string;
+  titleKey: AppTranslationKey;
+  descriptionKey?: AppTranslationKey;
   variant?: "default" | "dashboard" | "centered";
 };
 
@@ -26,7 +27,7 @@ export function RouteOverlay({
   variant = "default",
 }: RouteOverlayProps) {
   const router = useRouter();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const closingRef = useRef(false);
   const isDashboard = variant === "dashboard";
   const isCentered = variant === "centered";

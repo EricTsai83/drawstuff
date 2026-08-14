@@ -9,11 +9,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { LoginForm } from "@/components/login-form";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 export default function LoginPageContent() {
   const router = useRouter();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <Dialog open onOpenChange={(open) => !open && router.back()}>

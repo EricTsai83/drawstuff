@@ -5,6 +5,7 @@ import type { ExportStatus } from "@/hooks/use-scene-export";
 import { Link } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { AppTranslate } from "@/lib/i18n";
 import { Spinner } from "@/components/ui/spinner";
 
 type ShareSceneButtonProps = {
@@ -13,7 +14,7 @@ type ShareSceneButtonProps = {
   presentation?: "regular" | "wide" | "responsive";
 };
 
-function getShareButtonConfig(status: ExportStatus, t: (k: string) => string) {
+function getShareButtonConfig(status: ExportStatus, t: AppTranslate) {
   if (status === "exporting") {
     return {
       icon: <Spinner data-icon="inline-start" aria-hidden="true" />,

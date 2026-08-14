@@ -2,13 +2,14 @@
 
 import { ArrowLeftIcon } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { AppTranslationKey } from "@/lib/i18n";
 
 type WorkspaceManagementShellProps = {
   children: React.ReactNode;
   backHref: string;
-  titleKey?: string;
-  descriptionKey?: string;
+  titleKey?: AppTranslationKey;
+  descriptionKey?: AppTranslationKey;
 };
 
 export function WorkspaceManagementShell({
@@ -17,7 +18,7 @@ export function WorkspaceManagementShell({
   titleKey,
   descriptionKey,
 }: WorkspaceManagementShellProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <main className="bg-background fixed inset-0 z-40 overflow-y-auto overscroll-contain">

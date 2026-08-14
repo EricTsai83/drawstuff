@@ -15,7 +15,7 @@ import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import {
   FORM_DIALOG_CONTENT_CLASS_NAME,
   DIALOG_ACTIONS_CLASS_NAME,
@@ -50,7 +50,7 @@ export function SceneEditDialog({
   initial,
   onConfirm,
 }: SceneEditDialogProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const [name, setName] = useState<string>(initial.name ?? "");
   const [description, setDescription] = useState<string>(
     initial.description ?? "",
