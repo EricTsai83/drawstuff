@@ -2,17 +2,7 @@ import nextLintConfig from "eslint-config-next/core-web-vitals";
 // @ts-ignore -- no types for this plugin
 import drizzle from "eslint-plugin-drizzle";
 
-const adapterDeepImportRestriction = {
-  regex:
-    "^@drawstuff/excalidraw-adapter/(?!client$|codec$|library$|reconcile$|types$)",
-  message:
-    "Import an explicit @drawstuff/excalidraw-adapter public entry point.",
-};
-
-const adapterInternalPathRestriction = {
-  group: ["**/packages/excalidraw-adapter/**"],
-  message: "Import @drawstuff/excalidraw-adapter through its package exports.",
-};
+import { sharedTypescriptRules } from "../../eslint.shared.ts";
 
 const upstreamDomLookupMessage =
   "Document-wide DOM lookups can reach into Excalidraw internals. Mount product UI through an upstream public prop or slot; the only accepted exception is apps/web/src/components/excalidraw/main-menu/accepted-limitation-trigger-label.ts.";
@@ -62,50 +52,10 @@ const eslintConfig = [
       "react-hooks/preserve-manual-memoization": "off",
       "react-hooks/refs": "off",
       "react-hooks/set-state-in-effect": "off",
-      "@typescript-eslint/array-type": "off",
-      "@typescript-eslint/consistent-type-definitions": "off",
-      "@typescript-eslint/consistent-type-imports": [
-        "warn",
-        { prefer: "type-imports", fixStyle: "inline-type-imports" },
-      ],
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_" },
-      ],
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/no-misused-promises": [
-        "error",
-        { checksVoidReturn: { attributes: false } },
-      ],
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "@excalidraw/excalidraw",
-              message:
-                "Use an explicit @drawstuff/excalidraw-adapter entry point.",
-            },
-          ],
-          patterns: [
-            {
-              group: ["@excalidraw/excalidraw/*"],
-              message:
-                "Use an explicit @drawstuff/excalidraw-adapter entry point.",
-            },
-            adapterDeepImportRestriction,
-            adapterInternalPathRestriction,
-          ],
-        },
-      ],
-      "drizzle/enforce-delete-with-where": [
-        "error",
-        { drizzleObjectName: ["db", "ctx.db"] },
-      ],
-      "drizzle/enforce-update-with-where": [
-        "error",
-        { drizzleObjectName: ["db", "ctx.db"] },
-      ],
+      ...sharedTypescriptRules({
+        canvasEngineMessage:
+          "Use an explicit @drawstuff/excalidraw-adapter entry point.",
+      }),
     },
   },
   {

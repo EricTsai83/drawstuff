@@ -42,8 +42,11 @@ export function decodePersistedScene(
   if (!data) {
     throw new Error("Persisted scene payload is empty");
   }
-  const document = parseDrawstuffDocument(new TextDecoder().decode(data));
-  const native = toNativeExcalidrawScene(document);
+  const result = parseDrawstuffDocument(new TextDecoder().decode(data));
+  if (!result.ok) {
+    throw new Error(result.error.detail);
+  }
+  const native = toNativeExcalidrawScene(result.document);
   const restored = restoreScene({ elements: native.elements }, null, null, {
     repairBindings: true,
     refreshDimensions: false,

@@ -12,8 +12,8 @@ const webRoot = path.join(workspaceRoot, "apps/web");
 const adapterPublicSpecifiers = new Set([
   "@drawstuff/excalidraw-adapter/client",
   "@drawstuff/excalidraw-adapter/codec",
-  "@drawstuff/excalidraw-adapter/library",
   "@drawstuff/excalidraw-adapter/reconcile",
+  "@drawstuff/excalidraw-adapter/testing",
   "@drawstuff/excalidraw-adapter/types",
 ]);
 

@@ -196,6 +196,11 @@ const FAILURE_MESSAGE_KEY: Record<UnrecoverableReason, AppTranslationKey> = {
   // precisely the room that has not been persisted yet.
   "unreadable-room": "collaboration.failure.unreadableRoom",
   "protocol-violation": "collaboration.failure.protocolViolation",
+  // Not the protocol-violation wording: an outdated tab is repaired by a
+  // reload, and telling its user to report a bug would send them away from
+  // the one action that fixes it.
+  "unsupported-protocol-version":
+    "collaboration.failure.unsupportedProtocolVersion",
   "crypto-exhausted": "collaboration.failure.cryptoExhausted",
   "retry-limit": "collaboration.failure.retryLimit",
 };

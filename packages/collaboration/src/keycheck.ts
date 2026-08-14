@@ -1,11 +1,13 @@
 import type { RoomId } from "./messages.ts";
-import {
-  AES_GCM_TAG_BYTES,
-  deriveRoomKey,
-  REALTIME_NONCE_BYTES,
-  type RoomKey,
-} from "./realtime-crypto.ts";
+import { deriveRoomKey, type RoomKey } from "./realtime-crypto.ts";
 import { roomAuthGenerationSchema } from "./room-auth.ts";
+import {
+  openEnvelope,
+  SEALED_ENVELOPE_OVERHEAD_BYTES,
+  sealEnvelope,
+  utf8AdditionalData,
+  utf8Encoder,
+} from "./sealed-envelope.ts";
 
 /**
  * Room key-check value: proof, readable before joining, that the key
@@ -42,20 +44,15 @@ export const KEYCHECK_CRYPTO_VERSION = 1;
  */
 export const KEYCHECK_PLAINTEXT = "drawstuff-room-key-check";
 
-const VERSION_BYTES = 1;
-
-const encoder = new TextEncoder();
-
 /**
- * Exact sealed size — version byte, random IV, ciphertext of the fixed
- * plaintext, GCM tag. Exact rather than a bound, so the server can refuse
- * anything else at the schema layer without understanding the envelope.
+ * Exact sealed size — the shared sealed-envelope shape
+ * (`./sealed-envelope.ts`) around the fixed plaintext. Exact rather than a
+ * bound, so the server can refuse anything else at the schema layer without
+ * understanding the envelope.
  */
 export const KEYCHECK_CIPHERTEXT_BYTES =
-  VERSION_BYTES +
-  REALTIME_NONCE_BYTES +
-  encoder.encode(KEYCHECK_PLAINTEXT).byteLength +
-  AES_GCM_TAG_BYTES;
+  utf8Encoder.encode(KEYCHECK_PLAINTEXT).byteLength +
+  SEALED_ENVELOPE_OVERHEAD_BYTES;
 
 /**
  * Authenticated metadata: envelope version, room, generation. Exported so the
@@ -70,9 +67,6 @@ export function keyCheckAdditionalDataLabel(params: {
     params.authGeneration,
   )}`;
 }
-
-/** See `realtime-crypto.ts` — every view here comes from non-shared memory. */
-const asBufferSource = (view: Uint8Array): BufferSource => view as BufferSource;
 
 const toBase64 = (bytes: Uint8Array): string => {
   let binary = "";
@@ -92,8 +86,7 @@ const fromBase64 = (value: string): Uint8Array => {
 const additionalDataFor = (params: {
   roomId: RoomId;
   authGeneration: number;
-}): BufferSource =>
-  asBufferSource(encoder.encode(keyCheckAdditionalDataLabel(params)));
+}): BufferSource => utf8AdditionalData(keyCheckAdditionalDataLabel(params));
 
 /**
  * Seals the room's key-check value. Base64 in and out of this module: the
@@ -107,35 +100,24 @@ export async function sealRoomKeyCheck(options: {
   /** Injectable only for deterministic tests; production uses Web Crypto. */
   randomBytes?: (length: number) => Uint8Array;
 }): Promise<string> {
-  const randomBytes =
-    options.randomBytes ??
-    ((length: number) => crypto.getRandomValues(new Uint8Array(length)));
   const key = await deriveRoomKey({
     roomKey: options.roomKey,
     roomId: options.roomId,
     authGeneration: options.authGeneration,
     purpose: "keycheck",
   });
-  const iv = randomBytes(REALTIME_NONCE_BYTES);
-  if (iv.byteLength !== REALTIME_NONCE_BYTES) {
-    throw new Error(
-      `randomBytes must return ${REALTIME_NONCE_BYTES} bytes, received ${iv.byteLength}`,
-    );
-  }
-  const sealed = await crypto.subtle.encrypt(
-    {
-      name: "AES-GCM",
-      iv: asBufferSource(iv),
-      additionalData: additionalDataFor(options),
-    },
+  const sealed = await sealEnvelope({
+    version: KEYCHECK_CRYPTO_VERSION,
     key,
-    asBufferSource(encoder.encode(KEYCHECK_PLAINTEXT)),
-  );
-  const ciphertext = new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES);
-  ciphertext[0] = KEYCHECK_CRYPTO_VERSION;
-  ciphertext.set(iv, VERSION_BYTES);
-  ciphertext.set(new Uint8Array(sealed), VERSION_BYTES + REALTIME_NONCE_BYTES);
-  return toBase64(ciphertext);
+    plaintext: utf8Encoder.encode(KEYCHECK_PLAINTEXT),
+    additionalData: additionalDataFor(options),
+    randomBytes: options.randomBytes,
+  });
+  // Sealing a fixed public plaintext under a freshly derived key cannot fail
+  // on untrusted input, so a failure here is an environment defect worth
+  // surfacing to the caller rather than mapping to a result.
+  if (!sealed.ok) throw sealed.failure.cause;
+  return toBase64(sealed.ciphertext);
 }
 
 /**
@@ -156,31 +138,20 @@ export async function verifyRoomKeyCheck(options: {
   } catch {
     return false;
   }
-  if (ciphertext.byteLength !== KEYCHECK_CIPHERTEXT_BYTES) return false;
-  if (ciphertext[0] !== KEYCHECK_CRYPTO_VERSION) return false;
   const key = await deriveRoomKey({
     roomKey: options.roomKey,
     roomId: options.roomId,
     authGeneration: options.authGeneration,
     purpose: "keycheck",
   });
-  try {
-    await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: asBufferSource(
-          ciphertext.subarray(
-            VERSION_BYTES,
-            VERSION_BYTES + REALTIME_NONCE_BYTES,
-          ),
-        ),
-        additionalData: additionalDataFor(options),
-      },
-      key,
-      asBufferSource(ciphertext.subarray(VERSION_BYTES + REALTIME_NONCE_BYTES)),
-    );
-    return true;
-  } catch {
-    return false;
-  }
+  const opened = await openEnvelope({
+    version: KEYCHECK_CRYPTO_VERSION,
+    key,
+    ciphertext,
+    additionalData: additionalDataFor(options),
+    // Exact size, expressed as min == max: anything else is not a key check.
+    minCiphertextBytes: KEYCHECK_CIPHERTEXT_BYTES,
+    maxCiphertextBytes: KEYCHECK_CIPHERTEXT_BYTES,
+  });
+  return opened.ok;
 }

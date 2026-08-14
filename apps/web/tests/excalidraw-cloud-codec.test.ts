@@ -1,10 +1,9 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import {
   createDrawstuffDocumentV4,
   parseDrawstuffDocument,
   serializeDrawstuffDocumentV4,
 } from "@drawstuff/excalidraw-adapter/codec";
+import { readAdapterFixture } from "@drawstuff/excalidraw-adapter/testing";
 import type {
   AppState,
   BinaryFiles,
@@ -19,10 +18,6 @@ import {
 } from "@/lib/encode";
 import { serializeSceneData } from "@/lib/export-scene-to-backend";
 
-const fixtureRoot = path.resolve(
-  import.meta.dirname,
-  "../../../packages/excalidraw-adapter/tests/fixtures",
-);
 const elements = readFixture<readonly Record<string, unknown>[]>(
   "native-excalidraw-elements.json",
 );
@@ -50,7 +45,9 @@ describe("Drawstuff cloud codec", () => {
       new Uint8Array(exactBuffer),
       { decryptionKey: "" },
     );
-    const loaded = parseDrawstuffDocument(new TextDecoder().decode(data));
+    const result = parseDrawstuffDocument(new TextDecoder().decode(data));
+    if (!result.ok) throw new Error(result.error.detail);
+    const loaded = result.document;
 
     expect(new Uint8Array(exactBuffer).byteLength).toBe(compressed.byteLength);
     expect(loaded.scene.elements).toHaveLength(elements.length);
@@ -96,7 +93,5 @@ describe("Drawstuff cloud codec", () => {
 });
 
 function readFixture<T>(relativePath: string): T {
-  return JSON.parse(
-    readFileSync(path.join(fixtureRoot, relativePath), "utf8"),
-  ) as T;
+  return readAdapterFixture<T>(...relativePath.split("/"));
 }

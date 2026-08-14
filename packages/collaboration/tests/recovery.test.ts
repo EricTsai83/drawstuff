@@ -57,6 +57,12 @@ describe("classifyDisconnect", () => {
       action: "stop",
       failure: "protocol-violation",
     });
+    // Terminal for the running code: reconnecting resends the same version,
+    // and only a page reload changes it.
+    expect(classifyDisconnect("unsupported-protocol-version")).toEqual({
+      action: "stop",
+      failure: "unsupported-protocol-version",
+    });
   });
 
   it("ignores a disconnect the caller asked for", () => {
@@ -73,6 +79,7 @@ describe("classifyDisconnect", () => {
       "membership-revoked",
       "room-ended",
       "protocol",
+      "unsupported-protocol-version",
     ];
     for (const reason of reasons) {
       expect(classifyDisconnect(reason).action).toMatch(

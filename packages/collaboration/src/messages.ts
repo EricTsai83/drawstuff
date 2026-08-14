@@ -24,6 +24,24 @@ export const MAX_SCENE_MESSAGE_BYTES = 1_048_576;
  */
 export const MAX_PRESENCE_MESSAGE_BYTES = 16_384;
 
+/**
+ * Wire channel a payload travels on. Scene messages travel on the
+ * session-ordered channel, presence messages on the volatile channel, so a
+ * receiver always knows the applicable byte budget before decoding.
+ */
+export type MessageChannel = "scene" | "presence";
+
+/**
+ * The single channel → plaintext-byte-budget mapping. Every other budget in
+ * the protocol (encode/decode caps, sealed-frame ceilings, relay frame caps)
+ * derives from this one, so a budget change cannot leave a stale copy behind.
+ */
+export function maxMessageBytesFor(channel: MessageChannel): number {
+  return channel === "presence"
+    ? MAX_PRESENCE_MESSAGE_BYTES
+    : MAX_SCENE_MESSAGE_BYTES;
+}
+
 const ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 export const roomIdSchema = z.string().regex(ID_PATTERN).brand<"RoomId">();
@@ -142,8 +160,12 @@ export const collaborationMessageSchema = z.discriminatedUnion("type", [
 ]);
 export type CollaborationMessage = z.infer<typeof collaborationMessageSchema>;
 
+export function messageChannelOf(
+  type: CollaborationMessage["type"],
+): MessageChannel {
+  return type === "presence" ? "presence" : "scene";
+}
+
 export function maxEncodedBytesFor(type: CollaborationMessage["type"]): number {
-  return type === "presence"
-    ? MAX_PRESENCE_MESSAGE_BYTES
-    : MAX_SCENE_MESSAGE_BYTES;
+  return maxMessageBytesFor(messageChannelOf(type));
 }

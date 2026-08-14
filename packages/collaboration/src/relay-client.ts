@@ -188,9 +188,42 @@ export function createRelayWebSocketTransport(
     readonly outbound: ChannelQueues;
     /** Received, not yet authenticated. */
     readonly inbound: ChannelQueues;
+    /**
+     * A scene drop was already reported and nothing has moved since. One
+     * `onSceneSyncRequired` per congestion episode is enough: the repair it
+     * requests is a full snapshot exchange, so reporting every dropped frame
+     * of the same backlog would only multiply identical full-scene sends into
+     * a queue that is already over budget.
+     *
+     * Re-armed both when the scene queue drains *and* on every delivered
+     * scene message. The delivery re-arm matters for the consumer that could
+     * not act on the first report — a session holding its join barrier
+     * ignores it — because waiting for a full drain would suppress every
+     * later drop of the same backlog, and if one of those held the sender's
+     * last edit, nothing after the drain would re-report it.
+     */
+    sceneSyncReported: boolean;
   };
 
   const subscribers = new Set<TransportSubscriber>();
+
+  /**
+   * Every fanout goes through here so one subscriber's throw can neither
+   * starve the subscribers after it of the same notification nor — when the
+   * notification fires inside a channel chain's `finally` — reject the
+   * queue's tail promise and wedge that channel for good.
+   */
+  const notifySubscribers = (
+    notify: (subscriber: TransportSubscriber) => void,
+  ): void => {
+    for (const subscriber of subscribers) {
+      try {
+        notify(subscriber);
+      } catch {
+        // The subscriber's failure is its own; delivery to the rest goes on.
+      }
+    }
+  };
   let active: ActiveConnection | undefined;
   let closed = false;
   /**
@@ -280,9 +313,7 @@ export function createRelayWebSocketTransport(
     if (verdictFenceRemaining > 0) return;
     if (openedAnyFrame || reportedUnreadable) return;
     reportedUnreadable = true;
-    for (const subscriber of subscribers) {
-      subscriber.onRoomUnreadable?.();
-    }
+    notifySubscribers((subscriber) => subscriber.onRoomUnreadable?.());
   };
 
   const totalPendingBytes = (queues: ChannelQueues): number =>
@@ -303,15 +334,13 @@ export function createRelayWebSocketTransport(
 
   const notifyConnectionState = (): void => {
     const state = connectionState();
-    for (const subscriber of subscribers) {
-      subscriber.onConnectionStateChange?.(state);
-    }
+    notifySubscribers((subscriber) =>
+      subscriber.onConnectionStateChange?.(state),
+    );
   };
 
   const notifyRoomPeers = (peers: readonly RoomPeer[]): void => {
-    for (const subscriber of subscribers) {
-      subscriber.onRoomPeersChange?.(peers);
-    }
+    notifySubscribers((subscriber) => subscriber.onRoomPeersChange?.(peers));
   };
 
   const detachSocket = (socket: RelaySocketLike): void => {
@@ -392,11 +421,11 @@ export function createRelayWebSocketTransport(
       // not: the receiver would see no sequence gap if that frame was the
       // sender's last, and nothing else would ever trigger a repair. Ask the
       // caller to re-broadcast its own snapshot, which draws the peer's
-      // `scene-init` reply and restores convergence.
-      if (channel === "scene") {
-        for (const subscriber of subscribers) {
-          subscriber.onSceneSyncRequired?.();
-        }
+      // `scene-init` reply and restores convergence. Coalesced per congestion
+      // episode: reported once, then re-armed when the scene queue drains.
+      if (channel === "scene" && !connection.sceneSyncReported) {
+        connection.sceneSyncReported = true;
+        notifySubscribers((subscriber) => subscriber.onSceneSyncRequired?.());
       }
       return;
     }
@@ -438,13 +467,24 @@ export function createRelayWebSocketTransport(
         // violation; this receiver drops them and converges the same way.
         if (!decoded.ok) return;
         const meta = { byteLength: opened.plaintext.byteLength };
-        for (const subscriber of subscribers) {
-          subscriber.onMessage?.(decoded.message, meta);
-        }
+        // A delivered scene message ends the reported episode: the queue had
+        // room again, so the next drop is new evidence and reports anew even
+        // if the backlog never fully drains.
+        if (channel === "scene") connection.sceneSyncReported = false;
+        notifySubscribers((subscriber) =>
+          subscriber.onMessage?.(decoded.message, meta),
+        );
       } catch {
-        // A throwing subscriber must not break this channel's delivery order.
+        // A failure inside the open/decode path must not break this channel's
+        // delivery order; subscriber throws are already contained per
+        // subscriber by `notifySubscribers`.
       } finally {
         queue.pendingBytes -= queueCost;
+        // The congestion episode is over once the scene queue fully drains;
+        // the next drop is new evidence and reports again.
+        if (channel === "scene" && queue.pendingBytes === 0) {
+          connection.sceneSyncReported = false;
+        }
         pendingFrameOpens -= 1;
         // Every settled frame is a chance for the armed verdict to become
         // reportable — or to be cancelled by a success that landed late.
@@ -545,6 +585,7 @@ export function createRelayWebSocketTransport(
         roomId,
         outbound: newQueues(),
         inbound: newQueues(),
+        sceneSyncReported: false,
       };
       active = connection;
 

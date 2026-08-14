@@ -1,8 +1,25 @@
 import { z } from "zod";
 
 import type { MessageChannel } from "./codec.ts";
-import { COLLABORATION_PROTOCOL_VERSION, type RoomId } from "./messages.ts";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  maxMessageBytesFor,
+  type RoomId,
+} from "./messages.ts";
 import { roomAuthGenerationSchema } from "./room-auth.ts";
+import {
+  asBufferSource,
+  defaultRandomBytes,
+  openEnvelope,
+  SEALED_ENVELOPE_HEADER_BYTES,
+  SEALED_ENVELOPE_IV_BYTES,
+  SEALED_ENVELOPE_OVERHEAD_BYTES,
+  SEALED_ENVELOPE_TAG_BYTES,
+  sealEnvelope,
+  toHex,
+  utf8AdditionalData,
+  utf8Encoder,
+} from "./sealed-envelope.ts";
 
 /**
  * End-to-end encryption for realtime collaboration payloads.
@@ -58,28 +75,19 @@ export const ROOM_KEY_BYTES = 32;
 const DERIVED_KEY_BITS = 256;
 
 /** AES-GCM standard nonce length; the only length with a hardware-fast path. */
-export const REALTIME_NONCE_BYTES = 12;
+export const REALTIME_NONCE_BYTES = SEALED_ENVELOPE_IV_BYTES;
 
 /** AES-GCM authentication tag length appended to every ciphertext. */
-export const AES_GCM_TAG_BYTES = 16;
-
-const VERSION_BYTES = 1;
+export const AES_GCM_TAG_BYTES = SEALED_ENVELOPE_TAG_BYTES;
 
 /**
- * Sealed frame layout — fixed size, no variable fields:
- *
- * ```
- * 0                  envelope version
- * 1 .. 13            random IV
- * rest               AES-GCM ciphertext ‖ tag
- * ```
+ * Sealed frame layout — the shared sealed-envelope shape
+ * (`./sealed-envelope.ts`): fixed size, no variable fields.
  */
-export const REALTIME_SEALED_HEADER_BYTES =
-  VERSION_BYTES + REALTIME_NONCE_BYTES;
+export const REALTIME_SEALED_HEADER_BYTES = SEALED_ENVELOPE_HEADER_BYTES;
 
 /** Bytes a sealed frame adds to its plaintext: header plus GCM tag. */
-export const REALTIME_SEALED_OVERHEAD_BYTES =
-  REALTIME_SEALED_HEADER_BYTES + AES_GCM_TAG_BYTES;
+export const REALTIME_SEALED_OVERHEAD_BYTES = SEALED_ENVELOPE_OVERHEAD_BYTES;
 
 /** Smallest byte length that could still be a sealed frame. */
 export const MIN_REALTIME_SEALED_FRAME_BYTES =
@@ -87,6 +95,17 @@ export const MIN_REALTIME_SEALED_FRAME_BYTES =
 
 export function sealedFrameByteLength(plaintextByteLength: number): number {
   return plaintextByteLength + REALTIME_SEALED_OVERHEAD_BYTES;
+}
+
+/**
+ * Largest sealed frame this channel can legitimately carry: the channel's
+ * plaintext budget plus sealing overhead. Enforced by `open` so the ceiling is
+ * this module's own contract rather than an implicit dependency on the relay's
+ * transport-level frame cap, which enforces the same arithmetic one header
+ * byte higher (`maxRelayDataFrameBytesFor`).
+ */
+export function maxSealedFrameBytesFor(channel: MessageChannel): number {
+  return maxMessageBytesFor(channel) + REALTIME_SEALED_OVERHEAD_BYTES;
 }
 
 /**
@@ -185,17 +204,7 @@ export const roomKeySchema = z
   .brand<"RoomKey">();
 export type RoomKey = z.infer<typeof roomKeySchema>;
 
-const encoder = new TextEncoder();
-
-/**
- * Web Crypto's `BufferSource` excludes `SharedArrayBuffer`-backed views, which
- * TypeScript cannot prove for a plain `Uint8Array`. Every view handed to Web
- * Crypto here comes from `new Uint8Array`, `TextEncoder`, or a WebSocket frame,
- * never from shared memory, so the narrowing is sound — and it stays in this
- * single place rather than spreading `Uint8Array<ArrayBuffer>` through the
- * protocol codec's public types.
- */
-const asBufferSource = (view: Uint8Array): BufferSource => view as BufferSource;
+const encoder = utf8Encoder;
 
 const toBase64Url = (bytes: Uint8Array): string => {
   let binary = "";
@@ -215,18 +224,6 @@ const fromBase64Url = (value: string): Uint8Array => {
     bytes[index] = binary.charCodeAt(index);
   }
   return bytes;
-};
-
-const HEX_BY_BYTE = Array.from({ length: 256 }, (_, byte) =>
-  byte.toString(16).padStart(2, "0"),
-);
-
-const toHex = (bytes: Uint8Array): string => {
-  let hex = "";
-  for (const byte of bytes) {
-    hex += HEX_BY_BYTE[byte];
-  }
-  return hex;
 };
 
 /**
@@ -361,7 +358,7 @@ export async function createRealtimeCryptoCodec(
     maxReplayEntries = DEFAULT_REPLAY_CACHE_ENTRIES,
     replayTtlMs = DEFAULT_REPLAY_CACHE_TTL_MS,
     now = Date.now,
-    randomBytes = (length) => crypto.getRandomValues(new Uint8Array(length)),
+    randomBytes = defaultRandomBytes,
   } = options;
 
   if (
@@ -394,10 +391,8 @@ export async function createRealtimeCryptoCodec(
    * decrypting into a message the receiver would misroute.
    */
   const additionalDataFor = (channel: MessageChannel): BufferSource =>
-    asBufferSource(
-      encoder.encode(
-        `drawstuff-realtime/v${REALTIME_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${roomId}/${channel}`,
-      ),
+    utf8AdditionalData(
+      `drawstuff-realtime/v${REALTIME_CRYPTO_VERSION}/p${COLLABORATION_PROTOCOL_VERSION}/${roomId}/${channel}`,
     );
   const additionalData: Record<MessageChannel, BufferSource> = {
     scene: additionalDataFor("scene"),
@@ -433,89 +428,81 @@ export async function createRealtimeCryptoCodec(
       }
       sealedCount += 1;
 
-      const iv = randomBytes(REALTIME_NONCE_BYTES);
-      if (iv.byteLength !== REALTIME_NONCE_BYTES) {
-        throw new Error(
-          `randomBytes must return ${REALTIME_NONCE_BYTES} bytes, received ${iv.byteLength}`,
-        );
-      }
-      let sealed: ArrayBuffer;
-      try {
-        sealed = await crypto.subtle.encrypt(
-          {
-            name: "AES-GCM",
-            iv: asBufferSource(iv),
-            additionalData: additionalData[channel],
-          },
-          key,
-          asBufferSource(plaintext),
-        );
-      } catch (error) {
-        // The error name, not the key or the plaintext: nothing secret may reach
-        // a caller that might log this.
+      const sealed = await sealEnvelope({
+        version: REALTIME_CRYPTO_VERSION,
+        key,
+        plaintext,
+        additionalData: additionalData[channel],
+        randomBytes,
+      });
+      if (!sealed.ok) {
+        // The error name, not the key or the plaintext: nothing secret may
+        // reach a caller that might log this.
         return {
           ok: false,
           error: {
             code: "malformed-sealed-frame",
-            detail: error instanceof Error ? error.name : "Encryption failed",
+            detail: sealed.failure.errorName,
           },
         };
       }
-      const frame = new Uint8Array(
-        REALTIME_SEALED_HEADER_BYTES + sealed.byteLength,
-      );
-      frame[0] = REALTIME_CRYPTO_VERSION;
-      frame.set(iv, VERSION_BYTES);
-      frame.set(new Uint8Array(sealed), REALTIME_SEALED_HEADER_BYTES);
-      return { ok: true, frame };
+      return { ok: true, frame: sealed.ciphertext };
     },
 
     async open(frame, channel) {
-      if (frame.byteLength < MIN_REALTIME_SEALED_FRAME_BYTES) {
-        return {
-          ok: false,
-          error: {
-            code: "malformed-sealed-frame",
-            detail: `Sealed frame must be at least ${MIN_REALTIME_SEALED_FRAME_BYTES} bytes, received ${frame.byteLength}`,
-          },
-        };
-      }
-      const receivedVersion = frame[0];
-      if (receivedVersion !== REALTIME_CRYPTO_VERSION) {
-        return {
-          ok: false,
-          error: { code: "unknown-crypto-version", receivedVersion },
-        };
-      }
-      const iv = frame.subarray(VERSION_BYTES, REALTIME_SEALED_HEADER_BYTES);
-      let opened: ArrayBuffer;
-      try {
-        opened = await crypto.subtle.decrypt(
-          {
-            name: "AES-GCM",
-            iv: asBufferSource(iv),
-            additionalData: additionalData[channel],
-          },
-          key,
-          asBufferSource(frame.subarray(REALTIME_SEALED_HEADER_BYTES)),
-        );
-      } catch {
-        // A wrong key, a flipped ciphertext bit, an altered IV and a channel
-        // mismatch are all the same answer: this frame is not from an
-        // authorized sender.
-        return { ok: false, error: { code: "authentication-failed" } };
+      const opened = await openEnvelope({
+        version: REALTIME_CRYPTO_VERSION,
+        key,
+        ciphertext: frame,
+        additionalData: additionalData[channel],
+        minCiphertextBytes: MIN_REALTIME_SEALED_FRAME_BYTES,
+        maxCiphertextBytes: maxSealedFrameBytesFor(channel),
+      });
+      if (!opened.ok) {
+        const { failure } = opened;
+        switch (failure.code) {
+          case "below-min-size":
+            return {
+              ok: false,
+              error: {
+                code: "malformed-sealed-frame",
+                detail: `Sealed frame must be at least ${failure.minByteLength} bytes, received ${failure.receivedByteLength}`,
+              },
+            };
+          case "above-max-size":
+            return {
+              ok: false,
+              error: {
+                code: "malformed-sealed-frame",
+                detail: `Sealed frame must be at most ${failure.maxByteLength} bytes on the ${channel} channel, received ${failure.receivedByteLength}`,
+              },
+            };
+          case "unknown-version":
+            return {
+              ok: false,
+              error: {
+                code: "unknown-crypto-version",
+                receivedVersion: failure.receivedVersion,
+              },
+            };
+          case "authentication-failed":
+            // A wrong key, a flipped ciphertext bit, an altered IV and a
+            // channel mismatch are all the same answer: this frame is not
+            // from an authorized sender.
+            return { ok: false, error: { code: "authentication-failed" } };
+        }
       }
       // Checked after authentication and in the same synchronous step as the
       // insert, so two copies of one frame decrypting concurrently still leave
       // exactly one of them accepted.
-      const ivKey = toHex(iv);
+      const ivKey = toHex(opened.iv);
       if (seenIvs.has(ivKey)) {
         return { ok: false, error: { code: "replayed-frame" } };
       }
       const timestamp = now();
       pruneReplayCache(timestamp);
       seenIvs.set(ivKey, timestamp);
-      return { ok: true, plaintext: new Uint8Array(opened) };
+      return { ok: true, plaintext: opened.plaintext };
     },
 
     replayCacheSize: () => seenIvs.size,

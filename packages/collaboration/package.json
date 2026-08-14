@@ -38,6 +38,10 @@
       "types": "./src/relay-client.ts",
       "default": "./src/relay-client.ts"
     },
+    "./relay-control": {
+      "types": "./src/relay-control.ts",
+      "default": "./src/relay-control.ts"
+    },
     "./relay-protocol": {
       "types": "./src/relay-protocol.ts",
       "default": "./src/relay-protocol.ts"

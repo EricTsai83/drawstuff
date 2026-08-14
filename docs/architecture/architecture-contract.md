@@ -22,10 +22,13 @@ The allowed dependency graph is:
 ```text
 apps/web ───────────────→ @drawstuff/excalidraw-adapter
     │
-    └→ @drawstuff/collaboration ─→ @drawstuff/excalidraw-adapter
+    └→ @drawstuff/collaboration
 
 @drawstuff/collaboration-relay ─→ @drawstuff/collaboration/protocol
 ```
+
+`@drawstuff/collaboration` and `@drawstuff/excalidraw-adapter` do not depend on each other in
+either direction; `apps/web` is the only place the two meet.
 
 Arrows are one-way. Reverse dependencies and cross-layer deep imports are architecture defects.
 The collaboration server entry points must remain free of React, app, adapter, DOM/CSS, and

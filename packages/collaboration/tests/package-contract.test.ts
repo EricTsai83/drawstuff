@@ -25,6 +25,7 @@ describe("@drawstuff/collaboration package contract", () => {
       "./realtime-crypto",
       "./recovery",
       "./relay-client",
+      "./relay-control",
       "./relay-protocol",
       "./room-auth",
       "./room-token",
@@ -67,6 +68,7 @@ describe("@drawstuff/collaboration package contract", () => {
       "@drawstuff/collaboration/realtime-crypto": "realtime-crypto.ts",
       "@drawstuff/collaboration/recovery": "recovery.ts",
       "@drawstuff/collaboration/relay-client": "relay-client.ts",
+      "@drawstuff/collaboration/relay-control": "relay-control.ts",
       "@drawstuff/collaboration/relay-protocol": "relay-protocol.ts",
       "@drawstuff/collaboration/room-auth": "room-auth.ts",
       "@drawstuff/collaboration/room-token": "room-token.ts",
@@ -102,11 +104,12 @@ describe("@drawstuff/collaboration package contract", () => {
     // a decryption key. Structural, so a future edit cannot quietly thread key
     // material through an envelope, a control frame, or a token claim.
     //
-    // Four modules qualify, and only because they *are* the crypto boundary:
-    // `realtime-crypto.ts` owns key derivation and realtime frames, while
-    // `snapshot.ts`, `asset.ts` and `keycheck.ts` seal durable snapshots,
-    // binary assets and the room's key-check value under further purpose-bound
-    // keys they derive through it.
+    // Five modules qualify, and only because they *are* the crypto boundary:
+    // `sealed-envelope.ts` is the shared seal/open primitive,
+    // `realtime-crypto.ts` owns key derivation and realtime frames, and
+    // `snapshot.ts`, `asset-crypto.ts` and `keycheck.ts` seal durable
+    // snapshots, binary assets and the room's key-check value under further
+    // purpose-bound keys they derive through it.
     const withKeyMaterial = listSourceFiles(sourceRoot)
       .filter((filePath) =>
         /roomKey|RoomKey|getRandomValues|subtle/.test(
@@ -116,9 +119,10 @@ describe("@drawstuff/collaboration package contract", () => {
       .map((filePath) => path.relative(sourceRoot, filePath))
       .sort();
     expect(withKeyMaterial).toEqual([
-      "asset.ts",
+      "asset-crypto.ts",
       "keycheck.ts",
       "realtime-crypto.ts",
+      "sealed-envelope.ts",
       "snapshot.ts",
     ]);
   });

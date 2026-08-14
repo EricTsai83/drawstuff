@@ -34,8 +34,14 @@ const fixtureFiles = {};
 const ownedPayload = serializeFixture("owned-scene");
 const controllerTrace = createControllerNotificationTrace();
 
+function parseFixture(payload: string) {
+  const result = parseDrawstuffDocument(payload);
+  if (!result.ok) throw new Error(result.error.detail);
+  return result.document;
+}
+
 const measurements = {
-  largeSceneLoad: measure(() => parseDrawstuffDocument(ownedPayload)),
+  largeSceneLoad: measure(() => parseFixture(ownedPayload)),
   largeSceneOwnedSave: measure(() => serializeFixture("owned-scene")),
   largeSceneReadonlySave: measure(() => serializeFixture("readonly-share")),
   controllerNotificationTrace: measure(() =>
@@ -141,7 +147,7 @@ function measureMemory(): {
 function allocateAndMeasureWorkingHeap(): number {
   const workingSet = {
     elements: createLargeSceneElements(),
-    parsed: parseDrawstuffDocument(ownedPayload),
+    parsed: parseFixture(ownedPayload),
     serialized: serializeFixture("owned-scene"),
   };
   if (workingSet.elements.length !== LARGE_SCENE_ELEMENT_COUNT) {

@@ -6,13 +6,18 @@ import {
   type RoomId,
   type SyncedElement,
 } from "./messages.ts";
-import {
-  AES_GCM_TAG_BYTES,
-  deriveRoomKey,
-  REALTIME_NONCE_BYTES,
-  type RoomKey,
-} from "./realtime-crypto.ts";
+import { deriveRoomKey, type RoomKey } from "./realtime-crypto.ts";
 import { roomAuthGenerationSchema, roomRoleCanEditScene } from "./room-auth.ts";
+import {
+  asBufferSource,
+  openEnvelope,
+  SEALED_ENVELOPE_HEADER_BYTES,
+  SEALED_ENVELOPE_OVERHEAD_BYTES,
+  sealEnvelope,
+  toHex,
+  utf8AdditionalData,
+  utf8Encoder,
+} from "./sealed-envelope.ts";
 import type { RoomPeer } from "./transport.ts";
 
 /**
@@ -55,23 +60,14 @@ export const COLLABORATION_SNAPSHOT_VERSION = 1;
  */
 export const SNAPSHOT_CRYPTO_VERSION = 1;
 
-const VERSION_BYTES = 1;
-
 /**
- * Sealed snapshot layout — same shape as a realtime frame, and for the same
- * reason: fixed size, no variable fields, no sender identity.
- *
- * ```
- * 0                  envelope version
- * 1 .. 13            random IV
- * rest               AES-GCM ciphertext ‖ tag
- * ```
+ * Sealed snapshot layout — the shared sealed-envelope shape
+ * (`./sealed-envelope.ts`), same as a realtime frame and for the same reason:
+ * fixed size, no variable fields, no sender identity.
  */
-export const SNAPSHOT_SEALED_HEADER_BYTES =
-  VERSION_BYTES + REALTIME_NONCE_BYTES;
+export const SNAPSHOT_SEALED_HEADER_BYTES = SEALED_ENVELOPE_HEADER_BYTES;
 
-export const SNAPSHOT_SEALED_OVERHEAD_BYTES =
-  SNAPSHOT_SEALED_HEADER_BYTES + AES_GCM_TAG_BYTES;
+export const SNAPSHOT_SEALED_OVERHEAD_BYTES = SEALED_ENVELOPE_OVERHEAD_BYTES;
 
 export const MIN_SNAPSHOT_SEALED_BYTES = SNAPSHOT_SEALED_OVERHEAD_BYTES + 1;
 
@@ -154,27 +150,10 @@ export type DecodeSnapshotResult =
   | { ok: true; snapshot: CollaborationSnapshot }
   | { ok: false; error: SnapshotCodecError };
 
-const encoder = new TextEncoder();
+const encoder = utf8Encoder;
 // Fatal so malformed UTF-8 is refused rather than repaired into a different
 // (possibly valid) snapshot via U+FFFD replacement.
 const decoder = new TextDecoder("utf-8", { fatal: true });
-
-/**
- * Web Crypto's `BufferSource` excludes `SharedArrayBuffer`-backed views, which
- * TypeScript cannot prove for a plain `Uint8Array`. Every view here comes from
- * `new Uint8Array` or `TextEncoder`, never from shared memory.
- */
-const asBufferSource = (view: Uint8Array): BufferSource => view as BufferSource;
-
-const HEX_BY_BYTE = Array.from({ length: 256 }, (_, byte) =>
-  byte.toString(16).padStart(2, "0"),
-);
-
-const toHex = (bytes: Uint8Array): string => {
-  let hex = "";
-  for (const byte of bytes) hex += HEX_BY_BYTE[byte];
-  return hex;
-};
 
 const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
   const digest = await crypto.subtle.digest("SHA-256", asBufferSource(bytes));
@@ -385,8 +364,7 @@ const snapshotAdditionalData = (params: {
   roomId: RoomId;
   authGeneration: number;
   revision: number;
-}): BufferSource =>
-  asBufferSource(encoder.encode(snapshotAdditionalDataLabel(params)));
+}): BufferSource => utf8AdditionalData(snapshotAdditionalDataLabel(params));
 
 export async function sealCollaborationSnapshot(options: {
   key: CryptoKey;
@@ -398,43 +376,24 @@ export async function sealCollaborationSnapshot(options: {
   /** Injectable only for deterministic tests; production uses Web Crypto. */
   randomBytes?: (length: number) => Uint8Array;
 }): Promise<SealSnapshotResult> {
-  const randomBytes =
-    options.randomBytes ??
-    ((length: number) => crypto.getRandomValues(new Uint8Array(length)));
-  const iv = randomBytes(REALTIME_NONCE_BYTES);
-  if (iv.byteLength !== REALTIME_NONCE_BYTES) {
-    throw new Error(
-      `randomBytes must return ${REALTIME_NONCE_BYTES} bytes, received ${iv.byteLength}`,
-    );
-  }
-  let sealed: ArrayBuffer;
-  try {
-    sealed = await crypto.subtle.encrypt(
-      {
-        name: "AES-GCM",
-        iv: asBufferSource(iv),
-        additionalData: snapshotAdditionalData(options),
-      },
-      options.key,
-      asBufferSource(options.plaintext),
-    );
-  } catch (error) {
+  const sealed = await sealEnvelope({
+    version: SNAPSHOT_CRYPTO_VERSION,
+    key: options.key,
+    plaintext: options.plaintext,
+    additionalData: snapshotAdditionalData(options),
+    randomBytes: options.randomBytes,
+  });
+  if (!sealed.ok) {
     // The error name, never the key or the plaintext: a caller may log this.
     return {
       ok: false,
       error: {
         code: "malformed-sealed-snapshot",
-        detail: error instanceof Error ? error.name : "Encryption failed",
+        detail: sealed.failure.errorName,
       },
     };
   }
-  const ciphertext = new Uint8Array(
-    SNAPSHOT_SEALED_HEADER_BYTES + sealed.byteLength,
-  );
-  ciphertext[0] = SNAPSHOT_CRYPTO_VERSION;
-  ciphertext.set(iv, VERSION_BYTES);
-  ciphertext.set(new Uint8Array(sealed), SNAPSHOT_SEALED_HEADER_BYTES);
-  return { ok: true, ciphertext };
+  return { ok: true, ciphertext: sealed.ciphertext };
 }
 
 export async function openCollaborationSnapshot(options: {
@@ -444,49 +403,46 @@ export async function openCollaborationSnapshot(options: {
   authGeneration: number;
   revision: number;
 }): Promise<OpenSnapshotResult> {
-  const { ciphertext } = options;
-  if (ciphertext.byteLength < MIN_SNAPSHOT_SEALED_BYTES) {
-    return {
-      ok: false,
-      error: {
-        code: "malformed-sealed-snapshot",
-        detail: `Sealed snapshot must be at least ${MIN_SNAPSHOT_SEALED_BYTES} bytes, received ${ciphertext.byteLength}`,
-      },
-    };
-  }
-  if (ciphertext.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES) {
-    return {
-      ok: false,
-      error: {
-        code: "malformed-sealed-snapshot",
-        detail: `Sealed snapshot must be at most ${MAX_SNAPSHOT_CIPHERTEXT_BYTES} bytes, received ${ciphertext.byteLength}`,
-      },
-    };
-  }
-  const receivedVersion = ciphertext[0];
-  if (receivedVersion !== SNAPSHOT_CRYPTO_VERSION) {
-    return {
-      ok: false,
-      error: { code: "unknown-crypto-version", receivedVersion },
-    };
-  }
-  try {
-    const opened = await crypto.subtle.decrypt(
-      {
-        name: "AES-GCM",
-        iv: asBufferSource(
-          ciphertext.subarray(VERSION_BYTES, SNAPSHOT_SEALED_HEADER_BYTES),
-        ),
-        additionalData: snapshotAdditionalData(options),
-      },
-      options.key,
-      asBufferSource(ciphertext.subarray(SNAPSHOT_SEALED_HEADER_BYTES)),
-    );
-    return { ok: true, plaintext: new Uint8Array(opened) };
-  } catch {
-    // A wrong key, a rotated generation, tampered bytes and mismatched metadata
-    // are all the same answer: this is not a snapshot this reader can trust.
-    return { ok: false, error: { code: "authentication-failed" } };
+  const opened = await openEnvelope({
+    version: SNAPSHOT_CRYPTO_VERSION,
+    key: options.key,
+    ciphertext: options.ciphertext,
+    additionalData: snapshotAdditionalData(options),
+    minCiphertextBytes: MIN_SNAPSHOT_SEALED_BYTES,
+    maxCiphertextBytes: MAX_SNAPSHOT_CIPHERTEXT_BYTES,
+  });
+  if (opened.ok) return { ok: true, plaintext: opened.plaintext };
+  const { failure } = opened;
+  switch (failure.code) {
+    case "below-min-size":
+      return {
+        ok: false,
+        error: {
+          code: "malformed-sealed-snapshot",
+          detail: `Sealed snapshot must be at least ${failure.minByteLength} bytes, received ${failure.receivedByteLength}`,
+        },
+      };
+    case "above-max-size":
+      return {
+        ok: false,
+        error: {
+          code: "malformed-sealed-snapshot",
+          detail: `Sealed snapshot must be at most ${failure.maxByteLength} bytes, received ${failure.receivedByteLength}`,
+        },
+      };
+    case "unknown-version":
+      return {
+        ok: false,
+        error: {
+          code: "unknown-crypto-version",
+          receivedVersion: failure.receivedVersion,
+        },
+      };
+    case "authentication-failed":
+      // A wrong key, a rotated generation, tampered bytes and mismatched
+      // metadata are all the same answer: this is not a snapshot this reader
+      // can trust.
+      return { ok: false, error: { code: "authentication-failed" } };
   }
 }
 

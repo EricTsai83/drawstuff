@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs";
-import path from "node:path";
+import { readAdapterFixture } from "@drawstuff/excalidraw-adapter/testing";
 import type { ExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import type {
   AppState,
@@ -26,10 +25,6 @@ import { saveSceneJsonToDisk } from "@/lib/excalidraw";
 
 type JsonObject = Record<string, unknown>;
 
-const fixtureDirectory = path.resolve(
-  import.meta.dirname,
-  "../../../packages/excalidraw-adapter/tests/fixtures/excalidraw-0.18.1",
-);
 const contractInput = readFixture<{
   appState: JsonObject;
   elements: JsonObject[];
@@ -51,7 +46,5 @@ describe("Excalidraw disk export", () => {
 });
 
 function readFixture<T>(name: string): T {
-  return JSON.parse(
-    readFileSync(path.join(fixtureDirectory, name), "utf8"),
-  ) as T;
+  return readAdapterFixture<T>("excalidraw-0.18.1", name);
 }
