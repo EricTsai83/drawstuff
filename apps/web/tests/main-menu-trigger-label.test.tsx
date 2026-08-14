@@ -21,8 +21,14 @@ async function flush(): Promise<void> {
   });
 }
 
-function TriggerLabelProbe({ langCode }: { langCode: string }) {
-  useMainMenuTriggerAccessibleName(langCode);
+function TriggerLabelProbe({
+  label,
+  langCode = "en",
+}: {
+  label: string;
+  langCode?: string;
+}) {
+  useMainMenuTriggerAccessibleName(label, langCode);
   return null;
 }
 
@@ -52,13 +58,13 @@ describe("main menu trigger accessible name (accepted limitation)", () => {
   it("labels a trigger that upstream already mounted", () => {
     const trigger = mountUpstreamTrigger();
 
-    act(() => root.render(<TriggerLabelProbe langCode="en" />));
+    act(() => root.render(<TriggerLabelProbe label="Menu" />));
 
     expect(trigger.getAttribute("aria-label")).toBe("Menu");
   });
 
   it("waits for the tunneled trigger and labels it once it appears", async () => {
-    act(() => root.render(<TriggerLabelProbe langCode="en" />));
+    act(() => root.render(<TriggerLabelProbe label="Menu" />));
 
     const trigger = mountUpstreamTrigger();
     await flush();
@@ -68,20 +74,35 @@ describe("main menu trigger accessible name (accepted limitation)", () => {
 
   it("re-labels the trigger that a language switch remounts", async () => {
     mountUpstreamTrigger();
-    act(() => root.render(<TriggerLabelProbe langCode="en" />));
+    act(() => root.render(<TriggerLabelProbe label="Menu" langCode="en" />));
 
-    // Switching locale tears the tunneled trigger down and mounts a fresh one
-    // without the repaired attribute.
+    // Switching locale changes the label and tears the tunneled trigger down,
+    // mounting a fresh one without the repaired attribute.
     document.body.replaceChildren(container);
-    act(() => root.render(<TriggerLabelProbe langCode="zh-TW" />));
+    act(() => root.render(<TriggerLabelProbe label="選單" langCode="zh-TW" />));
     const remounted = mountUpstreamTrigger();
     await flush();
 
     expect(remounted.getAttribute("aria-label")).toBe("選單");
   });
 
+  it("re-labels the remounted trigger before the new dictionary arrives", async () => {
+    mountUpstreamTrigger();
+    act(() => root.render(<TriggerLabelProbe label="Menu" langCode="en" />));
+
+    // Upstream remounts the trigger as soon as its own langCode changes, which
+    // happens before the app dictionary for the new locale resolves: the label
+    // is still the old one, so only langCode signals that a repair is needed.
+    document.body.replaceChildren(container);
+    act(() => root.render(<TriggerLabelProbe label="Menu" langCode="zh-TW" />));
+    const remounted = mountUpstreamTrigger();
+    await flush();
+
+    expect(remounted.getAttribute("aria-label")).toBe("Menu");
+  });
+
   it("stops observing once the trigger is labelled", async () => {
-    act(() => root.render(<TriggerLabelProbe langCode="en" />));
+    act(() => root.render(<TriggerLabelProbe label="Menu" />));
 
     const trigger = mountUpstreamTrigger();
     await flush();

@@ -12,7 +12,7 @@ import { useUploadThing } from "@/lib/uploadthing";
 import { getBaseUrl } from "@/lib/base-url";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import { APP_ERROR } from "@/lib/errors";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 function cloneToArrayBuffer(
   fileBuffer: Uint8Array<ArrayBufferLike>,
@@ -25,7 +25,7 @@ function cloneToArrayBuffer(
 export type ExportStatus = "idle" | "exporting" | "success" | "error";
 
 export function useSceneExport() {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const [exportStatus, setExportStatus] = useState<ExportStatus>("idle");
   const [exportErrorMessage, setExportErrorMessage] = useState<string | null>(
     null,

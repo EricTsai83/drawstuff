@@ -1,6 +1,6 @@
 "use client";
 
-import { useExcalidrawLibrary } from "@drawstuff/excalidraw-adapter/library";
+import { useExcalidrawLibrary } from "@drawstuff/excalidraw-adapter/client";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import { useEffect, useMemo, useRef, useState } from "react";
 

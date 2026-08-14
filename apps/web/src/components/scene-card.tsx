@@ -32,7 +32,7 @@ import type { RouterOutputs } from "@/trpc/react";
 import { useRouter } from "next/navigation";
 import { dispatchLoadSceneRequest } from "@/lib/events";
 import { SceneEditDialog } from "@/components/scene-edit-dialog";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { OverflowTooltip } from "@/components/overflow-tooltip";
 import {
@@ -61,7 +61,7 @@ export const SceneCard = memo(function SceneCard({
   workspaces,
   categories,
 }: SceneCardProps) {
-  const { t, langCode } = useStandaloneI18n();
+  const { t, langCode } = useAppI18n();
   const {
     currentSceneId,
     clearCurrentScene,

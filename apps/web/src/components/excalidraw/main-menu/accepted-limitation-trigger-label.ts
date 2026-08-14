@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect } from "react";
-import { translateApp } from "@/lib/i18n-shared";
 
 /**
  * ACCEPTED LIMITATION — the single sanctioned DOM workaround in this repo.
@@ -59,15 +58,21 @@ function repairMainMenuTriggerAccessibleName(label: string): () => void {
 }
 
 /**
- * Re-runs on every `langCode` change because switching locale remounts the
- * tunneled trigger, dropping the repaired attribute.
+ * Takes the already-translated label so this DOM workaround stays free of i18n
+ * plumbing, plus the Excalidraw `langCode` that drives the remount.
+ *
+ * Both are dependencies on purpose: upstream remounts the tunneled trigger the
+ * moment its own `langCode` changes, which is *before* the app dictionary for
+ * the new locale finishes loading. Depending on the label alone would leave the
+ * freshly mounted trigger without an accessible name for that window — and
+ * permanently if the dictionary chunk never arrives.
  */
-export function useMainMenuTriggerAccessibleName(langCode: string): void {
+export function useMainMenuTriggerAccessibleName(
+  label: string,
+  langCode: string,
+): void {
   useEffect(
-    () =>
-      repairMainMenuTriggerAccessibleName(
-        translateApp(langCode, "welcomeScreen.app.menuHint"),
-      ),
-    [langCode],
+    () => repairMainMenuTriggerAccessibleName(label),
+    [label, langCode],
   );
 }

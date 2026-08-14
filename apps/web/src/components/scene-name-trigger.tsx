@@ -1,7 +1,7 @@
 "use client";
 
 import { forwardRef } from "react";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { cn } from "@/lib/utils";
 
 export const SceneNameTrigger = forwardRef<
@@ -11,7 +11,7 @@ export const SceneNameTrigger = forwardRef<
     isMobileSlot?: boolean;
   } & React.HTMLAttributes<HTMLDivElement>
 >(({ sceneName, isMobileSlot = false, ...props }, ref) => {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <div

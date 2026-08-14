@@ -10,6 +10,8 @@ import { NuqsAdapter } from "nuqs/adapters/next/app";
 import { Toaster } from "@/components/ui/sonner";
 import { TailwindIndicator } from "@/components/tailwind-indicator";
 import { SceneSessionProvider } from "@/hooks/scene-session-context";
+import { I18nProvider } from "@/hooks/i18n-context";
+import { resolveRequestI18n } from "@/lib/i18n/server";
 
 export const metadata: Metadata = {
   title: "drawstuff",
@@ -23,7 +25,7 @@ const geist = Geist({
   variable: "--font-geist-sans",
 });
 
-export default function RootLayout({
+export default async function RootLayout({
   auth,
   overlay,
   children,
@@ -32,35 +34,40 @@ export default function RootLayout({
   overlay: React.ReactNode;
   children: React.ReactNode;
 }>) {
+  // 語言在 server 就解析完成，`<html lang>` 與 client 首次 render 用的字典一致
+  const { language, dictionary } = await resolveRequestI18n();
+
   return (
     <html
-      lang="en"
+      lang={language}
       className={`${geist.variable} antialiased`}
       suppressHydrationWarning
     >
       <body>
-        <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-          <TRPCReactProvider>
-            <NextSSRPlugin
-              /**
-               * The `extractRouterConfig` will extract **only** the route configs
-               * from the router to prevent additional information from being
-               * leaked to the client. The data passed to the client is the same
-               * as if you were to fetch `/api/uploadthing` directly.
-               */
-              routerConfig={extractRouterConfig(uploadRouter)}
-            />
-            <NuqsAdapter>
-              <SceneSessionProvider>
-                {children}
-                {overlay}
-                {auth}
-                <Toaster />
-                <TailwindIndicator />
-              </SceneSessionProvider>
-            </NuqsAdapter>
-          </TRPCReactProvider>
-        </ThemeProvider>
+        <I18nProvider initialLanguage={language} initialDictionary={dictionary}>
+          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+            <TRPCReactProvider>
+              <NextSSRPlugin
+                /**
+                 * The `extractRouterConfig` will extract **only** the route configs
+                 * from the router to prevent additional information from being
+                 * leaked to the client. The data passed to the client is the same
+                 * as if you were to fetch `/api/uploadthing` directly.
+                 */
+                routerConfig={extractRouterConfig(uploadRouter)}
+              />
+              <NuqsAdapter>
+                <SceneSessionProvider>
+                  {children}
+                  {overlay}
+                  {auth}
+                  <Toaster />
+                  <TailwindIndicator />
+                </SceneSessionProvider>
+              </NuqsAdapter>
+            </TRPCReactProvider>
+          </ThemeProvider>
+        </I18nProvider>
       </body>
     </html>
   );

@@ -37,6 +37,7 @@ import type {
   CollaborationRoomStatus,
 } from "@/hooks/excalidraw/use-collaboration-room";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { AppTranslationKey } from "@/lib/i18n";
 import { buildRoomInviteUrl } from "@/lib/collab/room-link";
 import { api } from "@/trpc/react";
 import {
@@ -63,19 +64,19 @@ import {
 
 type LinkRole = "none" | "viewer" | "editor";
 
-const LINK_ROLE_LABEL_KEY: Record<LinkRole, string> = {
+const LINK_ROLE_LABEL_KEY: Record<LinkRole, AppTranslationKey> = {
   none: "collaboration.linkRole.none",
   viewer: "collaboration.linkRole.viewer",
   editor: "collaboration.linkRole.editor",
 };
 
-const ROLE_LABEL_KEY: Record<RoomRole, string> = {
+const ROLE_LABEL_KEY: Record<RoomRole, AppTranslationKey> = {
   owner: "collaboration.role.owner",
   editor: "collaboration.role.editor",
   viewer: "collaboration.role.viewer",
 };
 
-const STATUS_LABEL_KEY: Record<CollaborationRoomStatus, string> = {
+const STATUS_LABEL_KEY: Record<CollaborationRoomStatus, AppTranslationKey> = {
   idle: "collaboration.dialogStatus.idle",
   preparing: "collaboration.dialogStatus.preparing",
   joining: "collaboration.dialogStatus.joining",

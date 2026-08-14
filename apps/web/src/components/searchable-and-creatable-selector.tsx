@@ -6,7 +6,7 @@ import MultipleSelector, {
 } from "@/components/ui/multiple-selector";
 import { api } from "@/trpc/react";
 import { toast } from "sonner";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 function SearchableAndCreatableSelector({
   value,
@@ -15,7 +15,7 @@ function SearchableAndCreatableSelector({
   value?: Option[];
   onChange?: (value: Option[]) => void;
 }) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const utils = api.useUtils();
 
   const handleSearch = async (keyword: string) => {

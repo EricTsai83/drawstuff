@@ -13,7 +13,7 @@ import {
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { Textarea } from "@/components/ui/textarea";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { routes } from "@/lib/routes";
 import { workspaceCreateSchema } from "@/lib/schemas/workspace";
 import { api } from "@/trpc/react";
@@ -24,7 +24,7 @@ export function CreateWorkspaceContent({
   cancelAction: ReactNode;
 }) {
   const router = useRouter();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const utils = api.useUtils();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");

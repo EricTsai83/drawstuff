@@ -11,7 +11,7 @@ const { useExcalidrawLibraryMock, getQuery, putMutate } = vi.hoisted(() => ({
   putMutate: vi.fn(),
 }));
 
-vi.mock("@drawstuff/excalidraw-adapter/library", () => ({
+vi.mock("@drawstuff/excalidraw-adapter/client", () => ({
   useExcalidrawLibrary: useExcalidrawLibraryMock,
 }));
 

@@ -2,11 +2,11 @@
 
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 
 export function RouteBackButton() {
   const router = useRouter();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   return (
     <Button type="button" variant="outline" onClick={() => router.back()}>
       {t("buttons.cancel")}

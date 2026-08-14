@@ -29,7 +29,7 @@ import { hardenSvgLinks } from "@/lib/svg-links";
 import Link from "next/link";
 import { DrawstuffLogo } from "@/components/icons";
 import { useSyncTheme } from "@/hooks/use-sync-theme";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
 import { buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
@@ -98,7 +98,7 @@ export function PublishedSceneViewer({
   sceneName,
   authorName,
 }: PublishedSceneViewerProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const { setTheme, browserActiveTheme } = useSyncTheme();
   const [scene, setScene] = useState<LoadedScene | null>(null);
   const [sceneSvg, setSceneSvg] = useState<SVGSVGElement | null>(null);

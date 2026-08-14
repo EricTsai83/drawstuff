@@ -1,23 +1,18 @@
-import { useCallback } from "react";
-import { useExcalidrawI18n } from "@drawstuff/excalidraw-adapter/client";
-import {
-  appTranslations,
-  formatPlaceholders,
-  type PlaceholderValues,
-} from "@/lib/i18n-shared";
+"use client";
 
-export function useAppI18n() {
-  const { t: baseT, langCode } = useExcalidrawI18n();
+import { useI18nContext } from "@/hooks/i18n-context";
+import type { AppLanguage, AppTranslate } from "@/lib/i18n";
 
-  const t = useCallback(
-    (key: string, values?: PlaceholderValues): string => {
-      const local =
-        appTranslations[langCode]?.[key] ?? appTranslations.en?.[key];
-      const raw = local ?? baseT(key);
-      return formatPlaceholders(raw, values);
-    },
-    [baseT, langCode],
-  );
+type AppI18n = {
+  readonly t: AppTranslate;
+  readonly langCode: AppLanguage;
+};
 
-  return { t, langCode } as const;
+/**
+ * 應用層字串的唯一取用入口，編輯器內外共用同一份由 server 下發的字典。
+ * `t` 只接受 AppTranslationKey，打錯 key 是編譯錯誤而非 runtime echo。
+ */
+export function useAppI18n(): AppI18n {
+  const { t, language } = useI18nContext();
+  return { t, langCode: language };
 }

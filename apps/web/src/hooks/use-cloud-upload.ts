@@ -21,7 +21,7 @@ import { useUploadThing } from "@/lib/uploadthing";
 import type { NonDeletedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { APP_ERROR } from "@/lib/errors";
 import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
 
@@ -87,7 +87,7 @@ export function useCloudUpload(
   const lastSyncedRevisionRef = useRef<number | undefined>(lastSyncedRevision);
   lastSyncedRevisionRef.current = lastSyncedRevision;
   const utils = api.useUtils();
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   // 只解構 startUpload：useUploadThing 回傳物件每次 render 都是新的，
   // 只有 startUpload 是穩定 identity，放進 deps 才不會讓 callback 每次重建
   const { startUpload: startAssetUpload } = useUploadThing(

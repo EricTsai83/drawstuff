@@ -5,6 +5,8 @@ import type * as ExcalidrawClientModule from "@drawstuff/excalidraw-adapter/clie
 import { CloudUploadButton } from "@/components/excalidraw/cloud-upload-button";
 import { CollaborationButton } from "@/components/excalidraw/collaboration-button";
 import { ShareSceneButton } from "@/components/excalidraw/share-scene-button";
+import { I18nProvider } from "@/hooks/i18n-context";
+import { en } from "@/lib/i18n/en";
 
 vi.mock("@drawstuff/excalidraw-adapter/client", async (importOriginal) => {
   const actual = await importOriginal<typeof ExcalidrawClientModule>();
@@ -27,8 +29,17 @@ const actEnvironment = globalThis as unknown as {
 let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
+// 應用層字串現在由 I18nProvider 下發，元件不再自行讀 localStorage
+function withI18n(ui: ReactElement): ReactElement {
+  return (
+    <I18nProvider initialLanguage="en" initialDictionary={en}>
+      {ui}
+    </I18nProvider>
+  );
+}
+
 function render(ui: ReactElement): HTMLButtonElement {
-  act(() => root.render(ui));
+  act(() => root.render(withI18n(ui)));
   const button = container.querySelector("button");
   if (!button) throw new Error("expected an action button");
   return button;
@@ -79,11 +90,13 @@ describe("Canvas product action presentations", () => {
 
     act(() =>
       root.render(
-        <ShareSceneButton
-          exportStatus="idle"
-          presentation="wide"
-          onClick={onClick}
-        />,
+        withI18n(
+          <ShareSceneButton
+            exportStatus="idle"
+            presentation="wide"
+            onClick={onClick}
+          />,
+        ),
       ),
     );
     button = container.querySelector("button") as HTMLButtonElement;
@@ -106,12 +119,14 @@ describe("Canvas product action presentations", () => {
 
     act(() =>
       root.render(
-        <CollaborationButton
-          status="sync-blocked"
-          isReadOnly
-          presentation="wide"
-          onClick={vi.fn()}
-        />,
+        withI18n(
+          <CollaborationButton
+            status="sync-blocked"
+            isReadOnly
+            presentation="wide"
+            onClick={vi.fn()}
+          />,
+        ),
       ),
     );
     expect(container.textContent).toContain("Sync stopped");

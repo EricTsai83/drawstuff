@@ -5,11 +5,11 @@ import { Home, PanelsTopLeft } from "lucide-react";
 
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 import { buttonVariants } from "@/components/ui/button";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { routes } from "@/lib/routes";
 
 export default function NotFound() {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
 
   return (
     <main className="bg-background text-foreground flex min-h-screen items-center justify-center px-4 py-10">

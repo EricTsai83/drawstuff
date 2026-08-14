@@ -1,15 +1,12 @@
 import { act, type ReactElement } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type * as ExcalidrawClientModule from "@drawstuff/excalidraw-adapter/client";
 
 /**
- * What blocks a main-menu item from rendering in isolation is the i18n hook
- * chain (`useAppI18n` → adapter `useI18n` → an isolated `useAtomValue` from
- * upstream's `jotai-scope` `createIsolation()`), which throws without the
- * Excalidraw provider. `MainMenu.Item` / `ItemCustom` are a plain button/div
- * over defaulted contexts and are not the obstacle. So every item here is
- * unit-testable once the adapter's i18n hook is mocked.
+ * App strings now come from `I18nProvider`, not from the adapter's i18n hook, so
+ * a menu item no longer needs the Excalidraw provider to render: wrapping it in
+ * `I18nProvider` is enough. `MainMenu.Item` / `ItemCustom` are a plain
+ * button/div over defaulted contexts and were never the obstacle.
  *
  * KNOWN GAP: the session-gated items that also need auth/tRPC/workspace state
  * (`workspace-switcher-item`, `dashboard-link-item`, `account-item`) and the
@@ -18,20 +15,14 @@ import type * as ExcalidrawClientModule from "@drawstuff/excalidraw-adapter/clie
  * exercise the session-gated ones either.
  */
 
-vi.mock("@drawstuff/excalidraw-adapter/client", async (importOriginal) => {
-  const actual = await importOriginal<typeof ExcalidrawClientModule>();
-  return {
-    ...actual,
-    useExcalidrawI18n: () => ({ t: (key: string) => key, langCode: "en" }),
-  };
-});
-
 import { MenuActionItem } from "@/components/excalidraw/main-menu/menu-action-item";
 import { NewSceneItem } from "@/components/excalidraw/main-menu/new-scene-item";
 import { RenameSceneItem } from "@/components/excalidraw/main-menu/rename-scene-item";
 import { SceneTitle } from "@/components/excalidraw/main-menu/scene-title";
 import { SettingsItem } from "@/components/excalidraw/main-menu/settings-item";
 import { SocialLinksItem } from "@/components/excalidraw/main-menu/social-links-item";
+import { I18nProvider } from "@/hooks/i18n-context";
+import { en } from "@/lib/i18n/en";
 
 const actEnvironment = globalThis as unknown as {
   IS_REACT_ACT_ENVIRONMENT: boolean;
@@ -41,7 +32,14 @@ let container: HTMLDivElement;
 let root: ReturnType<typeof createRoot>;
 
 function render(ui: ReactElement): void {
-  act(() => root.render(ui));
+  // 應用層字串現在由 I18nProvider 下發，元件不再自行讀 localStorage
+  act(() =>
+    root.render(
+      <I18nProvider initialLanguage="en" initialDictionary={en}>
+        {ui}
+      </I18nProvider>,
+    ),
+  );
 }
 
 function renderedItem(): HTMLElement {

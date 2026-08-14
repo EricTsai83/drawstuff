@@ -65,7 +65,7 @@ import { useCollaborationRoom } from "@/hooks/excalidraw/use-collaboration-room"
 import { useCollaborationRoomKey } from "@/hooks/excalidraw/use-collaboration-room-key";
 import { CollaborationRoomDialog } from "@/components/excalidraw/collaboration-room-dialog";
 import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
 import { clearCanvasForWorkspaceDeletion } from "@/lib/workspace-deletion";
@@ -75,7 +75,7 @@ import type { CanvasProductActions } from "./canvas-product-actions";
 const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
 
 export default function ExcalidrawEditor() {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   useSceneImportFileGuard();
   const [excalidrawAPI, excalidrawRefCallback] =
     useCallbackRefState<ExcalidrawImperativeAPI>();

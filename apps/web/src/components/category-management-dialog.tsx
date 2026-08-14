@@ -25,7 +25,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { categoryNameSchema } from "@/lib/schemas/category";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { FORM_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
 import { Spinner } from "@/components/ui/spinner";
 import { Field, FieldGroup } from "@/components/ui/field";
@@ -41,7 +41,7 @@ export function CategoryManagementDialog({
   open,
   onOpenChange,
 }: CategoryManagementDialogProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const utils = api.useUtils();
   const { data: categories, isLoading } = api.category.list.useQuery(
     undefined,

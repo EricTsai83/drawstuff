@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { useStandaloneI18n } from "@/hooks/use-standalone-i18n";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import { signInWithGoogle } from "@/lib/auth/client";
 
 type GoogleSignInButtonProps = {
@@ -15,7 +15,7 @@ export function GoogleSignInButton({
   label,
   pendingLabel,
 }: GoogleSignInButtonProps) {
-  const { t } = useStandaloneI18n();
+  const { t } = useAppI18n();
   const [isSigningIn, setIsSigningIn] = useState(false);
   const resolvedLabel = label ?? t("auth.continueWithGoogle");
   const resolvedPendingLabel = pendingLabel ?? t("auth.connecting");

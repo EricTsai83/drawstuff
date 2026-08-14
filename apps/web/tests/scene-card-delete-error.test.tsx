@@ -25,20 +25,12 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ back: vi.fn() }),
 }));
 
-vi.mock("@/hooks/use-standalone-i18n", async () => {
-  const { translateApp } = await vi.importActual<{
-    translateApp: (
-      langCode: string,
-      key: string,
-      values?: Record<string, string | number>,
-    ) => string;
-  }>("@/lib/i18n-shared");
+vi.mock("@/hooks/use-app-i18n", async () => {
+  // 這兩個 module 沒有被 mock，直接 import 就是真實字典與 translate factory
+  const { en } = await import("@/lib/i18n/en");
+  const { createAppTranslate } = await import("@/lib/i18n");
   return {
-    useStandaloneI18n: () => ({
-      langCode: "en",
-      t: (key: string, values?: Record<string, string | number>) =>
-        translateApp("en", key, values),
-    }),
+    useAppI18n: () => ({ langCode: "en", t: createAppTranslate(en) }),
   };
 });
 

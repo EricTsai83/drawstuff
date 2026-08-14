@@ -4,6 +4,7 @@ import { CloudOff, CloudUpload, CheckCircle2, AlertCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { authClient } from "@/lib/auth/client";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import type { AppTranslate } from "@/lib/i18n";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
@@ -56,7 +57,7 @@ export function CloudUploadButton({
 
 function getStatusConfig(
   status: UploadStatus,
-  t: (key: string) => string,
+  t: AppTranslate,
   errorMessage?: string,
 ) {
   switch (status) {

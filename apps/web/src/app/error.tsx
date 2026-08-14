@@ -1,6 +1,6 @@
 "use client";
 
-import { ErrorPage, type AppError } from "@/components/error-page";
+import { TranslatedErrorPage, type AppError } from "@/components/error-page";
 
 export default function Error({
   error,
@@ -9,5 +9,5 @@ export default function Error({
   error: AppError;
   reset: () => void;
 }) {
-  return <ErrorPage error={error} reset={reset} />;
+  return <TranslatedErrorPage error={error} reset={reset} />;
 }
