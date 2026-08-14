@@ -22,6 +22,10 @@ const machineWith = (
     maxAttempts: 3,
     // Mid-range jitter, so an equal-jitter delay is exactly 3/4 of the cap.
     random: () => 0.5,
+    // Zero window means any resolved baseline clears the budget, so the tests
+    // that are not about live stability keep their legacy arithmetic; the
+    // stability tests below override this with an explicit clock.
+    liveStabilityMs: 0,
     ...overrides,
   });
 
@@ -308,5 +312,102 @@ describe("createRecoveryMachine", () => {
     expect(() => createRecoveryMachine({ maxAttempts: 0 })).toThrow(
       /maxAttempts/,
     );
+    expect(() => createRecoveryMachine({ liveStabilityMs: -1 })).toThrow(
+      /liveStabilityMs/,
+    );
+  });
+});
+
+/**
+ * The live-stability window. A defect that reproduces right after every
+ * successful baseline — e.g. a relay bug on the first post-sync frame, closed
+ * with `internalError` — makes a session that syncs and dies within a second,
+ * over and over. Clearing the budget on `synced()` would retry that loop
+ * forever from the first backoff delay; the window makes each short-lived live
+ * session keep spending one budget, so the loop ends in `retry-limit`.
+ */
+describe("recovery live-stability window", () => {
+  const stableMachine = (
+    now: () => number,
+    maxAttempts = 3,
+  ): RecoveryMachine =>
+    machineWith({ maxAttempts, liveStabilityMs: 30_000, now });
+
+  it("keeps spending the budget across live sessions that die inside the window", () => {
+    let current = 0;
+    const machine = stableMachine(() => current);
+
+    // Each loop syncs successfully and dies one second later.
+    for (let round = 1; round <= 2; round += 1) {
+      machine.start();
+      machine.connected();
+      machine.synced();
+      current += 1_000;
+      // The budget was not repaid: the next attempt number keeps climbing
+      // instead of restarting from 1.
+      expect(machine.lost("transient")).toMatchObject({
+        phase: "waiting",
+        attempt: round + 1,
+      });
+    }
+
+    // The third short-lived live session spends the last of the budget.
+    machine.start();
+    machine.connected();
+    machine.synced();
+    current += 1_000;
+    expect(machine.lost("transient")).toEqual({
+      phase: "failed",
+      reason: "retry-limit",
+    });
+  });
+
+  it("clears the budget once a session has stayed live past the window", () => {
+    let current = 0;
+    const machine = stableMachine(() => current);
+
+    // One short-lived live session spends budget...
+    machine.start();
+    machine.connected();
+    machine.synced();
+    current += 1_000;
+    expect(machine.lost("transient")).toMatchObject({ attempt: 2 });
+
+    // ...and a stably live one repays it: the next loss backs off as a first
+    // retry again, so an ordinary relay restart never accumulates history.
+    machine.start();
+    machine.connected();
+    machine.synced();
+    current += 30_000;
+    expect(machine.lost("transient")).toMatchObject({
+      phase: "waiting",
+      attempt: 1,
+      delayMs: 75,
+    });
+  });
+
+  it("does not let a pre-baseline failure consult a stale live timestamp", () => {
+    let current = 0;
+    const machine = stableMachine(() => current, 2);
+
+    // A stably live session, then a loss: budget repaid.
+    machine.start();
+    machine.connected();
+    machine.synced();
+    current += 60_000;
+    expect(machine.lost("transient")).toMatchObject({ attempt: 1 });
+
+    // The next attempts die before their baselines. However much time passes,
+    // that is never progress — the budget must keep draining to exhaustion.
+    machine.start();
+    machine.connected();
+    current += 60_000;
+    expect(machine.lost("transient")).toMatchObject({ attempt: 2 });
+    machine.start();
+    current += 60_000;
+    expect(machine.lost("transient")).toEqual({
+      phase: "failed",
+      reason: "retry-limit",
+    });
   });
 });

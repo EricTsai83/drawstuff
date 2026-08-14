@@ -268,9 +268,15 @@ export const RELAY_CLOSE_CODES = {
    * would tell the client "you are broken, report a bug" and end the session
    * terminally for a failure the client did not cause. Deliberately *not*
    * enumerated in `disconnectReasonForCloseCode`, so it reads as `transient`
-   * by construction: a reconnect is worth one try, and a relay defect that
-   * keeps reproducing spends the recovery retry budget and stops with a
-   * stated reason instead of retrying forever.
+   * by construction and a reconnect is worth trying.
+   *
+   * Retries are bounded wherever the defect fires. Before the baseline
+   * resolves, the recovery retry budget applies directly. After a successful
+   * baseline, the budget is repaid only once the session has *stayed* live for
+   * the recovery machine's stability window (`./recovery.ts`), so a defect
+   * that reproduces on the first post-sync frame keeps spending one budget
+   * across its sync-and-die loops and ends in `retry-limit` with a stated
+   * reason.
    */
   internalError: 4014,
 } as const;

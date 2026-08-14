@@ -52,6 +52,11 @@ const TEST_RECOVERY = {
   maxDelayMs: 1_000,
   maxAttempts: 3,
   random: () => 0,
+  // These tests state live lifetimes with a clock that only moves when a test
+  // moves it, so a non-zero window would count every synced session as
+  // short-lived. Zero keeps "any resolved baseline clears the budget"; the
+  // live-stability behavior has its own test below.
+  liveStabilityMs: 0,
 } as const;
 
 /** Comfortably past any scheduled retry in these tests. */
@@ -662,6 +667,47 @@ describe("unrecoverable connection states", () => {
     // Exactly the configured budget, then it stops asking.
     expect(client.tokenRefreshCount).toBe(TEST_RECOVERY.maxAttempts);
     expect(client.timers.pendingCount).toBe(0);
+  });
+
+  it("gives up on a defect that reproduces right after every successful sync", async () => {
+    // Plan 07 review follow-up: a relay defect that closes the connection on
+    // the first post-baseline frame produces sessions that sync and die at
+    // once. Each such session must keep spending one retry budget — a synced
+    // baseline alone must not repay it — so the loop ends in `retry-limit`
+    // instead of retrying forever from the first backoff delay.
+    const client = harness.createClient("client-crashloop", {
+      recovery: { ...TEST_RECOVERY, liveStabilityMs: 30_000 },
+    });
+    client.session.connect();
+    harness.settle();
+
+    for (let round = 0; round < 4; round += 1) {
+      // The clock never advances between sync and drop: every live session
+      // dies inside the stability window.
+      harness.network.dropConnection(client.transport);
+      if (client.session.getRecoveryState().phase === "failed") break;
+      await harness.advanceAndSettle([client], PAST_EVERY_TIMER_MS);
+    }
+
+    expect(client.session.getRecoveryState()).toEqual({
+      phase: "failed",
+      reason: "retry-limit",
+    });
+    expect(client.timers.pendingCount).toBe(0);
+
+    // The same loop with stably live sessions never exhausts the budget: time
+    // past the window between sync and drop repays it every round.
+    const stable = harness.createClient("client-stable", {
+      recovery: { ...TEST_RECOVERY, liveStabilityMs: 30_000 },
+    });
+    stable.session.connect();
+    harness.settle();
+    for (let round = 0; round < 6; round += 1) {
+      harness.clock.now += 60_000;
+      harness.network.dropConnection(stable.transport);
+      await harness.advanceAndSettle([stable], PAST_EVERY_TIMER_MS);
+    }
+    expect(stable.session.getRecoveryState()).toEqual({ phase: "live" });
   });
 
   it("keeps retrying while the backend is merely unreachable", async () => {
