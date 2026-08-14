@@ -6,6 +6,7 @@ import {
   MAX_RELAY_CONTROL_FRAME_BYTES,
   parseRelayClientControl,
   RELAY_CLOSE_CODES,
+  unsupportedJoinProtocolVersionOf,
 } from "@drawstuff/collaboration/relay-protocol";
 import {
   roomChannelKey,
@@ -317,6 +318,21 @@ export function createRelayConnection(options: {
       }
       const control = parseRelayClientControl(text);
       if (!control) {
+        // An outdated tab is not a broken client: a join whose only certain
+        // defect is a pre-bump protocol version gets the close code that
+        // tells it to reload rather than to report a protocol bug.
+        const staleVersion = unsupportedJoinProtocolVersionOf(text);
+        if (staleVersion !== undefined) {
+          logger.warn("relay.join_refused", {
+            joinRefusal: "unsupported-protocol-version",
+            receivedProtocolVersion: staleVersion,
+          });
+          end(
+            RELAY_CLOSE_CODES.unsupportedProtocolVersion,
+            "unsupported protocol version",
+          );
+          return;
+        }
         end(RELAY_CLOSE_CODES.protocolViolation, "malformed control frame");
         return;
       }

@@ -234,6 +234,24 @@ describe("createRelayConnection", () => {
     );
   });
 
+  it("tells an outdated protocol version to reload, not that it is broken", () => {
+    // A pre-bump tab fails the strict join schema, but it is not a protocol
+    // violation: its own dedicated close code is what lets the client render
+    // "refresh this page" instead of "report a bug".
+    const { socket, connection } = setup();
+    connection.handleTextFrame(
+      JSON.stringify({
+        control: "join",
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION - 1,
+        roomId: ROOM_ID,
+        token: "stale-tab-token",
+      }),
+    );
+    expect(socket.closedWith?.code).toBe(
+      RELAY_CLOSE_CODES.unsupportedProtocolVersion,
+    );
+  });
+
   it("closes on a duplicate join", () => {
     const { socket, fanout, join } = setup();
     join();

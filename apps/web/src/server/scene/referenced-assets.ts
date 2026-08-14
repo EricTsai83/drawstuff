@@ -36,7 +36,15 @@ export async function readReferencedSceneAssetIds(
     const { data } = await decompressData<Record<string, never>>(compressed, {
       decryptionKey: "",
     });
-    const parsed = parseDrawstuffDocument(new TextDecoder().decode(data));
+    const result = parseDrawstuffDocument(new TextDecoder().decode(data));
+    if (!result.ok) {
+      console.error(
+        "Failed to parse scene asset references:",
+        result.error.detail,
+      );
+      return null;
+    }
+    const parsed = result.document;
     const ids = new Set<string>();
     for (const element of parsed.scene
       .elements as readonly StoredSceneElement[]) {

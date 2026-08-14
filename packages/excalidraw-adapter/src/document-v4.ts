@@ -105,51 +105,120 @@ export function createLocalExportDocument(input: {
   };
 }
 
+export type DrawstuffDocumentParseError = {
+  code:
+    "malformed-json" | "retired-owned-whiteboard-v3" | "unsupported-payload";
+  detail: string;
+};
+
+export type ParseDrawstuffDocumentResult =
+  | { ok: true; document: DrawstuffDocumentV4 }
+  | { ok: false; error: DrawstuffDocumentParseError };
+
 export function serializeDrawstuffDocumentV4(
   document: DrawstuffDocumentV4,
 ): string {
-  return JSON.stringify(parseDrawstuffDocument(document));
+  return JSON.stringify(canonicalize(document));
 }
 
-export function parseDrawstuffDocument(payload: unknown): DrawstuffDocumentV4 {
-  const parsed = parseJson(payload);
-  if (isDrawstuffDocumentV4(parsed)) {
-    // Documents are returned in the single canonical V4 shape. Fields that
-    // older writers emitted (`engine.version`, non-contract `appState` keys
-    // such as `theme`) are not part of the document any more, so they are
-    // dropped instead of being carried forward on the next write.
+export function parseDrawstuffDocument(
+  payload: unknown,
+): ParseDrawstuffDocumentResult {
+  let parsed: unknown;
+  try {
+    parsed = parseJson(payload);
+  } catch (error) {
     return {
-      version: DRAWSTUFF_DOCUMENT_VERSION,
-      engine: { name: "excalidraw" },
-      scene: {
-        elements: parsed.scene.elements,
-        appState: selectOfficialServerAppState(parsed.scene.appState),
+      ok: false,
+      error: {
+        code: "malformed-json",
+        detail: error instanceof Error ? error.message : String(error),
       },
-      assets: parsed.assets,
-      metadata: { name: parsed.metadata.name },
     };
   }
+  if (isDrawstuffDocumentV4(parsed)) {
+    return { ok: true, document: canonicalize(parsed) };
+  }
   if (isOwnedWhiteboardV3(parsed)) {
-    throw new Error(
-      "Owned Whiteboard V3 documents are no longer readable; they were " +
-        "rewritten to Drawstuff V4 on 2026-08-01",
-    );
+    return {
+      ok: false,
+      error: {
+        code: "retired-owned-whiteboard-v3",
+        detail:
+          "Owned Whiteboard V3 documents are no longer readable; they were " +
+          "rewritten to Drawstuff V4 on 2026-08-01",
+      },
+    };
   }
   if (isLegacyExcalidrawPayload(parsed)) {
-    return createDrawstuffDocumentV4({
-      elements: parsed.elements,
-      appState: objectOrEmpty(parsed.appState),
-      name: objectOrEmpty(parsed.appState).name as string | undefined,
-    });
+    return {
+      ok: true,
+      document: createDrawstuffDocumentV4({
+        elements: parsed.elements,
+        appState: objectOrEmpty(parsed.appState),
+        name: objectOrEmpty(parsed.appState).name as string | undefined,
+      }),
+    };
   }
-  throw new Error("Unsupported Drawstuff document payload");
+  return {
+    ok: false,
+    error: {
+      code: "unsupported-payload",
+      detail: "Unsupported Drawstuff document payload",
+    },
+  };
+}
+
+/**
+ * Documents are returned in the single canonical V4 shape. Fields that
+ * older writers emitted (`engine.version`, non-contract `appState` keys
+ * such as `theme`) are not part of the document any more, so they are
+ * dropped instead of being carried forward on the next write.
+ */
+function canonicalize(document: DrawstuffDocumentV4): DrawstuffDocumentV4 {
+  return {
+    version: DRAWSTUFF_DOCUMENT_VERSION,
+    engine: { name: "excalidraw" },
+    scene: {
+      elements: document.scene.elements,
+      appState: selectOfficialServerAppState(document.scene.appState),
+    },
+    assets: canonicalAssets(document.assets),
+    metadata: { name: document.metadata.name },
+  };
+}
+
+/**
+ * Asset entries get the same treatment as `appState`: only the contract
+ * fields survive canonicalization, so a stored entry that carries anything
+ * extra loses it on the next read instead of ferrying it forward forever.
+ * Stripping rather than refusing keeps documents written before asset
+ * entries were validated readable.
+ */
+function canonicalAssets(
+  assets: Readonly<Record<string, DrawstuffAssetMetadata>>,
+): Readonly<Record<string, DrawstuffAssetMetadata>> {
+  return Object.fromEntries(
+    Object.entries(assets).map(([key, entry]) => [
+      key,
+      {
+        id: entry.id,
+        storage: entry.storage,
+        ...(entry.mimeType !== undefined && { mimeType: entry.mimeType }),
+        ...(entry.created !== undefined && { created: entry.created }),
+        ...(entry.lastRetrieved !== undefined && {
+          lastRetrieved: entry.lastRetrieved,
+        }),
+      },
+    ]),
+  );
 }
 
 export function toNativeExcalidrawScene(document: DrawstuffDocumentV4): {
   readonly elements: readonly ExcalidrawElement[];
   readonly appState: Partial<AppState>;
 } {
-  const parsed = parseDrawstuffDocument(document);
+  const parsed = canonicalize(document);
   return {
     elements: parsed.scene.elements as readonly ExcalidrawElement[],
     appState: {
@@ -176,7 +245,32 @@ function isDrawstuffDocumentV4(value: unknown): value is DrawstuffDocumentV4 {
   if (!isObject(value.assets) || !isObject(value.metadata)) {
     return false;
   }
+  if (!Object.values(value.assets).every(isAssetMetadata)) {
+    return false;
+  }
   return typeof value.metadata.name === "string";
+}
+
+/**
+ * The one part of a V4 document the reader used to accept unchecked. Every
+ * field the asset relation depends on is pinned to its contract type; a
+ * document whose `assets` map breaks any of them is not a V4 document, the
+ * same answer any other malformed section gets. Fields beyond the contract
+ * are tolerated here and dropped by `canonicalAssets`.
+ */
+function isAssetMetadata(value: unknown): value is DrawstuffAssetMetadata {
+  if (!isObject(value)) return false;
+  if (typeof value.id !== "string" || value.id.length === 0) return false;
+  if (value.storage !== "external") return false;
+  if (value.mimeType !== undefined && typeof value.mimeType !== "string") {
+    return false;
+  }
+  if (value.created !== undefined && typeof value.created !== "number") {
+    return false;
+  }
+  return (
+    value.lastRetrieved === undefined || typeof value.lastRetrieved === "number"
+  );
 }
 
 function isLegacyExcalidrawPayload(value: unknown): value is {

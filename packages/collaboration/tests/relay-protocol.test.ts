@@ -12,6 +12,7 @@ import {
 } from "../src/realtime-crypto.ts";
 import {
   decodeRelayDataFrame,
+  disconnectReasonForCloseCode,
   encodeRelayControl,
   encodeRelayDataFrame,
   maxRelayDataFrameBytesFor,
@@ -19,6 +20,8 @@ import {
   MAX_RELAY_DATA_FRAME_BYTES,
   parseRelayClientControl,
   parseRelayServerControl,
+  RELAY_CLOSE_CODES,
+  unsupportedJoinProtocolVersionOf,
   type RelayServerControl,
 } from "../src/relay-protocol.ts";
 import { JOIN_TOKEN, PEER_A, ROOM_ID, sceneMessage } from "./helpers.ts";
@@ -136,5 +139,65 @@ describe("relay control frames", () => {
         }),
       ),
     ).toBeUndefined();
+  });
+});
+
+describe("protocol version bumps", () => {
+  const joinWithVersion = (protocolVersion: unknown): string =>
+    JSON.stringify({
+      control: "join",
+      protocolVersion,
+      roomId: ROOM_ID,
+      token: JOIN_TOKEN,
+    });
+
+  it("detects a join whose declared version predates this build's", () => {
+    expect(
+      unsupportedJoinProtocolVersionOf(
+        joinWithVersion(COLLABORATION_PROTOCOL_VERSION - 1),
+      ),
+    ).toBe(COLLABORATION_PROTOCOL_VERSION - 1);
+  });
+
+  it("does not flag current or newer versions, or non-join garbage", () => {
+    // The current version is not a mismatch even when the join is otherwise
+    // malformed: that stays a protocol violation.
+    expect(
+      unsupportedJoinProtocolVersionOf(
+        joinWithVersion(COLLABORATION_PROTOCOL_VERSION),
+      ),
+    ).toBeUndefined();
+    // A newer version is an outdated *relay* (client rolled out first), not an
+    // outdated tab: "refresh this page" would prescribe the one action that
+    // cannot help, so it stays on the generic violation path.
+    expect(
+      unsupportedJoinProtocolVersionOf(
+        joinWithVersion(COLLABORATION_PROTOCOL_VERSION + 1),
+      ),
+    ).toBeUndefined();
+    expect(unsupportedJoinProtocolVersionOf("not json")).toBeUndefined();
+    expect(
+      unsupportedJoinProtocolVersionOf('{"control":"leave"}'),
+    ).toBeUndefined();
+    expect(
+      unsupportedJoinProtocolVersionOf(joinWithVersion("2")),
+    ).toBeUndefined();
+    expect(
+      unsupportedJoinProtocolVersionOf(
+        `{"control":"join","pad":"${"x".repeat(MAX_RELAY_CONTROL_FRAME_BYTES)}"}`,
+      ),
+    ).toBeUndefined();
+  });
+
+  it("maps the unsupported-version close code to its own terminal reason", () => {
+    expect(
+      disconnectReasonForCloseCode(
+        RELAY_CLOSE_CODES.unsupportedProtocolVersion,
+      ),
+    ).toBe("unsupported-protocol-version");
+    // Still distinct from a wire-contract violation.
+    expect(
+      disconnectReasonForCloseCode(RELAY_CLOSE_CODES.protocolViolation),
+    ).toBe("protocol");
   });
 });

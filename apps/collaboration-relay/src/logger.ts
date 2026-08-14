@@ -99,7 +99,10 @@ type RelayLogFields = {
     | "room-at-capacity"
     | "relay-rooms-at-capacity"
     | "join-rate-limited"
-    | "already-joined";
+    | "already-joined"
+    | "unsupported-protocol-version";
+  /** Protocol version an outdated join declared; a number, never user data. */
+  receivedProtocolVersion?: number;
   sessionDurationMs?: number;
   connections?: number;
   rooms?: number;
@@ -154,6 +157,7 @@ const LOGGABLE_FIELDS: Record<keyof RelayLogFields, true> = {
   closeReason: true,
   tokenFailure: true,
   joinRefusal: true,
+  receivedProtocolVersion: true,
   sessionDurationMs: true,
   connections: true,
   rooms: true,

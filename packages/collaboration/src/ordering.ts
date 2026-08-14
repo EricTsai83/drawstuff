@@ -50,20 +50,6 @@ export function createInboundMessageGate(session: {
   let lastSceneSequence = new Map<PeerId, number>();
   let lastPresenceSequence = new Map<PeerId, number>();
 
-  const checkSequence = (
-    lastBySender: Map<PeerId, number>,
-    message: CollaborationMessage,
-  ): InboundGateRejection | undefined => {
-    const lastSequence = lastBySender.get(message.senderPeerId) ?? 0;
-    if (message.sequence === lastSequence) {
-      return { action: "reject", reason: "duplicate-message" };
-    }
-    if (message.sequence < lastSequence) {
-      return { action: "reject", reason: "stale-sequence" };
-    }
-    return undefined;
-  };
-
   return {
     accept(message) {
       if (message.roomId !== roomId) {
@@ -79,12 +65,13 @@ export function createInboundMessageGate(session: {
 
       const lastBySender =
         message.type === "presence" ? lastPresenceSequence : lastSceneSequence;
-      const rejection = checkSequence(lastBySender, message);
-      if (rejection) {
-        return rejection;
-      }
-
       const lastSequence = lastBySender.get(message.senderPeerId) ?? 0;
+      if (message.sequence === lastSequence) {
+        return { action: "reject", reason: "duplicate-message" };
+      }
+      if (message.sequence < lastSequence) {
+        return { action: "reject", reason: "stale-sequence" };
+      }
       lastBySender.set(message.senderPeerId, message.sequence);
 
       // A snapshot carries the sender's full scene, so skipped deltas before

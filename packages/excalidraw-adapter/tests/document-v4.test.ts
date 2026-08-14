@@ -56,7 +56,7 @@ describe("DrawstuffDocumentV4", () => {
         },
       }),
     );
-    const loaded = parseDrawstuffDocument(serialized);
+    const loaded = parsedDocument(serialized);
     const native = toNativeExcalidrawScene(loaded);
 
     expect(loaded.version).toBe(DRAWSTUFF_DOCUMENT_VERSION);
@@ -106,7 +106,7 @@ describe("DrawstuffDocumentV4", () => {
         appState: { viewBackgroundColor: "#fff", theme: "dark" },
       },
     };
-    const parsed = parseDrawstuffDocument(historical);
+    const parsed = parsedDocument(historical);
 
     expect(parsed.engine).toEqual({ name: "excalidraw" });
     expect(parsed.scene.appState).toEqual({ viewBackgroundColor: "#fff" });
@@ -115,8 +115,32 @@ describe("DrawstuffDocumentV4", () => {
     expect(serializeDrawstuffDocumentV4(historical)).not.toContain('"theme"');
   });
 
+  it("drops non-contract fields from asset entries instead of carrying them", () => {
+    const stored = {
+      ...createDrawstuffDocumentV4({ elements, appState: { name: "Assets" } }),
+      assets: {
+        "asset-1": {
+          id: "asset-1",
+          storage: "external" as const,
+          mimeType: "image/png",
+          uploadedBy: "someone@example.com",
+        },
+      },
+    };
+    const parsed = parsedDocument(stored);
+
+    expect(parsed.assets).toEqual({
+      "asset-1": {
+        id: "asset-1",
+        storage: "external",
+        mimeType: "image/png",
+      },
+    });
+    expect(serializeDrawstuffDocumentV4(stored)).not.toContain("uploadedBy");
+  });
+
   it("reads raw legacy Excalidraw payloads", () => {
-    const legacy = parseDrawstuffDocument({
+    const legacy = parsedDocument({
       elements,
       appState: { name: "Legacy", theme: "light", scrollX: 99 },
     });
@@ -127,17 +151,23 @@ describe("DrawstuffDocumentV4", () => {
   });
 
   it("rejects Owned Whiteboard V3 payloads instead of misreading them", () => {
-    expect(() =>
-      parseDrawstuffDocument({
-        version: 3,
-        elements: [{ id: "v3-rect", type: "rectangle", updatedAt: 1234 }],
-        metadata: { name: "V3 fixture", theme: "dark" },
-      }),
-    ).toThrow(/Owned Whiteboard V3 documents are no longer readable/);
+    const result = parseDrawstuffDocument({
+      version: 3,
+      elements: [{ id: "v3-rect", type: "rectangle", updatedAt: 1234 }],
+      metadata: { name: "V3 fixture", theme: "dark" },
+    });
+    expect(result).toMatchObject({
+      ok: false,
+      error: { code: "retired-owned-whiteboard-v3" },
+    });
+    if (result.ok) throw new Error("expected a failed parse");
+    expect(result.error.detail).toMatch(
+      /Owned Whiteboard V3 documents are no longer readable/,
+    );
   });
 
   it("reads raw Excalidraw payloads whose upstream format version is 3", () => {
-    const legacy = parseDrawstuffDocument({
+    const legacy = parsedDocument({
       type: "excalidraw",
       version: 3,
       source: "https://excalidraw.com",
@@ -151,8 +181,27 @@ describe("DrawstuffDocumentV4", () => {
   });
 
   it("rejects payloads that are neither V4 documents nor Excalidraw scenes", () => {
-    expect(() => parseDrawstuffDocument({ version: 4 })).toThrow(
-      "Unsupported Drawstuff document payload",
-    );
+    expect(parseDrawstuffDocument({ version: 4 })).toEqual({
+      ok: false,
+      error: {
+        code: "unsupported-payload",
+        detail: "Unsupported Drawstuff document payload",
+      },
+    });
+  });
+
+  it("rejects strings that are not JSON without throwing", () => {
+    expect(parseDrawstuffDocument("{not json")).toMatchObject({
+      ok: false,
+      error: { code: "malformed-json" },
+    });
   });
 });
+
+function parsedDocument(payload: unknown) {
+  const result = parseDrawstuffDocument(payload);
+  if (!result.ok) {
+    throw new Error(`expected ok parse, got ${result.error.code}`);
+  }
+  return result.document;
+}

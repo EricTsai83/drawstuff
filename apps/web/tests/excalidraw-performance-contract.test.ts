@@ -41,7 +41,9 @@ describe("performance baseline fixtures", () => {
         name: "performance baseline fixture",
       }),
     );
-    const parsed = parseDrawstuffDocument(serialized);
+    const result = parseDrawstuffDocument(serialized);
+    if (!result.ok) throw new Error(result.error.detail);
+    const parsed = result.document;
 
     expect(parsed.scene.elements).toHaveLength(LARGE_SCENE_ELEMENT_COUNT);
     expect(digest(parsed.scene.elements)).toBe(LARGE_SCENE_FIXTURE_DIGEST);

@@ -2,16 +2,10 @@ import tseslint from "typescript-eslint";
 // @ts-ignore -- no types for this plugin
 import drizzle from "eslint-plugin-drizzle";
 
-const adapterDeepImportRestriction = {
-  regex: "^@drawstuff/excalidraw-adapter/(?!client$|codec$|library$|types$)",
-  message:
-    "Import an explicit @drawstuff/excalidraw-adapter public entry point.",
-};
-
-const adapterInternalPathRestriction = {
-  group: ["**/packages/excalidraw-adapter/**"],
-  message: "Import @drawstuff/excalidraw-adapter through its package exports.",
-};
+import {
+  adapterDeepImportRestriction,
+  sharedTypescriptRules,
+} from "./eslint.shared.ts";
 
 export default tseslint.config(
   {
@@ -27,52 +21,10 @@ export default tseslint.config(
       ...tseslint.configs.recommendedTypeChecked,
       ...tseslint.configs.stylisticTypeChecked,
     ],
-    rules: {
-      "@typescript-eslint/array-type": "off",
-      "@typescript-eslint/consistent-type-definitions": "off",
-      "@typescript-eslint/consistent-type-imports": [
-        "warn",
-        { prefer: "type-imports", fixStyle: "inline-type-imports" },
-      ],
-      "@typescript-eslint/no-unused-vars": [
-        "warn",
-        { argsIgnorePattern: "^_" },
-      ],
-      "@typescript-eslint/require-await": "off",
-      "@typescript-eslint/no-misused-promises": [
-        "error",
-        { checksVoidReturn: { attributes: false } },
-      ],
-      "no-restricted-imports": [
-        "error",
-        {
-          paths: [
-            {
-              name: "@excalidraw/excalidraw",
-              message:
-                "Only @drawstuff/excalidraw-adapter may depend on the canvas engine.",
-            },
-          ],
-          patterns: [
-            {
-              group: ["@excalidraw/excalidraw/*"],
-              message:
-                "Only @drawstuff/excalidraw-adapter may depend on the canvas engine.",
-            },
-            adapterDeepImportRestriction,
-            adapterInternalPathRestriction,
-          ],
-        },
-      ],
-      "drizzle/enforce-delete-with-where": [
-        "error",
-        { drizzleObjectName: ["db", "ctx.db"] },
-      ],
-      "drizzle/enforce-update-with-where": [
-        "error",
-        { drizzleObjectName: ["db", "ctx.db"] },
-      ],
-    },
+    rules: sharedTypescriptRules({
+      canvasEngineMessage:
+        "Only @drawstuff/excalidraw-adapter may depend on the canvas engine.",
+    }),
   },
   {
     files: [

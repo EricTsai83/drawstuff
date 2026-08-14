@@ -3,18 +3,14 @@ import { z } from "zod";
 import {
   COLLABORATION_PROTOCOL_VERSION,
   collaborationMessageSchema,
-  MAX_PRESENCE_MESSAGE_BYTES,
-  MAX_SCENE_MESSAGE_BYTES,
   maxEncodedBytesFor,
+  maxMessageBytesFor,
+  messageChannelOf,
   type CollaborationMessage,
+  type MessageChannel,
 } from "./messages.ts";
 
-/**
- * Wire channel a payload arrived on. Scene messages travel on the
- * session-ordered channel, presence messages on the volatile channel, so a
- * receiver always knows the applicable byte budget before decoding.
- */
-export type MessageChannel = "scene" | "presence";
+export type { MessageChannel } from "./messages.ts";
 
 export type CollaborationProtocolError =
   | { code: "oversize-payload"; byteLength: number; maxByteLength: number }
@@ -33,12 +29,6 @@ const textEncoder = new TextEncoder();
 // Fatal so malformed UTF-8 is rejected instead of silently repaired into a
 // different (possibly valid) message via U+FFFD replacement.
 const textDecoder = new TextDecoder("utf-8", { fatal: true });
-
-const channelOf = (type: CollaborationMessage["type"]): MessageChannel =>
-  type === "presence" ? "presence" : "scene";
-
-const maxBytesForChannel = (channel: MessageChannel): number =>
-  channel === "presence" ? MAX_PRESENCE_MESSAGE_BYTES : MAX_SCENE_MESSAGE_BYTES;
 
 export function encodeCollaborationMessage(
   message: CollaborationMessage,
@@ -91,7 +81,7 @@ export function decodeCollaborationMessage(
 ): DecodeMessageResult {
   // The channel determines the byte budget, so raw bytes are bounded before
   // any JSON parsing — oversize input is never decoded, whatever it contains.
-  const maxByteLength = maxBytesForChannel(channel);
+  const maxByteLength = maxMessageBytesFor(channel);
   if (bytes.byteLength > maxByteLength) {
     return {
       ok: false,
@@ -142,7 +132,7 @@ export function decodeCollaborationMessage(
     };
   }
 
-  if (channelOf(parsed.data.type) !== channel) {
+  if (messageChannelOf(parsed.data.type) !== channel) {
     return {
       ok: false,
       error: {

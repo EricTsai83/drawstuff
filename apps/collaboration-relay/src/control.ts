@@ -1,5 +1,10 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
 
+import {
+  RELAY_CONTROL_PATH,
+  relayControlRequestSchema,
+  type RelayControlResponse,
+} from "@drawstuff/collaboration/relay-control";
 import { roomChannelKey } from "@drawstuff/collaboration/room-auth";
 import { verifyRoomControlToken } from "@drawstuff/collaboration/room-token";
 
@@ -19,20 +24,14 @@ import type { RelaySessionRegistry } from "./sessions.ts";
  * The endpoint is authenticated by the token alone (no session, no cookie, no
  * long-lived admin credential) and never accepts room state, scene data, or
  * key material.
+ *
+ * Path and body/response shapes are the shared contract in
+ * `@drawstuff/collaboration/relay-control`; re-exported for the server wiring.
  */
-export const RELAY_CONTROL_PATH = "/control/room";
+export { RELAY_CONTROL_PATH };
 
 /** Control bodies carry one token; anything larger is refused unread. */
 const MAX_CONTROL_BODY_BYTES = 4_096;
-
-const controlRequestBodySchema = (
-  raw: unknown,
-): { token: string } | undefined => {
-  if (typeof raw !== "object" || raw === null) return undefined;
-  if (!("token" in raw)) return undefined;
-  const { token }: { token: unknown } = raw;
-  return typeof token === "string" && token.length > 0 ? { token } : undefined;
-};
 
 const respond = (
   response: ServerResponse,
@@ -140,15 +139,15 @@ export function createRelayControlRequestHandler(options: {
       respond(response, 400, { error: "malformed-body" });
       return;
     }
-    const parsedBody = controlRequestBodySchema(parsedJson);
-    if (!parsedBody) {
+    const parsedBody = relayControlRequestSchema.safeParse(parsedJson);
+    if (!parsedBody.success) {
       metrics.controlRequest("rejected");
       respond(response, 400, { error: "malformed-body" });
       return;
     }
 
     const verified = verifyRoomControlToken({
-      token: parsedBody.token,
+      token: parsedBody.data.token,
       secret: joinTokenSecret,
       nowSeconds: Math.floor(now() / 1000),
     });
@@ -189,7 +188,11 @@ export function createRelayControlRequestHandler(options: {
           : undefined,
       closedSessions: closed,
     });
-    respond(response, 200, { action: claims.action, closed });
+    const controlResponse: RelayControlResponse = {
+      action: claims.action,
+      closed,
+    };
+    respond(response, 200, controlResponse);
   };
 
   return (request, response) => {

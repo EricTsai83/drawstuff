@@ -76,6 +76,12 @@ export type UnrecoverableReason =
   /** A wire-contract violation; reconnecting would repeat it. */
   | "protocol-violation"
   /**
+   * The relay refused this client's protocol version: the page is running
+   * code from before a protocol bump. Only a reload changes what version the
+   * client sends, so retrying without one would repeat the refusal forever.
+   */
+  | "unsupported-protocol-version"
+  /**
    * This session's end-to-end nonce budget is spent. Reconnecting does not
    * refresh it — the key is derived per room generation, not per session — so the
    * room generation has to be rotated.
@@ -199,6 +205,8 @@ export function classifyDisconnect(
       return { action: "stop", failure: "room-ended" };
     case "protocol":
       return { action: "stop", failure: "protocol-violation" };
+    case "unsupported-protocol-version":
+      return { action: "stop", failure: "unsupported-protocol-version" };
     case "idle":
       return { action: "ignore" };
   }

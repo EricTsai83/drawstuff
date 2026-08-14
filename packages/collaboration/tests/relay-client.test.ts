@@ -33,6 +33,7 @@ import type {
 } from "../src/transport.ts";
 import {
   connectedState,
+  element,
   JOIN_TOKEN,
   PEER_A,
   PEER_B,
@@ -587,6 +588,159 @@ describe("createRelayWebSocketTransport", () => {
       expect(transport.getConnectionState().status).toBe("connected"),
     );
     expect(sceneSyncRequired).toBe(before);
+  });
+
+  it("coalesces dropped-scene reports into one per congestion episode", async () => {
+    // Every dropped frame of one backlog asks for the same repair — a full
+    // snapshot exchange — so reporting each drop would multiply identical
+    // full-scene sends exactly when the inbound queue is already over budget.
+    let sceneSyncRequired = 0;
+    const peer = await roomCodec();
+    const envelope = { roomGeneration: 3, senderPeerId: PEER_B };
+    const frames = await Promise.all(
+      [1, 2, 3, 4, 5, 6].map((sequence) =>
+        remoteFrame(peer, sceneMessage({ sequence, ...envelope }), "scene"),
+      ),
+    );
+    // Room for exactly one queued frame: the burst's first frame is admitted
+    // and every later one is dropped while it drains.
+    const oneFrameCost =
+      (frames[0]?.byteLength ?? 0) - 1 + INBOUND_QUEUE_ENTRY_COST_BYTES;
+    const { transport, messages, connectAndJoin } = await setup({
+      maxInboundPendingBytes: oneFrameCost + 1,
+    });
+    transport.subscribe({
+      onSceneSyncRequired: () => {
+        sceneSyncRequired += 1;
+      },
+    });
+    const socket = connectAndJoin();
+
+    // One synchronous burst: three drops, one report.
+    for (const frame of frames.slice(0, 4)) socket.receiveFrame(frame);
+    await vi.waitFor(() => expect(messages).toHaveLength(1));
+    expect(sceneSyncRequired).toBe(1);
+
+    // The queue drained, so the next backlog is a new episode: it reports again.
+    for (const frame of frames.slice(4)) socket.receiveFrame(frame);
+    await vi.waitFor(() => expect(messages).toHaveLength(2));
+    expect(sceneSyncRequired).toBe(2);
+  });
+
+  it("re-reports a drop after a delivery even while the backlog drains", async () => {
+    // The consumer that got the first report may not have been able to act on
+    // it (a session holding its join barrier ignores the request), so the
+    // episode must end at the next delivered scene message — waiting for a
+    // full drain would silently swallow every later drop of the same backlog.
+    let sceneSyncRequired = 0;
+    const gates: Array<() => void> = [];
+    const peer = await roomCodec();
+    const envelope = { roomGeneration: 3, senderPeerId: PEER_B };
+    const small = await Promise.all(
+      [1, 2, 3].map((sequence) =>
+        remoteFrame(peer, sceneMessage({ sequence, ...envelope }), "scene"),
+      ),
+    );
+    // Bulky enough that it overflows a budget one small frame still fits in.
+    const bulky = await remoteFrame(
+      peer,
+      sceneMessage({
+        sequence: 4,
+        ...envelope,
+        elements: Array.from({ length: 20 }, (_, index) =>
+          element({ id: `bulk-${index}` }),
+        ),
+      }),
+      "scene",
+    );
+    const smallCost =
+      (small[0]?.byteLength ?? 0) - 1 + INBOUND_QUEUE_ENTRY_COST_BYTES;
+    const { transport, messages, connectAndJoin } = await setup({
+      // Exactly two small frames fit.
+      maxInboundPendingBytes: 2 * smallCost,
+      wrapCrypto: (inner) => ({
+        ...inner,
+        async open(frame, channel) {
+          await new Promise<void>((resolve) => gates.push(resolve));
+          return inner.open(frame, channel);
+        },
+      }),
+    });
+    transport.subscribe({
+      onSceneSyncRequired: () => {
+        sceneSyncRequired += 1;
+      },
+    });
+    const socket = connectAndJoin();
+
+    // Two admitted (their opens gated), a third dropped: first report.
+    for (const frame of small) socket.receiveFrame(frame);
+    expect(sceneSyncRequired).toBe(1);
+
+    // Deliver the first frame; the second is still queued, so no drain.
+    await vi.waitFor(() => expect(gates).toHaveLength(1));
+    gates.shift()?.();
+    await vi.waitFor(() => expect(messages).toHaveLength(1));
+
+    // A new drop while the backlog is still draining reports again.
+    socket.receiveFrame(bulky);
+    expect(sceneSyncRequired).toBe(2);
+
+    // The second queued frame still drains normally afterwards.
+    await vi.waitFor(() => expect(gates).toHaveLength(1));
+    gates.shift()?.();
+    await vi.waitFor(() => expect(messages).toHaveLength(2));
+  });
+
+  it("keeps delivering to later subscribers when an earlier one throws", async () => {
+    const { messages, transport, connectAndJoin } = await setup();
+    // Registered after setup's own collector and before the late collector, so
+    // the throw happens mid-fanout.
+    transport.subscribe({
+      onMessage: () => {
+        throw new Error("subscriber A failed");
+      },
+    });
+    const late: CollaborationMessage[] = [];
+    transport.subscribe({ onMessage: (message) => late.push(message) });
+    const socket = connectAndJoin();
+    const peer = await roomCodec();
+    const envelope = { roomGeneration: 3, senderPeerId: PEER_B };
+
+    const first = sceneMessage({ sequence: 1, ...envelope });
+    socket.receiveFrame(await remoteFrame(peer, first, "scene"));
+    await vi.waitFor(() => expect(late).toEqual([first]));
+    expect(messages).toEqual([first]);
+
+    // The channel's chain survived the throw: later frames still deliver.
+    const second = sceneMessage({ sequence: 2, ...envelope });
+    socket.receiveFrame(await remoteFrame(peer, second, "scene"));
+    await vi.waitFor(() => expect(late).toEqual([first, second]));
+    expect(messages).toEqual([first, second]);
+  });
+
+  it("keeps notifying state and peers when a subscriber throws", async () => {
+    const { transport, connectAndJoin } = await setup();
+    transport.subscribe({
+      onConnectionStateChange: () => {
+        throw new Error("state subscriber failed");
+      },
+      onRoomPeersChange: () => {
+        throw new Error("peers subscriber failed");
+      },
+    });
+    const states: ConnectionState[] = [];
+    const peerUpdates: (readonly RoomPeer[])[] = [];
+    transport.subscribe({
+      onConnectionStateChange: (state) => states.push(state),
+      onRoomPeersChange: (peers) => peerUpdates.push(peers),
+    });
+
+    // Without isolation the throw would propagate out of the socket callback
+    // before the later subscriber ever heard about the join.
+    connectAndJoin();
+    expect(states.at(-1)?.status).toBe("connected");
+    expect(peerUpdates).toHaveLength(1);
   });
 
   it("does not let a dead connection's backlog charge or block the next one", async () => {

@@ -3,12 +3,10 @@ import { z } from "zod";
 import type { MessageChannel } from "./codec.ts";
 import {
   COLLABORATION_PROTOCOL_VERSION,
-  MAX_PRESENCE_MESSAGE_BYTES,
-  MAX_SCENE_MESSAGE_BYTES,
   peerIdSchema,
   roomIdSchema,
 } from "./messages.ts";
-import { REALTIME_SEALED_OVERHEAD_BYTES } from "./realtime-crypto.ts";
+import { maxSealedFrameBytesFor } from "./realtime-crypto.ts";
 import { MAX_ROOM_TOKEN_BYTES, roomRoleSchema } from "./room-auth.ts";
 import type { DisconnectReason } from "./transport.ts";
 
@@ -116,25 +114,16 @@ const CHANNEL_BY_BYTE = new Map<number, MessageChannel>([
 export const RELAY_DATA_FRAME_HEADER_BYTES = 1;
 
 /**
- * Channel budget plus sealing overhead plus the frame header; the relay's
- * transport-level cap. The channel budgets in `./messages.ts` bound *plaintext*
- * bytes, so the wire cap has to leave room for the sealed frame's IV and GCM
- * tag — otherwise a message the codec accepts would be refused by the relay.
+ * Sealed-frame ceiling plus the frame header; the relay's transport-level
+ * cap. Derived from the single channel budget in `./messages.ts` through the
+ * sealed-frame arithmetic in `./realtime-crypto.ts`, so a message the codec
+ * accepts can never be refused by the relay for size.
  */
-export const MAX_RELAY_DATA_FRAME_BYTES =
-  MAX_SCENE_MESSAGE_BYTES +
-  REALTIME_SEALED_OVERHEAD_BYTES +
-  RELAY_DATA_FRAME_HEADER_BYTES;
-
 export function maxRelayDataFrameBytesFor(channel: MessageChannel): number {
-  const maxPayload =
-    channel === "presence"
-      ? MAX_PRESENCE_MESSAGE_BYTES
-      : MAX_SCENE_MESSAGE_BYTES;
-  return (
-    maxPayload + REALTIME_SEALED_OVERHEAD_BYTES + RELAY_DATA_FRAME_HEADER_BYTES
-  );
+  return maxSealedFrameBytesFor(channel) + RELAY_DATA_FRAME_HEADER_BYTES;
 }
+
+export const MAX_RELAY_DATA_FRAME_BYTES = maxRelayDataFrameBytesFor("scene");
 
 export function encodeRelayDataFrame(
   channel: MessageChannel,
@@ -262,6 +251,17 @@ export const RELAY_CLOSE_CODES = {
    * connection is drained and when a new connection arrives mid-drain.
    */
   relayRestarting: 4012,
+  /**
+   * The join declared a protocol version *older* than this relay's — a tab
+   * still running code from before a `COLLABORATION_PROTOCOL_VERSION` bump.
+   * Distinct from `protocolViolation` because the honest instruction differs:
+   * a violation says "this client is broken", this says "reload to pick up
+   * the current version". Terminal for the running code either way —
+   * reconnecting without reloading resends the same version. A *newer*
+   * version than the relay's never gets this code; see
+   * `unsupportedJoinProtocolVersionOf`.
+   */
+  unsupportedProtocolVersion: 4013,
 } as const;
 export type RelayCloseCode =
   (typeof RELAY_CLOSE_CODES)[keyof typeof RELAY_CLOSE_CODES];
@@ -297,7 +297,46 @@ export function disconnectReasonForCloseCode(
     case RELAY_CLOSE_CODES.protocolViolation:
     case RELAY_CLOSE_CODES.readOnlyRole:
       return "protocol";
+    case RELAY_CLOSE_CODES.unsupportedProtocolVersion:
+      return "unsupported-protocol-version";
     default:
       return "transient";
   }
+}
+
+/**
+ * Detects a join whose stated protocol version is not the one this build
+ * speaks.
+ *
+ * `relayJoinRequestSchema` pins the version as a literal, so an old tab's join
+ * fails parsing outright — and folding that into "malformed control frame"
+ * (`protocolViolation`) is what used to tell a merely *outdated* client that
+ * it was broken. This probe is deliberately loose: it answers only "is this
+ * join-shaped with a numeric version *below* ours", so the relay can close
+ * with `unsupportedProtocolVersion` and the client can say "reload" instead of
+ * "report a bug". Full validation still happens in the strict schema; a
+ * join-shaped frame that fails it for other reasons stays a violation.
+ *
+ * Deliberately below-only. A version *above* ours is not an outdated tab — it
+ * is an outdated *relay*, the transient state of a rollout where clients pick
+ * up a protocol bump before the relay fleet does — and telling that client to
+ * refresh would prescribe the one action that cannot help. It falls through
+ * to the generic violation path, exactly as it did before this code existed.
+ */
+export function unsupportedJoinProtocolVersionOf(
+  text: string,
+): number | undefined {
+  if (text.length > MAX_RELAY_CONTROL_FRAME_BYTES) return undefined;
+  let raw: unknown;
+  try {
+    raw = JSON.parse(text) as unknown;
+  } catch {
+    return undefined;
+  }
+  if (typeof raw !== "object" || raw === null) return undefined;
+  if (!("control" in raw) || raw.control !== "join") return undefined;
+  if (!("protocolVersion" in raw)) return undefined;
+  const version = raw.protocolVersion;
+  if (typeof version !== "number") return undefined;
+  return version < COLLABORATION_PROTOCOL_VERSION ? version : undefined;
 }

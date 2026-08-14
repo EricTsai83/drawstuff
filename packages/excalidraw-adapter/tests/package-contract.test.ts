@@ -16,8 +16,8 @@ describe("@drawstuff/excalidraw-adapter package contract", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./client",
       "./codec",
-      "./library",
       "./reconcile",
+      "./testing",
       "./types",
     ]);
     expect(packageJson.sideEffects).toEqual(["./src/client.ts", "**/*.css"]);
@@ -33,8 +33,8 @@ describe("@drawstuff/excalidraw-adapter package contract", () => {
     const expectedEntries = {
       "@drawstuff/excalidraw-adapter/client": "client.ts",
       "@drawstuff/excalidraw-adapter/codec": "codec.ts",
-      "@drawstuff/excalidraw-adapter/library": "client.ts",
       "@drawstuff/excalidraw-adapter/reconcile": "reconcile.ts",
+      "@drawstuff/excalidraw-adapter/testing": "testing.ts",
       "@drawstuff/excalidraw-adapter/types": "types.ts",
     };
 

@@ -43,8 +43,7 @@ export async function validateStoredV4Write(
     ) {
       return "stale-version";
     }
-    parseDrawstuffDocument(payload);
-    return "safe";
+    return parseDrawstuffDocument(payload).ok ? "safe" : "invalid";
   } catch (error) {
     return error instanceof DecompressionLimitError ? "too-large" : "invalid";
   }

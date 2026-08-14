@@ -8,8 +8,10 @@ export {
   parseDrawstuffDocument,
   serializeDrawstuffDocumentV4,
   toNativeExcalidrawScene,
+  type DrawstuffDocumentParseError,
   type DrawstuffDocumentV4,
   type OfficialExcalidrawExport,
+  type ParseDrawstuffDocumentResult,
 } from "./document-v4.ts";
 export {
   clearElementsForOfficialExport,

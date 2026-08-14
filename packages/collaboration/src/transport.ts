@@ -43,7 +43,14 @@ export type DisconnectReason =
    * This client broke the wire contract (or the server did). Terminal:
    * reconnecting would repeat the same violation.
    */
-  | "protocol";
+  | "protocol"
+  /**
+   * This client speaks a protocol version the relay no longer accepts — code
+   * loaded before a `COLLABORATION_PROTOCOL_VERSION` bump. Terminal for the
+   * running code: only reloading the page can change the version it sends,
+   * so the honest instruction is "refresh", not "report a protocol bug".
+   */
+  | "unsupported-protocol-version";
 
 export type ConnectionState =
   | { status: "disconnected"; reason: DisconnectReason }

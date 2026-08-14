@@ -34,18 +34,12 @@
       "cache": false,
       "persistent": true
     },
-    "lint": {
-      "dependsOn": ["^lint"]
-    },
+    "lint": {},
     "lint:fix": {
       "cache": false
     },
-    "knip": {
-      "dependsOn": ["^knip"]
-    },
-    "test": {
-      "dependsOn": ["^test"]
-    },
+    "knip": {},
+    "test": {},
     "test:coverage": {
       "dependsOn": ["^test:coverage"],
       "outputs": ["coverage/**"]

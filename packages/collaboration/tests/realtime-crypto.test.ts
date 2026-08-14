@@ -8,6 +8,7 @@ import {
   ivCollisionProbabilityBound,
   MAX_SEALED_MESSAGES_PER_KEY,
   MAX_SEALED_MESSAGES_PER_SENDER,
+  maxSealedFrameBytesFor,
   MIN_REALTIME_SEALED_FRAME_BYTES,
   REALTIME_CRYPTO_VERSION,
   REALTIME_NONCE_BYTES,
@@ -446,6 +447,28 @@ describe("tamper, replay, and malformed frames", () => {
       if (result.ok) throw new Error("unreachable");
       expect(result.error.code).toBe("malformed-sealed-frame");
     }
+  });
+
+  it("rejects frames above the channel's sealed-frame ceiling", async () => {
+    const receiver = await liveCodec();
+    for (const channel of ["scene", "presence"] as const) {
+      const oversize = new Uint8Array(maxSealedFrameBytesFor(channel) + 1);
+      oversize[0] = REALTIME_CRYPTO_VERSION;
+      const result = await receiver.open(oversize, channel);
+      expect(result.ok).toBe(false);
+      if (result.ok) throw new Error("unreachable");
+      expect(result.error.code).toBe("malformed-sealed-frame");
+    }
+    // The ceiling is per channel: presence refuses what scene still admits.
+    const sceneSized = new Uint8Array(maxSealedFrameBytesFor("presence") + 1);
+    sceneSized[0] = REALTIME_CRYPTO_VERSION;
+    const asPresence = await receiver.open(sceneSized, "presence");
+    if (asPresence.ok) throw new Error("unreachable");
+    expect(asPresence.error.code).toBe("malformed-sealed-frame");
+    const asScene = await receiver.open(sceneSized, "scene");
+    if (asScene.ok) throw new Error("unreachable");
+    // Within the scene bound, so it proceeds to (and fails) authentication.
+    expect(asScene.error.code).toBe("authentication-failed");
   });
 
   it("rejects an unknown envelope version without decrypting", async () => {
