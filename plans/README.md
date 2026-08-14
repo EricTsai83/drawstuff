@@ -9,11 +9,9 @@
 來源：2026-08-13 全面 code review（六個範圍：跨模組架構、共用套件、relay、
 協作 client、web 後端、web UI）。編號即建議執行順序。
 
-1. [04-dashboard-ui-fixes.md](04-dashboard-ui-fixes.md) —
-   dashboard/UI 修復（刪除 dialog 鎖死、filter page-walk、per-card observers 等）
-2. [07-relay-hardening.md](07-relay-hardening.md) —
+1. [07-relay-hardening.md](07-relay-hardening.md) —
    relay exception guard、timer clamp、O(N²) broadcast 編碼
-3. [08-collab-client-modularization.md](08-collab-client-modularization.md) —
+2. [08-collab-client-modularization.md](08-collab-client-modularization.md) —
    四個巨型檔案拆分 + 熱路徑效能
 
 ## Completion rule
