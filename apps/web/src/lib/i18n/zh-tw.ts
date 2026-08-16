@@ -48,6 +48,7 @@ export const zhTW = {
   "workspace.navigation": "工作空間導覽",
   "workspace.route.description": "工作空間路由內容",
   "workspace.back": "返回",
+  "workspace.backToDashboard": "返回儀表板",
   "workspace.descriptionLabel": "描述（選填）",
   "workspace.descriptionLimit": "最多 100 個字元。",
   "labels.fileTitle": "檔案名稱",

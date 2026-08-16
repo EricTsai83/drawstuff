@@ -28,6 +28,21 @@ test("invalid settings identifiers share the canonical not-found result", async 
   ).toBeVisible();
 });
 
+test("clicking outside the modal panel closes the overlay to the Canvas", async ({
+  page,
+}) => {
+  await page.goto("/workspaces/not-a-uuid/settings");
+  await page.getByRole("link", { name: "Open dashboard" }).click();
+  await expect(page.getByRole("dialog", { name: "Dashboard" })).toBeVisible();
+
+  await page.locator('[data-slot="dialog-viewport"]').click({
+    position: { x: 4, y: 4 },
+  });
+
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+});
+
 test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas instance", async ({
   page,
 }) => {
@@ -45,6 +60,10 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
   const dashboardViewport = page.locator('[data-slot="dialog-viewport"]', {
     has: dashboardDialog,
   });
+  const dashboardHeader = dashboardDialog.locator(
+    '[data-slot="dialog-header"]',
+  );
+  const dashboardBody = dashboardDialog.locator("[data-route-overlay-body]");
   await expect(dashboardViewport).toBeVisible();
 
   const viewport = page.viewportSize();
@@ -54,12 +73,14 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
   const dialogLayout = await dashboardDialog.evaluate((element) => {
     const style = window.getComputedStyle(element);
     return {
+      display: style.display,
       height: Number.parseFloat(style.height),
       marginTop: Number.parseFloat(style.marginTop),
       maxHeight: style.maxHeight,
       width: Number.parseFloat(style.width),
     };
   });
+  expect(dialogLayout.display).toBe("flex");
   expect(dialogLayout.width).toBeCloseTo(viewport.width * 0.8, 0);
   expect(dialogLayout.height).toBeCloseTo(viewport.height - 64, 0);
   expect(dialogLayout.marginTop).toBeCloseTo(32, 0);
@@ -67,6 +88,42 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
     viewport.height - (dialogLayout.marginTop + dialogLayout.height),
   ).toBeCloseTo(32, 0);
   expect(dialogLayout.maxHeight).toBe("none");
+  const headerLayout = await dashboardHeader.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return {
+      height: rect.height,
+      paddingBottom: Number.parseFloat(
+        window.getComputedStyle(element).paddingBottom,
+      ),
+      position: window.getComputedStyle(element).position,
+    };
+  });
+  expect(headerLayout.paddingBottom).toBeCloseTo(32, 0);
+  expect(headerLayout.position).toBe("static");
+  await expect
+    .poll(() =>
+      dashboardDialog.evaluate((element) => {
+        const header = element.querySelector('[data-slot="dialog-header"]');
+        const body = element.querySelector("[data-route-overlay-body]");
+        if (!header || !body) return null;
+
+        const dialogRect = element.getBoundingClientRect();
+        const headerRect = header.getBoundingClientRect();
+        const bodyRect = body.getBoundingClientRect();
+        return {
+          bodyStartsAfterHeader:
+            Math.abs(bodyRect.top - headerRect.bottom) < 0.5,
+          bodyFillsRemainingHeight:
+            Math.abs(
+              bodyRect.height - (dialogRect.height - headerRect.height),
+            ) < 0.5,
+        };
+      }),
+    )
+    .toEqual({
+      bodyStartsAfterHeader: true,
+      bodyFillsRemainingHeight: true,
+    });
   const viewportBox = await dashboardViewport.boundingBox();
   if (!viewportBox) {
     throw new Error("Dashboard scroll viewport dimensions are unavailable");
@@ -78,6 +135,7 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
       dashboardViewport.evaluate((element) => {
         const style = window.getComputedStyle(element);
         const popup = element.querySelector('[data-slot="dialog-content"]');
+        const body = element.querySelector("[data-route-overlay-body]");
         return {
           hasHorizontalOverflow: element.scrollWidth > element.clientWidth,
           overflowX: style.overflowX,
@@ -86,6 +144,7 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
           popupOverflowY: popup
             ? window.getComputedStyle(popup).overflowY
             : null,
+          bodyOverflowY: body ? window.getComputedStyle(body).overflowY : null,
         };
       }),
     )
@@ -95,9 +154,10 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
       overflowY: "auto",
       overscrollBehavior: "contain",
       popupOverflowY: "visible",
+      bodyOverflowY: "visible",
     });
 
-  await dashboardDialog.evaluate((element, height) => {
+  await dashboardBody.evaluate((element, height) => {
     const probe = document.createElement("div");
     probe.dataset.overlayHeightProbe = "true";
     probe.style.height = `${height}px`;
@@ -108,11 +168,44 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
     .toBeGreaterThan(viewport.height * 2);
   await expect
     .poll(() =>
+      dashboardHeader.evaluate(
+        (element) => element.getBoundingClientRect().height,
+      ),
+    )
+    .toBeCloseTo(headerLayout.height, 0);
+  await expect
+    .poll(() =>
       dashboardViewport.evaluate(
         (element) => element.scrollHeight > element.clientHeight,
       ),
     )
     .toBe(true);
+  await expect
+    .poll(() =>
+      dashboardBody.evaluate(
+        (element) => element.scrollHeight > element.clientHeight,
+      ),
+    )
+    .toBe(false);
+  const headerTopBeforeScroll = await dashboardHeader.evaluate(
+    (element) => element.getBoundingClientRect().top,
+  );
+  await dashboardViewport.evaluate((element) => {
+    element.scrollTop = 100;
+  });
+  await expect
+    .poll(() => dashboardViewport.evaluate((element) => element.scrollTop))
+    .toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      dashboardHeader.evaluate(
+        (element) => element.getBoundingClientRect().top,
+      ),
+    )
+    .toBeLessThan(headerTopBeforeScroll - 50);
+  await dashboardViewport.evaluate((element) => {
+    element.scrollTop = 0;
+  });
   await dashboardDialog
     .locator('[data-overlay-height-probe="true"]')
     .evaluate((element) => element.remove());
@@ -133,7 +226,7 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
   await page.goForward();
   await expect(page.getByRole("dialog", { name: "Dashboard" })).toBeVisible();
   await page.keyboard.press("Escape");
-  await expect(page).toHaveURL(/\/workspaces\/not-a-uuid\/settings$/);
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(canvasRoot).toHaveAttribute(
     "data-workspace-routing-instance",

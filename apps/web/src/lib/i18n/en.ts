@@ -53,6 +53,7 @@ export const en = {
   "workspace.navigation": "Workspace navigation",
   "workspace.route.description": "Workspace route content",
   "workspace.back": "Back",
+  "workspace.backToDashboard": "Back to dashboard",
   "workspace.descriptionLabel": "Description (optional)",
   "workspace.descriptionLimit": "Up to 100 characters.",
   "labels.fileTitle": "File title",
