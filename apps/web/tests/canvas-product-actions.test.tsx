@@ -5,6 +5,7 @@ import type * as ExcalidrawClientModule from "@drawstuff/excalidraw-adapter/clie
 import { CloudUploadButton } from "@/components/excalidraw/cloud-upload-button";
 import { CollaborationButton } from "@/components/excalidraw/collaboration-button";
 import { ShareSceneButton } from "@/components/excalidraw/share-scene-button";
+import { TopRightControls } from "@/components/excalidraw/top-right-controls";
 import { I18nProvider } from "@/hooks/i18n-context";
 import { en } from "@/lib/i18n/en";
 
@@ -133,5 +134,156 @@ describe("Canvas product action presentations", () => {
     expect(
       container.querySelector("button")?.getAttribute("aria-label"),
     ).toContain("View only");
+  });
+
+  it("groups save with the compact shortcut actions", async () => {
+    const save = vi.fn();
+    const collaborate = vi.fn();
+    const share = vi.fn();
+    const library = vi.fn();
+
+    act(() =>
+      root.render(
+        withI18n(
+          <TopRightControls
+            actions={{
+              collaboration: {
+                status: "idle",
+                isReadOnly: false,
+                onActivate: collaborate,
+              },
+              cloudSave: { status: "idle", onActivate: save },
+              share: { status: "idle", onActivate: share },
+            }}
+            isMobile={false}
+            onLibraryActivate={library}
+          />,
+        ),
+      ),
+    );
+
+    const shortcutButton = container.querySelector<HTMLButtonElement>(
+      '[aria-label="Quick actions"]',
+    );
+    expect(
+      container.querySelector('[data-slot="floating-shortcut-caption"]'),
+    ).toBeNull();
+    expect(shortcutButton).not.toBeNull();
+    expect(shortcutButton?.style.width).toBe("40px");
+
+    await act(async () => {
+      shortcutButton?.click();
+      await Promise.resolve();
+    });
+
+    expect(shortcutButton?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-slot="floating-shortcut-trigger-surface"]',
+      )?.style.transform,
+    ).toBe("scale(0.75)");
+    expect(
+      container
+        .querySelector<HTMLElement>(
+          '[data-slot="floating-shortcut-trigger-face"]',
+        )
+        ?.classList.contains("opacity-0"),
+    ).toBe(true);
+    expect(
+      container
+        .querySelector<HTMLElement>(
+          '[data-slot="floating-shortcut-close-face"]',
+        )
+        ?.classList.contains("opacity-100"),
+    ).toBe(true);
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-slot="floating-shortcut-close-face"]',
+      )?.style.transitionDelay,
+    ).toBe("34ms");
+
+    const items = Array.from(
+      document.body.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    );
+    expect(items[0]?.style.width).toBe("36px");
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-slot="floating-shortcut-menu"]',
+      )?.style.gap,
+    ).toBe("6px");
+    expect(
+      container.querySelector<HTMLElement>(
+        '[data-slot="floating-shortcut-action-row"]',
+      )?.style.gap,
+    ).toBe("6px");
+    expect(items.map((item) => item.getAttribute("aria-label"))).toEqual([
+      "Library",
+      "Collaborate",
+      "Share",
+      "Save to cloud",
+    ]);
+    expect(
+      Array.from(
+        document.body.querySelectorAll<HTMLElement>(
+          '[data-slot="floating-shortcut-action-label"]',
+        ),
+        (label) => label.textContent,
+      ),
+    ).toEqual(["Library", "Collaborate", "Share", "Save to cloud"]);
+
+    act(() => items[3]?.click());
+    expect(save).toHaveBeenCalledOnce();
+    expect(shortcutButton?.getAttribute("aria-expanded")).toBe("false");
+    expect(library).not.toHaveBeenCalled();
+    expect(collaborate).not.toHaveBeenCalled();
+    expect(share).not.toHaveBeenCalled();
+  });
+
+  it("shows the cloud save lifecycle outside the closed shortcut trigger", () => {
+    const currentBadgeLabel = () =>
+      Array.from(
+        container.querySelectorAll('[data-slot="status-badge-label"]'),
+      ).at(-1)?.textContent;
+    const renderControls = (status: "uploading" | "success" | "error") =>
+      root.render(
+        withI18n(
+          <TopRightControls
+            actions={{
+              collaboration: {
+                status: "idle",
+                isReadOnly: false,
+                onActivate: vi.fn(),
+              },
+              cloudSave: { status, onActivate: vi.fn() },
+              share: { status: "idle", onActivate: vi.fn() },
+            }}
+            isMobile={false}
+            onLibraryActivate={vi.fn()}
+          />,
+        ),
+      );
+
+    act(() => renderControls("uploading"));
+    const badge = container.querySelector('[data-testid="cloud-save-status"]');
+    expect(badge?.getAttribute("role")).toBe("status");
+    expect(badge?.classList.contains("h-8")).toBe(true);
+    expect(badge?.parentElement?.classList.contains("items-center")).toBe(true);
+    expect(
+      badge
+        ?.querySelector('[data-slot="spinner"]')
+        ?.classList.contains("animate-spin"),
+    ).toBe(true);
+    expect(currentBadgeLabel()).toBe("Saving…");
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        '[role="menuitem"][aria-label="Save to cloud"]',
+      )?.disabled,
+    ).toBe(true);
+
+    act(() => renderControls("success"));
+    expect(currentBadgeLabel()).toBe("Saved");
+
+    act(() => renderControls("error"));
+    expect(currentBadgeLabel()).toBe("Failed");
   });
 });

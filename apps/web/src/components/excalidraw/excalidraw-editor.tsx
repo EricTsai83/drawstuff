@@ -2,8 +2,10 @@
 
 import {
   ExcalidrawCanvas,
+  ExcalidrawDefaultSidebar,
   ExcalidrawFooter as Footer,
 } from "@drawstuff/excalidraw-adapter/client";
+import { LibraryBig } from "lucide-react";
 import { useState, useCallback, useEffect, useMemo } from "react";
 import { useQueryState } from "nuqs";
 import { toast } from "sonner";
@@ -68,6 +70,7 @@ import { PersonalLibraryController } from "@/components/excalidraw/personal-libr
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
 import { clearCanvasForWorkspaceDeletion } from "@/lib/workspace-deletion";
 import type { CanvasProductActions } from "./canvas-product-actions";
+import "./excalidraw-editor.module.css";
 
 // 只建立一次：命中補充名單才放行，其餘交回 upstream 內建白名單。
 const embedUrlValidator = createEmbedUrlValidator(EXTRA_EMBED_DOMAINS);
@@ -150,6 +153,9 @@ export default function ExcalidrawEditor() {
   const [collaborationRoomKey, setCollaborationRoomKey] =
     useCollaborationRoomKey();
   const { langCode, handleLangCodeChange } = useLanguagePreference();
+  const libraryLabel =
+    t("canvas.actions.library") ||
+    (langCode === "zh-TW" ? "素材庫" : "Library");
   const setLastActiveMutation = api.workspace.setLastActive.useMutation();
   const utils = api.useUtils();
   const renameSceneMutation = api.scene.renameScene.useMutation();
@@ -478,17 +484,30 @@ export default function ExcalidrawEditor() {
     ],
   );
 
+  const handleLibraryToggle = useCallback(() => {
+    if (!excalidrawAPI) return;
+    const currentSidebar = excalidrawAPI.getAppState().openSidebar;
+    const isLibraryOpen =
+      currentSidebar?.name === "default" && currentSidebar.tab === "library";
+    excalidrawAPI.updateScene({
+      appState: {
+        openSidebar: isLibraryOpen ? null : { name: "default", tab: "library" },
+      },
+    });
+  }, [excalidrawAPI]);
+
   const renderTopRightUI = useCallback(
     (isMobile: boolean, _appState: UIAppState) => {
       return (
         <TopRightControls
           actions={productActions}
           isMobile={isMobile}
+          onLibraryActivate={handleLibraryToggle}
           onSlotChange={setIsMobileCanvasSlot}
         />
       );
     },
-    [productActions],
+    [handleLibraryToggle, productActions],
   );
 
   return (
@@ -524,6 +543,13 @@ export default function ExcalidrawEditor() {
             userId={session?.user.id ?? null}
             isAuthenticationPending={isAuthenticationPending}
           />
+          <ExcalidrawDefaultSidebar.Trigger
+            icon={<LibraryBig aria-hidden="true" />}
+            tab="library"
+            title={libraryLabel}
+          >
+            {libraryLabel}
+          </ExcalidrawDefaultSidebar.Trigger>
           <AppMainMenu
             userChosenTheme={userChosenTheme}
             setTheme={setTheme}

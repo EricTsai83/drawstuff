@@ -38,6 +38,7 @@ import { RenameSceneItem } from "./main-menu/rename-scene-item";
 import { SceneTitle } from "./main-menu/scene-title";
 import { SettingsItem } from "./main-menu/settings-item";
 import { SocialLinksItem } from "./main-menu/social-links-item";
+import { StorageUsageItem } from "./main-menu/storage-usage-item";
 import { ThemeItem } from "./main-menu/theme-item";
 import { WorkspaceSwitcherItem } from "./main-menu/workspace-switcher-item";
 import { routes } from "@/lib/routes";
@@ -250,7 +251,10 @@ function AppMainMenu({
     <>
       <MainMenu>
         <div ref={menuRef} className="max-w-full overflow-x-hidden">
-          {compactPresentation && <SceneTitle sceneName={sceneName} />}
+          <SceneTitle
+            sceneName={sceneName}
+            className={!compactPresentation ? "min-[1080px]:hidden" : undefined}
+          />
           {session && (
             <WorkspaceSwitcherItem
               workspaces={workspaces}
@@ -272,9 +276,12 @@ function AppMainMenu({
               workspaceId={currentWorkspaceId ?? lastActiveWorkspaceId}
             />
           )}
-          {compactPresentation && (
-            <RenameSceneItem onActivate={handleOpenRename} />
-          )}
+          <RenameSceneItem
+            onActivate={handleOpenRename}
+            className={
+              !compactPresentation ? "min-[1080px]:hidden!" : undefined
+            }
+          />
           {session && <NewSceneItem onActivate={handleOpenNewSceneDialog} />}
           {compactPresentation && (
             <ProductActionsItems
@@ -317,6 +324,12 @@ function AppMainMenu({
             onLangCodeChange={onLangCodeChange}
           />
           <MainMenu.DefaultItems.ChangeCanvasBackground />
+          {compactPresentation && (
+            <>
+              <MainMenu.Separator />
+              <StorageUsageItem />
+            </>
+          )}
           <MainMenu.Separator />
           <SocialLinksItem />
         </div>

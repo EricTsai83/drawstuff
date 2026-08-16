@@ -1,20 +1,20 @@
 "use client";
 
-import { CloudUploadButton } from "@/components/excalidraw/cloud-upload-button";
-import { CollaborationButton } from "@/components/excalidraw/collaboration-button";
-import { ShareSceneButton } from "./share-scene-button";
 import type { CanvasProductActions } from "./canvas-product-actions";
 import { useEffect } from "react";
+import { CanvasShortcutMenu } from "./canvas-shortcut-menu";
 
 type TopRightControlsProps = {
   actions: CanvasProductActions;
   isMobile: boolean;
+  onLibraryActivate: () => void;
   onSlotChange?: (isMobile: boolean) => void;
 };
 
 export function TopRightControls({
   actions,
   isMobile,
+  onLibraryActivate,
   onSlotChange,
 }: TopRightControlsProps) {
   useEffect(() => {
@@ -26,26 +26,10 @@ export function TopRightControls({
   }
 
   return (
-    <div
-      className="flex items-center gap-2"
-      data-testid="canvas-product-actions"
-    >
-      {actions.cloudSave && (
-        <CloudUploadButton
-          status={actions.cloudSave.status}
-          onClick={actions.cloudSave.onActivate}
-        />
-      )}
-      <CollaborationButton
-        status={actions.collaboration.status}
-        isReadOnly={actions.collaboration.isReadOnly}
-        onClick={actions.collaboration.onActivate}
-        presentation="responsive"
-      />
-      <ShareSceneButton
-        exportStatus={actions.share.status}
-        onClick={actions.share.onActivate}
-        presentation="responsive"
+    <div data-testid="canvas-product-actions">
+      <CanvasShortcutMenu
+        actions={actions}
+        onLibraryActivate={onLibraryActivate}
       />
     </div>
   );

@@ -5,7 +5,6 @@ import { ExcalidrawMainMenu as MainMenu } from "@drawstuff/excalidraw-adapter/cl
 import type { CanvasProductActions } from "../canvas-product-actions";
 import { getCollaborationPresentation } from "../collaboration-button";
 import { MenuActionItem } from "./menu-action-item";
-import { StorageWarning } from "@/components/storage-warning";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 
 type ProductActionsItemsProps = {
@@ -30,7 +29,7 @@ export function ProductActionsItems({
 
   return (
     <>
-      <MainMenu.ItemCustom>
+      <MainMenu.ItemCustom className="mt-0!">
         <MenuActionItem
           icon={<Users aria-hidden="true" />}
           label={t("collaboration.title")}
@@ -43,7 +42,7 @@ export function ProductActionsItems({
         />
       </MainMenu.ItemCustom>
       {actions.cloudSave && (
-        <MainMenu.ItemCustom>
+        <MainMenu.ItemCustom className="mt-0!">
           <MenuActionItem
             icon={<CloudUpload aria-hidden="true" />}
             label={t("canvas.actions.save")}
@@ -56,7 +55,7 @@ export function ProductActionsItems({
           />
         </MainMenu.ItemCustom>
       )}
-      <MainMenu.ItemCustom>
+      <MainMenu.ItemCustom className="mt-0!">
         <MenuActionItem
           icon={<Link aria-hidden="true" />}
           label={t("canvas.actions.share")}
@@ -69,14 +68,6 @@ export function ProductActionsItems({
           busy={actions.share.status === "exporting"}
           onActivate={() => activate(actions.share.onActivate)}
         />
-      </MainMenu.ItemCustom>
-      <MainMenu.ItemCustom>
-        <div
-          className="dropdown-menu-item dropdown-menu-item-base cursor-default"
-          role="status"
-        >
-          <StorageWarning className="flex min-w-0 items-center" />
-        </div>
       </MainMenu.ItemCustom>
     </>
   );
