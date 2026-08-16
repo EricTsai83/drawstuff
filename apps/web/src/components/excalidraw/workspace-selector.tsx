@@ -2,23 +2,34 @@
 
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
+import { routes } from "@/lib/routes";
+import { useRouter } from "next/navigation";
 import type { Workspace } from "@/components/workspace-dropdown";
 
 type WorkspaceSelectorProps = {
+  options?: Workspace[];
   value?: string;
-  onChange?: (workspaceId: string) => void;
+  onChange?: (workspace: Workspace) => void;
+  onCreateAction?: () => void;
 };
 
-export function WorkspaceSelector({ value, onChange }: WorkspaceSelectorProps) {
+export function WorkspaceSelector({
+  options,
+  value,
+  onChange,
+  onCreateAction,
+}: WorkspaceSelectorProps) {
+  const router = useRouter();
   const { workspaces, activeWorkspaceId } = useWorkspaceOptions();
 
   return (
     <WorkspaceDropdown
-      options={workspaces}
-      defaultValue={value ?? activeWorkspaceId}
-      onChange={(workspace: Workspace) => {
-        onChange?.(workspace.id);
-      }}
+      options={options ?? workspaces}
+      value={value ?? activeWorkspaceId}
+      onChange={onChange}
+      onCreateAction={
+        onCreateAction ?? (() => router.push(routes.newWorkspace))
+      }
     />
   );
 }

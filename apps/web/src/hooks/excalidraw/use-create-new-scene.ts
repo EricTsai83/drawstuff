@@ -8,13 +8,11 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { authClient } from "@/lib/auth/client";
-import { api } from "@/trpc/react";
 
 type CreateNewSceneParams = {
   name: string;
   description?: string;
   workspaceId?: string;
-  newWorkspaceName?: string;
   keepCurrentContent: boolean;
 };
 
@@ -56,49 +54,21 @@ export function useCreateNewScene({
 }: UseCreateNewSceneOptions) {
   const { t } = useAppI18n();
   const { data: session } = authClient.useSession();
-  const utils = api.useUtils();
-  const createWorkspaceMutation = api.workspace.create.useMutation({
-    onSuccess: async () => {
-      await utils.workspace.listWithMeta.invalidate();
-    },
-  });
 
   return useCallback(
     async ({
       name,
       description,
       workspaceId,
-      newWorkspaceName,
       keepCurrentContent,
     }: CreateNewSceneParams) => {
       try {
         // 更新場景名稱（不論保留或重置）
         handleSetSceneName(name);
 
-        // 先決定要使用的 workspaceId（若有 newWorkspaceName，避免重複名稱）
-        let workspaceIdToUse: string | undefined = workspaceId;
-        if (!workspaceIdToUse) {
-          const trimmedName = (newWorkspaceName ?? "").trim();
-          if (trimmedName.length > 0) {
-            const existing =
-              utils.workspace.listWithMeta.getData()?.workspaces ?? [];
-            const matched = existing.find(
-              (w) => w.name.trim().toLowerCase() === trimmedName.toLowerCase(),
-            );
-            if (matched) {
-              workspaceIdToUse = matched.id;
-            } else {
-              const created = await createWorkspaceMutation.mutateAsync({
-                name: trimmedName,
-              });
-              workspaceIdToUse = created.id;
-            }
-          }
-        }
-
-        // 更新最後啟用 workspace（若選擇或新建）
-        if (workspaceIdToUse) {
-          await setLastActiveWorkspace(workspaceIdToUse);
+        // 更新最後啟用 workspace（若有選擇）
+        if (workspaceId) {
+          await setLastActiveWorkspace(workspaceId);
         }
 
         if (keepCurrentContent) {
@@ -114,7 +84,7 @@ export function useCreateNewScene({
           const ok = await uploadSceneToCloud({
             name,
             description,
-            workspaceId: workspaceIdToUse,
+            workspaceId,
             mode: "create",
             suppressSuccessToast: true,
           });
@@ -145,7 +115,7 @@ export function useCreateNewScene({
           const ok = await uploadSceneToCloud({
             name,
             description,
-            workspaceId: workspaceIdToUse,
+            workspaceId,
             mode: "create",
             suppressSuccessToast: true,
           });
@@ -162,8 +132,6 @@ export function useCreateNewScene({
       excalidrawAPI,
       handleSetSceneName,
       setLastActiveWorkspace,
-      utils,
-      createWorkspaceMutation,
       uploadSceneToCloud,
       session,
       t,

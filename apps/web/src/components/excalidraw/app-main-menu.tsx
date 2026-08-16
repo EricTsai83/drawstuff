@@ -26,7 +26,6 @@ import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { api } from "@/trpc/react";
-import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 import { useCreateNewScene } from "@/hooks/excalidraw/use-create-new-scene";
 import { useSceneRename } from "@/hooks/excalidraw/use-scene-rename";
 import { clearCanvasForSignOut } from "@/lib/sign-out";
@@ -55,7 +54,6 @@ type AppMainMenuProps = {
   handleSetSceneName: (name: string) => void;
   cancelPendingSceneSave: () => void;
   sceneName: string;
-  showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
   /**
    * True while a collaboration room owns the canvas — from the moment the canvas
    * is claimed, which is before the relay reports `connected`. Withholds
@@ -84,7 +82,6 @@ function AppMainMenu({
   handleSetSceneName,
   cancelPendingSceneSave,
   sceneName,
-  showConfirmDialog,
   isCollaborating = false,
   productActions,
   compactPresentation,
@@ -263,17 +260,10 @@ function AppMainMenu({
                 setConfirmWorkspaceName(workspace.name);
                 setConfirmOpen(true);
               }}
-              onCreateSuccess={(workspace) => {
-                void setLastActiveWorkspace(workspace.id);
-                // 直接建立新場景，避免打開 Dialog 造成畫布不可點
-                void handleCreateNewScene({
-                  name: "Untitled",
-                  description: "",
-                  workspaceId: workspace.id,
-                  keepCurrentContent: false,
-                });
+              onCreateAction={() => {
+                closeMenu();
+                router.push(routes.newWorkspace);
               }}
-              showConfirmDialog={showConfirmDialog}
             />
           )}
           {session && compactPresentation && (

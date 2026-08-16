@@ -4,7 +4,6 @@ import { useMemo, useEffect, useState, useRef, useId } from "react";
 import { useQueryState } from "nuqs";
 import { z } from "zod";
 import {
-  Plus,
   RotateCcw,
   Search,
   Settings2,
@@ -24,13 +23,6 @@ import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { Button } from "@/components/ui/button";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
 import { CategoryManagementDialog } from "@/components/category-management-dialog";
 import { routes } from "@/lib/routes";
 import {
@@ -251,45 +243,34 @@ export function SceneSearchList({
         <div className="flex w-full items-center gap-2 lg:justify-end">
           <div className="min-w-0 flex-1 lg:max-w-80">
             <WorkspaceSelector
+              options={workspaces}
               value={effectiveWorkspaceId}
-              onChange={(id: string) => void setWorkspaceId(id)}
+              onChange={(workspace) => void setWorkspaceId(workspace.id)}
             />
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger
+          {selectedWorkspace ? (
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label={t("dashboard.workspace.manage")}
               render={
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="icon"
-                  aria-label={t("dashboard.workspace.manage")}
-                >
-                  <Settings2 className="size-4" />
-                </Button>
+                <Link href={routes.workspaceSettings(selectedWorkspace.id)} />
               }
-            />
-            <DropdownMenuContent align="end">
-              <DropdownMenuGroup>
-                <DropdownMenuItem render={<Link href={routes.newWorkspace} />}>
-                  <Plus />
-                  {t("dashboard.workspace.create")}
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  disabled={!selectedWorkspace}
-                  render={
-                    selectedWorkspace ? (
-                      <Link
-                        href={routes.workspaceSettings(selectedWorkspace.id)}
-                      />
-                    ) : undefined
-                  }
-                >
-                  <Settings2 />
-                  {t("dashboard.workspace.manage")}
-                </DropdownMenuItem>
-              </DropdownMenuGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
+              nativeButton={false}
+            >
+              <Settings2 />
+            </Button>
+          ) : (
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              aria-label={t("dashboard.workspace.manage")}
+              disabled
+            >
+              <Settings2 />
+            </Button>
+          )}
         </div>
       </div>
 

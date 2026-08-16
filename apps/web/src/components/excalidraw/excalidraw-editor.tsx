@@ -52,8 +52,6 @@ import { useEditorStatusToasts } from "@/hooks/excalidraw/use-editor-status-toas
 import { useSaveShortcut } from "@/hooks/excalidraw/use-save-shortcut";
 import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confirm";
 import { useLoadSceneWithConfirm } from "@/hooks/excalidraw/use-load-scene-with-confirm";
-import { useWorkspaceCreateConfirm } from "@/hooks/use-workspace-create-confirm";
-import GlobalConfirmDialog from "@/components/confirm-dialog";
 import { useSceneImportFileGuard } from "@/hooks/excalidraw/use-scene-import-file-guard";
 import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
 import { useSceneRemoteRevisionCheck } from "@/hooks/excalidraw/use-scene-remote-revision-check";
@@ -246,14 +244,6 @@ export default function ExcalidrawEditor() {
   useConfirmBeforeUnload(uploadStatus === "uploading");
 
   const {
-    workspaceCreateConfirmOpen,
-    setWorkspaceCreateConfirmOpen,
-    workspaceCreateConfirmLoading,
-    workspaceCreateConfirmOptions,
-    showWorkspaceCreateConfirm,
-  } = useWorkspaceCreateConfirm();
-
-  const {
     handleSaveToDisk,
     handleCloudUpload: triggerCloudUpload,
     handleExportLink,
@@ -327,10 +317,7 @@ export default function ExcalidrawEditor() {
     workspaceId: currentWorkspaceId,
     isReady: !!excalidrawAPI && isSessionReady && !!session,
     isUploadInProgress: uploadStatus === "uploading",
-    isBlockingDialogOpen:
-      isSceneChangeDialogOpen ||
-      isCloudUploadDialogOpen ||
-      workspaceCreateConfirmOpen,
+    isBlockingDialogOpen: isSceneChangeDialogOpen || isCloudUploadDialogOpen,
     externalConflict: lastConflict,
     onExternalConflictHandled: clearLastConflict,
   });
@@ -401,6 +388,7 @@ export default function ExcalidrawEditor() {
       uploadStatus,
       exportStatus,
       currentSceneId,
+      setIsCloudUploadDialogOpen,
       session,
     ],
   );
@@ -505,12 +493,6 @@ export default function ExcalidrawEditor() {
 
   return (
     <div className="h-dvh w-full">
-      <GlobalConfirmDialog
-        open={workspaceCreateConfirmOpen}
-        onOpenChange={setWorkspaceCreateConfirmOpen}
-        loading={workspaceCreateConfirmLoading}
-        options={workspaceCreateConfirmOptions}
-      />
       {initialDataPromise && (
         <ExcalidrawCanvas
           excalidrawAPI={excalidrawRefCallback}
@@ -550,7 +532,6 @@ export default function ExcalidrawEditor() {
             excalidrawAPI={excalidrawAPI}
             handleSetSceneName={handleSetSceneName}
             sceneName={sceneName}
-            showConfirmDialog={showWorkspaceCreateConfirm}
             isCollaborating={isCanvasOwnedByRoom}
             cancelPendingSceneSave={cancelPendingSceneSave}
             productActions={productActions}
