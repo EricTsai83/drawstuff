@@ -66,9 +66,7 @@ export type CollaborationRoomStatus =
  * appears only for `unreadable-room`) without parsing message text.
  */
 export type CollaborationFailureReason =
-  | UnrecoverableReason
-  | "wrong-key-link"
-  | "missing-key-check";
+  UnrecoverableReason | "wrong-key-link" | "missing-key-check";
 
 export type RoomState = {
   status: CollaborationRoomStatus;

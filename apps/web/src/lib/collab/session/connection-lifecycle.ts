@@ -60,8 +60,7 @@ export type JoinCredentialsRefusal =
     };
 
 export type JoinCredentialsResult =
-  | ({ ok: true } & JoinCredentials)
-  | ({ ok: false } & JoinCredentialsRefusal);
+  ({ ok: true } & JoinCredentials) | ({ ok: false } & JoinCredentialsRefusal);
 
 export type ConnectionLifecycle = {
   /** Opens a socket with the credentials already in hand. */

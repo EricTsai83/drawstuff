@@ -329,7 +329,10 @@ export const createSnapshotCadence = (options: {
         }
         // Re-armed after each tick rather than as an interval, so a slow write
         // can never queue overlapping ticks.
-        cancelSnapshotCadence = context.scheduleTimeout(tick, snapshotIntervalMs);
+        cancelSnapshotCadence = context.scheduleTimeout(
+          tick,
+          snapshotIntervalMs,
+        );
       };
       cancelSnapshotCadence = context.scheduleTimeout(tick, snapshotIntervalMs);
     },

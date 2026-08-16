@@ -14,8 +14,7 @@ import {
 
 type Database = typeof database;
 type DatabaseExecutor =
-  | Database
-  | Parameters<Parameters<Database["transaction"]>[0]>[0];
+  Database | Parameters<Parameters<Database["transaction"]>[0]>[0];
 
 /**
  * Storage keys that deleting the given scenes would orphan: their asset

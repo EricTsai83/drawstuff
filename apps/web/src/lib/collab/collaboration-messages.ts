@@ -16,26 +16,28 @@ import type { AppTranslate, AppTranslationKey } from "@/lib/i18n";
  * indistinguishable from a hang, and the action differs per reason — ask for
  * access, ask for a new link, or reload.
  */
-export const FAILURE_MESSAGE_KEY: Record<UnrecoverableReason, AppTranslationKey> =
-  {
-    unauthorized: "collaboration.failure.unauthorized",
-    "membership-revoked": "collaboration.failure.membershipRevoked",
-    "room-ended": "collaboration.failure.roomEnded",
-    "generation-rotated": "collaboration.failure.generationRotated",
-    // Reached from two detectors — an unopenable stored snapshot, and every
-    // realtime frame failing to open with none ever succeeding — so the wording
-    // must not promise that a stored canvas exists: the second detector is
-    // precisely the room that has not been persisted yet.
-    "unreadable-room": "collaboration.failure.unreadableRoom",
-    "protocol-violation": "collaboration.failure.protocolViolation",
-    // Not the protocol-violation wording: an outdated tab is repaired by a
-    // reload, and telling its user to report a bug would send them away from
-    // the one action that fixes it.
-    "unsupported-protocol-version":
-      "collaboration.failure.unsupportedProtocolVersion",
-    "crypto-exhausted": "collaboration.failure.cryptoExhausted",
-    "retry-limit": "collaboration.failure.retryLimit",
-  };
+export const FAILURE_MESSAGE_KEY: Record<
+  UnrecoverableReason,
+  AppTranslationKey
+> = {
+  unauthorized: "collaboration.failure.unauthorized",
+  "membership-revoked": "collaboration.failure.membershipRevoked",
+  "room-ended": "collaboration.failure.roomEnded",
+  "generation-rotated": "collaboration.failure.generationRotated",
+  // Reached from two detectors — an unopenable stored snapshot, and every
+  // realtime frame failing to open with none ever succeeding — so the wording
+  // must not promise that a stored canvas exists: the second detector is
+  // precisely the room that has not been persisted yet.
+  "unreadable-room": "collaboration.failure.unreadableRoom",
+  "protocol-violation": "collaboration.failure.protocolViolation",
+  // Not the protocol-violation wording: an outdated tab is repaired by a
+  // reload, and telling its user to report a bug would send them away from
+  // the one action that fixes it.
+  "unsupported-protocol-version":
+    "collaboration.failure.unsupportedProtocolVersion",
+  "crypto-exhausted": "collaboration.failure.cryptoExhausted",
+  "retry-limit": "collaboration.failure.retryLimit",
+};
 
 /**
  * A link whose key failed the room's check value, refused before the canvas
@@ -66,7 +68,8 @@ export const MISSING_KEY_CHECK_MESSAGE_KEY =
  * one thing a user does about that is ask for access they already have, or
  * reload, which spends more of the very budget they are waiting on.
  */
-export const JOIN_RATE_LIMITED_MESSAGE_KEY = "collaboration.failure.rateLimited";
+export const JOIN_RATE_LIMITED_MESSAGE_KEY =
+  "collaboration.failure.rateLimited";
 
 /**
  * The bootstrap join failed for a reason worth retrying. Deliberately a

@@ -20,7 +20,8 @@ import { createMaxMemoryWatchdog, MAX_RELAY_RSS_BYTES } from "./watchdog.ts";
  */
 const DEFAULT_PORT = 3005;
 const configuredPort = process.env.PORT;
-const parsedPort = configuredPort === undefined ? DEFAULT_PORT : Number(configuredPort);
+const parsedPort =
+  configuredPort === undefined ? DEFAULT_PORT : Number(configuredPort);
 const portIsValid =
   Number.isInteger(parsedPort) && parsedPort >= 0 && parsedPort <= 65_535;
 const port = portIsValid ? parsedPort : DEFAULT_PORT;
