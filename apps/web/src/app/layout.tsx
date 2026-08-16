@@ -1,5 +1,6 @@
 import "@/styles/globals.css";
 import { type Metadata } from "next";
+import Script from "next/script";
 import { Geist } from "next/font/google";
 import { TRPCReactProvider } from "@/trpc/react";
 import { NextSSRPlugin } from "@uploadthing/react/next-ssr-plugin";
@@ -43,6 +44,15 @@ export default async function RootLayout({
       className={`${geist.variable} antialiased`}
       suppressHydrationWarning
     >
+      <head>
+        {process.env.NODE_ENV === "development" && (
+          <Script
+            src="//unpkg.com/react-grab/dist/index.global.js"
+            crossOrigin="anonymous"
+            strategy="beforeInteractive"
+          />
+        )}
+      </head>
       <body>
         <I18nProvider initialLanguage={language} initialDictionary={dictionary}>
           <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
