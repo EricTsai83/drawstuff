@@ -447,9 +447,7 @@ async function syncSceneCategories(
       for (const c of created) {
         nameToId.set(c.name, c.id);
       }
-      const missingNames = namesToCreate.filter(
-        (name) => !nameToId.has(name),
-      );
+      const missingNames = namesToCreate.filter((name) => !nameToId.has(name));
       if (missingNames.length > 0) {
         const concurrent = await tx
           .select({ id: category.id, name: category.name })

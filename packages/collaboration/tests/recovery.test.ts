@@ -327,10 +327,7 @@ describe("createRecoveryMachine", () => {
  * session keep spending one budget, so the loop ends in `retry-limit`.
  */
 describe("recovery live-stability window", () => {
-  const stableMachine = (
-    now: () => number,
-    maxAttempts = 3,
-  ): RecoveryMachine =>
+  const stableMachine = (now: () => number, maxAttempts = 3): RecoveryMachine =>
     machineWith({ maxAttempts, liveStabilityMs: 30_000, now });
 
   it("keeps spending the budget across live sessions that die inside the window", () => {

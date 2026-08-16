@@ -346,9 +346,7 @@ export const workspaceRouter = createTRPCRouter({
         const [lockedWorkspace] = await tx
           .select({ id: workspace.id })
           .from(workspace)
-          .where(
-            and(eq(workspace.id, input.id), eq(workspace.userId, userId)),
-          )
+          .where(and(eq(workspace.id, input.id), eq(workspace.userId, userId)))
           .for("update");
         if (!lockedWorkspace) {
           throw new TRPCError({

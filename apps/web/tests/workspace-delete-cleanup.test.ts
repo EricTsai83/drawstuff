@@ -1,5 +1,13 @@
 // @vitest-environment node
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/server/rate-limit/collaboration", () => ({
@@ -153,9 +161,7 @@ describe("workspace.delete storage lifecycle", () => {
       ["thumb-key", "delete-workspace", "pending"],
     ]);
     // lastActive was re-pointed at the default workspace before the delete.
-    expect(
-      await testDb.select().from(schema.userLastActiveWorkspace),
-    ).toEqual([
+    expect(await testDb.select().from(schema.userLastActiveWorkspace)).toEqual([
       expect.objectContaining({
         userId: "owner-user",
         workspaceId: defaultId,

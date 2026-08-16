@@ -1,5 +1,13 @@
 // @vitest-environment node
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -97,9 +105,9 @@ describe("concurrent saves introducing the same new category (plan 03 M6)", () =
       .select({ categoryId: schema.sceneCategory.categoryId })
       .from(schema.sceneCategory);
     expect(mappings).toHaveLength(2);
-    expect(
-      mappings.every((row) => row.categoryId === categories[0]?.id),
-    ).toBe(true);
+    expect(mappings.every((row) => row.categoryId === categories[0]?.id)).toBe(
+      true,
+    );
   });
 
   it("a save whose category already exists reuses the existing row", async () => {
