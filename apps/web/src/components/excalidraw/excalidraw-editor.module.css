@@ -1,0 +1,6 @@
+/* Hide the external resource links (Documentation, Blog, GitHub issues, and
+   YouTube) at the top of Excalidraw's Shortcuts & Help dialog. The keyboard
+   shortcut sections below remain visible. */
+:global(.excalidraw-modal-container.excalidraw .HelpDialog__header) {
+  display: none;
+}

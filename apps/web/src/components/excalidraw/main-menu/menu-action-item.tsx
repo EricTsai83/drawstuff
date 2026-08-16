@@ -1,6 +1,7 @@
 "use client";
 
 import type { ReactNode } from "react";
+import { cn } from "@/lib/utils";
 
 type MenuActionItemProps = {
   icon: ReactNode;
@@ -9,6 +10,7 @@ type MenuActionItemProps = {
   detail?: string;
   disabled?: boolean;
   busy?: boolean;
+  className?: string;
 };
 
 /**
@@ -26,11 +28,12 @@ export function MenuActionItem({
   detail,
   disabled = false,
   busy = false,
+  className,
 }: MenuActionItemProps) {
   return (
     <button
       type="button"
-      className="dropdown-menu-item dropdown-menu-item-base"
+      className={cn("dropdown-menu-item dropdown-menu-item-base", className)}
       onClick={onActivate}
       disabled={disabled}
       aria-busy={busy}

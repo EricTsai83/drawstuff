@@ -17,10 +17,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { MenuActionItem } from "@/components/excalidraw/main-menu/menu-action-item";
 import { NewSceneItem } from "@/components/excalidraw/main-menu/new-scene-item";
+import { ProductActionsItems } from "@/components/excalidraw/main-menu/product-actions-items";
 import { RenameSceneItem } from "@/components/excalidraw/main-menu/rename-scene-item";
 import { SceneTitle } from "@/components/excalidraw/main-menu/scene-title";
 import { SettingsItem } from "@/components/excalidraw/main-menu/settings-item";
 import { SocialLinksItem } from "@/components/excalidraw/main-menu/social-links-item";
+import { StorageUsageItem } from "@/components/excalidraw/main-menu/storage-usage-item";
 import { I18nProvider } from "@/hooks/i18n-context";
 import { en } from "@/lib/i18n/en";
 
@@ -123,6 +125,52 @@ describe("MenuActionItem wrappers", () => {
   });
 });
 
+describe("ProductActionsItems", () => {
+  it("removes ItemCustom's section gap between adjacent actions", () => {
+    render(
+      <ProductActionsItems
+        actions={{
+          collaboration: {
+            status: "idle",
+            isReadOnly: false,
+            onActivate: vi.fn(),
+          },
+          cloudSave: { status: "idle", onActivate: vi.fn() },
+          share: { status: "idle", onActivate: vi.fn() },
+        }}
+        onDismiss={vi.fn()}
+      />,
+    );
+
+    const wrappers = Array.from(
+      container.querySelectorAll<HTMLElement>(".dropdown-menu-item-custom"),
+    );
+
+    expect(wrappers).toHaveLength(3);
+    expect(wrappers.every((item) => item.classList.contains("mt-0!"))).toBe(
+      true,
+    );
+  });
+});
+
+describe("StorageUsageItem", () => {
+  it("renders as a passive status without an extra section gap", () => {
+    render(<StorageUsageItem />);
+
+    const wrapper = container.querySelector<HTMLElement>(
+      ".dropdown-menu-item-custom",
+    );
+    const status = container.querySelector<HTMLElement>('[role="status"]');
+
+    expect(wrapper?.classList.contains("mt-0!")).toBe(true);
+    expect(status?.classList.contains("cursor-default")).toBe(true);
+    expect(
+      status?.querySelector('[data-testid="storage-usage"]'),
+    ).not.toBeNull();
+    expect(status?.querySelector("button, a")).toBeNull();
+  });
+});
+
 describe("SettingsItem", () => {
   it("aligns with the native item spacing", () => {
     render(
@@ -179,13 +227,22 @@ describe("SocialLinksItem", () => {
 });
 
 describe("SceneTitle", () => {
-  it("renders the scene name for compact menu presentations", () => {
+  it("renders a responsive, truncating scene name for compact menu presentations", () => {
     render(<SceneTitle sceneName="Quarterly plan" />);
 
     const title = container.querySelector("div");
+    const sceneName = container.querySelector("span");
+    const titleContent = title?.firstElementChild;
     expect(title).not.toBeNull();
     if (!title) return;
     expect(title.textContent).toBe("Quarterly plan");
-    expect(title.className).not.toContain("hidden");
+    expect(title.classList.contains("hidden")).toBe(false);
+    expect(title.className).toContain("[contain:inline-size]");
+    expect(title.className).toContain("overflow-hidden");
+    expect(title.className).toContain("min-[730px]:text-base");
+    expect(titleContent?.className).toContain("inline-flex");
+    expect(titleContent?.className).toContain("max-w-full");
+    expect(sceneName?.className).toContain("truncate");
+    expect(sceneName?.className).toContain("min-w-0");
   });
 });

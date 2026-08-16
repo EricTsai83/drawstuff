@@ -17,8 +17,8 @@ export const SceneNameTrigger = forwardRef<
     <div
       ref={ref}
       className={cn(
-        "text-foreground focus-visible:ring-ring fixed top-8 left-16 z-10 hidden max-w-[min(12rem,calc(100vw-32rem))] min-w-0 -translate-y-1/2 cursor-pointer truncate text-lg leading-5 font-medium select-none focus-visible:ring-2 min-[730px]:block",
-        isMobileSlot && "min-[730px]:hidden",
+        "text-foreground focus-visible:ring-ring fixed top-8 left-16 z-10 hidden max-w-[min(12rem,calc(100vw-32rem))] min-w-0 -translate-y-1/2 cursor-pointer truncate text-lg leading-5 font-medium select-none focus-visible:ring-2",
+        !isMobileSlot && "min-[1080px]:block",
       )}
       aria-label={`${t("scene.rename.tooltip")}: ${sceneName}`}
       data-testid="scene-name-trigger"

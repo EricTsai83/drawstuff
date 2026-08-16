@@ -10,7 +10,8 @@ const VIEWPORTS = [
   { width: 390, height: 844 },
   { width: 844, height: 390 },
   { width: 768, height: 1024 },
-  { width: 1024, height: 768 },
+  { width: 1079, height: 768 },
+  { width: 1080, height: 768 },
   { width: 1280, height: 800 },
   { width: 1728, height: 1080 },
 ] as const;
@@ -28,19 +29,34 @@ test("keeps Canvas actions reachable and mutually exclusive across the responsiv
     const usesDesktopPresentation = await desktopActions
       .isVisible()
       .catch(() => false);
+    const usesCanvasSceneName =
+      usesDesktopPresentation && viewport.width >= 1080;
     const outerSceneName = page.getByTestId("scene-name-trigger");
 
     if (usesDesktopPresentation) {
+      const shortcutMenu = page.getByRole("button", {
+        name: "Quick actions",
+      });
+      await expect(shortcutMenu).toBeVisible();
+      await shortcutMenu.click();
       await expect(
-        page.getByRole("button", { name: "Collaborate" }),
+        page.getByRole("menuitem", { name: "Library" }),
       ).toBeVisible();
-      await expect(page.getByRole("button", { name: "Share" })).toBeVisible();
-      await expect(outerSceneName).toBeVisible();
+      await expect(
+        page.getByRole("menuitem", { name: "Collaborate" }),
+      ).toBeVisible();
+      await expect(page.getByRole("menuitem", { name: "Share" })).toBeVisible();
+      await page.keyboard.press("Escape");
       await expect(page.getByTestId("storage-usage")).toBeVisible();
     } else {
       await expect(desktopActions).toHaveCount(0);
-      await expect(outerSceneName).toBeHidden();
       await expect(page.getByTestId("storage-usage")).toHaveCount(0);
+    }
+
+    if (usesCanvasSceneName) {
+      await expect(outerSceneName).toBeVisible();
+    } else {
+      await expect(outerSceneName).toBeHidden();
     }
 
     const mainMenuTrigger = page.getByTestId("main-menu-trigger");
@@ -55,15 +71,19 @@ test("keeps Canvas actions reachable and mutually exclusive across the responsiv
       name: "Create shareable link",
     });
 
+    if (usesCanvasSceneName) {
+      await expect(menuSceneTitle).toBeHidden();
+      await expect(menuRename).toBeHidden();
+    } else {
+      await expect(menuSceneTitle).toBeVisible();
+      await expect(menuRename).toBeVisible();
+    }
+
     if (usesDesktopPresentation) {
-      await expect(menuSceneTitle).toHaveCount(0);
-      await expect(menuRename).toHaveCount(0);
       await expect(menuCollaboration).toHaveCount(0);
       await expect(menuShare).toHaveCount(0);
       await expect(mainMenu.getByTestId("storage-usage")).toHaveCount(0);
     } else {
-      await expect(menuSceneTitle).toBeVisible();
-      await expect(menuRename).toBeVisible();
       await expect(menuCollaboration).toBeVisible();
       await expect(menuShare).toBeVisible();
       await expect(mainMenu.getByTestId("storage-usage")).toBeVisible();

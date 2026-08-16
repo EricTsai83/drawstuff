@@ -14,7 +14,7 @@ type ShareSceneButtonProps = {
   presentation?: "regular" | "wide" | "responsive";
 };
 
-function getShareButtonConfig(status: ExportStatus, t: AppTranslate) {
+export function getShareButtonConfig(status: ExportStatus, t: AppTranslate) {
   if (status === "exporting") {
     return {
       icon: <Spinner data-icon="inline-start" aria-hidden="true" />,

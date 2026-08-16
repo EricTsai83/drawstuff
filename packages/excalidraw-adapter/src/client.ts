@@ -4,6 +4,7 @@ import "@excalidraw/excalidraw/index.css";
 
 import {
   CaptureUpdateAction,
+  DefaultSidebar,
   defaultLang,
   Excalidraw,
   exportToBlob,
@@ -244,6 +245,7 @@ export type ExcalidrawSvgExportOptions = Parameters<typeof exportToSvg>[0];
 
 export {
   CaptureUpdateAction as EXCALIDRAW_CAPTURE_UPDATE_ACTION,
+  DefaultSidebar as ExcalidrawDefaultSidebar,
   defaultLang as DEFAULT_EXCALIDRAW_LANGUAGE,
   exportToBlob as exportCanvasToBlob,
   exportToSvg as exportSceneToSvg,

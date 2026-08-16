@@ -32,7 +32,7 @@ export function CloudUploadButton({
     return null;
   }
 
-  const config = getStatusConfig(status, t, errorMessage);
+  const config = getCloudUploadPresentation(status, t, errorMessage);
 
   return (
     <Button
@@ -40,7 +40,7 @@ export function CloudUploadButton({
       size="canvas-icon"
       variant={config.variant}
       className={cn("size-9", className)}
-      title={config.tooltip}
+      title={`${config.tooltip} · ${t("canvas.actions.saveShortcut")}`}
       onClick={onClick}
       disabled={!onClick || status === "uploading"}
       aria-label={config.tooltip}
@@ -55,7 +55,7 @@ export function CloudUploadButton({
   );
 }
 
-function getStatusConfig(
+export function getCloudUploadPresentation(
   status: UploadStatus,
   t: AppTranslate,
   errorMessage?: string,

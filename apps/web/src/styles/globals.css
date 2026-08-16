@@ -51,6 +51,10 @@
   --radius-2xl: calc(var(--radius) * 1.8);
   --radius-3xl: calc(var(--radius) * 2.2);
   --radius-4xl: calc(var(--radius) * 2.6);
+  --color-ericts-warning-foreground: var(--ericts-warning-foreground);
+  --color-ericts-warning: var(--ericts-warning);
+  --color-ericts-success-foreground: var(--ericts-success-foreground);
+  --color-ericts-success: var(--ericts-success);
 }
 
 :root {
@@ -98,6 +102,10 @@
   --sidebar-accent-foreground: #1b1b1f;
   --sidebar-border: #c5c5d0;
   --sidebar-ring: #4440bf;
+  --ericts-success: oklch(0.696 0.17 162.48);
+  --ericts-success-foreground: oklch(0.508 0.118 165.612);
+  --ericts-warning: oklch(0.769 0.188 70.08);
+  --ericts-warning-foreground: oklch(0.555 0.163 48.998);
 }
 
 @media (min-width: 640px) {
@@ -142,6 +150,10 @@
   --sidebar-accent-foreground: #e3e3e8;
   --sidebar-border: #46464f;
   --sidebar-ring: #d0ccff;
+  --ericts-success: oklch(0.696 0.17 162.48);
+  --ericts-success-foreground: oklch(0.845 0.143 164.978);
+  --ericts-warning: oklch(0.769 0.188 70.08);
+  --ericts-warning-foreground: oklch(0.879 0.169 91.605);
 }
 
 @layer base {
@@ -192,4 +204,13 @@
 
 .animate-flash-once {
   animation: flash-once 1.2s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Desktop Library is part of Drawstuff's quick-actions menu. Excalidraw's
+   native trigger remains available in its compact mobile toolbar. */
+@media (min-width: 730px) {
+  .excalidraw
+    .sidebar-trigger__label-element:has(.default-sidebar-trigger) {
+    display: none;
+  }
 }
