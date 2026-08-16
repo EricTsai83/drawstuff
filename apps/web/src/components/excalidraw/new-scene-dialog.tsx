@@ -10,6 +10,8 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Field, FieldLabel } from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
@@ -46,7 +48,6 @@ type NewSceneDialogProps = {
     name: string;
     description?: string;
     workspaceId?: string;
-    newWorkspaceName?: string;
     keepCurrentContent: boolean;
   }) => void;
 };
@@ -61,9 +62,6 @@ function NewSceneDialog({
 }: NewSceneDialogProps) {
   const { t } = useAppI18n();
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
-    string | undefined
-  >(undefined);
-  const [pendingNewWorkspaceName, setPendingNewWorkspaceName] = useState<
     string | undefined
   >(undefined);
   const didInitRef = useRef(false);
@@ -96,8 +94,6 @@ function NewSceneDialog({
     lastActiveWorkspaceId,
   } = useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
 
-  // 此元件不直接建立 workspace，僅回傳可能的名稱
-
   const [internalOpen, setInternalOpen] = useState(false);
   const isOpen = open ?? internalOpen;
 
@@ -121,7 +117,6 @@ function NewSceneDialog({
       description: "",
       contentMode: presetContentMode ?? "reset",
     });
-    setPendingNewWorkspaceName(undefined);
     setTimeout(() => form.setFocus("name"), 0);
   }, [
     isOpen,
@@ -133,7 +128,7 @@ function NewSceneDialog({
   ]);
 
   useEffect(() => {
-    if (!isOpen || selectedWorkspaceId || pendingNewWorkspaceName) return;
+    if (!isOpen || selectedWorkspaceId) return;
     const nextWorkspaceId =
       presetWorkspaceId ?? lastActiveWorkspaceId ?? defaultWorkspaceId;
     if (nextWorkspaceId) {
@@ -142,7 +137,6 @@ function NewSceneDialog({
   }, [
     isOpen,
     selectedWorkspaceId,
-    pendingNewWorkspaceName,
     presetWorkspaceId,
     lastActiveWorkspaceId,
     defaultWorkspaceId,
@@ -154,18 +148,15 @@ function NewSceneDialog({
     const descTrimmed = (values.description ?? "").trim();
     const finalDescription = descTrimmed.length > 0 ? descTrimmed : undefined;
     // 若未選擇，回退到預設/最後啟用，避免誤用舊 workspace 或存成 null
-    const hasPendingWorkspace = Boolean(pendingNewWorkspaceName?.trim());
-    const fallbackWorkspaceId = hasPendingWorkspace
-      ? undefined
-      : (selectedWorkspaceId ??
-        presetWorkspaceId ??
-        lastActiveWorkspaceId ??
-        defaultWorkspaceId);
+    const fallbackWorkspaceId =
+      selectedWorkspaceId ??
+      presetWorkspaceId ??
+      lastActiveWorkspaceId ??
+      defaultWorkspaceId;
     onConfirm({
       name: finalName,
       description: finalDescription,
       workspaceId: fallbackWorkspaceId,
-      newWorkspaceName: pendingNewWorkspaceName?.trim() ?? undefined,
       keepCurrentContent: values.contentMode === "keep",
     });
     handleOpenChange(false);
@@ -243,25 +234,20 @@ function NewSceneDialog({
               )}
             />
 
-            <div className="grid gap-3">
-              <FormLabel id="new-scene-workspace-label">
+            <Field>
+              <FieldLabel id="new-scene-workspace-label">
                 {t("labels.workspace")}
-              </FormLabel>
+              </FieldLabel>
               <div aria-labelledby="new-scene-workspace-label">
                 <WorkspaceDropdown
                   options={workspaceOptions}
-                  defaultValue={selectedWorkspaceId}
+                  value={selectedWorkspaceId}
                   onChange={(ws) => {
                     setSelectedWorkspaceId(ws?.id);
-                    setPendingNewWorkspaceName(undefined);
-                  }}
-                  onCreate={(name: string) => {
-                    setSelectedWorkspaceId(undefined);
-                    setPendingNewWorkspaceName(name);
                   }}
                 />
               </div>
-            </div>
+            </Field>
 
             <FormField<FormValues, "contentMode">
               control={form.control}
@@ -285,9 +271,9 @@ function NewSceneDialog({
                           id="new-scene-content-reset"
                           aria-label={t("scene.new.reset")}
                         />
-                        <FormLabel htmlFor="new-scene-content-reset">
+                        <Label htmlFor="new-scene-content-reset">
                           {t("scene.new.reset")}
-                        </FormLabel>
+                        </Label>
                       </div>
                       <div className="flex items-center gap-2 text-sm">
                         <RadioGroupItem
@@ -295,9 +281,9 @@ function NewSceneDialog({
                           id="new-scene-content-keep"
                           aria-label={t("scene.new.keep")}
                         />
-                        <FormLabel htmlFor="new-scene-content-keep">
+                        <Label htmlFor="new-scene-content-keep">
                           {t("scene.new.keep")}
-                        </FormLabel>
+                        </Label>
                       </div>
                     </RadioGroup>
                   </FormControl>

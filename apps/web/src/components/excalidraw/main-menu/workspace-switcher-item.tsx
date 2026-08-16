@@ -1,34 +1,28 @@
 "use client";
 
-import {
-  WorkspaceDropdown,
-  type Workspace,
-} from "@/components/workspace-dropdown";
-import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
+import type { Workspace } from "@/components/workspace-dropdown";
+import { WorkspaceSelector } from "@/components/excalidraw/workspace-selector";
 
 type WorkspaceSwitcherItemProps = {
   workspaces: Workspace[];
   selectedWorkspaceId?: string;
   onSelect: (workspace: Workspace) => void;
-  onCreateSuccess: (workspace: Workspace) => void;
-  showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
+  onCreateAction: () => void;
 };
 
 export function WorkspaceSwitcherItem({
   workspaces,
   selectedWorkspaceId,
   onSelect,
-  onCreateSuccess,
-  showConfirmDialog,
+  onCreateAction,
 }: WorkspaceSwitcherItemProps) {
   return (
     <div className="px-2 pb-3">
-      <WorkspaceDropdown
+      <WorkspaceSelector
         options={workspaces}
-        defaultValue={selectedWorkspaceId}
+        value={selectedWorkspaceId}
         onChange={onSelect}
-        onCreateSuccess={onCreateSuccess}
-        showConfirmDialog={showConfirmDialog}
+        onCreateAction={onCreateAction}
       />
     </div>
   );

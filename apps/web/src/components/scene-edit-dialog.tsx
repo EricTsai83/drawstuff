@@ -20,12 +20,7 @@ import {
   FORM_DIALOG_CONTENT_CLASS_NAME,
   DIALOG_ACTIONS_CLASS_NAME,
 } from "@/components/responsive-dialog-layout";
-import {
-  Field,
-  FieldDescription,
-  FieldGroup,
-  FieldLabel,
-} from "@/components/ui/field";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 
 type SceneEditDialogProps = {
   open: boolean;
@@ -59,9 +54,6 @@ export function SceneEditDialog({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
     string | undefined
   >(undefined);
-  const [pendingNewWorkspaceName, setPendingNewWorkspaceName] = useState<
-    string | undefined
-  >(undefined);
 
   const { workspaces, defaultWorkspaceId, lastActiveWorkspaceId } =
     useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
@@ -81,12 +73,10 @@ export function SceneEditDialog({
   useEffect(() => {
     if (!open) {
       didInitRef.current = false;
-      setPendingNewWorkspaceName(undefined);
       return;
     }
     if (didInitRef.current) return;
     didInitRef.current = true;
-    setPendingNewWorkspaceName(undefined);
     setName(initial.name ?? "");
     setDescription(initial.description ?? "");
     setCategoryOptions(
@@ -109,12 +99,7 @@ export function SceneEditDialog({
   ]);
 
   useEffect(() => {
-    if (
-      !open ||
-      initial.workspaceId ||
-      selectedWorkspaceId ||
-      pendingNewWorkspaceName
-    ) {
+    if (!open || initial.workspaceId || selectedWorkspaceId) {
       return;
     }
     const nextWorkspaceId = lastActiveWorkspaceId ?? defaultWorkspaceId;
@@ -125,7 +110,6 @@ export function SceneEditDialog({
     open,
     initial.workspaceId,
     selectedWorkspaceId,
-    pendingNewWorkspaceName,
     lastActiveWorkspaceId,
     defaultWorkspaceId,
   ]);
@@ -176,19 +160,10 @@ export function SceneEditDialog({
             <div aria-labelledby="scene-workspace-label">
               <WorkspaceDropdown
                 options={workspaces}
-                defaultValue={selectedWorkspaceId}
-                onChange={(ws) => {
-                  setPendingNewWorkspaceName(undefined);
-                  setSelectedWorkspaceId(ws?.id);
-                }}
-                onCreate={(name: string) => setPendingNewWorkspaceName(name)}
+                value={selectedWorkspaceId}
+                onChange={(ws) => setSelectedWorkspaceId(ws?.id)}
               />
             </div>
-            {pendingNewWorkspaceName ? (
-              <FieldDescription>
-                {t("workspace.pending", { name: pendingNewWorkspaceName })}
-              </FieldDescription>
-            ) : null}
           </Field>
 
           <Field>

@@ -9,6 +9,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { Field, FieldLabel } from "@/components/ui/field";
 import { Button } from "@/components/ui/button";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import SearchableAndCreatableSelector from "@/components/searchable-and-creatable-selector";
@@ -16,8 +17,6 @@ import type { Option } from "@/components/ui/multiple-selector";
 import { Textarea } from "@/components/ui/textarea";
 import { WorkspaceDropdown } from "@/components/workspace-dropdown";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
-import { api } from "@/trpc/react";
-import { toast } from "sonner";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -78,25 +77,12 @@ export function SceneCloudUploadDialog({
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState<
     string | undefined
   >(undefined);
-  const [pendingNewWorkspaceName, setPendingNewWorkspaceName] = useState<
-    string | undefined
-  >(undefined);
   const didInitRef = useRef(false);
   const {
     workspaces: workspaceOptions,
     defaultWorkspaceId,
     lastActiveWorkspaceId,
   } = useWorkspaceOptions({ enabled: true, staleTimeMs: 60_000 });
-
-  const utils = api.useUtils();
-  const createWorkspaceMutation = api.workspace.create.useMutation({
-    onSuccess: async () => {
-      await utils.workspace.listWithMeta.invalidate();
-    },
-    onError: () => {
-      toast.error(t("dashboard.workspace.createFailed"));
-    },
-  });
 
   const parsedCategories = useMemo<string[]>(
     function parseCategories() {
@@ -126,24 +112,17 @@ export function SceneCloudUploadDialog({
       setCategoryOptions((prev) => prev);
       // 每次開啟以最後啟用的 workspace 為預設，若無則退回預設 workspace
       setSelectedWorkspaceId(lastActiveWorkspaceId ?? defaultWorkspaceId);
-      setPendingNewWorkspaceName(undefined);
     },
     [open, excalidrawAPI, defaultWorkspaceId, lastActiveWorkspaceId, form],
   );
 
   useEffect(() => {
-    if (!open || selectedWorkspaceId || pendingNewWorkspaceName) return;
+    if (!open || selectedWorkspaceId) return;
     const nextWorkspaceId = lastActiveWorkspaceId ?? defaultWorkspaceId;
     if (nextWorkspaceId) {
       setSelectedWorkspaceId(nextWorkspaceId);
     }
-  }, [
-    open,
-    selectedWorkspaceId,
-    pendingNewWorkspaceName,
-    lastActiveWorkspaceId,
-    defaultWorkspaceId,
-  ]);
+  }, [open, selectedWorkspaceId, lastActiveWorkspaceId, defaultWorkspaceId]);
 
   // focus handled by RHF setFocus when needed
 
@@ -151,25 +130,11 @@ export function SceneCloudUploadDialog({
 
   async function handleConfirm(values: FormValues): Promise<void> {
     const finalName = (values.name ?? "").trim() || t("labels.untitled");
-    let workspaceIdToUse: string | undefined = selectedWorkspaceId;
-    if (pendingNewWorkspaceName?.trim()) {
-      try {
-        const created = await createWorkspaceMutation.mutateAsync({
-          name: pendingNewWorkspaceName.trim(),
-        });
-        workspaceIdToUse = created.id;
-        setPendingNewWorkspaceName(undefined);
-      } catch {
-        toast.error(t("dashboard.workspace.createFailed"));
-        return;
-      }
-    }
-
     onConfirm({
       name: finalName,
       description: (values.description ?? "").trim(),
       categories: parsedCategories,
-      workspaceId: workspaceIdToUse,
+      workspaceId: selectedWorkspaceId,
     });
     onOpenChange(false);
   }
@@ -222,25 +187,20 @@ export function SceneCloudUploadDialog({
               )}
             />
 
-            <div className="grid gap-3">
-              <FormLabel id="scene-workspace-label">
+            <Field>
+              <FieldLabel id="scene-workspace-label">
                 {t("labels.workspace")}
-              </FormLabel>
+              </FieldLabel>
               <div aria-labelledby="scene-workspace-label">
                 <WorkspaceDropdown
                   options={workspaceOptions}
-                  defaultValue={selectedWorkspaceId}
+                  value={selectedWorkspaceId}
                   onChange={(ws) => {
                     setSelectedWorkspaceId(ws?.id);
-                    setPendingNewWorkspaceName(undefined);
-                  }}
-                  onCreate={(name: string) => {
-                    setSelectedWorkspaceId(undefined);
-                    setPendingNewWorkspaceName(name);
                   }}
                 />
               </div>
-            </div>
+            </Field>
 
             <FormField
               control={form.control}
@@ -248,12 +208,9 @@ export function SceneCloudUploadDialog({
               rules={{ required: false }}
               render={() => (
                 <FormItem>
-                  <FormLabel htmlFor="scene-description-input">
-                    {t("labels.description")}
-                  </FormLabel>
+                  <FormLabel>{t("labels.description")}</FormLabel>
                   <FormControl>
                     <Textarea
-                      id="scene-description-input"
                       placeholder={t("placeholders.description")}
                       className="h-24 resize-none"
                       {...form.register("description")}
@@ -264,17 +221,17 @@ export function SceneCloudUploadDialog({
               )}
             />
 
-            <div className="grid gap-3">
-              <FormLabel id="scene-categories-label">
+            <Field>
+              <FieldLabel id="scene-categories-label">
                 {t("labels.categories")}
-              </FormLabel>
+              </FieldLabel>
               <div aria-labelledby="scene-categories-label">
                 <SearchableAndCreatableSelector
                   value={categoryOptions}
                   onChange={setCategoryOptions}
                 />
               </div>
-            </div>
+            </Field>
 
             <div className={DIALOG_ACTIONS_CLASS_NAME}>
               <Button

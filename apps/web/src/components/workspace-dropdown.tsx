@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useState, forwardRef, useEffect, useMemo } from "react";
+import { useCallback, useState, forwardRef, useMemo } from "react";
 import {
   Command,
   CommandEmpty,
@@ -14,15 +14,13 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { Separator } from "@/components/ui/separator";
 import { cn } from "@/lib/utils";
 import { CheckIcon, Plus } from "lucide-react";
 import { authClient } from "@/lib/auth/client";
 import { Dropdown } from "./icons";
-import { api } from "@/trpc/react";
-import { toast } from "sonner";
 import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useAppI18n } from "@/hooks/use-app-i18n";
-import type { ConfirmDialogOptions } from "@/hooks/use-workspace-create-confirm";
 
 export type Workspace = {
   id: string;
@@ -31,13 +29,6 @@ export type Workspace = {
   createdAt: string;
   updatedAt: string;
 };
-
-// 判斷是否可建立新 workspace
-function canCreateWorkspace(normalizedQuery: string, options: Workspace[]) {
-  if (normalizedQuery.length === 0) return false;
-  const query = normalizedQuery.toLowerCase();
-  return !options.some((option) => option.name.toLowerCase() === query);
-}
 
 // 依優先 ID（selected / lastActive）將目標搬到陣列最前
 function getSortedOptions(
@@ -56,47 +47,30 @@ function getSortedOptions(
 type WorkspaceDropdownProps = {
   options?: Workspace[];
   onChange?: (workspace: Workspace) => void;
-  onCreateSuccess?: (workspace: Workspace) => void;
-  defaultValue?: string;
+  value?: string;
   disabled?: boolean;
   slim?: boolean;
-  // 若提供，將顯示「建立新 Workspace」的選項，並在建立完成後自動選取
-  onCreate?: (name: string) => Promise<Workspace | void> | Workspace | void;
-  // 外部注入的確認對話框觸發器
-  showConfirmDialog?: (opts: ConfirmDialogOptions) => void;
+  // 顯示固定在清單頂端的完整建立流程入口
+  onCreateAction?: () => void;
 };
 
 function WorkspaceDropdownComponent(
   {
     options = [],
     onChange,
-    onCreateSuccess,
-    defaultValue,
+    value,
     disabled = false,
     slim = false,
-    onCreate,
-    showConfirmDialog,
+    onCreateAction,
     ...restProps
   }: WorkspaceDropdownProps,
   ref: React.ForwardedRef<HTMLButtonElement>,
 ) {
   const { t } = useAppI18n();
   const [open, setOpen] = useState(false);
-  const [selectedWorkspace, setSelectedWorkspace] = useState<
-    Workspace | undefined
-  >(undefined);
   const [searchValue, setSearchValue] = useState("");
-  const [pendingCreatedName, setPendingCreatedName] = useState<
-    string | undefined
-  >(undefined);
-  const [creating, setCreating] = useState(false);
+  const [highlightedValue, setHighlightedValue] = useState("");
   const { data: session } = authClient.useSession();
-  const utils = api.useUtils();
-  const createWorkspaceMutation = api.workspace.create.useMutation({
-    onSuccess: async () => {
-      await utils.workspace.listWithMeta.invalidate();
-    },
-  });
   const { lastActiveWorkspaceId } = useWorkspaceOptions();
   const sessionDisplayName = (session?.user?.name ?? "").trim();
   const sessionDefaultLabel = sessionDisplayName
@@ -104,10 +78,9 @@ function WorkspaceDropdownComponent(
     : undefined;
 
   const normalizedQuery = searchValue.trim();
-
-  const canCreate = useMemo(
-    () => canCreateWorkspace(normalizedQuery, options),
-    [normalizedQuery, options],
+  const selectedWorkspace = useMemo(
+    () => options.find((option) => option.id === value),
+    [options, value],
   );
 
   const sortedOptions = useMemo(
@@ -116,81 +89,14 @@ function WorkspaceDropdownComponent(
     [options, selectedWorkspace?.id, lastActiveWorkspaceId],
   );
 
-  const triggerLabel =
-    selectedWorkspace?.name ?? pendingCreatedName ?? sessionDefaultLabel ?? "";
-
-  useEffect(() => {
-    if (options.length === 0) {
-      setSelectedWorkspace(undefined);
-      return;
-    }
-
-    if (defaultValue) {
-      const match = options.find((it) => it.id === defaultValue);
-      if (match) {
-        setPendingCreatedName(undefined);
-        setSelectedWorkspace(match);
-        return;
-      }
-    }
-
-    // 預設不自動選第一個，保留 undefined 讓 Trigger 顯示 session 名稱
-    setSelectedWorkspace((prev) => {
-      if (!prev) return undefined;
-      return options.find((o) => o.id === prev.id);
-    });
-  }, [defaultValue, options]);
+  const triggerLabel = selectedWorkspace?.name ?? sessionDefaultLabel ?? "";
 
   const handleSelect = useCallback(
     (workspace: Workspace) => {
-      setPendingCreatedName(undefined);
-      setSelectedWorkspace(workspace);
       onChange?.(workspace);
       setOpen(false);
     },
     [onChange],
-  );
-
-  const handleCreate = useCallback(
-    async (overrideName?: string) => {
-      const name = (overrideName ?? normalizedQuery).trim();
-      if (!name || creating) return;
-      try {
-        setCreating(true);
-        const created = onCreate
-          ? await onCreate(name)
-          : await createWorkspaceMutation.mutateAsync({ name });
-        if (created?.id) {
-          const createdWorkspace: Workspace = created;
-          setSelectedWorkspace(createdWorkspace);
-          setPendingCreatedName(undefined);
-          if (onCreateSuccess) {
-            onCreateSuccess(createdWorkspace);
-          } else {
-            onChange?.(createdWorkspace);
-          }
-        } else if (onCreate) {
-          setSelectedWorkspace(undefined);
-          setPendingCreatedName(name);
-        }
-      } catch {
-        toast.error(t("dashboard.workspace.createFailed"));
-        return;
-      } finally {
-        setCreating(false);
-        setSearchValue("");
-        setOpen(false);
-      }
-    },
-    [
-      createWorkspaceMutation,
-      onCreate,
-      onChange,
-      onCreateSuccess,
-      normalizedQuery,
-      creating,
-      t,
-    ],
   );
 
   return (
@@ -226,20 +132,31 @@ function WorkspaceDropdownComponent(
         <PopoverContent
           collisionPadding={10}
           side="bottom"
-          className="w-auto min-w-(--anchor-width) p-0"
+          className="w-(--anchor-width) p-0"
           data-prevent-outside-click
         >
           <Command
-            className="max-h-[200px] w-full sm:max-h-[270px]"
-            filter={(value, search) => {
+            value={highlightedValue}
+            onValueChange={setHighlightedValue}
+            className={cn(
+              "w-full",
+              onCreateAction
+                ? "max-h-[240px] sm:max-h-[310px]"
+                : "max-h-[200px] sm:max-h-[270px]",
+            )}
+            filter={(value, search, keywords) => {
               const q = (search ?? "").trim().toLowerCase();
               if (q.length === 0) return 1;
-              return value.toLowerCase().includes(q) ? 1 : 0;
+              return [value, ...(keywords ?? [])].some((candidate) =>
+                candidate.toLowerCase().includes(q),
+              )
+                ? 1
+                : 0;
             }}
           >
             <div className="bg-popover">
               <CommandInput
-                placeholder={t("workspace.placeholder.searchOrCreate")}
+                placeholder={t("workspace.placeholder.search")}
                 value={searchValue}
                 onValueChange={(val) => setSearchValue(val)}
                 autoFocus
@@ -259,105 +176,95 @@ function WorkspaceDropdownComponent(
               />
             </div>
             <CommandList
-              className="max-h-[200px] overflow-y-auto sm:max-h-[270px]"
+              className={cn(
+                onCreateAction
+                  ? "max-h-none overflow-hidden"
+                  : "max-h-[200px] overflow-y-auto sm:max-h-[270px]",
+              )}
               onWheelCapture={(e) => {
                 e.stopPropagation();
               }}
             >
-              <CommandEmpty>{t("workspace.empty")}</CommandEmpty>
-              <CommandGroup>
-                {canCreate && (
-                  <CommandItem
-                    value={normalizedQuery}
-                    className={cn(
-                      "flex w-full items-center gap-2",
-                      "hover:bg-muted hover:text-foreground",
-                      "data-[selected=true]:text-foreground data-[selected=true]:bg-transparent",
-                      "data-[selected=true]:hover:bg-muted data-[selected=true]:hover:text-foreground",
-                    )}
-                    onSelect={() => {
-                      if (creating) return;
-                      const name = normalizedQuery;
-                      if (showConfirmDialog) {
-                        showConfirmDialog({
-                          title: t("workspace.createConfirm.title"),
-                          description: t(
-                            "workspace.createConfirm.description",
-                            { name },
-                          ),
-                          confirmText: t("buttons.create"),
-                          cancelText: t("buttons.cancel"),
-                          onConfirm: async () => {
-                            await handleCreate(name);
-                          },
-                        });
-                      } else {
-                        void handleCreate(name);
-                      }
-                    }}
-                  >
-                    <div className="flex w-0 grow gap-2 overflow-hidden">
-                      <div className="flex flex-col overflow-hidden">
-                        {creating ? (
-                          <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
-                            {t("workspace.create.pending")}
-                          </span>
-                        ) : (
-                          <span className="overflow-hidden text-ellipsis whitespace-nowrap hover:cursor-pointer">
-                            <span className="border-primary/30 bg-primary/10 text-primary inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-sm font-semibold">
-                              <Plus className="h-3 w-3" />
-                              {t("workspace.create.action")}
-                            </span>
-                            <span className="ml-2 font-medium">
-                              {normalizedQuery}
-                            </span>
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                  </CommandItem>
-                )}
-                {sortedOptions
-                  .filter((x) => x.name)
-                  .map((option) => (
+              {onCreateAction && normalizedQuery.length === 0 && (
+                <>
+                  <CommandGroup forceMount>
                     <CommandItem
-                      value={option.name}
-                      className={cn(
-                        "flex w-full items-center gap-2 hover:cursor-pointer",
-                        option.id === selectedWorkspace?.id
-                          ? "bg-accent text-accent-foreground hover:bg-accent hover:text-accent-foreground data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground"
-                          : cn(
-                              "hover:bg-muted hover:text-foreground",
-                              "data-[selected=true]:text-foreground data-[selected=true]:bg-transparent",
-                              "data-[selected=true]:hover:bg-muted data-[selected=true]:hover:text-foreground",
-                            ),
-                      )}
-                      key={option.id}
-                      onSelect={() => handleSelect(option)}
+                      value="create-workspace"
+                      keywords={[t("dashboard.workspace.create")]}
+                      className="hover:bg-accent hover:text-accent-foreground data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground hover:cursor-pointer [&>svg:last-child]:hidden"
+                      onSelect={() => {
+                        setSearchValue("");
+                        setOpen(false);
+                        onCreateAction();
+                      }}
                     >
-                      <div className="flex w-0 grow gap-2 overflow-hidden">
-                        <div className="flex flex-col overflow-hidden">
-                          <span className="overflow-hidden font-medium text-ellipsis whitespace-nowrap">
-                            {option.name}
-                          </span>
-                          {option.description && (
-                            <span className="text-muted-foreground overflow-hidden text-xs text-ellipsis whitespace-nowrap">
-                              {option.description}
-                            </span>
-                          )}
-                        </div>
-                      </div>
-                      <CheckIcon
-                        className={cn(
-                          "ml-auto h-4 w-4 shrink-0",
-                          option.id === selectedWorkspace?.id
-                            ? "opacity-100"
-                            : "opacity-0",
-                        )}
-                      />
+                      <Plus />
+                      <span>{t("dashboard.workspace.create")}</span>
                     </CommandItem>
-                  ))}
-              </CommandGroup>
+                  </CommandGroup>
+                  <Separator />
+                </>
+              )}
+              <div
+                className={cn(
+                  onCreateAction &&
+                    (normalizedQuery.length === 0
+                      ? "max-h-[160px] overflow-y-auto sm:max-h-[230px]"
+                      : "max-h-[200px] overflow-y-auto sm:max-h-[270px]"),
+                )}
+              >
+                <CommandEmpty>{t("workspace.empty")}</CommandEmpty>
+                <CommandGroup>
+                  {sortedOptions
+                    .filter((x) => x.name)
+                    .map((option) => {
+                      const isSelected = option.id === selectedWorkspace?.id;
+
+                      return (
+                        <CommandItem
+                          value={option.id}
+                          keywords={[option.name, option.description ?? ""]}
+                          className={cn(
+                            "data-[selected=true]:bg-accent data-[selected=true]:text-accent-foreground flex w-full items-center gap-2 [&>svg:last-child]:hidden",
+                            isSelected
+                              ? "bg-accent text-accent-foreground data-[disabled=true]:pointer-events-auto data-[disabled=true]:opacity-100"
+                              : "hover:bg-accent hover:text-accent-foreground hover:cursor-pointer",
+                          )}
+                          key={option.id}
+                          disabled={isSelected}
+                          aria-current={isSelected ? "true" : undefined}
+                          onPointerEnter={
+                            isSelected
+                              ? () => setHighlightedValue(option.id)
+                              : undefined
+                          }
+                          onSelect={
+                            isSelected ? undefined : () => handleSelect(option)
+                          }
+                        >
+                          <div className="flex min-w-0 flex-1 gap-2 overflow-hidden">
+                            <div className="flex min-w-0 flex-1 flex-col overflow-hidden">
+                              <span className="truncate font-medium">
+                                {option.name}
+                              </span>
+                              {option.description && (
+                                <span className="text-muted-foreground truncate text-xs">
+                                  {option.description}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <CheckIcon
+                            className={cn(
+                              "ml-auto shrink-0",
+                              isSelected ? "opacity-100" : "opacity-0",
+                            )}
+                          />
+                        </CommandItem>
+                      );
+                    })}
+                </CommandGroup>
+              </div>
             </CommandList>
           </Command>
         </PopoverContent>
