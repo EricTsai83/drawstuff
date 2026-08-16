@@ -24,6 +24,7 @@ import { useWorkspaceOptions } from "@/hooks/use-workspace-options";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { Button } from "@/components/ui/button";
 import { CategoryManagementDialog } from "@/components/category-management-dialog";
+import { useIsInRouteOverlay } from "@/components/route-overlay-context";
 import { routes } from "@/lib/routes";
 import {
   Dialog,
@@ -69,6 +70,8 @@ export function SceneSearchList({
 }: {
   showHeading?: boolean;
 }) {
+  // modal 內的設定頁導航要留在同一個 history entry；整頁模式維持 push。
+  const isInRouteOverlay = useIsInRouteOverlay();
   const {
     workspaces,
     lastActiveWorkspaceId,
@@ -234,7 +237,12 @@ export function SceneSearchList({
   return (
     <div className="flex max-w-full min-w-0 flex-col gap-5 overflow-x-clip p-4 pt-0 sm:p-6 sm:pt-0">
       {/* Header Section */}
-      <div className="flex flex-col gap-4 pt-6 pb-2 sm:pt-10 sm:pb-4">
+      <div
+        className={cn(
+          "flex flex-col gap-4 pb-2 sm:pb-4",
+          showHeading && "pt-6 sm:pt-10",
+        )}
+      >
         {showHeading && (
           <h1 className="text-center text-2xl font-semibold lg:text-3xl">
             {t("dashboard.title")}
@@ -254,7 +262,10 @@ export function SceneSearchList({
               size="icon"
               aria-label={t("dashboard.workspace.manage")}
               render={
-                <Link href={routes.workspaceSettings(selectedWorkspace.id)} />
+                <Link
+                  href={routes.workspaceSettings(selectedWorkspace.id)}
+                  replace={isInRouteOverlay}
+                />
               }
               nativeButton={false}
             >

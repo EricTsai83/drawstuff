@@ -1,14 +1,12 @@
 import DashboardContent from "@/components/modal-pages/dashboard-content";
-import { RouteOverlay } from "@/components/route-overlay";
 
 export default async function DashboardOverlayPage({
   searchParams,
 }: {
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
+  // 標題由 RouteOverlay 的 DialogTitle 提供，內容不再重複一個 h1。
   return (
-    <RouteOverlay titleKey="dashboard.title" variant="dashboard">
-      <DashboardContent searchParams={await searchParams} />
-    </RouteOverlay>
+    <DashboardContent searchParams={await searchParams} showHeading={false} />
   );
 }
