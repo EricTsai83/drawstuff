@@ -68,7 +68,7 @@ describe("collaboration protocol codec", () => {
     });
   });
 
-  it("round-trips follow-mode presence: viewport bounds, follow target, no pointer", () => {
+  it("round-trips follow-mode presence: viewport, follow target, no pointer", () => {
     // A client that has only scrolled has no pointer sample yet, but its
     // viewport and follow state must still travel.
     const message = presenceMessage({
@@ -76,6 +76,7 @@ describe("collaboration protocol codec", () => {
       payload: {
         pointer: undefined,
         viewBounds: [-120.5, 0, 800, 452.25],
+        viewZoom: 0.8,
         follow: { peerId: PEER_B, since: 1_755_800_000_000 },
       },
     });
@@ -90,6 +91,7 @@ describe("collaboration protocol codec", () => {
       expect(decoded.message.payload.viewBounds).toEqual([
         -120.5, 0, 800, 452.25,
       ]);
+      expect(decoded.message.payload.viewZoom).toBe(0.8);
       expect(decoded.message.payload.follow).toEqual({
         peerId: PEER_B,
         since: 1_755_800_000_000,
@@ -319,7 +321,7 @@ describe("collaboration protocol codec", () => {
     expect(roomIdSchema.safeParse("A-valid_room-42").success).toBe(true);
   });
 
-  it("pins protocol version 3 as the only active writer", () => {
-    expect(COLLABORATION_PROTOCOL_VERSION).toBe(3);
+  it("pins protocol version 4 as the only active writer", () => {
+    expect(COLLABORATION_PROTOCOL_VERSION).toBe(4);
   });
 });

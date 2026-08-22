@@ -53,6 +53,7 @@ import {
   type CollaborationIdleState,
   type FollowHost,
   type PresenceViewBounds,
+  type PresenceViewZoom,
 } from "@/lib/collab/session/presence-channel";
 import { createRemoteApplier } from "@/lib/collab/session/remote-apply";
 import { createScenePublisher } from "@/lib/collab/session/scene-publisher";
@@ -84,6 +85,7 @@ export type {
   CollaborationIdleState,
   FollowHost,
   PresenceViewBounds,
+  PresenceViewZoom,
 } from "@/lib/collab/session/presence-channel";
 export type { CollaborationSceneApi } from "@/lib/collab/session/session-context";
 export type {
@@ -188,9 +190,10 @@ export type CollaborationSessionOptions = {
   wrapPresenceApply?: (apply: () => void) => void;
   /**
    * Engine-facing half of follow mode: moves the local viewport to a followed
-   * peer's bounds and keeps the engine's follow state truthful. Absent means
-   * follow mode is inert — presence still carries viewport and follow state,
-   * but nothing moves this client's viewport (headless tests).
+   * peer's center and absolute zoom, and keeps the engine's follow state
+   * truthful. Absent means follow mode is inert — presence still carries
+   * viewport and follow state, but nothing moves this client's viewport
+   * (headless tests).
    */
   followHost?: FollowHost;
   /**
@@ -259,8 +262,11 @@ export type CollaborationSession = {
   /** Wire to the editor `onPointerUpdate`: sends bounded-throttle presence. */
   handlePointerUpdate(payload: ExcalidrawPointerUpdatePayload): void;
   /** Wire to the editor `onScrollChange`: shares the local visible scene
-   *  bounds so peers following this client can move with it. */
-  handleViewportChange(bounds: PresenceViewBounds): void;
+   *  bounds and absolute zoom so peers following this client can move with it. */
+  handleViewportChange(
+    bounds: PresenceViewBounds,
+    zoom: PresenceViewZoom,
+  ): void;
   /** Wire to the editor `onUserFollow`: mirrors the engine's follow target
    *  into presence and snaps to the target's last known viewport. */
   handleUserFollow(targetPeerId: PeerId | null): void;
@@ -734,9 +740,9 @@ export function createCollaborationSession(
       if (context.isStopped()) return;
       presence.handlePointerUpdate(payload);
     },
-    handleViewportChange(bounds) {
+    handleViewportChange(bounds, zoom) {
       if (context.isStopped()) return;
-      presence.handleViewportChange(bounds);
+      presence.handleViewportChange({ bounds, zoom });
     },
     handleUserFollow(targetPeerId) {
       if (context.isStopped()) return;

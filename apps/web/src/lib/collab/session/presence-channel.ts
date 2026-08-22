@@ -40,6 +40,11 @@ const FOLLOW_STATE_RESEND_MS = 2_000;
 type PresencePayload = PresenceMessage["payload"];
 export type CollaborationIdleState = PresencePayload["idleState"];
 export type PresenceViewBounds = NonNullable<PresencePayload["viewBounds"]>;
+export type PresenceViewZoom = NonNullable<PresencePayload["viewZoom"]>;
+export type PresenceViewport = {
+  bounds: PresenceViewBounds;
+  zoom: PresenceViewZoom;
+};
 
 /**
  * The engine-facing half of follow mode, provided by the host. The engine
@@ -49,8 +54,8 @@ export type PresenceViewBounds = NonNullable<PresencePayload["viewBounds"]>;
  * `wrapPresenceApply`: they carry no scene state.
  */
 export type FollowHost = {
-  /** Fit the local viewport to the followed peer's visible scene bounds. */
-  applyViewportBounds(bounds: PresenceViewBounds): void;
+  /** Match the followed peer's viewport center and absolute zoom. */
+  applyViewport(viewport: PresenceViewport): void;
   /** Clear the engine's follow target (`appState.userToFollow`), used when
    *  the session releases a follow the user did not end themselves — a cycle
    *  break or the followed peer leaving. */
@@ -70,11 +75,12 @@ export type PresenceChannel = {
   handlePointerUpdate(payload: ExcalidrawPointerUpdatePayload): void;
   /**
    * Wire to the editor `onScrollChange`: shares the local visible scene
-   * bounds under the same throttle, with a trailing send so the *final*
-   * viewport of a scroll always reaches followers (a dropped pointer sample
-   * is repaired by the next pointer event; a dropped final scroll is not).
+   * bounds and absolute zoom under the same throttle, with a trailing send so
+   * the *final* viewport of a scroll always reaches followers (a dropped
+   * pointer sample is repaired by the next pointer event; a dropped final
+   * scroll is not).
    */
-  handleViewportChange(bounds: PresenceViewBounds): void;
+  handleViewportChange(viewport: PresenceViewport): void;
   /**
    * Wire to the editor `onUserFollow`: the engine set (or cleared) its follow
    * target and the session mirrors it into presence. Starting a follow snaps
@@ -145,12 +151,12 @@ export const createPresenceChannel = (options: {
    */
   let lastSelectedElementIds: AppState["selectedElementIds"] = {};
   let idleState: CollaborationIdleState = "active";
-  /** Local visible scene bounds; survives reconnects — the viewport does. */
-  let lastViewBounds: PresenceViewBounds | undefined;
+  /** Local viewport; survives reconnects — the viewport does. */
+  let lastViewport: PresenceViewport | undefined;
   /** This client's follow edge, mirrored into every presence message. */
   let selfFollow: FollowEdge | undefined;
   /** Latest viewport per peer, so starting a follow can snap immediately. */
-  const remoteViewBounds = new Map<PeerId, PresenceViewBounds>();
+  const remoteViewports = new Map<PeerId, PresenceViewport>();
   /** Latest follow edge per peer — the graph the cycle rule runs on. */
   const remoteFollows = new Map<PeerId, FollowEdge>();
   /** Last `followedBy` set pushed to the engine, to skip no-op writes. */
@@ -223,7 +229,8 @@ export const createPresenceChannel = (options: {
           .filter((id) => id.length <= MAX_PRESENCE_ELEMENT_ID_LENGTH)
           .slice(0, MAX_PRESENCE_SELECTED_ELEMENT_IDS),
         idleState,
-        viewBounds: lastViewBounds,
+        viewBounds: lastViewport?.bounds,
+        viewZoom: lastViewport?.zoom,
         follow: selfFollow,
       },
     };
@@ -273,7 +280,7 @@ export const createPresenceChannel = (options: {
     }, dueInMs);
   };
 
-  const applyViewport = (bounds: PresenceViewBounds): void => {
+  const applyViewport = (viewport: PresenceViewport): void => {
     const follow = options.follow;
     if (!follow) return;
     // Unlike cursor presence, the viewport is scene-adjacent state: once the
@@ -284,7 +291,7 @@ export const createPresenceChannel = (options: {
     // fit — a local resize or a manual pan changes the answer — so the host's
     // apply is the idempotent step (it compares the fit against the live
     // viewport before writing).
-    options.wrapPresenceApply(() => follow.applyViewportBounds(bounds));
+    options.wrapPresenceApply(() => follow.applyViewport(viewport));
   };
 
   /**
@@ -361,12 +368,12 @@ export const createPresenceChannel = (options: {
         sendPresence();
       }
     },
-    handleViewportChange(bounds) {
+    handleViewportChange(viewport) {
       // Once the canvas stops holding this room's scene, its viewport is the
       // *replacement* scene's viewport: caching or publishing it would leak
       // where the user is looking in an unrelated scene.
       if (!context.canSyncScene()) return;
-      lastViewBounds = bounds;
+      lastViewport = viewport;
       if (context.now() - lastPresenceSentAt >= presenceThrottleMs) {
         sendPresence();
         return;
@@ -391,8 +398,8 @@ export const createPresenceChannel = (options: {
       };
       // Snap to the target's last known viewport now; its next presence
       // keeps the viewport moving from there.
-      const bounds = remoteViewBounds.get(targetPeerId);
-      if (bounds) applyViewport(bounds);
+      const viewport = remoteViewports.get(targetPeerId);
+      if (viewport) applyViewport(viewport);
       // This follow may have closed a cycle whose edges all carry stamps we
       // had not seen when ours was created; the rule still has to run.
       maybeReleaseFollowCycle();
@@ -414,10 +421,11 @@ export const createPresenceChannel = (options: {
       collaborators.set(message.senderPeerId, toCollaborator(message));
       scheduleCollaboratorApply();
       const sender = message.senderPeerId;
-      const { viewBounds, follow } = message.payload;
-      if (viewBounds) {
-        remoteViewBounds.set(sender, viewBounds);
-        if (selfFollow?.peerId === sender) applyViewport(viewBounds);
+      const { viewBounds, viewZoom, follow } = message.payload;
+      if (viewBounds && viewZoom !== undefined) {
+        const viewport = { bounds: viewBounds, zoom: viewZoom };
+        remoteViewports.set(sender, viewport);
+        if (selfFollow?.peerId === sender) applyViewport(viewport);
       }
       const previousTarget = remoteFollows.get(sender)?.peerId;
       if (follow) {
@@ -455,8 +463,8 @@ export const createPresenceChannel = (options: {
       for (const peerId of [...remoteFollows.keys()]) {
         if (!knownPeerIds.has(peerId)) remoteFollows.delete(peerId);
       }
-      for (const peerId of [...remoteViewBounds.keys()]) {
-        if (!knownPeerIds.has(peerId)) remoteViewBounds.delete(peerId);
+      for (const peerId of [...remoteViewports.keys()]) {
+        if (!knownPeerIds.has(peerId)) remoteViewports.delete(peerId);
       }
       // The engine clears its own `userToFollow` when the followed cursor
       // leaves the collaborator map; releasing here as well stops the session
@@ -471,7 +479,7 @@ export const createPresenceChannel = (options: {
       cancelTrailing();
       cancelFollowResendTimer();
       remoteFollows.clear();
-      remoteViewBounds.clear();
+      remoteViewports.clear();
       const follow = options.follow;
       if (follow && appliedFollowedByKey !== "") {
         options.wrapPresenceApply(() => follow.applyFollowedBy([]));
@@ -500,7 +508,7 @@ export const createPresenceChannel = (options: {
       // sample: the host seeds the viewport before the socket finishes
       // connecting, and a member who never touches the pointer must still
       // show an avatar and be followable.
-      if (lastViewBounds) sendPresence();
+      if (lastViewport) sendPresence();
     },
   };
 };
