@@ -163,8 +163,20 @@ export function CollaborationRoomDialog({
   const room = roomQuery.data ?? null;
   const isOwner = room?.role === "owner";
 
-  const invalidateRoom = async (): Promise<void> => {
-    await utils.collaborationRoom.get.invalidate();
+  const invalidateRoom = async (options?: {
+    /**
+     * A room that still exists should refresh the open member panel. An exited
+     * room must only make cached data stale: refetching while React is still
+     * committing the cleared URL asks `get` for a room that just ended (or a
+     * membership that was just revoked) and reports that expected refusal as a
+     * console error.
+     */
+    refetchPanel?: boolean;
+  }): Promise<void> => {
+    await utils.collaborationRoom.get.invalidate(
+      undefined,
+      options?.refetchPanel === false ? { refetchType: "none" } : undefined,
+    );
     await utils.collaborationRoom.getActiveForScene.invalidate();
   };
 
@@ -252,7 +264,7 @@ export function CollaborationRoomDialog({
       // Drop the key from the address bar too: an ended room's link should not
       // keep a usable key sitting in browser history.
       onRoomKeyChange(null);
-      await invalidateRoom();
+      await invalidateRoom({ refetchPanel: false });
       onOpenChange(false);
     },
     onError: reportRoomError,
@@ -262,7 +274,7 @@ export function CollaborationRoomDialog({
       reportRelayEnforcement(result.relayEnforced);
       onRoomIdChange(null);
       onRoomKeyChange(null);
-      await invalidateRoom();
+      await invalidateRoom({ refetchPanel: false });
       onOpenChange(false);
     },
     onError: reportRoomError,
@@ -282,7 +294,7 @@ export function CollaborationRoomDialog({
     onError: reportRoomError,
   });
   const setLinkRole = api.collaborationRoom.setLinkRole.useMutation({
-    onSuccess: invalidateRoom,
+    onSuccess: () => invalidateRoom(),
     onError: reportRoomError,
   });
   const rotateGeneration = api.collaborationRoom.rotateGeneration.useMutation({

@@ -6,7 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const {
   createErrorHandler,
   createMutate,
+  endSuccessHandler,
+  getActiveForSceneInvalidate,
   idleMutate,
+  leaveSuccessHandler,
+  roomGetInvalidate,
   roomGetUseQuery,
   toastError,
 } = vi.hoisted(() => ({
@@ -14,7 +18,17 @@ const {
     current: undefined as ((error: unknown) => void) | undefined,
   },
   createMutate: vi.fn(),
+  endSuccessHandler: {
+    current: undefined as
+      ((result: { relayEnforced: boolean }) => Promise<void>) | undefined,
+  },
+  getActiveForSceneInvalidate: vi.fn(() => Promise.resolve()),
   idleMutate: vi.fn(),
+  leaveSuccessHandler: {
+    current: undefined as
+      ((result: { relayEnforced: boolean }) => Promise<void>) | undefined,
+  },
+  roomGetInvalidate: vi.fn(() => Promise.resolve()),
   roomGetUseQuery: vi.fn(),
   toastError: vi.fn(),
 }));
@@ -63,8 +77,8 @@ vi.mock("@/trpc/react", () => {
     api: {
       useUtils: () => ({
         collaborationRoom: {
-          get: { invalidate: vi.fn() },
-          getActiveForScene: { invalidate: vi.fn() },
+          get: { invalidate: roomGetInvalidate },
+          getActiveForScene: { invalidate: getActiveForSceneInvalidate },
         },
         client: {
           collaborationRoom: {
@@ -85,8 +99,22 @@ vi.mock("@/trpc/react", () => {
             return { isPending: false, mutate: createMutate };
           },
         },
-        end: { useMutation: () => idleMutation },
-        leave: { useMutation: () => idleMutation },
+        end: {
+          useMutation: (options: {
+            onSuccess?: (result: { relayEnforced: boolean }) => Promise<void>;
+          }) => {
+            endSuccessHandler.current = options.onSuccess;
+            return idleMutation;
+          },
+        },
+        leave: {
+          useMutation: (options: {
+            onSuccess?: (result: { relayEnforced: boolean }) => Promise<void>;
+          }) => {
+            leaveSuccessHandler.current = options.onSuccess;
+            return idleMutation;
+          },
+        },
         removeMember: { useMutation: () => idleMutation },
         setMemberRole: { useMutation: () => idleMutation },
         setLinkRole: { useMutation: () => idleMutation },
@@ -99,7 +127,10 @@ vi.mock("@/trpc/react", () => {
   };
 });
 
-import { CollaborationRoomDialog } from "@/components/excalidraw/collaboration-room-dialog";
+import {
+  CollaborationRoomDialog,
+  type CollaborationRoomDialogProps,
+} from "@/components/excalidraw/collaboration-room-dialog";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -112,6 +143,9 @@ const renderDialog = (params: {
   isAuthenticated: boolean;
   isAuthenticationPending?: boolean;
   roomId?: string | null;
+  onOpenChange?: (open: boolean) => void;
+  onRoomIdChange?: (roomId: string | null) => void;
+  onRoomKeyChange?: CollaborationRoomDialogProps["onRoomKeyChange"];
 }): void => {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -121,14 +155,14 @@ const renderDialog = (params: {
     root?.render(
       <CollaborationRoomDialog
         open
-        onOpenChange={() => undefined}
+        onOpenChange={params.onOpenChange ?? (() => undefined)}
         isAuthenticated={params.isAuthenticated}
         isAuthenticationPending={params.isAuthenticationPending ?? false}
         sceneId="scene-1"
         roomId={params.roomId ?? null}
-        onRoomIdChange={() => undefined}
+        onRoomIdChange={params.onRoomIdChange ?? (() => undefined)}
         roomKey={null}
-        onRoomKeyChange={() => undefined}
+        onRoomKeyChange={params.onRoomKeyChange ?? (() => undefined)}
         status="idle"
         failureReason={null}
         role={null}
@@ -141,7 +175,11 @@ const renderDialog = (params: {
 
 beforeEach(() => {
   createErrorHandler.current = undefined;
+  endSuccessHandler.current = undefined;
+  leaveSuccessHandler.current = undefined;
   createMutate.mockClear();
+  getActiveForSceneInvalidate.mockClear();
+  roomGetInvalidate.mockClear();
   roomGetUseQuery.mockClear();
   toastError.mockClear();
 });
@@ -198,4 +236,37 @@ describe("collaboration room authentication guard", () => {
       "Sign in to create or join a collaboration room.",
     );
   });
+});
+
+describe("collaboration room exit cache cleanup", () => {
+  it.each([
+    ["ending", endSuccessHandler],
+    ["leaving", leaveSuccessHandler],
+  ] as const)(
+    "marks the inaccessible room stale without refetching after %s",
+    async (_operation, successHandler) => {
+      const onOpenChange = vi.fn();
+      const onRoomIdChange = vi.fn();
+      const onRoomKeyChange = vi.fn();
+      renderDialog({
+        isAuthenticated: true,
+        roomId: "room-exited",
+        onOpenChange,
+        onRoomIdChange,
+        onRoomKeyChange,
+      });
+
+      await act(async () => {
+        await successHandler.current?.({ relayEnforced: true });
+      });
+
+      expect(onRoomIdChange).toHaveBeenCalledWith(null);
+      expect(onRoomKeyChange).toHaveBeenCalledWith(null);
+      expect(roomGetInvalidate).toHaveBeenCalledWith(undefined, {
+        refetchType: "none",
+      });
+      expect(getActiveForSceneInvalidate).toHaveBeenCalledOnce();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    },
+  );
 });
