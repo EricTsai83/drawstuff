@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { peerIdSchema } from "@drawstuff/collaboration/protocol";
 import { createFakeCollaborationNetwork } from "@drawstuff/collaboration/testing";
 
 import {
@@ -308,6 +309,275 @@ describe("collaboration session over the fake network", () => {
     harness.clock.now += 33;
     pointerUpdate(4);
     expect(harness.network.pendingMessageCount()).toBe(2);
+  });
+
+  describe("follow mode", () => {
+    type ViewBounds = [number, number, number, number];
+
+    /** Records what the session asks the engine to do, in place of a canvas. */
+    const createFollowRecorder = () => {
+      const applied: ViewBounds[] = [];
+      const followedBy: string[][] = [];
+      let cleared = 0;
+      return {
+        applied,
+        followedBy,
+        get cleared() {
+          return cleared;
+        },
+        host: {
+          applyViewportBounds: (bounds: ViewBounds) => {
+            applied.push([bounds[0], bounds[1], bounds[2], bounds[3]]);
+          },
+          clearFollowTarget: () => {
+            cleared += 1;
+          },
+          applyFollowedBy: (peerIds: readonly string[]) => {
+            followedBy.push([...peerIds]);
+          },
+        },
+      };
+    };
+
+    const followPeer = (client: TestClient, target: TestClient) => {
+      client.session.handleUserFollow(peerIdSchema.parse(peerIdOf(target)));
+    };
+
+    it("snaps to the target's cached viewport and tracks it as it moves", () => {
+      const recorder = createFollowRecorder();
+      const carol = harness.createClient("client-carol", {
+        followHost: recorder.host,
+      });
+      carol.session.connect();
+      harness.settle();
+
+      alice.session.handleViewportChange([10, 20, 110, 100]);
+      harness.network.flush();
+      // Not following yet: the bounds are cached, not applied.
+      expect(recorder.applied).toEqual([]);
+
+      followPeer(carol, alice);
+      expect(recorder.applied).toEqual([[10, 20, 110, 100]]);
+      // Alice's immediate reply re-delivers the same bounds; whether that
+      // needs a canvas write is the host's call (it compares the fit against
+      // the live viewport), so the channel hands it through.
+      harness.settle();
+
+      harness.clock.now += 40; // past the presence throttle window
+      alice.session.handleViewportChange([50, 60, 150, 140]);
+      harness.network.flush();
+      expect(recorder.applied.at(-1)).toEqual([50, 60, 150, 140]);
+
+      // Ending the follow stops the viewport from moving again.
+      carol.session.handleUserFollow(null);
+      const appliedCount = recorder.applied.length;
+      harness.clock.now += 40;
+      alice.session.handleViewportChange([0, 0, 10, 10]);
+      harness.network.flush();
+      expect(recorder.applied).toHaveLength(appliedCount);
+    });
+
+    it("answers a brand-new follower with an immediate viewport sample", () => {
+      // Alice measured her viewport before Carol was in the room, so Carol
+      // has nothing cached when the follow starts.
+      alice.session.handleViewportChange([1, 2, 3, 4]);
+      harness.network.flush();
+
+      const recorder = createFollowRecorder();
+      const carol = harness.createClient("client-carol", {
+        followHost: recorder.host,
+      });
+      carol.session.connect();
+      harness.settle();
+
+      followPeer(carol, alice);
+      expect(recorder.applied).toEqual([]);
+      // Carol's follow reaches Alice, who replies with presence at once even
+      // though she is idle; the reply carries her current viewport.
+      harness.settle();
+      expect(recorder.applied).toEqual([[1, 2, 3, 4]]);
+    });
+
+    it("releases the older side of a mutual follow: the last actor decides", () => {
+      const carolRecorder = createFollowRecorder();
+      const daveRecorder = createFollowRecorder();
+      const carol = harness.createClient("client-carol", {
+        followHost: carolRecorder.host,
+      });
+      const dave = harness.createClient("client-dave", {
+        followHost: daveRecorder.host,
+      });
+      carol.session.connect();
+      dave.session.connect();
+      harness.settle();
+
+      followPeer(carol, dave);
+      harness.settle();
+      harness.clock.now += 10;
+      followPeer(dave, carol);
+      harness.settle();
+
+      // Carol's earlier follow dissolved; Dave's newer one survives, so the
+      // relation ends up one-way with no oscillation possible.
+      expect(carolRecorder.cleared).toBe(1);
+      expect(daveRecorder.cleared).toBe(0);
+      // Carol announced the release, so Dave no longer counts her as a
+      // follower; Carol now reports Dave as hers.
+      expect(carolRecorder.followedBy.at(-1)).toEqual([peerIdOf(dave)]);
+      expect(daveRecorder.followedBy.at(-1)).toEqual([]);
+    });
+
+    it("announces a pointer-less member's seeded viewport as soon as it connects", () => {
+      const recorder = createFollowRecorder();
+      const carol = harness.createClient("client-carol", {
+        followHost: recorder.host,
+      });
+      carol.session.connect();
+      harness.settle();
+
+      // The room session seeds the viewport before the socket finishes
+      // connecting; a member who never touches the pointer must still be
+      // followable from that seed alone.
+      const dana = harness.createClient("client-dana");
+      dana.session.handleViewportChange([5, 5, 25, 25]);
+      dana.session.connect();
+      harness.settle();
+
+      followPeer(carol, dana);
+      expect(recorder.applied).toEqual([[5, 5, 25, 25]]);
+    });
+
+    it("keeps the last actor's follow even when that client's clock lags", () => {
+      const carolRecorder = createFollowRecorder();
+      const daveRecorder = createFollowRecorder();
+      const carol = harness.createClient("client-carol", {
+        followHost: carolRecorder.host,
+      });
+      const dave = harness.createClient("client-dave", {
+        followHost: daveRecorder.host,
+      });
+      carol.session.connect();
+      dave.session.connect();
+      harness.settle();
+
+      followPeer(carol, dave);
+      harness.settle();
+      // Dave's wall clock now reads *earlier* than when Carol followed him.
+      // His newer follow must still win: edges are stamped past every edge
+      // already observed, not by the raw clock.
+      harness.clock.now -= 1_000;
+      followPeer(dave, carol);
+      harness.settle();
+
+      expect(carolRecorder.cleared).toBe(1);
+      expect(daveRecorder.cleared).toBe(0);
+    });
+
+    it("breaks a three-member follow cycle by releasing only the oldest edge", () => {
+      const recorders = {
+        carol: createFollowRecorder(),
+        dave: createFollowRecorder(),
+        erin: createFollowRecorder(),
+      };
+      const carol = harness.createClient("client-carol", {
+        followHost: recorders.carol.host,
+      });
+      const dave = harness.createClient("client-dave", {
+        followHost: recorders.dave.host,
+      });
+      const erin = harness.createClient("client-erin", {
+        followHost: recorders.erin.host,
+      });
+      carol.session.connect();
+      dave.session.connect();
+      erin.session.connect();
+      harness.settle();
+
+      followPeer(carol, dave);
+      harness.settle();
+      harness.clock.now += 5;
+      followPeer(dave, erin);
+      harness.settle();
+      harness.clock.now += 5;
+      followPeer(erin, carol);
+      harness.settle();
+
+      expect(recorders.carol.cleared).toBe(1);
+      expect(recorders.dave.cleared).toBe(0);
+      expect(recorders.erin.cleared).toBe(0);
+    });
+
+    it("stops following a peer that leaves the room", () => {
+      const recorder = createFollowRecorder();
+      const carol = harness.createClient("client-carol", {
+        followHost: recorder.host,
+      });
+      carol.session.connect();
+      harness.settle();
+
+      followPeer(carol, alice);
+      harness.settle();
+      expect(recorder.cleared).toBe(0);
+
+      alice.session.disconnect();
+      harness.settle();
+      expect(recorder.cleared).toBe(1);
+    });
+
+    it("ignores viewport traffic once the canvas leaves the room", () => {
+      const recorder = createFollowRecorder();
+      let ownsCanvas = true;
+      const carol = harness.createClient("client-carol", {
+        followHost: recorder.host,
+        canSyncScene: () => ownsCanvas,
+      });
+      carol.session.connect();
+      harness.settle();
+
+      alice.session.handleViewportChange([10, 20, 110, 100]);
+      harness.network.flush();
+      followPeer(carol, alice);
+      expect(recorder.applied).toHaveLength(1);
+      harness.settle();
+      const appliedCount = recorder.applied.length;
+
+      // Another scene replaced Carol's canvas; the session is still connected
+      // until React cleanup, but room traffic must neither move the new
+      // canvas nor publish its viewport to the old room.
+      ownsCanvas = false;
+      harness.clock.now += 40;
+      alice.session.handleViewportChange([50, 60, 150, 140]);
+      harness.network.flush();
+      expect(recorder.applied).toHaveLength(appliedCount);
+
+      const pendingBefore = harness.network.pendingMessageCount();
+      carol.session.handleViewportChange([9, 9, 99, 99]);
+      expect(harness.network.pendingMessageCount()).toBe(pendingBefore);
+    });
+
+    it("sends the final viewport of a scroll once the throttle window closes", () => {
+      const recorder = createFollowRecorder();
+      const carol = harness.createClient("client-carol", {
+        followHost: recorder.host,
+      });
+      carol.session.connect();
+      harness.settle();
+
+      followPeer(carol, alice);
+      harness.settle(); // Alice's immediate reply opens her throttle window.
+
+      // Both samples land inside the window: only a trailing send may carry
+      // the final one — a follower stuck on the first would miss where the
+      // scroll ended.
+      alice.session.handleViewportChange([0, 0, 10, 10]);
+      alice.session.handleViewportChange([0, 0, 20, 20]);
+      harness.network.flush();
+      expect(recorder.applied).toEqual([]);
+
+      alice.timers.advance(33);
+      harness.network.flush();
+      expect(recorder.applied).toEqual([[0, 0, 20, 20]]);
+    });
   });
 
   it("re-sends unacknowledged changes after an outbound queue overflow", () => {

@@ -6,6 +6,7 @@ import {
   COLLABORATION_PROTOCOL_VERSION,
   createInboundMessageGate,
   type InboundMessageGate,
+  type PeerId,
   type RoomId,
 } from "@drawstuff/collaboration/protocol";
 import {
@@ -50,6 +51,8 @@ import {
 import {
   createPresenceChannel,
   type CollaborationIdleState,
+  type FollowHost,
+  type PresenceViewBounds,
 } from "@/lib/collab/session/presence-channel";
 import { createRemoteApplier } from "@/lib/collab/session/remote-apply";
 import { createScenePublisher } from "@/lib/collab/session/scene-publisher";
@@ -77,7 +80,11 @@ export type {
   JoinCredentialsResult,
 } from "@/lib/collab/session/connection-lifecycle";
 export type { BaselineOutcome } from "@/lib/collab/session/join-baseline";
-export type { CollaborationIdleState } from "@/lib/collab/session/presence-channel";
+export type {
+  CollaborationIdleState,
+  FollowHost,
+  PresenceViewBounds,
+} from "@/lib/collab/session/presence-channel";
 export type { CollaborationSceneApi } from "@/lib/collab/session/session-context";
 export type {
   SceneSizeOverflow,
@@ -180,6 +187,13 @@ export type CollaborationSessionOptions = {
    */
   wrapPresenceApply?: (apply: () => void) => void;
   /**
+   * Engine-facing half of follow mode: moves the local viewport to a followed
+   * peer's bounds and keeps the engine's follow state truthful. Absent means
+   * follow mode is inert — presence still carries viewport and follow state,
+   * but nothing moves this client's viewport (headless tests).
+   */
+  followHost?: FollowHost;
+  /**
    * Coalesces local scene flushes and returns a cancel function. Defaults to
    * one animation frame with a short timer backstop; tests inject a manual
    * scheduler for determinism.
@@ -244,6 +258,12 @@ export type CollaborationSession = {
   ): void;
   /** Wire to the editor `onPointerUpdate`: sends bounded-throttle presence. */
   handlePointerUpdate(payload: ExcalidrawPointerUpdatePayload): void;
+  /** Wire to the editor `onScrollChange`: shares the local visible scene
+   *  bounds so peers following this client can move with it. */
+  handleViewportChange(bounds: PresenceViewBounds): void;
+  /** Wire to the editor `onUserFollow`: mirrors the engine's follow target
+   *  into presence and snaps to the target's last known viewport. */
+  handleUserFollow(targetPeerId: PeerId | null): void;
   /**
    * Injects assets the asset store opened. Wired as the store's callback rather
    * than pulled by the session, because a download settles whenever it settles —
@@ -493,6 +513,7 @@ export function createCollaborationSession(
     wrapPresenceApply,
     scheduleSceneFlush,
     failRecovery: (reason) => lifecycle.failRecovery(reason),
+    follow: options.followHost,
   });
 
   const remoteApplier = createRemoteApplier({
@@ -712,6 +733,14 @@ export function createCollaborationSession(
     handlePointerUpdate(payload) {
       if (context.isStopped()) return;
       presence.handlePointerUpdate(payload);
+    },
+    handleViewportChange(bounds) {
+      if (context.isStopped()) return;
+      presence.handleViewportChange(bounds);
+    },
+    handleUserFollow(targetPeerId) {
+      if (context.isStopped()) return;
+      presence.handleUserFollow(targetPeerId);
     },
     setIdleState(nextIdleState) {
       if (context.isStopped()) return;

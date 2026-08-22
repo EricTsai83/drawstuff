@@ -10,6 +10,7 @@ import {
   exportToBlob,
   exportToSvg,
   Footer,
+  getVisibleSceneBounds,
   languages,
   MainMenu,
   MIME_TYPES,
@@ -22,6 +23,7 @@ import {
   useHandleLibrary,
   UserIdleState,
   WelcomeScreen,
+  zoomToFitBounds,
 } from "@excalidraw/excalidraw";
 import { createElement, type ReactElement, useEffect, useRef } from "react";
 
@@ -250,6 +252,10 @@ export {
   exportToBlob as exportCanvasToBlob,
   exportToSvg as exportSceneToSvg,
   Footer as ExcalidrawFooter,
+  // Follow mode: measure the local viewport in scene coordinates, and fit the
+  // local viewport to a followed peer's bounds. Both are upstream public API.
+  getVisibleSceneBounds,
+  zoomToFitBounds,
   languages as EXCALIDRAW_LANGUAGES,
   MainMenu as ExcalidrawMainMenu,
   MIME_TYPES as EXCALIDRAW_MIME_TYPES,

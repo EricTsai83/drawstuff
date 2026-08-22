@@ -140,6 +140,10 @@ export type UseCollaborationRoomResult = {
     elements: readonly OrderedExcalidrawElement[],
     appState: AppState,
   ) => void;
+  /** Wire to the editor `onScrollChange`: peers following this client move
+   *  with its viewport. (Following *someone else* needs no editor wiring —
+   *  the room session subscribes to the engine's follow events directly.) */
+  onScrollChange: () => void;
 };
 
 export function useCollaborationRoom(options: {
@@ -695,6 +699,10 @@ export function useCollaborationRoom(options: {
     [],
   );
 
+  const onScrollChange = useCallback(() => {
+    handleRef.current?.handleScrollChange();
+  }, []);
+
   // Derived, so neither fact overwrites the other: `status` is what the recovery
   // machine says about the connection, `syncBlock` is what the publish paths say
   // about the canvas, and only a session that is both connected and publishing
@@ -744,5 +752,6 @@ export function useCollaborationRoom(options: {
     retryJoin,
     onPointerUpdate,
     onSceneChange,
+    onScrollChange,
   };
 }

@@ -284,6 +284,7 @@ describe("host integration surface (native UI integration contract)", () => {
       "onChange",
       "onLibraryChange",
       "onPointerUpdate",
+      "onScrollChange",
       "renderCustomStats",
       "renderTopRightUI",
       "theme",
@@ -305,7 +306,7 @@ describe("host integration surface (native UI integration contract)", () => {
     assertNoUnauditedKeys<UnexposedHostProp>();
     assertNoUnauditedKeys<UnauditedAdapterProp>();
 
-    expect(HOST_EDITOR_PROPS).toHaveLength(15);
+    expect(HOST_EDITOR_PROPS).toHaveLength(16);
   });
 
   it("pins the upstream export utilities the host renders scenes through", () => {
