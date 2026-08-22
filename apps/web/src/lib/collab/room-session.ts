@@ -1,4 +1,7 @@
-import type { RoomId } from "@drawstuff/collaboration/protocol";
+import {
+  peerIdSchema,
+  type RoomId,
+} from "@drawstuff/collaboration/protocol";
 import {
   createRealtimeCryptoCodec,
   type RoomKey,
@@ -6,11 +9,17 @@ import {
 import type { RecoveryState } from "@drawstuff/collaboration/recovery";
 import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
 import type { ConnectionState } from "@drawstuff/collaboration/transport";
+import {
+  getVisibleSceneBounds,
+  zoomToFitBounds,
+} from "@drawstuff/excalidraw-adapter/client";
 import type {
   AppState,
   ExcalidrawImperativeAPI,
   ExcalidrawPointerUpdatePayload,
+  OnUserFollowedPayload,
   OrderedExcalidrawElement,
+  SocketId,
 } from "@drawstuff/excalidraw-adapter/types";
 
 import {
@@ -22,7 +31,9 @@ import {
   createCollaborationSession,
   type CollaborationSceneApi,
   type CollaborationSession,
+  type FollowHost,
   type JoinCredentialsResult,
+  type PresenceViewBounds,
   type SceneSyncBlock,
 } from "@/lib/collab/collaboration-session";
 import {
@@ -59,6 +70,9 @@ export type CollaborationRoomHandle = {
     appState: AppState,
   ): void;
   handlePointerUpdate(payload: ExcalidrawPointerUpdatePayload): void;
+  /** Wire to the editor `onScrollChange`: relays the local visible scene
+   *  bounds so peers following this client move with it. */
+  handleScrollChange(): void;
   getConnectionState(): ConnectionState;
   /**
    * Tears the session down. Returns the leave flush so a caller that can wait
@@ -204,6 +218,50 @@ export async function startCollaborationRoomSession(options: {
     throw error;
   }
 
+  /**
+   * Engine half of follow mode. Fitting (rather than copying scroll/zoom
+   * verbatim) is what makes following work across different window sizes —
+   * the same behaviour as upstream's collab app, via the same public helpers.
+   */
+  const followHost: FollowHost = {
+    applyViewportBounds: (bounds: PresenceViewBounds) => {
+      const appState = options.excalidrawApi.getAppState();
+      const fitted = zoomToFitBounds({
+        bounds,
+        appState,
+        fitToViewport: true,
+        viewportZoomFactor: 1,
+      }).appState;
+      // Compare the fit against the live viewport instead of deduping on the
+      // incoming bounds: a local resize or manual pan changes what unchanged
+      // bounds fit to, and the followed peer's steady pointer stream must be
+      // able to correct it — while a static, already-fitting viewport takes
+      // no canvas write at all.
+      if (
+        fitted.scrollX === appState.scrollX &&
+        fitted.scrollY === appState.scrollY &&
+        fitted.zoom.value === appState.zoom.value
+      ) {
+        return;
+      }
+      options.excalidrawApi.updateScene({
+        appState: {
+          scrollX: fitted.scrollX,
+          scrollY: fitted.scrollY,
+          zoom: fitted.zoom,
+        },
+      });
+    },
+    clearFollowTarget: () => {
+      options.excalidrawApi.updateScene({ appState: { userToFollow: null } });
+    },
+    applyFollowedBy: (peerIds) => {
+      options.excalidrawApi.updateScene({
+        appState: { followedBy: new Set(peerIds as unknown as SocketId[]) },
+      });
+    },
+  };
+
   const session = createCollaborationSession({
     transport,
     roomId: options.roomId,
@@ -216,6 +274,7 @@ export async function startCollaborationRoomSession(options: {
     assetStore,
     wrapRemoteApply: options.wrapRemoteApply,
     wrapPresenceApply: options.wrapPresenceApply,
+    followHost,
     canSyncScene: options.canSyncScene,
     onSceneSyncBlockChange: options.onSceneSyncBlockChange,
     onRecoveryStateChange: (state) => {
@@ -268,14 +327,41 @@ export async function startCollaborationRoomSession(options: {
     if (idleTimerId !== undefined) clearTimeout(idleTimerId);
     idleTimerId = undefined;
     document.removeEventListener("visibilitychange", handleVisibilityChange);
+    unsubscribeUserFollow();
     unsubscribe();
     assetStore?.destroy();
     assetTarget = undefined;
     transport.close();
   }
 
+  const relayVisibleSceneBounds = (): void => {
+    const bounds = getVisibleSceneBounds(options.excalidrawApi.getAppState());
+    session.handleViewportChange([bounds[0], bounds[1], bounds[2], bounds[3]]);
+  };
+
+  // The engine emits follow changes (avatar click, unfollow-on-interaction,
+  // followed peer leaving) only through the imperative API — the `onUserFollow`
+  // *prop* exists in upstream's types but is never invoked at runtime — so the
+  // subscription is the one wiring that actually works.
+  const unsubscribeUserFollow = options.excalidrawApi.onUserFollow(
+    (payload: OnUserFollowedPayload): void => {
+      if (payload.action !== "FOLLOW") {
+        session.handleUserFollow(null);
+        return;
+      }
+      // Collaborators are keyed by peer id (cast to the engine's SocketId),
+      // so the clicked avatar's socket id *is* the peer id; parsing instead
+      // of casting keeps a malformed value from ever reaching the wire.
+      const target = peerIdSchema.safeParse(payload.userToFollow.socketId);
+      if (target.success) session.handleUserFollow(target.data);
+    },
+  );
+
   session.connect();
   armIdleTimer();
+  // Seed the local viewport before any scroll happens: `onScrollChange` only
+  // fires on changes, and a member who never scrolls must still be followable.
+  relayVisibleSceneBounds();
 
   return {
     handleSceneChange: (elements, appState) => {
@@ -285,6 +371,7 @@ export async function startCollaborationRoomSession(options: {
       markActive();
       session.handlePointerUpdate(payload);
     },
+    handleScrollChange: relayVisibleSceneBounds,
     getConnectionState: () => session.getConnectionState(),
     destroy() {
       // Leaving may be the room emptying out, and an empty room has no live copy

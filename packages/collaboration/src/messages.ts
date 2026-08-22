@@ -9,8 +9,12 @@ import { z } from "zod";
  *
  * v2: removed `senderClientId` — collaboration identity is the
  * relay-assigned `peerId` only.
+ *
+ * v3: presence carries the sender's visible scene bounds and follow target
+ * (follow mode), and `pointer` became optional so a client that has not
+ * produced a pointer sample yet can still share its viewport.
  */
-export const COLLABORATION_PROTOCOL_VERSION = 2;
+export const COLLABORATION_PROTOCOL_VERSION = 3;
 
 /**
  * Hard cap applied to raw encoded bytes before any JSON parsing. Messages
@@ -140,15 +144,39 @@ export const presenceMessageSchema = z.strictObject({
   ...messageEnvelopeFields,
   type: z.literal("presence"),
   payload: z.strictObject({
-    pointer: z.strictObject({
-      x: z.number(),
-      y: z.number(),
-      tool: z.enum(["pointer", "laser"]),
-    }),
+    /** Absent until the first pointer sample: a client that has only scrolled
+     *  or zoomed still shares its viewport and follow state. */
+    pointer: z
+      .strictObject({
+        x: z.number(),
+        y: z.number(),
+        tool: z.enum(["pointer", "laser"]),
+      })
+      .optional(),
     button: z.enum(["up", "down"]),
     username: z.string().max(128),
     selectedElementIds: z.array(z.string().min(1).max(64)).max(256),
     idleState: z.enum(["active", "idle", "away"]),
+    /**
+     * The sender's visible scene area as `[minX, minY, maxX, maxY]` in scene
+     * coordinates. A peer following this sender fits its own viewport to
+     * these bounds, so follow mode works across different window sizes.
+     * Absent until the sender has measured its viewport.
+     */
+    viewBounds: z
+      .tuple([z.number(), z.number(), z.number(), z.number()])
+      .optional(),
+    /**
+     * Which peer the sender is currently following, and when that follow was
+     * started (sender clock, epoch ms). Latest-wins like the rest of
+     * presence; absent means not following anyone. The timestamp is what
+     * lets every client break follow cycles the same way: the newest edge in
+     * a cycle wins and the oldest edge releases (see the web client's
+     * `follow-mode.ts`).
+     */
+    follow: z
+      .strictObject({ peerId: peerIdSchema, since: z.number() })
+      .optional(),
   }),
 });
 export type PresenceMessage = z.infer<typeof presenceMessageSchema>;

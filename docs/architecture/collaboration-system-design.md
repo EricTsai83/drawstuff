@@ -63,7 +63,10 @@ separate channels:
 
 - scene frames are reliable within a live socket session and are rejected when sender role or
   limits disallow them;
-- presence may be dropped under backpressure;
+- presence may be dropped under backpressure; besides pointer/selection/idle it carries the
+  sender's visible scene bounds and follow target, which is all follow mode needs — the relay has
+  no follow rooms. Follow relations stay acyclic client-side: the newest follow edge wins and the
+  oldest edge in a cycle releases (`apps/web/src/lib/collab/session/follow-mode.ts`);
 - ordering/idempotency uses `(senderPeerId, sequence)` and the current room generation;
 - reconnect gaps are repaired through full-scene synchronization, durable snapshot, and official
   reconciliation rather than replay state in the relay.

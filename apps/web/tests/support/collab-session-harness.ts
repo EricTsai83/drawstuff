@@ -44,6 +44,7 @@ import {
   type BaselineOutcome,
   type CollaborationSceneApi,
   type CollaborationSession,
+  type FollowHost,
   type JoinCredentialsResult,
   type SceneSyncBlock,
 } from "@/lib/collab/collaboration-session";
@@ -574,6 +575,7 @@ export type CreateClientOptions = {
   canSyncScene?: () => boolean;
   wrapRemoteApply?: (apply: () => void) => void;
   wrapPresenceApply?: (apply: () => void) => void;
+  followHost?: FollowHost;
   joinBarrier?: JoinBarrierOptions;
   offlineQueue?: OfflineChangeQueueOptions;
   recovery?: RecoveryPolicyOptions;
@@ -625,6 +627,7 @@ export function createHarness(
       canSyncScene: options.canSyncScene,
       wrapRemoteApply: options.wrapRemoteApply,
       wrapPresenceApply: options.wrapPresenceApply,
+      followHost: options.followHost,
       joinBarrier: options.joinBarrier,
       offlineQueue: options.offlineQueue,
       recovery: options.recovery,

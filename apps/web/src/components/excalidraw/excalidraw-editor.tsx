@@ -204,6 +204,7 @@ export default function ExcalidrawEditor() {
     retryJoin: retryCollaborationJoin,
     onPointerUpdate: handleCollabPointerUpdate,
     onSceneChange: handleCollabSceneChange,
+    onScrollChange: handleCollabScrollChange,
   } = useCollaborationRoom({
     excalidrawAPI,
     roomId: collaborationRoomId,
@@ -518,6 +519,9 @@ export default function ExcalidrawEditor() {
           initialData={initialDataPromise}
           onChange={handleCanvasChange}
           onPointerUpdate={handleCollabPointerUpdate}
+          // 跟隨模式:上游負責 UI(點頭像、紫色外框),這裡把自己的視角廣播給
+          // 跟隨者;「自己開始/停止跟隨」走 imperative API 訂閱(room-session)。
+          onScrollChange={handleCollabScrollChange}
           isCollaborating={isCollaborating}
           // Viewer 角色在 UI 也是唯讀；server 端仍是唯一的權限來源。
           viewModeEnabled={isCollaborationReadOnly}
