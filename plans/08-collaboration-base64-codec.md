@@ -92,6 +92,26 @@ semantics 收斂到共用 codec，保留 `room-token.ts` 的同步 HMAC 與 timi
 - [Workers Node.js compatibility](https://developers.cloudflare.com/workers/runtime-apis/nodejs/)
 - [Workers crypto](https://developers.cloudflare.com/workers/runtime-apis/nodejs/crypto/)
 
+## 在 Durable Object migration 系列中的位置
+
+**判定：保留並先完成。** Plan 8 不是 Durable Object runtime 實作，但其中三項工作會直接降低
+後續 migration 風險：canonical Base64／Base64URL contract、`room-token` 在 Node 與 workerd 的
+fixed vectors，以及 browser／Node／workerd 共用 package entry 的 import boundary。這些契約若
+等到雙 relay 已存在才收斂，會讓 token 或 stored value 的差異被誤判成 provider 問題。
+
+這個判定來自目前 codebase 的實際邊界：`keycheck.ts`、`realtime-crypto.ts` 與
+`snapshot-store.ts` 各自維護 `btoa()`／`atob()` helper，`room-token.ts` 另用 Node `Buffer`；相對地，
+`@drawstuff/collaboration` 已經是 protocol／token 的共用 owner，`collaborationRoom.join` 也已回傳
+`relayUrl`，client session 只消費 URL，沒有綁死 Node provider。因此 Plan 8 應收斂 codec 與 host
+contract，但不該趁機新增 relay abstraction；後者可在不污染 client domain 的前提下延後到
+Plan 13 的 server-owned、可刪除 migration layer。
+
+4 MiB snapshot benchmark 本身不是 DO blocker，因為 snapshot 繼續走 Vercel／PostgreSQL 而不進
+DO；它仍值得保留，理由是目前 browser 每 30 秒就會走這個 hot path，且同一個 codec 會服務
+key-check 與 token 邊界。Plan 8 不抽象 relay provider、不建立 Worker app，也不決定 DO 的
+WebSocket lifecycle；完成後才進入
+[Plan 09](./09-collaboration-do-architecture-foundation.md)。
+
 ## 範圍邊界
 
 - 不再以檔案行數為理由拆分 `collaboration-session.ts`。目前 session 子系統已有明確 module
