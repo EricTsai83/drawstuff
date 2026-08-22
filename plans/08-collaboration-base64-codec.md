@@ -154,13 +154,20 @@ type Base64DecodeResult =
 - Base64URL 使用 `A-Z a-z 0-9 - _` 且固定 unpadded，禁止 `=`、whitespace、`length % 4 === 1`
   與 non-zero unused trailing bits；
 - empty string 是 empty byte sequence 的 canonical encoding；
-- decode 後重新以相同 profile encode 必須逐字元等於原輸入，否則回 `malformed`。
+- decode 後重新以相同 profile encode 必須逐字元等於原輸入，否則回 `malformed`。這是語意
+  契約，由下述 shape guard + strict decode 在結構上保證，並在測試層對全部 vectors 驗證；
+  不是 production hot path 的 runtime re-encode。
 
 實作要求：
 
 1. capability detection 只用窄的 structural type，不調高 `ES2022` lib、不改 global declaration；
 2. native 與 fallback 之前先跑同一個 canonical shape／encoded-length guard，完成後再跑相同的
-   byte-length 與 canonical re-encode check；host decoder 的寬鬆度不得外洩；
+   byte-length check；host decoder 的寬鬆度不得外洩。shape guard 必須自行拒絕 whitespace 與
+   padding 錯置——native `Uint8Array.fromBase64` 依規格會忽略 ASCII whitespace，不能靠它擋；
+   native decode 必須以 `lastChunkHandling: "strict"` 拒絕 non-zero unused bits。canonical
+   re-encode 等值檢查只存在於測試（對 native 與 fallback 全 vector 驗證），不得在 production
+   decode 對 4 MiB payload 再做一次完整 encode——那會使 decode 成本翻倍並多配置一份
+   megabyte 級字串，與 P4 的 50 ms 門檻直接矛盾；
 3. fallback 的 chunk size 固定且有理由，不能退回 per-byte string concatenation；
 4. decode 先以 encoded length 拒絕不可能落在 `maxBytes` 內的輸入，完成後再檢查實際
    byte length；不能先配置無界 binary string／typed array 才套上限；

@@ -76,6 +76,11 @@ roomId、generation、revision、action、optional subject、attempt count、nex
 - commit 後同步 best-effort dispatch，以維持快速 UI feedback；失敗留在 outbox，不宣稱 enforced；
 - bounded maintenance job 以 row locking／skip locked claim due events，依 provider送 Node control或
   DO Worker control，使用 exponential backoff + jitter 與 max per run；
+- drainer 的 runner 必須明確：既有每週一次的 `/api/maintenance/cleanup` cron 是 storage
+  cleanup，不得兼任 enforcement repair path。新增獨立、分鐘級的 Vercel cron endpoint，帶
+  cron secret 驗證、單次 run bounded、與 weekly cleanup 互不共用 schedule。worst-case
+  enforcement latency = sync dispatch 失敗後的 cron cadence + backoff，這個上界必須寫進
+  SLO 文件與 UI `pending` 語意，不能假設 outbox 近即時；
 - actions 在兩個 provider 都以 revision max idempotent；ambiguous timeout可以重送；
 - delivery success標記 completed，retention job bounded cleanup；poison event進 observable terminal
   state而不是無限 hot loop；

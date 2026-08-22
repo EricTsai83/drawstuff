@@ -8,7 +8,8 @@
 
 在 `CollaborationRoom` 內以 Hibernatable WebSockets 實作現行 relay 的 join、membership、role
 enforcement、opaque binary fanout、limits、backpressure 與 close semantics。WebSocket wire
-protocol與 client transport 先保持不變；實作必須能在每次 hibernation、eviction 或 code update
+protocol與 client transport 先保持不變，唯一允許的擴充是 P6 的 optional keepalive frame（Node
+relay 必須相容）；實作必須能在每次 hibernation、eviction 或 code update
 後只靠 attachment 與 SQLite 恢復，不能依賴 constructor 前的記憶體。
 
 官方基準：
@@ -45,14 +46,23 @@ type RoomSocketAttachmentV1 =
       roomExpiresAt: number;
       joinedAt: number;
       lastFrameAt: number;
-      sceneBucket: SerializedTokenBucket;
-      presenceBucket: SerializedTokenBucket;
     };
 ```
 
 Attachment 不存 token、room key、ciphertext、presence profile 或 scene data。每個 event 重新從
 `ctx.getWebSockets()` 與 attachment 建立所需 snapshot；in-memory Map 可以是單一 event 的 cache，
 不得是 correctness authority。Unknown attachment version fail closed 並以 `internalError` 關閉。
+
+Attachment 是 authority，但不是 per-frame 寫入目標。`serializeAttachment()` 會持久化整份
+value；在 32 sockets × 最高 120 Hz 的 fanout 下逐 frame 重寫 attachment 是純粹的
+serialization／storage 放大，禁止：
+
+- `lastFrameAt` 逐 frame 只更新 in-memory copy；只有持久化值落後超過一個固定 quantum
+  （常數需有理由，量級為數十秒）才 rewrite attachment。idle deadline 的誤差上限即為該
+  quantum，相對 15 分鐘 idle budget 可忽略，且方向是「最多晚關」，不會提早誤關；
+- rate bucket 狀態不進 attachment（見 P3）；
+- 每個 attachment variant 以最大 field 值序列化後必須低於平台的 2 KiB attachment 上限，
+  以測試證明，不留給 runtime error。
 
 ## P2 — Upgrade、join 與 membership
 
@@ -82,9 +92,13 @@ contract，不重用 Node socket wrapper：
   receiver 超標時以 `slowConsumer` 關閉；
 - `bufferedAmount` 行為必須在 workerd 與 staging 實測。若 host 無法提供可靠值，Plan 12 必須先
   定義有界替代方案，不能直接移除 slow-consumer protection；
-- connection token bucket 狀態放 attachment。跨 hibernation 需用 epoch milliseconds 與
-  high-water clamp，不能沿用 process-local `performance.now()`；wall-clock backward jump 不產生
-  額外 refill；
+- connection token bucket 是 in-memory per-connection state，hibernation／eviction 後重建為
+  滿桶。這是「in-memory 不得是 authority」規則唯一的明確例外，理由要寫進 code：hibernation
+  至少需要約 10 秒無事件，而 bucket 完整 refill 時間必須 ≤ 該 idle 門檻（以常數 assert），
+  所以滿桶重建與持久化在行為上等價；code update／eviction 打斷中的 burst 最多多放行一個
+  bucket 容量，屬 admission control 的有界誤差，不影響 membership correctness，且有測試。
+  時間源用 event 送達時的 epoch milliseconds 加 high-water clamp，不能沿用 process-local
+  `performance.now()`；wall-clock backward jump 不產生額外 refill；
 - one socket exception 只關閉該 socket，不能讓 handler throw 造成整個 Object reset；DO
   infrastructure overload 則交由 gateway/client recovery 分類，不做即時 retry storm。
 
@@ -110,6 +124,28 @@ SQLite 只保存 schema version、room epoch、room expiry 與 Plan 11 的 cutof
 Plan 11 的 terminal control 已保留超過所有舊 token 的有效期）、沒有 sockets 且沒有 cutoff
 工作時，才呼叫 `deleteAlarm()` 與 `deleteAll()`，讓 Object 真正不再產生 storage cost。
 
+## P6 — Liveness 與 keepalive 的 hibernation-safe 契約
+
+Node relay 的 liveness 是 server 每 15 秒的 protocol-level ping、漏一次 pong 就 terminate
+（`heartbeatTimeout`）。這個機制不可移植：server-initiated ping 需要喚醒 Object，會讓
+hibernation 失效，而 browser WebSocket API 也無法讓 client 發 protocol-level ping。DO 版本
+必須明確定義替代契約，不能默默把 dead-peer 偵測從約 30 秒退化成 15 分鐘 idle deadline——
+zombie socket 會占住 32 人 cap，擋掉 tab crash 後的立即重連：
+
+- client 在共用 protocol contract 內新增 versioned、optional 的 bounded keepalive frame；
+  Node relay 對它的行為必須明確（忽略即可）並有測試，維持單一 wire contract；
+- DO 以 `ctx.setWebSocketAutoResponse()` 設定 keepalive request/response pair；auto-response
+  不喚醒 Object，hibernation 不受影響。keepalive 只證明 socket 活著，不算 activity：idle
+  deadline 仍以 `lastFrameAt`（data frames）判定，被遺忘的 tab 照樣 idle timeout，語意與
+  現行 relay 的 heartbeat／idle 二分一致；
+- 不新增專屬的高頻 liveness alarm——那會抵銷 hibernation。liveness 以
+  `ctx.getWebSocketAutoResponseTimestamp(ws)` lazy 判定，時機為：任何 alarm 本來就要醒來時、
+  fanout write 失敗時，以及 join 遇到 room cap 已滿時先 reap liveness 過期的 sockets 再套
+  cap，讓「tab 死掉後立刻重連」不被 zombie 擋住；
+- dead-peer 偵測上限（keepalive interval + 上述 lazy 時機的排程誤差）與 `heartbeatTimeout`
+  在 DO taxonomy 的對應，必須寫進 SLO／observability 文件，不得產生 client 可見的第二套
+  disconnect reason 語意。
+
 ## 驗證與完成條件
 
 以 `@cloudflare/vitest-plugin` 跑真 workerd／DO bindings，不用 fake class：
@@ -121,6 +157,10 @@ Plan 11 的 terminal control 已保留超過所有舊 token 的有效期）、�
 - 最後一條 socket 關閉後、room expiry 前重新加入取得更大的 epoch；client ordering contract 接受
   新 epoch，且 storage 不會提早 reset；
 - 32-member boundary、join churn、slow consumer、presence drop、rate buckets 與 wall-clock jump；
+- attachment 寫入 coalescing：sustained fanout 下 `serializeAttachment()` 次數有上限，且最大
+  attachment 序列化後低於 2 KiB；
+- keepalive auto-response 不喚醒 Object、liveness lazy reap（alarm／write failure／cap-full join）
+  與 idle-vs-liveness 二分語意；
 - malformed attachment、frame exception、code-version skew 與 unexpected reset；
 - package與 repo-level lint、typecheck、test、knip 全過；
 - staging WebSocket smoke 可完成 E2EE two-client convergence；
