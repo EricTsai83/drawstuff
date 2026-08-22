@@ -7,7 +7,8 @@
 ## Active plans
 
 1. [08-collaboration-base64-codec.md](08-collaboration-base64-codec.md) —
-   collaboration 共用 Base64 codec、原生 TypedArray 快路徑與 4 MiB snapshot 效能門檻
+   collaboration canonical Base64 codec、browser／Node／workerd contract、原生 TypedArray 快路徑、
+   4 MiB snapshot 效能門檻與 Durable Object readiness
 
 ## Completion rule
 
