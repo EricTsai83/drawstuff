@@ -57,7 +57,12 @@ rooms 的 health endpoint；availability 以 namespace metrics、synthetic room 
 
 固定環境、fixture、版本與 network profile，至少量測 2／8／16／32 members：
 
-- idle connected rooms，確認約 10 秒後 hibernate且 socket 留存；
+- idle connected rooms，確認約 10 秒後 hibernate且 socket 留存；hibernate ratio 必須在 client
+  keepalive（auto-response pair）開啟下量測，並確認 keepalive 不喚醒 Object、長時間 idle 的
+  viewer 連線可跨 NAT/proxy 存活；
+- Plan 10 的 lazy liveness：tab-kill 後 dead socket 被 reap 的實際延遲分布，以及 cap-full join
+  reap 的正確性；
+- sustained fanout 下 per-connection `serializeAttachment()` 寫入率，證明 coalescing 上限成立；
 - scene 60 Hz／120 Hz、presence 30 Hz，以及少數 active editors + 多數 receivers 的常見形狀；
 - 1 MiB scene burst、16 KiB presence bound、join storm、reconnect storm；
 - healthy、presence-backpressured、scene-slow-consumer 三種 receiver；
@@ -95,7 +100,9 @@ DO duration = active/non-hibernateable GB-s
 DO storage = cutoff/metadata rows + retained bytes
 ```
 
-驗證後續 WebSocket messages 不重新 invoke gateway Worker、沒有 Cloudflare egress charge，並用
+驗證後續 WebSocket messages 不重新 invoke gateway Worker、沒有 Cloudflare egress charge，並
+實測 keepalive auto-response frame 是否計入 billable incoming messages 與 duration（官方文件
+未明確承諾，不得假設免費），把結果納入 keepalive cadence 的選擇依據。用
 實際 session／message distribution 投影 low／expected／burst 月成本。必須同時報告 Hibernation
 on/off 的差距、reconnect 對 Upgrade 的放大、alarm wakeup 與 storage cleanup。Cost budget 寫入
 SLO 文件；沒有使用量資料時不得捏造單一月費承諾。
