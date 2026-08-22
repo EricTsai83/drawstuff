@@ -6,9 +6,26 @@
 
 ## Active plans
 
-1. [08-collaboration-base64-codec.md](08-collaboration-base64-codec.md) —
-   collaboration canonical Base64 codec、browser／Node／workerd contract、原生 TypedArray 快路徑、
-   4 MiB snapshot 效能門檻與 Durable Object readiness
+以下是一個有順序的 Durable Object migration series。除非前一個 plan 的完成條件明確成立，
+不得把後一個 plan 的 production traffic gate 打開；可以提前做 read-only research，但不能提前
+建立第二條 live routing path。
+
+1. [08-collaboration-base64-codec.md](08-collaboration-base64-codec.md) — canonical Base64 codec、
+   browser／Node／workerd contract、token vectors與4 MiB snapshot效能門檻
+2. [09-collaboration-do-architecture-foundation.md](09-collaboration-do-architecture-foundation.md) —
+   Vercel/Worker/DO權責、SQLite namespace、environment與thin gateway；production traffic 0%
+3. [10-collaboration-do-room-runtime.md](10-collaboration-do-room-runtime.md) — Hibernatable
+   WebSockets、attachments、Alarm、opaque fanout與Node protocol parity
+4. [11-collaboration-do-durable-control.md](11-collaboration-do-durable-control.md) — typed RPC、SQLite
+   revocation cutoffs、idempotent room lifecycle與storage cleanup
+5. [12-collaboration-do-verification-capacity.md](12-collaboration-do-verification-capacity.md) —
+   workerd/staging conformance、observability、load、latency、Hibernation與cost Go/No-Go
+6. [13-collaboration-do-provider-coexistence.md](13-collaboration-do-provider-coexistence.md) —
+   provider-pinned雙軌、server-owned routing與durable PostgreSQL control outbox
+7. [14-collaboration-do-production-cutover.md](14-collaboration-do-production-cutover.md) — synthetic、
+   internal、1/10/25/50/100% new-channel rollout、rollback gates與Node自然排空
+8. [15-collaboration-do-retirement.md](15-collaboration-do-retirement.md) — 刪除Node relay、provider
+   abstraction與migration config，收斂為Durable Object-only realtime architecture
 
 ## Completion rule
 
