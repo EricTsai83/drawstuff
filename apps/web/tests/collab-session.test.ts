@@ -317,17 +317,21 @@ describe("collaboration session over the fake network", () => {
     /** Records what the session asks the engine to do, in place of a canvas. */
     const createFollowRecorder = () => {
       const applied: ViewBounds[] = [];
+      const appliedZooms: number[] = [];
       const followedBy: string[][] = [];
       let cleared = 0;
       return {
         applied,
+        appliedZooms,
         followedBy,
         get cleared() {
           return cleared;
         },
         host: {
-          applyViewportBounds: (bounds: ViewBounds) => {
+          applyViewport: (viewport: { bounds: ViewBounds; zoom: number }) => {
+            const { bounds, zoom } = viewport;
             applied.push([bounds[0], bounds[1], bounds[2], bounds[3]]);
+            appliedZooms.push(zoom);
           },
           clearFollowTarget: () => {
             cleared += 1;
@@ -351,28 +355,30 @@ describe("collaboration session over the fake network", () => {
       carol.session.connect();
       harness.settle();
 
-      alice.session.handleViewportChange([10, 20, 110, 100]);
+      alice.session.handleViewportChange([10, 20, 110, 100], 0.8);
       harness.network.flush();
       // Not following yet: the bounds are cached, not applied.
       expect(recorder.applied).toEqual([]);
 
       followPeer(carol, alice);
       expect(recorder.applied).toEqual([[10, 20, 110, 100]]);
+      expect(recorder.appliedZooms).toEqual([0.8]);
       // Alice's immediate reply re-delivers the same bounds; whether that
       // needs a canvas write is the host's call (it compares the fit against
       // the live viewport), so the channel hands it through.
       harness.settle();
 
       harness.clock.now += 40; // past the presence throttle window
-      alice.session.handleViewportChange([50, 60, 150, 140]);
+      alice.session.handleViewportChange([50, 60, 150, 140], 0.9);
       harness.network.flush();
       expect(recorder.applied.at(-1)).toEqual([50, 60, 150, 140]);
+      expect(recorder.appliedZooms.at(-1)).toBe(0.9);
 
       // Ending the follow stops the viewport from moving again.
       carol.session.handleUserFollow(null);
       const appliedCount = recorder.applied.length;
       harness.clock.now += 40;
-      alice.session.handleViewportChange([0, 0, 10, 10]);
+      alice.session.handleViewportChange([0, 0, 10, 10], 1);
       harness.network.flush();
       expect(recorder.applied).toHaveLength(appliedCount);
     });
@@ -380,7 +386,7 @@ describe("collaboration session over the fake network", () => {
     it("answers a brand-new follower with an immediate viewport sample", () => {
       // Alice measured her viewport before Carol was in the room, so Carol
       // has nothing cached when the follow starts.
-      alice.session.handleViewportChange([1, 2, 3, 4]);
+      alice.session.handleViewportChange([1, 2, 3, 4], 1);
       harness.network.flush();
 
       const recorder = createFollowRecorder();
@@ -439,7 +445,7 @@ describe("collaboration session over the fake network", () => {
       // connecting; a member who never touches the pointer must still be
       // followable from that seed alone.
       const dana = harness.createClient("client-dana");
-      dana.session.handleViewportChange([5, 5, 25, 25]);
+      dana.session.handleViewportChange([5, 5, 25, 25], 1);
       dana.session.connect();
       harness.settle();
 
@@ -534,7 +540,7 @@ describe("collaboration session over the fake network", () => {
       carol.session.connect();
       harness.settle();
 
-      alice.session.handleViewportChange([10, 20, 110, 100]);
+      alice.session.handleViewportChange([10, 20, 110, 100], 1);
       harness.network.flush();
       followPeer(carol, alice);
       expect(recorder.applied).toHaveLength(1);
@@ -546,12 +552,12 @@ describe("collaboration session over the fake network", () => {
       // canvas nor publish its viewport to the old room.
       ownsCanvas = false;
       harness.clock.now += 40;
-      alice.session.handleViewportChange([50, 60, 150, 140]);
+      alice.session.handleViewportChange([50, 60, 150, 140], 1);
       harness.network.flush();
       expect(recorder.applied).toHaveLength(appliedCount);
 
       const pendingBefore = harness.network.pendingMessageCount();
-      carol.session.handleViewportChange([9, 9, 99, 99]);
+      carol.session.handleViewportChange([9, 9, 99, 99], 1);
       expect(harness.network.pendingMessageCount()).toBe(pendingBefore);
     });
 
@@ -569,8 +575,8 @@ describe("collaboration session over the fake network", () => {
       // Both samples land inside the window: only a trailing send may carry
       // the final one — a follower stuck on the first would miss where the
       // scroll ended.
-      alice.session.handleViewportChange([0, 0, 10, 10]);
-      alice.session.handleViewportChange([0, 0, 20, 20]);
+      alice.session.handleViewportChange([0, 0, 10, 10], 1);
+      alice.session.handleViewportChange([0, 0, 20, 20], 1.1);
       harness.network.flush();
       expect(recorder.applied).toEqual([]);
 

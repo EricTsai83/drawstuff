@@ -1,7 +1,4 @@
-import {
-  peerIdSchema,
-  type RoomId,
-} from "@drawstuff/collaboration/protocol";
+import { peerIdSchema, type RoomId } from "@drawstuff/collaboration/protocol";
 import {
   createRealtimeCryptoCodec,
   type RoomKey,
@@ -9,10 +6,7 @@ import {
 import type { RecoveryState } from "@drawstuff/collaboration/recovery";
 import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
 import type { ConnectionState } from "@drawstuff/collaboration/transport";
-import {
-  getVisibleSceneBounds,
-  zoomToFitBounds,
-} from "@drawstuff/excalidraw-adapter/client";
+import { getVisibleSceneBounds } from "@drawstuff/excalidraw-adapter/client";
 import type {
   AppState,
   ExcalidrawImperativeAPI,
@@ -33,7 +27,6 @@ import {
   type CollaborationSession,
   type FollowHost,
   type JoinCredentialsResult,
-  type PresenceViewBounds,
   type SceneSyncBlock,
 } from "@/lib/collab/collaboration-session";
 import {
@@ -41,6 +34,7 @@ import {
   type CollaborationSnapshotStore,
   type SnapshotApi,
 } from "@/lib/collab/snapshot-store";
+import { fitViewportToFollowBounds } from "@/lib/collab/follow-viewport";
 
 /**
  * Runtime wiring for one authorized collaboration room: realtime crypto codec +
@@ -70,8 +64,8 @@ export type CollaborationRoomHandle = {
     appState: AppState,
   ): void;
   handlePointerUpdate(payload: ExcalidrawPointerUpdatePayload): void;
-  /** Wire to the editor `onScrollChange`: relays the local visible scene
-   *  bounds so peers following this client move with it. */
+  /** Wire to the editor `onScrollChange`: relays the local viewport bounds and
+   *  absolute zoom so peers following this client move with it. */
   handleScrollChange(): void;
   getConnectionState(): ConnectionState;
   /**
@@ -219,19 +213,15 @@ export async function startCollaborationRoomSession(options: {
   }
 
   /**
-   * Engine half of follow mode. Fitting (rather than copying scroll/zoom
-   * verbatim) is what makes following work across different window sizes —
-   * the same behaviour as upstream's collab app, via the same public helpers.
+   * Engine half of follow mode. It copies the leader's absolute zoom while
+   * centering on their visible scene bounds, so different viewport sizes do
+   * not preserve a stale relative zoom offset.
    */
   const followHost: FollowHost = {
-    applyViewportBounds: (bounds: PresenceViewBounds) => {
+    applyViewport: ({ bounds, zoom }) => {
       const appState = options.excalidrawApi.getAppState();
-      const fitted = zoomToFitBounds({
-        bounds,
-        appState,
-        fitToViewport: true,
-        viewportZoomFactor: 1,
-      }).appState;
+      const fitted = fitViewportToFollowBounds(bounds, zoom, appState);
+      if (!fitted) return;
       // Compare the fit against the live viewport instead of deduping on the
       // incoming bounds: a local resize or manual pan changes what unchanged
       // bounds fit to, and the followed peer's steady pointer stream must be
@@ -335,8 +325,12 @@ export async function startCollaborationRoomSession(options: {
   }
 
   const relayVisibleSceneBounds = (): void => {
-    const bounds = getVisibleSceneBounds(options.excalidrawApi.getAppState());
-    session.handleViewportChange([bounds[0], bounds[1], bounds[2], bounds[3]]);
+    const appState = options.excalidrawApi.getAppState();
+    const bounds = getVisibleSceneBounds(appState);
+    session.handleViewportChange(
+      [bounds[0], bounds[1], bounds[2], bounds[3]],
+      appState.zoom.value,
+    );
   };
 
   // The engine emits follow changes (avatar click, unfollow-on-interaction,

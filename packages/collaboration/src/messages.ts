@@ -13,8 +13,12 @@ import { z } from "zod";
  * v3: presence carries the sender's visible scene bounds and follow target
  * (follow mode), and `pointer` became optional so a client that has not
  * produced a pointer sample yet can still share its viewport.
+ *
+ * v4: presence carries the sender's absolute zoom alongside its visible scene
+ * bounds, so followers match scale instead of preserving their previous
+ * viewport-size ratio.
  */
-export const COLLABORATION_PROTOCOL_VERSION = 3;
+export const COLLABORATION_PROTOCOL_VERSION = 4;
 
 /**
  * Hard cap applied to raw encoded bytes before any JSON parsing. Messages
@@ -159,13 +163,16 @@ export const presenceMessageSchema = z.strictObject({
     idleState: z.enum(["active", "idle", "away"]),
     /**
      * The sender's visible scene area as `[minX, minY, maxX, maxY]` in scene
-     * coordinates. A peer following this sender fits its own viewport to
-     * these bounds, so follow mode works across different window sizes.
+     * coordinates. A peer following this sender centers on these bounds and
+     * applies `viewZoom`, so different viewport sizes do not create a relative
+     * zoom offset.
      * Absent until the sender has measured its viewport.
      */
     viewBounds: z
       .tuple([z.number(), z.number(), z.number(), z.number()])
       .optional(),
+    /** Absolute zoom of the viewport described by `viewBounds`. */
+    viewZoom: z.number().positive().optional(),
     /**
      * Which peer the sender is currently following, and when that follow was
      * started (sender clock, epoch ms). Latest-wins like the rest of
