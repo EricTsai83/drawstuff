@@ -474,7 +474,7 @@ export function CollaborationRoomDialog({
             </div>
 
             {isOwner && room && (
-              <div className={COPY_LINK_ROW_CLASS_NAME}>
+              <div className="flex flex-col gap-2">
                 <Label htmlFor="collab-link-role">
                   {t("collaboration.linkPermission")}
                 </Label>
@@ -488,7 +488,7 @@ export function CollaborationRoomDialog({
                     })
                   }
                 >
-                  <SelectTrigger id="collab-link-role">
+                  <SelectTrigger id="collab-link-role" className="w-full">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
