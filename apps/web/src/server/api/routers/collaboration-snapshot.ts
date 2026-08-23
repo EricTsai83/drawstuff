@@ -1,10 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import {
-  decodeBase64,
-  encodeBase64,
-} from "@drawstuff/collaboration/base64";
+import { decodeBase64, encodeBase64 } from "@drawstuff/collaboration/base64";
 import {
   roomAuthGenerationSchema,
   roomRoleCanEditScene,

@@ -242,10 +242,9 @@ export async function deriveRoomKey(options: {
   purpose: RoomKeyPurpose;
 }): Promise<CryptoKey> {
   const generation = roomAuthGenerationSchema.parse(options.authGeneration);
-  const decodedRoomKey = decodeBase64Url(
-    roomKeySchema.parse(options.roomKey),
-    { maxBytes: ROOM_KEY_BYTES },
-  );
+  const decodedRoomKey = decodeBase64Url(roomKeySchema.parse(options.roomKey), {
+    maxBytes: ROOM_KEY_BYTES,
+  });
   // Unreachable for a parsed RoomKey — the schema refines on this very decode
   // — so a failure here is a defect, not untrusted input.
   if (!decodedRoomKey.ok) {

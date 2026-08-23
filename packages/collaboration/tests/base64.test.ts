@@ -183,9 +183,9 @@ describe.each(implementations)("base64 codec (%s path)", (implementation) => {
     use();
     expect(() => decodeBase64("AAAA", { maxBytes: -1 })).toThrow(/maxBytes/);
     expect(() => decodeBase64("AAAA", { maxBytes: 1.5 })).toThrow(/maxBytes/);
-    expect(() =>
-      decodeBase64Url("AAAA", { maxBytes: Number.NaN }),
-    ).toThrow(/maxBytes/);
+    expect(() => decodeBase64Url("AAAA", { maxBytes: Number.NaN })).toThrow(
+      /maxBytes/,
+    );
   });
 });
 

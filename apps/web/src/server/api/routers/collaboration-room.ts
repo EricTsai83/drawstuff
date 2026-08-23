@@ -2,10 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
-import {
-  decodeBase64,
-  encodeBase64,
-} from "@drawstuff/collaboration/base64";
+import { decodeBase64, encodeBase64 } from "@drawstuff/collaboration/base64";
 import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 import {
   roomAuthGenerationSchema,

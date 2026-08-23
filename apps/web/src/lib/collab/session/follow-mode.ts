@@ -1,4 +1,7 @@
-import type { PeerId, PresenceMessage } from "@drawstuff/collaboration/protocol";
+import type {
+  PeerId,
+  PresenceMessage,
+} from "@drawstuff/collaboration/protocol";
 
 /**
  * Follow-mode graph rules, kept pure so they can be tested without a session.

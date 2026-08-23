@@ -232,9 +232,8 @@ const finishDecode = (
 /** Standard Base64 with RFC 4648 canonical padding. */
 export function encodeBase64(bytes: Uint8Array): string {
   if (useNativeBase64()) {
-    const toBase64 = (
-      bytes as Uint8Array & { toBase64?: NativeToBase64 }
-    ).toBase64;
+    const toBase64 = (bytes as Uint8Array & { toBase64?: NativeToBase64 })
+      .toBase64;
     if (typeof toBase64 === "function") {
       return toBase64.call(bytes, { alphabet: "base64" });
     }
@@ -277,9 +276,8 @@ export function decodeBase64(
 /** Base64URL, always unpadded. */
 export function encodeBase64Url(bytes: Uint8Array): string {
   if (useNativeBase64()) {
-    const toBase64 = (
-      bytes as Uint8Array & { toBase64?: NativeToBase64 }
-    ).toBase64;
+    const toBase64 = (bytes as Uint8Array & { toBase64?: NativeToBase64 })
+      .toBase64;
     if (typeof toBase64 === "function") {
       return toBase64.call(bytes, { alphabet: "base64url", omitPadding: true });
     }
@@ -305,7 +303,11 @@ export function decodeBase64Url(
   if (!BASE64URL_BODY.test(value)) return { ok: false, reason: "malformed" };
   if (
     remainder !== 0 &&
-    !unusedBitsAreZero(value, BASE64URL_ALPHABET, remainder === 2 ? 0b1111 : 0b11)
+    !unusedBitsAreZero(
+      value,
+      BASE64URL_ALPHABET,
+      remainder === 2 ? 0b1111 : 0b11,
+    )
   ) {
     return { ok: false, reason: "malformed" };
   }

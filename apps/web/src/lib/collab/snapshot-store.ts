@@ -1,7 +1,4 @@
-import {
-  decodeBase64,
-  encodeBase64,
-} from "@drawstuff/collaboration/base64";
+import { decodeBase64, encodeBase64 } from "@drawstuff/collaboration/base64";
 import type { RoomId, SyncedElement } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {

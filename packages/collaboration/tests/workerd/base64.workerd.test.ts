@@ -44,9 +44,10 @@ describe.each(implementations)(
           ok: true,
           bytes,
         });
-        expect(decodeBase64Url(vector.base64url, { maxBytes: 1_024 })).toEqual(
-          { ok: true, bytes },
-        );
+        expect(decodeBase64Url(vector.base64url, { maxBytes: 1_024 })).toEqual({
+          ok: true,
+          bytes,
+        });
       }
     });
 
