@@ -1,0 +1,117 @@
+/**
+ * Cloudflare Worker + Durable Object foundation for the collaboration relay
+ * migration (Plan 09). The gateway and the `CollaborationRoom` class ship in
+ * this one deployment (CLAIM-MIG-3); production carries 0% collaboration
+ * traffic until the migration plans open it deliberately.
+ *
+ * Lifecycle rules (CLAIM-MIG-4):
+ * - `exports` is the declarative Durable Object lifecycle. Any change to it
+ *   (create/rename/delete a class) must ship as its own deploy, never mixed
+ *   with runtime or routing changes, and is never rolled back across.
+ * - With `exports` present, `wrangler versions upload` / gradual deployments
+ *   are unavailable; code-only changes soak on staging first, then ship with
+ *   a full `wrangler deploy --env production`.
+ * - Never deploy without `--env staging` or `--env production`; the top-level
+ *   environment exists for local dev and the Vitest workerd pool only.
+ *
+ * Durable Object bindings, vars, secrets and version_metadata are NOT
+ * inherited by named environments, so each environment declares them in full.
+ * Secrets live in Cloudflare secrets (`wrangler secret put … --env <env>`),
+ * never in `vars`, git, logs or test fixtures.
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "drawstuff-collaboration-do-dev",
+  "main": "src/index.ts",
+  // Pinned to the same date packages/collaboration verified the room-token
+  // vectors under (vitest.workerd.config.ts); upgrades are explicit events.
+  "compatibility_date": "2026-08-01",
+  // `nodejs_compat` lets the Plan-08-verified `room-token` entry run as-is
+  // (node:crypto HMAC, CLAIM-DO-6).
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "observability": {
+    "enabled": true,
+    "logs": {
+      "enabled": true
+    }
+  },
+  // Declarative SQLite-backed Durable Object lifecycle; inheritable, so this
+  // is the single copy every environment resolves (mutually exclusive with
+  // legacy `migrations` — do not add that key back for gradual rollouts).
+  "exports": {
+    "CollaborationRoom": {
+      "type": "durable-object",
+      "storage": "sqlite"
+    }
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "COLLABORATION_ROOM",
+        "class_name": "CollaborationRoom"
+      }
+    ]
+  },
+  "version_metadata": {
+    "binding": "VERSION_METADATA"
+  },
+  "vars": {
+    "COLLAB_ALLOWED_ORIGINS": "http://localhost:3000"
+  },
+  "secrets": {
+    "required": ["COLLAB_JOIN_TOKEN_SECRET"]
+  },
+  "env": {
+    "staging": {
+      "name": "drawstuff-collaboration-do-staging",
+      // Staging smoke runs against the isolated workers.dev URL until a
+      // custom domain is assigned (tracked in README.md).
+      "workers_dev": true,
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "COLLABORATION_ROOM",
+            "class_name": "CollaborationRoom"
+          }
+        ]
+      },
+      "version_metadata": {
+        "binding": "VERSION_METADATA"
+      },
+      "vars": {
+        // Origin is defense-in-depth only (join tokens authorize); staging
+        // accepts the local dev app until a staging web origin exists.
+        "COLLAB_ALLOWED_ORIGINS": "http://localhost:3000"
+      },
+      "secrets": {
+        "required": ["COLLAB_JOIN_TOKEN_SECRET"]
+      }
+    },
+    "production": {
+      "name": "drawstuff-collaboration-do-production",
+      // No workers.dev URL and no routes: the production namespace is
+      // provisioned but publicly unreachable (0% traffic by construction).
+      "workers_dev": false,
+      "durable_objects": {
+        "bindings": [
+          {
+            "name": "COLLABORATION_ROOM",
+            "class_name": "CollaborationRoom"
+          }
+        ]
+      },
+      "version_metadata": {
+        "binding": "VERSION_METADATA"
+      },
+      "vars": {
+        // Empty allowlist: even if a route appears, every socket request
+        // fails closed until cutover (Plan 14) sets the real web origin.
+        "COLLAB_ALLOWED_ORIGINS": ""
+      },
+      "secrets": {
+        "required": ["COLLAB_JOIN_TOKEN_SECRET"]
+      }
+    }
+  }
+}

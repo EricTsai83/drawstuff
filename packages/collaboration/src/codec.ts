@@ -27,8 +27,10 @@ export type DecodeMessageResult =
 
 const textEncoder = new TextEncoder();
 // Fatal so malformed UTF-8 is rejected instead of silently repaired into a
-// different (possibly valid) message via U+FFFD replacement.
-const textDecoder = new TextDecoder("utf-8", { fatal: true });
+// different (possibly valid) message via U+FFFD replacement. `ignoreBOM` is
+// the runtime default, spelled out because the workerd type dictionary makes
+// both members required.
+const textDecoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 export function encodeCollaborationMessage(
   message: CollaborationMessage,

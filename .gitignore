@@ -55,3 +55,8 @@ yarn-error.log*
 
 # claude code local settings
 .claude/settings.local.json
+
+# cloudflare workers
+**/.wrangler/
+.dev.vars
+.dev.vars.*

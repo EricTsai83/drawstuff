@@ -1,0 +1,42 @@
+{
+  "name": "@drawstuff/collaboration-do",
+  "version": "0.1.0",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "cf:typegen": "wrangler types --strict-vars=false",
+    "deploy:production": "wrangler deploy --env production",
+    "deploy:staging": "wrangler deploy --env staging",
+    "knip": "knip",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@drawstuff/collaboration": "workspace:*",
+    "zod": "^4.4.3"
+  },
+  "knip": {
+    "entry": [
+      "tests/**/*.test.ts"
+    ],
+    "project": [
+      "src/**/*.ts",
+      "tests/**/*.ts",
+      "*.ts"
+    ],
+    "ignoreDependencies": [
+      "cloudflare"
+    ]
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.0.0",
+    "eslint": "^9.39.5",
+    "knip": "^6.29.0",
+    "typescript": "^6.0.3",
+    "vitest": "4.1.10",
+    "wrangler": "4.125.0"
+  }
+}

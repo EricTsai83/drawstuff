@@ -32,7 +32,9 @@ const encoder = new TextEncoder();
 // `ignoreBOM` keeps a leading U+FEFF in the output (matching Node's
 // `Buffer#toString("utf8")`), where `JSON.parse` then rejects it — the default
 // decoder would strip it and silently widen the accepted payload format.
-const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+// `fatal` is the runtime default, spelled out because the workerd type
+// dictionary makes both members required.
+const decoder = new TextDecoder("utf-8", { ignoreBOM: true, fatal: false });
 
 /** HMAC-SHA256 digest length; the only signature size a token can carry. */
 const SIGNATURE_BYTES = 32;

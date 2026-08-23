@@ -6,6 +6,8 @@
 
 ## Active plans
 
+### Durable Object migration series
+
 以下是一個有順序的 Durable Object migration series。除非前一個 plan 的完成條件明確成立，
 不得把後一個 plan 的 production traffic gate 打開；可以提前做 read-only research，但不能提前
 建立第二條 live routing path。
@@ -29,6 +31,14 @@
 4 MiB snapshot 效能門檻）已完成；長期 Claims 與效能證據見
 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md) 與
 [collaboration SLO 文件](../docs/performance/collaboration-slo-capacity.md) §8。
+
+### 獨立工作
+
+與上面的 series 正交，可並行執行，順序不受 migration gate 約束：
+
+- [16-collaboration-code-delivery-boundary.md](16-collaboration-code-delivery-boundary.md) —
+  補上 threat model 缺少的 code-delivery boundary（B6／T16）、精確化 E2EE 對外宣稱，並以
+  CSP `connect-src` 收斂 room key 的 exfiltration 出口；不改 protocol、crypto 或 routing
 
 ## Completion rule
 
