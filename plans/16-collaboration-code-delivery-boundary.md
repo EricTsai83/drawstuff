@@ -148,9 +148,9 @@ console 與手動走查收集。
 - 記錄「誰能改動 production bundle」這份清單本身就是 T16 的攻擊面，應維持最小；
 - Cloudflare 側若引入需要 `CLOUDFLARE_API_TOKEN` 的部署自動化，token 只能是 scoped
   （Workers Scripts: Edit），禁止 Global API Key；Cloudflare 無 OIDC 短期憑證機制，長期
-  token 必須記錄輪替週期。目前的設計不在 GitHub 保存任何 Cloudflare 憑證：staging 由
-  Workers Builds（Cloudflare 端 GitHub App）部署，production 由本機 wrangler OAuth 手動
-  部署（`plans/09` P3）；
+  token 必須記錄輪替週期。目前的設計不在 GitHub 保存任何 Cloudflare 憑證：code-only change
+  由 Workers Builds（Cloudflare 端 GitHub App）自動部署，lifecycle deploy 由本機 wrangler
+  OAuth 手動執行（`plans/09` P3）；
 - 保留 deployment 與 build log 的可追溯性（commit SHA → 部署版本），使「送出的程式碼是否
   來自已審核的 commit」可事後查核。
 

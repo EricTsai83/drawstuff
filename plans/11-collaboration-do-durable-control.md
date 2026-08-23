@@ -83,6 +83,6 @@ binding、Object ID 或 Cloudflare API token。
 - body/token bounds、wrong audience／room／generation、malformed RPC 與 forward-compatible method
   tests；
 - privacy scan 不得出現 raw subject、token、room key、ciphertext 或 payload-derived error；
-- staging Vercel-like HTTP caller → Worker → typed RPC → DO smoke；
+- 對已部署 Worker 的 Vercel-like HTTP caller → Worker → typed RPC → DO smoke（0% 流量窗口）；
 - package與 repo-level lint、typecheck、test、knip 全過；
 - production control 仍只送 Node relay，DO traffic 維持 0%。

@@ -1,19 +1,14 @@
 /**
  * Config-audit contract between vitest.config.ts (which resolves
- * wrangler.jsonc per environment with wrangler's own reader, Node side) and
- * the workerd test suite (which has no filesystem). The resolved snapshots
- * travel into the tests as a test-only JSON binding, so every field is
- * strictly JSON-representable (`null`, never `undefined`).
+ * wrangler.jsonc with wrangler's own reader, Node side) and the workerd test
+ * suite (which has no filesystem). The resolved snapshot travels into the
+ * tests as a test-only JSON binding, so every field is strictly
+ * JSON-representable (`null`, never `undefined`).
  */
 export type JsonValue =
-  | string
-  | number
-  | boolean
-  | null
-  | JsonValue[]
-  | { [key: string]: JsonValue };
+  string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 
-export type WranglerEnvironmentAudit = {
+export type WranglerConfigAudit = {
   name: string | null;
   compatibilityDate: string | null;
   compatibilityFlags: string[];
@@ -33,13 +28,7 @@ export type WranglerEnvironmentAudit = {
   observabilityEnabled: boolean;
 };
 
-type WranglerConfigAudit = {
-  topLevel: WranglerEnvironmentAudit;
-  staging: WranglerEnvironmentAudit;
-  production: WranglerEnvironmentAudit;
-};
-
-/** Binding name the vitest config injects the audit snapshots under. */
+/** Binding name the vitest config injects the audit snapshot under. */
 export const WRANGLER_AUDIT_BINDING = "TEST_WRANGLER_CONFIG_AUDIT";
 
 export type TestBindings = {

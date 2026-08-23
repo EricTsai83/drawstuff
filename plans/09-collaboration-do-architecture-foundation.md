@@ -46,12 +46,14 @@ fanout 適合以一個 coordination atom 序列化。
 ### CLAIM-MIG-4 — Cloudflare namespace lifecycle 與 application rollout 分離
 
 新 namespace 使用官方建議的 SQLite backend 與 declarative `exports`。建立／rename／delete class
-是不可 gradual rollout、也不能跨越 rollback 的 lifecycle change，因此必須獨立部署，不得和
-room runtime、schema change 或 production routing 一起發布。以目前官方限制，config 只要含
-`exports` 就不能用 `wrangler versions upload`／gradual deployment；後續 code-only change 必須先過
-staging，以前後相容 contract 承受 global eventual rollout，再用完整 `wrangler deploy` 發布。
-不得為取得 gradual rollout 而改用 legacy `migrations`。若執行時官方已解除限制，需先用 staging
-證明 semantics 再另行啟用，不能把未來能力寫成現在的保證。
+是不可 gradual rollout、也不能跨越 rollback 的 lifecycle change，因此必須由人手動獨立部署，
+不得和 room runtime、schema change 或 routing 一起發布，也不得由 git push 自動觸發；
+config-audit 測試釘死 `exports`，使 lifecycle 變更無法在未改測試的情況下混入 auto-deploy。
+以目前官方限制，config 只要含 `exports` 就不能用 `wrangler versions upload`／gradual
+deployment；code-only change 以前後相容 contract 承受 global eventual rollout，用完整
+`wrangler deploy` 發布（可由 main 自動部署）。不得為取得 gradual rollout 而改用 legacy
+`migrations`。若執行時官方已解除限制，需先在 0% 流量窗口證明 semantics 再另行啟用，不能把
+未來能力寫成現在的保證。
 
 ### CLAIM-MIG-5 — 不 pre-create Object
 
@@ -75,15 +77,19 @@ Hibernation、attachments、Alarms 與 Cloudflare observability 重新實作。
 - pinned `wrangler`、`@cloudflare/vitest-plugin` 與 Vitest，並以 `wrangler types` 產生目前
   compatibility date／bindings 對應的 runtime types；不平行維護手寫 `Env` 或過時的 global
   Workers types；
-- `lint`、`typecheck`、`test`、`knip`、`cf:typegen`、`deploy:staging` 與明確的 production deploy
-  command；不在 root `dev` pipeline 自動啟動 Wrangler；
+- `lint`、`typecheck`、`test`、`knip`、`cf:typegen`，以及把手動操作 script 化的 `preflight`、
+  `deploy`（verify → preflight → deploy）、`secret:put` 與 `smoke`；不在 root `dev` pipeline
+  自動啟動 Wrangler；
 - pinned compatibility date 與 `nodejs_compat`，讓 Plan 8 已驗證的 `room-token` entry 可執行；
 - Version Metadata binding 與 Workers Logs observability 設定；
-- `staging`／`production` 各自的 Worker name、custom domain、secret 與 DO namespace。Durable Object
-  bindings 不會由 Wrangler environment 繼承，設定與測試必須逐環境檢查。
+- 單一環境（solo self-hosted 專案，與 `apps/web` 的部署模型一致：main → 唯一部署）。
+  cutover（Plan 14）之前 0% traffic 由兩道彼此獨立的鎖保證：`COLLAB_ALLOWED_ORIGINS` 只含
+  localhost（正式站瀏覽器在 Origin 檢查 fail closed），且 `collaborationRoom.join` 仍只回
+  Node relay URL（路由開關在 PostgreSQL provider assignment，與部署解耦）。workers.dev URL
+  是遷移期間的日常 smoke／測試面；custom domain 留給 Plan 13/14 的 routing change。
 
-所有 secrets 以 Cloudflare secret 管理，不進 `vars`、git、log 或 test fixture。Production
-namespace 首次 provisioning 只建立空 namespace，不開 client route。
+所有 secrets 以 Cloudflare secret 管理，不進 `vars`、git、log 或 test fixture。首次
+provisioning 只建立空 namespace，不開 client routing（join 不指向 DO）。
 
 ## P2 — 薄 gateway contract
 
@@ -115,34 +121,34 @@ Plan 11 的 durable dispatcher 重試。WebSocket Upgrade 不在 gateway 重試�
 
 ## P3 — Deployment lifecycle 與 rollback
 
-Lifecycle deploy（建立／rename／刪除 class）只能由人手動觸發——package 的
-`deploy:staging`／`deploy:production` scripts（內含 `verify` 與 dry-run `preflight`）或明確的
-手動 CI dispatch——不得由 git push 自動執行。git push 自動部署只允許用於 staging 的
-code-only change；production deploy 一律手動。這與 repo 既有的 `db:push` 慣例同源：可逆的
-部署自動化，不可逆的狀態變更由人執行並留下證據。
+Lifecycle deploy（建立／rename／刪除 class）只能由人手動觸發——package 的 `deploy` script
+（內含 `verify` 與 dry-run `preflight`）——不得由 git push 自動執行。git push 自動部署
+（Workers Builds on main）只允許 code-only change。這與 repo 既有的 `db:push` 慣例同源：
+可逆的部署自動化，不可逆的狀態變更由人執行並留下證據。
 
-1. 先部署 staging 的空 SQLite namespace，執行 health／binding smoke
-   （`pnpm --filter @drawstuff/collaboration-do smoke <staging-url>`）；
-2. 以獨立 lifecycle-only deploy 建立 production namespace，確認 reconciliation output，不導流；
-3. 保存 Worker version、compatibility date、namespace/class/backend 與 secrets checklist；
-4. lifecycle deploy 之後不得嘗試 rollback 到建立 namespace 之前；rollback 是把 traffic 維持 0%，
-   namespace 保留；
-5. 後續 schema migration 必須是 forward-only、可重入；class lifecycle change 永遠單獨 deploy；
-6. code-only deploy 保留相同 `exports`，先 staging soak、再完整 production deploy；只回滾到最近
-   lifecycle boundary 之後、且能讀寫當前 SQLite schema 的已知良好版本。
+1. 首次 deploy（手動）建立空 SQLite namespace，確認 reconciliation output；設 secret 後執行
+   health／binding smoke（`pnpm cf:smoke <workers.dev-url>`）；
+2. 保存 Worker version、compatibility date、namespace/class/backend 與 secret 已設定的證據；
+3. lifecycle deploy 之後不得嘗試 rollback 到建立 namespace 之前；rollback 保留 namespace，
+   traffic 由流量鎖（Origin allowlist + DB provider assignment）維持 0%，與部署無關；
+4. 後續 schema migration 必須是 forward-only、可重入；class lifecycle change 永遠單獨、手動
+   deploy；
+5. code-only deploy 保留相同 `exports`，可由 main 自動部署；只回滾到最近 lifecycle boundary
+   之後、且能讀寫當前 SQLite schema 的已知良好版本。
 
 ## 驗證與完成條件
 
 - gateway route parser、method、Upgrade、Origin、body bound 與 unknown route tests；
 - `RoomChannelKey` deterministic identity tests，確認不同 generation 不同 Object；
-- staging／production config audit，確認 binding、namespace、domain、secret 名稱沒有交叉；
+- deployment config audit：`exports` 釘死、無 legacy `migrations`、secret 不進 vars、
+  localhost-only Origin allowlist、無 routes；
 - `pnpm --filter @drawstuff/collaboration-do lint`
 - `pnpm --filter @drawstuff/collaboration-do typecheck`
 - `pnpm --filter @drawstuff/collaboration-do test`
 - repo-level `pnpm lint && pnpm typecheck && pnpm test && pnpm knip`；
-- staging live smoke（`smoke` script 輸出，含 version id）與 production empty-namespace
-  provisioning evidence（deploy 輸出或 CI run URL，對應 commit SHA）；
-- `collaborationRoom.join` 仍只回 Node relay URL，production DO traffic 維持 0%。
+- live smoke（`smoke` script 輸出，含 version id）與 empty-namespace provisioning evidence
+  （deploy 輸出，對應 commit SHA）；
+- `collaborationRoom.join` 仍只回 Node relay URL，DO traffic 維持 0%（兩道流量鎖成立）。
 
 完成時把 Claims 寫入正式 ADR，但 system-design 的 Current topology 仍維持 Node relay；不得把
 provisioned-but-unused DO 描述成已上線。

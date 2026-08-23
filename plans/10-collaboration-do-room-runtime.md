@@ -90,7 +90,7 @@ contract，不重用 Node socket wrapper：
 - viewer scene publish fail closed；所有 byte bounds 在 copy／decode 前執行；
 - fanout 只取 joined sockets，sender 不回送；presence 在 receiver backpressure 超標時 drop，scene
   receiver 超標時以 `slowConsumer` 關閉；
-- `bufferedAmount` 行為必須在 workerd 與 staging 實測。若 host 無法提供可靠值，Plan 12 必須先
+- `bufferedAmount` 行為必須在 workerd 與已部署的 Worker（0% 流量窗口）實測。若 host 無法提供可靠值，Plan 12 必須先
   定義有界替代方案，不能直接移除 slow-consumer protection；
 - connection token bucket 是 in-memory per-connection state，hibernation／eviction 後重建為
   滿桶。這是「in-memory 不得是 authority」規則唯一的明確例外，理由要寫進 code：hibernation
@@ -163,7 +163,7 @@ zombie socket 會占住 32 人 cap，擋掉 tab crash 後的立即重連：
   與 idle-vs-liveness 二分語意；
 - malformed attachment、frame exception、code-version skew 與 unexpected reset；
 - package與 repo-level lint、typecheck、test、knip 全過；
-- staging WebSocket smoke 可完成 E2EE two-client convergence；
+- 對已部署 Worker（0% 流量窗口）的 WebSocket smoke 可完成 E2EE two-client convergence；
 - production routing 仍為 0%，client 與 Vercel schema 尚未加入 provider branch。
 
 若 wire parity 無法達成，必須先修共用 protocol contract；不得以 client 偵測 DO provider 的方式

@@ -7,19 +7,18 @@ import {
   TEST_ROOM_TOKEN_SECRET,
   WRANGLER_AUDIT_BINDING,
   type JsonValue,
-  type WranglerEnvironmentAudit,
+  type WranglerConfigAudit,
 } from "./tests/support/audit.ts";
 
 /**
  * The whole suite runs inside workerd via the Cloudflare Vitest plugin, using
- * wrangler.jsonc's top-level environment (pinned compatibility date +
- * nodejs_compat) so the gateway and CollaborationRoom are exercised in the
- * actual runtime.
+ * the same wrangler.jsonc a deploy uses (single environment: pinned
+ * compatibility date + nodejs_compat), so the gateway and CollaborationRoom
+ * are exercised in the actual runtime.
  *
  * The config audit resolves wrangler.jsonc here on the Node side — with
- * wrangler's own reader, so environment inheritance is what a deploy would
- * see — and ships the per-environment snapshots into workerd as a test-only
- * binding (tests have no filesystem).
+ * wrangler's own reader, exactly what a deploy would see — and ships the
+ * snapshot into workerd as a test-only binding (tests have no filesystem).
  */
 const jsonValueSchema: z.ZodType<JsonValue> = z.lazy(() =>
   z.union([
@@ -63,9 +62,9 @@ const resolvedEnvironmentSchema = z.looseObject({
   observability: z.looseObject({ enabled: z.boolean().optional() }).optional(),
 });
 
-function auditEnvironment(env?: string): WranglerEnvironmentAudit {
+function auditConfig(): WranglerConfigAudit {
   const config = resolvedEnvironmentSchema.parse(
-    unstable_readConfig({ config: "wrangler.jsonc", env }, { hideWarnings: true }),
+    unstable_readConfig({ config: "wrangler.jsonc" }, { hideWarnings: true }),
   );
   // `undefined` cannot cross the JSON binding boundary, so absent config
   // values become `null` here and the tests assert on `null`.
@@ -100,11 +99,7 @@ export default defineConfig({
       miniflare: {
         bindings: {
           COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
-          [WRANGLER_AUDIT_BINDING]: {
-            topLevel: auditEnvironment(),
-            staging: auditEnvironment("staging"),
-            production: auditEnvironment("production"),
-          },
+          [WRANGLER_AUDIT_BINDING]: auditConfig(),
         },
       },
     }),

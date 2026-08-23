@@ -11,7 +11,7 @@
  * Usage:
  *   pnpm --filter @drawstuff/collaboration-do smoke <base-url>
  *   e.g. pnpm --filter @drawstuff/collaboration-do smoke \
- *     https://drawstuff-collaboration-do-staging.<subdomain>.workers.dev
+ *     https://drawstuff-collaboration-do.<subdomain>.workers.dev
  */
 
 const base = process.argv[2];

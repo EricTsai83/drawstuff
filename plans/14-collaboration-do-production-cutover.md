@@ -15,14 +15,18 @@ assignments固定選 DO，不代表立即殺掉尚未過期的 Node rooms。
 每次 cohort promotion 前確認：
 
 - Plan 12 Go report仍對應目前 Worker version、compatibility date與protocol version；
-- Cloudflare staging／production namespace、custom domain、TLS、Origin allowlist、secrets與Vercel
-  control URL正確；
+- Cloudflare Worker namespace、custom domain、TLS、secrets與Vercel control URL正確；
+  `COLLAB_ALLOWED_ORIGINS` 由 localhost-only 換成正式 web origin（這是解除第一道流量鎖，
+  必須與本 plan 的 rollout 決策同時、刻意地做，並同步更新 config-audit 測試）；
+- 部署自動化重新評估：0% 流量窗口的「main 自動部署 code-only change」是否延續，或改為
+  promotion 式觸發＋soak 窗口。單一環境下每次 code deploy 直接作用於 live rooms，決策與
+  理由記入 evidence；
 - Node relay與DO dashboards、alerts、synthetic rooms、outbox backlog與cost dashboard可用；
 - on-call/owner知道 rollback只停止新assignment，不改寫live channel；
 - DO code deploy與provider percentage change分開，Cloudflare class lifecycle change更不得同時做；
 - Worker ↔ DO typed API保持前後相容。使用 declarative `exports` 時，依目前官方限制 code-only
-  update 也不能 gradual；先 staging soak，再完整 deploy 並觀察 version metrics。Lifecycle change
-  另以獨立 atomic control-plane deploy 處理，rollback 不跨該 boundary。
+  update 也不能 gradual；完整 deploy 後觀察 version metrics 再晉級 cohort。Lifecycle change
+  另以獨立、手動的 atomic control-plane deploy 處理，rollback 不跨該 boundary。
 
 ## P2 — Application-level cohort rollout
 

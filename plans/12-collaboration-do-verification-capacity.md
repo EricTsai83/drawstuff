@@ -6,7 +6,8 @@
 
 ## 目標
 
-在任何真實 room 被分配到 DO 前，用可重跑的 workerd、staging 與 remote load tests 證明
+在任何真實 room 被分配到 DO 前，用可重跑的 workerd tests 與對已部署 Worker（0% 流量窗口）的
+remote load tests 證明
 correctness、hibernation、capacity、latency、privacy、failure recovery 與成本模型。Cloudflare
 文件給單一 DO 約 500–1,000 simple requests/events per second 的經驗範圍，不是本系統已通過的
 容量；現行 32 人 room、最高 120 Hz client cadence 與 O(members) fanout 必須實測。
@@ -24,7 +25,8 @@ correctness、hibernation、capacity、latency、privacy、failure recovery 與�
 ## P1 — 一份 black-box conformance suite
 
 把 `apps/collaboration-relay/tests` 中與 host 無關的行為提成同一套 driver，分別對 Node relay 與
-staging DO endpoint 執行。禁止 copy assertions 形成兩套規格。至少覆蓋：
+已部署的 DO endpoint（0% 流量窗口，真實 room 尚未分配到 DO）執行。禁止 copy assertions 形成
+兩套規格。至少覆蓋：
 
 - join/token/protocol version、role、membership、epoch、所有 close code；
 - ordered scene、volatile presence、reconnect convergence、join barrier、snapshot recovery；
@@ -34,7 +36,8 @@ staging DO endpoint 執行。禁止 copy assertions 形成兩套規格。至少�
 - E2EE evidence：relay/DO/operator 看不到 scene，Node 與 DO 路徑 ciphertext bytes 完全一致。
 
 Local tests 使用官方 Vitest integration；需要驗證 placement、real network、Cloudflare deployment
-與 billing signals 的項目只在隔離 staging namespace 執行，不碰 production rooms。
+與 billing signals 的項目在 0% 流量窗口對唯一 namespace 執行——此時 namespace 內只有
+synthetic rooms（room TTL 會自然清空測試殘留），不存在真實 rooms 可被波及。
 
 ## P2 — Cloudflare-native observability contract
 
@@ -117,7 +120,7 @@ SLO 文件；沒有使用量資料時不得捏造單一月費承諾。
 4. 32-member target 通過，或 room cap 已正式降低並同步 client/server/docs；
 5. 無持續 memory/CPU/overload failure，slow-consumer semantics 可證；
 6. privacy scan、alerts、dashboard、synthetic check 與 cost projection 完成；
-7. staging soak 至少涵蓋一個完整 24 小時 maximum room lifecycle；
+7. 已部署 Worker 的 soak 至少涵蓋一個完整 24 小時 maximum room lifecycle（於 0% 流量窗口）；
 8. repo-level lint、typecheck、test、knip 全過。
 
 任一項不成立就是 No-Go：production provider assignment 必須保持 Node，不能靠 client fallback 或

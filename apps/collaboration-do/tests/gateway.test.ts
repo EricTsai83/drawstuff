@@ -32,8 +32,12 @@ async function errorOf(response: Response): Promise<string> {
   return body.error;
 }
 
-function endRoomToken(options?: { secret?: string; expired?: boolean }): string {
-  const now = Math.floor(Date.now() / 1000) - (options?.expired === true ? 3_600 : 0);
+function endRoomToken(options?: {
+  secret?: string;
+  expired?: boolean;
+}): string {
+  const now =
+    Math.floor(Date.now() / 1000) - (options?.expired === true ? 3_600 : 0);
   const claims: RoomControlClaims = {
     v: 1,
     jti: createRoomTokenId(),
@@ -45,7 +49,10 @@ function endRoomToken(options?: { secret?: string; expired?: boolean }): string 
     arev: 1,
     action: "end-room",
   };
-  return signRoomControlToken(claims, options?.secret ?? TEST_ROOM_TOKEN_SECRET);
+  return signRoomControlToken(
+    claims,
+    options?.secret ?? TEST_ROOM_TOKEN_SECRET,
+  );
 }
 
 function postControl(body: BodyInit, contentType = "application/json") {
@@ -108,10 +115,7 @@ describe("socket route", () => {
     ["non-numeric generation", "/v1/rooms/room-a/generations/abc/socket"],
     ["oversized generation", "/v1/rooms/room-a/generations/12345678901/socket"],
     ["negative generation", "/v1/rooms/room-a/generations/-1/socket"],
-    [
-      "oversized room id",
-      `/v1/rooms/${"a".repeat(65)}/generations/1/socket`,
-    ],
+    ["oversized room id", `/v1/rooms/${"a".repeat(65)}/generations/1/socket`],
     ["percent-encoded room id", "/v1/rooms/room%2Fa/generations/1/socket"],
   ])("closes a malformed identity (%s) with 404", async (_label, path) => {
     const response = await SELF.fetch(`${BASE}${path}`, {
@@ -167,7 +171,9 @@ describe("socket route", () => {
 
 describe("control route", () => {
   it("refuses a verified control token until the Plan 11 dispatcher exists", async () => {
-    const response = await postControl(JSON.stringify({ token: endRoomToken() }));
+    const response = await postControl(
+      JSON.stringify({ token: endRoomToken() }),
+    );
     expect(response.status).toBe(501);
     expect(await errorOf(response)).toBe("control-dispatch-unimplemented");
   });

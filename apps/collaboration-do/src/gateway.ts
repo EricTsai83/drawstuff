@@ -133,7 +133,9 @@ async function handleSocket(
     return closedJsonResponse(405, "method-not-allowed", { Allow: "GET" });
   }
   if (request.headers.get("Upgrade")?.toLowerCase() !== "websocket") {
-    return closedJsonResponse(426, "upgrade-required", { Upgrade: "websocket" });
+    return closedJsonResponse(426, "upgrade-required", {
+      Upgrade: "websocket",
+    });
   }
 
   // Origin is defense-in-depth on top of the join token (which stays in the
@@ -177,7 +179,9 @@ async function handleControl(request: Request, env: Env): Promise<Response> {
     return closedJsonResponse(405, "method-not-allowed", { Allow: "POST" });
   }
   const contentType = request.headers.get("Content-Type") ?? "";
-  if (contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json") {
+  if (
+    contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json"
+  ) {
     return closedJsonResponse(415, "unsupported-media-type");
   }
 

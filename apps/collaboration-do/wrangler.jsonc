@@ -1,27 +1,35 @@
 /**
  * Cloudflare Worker + Durable Object foundation for the collaboration relay
  * migration (Plan 09). The gateway and the `CollaborationRoom` class ship in
- * this one deployment (CLAIM-MIG-3); production carries 0% collaboration
- * traffic until the migration plans open it deliberately.
+ * this one deployment (CLAIM-MIG-3).
+ *
+ * Single environment by design: this is a solo, self-hosted project, matching
+ * how apps/web deploys (main → the one deployment). Until cutover (Plan 14)
+ * the Worker carries 0% collaboration traffic, guaranteed by two independent
+ * locks rather than by unreachability:
+ *
+ * 1. `COLLAB_ALLOWED_ORIGINS` lists only localhost, so browsers on the real
+ *    site fail the Origin check before any socket is forwarded (fail closed);
+ * 2. `collaborationRoom.join` still returns the Node relay URL — no client
+ *    path points here until the PostgreSQL provider assignment flips
+ *    (Plan 13/14). The traffic gate lives in the database, not in deploys.
  *
  * Lifecycle rules (CLAIM-MIG-4):
  * - `exports` is the declarative Durable Object lifecycle. Any change to it
- *   (create/rename/delete a class) must ship as its own deploy, never mixed
- *   with runtime or routing changes, and is never rolled back across.
+ *   (create/rename/delete a class) must ship as its own manual deploy, never
+ *   mixed with runtime or routing changes, and is never rolled back across.
+ *   The config-audit test pins `exports`, so a lifecycle change cannot ride
+ *   into an auto-deploy unnoticed.
  * - With `exports` present, `wrangler versions upload` / gradual deployments
- *   are unavailable; code-only changes soak on staging first, then ship with
- *   a full `wrangler deploy --env production`.
- * - Never deploy without `--env staging` or `--env production`; the top-level
- *   environment exists for local dev and the Vitest workerd pool only.
+ *   are unavailable; code-only changes ship as full `wrangler deploy` (auto
+ *   from main via Workers Builds, or `pnpm run deploy` manually).
  *
- * Durable Object bindings, vars, secrets and version_metadata are NOT
- * inherited by named environments, so each environment declares them in full.
- * Secrets live in Cloudflare secrets (`wrangler secret put … --env <env>`),
- * never in `vars`, git, logs or test fixtures.
+ * Secrets live in Cloudflare secrets (`pnpm run secret:put`), never in
+ * `vars`, git, logs or test fixtures.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "drawstuff-collaboration-do-dev",
+  "name": "drawstuff-collaboration-do",
   "main": "src/index.ts",
   // Pinned to the same date packages/collaboration verified the room-token
   // vectors under (vitest.workerd.config.ts); upgrades are explicit events.
@@ -29,16 +37,17 @@
   // `nodejs_compat` lets the Plan-08-verified `room-token` entry run as-is
   // (node:crypto HMAC, CLAIM-DO-6).
   "compatibility_flags": ["nodejs_compat"],
-  "workers_dev": false,
+  // The workers.dev URL is the daily smoke/testing surface during the
+  // migration window; real traffic stays out via the two locks above.
+  "workers_dev": true,
   "observability": {
     "enabled": true,
     "logs": {
       "enabled": true
     }
   },
-  // Declarative SQLite-backed Durable Object lifecycle; inheritable, so this
-  // is the single copy every environment resolves (mutually exclusive with
-  // legacy `migrations` — do not add that key back for gradual rollouts).
+  // Declarative SQLite-backed Durable Object lifecycle (mutually exclusive
+  // with legacy `migrations` — do not add that key back for gradual rollouts).
   "exports": {
     "CollaborationRoom": {
       "type": "durable-object",
@@ -57,61 +66,11 @@
     "binding": "VERSION_METADATA"
   },
   "vars": {
+    // Origin is defense-in-depth only (join tokens authorize). localhost-only
+    // until cutover (Plan 14) swaps in the real web origin.
     "COLLAB_ALLOWED_ORIGINS": "http://localhost:3000"
   },
   "secrets": {
     "required": ["COLLAB_JOIN_TOKEN_SECRET"]
-  },
-  "env": {
-    "staging": {
-      "name": "drawstuff-collaboration-do-staging",
-      // Staging smoke runs against the isolated workers.dev URL until a
-      // custom domain is assigned (tracked in README.md).
-      "workers_dev": true,
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "COLLABORATION_ROOM",
-            "class_name": "CollaborationRoom"
-          }
-        ]
-      },
-      "version_metadata": {
-        "binding": "VERSION_METADATA"
-      },
-      "vars": {
-        // Origin is defense-in-depth only (join tokens authorize); staging
-        // accepts the local dev app until a staging web origin exists.
-        "COLLAB_ALLOWED_ORIGINS": "http://localhost:3000"
-      },
-      "secrets": {
-        "required": ["COLLAB_JOIN_TOKEN_SECRET"]
-      }
-    },
-    "production": {
-      "name": "drawstuff-collaboration-do-production",
-      // No workers.dev URL and no routes: the production namespace is
-      // provisioned but publicly unreachable (0% traffic by construction).
-      "workers_dev": false,
-      "durable_objects": {
-        "bindings": [
-          {
-            "name": "COLLABORATION_ROOM",
-            "class_name": "CollaborationRoom"
-          }
-        ]
-      },
-      "version_metadata": {
-        "binding": "VERSION_METADATA"
-      },
-      "vars": {
-        // Empty allowlist: even if a route appears, every socket request
-        // fails closed until cutover (Plan 14) sets the real web origin.
-        "COLLAB_ALLOWED_ORIGINS": ""
-      },
-      "secrets": {
-        "required": ["COLLAB_JOIN_TOKEN_SECRET"]
-      }
-    }
   }
 }

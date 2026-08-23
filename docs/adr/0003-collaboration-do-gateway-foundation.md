@@ -34,12 +34,13 @@ cadence 時才能拆分。
 
 Namespace 使用 SQLite backend 與 declarative `exports`（不用 legacy
 `migrations`）。建立／rename／delete class 是不可 gradual rollout、不可跨越
-rollback 的 lifecycle change，必須單獨部署。含 `exports` 的 config 目前不能用
-`wrangler versions upload`／gradual deployment；code-only change 先過 staging，
-以前後相容 contract 承受 global eventual rollout，再用完整 `wrangler deploy`
-發布。若官方日後解除限制，需先在 staging 證明 semantics 才能啟用。Lifecycle
-deploy 之後不得 rollback 到 namespace 建立之前；rollback 是 traffic 維持 0%、
-namespace 保留。操作步驟見 `apps/collaboration-do/README.md`。
+rollback 的 lifecycle change，必須由人手動單獨部署，不得由 git push 自動觸發；
+config-audit 測試釘死 `exports`，使 lifecycle 變更無法在未改測試的情況下混入
+auto-deploy。含 `exports` 的 config 目前不能用 `wrangler versions upload`／
+gradual deployment；code-only change 以前後相容 contract 承受 global eventual
+rollout，用完整 `wrangler deploy` 發布（可由 main 自動部署）。Lifecycle deploy
+之後不得 rollback 到 namespace 建立之前；rollback 保留 namespace，traffic 由
+獨立的流量鎖維持 0%。操作步驟見 `apps/collaboration-do/README.md`。
 
 ## CLAIM-MIG-5 — 不 pre-create Object
 
@@ -58,11 +59,19 @@ limits 的語意與 black-box conformance fixtures（`@drawstuff/collaboration`�
 DO 版本按 Hibernation、attachments、Alarms 與 Cloudflare observability 重新實作
 （Plans 10–12）。
 
-## Environment isolation（Plan 09 實作事實）
+## 單一環境與流量鎖（Plan 09 實作事實）
 
-`staging`／`production` 各自有 Worker name、DO namespace、`COLLAB_ALLOWED_ORIGINS`
-與 Cloudflare secret（`COLLAB_JOIN_TOKEN_SECRET`）；Durable Object bindings、
-vars、secrets 宣告不因 Wrangler environment 繼承而共用，由
-`apps/collaboration-do/tests/config-audit.test.ts` 逐環境審計。Production 無
-route、無 workers.dev URL、Origin allowlist 為空，公開不可達。Compatibility date
-釘在 `2026-08-01` + `nodejs_compat`，與 Plan 08 的 workerd token-vector 驗證一致。
+單一 Worker（`drawstuff-collaboration-do`）、單一 SQLite namespace，與
+`apps/web` 的部署模型一致（solo self-hosted 專案，main → 唯一部署）。cutover
+（Plan 14）之前 0% collaboration traffic 由兩道彼此獨立的鎖保證，而非由不可達性：
+
+1. `COLLAB_ALLOWED_ORIGINS` 只含 localhost——正式站瀏覽器在 Origin 檢查即
+   fail closed；
+2. `collaborationRoom.join` 仍只回 Node relay URL——路由開關在 PostgreSQL 的
+   provider assignment（Plan 13），與部署解耦。
+
+workers.dev URL 是遷移期間的日常 smoke／測試面。設定由
+`apps/collaboration-do/tests/config-audit.test.ts` 針對 resolved config 審計
+（含 exports 釘死、secret 不進 vars、localhost-only allowlist、無 routes）。
+Compatibility date 釘在 `2026-08-01` + `nodejs_compat`，與 Plan 08 的 workerd
+token-vector 驗證一致。

@@ -19,7 +19,7 @@
 3. [11-collaboration-do-durable-control.md](11-collaboration-do-durable-control.md) — typed RPC、SQLite
    revocation cutoffs、idempotent room lifecycle與storage cleanup
 4. [12-collaboration-do-verification-capacity.md](12-collaboration-do-verification-capacity.md) —
-   workerd/staging conformance、observability、load、latency、Hibernation與cost Go/No-Go
+   workerd/deployed-worker conformance、observability、load、latency、Hibernation與cost Go/No-Go
 5. [13-collaboration-do-provider-coexistence.md](13-collaboration-do-provider-coexistence.md) —
    provider-pinned雙軌、server-owned routing與durable PostgreSQL control outbox
 6. [14-collaboration-do-production-cutover.md](14-collaboration-do-production-cutover.md) — synthetic、

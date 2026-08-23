@@ -51,7 +51,7 @@ Provider retirement後不能靠改env恢復Node；rollback只限DO Worker code v
 - threat model：Worker/DO boundaries、Cloudflare operator visibility、control outbox與data classification；
 - SLO/capacity：per-Object room capacity、Cloudflare latency/overload、無global relay cap；
 - observability：Workers Logs/traces/namespace metrics、version與cost alerts；
-- operations：separate lifecycle deploy、staging-gated full code deploy、可用 rollback boundary、
+- operations：separate manual lifecycle deploy、Plan 14 核定的 code-deploy 觸發模式、可用 rollback boundary、
   namespace/storage cleanup、compatibility date與secret rotation；
 - data lifecycle：DO cutoff retirement與`deleteAll()`，PostgreSQL仍是authorization/snapshot authority。
 
