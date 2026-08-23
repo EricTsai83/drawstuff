@@ -137,8 +137,20 @@ console 與手動走查收集。
 
 不新增工具，只把既有平台能力寫成明確要求：
 
+- **區分兩條部署路徑的威脅等級**：`apps/web` 的部署路徑決定送往瀏覽器的 bundle，是 T16 的
+  直接攻擊面；Cloudflare Worker 的部署路徑接觸不到 room key（E2EE 對 relay 成立），其憑證
+  洩漏落在 T15 的可用性／metadata 面與 T3 的 enforcement 面，不是 T16。控制強度按此分配；
+- `apps/web` 維持 Vercel git integration 部署；**明確不採用**「CI 以長期 Vercel token 執行
+  `vercel deploy` 推 production」的模式（tldraw 式 deploy script）——那會新增一條能替換
+  bundle 的長期憑證路徑，等於擴大 T16 攻擊面以換取本專案不需要的部署順序保證（provider
+  切換由 PostgreSQL assignment 決定，不靠部署時機）；
 - production deployment 需要 branch protection 與 review，不允許直接從本機推 production；
 - 記錄「誰能改動 production bundle」這份清單本身就是 T16 的攻擊面，應維持最小；
+- Cloudflare 側若引入需要 `CLOUDFLARE_API_TOKEN` 的部署自動化，token 只能是 scoped
+  （Workers Scripts: Edit），禁止 Global API Key；Cloudflare 無 OIDC 短期憑證機制，長期
+  token 必須記錄輪替週期。目前的設計不在 GitHub 保存任何 Cloudflare 憑證：staging 由
+  Workers Builds（Cloudflare 端 GitHub App）部署，production 由本機 wrangler OAuth 手動
+  部署（`plans/09` P3）；
 - 保留 deployment 與 build log 的可追溯性（commit SHA → 部署版本），使「送出的程式碼是否
   來自已審核的 commit」可事後查核。
 

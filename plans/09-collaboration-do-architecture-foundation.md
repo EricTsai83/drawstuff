@@ -115,7 +115,14 @@ Plan 11 的 durable dispatcher 重試。WebSocket Upgrade 不在 gateway 重試�
 
 ## P3 — Deployment lifecycle 與 rollback
 
-1. 先部署 staging 的空 SQLite namespace，執行 health／binding smoke；
+Lifecycle deploy（建立／rename／刪除 class）只能由人手動觸發——package 的
+`deploy:staging`／`deploy:production` scripts（內含 `verify` 與 dry-run `preflight`）或明確的
+手動 CI dispatch——不得由 git push 自動執行。git push 自動部署只允許用於 staging 的
+code-only change；production deploy 一律手動。這與 repo 既有的 `db:push` 慣例同源：可逆的
+部署自動化，不可逆的狀態變更由人執行並留下證據。
+
+1. 先部署 staging 的空 SQLite namespace，執行 health／binding smoke
+   （`pnpm --filter @drawstuff/collaboration-do smoke <staging-url>`）；
 2. 以獨立 lifecycle-only deploy 建立 production namespace，確認 reconciliation output，不導流；
 3. 保存 Worker version、compatibility date、namespace/class/backend 與 secrets checklist；
 4. lifecycle deploy 之後不得嘗試 rollback 到建立 namespace 之前；rollback 是把 traffic 維持 0%，
@@ -133,7 +140,8 @@ Plan 11 的 durable dispatcher 重試。WebSocket Upgrade 不在 gateway 重試�
 - `pnpm --filter @drawstuff/collaboration-do typecheck`
 - `pnpm --filter @drawstuff/collaboration-do test`
 - repo-level `pnpm lint && pnpm typecheck && pnpm test && pnpm knip`；
-- staging live smoke 與 production empty-namespace provisioning evidence；
+- staging live smoke（`smoke` script 輸出，含 version id）與 production empty-namespace
+  provisioning evidence（deploy 輸出或 CI run URL，對應 commit SHA）；
 - `collaborationRoom.join` 仍只回 Node relay URL，production DO traffic 維持 0%。
 
 完成時把 Claims 寫入正式 ADR，但 system-design 的 Current topology 仍維持 Node relay；不得把
