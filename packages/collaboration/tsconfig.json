@@ -3,6 +3,6 @@
   "compilerOptions": {
     "allowImportingTsExtensions": true
   },
-  "include": ["*.ts", "src/**/*.ts", "tests/**/*.ts"],
+  "include": ["*.ts", "src/**/*.ts", "tests/**/*.ts", "bench/**/*.ts"],
   "exclude": ["node_modules"]
 }

@@ -10,6 +10,10 @@
       "types": "./src/asset.ts",
       "default": "./src/asset.ts"
     },
+    "./base64": {
+      "types": "./src/base64.ts",
+      "default": "./src/base64.ts"
+    },
     "./client-pacing": {
       "types": "./src/client-pacing.ts",
       "default": "./src/client-pacing.ts"
@@ -76,6 +80,8 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
+    "test:workerd": "vitest run --config vitest.workerd.config.ts",
+    "bench:base64": "vitest run --config vitest.bench-base64.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -83,14 +89,20 @@
   },
   "knip": {
     "entry": [
-      "tests/**/*.test.{ts,tsx}"
+      "tests/**/*.test.{ts,tsx}",
+      "bench/**/*.test.ts"
     ],
     "project": [
       "src/**/*.{ts,tsx}",
-      "tests/**/*.{ts,tsx}"
+      "tests/**/*.{ts,tsx}",
+      "bench/**/*.ts"
+    ],
+    "ignoreDependencies": [
+      "@vitest/browser"
     ]
   },
   "devDependencies": {
+    "@cloudflare/vitest-plugin": "^1.0.0",
     "@types/node": "^24.13.3",
     "@vitest/browser-playwright": "^4.1.10",
     "eslint": "^9.39.5",

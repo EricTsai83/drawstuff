@@ -1,6 +1,7 @@
 # 09 — Durable Object architecture contract 與 Cloudflare foundation
 
-- 前置：[Plan 08](./08-collaboration-base64-codec.md)
+- 前置：canonical Base64 codec 與 browser／Node／workerd wire contract（已完成；見
+  [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md)）
 - 後續：[Plan 10](./10-collaboration-do-room-runtime.md)
 - Production traffic：**0%**
 

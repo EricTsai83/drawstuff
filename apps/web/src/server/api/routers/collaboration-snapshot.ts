@@ -2,6 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import {
+  decodeBase64,
+  encodeBase64,
+} from "@drawstuff/collaboration/base64";
+import {
   roomAuthGenerationSchema,
   roomRoleCanEditScene,
 } from "@drawstuff/collaboration/room-auth";
@@ -92,7 +96,7 @@ export const collaborationSnapshotRouter = createTRPCRouter({
         snapshot: {
           revision: snapshot.revision,
           cryptoVersion: snapshot.cryptoVersion,
-          ciphertextBase64: Buffer.from(snapshot.ciphertext).toString("base64"),
+          ciphertextBase64: encodeBase64(snapshot.ciphertext),
           byteLength: snapshot.byteLength,
           checksum: snapshot.checksum,
           updatedAt: snapshot.updatedAt,
@@ -136,14 +140,23 @@ export const collaborationSnapshotRouter = createTRPCRouter({
       const userId = ctx.auth.user.id;
 
       // Decoded and bounded before the transaction opens: no row lock should be
-      // held across work that has nothing to do with the database.
-      const ciphertext = new Uint8Array(
-        Buffer.from(input.ciphertextBase64, "base64"),
-      );
-      if (
-        ciphertext.byteLength < MIN_SNAPSHOT_SEALED_BYTES ||
-        ciphertext.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES
-      ) {
+      // held across work that has nothing to do with the database. The shared
+      // codec's canonical decode replaces `Buffer.from` leniency, and its
+      // encoded-length gate refuses an oversize payload before allocating it.
+      const decoded = decodeBase64(input.ciphertextBase64, {
+        maxBytes: MAX_SNAPSHOT_CIPHERTEXT_BYTES,
+      });
+      if (!decoded.ok) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            decoded.reason === "oversize"
+              ? "Snapshot ciphertext size is out of range."
+              : "Snapshot ciphertext is not canonical base64.",
+        });
+      }
+      const ciphertext = decoded.bytes;
+      if (ciphertext.byteLength < MIN_SNAPSHOT_SEALED_BYTES) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Snapshot ciphertext size is out of range.",

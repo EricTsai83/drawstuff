@@ -1,9 +1,14 @@
+import {
+  decodeBase64,
+  encodeBase64,
+} from "@drawstuff/collaboration/base64";
 import type { RoomId, SyncedElement } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
   decodeCollaborationSnapshot,
   deriveSnapshotKey,
   encodeCollaborationSnapshot,
+  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
   openCollaborationSnapshot,
   sealCollaborationSnapshot,
   snapshotCiphertextChecksum,
@@ -111,29 +116,6 @@ export type CollaborationSnapshotStore = {
   }): Promise<SaveSnapshotResult>;
 };
 
-// Chunked so a multi-MiB snapshot does not do per-byte string concatenation
-// (quadratic) on the main thread; 8 KiB stays well under argument-count limits.
-const BASE64_CHUNK_BYTES = 8192;
-
-const toBase64 = (bytes: Uint8Array): string => {
-  let binary = "";
-  for (let offset = 0; offset < bytes.length; offset += BASE64_CHUNK_BYTES) {
-    binary += String.fromCharCode(
-      ...bytes.subarray(offset, offset + BASE64_CHUNK_BYTES),
-    );
-  }
-  return btoa(binary);
-};
-
-const fromBase64 = (value: string): Uint8Array => {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-};
-
 export async function createCollaborationSnapshotStore(options: {
   api: SnapshotApi;
   roomId: RoomId;
@@ -171,12 +153,16 @@ export async function createCollaborationSnapshotStore(options: {
         return { status: "unreadable", reason: "wrong-key" };
       }
 
-      let ciphertext: Uint8Array;
-      try {
-        ciphertext = fromBase64(stored.ciphertextBase64);
-      } catch {
+      // Canonical decode via the shared codec (native TypedArray Base64 where
+      // the browser has it), bounded by the locked ciphertext contract before
+      // any multi-MiB allocation happens.
+      const decodedCiphertext = decodeBase64(stored.ciphertextBase64, {
+        maxBytes: MAX_SNAPSHOT_CIPHERTEXT_BYTES,
+      });
+      if (!decodedCiphertext.ok) {
         return { status: "unreadable", reason: "malformed" };
       }
+      const ciphertext = decodedCiphertext.bytes;
       if (ciphertext.byteLength !== stored.byteLength) {
         return { status: "unreadable", reason: "malformed" };
       }
@@ -241,7 +227,7 @@ export async function createCollaborationSnapshotStore(options: {
           authGeneration,
           expectedRevision,
           cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
-          ciphertextBase64: toBase64(sealed.ciphertext),
+          ciphertextBase64: encodeBase64(sealed.ciphertext),
           checksum: await snapshotCiphertextChecksum(sealed.ciphertext),
         });
       } catch (error) {

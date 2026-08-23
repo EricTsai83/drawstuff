@@ -17,7 +17,9 @@ export default defineConfig({
         test: {
           name: "node",
           environment: "node",
-          include: ["tests/**/*.test.ts"],
+          // Flat glob on purpose: `tests/workerd/` belongs to the separate
+          // workerd project (`vitest.workerd.config.ts`, run via test:workerd).
+          include: ["tests/*.test.ts"],
         },
       },
       {
@@ -30,6 +32,7 @@ export default defineConfig({
           // browser divergence there would corrupt data rather than one frame.
           include: [
             "tests/asset.test.ts",
+            "tests/base64.test.ts",
             "tests/realtime-crypto.test.ts",
             "tests/snapshot.test.ts",
           ],

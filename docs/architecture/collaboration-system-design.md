@@ -90,6 +90,19 @@ authorization generation. Each format has its own version and authenticated-data
   generation. Missing checks fail closed, and the server also refuses to issue a join token.
 - A verifier cannot change inside one generation. Rotation clears it and the owner recomputes it
   with the new key. The owner can explicitly reset an unreadable snapshot after confirmation.
+- Every collaboration text boundary — the share-link room key, the key-check value, join/control
+  token segments, and snapshot ciphertext over tRPC — goes through one shared canonical codec,
+  `@drawstuff/collaboration/base64`. Each format has exactly one profile (standard Base64 with
+  RFC 4648 canonical padding; Base64URL always unpadded; zero unused trailing bits; no
+  whitespace), decode returns a closed result (`malformed` / `oversize`) instead of surfacing host
+  exceptions, and the encoded length is bounded before any allocation. Encoding feature-detects
+  the native TypedArray Base64 API and falls back to a chunked `btoa`/`atob` path; both paths are
+  held to identical output by tests in Node, Chromium, WebKit, and workerd (pinned compatibility
+  date), which together with the fixed room-token vectors form the wire-format precontract for
+  the accepted Durable Object target
+  ([ADR-0002](../adr/0002-collaboration-durable-object-target.md)). Realtime frames stay binary;
+  Base64 never enters the WebSocket hot path. The measured 4 MiB snapshot budget lives in the
+  [SLO document](../performance/collaboration-slo-capacity.md).
 
 Individual corrupt realtime frames and assets are dropped without terminating a healthy session.
 To avoid a silently empty room under a wrong key, realtime open failures are aggregated: three

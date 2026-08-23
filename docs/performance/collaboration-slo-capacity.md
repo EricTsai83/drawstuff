@@ -260,3 +260,56 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
 - There is no staging environment, formal load-test report, complete incident runbook, or incident
   drill. Capacity targets remain design budgets and must not be presented as verified production
   capacity.
+
+## 8. Durable snapshot Base64 codec（已量測，2026-08-23）
+
+Snapshot 每 30 秒 cadence 都在主執行緒上做一次 4 MiB 級的 Base64 encode/decode。這一段的
+budget 與證據由 Plan 08 建立；codec 本身是 `@drawstuff/collaboration/base64`（canonical
+Base64／Base64URL，closed decode result，詳見
+[collaboration system design](../architecture/collaboration-system-design.md) 與
+[ADR-0002](../adr/0002-collaboration-durable-object-target.md)）。
+
+### 8.1 Budget（核准值）
+
+| 項目                                            | 門檻                       |
+| ----------------------------------------------- | -------------------------- |
+| Current Chromium／WebKit production-selected path 的 4 MiB encode 與 decode | 各自 p95 ≤ 50 ms（避免單一 Base64 階段自成 long task） |
+| Native path（存在時）                           | 必須快於 fallback，否則刪除分支 |
+| Fallback p95                                    | 不得比實作前同機 baseline 退步超過 10% |
+| Retained heap                                   | 不得隨 iteration 成長      |
+
+### 8.2 量測方法（可重跑）
+
+- 指令：`pnpm --filter @drawstuff/collaboration bench:base64`（Node 的 retained-heap 量測用
+  `NODE_OPTIONS=--expose-gc` 重跑 `--project bench-node`）。
+- Harness：`packages/collaboration/bench/base64-performance.test.ts`，直接呼叫 production codec
+  （非 benchmark-only 副本）；唯一的複本是 pre-change chunked helper 的 verbatim baseline
+  replica，作為同機 baseline。
+- Fixture：4,194,304 bytes，mulberry32 seed `0xd7a05f`；warmup 3、iterations 30；結果寫入
+  `bench/results.<host>.json`（gitignored）。
+- 環境：macOS（Darwin 25.5.0，arm64，Apple Silicon）；Node v24.18.0、Playwright Chromium 與
+  WebKit（vitest browser mode，headless）。Workerd 不承載 snapshot hot path，只跑 §8.4 的
+  correctness project，不設效能門檻。
+
+### 8.3 量測結果（2026-08-23，單位 ms，encode/decode 各為 p50／p95／max）
+
+| Host | Native 存在 | Production 選路 | Encode | Decode |
+| ---- | ----------- | --------------- | ------ | ------ |
+| Chromium | 是 | native | 0.3／0.3／0.3 | 1.5／1.7／2.9 |
+| WebKit   | 是 | native | 1.0／1.0／2.0 | 1.0／2.0／2.0 |
+| Node v24 | 否（V8 尚未含 TypedArray Base64） | fallback | 79.7／85.5／90.0 | 6.3／7.2／7.7 |
+
+Fallback 對 baseline 的迴歸（同機、同 run）：Chromium encode +3.0%、decode +7%；WebKit encode
++3.8%、decode 0%；Node encode +2.8%、decode +6%——全部在 10% 內。Native 對 fallback：Chromium
+encode 快約 250×、decode 快約 5×；WebKit encode 快約 50×、decode 快約 6×。Retained heap：Node
+（explicit gc）前後差 −1.0 MB（無成長）；Chromium `performance.memory` 差 0；WebKit 無可用量測
+API（已標示）。
+
+### 8.4 結論與 rollback implication
+
+- 所有 §8.1 門檻通過；current supported browsers 都有 native path，第 5 條停止條款未觸發。
+- Rollback／舊裝置 implication：缺 native API 的 host 走 chunked fallback，其成本與實作前的
+  helper 相同量級（10% 內），因此移除或停用 native path 不會使既有 cadence 行為退化；encode
+  約 80 ms 的 fallback 成本是實作前已存在的既況，未因本次變更擴大。
+- Node（Vercel runtime）目前選 fallback；Node 引入 native API 後 production selection 會自動
+  切換，屆時應重跑本節記錄。

@@ -1,5 +1,6 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
+import { decodeBase64Url, encodeBase64Url } from "./base64.ts";
 import type { RoomId } from "./messages.ts";
 import {
   joinTokenClaimsSchema,
@@ -28,6 +29,13 @@ import {
 export const MIN_ROOM_TOKEN_SECRET_BYTES = 32;
 
 const encoder = new TextEncoder();
+// `ignoreBOM` keeps a leading U+FEFF in the output (matching Node's
+// `Buffer#toString("utf8")`), where `JSON.parse` then rejects it — the default
+// decoder would strip it and silently widen the accepted payload format.
+const decoder = new TextDecoder("utf-8", { ignoreBOM: true });
+
+/** HMAC-SHA256 digest length; the only signature size a token can carry. */
+const SIGNATURE_BYTES = 32;
 
 /**
  * Validates a signing secret. Exported so a service can fail at startup: the
@@ -42,14 +50,12 @@ export function assertRoomTokenSecret(secret: string): void {
   }
 }
 
-const signPayload = (payload: string, secret: string): string =>
-  createHmac("sha256", secret).update(payload).digest("base64url");
+const signPayload = (payload: string, secret: string): Uint8Array =>
+  createHmac("sha256", secret).update(payload).digest();
 
 const encodeToken = (claims: unknown, secret: string): string => {
-  const payload = Buffer.from(JSON.stringify(claims), "utf8").toString(
-    "base64url",
-  );
-  const token = `${payload}.${signPayload(payload, secret)}`;
+  const payload = encodeBase64Url(encoder.encode(JSON.stringify(claims)));
+  const token = `${payload}.${encodeBase64Url(signPayload(payload, secret))}`;
   if (encoder.encode(token).byteLength > MAX_ROOM_TOKEN_BYTES) {
     throw new Error("Room token exceeds the maximum token size");
   }
@@ -110,23 +116,29 @@ function verifySignedPayload(
   }
   const payload = token.slice(0, separator);
   const signature = token.slice(separator + 1);
-  const expected = signPayload(payload, secret);
-  const received = Buffer.from(signature, "base64url");
-  const expectedBytes = Buffer.from(expected, "base64url");
+  // Canonical decode: a signature segment the signer could not have produced
+  // (padding, whitespace, non-canonical bits) is just a bad signature.
+  const received = decodeBase64Url(signature, { maxBytes: SIGNATURE_BYTES });
+  if (!received.ok) return { ok: false, reason: "bad-signature" };
+  const expectedBytes = signPayload(payload, secret);
   // timingSafeEqual throws on a length mismatch, which is itself public
   // information (the digest length is fixed), so compare lengths first.
   if (
-    received.byteLength !== expectedBytes.byteLength ||
-    !timingSafeEqual(received, expectedBytes)
+    received.bytes.byteLength !== expectedBytes.byteLength ||
+    !timingSafeEqual(received.bytes, expectedBytes)
   ) {
     return { ok: false, reason: "bad-signature" };
   }
 
+  // The oversize gate above bounds the whole token, so the payload segment
+  // can never decode past it.
+  const payloadBytes = decodeBase64Url(payload, {
+    maxBytes: MAX_ROOM_TOKEN_BYTES,
+  });
+  if (!payloadBytes.ok) return { ok: false, reason: "malformed" };
   let raw: unknown;
   try {
-    raw = JSON.parse(
-      Buffer.from(payload, "base64url").toString("utf8"),
-    ) as unknown;
+    raw = JSON.parse(decoder.decode(payloadBytes.bytes)) as unknown;
   } catch {
     return { ok: false, reason: "malformed" };
   }

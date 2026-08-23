@@ -1,3 +1,4 @@
+import { decodeBase64, encodeBase64 } from "./base64.ts";
 import type { RoomId } from "./messages.ts";
 import { deriveRoomKey, type RoomKey } from "./realtime-crypto.ts";
 import { roomAuthGenerationSchema } from "./room-auth.ts";
@@ -68,21 +69,6 @@ export function keyCheckAdditionalDataLabel(params: {
   )}`;
 }
 
-const toBase64 = (bytes: Uint8Array): string => {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-};
-
-const fromBase64 = (value: string): Uint8Array => {
-  const binary = atob(value);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-};
-
 const additionalDataFor = (params: {
   roomId: RoomId;
   authGeneration: number;
@@ -117,7 +103,7 @@ export async function sealRoomKeyCheck(options: {
   // on untrusted input, so a failure here is an environment defect worth
   // surfacing to the caller rather than mapping to a result.
   if (!sealed.ok) throw sealed.failure.cause;
-  return toBase64(sealed.ciphertext);
+  return encodeBase64(sealed.ciphertext);
 }
 
 /**
@@ -132,12 +118,13 @@ export async function verifyRoomKeyCheck(options: {
   authGeneration: number;
   keyCheckBase64: string;
 }): Promise<boolean> {
-  let ciphertext: Uint8Array;
-  try {
-    ciphertext = fromBase64(options.keyCheckBase64);
-  } catch {
-    return false;
-  }
+  // Canonical decode, bounded by the value's one legal size; a lenient host
+  // decoder must not widen what counts as a key check.
+  const decoded = decodeBase64(options.keyCheckBase64, {
+    maxBytes: KEYCHECK_CIPHERTEXT_BYTES,
+  });
+  if (!decoded.ok) return false;
+  const ciphertext = decoded.bytes;
   const key = await deriveRoomKey({
     roomKey: options.roomKey,
     roomId: options.roomId,

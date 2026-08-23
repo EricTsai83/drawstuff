@@ -18,6 +18,7 @@ describe("@drawstuff/collaboration package contract", () => {
   it("exposes only the approved public entry points", () => {
     expect(Object.keys(packageJson.exports).sort()).toEqual([
       "./asset",
+      "./base64",
       "./client-pacing",
       "./join-barrier",
       "./keycheck",
@@ -62,6 +63,7 @@ describe("@drawstuff/collaboration package contract", () => {
   it("resolves every public entry point to its source module", () => {
     const expectedEntries = {
       "@drawstuff/collaboration/asset": "asset.ts",
+      "@drawstuff/collaboration/base64": "base64.ts",
       "@drawstuff/collaboration/join-barrier": "join-barrier.ts",
       "@drawstuff/collaboration/keycheck": "keycheck.ts",
       "@drawstuff/collaboration/offline-queue": "offline-queue.ts",

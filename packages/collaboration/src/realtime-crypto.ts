@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { decodeBase64Url, encodeBase64Url } from "./base64.ts";
 import type { MessageChannel } from "./codec.ts";
 import {
   COLLABORATION_PROTOCOL_VERSION,
@@ -198,33 +199,24 @@ export function roomKeyDerivationInfo(purpose: RoomKeyPurpose): string {
 /** Unpadded base64url of exactly `ROOM_KEY_BYTES` bytes. */
 const ROOM_KEY_LENGTH = Math.ceil((ROOM_KEY_BYTES * 4) / 3);
 
+/**
+ * Canonicality is part of the schema, not just the alphabet: a 43-character
+ * string whose unused trailing bits are non-zero is not something
+ * `generateRoomKey` can produce, and the strict shared codec would refuse it
+ * later anyway — refusing it at the parse boundary makes "a RoomKey decodes"
+ * an invariant of the brand instead of a runtime surprise.
+ */
 export const roomKeySchema = z
   .string()
   .regex(new RegExp(`^[A-Za-z0-9_-]{${ROOM_KEY_LENGTH}}$`))
+  .refine(
+    (value) => decodeBase64Url(value, { maxBytes: ROOM_KEY_BYTES }).ok,
+    "Room key must be canonical unpadded base64url",
+  )
   .brand<"RoomKey">();
 export type RoomKey = z.infer<typeof roomKeySchema>;
 
 const encoder = utf8Encoder;
-
-const toBase64Url = (bytes: Uint8Array): string => {
-  let binary = "";
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
-  }
-  return btoa(binary)
-    .replaceAll("+", "-")
-    .replaceAll("/", "_")
-    .replace(/=+$/, "");
-};
-
-const fromBase64Url = (value: string): Uint8Array => {
-  const binary = atob(value.replaceAll("-", "+").replaceAll("_", "/"));
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
-  }
-  return bytes;
-};
 
 /**
  * Generates a fresh room key. This is the only place room key material is
@@ -234,7 +226,7 @@ const fromBase64Url = (value: string): Uint8Array => {
 export function generateRoomKey(): RoomKey {
   const bytes = new Uint8Array(ROOM_KEY_BYTES);
   crypto.getRandomValues(bytes);
-  return roomKeySchema.parse(toBase64Url(bytes));
+  return roomKeySchema.parse(encodeBase64Url(bytes));
 }
 
 /**
@@ -250,9 +242,18 @@ export async function deriveRoomKey(options: {
   purpose: RoomKeyPurpose;
 }): Promise<CryptoKey> {
   const generation = roomAuthGenerationSchema.parse(options.authGeneration);
+  const decodedRoomKey = decodeBase64Url(
+    roomKeySchema.parse(options.roomKey),
+    { maxBytes: ROOM_KEY_BYTES },
+  );
+  // Unreachable for a parsed RoomKey — the schema refines on this very decode
+  // — so a failure here is a defect, not untrusted input.
+  if (!decodedRoomKey.ok) {
+    throw new Error("Room key is not canonical unpadded base64url");
+  }
   const material = await crypto.subtle.importKey(
     "raw",
-    asBufferSource(fromBase64Url(roomKeySchema.parse(options.roomKey))),
+    asBufferSource(decodedRoomKey.bytes),
     "HKDF",
     false,
     ["deriveBits"],

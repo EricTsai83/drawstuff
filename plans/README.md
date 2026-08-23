@@ -10,22 +10,25 @@
 不得把後一個 plan 的 production traffic gate 打開；可以提前做 read-only research，但不能提前
 建立第二條 live routing path。
 
-1. [08-collaboration-base64-codec.md](08-collaboration-base64-codec.md) — canonical Base64 codec、
-   browser／Node／workerd contract、token vectors與4 MiB snapshot效能門檻
-2. [09-collaboration-do-architecture-foundation.md](09-collaboration-do-architecture-foundation.md) —
+1. [09-collaboration-do-architecture-foundation.md](09-collaboration-do-architecture-foundation.md) —
    Vercel/Worker/DO權責、SQLite namespace、environment與thin gateway；production traffic 0%
-3. [10-collaboration-do-room-runtime.md](10-collaboration-do-room-runtime.md) — Hibernatable
+2. [10-collaboration-do-room-runtime.md](10-collaboration-do-room-runtime.md) — Hibernatable
    WebSockets、attachments、Alarm、opaque fanout與Node protocol parity
-4. [11-collaboration-do-durable-control.md](11-collaboration-do-durable-control.md) — typed RPC、SQLite
+3. [11-collaboration-do-durable-control.md](11-collaboration-do-durable-control.md) — typed RPC、SQLite
    revocation cutoffs、idempotent room lifecycle與storage cleanup
-5. [12-collaboration-do-verification-capacity.md](12-collaboration-do-verification-capacity.md) —
+4. [12-collaboration-do-verification-capacity.md](12-collaboration-do-verification-capacity.md) —
    workerd/staging conformance、observability、load、latency、Hibernation與cost Go/No-Go
-6. [13-collaboration-do-provider-coexistence.md](13-collaboration-do-provider-coexistence.md) —
+5. [13-collaboration-do-provider-coexistence.md](13-collaboration-do-provider-coexistence.md) —
    provider-pinned雙軌、server-owned routing與durable PostgreSQL control outbox
-7. [14-collaboration-do-production-cutover.md](14-collaboration-do-production-cutover.md) — synthetic、
+6. [14-collaboration-do-production-cutover.md](14-collaboration-do-production-cutover.md) — synthetic、
    internal、1/10/25/50/100% new-channel rollout、rollback gates與Node自然排空
-8. [15-collaboration-do-retirement.md](15-collaboration-do-retirement.md) — 刪除Node relay、provider
+7. [15-collaboration-do-retirement.md](15-collaboration-do-retirement.md) — 刪除Node relay、provider
    abstraction與migration config，收斂為Durable Object-only realtime architecture
+
+系列的共同前置（canonical Base64 codec、browser／Node／workerd contract、token vectors 與
+4 MiB snapshot 效能門檻）已完成；長期 Claims 與效能證據見
+[ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md) 與
+[collaboration SLO 文件](../docs/performance/collaboration-slo-capacity.md) §8。
 
 ## Completion rule
 

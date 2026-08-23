@@ -2,6 +2,10 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
+import {
+  decodeBase64,
+  encodeBase64,
+} from "@drawstuff/collaboration/base64";
 import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 import {
   roomAuthGenerationSchema,
@@ -261,7 +265,7 @@ export const collaborationRoomRouter = createTRPCRouter({
          * before the user's canvas is cleared.
          */
         keyCheckBase64: access.room.keyCheck
-          ? Buffer.from(access.room.keyCheck).toString("base64")
+          ? encodeBase64(access.room.keyCheck)
           : null,
       };
     }),
@@ -287,15 +291,21 @@ export const collaborationRoomRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      const keyCheck = new Uint8Array(
-        Buffer.from(input.keyCheckBase64, "base64"),
-      );
-      if (keyCheck.byteLength !== KEYCHECK_CIPHERTEXT_BYTES) {
+      // Canonical decode through the shared codec: `Buffer.from` leniency must
+      // not decide what counts as a stored key-check value.
+      const decodedKeyCheck = decodeBase64(input.keyCheckBase64, {
+        maxBytes: KEYCHECK_CIPHERTEXT_BYTES,
+      });
+      if (
+        !decodedKeyCheck.ok ||
+        decodedKeyCheck.bytes.byteLength !== KEYCHECK_CIPHERTEXT_BYTES
+      ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
           message: "Key-check value size is out of range.",
         });
       }
+      const keyCheck = decodedKeyCheck.bytes;
       const now = new Date();
       await withLockedOwnedRoom(
         ctx.db,
