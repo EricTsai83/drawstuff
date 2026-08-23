@@ -12,7 +12,6 @@ import {
   INTERNAL_AUTH_GENERATION_HEADER,
   INTERNAL_ROOM_ID_HEADER,
 } from "../src/internal.ts";
-import { CollaborationRoom } from "../src/room.ts";
 
 const ROOM_A = roomIdSchema.parse("room-a");
 const ROOM_B = roomIdSchema.parse("room-b");
@@ -48,12 +47,14 @@ describe("RoomChannelKey object identity", () => {
 });
 
 describe("CollaborationRoom fetch identity check", () => {
-  it("accepts the identity matching its own name (refusing runtime until Plan 10)", async () => {
+  it("accepts a matching identity but still requires a WebSocket upgrade", async () => {
     const stub = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_A, 1));
     const response = await stub.fetch("https://room.internal/socket", {
       headers: identityHeaders(ROOM_A, "1"),
     });
-    expect(response.status).toBe(503);
+    // Identity passed; the runtime's own defense-in-depth upgrade check is
+    // what refuses a plain fetch.
+    expect(response.status).toBe(426);
   });
 
   it("fails closed on a mismatched forwarded identity", async () => {
@@ -114,16 +115,22 @@ describe("CollaborationRoom RPC identity", () => {
 });
 
 describe("CollaborationRoom alarm identity", () => {
-  it("sees the canonical name inside the alarm and persists it to storage", async () => {
+  it("runs the scheduler on a named object without error", async () => {
     const key = roomChannelKey(ROOM_A, 3);
     const stub = env.COLLABORATION_ROOM.getByName(key);
     await runInDurableObject(stub, async (_instance, state) => {
       await state.storage.setAlarm(Date.now() + 50);
     });
+    // No sockets, no cohort, no cutoffs: the scheduler treats the room as
+    // never joined and releases its storage entirely.
     await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
-    const stored = await runInDurableObject(stub, (_instance, state) =>
-      state.storage.get<string>(CollaborationRoom.LAST_ALARM_CHANNEL_KEY),
+    const tables = await runInDurableObject(stub, (_instance, state) =>
+      state.storage.sql
+        .exec<{ name: string }>(
+          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('room_meta', 'revocation_cutoffs')",
+        )
+        .toArray(),
     );
-    expect(stored).toBe(key);
+    expect(tables).toHaveLength(0);
   });
 });

@@ -1,11 +1,17 @@
 import type { PeerId } from "@drawstuff/collaboration/protocol";
 import {
+  createConnectionRateLimiter,
+  monotonicNow,
+  type RelayRateLimits,
+} from "@drawstuff/collaboration/rate-limit";
+import {
   decodeRelayDataFrame,
   encodeRelayControl,
   maxRelayDataFrameBytesFor,
   MAX_RELAY_CONTROL_FRAME_BYTES,
   parseRelayClientControl,
   RELAY_CLOSE_CODES,
+  RELAY_KEEPALIVE_REQUEST,
   unsupportedJoinProtocolVersionOf,
 } from "@drawstuff/collaboration/relay-protocol";
 import {
@@ -23,12 +29,7 @@ import {
   type RelayCloseReason,
   type RelayMetrics,
 } from "./metrics.ts";
-import {
-  createConnectionRateLimiter,
-  monotonicNow,
-  type RelayRateLimits,
-  type SubjectRateLimiter,
-} from "./rate-limit.ts";
+import type { SubjectRateLimiter } from "./rate-limit.ts";
 import type { RelaySessionHandle, RelaySessionRegistry } from "./sessions.ts";
 
 /**
@@ -91,7 +92,7 @@ export type RelayConnectionLimits = {
    * fanout entry, so liveness alone is not evidence the session is still in use.
    */
   idleTimeoutMs: number;
-  /** Per-connection send-rate budgets; see `./rate-limit.ts`. */
+  /** Per-connection send-rate budgets; see `@drawstuff/collaboration/rate-limit`. */
   rateLimits: RelayRateLimits;
 };
 
@@ -349,6 +350,13 @@ export function createRelayConnection(options: {
         end(RELAY_CLOSE_CODES.protocolViolation, "oversize control frame");
         return;
       }
+      // The optional client keepalive exists for the Durable Object backend,
+      // where it feeds the auto-response liveness signal. Here the ws-level
+      // ping/pong heartbeat already answers liveness, so the frame is ignored
+      // — deliberately not answered, and deliberately not activity: it must
+      // not reset the idle deadline, or a forgotten tab that keepalives
+      // forever would hold a room slot the idle budget exists to reclaim.
+      if (text === RELAY_KEEPALIVE_REQUEST) return;
       const control = parseRelayClientControl(text);
       if (!control) {
         // An outdated tab is not a broken client: a join whose only certain

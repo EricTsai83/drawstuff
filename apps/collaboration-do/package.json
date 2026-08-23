@@ -28,6 +28,7 @@
     "project": [
       "src/**/*.ts",
       "tests/**/*.ts",
+      "scripts/**/*.mjs",
       "*.ts"
     ],
     "ignoreDependencies": [
@@ -40,6 +41,7 @@
     "knip": "^6.29.0",
     "typescript": "^6.0.3",
     "vitest": "4.1.10",
-    "wrangler": "4.125.0"
+    "wrangler": "4.125.0",
+    "ws": "^8.18.3"
   }
 }

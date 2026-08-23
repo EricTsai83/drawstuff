@@ -1,11 +1,21 @@
 # @drawstuff/collaboration-do
 
-Cloudflare Worker gateway + `CollaborationRoom` Durable Object foundation for
-the collaboration relay migration (Plan 09 → 15). Single environment by
-design — a solo, self-hosted project, deployed the same way `apps/web` is
-(main → the one deployment). Long-term claims live in
+Cloudflare Worker gateway + `CollaborationRoom` Durable Object for the
+collaboration relay migration (Plan 09 → 15). Since Plan 10 the Object runs
+the full Hibernatable-WebSocket room runtime — join, membership, role
+enforcement, opaque E2EE binary fanout, limits, backpressure, close
+semantics, a single-alarm scheduler and the keepalive auto-response — wire
+compatible with the Node relay, proven by a shared black-box conformance
+suite both backends run
+(`@drawstuff/collaboration/protocol-conformance`). Connection state lives in
+per-socket attachments and SQLite only, so hibernation, eviction and code
+updates recover everything. Single environment by design — a solo,
+self-hosted project, deployed the same way `apps/web` is (main → the one
+deployment). Long-term claims live in
 [ADR-0002](../../docs/adr/0002-collaboration-durable-object-target.md) and
-[ADR-0003](../../docs/adr/0003-collaboration-do-gateway-foundation.md).
+[ADR-0003](../../docs/adr/0003-collaboration-do-gateway-foundation.md); the
+liveness/keepalive contract is documented in the
+[collaboration SLO document](../../docs/performance/collaboration-slo-capacity.md) §9.
 
 **The Worker carries 0% collaboration traffic until cutover (Plan 14)**,
 guaranteed by two independent locks rather than by unreachability:
@@ -40,6 +50,14 @@ pnpm --filter @drawstuff/collaboration-do deploy      # verify → preflight →
 pnpm --filter @drawstuff/collaboration-do secret:put  # prompts for COLLAB_JOIN_TOKEN_SECRET
 pnpm --filter @drawstuff/collaboration-do smoke <url> # live gateway smoke, prints version id
 ```
+
+`smoke` runs the closed-response HTTP checks with no credentials. When
+`COLLAB_JOIN_TOKEN_SECRET` is set in the environment (the deployed Worker's
+secret), it additionally runs the room-runtime smoke: two real WebSocket
+clients join a fresh room through the deployed Worker, exchange E2EE-sealed
+scene and presence frames (the room key never leaves the smoke process), and
+verify the keepalive auto-response — the Plan 10 deployed-worker evidence,
+safe during the 0%-traffic window.
 
 Root shortcuts: `pnpm cf:deploy`, `pnpm cf:smoke <url>`.
 

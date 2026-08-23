@@ -11,6 +11,7 @@ import {
   parseRelayServerControl,
   MAX_RELAY_CONTROL_FRAME_BYTES,
   RELAY_CLOSE_CODES,
+  RELAY_KEEPALIVE_REQUEST,
 } from "@drawstuff/collaboration/relay-protocol";
 
 import {
@@ -232,6 +233,36 @@ describe("createRelayConnection", () => {
     expect(multibyte.socket.closedWith?.code).toBe(
       RELAY_CLOSE_CODES.protocolViolation,
     );
+  });
+
+  it("ignores the keepalive frame without answering or counting it as activity", () => {
+    // The keepalive exists for the Durable Object backend's auto-response
+    // liveness; the relay's contract is to ignore it so both backends accept
+    // one wire protocol. Before the join it must not be a protocol violation…
+    const pending = setup();
+    pending.connection.handleTextFrame(RELAY_KEEPALIVE_REQUEST);
+    expect(pending.socket.closedWith).toBeUndefined();
+    expect(pending.socket.sentText).toHaveLength(0);
+    pending.join();
+    expect(pending.connection.isJoined()).toBe(true);
+
+    // …and after the join it is not activity: the idle deadline still fires
+    // for a session that only ever keepalives, exactly like a forgotten tab
+    // that only answers pings.
+    let current = TEST_NOW_MS;
+    const advance = (ms: number): void => {
+      current += ms;
+      vi.advanceTimersByTime(ms);
+    };
+    const idle = setup({
+      now: () => current,
+      limits: { idleTimeoutMs: 60_000 },
+    });
+    idle.join();
+    advance(30_000);
+    idle.connection.handleTextFrame(RELAY_KEEPALIVE_REQUEST);
+    advance(30_000);
+    expect(idle.socket.closedWith?.code).toBe(RELAY_CLOSE_CODES.idleTimeout);
   });
 
   it("tells an outdated protocol version to reload, not that it is broken", () => {

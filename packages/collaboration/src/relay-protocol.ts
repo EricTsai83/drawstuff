@@ -195,6 +195,37 @@ export function parseRelayServerControl(
 }
 
 /**
+ * Optional keepalive frame, version 1 of the pair.
+ *
+ * Motivation: the Durable Object room runtime hibernates between events, so
+ * the Node relay's liveness mechanism — a server-initiated protocol-level ping
+ * every 15 s — cannot be ported: waking the Object per ping would defeat
+ * hibernation, and the browser WebSocket API cannot send protocol-level pings
+ * from the client side. Instead the *client* sends this exact text frame on a
+ * timer, and the Durable Object answers it with
+ * `ctx.setWebSocketAutoResponse()`, which replies without waking the Object.
+ *
+ * Contract:
+ *
+ * - Both strings must travel byte-exact: the auto-response matches the whole
+ *   frame verbatim, so a client must send the constant itself, never a
+ *   re-serialization of it.
+ * - The frame is versioned by suffix. A future incompatible keepalive is a new
+ *   pair, and an unrecognized keepalive-shaped frame is a protocol violation
+ *   like any other unknown control frame.
+ * - The Node relay ignores the request (tested): its own ping/pong heartbeat
+ *   already answers liveness there, and ignoring keeps one wire contract for
+ *   both backends. Ignoring — not answering — also means a client must never
+ *   *require* the response; only the Durable Object transport does, where the
+ *   response is the liveness evidence.
+ * - Keepalive is liveness only, never activity: it must not reset any idle
+ *   deadline on either backend. A forgotten tab that keepalives forever still
+ *   idles out, exactly as it does against the relay's heartbeat.
+ */
+export const RELAY_KEEPALIVE_REQUEST = "drawstuff-keepalive/1";
+export const RELAY_KEEPALIVE_RESPONSE = "drawstuff-keepalive-ack/1";
+
+/**
  * Application close codes the relay uses when it terminates a connection.
  *
  * Every one of them ends the session cleanly — there is no half-open state to

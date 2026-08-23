@@ -1,5 +1,5 @@
 import { env, listDurableObjectIds, SELF } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
@@ -16,6 +16,9 @@ import {
   INTERNAL_ROOM_ID_HEADER,
 } from "../src/internal.ts";
 import { TEST_ROOM_TOKEN_SECRET } from "./support/audit.ts";
+import { settleRoomEvents } from "./support/room-socket.ts";
+
+afterEach(settleRoomEvents);
 
 const BASE = "https://collaboration-gateway.test";
 const ALLOWED_ORIGIN = "http://localhost:3000";
@@ -101,12 +104,14 @@ describe("unknown routes", () => {
 });
 
 describe("socket route", () => {
-  it("forwards a valid upgrade to the room object, which refuses until Plan 10", async () => {
+  it("forwards a valid upgrade to the room object, which accepts the socket", async () => {
     const response = await SELF.fetch(`${BASE}${SOCKET_PATH}`, {
       headers: socketHeaders(),
     });
-    expect(response.status).toBe(503);
-    expect(await errorOf(response)).toBe("room-runtime-unimplemented");
+    expect(response.status).toBe(101);
+    expect(response.webSocket).not.toBeNull();
+    response.webSocket?.accept();
+    response.webSocket?.close();
   });
 
   it.each([
@@ -157,15 +162,17 @@ describe("socket route", () => {
 
   it("strips spoofed internal identity headers before forwarding", async () => {
     // If the spoofed headers survived, the object named room-a-g1 would see
-    // room-b's identity and answer 403 identity-mismatch instead of 503.
+    // room-b's identity and answer 403 identity-mismatch instead of
+    // accepting the upgrade.
     const response = await SELF.fetch(`${BASE}${SOCKET_PATH}`, {
       headers: socketHeaders({
         [INTERNAL_ROOM_ID_HEADER]: "room-b",
         [INTERNAL_AUTH_GENERATION_HEADER]: "2",
       }),
     });
-    expect(response.status).toBe(503);
-    expect(await errorOf(response)).toBe("room-runtime-unimplemented");
+    expect(response.status).toBe(101);
+    response.webSocket?.accept();
+    response.webSocket?.close();
   });
 });
 

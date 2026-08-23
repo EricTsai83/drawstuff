@@ -6,10 +6,21 @@ import { WebSocketServer, type WebSocket } from "ws";
 
 import { peerIdSchema, type PeerId } from "@drawstuff/collaboration/protocol";
 import {
+  DEFAULT_RELAY_RATE_LIMITS,
+  monotonicNow,
+} from "@drawstuff/collaboration/rate-limit";
+import {
   MAX_RELAY_CONTROL_FRAME_BYTES,
   MAX_RELAY_DATA_FRAME_BYTES,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
+import {
+  MAX_CONNECTIONS_PER_ROOM,
+  MAX_SOCKET_BUFFERED_BYTES,
+  PRESENCE_DROP_BUFFERED_BYTES,
+  ROOM_IDLE_TIMEOUT_MS,
+  ROOM_JOIN_TIMEOUT_MS,
+} from "@drawstuff/collaboration/room-limits";
 import { assertRoomTokenSecret } from "@drawstuff/collaboration/room-token";
 
 import {
@@ -28,8 +39,6 @@ import {
 import { createRelayMonitoringRequestHandler } from "./monitoring.ts";
 import {
   createSubjectRateLimiter,
-  DEFAULT_RELAY_RATE_LIMITS,
-  monotonicNow,
   type SubjectRateLimiter,
 } from "./rate-limit.ts";
 import {
@@ -68,16 +77,18 @@ const EVENT_LOOP_SAMPLE_INTERVAL_MS = 100;
 /**
  * Approved in `docs/performance/collaboration-slo-capacity.md` (2026-08-06).
  * Changing any of these requires a new approved revision of that document, not
- * an edit here.
+ * an edit here. The per-room values come from the shared
+ * `@drawstuff/collaboration/room-limits` module so this relay and the Durable
+ * Object room runtime cannot drift apart on them.
  */
 const DEFAULT_RELAY_LIMITS: RelayLimits = {
   maxConnections: 256,
-  maxConnectionsPerRoom: 32,
+  maxConnectionsPerRoom: MAX_CONNECTIONS_PER_ROOM,
   maxRooms: 128,
-  maxBufferedBytes: 4 * 1_048_576,
-  presenceDropBufferedBytes: 262_144,
-  joinTimeoutMs: 10_000,
-  idleTimeoutMs: 15 * 60_000,
+  maxBufferedBytes: MAX_SOCKET_BUFFERED_BYTES,
+  presenceDropBufferedBytes: PRESENCE_DROP_BUFFERED_BYTES,
+  joinTimeoutMs: ROOM_JOIN_TIMEOUT_MS,
+  idleTimeoutMs: ROOM_IDLE_TIMEOUT_MS,
   heartbeatIntervalMs: 15_000,
   // A close handshake normally completes within one round trip, so 10 s is
   // generous headroom, and it stays well inside the process manager's

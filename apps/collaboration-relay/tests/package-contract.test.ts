@@ -20,7 +20,7 @@ const listSourceFiles = (root: string): string[] =>
  */
 const ALLOWED_IMPORT = new RegExp(
   "^(?:node:|ws$|\\./|@drawstuff/collaboration/" +
-    "(?:protocol|relay-control|relay-protocol|room-auth|room-token)$)",
+    "(?:protocol|rate-limit|relay-control|relay-protocol|room-auth|room-limits|room-token)$)",
 );
 
 describe("@drawstuff/collaboration-relay package contract", () => {

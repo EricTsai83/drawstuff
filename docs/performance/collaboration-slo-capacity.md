@@ -234,14 +234,14 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
 
 ## 6. 錯誤與斷線率 SLO
 
-| 指標                                                | 核准門檻                             | 說明                                                                                                                                  |
-| --------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------- |
-| Session 成功率（join → 至少一次 baseline resolved） | ≥ 99%                                | 只有 baseline resolved 才算成功；socket 開了就死不算                                                                                  |
+| 指標                                                | 核准門檻                             | 說明                                                                                                                                                   |
+| --------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Session 成功率（join → 至少一次 baseline resolved） | ≥ 99%                                | 只有 baseline resolved 才算成功；socket 開了就死不算                                                                                                   |
 | 非預期斷線率                                        | ≤ 0.5% of sessions                   | 計入 `protocolViolation`、`internalError`、`relayAtCapacity`、`roomAtCapacity`、`slowConsumer`；不計入使用者主動離開、`roomEnded`、`membershipRevoked` |
-| `slowConsumer` 斷線率                               | ≤ 0.1% of sessions                   | 排水空間維持 4 MiB（§4.1），因此此項應該稀少；持續偏高代表該重新檢視 §4.1 的決定                                                      |
-| Decrypt failure                                     | **穩態應為 0**；任何持續非零即 alert | 非零代表金鑰不符、世代錯位或竄改，全都需要人介入而非自動修復                                                                          |
-| Snapshot conflict 率                                | ≤ 5% of writes                       | writer election 應讓 conflict 稀少；持續偏高代表 election 失效                                                                        |
-| 超限 block 發生率                                   | 僅記錄，不設門檻                     | 這是使用者的畫布大小，不是服務品質                                                                                                    |
+| `slowConsumer` 斷線率                               | ≤ 0.1% of sessions                   | 排水空間維持 4 MiB（§4.1），因此此項應該稀少；持續偏高代表該重新檢視 §4.1 的決定                                                                       |
+| Decrypt failure                                     | **穩態應為 0**；任何持續非零即 alert | 非零代表金鑰不符、世代錯位或竄改，全都需要人介入而非自動修復                                                                                           |
+| Snapshot conflict 率                                | ≤ 5% of writes                       | writer election 應讓 conflict 稀少；持續偏高代表 election 失效                                                                                         |
+| 超限 block 發生率                                   | 僅記錄，不設門檻                     | 這是使用者的畫布大小，不是服務品質                                                                                                                     |
 
 ## 7. Implementation status and accepted limits
 
@@ -271,12 +271,12 @@ Base64／Base64URL，closed decode result，詳見
 
 ### 8.1 Budget（核准值）
 
-| 項目                                            | 門檻                       |
-| ----------------------------------------------- | -------------------------- |
+| 項目                                                                        | 門檻                                                   |
+| --------------------------------------------------------------------------- | ------------------------------------------------------ |
 | Current Chromium／WebKit production-selected path 的 4 MiB encode 與 decode | 各自 p95 ≤ 50 ms（避免單一 Base64 階段自成 long task） |
-| Native path（存在時）                           | 必須快於 fallback，否則刪除分支 |
-| Fallback p95                                    | 不得比實作前同機 baseline 退步超過 10% |
-| Retained heap                                   | 不得隨 iteration 成長      |
+| Native path（存在時）                                                       | 必須快於 fallback，否則刪除分支                        |
+| Fallback p95                                                                | 不得比實作前同機 baseline 退步超過 10%                 |
+| Retained heap                                                               | 不得隨 iteration 成長                                  |
 
 ### 8.2 量測方法（可重跑）
 
@@ -293,11 +293,11 @@ Base64／Base64URL，closed decode result，詳見
 
 ### 8.3 量測結果（2026-08-23，單位 ms，encode/decode 各為 p50／p95／max）
 
-| Host | Native 存在 | Production 選路 | Encode | Decode |
-| ---- | ----------- | --------------- | ------ | ------ |
-| Chromium | 是 | native | 0.3／0.3／0.3 | 1.5／1.7／2.9 |
-| WebKit   | 是 | native | 1.0／1.0／2.0 | 1.0／2.0／2.0 |
-| Node v24 | 否（V8 尚未含 TypedArray Base64） | fallback | 79.7／85.5／90.0 | 6.3／7.2／7.7 |
+| Host     | Native 存在                       | Production 選路 | Encode           | Decode        |
+| -------- | --------------------------------- | --------------- | ---------------- | ------------- |
+| Chromium | 是                                | native          | 0.3／0.3／0.3    | 1.5／1.7／2.9 |
+| WebKit   | 是                                | native          | 1.0／1.0／2.0    | 1.0／2.0／2.0 |
+| Node v24 | 否（V8 尚未含 TypedArray Base64） | fallback        | 79.7／85.5／90.0 | 6.3／7.2／7.7 |
 
 Fallback 對 baseline 的迴歸（同機、同 run）：Chromium encode +3.0%、decode +7%；WebKit encode
 +3.8%、decode 0%；Node encode +2.8%、decode +6%——全部在 10% 內。Native 對 fallback：Chromium
@@ -313,3 +313,52 @@ API（已標示）。
   約 80 ms 的 fallback 成本是實作前已存在的既況，未因本次變更擴大。
 - Node（Vercel runtime）目前選 fallback；Node 引入 native API 後 production selection 會自動
   切換，屆時應重跑本節記錄。
+
+## 9. Durable Object room runtime 的 liveness／keepalive 對應（Plan 10，2026-08-24）
+
+Node relay 的 dead-peer 偵測是 server 每 15 秒發 protocol-level ping、漏一次 pong 即
+terminate（`heartbeatTimeout`，偵測上限 ≈ 2 × 15 s = 30 s）。這個機制不可移植到 Durable
+Object：server-initiated ping 需要喚醒 Object，會讓 hibernation 失效；browser WebSocket API
+也無法讓 client 發 protocol-level ping。DO 版本的替代契約如下，兩個 backend 的 taxonomy
+對應也一併鎖定，client 可見的 disconnect reason 語意**只有一套**。
+
+### 9.1 機制
+
+- Client 依 `KEEPALIVE_INTERVAL_MS` = 15 s（`@drawstuff/collaboration/client-pacing`）送出
+  固定 text frame `RELAY_KEEPALIVE_REQUEST`（versioned，`drawstuff-keepalive/1`）。
+- DO 以 `ctx.setWebSocketAutoResponse()` 回 `RELAY_KEEPALIVE_RESPONSE`——auto-response 由
+  runtime 處理，**不喚醒 Object**（已以 eviction + construction stamp 測試證明），因此
+  hibernation 與 duration 計費不受影響。
+- Node relay 對 keepalive frame 的行為是**忽略**（有測試）：relay 自身的 ping/pong 已回答
+  liveness。忽略而非回應，意謂 client 永遠不得依賴 response 的存在；只有 DO transport 把
+  response timestamp 當 liveness 證據。
+- Keepalive 只證明 socket 活著，**不算 activity**：idle deadline（15 分鐘）仍只由 data
+  frame（`lastFrameAt`）驅動，被遺忘的 tab 即使 keepalive 不斷仍會 idle timeout——與 relay
+  的 heartbeat／idle 二分完全一致。
+- Client 端的 keepalive 發送在 Plan 13 隨 DO transport 一起接上。部署順序是硬性約束：
+  relay 的忽略行為必須先部署（本次變更、restart relay 之後），client 才可以開始送
+  keepalive，否則現行 relay 會把它當 `protocolViolation`（terminal）關線。
+
+### 9.2 偵測上限與 taxonomy 對應
+
+DO 的 liveness 判定是 lazy 的——只在本來就要醒來的時刻檢查：任何 alarm 觸發時、fanout
+write 失敗時、join 遇到 room cap 已滿時（先 reap 再套 cap，讓 tab crash 後的立即重連不被
+zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernation）。
+
+| 項目            | Node relay                                      | Durable Object                                                                                                              |
+| --------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| 機制            | server ping／pong，漏一次即 terminate           | client keepalive + auto-response timestamp，lazy 判定                                                                       |
+| Liveness 門檻   | 2 × 15 s = 30 s                                 | `ROOM_LIVENESS_TIMEOUT_MS` = 2 × 15 s + 5 s = 35 s，加 `LAST_FRAME_PERSIST_QUANTUM_MS` = 30 s 的 attachment 落後容忍 → 65 s |
+| 偵測上限        | ≈ 30 s                                          | 65 s + 下一個 lazy 檢查時刻的延遲（下一個 alarm／write failure／cap-full join）                                             |
+| 方向性          | —                                               | 只會晚收、不會早收：quantum 只往「多等」方向計入                                                                            |
+| Client 可見語意 | terminate（無 close code → 1006 → `transient`） | close 1001（非 enumerated code → `transient`）                                                                              |
+
+兩者都落在 `disconnectReasonForCloseCode` 的 default（`transient`）：dead-peer 收割對 client
+是可重試事件，沒有第二套 reason 語意。idle 仍是 4010、room 過期仍是 4008，與 relay 相同。
+
+### 9.3 尚待 Plan 12 的證據項目
+
+- `bufferedAmount`：workerd 的 server-side WebSocket **型別不含** `bufferedAmount`，runtime
+  是否提供由 `room-runtime.test.ts` 的量測案例記錄（runtime probe）。若 host 永遠不提供
+  可靠值，Plan 12 必須先定義有界替代方案（slow-consumer 保護的程式路徑保留，未移除）。
+- Pending cap（32）與總 socket cap（64）為可量測起始常數，Plan 12 依 join-storm 證據核准。

@@ -22,6 +22,18 @@
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"
     },
+    "./protocol-conformance": {
+      "types": "./src/protocol-conformance.ts",
+      "default": "./src/protocol-conformance.ts"
+    },
+    "./rate-limit": {
+      "types": "./src/rate-limit.ts",
+      "default": "./src/rate-limit.ts"
+    },
+    "./room-limits": {
+      "types": "./src/room-limits.ts",
+      "default": "./src/room-limits.ts"
+    },
     "./keycheck": {
       "types": "./src/keycheck.ts",
       "default": "./src/keycheck.ts"
