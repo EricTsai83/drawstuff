@@ -50,20 +50,25 @@ Wrangler is never part of the root `dev` pipeline.
 Reversible deploys are automated; irreversible state changes are manual (same
 principle as the repo's `db:push` convention for Postgres schema).
 
-| Change                                                                                      | How it deploys                                                                                                   |
-| ------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| Code-only (the everyday case)                                                               | auto: Workers Builds on push to `main`                                                                           |
-| Lifecycle (`exports` create/rename/delete) and the **first** deploy (creates the namespace) | manual: `pnpm cf:deploy` from a `wrangler login`-ed machine                                                      |
-| Secret                                                                                      | manual: `pnpm --filter @drawstuff/collaboration-do secret:put` (or Dashboard → Settings → Variables and Secrets) |
+| Change                                                   | How it deploys                                                                                                                                                                                                        |
+| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Code-only (the everyday case)                            | auto: Workers Builds on push to `main`                                                                                                                                                                                |
+| **First** deploy (creates the namespace)                 | the deliberate act of connecting Workers Builds in the Dashboard — that first build provisions the namespace, its build log is the evidence (zero CLI); `pnpm cf:deploy` from a `wrangler login`-ed machine works too |
+| Later lifecycle changes (`exports` create/rename/delete) | manual only: `pnpm cf:deploy` (one-time `wrangler login` when the day comes)                                                                                                                                          |
+| Secret                                                   | Dashboard → Settings → Variables and Secrets (or `pnpm --filter @drawstuff/collaboration-do secret:put`)                                                                                                              |
 
 The config-audit test pins `exports`, so a lifecycle change cannot merge
 without editing the test as well — that is the deliberate-review signal; ship
 it manually, alone, per CLAIM-MIG-4.
 
-Order matters when bootstrapping: run the **first** `deploy` manually (it
-creates the namespace, which is itself a lifecycle change), set the secret,
-smoke it, and only then connect Workers Builds so automation only ever
-performs code-only deploys.
+Zero-CLI bootstrap, in this order — `secrets.required` makes the deploy
+refuse to ship while the secret is missing, so the secret comes first:
+connect Workers Builds (below; the first build will fail on the missing
+secret, which is the guardrail working) → Worker → Settings → Variables and
+Secrets → add `COLLAB_JOIN_TOKEN_SECRET` → Retry build → this build creates
+the namespace → verify with `pnpm cf:smoke <workers.dev-url>` (a plain HTTP
+probe, no credentials) or by opening `/healthz` in a browser (expect
+`"ok": true`).
 
 Workers Builds settings (Dashboard → Workers & Pages → connect
 `EricTsai83/drawstuff`):
@@ -104,11 +109,13 @@ allowlist.
 Class lifecycle (create/rename/delete in `exports`) is not gradually
 deployable and cannot be rolled back across; it always ships alone:
 
-1. First deploy (manual) provisions the namespace. Set the secret, then run
-   `pnpm cf:smoke <workers.dev-url>` — it checks `/healthz` plus the
-   closed-response contract and prints the version id.
-2. Record as evidence: Worker version id (from the deploy output or
-   `/healthz`), compatibility date (`2026-08-01`), namespace/class/backend
+1. Set the secret first (`secrets.required` blocks any deploy without it),
+   then the first successful deploy (Workers Builds or local script)
+   provisions the namespace. Run `pnpm cf:smoke <workers.dev-url>` — it
+   checks `/healthz` plus the closed-response contract and prints the
+   version id.
+2. Record as evidence: Worker version id (from the build log, deploy output
+   or `/healthz`), compatibility date (`2026-08-01`), namespace/class/backend
    (`CollaborationRoom`, SQLite), and that the secret is set.
 3. Never roll back to before a namespace existed. Rollback keeps the
    namespace; the traffic locks (Origin allowlist + DB provider assignment)

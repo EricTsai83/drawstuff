@@ -121,13 +121,18 @@ Plan 11 的 durable dispatcher 重試。WebSocket Upgrade 不在 gateway 重試�
 
 ## P3 — Deployment lifecycle 與 rollback
 
-Lifecycle deploy（建立／rename／刪除 class）只能由人手動觸發——package 的 `deploy` script
-（內含 `verify` 與 dry-run `preflight`）——不得由 git push 自動執行。git push 自動部署
-（Workers Builds on main）只允許 code-only change。這與 repo 既有的 `db:push` 慣例同源：
-可逆的部署自動化，不可逆的狀態變更由人執行並留下證據。
+Lifecycle deploy（建立／rename／刪除 class）只能由人**刻意**觸發，不得作為日常 merge 的
+副作用。兩種合規形式：本機 `deploy` script（內含 `verify` 與 dry-run `preflight`；需一次性
+`wrangler login`），或——僅限首次部署——在 Dashboard 連接 Workers Builds 的那個動作本身
+（該次 build 建立 namespace，「連接」就是刻意決定，build log 即證據；全程零 CLI）。git push
+自動部署只允許 code-only change；後續任何 `exports` 變更仍必須本機手動，且 config-audit 測試
+釘死 `exports`，使其無法在未改測試的情況下 merge。這與 repo 既有的 `db:push` 慣例同源：
+可逆的部署自動化，不可逆的狀態變更由人刻意執行並留下證據。
 
-1. 首次 deploy（手動）建立空 SQLite namespace，確認 reconciliation output；設 secret 後執行
-   health／binding smoke（`pnpm cf:smoke <workers.dev-url>`）；
+1. 先設 secret（Dashboard 或 `secret:put`；`secrets.required` 會拒絕缺 secret 的部署），再以
+   首次 deploy（本機 script 或 Workers Builds）建立空 SQLite namespace，確認 reconciliation
+   output（deploy 輸出或 build log）；然後執行 health／binding smoke
+   （`pnpm cf:smoke <workers.dev-url>`，純 HTTP 探針、無需憑證）；
 2. 保存 Worker version、compatibility date、namespace/class/backend 與 secret 已設定的證據；
 3. lifecycle deploy 之後不得嘗試 rollback 到建立 namespace 之前；rollback 保留 namespace，
    traffic 由流量鎖（Origin allowlist + DB provider assignment）維持 0%，與部署無關；
