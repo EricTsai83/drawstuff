@@ -1,6 +1,7 @@
 # 10 — Durable Object Hibernatable room runtime 與 protocol parity
 
-- 前置：[Plan 09](./09-collaboration-do-architecture-foundation.md)
+- 前置：Durable Object architecture foundation（已完成；見
+  [ADR-0003](../docs/adr/0003-collaboration-do-gateway-foundation.md)）
 - 後續：[Plan 11](./11-collaboration-do-durable-control.md)
 - Production traffic：**0%**
 
