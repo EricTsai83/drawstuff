@@ -1,70 +1,40 @@
 import "server-only";
 
 import {
-  DEFAULT_CONTROL_TOKEN_TTL_SECONDS,
-  ROOM_TOKEN_AUDIENCES,
-  ROOM_TOKEN_VERSION,
-  type RoomControlAction,
-} from "@drawstuff/collaboration/room-auth";
-import {
-  createRoomTokenId,
-  signRoomControlToken,
-} from "@drawstuff/collaboration/room-token";
-import {
   RELAY_CONTROL_PATH,
   relayControlResponseSchema,
   type RelayControlRequest,
 } from "@drawstuff/collaboration/relay-control";
-import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 
 import { env } from "@/env";
 
+import {
+  CONTROL_REQUEST_TIMEOUT_MS,
+  issueRoomControlToken,
+  type RoomControlPushParams,
+  type RoomControlPushResult,
+} from "@/server/collab/control-token";
+
 /**
- * Pushes a membership or lifecycle change to the relay so it takes effect on
- * connections that already joined.
+ * Pushes a membership or lifecycle change to the Node relay so it takes
+ * effect on connections that already joined.
  *
  * The database is the source of truth for who may join next; this call is what
  * closes the sockets of someone who joined a moment ago. It is therefore
  * reported, never swallowed: a caller that cannot reach the relay learns that
  * live sessions may still be connected, instead of assuming enforcement.
+ *
+ * This is the production dispatcher: every control mutation routes here until
+ * the provider-pinned dispatcher (Plan 13) exists. The Durable Object
+ * counterpart lives in `./do-control.ts` and carries no traffic yet.
  */
 
-/** Control calls are local, server-to-server, and must not block a mutation. */
-const CONTROL_REQUEST_TIMEOUT_MS = 3_000;
-
-export type RelayControlResult =
-  | { enforced: true; closedSessions: number }
-  | { enforced: false; reason: string };
+export type RelayControlResult = RoomControlPushResult;
 
 export async function pushRelayRoomControl(
-  params: {
-    roomId: string;
-    authGeneration: number;
-    /** Revision this change produced; the relay's revocation cutoff. */
-    authRevision: number;
-    now: Date;
-  } & (
-    | { action: Extract<RoomControlAction, "revoke-member">; userId: string }
-    | { action: Extract<RoomControlAction, "end-room"> }
-  ),
+  params: RoomControlPushParams,
 ): Promise<RelayControlResult> {
-  const issuedAtSeconds = Math.floor(params.now.getTime() / 1000);
-  const common = {
-    v: ROOM_TOKEN_VERSION,
-    jti: createRoomTokenId(),
-    iat: issuedAtSeconds,
-    exp: issuedAtSeconds + DEFAULT_CONTROL_TOKEN_TTL_SECONDS,
-    aud: ROOM_TOKEN_AUDIENCES.control,
-    rid: roomIdSchema.parse(params.roomId),
-    gen: params.authGeneration,
-    arev: params.authRevision,
-  } as const;
-  const token = signRoomControlToken(
-    params.action === "end-room"
-      ? { ...common, action: "end-room" }
-      : { ...common, action: "revoke-member", sub: params.userId },
-    env.COLLAB_JOIN_TOKEN_SECRET,
-  );
+  const token = issueRoomControlToken(params);
 
   try {
     const request: RelayControlRequest = { token };

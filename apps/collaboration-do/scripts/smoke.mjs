@@ -9,9 +9,11 @@
  * 2. WebSocket room-runtime smoke (Plan 10 evidence): two real clients join a
  *    fresh room through the deployed Worker, exchange E2EE-sealed scene and
  *    presence frames end to end (the room key never leaves this process), and
- *    verify the keepalive auto-response. Runs only when
+ *    verify the keepalive auto-response, then end the room over the control
+ *    endpoint and prove a pre-end token is refused (Plan 11 evidence: the
+ *    Vercel-like HTTP caller → Worker → typed RPC → DO path). Runs only when
  *    `COLLAB_JOIN_TOKEN_SECRET` is provided, because the smoke must sign real
- *    join tokens with the deployed Worker's secret.
+ *    join and control tokens with the deployed Worker's secret.
  *
  * The full contract matrix (Origin allowlist, header stripping, DO identity,
  * close codes, limits) is owned by the workerd test suite; this script proves
@@ -38,6 +40,7 @@ import {
   encodeRelayControl,
   encodeRelayDataFrame,
   parseRelayServerControl,
+  RELAY_CLOSE_CODES,
   RELAY_KEEPALIVE_REQUEST,
   RELAY_KEEPALIVE_RESPONSE,
 } from "@drawstuff/collaboration/relay-protocol";
@@ -48,6 +51,7 @@ import {
 import {
   createRoomTokenId,
   signJoinToken,
+  signRoomControlToken,
 } from "@drawstuff/collaboration/room-token";
 
 const base = process.argv[2];
@@ -336,6 +340,58 @@ async function webSocketSmoke(joinTokenSecret) {
     const closedB = await nextClose(bob);
     expect(closedA.code === 1000, `alice close code ${closedA.code}`);
     expect(closedB.code === 1000, `bob close code ${closedB.code}`);
+  });
+
+  // Plan 11 evidence: the Vercel-like HTTP caller → Worker → typed RPC → DO
+  // control path against the deployed Worker, still at 0% traffic.
+  await check(
+    "end-room control applies through the deployed gateway",
+    async () => {
+      const now = Math.floor(Date.now() / 1000);
+      const controlToken = signRoomControlToken(
+        {
+          v: ROOM_TOKEN_VERSION,
+          jti: createRoomTokenId(),
+          iat: now,
+          exp: now + 30,
+          aud: ROOM_TOKEN_AUDIENCES.control,
+          rid: roomId,
+          gen: 1,
+          arev: 2,
+          action: "end-room",
+        },
+        joinTokenSecret,
+      );
+      const response = await fetch(`${target}/v1/control`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: controlToken }),
+      });
+      expect(response.status === 200, `status ${response.status}`);
+      const body = await response.json();
+      expect(
+        body.appliedRevision === 2,
+        `appliedRevision ${String(body.appliedRevision)}`,
+      );
+      expect(typeof body.closed === "number", "closed must be a count");
+    },
+  );
+
+  await check("a token issued before the end-room is refused", async () => {
+    const stale = connectSmokeClient(roomId);
+    await stale.opened;
+    stale.socket.send(joinFrame("smoke-stale"));
+    for (let events = 0; events < 8; events += 1) {
+      const event = await stale.next();
+      if (event.kind === "close") {
+        expect(
+          event.code === RELAY_CLOSE_CODES.membershipRevoked,
+          `close code ${event.code}`,
+        );
+        return;
+      }
+    }
+    throw new Error("no close event arrived");
   });
 }
 

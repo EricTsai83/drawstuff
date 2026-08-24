@@ -91,12 +91,18 @@ describe("CollaborationRoom fetch identity check", () => {
 });
 
 describe("CollaborationRoom RPC identity", () => {
-  it("exposes its canonical channel key over RPC", async () => {
+  it("applies a control RPC only when the command derives its own name", async () => {
     const key = roomChannelKey(ROOM_A, 7);
     const stub = env.COLLABORATION_ROOM.getByName(key);
-    await expect(stub.describeIdentity()).resolves.toEqual({
-      channelKey: key,
-    });
+    await expect(
+      stub.applyControlV1({
+        v: 1,
+        action: "end-room",
+        roomId: ROOM_A,
+        authGeneration: 7,
+        revision: 2,
+      }),
+    ).resolves.toEqual({ appliedRevision: 2, closed: 0 });
   });
 
   it("rejects RPC on an unnamed object", async () => {
@@ -106,10 +112,16 @@ describe("CollaborationRoom RPC identity", () => {
     // Invoked inside the object's own context: calling over the RPC stub
     // would pass, but workerd then also reports the object-side throw as an
     // unhandled error and fails the run.
-    await runInDurableObject(stub, (instance) => {
-      expect(() => instance.describeIdentity()).toThrow(
-        "canonical RoomChannelKey",
-      );
+    await runInDurableObject(stub, async (instance) => {
+      await expect(
+        instance.applyControlV1({
+          v: 1,
+          action: "end-room",
+          roomId: ROOM_A,
+          authGeneration: 1,
+          revision: 2,
+        }),
+      ).rejects.toThrow("canonical RoomChannelKey");
     });
   });
 });

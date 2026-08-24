@@ -177,12 +177,14 @@ describe("socket route", () => {
 });
 
 describe("control route", () => {
-  it("refuses a verified control token until the Plan 11 dispatcher exists", async () => {
+  it("dispatches a verified control token to the room object as typed RPC", async () => {
     const response = await postControl(
       JSON.stringify({ token: endRoomToken() }),
     );
-    expect(response.status).toBe(501);
-    expect(await errorOf(response)).toBe("control-dispatch-unimplemented");
+    expect(response.status).toBe(200);
+    // The full contract matrix lives in room-control.test.ts; here the
+    // gateway proves the response is the RPC result and nothing else.
+    expect(await response.json()).toEqual({ appliedRevision: 1, closed: 0 });
   });
 
   it("only answers POST", async () => {

@@ -1,10 +1,18 @@
-import { MAX_ROOM_TOKEN_BYTES } from "@drawstuff/collaboration/room-auth";
+import {
+  DO_GATEWAY_CONTROL_PATH,
+  doGatewayControlRequestSchema,
+  type DoGatewayControlResponse,
+} from "@drawstuff/collaboration/relay-control";
 import {
   MIN_ROOM_TOKEN_SECRET_BYTES,
   verifyRoomControlToken,
 } from "@drawstuff/collaboration/room-token";
 import { z } from "zod";
 
+import {
+  controlClaimsChannelKey,
+  roomControlCommandFromClaims,
+} from "./control.ts";
 import {
   closedJsonResponse,
   INTERNAL_AUTH_GENERATION_HEADER,
@@ -27,7 +35,6 @@ import {
  */
 
 const HEALTH_PATH = "/healthz";
-const CONTROL_PATH = "/v1/control";
 const SOCKET_ROUTE_PATTERN =
   /^\/v1\/rooms\/([^/]+)\/generations\/([^/]+)\/socket$/;
 
@@ -36,11 +43,6 @@ const SOCKET_ROUTE_PATTERN =
  * is rejected before buffering.
  */
 const MAX_CONTROL_BODY_BYTES = 2_048;
-
-/** Control bodies carry exactly one token; unknown keys fail closed. */
-const controlRequestSchema = z.strictObject({
-  token: z.string().min(1).max(MAX_ROOM_TOKEN_BYTES),
-});
 
 /**
  * The allowlist var is a comma-separated string ("" means: nothing allowed,
@@ -78,7 +80,9 @@ export async function handleGatewayRequest(
   try {
     const url = new URL(request.url);
     if (url.pathname === HEALTH_PATH) return handleHealth(request, env);
-    if (url.pathname === CONTROL_PATH) return await handleControl(request, env);
+    if (url.pathname === DO_GATEWAY_CONTROL_PATH) {
+      return await handleControl(request, env);
+    }
     const socketMatch = SOCKET_ROUTE_PATTERN.exec(url.pathname);
     if (socketMatch !== null) {
       return await handleSocket(
@@ -194,7 +198,7 @@ async function handleControl(request: Request, env: Env): Promise<Response> {
   } catch {
     return closedJsonResponse(400, "malformed");
   }
-  const controlRequest = controlRequestSchema.safeParse(parsedJson);
+  const controlRequest = doGatewayControlRequestSchema.safeParse(parsedJson);
   if (!controlRequest.success) return closedJsonResponse(400, "malformed");
 
   const secret = env.COLLAB_JOIN_TOKEN_SECRET;
@@ -216,9 +220,32 @@ async function handleControl(request: Request, env: Env): Promise<Response> {
     return closedJsonResponse(401, "unauthorized");
   }
 
-  // Plan 11 dispatches the verified action to the Object as versioned typed
-  // RPC; until that exists the gateway refuses rather than improvising.
-  return closedJsonResponse(501, "control-dispatch-unimplemented");
+  // The verified claims are the only routing authority: the target Object is
+  // derived from them (never from anything else in the request), addressed by
+  // its canonical name, and handed one versioned typed RPC. The Object
+  // re-validates the command against its own identity, so gateway and claims
+  // must agree twice before any coordination state changes.
+  const claims = verified.claims;
+  const stub = env.COLLABORATION_ROOM.getByName(
+    controlClaimsChannelKey(claims),
+  );
+  try {
+    // Always awaited — a fire-and-forget control would report enforcement
+    // that may never have happened.
+    const result = await stub.applyControlV1(
+      roomControlCommandFromClaims(claims),
+    );
+    return Response.json({
+      appliedRevision: result.appliedRevision,
+      closed: result.closed,
+    } satisfies DoGatewayControlResponse);
+  } catch (error) {
+    // Object-side refusals and infrastructure failures alike map to one
+    // closed, retryable answer; detail stays in Workers Logs. The caller's
+    // durable dispatcher (Plan 13) owns retries.
+    console.error("gateway: control dispatch failed", error);
+    return closedJsonResponse(503, "unavailable");
+  }
 }
 
 /**

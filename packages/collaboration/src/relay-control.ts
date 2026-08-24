@@ -1,14 +1,19 @@
 import { z } from "zod";
 
-import { ROOM_CONTROL_ACTIONS } from "./room-auth.ts";
+import {
+  MAX_ROOM_TOKEN_BYTES,
+  roomAuthRevisionSchema,
+  ROOM_CONTROL_ACTIONS,
+} from "./room-auth.ts";
 
 /**
- * Server-to-server control contract between the app backend and the relay.
+ * Server-to-server control contract between the app backend and a relay
+ * provider — the Node relay and the Durable Object gateway.
  *
  * The app pushes a membership or lifecycle change (a signed, single-action
- * control token) and the relay closes the matching sockets. Both sides used to
- * hand-write this contract — the path constant with a "must match" comment and
- * an unvalidated response type — while every WebSocket contract lived in
+ * control token) and the provider closes the matching sockets. Both sides used
+ * to hand-write this contract — the path constant with a "must match" comment
+ * and an unvalidated response type — while every WebSocket contract lived in
  * `./relay-protocol.ts`; this module gives the HTTP control channel the same
  * single home. Token claims themselves are in `./room-auth.ts` /
  * `./room-token.ts`.
@@ -31,3 +36,38 @@ export const relayControlResponseSchema = z.object({
   closed: z.int().nonnegative(),
 });
 export type RelayControlResponse = z.infer<typeof relayControlResponseSchema>;
+
+/**
+ * Durable Object gateway control endpoint (Plan 11). Same push model as the
+ * Node relay above, but the room's identity travels inside the verified token
+ * claims only — the gateway derives the target Object from them, so the body
+ * stays one token with nothing else to trust.
+ */
+export const DO_GATEWAY_CONTROL_PATH = "/v1/control";
+
+/**
+ * Control bodies carry exactly one token. Strict where the relay's schema is
+ * lenient: the gateway is new surface, so unknown keys fail closed from day
+ * one instead of inheriting the relay's historical tolerance.
+ */
+export const doGatewayControlRequestSchema = z.strictObject({
+  token: z.string().min(1).max(MAX_ROOM_TOKEN_BYTES),
+});
+export type DoGatewayControlRequest = z.infer<
+  typeof doGatewayControlRequestSchema
+>;
+
+/**
+ * Successful gateway control response — the typed RPC result passed through:
+ * the revision now durably in force for the addressed cutoff scope, and the
+ * live sockets closed by this call. Deliberately nothing else (no subjects,
+ * no room state), and parsed non-strictly so a newer gateway may add optional
+ * fields without breaking an older caller.
+ */
+export const doGatewayControlResponseSchema = z.object({
+  appliedRevision: roomAuthRevisionSchema,
+  closed: z.int().nonnegative(),
+});
+export type DoGatewayControlResponse = z.infer<
+  typeof doGatewayControlResponseSchema
+>;

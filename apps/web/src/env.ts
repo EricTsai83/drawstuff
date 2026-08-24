@@ -34,6 +34,13 @@ export const env = createEnv({
     /** Origin of the relay's control endpoint (server-to-server only). */
     COLLAB_RELAY_CONTROL_URL: z.string().url(),
     /**
+     * Public origin of the Durable Object gateway's control endpoint
+     * (Plan 11). Optional during the 0%-traffic migration window: production
+     * control still goes to the Node relay only, and the DO client reports
+     * non-enforcement instead of failing when this is unset.
+     */
+    COLLAB_DO_CONTROL_URL: z.string().url().optional(),
+    /**
      * Upstash Redis REST credentials for the shared collaboration rate limits.
      * Server-side only and never `NEXT_PUBLIC_*`: the token is a full
      * read/write capability on the counter store.
@@ -82,6 +89,7 @@ export const env = createEnv({
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
     COLLAB_JOIN_TOKEN_SECRET: process.env.COLLAB_JOIN_TOKEN_SECRET,
     COLLAB_RELAY_CONTROL_URL: process.env.COLLAB_RELAY_CONTROL_URL,
+    COLLAB_DO_CONTROL_URL: process.env.COLLAB_DO_CONTROL_URL,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,

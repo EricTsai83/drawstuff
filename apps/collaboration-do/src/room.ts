@@ -46,6 +46,11 @@ import {
   type JoinedSocketAttachment,
   type RoomSocketAttachment,
 } from "./attachment.ts";
+import {
+  roomControlCommandV1Schema,
+  type RoomControlCommandV1,
+  type RoomControlResultV1,
+} from "./control.ts";
 import { closedJsonResponse, readInternalSocketIdentity } from "./internal.ts";
 import {
   fanoutDeliveryAction,
@@ -64,8 +69,22 @@ const SOCKET_OPEN = 1;
  * Current SQLite schema of one room Object. A stored version *newer* than
  * this is code-version skew (a rollback past a schema bump) and fails closed
  * in the constructor rather than letting old code reinterpret new rows.
+ *
+ * v2 (Plan 11): `room_meta.room_ended` — a durable end-room marker that
+ * outlives the swept channel cutoff, so the storage-retirement gate can
+ * release an ended room before its natural expiry.
  */
-const ROOM_SCHEMA_VERSION = 1;
+const ROOM_SCHEMA_VERSION = 2;
+
+/**
+ * The official runtime retries a failed alarm handler a bounded number of
+ * times (currently documented as up to 6 attempts) with exponential backoff.
+ * On the last retry the handler re-arms a backstop alarm before rethrowing:
+ * an alarm that exhausts its retries with work still pending must never
+ * leave the Object unscheduled.
+ */
+const ALARM_FINAL_RETRY_COUNT = 5;
+const ALARM_RETRY_BACKSTOP_MS = 60_000;
 
 /**
  * How long a revocation cutoff must be retained: once no token issued below
@@ -87,6 +106,8 @@ type RoomMeta = {
   roomEpoch: number;
   /** High-water `rexp` seen across joins, epoch ms; null until first join. */
   roomExpiresAtMs: number | null;
+  /** True once an `end-room` control has been durably applied. */
+  roomEnded: boolean;
 };
 
 type JoinedSocket = { ws: WebSocket; attachment: JoinedSocketAttachment };
@@ -256,8 +277,25 @@ export class CollaborationRoom extends DurableObject<Env> {
    * Single-alarm scheduler (Plan 10 P4): every firing re-reads current state,
    * closes whatever is due, runs idempotent cleanup, and only re-arms when
    * work remains. Deliberately no per-frame postponement and no fixed tick.
+   *
+   * At-least-once by construction: every pass re-derives its work, so a rerun
+   * or a runtime retry only repeats idempotent closes and sweeps. When the
+   * runtime's own retries are about to run out with the handler still
+   * failing, a backstop alarm is re-armed before the error propagates —
+   * pending deadlines must never die with the last retry.
    */
-  override async alarm(): Promise<void> {
+  override async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    try {
+      await this.runAlarmPass();
+    } catch (error) {
+      if ((alarmInfo?.retryCount ?? 0) >= ALARM_FINAL_RETRY_COUNT) {
+        await this.ctx.storage.setAlarm(Date.now() + ALARM_RETRY_BACKSTOP_MS);
+      }
+      throw error;
+    }
+  }
+
+  private async runAlarmPass(): Promise<void> {
     // Identity stays load-bearing in every entry point.
     this.requireChannelKey();
     const now = Date.now();
@@ -312,9 +350,94 @@ export class CollaborationRoom extends DurableObject<Env> {
     await this.scheduleAfterMembershipChange();
   }
 
-  /** RPC probe retained from Plan 09; Plan 11's typed control RPC replaces it. */
-  describeIdentity(): { channelKey: RoomChannelKey } {
-    return { channelKey: this.requireChannelKey() };
+  /**
+   * Versioned control RPC (Plan 11 P1; replaces the Plan 09 identity probe).
+   * The gateway has already verified the control token; this method still
+   * re-validates everything it is about to act on: the command schema, and
+   * that the command's room/generation derive exactly this Object's name.
+   *
+   * Ordering is the crash contract (P2): the cutoff upsert commits durably
+   * first, then matching live sockets are closed from the attachment
+   * snapshot. A crash between the two leaves a state where every join below
+   * the cutoff is already refused, and resending the same command finishes
+   * the closes without widening any side effect.
+   */
+  async applyControlV1(
+    command: RoomControlCommandV1,
+  ): Promise<RoomControlResultV1> {
+    const channelKey = this.requireChannelKey();
+    // Runtime re-validation despite the static type: gateway and Object may
+    // skew across a rollout, and an RPC payload is still input. Unknown
+    // fields are stripped (never refused) so a newer gateway's optional
+    // additions keep working against this build.
+    const parsed = roomControlCommandV1Schema.safeParse(command);
+    if (!parsed.success) {
+      throw new Error("room: malformed control command");
+    }
+    const control = parsed.data;
+    if (roomChannelKey(control.roomId, control.authGeneration) !== channelKey) {
+      throw new Error("room: control command addresses another channel");
+    }
+
+    const now = Date.now();
+    const scope =
+      control.action === "end-room" ? "channel" : `member:${control.subject}`;
+    // Durable first, inside one transaction: the cutoff only ever moves
+    // forward (same merge rule as the relay's session registry), so replays,
+    // duplicates and out-of-order deliveries are all idempotent and an older
+    // control can never regress a newer cutoff.
+    const appliedRevision = this.ctx.storage.transactionSync(() => {
+      this.ensureSchema();
+      this.ctx.storage.sql.exec(
+        `INSERT INTO revocation_cutoffs(scope, revision, recorded_at_s)
+         VALUES (?, ?, ?)
+         ON CONFLICT(scope) DO UPDATE
+           SET revision = excluded.revision,
+               recorded_at_s = excluded.recorded_at_s
+           WHERE excluded.revision > revision`,
+        scope,
+        control.revision,
+        Math.floor(now / 1_000),
+      );
+      if (control.action === "end-room") {
+        this.ctx.storage.sql.exec(
+          "UPDATE room_meta SET room_ended = 1 WHERE id = 1",
+        );
+      }
+      return this.ctx.storage.sql
+        .exec<{ revision: number }>(
+          "SELECT revision FROM revocation_cutoffs WHERE scope = ?",
+          scope,
+        )
+        .one().revision;
+    });
+
+    // Close from the attachment snapshot, strictly below the *command's*
+    // revision (relay parity): sockets a newer revision authorized are left
+    // alone even when this call is a replayed older control.
+    let closed = 0;
+    for (const { ws, attachment } of this.joinedSockets()) {
+      if (attachment.tokenRevision >= control.revision) continue;
+      if (
+        control.action === "revoke-member" &&
+        attachment.subject !== control.subject
+      ) {
+        continue;
+      }
+      this.closeSocket(
+        ws,
+        control.action === "end-room"
+          ? RELAY_CLOSE_CODES.roomEnded
+          : RELAY_CLOSE_CODES.membershipRevoked,
+        control.action === "end-room" ? "room ended" : "membership revoked",
+      );
+      closed += 1;
+    }
+    if (closed > 0) this.broadcastPeers();
+    // The new cutoff is schedulable work of its own (its retirement), and an
+    // ended room may now be one sweep away from terminal cleanup.
+    await this.scheduleAfterMembershipChange();
+    return { appliedRevision, closed };
   }
 
   private async handleSocketMessage(
@@ -817,13 +940,25 @@ export class CollaborationRoom extends DurableObject<Env> {
               // impossible; fail safe by retaining.
               undefined
           : meta.roomExpiresAtMs + STORAGE_CLEANUP_SKEW_MS;
-      if (expiryGateMs !== undefined) {
-        if (expiryGateMs <= now && cutoffRetirementMs === undefined) {
-          await this.ctx.storage.deleteAlarm();
-          await this.ctx.storage.deleteAll();
-          return;
-        }
-        if (expiryGateMs > now) consider(expiryGateMs);
+      // An ended room may retire before its natural expiry: once the end-room
+      // cutoff itself has retired, every token issued before the end has
+      // expired, and the app's token authority (which advanced the revision
+      // under the room lock) issues no new ones — no durable tombstone is
+      // needed here. An ordinary empty room keeps its epoch high-water until
+      // expiry so a legal reconnect gets a strictly larger epoch.
+      const endedGateOpen = meta.roomEnded && cutoffRetirementMs === undefined;
+      if (
+        endedGateOpen ||
+        (expiryGateMs !== undefined &&
+          expiryGateMs <= now &&
+          cutoffRetirementMs === undefined)
+      ) {
+        await this.ctx.storage.deleteAlarm();
+        await this.ctx.storage.deleteAll();
+        return;
+      }
+      if (!meta.roomEnded && expiryGateMs !== undefined && expiryGateMs > now) {
+        consider(expiryGateMs);
       }
     }
 
@@ -847,12 +982,52 @@ export class CollaborationRoom extends DurableObject<Env> {
          id INTEGER PRIMARY KEY CHECK (id = 1),
          schema_version INTEGER NOT NULL,
          room_epoch INTEGER NOT NULL,
-         room_expires_at_ms INTEGER
+         room_expires_at_ms INTEGER,
+         room_ended INTEGER NOT NULL DEFAULT 0
        )`,
     );
+    // Code-version skew check FIRST, before any migration or seed statement:
+    // storage from a newer build must be refused before this build mutates
+    // structures it does not understand (re-adding a renamed column,
+    // re-creating a dropped table). Refusing to run is the only safe
+    // interpretation of rows this code cannot read.
+    const storedVersion = this.ctx.storage.sql
+      .exec<{ schema_version: number }>(
+        "SELECT schema_version FROM room_meta WHERE id = 1",
+      )
+      .toArray()[0]?.schema_version;
+    if (storedVersion !== undefined && storedVersion > ROOM_SCHEMA_VERSION) {
+      throw new Error(
+        `room: stored schema v${storedVersion} is newer than supported v${ROOM_SCHEMA_VERSION}`,
+      );
+    }
+    // v1 → v2 migration MUST run before any statement references a v2 column:
+    // on a pre-existing v1 table the CREATE above is a no-op, so the column
+    // is added in place first. The migration condition is the column's
+    // absence itself (not the stored version), which keeps every re-entrant
+    // call idempotent. Old rows were written before end-room existed, so 0 is
+    // the correct value, not a guess.
+    const hasRoomEnded =
+      this.ctx.storage.sql
+        .exec<{ present: number }>(
+          `SELECT COUNT(*) AS present FROM pragma_table_info('room_meta')
+           WHERE name = 'room_ended'`,
+        )
+        .one().present > 0;
+    if (!hasRoomEnded) {
+      this.ctx.storage.sql.exec(
+        "ALTER TABLE room_meta ADD COLUMN room_ended INTEGER NOT NULL DEFAULT 0",
+      );
+    }
+    // Separate from the column check, so a crash between the ALTER and this
+    // statement heals on the next pass instead of leaving version 1 forever.
     this.ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO room_meta(id, schema_version, room_epoch, room_expires_at_ms)
-       VALUES (1, ?, 0, NULL)`,
+      "UPDATE room_meta SET schema_version = ? WHERE id = 1 AND schema_version = 1",
+      ROOM_SCHEMA_VERSION,
+    );
+    this.ctx.storage.sql.exec(
+      `INSERT OR IGNORE INTO room_meta(id, schema_version, room_epoch, room_expires_at_ms, room_ended)
+       VALUES (1, ?, 0, NULL, 0)`,
       ROOM_SCHEMA_VERSION,
     );
     this.ctx.storage.sql.exec(
@@ -862,14 +1037,6 @@ export class CollaborationRoom extends DurableObject<Env> {
          recorded_at_s INTEGER NOT NULL
        )`,
     );
-    const meta = this.readMeta();
-    if (meta.schemaVersion > ROOM_SCHEMA_VERSION) {
-      // Code-version skew: this build is older than the storage. Refusing to
-      // run is the only safe interpretation of rows it does not understand.
-      throw new Error(
-        `room: stored schema v${meta.schemaVersion} is newer than supported v${ROOM_SCHEMA_VERSION}`,
-      );
-    }
   }
 
   private readMeta(): RoomMeta {
@@ -878,14 +1045,16 @@ export class CollaborationRoom extends DurableObject<Env> {
         schema_version: number;
         room_epoch: number;
         room_expires_at_ms: number | null;
+        room_ended: number;
       }>(
-        "SELECT schema_version, room_epoch, room_expires_at_ms FROM room_meta WHERE id = 1",
+        "SELECT schema_version, room_epoch, room_expires_at_ms, room_ended FROM room_meta WHERE id = 1",
       )
       .one();
     return {
       schemaVersion: row.schema_version,
       roomEpoch: row.room_epoch,
       roomExpiresAtMs: row.room_expires_at_ms,
+      roomEnded: row.room_ended !== 0,
     };
   }
 
@@ -917,9 +1086,9 @@ export class CollaborationRoom extends DurableObject<Env> {
   }
 
   /**
-   * Join-time revocation check against the durable cutoffs (Plan 11 writes
-   * them; the read side is live from day one so the join can never race past
-   * a revocation).
+   * Join-time revocation check against the durable cutoffs. `applyControlV1`
+   * writes them (durably, before it closes anything), so a join racing a
+   * control action can never slip past a committed revocation.
    */
   private isJoinRefusedByCutoff(
     subject: string,
@@ -934,7 +1103,6 @@ export class CollaborationRoom extends DurableObject<Env> {
     return rows.some((row) => tokenRevision < row.revision);
   }
 
-  /** Latest instant any live cutoff stops mattering, or undefined when none. */
   /**
    * Deletes cutoffs no unexpired token could still be below — the durable
    * counterpart of the relay session registry's sweep. Runs on every
