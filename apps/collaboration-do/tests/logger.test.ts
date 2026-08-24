@@ -69,7 +69,10 @@ describe("DO structured logger", () => {
     const log = createDoLogger({ id: "v-123", tag: "" }, capture.sink);
     log.error("room.secret_not_ready", { peerId: undefined });
     const { record } = capture.records[0]!;
-    expect(record).toEqual({ event: "room.secret_not_ready", versionId: "v-123" });
+    expect(record).toEqual({
+      event: "room.secret_not_ready",
+      versionId: "v-123",
+    });
     expect(Object.keys(record)).not.toContain("peerId");
     expect(Object.keys(record)).not.toContain("versionTag");
   });
@@ -88,9 +91,7 @@ describe("DO structured logger", () => {
   });
 
   it("reduces thrown values to content-free identifiers", () => {
-    expect(errorNameOf(new TypeError("includes user input"))).toBe(
-      "TypeError",
-    );
+    expect(errorNameOf(new TypeError("includes user input"))).toBe("TypeError");
     expect(errorNameOf("a thrown string with payload data")).toBe("string");
     expect(errorNameOf(undefined)).toBe("undefined");
   });
@@ -143,7 +144,11 @@ describe("DO structured logger", () => {
   it("pins the documented schema surface", () => {
     // The observability contract doc lists these names; drift fails here
     // before it can silently invalidate the documented log queries.
-    expect(DO_LOG_ENVELOPE_FIELDS).toEqual(["event", "versionId", "versionTag"]);
+    expect(DO_LOG_ENVELOPE_FIELDS).toEqual([
+      "event",
+      "versionId",
+      "versionTag",
+    ]);
     expect([...DO_LOGGABLE_FIELD_NAMES].sort()).toEqual(
       [
         "authGeneration",

@@ -99,6 +99,12 @@ export default defineConfig({
       miniflare: {
         bindings: {
           COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
+          // Freeze only the rate-limit elapsed-time source. workerd can process
+          // a queued frame flood below the production refill rate on a loaded
+          // CI host, which is not an over-rate stream from the Object's point
+          // of view. A fixed test clock makes burst exhaustion deterministic;
+          // absolute token/room/alarm time continues to use real Date.now().
+          TEST_RATE_LIMIT_NOW_MS: 1_000_000,
           [WRANGLER_AUDIT_BINDING]: auditConfig(),
         },
       },

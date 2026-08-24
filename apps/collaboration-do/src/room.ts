@@ -113,6 +113,14 @@ type RoomMeta = {
 
 type JoinedSocket = { ws: WebSocket; attachment: JoinedSocketAttachment };
 
+type CollaborationRoomEnv = Env & {
+  /**
+   * Miniflare-only fixed clock for deterministic rate-limit conformance tests.
+   * The production config audit forbids this binding from wrangler.jsonc.
+   */
+  TEST_RATE_LIMIT_NOW_MS?: number;
+};
+
 const encoder = new TextEncoder();
 
 /**
@@ -133,7 +141,7 @@ const encoder = new TextEncoder();
  * is the keepalive auto-response judged lazily, and shared ground is the
  * protocol/token/limits contract from @drawstuff/collaboration.
  */
-export class CollaborationRoom extends DurableObject<Env> {
+export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   /**
    * Rate buckets are keyed by socket object identity, which is stable while
    * the isolate lives and empty after hibernation — exactly the rebuild-full
@@ -141,14 +149,19 @@ export class CollaborationRoom extends DurableObject<Env> {
    */
   private readonly rateLimiters = new Map<WebSocket, ConnectionRateLimiter>();
 
+  private readonly rateLimitNow: () => number;
+
   /** In-memory construction stamp; tests use it to prove the keepalive
    *  auto-response answered without waking the Object. */
   readonly constructedAt = Date.now();
 
   private readonly log: DoLogger;
 
-  constructor(ctx: DurableObjectState, env: Env) {
+  constructor(ctx: DurableObjectState, env: CollaborationRoomEnv) {
     super(ctx, env);
+    const fixedRateLimitNow = env.TEST_RATE_LIMIT_NOW_MS;
+    this.rateLimitNow =
+      fixedRateLimitNow === undefined ? Date.now : () => fixedRateLimitNow;
     this.log = createDoLogger(env.VERSION_METADATA);
     // Keepalive request/response pair: workerd answers it for hibernated
     // sockets without waking this Object, so liveness costs no duration
@@ -844,7 +857,7 @@ export class CollaborationRoom extends DurableObject<Env> {
     if (!limiter) {
       limiter = createConnectionRateLimiter({
         limits: DEFAULT_RELAY_RATE_LIMITS,
-        now: Date.now,
+        now: this.rateLimitNow,
       });
       this.rateLimiters.set(ws, limiter);
     }

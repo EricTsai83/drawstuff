@@ -1044,8 +1044,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     async run(harness) {
       const roomId = uniqueRoomId("sflood");
       const { connection } = await join(harness, roomId);
-      // Same 5x sizing rationale as the presence flood: the refill cannot
-      // keep pace even when a loaded host smears the sends over seconds.
+      // Same 5x sizing rationale as the presence flood for real-network runs.
+      // The local DO host freezes only its rate-limit clock so a constrained
+      // workerd CI process cannot turn queued delivery time into token refill.
       const frames = DEFAULT_RELAY_RATE_LIMITS.sceneFramesBurst * 5;
       for (let index = 0; index < frames; index += 1) {
         connection.send(sceneFrame([index % 256]));
