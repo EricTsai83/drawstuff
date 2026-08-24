@@ -1,11 +1,11 @@
 # 共編 SLO 與 capacity
 
-- Status: Approved design budget
+- Status: Internal operating budget（not a product capacity promise）
 - 建立日期：2026-08-05
 - 狀態：**Approved（2026-08-06）**，含**修訂 R1（2026-08-06 核准）**。本文件的數字是
-  implementation、metrics 與 alerts 的共同 budget。服務容量尚未經正式 load test 驗證，
-  因此這些數字不是 production capacity 已達成的聲明。未來驗證失敗時應先排除環境差異並修正
-  implementation；只有新的核准版本可以改門檻。
+  implementation、metrics 與 alerts 的共同 budget。服務不承諾特定 room 人數、更新頻率或
+  production capacity；以下 hard limits 只用來防止無界資源使用，效能數字只用於診斷 regression，
+  不構成對外或 migration release guarantee。
 - 核准時的兩項決定（見 §4.1 與 §7）：
   1. **記憶體不靠砍排水空間**：`maxBufferedBytes` 與 `maxConnections` 都維持原值，改以
      RSS alert 加 max-memory 自動重啟收尾。
@@ -14,7 +14,7 @@
   推導定出的，實作後由 review 發現會斷開正常使用者。修正後的數字已實作、已核准，並有
   sustained-cadence 測試守住——見 §5 的「修訂 R1」小節。
 
-## 0. 前提：capacity 是「每個 instance」，且單 instance 是已核准的架構決定
+## 0. 前提：internal limits 以 instance 為界
 
 `createInMemoryRoomFanout` 的 room state 是 process-local，其原始碼註解已明確說明它只對
 單一 process 正確。**2026-08-06 決定：不支援水平擴展，部署層強制單 instance。**
@@ -27,7 +27,8 @@ process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作
 
 隨此決定連帶成立的事：
 
-- 本文件所有數字都是**單一 instance** 的數字，同時就是整個服務的容量與 availability 上限。
+- 本文件的 relay hard limits 都以**單一 instance** 為界；它們只描述拒絕與防護邊界，不能反推
+  為服務承諾可承載的活躍連線、room 或更新速率。
 - 超出容量必須以明確 close code 拒絕（`relayAtCapacity`／`roomAtCapacity` 已存在），
   不得默默錯誤。
 - 「fanout dependency outage」與「fanout partition」情境不適用——沒有外部 fanout 依賴；
@@ -53,13 +54,17 @@ process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作
 | Join token TTL             | 預設 60s／上限 300s | `room-auth.ts`                   |
 | Room TTL                   | 預設 12h／上限 24h  | `rooms.ts`                       |
 
-## 2. Capacity 目標
+## 2. Internal safety limits（非容量承諾）
 
-| 項目                   | 目前預設（硬上限）            | 核准值                       | 依據                                                                                                                               |
-| ---------------------- | ----------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| 同時連線數／instance   | 256（`maxConnections`）       | **目標 192，硬上限維持 256** | 目標設在硬上限的 75%，讓 reconnect storm 有 25% 的吸收空間。若目標等於上限，一次 relay 重啟後的重連潮會直接撞 `relayAtCapacity`    |
-| 同時 room 數／instance | 128（`maxRooms`）             | **目標 96，硬上限 128**      | 每 room 平均 2 名成員的常見形狀下，96 room ≈ 192 連線；超限以 `relayRoomsAtCapacity` 明確拒絕                                      |
-| 單一 room 成員數       | 32（`maxConnectionsPerRoom`） | **維持 32**                  | fanout 是 O(members) 同步迴圈；32 名成員 × 1 MiB scene frame = 單次 publish 最多 31 MiB 的 socket 寫入，已是單 instance 的合理上界 |
+| 項目                   | 內部 hard limit               | 用途                                                                                                  |
+| ---------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 同時連線數／Node instance | 256（`maxConnections`）    | 防止單一 relay process 無界成長；不是已驗證可承載 256 個活躍 client 的聲明                           |
+| 同時 room 數／Node instance | 128（`maxRooms`）        | 防止 process-local room map 無界成長；超限以 `relayRoomsAtCapacity` 明確拒絕                          |
+| 單一 room 成員數       | 32（`maxConnectionsPerRoom`） | Node 與 DO 共用的保守 abuse/resource bound；不是 32 人、120 Hz 或任何 workload shape 的支援保證       |
+
+Durable Object 可以維持大量低活動 WebSocket，但每個 Object 仍是 single-threaded，且本協定對每個
+accepted frame 做 O(members) fanout。連線平台上限不能推導為活躍共編容量；本專案只驗證小群組
+correctness，等真實使用量或 overload/latency 指標顯示需要時才做針對性 load diagnosis。
 
 ## 3. 延遲 SLO
 
@@ -98,7 +103,7 @@ process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作
 | 10-element delta into 10k                | p95 ≤ 10 ms       |
 | 編輯互動 p95（`excalidraw-baseline.md`） | ≤ 140 ms          |
 
-Large-room 驗證必須同時回報這四項，不得只回報 relay 端數字。
+這四項仍保護 client hot path，但不要求用 large-room qualification 重新證明。
 
 ## 4. 資源上限
 
@@ -258,8 +263,8 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
   contract exists, but no client/backend telemetry implementation carries them, so the corresponding
   §6 thresholds cannot currently be evaluated.
 - There is no staging environment, formal load-test report, complete incident runbook, or incident
-  drill. Capacity targets remain design budgets and must not be presented as verified production
-  capacity.
+  drill. This personally operated service deliberately makes no verified production-capacity claim;
+  diagnostic load tooling is run only when observed usage warrants it.
 
 ## 8. Durable snapshot Base64 codec（已量測，2026-08-23）
 
@@ -356,9 +361,11 @@ zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernat
 兩者都落在 `disconnectReasonForCloseCode` 的 default（`transient`）：dead-peer 收割對 client
 是可重試事件，沒有第二套 reason 語意。idle 仍是 4010、room 過期仍是 4008，與 relay 相同。
 
-### 9.3 尚待 Plan 12b 的證據項目
+### 9.3 Durable Object operational safety notes
 
 - `bufferedAmount`：workerd 的 server-side WebSocket **型別不含** `bufferedAmount`，runtime
-  是否提供由 `room-runtime.test.ts` 的量測案例記錄（runtime probe）。若 host 永遠不提供
-  可靠值，Plan 12b 必須先定義有界替代方案（slow-consumer 保護的程式路徑保留，未移除）。
-- Pending cap（32）與總 socket cap（64）為可量測起始常數，Plan 12b 依 join-storm 證據核准。
+  是否提供由 `room-runtime.test.ts` 的 probe 記錄。signal 存在時套用 256 KiB presence-drop／
+  4 MiB scene-close policy；signal 不存在時不宣稱 application-level byte threshold，host write
+  failure 只關閉該 receiver。小群組 correctness 與 write-failure isolation 仍由測試覆蓋。
+- Pending cap（32）與總 socket cap（64）是保守的 unauthenticated/resource safety bounds，不是
+  通過 join-storm qualification 後的容量承諾。

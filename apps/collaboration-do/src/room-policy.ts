@@ -11,24 +11,23 @@ import {
 /**
  * Durable-Object-specific room policy: the caps, quanta and pure decision
  * helpers that have no Node-relay counterpart. The shared per-room limits
- * (32-member cap, join/idle deadlines, buffer budgets) come from
- * `@drawstuff/collaboration/room-limits`.
+ * (internal member safety cap, join/idle deadlines, buffer budgets) come from
+ * `@drawstuff/collaboration/room-limits`. The cap bounds abuse and resource
+ * use; it is not a supported-concurrency promise.
  */
 
 /**
  * Upper bound on sockets that are accepted but not yet joined. Sized to one
- * full room's worth of clients re-authenticating at once — the reconnect storm
- * after a deploy or an eviction with closed sockets — so a legitimate storm is
- * never refused while an unauthenticated flood cannot hold unbounded sockets
- * open for the 10 s join deadline each. A measurable starting constant:
- * Plan 12 revisits it against join-storm evidence, and it must never lean on
- * the platform's 32,768-connection ceiling.
+ * full room's worth of clients re-authenticating at once while preventing an
+ * unauthenticated flood from holding unbounded sockets open for the 10 s join
+ * deadline. This is a conservative internal safety limit and must never lean
+ * on the platform's much larger connection ceiling.
  */
 export const MAX_PENDING_SOCKETS = 32;
 
 /**
- * Hard cap on sockets attached to one Object in any state: a full room (32
- * joined) plus a full pending storm. Same Plan 12 revisit as above.
+ * Hard cap on sockets attached to one Object in any state: the joined safety
+ * cap plus the pending safety cap. It does not describe verified capacity.
  */
 export const MAX_ROOM_SOCKETS = 64;
 
@@ -99,10 +98,9 @@ export type FanoutDeliveryAction =
  *
  * workerd's server-side WebSocket type does not declare `bufferedAmount`
  * (browser sockets do), so this probes the live object instead of trusting
- * the type surface. The measured availability on workerd and on the deployed
- * Worker is a Plan 12 evidence item: if the host never provides a reliable
- * value, Plan 12 must define a bounded alternative before cutover — the
- * policy below is deliberately kept in place rather than removed.
+ * the type surface. When the host omits the signal, sends remain best-effort:
+ * host write failures close only that receiver. We do not claim an
+ * application-level slow-consumer byte threshold on such a host.
  */
 export function socketBufferedAmount(ws: WebSocket): number | undefined {
   const value = (ws as unknown as { bufferedAmount?: unknown }).bufferedAmount;

@@ -1,6 +1,7 @@
 # 13 — Provider-pinned coexistence、durable control outbox 與 server-owned routing
 
-- 前置：[Plan 12b](./12b-collaboration-do-verification-measurement.md) Go
+- 前置：DO foundation、hermetic conformance 與小群組 fanout harness 已完成；live deployed-worker
+  verification 留在 Plan 14 首次 production assignment 前執行
 - 後續：[Plan 14](./14-collaboration-do-production-cutover.md)
 - Production traffic：預設 **0% DO**，完成後具備可控 canary 能力
 

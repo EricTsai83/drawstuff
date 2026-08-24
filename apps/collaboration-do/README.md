@@ -50,10 +50,10 @@ pnpm --filter @drawstuff/collaboration-do preflight   # dry-run bundle+config, z
 pnpm --filter @drawstuff/collaboration-do deploy      # verify → preflight → deploy
 pnpm --filter @drawstuff/collaboration-do secret:put  # prompts for COLLAB_JOIN_TOKEN_SECRET
 
-# Plan 12b measurement tooling (all target a deployed Worker in its 0%-traffic
-# window; COLLAB_JOIN_TOKEN_SECRET must be the deployed Worker's secret):
+# Deployed-worker verification tooling (run before the first production
+# assignment; COLLAB_JOIN_TOKEN_SECRET must match the deployed Worker):
 pnpm --filter @drawstuff/collaboration-do conformance:remote <base-url>  # full shared conformance suite
-pnpm --filter @drawstuff/collaboration-do loadtest <base-url> [flags]    # capacity/latency harness
+pnpm --filter @drawstuff/collaboration-do loadtest <base-url> [flags]    # diagnostic load harness
 pnpm --filter @drawstuff/collaboration-do smoke <url> # live gateway smoke, prints version id
 ```
 
@@ -64,6 +64,11 @@ clients join a fresh room through the deployed Worker, exchange E2EE-sealed
 scene and presence frames (the room key never leaves the smoke process), and
 verify the keepalive auto-response — deployed-worker evidence that is safe
 during the 0%-traffic window.
+
+`MAX_CONNECTIONS_PER_ROOM` remains an internal safety and abuse bound, not a
+verified capacity promise. `loadtest` is available for targeted diagnosis when
+real usage or platform metrics justify it; release qualification only requires
+small-group fanout correctness, not an exhaustive member/cadence matrix.
 
 Root shortcuts: `pnpm cf:deploy`, `pnpm cf:smoke <url>`.
 

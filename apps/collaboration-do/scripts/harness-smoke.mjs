@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Hermetic happy-path verification for the two Plan 12 measurement CLIs.
+ * Hermetic happy-path verification for the deployed-worker verification CLIs.
  *
  * Starts the real Worker + Durable Object in a temporary local workerd,
  * drives the remote conformance runner through localhost HTTP/WebSocket, then
@@ -71,11 +71,11 @@ const assertSummary = (value, name) => {
 };
 
 const assertLoadReport = (report) => {
-  assert.equal(report.config.members, 2);
+  assert.equal(report.config.members, 3);
   assert.equal(report.config.editors, 1);
   assert.equal(report.config.mode, "sustained");
   assert.equal(report.config.receiverMode, "healthy");
-  assert.equal(report.joined, 2);
+  assert.equal(report.joined, 3);
   assert(Number.isFinite(report.measuredMs));
   assert(report.measuredMs >= 1_000);
   assertSummary(report.upgrade, "upgrade");
@@ -89,6 +89,10 @@ const assertLoadReport = (report) => {
   assert(Number.isFinite(report.scene.throughputPerS));
   assert(Number.isFinite(report.presence.throughputPerS));
   assert(Number.isFinite(report.fanoutAmplification));
+  assert(
+    report.fanoutAmplification > 1,
+    "three-member traffic must fan out to multiple receivers",
+  );
   assert.deepEqual(report.upgradeRefusals, {});
   assert.equal(report.sendErrors, 0);
 };
@@ -131,7 +135,7 @@ try {
     [
       baseUrl,
       "--members",
-      "2",
+      "3",
       "--editors",
       "1",
       "--scene-hz",

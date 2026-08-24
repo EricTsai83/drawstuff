@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 /**
  * Runs the shared black-box conformance suite against a *deployed*
- * collaboration Worker (Plan 12b P1).
+ * collaboration Worker before it receives production assignments.
  *
  * The exact cases the workerd and Node-relay suites run
  * (`@drawstuff/collaboration/protocol-conformance`) are driven here over the

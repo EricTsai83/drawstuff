@@ -1,6 +1,6 @@
 # Collaboration Durable Object — Cloudflare-native observability 契約
 
-Status: Current（工具與契約已實作；alerts／dashboards 的實際配置與量測證據屬 Plan 12b）
+Status: Current（工具與契約已實作；production alerts／dashboards 隨 Plan 14 cutover 配置）
 
 門檻來源：[collaboration SLO 文件](../performance/collaboration-slo-capacity.md) §2／§3／§6／§9。
 資料分級來源：[collaboration threat model](../architecture/collaboration-threat-model.md)
@@ -76,11 +76,11 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 
 判讀入口（Cloudflare dashboard／GraphQL analytics）：
 
-- **Worker metrics**：requests、errors、CPU time、duration —— gateway 面的量。
-  WebSocket Upgrade 之後的 message 不重新 invoke gateway（Plan 12b P5 驗證此計費假設）。
+- **Worker metrics**：requests、errors、CPU time、duration —— gateway 面的量。WebSocket Upgrade
+  後的實際 invocation/billing 形狀在 Plan 14 synthetic/canary 期間觀察，不把文件推導當成承諾。
 - **DO namespace metrics**：requests、errors、CPU/wall time、duration（GB-s，只計非
   hibernate 時間）、subrequests、WebSocket connections/messages、storage rows/bytes。
-  對照 SLO §2 的容量目標與 §9 的 hibernation 契約：idle room 的 duration 應趨近 0，
+  對照 SLO §2 的內部 safety limits 與 §9 的 hibernation 契約：idle room 的 duration 應趨近 0，
   keepalive 不喚醒 Object。
 - **automatic traces**：Gateway → DO binding 的呼叫鏈，用於分離 Gateway Upgrade latency 與
   DO routing latency（SLO §3.1 的 DO 對應）。
@@ -96,15 +96,17 @@ availability 的判讀順序：
 2. namespace metrics 的 error／overload 比率；
 3. user-facing SLO（client telemetry carrier 的 session success）。
 
-Capacity／latency 量測由 `scripts/loadtest.mjs` 產生（機器可讀 JSON 報告；門檻判定屬
-SLO 文件與 Plan 12b，harness 本身不內建門檻）。
+`scripts/loadtest.mjs` 產生機器可讀的 diagnostic latency/fanout report。它不內建門檻，也不把
+成功執行解讀成 supported-member capacity；預設 release verification 只跑小群組 fanout，較大
+負載只在真實使用量或平台指標顯示需要時執行。
 
 `scripts/harness-smoke.mjs` 在 ephemeral local workerd 上，經真實 localhost HTTP／WebSocket
 自動執行完整 remote conformance suite 與短版 load sample，並驗證 JSON report；它隨 package
 `test` 執行，不需要 Cloudflare 登入、已部署 Worker 或 production secret。這只證明工具與 transport
-可執行，正式 capacity／latency 結論仍只能由 Plan 12b 的固定環境量測產生。
+可執行；正式部署仍須在 Plan 14 首次 assignment 前對目前 Worker version 重跑 live smoke、remote
+conformance 與小群組 synthetic fanout。
 
-## 6. Alert 定義（Plan 12b 配置）
+## 6. Alert 定義（Plan 14 cutover 配置）
 
 每一列都指回 SLO 節號或 threat model；本文件不提出新門檻。
 
@@ -117,7 +119,7 @@ SLO 文件與 Plan 12b，harness 本身不內建門檻）。
 | `DoControlRejected`          | Logs：`gateway.control_token_rejected`                          | 1h 內 > 0（唯一 caller 是自家 backend） | 憑證或時鐘故障的早期訊號               |
 | `DoLogFieldsRejected`        | Logs：`rejectedFields` 存在                                     | 任何一筆                                | §2（allowlist 缺陷）                   |
 | `DoNamespaceErrors`          | DO namespace metrics                                            | error rate 持續非零                     | SLO §6                                 |
-| `DoOverload`                 | namespace metrics／`overloaded` errors                          | 任何持續發生                            | Plan 12b P3（`overloaded` 不 retry）   |
+| `DoOverload`                 | namespace metrics／`overloaded` errors                          | 任何持續發生                            | `overloaded` 不 retry                  |
 
 Dashboard 面板組：requests/errors（Worker 與 namespace 分開）、duration GB-s 與
 hibernation 比率、WebSocket connections/messages、`session_closed` close-code 分佈、
@@ -127,9 +129,9 @@ hibernation 比率、WebSocket connections/messages、`session_closed` close-cod
 ## 7. 已知缺口
 
 - `session_closed` 是 log 行不是 metric series；比率判讀依賴 Workers Logs 查詢視窗，
-  取樣（head sampling）若未設為 1 會低估。Plan 12b 配置時必須確認 sampling rate。
+  取樣（head sampling）若未設為 1 會低估。Plan 14 配置時必須確認 sampling rate。
 - client-side session success、decrypt failure、snapshot conflict 沿用既有 bounded
   authenticated telemetry carrier（alerts 文件 §6），仍未有 client/backend 實作，對應
   SLO §6 門檻目前不可判定——與 Node relay 的缺口相同。
-- keepalive auto-response 是否計入 billable incoming messages 與 duration 未經實測，
-  不得假設免費（Plan 12b P5）。
+- keepalive auto-response 的實際 billable incoming messages 與 duration 形狀在 synthetic/canary
+  usage 中觀察；在有帳務證據前不得假設免費。

@@ -49,7 +49,8 @@ Provider retirement後不能靠改env恢復Node；rollback只限DO Worker code v
 
 - system design：Vercel + thin Worker + per-channel DO、Hibernation/attachment/SQLite/Alarm；
 - threat model：Worker/DO boundaries、Cloudflare operator visibility、control outbox與data classification；
-- SLO/capacity：per-Object room capacity、Cloudflare latency/overload、無global relay cap；
+- SLO/capacity：per-Object internal safety limits、Cloudflare latency/overload、無global relay cap，
+  且不宣稱未經驗證的supported-member capacity；
 - observability：Workers Logs/traces/namespace metrics、version與cost alerts；
 - operations：separate manual lifecycle deploy、Plan 14 核定的 code-deploy 觸發模式、可用 rollback boundary、
   namespace/storage cleanup、compatibility date與secret rotation；

@@ -2,13 +2,11 @@
  * Per-room connection limits shared by the Node relay and the Durable Object
  * room runtime.
  *
- * These values were approved in
- * `docs/performance/collaboration-slo-capacity.md`; changing any of them
- * requires a new approved revision of that document, not an edit here. They
- * live in this package — the one workspace both backends depend on — so the
- * two runtimes cannot drift apart on the limits the wire protocol's close
- * codes promise (`roomAtCapacity`, `joinTimeout`, `idleTimeout`,
- * `slowConsumer`).
+ * These values are internal safety and abuse bounds, not supported-capacity
+ * promises. They live in this package — the one workspace both backends
+ * depend on — so the two runtimes cannot drift apart on the limits the wire
+ * protocol's close codes expose (`roomAtCapacity`, `joinTimeout`,
+ * `idleTimeout`, `slowConsumer`).
  *
  * Deliberately *not* here: relay-process-wide caps (`maxConnections`,
  * `maxRooms`, heartbeat and drain windows) and the Durable Object's own
@@ -16,7 +14,7 @@
  * owns its own capacity envelope.
  */
 
-/** Joins beyond this per-room member count are refused (`roomAtCapacity`). */
+/** Conservative safety bound; joins beyond it are refused (`roomAtCapacity`). */
 export const MAX_CONNECTIONS_PER_ROOM = 32;
 
 /** A socket that has not sent a valid join within this deadline is closed. */

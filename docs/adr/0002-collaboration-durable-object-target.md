@@ -81,7 +81,8 @@ server-only entry 已在 pinned compatibility date 的 workerd 中以固定 toke
 
 ## 後續 migration plans 必須承接的驗證
 
-未來 DO migration plans（`plans/09`–`15`）至少必須承接並驗證：Vercel + thin Worker gateway
+後續 DO migration 必須承接並驗證：Vercel + thin Worker gateway
 topology、per-`RoomChannelKey` Object identity、provider-pinned room rollout、Hibernatable
-WebSockets／attachments、SQLite cutoffs、idempotent Alarms、typed RPC control、binary-frame
-load test，以及 Node relay 的明確移除條件。
+WebSockets／attachments、SQLite cutoffs、idempotent Alarms、typed RPC control、小群組 binary-frame
+fanout correctness，以及 Node relay 的明確移除條件。Room hard cap 是內部安全界線，不是需要
+以大型 load matrix 證成的 capacity promise。

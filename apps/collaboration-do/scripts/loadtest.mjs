@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
  * Capacity / latency load harness for the collaboration room runtime
- * (Plan 12b P3). Points at any backend that speaks the shared wire contract —
+ * Points at any backend that speaks the shared wire contract —
  * the deployed Worker in its 0%-traffic window, or a local Node relay — and
  * produces one machine-readable report per run.
  *
- * The harness generates load and measures; it deliberately embeds *no*
- * pass/fail thresholds. Gates live in the SLO document and are judged by the
- * measurement plan, not by this script.
+ * The harness generates diagnostic measurements; it deliberately embeds no
+ * production-capacity claim or pass/fail threshold. Callers may use it to
+ * investigate observed load, but a successful run is not a supported-member
+ * guarantee.
  *
  * Every synthetic member is a real `ws` client: it joins with a real signed
  * token, keepalives on the production cadence

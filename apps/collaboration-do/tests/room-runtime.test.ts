@@ -209,7 +209,7 @@ describe("backpressure policy", () => {
     expect(fanoutDeliveryAction("presence", undefined)).toBe("send");
   });
 
-  it("measures whether workerd exposes bufferedAmount on server sockets (Plan 12 evidence)", async () => {
+  it("records whether workerd exposes bufferedAmount on server sockets", async () => {
     const roomId = uniqueRoomId("buffered");
     const member = await joinRoom(roomId);
     const measured = await runInDurableObject(
@@ -224,9 +224,8 @@ describe("backpressure policy", () => {
         };
       },
     );
-    // Recorded, not assumed: if this flips to "undefined" on a runtime
-    // upgrade, slow-consumer protection silently loses its signal and Plan 12
-    // must supply the bounded alternative before cutover.
+    // Recorded, not assumed: when absent, the runtime has no application-level
+    // byte signal and delivery falls back to isolating host write failures.
     console.info(
       `bufferedAmount on workerd server sockets: type=${measured.type} value=${String(measured.probed)}`,
     );
