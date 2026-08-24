@@ -65,6 +65,8 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
   );
   const dashboardBody = dashboardDialog.locator("[data-route-overlay-body]");
   await expect(dashboardViewport).toBeVisible();
+  // Layout assertions must observe the final frame of the dialog zoom animation.
+  await expect(dashboardDialog).toHaveCSS("opacity", "1");
 
   const viewport = page.viewportSize();
   if (!viewport) {
@@ -98,7 +100,10 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
       position: window.getComputedStyle(element).position,
     };
   });
-  expect(headerLayout.paddingBottom).toBeCloseTo(32, 0);
+  expect(headerLayout.paddingBottom).toBeCloseTo(
+    viewport.width >= 640 ? 32 : 24,
+    0,
+  );
   expect(headerLayout.position).toBe("static");
   await expect
     .poll(() =>
