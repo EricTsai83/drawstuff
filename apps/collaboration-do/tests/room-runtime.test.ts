@@ -172,6 +172,28 @@ describe("attachment fail-closed handling", () => {
     member.connection.send(Uint8Array.from([2, 1, 2, 3]));
     await expectClose(member.connection, RELAY_CLOSE_CODES.internalError);
   });
+
+  it("reaps an unreadable attachment on an upgrade instead of counting it toward the caps", async () => {
+    const roomId = uniqueRoomId("badcap");
+    const surviving = await joinRoom(roomId, { subject: "user-ok" });
+    const corrupted = await joinRoom(roomId, { subject: "user-bad" });
+    await expectPeers(surviving.connection);
+    await mutateJoinedAttachment(
+      roomStub(roomId),
+      corrupted.joined.peerId,
+      (attachment) => ({ ...attachment, v: 99 }),
+    );
+    // A fresh upgrade — no alarm, no frame from the corrupted socket — must
+    // fail the zombie closed rather than 503 on a slot it still holds.
+    const late = await openSocket(roomId);
+    await expectClose(corrupted.connection, RELAY_CLOSE_CODES.internalError);
+    const notice = await expectPeers(surviving.connection);
+    expect(notice.peers).toEqual([
+      { peerId: surviving.joined.peerId, role: surviving.joined.role },
+    ]);
+    late.connection.close();
+    surviving.connection.close();
+  });
 });
 
 describe("backpressure policy", () => {

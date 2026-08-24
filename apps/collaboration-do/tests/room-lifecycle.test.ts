@@ -176,6 +176,29 @@ describe("alarm deadlines", () => {
     await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
     await expectClose(member.connection, RELAY_CLOSE_CODES.roomEnded);
   });
+
+  it("refuses a data frame past the room's lifetime even before the alarm runs", async () => {
+    const roomId = uniqueRoomId("rexpframe");
+    const sender = await joinRoom(roomId, { subject: "user-send" });
+    const receiver = await joinRoom(roomId, { subject: "user-recv" });
+    await expectPeers(sender.connection);
+    const stub = roomStub(roomId);
+    await mutateJoinedAttachment(stub, sender.joined.peerId, (attachment) => ({
+      ...attachment,
+      roomExpiresAt: Date.now() - 1_000,
+    }));
+    // Deliberately no alarm: the frame itself must hit the expiry bound —
+    // alarms are at-least-once and may run late, and nothing may publish
+    // past `rexp` in that window.
+    sender.connection.send(Uint8Array.from([1, 9, 9]));
+    await expectClose(sender.connection, RELAY_CLOSE_CODES.roomEnded);
+    // The receiver sees the corrected membership, never the frame.
+    const notice = await expectPeers(receiver.connection);
+    expect(notice.peers).toEqual([
+      { peerId: receiver.joined.peerId, role: receiver.joined.role },
+    ]);
+    receiver.connection.close();
+  });
 });
 
 describe("eviction and recovery", () => {

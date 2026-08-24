@@ -172,15 +172,28 @@ export class CollaborationRoom extends DurableObject<Env> {
     // Refused at the HTTP layer with a retryable status: the client's
     // recovery backoff treats a failed upgrade as transient, which a
     // capacity condition is.
-    const sockets = this.ctx.getWebSockets();
-    const pendingCount = sockets.filter((ws) => {
+    //
+    // Unreadable attachments fail closed here too, not just on alarms and
+    // frames: a silent cohort left unreadable by a rollback answers its
+    // keepalives via the auto-response and schedules no deadline of its own,
+    // so an upgrade may be the only event that ever meets it — counting it
+    // toward the caps instead of closing it would 503 every reconnect
+    // indefinitely.
+    let liveCount = 0;
+    let pendingCount = 0;
+    let closedUnreadable = false;
+    for (const ws of this.ctx.getWebSockets()) {
       const attachment = readRoomSocketAttachment(ws);
-      return attachment === undefined || attachment.state === "pending";
-    }).length;
-    if (
-      sockets.length >= MAX_ROOM_SOCKETS ||
-      pendingCount >= MAX_PENDING_SOCKETS
-    ) {
+      if (attachment === undefined) {
+        this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
+        closedUnreadable = true;
+        continue;
+      }
+      liveCount += 1;
+      if (attachment.state === "pending") pendingCount += 1;
+    }
+    if (closedUnreadable) this.broadcastPeers();
+    if (liveCount >= MAX_ROOM_SOCKETS || pendingCount >= MAX_PENDING_SOCKETS) {
       return closedJsonResponse(503, "room-at-capacity");
     }
 
@@ -525,6 +538,17 @@ export class CollaborationRoom extends DurableObject<Env> {
       );
       return;
     }
+    // The room's lifetime is an authorization bound, so the frame path
+    // enforces it as well: the expiry alarm is at-least-once and may run
+    // late, and unlike the relay's in-process timer that lateness has no
+    // useful upper bound — without this check a publisher could keep fanning
+    // out past `rexp` until the alarm caught up.
+    const now = Date.now();
+    if (now >= attachment.roomExpiresAt) {
+      this.closeSocket(ws, RELAY_CLOSE_CODES.roomEnded, "room expired");
+      this.broadcastPeers();
+      return;
+    }
     // Shared frame parser and channel-size arithmetic; the payload stays
     // opaque E2EE ciphertext the Object cannot decrypt.
     const dataFrame = decodeRelayDataFrame(frame);
@@ -577,7 +601,6 @@ export class CollaborationRoom extends DurableObject<Env> {
     // Any accepted frame is evidence the session is in use — but the
     // attachment is only rewritten once the persisted value trails by a full
     // quantum. See LAST_FRAME_PERSIST_QUANTUM_MS for the error bound.
-    const now = Date.now();
     if (now - attachment.lastFrameAt >= LAST_FRAME_PERSIST_QUANTUM_MS) {
       writeRoomSocketAttachment(ws, { ...attachment, lastFrameAt: now });
     }
