@@ -16,7 +16,7 @@ import {
 } from "@/server/collab/control-token";
 
 /**
- * Durable Object control client (Plan 11 P4). Pushes the same signed control
+ * Durable Object control client. Pushes the same signed control
  * tokens as `./relay-control.ts`, but at the public Worker gateway — this
  * process never holds a DO binding, an Object id, or a Cloudflare API token;
  * the gateway derives the target Object from the verified claims.

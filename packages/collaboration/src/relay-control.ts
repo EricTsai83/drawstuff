@@ -38,7 +38,7 @@ export const relayControlResponseSchema = z.object({
 export type RelayControlResponse = z.infer<typeof relayControlResponseSchema>;
 
 /**
- * Durable Object gateway control endpoint (Plan 11). Same push model as the
+ * Durable Object gateway control endpoint. Same push model as the
  * Node relay above, but the room's identity travels inside the verified token
  * claims only — the gateway derives the target Object from them, so the body
  * stays one token with nothing else to trust.

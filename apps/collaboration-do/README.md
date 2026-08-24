@@ -1,8 +1,8 @@
 # @drawstuff/collaboration-do
 
 Cloudflare Worker gateway + `CollaborationRoom` Durable Object for the
-collaboration relay migration (Plan 09 → 15). Since Plan 10 the Object runs
-the full Hibernatable-WebSocket room runtime — join, membership, role
+collaboration relay migration. The Object runs the full Hibernatable-WebSocket
+room runtime — join, membership, role
 enforcement, opaque E2EE binary fanout, limits, backpressure, close
 semantics, a single-alarm scheduler and the keepalive auto-response — wire
 compatible with the Node relay, proven by a shared black-box conformance
@@ -31,7 +31,7 @@ guaranteed by two independent locks rather than by unreachability:
 ```text
 GET  /healthz                                              readiness only, never touches a DO
 GET  /v1/rooms/:roomId/generations/:authGeneration/socket  WebSocket upgrade only
-POST /v1/control                                           Vercel backend only (501 until Plan 11)
+POST /v1/control                                           Vercel backend only
 ```
 
 ## Commands
@@ -61,8 +61,8 @@ pnpm --filter @drawstuff/collaboration-do smoke <url> # live gateway smoke, prin
 secret), it additionally runs the room-runtime smoke: two real WebSocket
 clients join a fresh room through the deployed Worker, exchange E2EE-sealed
 scene and presence frames (the room key never leaves the smoke process), and
-verify the keepalive auto-response — the Plan 10 deployed-worker evidence,
-safe during the 0%-traffic window.
+verify the keepalive auto-response — deployed-worker evidence that is safe
+during the 0%-traffic window.
 
 Root shortcuts: `pnpm cf:deploy`, `pnpm cf:smoke <url>`.
 
@@ -143,7 +143,7 @@ deployable and cannot be rolled back across; it always ships alone:
 3. Never roll back to before a namespace existed. Rollback keeps the
    namespace; the traffic locks (Origin allowlist + DB provider assignment)
    are what hold traffic at 0%, independent of deploys.
-4. Schema migrations (from Plan 11 on) are forward-only and re-entrant; class
+4. Schema migrations are forward-only and re-entrant; class
    lifecycle changes always deploy separately from runtime/schema/routing
    changes, manually.
 5. Code-only deploys keep `exports` identical and may auto-deploy from

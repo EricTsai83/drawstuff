@@ -9,7 +9,7 @@ import {
 
 /**
  * Versioned per-socket attachment: the only connection state that survives
- * hibernation, eviction and code updates (Plan 10 P1). Everything the room
+ * hibernation, eviction and code updates. Everything the room
  * runtime needs about a socket is recoverable from `ctx.getWebSockets()` plus
  * this value; any in-memory map is a per-event cache, never authority.
  *

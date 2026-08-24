@@ -6,11 +6,11 @@
  *
  * 1. Closed-response HTTP checks (Plan 09 evidence): healthz readiness,
  *    unknown-route/method/content-type/body handling. Always run.
- * 2. WebSocket room-runtime smoke (Plan 10 evidence): two real clients join a
+ * 2. WebSocket room-runtime smoke: two real clients join a
  *    fresh room through the deployed Worker, exchange E2EE-sealed scene and
  *    presence frames end to end (the room key never leaves this process), and
  *    verify the keepalive auto-response, then end the room over the control
- *    endpoint and prove a pre-end token is refused (Plan 11 evidence: the
+ *    endpoint and prove a pre-end token is refused (durable-control evidence:
  *    Vercel-like HTTP caller → Worker → typed RPC → DO path). Runs only when
  *    `COLLAB_JOIN_TOKEN_SECRET` is provided, because the smoke must sign real
  *    join and control tokens with the deployed Worker's secret.
@@ -349,7 +349,7 @@ async function webSocketSmoke(joinTokenSecret) {
     expect(closedB.code === 1000, `bob close code ${closedB.code}`);
   });
 
-  // Plan 11 evidence: the Vercel-like HTTP caller → Worker → typed RPC → DO
+  // Durable-control evidence: the Vercel-like HTTP caller → Worker → typed RPC → DO
   // control path against the deployed Worker, still at 0% traffic.
   await check(
     "end-room control applies through the deployed gateway",

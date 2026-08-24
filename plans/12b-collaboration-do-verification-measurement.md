@@ -51,8 +51,8 @@ network 與 Cloudflare deployment 下 conformance 無差異。另補本機測不
 - idle connected rooms，確認約 10 秒後 hibernate 且 socket 留存；hibernate ratio 必須在 client
   keepalive（auto-response pair）開啟下量測，並確認 keepalive 不喚醒 Object、長時間 idle 的
   viewer 連線可跨 NAT/proxy 存活；
-- Plan 10 的 lazy liveness：tab-kill 後 dead socket 被 reap 的實際延遲分布，以及 cap-full join
-  reap 的正確性；
+- [SLO §9](../docs/performance/collaboration-slo-capacity.md) 的 lazy liveness：tab-kill 後 dead
+  socket 被 reap 的實際延遲分布，以及 cap-full join reap 的正確性；
 - sustained fanout 下 per-connection `serializeAttachment()` 寫入率，證明 coalescing 上限成立；
 - scene 60 Hz／120 Hz、presence 30 Hz，以及少數 active editors + 多數 receivers 的常見形狀；
 - 1 MiB scene burst、16 KiB presence bound、join storm、reconnect storm；

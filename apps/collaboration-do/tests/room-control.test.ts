@@ -40,7 +40,7 @@ import {
 afterEach(settleRoomEvents);
 
 /**
- * Plan 11: durable control plane. The app pushes revocation and lifecycle
+ * Durable control plane: the app pushes revocation and lifecycle
  * changes through the gateway as verified control tokens; the Object records
  * a durable cutoff first, then closes the matching live sockets. Everything
  * here must hold across replays, reordering, crashes between the two steps,

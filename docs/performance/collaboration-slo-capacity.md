@@ -314,7 +314,7 @@ API（已標示）。
 - Node（Vercel runtime）目前選 fallback；Node 引入 native API 後 production selection 會自動
   切換，屆時應重跑本節記錄。
 
-## 9. Durable Object room runtime 的 liveness／keepalive 對應（Plan 10，2026-08-24）
+## 9. Durable Object room runtime 的 liveness／keepalive 對應（2026-08-24）
 
 Node relay 的 dead-peer 偵測是 server 每 15 秒發 protocol-level ping、漏一次 pong 即
 terminate（`heartbeatTimeout`，偵測上限 ≈ 2 × 15 s = 30 s）。這個機制不可移植到 Durable

@@ -78,7 +78,7 @@ export async function handleGatewayRequest(
   // Exception boundary: every failure maps to a closed response. Detail goes
   // to Workers Logs, never to the client, and the gateway never retries —
   // WebSocket upgrades are not retryable and control retries belong to the
-  // Plan 11 durable dispatcher.
+  // durable control dispatcher.
   try {
     const url = new URL(request.url);
     if (url.pathname === HEALTH_PATH) return handleHealth(request, env);

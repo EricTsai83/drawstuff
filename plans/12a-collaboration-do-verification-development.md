@@ -1,6 +1,8 @@
 # 12a — Durable Object 驗證工具開發：conformance 擴充、observability 契約與 load harness
 
-- 前置：[Plan 11](./11-collaboration-do-durable-control.md)
+- 前置：Durable Object room runtime 與 durable control plane（已完成；現況見
+  [ADR-0003](../docs/adr/0003-collaboration-do-gateway-foundation.md) 與
+  [collaboration SLO 文件](../docs/performance/collaboration-slo-capacity.md) §9）
 - 後續：[Plan 12b](./12b-collaboration-do-verification-measurement.md)
 - Production traffic：**0%**
 

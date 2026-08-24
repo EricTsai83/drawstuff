@@ -34,9 +34,9 @@ export const env = createEnv({
     /** Origin of the relay's control endpoint (server-to-server only). */
     COLLAB_RELAY_CONTROL_URL: z.string().url(),
     /**
-     * Public origin of the Durable Object gateway's control endpoint
-     * (Plan 11). Optional during the 0%-traffic migration window: production
-     * control still goes to the Node relay only, and the DO client reports
+     * Public origin of the Durable Object gateway's control endpoint.
+     * Optional during the 0%-traffic migration window: production control
+     * still goes to the Node relay only, and the DO client reports
      * non-enforcement instead of failing when this is unset.
      */
     COLLAB_DO_CONTROL_URL: z.string().url().optional(),

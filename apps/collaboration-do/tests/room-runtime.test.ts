@@ -86,7 +86,7 @@ describe("durable revocation cutoffs", () => {
     const roomId = uniqueRoomId("cutoff");
     const stub = roomStub(roomId);
     // Wake the Object so its schema exists, then record a channel-wide
-    // cutoff the way Plan 11's control dispatch will.
+    // cutoff the way the durable control dispatcher does.
     await runInDurableObject(stub, (_instance, state) => {
       state.storage.sql.exec(
         "INSERT OR REPLACE INTO revocation_cutoffs(scope, revision, recorded_at_s) VALUES ('channel', 5, ?)",

@@ -34,7 +34,7 @@ import {
 afterEach(settleRoomEvents);
 
 /**
- * Lifecycle behaviour of the room Object (Plan 10 P1/P4/P5/P6): deadlines are
+ * Lifecycle behaviour of the room Object: deadlines are
  * enforced by the single alarm from attachment state alone, everything
  * survives eviction, the epoch high-water outlives an empty room until its
  * channel can never be rejoined, and keepalive is liveness without being

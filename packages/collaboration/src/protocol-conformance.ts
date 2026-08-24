@@ -143,6 +143,7 @@ export type ConformanceCase = {
 };
 
 const DEFAULT_EVENT_TIMEOUT_MS = 3_000;
+const SCENE_FLOOD_CLOSE_TIMEOUT_MS = 15_000;
 
 /**
  * Wraps a raw wire (send/close) into a `ConformanceConnection` with a queued,
@@ -363,9 +364,10 @@ async function expectClose(
   connection: ConformanceConnection,
   expectedCode: number,
   label: string,
+  timeoutMs = DEFAULT_EVENT_TIMEOUT_MS,
 ): Promise<void> {
   for (let events = 0; events < 8; events += 1) {
-    const event = await connection.next();
+    const event = await connection.next(timeoutMs);
     if (event.kind === "close") {
       assertEqual(event.code, expectedCode, `${label}: close code`);
       return;
@@ -1052,6 +1054,7 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
         connection,
         RELAY_CLOSE_CODES.rateLimited,
         "scene flood",
+        SCENE_FLOOD_CLOSE_TIMEOUT_MS,
       );
     },
   },

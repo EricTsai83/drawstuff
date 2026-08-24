@@ -15,7 +15,7 @@ import {
 } from "../src/rate-limit.ts";
 
 /**
- * The shared rate-limit primitives (moved here from the relay in Plan 10 so
+ * The shared rate-limit primitives (moved here from the relay so
  * the Durable Object room runtime enforces the same budgets). The
  * connection-level behaviour they drive is covered by each backend's own
  * tests; what matters here is the arithmetic — including the wall-clock-jump

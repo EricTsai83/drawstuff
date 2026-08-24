@@ -12,24 +12,21 @@
 不得把後一個 plan 的 production traffic gate 打開；可以提前做 read-only research，但不能提前
 建立第二條 live routing path。
 
-1. [10-collaboration-do-room-runtime.md](10-collaboration-do-room-runtime.md) — Hibernatable
-   WebSockets、attachments、Alarm、opaque fanout與Node protocol parity
-2. [11-collaboration-do-durable-control.md](11-collaboration-do-durable-control.md) — typed RPC、SQLite
-   revocation cutoffs、idempotent room lifecycle與storage cleanup
-3. [12a-collaboration-do-verification-development.md](12a-collaboration-do-verification-development.md) —
+1. [12a-collaboration-do-verification-development.md](12a-collaboration-do-verification-development.md) —
    conformance suite 擴充（control plane、E2EE、rate-limit 語意）、remote runner、DO structured
    logging／observability 契約與 load harness 的開發
-4. [12b-collaboration-do-verification-measurement.md](12b-collaboration-do-verification-measurement.md) —
+2. [12b-collaboration-do-verification-measurement.md](12b-collaboration-do-verification-measurement.md) —
    對已部署 Worker 的 conformance、observability 配置、load、latency、Hibernation與cost Go/No-Go
-5. [13-collaboration-do-provider-coexistence.md](13-collaboration-do-provider-coexistence.md) —
+3. [13-collaboration-do-provider-coexistence.md](13-collaboration-do-provider-coexistence.md) —
    provider-pinned雙軌、server-owned routing與durable PostgreSQL control outbox
-6. [14-collaboration-do-production-cutover.md](14-collaboration-do-production-cutover.md) — synthetic、
+4. [14-collaboration-do-production-cutover.md](14-collaboration-do-production-cutover.md) — synthetic、
    internal、1/10/25/50/100% new-channel rollout、rollback gates與Node自然排空
-7. [15-collaboration-do-retirement.md](15-collaboration-do-retirement.md) — 刪除Node relay、provider
+5. [15-collaboration-do-retirement.md](15-collaboration-do-retirement.md) — 刪除Node relay、provider
    abstraction與migration config，收斂為Durable Object-only realtime architecture
 
-系列的共同前置（canonical Base64 codec、browser／Node／workerd contract、token vectors 與
-4 MiB snapshot 效能門檻）已完成；長期 Claims 與效能證據見
+系列的共同前置（canonical Base64 codec、browser／Node／workerd contract、token vectors、
+4 MiB snapshot 效能門檻、Hibernatable room runtime 與 durable control plane）已完成；長期
+Claims 與效能證據見
 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md) 與
 [collaboration SLO 文件](../docs/performance/collaboration-slo-capacity.md) §8。
 

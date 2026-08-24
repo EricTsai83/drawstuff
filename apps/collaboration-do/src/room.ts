@@ -71,7 +71,7 @@ const SOCKET_OPEN = 1;
  * this is code-version skew (a rollback past a schema bump) and fails closed
  * in the constructor rather than letting old code reinterpret new rows.
  *
- * v2 (Plan 11): `room_meta.room_ended` — a durable end-room marker that
+ * v2: `room_meta.room_ended` — a durable end-room marker that
  * outlives the swept channel cutoff, so the storage-retirement gate can
  * release an ended room before its natural expiry.
  */
@@ -116,7 +116,7 @@ type JoinedSocket = { ws: WebSocket; attachment: JoinedSocketAttachment };
 const encoder = new TextEncoder();
 
 /**
- * Hibernatable room runtime (Plan 10): one `RoomChannelKey`, one Object
+ * Hibernatable room runtime: one `RoomChannelKey`, one Object
  * (CLAIM-MIG-2), speaking the exact wire contract of the Node relay — join,
  * membership notices, role enforcement, opaque binary fanout, limits,
  * backpressure and close codes — plus the P6 keepalive auto-response.
@@ -161,7 +161,7 @@ export class CollaborationRoom extends DurableObject<Env> {
       ),
     );
     // Short, local, re-entrant schema bootstrap only — no fetches, no KV, no
-    // external services (Plan 10 P5). Deliberately does NOT touch the alarm:
+    // external services. Deliberately does NOT touch the alarm:
     // a constructor that overwrote the alarm would clobber the scheduler on
     // every wake.
     void this.ctx.blockConcurrencyWhile(() => {
@@ -280,7 +280,7 @@ export class CollaborationRoom extends DurableObject<Env> {
   }
 
   /**
-   * Single-alarm scheduler (Plan 10 P4): every firing re-reads current state,
+   * Single-alarm scheduler: every firing re-reads current state,
    * closes whatever is due, runs idempotent cleanup, and only re-arms when
    * work remains. Deliberately no per-frame postponement and no fixed tick.
    *
@@ -357,7 +357,7 @@ export class CollaborationRoom extends DurableObject<Env> {
   }
 
   /**
-   * Versioned control RPC (Plan 11 P1; replaces the Plan 09 identity probe).
+   * Versioned control RPC; replaces the original identity probe.
    * The gateway has already verified the control token; this method still
    * re-validates everything it is about to act on: the command schema, and
    * that the command's room/generation derive exactly this Object's name.
@@ -566,8 +566,8 @@ export class CollaborationRoom extends DurableObject<Env> {
       return;
     }
 
-    // Cutoff check before any state is created or acknowledged (Plan 11
-    // writes these rows; the join-side enforcement exists from day one so a
+    // Cutoff check before any state is created or acknowledged. The durable
+    // control path writes these rows; join-side enforcement ensures a
     // racing control action can never miss an already-authorized socket).
     if (this.isJoinRefusedByCutoff(sub, arev)) {
       this.closeSocket(

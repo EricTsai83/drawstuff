@@ -10,8 +10,8 @@ import {
 } from "@drawstuff/collaboration/room-auth";
 
 /**
- * Versioned typed-RPC contract between the gateway and `CollaborationRoom`
- * (Plan 11 P1). The gateway verifies the control token; the Object re-checks
+ * Versioned typed-RPC contract between the gateway and `CollaborationRoom`.
+ * The gateway verifies the control token; the Object re-checks
  * the command against its own identity, so a bug in either side fails closed
  * rather than coordinating the wrong room.
  *

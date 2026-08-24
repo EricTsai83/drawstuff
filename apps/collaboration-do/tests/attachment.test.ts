@@ -10,7 +10,7 @@ import {
 } from "../src/attachment.ts";
 
 /**
- * Attachment contract (Plan 10 P1): every variant fits far below the
+ * Attachment contract: every variant fits far below the
  * platform's 2 KiB `serializeAttachment` cap even with maximum-size field
  * values, the key sets are pinned so no secret or payload field can ride in
  * unnoticed, and unknown versions fail closed.

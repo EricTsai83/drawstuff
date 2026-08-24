@@ -46,7 +46,7 @@ rollout，用完整 `wrangler deploy` 發布（可由 main 自動部署）。Lif
 
 Object 由第一個 production request 決定位置，不 cron prewarm、不列舉、不預建
 rooms；`/healthz` 永不呼叫或建立 DO。若 control request 先於第一個 browser 到達
-而必須建立 Object 以持久化 revocation cutoff（Plan 11），必須量測其比例與延遲，
+而必須建立 Object 以持久化 revocation cutoff，必須量測其比例與延遲，
 沒有證據前不得引入 location registry；location hint 只能由實測決定且視為
 best-effort。
 
