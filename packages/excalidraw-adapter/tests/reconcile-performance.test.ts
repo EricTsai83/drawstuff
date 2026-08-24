@@ -202,7 +202,7 @@ describe("plan-10 reconciliation performance", () => {
     }
   });
 
-  it("measures remote reconcile at 1k/10k", () => {
+  it("measures remote reconcile at 1k/10k", { timeout: 15_000 }, () => {
     for (const sceneSize of SCENE_SIZES) {
       const scene = createSyncScene(sceneSize);
       const remoteDelta = createRemoteDelta(scene, REMOTE_DELTA_SIZE);

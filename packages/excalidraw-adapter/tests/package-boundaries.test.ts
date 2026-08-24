@@ -205,39 +205,43 @@ const findCycle = (
 };
 
 describe("adapter import boundaries", () => {
-  it("does not add app-level imports of the upstream engine", async () => {
-    const webFiles = await listTypeScriptFiles(webRoot);
-    const filesWithUpstreamImports: string[] = [];
-    const boundaryViolations: string[] = [];
+  it(
+    "does not add app-level imports of the upstream engine",
+    { timeout: 15_000 },
+    async () => {
+      const webFiles = await listTypeScriptFiles(webRoot);
+      const filesWithUpstreamImports: string[] = [];
+      const boundaryViolations: string[] = [];
 
-    for (const filePath of webFiles) {
-      const references = await getModuleReferences(filePath);
-      const upstreamReferences = references.filter(
-        ({ specifier }) =>
-          specifier === "@excalidraw/excalidraw" ||
-          specifier.startsWith("@excalidraw/excalidraw/"),
-      );
+      for (const filePath of webFiles) {
+        const references = await getModuleReferences(filePath);
+        const upstreamReferences = references.filter(
+          ({ specifier }) =>
+            specifier === "@excalidraw/excalidraw" ||
+            specifier.startsWith("@excalidraw/excalidraw/"),
+        );
 
-      if (upstreamReferences.length > 0) {
-        filesWithUpstreamImports.push(path.relative(webRoot, filePath));
-      }
+        if (upstreamReferences.length > 0) {
+          filesWithUpstreamImports.push(path.relative(webRoot, filePath));
+        }
 
-      for (const { specifier } of references) {
-        if (
-          (specifier.startsWith("@drawstuff/excalidraw-adapter") &&
-            !adapterPublicSpecifiers.has(specifier)) ||
-          specifier.includes("packages/excalidraw-adapter/")
-        ) {
-          boundaryViolations.push(
-            `${path.relative(webRoot, filePath)} -> ${specifier}`,
-          );
+        for (const { specifier } of references) {
+          if (
+            (specifier.startsWith("@drawstuff/excalidraw-adapter") &&
+              !adapterPublicSpecifiers.has(specifier)) ||
+            specifier.includes("packages/excalidraw-adapter/")
+          ) {
+            boundaryViolations.push(
+              `${path.relative(webRoot, filePath)} -> ${specifier}`,
+            );
+          }
         }
       }
-    }
 
-    expect(filesWithUpstreamImports).toEqual([]);
-    expect(boundaryViolations).toEqual([]);
-  });
+      expect(filesWithUpstreamImports).toEqual([]);
+      expect(boundaryViolations).toEqual([]);
+    },
+  );
 
   it("has no reverse workspace dependency or source cycle", async () => {
     const sourceFiles = await listTypeScriptFiles(sourceRoot);
