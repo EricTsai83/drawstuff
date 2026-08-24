@@ -110,12 +110,19 @@ describe("@drawstuff/collaboration package contract", () => {
     // a decryption key. Structural, so a future edit cannot quietly thread key
     // material through an envelope, a control frame, or a token claim.
     //
-    // Five modules qualify, and only because they *are* the crypto boundary:
-    // `sealed-envelope.ts` is the shared seal/open primitive,
+    // Five runtime modules qualify, and only because they *are* the crypto
+    // boundary: `sealed-envelope.ts` is the shared seal/open primitive,
     // `realtime-crypto.ts` owns key derivation and realtime frames, and
     // `snapshot.ts`, `asset-crypto.ts` and `keycheck.ts` seal durable
     // snapshots, binary assets and the room's key-check value under further
     // purpose-bound keys they derive through it.
+    //
+    // One test-only module also qualifies: `protocol-conformance.ts` acts as
+    // a synthetic *client* pair in its E2EE passthrough case — it generates a
+    // room key that never leaves the test process and proves both backends
+    // route the sealed bytes verbatim. That is the client side of the
+    // boundary this contract protects, not a leak across it; the module is
+    // imported exclusively from test files.
     const withKeyMaterial = listSourceFiles(sourceRoot)
       .filter((filePath) =>
         /roomKey|RoomKey|getRandomValues|subtle/.test(
@@ -127,6 +134,7 @@ describe("@drawstuff/collaboration package contract", () => {
     expect(withKeyMaterial).toEqual([
       "asset-crypto.ts",
       "keycheck.ts",
+      "protocol-conformance.ts",
       "realtime-crypto.ts",
       "sealed-envelope.ts",
       "snapshot.ts",

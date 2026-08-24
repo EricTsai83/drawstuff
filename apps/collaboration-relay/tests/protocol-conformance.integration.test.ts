@@ -7,6 +7,10 @@ import {
   relayProtocolConformanceCases,
   type ConformanceHarness,
 } from "@drawstuff/collaboration/protocol-conformance";
+import {
+  RELAY_CONTROL_PATH,
+  relayControlResponseSchema,
+} from "@drawstuff/collaboration/relay-control";
 
 import { createRelayServer, type RelayServer } from "../src/server.ts";
 import { TEST_ROOM_TOKEN_SECRET } from "./support/room-tokens.ts";
@@ -62,11 +66,24 @@ const harness: ConformanceHarness = {
     });
     return connection;
   },
+  async control(token) {
+    const response = await fetch(`${server.controlUrl}${RELAY_CONTROL_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token }),
+    });
+    if (response.status === 401) return { accepted: false, closed: 0 };
+    if (response.status !== 200) {
+      throw new Error(`control endpoint answered ${response.status}`);
+    }
+    const parsed = relayControlResponseSchema.parse(await response.json());
+    return { accepted: true, closed: parsed.closed };
+  },
 };
 
 describe("Node relay — shared protocol conformance", () => {
   for (const conformanceCase of relayProtocolConformanceCases) {
-    it(conformanceCase.name, { timeout: 15_000 }, async () => {
+    it(conformanceCase.name, { timeout: 30_000 }, async () => {
       await conformanceCase.run(harness);
     });
   }

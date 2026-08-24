@@ -31,6 +31,7 @@ import {
   COLLABORATION_PROTOCOL_VERSION,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
+import { createConformanceConnection } from "@drawstuff/collaboration/protocol-conformance";
 import {
   createRealtimeCryptoCodec,
   generateRoomKey,
@@ -153,19 +154,20 @@ if (!secret) {
 
 /**
  * One raw smoke client: a `ws` socket (which, unlike the WHATWG client, can
- * present the allowlisted Origin) plus a queued, awaitable event stream.
+ * present the allowlisted Origin) feeding the *shared* conformance event
+ * queue, so this script and the two conformance suites read the wire through
+ * one implementation. The raw socket stays exposed: the shared queue filters
+ * keepalive acknowledgments by contract, and the keepalive check below needs
+ * to observe the exact frame.
  */
 function connectSmokeClient(roomId) {
   const url = `${target.replace(/^http/, "ws")}/v1/rooms/${roomId}/generations/1/socket`;
   const socket = new WebSocket(url, { headers: { Origin: SMOKE_ORIGIN } });
   socket.binaryType = "arraybuffer";
-  const queued = [];
-  const waiters = [];
-  const push = (event) => {
-    const waiter = waiters.shift();
-    if (waiter) waiter(event);
-    else queued.push(event);
-  };
+  const { connection, push } = createConformanceConnection({
+    send: (data) => socket.send(data),
+    close: () => socket.close(1000, "smoke finished"),
+  });
   socket.on("message", (data, isBinary) => {
     const bytes =
       data instanceof ArrayBuffer
@@ -177,20 +179,6 @@ function connectSmokeClient(roomId) {
   socket.on("close", (code, reason) =>
     push({ kind: "close", code, reason: reason.toString("utf8") }),
   );
-  const next = (timeoutMs = 10_000) => {
-    const immediate = queued.shift();
-    if (immediate) return Promise.resolve(immediate);
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(
-        () => reject(new Error(`no event within ${timeoutMs} ms`)),
-        timeoutMs,
-      );
-      waiters.push((event) => {
-        clearTimeout(timer);
-        resolve(event);
-      });
-    });
-  };
   const opened = new Promise((resolve, reject) => {
     socket.once("open", resolve);
     socket.once("error", reject);
@@ -198,7 +186,9 @@ function connectSmokeClient(roomId) {
       reject(new Error(`upgrade refused with status ${response.statusCode}`)),
     );
   });
-  return { socket, next, opened };
+  // The smoke's historical default event timeout is kept at 10 s: this runs
+  // over the real network, not against a local workerd.
+  return { socket, next: (timeoutMs = 10_000) => connection.next(timeoutMs), opened };
 }
 
 async function webSocketSmoke(joinTokenSecret) {
@@ -316,12 +306,29 @@ async function webSocketSmoke(joinTokenSecret) {
   );
 
   await check("keepalive auto-response answers the exact frame", async () => {
+    // The shared event queue filters keepalive acknowledgments (their
+    // presence is contractually optional), so this check listens on the raw
+    // socket for the exact frame.
+    const acknowledged = new Promise((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error("no keepalive acknowledgment within 10 s")),
+        10_000,
+      );
+      const onMessage = (data, isBinary) => {
+        const bytes =
+          data instanceof ArrayBuffer
+            ? Buffer.from(data)
+            : Buffer.concat([data].flat());
+        if (!isBinary && bytes.toString("utf8") === RELAY_KEEPALIVE_RESPONSE) {
+          clearTimeout(timer);
+          alice.socket.off("message", onMessage);
+          resolve(undefined);
+        }
+      };
+      alice.socket.on("message", onMessage);
+    });
     alice.socket.send(RELAY_KEEPALIVE_REQUEST);
-    const event = await alice.next();
-    expect(
-      event.kind === "text" && event.text === RELAY_KEEPALIVE_RESPONSE,
-      "expected the keepalive acknowledgment",
-    );
+    await acknowledged;
   });
 
   await check("leave closes both sessions normally", async () => {

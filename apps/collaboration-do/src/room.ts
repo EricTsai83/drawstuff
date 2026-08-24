@@ -52,6 +52,7 @@ import {
   type RoomControlResultV1,
 } from "./control.ts";
 import { closedJsonResponse, readInternalSocketIdentity } from "./internal.ts";
+import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
 import {
   fanoutDeliveryAction,
   LAST_FRAME_PERSIST_QUANTUM_MS,
@@ -144,8 +145,11 @@ export class CollaborationRoom extends DurableObject<Env> {
    *  auto-response answered without waking the Object. */
   readonly constructedAt = Date.now();
 
+  private readonly log: DoLogger;
+
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.log = createDoLogger(env.VERSION_METADATA);
     // Keepalive request/response pair: workerd answers it for hibernated
     // sockets without waking this Object, so liveness costs no duration
     // charges. Never registered as activity anywhere — idle deadlines read
@@ -172,7 +176,7 @@ export class CollaborationRoom extends DurableObject<Env> {
     // canonical RoomChannelKey — no anonymous or malformed identity may ever
     // coordinate a room.
     if (channelKey === undefined) {
-      console.error("room: refusing request on an unnamed or non-canonical id");
+      this.log.error("room.invalid_object_identity");
       return closedJsonResponse(500, "invalid-object-identity");
     }
     // The gateway forwards the parsed route identity, but the Object never
@@ -248,7 +252,9 @@ export class CollaborationRoom extends DurableObject<Env> {
     try {
       await this.handleSocketMessage(ws, message);
     } catch (error) {
-      console.error("room: frame dispatch failed", error);
+      this.log.error("room.frame_dispatch_failed", {
+        errorName: errorNameOf(error),
+      });
       this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
     }
   }
@@ -270,7 +276,7 @@ export class CollaborationRoom extends DurableObject<Env> {
   override webSocketError(ws: WebSocket, error: unknown): void {
     // The close event follows and owns the cleanup; one socket's transport
     // error must never touch the others.
-    console.warn("room: socket error", error);
+    this.log.warn("room.socket_error", { errorName: errorNameOf(error) });
   }
 
   /**
@@ -517,7 +523,7 @@ export class CollaborationRoom extends DurableObject<Env> {
       assertRoomTokenSecret(secret);
     } catch {
       // Server misconfiguration is the server's fault; say so honestly.
-      console.error("room: join token secret is missing or too short");
+      this.log.error("room.secret_not_ready");
       this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
       return;
     }
@@ -646,6 +652,15 @@ export class CollaborationRoom extends DurableObject<Env> {
     // Existing members learn about the joiner here; the joiner already has
     // the same snapshot in its acknowledgment.
     this.broadcastPeers(ws);
+    // The session record: verified identifiers and bounded enums only. The
+    // token subject never lands in a log (threat model §5).
+    this.log.info("room.session_joined", {
+      roomId: verified.claims.rid,
+      authGeneration: gen,
+      peerId,
+      role,
+      members: peers.length,
+    });
   }
 
   private handleBinaryFrame(
@@ -760,7 +775,9 @@ export class CollaborationRoom extends DurableObject<Env> {
       // A failed write is a lazy liveness moment (P6): whatever the cause,
       // this socket cannot be written to, so it is closed alone — one
       // socket's exception never touches the rest of the room.
-      console.warn("room: fanout write failed", error);
+      this.log.warn("room.fanout_write_failed", {
+        errorName: errorNameOf(error),
+      });
       this.closeSocket(receiver, 1001, "write failed");
       this.broadcastPeers();
     }
@@ -859,12 +876,30 @@ export class CollaborationRoom extends DurableObject<Env> {
   }
 
   private closeSocket(ws: WebSocket, code: number, reason: string): void {
+    const attachment = readRoomSocketAttachment(ws);
+    // One `room.session_closed` per socket, and the readyState check is what
+    // enforces it: a repeated close on an already-closing socket is a *no-op*
+    // in workerd, not an exception, so a second verdict would otherwise be
+    // recorded whenever two paths reach the same socket (an alarm retry
+    // re-deriving its work, a control action racing a close). The disconnect
+    // rate in SLO §6 is read off these records, so a duplicate inflates it.
+    const wasOpen = ws.readyState === SOCKET_OPEN;
     try {
       ws.close(code, reason);
     } catch {
       // Already closed or mid-handshake; nothing further to release here —
       // attachment state is owned by the socket and dies with it.
+      return;
     }
+    if (!wasOpen) return;
+    // Every server-stated close verdict, as a bounded enum. The SLO §6
+    // disconnect-rate breakdown reads this event; client-initiated departures
+    // surface through the membership change, not through a log line.
+    this.log.info("room.session_closed", {
+      closeCode: code,
+      socketState: attachment === undefined ? "unknown" : attachment.state,
+      peerId: attachment?.state === "joined" ? attachment.peerId : undefined,
+    });
   }
 
   // ---------------------------------------------------------------------

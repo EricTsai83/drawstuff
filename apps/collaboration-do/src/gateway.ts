@@ -19,6 +19,7 @@ import {
   INTERNAL_ROOM_ID_HEADER,
   parseSocketRouteIdentity,
 } from "./internal.ts";
+import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
 
 /**
  * Thin gateway (CLAIM-MIG-1): Durable Objects accept no Internet requests, so
@@ -73,6 +74,7 @@ export async function handleGatewayRequest(
   request: Request,
   env: Env,
 ): Promise<Response> {
+  const log = createDoLogger(env.VERSION_METADATA);
   // Exception boundary: every failure maps to a closed response. Detail goes
   // to Workers Logs, never to the client, and the gateway never retries —
   // WebSocket upgrades are not retryable and control retries belong to the
@@ -81,20 +83,21 @@ export async function handleGatewayRequest(
     const url = new URL(request.url);
     if (url.pathname === HEALTH_PATH) return handleHealth(request, env);
     if (url.pathname === DO_GATEWAY_CONTROL_PATH) {
-      return await handleControl(request, env);
+      return await handleControl(request, env, log);
     }
     const socketMatch = SOCKET_ROUTE_PATTERN.exec(url.pathname);
     if (socketMatch !== null) {
       return await handleSocket(
         request,
         env,
+        log,
         socketMatch[1] ?? "",
         socketMatch[2] ?? "",
       );
     }
     return closedJsonResponse(404, "not-found");
   } catch (error) {
-    console.error("gateway: unhandled failure", error);
+    log.error("gateway.unhandled_failure", { errorName: errorNameOf(error) });
     return closedJsonResponse(500, "internal");
   }
 }
@@ -125,6 +128,7 @@ function handleHealth(request: Request, env: Env): Response {
 async function handleSocket(
   request: Request,
   env: Env,
+  log: DoLogger,
   roomIdSegment: string,
   generationSegment: string,
 ): Promise<Response> {
@@ -147,7 +151,7 @@ async function handleSocket(
   // A misconfigured allowlist fails closed rather than open.
   const origins = allowedOrigins(env);
   if (origins === undefined) {
-    console.error("gateway: COLLAB_ALLOWED_ORIGINS is malformed");
+    log.error("gateway.config_invalid");
     return closedJsonResponse(503, "not-ready");
   }
   const origin = request.headers.get("Origin");
@@ -173,12 +177,25 @@ async function handleSocket(
   } catch (error) {
     // Retryable infrastructure failure maps to a closed 503; the WebSocket
     // upgrade is never retried at the gateway.
-    console.error("gateway: room object fetch failed", error);
+    //
+    // Deliberately no room identifiers: the join token is verified inside the
+    // Object, so at this point the route is still unverified client input.
+    // A room id and a room key share one alphabet and length range, so
+    // recording an unverified route id here would be an exfiltration path for
+    // anyone who can reach this endpoint (threat model, observability data
+    // classification). The Object logs the verified identity once it has one.
+    log.error("gateway.room_fetch_failed", {
+      errorName: errorNameOf(error),
+    });
     return closedJsonResponse(503, "unavailable");
   }
 }
 
-async function handleControl(request: Request, env: Env): Promise<Response> {
+async function handleControl(
+  request: Request,
+  env: Env,
+  log: DoLogger,
+): Promise<Response> {
   if (request.method !== "POST") {
     return closedJsonResponse(405, "method-not-allowed", { Allow: "POST" });
   }
@@ -203,7 +220,7 @@ async function handleControl(request: Request, env: Env): Promise<Response> {
 
   const secret = env.COLLAB_JOIN_TOKEN_SECRET;
   if (!roomTokenSecretReady(secret)) {
-    console.error("gateway: room token secret is missing or too short");
+    log.error("gateway.secret_not_ready");
     return closedJsonResponse(503, "not-ready");
   }
 
@@ -214,8 +231,8 @@ async function handleControl(request: Request, env: Env): Promise<Response> {
   });
   if (!verified.ok) {
     // The reason is log-only; the response never distinguishes failure modes.
-    console.warn("gateway: control token rejected", {
-      reason: verified.reason,
+    log.warn("gateway.control_token_rejected", {
+      tokenFailure: verified.reason,
     });
     return closedJsonResponse(401, "unauthorized");
   }
@@ -235,6 +252,15 @@ async function handleControl(request: Request, env: Env): Promise<Response> {
     const result = await stub.applyControlV1(
       roomControlCommandFromClaims(claims),
     );
+    // The control audit record: which action, against which verified room
+    // identity, closing how many sessions. Never the subject (threat model
+    // §5 forbids raw subject ids and this logger keeps no pseudonym salt).
+    log.info("gateway.control_applied", {
+      controlAction: claims.action,
+      roomId: claims.rid,
+      authGeneration: claims.gen,
+      closedSessions: result.closed,
+    });
     return Response.json({
       appliedRevision: result.appliedRevision,
       closed: result.closed,
@@ -243,7 +269,11 @@ async function handleControl(request: Request, env: Env): Promise<Response> {
     // Object-side refusals and infrastructure failures alike map to one
     // closed, retryable answer; detail stays in Workers Logs. The caller's
     // durable dispatcher (Plan 13) owns retries.
-    console.error("gateway: control dispatch failed", error);
+    log.error("gateway.control_dispatch_failed", {
+      roomId: claims.rid,
+      authGeneration: claims.gen,
+      errorName: errorNameOf(error),
+    });
     return closedJsonResponse(503, "unavailable");
   }
 }

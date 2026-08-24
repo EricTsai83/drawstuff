@@ -48,6 +48,11 @@ pnpm --filter @drawstuff/collaboration-do cf:typegen  # regenerate worker-config
 pnpm --filter @drawstuff/collaboration-do preflight   # dry-run bundle+config, zero side effects
 pnpm --filter @drawstuff/collaboration-do deploy      # verify → preflight → deploy
 pnpm --filter @drawstuff/collaboration-do secret:put  # prompts for COLLAB_JOIN_TOKEN_SECRET
+
+# Plan 12b measurement tooling (all target a deployed Worker in its 0%-traffic
+# window; COLLAB_JOIN_TOKEN_SECRET must be the deployed Worker's secret):
+pnpm --filter @drawstuff/collaboration-do conformance:remote <base-url>  # full shared conformance suite
+pnpm --filter @drawstuff/collaboration-do loadtest <base-url> [flags]    # capacity/latency harness
 pnpm --filter @drawstuff/collaboration-do smoke <url> # live gateway smoke, prints version id
 ```
 

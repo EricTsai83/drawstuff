@@ -1,7 +1,7 @@
 # 11 — Durable Object control plane、SQLite cutoffs 與 idempotent lifecycle
 
 - 前置：[Plan 10](./10-collaboration-do-room-runtime.md)
-- 後續：[Plan 12](./12-collaboration-do-verification-capacity.md)
+- 後續：[Plan 12a](./12a-collaboration-do-verification-development.md)
 - Production traffic：**0%**
 
 ## 目標

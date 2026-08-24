@@ -6,10 +6,12 @@
   "type": "module",
   "scripts": {
     "cf:typegen": "wrangler types --strict-vars=false",
+    "conformance:remote": "node scripts/conformance-remote.mjs",
     "deploy": "pnpm run verify && pnpm run preflight && wrangler deploy",
     "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
+    "loadtest": "node scripts/loadtest.mjs",
     "preflight": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
     "secret:put": "wrangler secret put COLLAB_JOIN_TOKEN_SECRET",
     "smoke": "node scripts/smoke.mjs",

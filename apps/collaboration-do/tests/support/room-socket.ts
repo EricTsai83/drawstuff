@@ -35,7 +35,7 @@ import { TEST_ROOM_TOKEN_SECRET } from "./audit.ts";
  * the relay test support so the two suites exercise the same wire surface.
  */
 
-const GATEWAY_BASE = "https://collaboration-gateway.test";
+export const GATEWAY_BASE = "https://collaboration-gateway.test";
 const ALLOWED_ORIGIN = "http://localhost:3000";
 
 /**

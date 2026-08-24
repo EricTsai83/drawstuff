@@ -1,12 +1,21 @@
+import { SELF } from "cloudflare:test";
 import { afterEach, describe, it } from "vitest";
 
 import {
   relayProtocolConformanceCases,
   type ConformanceHarness,
 } from "@drawstuff/collaboration/protocol-conformance";
+import {
+  DO_GATEWAY_CONTROL_PATH,
+  doGatewayControlResponseSchema,
+} from "@drawstuff/collaboration/relay-control";
 
 import { TEST_ROOM_TOKEN_SECRET } from "./support/audit.ts";
-import { openSocket, settleRoomEvents } from "./support/room-socket.ts";
+import {
+  GATEWAY_BASE,
+  openSocket,
+  settleRoomEvents,
+} from "./support/room-socket.ts";
 
 afterEach(settleRoomEvents);
 
@@ -24,11 +33,27 @@ const harness: ConformanceHarness = {
     const { connection } = await openSocket(roomId, authGeneration);
     return connection;
   },
+  async control(token) {
+    const response = await SELF.fetch(
+      `${GATEWAY_BASE}${DO_GATEWAY_CONTROL_PATH}`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token }),
+      },
+    );
+    if (response.status === 401) return { accepted: false, closed: 0 };
+    if (response.status !== 200) {
+      throw new Error(`control endpoint answered ${response.status}`);
+    }
+    const parsed = doGatewayControlResponseSchema.parse(await response.json());
+    return { accepted: true, closed: parsed.closed };
+  },
 };
 
 describe("Durable Object room runtime — shared protocol conformance", () => {
   for (const conformanceCase of relayProtocolConformanceCases) {
-    it(conformanceCase.name, { timeout: 15_000 }, async () => {
+    it(conformanceCase.name, { timeout: 30_000 }, async () => {
       await conformanceCase.run(harness);
     });
   }

@@ -356,9 +356,9 @@ zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernat
 兩者都落在 `disconnectReasonForCloseCode` 的 default（`transient`）：dead-peer 收割對 client
 是可重試事件，沒有第二套 reason 語意。idle 仍是 4010、room 過期仍是 4008，與 relay 相同。
 
-### 9.3 尚待 Plan 12 的證據項目
+### 9.3 尚待 Plan 12b 的證據項目
 
 - `bufferedAmount`：workerd 的 server-side WebSocket **型別不含** `bufferedAmount`，runtime
   是否提供由 `room-runtime.test.ts` 的量測案例記錄（runtime probe）。若 host 永遠不提供
-  可靠值，Plan 12 必須先定義有界替代方案（slow-consumer 保護的程式路徑保留，未移除）。
-- Pending cap（32）與總 socket cap（64）為可量測起始常數，Plan 12 依 join-storm 證據核准。
+  可靠值，Plan 12b 必須先定義有界替代方案（slow-consumer 保護的程式路徑保留，未移除）。
+- Pending cap（32）與總 socket cap（64）為可量測起始常數，Plan 12b 依 join-storm 證據核准。
