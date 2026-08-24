@@ -107,6 +107,8 @@ test("keeps the compact collaboration workflow within a 320px viewport", async (
 
   const dialog = page.getByRole("dialog", { name: "Live collaboration" });
   await expect(dialog).toBeVisible();
+  // Axe measures effective colors, so do not scan a partially transparent frame.
+  await expect(dialog).toHaveCSS("opacity", "1");
   const box = await dialog.boundingBox();
   expect(box?.width ?? Number.POSITIVE_INFINITY).toBeLessThanOrEqual(288);
   await expectNoDocumentHorizontalOverflow(page);
