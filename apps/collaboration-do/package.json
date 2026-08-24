@@ -15,7 +15,8 @@
     "preflight": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
     "secret:put": "wrangler secret put COLLAB_JOIN_TOKEN_SECRET",
     "smoke": "node scripts/smoke.mjs",
-    "test": "vitest run",
+    "test": "vitest run && pnpm run test:harness",
+    "test:harness": "node scripts/harness-smoke.mjs",
     "typecheck": "tsc --noEmit",
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run knip"
   },

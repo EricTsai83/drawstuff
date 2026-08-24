@@ -1,6 +1,6 @@
 # Collaboration Durable Object — Cloudflare-native observability 契約
 
-Status: Current（Plan 12a 建立；alerts／dashboards 的實際配置與量測證據屬 Plan 12b）
+Status: Current（工具與契約已實作；alerts／dashboards 的實際配置與量測證據屬 Plan 12b）
 
 門檻來源：[collaboration SLO 文件](../performance/collaboration-slo-capacity.md) §2／§3／§6／§9。
 資料分級來源：[collaboration threat model](../architecture/collaboration-threat-model.md)
@@ -31,22 +31,22 @@ Cloudflare 原生面組成，本文件是它們的契約：
 Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的 deploy 省略）。
 `versionId`/`versionTag` 來自 `version_metadata` binding，是 canary 比較的分組鍵。
 
-| event | level | 何時 | 主要欄位 |
-| --- | --- | --- | --- |
-| `gateway.unhandled_failure` | error | gateway 頂層 exception boundary | `errorName` |
-| `gateway.config_invalid` | error | `COLLAB_ALLOWED_ORIGINS` 解析失敗（socket 503） | — |
-| `gateway.secret_not_ready` | error | join token secret 缺失或過短 | — |
-| `gateway.room_fetch_failed` | error | DO stub fetch 失敗（upgrade 回 503） | `errorName`（**不含 room 識別碼**：此時 join token 尚未驗證，route 仍是未驗證輸入） |
-| `gateway.control_token_rejected` | warn | control token 驗證失敗（回 401） | `tokenFailure`（bounded enum） |
-| `gateway.control_applied` | info | control RPC 成功（audit record） | `controlAction`、`roomId`、`authGeneration`、`closedSessions` |
-| `gateway.control_dispatch_failed` | error | RPC 失敗（回 503，caller 的 durable dispatcher 負責 retry） | `roomId`、`authGeneration`、`errorName` |
-| `room.invalid_object_identity` | error | Object 被非 canonical 名稱定址 | — |
-| `room.frame_dispatch_failed` | error | frame handler 拋出（該連線關 4014） | `errorName` |
-| `room.socket_error` | warn | socket transport error | `errorName` |
-| `room.secret_not_ready` | error | Object 端 secret 缺失 | — |
-| `room.fanout_write_failed` | warn | fanout write 失敗（該 socket 關 1001） | `errorName` |
-| `room.session_joined` | info | join ack 送出後 | `roomId`、`authGeneration`、`peerId`、`role`、`members` |
-| `room.session_closed` | info | **每一次 server 主動 close**，帶 verdict | `closeCode`、`socketState`、`peerId`（joined 才有） |
+| event                             | level | 何時                                                        | 主要欄位                                                                            |
+| --------------------------------- | ----- | ----------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `gateway.unhandled_failure`       | error | gateway 頂層 exception boundary                             | `errorName`                                                                         |
+| `gateway.config_invalid`          | error | `COLLAB_ALLOWED_ORIGINS` 解析失敗（socket 503）             | —                                                                                   |
+| `gateway.secret_not_ready`        | error | join token secret 缺失或過短                                | —                                                                                   |
+| `gateway.room_fetch_failed`       | error | DO stub fetch 失敗（upgrade 回 503）                        | `errorName`（**不含 room 識別碼**：此時 join token 尚未驗證，route 仍是未驗證輸入） |
+| `gateway.control_token_rejected`  | warn  | control token 驗證失敗（回 401）                            | `tokenFailure`（bounded enum）                                                      |
+| `gateway.control_applied`         | info  | control RPC 成功（audit record）                            | `controlAction`、`roomId`、`authGeneration`、`closedSessions`                       |
+| `gateway.control_dispatch_failed` | error | RPC 失敗（回 503，caller 的 durable dispatcher 負責 retry） | `roomId`、`authGeneration`、`errorName`                                             |
+| `room.invalid_object_identity`    | error | Object 被非 canonical 名稱定址                              | —                                                                                   |
+| `room.frame_dispatch_failed`      | error | frame handler 拋出（該連線關 4014）                         | `errorName`                                                                         |
+| `room.socket_error`               | warn  | socket transport error                                      | `errorName`                                                                         |
+| `room.secret_not_ready`           | error | Object 端 secret 缺失                                       | —                                                                                   |
+| `room.fanout_write_failed`        | warn  | fanout write 失敗（該 socket 關 1001）                      | `errorName`                                                                         |
+| `room.session_joined`             | info  | join ack 送出後                                             | `roomId`、`authGeneration`、`peerId`、`role`、`members`                             |
+| `room.session_closed`             | info  | **每一次 server 主動 close**，帶 verdict                    | `closeCode`、`socketState`、`peerId`（joined 才有）                                 |
 
 語意注意：
 
@@ -99,20 +99,25 @@ availability 的判讀順序：
 Capacity／latency 量測由 `scripts/loadtest.mjs` 產生（機器可讀 JSON 報告；門檻判定屬
 SLO 文件與 Plan 12b，harness 本身不內建門檻）。
 
+`scripts/harness-smoke.mjs` 在 ephemeral local workerd 上，經真實 localhost HTTP／WebSocket
+自動執行完整 remote conformance suite 與短版 load sample，並驗證 JSON report；它隨 package
+`test` 執行，不需要 Cloudflare 登入、已部署 Worker 或 production secret。這只證明工具與 transport
+可執行，正式 capacity／latency 結論仍只能由 Plan 12b 的固定環境量測產生。
+
 ## 6. Alert 定義（Plan 12b 配置）
 
 每一列都指回 SLO 節號或 threat model；本文件不提出新門檻。
 
-| Alert | 資料來源 | 條件 | 依據 |
-| --- | --- | --- | --- |
-| `DoConfigInvalid` | Logs：`gateway.config_invalid`、`*.secret_not_ready` | 任何一筆 | fail-closed 配置壞掉即斷線 |
-| `DoInternalError` | Logs：`room.frame_dispatch_failed`、`gateway.unhandled_failure` | 1h 內 > 0 | SLO §6（internalError 計入非預期斷線） |
-| `DoUnexpectedDisconnectRate` | Logs：`room.session_closed` 依 `closeCode` 分組 | (4000+4014+4002+4003) / sessions > 0.5% | SLO §6 |
-| `DoSlowConsumerRate` | Logs：`closeCode = 4003` | > 0.1% sessions | SLO §6 |
-| `DoControlRejected` | Logs：`gateway.control_token_rejected` | 1h 內 > 0（唯一 caller 是自家 backend） | 憑證或時鐘故障的早期訊號 |
-| `DoLogFieldsRejected` | Logs：`rejectedFields` 存在 | 任何一筆 | §2（allowlist 缺陷） |
-| `DoNamespaceErrors` | DO namespace metrics | error rate 持續非零 | SLO §6 |
-| `DoOverload` | namespace metrics／`overloaded` errors | 任何持續發生 | Plan 12b P3（`overloaded` 不 retry） |
+| Alert                        | 資料來源                                                        | 條件                                    | 依據                                   |
+| ---------------------------- | --------------------------------------------------------------- | --------------------------------------- | -------------------------------------- |
+| `DoConfigInvalid`            | Logs：`gateway.config_invalid`、`*.secret_not_ready`            | 任何一筆                                | fail-closed 配置壞掉即斷線             |
+| `DoInternalError`            | Logs：`room.frame_dispatch_failed`、`gateway.unhandled_failure` | 1h 內 > 0                               | SLO §6（internalError 計入非預期斷線） |
+| `DoUnexpectedDisconnectRate` | Logs：`room.session_closed` 依 `closeCode` 分組                 | (4000+4014+4002+4003) / sessions > 0.5% | SLO §6                                 |
+| `DoSlowConsumerRate`         | Logs：`closeCode = 4003`                                        | > 0.1% sessions                         | SLO §6                                 |
+| `DoControlRejected`          | Logs：`gateway.control_token_rejected`                          | 1h 內 > 0（唯一 caller 是自家 backend） | 憑證或時鐘故障的早期訊號               |
+| `DoLogFieldsRejected`        | Logs：`rejectedFields` 存在                                     | 任何一筆                                | §2（allowlist 缺陷）                   |
+| `DoNamespaceErrors`          | DO namespace metrics                                            | error rate 持續非零                     | SLO §6                                 |
+| `DoOverload`                 | namespace metrics／`overloaded` errors                          | 任何持續發生                            | Plan 12b P3（`overloaded` 不 retry）   |
 
 Dashboard 面板組：requests/errors（Worker 與 namespace 分開）、duration GB-s 與
 hibernation 比率、WebSocket connections/messages、`session_closed` close-code 分佈、

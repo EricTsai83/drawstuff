@@ -1,12 +1,14 @@
 # 12b — Durable Object 實測：conformance、capacity、latency 與 cost gate
 
-- 前置：[Plan 12a](./12a-collaboration-do-verification-development.md)（工具與契約已開發完成）
+- 前置：DO verification tooling 與 observability 契約已完成（現況見
+  [`@drawstuff/collaboration-do` README](../apps/collaboration-do/README.md) 與
+  [DO observability 契約](../docs/observability/collaboration-do-observability.md)）
 - 後續：[Plan 13](./13-collaboration-do-provider-coexistence.md)
 - Production traffic：**0%**
 
 ## 目標
 
-用 Plan 12a 交付的 conformance suite、remote runner、observability 契約與 load harness，對已部署
+用現有 conformance suite、remote runner、observability 契約與 load harness，對已部署
 Worker（0% 流量窗口，真實 room 尚未分配到 DO）實測 correctness、hibernation、capacity、
 latency、privacy、failure recovery 與成本模型。Cloudflare 文件給單一 DO 約 500–1,000 simple
 requests/events per second 的經驗範圍，不是本系統已通過的容量；現行 32 人 room、最高 120 Hz
@@ -25,7 +27,7 @@ client cadence 與 O(members) fanout 必須實測。0% 流量窗口內 namespace
 
 ## P1 — 對已部署 Worker 的 conformance 實跑
 
-以 Plan 12a 的 remote runner 對已部署 endpoint 執行完整共用 suite，證明 placement、real
+以 `conformance:remote` 對已部署 endpoint 執行完整共用 suite，證明 placement、real
 network 與 Cloudflare deployment 下 conformance 無差異。另補本機測不到的證據：
 
 - code update／eviction／alarm retry 後的 WebSocket survival 與 state restoration（對真部署做
@@ -35,7 +37,7 @@ network 與 Cloudflare deployment 下 conformance 無差異。另補本機測不
 
 ## P2 — Observability 配置與 privacy 驗證
 
-依 Plan 12a 的契約文件實際配置並驗證：
+依 [DO observability 契約](../docs/observability/collaboration-do-observability.md) 實際配置並驗證：
 
 - Workers Logs 查詢、alerts 與 dashboard 按文件定義建立；deployment version/tag 可用來比較
   canary；
