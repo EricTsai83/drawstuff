@@ -31,6 +31,7 @@
       "scripts/audit-scene-asset-references.ts",
       "scripts/measure-excalidraw-baseline.ts",
       "tests/e2e/**/*.ts",
+      "tests/support/async-drain.ts",
       "tests/support/responsive.ts",
       "tests/support/excalidraw-performance-fixtures.ts",
       "tests/support/collab-scene-fixtures.ts",
