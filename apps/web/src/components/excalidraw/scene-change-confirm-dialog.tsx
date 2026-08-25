@@ -39,39 +39,37 @@ export function SceneChangeConfirmDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <DialogFooter className="w-full sm:flex sm:justify-between">
-          <div className="flex w-full flex-col gap-2 sm:flex-row">
-            <Button
-              type="button"
-              variant="default"
-              disabled={isLoading}
-              onClick={() => onChoose("save")}
-              aria-label={t("scene.change.save")}
-            >
-              {t("scene.change.save")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isLoading}
-              onClick={() => onChoose("switch")}
-              aria-label={t("scene.change.discard")}
-            >
-              {t("scene.change.discard")}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={isLoading}
-              onClick={() => {
-                onChoose("cancel");
-                onOpenChange(false);
-              }}
-              aria-label={t("buttons.cancel")}
-            >
-              {t("buttons.cancel")}
-            </Button>
-          </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={isLoading}
+            onClick={() => {
+              onChoose("cancel");
+              onOpenChange(false);
+            }}
+            aria-label={t("buttons.cancel")}
+          >
+            {t("buttons.cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isLoading}
+            onClick={() => onChoose("switch")}
+            aria-label={t("scene.change.discard")}
+          >
+            {t("scene.change.discard")}
+          </Button>
+          <Button
+            type="button"
+            variant="default"
+            disabled={isLoading}
+            onClick={() => onChoose("save")}
+            aria-label={t("scene.change.save")}
+          >
+            {t("scene.change.save")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

@@ -36,9 +36,14 @@ export function SignOutConfirmDialog({
         if (!isLoading) onOpenChange(nextOpen);
       }}
     >
-      <DialogContent className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}>
+      <DialogContent
+        className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}
+        showCloseButton={false}
+      >
         <DialogHeader>
-          <DialogTitle>{t("auth.signOutConfirm.title")}</DialogTitle>
+          <DialogTitle className="text-lg font-semibold">
+            {t("auth.signOutConfirm.title")}
+          </DialogTitle>
           <DialogDescription>
             {isLoading
               ? t("common.processing")
@@ -46,32 +51,30 @@ export function SignOutConfirmDialog({
           </DialogDescription>
         </DialogHeader>
 
-        <DialogFooter className="w-full sm:flex sm:justify-between">
-          <div className="flex w-full flex-col gap-2 sm:flex-row">
-            <Button
-              type="button"
-              disabled={isLoading}
-              onClick={() => onChoose("save")}
-            >
-              {t("auth.signOutConfirm.save")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={isLoading}
-              onClick={() => onChoose("discard")}
-            >
-              {t("auth.signOutConfirm.discard")}
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={isLoading}
-              onClick={() => onChoose("cancel")}
-            >
-              {t("buttons.cancel")}
-            </Button>
-          </div>
+        <DialogFooter>
+          <Button
+            type="button"
+            variant="ghost"
+            disabled={isLoading}
+            onClick={() => onChoose("cancel")}
+          >
+            {t("buttons.cancel")}
+          </Button>
+          <Button
+            type="button"
+            variant="outline"
+            disabled={isLoading}
+            onClick={() => onChoose("discard")}
+          >
+            {t("auth.signOutConfirm.discard")}
+          </Button>
+          <Button
+            type="button"
+            disabled={isLoading}
+            onClick={() => onChoose("save")}
+          >
+            {t("auth.signOutConfirm.save")}
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
