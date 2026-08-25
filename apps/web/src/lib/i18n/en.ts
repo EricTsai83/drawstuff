@@ -97,7 +97,7 @@ export const en = {
   "auth.loading": "Loading sign-in page...",
   "auth.continueWithGoogle": "Continue with Google",
   "auth.connecting": "Connecting...",
-  "auth.welcome": "Welcome to Excalidraw X Ericts",
+  "auth.welcome": "Welcome to drawstuff",
   "auth.required.title": "Sign in required",
   "auth.required.description": "Sign in to access this feature.",
   "auth.agreement.click": "By continuing, you agree to our",
