@@ -10,6 +10,7 @@ import {
 } from "@drawstuff/collaboration/snapshot";
 import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 
+import { drainAsync } from "./support/async-drain";
 import {
   collabRectangle,
   editedElement,
@@ -42,18 +43,6 @@ import {
  * folded oversize into the same `{ status: "failed" }` as a network error, which
  * the session ignored outright.
  */
-
-/**
- * Lets queued async work run without delivering any message: both microtasks and
- * one macrotask per round, because `crypto.subtle.digest` — which every snapshot
- * write goes through — does not settle on the microtask queue alone.
- */
-const drainAsync = async (): Promise<void> => {
-  for (let round = 0; round < 4; round += 1) {
-    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-};
 
 /**
  * An element whose body alone exceeds the scene-message budget.

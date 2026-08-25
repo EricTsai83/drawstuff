@@ -1,6 +1,8 @@
 import { webcrypto } from "node:crypto";
 import { afterEach, vi } from "vitest";
 
+import { trackPendingCrypto } from "./support/async-drain";
+
 /**
  * jsdom ships `crypto.getRandomValues` but no `crypto.subtle`, and collaboration
  * code legitimately depends on it (snapshot digests, sealing). Node's own Web
@@ -14,6 +16,13 @@ if (typeof globalThis.crypto?.subtle === "undefined") {
     value: webcrypto,
   });
 }
+
+/**
+ * Counts the Web Crypto calls in flight, which is what lets the collaboration
+ * tests wait for a digest instead of guessing how many event-loop turns one
+ * takes. See `tests/support/async-drain.ts`.
+ */
+trackPendingCrypto();
 
 afterEach(() => {
   globalThis.localStorage?.clear();

@@ -9,6 +9,7 @@ import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/typ
 
 import { SNAPSHOT_INTERVAL_MS } from "@/lib/collab/collaboration-session";
 import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
+import { drainAsync } from "./support/async-drain";
 import {
   collabRectangle,
   editedElement,
@@ -34,18 +35,6 @@ import {
  */
 
 type Harness = ReturnType<typeof createHarness>;
-
-/**
- * Lets queued async work (snapshot loads, Web Crypto digests) run without
- * delivering any message. Both microtasks and one macrotask per round, because
- * `crypto.subtle.digest` does not settle on the microtask queue alone.
- */
-const drainAsync = async (): Promise<void> => {
-  for (let round = 0; round < 4; round += 1) {
-    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-};
 
 /**
  * Runs the room until nothing is in flight: snapshot loads resolve, messages are

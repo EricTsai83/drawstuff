@@ -14,6 +14,7 @@ import type {
   FileId,
 } from "@drawstuff/excalidraw-adapter/types";
 
+import { drainAsync } from "./support/async-drain";
 import { classifyJoinFailure } from "@/lib/collab/join-failure";
 import {
   createCollaborationAssetStore,
@@ -281,18 +282,6 @@ describe("asset lookups", () => {
     store.destroy();
   });
 });
-
-/**
- * Lets queued async work run without delivering a message. A macrotask per
- * round as well as microtasks, because `crypto.subtle.digest` does not settle
- * on the microtask queue alone.
- */
-const drainAsync = async (): Promise<void> => {
-  for (let round = 0; round < 4; round += 1) {
-    for (let tick = 0; tick < 4; tick += 1) await Promise.resolve();
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-};
 
 /**
  * Waits for observable async work rather than assuming Web Crypto settles in a
