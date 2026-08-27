@@ -1,6 +1,9 @@
 # ADR-0003：Collaboration Worker gateway 與 Durable Object namespace foundation
 
 - Status: Accepted（2026-08-23，隨 Plan 09 完成寫入）
+- Update（2026-08-27）：direct cutover 已完成，`collaborationRoom.join` 只回 DO gateway
+  URL，production realtime traffic 100% Durable Object。本文 Claims 依然有效；下段
+  「現況仍是 Node relay」與「流量鎖」章節描述的是 ADR 撰寫當時，僅存歷史脈絡。
 - 範圍：`apps/collaboration-do` 的 Worker/DO 權責、deployment lifecycle 與
   environment isolation。**現況仍是 Node relay**（`collaborationRoom.join` 只回
   Node relay URL，production DO traffic 0%）；本文把 Plan 09 的 Architecture

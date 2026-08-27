@@ -1,6 +1,9 @@
 # 共編 relay 部署封套與 rolling restart
 
-- Status: Current
+- Status: **Legacy — 等待退役**（2026-08-27 direct cutover 後 production realtime 為 100%
+  Durable Object；本文件只涵蓋仍在運行、已無 production traffic 的 Node relay process，
+  退役程序見 [`plans/15`](../../plans/15-collaboration-do-retirement.md)。DO 的部署與
+  rollback 程序目前在 `apps/collaboration-do/README.md`）
 - 建立日期：2026-08-06
 - 相關文件：[SLO 與 capacity](../performance/collaboration-slo-capacity.md)（容量數字的唯一來源）、
   [alerts 與 dashboards contract](../observability/collaboration-alerts-and-dashboards.md)

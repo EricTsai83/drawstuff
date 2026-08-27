@@ -15,7 +15,8 @@ defines ownership and compatibility rules; it is not an implementation history.
 | `@drawstuff/excalidraw-adapter`  | The only upstream integration boundary, native document/Library restore, render bridge, reconciliation wrapper, and upstream contract tests | Product UI, transport, room lifecycle, user persistence, or another element model               |
 | `apps/web`                       | Product layout, dialogs, menus, user-scoped Library persistence, persistence UI, authentication, and collaboration composition              | A direct Excalidraw dependency, canvas engine, Library/scene merge algorithm, or history engine |
 | `@drawstuff/collaboration`       | Transport-neutral protocol, crypto, recovery, room/presence contracts, and collaboration orchestration                                      | React/Next.js UI, relay process, persistence, or canvas primitives                              |
-| `@drawstuff/collaboration-relay` | Authenticated connections, bounded opaque fanout, health, metrics, and graceful drain                                                       | React, app code, adapter code, scene plaintext, or durable canvas state                         |
+| `apps/collaboration-do`          | Thin Worker gateway (public request shape, Upgrade checks, control-token verification, DO routing), the `CollaborationRoom` Durable Object (hibernatable bounded fanout, SQLite coordination metadata, alarms), health, and the outbox cron clock | React, app code, adapter code, scene plaintext, room keys, or a second authoritative copy of durable canvas state |
+| `@drawstuff/collaboration-relay` | **Legacy, pending retirement (`plans/15`)** — retired Node relay: authenticated connections, bounded opaque fanout, health, metrics, and graceful drain | React, app code, adapter code, scene plaintext, or durable canvas state                         |
 
 The allowed dependency graph is:
 
@@ -24,7 +25,8 @@ apps/web ───────────────→ @drawstuff/excalidraw-
     │
     └→ @drawstuff/collaboration
 
-@drawstuff/collaboration-relay ─→ @drawstuff/collaboration/protocol
+apps/collaboration-do ─────────→ @drawstuff/collaboration (server-safe entries only)
+@drawstuff/collaboration-relay ─→ @drawstuff/collaboration/protocol   (legacy)
 ```
 
 `@drawstuff/collaboration` and `@drawstuff/excalidraw-adapter` do not depend on each other in

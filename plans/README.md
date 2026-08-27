@@ -22,8 +22,9 @@
 Claims 與效能證據見
 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md) 與
 [collaboration SLO 文件](../docs/performance/collaboration-slo-capacity.md) §8。
-Room member/socket caps 是內部資源防護，不是 production capacity commitment；首次 production
-assignment 與 direct cutover 已完成；Plan 14 繼續 production soak 與 rollback drills。
+Room member/socket caps 是內部資源防護，不是 production capacity commitment；direct cutover
+已完成（migration 期間的 provider assignment 機制已隨 cutover 移除，routing 無條件
+DO-only）；Plan 14 繼續 production soak 與 rollback drills。
 
 ### 獨立工作
 

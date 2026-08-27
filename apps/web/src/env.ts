@@ -36,9 +36,10 @@ export const env = createEnv({
     COLLAB_OUTBOX_CRON_SECRET: z.string().min(1).optional(),
     CLEANUP_OWNER_EMAIL: z.string().email(),
     /**
-     * HMAC secret shared with @drawstuff/collaboration-relay. Signs the
-     * short-lived room join tokens and the server-to-server control tokens;
-     * required because the relay has no unauthenticated join path.
+     * HMAC secret shared with the collaboration Durable Object Worker
+     * (apps/collaboration-do). Signs the short-lived room join tokens and the
+     * server-to-server control tokens; required because the gateway has no
+     * unauthenticated join path.
      */
     COLLAB_JOIN_TOKEN_SECRET: z.string().min(32),
     /** Public HTTP origin of the Durable Object gateway control endpoint. */

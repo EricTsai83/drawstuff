@@ -1,9 +1,12 @@
 # ADR-0002：Collaboration Durable Object migration 的長期架構 Claims
 
 - Status: Accepted（2026-08-23，隨 Plan 08 完成寫入）
+- Update（2026-08-27）：direct cutover 已完成，production realtime routing 為 100%
+  Durable Object（見
+  [collaboration system design](../architecture/collaboration-system-design.md)）。本文
+  Claims 依然有效；下段「現況是 Node relay」描述的是 ADR 撰寫當時，僅存歷史脈絡。
 - 範圍：realtime collaboration 的長期 relay 架構方向。**現況是 Node relay**
-  （`@drawstuff/collaboration-relay`，單 instance，見
-  [collaboration system design](../architecture/collaboration-system-design.md)）；本文的
+  （`@drawstuff/collaboration-relay`，單 instance）；本文的
   Durable Object 是「已接受的 target」，不是已實作的系統。任何一條 Claim 都不授權提前建立
   第二條 live routing path——那由後續 migration plans（`plans/09`–`15`）依序驗證與開啟。
 

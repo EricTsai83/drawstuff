@@ -5,8 +5,9 @@
 - Capacity contract: [collaboration SLO](../performance/collaboration-slo-capacity.md)
 - Deployment contract: [relay deployment envelope](../operations/collaboration-relay-deployment.md)
 
-This document describes the collaboration system as it exists today. The relay is an independent,
-single-process service; durable collaboration data belongs to the web backend; encryption and
+This document describes the collaboration system as it exists today. The relay is a Cloudflare
+Worker gateway plus one `CollaborationRoom` Durable Object per room generation
+(`apps/collaboration-do`); durable collaboration data belongs to the web backend; encryption and
 reconciliation run on clients.
 
 ## Components and data flow
@@ -193,8 +194,9 @@ join barrier to converge. Relay restart never touches PostgreSQL or owned-scene 
 
 ### Why the counter is a separate shared service
 
-The collaboration relay is one long-lived process, so its connection and frame token buckets are
-correctly process-local. `apps/web` runs in serverless functions: a process-local counter there
+Relay-side connection and frame token buckets live inside the room's single Durable Object, which
+serializes its own state, so per-room counters there are correct. `apps/web` runs in serverless
+functions: a process-local counter there
 would be one independent limit per warm invocation and would change strength whenever the platform
 scaled. Backend entry-point limits therefore use one module-scoped `@upstash/redis` client and
 `@upstash/ratelimit` sliding windows in Upstash Redis.
