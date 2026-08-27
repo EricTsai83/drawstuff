@@ -6,35 +6,28 @@
   implementation、metrics 與 alerts 的共同 budget。服務不承諾特定 room 人數、更新頻率或
   production capacity；以下 hard limits 只用來防止無界資源使用，效能數字只用於診斷 regression，
   不構成對外或 migration release guarantee。
-- 核准時的兩項決定（見 §4.1 與 §7）：
-  1. **記憶體不靠砍排水空間**：`maxBufferedBytes` 與 `maxConnections` 都維持原值，改以
-     RSS alert 加 max-memory 自動重啟收尾。
-  2. **不支援水平擴展**：強制單 instance，與 upstream 一致。
+- 核准時的兩項決定原文（「記憶體不靠砍排水空間」與「不支援水平擴展：強制單 instance」）
+  是 Node relay 的部署決定，已隨 relay 退役而終結（歷史見 git history）；它們遺留的
+  per-connection 排水政策以 DO 形式延續於 §9.3。
 - **修訂 R1（2026-08-06 核准）**：§5 的 scene frame 與 scene bytes 兩個數字原本是依錯誤的
   推導定出的，實作後由 review 發現會斷開正常使用者。修正後的數字已實作、已核准，並有
   sustained-cadence 測試守住——見 §5 的「修訂 R1」小節。
 
-## 0. 前提：internal limits 以 instance 為界
+## 0. 前提：internal limits 以 room（Object）為界
 
-`createInMemoryRoomFanout` 的 room state 是 process-local，其原始碼註解已明確說明它只對
-單一 process 正確。**2026-08-06 決定：不支援水平擴展，部署層強制單 instance。**
+Room state 是 per-room Durable Object 的內部狀態：一個 room generation 對應一個
+`CollaborationRoom` Object，fanout 不跨 Object，也沒有外部 pub/sub 依賴。「水平擴展」由
+平台以 room 為單位提供；單一 room 內部仍是 single-threaded、O(members) fanout。
 
-依據是 upstream 的實作（2026-08-06 查 `excalidraw/excalidraw-room@master`）：官方共編伺服器
-在 `pm2.json` 與 `pm2.production.json` 兩份設定裡都是 `exec_mode: "fork_mode"`、
-`instances: 1`，程式碼**未配置任何 socket.io adapter**（預設 in-memory adapter 即單
-process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作它。使用量遠大於本專案的
-官方服務都不需要跨 instance fanout，因此引入外部 pub/sub 的複雜度與新依賴不成比例。
+隨此模型成立的事：
 
-隨此決定連帶成立的事：
-
-- 本文件的 relay hard limits 都以**單一 instance** 為界；它們只描述拒絕與防護邊界，不能反推
+- 本文件的 hard limits 以**單一 room（Object）**為界；它們只描述拒絕與防護邊界，不能反推
   為服務承諾可承載的活躍連線、room 或更新速率。
-- 超出容量必須以明確 close code 拒絕（`relayAtCapacity`／`roomAtCapacity` 已存在），
-  不得默默錯誤。
-- 「fanout dependency outage」與「fanout partition」情境不適用——沒有外部 fanout 依賴；
-  前者退化為 relay process 重啟。
-- 共編是單點故障。Relay 不可用時一般單人 editor 不受影響；部署與重啟程序見
-  [relay 部署文件](../operations/collaboration-relay-deployment.md)。
+- 超出容量必須明確拒絕，不得默默錯誤：per-room 成員上限以 close code `roomAtCapacity`
+  關閉；Object 的 pending／總 socket 防護界（§9.3）在 upgrade 前以 HTTP 503 拒絕。
+- 「fanout dependency outage」與「fanout partition」情境不適用——沒有外部 fanout 依賴。
+- 共編不可用（Worker 或平台故障）時，一般單人 editor 不受影響；部署與 rollback 程序見
+  [DO 部署 runbook](../operations/collaboration-do-deployment.md)。
 
 ## 1. 已鎖定、不在本文件範圍的數字
 
@@ -56,11 +49,11 @@ process），README 只是連結到 socket.io 的 pm2 cluster 文件而非實作
 
 ## 2. Internal safety limits（非容量承諾）
 
-| 項目                   | 內部 hard limit               | 用途                                                                                                  |
-| ---------------------- | ----------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 同時連線數／Node instance | 256（`maxConnections`）    | 防止單一 relay process 無界成長；不是已驗證可承載 256 個活躍 client 的聲明                           |
-| 同時 room 數／Node instance | 128（`maxRooms`）        | 防止 process-local room map 無界成長；超限以 `relayRoomsAtCapacity` 明確拒絕                          |
-| 單一 room 成員數       | 32（`maxConnectionsPerRoom`） | Node 與 DO 共用的保守 abuse/resource bound；不是 32 人、120 Hz 或任何 workload shape 的支援保證       |
+| 項目                          | 內部 hard limit                    | 用途                                                                                       |
+| ----------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
+| 單一 room 成員數              | 32（`MAX_CONNECTIONS_PER_ROOM`）   | 保守的 abuse/resource bound；不是 32 人、120 Hz 或任何 workload shape 的支援保證           |
+| 未 join socket／Object        | 32（`MAX_PENDING_SOCKETS`，§9.3）  | unauthenticated 防護界；超限在 upgrade 前以 HTTP 503 拒絕                                  |
+| 總 socket／Object             | 64（`MAX_ROOM_SOCKETS`，§9.3）     | Object 資源防護界；超限在 upgrade 前以 HTTP 503 拒絕，先 reap 死連線再套 cap               |
 
 Durable Object 可以維持大量低活動 WebSocket，但每個 Object 仍是 single-threaded，且本協定對每個
 accepted frame 做 O(members) fanout。連線平台上限不能推導為活躍共編容量；本專案只驗證小群組
@@ -70,13 +63,13 @@ correctness，等真實使用量或 overload/latency 指標顯示需要時才做
 
 分兩層，因為兩者可觀測的位置不同。
 
-### 3.1 Relay routing latency（server 端可測）
+### 3.1 Room runtime routing latency（server 端可測）
 
 定義：binary frame 收到 → 該 frame 已交給該 room 全部其他成員的 `socket.send`。
 
-| 分位 | 核准門檻 | 依據                                                               |
-| ---- | -------- | ------------------------------------------------------------------ |
-| p50  | ≤ 1 ms   | fanout 是同步 Map 迭代，不含 I/O、不含解密（relay 讀不懂 payload） |
+| 分位 | 核准門檻 | 依據                                                                   |
+| ---- | -------- | ---------------------------------------------------------------------- |
+| p50  | ≤ 1 ms   | fanout 是同步迭代，不含 I/O、不含解密（room runtime 讀不懂 payload）   |
 | p95  | ≤ 5 ms   | 允許 GC 與 32 成員 room 的寫入放大                                 |
 | p99  | ≤ 20 ms  | 尾端留給 socket 寫入背壓                                           |
 
@@ -107,54 +100,28 @@ correctness，等真實使用量或 overload/latency 指標顯示需要時才做
 
 ## 4. 資源上限
 
-### 4.1 記憶體
+### 4.1 記憶體與排水（backpressure）
 
-Relay 不保留 scene，也不持久化，因此記憶體只有三個來源：per-connection ws 結構、
-outbound buffer、fanout 的 room／member Map。
+Room runtime 不保留 scene，也不在 Object 記憶體裡持久化任何 frame，記憶體來源只有
+per-socket 結構與 outbound buffer。process 級的記憶體預算（RSS 目標、max-memory 自動
+重啟）是退役 Node relay 的部署決定，沒有 DO 對應物——Object 的記憶體由平台隔離與回收。
 
-主導項是 outbound buffer。`maxBufferedBytes` = 4 MiB 是**斷線門檻**，代表單一連線在被
-關閉前可以佔用 4 MiB，於是名目最壞情況是：
+延續下來的是 **per-connection 排水政策**（數字與理由不變，執行細節見 §9.3）：
 
-```
-名目最壞情況 = maxConnections × maxBufferedBytes = 256 × 4 MiB = 1 GiB
-```
+| 項目                          | 核准值           | 依據                                                                                          |
+| ----------------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
+| Scene 排水門檻（斷線）        | **4 MiB**        | 一個最大 scene frame 是 1 MiB + sealing overhead；4 MiB 給合法慢速消費者四個 frame 的排水空間 |
+| Presence 丟棄門檻             | **256 KiB**      | presence 是 volatile，丟棄無成本                                                              |
 
-**核准的處理方式：不動這兩個數字。** 依據有二。
+workerd 的 server-side WebSocket 型別不含 `bufferedAmount`；signal 存在時才套用上表門檻，
+不存在時 host write failure 只關閉該 receiver（§9.3）。
 
-其一，這個最壞情況要求 **256 條連線同時停止排水**。常態 buffered bytes 趨近 0（frame
-立即沖出），4 MiB 只有真正卡住的消費者才會碰到，而 heartbeat（15s／漏一次即 terminate）
-與 §5 新增的速率限制都會先把異常連線清掉。
+### 4.2 路由排隊指標
 
-其二，upstream 對同一個問題的答案更寬鬆（2026-08-06 查
-`excalidraw/excalidraw-room@master`）：它**完全不約束 buffer**——沒有連線上限、沒有
-per-room 上限、沒有 backpressure，socket.io 內部緩衝無界——記憶體政策就是
-`pm2.production.json` 的 `max_memory_restart: "4G"`，跑到 4 GB 自動重啟。也就是說我們
-名目 1 GiB 的最壞情況，在參考實作的標準下並不突出，而我們已經有它完全沒有的所有上限。
-
-因此真正的防護放在「先擋住異常流量」而不是「砍掉正常流量的排水空間」：把排水空間從
-4 MiB 砍到 2 MiB 只會讓合法的慢速消費者更早被踢，而異常流量本來就該由 §5 的速率限制擋。
-
-| 項目                        | 核准值                                   | 依據                                                                                          |
-| --------------------------- | ---------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `maxBufferedBytes`          | **維持 4 MiB**                           | 一個最大 scene frame 是 1 MiB + sealing overhead；4 MiB 給合法慢速消費者四個 frame 的排水空間 |
-| `maxConnections`            | **維持 256**                             | 同上；容量目標 192 已留 25% 給 reconnect storm                                                |
-| `presenceDropBufferedBytes` | **維持 256 KiB**                         | presence 是 volatile，丟棄無成本                                                              |
-| Process RSS                 | **目標 ≤ 512 MiB，alert 持續 > 768 MiB** | 目標是「常態 + 少數卡住的連線」的實際量級，不是名目最壞情況；alert 用來抓真正的異常           |
-| Max-memory 自動重啟         | **1 GiB，graceful drain 後退出**         | upstream `max_memory_restart` 的對應物，作為最後防線；不得硬殺                                |
-| 每連線常態記憶體            | **目標 ≤ 256 KiB**                       | 常態 buffered ≈ 0；此值尚未經正式容量測試驗證                                                 |
-
-Max-memory 自動重啟與 graceful drain 已實作；超限時先排空再由 process manager 重啟，避免
-主動製造一次全員硬斷線。
-
-### 4.2 Event-loop lag
-
-Relay 的 fanout 是同步的，因此 event-loop lag 是唯一能反映「路由開始排隊」的指標。
-
-| 分位  | 核准門檻              |
-| ----- | --------------------- |
-| p95   | ≤ 20 ms               |
-| p99   | ≤ 50 ms               |
-| Alert | 持續 30s p99 > 100 ms |
+退役 Node relay 以 event-loop lag 反映「路由開始排隊」；DO 沒有 process event loop 可量，
+對應的訊號是平台 metrics 的 Duration／CPU time 形狀與 §3.1 的 routing latency（見
+[DO observability 契約](../observability/collaboration-do-observability.md) §4）。原
+event-loop lag 門檻（p95 ≤ 20 ms、p99 ≤ 50 ms）隨 relay 退役，不再是可量測的契約。
 
 ## 5. 速率限制
 
@@ -162,8 +129,8 @@ threat model T6 記錄的缺口：大小有界、速率無界。以下為**新�
 
 實作分兩批，因為兩邊的執行模型不同：
 
-- **Relay 側（下表前六列）**：relay 是單一長生命週期 process，per-connection token bucket
-  在記憶體中即為正確，已實作且無需新依賴。
+- **Room runtime 側（下表前六列）**：per-connection token bucket 與 socket 同生共死
+  （`@drawstuff/collaboration/rate-limit`，由 DO room runtime 執行），無需外部依賴。
 - **後端側（下表後五列）**：`apps/web` 跑在 serverless function 上，process-local 計數器
   在多個 invocation 之間不成立，因此需要一個共享儲存。**2026-08-08 Upstash Redis 已開通，
   並核准以官方 Redis／Ratelimit SDK 做共享計數**；四個入口與 snapshot leave 的一個保留
@@ -196,7 +163,7 @@ exception 一律 **fail open**：請求照常進入既有檢查，並記一筆�
 
 `degraded` 不是 rate limited：不回 429，也不消耗 client 的 retry budget。降級期間，登入、
 room role、generation 是否為當前世代、payload／batch 大小、每 generation 512 assets，以及
-Relay 既有 token bucket 全部維持 fail closed。每個 limiter decision 對 Redis **只呼叫一次**、
+room runtime 既有 token bucket 全部維持 fail closed。每個 limiter decision 對 Redis **只呼叫一次**、
 不重試（在已經遲了 750 ms 的 decision 裡重試只會在故障當下放大延遲）。一般 request 只有一個
 decision；只有 `snapshot-put` 已明確拒絕的 leave request 會再檢查一次獨立的 finalization reserve，
 因此最多兩次。任何路徑都不切換成 process-local counter（那會產生一個看似全域、實際上每個
@@ -216,7 +183,7 @@ transient，且不早於 server 指定的 reset time 重試，既有 bounded ret
 
 ### 修訂 R1（2026-08-06 核准）
 
-Review 在 relay limits 實作後發現原始核准值裡的兩個 scene 數字建立在錯誤的推導上，且會斷開
+Review 在（當時的 Node relay）limits 實作後發現原始核准值裡的兩個 scene 數字建立在錯誤的推導上，且會斷開
 正常使用者。修正後的數字已經實作、有測試守住，並於 2026-08-06 由 owner 核准。**修訂值即為
 現行門檻**；下表保留原值只為記錄為什麼會錯，不代表可以退回。
 
@@ -243,25 +210,27 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
 | --------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Session 成功率（join → 至少一次 baseline resolved） | ≥ 99%                                | 只有 baseline resolved 才算成功；socket 開了就死不算                                                                                                   |
 | 非預期斷線率                                        | ≤ 0.5% of sessions                   | 計入 `protocolViolation`、`internalError`、`relayAtCapacity`、`roomAtCapacity`、`slowConsumer`；不計入使用者主動離開、`roomEnded`、`membershipRevoked` |
-| `slowConsumer` 斷線率                               | ≤ 0.1% of sessions                   | 排水空間維持 4 MiB（§4.1），因此此項應該稀少；持續偏高代表該重新檢視 §4.1 的決定                                                                       |
+| `slowConsumer` 斷線率                               | ≤ 0.1% of sessions                   | 排水空間維持 4 MiB（§4.1／§9.3），因此此項應該稀少；持續偏高代表該重新檢視該決定                                                                       |
 | Decrypt failure                                     | **穩態應為 0**；任何持續非零即 alert | 非零代表金鑰不符、世代錯位或竄改，全都需要人介入而非自動修復                                                                                           |
 | Snapshot conflict 率                                | ≤ 5% of writes                       | writer election 應讓 conflict 稀少；持續偏高代表 election 失效                                                                                         |
 | 超限 block 發生率                                   | 僅記錄，不設門檻                     | 這是使用者的畫布大小，不是服務品質                                                                                                                     |
 
 ## 7. Implementation status and accepted limits
 
-- Relay capacity, room count, frame/churn limits, idle timeout, metrics, structured logs, graceful
-  drain, and max-memory restart are implemented. Alert-to-metric mappings are defined in the
-  [alerts contract](../observability/collaboration-alerts-and-dashboards.md).
+- Room-runtime limits (member cap, rate budgets, idle timeout, backpressure policy) and
+  closed-schema structured logs are implemented in the Durable Object runtime. Alert definitions
+  live in the [DO observability contract](../observability/collaboration-do-observability.md).
 - Shared backend rate limits are implemented on Upstash Redis for all four collaboration entry
   points, plus the bounded snapshot-finalization reserve in §5, with fail-open degradation and 429
   responses carrying a machine-readable reset. Scope and rationale are documented in the current
   [collaboration system design](../architecture/collaboration-system-design.md) and
   [threat model](../architecture/collaboration-threat-model.md). WAF/edge rate limiting remains a
   possible future layer and is not part of this contract.
-- Session success, decrypt failure, and snapshot conflict occur outside the relay. Their carrier
-  contract exists, but no client/backend telemetry implementation carries them, so the corresponding
-  §6 thresholds cannot currently be evaluated.
+- Session success, decrypt failure, and snapshot conflict occur outside the room runtime. Their carrier
+  contract is specified in the
+  [DO observability contract](../observability/collaboration-do-observability.md) §8, but no
+  client/backend telemetry implementation carries them, so the corresponding §6 thresholds cannot
+  currently be evaluated.
 - There is no staging environment, formal load-test report, complete incident runbook, or incident
   drill. This personally operated service deliberately makes no verified production-capacity claim;
   diagnostic load tooling is run only when observed usage warrants it.
@@ -321,11 +290,11 @@ API（已標示）。
 
 ## 9. Durable Object room runtime 的 liveness／keepalive 對應（2026-08-24）
 
-Node relay 的 dead-peer 偵測是 server 每 15 秒發 protocol-level ping、漏一次 pong 即
+退役 Node relay 的 dead-peer 偵測是 server 每 15 秒發 protocol-level ping、漏一次 pong 即
 terminate（`heartbeatTimeout`，偵測上限 ≈ 2 × 15 s = 30 s）。這個機制不可移植到 Durable
 Object：server-initiated ping 需要喚醒 Object，會讓 hibernation 失效；browser WebSocket API
-也無法讓 client 發 protocol-level ping。DO 版本的替代契約如下，兩個 backend 的 taxonomy
-對應也一併鎖定，client 可見的 disconnect reason 語意**只有一套**。
+也無法讓 client 發 protocol-level ping。DO 的替代契約如下；與退役 relay 的 taxonomy 對應
+保留為設計依據，client 可見的 disconnect reason 語意**只有一套**、未曾改變。
 
 ### 9.1 機制
 
@@ -334,15 +303,13 @@ Object：server-initiated ping 需要喚醒 Object，會讓 hibernation 失效�
 - DO 以 `ctx.setWebSocketAutoResponse()` 回 `RELAY_KEEPALIVE_RESPONSE`——auto-response 由
   runtime 處理，**不喚醒 Object**（已以 eviction + construction stamp 測試證明），因此
   hibernation 與 duration 計費不受影響。
-- Node relay 對 keepalive frame 的行為是**忽略**（有測試）：relay 自身的 ping/pong 已回答
-  liveness。忽略而非回應，意謂 client 永遠不得依賴 response 的存在；只有 DO transport 把
-  response timestamp 當 liveness 證據。
+- Response 是契約上 optional 的：client 永遠不得依賴 response 的存在；只有 DO transport 把
+  response timestamp 當 liveness 證據。（歷史依據：退役 Node relay 對 keepalive frame 的
+  行為是忽略，當時有測試。）
 - Keepalive 只證明 socket 活著，**不算 activity**：idle deadline（15 分鐘）仍只由 data
-  frame（`lastFrameAt`）驅動，被遺忘的 tab 即使 keepalive 不斷仍會 idle timeout——與 relay
-  的 heartbeat／idle 二分完全一致。
-- Client 端的 keepalive 發送已隨 DO transport 接上。部署順序是硬性約束：
-  relay 的忽略行為必須先部署（本次變更、restart relay 之後），client 才可以開始送
-  keepalive，否則現行 relay 會把它當 `protocolViolation`（terminal）關線。
+  frame（`lastFrameAt`）驅動，被遺忘的 tab 即使 keepalive 不斷仍會 idle timeout。
+- Client 端的 keepalive 發送已隨 DO transport 接上。（遷移期的部署順序約束——relay 的
+  忽略行為必須先部署、client 才能開始送——已隨 cutover 完成而了結。）
 
 ### 9.2 偵測上限與 taxonomy 對應
 
@@ -350,7 +317,7 @@ DO 的 liveness 判定是 lazy 的——只在本來就要醒來的時刻檢查�
 write 失敗時、join 遇到 room cap 已滿時（先 reap 再套 cap，讓 tab crash 後的立即重連不被
 zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernation）。
 
-| 項目            | Node relay                                      | Durable Object                                                                                                              |
+| 項目            | Node relay（已退役，設計依據）                  | Durable Object                                                                                                              |
 | --------------- | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
 | 機制            | server ping／pong，漏一次即 terminate           | client keepalive + auto-response timestamp，lazy 判定                                                                       |
 | Liveness 門檻   | 2 × 15 s = 30 s                                 | `ROOM_LIVENESS_TIMEOUT_MS` = 2 × 15 s + 5 s = 35 s，加 `LAST_FRAME_PERSIST_QUANTUM_MS` = 30 s 的 attachment 落後容忍 → 65 s |
@@ -359,7 +326,7 @@ zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernat
 | Client 可見語意 | terminate（無 close code → 1006 → `transient`） | close 1001（非 enumerated code → `transient`）                                                                              |
 
 兩者都落在 `disconnectReasonForCloseCode` 的 default（`transient`）：dead-peer 收割對 client
-是可重試事件，沒有第二套 reason 語意。idle 仍是 4010、room 過期仍是 4008，與 relay 相同。
+是可重試事件，沒有第二套 reason 語意。idle 仍是 4010、room 過期仍是 4008，語意未曾改變。
 
 ### 9.3 Durable Object operational safety notes
 

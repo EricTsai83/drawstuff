@@ -3,7 +3,7 @@
 - Status: Current
 - Security model: [collaboration threat model](./collaboration-threat-model.md)
 - Capacity contract: [collaboration SLO](../performance/collaboration-slo-capacity.md)
-- Deployment contract: [relay deployment envelope](../operations/collaboration-relay-deployment.md)
+- Deployment contract: [Durable Object deployment runbook](../operations/collaboration-do-deployment.md)
 
 This document describes the collaboration system as it exists today. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation
@@ -342,7 +342,7 @@ object keys in `deferred_file_cleanup`. Full room and owned-scene retention beha
   WAF or edge rate limiting remains a possible additional layer, not part of the current contract.
   See [SLO §5](../performance/collaboration-slo-capacity.md), the
   [threat model](./collaboration-threat-model.md), and the
-  [observability contract](../observability/collaboration-alerts-and-dashboards.md).
+  [observability contract](../observability/collaboration-do-observability.md).
 - Workers Logs and privacy-safe structured logs exist. Client/session success, decrypt-failure,
   and snapshot-conflict SLOs currently have no telemetry carrier.
 - Direct cutover has no Node fallback or percentage rollout; the global create/join kill switch is

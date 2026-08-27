@@ -2,7 +2,7 @@
 
 - Status: Current
 - System design: [collaboration system design](./collaboration-system-design.md)
-- Observability policy: [alerts and dashboards contract](../observability/collaboration-alerts-and-dashboards.md)
+- Observability policy: [Durable Object observability contract](../observability/collaboration-do-observability.md)
 - Capacity and limits: [collaboration SLO](../performance/collaboration-slo-capacity.md)
 
 This document identifies trust boundaries, data that crosses them, implemented controls, and

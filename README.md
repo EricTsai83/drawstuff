@@ -17,7 +17,7 @@ drawstuff is an open-source whiteboard app built with [Excalidraw](https://githu
 - **Workspace organization** with default and last-active workspace tracking
 - **Search and filtering** by scene name, description, category, workspace, and publish state
 - **Encrypted share links** using client-side compression and AES-GCM encryption
-- **Real-time collaboration** with end-to-end encrypted rooms routed through a stateless relay
+- **Real-time collaboration** with end-to-end encrypted rooms routed through a Cloudflare Durable Object gateway
 - **Published public pages** at `/p/[slug]` for clean, read-only scene presentation
 - **Bilingual UI** with English and Traditional Chinese support
 - **Maintenance tooling** for scheduled cleanup and deferred file deletion retries
@@ -70,14 +70,15 @@ apps/
       server/
         api/                    # tRPC routers and server context
         db/                     # Drizzle schema and database access
-  collaboration-relay/          # Stateless WebSocket relay for collaboration rooms
+  collaboration-do/             # Cloudflare Worker gateway + CollaborationRoom Durable Object
 packages/
   excalidraw-adapter/           # The only boundary allowed to import @excalidraw/excalidraw
   collaboration/                # Transport-neutral collaboration protocol, crypto, recovery
 ```
 
-Dependency direction is one-way: `apps/web` consumes both packages, the relay consumes only the
-collaboration package's protocol entries, and the two packages never import each other. The full
+Dependency direction is one-way: `apps/web` consumes both packages, the collaboration worker
+consumes only the collaboration package's server-safe entries, and the two packages never import
+each other. The full
 ownership rules live in
 [docs/architecture/architecture-contract.md](./docs/architecture/architecture-contract.md).
 
@@ -86,13 +87,13 @@ ownership rules live in
 Collaboration rooms are end-to-end encrypted:
 
 - The room key is generated in the browser and travels only in the URL fragment; it is never sent
-  to the app backend, the relay, or any log.
+  to the app backend, the realtime worker, or any log.
 - Realtime frames, durable snapshots, binary assets, and the room key-check value are sealed under
   separate keys derived from the room key (HKDF), so leaking one never unlocks the others.
-- The relay (`apps/collaboration-relay`) authenticates joins with short-lived signed tokens and
-  routes opaque ciphertext by room and channel; it keeps no durable scene state.
+- The realtime worker (`apps/collaboration-do`) authenticates joins with short-lived signed
+  tokens and routes opaque ciphertext by room and channel; it keeps no durable scene state.
 - Rooms recover through snapshot exchange and reconciliation; membership and lifecycle changes are
-  pushed to the relay through a signed server-to-server control endpoint.
+  pushed to the worker through a signed server-to-server control endpoint.
 
 The runtime contract lives in
 [docs/architecture/collaboration-system-design.md](./docs/architecture/collaboration-system-design.md).

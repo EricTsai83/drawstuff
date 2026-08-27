@@ -5,6 +5,8 @@
   Durable Object（見
   [collaboration system design](../architecture/collaboration-system-design.md)）。本文
   Claims 依然有效；下段「現況是 Node relay」描述的是 ADR 撰寫當時，僅存歷史脈絡。
+- Update（2026-08-28，Plan 15）：Node relay infrastructure（`apps/collaboration-relay`）
+  已退役刪除，CLAIM-DO-2 的終局狀態成立；本文所有 relay 敘述自此皆為歷史。
 - 範圍：realtime collaboration 的長期 relay 架構方向。**現況是 Node relay**
   （`@drawstuff/collaboration-relay`，單 instance）；本文的
   Durable Object 是「已接受的 target」，不是已實作的系統。任何一條 Claim 都不授權提前建立

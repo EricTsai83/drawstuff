@@ -1,16 +1,17 @@
 # Collaboration Durable Object — Cloudflare-native observability 契約
 
-Status: Current（工具與契約已實作；production alerts／dashboards 在 Plan 14 verification 配置）
+Status: Current（工具與契約已實作；§6 的 production alerts／dashboards 為已核准定義，
+Cloudflare 端配置由 [`plans/17`](../../plans/17-collaboration-operations-follow-ups.md) 追蹤）
 
 門檻來源：[collaboration SLO 文件](../performance/collaboration-slo-capacity.md) §2／§3／§6／§9。
 資料分級來源：[collaboration threat model](../architecture/collaboration-threat-model.md)
-「Observability data classification」。Node relay 的對應文件是
-[collaboration-alerts-and-dashboards.md](./collaboration-alerts-and-dashboards.md)。
+「Observability data classification」。（退役 Node relay 的 Prometheus alerts 契約文件
+已隨 relay 移除，見 git history。）
 
 ## 1. 這份文件解決什麼
 
-Node relay 的 `/metrics` Prometheus endpoint、process RSS、event-loop lag 與 PM2 health 是
-Node deployment behavior，**不移植**（ADR-0003 CLAIM-MIG-6）。DO 的 observability 改由三個
+退役 Node relay 的 `/metrics` Prometheus endpoint、process RSS、event-loop lag 與 PM2 health
+是 Node deployment behavior，**未移植**（ADR-0003 CLAIM-MIG-6）。DO 的 observability 由三個
 Cloudflare 原生面組成，本文件是它們的契約：
 
 1. **Workers Logs**：`apps/collaboration-do/src/logger.ts` 的 closed-schema 結構化事件（§2）；
@@ -62,8 +63,9 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 - 允許且使用：驗證後的 `roomId`／`authGeneration`、Object 產生的 `peerId`、role、close code
   與 bounded enums（`tokenFailure`、`socketState`、`controlAction`）、計數（`members`、
   `closedSessions`）。
-- **subject 永不落地**：raw subject 被 §5 禁止；relay 用 48-bit per-process HMAC pseudonym，
-  DO 版 logger 連 pseudonym salt 都不保留，`revoke-member` 的 audit record 刻意不含 subject。
+- **subject 永不落地**：raw subject 被 §5 禁止；退役的 relay 曾用 48-bit per-process HMAC
+  pseudonym，DO 版 logger 連 pseudonym salt 都不保留，`revoke-member` 的 audit record 刻意
+  不含 subject。
 - **error 內容不落地**：`errorName` 取 **constructor 名**（`TypeError`…），不讀可變的
   `Error.name` instance 屬性，也永不含 `message`——SDK／runtime 的 error message 與被覆寫的
   `name` 都可能內嵌 payload、URL 或 token。
@@ -79,7 +81,7 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 判讀入口（Cloudflare dashboard／GraphQL analytics）：
 
 - **Worker metrics**：requests、errors、CPU time、duration —— gateway 面的量。WebSocket Upgrade
-  後的實際 invocation/billing 形狀在 Plan 14 synthetic/canary 期間觀察，不把文件推導當成承諾。
+  後的實際 invocation/billing 形狀以 production 帳務數據觀察，不把文件推導當成承諾。
 - **DO namespace metrics**：requests、errors、CPU/wall time、duration（GB-s，只計非
   hibernate 時間）、subrequests、WebSocket connections/messages、storage rows/bytes。
   對照 SLO §2 的內部 safety limits 與 §9 的 hibernation 契約：idle room 的 duration 應趨近 0，
@@ -105,10 +107,11 @@ availability 的判讀順序：
 `scripts/harness-smoke.mjs` 在 ephemeral local workerd 上，經真實 localhost HTTP／WebSocket
 自動執行完整 remote conformance suite 與短版 load sample，並驗證 JSON report；它隨 package
 `test` 執行，不需要 Cloudflare 登入、已部署 Worker 或 production secret。這只證明工具與 transport
-可執行；正式部署仍須在 Plan 14 首次 assignment 前對目前 Worker version 重跑 live smoke、remote
-conformance 與小群組 synthetic fanout。
+可執行；對已部署 Worker 的 live smoke、remote conformance 與小群組 synthetic fanout 已於
+2026-08-27 對 production version 執行通過（cutover verification，證據見 git history），此後
+每次重大變更後應重跑。
 
-## 6. Alert 定義（Plan 14 verification 配置）
+## 6. Alert 定義（已核准，Cloudflare 端配置待辦）
 
 每一列都指回 SLO 節號或 threat model；本文件不提出新門檻。
 
@@ -128,12 +131,62 @@ hibernation 比率、WebSocket connections/messages、`session_closed` close-cod
 `session_joined` 的 `members` 分佈、control audit（applied vs rejected）、版本比較
 （`versionId` 分組）。
 
+### 6.1 後端速率限制降級（已實作訊號，在 `apps/web` 而非 Worker）
+
+SLO §5 的後端入口限制與 snapshot finalization reserve 都 fail open，所以「限制目前沒有
+在生效」是一個**不會自己顯現**的狀態——請求照常成功，只是上界暫時消失了。這正是它必須
+被觀測的原因（`DoRateLimitDegraded`）：
+
+| 項目 | 內容                                                                                                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 載體 | `apps/web` 的一行 JSON structured log，`event: "collab.ratelimit.degraded"`（`src/server/rate-limit/collaboration.ts`）                                                    |
+| 欄位 | `operation`（`join`／`snapshot-put`／`snapshot-finalize`／`asset-upload`／`asset-resolve`）、`cause`（`timeout`／`exception`）；**沒有其他欄位**                           |
+| 條件 | 任何持續發生（相同故障以兩個封閉列舉聚合成率，而不是逐筆 grep）                                                                                                            |
+| 禁止 | identifier（`userId`／`roomId`）、Upstash endpoint 或 token、原始 error payload——Upstash SDK 的 error message 內含 REST URL 與呼叫時的 token（threat model §5 禁止欄位）  |
+
 ## 7. 已知缺口
 
 - `session_closed` 是 log 行不是 metric series；比率判讀依賴 Workers Logs 查詢視窗，
-  取樣（head sampling）若未設為 1 會低估。Plan 14 配置時必須確認 sampling rate。
-- client-side session success、decrypt failure、snapshot conflict 沿用既有 bounded
-  authenticated telemetry carrier（alerts 文件 §6），仍未有 client/backend 實作，對應
-  SLO §6 門檻目前不可判定——與 Node relay 的缺口相同。
+  取樣（head sampling）若未設為 1 會低估。配置 alerts 時必須確認 sampling rate。
+- client-side session success、decrypt failure、snapshot conflict 的 bounded
+  authenticated telemetry carrier 仍未有 client/backend 實作（契約見 §8），對應
+  SLO §6 門檻目前不可判定（retired relay 時期即存在的缺口）。
 - keepalive auto-response 的實際 billable incoming messages 與 duration 形狀在 synthetic/canary
   usage 中觀察；在有帳務證據前不得假設免費。
+
+## 8. Client／後端 telemetry carrier 契約（未實作）
+
+定義 client／後端 telemetry 的上報位置與載體。這是尚未實作的介面契約，不代表目前已有
+metric 或接上任何監控廠商；實作前 SLO §6 的 session success、decrypt failure 與 snapshot
+conflict 門檻不可判定。
+
+**不走 realtime 通道**：client 把失敗計數當 frame 送給 room runtime 是錯的——runtime 沒有
+room membership 的權威（它只驗 token），加一條 client→runtime 的 telemetry 通道等於新增
+untrusted input，並讓「runtime 不是 scene 的讀者」多一個例外。**上報一律走後端（B2，已驗證
+身分的 tRPC），不走 B1。**
+
+觀測點（失敗實際發生的位置）：realtime frame 解不開
+（`packages/collaboration/src/relay-client.ts` inbound gate 之前，單 frame 靜默丟棄）、
+snapshot 解不開（`apps/web/src/lib/collab/snapshot-store.ts` → `unreadable`）、asset 解不開
+（`asset-store.ts` → `abandon`）、snapshot conflict（`snapshot-store.ts` → `conflict`，合併
+後重試一次）。
+
+載體：
+
+- **形式**：`apps/web` 的一支 tRPC mutation（`collaborationTelemetry.report`），
+  `protectedProcedure` + `resolveRoomAccess`，與其他共編 procedure 同一條授權路徑。
+- **批次**：client 在記憶體中累計，以固定 cadence（建議沿用 `SNAPSHOT_INTERVAL_MS` = 30s）
+  或 session 結束時送一次。**不得每次失敗送一次**——那會讓解密失敗變成後端的放大器。
+- **允許欄位**：`roomId`、`authGeneration`、`peerId`，加上分類計數
+  `{ realtimeDecryptFailures, snapshotDecryptFailures, assetDecryptFailures,
+  snapshotConflicts, snapshotWrites, sessionsStarted, baselinesResolved }`。
+  **只有計數，沒有任何 payload、checksum、密文片段、訊息 id 或 element id。**兩個分母缺一
+  不可：`snapshotWrites` 供 SLO §6 的 conflict 率，`sessionsStarted`／`baselinesResolved`
+  供 session 成功率（「成功」= baseline resolved，只有 client 知道）。
+- **速率**：實作時必須接上 SLO §5 的共享 limiter 並新增一列核准值；在那之前 client 端
+  cadence 是唯一上界，不得被描述為服務端防護。
+- **後端出口**：彙總為 `collab_decrypt_failures_total{surface}`、
+  `collab_snapshot_conflicts_total`、`collab_snapshot_writes_total`、
+  `collab_sessions_started_total`、`collab_baselines_resolved_total`，供三個未來 alert
+  使用：`CollabSessionSuccessRate`（≥ 99%）、`CollabDecryptFailure`（穩態 0）、
+  `CollabSnapshotConflictRate`（≤ 5% of writes），門檻皆出自 SLO §6。

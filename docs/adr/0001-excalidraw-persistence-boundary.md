@@ -25,7 +25,7 @@ boundary，不是另一套 canvas runtime。
 | `@drawstuff/excalidraw-adapter`  | 唯一 upstream integration boundary；native types/codecs、render bridge、imperative controller adapter、官方 reconciliation wrapper 與 upstream differential tests | 產品 layout/dialog、transport、room lifecycle、另一套 element model       |
 | `apps/web`                       | Drawstuff 專屬 toolbar、dialogs、responsive layout、auth/persistence UI 與 composition                                                                            | 直接 upstream dependency、canvas engine、merge/history implementation     |
 | `@drawstuff/collaboration`       | transport-neutral client/domain、protocol、room/presence/message contracts、共編 orchestration                                                                    | React/Next.js UI、relay process、canvas primitives、第二套 reconciliation |
-| `@drawstuff/collaboration-relay` | stateless connection、authentication enforcement、bounded opaque fanout                                                                                           | React、app code、adapter、scene plaintext、durable canvas state           |
+| `@drawstuff/collaboration-relay`（已於 2026-08-28 隨 Plan 15 退役刪除；現行 runtime 為 `apps/collaboration-do`） | stateless connection、authentication enforcement、bounded opaque fanout                                                                                           | React、app code、adapter、scene plaintext、durable canvas state           |
 
 允許的 dependency DAG 為：
 
@@ -34,7 +34,7 @@ apps/web ───────────────→ @drawstuff/excalidraw-
     │
     └→ @drawstuff/collaboration ─→ @drawstuff/excalidraw-adapter
 
-@drawstuff/collaboration-relay ─→ @drawstuff/collaboration/protocol
+@drawstuff/collaboration-relay ─→ @drawstuff/collaboration/protocol   （已退役）
 ```
 
 所有箭頭只能單向；任何反向 dependency 或跨層 deep import 都是架構錯誤。
