@@ -17,9 +17,8 @@ type CapturedLog = { level: string; event: string; fields?: unknown };
 
 function createCaptureLogger(): { records: CapturedLog[]; log: DoLogger } {
   const records: CapturedLog[] = [];
-  const push =
-    (level: string) => (event: string, fields?: unknown) =>
-      records.push({ level, event, fields });
+  const push = (level: string) => (event: string, fields?: unknown) =>
+    records.push({ level, event, fields });
   return {
     records,
     log: {
@@ -42,13 +41,14 @@ describe("pingControlOutboxDrain", () => {
   it("GETs the drain endpoint with the bearer secret and a bounded timeout", async () => {
     const { records, log } = createCaptureLogger();
     const calls: { input: RequestInfo | URL; init?: RequestInit }[] = [];
-    await pingControlOutboxDrain(envWith({}), log, ((
-      input: RequestInfo | URL,
-      init?: RequestInit,
-    ) => {
-      calls.push({ input, init });
-      return Promise.resolve(Response.json({ delivered: 1 }));
-    }));
+    await pingControlOutboxDrain(
+      envWith({}),
+      log,
+      (input: RequestInfo | URL, init?: RequestInit) => {
+        calls.push({ input, init });
+        return Promise.resolve(Response.json({ delivered: 1 }));
+      },
+    );
 
     expect(calls).toHaveLength(1);
     expect(calls[0]!.input).toBe(
@@ -66,13 +66,8 @@ describe("pingControlOutboxDrain", () => {
 
   it("logs the HTTP status on a non-2xx drain response", async () => {
     const { records, log } = createCaptureLogger();
-    await pingControlOutboxDrain(
-      envWith({}),
-      log,
-      (() =>
-        Promise.resolve(
-          new Response("unauthorized", { status: 401 }),
-        )),
+    await pingControlOutboxDrain(envWith({}), log, () =>
+      Promise.resolve(new Response("unauthorized", { status: 401 })),
     );
     expect(records).toEqual([
       {
@@ -85,13 +80,8 @@ describe("pingControlOutboxDrain", () => {
 
   it("logs a content-free error name when the web app is unreachable", async () => {
     const { records, log } = createCaptureLogger();
-    await pingControlOutboxDrain(
-      envWith({}),
-      log,
-      (() =>
-        Promise.reject(
-          new TypeError("fetch failed: connect ECONNREFUSED"),
-        )),
+    await pingControlOutboxDrain(envWith({}), log, () =>
+      Promise.reject(new TypeError("fetch failed: connect ECONNREFUSED")),
     );
     expect(records).toEqual([
       {
@@ -108,10 +98,10 @@ describe("pingControlOutboxDrain", () => {
     await pingControlOutboxDrain(
       envWith({ COLLAB_CRON_SECRET: undefined }),
       log,
-      (() => {
+      () => {
         fetched = true;
         return Promise.resolve(new Response(null));
-      }),
+      },
     );
     expect(fetched).toBe(false);
     expect(records).toEqual([
