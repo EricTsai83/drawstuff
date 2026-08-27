@@ -1,7 +1,10 @@
 import { runInDurableObject } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { RELAY_CLOSE_CODES } from "@drawstuff/collaboration/relay-protocol";
+import {
+  MAX_RELAY_CONTROL_FRAME_BYTES,
+  RELAY_CLOSE_CODES,
+} from "@drawstuff/collaboration/relay-protocol";
 import { MAX_CONNECTIONS_PER_ROOM } from "@drawstuff/collaboration/room-limits";
 
 import {
@@ -193,6 +196,23 @@ describe("attachment fail-closed handling", () => {
     ]);
     late.connection.close();
     surviving.connection.close();
+  });
+});
+
+describe("control-frame byte budget", () => {
+  it("counts the control budget in UTF-8 wire bytes, not UTF-16 length", async () => {
+    const roomId = uniqueRoomId("bytes");
+    const socket = await openSocket(roomId);
+    // Three wire bytes per code point: the UTF-16 length stays near a third
+    // of the budget while the encoded frame exceeds it, so an implementation
+    // counting `message.length` would accept this frame. The shared
+    // conformance case cannot distinguish the two counting paths.
+    const multibyte = "妖".repeat(
+      Math.ceil(MAX_RELAY_CONTROL_FRAME_BYTES / 3) + 1,
+    );
+    expect(multibyte.length).toBeLessThan(MAX_RELAY_CONTROL_FRAME_BYTES);
+    socket.connection.send(multibyte);
+    await expectClose(socket.connection, RELAY_CLOSE_CODES.protocolViolation);
   });
 });
 

@@ -17,15 +17,13 @@ import {
 } from "@/server/collab/control-token";
 
 /**
- * Durable Object control client. Pushes the same signed control
- * tokens as `./relay-control.ts`, but at the public Worker gateway — this
+ * Durable Object control client. Pushes signed control tokens (issued by
+ * `./control-token.ts`) at the public Worker gateway — this
  * process never holds a DO binding, an Object id, or a Cloudflare API token;
  * the gateway derives the target Object from the verified claims.
  *
  * Dispatched exclusively through the durable control outbox
- * (`./control-outbox.ts`), which routes each event to the provider its room
- * generation is pinned to — an event for a `durable-object` channel lands
- * here and nowhere else (CLAIM-ROUTE-3).
+ * (`./control-outbox.ts`) (CLAIM-ROUTE-3).
  */
 
 export async function pushDoRoomControl(

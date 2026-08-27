@@ -41,17 +41,17 @@ import {
 } from "./room-token.ts";
 
 /**
- * Black-box wire-protocol conformance shared by the Node relay and the
- * Durable Object room runtime.
+ * Black-box wire-protocol conformance for the collaboration room runtime.
  *
- * Both backends promise the *same* client-visible contract — join handshake,
- * membership notices, role enforcement, opaque binary fanout, close codes —
- * and the client is explicitly forbidden from detecting which backend it is
- * talking to. The only way that stays true is a single suite of cases that
- * every backend's test run drives through its own transport: the relay runs
- * them against a live `ws` server, the Durable Object runs them inside
- * workerd against the real gateway + Object. A parity break fails here before
- * it can become a client-visible difference.
+ * The suite states the client-visible contract — join handshake, membership
+ * notices, role enforcement, opaque binary fanout, close codes — in
+ * transport-agnostic cases that a harness drives through its own connection
+ * factory. It was written when two backends (the retired Node relay and the
+ * Durable Object) had to prove the *same* contract; the Durable Object is now
+ * the only backend, and runs the cases twice: inside workerd against the real
+ * gateway + Object, and over the network against the deployed Worker
+ * (`conformance-remote`). A contract break fails here before it can become a
+ * client-visible difference.
  *
  * Test-only module: imported exclusively from test files (it signs real
  * tokens via the server-only `./room-token.ts`), never from runtime code.
@@ -77,7 +77,7 @@ import {
  * - `internalError` (4014): triggering it requires injecting a server-side
  *   defect, by definition not reachable through the wire contract.
  *
- * One relay-parity property stays host-side on purpose: the control-frame
+ * One wire-contract property stays host-side on purpose: the control-frame
  * budget being counted in UTF-8 wire bytes rather than UTF-16 length is not
  * black-box distinguishable — an implementation counting either way refuses
  * the probe frame with the same `protocolViolation` (over the byte cap on the
@@ -95,9 +95,8 @@ export type ConformanceConnection = {
   close: () => void;
   /**
    * Next delivered event. Keepalive acknowledgments are filtered out here:
-   * the Durable Object answers `RELAY_KEEPALIVE_REQUEST` and the Node relay
-   * does not, and that asymmetry is contractual (the response is optional),
-   * so no case may depend on seeing or not seeing one.
+   * the response to `RELAY_KEEPALIVE_REQUEST` is contractually optional, so
+   * no case may depend on seeing or not seeing one.
    */
   next: (timeoutMs?: number) => Promise<ConformanceEvent>;
   /** Throws if any non-keepalive event arrives within `windowMs`. */

@@ -17,9 +17,9 @@ import type { RoomControlFailure } from "@/server/db/schema";
 
 /**
  * Shared half of every control push: one signed, short-lived, single-action
- * token, and one closed result union. The Node relay client and the Durable
- * Object gateway client both build on this, so a control action means the
- * same thing regardless of which provider enforces it.
+ * token, and one closed result union. The Durable Object gateway client
+ * (`./do-control.ts`) builds on this, so token issuing and failure
+ * classification live apart from any one transport.
  */
 
 /** Control calls are server-to-server and must not block a mutation. */

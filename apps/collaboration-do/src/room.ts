@@ -125,9 +125,9 @@ const encoder = new TextEncoder();
 
 /**
  * Hibernatable room runtime: one `RoomChannelKey`, one Object
- * (CLAIM-MIG-2), speaking the exact wire contract of the Node relay — join,
- * membership notices, role enforcement, opaque binary fanout, limits,
- * backpressure and close codes — plus the P6 keepalive auto-response.
+ * (CLAIM-MIG-2), speaking the shared wire contract — join, membership
+ * notices, role enforcement, opaque binary fanout, limits, backpressure and
+ * close codes — plus the P6 keepalive auto-response.
  *
  * Recovery invariant: every event rebuilds what it needs from
  * `ctx.getWebSockets()` attachments and SQLite. Nothing before the
@@ -136,10 +136,10 @@ const encoder = new TextEncoder();
  * `HIBERNATION_MIN_IDLE_MS` in `./room-policy.ts` for why rebuilding them
  * full is behaviorally equivalent to persistence.
  *
- * The Node relay's process primitives (server-initiated heartbeat, process
- * room map, RSS watchdog) are deliberately not ported (CLAIM-MIG-6); liveness
- * is the keepalive auto-response judged lazily, and shared ground is the
- * protocol/token/limits contract from @drawstuff/collaboration.
+ * The retired Node relay's process primitives (server-initiated heartbeat,
+ * process room map, RSS watchdog) were deliberately not ported (CLAIM-MIG-6);
+ * liveness is the keepalive auto-response judged lazily, and the contract's
+ * home is protocol/token/limits in @drawstuff/collaboration.
  */
 export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   /**
@@ -473,7 +473,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       this.handleBinaryFrame(ws, attachment, new Uint8Array(message));
       return;
     }
-    // Wire bytes, not UTF-16 code units, exactly like the relay.
+    // Wire bytes, not UTF-16 code units.
     if (
       message.length > MAX_RELAY_CONTROL_FRAME_BYTES ||
       encoder.encode(message).byteLength > MAX_RELAY_CONTROL_FRAME_BYTES

@@ -2,14 +2,13 @@ import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import type { RoomTokenFailureReason } from "@drawstuff/collaboration/room-token";
 
 /**
- * Structured Workers Logs for the gateway and the room Object — the DO
- * counterpart of the relay's `src/logger.ts`, adapted to the platform: no
- * stdout sink or backpressure policy (workerd owns log delivery), no
- * process-level level threshold (Workers Logs filters at query time), and the
- * deployment version rides in every record so canary comparisons can group by
- * it (`wrangler.jsonc` `version_metadata` binding).
+ * Structured Workers Logs for the gateway and the room Object, shaped by the
+ * platform: no stdout sink or backpressure policy (workerd owns log
+ * delivery), no process-level level threshold (Workers Logs filters at query
+ * time), and the deployment version rides in every record so canary
+ * comparisons can group by it (`wrangler.jsonc` `version_metadata` binding).
  *
- * The schema is closed on both layers, exactly like the relay's: a closed
+ * The schema is closed on both layers: a closed
  * event union, a closed typed field set with no `message`/`details`/`error`
  * escape hatch, and a runtime allowlist that drops (and counts) any field a
  * structurally-typed variable smuggles past the compiler. The classification
@@ -69,7 +68,7 @@ type DoLogFields = {
 
 /**
  * Runtime half of the allowlist, `Record<keyof DoLogFields, true>` so the
- * compiler rejects drift in both directions (see the relay logger).
+ * compiler rejects drift in both directions.
  */
 const LOGGABLE_FIELDS: Record<keyof DoLogFields, true> = {
   roomId: true,

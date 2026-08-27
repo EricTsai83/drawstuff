@@ -1,13 +1,13 @@
 # @drawstuff/collaboration-do
 
-Cloudflare Worker gateway + `CollaborationRoom` Durable Object for the
-collaboration relay migration. The Object runs the full Hibernatable-WebSocket
-room runtime — join, membership, role
+Cloudflare Worker gateway + `CollaborationRoom` Durable Object — the sole
+production collaboration backend. The Object runs the full
+Hibernatable-WebSocket room runtime — join, membership, role
 enforcement, opaque E2EE binary fanout, limits, backpressure, close
-semantics, a single-alarm scheduler and the keepalive auto-response — wire
-compatible with the Node relay, proven by a shared black-box conformance
-suite both backends run
-(`@drawstuff/collaboration/protocol-conformance`). Connection state lives in
+semantics, a single-alarm scheduler and the keepalive auto-response — pinned
+by the black-box conformance suite
+(`@drawstuff/collaboration/protocol-conformance`), which runs both inside
+workerd and remotely against the deployed Worker. Connection state lives in
 per-socket attachments and SQLite only, so hibernation, eviction and code
 updates recover everything. Single environment by design — a solo,
 self-hosted project, deployed the same way `apps/web` is (main → the one

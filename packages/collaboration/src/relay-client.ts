@@ -115,7 +115,7 @@ export const INBOUND_QUEUE_ENTRY_COST_BYTES = 512;
 export const REALTIME_UNREADABLE_FRAME_THRESHOLD = 3;
 
 export type RelayWebSocketTransportOptions = {
-  /** Relay WebSocket endpoint, e.g. `ws://127.0.0.1:3005`. */
+  /** Realtime WebSocket endpoint (server-composed, opaque to the client). */
   url: string;
   /**
    * End-to-end codec for this room generation. Mandatory: there is no

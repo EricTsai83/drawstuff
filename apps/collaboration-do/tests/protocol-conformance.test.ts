@@ -21,11 +21,10 @@ afterEach(settleRoomEvents);
 
 /**
  * The shared black-box wire-contract suite, driven end to end through the
- * real gateway into the real Durable Object inside workerd. The Node relay
- * runs the *same cases* in
- * `apps/collaboration-relay/tests/protocol-conformance.integration.test.ts`,
- * which is what makes protocol parity a tested property instead of a
- * documentation promise: a divergence fails one of the two suites.
+ * real gateway into the real Durable Object inside workerd. The same cases
+ * also run over the network against the deployed Worker
+ * (`scripts/conformance-remote.mjs`), so a contract break fails a test run
+ * before it can become a client-visible difference.
  */
 const harness: ConformanceHarness = {
   secret: TEST_ROOM_TOKEN_SECRET,

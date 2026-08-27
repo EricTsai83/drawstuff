@@ -10,7 +10,7 @@ import {
 
 /**
  * Durable-Object-specific room policy: the caps, quanta and pure decision
- * helpers that have no Node-relay counterpart. The shared per-room limits
+ * helpers particular to this runtime. The shared per-room limits
  * (internal member safety cap, join/idle deadlines, buffer budgets) come from
  * `@drawstuff/collaboration/room-limits`. The cap bounds abuse and resource
  * use; it is not a supported-concurrency promise.
@@ -51,7 +51,7 @@ export const LAST_FRAME_PERSIST_QUANTUM_MS = 30_000;
  * A joined socket with no liveness evidence — accepted data frame, keepalive
  * auto-response, or the join itself — older than this is treated as dead.
  *
- * Replaces the relay's server-initiated ping (15 s cadence, one missed pong
+ * Replaces the retired Node relay's server-initiated ping (15 s cadence, one missed pong
  * terminates, ≈30 s detection), which cannot be ported: waking the Object per
  * ping defeats hibernation. Two missed client keepalives plus scheduling
  * slack keeps the detection bound in the same order of magnitude. Checked
@@ -110,7 +110,7 @@ export function socketBufferedAmount(ws: WebSocket): number | undefined {
 }
 
 /**
- * Backpressure policy per receiver, identical to the relay's: presence is
+ * Backpressure policy per receiver: presence is
  * volatile (latest-wins per sender), so under backpressure a sample is
  * dropped and repaired by the next one; scene is session-ordered, so a
  * receiver that stops draining must be disconnected rather than queued to

@@ -14,9 +14,9 @@
  * makes the sustained limit meaningless.
  *
  * Budgets are per connection, so a bucket lives and dies with its socket and
- * needs no eviction. This module is shared by the Node relay and the Durable
- * Object room runtime so both enforce the *same approved budgets* — a budget
- * change lands in one place and both backends' contract tests see it.
+ * needs no eviction. The Durable Object room runtime enforces these approved
+ * budgets; a budget change lands in one place and the runtime's contract
+ * tests see it.
  */
 
 /**

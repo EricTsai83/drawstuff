@@ -54,8 +54,9 @@ describe("collaboration backend logging contract", () => {
       .map((filePath) => path.relative(webRoot, filePath));
 
     // If this fails, the fix is not to add the file to the list. Either drop the
-    // log, or pseudonymize every caller-supplied value in it the way
-    // `apps/collaboration-relay/src/logger.ts` does — see threat model T13.
+    // log, or confine it to a closed event/field schema that admits no
+    // caller-supplied content, the way `apps/collaboration-do/src/logger.ts`
+    // does — see threat model T13.
     expect(offenders).toEqual([]);
   });
 

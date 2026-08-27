@@ -1,7 +1,7 @@
 import type { Linter } from "eslint";
 
 /**
- * Rule fragments shared by the root ESLint config (packages and the relay)
+ * Rule fragments shared by the root ESLint config (packages and the worker)
  * and `apps/web/eslint.config.ts` (which extends Next's config instead of
  * typescript-eslint's, and so cannot simply reuse the root config).
  *

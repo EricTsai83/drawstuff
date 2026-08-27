@@ -1,15 +1,13 @@
 /**
- * Per-room connection limits shared by the Node relay and the Durable Object
- * room runtime.
+ * Per-room connection limits enforced by the Durable Object room runtime.
  *
  * These values are internal safety and abuse bounds, not supported-capacity
- * promises. They live in this package — the one workspace both backends
- * depend on — so the two runtimes cannot drift apart on the limits the wire
- * protocol's close codes expose (`roomAtCapacity`, `joinTimeout`,
- * `idleTimeout`, `slowConsumer`).
+ * promises. They live in this package — the workspace both the web client
+ * and the room runtime depend on — next to the wire protocol whose close
+ * codes expose them (`roomAtCapacity`, `joinTimeout`, `idleTimeout`,
+ * `slowConsumer`).
  *
- * Deliberately *not* here: relay-process-wide caps (`maxConnections`,
- * `maxRooms`, heartbeat and drain windows) and the Durable Object's own
+ * Deliberately *not* here: host-wide caps and the Durable Object's own
  * pending/total socket caps. Those bound a *host*, not a room, and each host
  * owns its own capacity envelope.
  */

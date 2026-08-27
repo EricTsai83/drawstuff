@@ -35,7 +35,7 @@ const pendingAttachmentSchema = z.strictObject({
   authGeneration: roomAuthGenerationSchema,
 });
 
-/** Authorized member; the fields mirror what the relay held in memory. */
+/** Authorized member; the fields the room runtime needs per socket. */
 const joinedAttachmentSchema = z.strictObject({
   v: z.literal(1),
   state: z.literal("joined"),
