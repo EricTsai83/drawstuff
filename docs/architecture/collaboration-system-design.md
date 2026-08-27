@@ -50,8 +50,31 @@ delivery. Binary asset bytes never travel inside scene messages.
   future access but cannot erase a key already learned. Generation rotation changes the channel,
   key derivation salt, verifier, and durable-data generation.
 
-Room mutation paths lock the room row, re-evaluate authorization, commit state, and only then send
-relay control. This serializes token issuance with membership, end-room, and generation changes.
+Room mutation paths lock the room row, re-evaluate authorization, insert the enforcement intent
+into the durable control outbox (`collaboration_control_outbox`) in the same transaction, and
+commit. This serializes token issuance with membership, end-room, and generation changes, and makes
+the authorization state and its enforcement intent inseparable. After the commit, one synchronous
+best-effort dispatch gives fast UI feedback; anything unenforced stays `pending` and is drained by
+a dedicated minute-level schedule (`/api/collaboration/control-outbox`, fired by the collaboration
+Worker's Cloudflare cron trigger because the Vercel deployment's Hobby-plan crons are daily-only;
+the weekly storage cleanup stays a Vercel cron) with claim leases, exponential
+backoff with jitter, a poison-event terminal state, and bounded retention. Deliveries are
+revision-max idempotent on the Durable Object, so ambiguous timeouts are resent safely. No signed token
+is stored; every delivery signs a fresh short-lived control token. Mutation responses distinguish
+`enforced` (the Durable Object confirmed closing sockets) from `pending` (committed, delivery queued).
+
+### Durable Object-only realtime routing
+
+Every room generation maps to exactly one `CollaborationRoom` Durable Object. `join` signs a fresh
+token under the room lock and returns a generation-scoped opaque `relayUrl` composed from the
+server-only `COLLAB_RELAY_URL`; clients receive no provider discriminant and have no fallback path.
+Control outbox events always dispatch to `COLLAB_CONTROL_URL`. Neither room nor outbox rows store a
+provider, and there is no percentage/cohort policy or Node dispatcher. The durable outbox is a
+permanent correctness mechanism.
+
+The fail-closed `COLLAB_ROOMS_DISABLED` operational switch refuses `create`/`join` with an explicit
+SERVICE_UNAVAILABLE while leaving lifecycle mutations available so owners can still shut rooms
+down.
 
 ## Protocol and delivery semantics
 
@@ -311,15 +334,16 @@ object keys in `deferred_file_cleanup`. Full room and owned-scene retention beha
 
 ## Current operational boundaries
 
-- The relay is intentionally a single instance with process-local fanout. Its hard limits and
-  graceful restart behavior are part of the deployment envelope.
-- Relay-side connection/frame limits and the shared backend limits described above are implemented.
+- Realtime fanout is isolated per `RoomChannelKey` in a Durable Object; the thin Worker gateway
+  validates tokens and derives Object identity.
+- Durable Object connection/frame limits and the shared backend limits described above are implemented.
   WAF or edge rate limiting remains a possible additional layer, not part of the current contract.
   See [SLO §5](../performance/collaboration-slo-capacity.md), the
   [threat model](./collaboration-threat-model.md), and the
   [observability contract](../observability/collaboration-alerts-and-dashboards.md).
-- Relay metrics and privacy-safe structured logs exist. Client/session success, decrypt-failure,
+- Workers Logs and privacy-safe structured logs exist. Client/session success, decrypt-failure,
   and snapshot-conflict SLOs currently have no telemetry carrier.
-- There is no staged rollout cohort system, collaboration-specific kill switch, staging environment,
-  formal capacity load test, or complete incident runbook. These are accepted operating limits for
-  the current personally operated, limited-public-test service.
+- Direct cutover has no Node fallback or percentage rollout; the global create/join kill switch is
+  the incident boundary. There is still no staging environment, formal
+  capacity load test, or complete incident runbook. These are accepted operating limits for the
+  current personally operated, limited-public-test service.

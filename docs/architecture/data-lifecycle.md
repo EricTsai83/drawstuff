@@ -75,6 +75,14 @@ orphaned therefore deletes the owning row and inserts its `ut_file_key` into
 `deferred_file_cleanup` in the same database transaction. The queue is the durable outbox; object
 deletion is retried independently and queue rows retain failure state.
 
+The same transactional-outbox shape covers realtime enforcement: every collaboration room mutation
+inserts its control intent into `collaboration_control_outbox` in the mutation's own transaction,
+a minute-level schedule (the collaboration Worker's Cloudflare cron trigger pinging the web drain
+endpoint) drains it to the room's Durable Object, and terminal rows (delivered after
+7 days, poison-failed after 30) are purged by a bounded weekly retention job. Pending rows are
+enforcement debt and are never purged. See the
+[collaboration system design](./collaboration-system-design.md) for delivery semantics.
+
 Scene deletion, workspace deletion, account retirement, and the single-tenant purge all follow this
 shape: the deleting transaction collects every storage key its cascade will orphan — asset records,
 scene thumbnails, and the assets of collaboration rooms bound to the deleted scenes or owned by the

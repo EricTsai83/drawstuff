@@ -340,7 +340,7 @@ Object：server-initiated ping 需要喚醒 Object，會讓 hibernation 失效�
 - Keepalive 只證明 socket 活著，**不算 activity**：idle deadline（15 分鐘）仍只由 data
   frame（`lastFrameAt`）驅動，被遺忘的 tab 即使 keepalive 不斷仍會 idle timeout——與 relay
   的 heartbeat／idle 二分完全一致。
-- Client 端的 keepalive 發送在 Plan 13 隨 DO transport 一起接上。部署順序是硬性約束：
+- Client 端的 keepalive 發送已隨 DO transport 接上。部署順序是硬性約束：
   relay 的忽略行為必須先部署（本次變更、restart relay 之後），client 才可以開始送
   keepalive，否則現行 relay 會把它當 `protocolViolation`（terminal）關線。
 
@@ -369,3 +369,36 @@ zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernat
   failure 只關閉該 receiver。小群組 correctness 與 write-failure isolation 仍由測試覆蓋。
 - Pending cap（32）與總 socket cap（64）是保守的 unauthenticated/resource safety bounds，不是
   通過 join-storm qualification 後的容量承諾。
+
+## 10. Control enforcement latency（durable outbox，2026-08-27）
+
+授權變更（移除成員、end-room、generation rotation）的 DB 效果——拒絕新 join——在 mutation
+commit 當下即生效。**關閉已連線 socket** 則走 durable control outbox：commit 後先做一次同步
+best-effort dispatch（3 s timeout），失敗時事件留在 outbox，由獨立的分鐘級排程 drain：
+collaboration Worker 的 Cloudflare cron trigger（`* * * * *`，見
+`apps/collaboration-do/src/outbox-drain.ts`）帶專用的 `COLLAB_OUTBOX_CRON_SECRET` 打
+`/api/collaboration/control-outbox`（刻意不共用 maintenance 的 `CRON_SECRET`：交給
+Cloudflare 的 secret 權限僅止於觸發 idempotent drain）。排程器放在 Cloudflare 是因為 Vercel 部署維持 Hobby
+plan（cron 僅支援每日一次）；weekly storage cleanup 仍留在 Vercel cron。因此 UI 的
+`pending` 語意是「已提交、稍後強制」，不是「socket 已關閉」。
+
+Cron ping 本身的失敗（Worker 到 web app 的 HTTP）只記 log（`cron.outbox_drain_failed`），
+由下一分鐘的 tick 補救；outbox 的 claim lease／backoff 使重複或延遲 drain 都安全。
+
+Worst-case enforcement latency 上界（provider 恢復可達後）：
+
+```text
+同步 dispatch 失敗 → 下一次 cron（≤ 60 s cadence）
+每次重試間隔 = min(5 s × 2^(attempts-1), 600 s) × jitter(0.75–1.25)
+claim lease = 300 s（drainer 中途死亡時事件最多晚 300 s 再變 due）
+```
+
+- 第一次修復嘗試：≤ 60 s（cron cadence）+ 首次 backoff ≤ 7.5 s。
+- 連續失敗 n 次後的下一次嘗試：≤ 60 s + min(600 s, 5 s × 2^(n-1)) × 1.25；backoff 上限使穩態
+  重試間隔 ≤ 約 12.5 分鐘 + cron cadence。
+- 攻擊面上界：10 次嘗試後事件進入 terminal `failed`（poison）狀態並保留 30 天可觀測；這代表
+  provider 持續不可達，需要人介入，而非無限重試。
+- 短效 token 是獨立的兜底：即使 enforcement 遲到，已發出的 join token 於 5 分鐘內過期，room
+  expiry（`rexp`）亦由 provider 自行關閉逾期 session。
+
+此上界是 UI `pending` 語意與告警的依據；不得假設 outbox 近即時。

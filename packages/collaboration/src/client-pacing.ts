@@ -33,8 +33,8 @@ export const SCENE_FLUSH_BACKSTOP_MS = 32;
  * relay terminates after one missed pong (≈2×15 s), and the Durable Object
  * treats a joined socket without keepalive (or data) evidence for
  * 2×interval + scheduling slack as dead. Client sending is wired up together
- * with the Durable Object transport (Plan 13); until then this constant only
- * sizes the Durable Object's liveness budget and the relay's ignore contract.
+ * with the Durable Object transport; this constant sizes the Durable Object's
+ * liveness budget and the relay's ignore contract.
  */
 export const KEEPALIVE_INTERVAL_MS = 15_000;
 

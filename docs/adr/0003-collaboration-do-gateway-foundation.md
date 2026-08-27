@@ -68,7 +68,7 @@ DO 版本按 Hibernation、attachments、Alarms 與 Cloudflare observability 重
 1. `COLLAB_ALLOWED_ORIGINS` 只含 localhost——正式站瀏覽器在 Origin 檢查即
    fail closed；
 2. `collaborationRoom.join` 仍只回 Node relay URL——路由開關在 PostgreSQL 的
-   provider assignment（Plan 13），與部署解耦。
+   application-owned routing，與部署解耦。
 
 workers.dev URL 是遷移期間的日常 smoke／測試面。設定由
 `apps/collaboration-do/tests/config-audit.test.ts` 針對 resolved config 審計

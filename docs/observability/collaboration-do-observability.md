@@ -1,6 +1,6 @@
 # Collaboration Durable Object — Cloudflare-native observability 契約
 
-Status: Current（工具與契約已實作；production alerts／dashboards 隨 Plan 14 cutover 配置）
+Status: Current（工具與契約已實作；production alerts／dashboards 在 Plan 14 verification 配置）
 
 門檻來源：[collaboration SLO 文件](../performance/collaboration-slo-capacity.md) §2／§3／§6／§9。
 資料分級來源：[collaboration threat model](../architecture/collaboration-threat-model.md)
@@ -47,6 +47,8 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 | `room.fanout_write_failed`        | warn  | fanout write 失敗（該 socket 關 1001）                      | `errorName`                                                                         |
 | `room.session_joined`             | info  | join ack 送出後                                             | `roomId`、`authGeneration`、`peerId`、`role`、`members`                             |
 | `room.session_closed`             | info  | **每一次 server 主動 close**，帶 verdict                    | `closeCode`、`socketState`、`peerId`（joined 才有）                                 |
+| `cron.outbox_drain_not_configured` | error | cron trigger 觸發但 drain secrets 缺失                      | —                                                                                   |
+| `cron.outbox_drain_failed`        | error | outbox drain ping 得到非 2xx 或無回應（下一分鐘自動補救）   | `status` 或 `errorName`                                                             |
 
 語意注意：
 
@@ -106,7 +108,7 @@ availability 的判讀順序：
 可執行；正式部署仍須在 Plan 14 首次 assignment 前對目前 Worker version 重跑 live smoke、remote
 conformance 與小群組 synthetic fanout。
 
-## 6. Alert 定義（Plan 14 cutover 配置）
+## 6. Alert 定義（Plan 14 verification 配置）
 
 每一列都指回 SLO 節號或 threat model；本文件不提出新門檻。
 

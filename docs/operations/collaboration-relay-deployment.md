@@ -111,8 +111,10 @@ SLO §4.1 的最後防線（upstream `max_memory_restart` 的對應物）：
 
 ## 5. 已知限制
 
-- 沒有 staging 環境、internal／beta／GA cohort、server-controlled staged rollout，或
-  共編專用 kill switch。需要停止共編時，使用既有部署或環境設定停用 relay。
+- 沒有 staging 環境或 internal／beta／GA user cohort。Direct cutover 不保留
+  percentage rollout 或 Node fallback；`COLLAB_ROOMS_DISABLED` 是唯一共編 create/join
+  kill switch。細節見
+  [collaboration system design](../architecture/collaboration-system-design.md)。
 - 沒有完整 incident runbook，也沒有 staging rollback／incident drill；本文件的 restart
   程序與 alerts contract 是目前的操作依據。
 - 服務容量沒有經正式 load test 驗證；SLO 數字是設計 budget，不是 production capacity

@@ -102,7 +102,7 @@ allowlist 的來源必須可追溯，起點是目前已知的出口：
 | 出口            | 來源                                                                                                                                                     |
 | --------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 自家 origin     | tRPC、Server Actions、assets                                                                                                                             |
-| relay WebSocket | `NEXT_PUBLIC_COLLAB_RELAY_URL`（Plan 13/14 後為 Cloudflare Worker origin）                                                                               |
+| relay WebSocket | server 端 `COLLAB_RELAY_URL` 組成的 Cloudflare Worker socket URL                                                                                  |
 | UploadThing     | `ingest.uploadthing.com`、`api.uploadthing.com`、`<appId>.ufs.sh`（既有依賴的端點；hostname 沿用 `next.config.ts` 既有的 token 推導方式，不硬編 app id） |
 
 其餘 directive 以「縮小注入面」為目標：`default-src 'self'`、`object-src 'none'`、

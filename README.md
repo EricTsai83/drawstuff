@@ -153,7 +153,14 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 # Storage and app config
 UPLOADTHING_TOKEN=your-uploadthing-token
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
-NEXT_PUBLIC_COLLAB_RELAY_URL=ws://localhost:3105
+# Durable Object gateway origins. The server composes generation-scoped
+# socket/control paths; clients never receive provider state.
+COLLAB_RELAY_URL=wss://drawstuff-collaboration-do.example.workers.dev
+COLLAB_CONTROL_URL=https://drawstuff-collaboration-do.example.workers.dev
+# Optional: authorizes /api/collaboration/control-outbox only (the Cloudflare
+# Worker cron holds the same value as COLLAB_CRON_SECRET). Deliberately not
+# CRON_SECRET; unset means the drain endpoint refuses everything.
+COLLAB_OUTBOX_CRON_SECRET=another-strong-random-string
 
 # Maintenance
 CRON_SECRET=strong-random-string
@@ -201,19 +208,47 @@ production schema checks, audit queries, retirement procedures, and recovery gui
 
 ## Useful Scripts
 
+`package.json` is strict JSON and therefore cannot contain comments. This table
+is the comment/reference for the root scripts instead.
+
+| Script                                              | When to run it                                                                                                            |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `pnpm dev`                                          | During local development; starts the persistent workspace development tasks.                                              |
+| `pnpm build`                                        | Before releasing, or when checking that production bundles compile.                                                       |
+| `pnpm preview`                                      | To build and run the production-mode web app locally.                                                                     |
+| `pnpm start`                                        | To run an already-built web app; it does not build first.                                                                 |
+| `pnpm check`                                        | Before opening or merging a PR. Runs formatting checks, lint, typecheck, unit tests, and dead-code checks for the repo.   |
+| `pnpm lint` / `pnpm lint:fix`                       | While coding; use `lint:fix` only when you want ESLint to modify files.                                                   |
+| `pnpm typecheck`                                    | After TypeScript or dependency changes for a faster check than `pnpm check`.                                              |
+| `pnpm test` / `pnpm test:coverage`                  | After behavior changes; use coverage when inspecting untested paths.                                                      |
+| `pnpm test:e2e`                                     | After changing important browser flows. Requires Playwright's browser dependencies and the configured test environment.   |
+| `pnpm format:check` / `pnpm format:write`           | Use `format:check` in verification and `format:write` when you want Prettier to modify files.                             |
+| `pnpm knip`                                         | After deleting, moving, or exporting code to find unused files, exports, and dependencies.                                |
+| `pnpm db:push`                                      | When the Drizzle schema changes and you deliberately want to update the configured database. This mutates database state. |
+| `pnpm db:studio`                                    | When you need to inspect or edit the configured database interactively.                                                   |
+| `pnpm admin:bootstrap --email operator@example.com` | Once, after the first production sign-in, to create the initial operator.                                                 |
+
+Cloudflare collaboration Worker operations are deliberately separate from
+`pnpm dev`:
+
+| Script                                | When to run it                                                                                                         |
+| ------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `pnpm cf:typegen`                     | After changing `wrangler.jsonc` bindings or variables; commit the regenerated TypeScript declarations.                 |
+| `pnpm cf:preflight`                   | Before a manual deploy to validate and bundle locally without changing Cloudflare.                                     |
+| `pnpm cf:deploy`                      | For a deliberate manual Worker deploy. It runs package verification and preflight first, then changes the live Worker. |
+| `pnpm cf:smoke <base-url>`            | Immediately after deployment to verify the live health and gateway contract.                                           |
+| `pnpm cf:conformance <base-url>`      | Before cutover or after protocol/runtime changes to run the full remote compatibility suite.                           |
+| `pnpm cf:loadtest <base-url> [flags]` | Only for targeted capacity or performance diagnosis; it intentionally creates remote load.                             |
+| `pnpm cf:secrets`                     | During deployment setup or troubleshooting to list configured secret names (not values).                               |
+| `pnpm cf:tail`                        | During live incident diagnosis; streams Worker logs until stopped.                                                     |
+
+Secret values are intentionally set through the package-level interactive
+commands so they are not exposed as shell arguments:
+
 ```bash
-pnpm dev
-pnpm build
-pnpm preview
-pnpm start
-pnpm lint
-pnpm lint:fix
-pnpm typecheck
-pnpm format:check
-pnpm format:write
-pnpm db:push
-pnpm db:studio
-pnpm admin:bootstrap --email operator@example.com
+pnpm --filter @drawstuff/collaboration-do secret:put
+pnpm --filter @drawstuff/collaboration-do secret:put:cron
+pnpm --filter @drawstuff/collaboration-do secret:put:drain-url
 ```
 
 ## Maintenance Endpoint
