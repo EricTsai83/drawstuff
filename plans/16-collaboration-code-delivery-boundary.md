@@ -1,6 +1,6 @@
 # 16 — Code-delivery trust boundary 與 E2EE 宣稱的精確化
 
-- 前置：無（與 DO migration 系列 `plans/09`–`15` 正交，可並行）
+- 前置：無（原與 DO migration 系列 `plans/09`–`15` 正交；該系列已完成並移除）
 - 後續：無
 - Production traffic 影響：**0%**（只新增 response headers 與文件；不改 protocol、crypto 或 routing）
 
