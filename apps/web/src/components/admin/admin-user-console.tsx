@@ -146,9 +146,9 @@ export function AdminUserConsole({
   const endRoom = api.admin.endRoom.useMutation({
     onSuccess: async (result) => {
       toast.success(
-        result.relayEnforced
+        result.enforcement === "enforced"
           ? t("toast.roomEnded")
-          : t("toast.roomEndedRelayUnconfirmed"),
+          : t("toast.roomEndedEnforcementPending"),
       );
       setAction(null);
       await refresh();

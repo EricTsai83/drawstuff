@@ -14,7 +14,7 @@ import {
 } from "@/lib/collab/canvas-room-marker";
 
 /**
- * The canvas claim replaces Plan 13's scene-id comparison as the session's
+ * The canvas claim replaces the former scene-id comparison as the session's
  * "is this still my canvas?" answer.
  *
  * It has to be a separate fact because a guest joining a room does not have — and

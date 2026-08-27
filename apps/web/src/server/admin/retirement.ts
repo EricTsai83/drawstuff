@@ -3,7 +3,11 @@ import "server-only";
 import { eq } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 
-import { pushRelayRoomControl } from "@/server/collab/relay-control";
+import {
+  dispatchControlOutboxEvent,
+  enqueueRoomControlEvent,
+  type ControlOutboxEvent,
+} from "@/server/collab/control-outbox";
 import {
   bumpRoomAuthRevision,
   listActiveRoomMemberIds,
@@ -77,30 +81,38 @@ export async function endRoom(params: {
       });
     }
     const memberCount = (await listActiveRoomMemberIds(tx, room.roomId)).length;
-    if (room.status === "ended")
-      return { room, authRevision: room.authRevision, memberCount };
-    await tx
-      .update(collaborationRoom)
-      .set({ status: "ended", endedAt: now, updatedAt: now })
-      .where(eq(collaborationRoom.roomId, room.roomId));
-    return {
-      room,
-      authRevision: await bumpRoomAuthRevision(tx, room, now),
-      memberCount,
-    };
+    // Ending an already-ended room still enqueues: the delivery is
+    // revision-max idempotent, and a retried end must be able to close
+    // sockets an earlier, undelivered event did not reach.
+    const authRevision =
+      room.status === "ended"
+        ? room.authRevision
+        : await bumpRoomAuthRevision(tx, room, now);
+    if (room.status !== "ended") {
+      await tx
+        .update(collaborationRoom)
+        .set({ status: "ended", endedAt: now, updatedAt: now })
+        .where(eq(collaborationRoom.roomId, room.roomId));
+    }
+    const outboxEvent = await enqueueRoomControlEvent(tx, {
+      roomId: room.roomId,
+      authGeneration: room.authGeneration,
+      authRevision,
+      action: "end-room",
+      now,
+    });
+    return { outboxEvent, memberCount };
   });
-  if (!ended) return { found: false, relayEnforced: false };
-  const relay = await pushRelayRoomControl({
-    action: "end-room",
-    roomId: ended.room.roomId,
-    authGeneration: ended.room.authGeneration,
-    authRevision: ended.authRevision,
+  if (!ended) return { found: false as const, enforcement: "pending" as const };
+  const control = await dispatchControlOutboxEvent(
+    params.db,
+    ended.outboxEvent,
     now,
-  });
+  );
   return {
-    found: true,
+    found: true as const,
     memberCount: ended.memberCount,
-    relayEnforced: relay.enforced,
+    enforcement: control.enforced ? ("enforced" as const) : ("pending" as const),
   };
 }
 
@@ -111,10 +123,12 @@ export async function endRoom(params: {
  * per-object round trips — the old shape issued one storage call per object
  * and one transaction per room, so a large account timed out half-retired.
  *
- * Relay shutdown for rooms that were still active is pushed after the commit,
- * best-effort: the room rows are gone, so no new join token can ever be
- * signed; the push only closes sockets that already joined. `authRevision + 1`
- * is the cutoff a lifecycle bump would have produced.
+ * Durable Object shutdown for rooms that were still active is enqueued to the
+ * durable control outbox in the same transaction (the room rows are gone
+ * after it, so the outbox row is the only surviving enforcement intent),
+ * then dispatched best-effort after the commit; whatever fails is drained by
+ * the cron. `authRevision + 1` is the cutoff a lifecycle bump would have
+ * produced.
  */
 export async function retireAccount(params: { db: Database; userId: string }) {
   const retired = await params.db.transaction(async (tx) => {
@@ -137,6 +151,7 @@ export async function retireAccount(params: { db: Database; userId: string }) {
     // issuance — no token can be minted from a room this transaction is about
     // to delete.
     const keys = await collectUserStorageKeys(tx, params.userId);
+    const now = new Date();
     const rooms = await tx
       .select({
         roomId: collaborationRoom.roomId,
@@ -148,6 +163,19 @@ export async function retireAccount(params: { db: Database; userId: string }) {
       .where(eq(collaborationRoom.ownerId, params.userId))
       .orderBy(collaborationRoom.roomId)
       .for("update");
+    const outboxEvents: ControlOutboxEvent[] = [];
+    for (const room of rooms) {
+      if (room.status !== "active") continue;
+      outboxEvents.push(
+        await enqueueRoomControlEvent(tx, {
+          roomId: room.roomId,
+          authGeneration: room.authGeneration,
+          authRevision: room.authRevision + 1,
+          action: "end-room",
+          now,
+        }),
+      );
+    }
     const enqueuedObjects = await enqueueStorageKeyCleanup(
       tx,
       keys,
@@ -155,7 +183,12 @@ export async function retireAccount(params: { db: Database; userId: string }) {
       { userId: params.userId },
     );
     await tx.delete(user).where(eq(user.id, params.userId));
-    return { rooms, scenes: ownedScenes.length, enqueuedObjects };
+    return {
+      rooms: rooms.length,
+      outboxEvents,
+      scenes: ownedScenes.length,
+      enqueuedObjects,
+    };
   });
   if (!retired) {
     return {
@@ -163,35 +196,28 @@ export async function retireAccount(params: { db: Database; userId: string }) {
       scenes: 0,
       rooms: 0,
       enqueuedObjects: 0,
-      relayEnforcedRooms: 0,
+      enforcedRooms: 0,
     };
   }
 
-  // Bounded parallelism: each push can wait out the relay's 3s timeout, so a
-  // serial loop over many rooms could run for minutes after the commit.
-  let relayEnforcedRooms = 0;
-  const now = new Date();
-  const activeRooms = retired.rooms.filter((room) => room.status === "active");
-  const RELAY_PUSH_BATCH = 5;
-  for (let start = 0; start < activeRooms.length; start += RELAY_PUSH_BATCH) {
+  // Bounded parallelism: each push can wait out the provider's 3s timeout,
+  // so a serial loop over many rooms could run for minutes after the commit.
+  let enforcedRooms = 0;
+  const CONTROL_PUSH_BATCH = 5;
+  const events = retired.outboxEvents;
+  for (let start = 0; start < events.length; start += CONTROL_PUSH_BATCH) {
     const results = await Promise.all(
-      activeRooms.slice(start, start + RELAY_PUSH_BATCH).map((room) =>
-        pushRelayRoomControl({
-          action: "end-room",
-          roomId: room.roomId,
-          authGeneration: room.authGeneration,
-          authRevision: room.authRevision + 1,
-          now,
-        }),
-      ),
+      events
+        .slice(start, start + CONTROL_PUSH_BATCH)
+        .map((event) => dispatchControlOutboxEvent(params.db, event)),
     );
-    relayEnforcedRooms += results.filter((relay) => relay.enforced).length;
+    enforcedRooms += results.filter((result) => result.enforced).length;
   }
   return {
     found: true as const,
     scenes: retired.scenes,
-    rooms: retired.rooms.length,
+    rooms: retired.rooms,
     enqueuedObjects: retired.enqueuedObjects,
-    relayEnforcedRooms,
+    enforcedRooms,
   };
 }

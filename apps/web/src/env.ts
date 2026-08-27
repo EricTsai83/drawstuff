@@ -24,6 +24,16 @@ export const env = createEnv({
     GOOGLE_CLIENT_ID: z.string(),
     GOOGLE_CLIENT_SECRET: z.string(),
     CRON_SECRET: z.string().min(1),
+    /**
+     * Authorizes only `/api/collaboration/control-outbox`. Deliberately a
+     * different secret from `CRON_SECRET`: this one is handed to Cloudflare
+     * (the Worker cron trigger holds it as `COLLAB_CRON_SECRET`), and its
+     * blast radius must stay "can trigger an idempotent outbox drain" — never
+     * the maintenance route's user purge. Optional: unset means the drain
+     * endpoint answers 401 to everything (fail closed) until it is
+     * provisioned alongside the Worker.
+     */
+    COLLAB_OUTBOX_CRON_SECRET: z.string().min(1).optional(),
     CLEANUP_OWNER_EMAIL: z.string().email(),
     /**
      * HMAC secret shared with @drawstuff/collaboration-relay. Signs the
@@ -31,15 +41,21 @@ export const env = createEnv({
      * required because the relay has no unauthenticated join path.
      */
     COLLAB_JOIN_TOKEN_SECRET: z.string().min(32),
-    /** Origin of the relay's control endpoint (server-to-server only). */
-    COLLAB_RELAY_CONTROL_URL: z.string().url(),
+    /** Public HTTP origin of the Durable Object gateway control endpoint. */
+    COLLAB_CONTROL_URL: z.string().url(),
     /**
-     * Public origin of the Durable Object gateway's control endpoint.
-     * Optional during the 0%-traffic migration window: production control
-     * still goes to the Node relay only, and the DO client reports
-     * non-enforcement instead of failing when this is unset.
+     * Public WebSocket origin of the Durable Object gateway. The server
+     * composes a generation-scoped socket path and returns the resulting
+     * opaque URL to the client; provider identity never enters client state.
      */
-    COLLAB_DO_CONTROL_URL: z.string().url().optional(),
+    COLLAB_RELAY_URL: z.string().url(),
+    /**
+     * Kill switch: refuse `collaborationRoom.create` and `join` entirely
+     * with an explicit SERVICE_UNAVAILABLE. Existing sockets are untouched;
+     * lifecycle mutations (leave/end/revoke) keep working so owners can
+     * still shut rooms down. Same on-values as above.
+     */
+    COLLAB_ROOMS_DISABLED: z.string().optional(),
     /**
      * Upstash Redis REST credentials for the shared collaboration rate limits.
      * Server-side only and never `NEXT_PUBLIC_*`: the token is a full
@@ -62,8 +78,6 @@ export const env = createEnv({
   client: {
     // NEXT_PUBLIC_CLIENTVAR: z.string(),
     NEXT_PUBLIC_BASE_URL: z.string().url(),
-    /** WebSocket endpoint clients connect to with a room join token. */
-    NEXT_PUBLIC_COLLAB_RELAY_URL: z.string().url(),
   },
 
   /**
@@ -86,14 +100,15 @@ export const env = createEnv({
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     CRON_SECRET: process.env.CRON_SECRET,
+    COLLAB_OUTBOX_CRON_SECRET: process.env.COLLAB_OUTBOX_CRON_SECRET,
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
     COLLAB_JOIN_TOKEN_SECRET: process.env.COLLAB_JOIN_TOKEN_SECRET,
-    COLLAB_RELAY_CONTROL_URL: process.env.COLLAB_RELAY_CONTROL_URL,
-    COLLAB_DO_CONTROL_URL: process.env.COLLAB_DO_CONTROL_URL,
+    COLLAB_CONTROL_URL: process.env.COLLAB_CONTROL_URL,
+    COLLAB_RELAY_URL: process.env.COLLAB_RELAY_URL,
+    COLLAB_ROOMS_DISABLED: process.env.COLLAB_ROOMS_DISABLED,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
-    NEXT_PUBLIC_COLLAB_RELAY_URL: process.env.NEXT_PUBLIC_COLLAB_RELAY_URL,
   },
   /**
    * Run `build` or `dev` with `SKIP_ENV_VALIDATION` to skip env validation. This is especially

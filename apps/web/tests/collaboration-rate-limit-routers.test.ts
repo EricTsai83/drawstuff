@@ -14,8 +14,8 @@ import type { Ratelimit as UpstashRatelimit } from "@upstash/ratelimit";
 
 vi.mock("server-only", () => ({}));
 
-vi.mock("@/server/collab/relay-control", () => ({
-  pushRelayRoomControl: () =>
+vi.mock("@/server/collab/do-control", () => ({
+  pushDoRoomControl: () =>
     Promise.resolve({ enforced: true, closedSessions: 0 }),
 }));
 

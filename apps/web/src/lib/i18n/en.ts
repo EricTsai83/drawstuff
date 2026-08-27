@@ -154,8 +154,8 @@ export const en = {
   "collaboration.dialogStatus.rateLimited": "Too many attempts. Try later.",
   "collaboration.dialogStatus.cancelled": "Join cancelled",
   "collaboration.dialogStatus.missingRoomKey": "Link is missing its key",
-  "collaboration.toast.relayUnavailable":
-    "Permissions were updated, but connected members may remain online until the relay reconnects.",
+  "collaboration.toast.enforcementPending":
+    "Permissions were updated; disconnection is queued, and connected members may remain online until it is delivered.",
   "collaboration.toast.keyConflict":
     "This room already has an encryption key. Share the complete link from the device that created it, or reset the room generation.",
   "collaboration.toast.keySetupFailed":

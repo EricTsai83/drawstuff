@@ -17,11 +17,11 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
 vi.mock("@/env", () => ({
   env: {
     COLLAB_JOIN_TOKEN_SECRET: "web-test-room-token-secret-0123456789",
-    COLLAB_RELAY_CONTROL_URL: "http://127.0.0.1:3105",
+    COLLAB_CONTROL_URL: "http://127.0.0.1:3105",
   },
 }));
-vi.mock("@/server/collab/relay-control", () => ({
-  pushRelayRoomControl: () =>
+vi.mock("@/server/collab/do-control", () => ({
+  pushDoRoomControl: () =>
     Promise.resolve({ enforced: true, closedSessions: 0 }),
 }));
 vi.mock("uploadthing/server", () => ({

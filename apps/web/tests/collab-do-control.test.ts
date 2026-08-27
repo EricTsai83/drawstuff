@@ -6,17 +6,15 @@ vi.mock("server-only", () => ({}));
 const TOKEN_SECRET = "web-test-room-token-secret-0123456789";
 
 /**
- * Mutable env double: the unconfigured-URL case is part of the contract (the
- * DO gateway may not be provisioned during the 0%-traffic window), so tests
- * flip the URL on and off rather than mocking the module twice.
+ * Mutable env double for the permanent DO gateway control origin.
  */
 const testEnv = vi.hoisted(
   (): {
     COLLAB_JOIN_TOKEN_SECRET: string;
-    COLLAB_DO_CONTROL_URL: string | undefined;
+    COLLAB_CONTROL_URL: string;
   } => ({
     COLLAB_JOIN_TOKEN_SECRET: "web-test-room-token-secret-0123456789",
-    COLLAB_DO_CONTROL_URL: "https://do-gateway.test",
+    COLLAB_CONTROL_URL: "https://do-gateway.test",
   }),
 );
 vi.mock("@/env", () => ({ env: testEnv }));
@@ -43,7 +41,7 @@ function fetchStub(response: Response): ReturnType<typeof vi.fn> {
 
 beforeEach(() => {
   vi.unstubAllGlobals();
-  testEnv.COLLAB_DO_CONTROL_URL = "https://do-gateway.test";
+  testEnv.COLLAB_CONTROL_URL = "https://do-gateway.test";
 });
 
 describe("pushDoRoomControl", () => {
@@ -80,22 +78,12 @@ describe("pushDoRoomControl", () => {
     }
   });
 
-  it("reports non-enforcement when the gateway URL is not configured", async () => {
-    const stub = fetchStub(Response.json({ appliedRevision: 7, closed: 0 }));
-    testEnv.COLLAB_DO_CONTROL_URL = undefined;
-    const result = await pushDoRoomControl(PUSH_PARAMS);
-    expect(result).toEqual({
-      enforced: false,
-      reason: "DO control URL is not configured",
-    });
-    expect(stub).not.toHaveBeenCalled();
-  });
-
   it("reports non-enforcement on a non-OK status", async () => {
     fetchStub(Response.json({ error: "unauthorized" }, { status: 401 }));
     const result = await pushDoRoomControl(PUSH_PARAMS);
     expect(result).toEqual({
       enforced: false,
+      failure: "rejected",
       reason: "DO gateway responded 401",
     });
   });
@@ -105,7 +93,42 @@ describe("pushDoRoomControl", () => {
     const result = await pushDoRoomControl(PUSH_PARAMS);
     expect(result).toEqual({
       enforced: false,
+      failure: "malformed-response",
       reason: "malformed DO gateway response",
+    });
+  });
+
+  it("classifies a 200 with a non-JSON body as malformed, not unreachable", async () => {
+    fetchStub(new Response("<html>gateway error page</html>", { status: 200 }));
+    const result = await pushDoRoomControl(PUSH_PARAMS);
+    expect(result).toEqual({
+      enforced: false,
+      failure: "malformed-response",
+      reason: "malformed DO gateway response",
+    });
+  });
+
+  it("keeps a timeout during the body read classified as transport, not malformed", async () => {
+    // 2xx headers arrived, but the overall AbortSignal.timeout fired while
+    // the body was being consumed: `response.json()` rejects with a
+    // TimeoutError, which is an ambiguous transport outcome — resendable —
+    // not a contract violation.
+    const timeoutError = Object.assign(new Error("The operation timed out."), {
+      name: "TimeoutError",
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(timeoutError),
+      }),
+    );
+    const result = await pushDoRoomControl(PUSH_PARAMS);
+    expect(result).toEqual({
+      enforced: false,
+      failure: "timeout",
+      reason: "The operation timed out.",
     });
   });
 
@@ -117,6 +140,7 @@ describe("pushDoRoomControl", () => {
     const result = await pushDoRoomControl(PUSH_PARAMS);
     expect(result).toEqual({
       enforced: false,
+      failure: "unreachable",
       reason: "connect ECONNREFUSED",
     });
   });

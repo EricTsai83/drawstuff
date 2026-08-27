@@ -165,7 +165,7 @@ describe("join barrier", () => {
       snapshotStore: backend.createStore({ deferLoad: true }),
     });
     // Content on Bob's canvas that is not the room's. Nothing may leave until
-    // the baseline resolves — this is the leak Plan 13 refused joins to avoid.
+    // the baseline resolves — this is the leak refused joins are designed to avoid.
     bob.host.setElements([collabRectangle({ id: "stray" })]);
     bob.session.connect();
     await drainAsync();

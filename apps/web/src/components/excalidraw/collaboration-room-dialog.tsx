@@ -180,11 +180,12 @@ export function CollaborationRoomDialog({
     await utils.collaborationRoom.getActiveForScene.invalidate();
   };
 
-  const reportRelayEnforcement = (enforced: boolean): void => {
-    if (enforced) return;
-    // The change is recorded, but sockets that already joined may still be
-    // live: never present unenforced revocation as complete.
-    toast.warning(t("collaboration.toast.relayUnavailable"));
+  const reportEnforcement = (enforcement: "enforced" | "pending"): void => {
+    if (enforcement === "enforced") return;
+    // The change is committed and new joins are already refused, but sockets
+    // that already joined may still be live until the queued enforcement
+    // event is delivered: never present a pending revocation as complete.
+    toast.warning(t("collaboration.toast.enforcementPending"));
   };
 
   /**
@@ -259,7 +260,7 @@ export function CollaborationRoomDialog({
   });
   const endRoom = api.collaborationRoom.end.useMutation({
     onSuccess: async (result) => {
-      reportRelayEnforcement(result.relayEnforced);
+      reportEnforcement(result.enforcement);
       onRoomIdChange(null);
       // Drop the key from the address bar too: an ended room's link should not
       // keep a usable key sitting in browser history.
@@ -271,7 +272,7 @@ export function CollaborationRoomDialog({
   });
   const leaveRoom = api.collaborationRoom.leave.useMutation({
     onSuccess: async (result) => {
-      reportRelayEnforcement(result.relayEnforced);
+      reportEnforcement(result.enforcement);
       onRoomIdChange(null);
       onRoomKeyChange(null);
       await invalidateRoom({ refetchPanel: false });
@@ -281,14 +282,14 @@ export function CollaborationRoomDialog({
   });
   const removeMember = api.collaborationRoom.removeMember.useMutation({
     onSuccess: async (result) => {
-      reportRelayEnforcement(result.relayEnforced);
+      reportEnforcement(result.enforcement);
       await invalidateRoom();
     },
     onError: reportRoomError,
   });
   const setMemberRole = api.collaborationRoom.setMemberRole.useMutation({
     onSuccess: async (result) => {
-      reportRelayEnforcement(result.relayEnforced);
+      reportEnforcement(result.enforcement);
       await invalidateRoom();
     },
     onError: reportRoomError,
@@ -299,7 +300,7 @@ export function CollaborationRoomDialog({
   });
   const rotateGeneration = api.collaborationRoom.rotateGeneration.useMutation({
     onSuccess: async (result) => {
-      reportRelayEnforcement(result.relayEnforced);
+      reportEnforcement(result.enforcement);
       // A new generation derives a new key from the room key, but a removed
       // member still holds that room key. Minting a fresh one is what actually
       // takes reading access away, so rotation replaces both. The rotation

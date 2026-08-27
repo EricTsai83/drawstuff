@@ -46,6 +46,20 @@ export type RelayControlResponse = z.infer<typeof relayControlResponseSchema>;
 export const DO_GATEWAY_CONTROL_PATH = "/v1/control";
 
 /**
+ * Socket path on the Durable Object gateway for one room generation. Must
+ * stay in lockstep with the gateway's `SOCKET_ROUTE_PATTERN`
+ * (`apps/collaboration-do/src/gateway.ts`); the app backend composes the
+ * full URL server-side and hands it to clients as an opaque `relayUrl`, so
+ * no provider knowledge ever reaches the client.
+ */
+export function doGatewaySocketPath(
+  roomId: string,
+  authGeneration: number,
+): string {
+  return `/v1/rooms/${roomId}/generations/${authGeneration}/socket`;
+}
+
+/**
  * Control bodies carry exactly one token. Strict where the relay's schema is
  * lenient: the gateway is new surface, so unknown keys fail closed from day
  * one instead of inheriting the relay's historical tolerance.

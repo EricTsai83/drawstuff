@@ -72,8 +72,8 @@ export default defineConfig({
       POSTGRES_DATABASE: "drawstuff_e2e",
       NEXT_PUBLIC_BASE_URL: baseURL,
       COLLAB_JOIN_TOKEN_SECRET: e2eRoomTokenSecret,
-      COLLAB_RELAY_CONTROL_URL: "http://127.0.0.1:65431",
-      NEXT_PUBLIC_COLLAB_RELAY_URL: e2eRelayUrl,
+      COLLAB_CONTROL_URL: "http://127.0.0.1:65431",
+      COLLAB_RELAY_URL: e2eRelayUrl,
     },
   },
 });

@@ -100,8 +100,8 @@ const en = {
   "toast.sceneRetired": "The scene and related data entered retirement.",
   "toast.roomEnded":
     "The collaboration room ended and relay connections were forcibly closed.",
-  "toast.roomEndedRelayUnconfirmed":
-    "The collaboration room ended. Relay control was not immediately confirmed, but existing short-lived tokens are invalid.",
+  "toast.roomEndedEnforcementPending":
+    "The collaboration room ended and no new tokens can be issued. Disconnecting live sessions is queued; existing sessions and already-issued short-lived tokens may remain usable until delivery or expiry.",
   "toast.accountRetired": "The account and its data were retired.",
   "status.active": "Active",
   "status.ended": "Ended",
@@ -211,8 +211,8 @@ const zhTW = {
   "toast.revokeSucceeded": "已撤銷管理者權限。",
   "toast.sceneRetired": "場景與相關資料已進入退場流程。",
   "toast.roomEnded": "協作房間已結束，Relay 連線也已強制關閉。",
-  "toast.roomEndedRelayUnconfirmed":
-    "協作房間已結束；Relay 控制未即時確認，既有短效權杖仍已失效。",
+  "toast.roomEndedEnforcementPending":
+    "協作房間已結束，無法再簽發新權杖；強制中斷已排入佇列，送達或權杖過期前，既有連線與已簽出的短效權杖可能仍可使用。",
   "toast.accountRetired": "帳號與其資料已完成退場處理。",
   "status.active": "進行中",
   "status.ended": "已結束",

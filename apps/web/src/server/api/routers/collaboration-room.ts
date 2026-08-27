@@ -11,7 +11,16 @@ import {
 
 import { env } from "@/env";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
-import { pushRelayRoomControl } from "@/server/collab/relay-control";
+import {
+  dispatchControlOutboxEvent,
+  enqueueRoomControlEvent,
+  type ControlOutboxEvent,
+} from "@/server/collab/control-outbox";
+import {
+  collaborationRoomsDisabled,
+  collaborationRoomsDisabledError,
+  resolveRelayUrl,
+} from "@/server/collab/relay-routing";
 import {
   bumpRoomAuthRevision,
   createRoomId,
@@ -80,6 +89,29 @@ const roomSummary = (room: RoomRecord) => ({
 type AuthorizedRoom = Extract<RoomAccess, { status: "ok" }>;
 
 /**
+ * What a mutation reports about live sessions: `enforced` means the assigned
+ * provider confirmed closing them; `pending` means the authorization change
+ * is committed (new joins are already refused) and the enforcement event is
+ * queued for durable delivery. Never claim the socket side of a change the
+ * provider has not confirmed.
+ */
+type EnforcementState = "enforced" | "pending";
+
+/**
+ * Post-commit best-effort delivery of the event a mutation enqueued.
+ * `dispatchControlOutboxEvent` is contractually non-throwing: the mutation
+ * has already committed, so nothing on this path may turn into an API error
+ * the caller would misread as "the change did not happen".
+ */
+async function dispatchEnqueued(
+  db: Database,
+  event: ControlOutboxEvent,
+): Promise<EnforcementState> {
+  const result = await dispatchControlOutboxEvent(db, event);
+  return result.enforced ? "enforced" : "pending";
+}
+
+/**
  * Runs `body` with the room row locked for update.
  *
  * Token issuance and every lifecycle change take this lock, so they serialize:
@@ -146,6 +178,8 @@ export const collaborationRoomRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (collaborationRoomsDisabled())
+        throw collaborationRoomsDisabledError();
       const userId = ctx.auth.user.id;
       const now = new Date();
       const ownedScene = await ctx.db.query.scene.findFirst({
@@ -373,6 +407,8 @@ export const collaborationRoomRouter = createTRPCRouter({
   join: protectedProcedure
     .input(z.object({ roomId: roomIdInput }))
     .mutation(async ({ ctx, input }) => {
+      if (collaborationRoomsDisabled())
+        throw collaborationRoomsDisabledError();
       const userId = ctx.auth.user.id;
       // After authentication and input validation, before the room lookup: the
       // budget belongs to the caller's own identity, so it costs no database
@@ -426,7 +462,7 @@ export const collaborationRoomRouter = createTRPCRouter({
             sceneId: access.room.sceneId,
             authGeneration: issued.authGeneration,
             tokenExpiresAt: issued.expiresAt,
-            relayUrl: env.NEXT_PUBLIC_COLLAB_RELAY_URL,
+            relayUrl: resolveRelayUrl(access.room),
           };
         },
       );
@@ -441,7 +477,7 @@ export const collaborationRoomRouter = createTRPCRouter({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.auth.user.id;
       const now = new Date();
-      const { room, authRevision } = await withLockedRoom(
+      const outboxEvent = await withLockedRoom(
         ctx.db,
         { roomId: input.roomId, userId, now },
         async (tx, access) => {
@@ -461,21 +497,20 @@ export const collaborationRoomRouter = createTRPCRouter({
                 isNull(collaborationRoomMember.revokedAt),
               ),
             );
-          return {
-            room: access.room,
+          return enqueueRoomControlEvent(tx, {
+            roomId: access.room.roomId,
+            authGeneration: access.room.authGeneration,
             authRevision: await bumpRoomAuthRevision(tx, access.room, now),
-          };
+            action: "revoke-member",
+            subjectUserId: userId,
+            now,
+          });
         },
       );
-      const relay = await pushRelayRoomControl({
-        action: "revoke-member",
-        roomId: room.roomId,
-        authGeneration: room.authGeneration,
-        authRevision,
-        userId,
-        now,
-      });
-      return { left: true, relayEnforced: relay.enforced };
+      return {
+        left: true,
+        enforcement: await dispatchEnqueued(ctx.db, outboxEvent),
+      };
     }),
 
   /**
@@ -510,7 +545,7 @@ export const collaborationRoomRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
-      const { room, authRevision } = await withLockedOwnedRoom(
+      const outboxEvent = await withLockedOwnedRoom(
         ctx.db,
         { roomId: input.roomId, userId: ctx.auth.user.id, now },
         async (tx, lockedRoom) => {
@@ -549,26 +584,25 @@ export const collaborationRoomRouter = createTRPCRouter({
               // Re-granting also reinstates a previously revoked member.
               set: { role: input.role, revokedAt: null, updatedAt: now },
             });
-          return {
-            room: lockedRoom,
+          // The role a live socket carries came from its token, so a change
+          // only takes effect on reconnect: close the member's sessions to
+          // force it. The member's next token is issued at the bumped
+          // revision, so it outranks this cutoff and the re-grant is usable
+          // immediately.
+          return enqueueRoomControlEvent(tx, {
+            roomId: lockedRoom.roomId,
+            authGeneration: lockedRoom.authGeneration,
             authRevision: await bumpRoomAuthRevision(tx, lockedRoom, now),
-          };
+            action: "revoke-member",
+            subjectUserId: input.userId,
+            now,
+          });
         },
       );
-
-      // The role a live socket carries came from its token, so a change only
-      // takes effect on reconnect: close the member's sessions to force it.
-      // The member's next token is issued at the bumped revision, so it
-      // outranks this cutoff and the re-grant is usable immediately.
-      const relay = await pushRelayRoomControl({
-        action: "revoke-member",
-        roomId: room.roomId,
-        authGeneration: room.authGeneration,
-        authRevision,
-        userId: input.userId,
-        now,
-      });
-      return { role: input.role, relayEnforced: relay.enforced };
+      return {
+        role: input.role,
+        enforcement: await dispatchEnqueued(ctx.db, outboxEvent),
+      };
     }),
 
   /**
@@ -584,7 +618,7 @@ export const collaborationRoomRouter = createTRPCRouter({
     )
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
-      const { room, authRevision } = await withLockedOwnedRoom(
+      const outboxEvent = await withLockedOwnedRoom(
         ctx.db,
         { roomId: input.roomId, userId: ctx.auth.user.id, now },
         async (tx, lockedRoom) => {
@@ -613,21 +647,20 @@ export const collaborationRoomRouter = createTRPCRouter({
               message: "This user is not an active member of the room.",
             });
           }
-          return {
-            room: lockedRoom,
+          return enqueueRoomControlEvent(tx, {
+            roomId: lockedRoom.roomId,
+            authGeneration: lockedRoom.authGeneration,
             authRevision: await bumpRoomAuthRevision(tx, lockedRoom, now),
-          };
+            action: "revoke-member",
+            subjectUserId: input.userId,
+            now,
+          });
         },
       );
-      const relay = await pushRelayRoomControl({
-        action: "revoke-member",
-        roomId: room.roomId,
-        authGeneration: room.authGeneration,
-        authRevision,
-        userId: input.userId,
-        now,
-      });
-      return { removed: true, relayEnforced: relay.enforced };
+      return {
+        removed: true,
+        enforcement: await dispatchEnqueued(ctx.db, outboxEvent),
+      };
     }),
 
   /**
@@ -640,14 +673,15 @@ export const collaborationRoomRouter = createTRPCRouter({
     .input(z.object({ roomId: roomIdInput }))
     .mutation(async ({ ctx, input }) => {
       const now = new Date();
-      const room = await withLockedOwnedRoom(
+      const { nextGeneration, outboxEvent } = await withLockedOwnedRoom(
         ctx.db,
         { roomId: input.roomId, userId: ctx.auth.user.id, now },
         async (tx, lockedRoom) => {
+          const nextGeneration = lockedRoom.authGeneration + 1;
           await tx
             .update(collaborationRoom)
             .set({
-              authGeneration: lockedRoom.authGeneration + 1,
+              authGeneration: nextGeneration,
               authRevision: lockedRoom.authRevision + 1,
               // The stored key-check value belongs to the previous generation
               // and the key being retired; cleared here so the row never pairs
@@ -657,20 +691,22 @@ export const collaborationRoomRouter = createTRPCRouter({
               updatedAt: now,
             })
             .where(eq(collaborationRoom.roomId, lockedRoom.roomId));
-          return lockedRoom;
+          return {
+            nextGeneration,
+            outboxEvent: await enqueueRoomControlEvent(tx, {
+              roomId: lockedRoom.roomId,
+              authGeneration: lockedRoom.authGeneration,
+              authRevision: lockedRoom.authRevision + 1,
+              action: "end-room",
+              now,
+            }),
+          };
         },
       );
-      const nextGeneration = room.authGeneration + 1;
-
-      const relay = await pushRelayRoomControl({
-        action: "end-room",
-        roomId: room.roomId,
-        // The previous generation's channel is the one being emptied.
-        authGeneration: room.authGeneration,
-        authRevision: room.authRevision + 1,
-        now,
-      });
-      return { authGeneration: nextGeneration, relayEnforced: relay.enforced };
+      return {
+        authGeneration: nextGeneration,
+        enforcement: await dispatchEnqueued(ctx.db, outboxEvent),
+      };
     }),
 
   /** Closes the room: no further tokens, and every live session is dropped. */
@@ -687,7 +723,7 @@ export const collaborationRoomRouter = createTRPCRouter({
       return {
         ended: true,
         memberCount: result.memberCount,
-        relayEnforced: result.relayEnforced,
+        enforcement: result.enforcement,
       };
     }),
 });

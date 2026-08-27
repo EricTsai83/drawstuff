@@ -13,6 +13,7 @@ import {
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 
 import { env } from "@/env";
+import type { RoomControlFailure } from "@/server/db/schema";
 
 /**
  * Shared half of every control push: one signed, short-lived, single-action
@@ -37,11 +38,30 @@ export type RoomControlPushParams = {
 
 /**
  * Closed result union: enforcement either happened with a socket count, or it
- * did not and the caller learns why instead of assuming it.
+ * did not and the caller learns why instead of assuming it. `failure` is the
+ * closed classification the durable outbox persists as `last_failure`;
+ * `reason` keeps the human-readable detail for logs and reports.
  */
 export type RoomControlPushResult =
   | { enforced: true; closedSessions: number }
-  | { enforced: false; reason: string };
+  | { enforced: false; failure: RoomControlFailure; reason: string };
+
+/** Classifies a thrown fetch error into the closed failure vocabulary. */
+export function classifyControlPushError(error: unknown): {
+  failure: RoomControlFailure;
+  reason: string;
+} {
+  if (error instanceof Error) {
+    // `AbortSignal.timeout` rejects with TimeoutError; an aborted request is
+    // ambiguous — the provider may have applied the action — so it is kept
+    // distinct from plain unreachability and is always safe to resend.
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
+      return { failure: "timeout", reason: error.message };
+    }
+    return { failure: "unreachable", reason: error.message };
+  }
+  return { failure: "unreachable", reason: "provider unreachable" };
+}
 
 /** Signs the single-action control token for one push. */
 export function issueRoomControlToken(params: RoomControlPushParams): string {

@@ -20,13 +20,13 @@ const {
   createMutate: vi.fn(),
   endSuccessHandler: {
     current: undefined as
-      ((result: { relayEnforced: boolean }) => Promise<void>) | undefined,
+      ((result: { enforcement: "enforced" | "pending" }) => Promise<void>) | undefined,
   },
   getActiveForSceneInvalidate: vi.fn(() => Promise.resolve()),
   idleMutate: vi.fn(),
   leaveSuccessHandler: {
     current: undefined as
-      ((result: { relayEnforced: boolean }) => Promise<void>) | undefined,
+      ((result: { enforcement: "enforced" | "pending" }) => Promise<void>) | undefined,
   },
   roomGetInvalidate: vi.fn(() => Promise.resolve()),
   roomGetUseQuery: vi.fn(),
@@ -101,7 +101,7 @@ vi.mock("@/trpc/react", () => {
         },
         end: {
           useMutation: (options: {
-            onSuccess?: (result: { relayEnforced: boolean }) => Promise<void>;
+            onSuccess?: (result: { enforcement: "enforced" | "pending" }) => Promise<void>;
           }) => {
             endSuccessHandler.current = options.onSuccess;
             return idleMutation;
@@ -109,7 +109,7 @@ vi.mock("@/trpc/react", () => {
         },
         leave: {
           useMutation: (options: {
-            onSuccess?: (result: { relayEnforced: boolean }) => Promise<void>;
+            onSuccess?: (result: { enforcement: "enforced" | "pending" }) => Promise<void>;
           }) => {
             leaveSuccessHandler.current = options.onSuccess;
             return idleMutation;
@@ -257,7 +257,7 @@ describe("collaboration room exit cache cleanup", () => {
       });
 
       await act(async () => {
-        await successHandler.current?.({ relayEnforced: true });
+        await successHandler.current?.({ enforcement: "enforced" });
       });
 
       expect(onRoomIdChange).toHaveBeenCalledWith(null);

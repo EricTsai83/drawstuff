@@ -25,7 +25,6 @@
   "knip": {
     "entry": [
       "scripts/audit-collaboration-room-retention.ts",
-      "src/server/collab/do-control.ts",
       "scripts/bootstrap-admin.ts",
       "src/server/admin/bootstrap.ts",
       "scripts/audit-scene-asset-references.ts",

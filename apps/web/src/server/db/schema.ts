@@ -839,6 +839,109 @@ export const deferredFileCleanup = createTable(
   ],
 );
 
+/**
+ * Control push 無法 enforcement 時的封閉原因 enum。同時是 dispatcher 回報
+ * 的分類與 outbox `last_failure` 欄位的合法值：自由字串進不了資料庫，
+ * 觀測面也不用解析錯誤訊息。
+ */
+export const ROOM_CONTROL_FAILURES = [
+  /** Provider 連不上（DNS、連線拒絕等網路層錯誤）。 */
+  "unreachable",
+  /** Provider 在 timeout 內沒有回應；delivery 結果 ambiguous，可重送。 */
+  "timeout",
+  /** Provider 回了非 2xx：請求被拒絕或 provider 自身失敗。 */
+  "rejected",
+  /** 2xx 但 body 不符合 contract：對方版本不被這個 caller 理解。 */
+  "malformed-response",
+  /** Durable Object gateway URL 沒有設定。 */
+  "unconfigured",
+] as const;
+export type RoomControlFailure = (typeof ROOM_CONTROL_FAILURES)[number];
+
+/**
+ * Durable control outbox：room mutation 與它的 enforcement intent 在同一個
+ * transaction 內落地，commit 後由同步 dispatch 與分鐘級 cron drainer
+ * idempotently 送到 Durable Object gateway。
+ * 只保存最小、非 secret 的 immutable intent——**不保存已簽 token**，每次
+ * delivery 都簽 fresh short-lived control token。這是長期 correctness
+ * mechanism，不隨 cutover 後的 cleanup 移除。
+ *
+ * 刻意沒有 room FK：帳號退場會 cascade 刪掉 room row，而它的 end-room
+ * enforcement intent 必須活得比 row 久，才能把已連上的 socket 關掉。
+ */
+export const collaborationControlOutbox = createTable(
+  "collaboration_control_outbox",
+  {
+    eventId: uuid("event_id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    roomId: varchar("room_id", { length: 64 }).notNull(),
+    authGeneration: integer("auth_generation").notNull(),
+    /** 這次 mutation 產生的 revision；provider 端以 revision max idempotent。 */
+    authRevision: integer("auth_revision").notNull(),
+    action: varchar("action", { length: 16 })
+      .$type<"revoke-member" | "end-room">()
+      .notNull(),
+    /** `revoke-member` 的對象；`end-room` 沒有 subject。 */
+    subjectUserId: text("subject_user_id"),
+    attempts: integer("attempts")
+      .notNull()
+      .$defaultFn(() => 0),
+    nextAttemptAt: timestamp("next_attempt_at").notNull(),
+    status: varchar("status", { length: 16 })
+      .$type<"pending" | "delivered" | "failed">()
+      .notNull()
+      .$defaultFn(() => "pending"),
+    lastFailure: varchar("last_failure", { length: 32 }).$type<RoomControlFailure>(),
+    deliveredAt: timestamp("delivered_at"),
+    createdAt: timestamp("created_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    // Drain 熱查詢：status='pending' AND next_attempt_at <= now ORDER BY
+    // next_attempt_at，與 deferred_cleanup 的複合索引同一個理由。
+    index("collaboration_control_outbox_due_idx").on(
+      table.status,
+      table.nextAttemptAt,
+    ),
+    check(
+      "collaboration_control_outbox_action_supported",
+      sql`${table.action} in ('revoke-member', 'end-room')`,
+    ),
+    check(
+      "collaboration_control_outbox_status_supported",
+      sql`${table.status} in ('pending', 'delivered', 'failed')`,
+    ),
+    // Intent 必須完整才進得來：revoke-member 少了對象就無法 enforcement。
+    check(
+      "collaboration_control_outbox_subject_present",
+      sql`${table.action} <> 'revoke-member' or ${table.subjectUserId} is not null`,
+    ),
+    check(
+      "collaboration_control_outbox_last_failure_supported",
+      sql`${table.lastFailure} is null or ${table.lastFailure} in (${sql.raw(
+        ROOM_CONTROL_FAILURES.map((value) => `'${value}'`).join(", "),
+      )})`,
+    ),
+    check(
+      "collaboration_control_outbox_attempts_nonnegative",
+      sql`${table.attempts} >= 0`,
+    ),
+    check(
+      "collaboration_control_outbox_auth_generation_positive",
+      sql`${table.authGeneration} >= 1`,
+    ),
+    check(
+      "collaboration_control_outbox_auth_revision_positive",
+      sql`${table.authRevision} >= 1`,
+    ),
+  ],
+);
+
 // 定義表格關聯
 export const userRelations = relations(user, ({ one, many }) => ({
   sessions: many(session),
@@ -1037,6 +1140,7 @@ export const schema = {
   sharedScene,
   fileRecord, // 新增：文件記錄表
   deferredFileCleanup,
+  collaborationControlOutbox,
   userDefaultWorkspace,
   userLastActiveWorkspace,
   collaborationRoom,

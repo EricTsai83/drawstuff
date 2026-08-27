@@ -142,8 +142,8 @@ export const zhTW = {
   "collaboration.dialogStatus.rateLimited": "嘗試次數過多，請稍後再試",
   "collaboration.dialogStatus.cancelled": "已取消加入",
   "collaboration.dialogStatus.missingRoomKey": "連結缺少金鑰",
-  "collaboration.toast.relayUnavailable":
-    "權限已更新，但 relay 恢復前，已連線成員可能仍在線上。",
+  "collaboration.toast.enforcementPending":
+    "權限已更新；強制中斷已排入佇列，送達前已連線成員可能仍在線上。",
   "collaboration.toast.keyConflict":
     "這個 room 已有加密金鑰。請從建立 room 的裝置分享完整連結，或重設 room generation。",
   "collaboration.toast.keySetupFailed":

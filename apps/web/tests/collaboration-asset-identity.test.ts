@@ -24,9 +24,9 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
   rateLimitMetadataOf: () => null,
 }));
 
-/** The relay is a separate process; asset identity never involves it. */
-vi.mock("@/server/collab/relay-control", () => ({
-  pushRelayRoomControl: () =>
+/** The Durable Object is separate; asset identity never involves it. */
+vi.mock("@/server/collab/do-control", () => ({
+  pushDoRoomControl: () =>
     Promise.resolve({ enforced: true, closedSessions: 0 }),
 }));
 

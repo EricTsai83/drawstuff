@@ -17,7 +17,7 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
 vi.mock("@/env", () => ({
   env: {
     COLLAB_JOIN_TOKEN_SECRET: "web-test-room-token-secret-0123456789",
-    COLLAB_RELAY_CONTROL_URL: "http://127.0.0.1:3105",
+    COLLAB_CONTROL_URL: "http://127.0.0.1:3105",
   },
 }));
 
@@ -25,8 +25,8 @@ const { relayCalls, storageDeletes } = vi.hoisted(() => ({
   relayCalls: [] as unknown[],
   storageDeletes: [] as string[],
 }));
-vi.mock("@/server/collab/relay-control", () => ({
-  pushRelayRoomControl: (params: unknown) => {
+vi.mock("@/server/collab/do-control", () => ({
+  pushDoRoomControl: (params: unknown) => {
     relayCalls.push(params);
     return Promise.resolve({ enforced: true, closedSessions: 1 });
   },
@@ -77,6 +77,7 @@ beforeEach(async () => {
   relayCalls.length = 0;
   storageDeletes.length = 0;
   await testDb.delete(schema.deferredFileCleanup);
+  await testDb.delete(schema.collaborationControlOutbox);
   await testDb.delete(schema.adminAuditEvent);
   await testDb.delete(schema.user);
   await testDb.insert(schema.user).values([
@@ -322,7 +323,7 @@ describe("admin data retirement", () => {
 
     await expect(
       callerFor("admin-user").admin.endRoom({ roomId: "room-target" }),
-    ).resolves.toMatchObject({ found: true, relayEnforced: true });
+    ).resolves.toMatchObject({ found: true, enforcement: "enforced" });
     const room = await testDb.query.collaborationRoom.findFirst({
       where: eq(schema.collaborationRoom.roomId, "room-target"),
     });
@@ -411,7 +412,7 @@ describe("admin data retirement", () => {
       scenes: 1,
       rooms: 1,
       enqueuedObjects: 4,
-      relayEnforcedRooms: 1,
+      enforcedRooms: 1,
     });
     expect(
       await testDb.query.user.findFirst({

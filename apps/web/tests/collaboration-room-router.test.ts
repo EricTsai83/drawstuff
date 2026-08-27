@@ -25,17 +25,43 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
 }));
 
 /**
- * The relay is a separate process; its side of enforcement is covered by the
- * relay integration tests. Here the push itself is the assertion: a membership
- * change must reach the relay so sockets that already joined are closed.
+ * The Durable Object is a separate process; its side of enforcement is
+ * covered by the Worker integration tests. Results are mutable so router
+ * tests can exercise the `pending` path.
  */
-const relayControlCalls: unknown[] = [];
-vi.mock("@/server/collab/relay-control", () => ({
-  pushRelayRoomControl: (params: unknown) => {
-    relayControlCalls.push(params);
-    return Promise.resolve({ enforced: true, closedSessions: 1 });
+const doControlCalls: unknown[] = [];
+const relayControlCalls = doControlCalls;
+const dispatchBehavior = {
+  relay: { enforced: true, closedSessions: 1 } as
+    | { enforced: true; closedSessions: number }
+    | { enforced: false; failure: string; reason: string },
+};
+vi.mock("@/server/collab/do-control", () => ({
+  pushDoRoomControl: (params: unknown) => {
+    doControlCalls.push(params);
+    return Promise.resolve(dispatchBehavior.relay);
   },
 }));
+
+/**
+ * Routing is DO-only. The room safety switch remains mutable for its router
+ * behavior tests; URL composition has a focused unit test of its own.
+ */
+const routingConfig = {
+  roomsDisabled: false,
+};
+vi.mock("@/server/collab/relay-routing", async () => {
+  const { TRPCError } = await import("@trpc/server");
+  return {
+    collaborationRoomsDisabled: () => routingConfig.roomsDisabled,
+    collaborationRoomsDisabledError: () =>
+      new TRPCError({
+        code: "SERVICE_UNAVAILABLE",
+        message: "Collaboration is temporarily disabled.",
+      }),
+    resolveRelayUrl: () => RELAY_URL,
+  };
+});
 
 import { PGlite } from "@electric-sql/pglite";
 import { drizzle } from "drizzle-orm/pglite";
@@ -142,6 +168,10 @@ afterAll(async () => {
 
 beforeEach(async () => {
   relayControlCalls.length = 0;
+  doControlCalls.length = 0;
+  dispatchBehavior.relay = { enforced: true, closedSessions: 1 };
+  routingConfig.roomsDisabled = false;
+  await testDb.delete(schema.collaborationControlOutbox);
   await testDb.delete(schema.collaborationRoomMember);
   await testDb.delete(schema.collaborationRoom);
   await testDb.delete(schema.scene);
@@ -318,7 +348,7 @@ describe("collaboration room membership changes", () => {
       role: "editor",
     });
 
-    expect(result).toEqual({ role: "editor", relayEnforced: true });
+    expect(result).toEqual({ role: "editor", enforcement: "enforced" });
     // The role a live socket carries came from its token, so the member's
     // sessions must be closed for the new role to take effect.
     expect(relayControlCalls).toEqual([
@@ -346,7 +376,7 @@ describe("collaboration room membership changes", () => {
       roomId: room.roomId,
       userId: GUEST,
     });
-    expect(removed).toEqual({ removed: true, relayEnforced: true });
+    expect(removed).toEqual({ removed: true, enforcement: "enforced" });
     expect(relayControlCalls).toEqual([
       expect.objectContaining({ action: "revoke-member", userId: GUEST }),
     ]);
@@ -425,7 +455,7 @@ describe("collaboration room membership changes", () => {
     const left = await callerFor(GUEST).collaborationRoom.leave({
       roomId: room.roomId,
     });
-    expect(left).toEqual({ left: true, relayEnforced: true });
+    expect(left).toEqual({ left: true, enforcement: "enforced" });
     expect(relayControlCalls).toEqual([
       expect.objectContaining({ action: "revoke-member", userId: GUEST }),
     ]);
@@ -524,7 +554,7 @@ describe("collaboration room lifecycle", () => {
     relayControlCalls.length = 0;
 
     const ended = await owner.collaborationRoom.end({ roomId: room.roomId });
-    expect(ended).toMatchObject({ ended: true, relayEnforced: true });
+    expect(ended).toMatchObject({ ended: true, enforcement: "enforced" });
     expect(relayControlCalls).toEqual([
       expect.objectContaining({
         action: "end-room",
@@ -562,7 +592,7 @@ describe("collaboration room lifecycle", () => {
     const rotated = await owner.collaborationRoom.rotateGeneration({
       roomId: room.roomId,
     });
-    expect(rotated).toEqual({ authGeneration: 2, relayEnforced: true });
+    expect(rotated).toEqual({ authGeneration: 2, enforcement: "enforced" });
     // The previous generation's relay channel is emptied.
     expect(relayControlCalls).toEqual([
       expect.objectContaining({ action: "end-room", authGeneration: 1 }),
@@ -919,5 +949,97 @@ describe("collaboration room key check (Plan 34)", () => {
         keyCheckBase64: recomputed.keyCheckBase64!,
       }),
     ).resolves.toBe(true);
+  });
+});
+
+describe("DO-only routing and durable control outbox", () => {
+  it("returns the opaque Durable Object relay URL without provider state", async () => {
+    const sceneId = await createScene(OWNER);
+    const room = await callerFor(OWNER).collaborationRoom.create({ sceneId });
+    await armKeyCheck(room);
+    const joined = await callerFor(OWNER).collaborationRoom.join({
+      roomId: room.roomId,
+    });
+    expect(joined.relayUrl).toBe(RELAY_URL);
+    expect(Object.keys(joined)).not.toContain("provider");
+  });
+
+  it("records and synchronously delivers the minimal enforcement intent", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({
+      sceneId,
+      linkRole: "editor",
+    });
+    await armKeyCheck(room);
+    await callerFor(GUEST).collaborationRoom.join({ roomId: room.roomId });
+
+    await owner.collaborationRoom.removeMember({
+      roomId: room.roomId,
+      userId: GUEST,
+    });
+    const [event] = await testDb
+      .select()
+      .from(schema.collaborationControlOutbox);
+    expect(event).toMatchObject({
+      roomId: room.roomId,
+      action: "revoke-member",
+      subjectUserId: GUEST,
+      authGeneration: 1,
+      status: "delivered",
+      attempts: 1,
+      lastFailure: null,
+    });
+    expect(event).not.toHaveProperty("provider");
+    expect(doControlCalls).toEqual([
+      expect.objectContaining({ action: "revoke-member", userId: GUEST }),
+    ]);
+  });
+
+  it("reports pending and leaves a failed delivery queued", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({
+      sceneId,
+      linkRole: "editor",
+    });
+    await armKeyCheck(room);
+    await callerFor(GUEST).collaborationRoom.join({ roomId: room.roomId });
+
+    dispatchBehavior.relay = {
+      enforced: false,
+      failure: "unreachable",
+      reason: "connect ECONNREFUSED",
+    };
+    const left = await callerFor(GUEST).collaborationRoom.leave({
+      roomId: room.roomId,
+    });
+    expect(left).toEqual({ left: true, enforcement: "pending" });
+    const [event] = await testDb
+      .select()
+      .from(schema.collaborationControlOutbox);
+    expect(event).toMatchObject({
+      status: "pending",
+      attempts: 1,
+      lastFailure: "unreachable",
+    });
+  });
+
+  it("refuses create and join while the rooms kill switch is on", async () => {
+    const sceneId = await createScene(OWNER);
+    const owner = callerFor(OWNER);
+    const room = await owner.collaborationRoom.create({ sceneId });
+    await armKeyCheck(room);
+
+    routingConfig.roomsDisabled = true;
+    await expect(
+      owner.collaborationRoom.create({ sceneId }),
+    ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+    await expect(
+      owner.collaborationRoom.join({ roomId: room.roomId }),
+    ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
+    await expect(
+      owner.collaborationRoom.end({ roomId: room.roomId }),
+    ).resolves.toMatchObject({ ended: true });
   });
 });

@@ -14,6 +14,7 @@ import {
   user,
 } from "@/server/db/schema";
 import { QUERIES } from "@/server/db/queries";
+import { purgeControlOutboxRows } from "@/server/collab/control-outbox";
 import { lockRoom } from "@/server/collab/rooms";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 import {
@@ -259,6 +260,19 @@ export const purgeFinishedQueueRowsJob: MaintenanceJob = {
       "failed",
     ]);
     return { purgedRows: purged.length };
+  },
+};
+
+/**
+ * Retention for terminal control-outbox rows. Storage cleanup only: draining
+ * pending events is the minute-level `/api/collaboration/control-outbox`
+ * cron's job, and this run never touches them.
+ */
+export const purgeControlOutboxRowsJob: MaintenanceJob = {
+  name: "purge-control-outbox-rows",
+  run: async (deps) => {
+    const purgedRows = await purgeControlOutboxRows(db, deps.now());
+    return { purgedRows };
   },
 };
 
@@ -830,6 +844,7 @@ export function routineMaintenanceJobs(
     expiredSessionsJob,
     expiredVerificationsJob,
     purgeFinishedQueueRowsJob,
+    purgeControlOutboxRowsJob,
     // Sized to the producers' bounded aggregate per-run maximum — ~500 from
     // expired shared scenes (plus its permitted first-scene overshoot), 500
     // from the asset GC, and 512 from room retention's permitted first-room
