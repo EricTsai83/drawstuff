@@ -58,8 +58,7 @@ const rawDb = drizzle(client, { schema });
 // double satisfies the same Drizzle surface.
 const testDb = rawDb as unknown as Database;
 
-const outboxRows = () =>
-  rawDb.select().from(schema.collaborationControlOutbox);
+const outboxRows = () => rawDb.select().from(schema.collaborationControlOutbox);
 
 const rowOf = async (eventId: string) => {
   const rows = await rawDb
@@ -363,7 +362,6 @@ describe("bounded drain", () => {
       attempts: 2,
     });
   });
-
 });
 
 describe("retention", () => {

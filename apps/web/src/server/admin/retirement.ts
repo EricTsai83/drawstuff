@@ -112,7 +112,9 @@ export async function endRoom(params: {
   return {
     found: true as const,
     memberCount: ended.memberCount,
-    enforcement: control.enforced ? ("enforced" as const) : ("pending" as const),
+    enforcement: control.enforced
+      ? ("enforced" as const)
+      : ("pending" as const),
   };
 }
 

@@ -20,13 +20,15 @@ const {
   createMutate: vi.fn(),
   endSuccessHandler: {
     current: undefined as
-      ((result: { enforcement: "enforced" | "pending" }) => Promise<void>) | undefined,
+      | ((result: { enforcement: "enforced" | "pending" }) => Promise<void>)
+      | undefined,
   },
   getActiveForSceneInvalidate: vi.fn(() => Promise.resolve()),
   idleMutate: vi.fn(),
   leaveSuccessHandler: {
     current: undefined as
-      ((result: { enforcement: "enforced" | "pending" }) => Promise<void>) | undefined,
+      | ((result: { enforcement: "enforced" | "pending" }) => Promise<void>)
+      | undefined,
   },
   roomGetInvalidate: vi.fn(() => Promise.resolve()),
   roomGetUseQuery: vi.fn(),
@@ -101,7 +103,9 @@ vi.mock("@/trpc/react", () => {
         },
         end: {
           useMutation: (options: {
-            onSuccess?: (result: { enforcement: "enforced" | "pending" }) => Promise<void>;
+            onSuccess?: (result: {
+              enforcement: "enforced" | "pending";
+            }) => Promise<void>;
           }) => {
             endSuccessHandler.current = options.onSuccess;
             return idleMutation;
@@ -109,7 +113,9 @@ vi.mock("@/trpc/react", () => {
         },
         leave: {
           useMutation: (options: {
-            onSuccess?: (result: { enforcement: "enforced" | "pending" }) => Promise<void>;
+            onSuccess?: (result: {
+              enforcement: "enforced" | "pending";
+            }) => Promise<void>;
           }) => {
             leaveSuccessHandler.current = options.onSuccess;
             return idleMutation;

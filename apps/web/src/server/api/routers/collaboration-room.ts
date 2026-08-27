@@ -178,8 +178,7 @@ export const collaborationRoomRouter = createTRPCRouter({
       }),
     )
     .mutation(async ({ ctx, input }) => {
-      if (collaborationRoomsDisabled())
-        throw collaborationRoomsDisabledError();
+      if (collaborationRoomsDisabled()) throw collaborationRoomsDisabledError();
       const userId = ctx.auth.user.id;
       const now = new Date();
       const ownedScene = await ctx.db.query.scene.findFirst({
@@ -407,8 +406,7 @@ export const collaborationRoomRouter = createTRPCRouter({
   join: protectedProcedure
     .input(z.object({ roomId: roomIdInput }))
     .mutation(async ({ ctx, input }) => {
-      if (collaborationRoomsDisabled())
-        throw collaborationRoomsDisabledError();
+      if (collaborationRoomsDisabled()) throw collaborationRoomsDisabledError();
       const userId = ctx.auth.user.id;
       // After authentication and input validation, before the room lookup: the
       // budget belongs to the caller's own identity, so it costs no database

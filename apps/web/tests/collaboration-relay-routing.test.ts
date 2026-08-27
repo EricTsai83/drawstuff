@@ -9,10 +9,7 @@ vi.mock("@/env", () => ({
   },
 }));
 
-import {
-  isSwitchOn,
-  resolveRelayUrl,
-} from "@/server/collab/relay-routing";
+import { isSwitchOn, resolveRelayUrl } from "@/server/collab/relay-routing";
 
 describe("DO-only relay routing", () => {
   it("returns the generation-scoped Durable Object socket URL", () => {
@@ -21,7 +18,9 @@ describe("DO-only relay routing", () => {
         roomId: "room-do-000000000000",
         authGeneration: 3,
       }),
-    ).toBe("wss://do.invalid/v1/rooms/room-do-000000000000/generations/3/socket");
+    ).toBe(
+      "wss://do.invalid/v1/rooms/room-do-000000000000/generations/3/socket",
+    );
   });
 
   it("treats explicit off-words as off and any other set value as on", () => {

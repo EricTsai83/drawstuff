@@ -65,8 +65,7 @@ export type EnqueueRoomControlParams = {
   authRevision: number;
   now: Date;
 } & (
-  | { action: "revoke-member"; subjectUserId: string }
-  | { action: "end-room" }
+  { action: "revoke-member"; subjectUserId: string } | { action: "end-room" }
 );
 
 /**
@@ -220,7 +219,10 @@ async function dispatchAndRecord(
   db: Database,
   event: ControlOutboxEvent,
   now: Date,
-): Promise<{ result: RoomControlPushResult; persisted: PersistedDispatchOutcome }> {
+): Promise<{
+  result: RoomControlPushResult;
+  persisted: PersistedDispatchOutcome;
+}> {
   let result: RoomControlPushResult;
   try {
     result = await pushToProvider(event, now);

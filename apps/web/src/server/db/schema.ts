@@ -892,7 +892,9 @@ export const collaborationControlOutbox = createTable(
       .$type<"pending" | "delivered" | "failed">()
       .notNull()
       .$defaultFn(() => "pending"),
-    lastFailure: varchar("last_failure", { length: 32 }).$type<RoomControlFailure>(),
+    lastFailure: varchar("last_failure", {
+      length: 32,
+    }).$type<RoomControlFailure>(),
     deliveredAt: timestamp("delivered_at"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())

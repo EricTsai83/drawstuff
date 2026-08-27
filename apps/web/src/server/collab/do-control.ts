@@ -38,10 +38,10 @@ export async function pushDoRoomControl(
     const response = await fetch(
       new URL(DO_GATEWAY_CONTROL_PATH, env.COLLAB_CONTROL_URL),
       {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(request),
-      signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(request),
+        signal: AbortSignal.timeout(CONTROL_REQUEST_TIMEOUT_MS),
         cache: "no-store",
       },
     );
