@@ -58,6 +58,7 @@ const resolvedEnvironmentSchema = z.looseObject({
   secrets: z
     .looseObject({ required: z.array(z.string()).optional() })
     .optional(),
+  triggers: z.looseObject({ crons: z.array(z.string()).optional() }).optional(),
   version_metadata: z.looseObject({ binding: z.string() }).optional(),
   observability: z.looseObject({ enabled: z.boolean().optional() }).optional(),
 });
@@ -87,6 +88,7 @@ function auditConfig(): WranglerConfigAudit {
     varKeys: Object.keys(config.vars ?? {}),
     allowedOrigins: config.vars?.COLLAB_ALLOWED_ORIGINS ?? null,
     requiredSecrets: config.secrets?.required ?? [],
+    cronTriggers: config.triggers?.crons ?? [],
     versionMetadataBinding: config.version_metadata?.binding ?? null,
     observabilityEnabled: config.observability?.enabled === true,
   };

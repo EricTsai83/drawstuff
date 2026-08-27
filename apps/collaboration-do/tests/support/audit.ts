@@ -24,6 +24,7 @@ export type WranglerConfigAudit = {
   varKeys: string[];
   allowedOrigins: JsonValue | null;
   requiredSecrets: string[];
+  cronTriggers: string[];
   versionMetadataBinding: string | null;
   observabilityEnabled: boolean;
 };

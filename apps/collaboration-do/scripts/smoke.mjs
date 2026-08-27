@@ -17,7 +17,7 @@
  *
  * The full contract matrix (Origin allowlist, header stripping, DO identity,
  * close codes, limits) is owned by the workerd test suite; this script proves
- * the *deployed* Worker answers with the same surface, during the 0%-traffic
+ * the *deployed* Worker answers with the same surface during the pre-cutover
  * window, and prints the version id for the deploy record.
  *
  * Usage:
@@ -350,7 +350,7 @@ async function webSocketSmoke(joinTokenSecret) {
   });
 
   // Durable-control evidence: the Vercel-like HTTP caller → Worker → typed RPC → DO
-  // control path against the deployed Worker, still at 0% traffic.
+  // control path against the deployed Worker before production cutover.
   await check(
     "end-room control applies through the deployed gateway",
     async () => {

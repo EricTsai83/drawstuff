@@ -17,14 +17,9 @@ deployment). Long-term claims live in
 liveness/keepalive contract is documented in the
 [collaboration SLO document](../../docs/performance/collaboration-slo-capacity.md) §9.
 
-**The Worker carries 0% collaboration traffic until cutover (Plan 14)**,
-guaranteed by two independent locks rather than by unreachability:
-
-1. `COLLAB_ALLOWED_ORIGINS` lists only localhost — browsers on the real site
-   fail the Origin check before any socket is forwarded (fail closed);
-2. `collaborationRoom.join` still returns the Node relay URL — no client path
-   points here until the PostgreSQL provider assignment flips (Plan 13/14).
-   The traffic gate lives in the database, not in deploys.
+The Worker carries production collaboration traffic through DO-only routing.
+`COLLAB_ALLOWED_ORIGINS` admits the production web app and localhost
+development; short-lived join tokens remain the authorization boundary.
 
 ## Public surface (fixed, versioned)
 
@@ -49,6 +44,10 @@ pnpm --filter @drawstuff/collaboration-do cf:typegen  # regenerate worker-config
 pnpm --filter @drawstuff/collaboration-do preflight   # dry-run bundle+config, zero side effects
 pnpm --filter @drawstuff/collaboration-do deploy      # verify → preflight → deploy
 pnpm --filter @drawstuff/collaboration-do secret:put  # prompts for COLLAB_JOIN_TOKEN_SECRET
+pnpm --filter @drawstuff/collaboration-do secret:put:cron # prompts for COLLAB_CRON_SECRET
+pnpm --filter @drawstuff/collaboration-do secret:put:drain-url # prompts for COLLAB_OUTBOX_DRAIN_URL
+pnpm --filter @drawstuff/collaboration-do secret:list # lists secret names, never values
+pnpm --filter @drawstuff/collaboration-do tail        # streams live Worker logs until stopped
 
 # Deployed-worker verification tooling (run before the first production
 # assignment; COLLAB_JOIN_TOKEN_SECRET must match the deployed Worker):
@@ -63,14 +62,16 @@ secret), it additionally runs the room-runtime smoke: two real WebSocket
 clients join a fresh room through the deployed Worker, exchange E2EE-sealed
 scene and presence frames (the room key never leaves the smoke process), and
 verify the keepalive auto-response — deployed-worker evidence that is safe
-during the 0%-traffic window.
+during the pre-cutover window.
 
 `MAX_CONNECTIONS_PER_ROOM` remains an internal safety and abuse bound, not a
 verified capacity promise. `loadtest` is available for targeted diagnosis when
 real usage or platform metrics justify it; release qualification only requires
 small-group fanout correctness, not an exhaustive member/cadence matrix.
 
-Root shortcuts: `pnpm cf:deploy`, `pnpm cf:smoke <url>`.
+Root shortcuts: `pnpm cf:typegen`, `pnpm cf:preflight`, `pnpm cf:deploy`,
+`pnpm cf:smoke <url>`, `pnpm cf:conformance <url>`,
+`pnpm cf:loadtest <url>`, `pnpm cf:secrets`, and `pnpm cf:tail`.
 
 Wrangler is never part of the root `dev` pipeline.
 
@@ -117,21 +118,20 @@ re-runs this package's own checks besides.
 
 ## Environment facts
 
-|                                                             | value                                                                                                                                                           |
-| ----------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Worker name                                                 | `drawstuff-collaboration-do`                                                                                                                                    |
-| Public URL                                                  | workers.dev (daily smoke/testing surface during migration)                                                                                                      |
-| Allowed origins (`COLLAB_ALLOWED_ORIGINS`, comma-separated) | `http://localhost:3000` until Plan 14 cutover                                                                                                                   |
-| DO namespace                                                | `CollaborationRoom` (SQLite)                                                                                                                                    |
-| Secret                                                      | `COLLAB_JOIN_TOKEN_SECRET` (same value the app signs join/control tokens with, ≥32 bytes; Cloudflare secret only — never in `vars`, git, logs or test fixtures) |
+|                                                             | value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Worker name                                                 | `drawstuff-collaboration-do`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Public URL                                                  | `https://drawstuff-collaboration-do.ericts.workers.dev`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Allowed origins (`COLLAB_ALLOWED_ORIGINS`, comma-separated) | `https://draw.ericts.com,http://localhost:3000`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| DO namespace                                                | `CollaborationRoom` (SQLite)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Secrets                                                     | `COLLAB_JOIN_TOKEN_SECRET` (same value the app signs join/control tokens with, ≥32 bytes); `COLLAB_CRON_SECRET` (same value as the web app's `COLLAB_OUTBOX_CRON_SECRET` — a dedicated secret whose only power is triggering the idempotent outbox drain, never the maintenance `CRON_SECRET`); `COLLAB_OUTBOX_DRAIN_URL` (`https://<web origin>/api/collaboration/control-outbox`; a secret so deploys never clobber it, not because it is sensitive). Cloudflare secrets only — never in `vars`, git, logs or test fixtures |
+| Cron trigger                                                | `* * * * *` — pings the web app's control-outbox drain endpoint (`src/outbox-drain.ts`); the minute clock lives here because the Vercel deployment's Hobby-plan crons are daily-only                                                                                                                                                                                                                                                                                                                                          |
 
 `tests/config-audit.test.ts` audits all of the above against the resolved
 wrangler config on every test run.
 
-Custom domains are deliberately not configured: the workers.dev URL serves
-the migration window, and assigning a real domain happens with cutover
-(Plans 13–14) as a routing change together with widening the Origin
-allowlist.
+Custom domains are deliberately not configured; the production app uses the
+Worker's `workers.dev` URL directly.
 
 ## Deployment lifecycle (CLAIM-MIG-4)
 
@@ -147,8 +147,8 @@ deployable and cannot be rolled back across; it always ships alone:
    or `/healthz`), compatibility date (`2026-08-01`), namespace/class/backend
    (`CollaborationRoom`, SQLite), and that the secret is set.
 3. Never roll back to before a namespace existed. Rollback keeps the
-   namespace; the traffic locks (Origin allowlist + DB provider assignment)
-   are what hold traffic at 0%, independent of deploys.
+   namespace; before direct cutover the localhost-only Origin allowlist is
+   the traffic lock.
 4. Schema migrations are forward-only and re-entrant; class
    lifecycle changes always deploy separately from runtime/schema/routing
    changes, manually.

@@ -4,15 +4,9 @@
  * this one deployment (CLAIM-MIG-3).
  *
  * Single environment by design: this is a solo, self-hosted project, matching
- * how apps/web deploys (main → the one deployment). Until cutover (Plan 14)
- * the Worker carries 0% collaboration traffic, guaranteed by two independent
- * locks rather than by unreachability:
- *
- * 1. `COLLAB_ALLOWED_ORIGINS` lists only localhost, so browsers on the real
- *    site fail the Origin check before any socket is forwarded (fail closed);
- * 2. `collaborationRoom.join` still returns the Node relay URL — no client
- *    path points here until the PostgreSQL provider assignment flips
- *    (Plan 13/14). The traffic gate lives in the database, not in deploys.
+ * how apps/web deploys (main → the one deployment). The Origin allowlist
+ * admits the production web app and localhost development; join tokens remain
+ * the authorization boundary for every room connection.
  *
  * Lifecycle rules (CLAIM-MIG-4):
  * - `exports` is the declarative Durable Object lifecycle. Any change to it
@@ -37,40 +31,53 @@
   // `nodejs_compat` lets the Plan-08-verified `room-token` entry run as-is
   // (node:crypto HMAC, CLAIM-DO-6).
   "compatibility_flags": ["nodejs_compat"],
-  // The workers.dev URL is the daily smoke/testing surface during the
-  // migration window; real traffic stays out via the two locks above.
+  // The workers.dev URL is the pre-cutover smoke/testing surface.
   "workers_dev": true,
+  // Minute-level drainer for the collaboration control outbox: the
+  // scheduled handler pings the web app's drain endpoint. Lives here instead
+  // of Vercel Cron because the Vercel deployment stays on the Hobby plan
+  // (daily-only crons); the weekly storage cleanup remains a Vercel cron.
+  "triggers": {
+    "crons": ["* * * * *"],
+  },
   "observability": {
     "enabled": true,
     "logs": {
-      "enabled": true
-    }
+      "enabled": true,
+    },
   },
   // Declarative SQLite-backed Durable Object lifecycle (mutually exclusive
   // with legacy `migrations` — do not add that key back for gradual rollouts).
   "exports": {
     "CollaborationRoom": {
       "type": "durable-object",
-      "storage": "sqlite"
-    }
+      "storage": "sqlite",
+    },
   },
   "durable_objects": {
     "bindings": [
       {
         "name": "COLLABORATION_ROOM",
-        "class_name": "CollaborationRoom"
-      }
-    ]
+        "class_name": "CollaborationRoom",
+      },
+    ],
   },
   "version_metadata": {
-    "binding": "VERSION_METADATA"
+    "binding": "VERSION_METADATA",
   },
   "vars": {
-    // Origin is defense-in-depth only (join tokens authorize). localhost-only
-    // until cutover (Plan 14) swaps in the real web origin.
-    "COLLAB_ALLOWED_ORIGINS": "http://localhost:3000"
+    // Origin is defense-in-depth only (join tokens authorize). Keep entries
+    // exact and comma-separated; do not use wildcard origins.
+    "COLLAB_ALLOWED_ORIGINS": "https://draw.ericts.com,http://localhost:3000",
   },
   "secrets": {
-    "required": ["COLLAB_JOIN_TOKEN_SECRET"]
-  }
+    // COLLAB_OUTBOX_DRAIN_URL is not sensitive, but it is deployment-specific
+    // and `wrangler deploy` replaces dashboard-edited `vars`; a secret is the
+    // one binding an operator sets once and deploys never clobber.
+    "required": [
+      "COLLAB_JOIN_TOKEN_SECRET",
+      "COLLAB_CRON_SECRET",
+      "COLLAB_OUTBOX_DRAIN_URL",
+    ],
+  },
 }

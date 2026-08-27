@@ -161,6 +161,7 @@ describe("DO structured logger", () => {
         "role",
         "roomId",
         "socketState",
+        "status",
         "tokenFailure",
       ].sort(),
     );

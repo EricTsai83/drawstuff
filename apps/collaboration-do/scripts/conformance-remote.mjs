@@ -7,7 +7,7 @@
  * (`@drawstuff/collaboration/protocol-conformance`) are driven here over the
  * real network: `ws` sockets that present the allowlisted Origin, real signed
  * join tokens, and the control endpoint over HTTPS. Intended only for the
- * 0%-traffic window — the namespace holds nothing but synthetic rooms, and
+ * pre-cutover window — the namespace holds nothing but synthetic rooms, and
  * every room this run creates expires on its own token-bounded lifetime.
  *
  * Usage:

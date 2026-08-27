@@ -6,9 +6,8 @@ import { WRANGLER_AUDIT_BINDING, type TestBindings } from "./support/audit.ts";
 /**
  * Deployment-config audit (Plan 09, single environment): the lifecycle must
  * be the declarative SQLite `exports` (never legacy `migrations`), secrets
- * must never appear in `vars`, and until cutover (Plan 14) the Worker must
- * keep its two traffic locks — a localhost-only Origin allowlist here, and
- * `collaborationRoom.join` still returning the Node relay URL in apps/web.
+ * must never appear in `vars`, and the Worker accepts only the production web
+ * app plus localhost development as browser origins.
  * The snapshot is resolved by wrangler's own config reader in
  * vitest.config.ts, so what is asserted is exactly what a deploy would ship.
  */
@@ -49,9 +48,24 @@ describe("deployment config", () => {
     expect(audit.legacyMigrations).toEqual([]);
   });
 
-  it("keeps secrets out of vars and declares the required secret", () => {
-    expect(audit.requiredSecrets).toEqual(["COLLAB_JOIN_TOKEN_SECRET"]);
+  it("keeps secrets out of vars and declares the required secrets", () => {
+    // COLLAB_OUTBOX_DRAIN_URL rides as a secret not because it is sensitive
+    // but because `wrangler deploy` clobbers dashboard-edited vars; secrets
+    // are the deployment-stable operator-set bindings.
+    expect(audit.requiredSecrets).toEqual([
+      "COLLAB_JOIN_TOKEN_SECRET",
+      "COLLAB_CRON_SECRET",
+      "COLLAB_OUTBOX_DRAIN_URL",
+    ]);
     expect(audit.varKeys).toEqual(["COLLAB_ALLOWED_ORIGINS"]);
+  });
+
+  it("pins the minute-level control-outbox drain cron", () => {
+    // The web app stays on Vercel Hobby (daily-only crons), so this Worker
+    // supplies the minute clock for the durable control outbox. Removing or
+    // slowing this trigger silently stretches the enforcement-latency bound
+    // in docs/performance/collaboration-slo-capacity.md §10.
+    expect(audit.cronTriggers).toEqual(["* * * * *"]);
   });
 
   it("binds version metadata and enables Workers Logs", () => {
@@ -59,10 +73,10 @@ describe("deployment config", () => {
     expect(audit.observabilityEnabled).toBe(true);
   });
 
-  it("keeps the pre-cutover traffic lock: localhost-only origins, no routes", () => {
-    // Cutover (Plan 14) is the only change allowed to widen this allowlist
-    // (to the real web origin) and to add routes/custom domains.
-    expect(audit.allowedOrigins).toBe("http://localhost:3000");
+  it("allows production and local development origins, with no routes", () => {
+    expect(audit.allowedOrigins).toBe(
+      "https://draw.ericts.com,http://localhost:3000",
+    );
     expect(audit.routes).toEqual([]);
     expect(audit.workersDev).toBe(true);
   });

@@ -10,8 +10,15 @@
     "baseline:performance": "pnpm --filter @drawstuff/web baseline:performance",
     "baseline:performance:e2e": "pnpm --filter @drawstuff/web baseline:performance:e2e",
     "build": "turbo run build",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm knip",
+    "cf:conformance": "pnpm --filter @drawstuff/collaboration-do conformance:remote",
     "cf:deploy": "pnpm --filter @drawstuff/collaboration-do deploy",
+    "cf:loadtest": "pnpm --filter @drawstuff/collaboration-do loadtest",
+    "cf:preflight": "pnpm --filter @drawstuff/collaboration-do preflight",
+    "cf:secrets": "pnpm --filter @drawstuff/collaboration-do secret:list",
     "cf:smoke": "pnpm --filter @drawstuff/collaboration-do smoke",
+    "cf:tail": "pnpm --filter @drawstuff/collaboration-do tail",
+    "cf:typegen": "pnpm --filter @drawstuff/collaboration-do cf:typegen",
     "db:push": "turbo run db:push --filter=@drawstuff/web",
     "db:studio": "pnpm --filter @drawstuff/web db:studio",
     "dev": "turbo run dev --ui=tui",
@@ -26,6 +33,7 @@
     "start": "pnpm --filter @drawstuff/web start",
     "test": "turbo run test",
     "test:coverage": "turbo run test:coverage",
+    "test:e2e": "pnpm --filter @drawstuff/web test:e2e",
     "typecheck": "turbo run typecheck"
   },
   "devEngines": {

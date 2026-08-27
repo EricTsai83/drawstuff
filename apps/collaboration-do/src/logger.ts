@@ -37,7 +37,11 @@ type DoLogEvent =
   | "room.fanout_write_failed"
   | "room.session_joined"
   /** Every server-stated close, with its close-code verdict. */
-  | "room.session_closed";
+  | "room.session_closed"
+  /** The cron trigger fired but the drain secrets are missing. */
+  | "cron.outbox_drain_not_configured"
+  /** The outbox drain ping got no 2xx (or no response) from the web app. */
+  | "cron.outbox_drain_failed";
 
 type DoLogLevel = "info" | "warn" | "error";
 
@@ -57,6 +61,8 @@ type DoLogFields = {
   closedSessions?: number;
   /** Joined members after the change the record describes. */
   members?: number;
+  /** HTTP status of a failed server-to-server call (the drain ping). */
+  status?: number;
   /** `Error` constructor name only — never `message`, which can embed input. */
   errorName?: string;
 };
@@ -76,6 +82,7 @@ const LOGGABLE_FIELDS: Record<keyof DoLogFields, true> = {
   controlAction: true,
   closedSessions: true,
   members: true,
+  status: true,
   errorName: true,
 };
 

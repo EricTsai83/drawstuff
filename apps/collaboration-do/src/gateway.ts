@@ -268,7 +268,7 @@ async function handleControl(
   } catch (error) {
     // Object-side refusals and infrastructure failures alike map to one
     // closed, retryable answer; detail stays in Workers Logs. The caller's
-    // durable dispatcher (Plan 13) owns retries.
+    // The durable dispatcher owns retries.
     log.error("gateway.control_dispatch_failed", {
       roomId: claims.rid,
       authGeneration: claims.gen,

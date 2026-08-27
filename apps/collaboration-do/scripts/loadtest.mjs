@@ -2,7 +2,7 @@
 /**
  * Capacity / latency load harness for the collaboration room runtime
  * Points at any backend that speaks the shared wire contract —
- * the deployed Worker in its 0%-traffic window, or a local Node relay — and
+ * the deployed Worker in its pre-cutover window, or a local reference relay — and
  * produces one machine-readable report per run.
  *
  * The harness generates diagnostic measurements; it deliberately embeds no
