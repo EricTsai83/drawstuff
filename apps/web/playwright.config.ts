@@ -70,6 +70,9 @@ export default defineConfig({
       POSTGRES_USER: "drawstuff",
       POSTGRES_PASSWORD: "drawstuff",
       POSTGRES_DATABASE: "drawstuff_e2e",
+      // E2E uses local fakes and never uploads files. Keep the production CSP
+      // strict by omitting env-derived origins that have no test credential.
+      SKIP_ENV_VALIDATION: "1",
       NEXT_PUBLIC_BASE_URL: baseURL,
       COLLAB_JOIN_TOKEN_SECRET: e2eRoomTokenSecret,
       COLLAB_CONTROL_URL: "http://127.0.0.1:65431",
