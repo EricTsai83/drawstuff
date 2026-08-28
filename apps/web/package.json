@@ -24,6 +24,8 @@
   },
   "knip": {
     "entry": [
+      "next.config.ts!",
+      "src/config/security-headers.ts!",
       "scripts/audit-collaboration-room-retention.ts",
       "scripts/bootstrap-admin.ts",
       "src/server/admin/bootstrap.ts",
