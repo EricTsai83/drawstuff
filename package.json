@@ -21,7 +21,7 @@
     "cf:typegen": "pnpm --filter @drawstuff/collaboration-do cf:typegen",
     "db:push": "turbo run db:push --filter=@drawstuff/web",
     "db:studio": "pnpm --filter @drawstuff/web db:studio",
-    "dev": "turbo run dev --ui=tui",
+    "dev": "turbo run dev",
     "dev:web": "pnpm --filter @drawstuff/web dev",
     "format:check": "prettier --check \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
     "format:write": "prettier --write \"**/*.{ts,tsx,js,jsx,mdx}\" --cache",
