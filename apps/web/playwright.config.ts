@@ -11,7 +11,9 @@ export default defineConfig({
   testDir: "./tests/e2e",
   outputDir: "test-results/playwright",
   fullyParallel: false,
-  workers: 1,
+  // Keep local runs deterministic while allowing independent spec files to
+  // share the two cores available on GitHub-hosted runners.
+  workers: process.env.CI ? 2 : 1,
   forbidOnly: Boolean(process.env.CI),
   retries: process.env.CI ? 2 : 0,
   reporter: process.env.CI
