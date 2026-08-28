@@ -4,6 +4,8 @@ import {
   exportSceneToSvg,
   type ExcalidrawSvgExportOptions,
 } from "@drawstuff/excalidraw-adapter/client";
+
+import { installExcalidrawAssetPath } from "@/config/excalidraw-asset-path";
 import {
   Eye,
   EyeOff,
@@ -33,6 +35,11 @@ import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
 import { buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+
+// /p/[slug] 不在 workspace layout（excalidraw-client-wrapper）底下，
+// `exportSceneToSvg` 的字型載入需要自己把資產指向自家 origin，否則 fallback
+// 到 esm.sh。upstream 於字型載入時才讀取這個值，module scope 呼叫即足夠早。
+installExcalidrawAssetPath();
 
 type PublishedSceneViewerProps = {
   sceneData: string;

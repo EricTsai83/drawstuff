@@ -30,7 +30,11 @@
         "UPSTASH_REDIS_REST_URL"
       ],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
-      "outputs": [".next/**", "!.next/cache/**"]
+      "outputs": [
+        ".next/**",
+        "!.next/cache/**",
+        "public/excalidraw-assets/**"
+      ]
     },
     "dev": {
       "cache": false,

@@ -45,6 +45,10 @@ yarn-error.log*
 # vercel
 **/.vercel/
 
+# excalidraw self-hosted canvas assets, copied from node_modules by
+# apps/web/scripts/sync-excalidraw-assets.mjs on dev/build
+apps/web/public/excalidraw-assets/
+
 # typescript
 *.tsbuildinfo
 
