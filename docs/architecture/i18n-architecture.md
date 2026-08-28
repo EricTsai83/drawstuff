@@ -1,6 +1,7 @@
 # 應用層 i18n 架構
 
 - Status: Accepted
+- 通用化 pattern：[server-resolved i18n](../system-design/server-resolved-i18n.md)
 - Date: 2026-08-13
 - 適用範圍：`apps/web` 自有字串（`AppTranslationKey`）。Excalidraw 原生 UI 的字串
   仍由 upstream i18n 擁有，見

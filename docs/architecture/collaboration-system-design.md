@@ -1,6 +1,10 @@
 # Collaboration system design
 
 - Status: Current
+- Generalized patterns: [realtime room coordination](../system-design/realtime-room-coordination.md),
+  [E2EE key lifecycle](../system-design/e2ee-key-lifecycle.md),
+  [transactional outbox](../system-design/transactional-outbox.md),
+  [defensive boundaries](../system-design/defensive-boundaries.md)
 - Security model: [collaboration threat model](./collaboration-threat-model.md)
 - Capacity contract: [collaboration SLO](../performance/collaboration-slo-capacity.md)
 - Deployment contract: [Durable Object deployment runbook](../operations/collaboration-do-deployment.md)

@@ -1,6 +1,7 @@
 # Web CSP 設計：以「通道」為單位的收斂
 
 - Status: Current（enforce 中）
+- 通用化 pattern：[CSP 與 code delivery](../system-design/csp-and-code-delivery.md)
 - 決策記錄：[ADR-0004](../adr/0004-code-delivery-trust-boundary.md)（為什麼 CSP 是
   defense-in-depth 而非授權機制、各項邊界內妥協的原因）
 - 營運文件：[web security headers](../operations/web-security-headers.md)（header 一覽、

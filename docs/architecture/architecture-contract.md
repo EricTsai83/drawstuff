@@ -1,6 +1,8 @@
 # Drawstuff architecture contract
 
 - Status: Accepted
+- Generalized patterns: [module boundaries](../system-design/module-boundaries.md),
+  [third-party engine adapter](../system-design/third-party-engine-adapter.md)
 - Related decisions: [ADR 0001](../adr/0001-excalidraw-persistence-boundary.md),
   [public API gap audit](./excalidraw-public-api-gap-audit.md), and
   [native UI integration contract](./native-ui-integration-contract.md)

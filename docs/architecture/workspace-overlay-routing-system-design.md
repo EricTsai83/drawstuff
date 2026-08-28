@@ -1,6 +1,7 @@
 # Workspace overlay routing system design
 
 - Status: Current
+- Generalized pattern: [persistent shell & overlay routing](../system-design/persistent-shell-overlay-routing.md)
 - Framework contract: [Next.js Parallel Routes](https://nextjs.org/docs/app/api-reference/file-conventions/parallel-routes),
   [Intercepting Routes](https://nextjs.org/docs/app/api-reference/file-conventions/intercepting-routes), and
   [`default.js`](https://nextjs.org/docs/app/api-reference/file-conventions/default)

@@ -1,6 +1,8 @@
 # Data lifecycle
 
 - Status: Current
+- Generalized patterns: [data lifecycle & GC](../system-design/data-lifecycle-and-gc.md),
+  [transactional outbox](../system-design/transactional-outbox.md)
 - Persistence boundary: [ADR 0001](../adr/0001-excalidraw-persistence-boundary.md)
 - Operational conventions: [engineering conventions](../operations/engineering-conventions.md)
 
