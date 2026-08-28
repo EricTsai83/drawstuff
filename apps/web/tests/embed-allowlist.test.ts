@@ -1,8 +1,53 @@
 import { describe, expect, it } from "vitest";
 
-import { createEmbedUrlValidator } from "@/config/embed-allowlist";
+import {
+  createEmbedUrlValidator,
+  EMBED_DENIED_DOMAINS,
+  EMBED_FRAME_SRC_HOSTS,
+} from "@/config/embed-allowlist";
 
 describe("createEmbedUrlValidator", () => {
+  it("rejects srcdoc-script embed domains instead of deferring to upstream", () => {
+    const validate = createEmbedUrlValidator([]);
+
+    // 這些 embed 需要外部 script 以頁面同源權限執行（room key 所在 origin），
+    // CSP 不放行其 script origin，validator 必須同步拒絕（threat model T16）。
+    expect(validate("https://twitter.com/user/status/123")).toBe(false);
+    expect(validate("https://www.twitter.com/user/status/123")).toBe(false);
+    expect(validate("https://x.com/user/status/123")).toBe(false);
+    expect(validate("https://reddit.com/r/foo/comments/1/bar")).toBe(false);
+    expect(validate("https://www.reddit.com/r/foo/comments/1/bar")).toBe(false);
+    expect(validate("https://gist.github.com/user/abc123")).toBe(false);
+  });
+
+  it("still defers pure-iframe embed domains to upstream", () => {
+    const validate = createEmbedUrlValidator([]);
+
+    expect(validate("https://www.youtube.com/watch?v=abc")).toBeUndefined();
+    expect(validate("https://player.vimeo.com/video/1")).toBeUndefined();
+    expect(validate("https://val.town/v/user/thing")).toBeUndefined();
+  });
+
+  it("lets an extra-domain entry win only when it is not denied", () => {
+    const validate = createEmbedUrlValidator(["twitter.com", "example.com"]);
+
+    // 封鎖名單優先於補充名單：手動加回被封鎖的網域不得放行。
+    expect(validate("https://twitter.com/user/status/123")).toBe(false);
+    expect(validate("https://example.com/board/1")).toBe(true);
+  });
+
+  it("pins the CSP frame-src host list to https host sources only", () => {
+    for (const host of EMBED_FRAME_SRC_HOSTS) {
+      expect(host).toMatch(/^https:\/\/[a-z0-9*][a-z0-9.*-]*$/);
+      expect(host).not.toBe("https://*");
+    }
+    // 封鎖網域不得出現在 frame-src 決策裡。
+    for (const denied of EMBED_DENIED_DOMAINS) {
+      for (const host of EMBED_FRAME_SRC_HOSTS) {
+        expect(host).not.toContain(denied);
+      }
+    }
+  });
   it("allows an exact hostname match", () => {
     const validate = createEmbedUrlValidator(["example.com"]);
 

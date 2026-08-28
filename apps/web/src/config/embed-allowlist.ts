@@ -11,18 +11,61 @@ export const EXTRA_EMBED_DOMAINS: readonly string[] = [
   // "*.notion.site",
 ];
 
+// T16（threat model B6）的 embed 決策：upstream 內建白名單中，twitter/x、
+// reddit 與 gist.github.com 走 srcdoc iframe 且 `allowSameOrigin`，其外部
+// script（platform.twitter.com、embed.reddit.com、gist.github.com）會以與
+// 頁面同源的權限執行——room key 就存在於這個 origin 的 JS 記憶體。允許它們
+// 等於把第三方 CDN 納入信任邊界，因此在 validator 層明確封鎖，CSP 的
+// `script-src` 也不放行任何外部 script origin。比對規則與 upstream 一致：
+// hostname 去掉單一前導 `www.` 後精確比對。
+export const EMBED_DENIED_DOMAINS: readonly string[] = [
+  "twitter.com",
+  "x.com",
+  "reddit.com",
+  "gist.github.com",
+];
+
+// CSP `frame-src` 的單一來源（security-headers.ts 直接引用），必須與
+// validator 實際放行的 embed 最終 iframe host 一致：
+// - upstream 內建白名單（0.18.1）扣除上方封鎖名單；
+// - youtube/vimeo/figma/giphy 連結會被 upstream 改寫成固定 embed host，
+//   其餘（generic type）沿用貼入的原始 host，因此 apex 與 www 都要列出；
+// - `*.simplepdf.eu` 是 upstream 內建的一層子網域萬用條目，原樣保留。
+// EXTRA_EMBED_DOMAINS 若新增條目，必須同步把對應 host 加進這份清單。
+export const EMBED_FRAME_SRC_HOSTS: readonly string[] = [
+  "https://youtube.com",
+  "https://www.youtube.com",
+  "https://youtu.be",
+  "https://www.youtu.be",
+  "https://vimeo.com",
+  "https://www.vimeo.com",
+  "https://player.vimeo.com",
+  "https://figma.com",
+  "https://www.figma.com",
+  "https://link.excalidraw.com",
+  "https://www.link.excalidraw.com",
+  "https://*.simplepdf.eu",
+  "https://stackblitz.com",
+  "https://www.stackblitz.com",
+  "https://val.town",
+  "https://www.val.town",
+  "https://giphy.com",
+  "https://www.giphy.com",
+];
+
 /**
  * 依補充名單建立 `validateEmbeddable` 用的驗證函式。
  *
- * 回傳值刻意只有 `true` 與 `undefined`：
+ * 回傳值：
+ * - `false`：hostname 命中 `deniedDomains`（srcdoc-script embed），明確拒絕，
+ *   不再交還 upstream；這是 CSP 不放行外部 `script-src` 的對應決策。
  * - `true`：hostname 命中補充名單，直接放行。
  * - `undefined`：交還給 upstream，改用它內建的白名單判斷（YouTube 等維持原行為）。
- *
- * 永遠不回傳 `false`，避免這份補充名單反過來把 upstream 原本允許的網域擋掉。
  */
 export function createEmbedUrlValidator(
   domains: readonly string[],
-): (url: string) => true | undefined {
+  deniedDomains: readonly string[] = EMBED_DENIED_DOMAINS,
+): (url: string) => boolean | undefined {
   const exactHostnames = new Set<string>();
   // 以 `.example.com` 形式保存，方便直接用 suffix 比對子網域。
   const wildcardSuffixes: string[] = [];
@@ -43,9 +86,19 @@ export function createEmbedUrlValidator(
     }
   }
 
-  return function validateEmbedUrl(url: string): true | undefined {
+  // 封鎖名單沿用 upstream 的比對方式：去掉單一前導 `www.` 後精確比對，
+  // 確保 validator 拒絕的範圍恰好覆蓋 upstream 原本會放行的形式。
+  const deniedHostnames = new Set<string>();
+  for (const entry of deniedDomains) {
+    const host = canonicalizeHostname(entry.trim().toLowerCase());
+    if (host) deniedHostnames.add(host);
+  }
+
+  return function validateEmbedUrl(url: string): boolean | undefined {
     const hostname = parseHostname(url);
     if (!hostname) return undefined;
+
+    if (deniedHostnames.has(hostname.replace(/^www\./, ""))) return false;
 
     if (exactHostnames.has(hostname)) return true;
 
