@@ -17,9 +17,15 @@ accepted gaps. Scene plaintext exists only in participating browsers.
 | B3       | Browser ↔ object-storage upload      | Room owner/editor with current generation                                                 |
 | B4       | Web backend → relay control endpoint | A backend holding a signed, action-scoped control token                                   |
 | B5       | URL fragment                         | Browser memory and user clipboard only; anyone with the complete link learns the room key |
+| B6       | Browser ↔ application-code delivery (HTML/JS served by the `apps/web` origin) | All users; content is decided by anyone able to change the deployment or its build inputs |
 
 Actors are room owner, editor, viewer, logged-in non-member, unauthenticated caller, relay operator,
-backend/storage operator, and network intermediary.
+backend/storage operator, network intermediary, **hosting/deployment operator** (anyone able to
+change what the `apps/web` origin serves: Vercel account holders, CI with deploy rights, the
+platform itself), and **build-time dependency** (any npm package, including transitives, whose code
+runs during build or ships in the bundle). The last two are distinct from the relay and
+backend/storage operators: E2EE constrains what relay/backend operators can read, but it does not
+constrain whoever controls the code that holds the key (see T16).
 
 ## Cross-boundary data
 
@@ -32,7 +38,7 @@ backend/storage operator, and network intermediary.
 | Asset metadata            | B2       | File ID, crypto version, byte length, and storage URL                           | Backend                                      |
 | Room lifecycle            | B2       | Membership, roles, generation/revision, expiry, status, and link role           | Backend                                      |
 | Control token             | B4       | HMAC claims scoped to one room action                                           | Relay verifier                               |
-| Room key                  | B5 only  | Random 32-byte value                                                            | Complete-link holders                        |
+| Room key                  | B5, B6   | Random 32-byte value; at B6 it is plaintext in the memory of the running JS the origin served | Complete-link holders; whoever controls B6 content |
 
 Three invariants follow:
 
@@ -101,7 +107,7 @@ work and releases timers, object URLs, sockets, and caches.
 | ID  | Threat                                                     | Control or accepted limitation                                                                                                                                                                                                                                                                                                                       |
 | --- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | T1  | Non-member reads room content                              | Every join requires an authorized short-lived token; generation rotation isolates old tokens and keys.                                                                                                                                                                                                                                               |
-| T2  | Relay/operator/intermediary reads scene                    | All scene, presence, snapshot, and asset content is end-to-end encrypted; relay has no crypto key or persistence dependency.                                                                                                                                                                                                                         |
+| T2  | Passive relay/backend/storage operator or network intermediary reads scene | All scene, presence, snapshot, and asset content is end-to-end encrypted; relay has no crypto key or persistence dependency. This holds only against actors who observe traffic or stored data without changing the application code the browser runs; an actor who can modify the served bundle is T16, not T2.                                       |
 | T3  | Removed member remains online                              | Relay control disconnects live sockets and authorization-revision cutoff rejects earlier tokens. If control delivery fails, UI reports enforcement failure rather than claiming success.                                                                                                                                                             |
 | T4  | Viewer mutates scene                                       | Relay rejects scene frames from viewer sessions; UI read-only state is secondary defense.                                                                                                                                                                                                                                                            |
 | T5  | Oversize/buffer abuse                                      | Raw-byte bounds precede decode; connection, room, buffer, queue, replay, asset, and snapshot limits are explicit.                                                                                                                                                                                                                                    |
@@ -115,6 +121,47 @@ work and releases timers, object URLs, sockets, and caches.
 | T13 | Client-selected identifier smuggles key material into logs | Eliminated at the source: there is no `clientId`; join carries room and token, peer identity is relay-created `peerId`. Before token verification even `roomId` is not logged.                                                                                                                                                                       |
 | T14 | Wrong-key client seeds or overwrites snapshot              | Key check is verified before canvas takeover and join; missing verifier fails closed on both backend and client. A verifier is immutable within a generation, rotation clears/recomputes it, and owner can explicitly reset unreadable snapshot.                                                                                                     |
 | T15 | Relay suppresses frames                                    | Accepted availability limitation. A relay can always drop or refuse traffic, and a quiet room is indistinguishable from suppression without false positives. Metrics expose routing inactivity; confidentiality is unaffected.                                                                                                                       |
+| T16 | Modified application bundle steals the room key            | **Accepted limitation.** The room key is read and written by JavaScript served over B6, so anyone who decides that code's content can read the key: (1) a hosting/deployment operator, (2) a build-time supply-chain compromise in any npm dependency, (3) runtime injection (XSS or any path that executes script in the document), (4) network-level rewriting where TLS is bypassed or a certificate is mis-issued. No cryptography deployed from the same channel can prevent this. Implemented controls raise the bar without removing it — see [Code delivery (B6) controls](#code-delivery-b6-controls).                                              |
+
+## Code delivery (B6) controls
+
+None of these controls prevents an operator who can change the served bundle from reading room
+keys (CLAIM-CDB-1 in [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)); they narrow
+exfiltration outlets, shrink the injectable surface, and keep the deployed code auditable. The
+policy details and rollout procedure live in
+[web security headers](../operations/web-security-headers.md).
+
+- **Exfiltration-outlet convergence (CSP `connect-src`)**: the browser may open network
+  connections only to the app origin, the relay origin, UploadThing's ingest/file hosts, and the
+  official Excalidraw library host. `apps/web/src/config/security-headers.ts` is the single
+  source; `apps/web/tests/security-headers.test.ts` pins the allowlist, rejects wildcard
+  origins, and keeps dev relaxations out of production. CSP does not stop key exfiltration to an
+  allowlisted origin, including our own.
+- **Asset self-hosting**: `window.EXCALIDRAW_ASSET_PATH` points canvas fonts and CJK subset
+  assets at the app origin (`scripts/sync-excalidraw-assets.mjs`), so esm.sh is never
+  contacted in normal operation and is not allowlisted. Upstream still appends its esm.sh URL
+  as a last-resort candidate that is tried only after a self-hosted fetch fails; under an
+  enforced CSP that residual error path is blocked by `font-src 'self'`/`connect-src`.
+- **Embed restriction**: embeds whose upstream implementation executes third-party scripts with
+  page-origin privileges (twitter/x, reddit, gist) are rejected by the embed validator, and CSP
+  `script-src` carries no external origin. `frame-src` equals the remaining iframe-only embed
+  hosts exactly (`apps/web/src/config/embed-allowlist.ts`).
+- **Build-time supply chain**: CI installs with `--frozen-lockfile --trust-lockfile`; `pnpm
+  audit:ci` gates production dependencies; `pnpm-workspace.yaml` pins vulnerable transitives via
+  `overrides` and denies postinstall scripts for esbuild/sharp/msgpackr-extract/unrs-resolver via
+  `allowBuilds`; all GitHub Actions are pinned to full commit SHAs. Production dependencies
+  include no third-party analytics or monitoring browser SDK; adding any third-party browser
+  script is a reviewed decision. The dev-only unpkg `react-grab` script never enters the
+  production CSP.
+- **Crypto-path dependency boundary**: `packages/collaboration/tests/package-contract.test.ts`
+  pins the collaboration package's runtime dependencies to exactly `["zod"]`, restricts
+  `node:crypto` to the server-only token module, and pins the module set allowed to hold key
+  material.
+- **Deployment path**: `apps/web` deploys only through the Vercel git integration from reviewed
+  commits on a protected branch; no long-lived deploy token can replace the bundle from CI. The
+  Cloudflare Worker deploy path cannot reach room keys (its compromise is T15/T3 surface, not
+  T16). See [web security headers](../operations/web-security-headers.md) for the standing
+  requirements.
 
 ## Observability data classification
 

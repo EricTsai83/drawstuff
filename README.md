@@ -95,6 +95,12 @@ Collaboration rooms are end-to-end encrypted:
 - Rooms recover through snapshot exchange and reconciliation; membership and lifecycle changes are
   pushed to the worker through a signed server-to-server control endpoint.
 
+Like every browser-delivered E2EE app, the encryption protects against passive infrastructure —
+the relay, the database, object storage, and the network never hold a key. It cannot protect
+against whoever controls the application code your browser runs; that trust boundary and its
+mitigations are documented in the
+[threat model](./docs/architecture/collaboration-threat-model.md).
+
 The runtime contract lives in
 [docs/architecture/collaboration-system-design.md](./docs/architecture/collaboration-system-design.md).
 

@@ -105,6 +105,13 @@ The URL fragment holds a random 32-byte room key; it is never sent to the backen
 derives purpose-scoped keys for `realtime`, `snapshot`, `asset`, and `keycheck`, salted by room and
 authorization generation. Each format has its own version and authenticated-data label.
 
+Scope of the guarantee: E2EE holds against passive relay/backend/storage operators, a database
+leak, and network intermediaries — none of them ever holds a key. It does not hold against whoever
+controls the application code the browser runs, because the key lives in that code's memory. That
+boundary (B6) and its accepted limitation (T16) are defined in the
+[threat model](./collaboration-threat-model.md); no claim in this document extends to a modified
+application bundle.
+
 - Realtime uses AES-GCM with a fresh random 96-bit IV per message and an enforced per-sender seal
   budget. Its AAD includes the transport version because realtime frames are transport data.
 - Snapshot and asset AAD do not contain transport version. Their payload and envelope versions
