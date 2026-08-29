@@ -33,6 +33,7 @@
       "outputs": [
         ".next/**",
         "!.next/cache/**",
+        "!.next/dev/**",
         "public/excalidraw-assets/**"
       ]
     },
