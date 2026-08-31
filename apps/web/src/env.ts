@@ -1,6 +1,6 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
-import { validateAuthOrigins } from "@/config/auth-origins";
+import { validateAuthOrigins } from "./config/auth-origins.ts";
 
 const parsedEnv = createEnv({
   /**
