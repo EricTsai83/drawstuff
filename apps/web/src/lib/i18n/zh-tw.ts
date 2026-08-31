@@ -91,6 +91,7 @@ export const zhTW = {
   "auth.loading": "正在載入登入頁面…",
   "auth.continueWithGoogle": "使用 Google 繼續",
   "auth.connecting": "連線中…",
+  "auth.error.signInFailed": "無法連接 Google，請確認網路後再試一次。",
   "auth.welcome": "歡迎使用 Excalidraw X Ericts",
   "auth.required.title": "需要登入",
   "auth.required.description": "請先登入以使用此功能。",

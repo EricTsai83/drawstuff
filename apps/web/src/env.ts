@@ -1,7 +1,8 @@
 import { createEnv } from "@t3-oss/env-nextjs";
 import { z } from "zod";
+import { validateAuthOrigins } from "@/config/auth-origins";
 
-export const env = createEnv({
+const parsedEnv = createEnv({
   /**
    * Specify your server-side environment variables schema here. This way you can ensure the app
    * isn't built with invalid env vars.
@@ -10,6 +11,7 @@ export const env = createEnv({
     NODE_ENV: z
       .enum(["development", "test", "production"])
       .default("development"),
+    VERCEL_ENV: z.enum(["development", "preview", "production"]).optional(),
     UPLOADTHING_TOKEN: z.string(),
     POSTGRES_URL: z.string().url(),
     POSTGRES_URL_NON_POOLING: z.string().url(),
@@ -87,6 +89,7 @@ export const env = createEnv({
    */
   runtimeEnv: {
     NODE_ENV: process.env.NODE_ENV,
+    VERCEL_ENV: process.env.VERCEL_ENV,
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
     POSTGRES_URL: process.env.POSTGRES_URL,
     POSTGRES_URL_NON_POOLING: process.env.POSTGRES_URL_NON_POOLING,
@@ -122,3 +125,13 @@ export const env = createEnv({
    */
   emptyStringAsUndefined: true,
 });
+
+if (!process.env.SKIP_ENV_VALIDATION) {
+  validateAuthOrigins({
+    betterAuthUrl: parsedEnv.BETTER_AUTH_URL,
+    publicBaseUrl: parsedEnv.NEXT_PUBLIC_BASE_URL,
+    deploymentEnvironment: parsedEnv.VERCEL_ENV,
+  });
+}
+
+export const env = parsedEnv;

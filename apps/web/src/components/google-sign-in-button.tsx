@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
@@ -27,7 +28,10 @@ export function GoogleSignInButton({
 
     try {
       await signInWithGoogle();
-    } catch {
+    } catch (error) {
+      console.error("[auth] Failed to start Google sign-in", error);
+      toast.error(t("auth.error.signInFailed"));
+    } finally {
       setIsSigningIn(false);
     }
   };

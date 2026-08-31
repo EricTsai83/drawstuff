@@ -5,9 +5,55 @@ export const authClient = createAuthClient({
   // baseURL: "http://localhost:3000",
 });
 
-export const signInWithGoogle = async () => {
-  await authClient.signIn.social({
-    provider: "google",
-    callbackURL: "/",
-  });
+const SIGN_IN_TIMEOUT_MS = 15_000;
+
+class GoogleSignInError extends Error {
+  constructor(
+    readonly code: "request-failed" | "timeout",
+    options?: ErrorOptions,
+  ) {
+    super(
+      code === "timeout"
+        ? "Google sign-in initialization timed out."
+        : "Google sign-in initialization failed.",
+      options,
+    );
+    this.name = "GoogleSignInError";
+  }
+}
+
+export const signInWithGoogle = async (): Promise<void> => {
+  const abortController = new AbortController();
+  const timeoutId = window.setTimeout(
+    () => abortController.abort(),
+    SIGN_IN_TIMEOUT_MS,
+  );
+
+  try {
+    const result = await authClient.signIn.social(
+      {
+        provider: "google",
+        callbackURL: "/",
+      },
+      { signal: abortController.signal },
+    );
+
+    if (result.error) {
+      throw new GoogleSignInError(
+        abortController.signal.aborted ? "timeout" : "request-failed",
+        {
+          cause: result.error,
+        },
+      );
+    }
+  } catch (error) {
+    if (error instanceof GoogleSignInError) throw error;
+
+    throw new GoogleSignInError(
+      abortController.signal.aborted ? "timeout" : "request-failed",
+      { cause: error },
+    );
+  } finally {
+    window.clearTimeout(timeoutId);
+  }
 };

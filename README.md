@@ -174,6 +174,12 @@ CRON_SECRET=strong-random-string
 CLEANUP_OWNER_EMAIL=your.email@example.com
 ```
 
+`BETTER_AUTH_URL` and `NEXT_PUBLIC_BASE_URL` must contain the same public
+origin, without a path, query, or fragment. Vercel production deployments
+fail at build time unless that origin uses HTTPS and is not a loopback host.
+Google's authorized redirect URI must be that origin followed by
+`/api/auth/callback/google`.
+
 ## First Administrator Setup
 
 Administrative access is stored in PostgreSQL under the immutable Better Auth user ID. Email is

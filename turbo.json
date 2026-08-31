@@ -27,7 +27,8 @@
         "SKIP_ENV_VALIDATION",
         "UPLOADTHING_TOKEN",
         "UPSTASH_REDIS_REST_TOKEN",
-        "UPSTASH_REDIS_REST_URL"
+        "UPSTASH_REDIS_REST_URL",
+        "VERCEL_ENV"
       ],
       "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
       "outputs": [

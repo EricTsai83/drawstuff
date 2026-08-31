@@ -6,6 +6,8 @@ import { schema } from "@/server/db/schema";
 import { env } from "@/env";
 
 export const auth = betterAuth({
+  baseURL: env.BETTER_AUTH_URL,
+  trustedOrigins: [env.NEXT_PUBLIC_BASE_URL],
   socialProviders: {
     google: {
       clientId: env.GOOGLE_CLIENT_ID,

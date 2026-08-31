@@ -97,6 +97,8 @@ export const en = {
   "auth.loading": "Loading sign-in page...",
   "auth.continueWithGoogle": "Continue with Google",
   "auth.connecting": "Connecting...",
+  "auth.error.signInFailed":
+    "Unable to connect to Google. Check your connection and try again.",
   "auth.welcome": "Welcome to drawstuff",
   "auth.required.title": "Sign in required",
   "auth.required.description": "Sign in to access this feature.",
