@@ -25,12 +25,12 @@
   },
   "dependencies": {
     "@drawstuff/collaboration": "workspace:*",
-    "zod": "^4.4.3"
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.0.0",
-    "eslint": "^9.39.5",
-    "typescript": "^6.0.3",
+    "eslint": "catalog:",
+    "typescript": "catalog:",
     "vitest": "4.1.10",
     "wrangler": "4.125.0",
     "ws": "^8.18.3"

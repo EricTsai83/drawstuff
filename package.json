@@ -43,14 +43,14 @@
     }
   },
   "devDependencies": {
-    "eslint": "^9.39.5",
-    "eslint-plugin-drizzle": "^0.2.3",
+    "eslint": "catalog:",
+    "eslint-plugin-drizzle": "catalog:",
     "jiti": "^2.7.0",
     "knip": "^6.29.0",
     "prettier": "^3.9.6",
     "prettier-plugin-tailwindcss": "^0.8.1",
     "turbo": "^2.10.7",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
     "typescript-eslint": "^8.65.0"
   },
   "packageManager": "pnpm@11.22.0+sha512.1ff870c4c6133dfd88fb2afc46dd13d47f09c9794b438c6fdb47ca98caf3bc16381ee0be93a091b8e3824cf01f889f46d7d9e20910fb0be1ab0fb5baa80dd621"

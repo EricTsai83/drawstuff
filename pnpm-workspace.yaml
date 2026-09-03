@@ -4,6 +4,24 @@ packages:
 
 enableGlobalVirtualStore: false
 
+# One version string per shared tool/library; workspaces reference these with
+# `catalog:` so declarations stay per package (what turbo and pnpm expect) while
+# the version cannot drift between packages.
+catalog:
+  "@types/node": ^24.13.3
+  "@types/react": ^19.2.17
+  "@types/react-dom": ^19.2.3
+  eslint: ^9.39.5
+  eslint-config-next: ^16.2.12
+  eslint-plugin-drizzle: ^0.2.3
+  fractional-indexing: 3.2.0
+  jsdom: ^29.1.1
+  react: 19.2.8
+  react-dom: 19.2.8
+  typescript: ^6.0.3
+  vitest: ^4.1.10
+  zod: ^4.4.3
+
 publicHoistPattern:
   - "*eslint*"
   - "*prettier*"
