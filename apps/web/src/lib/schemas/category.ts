@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-export const CATEGORY_NAME_MAX_LENGTH = 100;
+const CATEGORY_NAME_MAX_LENGTH = 100;
 // Byte limit is enforced before any other validation (共同完成規則 #6)。
 const CATEGORY_NAME_MAX_BYTES = CATEGORY_NAME_MAX_LENGTH * 4;
 

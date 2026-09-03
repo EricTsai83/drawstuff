@@ -53,7 +53,7 @@ type RoomJoin = RouterOutputs["collaborationRoom"]["join"];
  * so that a fresh client identity never restarts a live room, and so the
  * controller stays testable with four plain functions.
  */
-export type CollaborationRoomBackend = {
+type CollaborationRoomBackend = {
   /** `collaborationRoom.get`: which scene the room is for, plus its key check. */
   getRoom: (input: { roomId: RoomId }) => Promise<RoomLookup>;
   /** `collaborationRoom.join`: mints a short-lived join token. */

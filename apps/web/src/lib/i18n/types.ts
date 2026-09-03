@@ -3,9 +3,7 @@
 import type { en } from "./en";
 
 /** 應用層支援的語言；其餘 excalidraw 語言一律回退到 en 字典。 */
-export const APP_LANGUAGES = ["en", "zh-TW"] as const;
-
-export type AppLanguage = (typeof APP_LANGUAGES)[number];
+export type AppLanguage = "en" | "zh-TW";
 
 /** 所有合法的 app 翻譯 key，由英文字典推導。 */
 export type AppTranslationKey = keyof typeof en;

@@ -46,7 +46,7 @@ export type AssetStorageInput = {
   byteLength: number;
 };
 
-export type AssetRecordResult =
+type AssetRecordResult =
   /** The row is now this upload's; nothing else referenced this file id. */
   | { status: "recorded" }
   /**
@@ -62,7 +62,7 @@ export type AssetRecordResult =
     };
 
 /** Ascending file ids one generation has ciphertext for, or `[]` when it has none. */
-export async function listRoomAssetIds(
+async function listRoomAssetIds(
   db: RoomDatabase,
   params: { roomId: string; authGeneration: number },
 ): Promise<ExcalidrawAssetId[]> {
@@ -127,7 +127,7 @@ export async function resolveRoomAssets(
  * actually committed, so concurrent uploads cannot each observe room under the
  * limit and jointly exceed it.
  */
-export async function recordRoomAsset(
+async function recordRoomAsset(
   db: RoomDatabase,
   params: {
     roomId: string;
@@ -285,7 +285,7 @@ export const RETIRED_ASSET_CLEANUP_REASON = "collab-asset-generation-retired";
  * object store cannot participate in that transaction, which is precisely why the
  * queue exists rather than a direct delete here.
  */
-export async function retireOlderAssetGenerations(
+async function retireOlderAssetGenerations(
   db: RoomDatabase,
   params: { roomId: string; authGeneration: number; now: Date },
 ): Promise<{ retiredObjects: number }> {

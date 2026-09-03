@@ -59,7 +59,7 @@ type TransferOutcome =
    */
   | "undecryptable";
 
-export type AssetDownloadContext = {
+type AssetDownloadContext = {
   resolve: AssetApi["resolve"];
   roomId: RoomId;
   authGeneration: number;
@@ -90,7 +90,7 @@ export type AssetDownloadContext = {
   onAssetsResolved: (files: readonly BinaryFileData[]) => void;
 };
 
-export type AssetDownloader = {
+type AssetDownloader = {
   request: (fileIds: readonly string[]) => Promise<void>;
   /** Cancels the retry timer and drops every download claim and deadline. */
   dispose: () => void;

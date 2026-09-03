@@ -47,8 +47,6 @@ export const createBoundedIdMap = <T>(
   };
 };
 
-export type BoundedIdMap<T> = ReturnType<typeof createBoundedIdMap<T>>;
-
 export type BoundedIdSet = {
   has(id: string): boolean;
   add(id: string): void;

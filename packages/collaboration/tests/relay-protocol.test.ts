@@ -17,7 +17,6 @@ import {
   encodeRelayDataFrame,
   maxRelayDataFrameBytesFor,
   MAX_RELAY_CONTROL_FRAME_BYTES,
-  MAX_RELAY_DATA_FRAME_BYTES,
   parseRelayClientControl,
   parseRelayServerControl,
   RELAY_CLOSE_CODES,
@@ -59,7 +58,6 @@ describe("relay data frames", () => {
     expect(maxRelayDataFrameBytesFor("presence")).toBe(
       MAX_PRESENCE_MESSAGE_BYTES + overhead,
     );
-    expect(MAX_RELAY_DATA_FRAME_BYTES).toBe(MAX_SCENE_MESSAGE_BYTES + overhead);
     expect(
       encodeRelayDataFrame(
         "presence",

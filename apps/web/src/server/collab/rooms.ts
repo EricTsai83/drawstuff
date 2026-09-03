@@ -268,7 +268,7 @@ export type RoomMemberSummary = {
  * panel polls this. Earliest members first — the owner's row is created with
  * the room, so it is always inside the cap.
  */
-export const MAX_LISTED_ROOM_MEMBERS = 200;
+const MAX_LISTED_ROOM_MEMBERS = 200;
 
 export async function listRoomMembers(
   db: RoomDatabase,

@@ -133,10 +133,6 @@ export const collaborationAssetLookupSchema = z.strictObject({
     .max(MAX_ROOM_ASSETS_PER_GENERATION),
   missing: z.array(excalidrawFileIdSchema).max(MAX_ASSET_LOOKUP_BATCH),
 });
-export type CollaborationAssetLookup = z.infer<
-  typeof collaborationAssetLookupSchema
->;
-
 /**
  * Canonicalizes a batch of requested ids: deduplicated and sorted.
  *

@@ -39,7 +39,7 @@ type PresencePayload = PresenceMessage["payload"];
 export type CollaborationIdleState = PresencePayload["idleState"];
 export type PresenceViewBounds = NonNullable<PresencePayload["viewBounds"]>;
 export type PresenceViewZoom = NonNullable<PresencePayload["viewZoom"]>;
-export type PresenceViewport = {
+type PresenceViewport = {
   bounds: PresenceViewBounds;
   zoom: PresenceViewZoom;
 };

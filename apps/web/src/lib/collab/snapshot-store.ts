@@ -61,7 +61,7 @@ export type SnapshotApi = {
   >;
 };
 
-export type LoadSnapshotResult =
+type LoadSnapshotResult =
   | { status: "loaded"; revision: number; elements: readonly SyncedElement[] }
   /** This room generation has no baseline yet; a fresh room looks like this. */
   | { status: "empty" }

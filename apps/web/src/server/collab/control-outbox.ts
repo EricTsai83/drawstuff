@@ -48,7 +48,7 @@ const BACKOFF_BASE_MS = 5_000;
 const BACKOFF_CAP_MS = 10 * 60_000;
 
 /** Events claimed per drain run; one run stays well inside its route budget. */
-export const DEFAULT_DRAIN_MAX_EVENTS = 25;
+const DEFAULT_DRAIN_MAX_EVENTS = 25;
 
 /** Parallel dispatches per batch — same bound as the retirement pushes. */
 const DISPATCH_BATCH = 5;

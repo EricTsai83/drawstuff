@@ -25,7 +25,7 @@ import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 /** Attempts per upload, counting the first. */
 const MAX_PUBLISH_ATTEMPTS = 3;
 
-export type AssetPublishContext = {
+type AssetPublishContext = {
   upload: AssetApi["upload"];
   roomId: RoomId;
   authGeneration: number;
@@ -60,7 +60,7 @@ export type AssetPublishContext = {
   onPublishRetryDue?: () => void;
 };
 
-export type AssetPublisher = {
+type AssetPublisher = {
   publish: (files: readonly BinaryFileData[]) => Promise<void>;
   /** Cancels the retry timer and drops every upload claim and deadline. */
   dispose: () => void;

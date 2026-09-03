@@ -52,7 +52,6 @@ export const relayJoinRequestSchema = z.strictObject({
   roomId: roomIdSchema,
   token: z.string().min(1).max(MAX_ROOM_TOKEN_BYTES),
 });
-export type RelayJoinRequest = z.infer<typeof relayJoinRequestSchema>;
 
 export const relayLeaveRequestSchema = z.strictObject({
   control: z.literal("leave"),
@@ -122,8 +121,6 @@ export const RELAY_DATA_FRAME_HEADER_BYTES = 1;
 export function maxRelayDataFrameBytesFor(channel: MessageChannel): number {
   return maxSealedFrameBytesFor(channel) + RELAY_DATA_FRAME_HEADER_BYTES;
 }
-
-export const MAX_RELAY_DATA_FRAME_BYTES = maxRelayDataFrameBytesFor("scene");
 
 export function encodeRelayDataFrame(
   channel: MessageChannel,
@@ -296,9 +293,6 @@ export const RELAY_CLOSE_CODES = {
    */
   internalError: 4014,
 } as const;
-export type RelayCloseCode =
-  (typeof RELAY_CLOSE_CODES)[keyof typeof RELAY_CLOSE_CODES];
-
 /**
  * Maps a WebSocket close code to the reason a client acts on.
  *

@@ -9,7 +9,7 @@ import {
 export const PERSONAL_LIBRARY_FORMAT_VERSION = 1;
 export const PERSONAL_LIBRARY_MAX_COMPRESSED_BYTES = 3 * 1024 * 1024;
 export const PERSONAL_LIBRARY_MAX_BASE64_LENGTH = 4 * 1024 * 1024;
-export const PERSONAL_LIBRARY_MAX_DECOMPRESSED_BYTES = 10 * 1024 * 1024;
+const PERSONAL_LIBRARY_MAX_DECOMPRESSED_BYTES = 10 * 1024 * 1024;
 export const PERSONAL_LIBRARY_NO_REVISION = 0;
 
 const STRICT_BASE64 =
@@ -27,14 +27,14 @@ export type StoredPersonalLibrary = {
   checksum: string;
 };
 
-export class PersonalLibraryValidationError extends Error {
+class PersonalLibraryValidationError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "PersonalLibraryValidationError";
   }
 }
 
-export function isStrictBase64(value: string): boolean {
+function isStrictBase64(value: string): boolean {
   return (
     value.length > 0 && value.length % 4 === 0 && STRICT_BASE64.test(value)
   );
@@ -93,9 +93,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-export function parsePersonalLibraryEnvelope(
-  value: unknown,
-): PersonalLibraryEnvelope {
+function parsePersonalLibraryEnvelope(value: unknown): PersonalLibraryEnvelope {
   if (!isRecord(value) || !Array.isArray(value.libraryItems)) {
     throw new PersonalLibraryValidationError(
       "Invalid personal Library envelope.",

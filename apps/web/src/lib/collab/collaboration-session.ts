@@ -75,23 +75,14 @@ import type {
 import type { SessionContext } from "@/lib/collab/session/session-context";
 import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
 
-export type {
-  JoinCredentials,
-  JoinCredentialsRefusal,
-  JoinCredentialsResult,
-} from "@/lib/collab/session/connection-lifecycle";
+export type { JoinCredentialsResult } from "@/lib/collab/session/connection-lifecycle";
 export type { BaselineOutcome } from "@/lib/collab/session/join-baseline";
 export type {
-  CollaborationIdleState,
   FollowHost,
   PresenceViewBounds,
-  PresenceViewZoom,
 } from "@/lib/collab/session/presence-channel";
 export type { CollaborationSceneApi } from "@/lib/collab/session/session-context";
-export type {
-  SceneSizeOverflow,
-  SceneSyncBlock,
-} from "@/lib/collab/session/sync-block-reporter";
+export type { SceneSyncBlock } from "@/lib/collab/session/sync-block-reporter";
 
 /**
  * The collaboration session, assembled.
@@ -112,7 +103,6 @@ export type {
  * the size-block report in `sync-block-reporter`.
  */
 export const FULL_SCENE_SYNC_INTERVAL_MS = 20_000;
-export { PRESENCE_THROTTLE_MS };
 
 /**
  * How often the elected writer publishes the durable snapshot. Much slower than
@@ -131,7 +121,7 @@ export const SNAPSHOT_INTERVAL_MS = 30_000;
  * Past this the room is treated as quiet and the session stops publishing, because
  * the alternative is a permanent full-scene heartbeat from every member.
  */
-export const MAX_SCENE_REPAIR_ATTEMPTS = 3;
+const MAX_SCENE_REPAIR_ATTEMPTS = 3;
 
 const MAX_MESSAGE_ID_LENGTH = 64;
 

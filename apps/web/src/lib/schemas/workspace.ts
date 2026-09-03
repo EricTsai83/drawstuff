@@ -1,12 +1,12 @@
 import { z } from "zod";
 
-export const workspaceNameSchema = z
+const workspaceNameSchema = z
   .string()
   .trim()
   .min(1, "Name is required")
   .max(60, "Name is too long");
 
-export const workspaceDescriptionSchema = z
+const workspaceDescriptionSchema = z
   .string()
   .trim()
   .max(100, "Description is too long")

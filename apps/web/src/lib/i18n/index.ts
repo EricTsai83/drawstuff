@@ -5,7 +5,6 @@ import type {
   PlaceholderValues,
 } from "./types";
 
-export { APP_LANGUAGES } from "./types";
 export type {
   AppDictionary,
   AppLanguage,

@@ -23,7 +23,7 @@ import { cn } from "@/lib/utils";
 export type StatusBadgeStatus =
   "neutral" | "info" | "success" | "warning" | "danger" | "loading";
 
-export type StatusBadgeSize = "sm" | "md";
+type StatusBadgeSize = "sm" | "md";
 
 export interface StatusBadgeProps extends Omit<
   HTMLMotionProps<"span">,

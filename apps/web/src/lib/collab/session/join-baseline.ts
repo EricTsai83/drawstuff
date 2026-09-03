@@ -52,7 +52,7 @@ export type BaselineOutcome =
  * question than for the user-facing one: a peer snapshot and an empty room are
  * both "known", and a failed fetch and an expired deadline are both "unknown".
  */
-export type BaselineKnowledge =
+type BaselineKnowledge =
   /** The room's state was obtained — possibly empty, which is still knowledge. */
   | "known"
   /**

@@ -118,7 +118,7 @@ const en = {
   "targetType.room": "Room",
 } as const;
 
-export type AdminTranslationKey = keyof typeof en;
+type AdminTranslationKey = keyof typeof en;
 
 const zhTW = {
   "role.admin": "管理員",

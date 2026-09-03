@@ -18,8 +18,6 @@ export const en = {
     "Unable to get current scene data, please try again.",
   "app.cloudUpload.toast.error.noSceneToUpdate":
     "This scene has not been saved yet.",
-  "app.cloudUpload.toast.error.saveScene":
-    "Error occurred while saving scene, please try again.",
   "app.cloudUpload.toast.error.upload":
     "Error occurred while uploading scene to cloud, please try again.",
   "app.cloudUpload.toast.error.unknown":
@@ -60,7 +58,6 @@ export const en = {
   "labels.description": "Description",
   "labels.copy": "Copy",
   "labels.share": "Share",
-  "canvas.actions.open": "Share and collaborate. Current status: {status}",
   "canvas.actions.quick": "Quick actions",
   "canvas.actions.closeQuick": "Close quick actions",
   "canvas.actions.library": "Library",
@@ -94,7 +91,6 @@ export const en = {
     "Signing out clears the current canvas and its images from this browser. Save your latest changes first if you want to keep them.",
   "auth.signOutConfirm.save": "Save, then sign out",
   "auth.signOutConfirm.discard": "Discard and sign out",
-  "auth.loading": "Loading sign-in page...",
   "auth.continueWithGoogle": "Continue with Google",
   "auth.connecting": "Connecting...",
   "auth.error.signInFailed":
@@ -131,7 +127,6 @@ export const en = {
   "collaboration.status.missingRoomKey": "Incomplete link",
   "collaboration.status.readOnly": "View only",
   "collaboration.status.readOnlyWithStatus": "{status} (View only)",
-  "collaboration.error.network": "Network connection failed",
   "collaboration.error.operationFailed":
     "The collaboration action failed. Please try again.",
   "collaboration.action.creating": "Creating...",
@@ -252,7 +247,6 @@ export const en = {
   "dashboard.descriptionPlaceholder": "No description.",
   "dashboard.loading": "Loading...",
   "dashboard.noRecentlyModifiedScenes": "No recently modified scenes",
-  "dashboard.loadingMore": "Loading more...",
   "dashboard.reachedEnd": "You have reached the end.",
   "dashboard.noScenesFound": "No scenes found",
   "dashboard.noScenesFound.hint":
@@ -278,8 +272,6 @@ export const en = {
   "dashboard.noArchivedScenes.hint":
     "Archived scenes will appear here and can be restored at any time.",
   "dashboard.workspace.create": "Create workspace",
-  "dashboard.workspace.rename": "Rename workspace",
-  "dashboard.workspace.delete": "Delete workspace",
   "dashboard.workspace.manage": "Workspace settings",
   "dashboard.workspace.createDialog.description":
     "Create a new workspace directly from the dashboard.",
@@ -290,23 +282,13 @@ export const en = {
   "dashboard.workspace.nameInvalid": "Please enter a valid workspace name",
   "workspace.settings.title": "Settings",
   "workspace.settings.general": "General",
-  "workspace.settings.title.rename": "Rename Workspace",
-  "workspace.settings.title.delete": "Delete Workspace",
   "workspace.settings.description":
     "Edit workspace information and manage dangerous actions.",
-  "workspace.settings.description.rename":
-    "Change the name of the current workspace.",
-  "workspace.settings.description.delete":
-    "This action is permanent and cannot be undone.",
   "workspace.settings.defaultCannotDelete":
     "The default workspace cannot be deleted. Please select a different workspace.",
-  "workspace.settings.deleteWarningTitle":
-    'You are about to delete "{name}" and all of its scenes.',
   "workspace.settings.deleteWarningBody":
     "This action is permanent. All scenes in this workspace will be lost.",
   "workspace.settings.typeToConfirm": 'Type "{name}" to confirm deletion:',
-  "workspace.settings.cancel": "Cancel",
-  "workspace.settings.close": "Close",
   "workspace.settings.confirmDelete": "Delete workspace",
   "workspace.settings.deleting": "Deleting...",
   "workspace.settings.toast.updated": "Workspace updated",
@@ -316,8 +298,6 @@ export const en = {
   "workspace.settings.toast.missing":
     "This workspace no longer exists. Returning to the dashboard.",
   "workspace.settings.nameLabel": "Workspace Name",
-  "workspace.settings.namePlaceholder": "Workspace name",
-  "workspace.settings.selectActiveFirst": "Select an active workspace first.",
   "workspace.settings.save": "Save",
   "workspace.settings.saving": "Saving...",
   "workspace.settings.dangerZone": "Danger Zone",
@@ -326,10 +306,6 @@ export const en = {
   "workspace.settings.deleteThisWorkspace": "Delete this workspace",
   "workspace.settings.defaultCannotDeleteShort":
     "Default workspace cannot be deleted.",
-  "workspace.settings.typeNameToConfirm": 'Type "{name}" to confirm',
-  "workspace.settings.typeWorkspaceNameToConfirm":
-    "Type workspace name to confirm",
-  "workspace.settings.confirmDeleteAction": "Confirm delete",
   "workspace.settings.currentCanvasWarningTitle":
     "This workspace contains the current canvas scene.",
   "workspace.settings.currentCanvasWarningBody":
@@ -383,19 +359,14 @@ export const en = {
   "publish.toast.unpublished": "This scene is now private.",
   "publish.toast.copied": "Public link copied.",
   "publish.toast.failed": "Unable to update publish status. Please try again.",
-  "public.theme.system": "Use system theme",
   "public.theme.light": "Use light theme",
   "public.theme.dark": "Use dark theme",
   "public.viewer.loading": "Loading scene...",
-  "public.viewer.rendering": "Updating preview...",
   "public.viewer.loadError": "Failed to load this published scene.",
   "public.viewer.zoomIn": "Zoom in",
   "public.viewer.zoomOut": "Zoom out",
   "public.viewer.fit": "Fit",
   "public.viewer.reset": "Reset",
-  "public.viewer.info": "Scene info",
-  "public.viewer.alt": "Published scene preview",
-  "public.viewer.backToWorkspace": "Back to workspace",
   "public.viewer.hideUI": "Hide controls",
   "public.viewer.showUI": "Show controls",
 

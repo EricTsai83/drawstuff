@@ -14,7 +14,7 @@ export const sceneNameSchema = z
   .min(1, "Name is required")
   .max(SCENE_NAME_MAX_LENGTH, "Name is too long");
 
-export const sceneDescriptionSchema = z
+const sceneDescriptionSchema = z
   .string()
   .max(SCENE_DESCRIPTION_MAX_LENGTH)
   .optional();

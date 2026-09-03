@@ -9,7 +9,7 @@ import { cn } from "@/lib/utils";
 type ButtonProps = React.ComponentProps<typeof Button>;
 type ButtonClickEvent = Parameters<NonNullable<ButtonProps["onClick"]>>[0];
 type ButtonKeyDownEvent = Parameters<NonNullable<ButtonProps["onKeyDown"]>>[0];
-export type FloatingShortcutTriggerProps = Omit<
+type FloatingShortcutTriggerProps = Omit<
   ButtonProps,
   | "aria-controls"
   | "aria-expanded"
@@ -48,7 +48,7 @@ export type FloatingShortcutMotion = {
   pressScale: number;
 };
 
-export type FloatingShortcutButtonClassNames = {
+type FloatingShortcutButtonClassNames = {
   root?: string;
   menu?: string;
   triggerSlot?: string;
@@ -64,7 +64,7 @@ export type FloatingShortcutButtonClassNames = {
   actionLabel?: string;
 };
 
-export const floatingShortcutSizePresets = {
+const floatingShortcutSizePresets = {
   sm: {
     triggerSize: 48,
     openTriggerSize: 36,
@@ -103,7 +103,7 @@ export const floatingShortcutSizePresets = {
   },
 } satisfies Record<FloatingShortcutButtonSize, FloatingShortcutMetrics>;
 
-export const floatingShortcutMotionDefault = {
+const floatingShortcutMotionDefault = {
   duration: 170,
   distance: 8,
   pressScale: 0.97,

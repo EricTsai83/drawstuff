@@ -93,7 +93,7 @@ export const UNREADABLE_ASSETS_MESSAGE_KEY =
 
 const BYTES_PER_MIB = 1_048_576;
 
-export const toMib = (bytes: number): string =>
+const toMib = (bytes: number): string =>
   `${(bytes / BYTES_PER_MIB).toFixed(1)} MB`;
 
 /**

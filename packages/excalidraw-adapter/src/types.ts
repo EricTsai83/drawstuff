@@ -1,9 +1,7 @@
 import type {
   ExcalidrawImperativeAPI as UpstreamImperativeAPI,
   ExcalidrawProps,
-  LibraryItem,
   LibraryItems,
-  LibraryItemsSource,
 } from "@excalidraw/excalidraw/types";
 import type { LibraryPersistenceAdapter } from "@excalidraw/excalidraw/data/library";
 
@@ -76,9 +74,7 @@ export type ExcalidrawCanvasProps = Pick<
   | "viewModeEnabled"
 >;
 
-export type ExcalidrawLibraryItem = LibraryItem;
 export type ExcalidrawLibraryItems = LibraryItems;
-export type ExcalidrawLibraryItemsSource = LibraryItemsSource;
 export type ExcalidrawLibraryPersistenceAdapter = LibraryPersistenceAdapter;
 
 export type ExcalidrawValidateEmbeddable =
