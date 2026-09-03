@@ -58,6 +58,8 @@ export const COLLABORATION_RATE_LIMIT_KEY_PREFIX =
  */
 export const COLLABORATION_RATE_LIMIT_TIMEOUT_MS = 750;
 
+export type RateLimitBudget = { tokens: number; window: `${number} s` };
+
 export type CollaborationRateLimitOperation =
   | "join"
   | "snapshot-put"
@@ -79,10 +81,7 @@ export const COLLABORATION_RATE_LIMITS = {
   "snapshot-finalize": { tokens: 2, window: "60 s" },
   "asset-upload": { tokens: 60, window: "60 s" },
   "asset-resolve": { tokens: 120, window: "60 s" },
-} as const satisfies Record<
-  CollaborationRateLimitOperation,
-  { tokens: number; window: `${number} s` }
->;
+} as const satisfies Record<CollaborationRateLimitOperation, RateLimitBudget>;
 
 export type CollaborationRateLimitDecision =
   | { status: "allowed" }
@@ -133,18 +132,19 @@ export function createSharedRedis(): Redis {
 const redis = createSharedRedis();
 
 /**
- * Builds one named limiter. Exported so the configuration itself is testable
- * without reaching into module state.
+ * Builds one Upstash sliding-window limiter under `prefix`. Every limiter
+ * table in this app (collaboration, shared-scene) goes through here so the
+ * timeout and cache policy are decided exactly once.
  */
-export function createCollaborationRateLimiter(
+export function createRateLimiter(
   client: Redis,
-  operation: CollaborationRateLimitOperation,
+  prefix: string,
+  budget: RateLimitBudget,
 ): Ratelimit {
-  const { tokens, window } = COLLABORATION_RATE_LIMITS[operation];
   return new Ratelimit({
     redis: client,
-    limiter: Ratelimit.slidingWindow(tokens, window),
-    prefix: `${COLLABORATION_RATE_LIMIT_KEY_PREFIX}:${operation}`,
+    limiter: Ratelimit.slidingWindow(budget.tokens, budget.window),
+    prefix,
     timeout: COLLABORATION_RATE_LIMIT_TIMEOUT_MS,
     // Off, and that is the whole point of this module. An in-process cache
     // would answer from whichever serverless instance happened to be warm,
@@ -153,6 +153,21 @@ export function createCollaborationRateLimiter(
     ephemeralCache: false,
     analytics: false,
   });
+}
+
+/**
+ * Builds one named limiter. Exported so the configuration itself is testable
+ * without reaching into module state.
+ */
+export function createCollaborationRateLimiter(
+  client: Redis,
+  operation: CollaborationRateLimitOperation,
+): Ratelimit {
+  return createRateLimiter(
+    client,
+    `${COLLABORATION_RATE_LIMIT_KEY_PREFIX}:${operation}`,
+    COLLABORATION_RATE_LIMITS[operation],
+  );
 }
 
 const limiters: Record<CollaborationRateLimitOperation, Ratelimit> = {
@@ -268,7 +283,7 @@ export function checkCollaborationRateLimit(input: {
  * what makes the deadline machine-readable on the client instead of something
  * parsed out of a message.
  */
-export class CollaborationRateLimitedError extends Error {
+class CollaborationRateLimitedError extends Error {
   constructor(readonly rateLimit: CollaborationRateLimitMetadata) {
     super("Collaboration rate limit exceeded.");
     this.name = "CollaborationRateLimitedError";

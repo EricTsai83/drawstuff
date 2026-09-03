@@ -1,14 +1,14 @@
 import "server-only";
 
-import { Ratelimit } from "@upstash/ratelimit";
-import type { Redis } from "@upstash/redis";
+import type { Ratelimit } from "@upstash/ratelimit";
 
 import {
-  COLLABORATION_RATE_LIMIT_TIMEOUT_MS,
+  createRateLimiter,
   createSharedRedis,
   enforceCollaborationRateLimitDecision,
   evaluateCollaborationRateLimit,
   type CollaborationRateLimitDecision,
+  type RateLimitBudget,
 } from "./collaboration";
 
 /**
@@ -26,12 +26,12 @@ import {
  */
 
 /** Version/ownership boundary, disjoint from the collaboration namespace. */
-export const SHARED_SCENE_RATE_LIMIT_KEY_PREFIX =
+const SHARED_SCENE_RATE_LIMIT_KEY_PREFIX =
   "drawstuff:shared-scene:ratelimit:v1";
 
 export type SharedSceneRateLimitOperation = "create" | "read" | "upload";
 
-export const SHARED_SCENE_RATE_LIMITS = {
+const SHARED_SCENE_RATE_LIMITS = {
   /** Per user. Each call may persist a multi-MiB row that lives 30 days. */
   create: { tokens: 10, window: "60 s" },
   /** Per client IP, covering every public scene read procedure together. */
@@ -42,25 +42,7 @@ export const SHARED_SCENE_RATE_LIMITS = {
    * a multiple of the 10/min `create` budget rather than equal to it.
    */
   upload: { tokens: 60, window: "60 s" },
-} as const satisfies Record<
-  SharedSceneRateLimitOperation,
-  { tokens: number; window: `${number} s` }
->;
-
-export function createSharedSceneRateLimiter(
-  client: Redis,
-  operation: SharedSceneRateLimitOperation,
-): Ratelimit {
-  const { tokens, window } = SHARED_SCENE_RATE_LIMITS[operation];
-  return new Ratelimit({
-    redis: client,
-    limiter: Ratelimit.slidingWindow(tokens, window),
-    prefix: `${SHARED_SCENE_RATE_LIMIT_KEY_PREFIX}:${operation}`,
-    timeout: COLLABORATION_RATE_LIMIT_TIMEOUT_MS,
-    ephemeralCache: false,
-    analytics: false,
-  });
-}
+} as const satisfies Record<SharedSceneRateLimitOperation, RateLimitBudget>;
 
 /**
  * Lazy singleton: built on the first decision, not at import time. The router
@@ -72,10 +54,16 @@ let limiters: Record<SharedSceneRateLimitOperation, Ratelimit> | null = null;
 function limiterFor(operation: SharedSceneRateLimitOperation): Ratelimit {
   if (!limiters) {
     const redis = createSharedRedis();
+    const limiter = (op: SharedSceneRateLimitOperation) =>
+      createRateLimiter(
+        redis,
+        `${SHARED_SCENE_RATE_LIMIT_KEY_PREFIX}:${op}`,
+        SHARED_SCENE_RATE_LIMITS[op],
+      );
     limiters = {
-      create: createSharedSceneRateLimiter(redis, "create"),
-      read: createSharedSceneRateLimiter(redis, "read"),
-      upload: createSharedSceneRateLimiter(redis, "upload"),
+      create: limiter("create"),
+      read: limiter("read"),
+      upload: limiter("upload"),
     };
   }
   return limiters[operation];
@@ -102,7 +90,7 @@ export function checkSharedSceneRateLimit(input: {
  * limiter. `null` (local dev, direct invocation) skips limiting rather than
  * funnelling every unidentified caller into one shared bucket.
  */
-export function clientIpFromHeaders(headers: Headers): string | null {
+function clientIpFromHeaders(headers: Headers): string | null {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   if (forwarded) return forwarded;
   const realIp = headers.get("x-real-ip")?.trim();
