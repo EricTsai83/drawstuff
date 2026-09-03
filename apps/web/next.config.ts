@@ -45,7 +45,7 @@ const config: NextConfig = {
         source: "/(.*)",
         headers: buildSecurityHeaders({
           isDev: process.env.NODE_ENV === "development",
-          collabRelayUrl: process.env.COLLAB_RELAY_URL,
+          collabGatewayUrl: process.env.COLLAB_CONTROL_URL,
           uploadThingToken: process.env.UPLOADTHING_TOKEN,
           allowIncompleteEnv: !!process.env.SKIP_ENV_VALIDATION,
         }),

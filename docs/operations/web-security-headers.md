@@ -24,13 +24,13 @@
 | Directive | 來源 | 觸發點 |
 | --- | --- | --- |
 | `connect-src` | `'self'` | tRPC streaming、Server Actions、`/api/uploadthing` presign |
-| `connect-src` | relay origin（build 時取自 `COLLAB_RELAY_URL`） | 共編 WebSocket（B1） |
+| `connect-src` | gateway WebSocket origin（build 時由 `COLLAB_CONTROL_URL` 的 http(s) origin 換成 ws(s)） | 共編 WebSocket（B1） |
 | `connect-src` | `https://*.ingest.uploadthing.com` | browser 直傳 region 子網域；`api.uploadthing.com` 是 server-side 端點，不列入 |
 | `connect-src` | `https://<appId>.ufs.sh`（取自 `UPLOADTHING_TOKEN`；缺失即 fail build，絕不退 `*.ufs.sh`） | asset-store／published viewer／import fetch |
 | `connect-src` | `https://libraries.excalidraw.com` | 官方 library 安裝 |
 | `frame-src` | `EMBED_FRAME_SRC_HOSTS`（embed-allowlist.ts） | 純 iframe embed；twitter/reddit/gist 已在 validator 封鎖 |
 | `img-src` | `'self' blob: data: https://lh3.googleusercontent.com` | canvas 匯出、解密 asset object URL、Google 頭像原生 `<img>` |
-| `font-src` / `worker-src` | `'self'`／`'self' blob:` | Excalidraw 字型與 subset 資產自託管於 `/excalidraw-assets/`（`scripts/sync-excalidraw-assets.mjs`），esm.sh 不得出現 |
+| `font-src` / `worker-src` | `'self'` | Excalidraw 字型與 subset 資產自託管於 `/excalidraw-assets/`（`scripts/sync-excalidraw-assets.mjs`），esm.sh 不得出現 |
 | `script-src` | `'self' 'unsafe-inline'`（rationale 見 ADR-0004） | 無外部 script origin |
 | 其他 | `default-src 'self'`、`object-src 'none'`、`base-uri 'none'`、`frame-ancestors 'none'`、`form-action 'self'`、`style-src 'self' 'unsafe-inline'` | |
 | dev-only | `'unsafe-eval'`、`unpkg.com`、`ws://127.0.0.1:*`、`ws://localhost:*` | 測試釘住不得洩入 production |
@@ -60,8 +60,8 @@ console 確認零 CSP violation（`Report Only` 前綴的紅字）。
 11. Published page 讀取。
 
 全部通過後：把 `security-headers.ts` 的 `CSP_REPORT_ONLY` 改為 `false`，部署，抽測
-第 4、6、7 項確認 enforce 下無回歸。若 `worker-src` 走查全程無 `blob:` 違規，同一變更
-中把 `blob:` 移除。
+第 4、6、7 項確認 enforce 下無回歸。（`worker-src` 走查全程無 `blob:` 違規，`blob:` 已隨
+enforce 切換移除。）
 
 ## 常態要求（隨每次部署有效）
 

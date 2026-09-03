@@ -13,17 +13,20 @@ export function isSwitchOn(raw: string | undefined): boolean {
 }
 
 /**
- * Every collaboration channel is served by the Durable Object gateway. The
- * client receives an opaque generation-scoped URL and has no provider state.
+ * Every collaboration channel is served by the Durable Object gateway — the
+ * same Worker as `COLLAB_CONTROL_URL`, reached over WebSocket. The client
+ * receives an opaque generation-scoped URL and has no provider state.
  */
 export function resolveRelayUrl(room: {
   roomId: string;
   authGeneration: number;
 }): string {
-  return new URL(
+  const url = new URL(
     doGatewaySocketPath(room.roomId, room.authGeneration),
-    env.COLLAB_RELAY_URL,
-  ).toString();
+    env.COLLAB_CONTROL_URL,
+  );
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
+  return url.toString();
 }
 
 export function collaborationRoomsDisabled(): boolean {

@@ -138,18 +138,12 @@ Open `http://localhost:3000`.
 
 ## Environment Variables
 
-The app validates its environment variables in `src/env.js`.
+The app validates its environment variables in `apps/web/src/env.ts`.
 
 ```bash
 # Database
 POSTGRES_URL=postgresql://user:pass@host:port/db
 POSTGRES_URL_NON_POOLING=postgresql://user:pass@host:port/db
-POSTGRES_USER=user
-POSTGRES_HOST=host
-POSTGRES_PASSWORD=pass
-POSTGRES_DATABASE=db
-POSTGRES_URL_NO_SSL=postgresql://user:pass@host:port/db
-POSTGRES_PRISMA_URL=postgresql://user:pass@host:port/db
 
 # Auth
 BETTER_AUTH_SECRET=generate-a-strong-random-string
@@ -160,9 +154,9 @@ GOOGLE_CLIENT_SECRET=your-google-client-secret
 # Storage and app config
 UPLOADTHING_TOKEN=your-uploadthing-token
 NEXT_PUBLIC_BASE_URL=http://localhost:3000
-# Durable Object gateway origins. The server composes generation-scoped
-# socket/control paths; clients never receive provider state.
-COLLAB_RELAY_URL=wss://drawstuff-collaboration-do.example.workers.dev
+# Durable Object gateway origin. The server composes the control path and the
+# generation-scoped ws(s) socket path from it; clients never receive provider
+# state.
 COLLAB_CONTROL_URL=https://drawstuff-collaboration-do.example.workers.dev
 # Optional: authorizes /api/collaboration/control-outbox only (the Cloudflare
 # Worker cron holds the same value as COLLAB_CRON_SECRET). Deliberately not

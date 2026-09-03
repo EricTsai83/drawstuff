@@ -16,7 +16,7 @@ const VALID_TOKEN = Buffer.from(
 
 const PROD_INPUT: SecurityHeadersInput = {
   isDev: false,
-  collabRelayUrl: "wss://relay.example.com",
+  collabGatewayUrl: "https://relay.example.com",
   uploadThingToken: VALID_TOKEN,
   allowIncompleteEnv: false,
 };
@@ -40,10 +40,10 @@ describe("buildContentSecurityPolicy", () => {
     );
   });
 
-  it("derives the relay origin from COLLAB_RELAY_URL", () => {
+  it("derives the gateway WebSocket origin from COLLAB_CONTROL_URL", () => {
     const csp = buildContentSecurityPolicy({
       ...PROD_INPUT,
-      collabRelayUrl: "wss://relay.example.com/socket/path?x=1",
+      collabGatewayUrl: "https://relay.example.com/v1/control?x=1",
     });
 
     expect(directive(csp, "connect-src")).toContain("wss://relay.example.com");
@@ -84,7 +84,7 @@ describe("buildContentSecurityPolicy", () => {
     expect(directive(csp, "frame-ancestors")).toBe("frame-ancestors 'none'");
     expect(directive(csp, "form-action")).toBe("form-action 'self'");
     expect(directive(csp, "font-src")).toBe("font-src 'self'");
-    expect(directive(csp, "worker-src")).toBe("worker-src 'self' blob:");
+    expect(directive(csp, "worker-src")).toBe("worker-src 'self'");
   });
 
   it("keeps frame-src exactly equal to the embed decision", () => {
@@ -146,32 +146,35 @@ describe("buildContentSecurityPolicy", () => {
     ).toThrow(/UPLOADTHING_TOKEN/);
   });
 
-  it("fails the build when COLLAB_RELAY_URL is unusable", () => {
-    expect(() =>
-      buildContentSecurityPolicy({ ...PROD_INPUT, collabRelayUrl: undefined }),
-    ).toThrow(/COLLAB_RELAY_URL/);
+  it("fails the build when COLLAB_CONTROL_URL is unusable", () => {
     expect(() =>
       buildContentSecurityPolicy({
         ...PROD_INPUT,
-        collabRelayUrl: "not a url",
+        collabGatewayUrl: undefined,
       }),
-    ).toThrow(/COLLAB_RELAY_URL/);
+    ).toThrow(/COLLAB_CONTROL_URL/);
+    expect(() =>
+      buildContentSecurityPolicy({
+        ...PROD_INPUT,
+        collabGatewayUrl: "not a url",
+      }),
+    ).toThrow(/COLLAB_CONTROL_URL/);
   });
 
-  it("fails the build on a parseable but wildcarded or non-WebSocket relay URL", () => {
-    // `new URL("wss://*.example.com")` 可解析；不驗證會輸出萬用 origin。
+  it("fails the build on a parseable but wildcarded or non-HTTP gateway URL", () => {
+    // `new URL("https://*.example.com")` 可解析；不驗證會輸出萬用 origin。
     expect(() =>
       buildContentSecurityPolicy({
         ...PROD_INPUT,
-        collabRelayUrl: "wss://*.example.com",
+        collabGatewayUrl: "https://*.example.com",
       }),
-    ).toThrow(/COLLAB_RELAY_URL/);
+    ).toThrow(/COLLAB_CONTROL_URL/);
     expect(() =>
       buildContentSecurityPolicy({
         ...PROD_INPUT,
-        collabRelayUrl: "https://relay.example.com",
+        collabGatewayUrl: "wss://relay.example.com",
       }),
-    ).toThrow(/COLLAB_RELAY_URL/);
+    ).toThrow(/COLLAB_CONTROL_URL/);
   });
 
   it("fails the build on a parseable token whose appId is not a DNS-safe label", () => {
@@ -192,7 +195,7 @@ describe("buildContentSecurityPolicy", () => {
   it("omits missing sources without widening on SKIP_ENV_VALIDATION builds", () => {
     const csp = buildContentSecurityPolicy({
       isDev: false,
-      collabRelayUrl: undefined,
+      collabGatewayUrl: undefined,
       uploadThingToken: "something-cool",
       allowIncompleteEnv: true,
     });

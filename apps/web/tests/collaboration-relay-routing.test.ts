@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 vi.mock("server-only", () => ({}));
 vi.mock("@/env", () => ({
   env: {
-    COLLAB_RELAY_URL: "wss://do.invalid",
+    COLLAB_CONTROL_URL: "https://do.invalid",
     COLLAB_ROOMS_DISABLED: undefined,
   },
 }));
@@ -12,7 +12,7 @@ vi.mock("@/env", () => ({
 import { isSwitchOn, resolveRelayUrl } from "@/server/collab/relay-routing";
 
 describe("DO-only relay routing", () => {
-  it("returns the generation-scoped Durable Object socket URL", () => {
+  it("returns the generation-scoped Durable Object socket URL on the control origin", () => {
     expect(
       resolveRelayUrl({
         roomId: "room-do-000000000000",

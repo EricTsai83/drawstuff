@@ -15,12 +15,6 @@ const parsedEnv = createEnv({
     UPLOADTHING_TOKEN: z.string(),
     POSTGRES_URL: z.string().url(),
     POSTGRES_URL_NON_POOLING: z.string().url(),
-    POSTGRES_USER: z.string(),
-    POSTGRES_HOST: z.string(),
-    POSTGRES_PASSWORD: z.string(),
-    POSTGRES_DATABASE: z.string(),
-    POSTGRES_URL_NO_SSL: z.string().url(),
-    POSTGRES_PRISMA_URL: z.string().url(),
     BETTER_AUTH_SECRET: z.string(),
     BETTER_AUTH_URL: z.string().url(),
     GOOGLE_CLIENT_ID: z.string(),
@@ -44,14 +38,14 @@ const parsedEnv = createEnv({
      * unauthenticated join path.
      */
     COLLAB_JOIN_TOKEN_SECRET: z.string().min(32),
-    /** Public HTTP origin of the Durable Object gateway control endpoint. */
-    COLLAB_CONTROL_URL: z.string().url(),
     /**
-     * Public WebSocket origin of the Durable Object gateway. The server
-     * composes a generation-scoped socket path and returns the resulting
-     * opaque URL to the client; provider identity never enters client state.
+     * Public HTTP origin of the Durable Object gateway. One Worker serves both
+     * the control endpoint and the room WebSocket, so the server derives the
+     * `ws(s)://` socket origin from this value, composes a generation-scoped
+     * socket path and returns the resulting opaque URL to the client;
+     * provider identity never enters client state.
      */
-    COLLAB_RELAY_URL: z.string().url(),
+    COLLAB_CONTROL_URL: z.string().url(),
     /**
      * Kill switch: refuse `collaborationRoom.create` and `join` entirely
      * with an explicit SERVICE_UNAVAILABLE. Existing sockets are untouched;
@@ -93,12 +87,6 @@ const parsedEnv = createEnv({
     UPLOADTHING_TOKEN: process.env.UPLOADTHING_TOKEN,
     POSTGRES_URL: process.env.POSTGRES_URL,
     POSTGRES_URL_NON_POOLING: process.env.POSTGRES_URL_NON_POOLING,
-    POSTGRES_USER: process.env.POSTGRES_USER,
-    POSTGRES_HOST: process.env.POSTGRES_HOST,
-    POSTGRES_PASSWORD: process.env.POSTGRES_PASSWORD,
-    POSTGRES_DATABASE: process.env.POSTGRES_DATABASE,
-    POSTGRES_URL_NO_SSL: process.env.POSTGRES_URL_NO_SSL,
-    POSTGRES_PRISMA_URL: process.env.POSTGRES_PRISMA_URL,
     BETTER_AUTH_SECRET: process.env.BETTER_AUTH_SECRET,
     BETTER_AUTH_URL: process.env.BETTER_AUTH_URL,
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
@@ -108,7 +96,6 @@ const parsedEnv = createEnv({
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
     COLLAB_JOIN_TOKEN_SECRET: process.env.COLLAB_JOIN_TOKEN_SECRET,
     COLLAB_CONTROL_URL: process.env.COLLAB_CONTROL_URL,
-    COLLAB_RELAY_URL: process.env.COLLAB_RELAY_URL,
     COLLAB_ROOMS_DISABLED: process.env.COLLAB_ROOMS_DISABLED,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,

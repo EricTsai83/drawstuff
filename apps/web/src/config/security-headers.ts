@@ -17,8 +17,8 @@ export const CSP_REPORT_ONLY = false;
 export interface SecurityHeadersInput {
   /** `next dev`；dev 放寬（HMR、unpkg react-grab）不得洩入 production。 */
   isDev: boolean;
-  /** server-only `COLLAB_RELAY_URL`；取 origin 進 `connect-src`。 */
-  collabRelayUrl: string | undefined;
+  /** server-only `COLLAB_CONTROL_URL`；導出 WebSocket origin 進 `connect-src`。 */
+  collabGatewayUrl: string | undefined;
   /** UploadThing token（base64 JSON）；導出 `<appId>.ufs.sh`。 */
   uploadThingToken: string | undefined;
   /**
@@ -53,27 +53,39 @@ export function deriveUploadThingAppId(
   return undefined;
 }
 
-function resolveRelayOrigin(input: SecurityHeadersInput): string | undefined {
-  if (input.collabRelayUrl) {
-    try {
-      const url = new URL(input.collabRelayUrl);
-      // URL parser 接受 `wss://*.example.com` 這類 hostname；CSP 只允許精確
-      // 的 relay origin，scheme 也限定 WebSocket（與 env 文件一致），其餘
-      // 一律視同設錯而 fail build。
-      if (
-        (url.protocol === "ws:" || url.protocol === "wss:") &&
-        !url.hostname.includes("*") &&
-        url.origin !== "null"
-      ) {
-        return url.origin;
-      }
-    } catch {
-      // 落到下方的缺失處理
+/**
+ * Durable Object gateway 的 WebSocket origin：同一個 Worker 同時服務 control
+ * endpoint 與 room socket，所以由 `COLLAB_CONTROL_URL` 的 http(s) origin 換成
+ * ws(s)。與 `server/collab/relay-routing.ts` 用同一條規則。
+ */
+export function deriveGatewaySocketOrigin(
+  gatewayUrl: string,
+): string | undefined {
+  try {
+    const url = new URL(gatewayUrl);
+    // URL parser 接受 `https://*.example.com` 這類 hostname；CSP 只允許精確
+    // 的 gateway origin，scheme 也限定 http(s)，其餘一律視同設錯。
+    if (
+      (url.protocol === "http:" || url.protocol === "https:") &&
+      !url.hostname.includes("*") &&
+      url.origin !== "null"
+    ) {
+      return url.origin.replace(/^http/, "ws");
     }
+  } catch {
+    // 落到呼叫端的缺失處理
   }
+  return undefined;
+}
+
+function resolveRelayOrigin(input: SecurityHeadersInput): string | undefined {
+  const origin = input.collabGatewayUrl
+    ? deriveGatewaySocketOrigin(input.collabGatewayUrl)
+    : undefined;
+  if (origin) return origin;
   if (input.allowIncompleteEnv) return undefined;
   throw new Error(
-    "CSP: COLLAB_RELAY_URL is missing, unparsable, non-WebSocket, or wildcarded; refusing to emit a connect-src without an exact relay origin.",
+    "CSP: COLLAB_CONTROL_URL is missing, unparsable, non-HTTP, or wildcarded; refusing to emit a connect-src without an exact gateway origin.",
   );
 }
 
@@ -135,9 +147,9 @@ export function buildContentSecurityPolicy(
     // P3.0：Excalidraw 字型由 /excalidraw-assets 自家 origin 提供，esm.sh
     // fallback 不得出現在任何 directive
     `font-src 'self'`,
-    // Excalidraw subset worker 是 bundle 內的同源 module worker；blob: 供
-    // report-only 走查確認後若無違規即可移除
-    `worker-src 'self' blob:`,
+    // Excalidraw subset worker 是 bundle 內的同源 module worker（report-only
+    // 走查全程無 blob: 違規，2026-08-28 起不再放行）
+    `worker-src 'self'`,
     `connect-src ${connectSrc.join(" ")}`,
     // embed 決策的單一來源在 embed-allowlist.ts，與 validateEmbeddable 一致
     `frame-src ${EMBED_FRAME_SRC_HOSTS.join(" ")}`,

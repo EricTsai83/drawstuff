@@ -74,7 +74,8 @@ is stored; every delivery signs a fresh short-lived control token. Mutation resp
 
 Every room generation maps to exactly one `CollaborationRoom` Durable Object. `join` signs a fresh
 token under the room lock and returns a generation-scoped opaque `relayUrl` composed from the
-server-only `COLLAB_RELAY_URL`; clients receive no provider discriminant and have no fallback path.
+server-only `COLLAB_CONTROL_URL` (its http(s) origin mapped to ws(s)); clients receive no provider
+discriminant and have no fallback path.
 Control outbox events always dispatch to `COLLAB_CONTROL_URL`. Neither room nor outbox rows store a
 provider, and there is no percentage/cohort policy or Node dispatcher. The durable outbox is a
 permanent correctness mechanism.
