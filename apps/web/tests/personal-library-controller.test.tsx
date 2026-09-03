@@ -3,10 +3,11 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { useExcalidrawLibrary } from "@drawstuff/excalidraw-adapter/client";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
 const { useExcalidrawLibraryMock, getQuery, putMutate } = vi.hoisted(() => ({
-  useExcalidrawLibraryMock: vi.fn(),
+  useExcalidrawLibraryMock: vi.fn<typeof useExcalidrawLibrary>(),
   getQuery: vi.fn(),
   putMutate: vi.fn(),
 }));

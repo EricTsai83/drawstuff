@@ -30,9 +30,15 @@ afterEach(() => {
 });
 
 class ResizeObserverStub implements ResizeObserver {
-  observe(): void {}
-  unobserve(): void {}
-  disconnect(): void {}
+  observe(): void {
+    // noop
+  }
+  unobserve(): void {
+    // noop
+  }
+  disconnect(): void {
+    // noop
+  }
 }
 
 Object.defineProperty(globalThis, "ResizeObserver", {

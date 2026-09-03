@@ -1,5 +1,12 @@
 {
   "$schema": "https://turborepo.com/schema.json",
+  "globalDependencies": [
+    "eslint.config.ts",
+    "eslint.shared.ts",
+    "pnpm-workspace.yaml",
+    "prettier.config.ts",
+    "tsconfig.json"
+  ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
@@ -8,6 +15,7 @@
         "BETTER_AUTH_URL",
         "CLEANUP_OWNER_EMAIL",
         "COLLAB_CONTROL_URL",
+        "COLLAB_CRON_SECRET",
         "COLLAB_JOIN_TOKEN_SECRET",
         "COLLAB_OUTBOX_CRON_SECRET",
         "COLLAB_RELAY_CONTROL_URL",

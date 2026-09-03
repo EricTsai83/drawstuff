@@ -137,7 +137,7 @@ function WorkspaceDropdownComponent(
         )}
         disabled={disabled}
         aria-label={t("workspace.current", {
-          name: triggerLabel || options[0]?.name || t("workspace.none"),
+          name: triggerLabel || (options[0]?.name ?? "") || t("workspace.none"),
         })}
       >
         <span className="min-w-0 flex-1 truncate text-left">

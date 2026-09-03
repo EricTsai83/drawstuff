@@ -393,7 +393,7 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
         .from(scene)
         .where(eq(scene.id, sceneId))
         .for("update");
-      if (!sceneRow || sceneRow.ownerId !== session.user.id) {
+      if (sceneRow?.ownerId !== session.user.id) {
         return null;
       }
 

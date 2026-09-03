@@ -1,6 +1,7 @@
+import type { Linter } from "eslint";
 import nextLintConfig from "eslint-config-next/core-web-vitals";
-// @ts-ignore -- no types for this plugin
 import drizzle from "eslint-plugin-drizzle";
+import tseslint from "typescript-eslint";
 
 import { sharedTypescriptRules } from "../../eslint.shared.ts";
 
@@ -34,6 +35,21 @@ const upstreamDomLookupRestrictions = [
 const acceptedLimitationDomModule =
   "src/components/excalidraw/main-menu/accepted-limitation-trigger-label.ts";
 
+/**
+ * Next's config registers its own `@typescript-eslint` plugin instance, so the
+ * type-checked presets cannot be spread as configs here (ESLint rejects a
+ * plugin defined twice). Their rule tables are merged instead; the shared
+ * rules below then apply the repo-wide overrides on top, exactly as in the
+ * root config.
+ */
+const typeCheckedRules = [
+  ...tseslint.configs.recommendedTypeChecked,
+  ...tseslint.configs.stylisticTypeChecked,
+].reduce<Linter.RulesRecord>(
+  (rules, config) => ({ ...rules, ...config.rules }),
+  {},
+);
+
 const eslintConfig = [
   ...nextLintConfig,
   {
@@ -47,6 +63,7 @@ const eslintConfig = [
       },
     },
     rules: {
+      ...typeCheckedRules,
       "react-hooks/immutability": "off",
       "react-hooks/incompatible-library": "off",
       "react-hooks/preserve-manual-memoization": "off",

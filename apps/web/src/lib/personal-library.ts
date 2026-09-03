@@ -83,10 +83,7 @@ export function encodePersonalLibraryBase64(bytes: Uint8Array): string {
 export async function personalLibraryChecksum(
   bytes: Uint8Array,
 ): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    bytes.slice().buffer as ArrayBuffer,
-  );
+  const digest = await crypto.subtle.digest("SHA-256", bytes.slice().buffer);
   return Array.from(new Uint8Array(digest), (byte) =>
     byte.toString(16).padStart(2, "0"),
   ).join("");

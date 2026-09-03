@@ -112,15 +112,14 @@ async function storedElementCount(page: Page): Promise<number> {
   return page.evaluate((storageKey) => {
     const rawElements = localStorage.getItem(storageKey);
     if (!rawElements) return 0;
-    const elements = JSON.parse(rawElements) as unknown;
+    const elements: unknown = JSON.parse(rawElements);
     if (!Array.isArray(elements)) return 0;
-    return elements.filter(
-      (element) =>
-        typeof element === "object" &&
-        element !== null &&
-        "isDeleted" in element &&
-        element.isDeleted !== true,
-    ).length;
+    const isLive = (element: unknown): boolean =>
+      typeof element === "object" &&
+      element !== null &&
+      "isDeleted" in element &&
+      element.isDeleted !== true;
+    return elements.filter(isLive).length;
   }, STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS);
 }
 

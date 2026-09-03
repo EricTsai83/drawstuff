@@ -53,7 +53,7 @@ export const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
     return bytes.buffer.slice(
       bytes.byteOffset,
       bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
+    );
   }
   // Browser environment
   return byteStringToArrayBuffer(atob(base64));
