@@ -1054,7 +1054,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
          room_ended INTEGER NOT NULL DEFAULT 0
        )`,
     );
-    // Code-version skew check FIRST, before any migration or seed statement:
+    // Code-version skew check FIRST, before the seed statement:
     // storage from a newer build must be refused before this build mutates
     // structures it does not understand (re-adding a renamed column,
     // re-creating a dropped table). Refusing to run is the only safe
@@ -1070,30 +1070,6 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       // every other caller fails closed on any throw regardless of type.
       throw new ControlRejectedError("schema-skew");
     }
-    // v1 → v2 migration MUST run before any statement references a v2 column:
-    // on a pre-existing v1 table the CREATE above is a no-op, so the column
-    // is added in place first. The migration condition is the column's
-    // absence itself (not the stored version), which keeps every re-entrant
-    // call idempotent. Old rows were written before end-room existed, so 0 is
-    // the correct value, not a guess.
-    const hasRoomEnded =
-      this.ctx.storage.sql
-        .exec<{ present: number }>(
-          `SELECT COUNT(*) AS present FROM pragma_table_info('room_meta')
-           WHERE name = 'room_ended'`,
-        )
-        .one().present > 0;
-    if (!hasRoomEnded) {
-      this.ctx.storage.sql.exec(
-        "ALTER TABLE room_meta ADD COLUMN room_ended INTEGER NOT NULL DEFAULT 0",
-      );
-    }
-    // Separate from the column check, so a crash between the ALTER and this
-    // statement heals on the next pass instead of leaving version 1 forever.
-    this.ctx.storage.sql.exec(
-      "UPDATE room_meta SET schema_version = ? WHERE id = 1 AND schema_version = 1",
-      ROOM_SCHEMA_VERSION,
-    );
     this.ctx.storage.sql.exec(
       `INSERT OR IGNORE INTO room_meta(id, schema_version, room_epoch, room_expires_at_ms, room_ended)
        VALUES (1, ?, 0, NULL, 0)`,

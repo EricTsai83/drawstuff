@@ -443,49 +443,7 @@ describe("alarm at-least-once", () => {
   });
 });
 
-describe("schema migration", () => {
-  it("migrates a pre-existing v1 room_meta table in place before touching v2 columns", async () => {
-    const roomId = uniqueRoomId("ctlmigrate");
-    const stub = roomStub(roomId);
-    const member = await joinRoom(roomId);
-    member.connection.close();
-    await settleRoomEvents();
-
-    // Rebuild the exact storage a v1 deployment left behind: no room_ended
-    // column, schema_version 1, a retained epoch high-water.
-    await runInDurableObject(stub, (_instance, state) => {
-      state.storage.sql.exec("DROP TABLE room_meta");
-      state.storage.sql.exec(
-        `CREATE TABLE room_meta(
-           id INTEGER PRIMARY KEY CHECK (id = 1),
-           schema_version INTEGER NOT NULL,
-           room_epoch INTEGER NOT NULL,
-           room_expires_at_ms INTEGER
-         )`,
-      );
-      state.storage.sql.exec(
-        "INSERT INTO room_meta(id, schema_version, room_epoch, room_expires_at_ms) VALUES (1, 1, 5, ?)",
-        Date.now() + 3_600_000,
-      );
-    });
-    await evictDurableObject(stub);
-
-    // Reconstruction runs the bootstrap against the v1 table; a working join
-    // (continuing above the retained high-water) proves the migration ran
-    // before any statement referenced a v2 column.
-    const rejoined = await joinRoom(roomId);
-    expect(rejoined.joined.roomGeneration).toBe(6);
-    const meta = await runInDurableObject(stub, (_instance, state) =>
-      state.storage.sql
-        .exec<{ schema_version: number; room_ended: number }>(
-          "SELECT schema_version, room_ended FROM room_meta WHERE id = 1",
-        )
-        .one(),
-    );
-    expect(meta).toEqual({ schema_version: 2, room_ended: 0 });
-    rejoined.connection.close();
-  });
-
+describe("schema skew", () => {
   it("refuses storage from a newer build before mutating it", async () => {
     const roomId = uniqueRoomId("ctlnewer");
     const stub = roomStub(roomId);
