@@ -1,9 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import {
-  MAX_SCENE_MESSAGE_BYTES,
-  type SyncedElement,
-} from "@drawstuff/collaboration/protocol";
+import { MAX_SCENE_MESSAGE_BYTES } from "@drawstuff/collaboration/protocol";
 import {
   MAX_SNAPSHOT_PLAINTEXT_BYTES,
   SNAPSHOT_NO_REVISION,
@@ -310,9 +307,7 @@ describe("snapshot store size classification", () => {
   it("distinguishes an oversize scene from a failed write", async () => {
     const store = await buildStore();
     const oversize = await store.save({
-      elements: [
-        oversizeElement("big", MAX_SNAPSHOT_PLAINTEXT_BYTES + 128),
-      ] as unknown as readonly SyncedElement[],
+      elements: [oversizeElement("big", MAX_SNAPSHOT_PLAINTEXT_BYTES + 128)],
       expectedRevision: SNAPSHOT_NO_REVISION,
     });
 
@@ -325,9 +320,7 @@ describe("snapshot store size classification", () => {
   it("still reports a transport failure as failed", async () => {
     const store = await buildStore(() => Promise.reject(new Error("offline")));
     const result = await store.save({
-      elements: [
-        collabRectangle({ id: "r1" }),
-      ] as unknown as readonly SyncedElement[],
+      elements: [collabRectangle({ id: "r1" })],
       expectedRevision: SNAPSHOT_NO_REVISION,
     });
 

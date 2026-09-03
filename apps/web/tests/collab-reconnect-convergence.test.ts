@@ -3,7 +3,6 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type {
   CollaborationMessage,
   SceneMessage,
-  SyncedElement,
 } from "@drawstuff/collaboration/protocol";
 import { createSeededRandom } from "@drawstuff/collaboration/testing";
 import type {
@@ -224,7 +223,7 @@ describe("reconnect recovery", () => {
       rect("shared-2"),
     ]);
     harness.settle();
-    backend.publish(rejoiner.host.elements as unknown as SyncedElement[]);
+    backend.publish(rejoiner.host.elements);
 
     const seenByBob = observe(bob);
     harness.network.dropConnection(rejoiner.transport);
@@ -588,9 +587,7 @@ describe("unrecoverable connection states", () => {
 
   it("drops a snapshot load still in flight when the session terminates", async () => {
     const backend = createSnapshotBackend();
-    backend.publish([
-      collabRectangle({ id: "room-owned" }) as unknown as SyncedElement,
-    ]);
+    backend.publish([collabRectangle({ id: "room-owned" })]);
     const client = harness.createClient("client-cut-off", {
       recovery: TEST_RECOVERY,
       // Held open, so the terminal failure lands while the load is pending.

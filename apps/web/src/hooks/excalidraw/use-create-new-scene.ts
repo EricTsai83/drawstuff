@@ -94,8 +94,7 @@ export function useCreateNewScene({
           // 新建場景的語義：清除 currentSceneId，避免覆寫既有場景
           clearCurrentScene();
           // 重置畫布為空
-          const currentAppState = excalidrawAPI?.getAppState() as
-            AppState | undefined;
+          const currentAppState = excalidrawAPI?.getAppState();
           if (currentAppState) {
             const resetZoom = createResetZoomState(currentAppState.zoom);
             excalidrawAPI?.updateScene({

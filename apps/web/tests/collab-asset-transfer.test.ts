@@ -606,14 +606,14 @@ describe("encrypted collaboration asset transfer", () => {
       const readableUrl = `object-1`;
       let releaseReadable: (() => void) | undefined;
       const bob = await harness.createAssetClient("client-bob", backend, {
-        wrapFetch: (inner) =>
-          ((input: RequestInfo | URL, init?: RequestInit) => {
+        wrapFetch:
+          (inner) => (input: RequestInfo | URL, init?: RequestInit) => {
             const url = requestUrl(input);
             if (!url.endsWith(readableUrl)) return inner(input, init);
             return new Promise<Response>((resolve) => {
               releaseReadable = () => resolve(inner(input, init));
             });
-          }) as typeof fetch,
+          },
       });
 
       const readable = bob.assetStore.request([FILE_A]);
@@ -652,11 +652,10 @@ describe("encrypted collaboration asset transfer", () => {
       const heldFetches: (() => void)[] = [];
       const bob = await harness.createAssetClient("client-bob", backend, {
         roomKey: STRANGER_KEY,
-        wrapFetch: (inner) =>
-          ((input: RequestInfo | URL, init?: RequestInit) =>
-            new Promise<Response>((resolve) => {
-              heldFetches.push(() => resolve(inner(input, init)));
-            })) as typeof fetch,
+        wrapFetch: (inner) => (input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((resolve) => {
+            heldFetches.push(() => resolve(inner(input, init)));
+          }),
       });
 
       // Two lookups are running when the first one finds an unopenable image, so

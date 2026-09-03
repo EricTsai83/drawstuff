@@ -94,7 +94,7 @@ export function editedElement(
     versionNonce: element.versionNonce + 7,
     updated: element.updated + 1,
     ...overrides,
-  } as unknown as OrderedExcalidrawElement;
+  };
 }
 
 export function collabAppState(

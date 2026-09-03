@@ -16,15 +16,21 @@ vi.mock("server-only", () => ({}));
  * bounded drain with claim leases, poison handling and retention. The DO
  * dispatcher's HTTP contract is covered by its own suite.
  */
-const { dispatchState } = vi.hoisted(() => ({
-  dispatchState: {
-    doCalls: [] as unknown[],
-    doResult: { enforced: true, closedSessions: 1 } as unknown,
-    doThrows: false,
+const { dispatchState } = vi.hoisted(() => {
+  const dispatchState: {
+    doCalls: unknown[];
+    doResult: unknown;
+    doThrows: boolean;
     /** When set, DO dispatches block until this promise resolves. */
-    doGate: null as Promise<void> | null,
-  },
-}));
+    doGate: Promise<void> | null;
+  } = {
+    doCalls: [],
+    doResult: { enforced: true, closedSessions: 1 },
+    doThrows: false,
+    doGate: null,
+  };
+  return { dispatchState };
+});
 vi.mock("@/server/collab/do-control", () => ({
   pushDoRoomControl: async (params: unknown) => {
     dispatchState.doCalls.push(params);

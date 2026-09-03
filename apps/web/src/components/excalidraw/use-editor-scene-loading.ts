@@ -141,15 +141,8 @@ export function useEditorSceneLoading(options: {
       });
     }
 
-    window.addEventListener(
-      LOAD_SCENE_EVENT,
-      onLoadSceneEvent as EventListener,
-    );
-    return () =>
-      window.removeEventListener(
-        LOAD_SCENE_EVENT,
-        onLoadSceneEvent as EventListener,
-      );
+    window.addEventListener(LOAD_SCENE_EVENT, onLoadSceneEvent);
+    return () => window.removeEventListener(LOAD_SCENE_EVENT, onLoadSceneEvent);
   }, [loadSceneWithConfirm]);
 
   const { closeSceneChangeDialog } = sceneChangeConfirm;

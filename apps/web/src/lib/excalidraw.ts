@@ -365,7 +365,7 @@ export function getCurrentSceneSnapshot(
   const elements = excalidrawAPI.getSceneElementsIncludingDeleted();
   const appState = excalidrawAPI.getAppState();
   const files = excalidrawAPI.getFiles();
-  return { elements, appState: appState as Partial<AppState>, files };
+  return { elements, appState: appState, files };
 }
 
 /** Whether the appState contains saved viewport position (scrollX/scrollY/zoom). */
@@ -424,8 +424,7 @@ export async function exportSceneToPngBlob(
     exportPadding?: number;
   }) => Promise<Blob>;
 
-  const exportToBlobTyped: ExportToBlobFn =
-    exportCanvasToBlob as unknown as ExportToBlobFn;
+  const exportToBlobTyped: ExportToBlobFn = exportCanvasToBlob;
 
   return await exportToBlobTyped({
     elements: elementsForExport,

@@ -35,7 +35,7 @@ export function OverflowTooltip({
   const [isTooltipVisible, setIsTooltipVisible] = useState(false);
 
   const handleMouseEnter = useCallback((event: MouseEvent<HTMLElement>) => {
-    const targetElement = event.currentTarget as HTMLElement;
+    const targetElement = event.currentTarget;
     const isOverflowed = targetElement.scrollWidth > targetElement.clientWidth;
     setIsTooltipVisible(isOverflowed);
   }, []);

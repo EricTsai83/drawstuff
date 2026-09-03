@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
-import type { NonDeletedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { toast } from "sonner";
 import { setOverwriteConfirmHandler } from "@/lib/initialize-scene";
 import {
@@ -109,11 +108,7 @@ export function useOverwriteConfirm(
     const scene = getCurrentSceneSnapshot(excalidrawAPI);
     if (!scene) return;
     try {
-      saveSceneJsonToDisk(
-        scene.elements as readonly NonDeletedExcalidrawElement[],
-        scene.appState,
-        scene.files,
-      );
+      saveSceneJsonToDisk(scene.elements, scene.appState, scene.files);
       toast.success(t("toast.export.fileSaved"));
     } catch (err: unknown) {
       const errorObj = err instanceof Error ? err : new Error(String(err));

@@ -18,11 +18,12 @@ const { drainCalls, drainReport } = vi.hoisted(() => ({
     remainingDue: 0,
   },
 }));
-const { envState } = vi.hoisted(() => ({
-  envState: {
-    COLLAB_OUTBOX_CRON_SECRET: "test-outbox-cron-secret" as string | undefined,
-  },
-}));
+const { envState } = vi.hoisted(() => {
+  const envState: { COLLAB_OUTBOX_CRON_SECRET: string | undefined } = {
+    COLLAB_OUTBOX_CRON_SECRET: "test-outbox-cron-secret",
+  };
+  return { envState };
+});
 vi.mock("@/env", () => ({ env: envState }));
 vi.mock("@/server/db", () => ({ db: {} }));
 vi.mock("@/server/collab/control-outbox", () => ({

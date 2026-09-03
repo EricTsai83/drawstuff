@@ -232,7 +232,7 @@ describe("asset lookups", () => {
       },
       upload: () => Promise.resolve(),
     };
-    return api as unknown as AssetApi & { calls: number };
+    return api;
   };
 
   it("does not look the id up again before the server's window resets", async () => {

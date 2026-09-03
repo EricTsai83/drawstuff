@@ -523,7 +523,7 @@ export function createAssetBackend() {
      * overlap and `peakConcurrentTransfers` measures something.
      */
     createFetch(): typeof fetch {
-      return ((input: RequestInfo | URL) =>
+      return (input: RequestInfo | URL) =>
         trackTransfer(async () => {
           fetchCalls += 1;
           const url = requestUrl(input);
@@ -532,7 +532,7 @@ export function createAssetBackend() {
           await new Promise((resolve) => setTimeout(resolve, 0));
           if (!bytes) return new Response(null, { status: 404 });
           return new Response(Uint8Array.from(bytes), { status: 200 });
-        })) as typeof fetch;
+        });
     },
   };
 }

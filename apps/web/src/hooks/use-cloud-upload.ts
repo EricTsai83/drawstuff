@@ -18,7 +18,6 @@ import {
 } from "@/lib/excalidraw";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
-import type { NonDeletedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
@@ -427,7 +426,7 @@ export function useCloudUpload(
 
           try {
             const pngBlob = await exportSceneThumbnail(
-              elements as readonly NonDeletedExcalidrawElement[],
+              elements,
               appState,
               files,
             );

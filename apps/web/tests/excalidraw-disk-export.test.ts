@@ -1,9 +1,6 @@
 import { readAdapterFixture } from "@drawstuff/excalidraw-adapter/testing";
 import type { ExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
-import type {
-  AppState,
-  BinaryFiles,
-} from "@drawstuff/excalidraw-adapter/types";
+import type { BinaryFiles } from "@drawstuff/excalidraw-adapter/types";
 import { describe, expect, it, vi } from "vitest";
 
 const { createJsonBlobMock, downloadMock, exportBlob } = vi.hoisted(() => ({
@@ -36,7 +33,7 @@ describe("Excalidraw disk export", () => {
   it("downloads the official local format through the production writer", () => {
     saveSceneJsonToDisk(
       contractInput.elements as unknown as ExcalidrawElement[],
-      contractInput.appState as Partial<AppState>,
+      contractInput.appState,
       contractInput.files as BinaryFiles,
     );
 

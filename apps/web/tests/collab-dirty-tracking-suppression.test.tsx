@@ -7,7 +7,6 @@ vi.mock("@/lib/excalidraw", () => ({ saveData: vi.fn() }));
 
 import type {
   AppState,
-  BinaryFiles,
   OrderedExcalidrawElement,
 } from "@drawstuff/excalidraw-adapter/types";
 
@@ -54,7 +53,7 @@ const localSceneChange = (): void => {
   probe.handlers?.handleSceneChange(
     [] as readonly OrderedExcalidrawElement[],
     { name: "scene" } as AppState,
-    {} as BinaryFiles,
+    {},
   );
 };
 

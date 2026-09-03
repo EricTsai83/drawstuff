@@ -5,7 +5,6 @@ import {
 } from "@drawstuff/excalidraw-adapter/codec";
 import { readAdapterFixture } from "@drawstuff/excalidraw-adapter/testing";
 import type {
-  AppState,
   BinaryFiles,
   ExcalidrawElement,
 } from "@drawstuff/excalidraw-adapter/types";
@@ -64,7 +63,7 @@ describe("Drawstuff cloud codec", () => {
     const output = JSON.parse(
       serializeSceneData(
         contractInput.elements as unknown as ExcalidrawElement[],
-        contractInput.appState as Partial<AppState>,
+        contractInput.appState,
         contractInput.files as BinaryFiles,
         "readonly-share",
       ),

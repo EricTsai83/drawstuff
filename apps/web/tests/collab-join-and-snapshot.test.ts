@@ -52,12 +52,11 @@ const settle = async (harness: Harness): Promise<void> => {
 
 const digest = (
   elements: readonly OrderedExcalidrawElement[],
-): Promise<string> =>
-  collaborationSnapshotDigest(elements as unknown as readonly SyncedElement[]);
+): Promise<string> => collaborationSnapshotDigest(elements);
 
 const asSyncedElements = (
   elements: readonly OrderedExcalidrawElement[],
-): readonly SyncedElement[] => elements as unknown as readonly SyncedElement[];
+): readonly SyncedElement[] => elements;
 
 describe("join barrier", () => {
   let harness: Harness;

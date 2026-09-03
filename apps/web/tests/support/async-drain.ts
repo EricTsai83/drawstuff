@@ -50,7 +50,7 @@ export function trackPendingCrypto(): void {
   const subtle: SubtleCrypto | undefined = globalThis.crypto?.subtle;
   if (!subtle || Reflect.get(subtle, TRACKING_MARKER) === true) return;
   for (const method of TRACKED_METHODS) {
-    const original = subtle[method];
+    const original: unknown = Reflect.get(subtle, method);
     if (typeof original !== "function") continue;
     const call = (...args: unknown[]): Promise<unknown> =>
       (original as (...callArgs: unknown[]) => Promise<unknown>).apply(
