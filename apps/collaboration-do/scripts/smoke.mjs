@@ -17,21 +17,18 @@
  *
  * The full contract matrix (Origin allowlist, header stripping, DO identity,
  * close codes, limits) is owned by the workerd test suite; this script proves
- * the *deployed* Worker answers with the same surface during the pre-cutover
- * window, and prints the version id for the deploy record.
+ * the *deployed* Worker answers with the same surface, and prints the version
+ * id for the deploy record.
  *
  * Usage:
  *   pnpm --filter @drawstuff/collaboration-do smoke <base-url>
  *   COLLAB_JOIN_TOKEN_SECRET=... pnpm --filter @drawstuff/collaboration-do smoke <base-url>
  */
 
-import { WebSocket } from "ws";
-
 import {
   COLLABORATION_PROTOCOL_VERSION,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
-import { createConformanceConnection } from "@drawstuff/collaboration/protocol-conformance";
 import {
   createRealtimeCryptoCodec,
   generateRoomKey,
@@ -51,9 +48,15 @@ import {
 } from "@drawstuff/collaboration/room-auth";
 import {
   createRoomTokenId,
-  signJoinToken,
   signRoomControlToken,
 } from "@drawstuff/collaboration/room-token";
+
+import {
+  issueSyntheticJoinToken,
+  messageBytes,
+  openConformanceSocket,
+  roomSocketUrl,
+} from "./ws-harness.mjs";
 
 const base = process.argv[2];
 if (!base) {
@@ -61,9 +64,6 @@ if (!base) {
   process.exit(2);
 }
 const target = base.replace(/\/+$/, "");
-
-/** Must be on the deployed Worker's COLLAB_ALLOWED_ORIGINS allowlist. */
-const SMOKE_ORIGIN = process.env.COLLAB_SMOKE_ORIGIN ?? "http://localhost:3000";
 
 let failures = 0;
 async function check(name, run) {
@@ -153,38 +153,13 @@ if (!secret) {
 }
 
 /**
- * One raw smoke client: a `ws` socket (which, unlike the WHATWG client, can
- * present the allowlisted Origin) feeding the *shared* conformance event
- * queue, so this script and the two conformance suites read the wire through
- * one implementation. The raw socket stays exposed: the shared queue filters
- * keepalive acknowledgments by contract, and the keepalive check below needs
- * to observe the exact frame.
+ * One raw smoke client. The raw socket stays exposed because the keepalive
+ * check below needs to observe the exact frame.
  */
 function connectSmokeClient(roomId) {
-  const url = `${target.replace(/^http/, "ws")}/v1/rooms/${roomId}/generations/1/socket`;
-  const socket = new WebSocket(url, { headers: { Origin: SMOKE_ORIGIN } });
-  socket.binaryType = "arraybuffer";
-  const { connection, push } = createConformanceConnection({
-    send: (data) => socket.send(data),
-    close: () => socket.close(1000, "smoke finished"),
-  });
-  socket.on("message", (data, isBinary) => {
-    const bytes =
-      data instanceof ArrayBuffer
-        ? Buffer.from(data)
-        : Buffer.concat([data].flat());
-    if (isBinary) push({ kind: "binary", bytes: new Uint8Array(bytes) });
-    else push({ kind: "text", text: bytes.toString("utf8") });
-  });
-  socket.on("close", (code, reason) =>
-    push({ kind: "close", code, reason: reason.toString("utf8") }),
-  );
-  const opened = new Promise((resolve, reject) => {
-    socket.once("open", resolve);
-    socket.once("error", reject);
-    socket.once("unexpected-response", (_request, response) =>
-      reject(new Error(`upgrade refused with status ${response.statusCode}`)),
-    );
+  const { socket, connection, opened } = openConformanceSocket({
+    url: roomSocketUrl(target, roomId, 1),
+    closeReason: "smoke finished",
   });
   // The smoke's historical default event timeout is kept at 10 s: this runs
   // over the real network, not against a local workerd.
@@ -197,25 +172,8 @@ async function webSocketSmoke(joinTokenSecret) {
   const roomId = roomIdSchema.parse(
     `smoke-${Date.now().toString(36)}-${createRoomTokenId().slice(0, 8)}`,
   );
-  const issue = (subject) => {
-    const now = Math.floor(Date.now() / 1000);
-    return signJoinToken(
-      {
-        v: ROOM_TOKEN_VERSION,
-        jti: createRoomTokenId(),
-        iat: now,
-        exp: now + 60,
-        aud: ROOM_TOKEN_AUDIENCES.join,
-        rid: roomId,
-        gen: 1,
-        sub: subject,
-        role: "editor",
-        arev: 1,
-        rexp: now + 3_600,
-      },
-      joinTokenSecret,
-    );
-  };
+  const issue = (subject) =>
+    issueSyntheticJoinToken({ roomId, secret: joinTokenSecret, subject });
   const joinFrame = (subject) =>
     encodeRelayControl({
       control: "join",
@@ -315,11 +273,10 @@ async function webSocketSmoke(joinTokenSecret) {
         10_000,
       );
       const onMessage = (data, isBinary) => {
-        const bytes =
-          data instanceof ArrayBuffer
-            ? Buffer.from(data)
-            : Buffer.concat([data].flat());
-        if (!isBinary && bytes.toString("utf8") === RELAY_KEEPALIVE_RESPONSE) {
+        if (
+          !isBinary &&
+          messageBytes(data).toString("utf8") === RELAY_KEEPALIVE_RESPONSE
+        ) {
           clearTimeout(timer);
           alice.socket.off("message", onMessage);
           resolve(undefined);
@@ -350,7 +307,7 @@ async function webSocketSmoke(joinTokenSecret) {
   });
 
   // Durable-control evidence: the Vercel-like HTTP caller → Worker → typed RPC → DO
-  // control path against the deployed Worker before production cutover.
+  // control path against the deployed Worker.
   await check(
     "end-room control applies through the deployed gateway",
     async () => {

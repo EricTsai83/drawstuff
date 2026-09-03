@@ -105,10 +105,8 @@ export type ConformanceConnection = {
 };
 
 /**
- * Outcome of one control-token delivery. The two backends' HTTP responses
- * deliberately diverge (`{action, closed}` vs `{appliedRevision, closed}`,
- * lenient vs strict body schema, different paths), so the harness adapter owns
- * that surface and hands the cases only what the wire contract shares.
+ * Outcome of one control-token delivery. The harness adapter owns the HTTP
+ * response surface and hands the cases only what the wire contract shares.
  */
 export type ConformanceControlResult = {
   /** True when the backend verified the token and applied the action. */

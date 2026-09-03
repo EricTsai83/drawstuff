@@ -1,9 +1,8 @@
 #!/usr/bin/env node
 /**
- * Capacity / latency load harness for the collaboration room runtime
- * Points at any backend that speaks the shared wire contract —
- * the deployed Worker in its pre-cutover window, or a local reference relay — and
- * produces one machine-readable report per run.
+ * Capacity / latency load harness for the collaboration room runtime.
+ * Points at any deployed or local collaboration Worker and produces one
+ * machine-readable report per run.
  *
  * The harness generates diagnostic measurements; it deliberately embeds no
  * production-capacity claim or pass/fail threshold. Callers may use it to
@@ -57,14 +56,14 @@ import {
   parseRelayServerControl,
   RELAY_KEEPALIVE_REQUEST,
 } from "@drawstuff/collaboration/relay-protocol";
+import { createRoomTokenId } from "@drawstuff/collaboration/room-token";
+
 import {
-  ROOM_TOKEN_AUDIENCES,
-  ROOM_TOKEN_VERSION,
-} from "@drawstuff/collaboration/room-auth";
-import {
-  createRoomTokenId,
-  signJoinToken,
-} from "@drawstuff/collaboration/room-token";
+  issueSyntheticJoinToken,
+  messageBytes,
+  roomSocketUrl,
+  SMOKE_ORIGIN,
+} from "./ws-harness.mjs";
 
 const { positionals, values: flags } = parseArgs({
   allowPositionals: true,
@@ -95,7 +94,6 @@ if (!secret) {
   console.error("COLLAB_JOIN_TOKEN_SECRET is required to sign join tokens");
   process.exit(2);
 }
-const ORIGIN = process.env.COLLAB_SMOKE_ORIGIN ?? "http://localhost:3000";
 
 const config = {
   target,
@@ -128,25 +126,14 @@ const roomId = roomIdSchema.parse(
     `load-${Date.now().toString(36)}-${createRoomTokenId().slice(0, 8)}`,
 );
 
-const issueToken = (subject, role) => {
-  const now = Math.floor(Date.now() / 1000);
-  return signJoinToken(
-    {
-      v: ROOM_TOKEN_VERSION,
-      jti: createRoomTokenId(),
-      iat: now,
-      exp: now + 60,
-      aud: ROOM_TOKEN_AUDIENCES.join,
-      rid: roomId,
-      gen: config.generation,
-      sub: subject,
-      role,
-      arev: 1,
-      rexp: now + 3_600,
-    },
+const issueToken = (subject, role) =>
+  issueSyntheticJoinToken({
+    roomId,
     secret,
-  );
-};
+    subject,
+    role,
+    authGeneration: config.generation,
+  });
 
 /** Opaque payload with an embedded send stamp: [f64 sentAt][u32 seq][fill]. */
 const buildPayload = (bytes, seq) => {
@@ -205,9 +192,9 @@ const countInto = (record, key) => {
 
 /** One synthetic member. */
 function connectMember(index, role) {
-  const url = `${target.replace(/^http/, "ws")}/v1/rooms/${roomId}/generations/${config.generation}/socket`;
+  const url = roomSocketUrl(target, roomId, config.generation);
   const startedAt = Date.now();
-  const socket = new WebSocket(url, { headers: { Origin: ORIGIN } });
+  const socket = new WebSocket(url, { headers: { Origin: SMOKE_ORIGIN } });
   socket.binaryType = "arraybuffer";
   const member = {
     index,
@@ -249,9 +236,7 @@ function connectMember(index, role) {
   });
   socket.on("message", (data, isBinary) => {
     if (!isBinary) {
-      const text = (
-        data instanceof ArrayBuffer ? Buffer.from(data) : Buffer.concat([data].flat())
-      ).toString("utf8");
+      const text = messageBytes(data).toString("utf8");
       const control = parseRelayServerControl(text);
       if (control?.control === "joined" && member.joinAckStart !== undefined) {
         metrics.joinAckMs.push(Date.now() - member.joinAckStart);
@@ -259,10 +244,7 @@ function connectMember(index, role) {
       }
       return;
     }
-    const bytes =
-      data instanceof ArrayBuffer
-        ? new Uint8Array(data)
-        : new Uint8Array(Buffer.concat([data].flat()));
+    const bytes = new Uint8Array(messageBytes(data));
     const channel = bytes[0] === 0x01 ? "scene" : bytes[0] === 0x02 ? "presence" : undefined;
     if (channel === undefined) return;
     const sentAt = sentAtOf(bytes.subarray(1));

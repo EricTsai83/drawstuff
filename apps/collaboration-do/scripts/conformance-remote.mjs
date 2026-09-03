@@ -1,14 +1,13 @@
 #!/usr/bin/env node
 /**
  * Runs the shared black-box conformance suite against a *deployed*
- * collaboration Worker before it receives production assignments.
+ * collaboration Worker.
  *
- * The exact cases the workerd and Node-relay suites run
+ * The exact cases the workerd suite runs
  * (`@drawstuff/collaboration/protocol-conformance`) are driven here over the
  * real network: `ws` sockets that present the allowlisted Origin, real signed
- * join tokens, and the control endpoint over HTTPS. Intended only for the
- * pre-cutover window — the namespace holds nothing but synthetic rooms, and
- * every room this run creates expires on its own token-bounded lifetime.
+ * join tokens, and the control endpoint over HTTPS. Every room this run
+ * creates is synthetic and expires on its own token-bounded lifetime.
  *
  * Usage:
  *   COLLAB_JOIN_TOKEN_SECRET=... \
@@ -18,16 +17,13 @@
  * one failing case without the full (several-minute) suite.
  */
 
-import { WebSocket } from "ws";
-
-import {
-  createConformanceConnection,
-  relayProtocolConformanceCases,
-} from "@drawstuff/collaboration/protocol-conformance";
+import { relayProtocolConformanceCases } from "@drawstuff/collaboration/protocol-conformance";
 import {
   DO_GATEWAY_CONTROL_PATH,
   doGatewayControlResponseSchema,
 } from "@drawstuff/collaboration/relay-control";
+
+import { openConformanceSocket, roomSocketUrl } from "./ws-harness.mjs";
 
 const base = process.argv[2];
 if (!base) {
@@ -47,39 +43,16 @@ if (!secret) {
   process.exit(2);
 }
 
-/** Must be on the deployed Worker's COLLAB_ALLOWED_ORIGINS allowlist. */
-const ORIGIN = process.env.COLLAB_SMOKE_ORIGIN ?? "http://localhost:3000";
-
 /** @type {import("@drawstuff/collaboration/protocol-conformance").ConformanceHarness} */
 const harness = {
   secret,
-  connect(roomId, authGeneration = 1) {
-    const url = `${target.replace(/^http/, "ws")}/v1/rooms/${roomId}/generations/${authGeneration}/socket`;
-    // `ws` rather than the WHATWG client: only it can present the Origin.
-    const socket = new WebSocket(url, { headers: { Origin: ORIGIN } });
-    socket.binaryType = "arraybuffer";
-    const { connection, push } = createConformanceConnection({
-      send: (data) => socket.send(data),
-      close: () => socket.close(1000, "conformance finished"),
+  async connect(roomId, authGeneration = 1) {
+    const { connection, opened } = openConformanceSocket({
+      url: roomSocketUrl(target, roomId, authGeneration),
+      closeReason: "conformance finished",
     });
-    socket.on("message", (data, isBinary) => {
-      const bytes =
-        data instanceof ArrayBuffer
-          ? Buffer.from(data)
-          : Buffer.concat([data].flat());
-      if (isBinary) push({ kind: "binary", bytes: new Uint8Array(bytes) });
-      else push({ kind: "text", text: bytes.toString("utf8") });
-    });
-    socket.on("close", (code, reason) =>
-      push({ kind: "close", code, reason: reason.toString("utf8") }),
-    );
-    return new Promise((resolve, reject) => {
-      socket.once("open", () => resolve(connection));
-      socket.once("error", reject);
-      socket.once("unexpected-response", (_request, response) =>
-        reject(new Error(`upgrade refused with status ${response.statusCode}`)),
-      );
-    });
+    await opened;
+    return connection;
   },
   async control(token) {
     const response = await fetch(`${target}${DO_GATEWAY_CONTROL_PATH}`, {

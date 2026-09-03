@@ -31,7 +31,7 @@
   // `nodejs_compat` lets the Plan-08-verified `room-token` entry run as-is
   // (node:crypto HMAC, CLAIM-DO-6).
   "compatibility_flags": ["nodejs_compat"],
-  // The workers.dev URL is the pre-cutover smoke/testing surface.
+  // The workers.dev URL is the smoke/testing surface.
   "workers_dev": true,
   // Minute-level drainer for the collaboration control outbox: the
   // scheduled handler pings the web app's drain endpoint. Lives here instead

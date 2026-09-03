@@ -61,8 +61,7 @@ pnpm --filter @drawstuff/collaboration-do smoke <url> # live gateway smoke, prin
 secret), it additionally runs the room-runtime smoke: two real WebSocket
 clients join a fresh room through the deployed Worker, exchange E2EE-sealed
 scene and presence frames (the room key never leaves the smoke process), and
-verify the keepalive auto-response — deployed-worker evidence that is safe
-during the pre-cutover window.
+verify the keepalive auto-response.
 
 `MAX_CONNECTIONS_PER_ROOM` remains an internal safety and abuse bound, not a
 verified capacity promise. `loadtest` is available for targeted diagnosis when

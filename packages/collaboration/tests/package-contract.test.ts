@@ -119,8 +119,8 @@ describe("@drawstuff/collaboration package contract", () => {
     //
     // One test-only module also qualifies: `protocol-conformance.ts` acts as
     // a synthetic *client* pair in its E2EE passthrough case — it generates a
-    // room key that never leaves the test process and proves both backends
-    // route the sealed bytes verbatim. That is the client side of the
+    // room key that never leaves the test process and proves the backend
+    // routes the sealed bytes verbatim. That is the client side of the
     // boundary this contract protects, not a leak across it; the module is
     // imported exclusively from test files.
     const withKeyMaterial = listSourceFiles(sourceRoot)
