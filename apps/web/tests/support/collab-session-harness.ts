@@ -54,6 +54,7 @@ import {
   collabAppState,
   sortSceneById,
 } from "./collab-scene-fixtures";
+import { requestUrl } from "./request-url";
 
 export const ROOM_ID = roomIdSchema.parse("room-poc");
 /** The fake network models delivery, not token verification. */
@@ -138,7 +139,7 @@ export function createManualScheduler() {
   const queue: (() => void)[] = [];
   let cancelledCount = 0;
   return {
-    schedule(flush: () => void): () => void {
+    schedule: (flush: () => void): (() => void) => {
       queue.push(flush);
       return () => {
         const index = queue.indexOf(flush);
@@ -176,7 +177,7 @@ export function createManualTimers() {
   let timers: { id: number; at: number; run: () => void }[] = [];
 
   return {
-    schedule(run: () => void, delayMs: number): () => void {
+    schedule: (run: () => void, delayMs: number): (() => void) => {
       const id = nextId;
       nextId += 1;
       timers.push({ id, at: now + delayMs, run });
@@ -525,7 +526,7 @@ export function createAssetBackend() {
       return ((input: RequestInfo | URL) =>
         trackTransfer(async () => {
           fetchCalls += 1;
-          const url = typeof input === "string" ? input : String(input);
+          const url = requestUrl(input);
           const key = keyFromUrl(url);
           const bytes = key ? objects.get(key) : undefined;
           await new Promise((resolve) => setTimeout(resolve, 0));
@@ -703,23 +704,24 @@ export function createHarness(
   ): Promise<AssetTestClient> => {
     const assetTimers = createManualTimers();
     const unreadableAssetReports = { count: 0 };
-    let target: CollaborationSession | undefined;
+    /** Filled once the session exists; the store's callbacks settle after that. */
+    const target: { session?: CollaborationSession } = {};
     const assetStore = await createCollaborationAssetStore({
       api: backend.createApi(),
       roomId: ROOM_ID,
       roomKey: options.roomKey ?? ROOM_KEY,
       authGeneration: AUTH_GENERATION,
       onAssetsResolved: (files) => {
-        target?.applyRemoteAssets(files);
+        target.session?.applyRemoteAssets(files);
       },
       onAssetsUnreadable: () => {
         unreadableAssetReports.count += 1;
       },
       onAssetsUnavailable: (fileIds) => {
-        target?.applyUnavailableAssets(fileIds);
+        target.session?.applyUnavailableAssets(fileIds);
       },
       onPublishRetryDue: () => {
-        target?.republishLocalAssets();
+        target.session?.republishLocalAssets();
       },
       scheduleTimeout: assetTimers.schedule,
       now: () => assetTimers.now,
@@ -728,7 +730,7 @@ export function createHarness(
         : backend.createFetch(),
     });
     const client = createClient(name, { ...options, assetStore });
-    target = client.session;
+    target.session = client.session;
     return { ...client, assetStore, assetTimers, unreadableAssetReports };
   };
 

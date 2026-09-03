@@ -13,7 +13,6 @@ import type {
   ExcalidrawPointerUpdatePayload,
   OnUserFollowedPayload,
   OrderedExcalidrawElement,
-  SocketId,
 } from "@drawstuff/excalidraw-adapter/types";
 
 import {
@@ -21,6 +20,7 @@ import {
   type AssetApi,
   type CollaborationAssetStore,
 } from "@/lib/collab/asset-store";
+import { toSocketIds } from "@/lib/collab/element-bridge";
 import {
   createCollaborationSession,
   type CollaborationSceneApi,
@@ -247,7 +247,7 @@ export async function startCollaborationRoomSession(options: {
     },
     applyFollowedBy: (peerIds) => {
       options.excalidrawApi.updateScene({
-        appState: { followedBy: new Set(peerIds as unknown as SocketId[]) },
+        appState: { followedBy: new Set(toSocketIds(peerIds)) },
       });
     },
   };

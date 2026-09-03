@@ -497,7 +497,7 @@ export function CollaborationRoomDialog({
                   onValueChange={(value) =>
                     setLinkRole.mutate({
                       roomId,
-                      linkRole: value as LinkRole,
+                      linkRole: value!,
                     })
                   }
                 >

@@ -44,19 +44,30 @@ describe("main menu collaboration guard", () => {
       ),
       "utf8",
     );
+    // The editor's collaboration wiring lives in a composite hook; the value
+    // the menu guard receives is named there and passed through here.
+    const collaborationSource = readFileSync(
+      path.resolve(
+        import.meta.dirname,
+        "../src/components/excalidraw/use-editor-collaboration.ts",
+      ),
+      "utf8",
+    );
     // The canvas is claimed before the join token is minted and the key derived,
     // so gating on `isCollaborating` (which waits for the relay's `connected`)
     // would leave a window in which the canvas already belongs to the room while
     // the file-import item is still offered.
-    expect(editorSource).toContain("ownsCanvas: isCanvasOwnedByRoom");
+    expect(collaborationSource).toContain("ownsCanvas: isCanvasOwnedByRoom");
     expect(editorSource).toContain("isCollaborating={isCanvasOwnedByRoom}");
   });
 
   it("does not use the canvas claim to skip the replacement prompt", () => {
+    // The join sequence is the React-free controller behind
+    // `useCollaborationRoom`; the hook only binds it to the effect.
     const hookSource = readFileSync(
       path.resolve(
         import.meta.dirname,
-        "../src/hooks/excalidraw/use-collaboration-room.ts",
+        "../src/hooks/excalidraw/collaboration-room-controller.ts",
       ),
       "utf8",
     );

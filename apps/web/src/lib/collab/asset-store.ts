@@ -84,16 +84,16 @@ export type AssetApi = {
    * lookup is in flight has to end the lookup, or the store's teardown would only
    * take effect whenever the network happened to answer.
    */
-  resolve(
+  resolve: (
     input: { roomId: string; fileIds: string[] },
     signal: AbortSignal,
-  ): Promise<{
+  ) => Promise<{
     authGeneration: number;
     assets: CollaborationAssetRecord[];
     missing: string[];
   }>;
   /** Resolves when the ciphertext is stored and recorded; throws otherwise. */
-  upload(input: {
+  upload: (input: {
     roomId: string;
     /** Generation the ciphertext was sealed for; the server refuses a mismatch. */
     authGeneration: number;
@@ -101,7 +101,7 @@ export type AssetApi = {
     cryptoVersion: typeof ASSET_CRYPTO_VERSION;
     ciphertext: Uint8Array;
     signal: AbortSignal;
-  }): Promise<void>;
+  }) => Promise<void>;
 };
 
 export type CollaborationAssetStore = {
@@ -110,15 +110,15 @@ export type CollaborationAssetStore = {
    * already published, in flight, or known to be in the room is skipped, so the
    * caller may hand over the whole current file set on every scene flush.
    */
-  publish(files: readonly BinaryFileData[]): Promise<void>;
+  publish: (files: readonly BinaryFileData[]) => Promise<void>;
   /**
    * Fetches and opens the assets for ids the canvas is missing, handing the
    * results to `onAssetsResolved`. Concurrent calls for one id share a single
    * download.
    */
-  request(fileIds: readonly string[]): Promise<void>;
+  request: (fileIds: readonly string[]) => Promise<void>;
   /** Aborts in-flight transfers, cancels the retry timer, and drops all state. */
-  destroy(): void;
+  destroy: () => void;
 };
 
 const RETRY_BASE_DELAY_MS = 1_000;

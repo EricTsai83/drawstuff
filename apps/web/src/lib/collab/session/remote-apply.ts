@@ -11,8 +11,8 @@ import {
   reconcileRemoteElements,
   type createChangedElementTracker,
 } from "@drawstuff/excalidraw-adapter/reconcile";
-import type { ExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 
+import { toExcalidrawElements } from "@/lib/collab/element-bridge";
 import type { SessionContext } from "@/lib/collab/session/session-context";
 
 export type RemoteApplier = {
@@ -33,16 +33,16 @@ export type RemoteApplier = {
 export const createRemoteApplier = (options: {
   context: SessionContext;
   tracker: ReturnType<typeof createChangedElementTracker>;
-  wrapRemoteApply(apply: () => void): void;
-  getGate(): InboundMessageGate | undefined;
+  wrapRemoteApply: (apply: () => void) => void;
+  getGate: () => InboundMessageGate | undefined;
   /** Presence settles asynchronously; membership is the synchronous truth. */
-  isKnownPeer(peerId: string): boolean;
-  receivePresence(message: PresenceMessage): void;
+  isKnownPeer: (peerId: string) => boolean;
+  receivePresence: (message: PresenceMessage) => void;
   /** Join-baseline barrier; true when it consumed the message. */
-  interceptSceneMessage(message: SceneMessage, byteLength: number): boolean;
-  requestMissingAssets(elements: readonly SyncedElement[]): void;
-  noteRoomActivity(): void;
-  sendFullScene(): void;
+  interceptSceneMessage: (message: SceneMessage, byteLength: number) => boolean;
+  requestMissingAssets: (elements: readonly SyncedElement[]) => void;
+  noteRoomActivity: () => void;
+  sendFullScene: () => void;
 }): RemoteApplier => {
   const { context, tracker, wrapRemoteApply } = options;
   const { sceneApi } = context;
@@ -55,7 +55,7 @@ export const createRemoteApplier = (options: {
       const localElements = sceneApi.getSceneElementsIncludingDeleted();
       const reconciled = reconcileRemoteElements(
         localElements,
-        elements as unknown as readonly ExcalidrawElement[],
+        toExcalidrawElements(elements),
         sceneApi.getAppState(),
       );
       sceneApi.updateScene({

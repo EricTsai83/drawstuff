@@ -6,7 +6,20 @@
     "checkJs": true,
     "incremental": true,
     "plugins": [{ "name": "next" }],
-    "paths": { "@/*": ["./src/*"] }
+    // `paths` is not merged with the root config, so the Excalidraw sibling
+    // mappings documented there are repeated here.
+    "paths": {
+      "@/*": ["./src/*"],
+      "@excalidraw/math": [
+        "../../packages/excalidraw-adapter/node_modules/@excalidraw/excalidraw/dist/types/math/index.d.ts"
+      ],
+      "@excalidraw/utils": [
+        "../../packages/excalidraw-adapter/node_modules/@excalidraw/excalidraw/dist/types/utils/index.d.ts"
+      ],
+      "@excalidraw/utils/*": [
+        "../../packages/excalidraw-adapter/node_modules/@excalidraw/excalidraw/dist/types/utils/*"
+      ]
+    }
   },
   "include": [
     "next-env.d.ts",

@@ -97,6 +97,15 @@ const assertNoUnauditedKeys = <TUnaudited extends never>(
   expect(unaudited).toEqual([]);
 };
 
+/**
+ * An audited surface list is a set: a member listed twice would let the
+ * `Exclude<>` exhaustiveness check pass while the list itself misreports what
+ * was reviewed.
+ */
+const assertAuditedSet = (keys: readonly string[]): void => {
+  expect(new Set(keys).size).toBe(keys.length);
+};
+
 const nativeElements = JSON.parse(
   readFileSync(
     path.resolve(
@@ -367,6 +376,7 @@ describe("host integration surface (native UI integration contract)", () => {
       "renderCustomUI",
       "saveFileToDisk",
     ] as const satisfies readonly (keyof ExportOpts)[];
+    assertAuditedSet(EXPORT_OPT_KEYS);
     type UnauditedExportOpt = Exclude<
       keyof ExportOpts,
       (typeof EXPORT_OPT_KEYS)[number]
@@ -390,6 +400,7 @@ describe("host integration surface (native UI integration contract)", () => {
       "Separator",
       "Trigger",
     ] as const satisfies readonly SlotMembers<typeof MainMenu>[];
+    assertAuditedSet(MAIN_MENU_SLOTS);
     type UnauditedMainMenuSlot = Exclude<
       SlotMembers<typeof MainMenu>,
       (typeof MAIN_MENU_SLOTS)[number]
@@ -426,6 +437,7 @@ describe("host integration surface (native UI integration contract)", () => {
       "Socials",
       "ToggleTheme",
     ] as const satisfies readonly (keyof DefaultItems)[];
+    assertAuditedSet(DEFAULT_ITEM_KEYS);
     type UnauditedDefaultItem = Exclude<
       keyof DefaultItems,
       (typeof DEFAULT_ITEM_KEYS)[number]
@@ -463,6 +475,7 @@ describe("host integration surface (native UI integration contract)", () => {
     const FOOTER_SLOTS = [] as const satisfies readonly SlotMembers<
       typeof Footer
     >[];
+    assertAuditedSet(FOOTER_SLOTS);
     type UnauditedFooterSlot = Exclude<
       SlotMembers<typeof Footer>,
       (typeof FOOTER_SLOTS)[number]
@@ -473,6 +486,7 @@ describe("host integration surface (native UI integration contract)", () => {
       "Center",
       "Hints",
     ] as const satisfies readonly SlotMembers<typeof WelcomeScreen>[];
+    assertAuditedSet(WELCOME_SCREEN_SLOTS);
     type UnauditedWelcomeScreenSlot = Exclude<
       SlotMembers<typeof WelcomeScreen>,
       (typeof WELCOME_SCREEN_SLOTS)[number]

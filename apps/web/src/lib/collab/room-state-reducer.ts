@@ -181,7 +181,15 @@ export function roomStateReducer(
 ): RoomState {
   switch (action.type) {
     case "join-started":
-      return { ...state, status: "joining", errorMessage: null };
+      // A new attempt starts clean: the previous failure's reason and message
+      // both belong to the run that ended, so the reducer is self-consistent
+      // without relying on consumers to mask a stale reason.
+      return {
+        ...state,
+        status: "joining",
+        failureReason: null,
+        errorMessage: null,
+      };
     case "preparing-canvas":
       return { ...state, status: "preparing" };
     case "join-blocked":

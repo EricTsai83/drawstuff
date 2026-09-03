@@ -103,14 +103,14 @@ export type SaveSnapshotResult =
   | { status: "failed" };
 
 export type CollaborationSnapshotStore = {
-  load(): Promise<LoadSnapshotResult>;
-  save(input: {
+  load: () => Promise<LoadSnapshotResult>;
+  save: (input: {
     elements: readonly SyncedElement[];
     /** Revision the caller believes is current, or `SNAPSHOT_NO_REVISION`. */
     expectedRevision: number;
     /** A leave flush may use the server's separate bounded finalization reserve. */
     intent?: "cadence" | "leave";
-  }): Promise<SaveSnapshotResult>;
+  }) => Promise<SaveSnapshotResult>;
 };
 
 export async function createCollaborationSnapshotStore(options: {

@@ -100,7 +100,7 @@ describe("Canvas product action presentations", () => {
         ),
       ),
     );
-    button = container.querySelector("button") as HTMLButtonElement;
+    button = container.querySelector("button")!;
     act(() => button.click());
     expect(button.textContent).toContain("Share");
     expect(onClick).toHaveBeenCalledTimes(2);

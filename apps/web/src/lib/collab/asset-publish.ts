@@ -31,11 +31,11 @@ export type AssetPublishContext = {
   authGeneration: number;
   codec: AssetCryptoCodec;
   signal: AbortSignal;
-  isDestroyed(): boolean;
-  now(): number;
-  scheduleTimeout(run: () => void, delayMs: number): () => void;
+  isDestroyed: () => boolean;
+  now: () => number;
+  scheduleTimeout: (run: () => void, delayMs: number) => () => void;
   /** Backoff for attempt N; the store owns the pacing policy. */
-  retryDelayMs(attempts: number): number;
+  retryDelayMs: (attempts: number) => number;
   /** Cap for every id map, the room's own asset budget. */
   maxTrackedIds: number;
   /** Store-wide budget shared with downloads. */
@@ -47,9 +47,9 @@ export type AssetPublishContext = {
   /** Ids this client has uploaded or seen in the room. */
   available: BoundedIdSet;
   /** The single place an id is given up on; the store batches the report. */
-  abandon(fileId: string): void;
+  abandon: (fileId: string) => void;
   /** Flushes the batched given-up ids to the canvas, once per publish. */
-  flushUnavailable(): void;
+  flushUnavailable: () => void;
   /**
    * Asks the canvas to offer its files again after a failed upload.
    *
@@ -61,9 +61,9 @@ export type AssetPublishContext = {
 };
 
 export type AssetPublisher = {
-  publish(files: readonly BinaryFileData[]): Promise<void>;
+  publish: (files: readonly BinaryFileData[]) => Promise<void>;
   /** Cancels the retry timer and drops every upload claim and deadline. */
-  dispose(): void;
+  dispose: () => void;
 };
 
 export const createAssetPublisher = (

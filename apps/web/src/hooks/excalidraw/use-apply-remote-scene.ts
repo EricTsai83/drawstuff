@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import type {
   AppState,
   BinaryFiles,
@@ -40,6 +40,10 @@ export function useApplyRemoteScene(
 ) {
   const { suppressDirtyTracking, resumeDirtyTracking, syncCurrentScene } =
     useSceneSession();
+  /** Cancels the centering retries of the latest apply; a newer apply or an
+   *  unmount must not let a stale chain scroll the canvas. */
+  const cancelPendingCenterRef = useRef<(() => void) | undefined>(undefined);
+  useEffect(() => () => cancelPendingCenterRef.current?.(), []);
 
   const applyRemoteScene = useCallback(
     async ({
@@ -103,8 +107,10 @@ export function useApplyRemoteScene(
             typeof (imported.appState as Partial<AppState>).zoom === "object"),
         );
 
+        cancelPendingCenterRef.current?.();
+        cancelPendingCenterRef.current = undefined;
         if (shouldCenter && !hasViewportFromImported) {
-          queueCenterToContent(excalidrawAPI);
+          cancelPendingCenterRef.current = queueCenterToContent(excalidrawAPI);
         }
 
         // 5. Inject files (already fetched in parallel, so this is instant)
@@ -166,9 +172,14 @@ export function useApplyRemoteScene(
   return { applyRemoteScene } as const;
 }
 
-function queueCenterToContent(excalidrawAPI: ExcalidrawImperativeAPI) {
+/** Retries until the scene has content, then centers once. Returns a cancel. */
+function queueCenterToContent(
+  excalidrawAPI: ExcalidrawImperativeAPI,
+): () => void {
   let attempts = 0;
+  let timerId: number | undefined;
   const tryCenter = () => {
+    timerId = undefined;
     attempts += 1;
     const elements =
       (excalidrawAPI.getSceneElements() as readonly ExcalidrawElement[]) ?? [];
@@ -182,9 +193,13 @@ function queueCenterToContent(excalidrawAPI: ExcalidrawImperativeAPI) {
       return;
     }
     if (attempts < 10) {
-      window.setTimeout(tryCenter, 80);
+      timerId = window.setTimeout(tryCenter, 80);
     }
   };
 
-  window.setTimeout(tryCenter, 0);
+  timerId = window.setTimeout(tryCenter, 0);
+  return () => {
+    if (timerId !== undefined) window.clearTimeout(timerId);
+    timerId = undefined;
+  };
 }

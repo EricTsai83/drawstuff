@@ -31,7 +31,8 @@ import {
 const { toastWarning, startRoomSession, joinMutate, roomGetQuery } = vi.hoisted(
   () => ({
     toastWarning: vi.fn(),
-    startRoomSession: vi.fn(),
+    startRoomSession:
+      vi.fn<(options: unknown) => Promise<{ destroy: () => Promise<void> }>>(),
     joinMutate: vi.fn(),
     roomGetQuery: vi.fn(),
   }),

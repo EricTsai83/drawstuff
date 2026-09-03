@@ -14,6 +14,22 @@
     "noEmit": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "jsx": "react-jsx"
+    "jsx": "react-jsx",
+    // Excalidraw 0.18.1's published types import its monorepo siblings
+    // `@excalidraw/math` and `@excalidraw/utils`, which are not published
+    // alongside it. Unmapped, those imports fail and (under skipLibCheck)
+    // silently collapse `exportToSvg`, `resetScene`, and every point type to
+    // `any`. The declarations ship inside the package, so map to them.
+    "paths": {
+      "@excalidraw/math": [
+        "./packages/excalidraw-adapter/node_modules/@excalidraw/excalidraw/dist/types/math/index.d.ts"
+      ],
+      "@excalidraw/utils": [
+        "./packages/excalidraw-adapter/node_modules/@excalidraw/excalidraw/dist/types/utils/index.d.ts"
+      ],
+      "@excalidraw/utils/*": [
+        "./packages/excalidraw-adapter/node_modules/@excalidraw/excalidraw/dist/types/utils/*"
+      ]
+    }
   }
 }

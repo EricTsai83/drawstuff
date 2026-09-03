@@ -25,6 +25,7 @@ import {
   type AssetBackend,
   type AssetTestClient,
 } from "./support/collab-session-harness";
+import { requestUrl } from "./support/request-url";
 
 /**
  * Encrypted asset transfer, end to end (Plan 17).
@@ -607,7 +608,7 @@ describe("encrypted collaboration asset transfer", () => {
       const bob = await harness.createAssetClient("client-bob", backend, {
         wrapFetch: (inner) =>
           ((input: RequestInfo | URL, init?: RequestInit) => {
-            const url = typeof input === "string" ? input : String(input);
+            const url = requestUrl(input);
             if (!url.endsWith(readableUrl)) return inner(input, init);
             return new Promise<Response>((resolve) => {
               releaseReadable = () => resolve(inner(input, init));

@@ -2,10 +2,7 @@ import type {
   PeerId,
   PresenceMessage,
 } from "@drawstuff/collaboration/protocol";
-import type {
-  CollaborationTransport,
-  SendError,
-} from "@drawstuff/collaboration/transport";
+import type { CollaborationTransport } from "@drawstuff/collaboration/transport";
 import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import { EXCALIDRAW_USER_IDLE_STATE } from "@drawstuff/excalidraw-adapter/client";
 import type {
@@ -15,6 +12,7 @@ import type {
   SocketId,
 } from "@drawstuff/excalidraw-adapter/types";
 
+import { toSocketId } from "@/lib/collab/element-bridge";
 import {
   shouldReleaseFollow,
   type FollowEdge,
@@ -185,7 +183,7 @@ export const createPresenceChannel = (options: {
     cancelPendingCollaboratorApply = undefined;
     const next = new Map<SocketId, Collaborator>();
     for (const [collaboratorPeerId, collaborator] of collaborators) {
-      next.set(collaboratorPeerId as unknown as SocketId, collaborator);
+      next.set(toSocketId(collaboratorPeerId), collaborator);
     }
     options.wrapPresenceApply(() => {
       context.sceneApi.updateScene({ collaborators: next });
@@ -243,7 +241,7 @@ export const createPresenceChannel = (options: {
     // Presence loss is free — the next pointer sample repairs it — with one
     // exception: a spent nonce budget is terminal for the whole session, and
     // presence is the channel most likely to reach it first.
-    if ((result.error as SendError).code === "crypto-exhausted") {
+    if (result.error.code === "crypto-exhausted") {
       options.failRecovery("crypto-exhausted");
     }
   };
@@ -260,7 +258,7 @@ export const createPresenceChannel = (options: {
       selectedElementIds,
       userState: USER_IDLE_STATE_BY_PRESENCE[message.payload.idleState],
       id: message.senderPeerId,
-      socketId: message.senderPeerId as unknown as SocketId,
+      socketId: toSocketId(message.senderPeerId),
     };
   };
 

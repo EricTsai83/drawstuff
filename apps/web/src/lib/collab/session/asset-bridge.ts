@@ -33,8 +33,8 @@ export const createAssetBridge = (options: {
    * store callbacks that may settle while a terminated session still owns the
    * canvas, and the original entry points gated on teardown alone.
    */
-  isDestroyed(): boolean;
-  wrapRemoteApply(apply: () => void): void;
+  isDestroyed: () => boolean;
+  wrapRemoteApply: (apply: () => void) => void;
 }): AssetBridge => {
   const { context, assetStore, isDestroyed, wrapRemoteApply } = options;
   const { sceneApi } = context;

@@ -37,7 +37,8 @@
       "tests/support/responsive.ts",
       "tests/support/excalidraw-performance-fixtures.ts",
       "tests/support/collab-scene-fixtures.ts",
-      "tests/support/collab-session-harness.ts"
+      "tests/support/collab-session-harness.ts",
+      "tests/support/request-url.ts"
     ],
     "ignore": [
       "tests/setup.ts"

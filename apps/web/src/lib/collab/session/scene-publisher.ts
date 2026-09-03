@@ -1,7 +1,4 @@
-import type {
-  SceneMessage,
-  SyncedElement,
-} from "@drawstuff/collaboration/protocol";
+import type { SceneMessage } from "@drawstuff/collaboration/protocol";
 import type { createOfflineChangeQueue } from "@drawstuff/collaboration/offline-queue";
 import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import type {
@@ -10,6 +7,7 @@ import type {
 } from "@drawstuff/collaboration/transport";
 import type { createChangedElementTracker } from "@drawstuff/excalidraw-adapter/reconcile";
 
+import { toSyncedElements } from "@/lib/collab/element-bridge";
 import type {
   BuildEnvelope,
   SessionContext,
@@ -131,7 +129,7 @@ export const createScenePublisher = (options: {
       type: "scene-init",
       // Element bodies are engine-owned and pass through unprojected; the
       // codec re-validates the identity fields on send.
-      payload: { elements: batch.elements as unknown as SyncedElement[] },
+      payload: { elements: toSyncedElements(batch.elements) },
     };
     const result = transport.sendSceneMessage(message);
     if (result.ok) {
@@ -164,7 +162,7 @@ export const createScenePublisher = (options: {
     const message: SceneMessage = {
       ...buildEnvelope(connected, sceneSequence + 1),
       type: "scene-update",
-      payload: { elements: batch.elements as unknown as SyncedElement[] },
+      payload: { elements: toSyncedElements(batch.elements) },
     };
     const result = transport.sendSceneMessage(message);
     if (result.ok) {
@@ -193,10 +191,7 @@ export const createScenePublisher = (options: {
       sceneApi.getSceneElementsIncludingDeleted(),
       { now: currentNow },
     );
-    offlineQueue.record(
-      batch.elements as unknown as readonly SyncedElement[],
-      currentNow,
-    );
+    offlineQueue.record(toSyncedElements(batch.elements), currentNow);
   };
 
   const flushLocalScene = (): void => {

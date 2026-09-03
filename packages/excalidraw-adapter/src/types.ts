@@ -1,4 +1,5 @@
 import type {
+  ExcalidrawImperativeAPI as UpstreamImperativeAPI,
   ExcalidrawProps,
   LibraryItem,
   LibraryItems,
@@ -14,7 +15,6 @@ export type {
   Collaborator,
   CollaboratorPointer,
   DataURL,
-  ExcalidrawImperativeAPI,
   ExcalidrawInitialDataState,
   OnUserFollowedPayload,
   SceneData,
@@ -26,6 +26,20 @@ export type {
   LibraryItemsSource,
 } from "@excalidraw/excalidraw/types";
 export type { ImportedDataState } from "@excalidraw/excalidraw/data/types";
+
+/**
+ * Upstream builds this type from `App`'s members, and `resetScene` is a
+ * *private* class field, so the published declaration drops its type and the
+ * method arrives as `any`. The signature below is the one App.tsx implements
+ * (`withBatchedUpdates((opts?: { resetLoadingState: boolean }) => void)`);
+ * pinning it here keeps `any` out of every host call site.
+ */
+export type ExcalidrawImperativeAPI = Omit<
+  UpstreamImperativeAPI,
+  "resetScene"
+> & {
+  resetScene: (opts?: { resetLoadingState?: boolean }) => void;
+};
 export type { SceneBounds } from "@excalidraw/excalidraw/element/bounds";
 export type {
   ExcalidrawElement,

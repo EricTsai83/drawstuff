@@ -1,4 +1,3 @@
-import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import type { RoomPeer } from "@drawstuff/collaboration/transport";
 import {
   collaborationSnapshotDigest,
@@ -9,11 +8,11 @@ import {
   getSyncableElements,
   reconcileRemoteElements,
 } from "@drawstuff/excalidraw-adapter/reconcile";
-import type {
-  ExcalidrawElement,
-  OrderedExcalidrawElement,
-} from "@drawstuff/excalidraw-adapter/types";
 
+import {
+  toExcalidrawElements,
+  toSyncedElements,
+} from "@/lib/collab/element-bridge";
 import type { SnapshotBaselineSink } from "@/lib/collab/session/join-baseline";
 import type { SessionContext } from "@/lib/collab/session/session-context";
 import type { SyncBlockReporter } from "@/lib/collab/session/sync-block-reporter";
@@ -156,10 +155,11 @@ export const createSnapshotCadence = (options: {
     const epoch = options.getJoinEpoch();
     // Captured once. The forced retry below reuses these rather than re-reading
     // the canvas, which by then may no longer belong to the room.
-    const elements = getSyncableElements(
+    const syncableElements = getSyncableElements(
       sceneApi.getSceneElementsIncludingDeleted(),
       context.now(),
-    ) as unknown as readonly SyncedElement[];
+    );
+    const elements = toSyncedElements(syncableElements);
     // A leave flush queues behind the cadence write rather than dropping. The
     // cadence write carries the scene from *before* the edits this flush was
     // asked to persist, so waiting — with the decision to write already made —
@@ -258,11 +258,13 @@ export const createSnapshotCadence = (options: {
       if (epoch !== options.getJoinEpoch() || winner.status !== "loaded") {
         return;
       }
-      const merged = reconcileRemoteElements(
-        elements as unknown as readonly OrderedExcalidrawElement[],
-        winner.elements as unknown as readonly ExcalidrawElement[],
-        sceneApi.getAppState(),
-      ) as unknown as readonly SyncedElement[];
+      const merged = toSyncedElements(
+        reconcileRemoteElements(
+          syncableElements,
+          toExcalidrawElements(winner.elements),
+          sceneApi.getAppState(),
+        ),
+      );
       const retried = await store.save({
         elements: merged,
         expectedRevision: winner.revision,
