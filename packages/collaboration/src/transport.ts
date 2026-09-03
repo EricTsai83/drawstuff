@@ -45,10 +45,11 @@ export type DisconnectReason =
    */
   | "protocol"
   /**
-   * This client speaks a protocol version the relay no longer accepts — code
-   * loaded before a `COLLABORATION_PROTOCOL_VERSION` bump. Terminal for the
-   * running code: only reloading the page can change the version it sends,
-   * so the honest instruction is "refresh", not "report a protocol bug".
+   * This client and the relay speak different `COLLABORATION_PROTOCOL_VERSION`s:
+   * either this tab loaded code before a bump, or the web app deployed a bump
+   * before the relay did. Retryable within a bounded deploy-skew window
+   * (`./recovery.ts`) — a rollout finishes in minutes — and terminal after
+   * it, when the honest instruction is "refresh", not "report a protocol bug".
    */
   | "unsupported-protocol-version";
 

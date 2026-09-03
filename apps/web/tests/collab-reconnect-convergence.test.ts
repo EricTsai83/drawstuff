@@ -243,10 +243,7 @@ describe("reconnect recovery", () => {
     // A delta, not a snapshot, and carrying exactly what the room was missing —
     // `shared-2` never changed and is not re-sent.
     expect(published[0]?.type).toBe("scene-update");
-    expect(idsOf(published[0] as SceneMessage)).toEqual([
-      "offline-1",
-      "shared-1",
-    ]);
+    expect(idsOf(published[0]!)).toEqual(["offline-1", "shared-1"]);
     // The elected peer's snapshot was built before that delta landed, so it
     // lacks the offline state and still draws one snapshot reply. That probe is
     // the repair path — a rejoiner cannot tell "your snapshot predates my delta"

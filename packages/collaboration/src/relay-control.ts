@@ -60,3 +60,19 @@ export const doGatewayControlResponseSchema = z.object({
 export type DoGatewayControlResponse = z.infer<
   typeof doGatewayControlResponseSchema
 >;
+
+/**
+ * Non-retryable gateway refusal. The Object could only refuse the same
+ * command again (malformed intent, wrong channel, schema skew), so the caller's
+ * durable dispatcher must mark the event terminal instead of spending its
+ * retry budget. Any other non-2xx stays retryable. `code` is opaque to the
+ * caller — it is recorded, never branched on.
+ */
+export const DO_GATEWAY_CONTROL_REJECTED_STATUS = 422;
+export const doGatewayControlRejectionSchema = z.object({
+  error: z.literal("control-rejected"),
+  code: z.string().min(1).max(64),
+});
+export type DoGatewayControlRejection = z.infer<
+  typeof doGatewayControlRejectionSchema
+>;

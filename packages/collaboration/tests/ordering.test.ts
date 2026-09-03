@@ -135,29 +135,6 @@ describe("inbound message gate", () => {
     }
   });
 
-  it("resets per-peer state when the generation advances", () => {
-    const gate = createGate();
-    gate.accept(sceneMessage({ sequence: 5 }));
-
-    gate.advanceGeneration(2);
-
-    expect(gate.accept(sceneMessage({ sequence: 5 }))).toEqual({
-      action: "reject",
-      reason: "wrong-generation",
-      receivedGeneration: 1,
-    });
-    expect(
-      gate.accept(sceneMessage({ sequence: 1, roomGeneration: 2 })),
-    ).toEqual({ action: "deliver", sceneSyncRequired: false });
-  });
-
-  it("refuses to move the generation backwards or sideways", () => {
-    const gate = createGate();
-
-    expect(() => gate.advanceGeneration(1)).toThrow(/must advance/);
-    expect(() => gate.advanceGeneration(0)).toThrow(/must advance/);
-  });
-
   it("keeps rejecting late duplicates from departed sessions", () => {
     const gate = createGate();
     gate.accept(sceneMessage({ sequence: 8, senderPeerId: PEER_A }));

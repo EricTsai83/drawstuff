@@ -66,6 +66,55 @@ export type RoomControlResultV1 = {
   closed: number;
 };
 
+/**
+ * Why the Object refused a control command outright. Every code is
+ * deterministic — resending the identical command to the identical build can
+ * only be refused again — so the gateway answers it non-retryably instead of
+ * letting the caller's durable dispatcher spend its retry budget on it.
+ */
+export type ControlRejectionCode =
+  | "malformed-command"
+  | "channel-mismatch"
+  /** Stored schema is newer than this build understands; see `ensureSchema`. */
+  | "schema-skew";
+
+/**
+ * Deterministic Object-side refusal, as distinct from an infrastructure
+ * failure (stub unreachable, storage error) that a retry may well cure.
+ *
+ * The RPC boundary re-materialises a thrown error as a plain `Error` (no
+ * `instanceof`), preserving `name` and own enumerable properties, so the
+ * gateway classifies by name and re-validates `code` against the closed set
+ * via {@link controlRejectionOf}.
+ */
+export class ControlRejectedError extends Error {
+  override readonly name = "ControlRejectedError";
+
+  constructor(readonly code: ControlRejectionCode) {
+    super(`room: control rejected (${code})`);
+  }
+}
+
+const CONTROL_REJECTION_CODES: ReadonlySet<string> =
+  new Set<ControlRejectionCode>([
+    "malformed-command",
+    "channel-mismatch",
+    "schema-skew",
+  ]);
+
+/** The rejection code of a (possibly RPC-serialised) refusal; else undefined. */
+export function controlRejectionOf(
+  error: unknown,
+): ControlRejectionCode | undefined {
+  if (!(error instanceof Error) || error.name !== "ControlRejectedError") {
+    return undefined;
+  }
+  const code: unknown = Reflect.get(error, "code");
+  return typeof code === "string" && CONTROL_REJECTION_CODES.has(code)
+    ? (code as ControlRejectionCode)
+    : undefined;
+}
+
 /** Channel key a verified control token addresses. */
 export function controlClaimsChannelKey(
   claims: RoomControlClaims,

@@ -226,6 +226,24 @@ describe("dispatch bookkeeping", () => {
     expect(report.claimed).toBe(0);
   });
 
+  it("fails a terminally rejected delivery on its first attempt", async () => {
+    dispatchState.doResult = {
+      enforced: false,
+      failure: "rejected",
+      terminal: true,
+      reason: "DO gateway rejected the command: malformed-command",
+    };
+    const event = await enqueue();
+    await dispatchControlOutboxEvent(testDb, event);
+    expect(await rowOf(event.eventId)).toMatchObject({
+      status: "failed",
+      attempts: 1,
+      lastFailure: "rejected",
+    });
+    const report = await drainControlOutbox({ db: testDb });
+    expect(report.claimed).toBe(0);
+  });
+
   it("computes capped exponential backoff", () => {
     expect(backoffDelayMs(1, () => 0.5)).toBe(5_000);
     expect(backoffDelayMs(2, () => 0.5)).toBe(10_000);

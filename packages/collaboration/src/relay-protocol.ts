@@ -234,8 +234,9 @@ export const RELAY_CLOSE_CODES = {
   /** Malformed control frame, unknown data frame, oversize payload, or a
    *  data frame sent before joining. */
   protocolViolation: 4000,
-  /** The relay-wide connection limit is reached. */
-  relayAtCapacity: 4001,
+  // 4001, 4011 and 4012 were the Node relay's process-level codes (relay
+  // connection cap, relay room cap, relay draining); retired with it and
+  // never reassigned, so an old client's classifier stays unambiguous.
   /** The per-room connection limit is reached. */
   roomAtCapacity: 4002,
   /** The socket's outbound buffer stayed over budget; the receiver is not
@@ -266,28 +267,15 @@ export const RELAY_CLOSE_CODES = {
    */
   idleTimeout: 4010,
   /**
-   * The relay is already hosting its maximum number of rooms. Distinct from
-   * `relayAtCapacity` (too many *connections*) and `roomAtCapacity` (this room
-   * is full) so the disconnect-reason breakdown can tell the three apart.
-   */
-  relayRoomsAtCapacity: 4011,
-  /**
-   * The relay process is draining so it can be replaced: a deploy, a rolling
-   * restart, or the max-memory watchdog. Retryable on purpose — the condition
-   * is about *this* process, and the recovery backoff is what carries the
-   * client across the handover to the replacement. Sent both when an existing
-   * connection is drained and when a new connection arrives mid-drain.
-   */
-  relayRestarting: 4012,
-  /**
-   * The join declared a protocol version *older* than this relay's — a tab
-   * still running code from before a `COLLABORATION_PROTOCOL_VERSION` bump.
-   * Distinct from `protocolViolation` because the honest instruction differs:
-   * a violation says "this client is broken", this says "reload to pick up
-   * the current version". Terminal for the running code either way —
-   * reconnecting without reloading resends the same version. A *newer*
-   * version than the relay's never gets this code; see
-   * `unsupportedJoinProtocolVersionOf`.
+   * The join declared a protocol version other than this relay's
+   * `COLLABORATION_PROTOCOL_VERSION` — in *either* direction. Older: a tab
+   * still running code from before a bump. Newer: the web app picked up a
+   * bump before the relay did (both auto-deploy from `main`, so the order is
+   * racy for minutes). Distinct from `protocolViolation` because the honest
+   * instruction differs: a violation says "this client is broken", this says
+   * "the two sides are mid-rollout". The client treats it as a bounded
+   * deploy-skew wait (`./recovery.ts`), then tells the user to reload. The
+   * close reason names both versions so logs show the skew.
    */
   unsupportedProtocolVersion: 4013,
   /**
@@ -321,7 +309,7 @@ export type RelayCloseCode =
  * explicitly, so they are the ones enumerated here — a terminal condition is
  * never inferred from silence.
  *
- * `roomAtCapacity`, `relayAtCapacity`, `relayRoomsAtCapacity`, `rateLimited` and
+ * `roomAtCapacity`, `rateLimited` and
  * `idleTimeout` all count as transient because they are statements about right
  * now, and the retry budget (`./recovery.ts`) is what stops a condition that
  * never clears from being retried forever. They reach `transient` through the
@@ -351,22 +339,24 @@ export function disconnectReasonForCloseCode(
 
 /**
  * Detects a join whose stated protocol version is not the one this build
- * speaks.
+ * speaks, and returns that version.
  *
- * `relayJoinRequestSchema` pins the version as a literal, so an old tab's join
- * fails parsing outright — and folding that into "malformed control frame"
- * (`protocolViolation`) is what used to tell a merely *outdated* client that
- * it was broken. This probe is deliberately loose: it answers only "is this
- * join-shaped with a numeric version *below* ours", so the relay can close
- * with `unsupportedProtocolVersion` and the client can say "reload" instead of
- * "report a bug". Full validation still happens in the strict schema; a
- * join-shaped frame that fails it for other reasons stays a violation.
+ * `relayJoinRequestSchema` pins the version as a literal, so a mismatched
+ * join fails parsing outright — and folding that into "malformed control
+ * frame" (`protocolViolation`) is what used to tell a merely *mismatched*
+ * client that it was broken, terminally. This probe is deliberately loose: it
+ * answers only "is this join-shaped with a numeric version other than ours",
+ * so the relay can close with `unsupportedProtocolVersion` and the client can
+ * apply its deploy-skew policy instead of "report a bug". Full validation
+ * still happens in the strict schema; a join-shaped frame that fails it for
+ * other reasons (a non-numeric version included) stays a violation.
  *
- * Deliberately below-only. A version *above* ours is not an outdated tab — it
- * is an outdated *relay*, the transient state of a rollout where clients pick
- * up a protocol bump before the relay fleet does — and telling that client to
- * refresh would prescribe the one action that cannot help. It falls through
- * to the generic violation path, exactly as it did before this code existed.
+ * Both directions on purpose. A version *below* ours is an outdated tab; a
+ * version *above* ours is an outdated relay — the state of a rollout where
+ * the web app picked up a bump before the relay fleet did. Neither is a
+ * defect in the client, and the client cannot tell which side is stale from
+ * here, so both get the same code: it retries within a bounded window that
+ * outlasts a deploy, and only then says "reload".
  */
 export function unsupportedJoinProtocolVersionOf(
   text: string,
@@ -383,5 +373,5 @@ export function unsupportedJoinProtocolVersionOf(
   if (!("protocolVersion" in raw)) return undefined;
   const version = raw.protocolVersion;
   if (typeof version !== "number") return undefined;
-  return version < COLLABORATION_PROTOCOL_VERSION ? version : undefined;
+  return version === COLLABORATION_PROTOCOL_VERSION ? undefined : version;
 }

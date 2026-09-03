@@ -2,6 +2,8 @@ import {
   DO_GATEWAY_CONTROL_PATH,
   doGatewayControlRequestSchema,
   type DoGatewayControlResponse,
+  DO_GATEWAY_CONTROL_REJECTED_STATUS,
+  type DoGatewayControlRejection,
 } from "@drawstuff/collaboration/relay-control";
 import {
   MIN_ROOM_TOKEN_SECRET_BYTES,
@@ -11,6 +13,7 @@ import { z } from "zod";
 
 import {
   controlClaimsChannelKey,
+  controlRejectionOf,
   roomControlCommandFromClaims,
 } from "./control.ts";
 import {
@@ -266,9 +269,27 @@ async function handleControl(
       closed: result.closed,
     } satisfies DoGatewayControlResponse);
   } catch (error) {
-    // Object-side refusals and infrastructure failures alike map to one
-    // closed, retryable answer; detail stays in Workers Logs. The caller's
-    // The durable dispatcher owns retries.
+    // A deterministic Object-side refusal is answered non-retryably with its
+    // stable code: the caller's durable dispatcher must not spend its retry
+    // budget resending a command this build can only refuse again.
+    const rejection = controlRejectionOf(error);
+    if (rejection !== undefined) {
+      log.error("gateway.control_rejected", {
+        roomId: claims.rid,
+        authGeneration: claims.gen,
+        controlRejection: rejection,
+      });
+      return Response.json(
+        {
+          error: "control-rejected",
+          code: rejection,
+        } satisfies DoGatewayControlRejection,
+        { status: DO_GATEWAY_CONTROL_REJECTED_STATUS },
+      );
+    }
+    // Everything else is treated as infrastructure failure: one closed,
+    // retryable answer; detail stays in Workers Logs and the caller's durable
+    // dispatcher owns retries.
     log.error("gateway.control_dispatch_failed", {
       roomId: claims.rid,
       authGeneration: claims.gen,

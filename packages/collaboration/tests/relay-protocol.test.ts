@@ -159,20 +159,23 @@ describe("protocol version bumps", () => {
     ).toBe(COLLABORATION_PROTOCOL_VERSION - 1);
   });
 
-  it("does not flag current or newer versions, or non-join garbage", () => {
+  it("detects a join whose declared version is ahead of this build's", () => {
+    // The web app deployed a bump before the relay: an outdated *relay*, not
+    // a broken client. Same skew code, so the client waits for the relay to
+    // catch up instead of ending terminally on a generic violation.
+    expect(
+      unsupportedJoinProtocolVersionOf(
+        joinWithVersion(COLLABORATION_PROTOCOL_VERSION + 1),
+      ),
+    ).toBe(COLLABORATION_PROTOCOL_VERSION + 1);
+  });
+
+  it("does not flag the current version, or non-join garbage", () => {
     // The current version is not a mismatch even when the join is otherwise
     // malformed: that stays a protocol violation.
     expect(
       unsupportedJoinProtocolVersionOf(
         joinWithVersion(COLLABORATION_PROTOCOL_VERSION),
-      ),
-    ).toBeUndefined();
-    // A newer version is an outdated *relay* (client rolled out first), not an
-    // outdated tab: "refresh this page" would prescribe the one action that
-    // cannot help, so it stays on the generic violation path.
-    expect(
-      unsupportedJoinProtocolVersionOf(
-        joinWithVersion(COLLABORATION_PROTOCOL_VERSION + 1),
       ),
     ).toBeUndefined();
     expect(unsupportedJoinProtocolVersionOf("not json")).toBeUndefined();
@@ -189,7 +192,7 @@ describe("protocol version bumps", () => {
     ).toBeUndefined();
   });
 
-  it("maps the unsupported-version close code to its own terminal reason", () => {
+  it("maps the unsupported-version close code to its own reason", () => {
     expect(
       disconnectReasonForCloseCode(
         RELAY_CLOSE_CODES.unsupportedProtocolVersion,

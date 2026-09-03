@@ -155,6 +155,7 @@ describe("DO structured logger", () => {
         "closeCode",
         "closedSessions",
         "controlAction",
+        "controlRejection",
         "errorName",
         "members",
         "peerId",

@@ -64,7 +64,8 @@ import {
  * deterministically trigger is exercised here: `protocolViolation`,
  * `roomAtCapacity`, `joinTimeout` (a real wait against the published 10 s
  * deadline), `unauthorized`, `readOnlyRole`, `roomEnded`, `rateLimited`,
- * `unsupportedProtocolVersion`, `membershipRevoked` (through the harness's
+ * `unsupportedProtocolVersion` (both an older and a newer declared version),
+ * `membershipRevoked` (through the harness's
  * control capability, now that both backends dispatch control actions), plus
  * the normal `1000` leave. Three codes are deliberately *not* black-box cases
  * and stay covered by each backend's own deterministic tests asserting these
@@ -688,6 +689,30 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
         connection,
         RELAY_CLOSE_CODES.unsupportedProtocolVersion,
         "stale protocol version",
+      );
+    },
+  },
+  {
+    // The web app can pick up a protocol bump before the relay does. That
+    // client is not broken, so it must not get `protocolViolation` (terminal
+    // for the client); it gets the same skew code as an outdated tab and
+    // retries until the relay catches up.
+    name: "a join from a newer protocol version closes with unsupportedProtocolVersion",
+    async run(harness) {
+      const roomId = uniqueRoomId("ahead");
+      const connection = await harness.connect(roomId);
+      connection.send(
+        JSON.stringify({
+          control: "join",
+          protocolVersion: COLLABORATION_PROTOCOL_VERSION + 1,
+          roomId,
+          token: issueToken(harness, roomId),
+        }),
+      );
+      await expectClose(
+        connection,
+        RELAY_CLOSE_CODES.unsupportedProtocolVersion,
+        "ahead protocol version",
       );
     },
   },

@@ -30,7 +30,10 @@ import {
 
 afterEach(settleRoomEvents);
 import { encodeRelayControl } from "@drawstuff/collaboration/relay-protocol";
-import { COLLABORATION_PROTOCOL_VERSION } from "@drawstuff/collaboration/protocol";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  type RoomId,
+} from "@drawstuff/collaboration/protocol";
 
 /**
  * Durable-Object-specific runtime behaviour beyond the shared conformance
@@ -212,6 +215,71 @@ describe("control-frame byte budget", () => {
     );
     expect(multibyte.length).toBeLessThan(MAX_RELAY_CONTROL_FRAME_BYTES);
     socket.connection.send(multibyte);
+    await expectClose(socket.connection, RELAY_CLOSE_CODES.protocolViolation);
+  });
+});
+
+describe("protocol version skew", () => {
+  /** Reads through to the close event and returns it, so the reason can be
+   *  asserted; the shared `expectClose` checks the code only. */
+  const nextClose = async (
+    socket: OpenSocket,
+  ): Promise<{ code: number; reason: string }> => {
+    for (let events = 0; events < 8; events += 1) {
+      const event = await socket.connection.next();
+      if (event.kind === "close") return event;
+    }
+    throw new Error("No close event arrived");
+  };
+
+  const sendJoinWithVersion = (
+    socket: OpenSocket,
+    roomId: RoomId,
+    protocolVersion: number,
+  ): void => {
+    socket.connection.send(
+      JSON.stringify({
+        control: "join",
+        protocolVersion,
+        roomId,
+        token: issueJoinToken({ roomId }),
+      }),
+    );
+  };
+
+  // Both directions get the skew code and a reason naming both versions:
+  // the web app and the Worker deploy from the same commit minutes apart, so
+  // an older tab and a newer web build are the same rollout seen from either
+  // side, and neither is a client defect (`protocolViolation` is terminal).
+  it.each([
+    ["older", COLLABORATION_PROTOCOL_VERSION - 1],
+    ["newer", COLLABORATION_PROTOCOL_VERSION + 1],
+  ])(
+    "closes a join from a %s protocol version with unsupportedProtocolVersion, naming both versions",
+    async (_direction, declaredVersion) => {
+      const roomId = uniqueRoomId("skew");
+      const socket = await openSocket(roomId);
+      sendJoinWithVersion(socket, roomId, declaredVersion);
+      const close = await nextClose(socket);
+      expect(close.code).toBe(RELAY_CLOSE_CODES.unsupportedProtocolVersion);
+      expect(close.reason).toContain(String(declaredVersion));
+      expect(close.reason).toContain(String(COLLABORATION_PROTOCOL_VERSION));
+    },
+  );
+
+  it("keeps a non-numeric version on the protocolViolation path", async () => {
+    // A string version is a malformed frame, not a version the relay could
+    // have spoken; the skew code is reserved for a real version number.
+    const roomId = uniqueRoomId("skewstr");
+    const socket = await openSocket(roomId);
+    socket.connection.send(
+      JSON.stringify({
+        control: "join",
+        protocolVersion: String(COLLABORATION_PROTOCOL_VERSION),
+        roomId,
+        token: issueJoinToken({ roomId }),
+      }),
+    );
     await expectClose(socket.connection, RELAY_CLOSE_CODES.protocolViolation);
   });
 });

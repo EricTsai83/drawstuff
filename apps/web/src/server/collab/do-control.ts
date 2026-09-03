@@ -2,6 +2,8 @@ import "server-only";
 
 import {
   DO_GATEWAY_CONTROL_PATH,
+  DO_GATEWAY_CONTROL_REJECTED_STATUS,
+  doGatewayControlRejectionSchema,
   doGatewayControlResponseSchema,
   type DoGatewayControlRequest,
 } from "@drawstuff/collaboration/relay-control";
@@ -44,6 +46,18 @@ export async function pushDoRoomControl(
       },
     );
     if (!response.ok) {
+      const rejection =
+        response.status === DO_GATEWAY_CONTROL_REJECTED_STATUS
+          ? await readControlRejection(response)
+          : undefined;
+      if (rejection) {
+        return {
+          enforced: false,
+          failure: "rejected",
+          terminal: true,
+          reason: `DO gateway rejected the command: ${rejection.code}`,
+        };
+      }
       return {
         enforced: false,
         failure: "rejected",
@@ -80,5 +94,23 @@ export async function pushDoRoomControl(
     return { enforced: true, closedSessions: body.data.closed };
   } catch (error) {
     return { enforced: false, ...classifyControlPushError(error) };
+  }
+}
+
+/**
+ * A 422 is terminal only when its body is the gateway's rejection contract;
+ * a 422 from anything else in the path (a proxy, an unknown build) stays a
+ * retryable `rejected` like every other non-2xx.
+ */
+async function readControlRejection(
+  response: Response,
+): Promise<{ code: string } | undefined> {
+  try {
+    const parsed = doGatewayControlRejectionSchema.safeParse(
+      await response.json(),
+    );
+    return parsed.success ? { code: parsed.data.code } : undefined;
+  } catch {
+    return undefined;
   }
 }

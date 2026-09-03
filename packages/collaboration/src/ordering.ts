@@ -22,11 +22,11 @@ export type InboundGateResult =
 /**
  * Applies the protocol's ordering and idempotency rules to already-decoded
  * inbound messages. State is bounded: one sequence counter per (message type
- * family, sender peer session) within the current room generation, cleared
- * whenever the generation advances. Counters are deliberately retained after
- * a peer leaves the room — peer ids are never reused, so a departed session's
- * counter keeps rejecting its late in-flight duplicates instead of accepting
- * them as new.
+ * family, sender peer session) within the gate's one room generation — a
+ * rejoin under a new epoch builds a new gate. Counters are deliberately
+ * retained after a peer leaves the room — peer ids are never reused, so a
+ * departed session's counter keeps rejecting its late in-flight duplicates
+ * instead of accepting them as new.
  *
  * - Scene messages are session-ordered: duplicates and stale sequences are
  *   rejected, gaps are delivered but flagged via `sceneSyncRequired`, and a
@@ -37,18 +37,15 @@ export type InboundGateResult =
  */
 export interface InboundMessageGate {
   accept(message: CollaborationMessage): InboundGateResult;
-  /** Rejoin under a new room epoch; clears all per-peer sequence state. */
-  advanceGeneration(nextGeneration: number): void;
 }
 
 export function createInboundMessageGate(session: {
   roomId: RoomId;
   roomGeneration: number;
 }): InboundMessageGate {
-  const { roomId } = session;
-  let roomGeneration = session.roomGeneration;
-  let lastSceneSequence = new Map<PeerId, number>();
-  let lastPresenceSequence = new Map<PeerId, number>();
+  const { roomId, roomGeneration } = session;
+  const lastSceneSequence = new Map<PeerId, number>();
+  const lastPresenceSequence = new Map<PeerId, number>();
 
   return {
     accept(message) {
@@ -79,16 +76,6 @@ export function createInboundMessageGate(session: {
       const sceneSyncRequired =
         message.type === "scene-update" && message.sequence > lastSequence + 1;
       return { action: "deliver", sceneSyncRequired };
-    },
-    advanceGeneration(nextGeneration) {
-      if (nextGeneration <= roomGeneration) {
-        throw new Error(
-          `Room generation must advance (current ${roomGeneration}, received ${nextGeneration})`,
-        );
-      }
-      roomGeneration = nextGeneration;
-      lastSceneSequence = new Map();
-      lastPresenceSequence = new Map();
     },
   };
 }

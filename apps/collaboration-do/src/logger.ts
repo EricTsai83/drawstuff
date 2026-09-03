@@ -1,6 +1,8 @@
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import type { RoomTokenFailureReason } from "@drawstuff/collaboration/room-token";
 
+import type { ControlRejectionCode } from "./control.ts";
+
 /**
  * Structured Workers Logs for the gateway and the room Object, shaped by the
  * platform: no stdout sink or backpressure policy (workerd owns log
@@ -26,9 +28,13 @@ type DoLogEvent =
   | "gateway.room_fetch_failed"
   | "gateway.control_token_rejected"
   | "gateway.control_applied"
+  /** The Object refused the command deterministically; answered 422. */
+  | "gateway.control_rejected"
   | "gateway.control_dispatch_failed"
   /** The Object was addressed without a canonical RoomChannelKey name. */
   | "room.invalid_object_identity"
+  /** The constructor's schema bootstrap threw; the runtime resets the Object. */
+  | "room.schema_bootstrap_failed"
   /** A frame handler threw; that connection was closed, never the Object. */
   | "room.frame_dispatch_failed"
   | "room.socket_error"
@@ -57,6 +63,8 @@ type DoLogFields = {
   /** Enumerated verification failure; carries no part of the token. */
   tokenFailure?: RoomTokenFailureReason;
   controlAction?: "end-room" | "revoke-member";
+  /** Why the Object refused a control command; a closed enum. */
+  controlRejection?: ControlRejectionCode;
   closedSessions?: number;
   /** Joined members after the change the record describes. */
   members?: number;
@@ -79,6 +87,7 @@ const LOGGABLE_FIELDS: Record<keyof DoLogFields, true> = {
   socketState: true,
   tokenFailure: true,
   controlAction: true,
+  controlRejection: true,
   closedSessions: true,
   members: true,
   status: true,

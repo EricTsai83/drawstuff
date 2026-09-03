@@ -1,7 +1,12 @@
-import { env, listDurableObjectIds, SELF } from "cloudflare:test";
+import {
+  env,
+  listDurableObjectIds,
+  runInDurableObject,
+  SELF,
+} from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import { roomIdSchema, type RoomId } from "@drawstuff/collaboration/protocol";
 import {
   ROOM_TOKEN_AUDIENCES,
   type RoomControlClaims,
@@ -16,7 +21,11 @@ import {
   INTERNAL_ROOM_ID_HEADER,
 } from "../src/internal.ts";
 import { TEST_ROOM_TOKEN_SECRET } from "./support/audit.ts";
-import { settleRoomEvents } from "./support/room-socket.ts";
+import {
+  roomStub,
+  settleRoomEvents,
+  uniqueRoomId,
+} from "./support/room-socket.ts";
 
 afterEach(settleRoomEvents);
 
@@ -36,6 +45,7 @@ async function errorOf(response: Response): Promise<string> {
 }
 
 function endRoomToken(options?: {
+  roomId?: RoomId;
   secret?: string;
   expired?: boolean;
 }): string {
@@ -47,7 +57,7 @@ function endRoomToken(options?: {
     iat: now,
     exp: now + 30,
     aud: ROOM_TOKEN_AUDIENCES.control,
-    rid: roomIdSchema.parse("room-a"),
+    rid: options?.roomId ?? roomIdSchema.parse("room-a"),
     gen: 1,
     arev: 1,
     action: "end-room",
@@ -231,5 +241,25 @@ describe("control route", () => {
       JSON.stringify({ token: endRoomToken({ expired: true }) }),
     );
     expect(response.status).toBe(401);
+  });
+
+  it("answers a deterministic Object-side refusal non-retryably, naming the code", async () => {
+    const roomId = uniqueRoomId("ctlskew");
+    // Storage from a newer build: this build refuses it on every call, so a
+    // retry could only repeat the refusal — the web outbox must see a 4xx,
+    // not the retryable 503 reserved for genuine unavailability.
+    await runInDurableObject(roomStub(roomId), (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE room_meta SET schema_version = 99 WHERE id = 1",
+      );
+    });
+    const response = await postControl(
+      JSON.stringify({ token: endRoomToken({ roomId }) }),
+    );
+    expect(response.status).toBe(422);
+    expect(await response.json()).toEqual({
+      error: "control-rejected",
+      code: "schema-skew",
+    });
   });
 });

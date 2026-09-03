@@ -61,10 +61,14 @@ describe("classifyDisconnect", () => {
       action: "stop",
       failure: "protocol-violation",
     });
-    // Terminal for the running code: reconnecting resends the same version,
-    // and only a page reload changes it.
+  });
+
+  it("waits out a protocol-version refusal for a bounded window, then stops", () => {
+    // Either side of a deploy can be ahead for minutes; a refusal is only
+    // terminal once it has outlasted a rollout, and then the remedy is a
+    // reload rather than a bug report.
     expect(classifyDisconnect("unsupported-protocol-version")).toEqual({
-      action: "stop",
+      action: "retry-within-window",
       failure: "unsupported-protocol-version",
     });
   });
@@ -87,7 +91,7 @@ describe("classifyDisconnect", () => {
     ];
     for (const reason of reasons) {
       expect(classifyDisconnect(reason).action).toMatch(
-        /^(retry|stop|ignore)$/,
+        /^(retry|retry-within-window|stop|ignore)$/,
       );
     }
   });
@@ -315,6 +319,9 @@ describe("createRecoveryMachine", () => {
     expect(() => createRecoveryMachine({ liveStabilityMs: -1 })).toThrow(
       /liveStabilityMs/,
     );
+    expect(() => createRecoveryMachine({ protocolSkewWindowMs: -1 })).toThrow(
+      /protocolSkewWindowMs/,
+    );
   });
 });
 
@@ -405,6 +412,104 @@ describe("recovery live-stability window", () => {
     expect(machine.lost("transient")).toEqual({
       phase: "failed",
       reason: "retry-limit",
+    });
+  });
+});
+
+/**
+ * A protocol-version refusal is a rollout in progress for the first minutes
+ * after a bump — the web app and the relay ship from the same commit but land
+ * apart — so it is retried on the wall clock, not the attempt budget, and
+ * becomes terminal only once it has outlasted a deploy.
+ */
+describe("recovery protocol deploy-skew window", () => {
+  const skewMachine = (now: () => number, maxAttempts = 2): RecoveryMachine =>
+    machineWith({ maxAttempts, protocolSkewWindowMs: 300_000, now });
+
+  it("retries a version refusal with backoff without spending the retry budget", () => {
+    const machine = skewMachine(() => 0);
+    // Three refusals against a budget of two: every one is still a retry,
+    // numbered as a first attempt (the budget is untouched) while the delay
+    // grows with the refusals so a fleet does not poll at the base delay.
+    const delays: number[] = [];
+    for (let refusal = 1; refusal <= 3; refusal += 1) {
+      machine.start();
+      const next = machine.lost("unsupported-protocol-version");
+      expect(next).toMatchObject({ phase: "waiting", attempt: 1 });
+      if (next.phase === "waiting") delays.push(next.delayMs);
+    }
+    expect(delays).toEqual([75, 150, 300]);
+  });
+
+  it("fails with the version reason once the window has elapsed", () => {
+    let current = 0;
+    const machine = skewMachine(() => current);
+    machine.start();
+    expect(machine.lost("unsupported-protocol-version")).toMatchObject({
+      phase: "waiting",
+    });
+    // Still refused after the window: this tab really is running old code.
+    current = 300_000;
+    machine.start();
+    expect(machine.lost("unsupported-protocol-version")).toEqual({
+      phase: "failed",
+      reason: "unsupported-protocol-version",
+    });
+  });
+
+  it("measures the window from the first refusal across interleaved transient losses", () => {
+    let current = 0;
+    const machine = skewMachine(() => current, 5);
+    machine.start();
+    machine.lost("unsupported-protocol-version");
+    // A socket that dies before the relay answers is an ordinary retry; it
+    // neither restarts the window nor ends the episode.
+    current = 100_000;
+    machine.start();
+    expect(machine.lost("transient")).toMatchObject({
+      phase: "waiting",
+      attempt: 2,
+    });
+    current = 300_000;
+    machine.start();
+    expect(machine.lost("unsupported-protocol-version")).toEqual({
+      phase: "failed",
+      reason: "unsupported-protocol-version",
+    });
+  });
+
+  it("ends the episode once the relay accepts a join, with a clear budget", () => {
+    let current = 0;
+    const machine = skewMachine(() => current);
+    machine.start();
+    machine.lost("unsupported-protocol-version");
+    machine.start();
+    machine.lost("unsupported-protocol-version");
+    // The relay caught up: the join is accepted, and the refusals it took to
+    // get here are not held against the ordinary retry budget.
+    machine.start();
+    machine.connected();
+    expect(machine.lost("transient")).toMatchObject({
+      phase: "waiting",
+      attempt: 2,
+    });
+    // A refusal long after that episode opens a new window rather than
+    // failing against the old one.
+    current = 900_000;
+    machine.start();
+    expect(machine.lost("unsupported-protocol-version")).toMatchObject({
+      phase: "waiting",
+      attempt: 1,
+      delayMs: 75,
+    });
+  });
+
+  it("is terminal on first sight with a zero window", () => {
+    const machine = machineWith({ protocolSkewWindowMs: 0, now: () => 0 });
+    machine.start();
+    expect(machine.lost("unsupported-protocol-version")).toEqual({
+      phase: "failed",
+      reason: "unsupported-protocol-version",
     });
   });
 });

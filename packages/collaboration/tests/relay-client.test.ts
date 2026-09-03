@@ -875,7 +875,6 @@ describe("createRelayWebSocketTransport", () => {
     }[] = [
       { code: RELAY_CLOSE_CODES.slowConsumer, reason: "transient" },
       { code: RELAY_CLOSE_CODES.roomAtCapacity, reason: "transient" },
-      { code: RELAY_CLOSE_CODES.relayAtCapacity, reason: "transient" },
       { code: RELAY_CLOSE_CODES.joinTimeout, reason: "transient" },
       { code: RELAY_CLOSE_CODES.unauthorized, reason: "unauthorized" },
       {

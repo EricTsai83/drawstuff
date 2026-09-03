@@ -31,6 +31,15 @@ import type { DisconnectReason } from "./transport.ts";
  *                       lost(terminal reason) ─┴─► failed  (no exit)
  * ```
  *
+ * One reason has a policy of its own: `unsupported-protocol-version`. The web
+ * app and the relay both auto-deploy from `main`, so for a few minutes after a
+ * `COLLABORATION_PROTOCOL_VERSION` bump one side is ahead of the other and the
+ * relay refuses every join. That is not a defect and not a spent budget — it
+ * is a rollout — so the machine retries it for a bounded wall-clock window
+ * (`protocolSkewWindowMs`) charged to the window rather than to the attempt
+ * budget, and fails with the version reason only once the window closes. A
+ * tab left open for days across a bump ends there, told to reload.
+ *
  * `syncing` is not cosmetic: it is the window in which the join barrier holds
  * inbound traffic and the canvas is not yet the room's scene. Reaching `live`
  * requires the baseline to have resolved — a connection that opens and dies
@@ -86,9 +95,9 @@ export type UnrecoverableReason =
   /** A wire-contract violation; reconnecting would repeat it. */
   | "protocol-violation"
   /**
-   * The relay refused this client's protocol version: the page is running
-   * code from before a protocol bump. Only a reload changes what version the
-   * client sends, so retrying without one would repeat the refusal forever.
+   * The relay kept refusing this client's protocol version past the deploy-skew
+   * window: the page is running code from before a protocol bump. Only a
+   * reload changes what version the client sends.
    */
   | "unsupported-protocol-version"
   /**
@@ -149,6 +158,17 @@ export const DEFAULT_MAX_RECONNECT_ATTEMPTS = 10;
  */
 export const DEFAULT_LIVE_STABILITY_MS = 30_000;
 
+/**
+ * How long a protocol-version refusal is retried before it is terminal.
+ *
+ * Sized for a deploy: the web app and the relay ship from the same commit but
+ * land minutes apart, and the client on the far side of that gap is refused
+ * until the other side catches up. Five minutes outlasts a Workers Build or a
+ * Vercel deploy with margin, and is short enough that a genuinely outdated
+ * tab is told to reload within one coffee break rather than never.
+ */
+export const DEFAULT_PROTOCOL_SKEW_WINDOW_MS = 5 * 60_000;
+
 export type RecoveryPolicyOptions = {
   baseDelayMs?: number;
   maxDelayMs?: number;
@@ -158,6 +178,11 @@ export type RecoveryPolicyOptions = {
    * baseline clears the budget".
    */
   liveStabilityMs?: number;
+  /**
+   * See {@link DEFAULT_PROTOCOL_SKEW_WINDOW_MS}. Zero makes a version refusal
+   * terminal on first sight.
+   */
+  protocolSkewWindowMs?: number;
   /**
    * Jitter source, injectable so the fault-injection suite runs on a seeded
    * generator instead of `Math.random`.
@@ -205,6 +230,15 @@ export type DisconnectVerdict =
   | { readonly action: "retry" }
   /** Recovery is over; report this reason. */
   | { readonly action: "stop"; readonly failure: UnrecoverableReason }
+  /**
+   * Retry with backoff for a bounded wall-clock window measured from the first
+   * such disconnect, charged to the window rather than to the attempt budget;
+   * once the window closes, stop with `failure`.
+   */
+  | {
+      readonly action: "retry-within-window";
+      readonly failure: UnrecoverableReason;
+    }
   /** The caller ended the session, so there is nothing to recover. */
   | { readonly action: "ignore" };
 
@@ -237,8 +271,19 @@ export function classifyDisconnect(
       return { action: "stop", failure: "room-ended" };
     case "protocol":
       return { action: "stop", failure: "protocol-violation" };
+    /**
+     * A version mismatch in either direction is, for the first minutes after a
+     * protocol bump, a rollout in progress rather than a broken client — the
+     * web app and the relay deploy from the same commit but not at the same
+     * moment. Retried for the skew window; terminal after it, because a tab
+     * still being refused then really is running old code and only a reload
+     * changes the version it sends.
+     */
     case "unsupported-protocol-version":
-      return { action: "stop", failure: "unsupported-protocol-version" };
+      return {
+        action: "retry-within-window",
+        failure: "unsupported-protocol-version",
+      };
     case "idle":
       return { action: "ignore" };
   }
@@ -287,6 +332,7 @@ export function createRecoveryMachine(
     maxDelayMs = DEFAULT_RECONNECT_MAX_DELAY_MS,
     maxAttempts = DEFAULT_MAX_RECONNECT_ATTEMPTS,
     liveStabilityMs = DEFAULT_LIVE_STABILITY_MS,
+    protocolSkewWindowMs = DEFAULT_PROTOCOL_SKEW_WINDOW_MS,
     random = Math.random,
     now = (): number => performance.now(),
   } = options;
@@ -310,12 +356,24 @@ export function createRecoveryMachine(
       `liveStabilityMs must be a non-negative integer, received ${liveStabilityMs}`,
     );
   }
+  if (!Number.isSafeInteger(protocolSkewWindowMs) || protocolSkewWindowMs < 0) {
+    throw new Error(
+      `protocolSkewWindowMs must be a non-negative integer, received ${protocolSkewWindowMs}`,
+    );
+  }
 
   let state: RecoveryState = { phase: "idle" };
   /** Consecutive attempts since the last time the session was stably live. */
   let attempt = 0;
   /** When the current `live` phase began; undefined outside `live`. */
   let liveAt: number | undefined;
+  /**
+   * The current deploy-skew episode: when the relay first refused this client's
+   * protocol version, and how many refusals it has answered with a retry (the
+   * backoff is sized from that count). Undefined outside an episode; an
+   * accepted join ends one, because acceptance is the proof the versions agree.
+   */
+  let skew: { since: number; refusals: number } | undefined;
 
   const illegal = (event: string): Error =>
     new Error(`recovery: ${event} is not legal in phase "${state.phase}"`);
@@ -333,6 +391,7 @@ export function createRecoveryMachine(
 
     connected() {
       if (state.phase !== "connecting") throw illegal("connected()");
+      skew = undefined;
       state = { phase: "syncing", attempt };
     },
 
@@ -367,6 +426,32 @@ export function createRecoveryMachine(
         state = { phase: "idle" };
         return state;
       }
+      if (verdict.action === "retry-within-window") {
+        const at = now();
+        skew ??= { since: at, refusals: 0 };
+        if (at - skew.since >= protocolSkewWindowMs) {
+          state = { phase: "failed", reason: verdict.failure };
+          return state;
+        }
+        skew.refusals += 1;
+        // Charged to the window, not the budget: the attempt counter is what
+        // stops a hopeless retry loop, and waiting out a deploy is not one.
+        // The upcoming attempt is therefore numbered as a first attempt, while
+        // the backoff still grows with the refusals so a fleet waiting on the
+        // same rollout does not poll the relay at the base delay.
+        attempt = 0;
+        state = {
+          phase: "waiting",
+          attempt: 1,
+          delayMs: reconnectDelayMs({
+            attempt: skew.refusals,
+            baseDelayMs,
+            maxDelayMs,
+            random,
+          }),
+        };
+        return state;
+      }
       if (attempt >= maxAttempts) {
         state = { phase: "failed", reason: "retry-limit" };
         return state;
@@ -397,6 +482,7 @@ export function createRecoveryMachine(
     stop() {
       attempt = 0;
       liveAt = undefined;
+      skew = undefined;
       state = { phase: "idle" };
     },
   };

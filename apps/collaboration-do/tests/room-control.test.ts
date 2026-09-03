@@ -24,7 +24,10 @@ import {
   signRoomControlToken,
 } from "@drawstuff/collaboration/room-token";
 
-import type { RoomControlCommandV1 } from "../src/control.ts";
+import type {
+  ControlRejectionCode,
+  RoomControlCommandV1,
+} from "../src/control.ts";
 import { TEST_ROOM_TOKEN_SECRET } from "./support/audit.ts";
 import {
   expectClose,
@@ -89,6 +92,11 @@ async function postControlOk(
   const response = await postControl(token);
   expect(response.status).toBe(200);
   return response.json<{ appliedRevision: number; closed: number }>();
+}
+
+/** The shape a deterministic refusal keeps across the RPC boundary. */
+function rejected(code: ControlRejectionCode) {
+  return { name: "ControlRejectedError", code };
 }
 
 function endRoomCommand(
@@ -310,12 +318,12 @@ describe("typed RPC contract", () => {
           authGeneration: 1,
           revision: 1,
         } as unknown as RoomControlCommandV1),
-      ).rejects.toThrow("malformed control command");
+      ).rejects.toMatchObject(rejected("malformed-command"));
       await expect(
         instance.applyControlV1({
           action: "detonate",
         } as unknown as RoomControlCommandV1),
-      ).rejects.toThrow("malformed control command");
+      ).rejects.toMatchObject(rejected("malformed-command"));
     });
   });
 
@@ -326,10 +334,10 @@ describe("typed RPC contract", () => {
     await runInDurableObject(stub, async (instance) => {
       await expect(
         instance.applyControlV1(endRoomCommand(otherRoom, 2)),
-      ).rejects.toThrow("another channel");
+      ).rejects.toMatchObject(rejected("channel-mismatch"));
       await expect(
         instance.applyControlV1(endRoomCommand(roomId, 2, 7)),
-      ).rejects.toThrow("another channel");
+      ).rejects.toMatchObject(rejected("channel-mismatch"));
     });
   });
 
@@ -424,12 +432,12 @@ describe("alarm at-least-once", () => {
       // Early retries rely on the runtime's own redelivery: no backstop.
       await expect(
         instance.alarm({ isRetry: true, retryCount: 1, scheduledTime: 0 }),
-      ).rejects.toThrow("newer than supported");
+      ).rejects.toMatchObject(rejected("schema-skew"));
       expect(await state.storage.getAlarm()).toBeNull();
       // The final retry must leave a future alarm behind before failing.
       await expect(
         instance.alarm({ isRetry: true, retryCount: 5, scheduledTime: 0 }),
-      ).rejects.toThrow("newer than supported");
+      ).rejects.toMatchObject(rejected("schema-skew"));
       expect(await state.storage.getAlarm()).not.toBeNull();
     });
   });
@@ -500,7 +508,7 @@ describe("schema migration", () => {
     await runInDurableObject(stub, async (instance, state) => {
       await expect(
         instance.applyControlV1(endRoomCommand(roomId, 2)),
-      ).rejects.toThrow("newer than supported");
+      ).rejects.toMatchObject(rejected("schema-skew"));
       // Fail closed means untouched: the "missing" column was not re-added.
       const readded = state.storage.sql
         .exec<{ present: number }>(

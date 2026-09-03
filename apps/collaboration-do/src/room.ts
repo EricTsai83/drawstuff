@@ -47,6 +47,7 @@ import {
   type RoomSocketAttachment,
 } from "./attachment.ts";
 import {
+  ControlRejectedError,
   roomControlCommandV1Schema,
   type RoomControlCommandV1,
   type RoomControlResultV1,
@@ -145,9 +146,15 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   /**
    * Rate buckets are keyed by socket object identity, which is stable while
    * the isolate lives and empty after hibernation — exactly the rebuild-full
-   * semantics the policy note sanctions.
+   * semantics the policy note sanctions. Weakly held: a server-initiated
+   * close does not reliably reach `webSocketClose` under the hibernation
+   * API, so the bucket must die with the socket rather than wait for a
+   * handler that may never run.
    */
-  private readonly rateLimiters = new Map<WebSocket, ConnectionRateLimiter>();
+  private readonly rateLimiters = new WeakMap<
+    WebSocket,
+    ConnectionRateLimiter
+  >();
 
   private readonly rateLimitNow: () => number;
 
@@ -177,10 +184,21 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // external services. Deliberately does NOT touch the alarm:
     // a constructor that overwrote the alarm would clobber the scheduler on
     // every wake.
-    void this.ctx.blockConcurrencyWhile(() => {
-      this.ensureSchema();
-      return Promise.resolve();
-    });
+    // A callback that throws (schema skew, storage failure) makes the
+    // runtime abort and reset this Object — the fail-closed outcome the
+    // schema note requires — but the rejection itself would otherwise go
+    // unobserved; the handler exists so the refusal is visible in Workers
+    // Logs.
+    this.ctx
+      .blockConcurrencyWhile(() => {
+        this.ensureSchema();
+        return Promise.resolve();
+      })
+      .catch((error: unknown) => {
+        this.log.error("room.schema_bootstrap_failed", {
+          errorName: errorNameOf(error),
+        });
+      });
   }
 
   override async fetch(request: Request): Promise<Response> {
@@ -391,11 +409,11 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // additions keep working against this build.
     const parsed = roomControlCommandV1Schema.safeParse(command);
     if (!parsed.success) {
-      throw new Error("room: malformed control command");
+      throw new ControlRejectedError("malformed-command");
     }
     const control = parsed.data;
     if (roomChannelKey(control.roomId, control.authGeneration) !== channelKey) {
-      throw new Error("room: control command addresses another channel");
+      throw new ControlRejectedError("channel-mismatch");
     }
 
     const now = Date.now();
@@ -492,12 +510,14 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
 
     const control = parseRelayClientControl(message);
     if (!control) {
-      const staleVersion = unsupportedJoinProtocolVersionOf(message);
-      if (staleVersion !== undefined) {
+      const declaredVersion = unsupportedJoinProtocolVersionOf(message);
+      if (declaredVersion !== undefined) {
+        // Both versions in the reason: a deploy-skew window shows up in the
+        // close records as "client 5, relay 4" rather than a bare code.
         this.closeSocket(
           ws,
           RELAY_CLOSE_CODES.unsupportedProtocolVersion,
-          "unsupported protocol version",
+          `unsupported protocol version ${declaredVersion}; relay speaks ${COLLABORATION_PROTOCOL_VERSION}`,
         );
         return;
       }
@@ -1045,9 +1065,10 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       )
       .toArray()[0]?.schema_version;
     if (storedVersion !== undefined && storedVersion > ROOM_SCHEMA_VERSION) {
-      throw new Error(
-        `room: stored schema v${storedVersion} is newer than supported v${ROOM_SCHEMA_VERSION}`,
-      );
+      // Typed as a deterministic rejection: on the control RPC path the
+      // gateway must answer it non-retryably (only a roll-forward cures it);
+      // every other caller fails closed on any throw regardless of type.
+      throw new ControlRejectedError("schema-skew");
     }
     // v1 → v2 migration MUST run before any statement references a v2 column:
     // on a pre-existing v1 table the CREATE above is a no-op, so the column

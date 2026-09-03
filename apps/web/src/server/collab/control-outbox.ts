@@ -160,11 +160,14 @@ async function recordDispatchFailure(
   event: ControlOutboxEvent,
   failure: RoomControlFailure,
   now: Date,
+  terminal = false,
 ): Promise<"poisoned" | "retried"> {
   const attempts = event.attempts + 1;
-  if (attempts >= MAX_CONTROL_OUTBOX_ATTEMPTS) {
+  if (terminal || attempts >= MAX_CONTROL_OUTBOX_ATTEMPTS) {
     // Terminal, observable poison state instead of an endless hot loop; the
     // row stays until retention so an operator can see what never landed.
+    // A provider that refused the command as unprocessable goes here at
+    // once: resending the same intent could only be refused again.
     await db
       .update(collaborationControlOutbox)
       .set({ status: "failed", attempts, lastFailure: failure, updatedAt: now })
@@ -236,7 +239,13 @@ async function dispatchAndRecord(
     }
     return {
       result,
-      persisted: await recordDispatchFailure(db, event, result.failure, now),
+      persisted: await recordDispatchFailure(
+        db,
+        event,
+        result.failure,
+        now,
+        result.terminal === true,
+      ),
     };
   } catch {
     // An enforced delivery whose bookkeeping failed is still enforced; the

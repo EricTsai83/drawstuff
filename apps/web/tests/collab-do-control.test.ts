@@ -88,6 +88,29 @@ describe("pushDoRoomControl", () => {
     });
   });
 
+  it("marks a 422 rejection contract terminal, other 4xx retryable", async () => {
+    fetchStub(
+      Response.json(
+        { error: "control-rejected", code: "schema-skew" },
+        { status: 422 },
+      ),
+    );
+    expect(await pushDoRoomControl(PUSH_PARAMS)).toEqual({
+      enforced: false,
+      failure: "rejected",
+      terminal: true,
+      reason: "DO gateway rejected the command: schema-skew",
+    });
+
+    // A 422 without the contract body is not the gateway speaking.
+    fetchStub(Response.json({ error: "something else" }, { status: 422 }));
+    expect(await pushDoRoomControl(PUSH_PARAMS)).toEqual({
+      enforced: false,
+      failure: "rejected",
+      reason: "DO gateway responded 422",
+    });
+  });
+
   it("reports non-enforcement on a 200 outside the response contract", async () => {
     fetchStub(Response.json({ action: "end-room", closed: 1 }));
     const result = await pushDoRoomControl(PUSH_PARAMS);

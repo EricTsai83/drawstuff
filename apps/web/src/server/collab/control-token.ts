@@ -44,7 +44,16 @@ export type RoomControlPushParams = {
  */
 export type RoomControlPushResult =
   | { enforced: true; closedSessions: number }
-  | { enforced: false; failure: RoomControlFailure; reason: string };
+  | {
+      enforced: false;
+      failure: RoomControlFailure;
+      reason: string;
+      /**
+       * The provider said this exact command can only be refused again, so
+       * the outbox marks the event failed at once instead of retrying it.
+       */
+      terminal?: true;
+    };
 
 /** Classifies a thrown fetch error into the closed failure vocabulary. */
 export function classifyControlPushError(error: unknown): {

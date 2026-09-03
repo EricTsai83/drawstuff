@@ -713,8 +713,12 @@ export function createCollaborationSession(
       lifecycle.abandonInFlightAttempt();
       offlineQueue.clear();
       recovery.stop();
+      // Unsubscribed *before* the disconnect, as in the terminal teardown, so
+      // the drop is not observed as a failure. No-op on a transport the caller
+      // already closed.
       unsubscribeTransport?.();
       unsubscribeTransport = undefined;
+      transport.disconnect();
     },
     handleLocalSceneChange(_elements, appState) {
       if (context.isStopped()) return;
