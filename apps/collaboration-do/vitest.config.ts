@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import { cloudflareTest } from "@cloudflare/vitest-plugin";
 import { defineConfig } from "vitest/config";
 import { unstable_readConfig } from "wrangler";
@@ -65,7 +67,10 @@ const resolvedEnvironmentSchema = z.looseObject({
 
 function auditConfig(): WranglerConfigAudit {
   const config = resolvedEnvironmentSchema.parse(
-    unstable_readConfig({ config: "wrangler.jsonc" }, { hideWarnings: true }),
+    unstable_readConfig(
+      { config: path.join(import.meta.dirname, "wrangler.jsonc") },
+      { hideWarnings: true },
+    ),
   );
   // `undefined` cannot cross the JSON binding boundary, so absent config
   // values become `null` here and the tests assert on `null`.

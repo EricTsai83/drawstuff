@@ -1,0 +1,40 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "workspaces": {
+    ".": {
+      "ignore": [
+        ".agents/**"
+      ]
+    },
+    "apps/web": {},
+    "apps/collaboration-do": {
+      "entry": [
+        "tests/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "tests/**/*.ts",
+        "scripts/**/*.mjs",
+        "*.ts"
+      ],
+      "ignoreDependencies": [
+        "cloudflare"
+      ]
+    },
+    "packages/collaboration": {
+      "entry": [
+        "tests/**/*.test.{ts,tsx}",
+        "bench/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}",
+        "tests/**/*.{ts,tsx}",
+        "bench/**/*.ts"
+      ],
+      "ignoreDependencies": [
+        "@vitest/browser"
+      ]
+    },
+    "packages/excalidraw-adapter": {}
+  }
+}

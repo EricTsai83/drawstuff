@@ -8,7 +8,6 @@
     "cf:typegen": "wrangler types --strict-vars=false",
     "conformance:remote": "node scripts/conformance-remote.mjs",
     "deploy": "pnpm run verify && pnpm run preflight && wrangler deploy",
-    "knip": "knip",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "loadtest": "node scripts/loadtest.mjs",
@@ -22,30 +21,15 @@
     "test": "vitest run && pnpm run test:harness",
     "test:harness": "node scripts/harness-smoke.mjs",
     "typecheck": "tsc --noEmit",
-    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm run knip"
+    "verify": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm -w knip --workspace apps/collaboration-do"
   },
   "dependencies": {
     "@drawstuff/collaboration": "workspace:*",
     "zod": "^4.4.3"
   },
-  "knip": {
-    "entry": [
-      "tests/**/*.test.ts"
-    ],
-    "project": [
-      "src/**/*.ts",
-      "tests/**/*.ts",
-      "scripts/**/*.mjs",
-      "*.ts"
-    ],
-    "ignoreDependencies": [
-      "cloudflare"
-    ]
-  },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.0.0",
     "eslint": "^9.39.5",
-    "knip": "^6.29.0",
     "typescript": "^6.0.3",
     "vitest": "4.1.10",
     "wrangler": "4.125.0",

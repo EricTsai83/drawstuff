@@ -36,7 +36,7 @@ pnpm --filter @drawstuff/collaboration-do lint
 pnpm --filter @drawstuff/collaboration-do typecheck
 pnpm --filter @drawstuff/collaboration-do test        # workerd suite + hermetic CLI harness smoke
 pnpm --filter @drawstuff/collaboration-do test:harness # remote runner + short load via localhost
-pnpm --filter @drawstuff/collaboration-do knip
+pnpm knip --workspace apps/collaboration-do             # knip runs from the repo root (knip.json)
 pnpm --filter @drawstuff/collaboration-do verify      # all four of the above
 pnpm --filter @drawstuff/collaboration-do cf:typegen  # regenerate worker-configuration.d.ts
 

@@ -46,7 +46,6 @@
     "lint:fix": {
       "cache": false
     },
-    "knip": {},
     "test": {},
     "test:coverage": {
       "dependsOn": ["^test:coverage"],
