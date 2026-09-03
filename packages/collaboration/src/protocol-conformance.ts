@@ -141,7 +141,10 @@ export type ConformanceCase = {
 };
 
 const DEFAULT_EVENT_TIMEOUT_MS = 3_000;
-const SCENE_FLOOD_CLOSE_TIMEOUT_MS = 15_000;
+// These cases deliberately queue hundreds of frames ahead of the expected
+// close. The contract is the eventual close code, not how quickly a loaded
+// workerd or remote Worker drains that backlog.
+const FRAME_BACKLOG_CLOSE_TIMEOUT_MS = 15_000;
 
 /**
  * Wraps a raw wire (send/close) into a `ConformanceConnection` with a queued,
@@ -1077,7 +1080,7 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
         connection,
         RELAY_CLOSE_CODES.rateLimited,
         "scene flood",
-        SCENE_FLOOD_CLOSE_TIMEOUT_MS,
+        FRAME_BACKLOG_CLOSE_TIMEOUT_MS,
       );
     },
   },
@@ -1119,7 +1122,12 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
         connection.send(presenceFrame([index % 256]));
       }
       connection.send(encodeRelayControl({ control: "leave" }));
-      await expectClose(connection, 1000, "leave after spending both budgets");
+      await expectClose(
+        connection,
+        1000,
+        "leave after spending both budgets",
+        FRAME_BACKLOG_CLOSE_TIMEOUT_MS,
+      );
     },
   },
   {
