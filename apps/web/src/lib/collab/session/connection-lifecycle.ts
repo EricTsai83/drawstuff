@@ -18,7 +18,7 @@ import type {
  * session must stop rather than reconnect, because its derived key can no longer
  * open the room's ciphertext.
  */
-export type JoinCredentials = {
+type JoinCredentials = {
   token: string;
   authGeneration: number;
 };
@@ -39,7 +39,7 @@ export type JoinCredentials = {
  * change *requires* a reconnect, because the role travels in the token. Only the
  * next token request can distinguish them, so the terminal reasons live here.
  */
-export type JoinCredentialsRefusal =
+type JoinCredentialsRefusal =
   /**
    * Transport or backend failure of unknown cause; retried with backoff.
    *

@@ -14,16 +14,6 @@ export async function expectNoDocumentHorizontalOverflow(
     .toBe(true);
 }
 
-export async function expectTouchTarget(
-  locator: Locator,
-  minimum = 44,
-): Promise<void> {
-  const box = await locator.boundingBox();
-  expect(box, "touch target must have a measurable box").not.toBeNull();
-  expect(box?.width ?? 0).toBeGreaterThanOrEqual(minimum);
-  expect(box?.height ?? 0).toBeGreaterThanOrEqual(minimum);
-}
-
 export async function activateByKeyboard(locator: Locator): Promise<void> {
   await locator.focus();
   await expect(locator).toBeFocused();

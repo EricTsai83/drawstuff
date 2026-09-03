@@ -1,5 +1,5 @@
 /** How far past a locked size contract the scene is, on one publish path. */
-export type SceneSizeOverflow = {
+type SceneSizeOverflow = {
   readonly byteLength: number;
   readonly maxByteLength: number;
 };

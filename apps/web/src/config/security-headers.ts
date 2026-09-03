@@ -58,9 +58,7 @@ export function deriveUploadThingAppId(
  * endpoint 與 room socket，所以由 `COLLAB_CONTROL_URL` 的 http(s) origin 換成
  * ws(s)。與 `server/collab/relay-routing.ts` 用同一條規則。
  */
-export function deriveGatewaySocketOrigin(
-  gatewayUrl: string,
-): string | undefined {
+function deriveGatewaySocketOrigin(gatewayUrl: string): string | undefined {
   try {
     const url = new URL(gatewayUrl);
     // URL parser 接受 `https://*.example.com` 這類 hostname；CSP 只允許精確

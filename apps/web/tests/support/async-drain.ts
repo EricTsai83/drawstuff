@@ -39,7 +39,7 @@ const TRACKED_METHODS: readonly (keyof SubtleCrypto)[] = [
 let inFlight = 0;
 
 /** Async Web Crypto calls that have not settled yet. */
-export const pendingCryptoCount = (): number => inFlight;
+const pendingCryptoCount = (): number => inFlight;
 
 /**
  * Wraps `crypto.subtle` so `drainAsync` can tell "nothing is in flight" from

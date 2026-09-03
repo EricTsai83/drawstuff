@@ -15,7 +15,7 @@ let orderKeyCursor = 0;
 const orderKeys = generateNKeysBetween(null, null, 512);
 
 /** Next strictly-increasing fractional order key for appended elements. */
-export function nextOrderKey(): string {
+function nextOrderKey(): string {
   const key = orderKeys[orderKeyCursor];
   orderKeyCursor = (orderKeyCursor + 1) % orderKeys.length;
   return key ?? "a0";

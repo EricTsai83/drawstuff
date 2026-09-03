@@ -168,5 +168,4 @@ export {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-  DialogViewport,
 };

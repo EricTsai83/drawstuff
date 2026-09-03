@@ -11,7 +11,7 @@ import type { Linter } from "eslint";
  */
 
 /** The adapter's public entry points; must match its package.json exports. */
-export const ADAPTER_PUBLIC_ENTRIES = [
+const ADAPTER_PUBLIC_ENTRIES = [
   "client",
   "codec",
   "reconcile",
@@ -27,7 +27,7 @@ export const adapterDeepImportRestriction = {
     "Import an explicit @drawstuff/excalidraw-adapter public entry point.",
 };
 
-export const adapterInternalPathRestriction = {
+const adapterInternalPathRestriction = {
   group: ["**/packages/excalidraw-adapter/**"],
   message: "Import @drawstuff/excalidraw-adapter through its package exports.",
 };
