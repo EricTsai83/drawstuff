@@ -19,6 +19,7 @@ import { resolveRoomAccess, roomIdInputSchema } from "@/server/collab/rooms";
 import { db } from "@/server/db";
 import { QUERIES } from "@/server/db/queries";
 import { replaceSceneThumbnail } from "@/server/scene/thumbnail-replace";
+import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth/server";
 import { UTApi } from "uploadthing/server";
@@ -63,11 +64,7 @@ async function enqueueDeferredCleanup(
   context: Record<string, unknown>,
 ) {
   try {
-    await QUERIES.enqueueDeferredCleanup({
-      utFileKey: fileKey,
-      reason,
-      context,
-    });
+    await enqueueStorageKeyCleanup(db, [fileKey], reason, context);
   } catch (err) {
     console.error("Failed to enqueue deferred cleanup", {
       fileKey,

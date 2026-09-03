@@ -24,6 +24,7 @@ import {
   readReferencedSceneAssetIds,
 } from "@/server/scene/referenced-assets";
 import { checkSharedSceneRateLimit } from "@/server/rate-limit/shared-scene";
+import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 
 export type HandleSceneSaveResult = {
   sharedSceneId: string | null;
@@ -448,10 +449,8 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
         await utapi.deleteFiles([fileKey]);
       } catch (deleteErr) {
         console.error("Failed to delete uploaded scene asset:", deleteErr);
-        await QUERIES.enqueueDeferredCleanup({
-          utFileKey: fileKey,
-          reason: "scene-save-aborted",
-          context: { sceneId },
+        await enqueueStorageKeyCleanup(db, [fileKey], "scene-save-aborted", {
+          sceneId,
         });
       }
     }

@@ -170,26 +170,6 @@ export const QUERIES = {
   },
 
   // 延遲清理任務相關
-  enqueueDeferredCleanup: async function ({
-    utFileKey,
-    reason,
-    context,
-  }: {
-    utFileKey: string;
-    reason: string;
-    context?: unknown;
-  }) {
-    const payload = {
-      utFileKey,
-      reason,
-      context: context ? JSON.stringify(context) : null,
-      attempts: 0,
-      nextAttemptAt: new Date(),
-      status: "pending" as const,
-    };
-    return await db.insert(deferredFileCleanup).values(payload).returning();
-  },
-
   getDueDeferredCleanups: async function (limit = 50, now = new Date()) {
     return await db
       .select()

@@ -1,6 +1,8 @@
 import "server-only";
 
+import { db } from "@/server/db";
 import { QUERIES } from "@/server/db/queries";
+import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 
 /**
  * Applies a completed thumbnail upload with compare-and-set semantics: the
@@ -36,10 +38,8 @@ export async function replaceSceneThumbnail(params: {
     const deleted = await params.deleteObject(loserKey);
     if (!deleted) {
       try {
-        await QUERIES.enqueueDeferredCleanup({
-          utFileKey: loserKey,
-          reason: "replace-thumbnail",
-          context: { sceneId: params.sceneId },
+        await enqueueStorageKeyCleanup(db, [loserKey], "replace-thumbnail", {
+          sceneId: params.sceneId,
         });
       } catch (error) {
         // 排queue失敗只會多一個孤兒物件；不能讓它使已 commit 的替換整個失敗。
