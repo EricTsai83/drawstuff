@@ -18,9 +18,9 @@ import type { CanvasProductActions } from "./canvas-product-actions";
 import {
   getCloudUploadPresentation,
   type UploadStatus,
-} from "./cloud-upload-button";
-import { getCollaborationPresentation } from "./collaboration-button";
-import { getShareButtonConfig } from "./share-scene-button";
+} from "./cloud-upload-presentation";
+import { getCollaborationPresentation } from "./collaboration-presentation";
+import { getShareButtonConfig } from "./share-scene-presentation";
 
 type CanvasShortcutMenuProps = {
   actions: CanvasProductActions;

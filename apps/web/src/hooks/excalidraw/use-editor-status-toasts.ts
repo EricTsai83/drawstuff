@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { toast } from "sonner";
 
-import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
+import type { UploadStatus } from "@/components/excalidraw/cloud-upload-presentation";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { ExportStatus } from "@/hooks/use-scene-export";
 

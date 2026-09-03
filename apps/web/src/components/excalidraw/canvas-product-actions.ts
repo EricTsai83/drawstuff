@@ -1,4 +1,4 @@
-import type { UploadStatus } from "./cloud-upload-button";
+import type { UploadStatus } from "./cloud-upload-presentation";
 import type { CollaborationRoomStatus } from "@/hooks/excalidraw/use-collaboration-room";
 import type { ExportStatus } from "@/hooks/use-scene-export";
 

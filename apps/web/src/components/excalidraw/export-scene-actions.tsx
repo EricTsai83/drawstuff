@@ -9,7 +9,7 @@ import type {
   BinaryFiles,
 } from "@drawstuff/excalidraw-adapter/types";
 import type { NonDeletedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
-import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
+import type { UploadStatus } from "@/components/excalidraw/cloud-upload-presentation";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { AuthSessionData } from "@/lib/types";
 

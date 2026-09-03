@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from "react";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
-import type { UploadStatus } from "@/components/excalidraw/cloud-upload-button";
+import type { UploadStatus } from "@/components/excalidraw/cloud-upload-presentation";
 import { api } from "@/trpc/react";
 import {
   cleanupSceneAssetUploadsAction,

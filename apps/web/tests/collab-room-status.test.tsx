@@ -84,7 +84,9 @@ import {
 import type { RecoveryState } from "@drawstuff/collaboration/recovery";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
-import { CollaborationButton } from "@/components/excalidraw/collaboration-button";
+import { getCollaborationPresentation } from "@/components/excalidraw/collaboration-presentation";
+import { createAppTranslate } from "@/lib/i18n";
+import { en } from "@/lib/i18n/en";
 import { SceneSessionProvider } from "@/hooks/scene-session-context";
 import {
   useCollaborationRoom,
@@ -803,24 +805,15 @@ describe("collaboration button label", () => {
     status: CollaborationRoomStatus;
     isReadOnly: boolean;
   }): { visible: string; accessibleName: string } => {
-    const host = document.createElement("div");
-    document.body.appendChild(host);
-    const buttonRoot = createRoot(host);
-    act(() => {
-      buttonRoot.render(
-        <CollaborationButton {...props} onClick={() => undefined} />,
-      );
-    });
-    const rendered = {
-      visible: host.textContent ?? "",
-      accessibleName:
-        host.querySelector("button")?.getAttribute("aria-label") ?? "",
+    const presentation = getCollaborationPresentation(
+      props.status,
+      props.isReadOnly,
+      createAppTranslate(en),
+    );
+    return {
+      visible: presentation.label,
+      accessibleName: presentation.accessibleLabel,
     };
-    act(() => {
-      buttonRoot.unmount();
-    });
-    host.remove();
-    return rendered;
   };
 
   it("keeps the read-only badge for an ordinary viewer", () => {

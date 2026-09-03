@@ -3,7 +3,7 @@
 import { CloudUpload, Link, Users } from "lucide-react";
 import { ExcalidrawMainMenu as MainMenu } from "@drawstuff/excalidraw-adapter/client";
 import type { CanvasProductActions } from "../canvas-product-actions";
-import { getCollaborationPresentation } from "../collaboration-button";
+import { getCollaborationPresentation } from "../collaboration-presentation";
 import { MenuActionItem } from "./menu-action-item";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 
