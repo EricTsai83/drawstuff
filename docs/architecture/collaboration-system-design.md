@@ -63,7 +63,9 @@ best-effort dispatch gives fast UI feedback; anything unenforced stays `pending`
 a dedicated minute-level schedule (`/api/collaboration/control-outbox`, fired by the collaboration
 Worker's Cloudflare cron trigger because the Vercel deployment's Hobby-plan crons are daily-only;
 the weekly storage cleanup stays a Vercel cron) with claim leases, exponential
-backoff with jitter, a poison-event terminal state, and bounded retention. Deliveries are
+backoff with jitter, a poison-event terminal state, and bounded retention. A gateway `422`
+carrying the `control-rejected` body is a deterministic refusal and moves the event to `failed`
+on that attempt; every other non-2xx, timeout, or transport error stays retryable. Deliveries are
 revision-max idempotent on the Durable Object, so ambiguous timeouts are resent safely. No signed token
 is stored; every delivery signs a fresh short-lived control token. Mutation responses distinguish
 `enforced` (the Durable Object confirmed closing sockets) from `pending` (committed, delivery queued).
@@ -85,6 +87,17 @@ down.
 
 Every network payload is byte-bounded before strict runtime decoding. Transport protocol version is
 independent from native document and durable payload versions.
+
+A join whose `protocolVersion` differs from the relay's `COLLABORATION_PROTOCOL_VERSION` — in
+either direction — is refused with `unsupportedProtocolVersion` (4013), never with the generic
+`protocolViolation`, and the close reason names both versions so the skew is visible in close
+records. The client treats that refusal as deploy skew rather than as a defect: `apps/web` and the
+Worker both auto-deploy from `main` and land minutes apart, so after a protocol bump either side can
+be ahead of the other. Recovery retries the refusal with backoff for a bounded wall-clock window
+(`DEFAULT_PROTOCOL_SKEW_WINDOW_MS`, five minutes) that is charged to the window rather than to the
+ordinary retry budget, and only once the window closes does it fail with the terminal
+`unsupported-protocol-version` reason whose remedy is a reload — the case of a tab left open across
+a bump. No deploy ordering between web and Worker is required for a protocol bump.
 
 The relay provides session ordering, not durable or exactly-once delivery. Scene and presence use
 separate channels:
@@ -133,8 +146,8 @@ application bundle.
   exceptions, and the encoded length is bounded before any allocation. Encoding feature-detects
   the native TypedArray Base64 API and falls back to a chunked `btoa`/`atob` path; both paths are
   held to identical output by tests in Node, Chromium, WebKit, and workerd (pinned compatibility
-  date), which together with the fixed room-token vectors form the wire-format precontract for
-  the accepted Durable Object target
+  date), which together with the fixed room-token vectors formed the wire-format precontract for
+  the completed Durable Object migration
   ([ADR-0002](../adr/0002-collaboration-durable-object-target.md)). Realtime frames stay binary;
   Base64 never enters the WebSocket hot path. The measured 4 MiB snapshot budget lives in the
   [SLO document](../performance/collaboration-slo-capacity.md).

@@ -60,21 +60,28 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 **分散式與即時系統**
 
 11. [即時協作房間：Coordination Atom、Thin Gateway 與收斂式恢復](./system-design/realtime-room-coordination.md)
-12. [隱私安全的 Observability](./system-design/privacy-safe-observability.md)
+12. [Client 寫入節奏與 writer 選舉：cadence cooldown、notBefore 與最後一筆寫入](./system-design/client-write-pacing-and-writer-election.md)
+13. [成本感知的有狀態服務：可休眠 actor 的 liveness](./system-design/cost-aware-stateful-services.md)
+14. [上限是防護，不是容量](./system-design/limits-as-protection-not-capacity.md)
+15. [隱私安全的 Observability](./system-design/privacy-safe-observability.md)
 
 **前端架構**
 
-13. [持久工作區與 URL-Addressable Overlay](./system-design/persistent-shell-overlay-routing.md)
-14. [Server-Resolved i18n](./system-design/server-resolved-i18n.md)
+16. [持久工作區與 URL-Addressable Overlay](./system-design/persistent-shell-overlay-routing.md)
+17. [遠端狀態回灌的重入抑制：引用計數的 dirty-tracking suppression](./system-design/reentrancy-suppression-for-echoed-remote-state.md)
+18. [Server 端解析狀態的 Hydration 邊界](./system-design/hydration-boundary-for-server-resolved-state.md)
 
 **工程流程（橫切所有主題）**
 
-15. [Config 與部署是受測工件](./system-design/config-and-deployment-as-artifacts.md)
-16. [測試作為契約](./system-design/testing-as-contracts.md)
-17. [演進與清理紀律](./system-design/evolution-and-cleanup.md)
+19. [Config 與部署是受測工件](./system-design/config-and-deployment-as-artifacts.md)
+20. [測試作為契約](./system-design/testing-as-contracts.md)
+21. [演進與清理紀律](./system-design/evolution-and-cleanup.md)
+22. [記錄下來的拒絕：把「刻意不做」寫成決策](./system-design/recorded-refusals.md)
 
-趕時間的話，最高槓桿的五篇：**模組邊界、Adapter 邊界、Transactional Outbox、
-防禦性邊界、測試作為契約**。
+趕時間的話，最高槓桿的五篇：**模組邊界、Transactional Outbox、防禦性邊界、
+測試作為契約、記錄下來的拒絕**。（Adapter 邊界仍是本專案槓桿最大的單一決策，
+但只在「產品建立在一個大型第三方引擎上」時適用；記錄下來的拒絕零成本、任何專案
+第一天就能用，所以趕時間時優先讀它。）
 
 ## 如何讀現況契約（本專案開發者）
 

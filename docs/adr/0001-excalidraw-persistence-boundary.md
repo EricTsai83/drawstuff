@@ -207,8 +207,7 @@ plan 必須在同一 plan 刪除 implementation、wiring、dead export、depende
 
 Compatibility reader 只能 read，不得成為新 writer 的 silent fallback。每個 reader
 必須有 fixture、owner、data-audit/retention removal proof 與明確移除條件；不得新增
-catch-all downgrade 或無期限 shim。現況與唯一 owner 記錄於
-[`docs/architecture/excalidraw-cleanup-inventory.md`](../architecture/excalidraw-cleanup-inventory.md)。
+catch-all downgrade 或無期限 shim。
 
 ### Database policy
 

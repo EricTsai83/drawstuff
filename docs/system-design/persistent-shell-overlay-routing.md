@@ -80,11 +80,12 @@ sequenceDiagram
 
 ### 3. 插槽清空是明確的路由語意
 
-平行插槽在軟導航下是「黏的」（不匹配就保留舊內容），對 modal 插槽這是危險預設：
-舊 dashboard 會殘留蓋在新目的地上。所以要為「無 overlay」寫**明確的清空路由**：
-根路徑一個、其他不擁有 overlay 的路徑一個 catch-all、硬導航 fallback 一個——
-三個檔案都回傳「空」，但觸發情境不同，缺一不可。並用路由測試釘住
-「具體 intercepted 路由優先於 catch-all」的優先序。
+平行插槽在軟導航下通常是「黏的」（目前 URL 不匹配就保留上一次的內容），對 modal
+插槽這是危險預設：舊的管理介面會殘留蓋在新目的地上。所以「無 overlay」必須是
+**明確表達的路由結果**，而不是框架的保留行為：每一種會到達「沒有 overlay」的方式
+（回到根路徑、進入其他不擁有 overlay 的路徑、硬導航 fallback）都要有一條明確回傳
+「空」的路由——觸發情境不同，缺一不可。並用路由測試釘住「具體 intercepted 路由優先於
+catch-all」的優先序。
 
 ### 4. History 政策成表
 
@@ -117,7 +118,7 @@ client 端的選取狀態與 disabled 按鈕不是授權控制。
 - 「URL 該有的給 URL、該本地的留本地」這條分界日後每個新介面都用得上；
   表單草稿放進 URL 和 dashboard 沒有 URL 是同一個錯誤的兩個方向。
 - 「同一份內容、兩種呈現」讓 modal 與完整頁面不會分岔成兩套實作。
-- 插槽清空三檔案是 framework 特定（Next.js parallel routes）的細節，
+- 插槽清空的具體檔案配置是 framework 特定的細節，
   但「黏性導航狀態需要明確清空語意」這個問題在任何 SPA 路由器都存在。
 
 ## Trade-offs
@@ -131,6 +132,7 @@ client 端的選取狀態與 disabled 按鈕不是授權控制。
 
 - 完整設計（三層模型、清空路由、history 表、a11y、驗證契約）：
   [workspace overlay routing system design](../architecture/workspace-overlay-routing-system-design.md)。
-- 實作：`apps/web/src/app/@overlay/`、`src/components/route-overlay.tsx`、
-  路由身分的 discriminated union `src/lib/routes.ts`、
+- 實作：Next.js parallel routes 的 `apps/web/src/app/@overlay/` 插槽（§3 的清空路由
+  在這裡是三個檔案：根路徑 `page`、catch-all、硬導航 `default`）、
+  `src/components/route-overlay.tsx`、路由身分的 discriminated union `src/lib/routes.ts`、
   disk-walking 路由測試 `apps/web/tests/workspace-routes.test.ts`。

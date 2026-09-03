@@ -18,7 +18,7 @@ Config 是系統裡最少被測試、卻最常引發事故的部分：一個 env
 - 這個模組在 build 入口被 import——**壞的 env 讓 build 失敗**，而不是讓某個
   深夜請求失敗；
 - 每個變數附註它的信任邊界與用途；空字串視為未設定；
-- 明確的逃生門（`SKIP_ENV_VALIDATION`）只給 CI 的特定情境，且逃生門的語意是
+- 明確的逃生門（一個具名的「跳過驗證」旗標）只給 CI 的特定情境，且逃生門的語意是
   「**省略**該功能」而不是「放寬成萬用值」。
 
 ### 2. 憑證按爆炸半徑分離
@@ -29,7 +29,7 @@ fail closed（整個 endpoint 401），不是靜默停用驗證。
 
 ### 3. 部署設定檔是受測工件
 
-把部署設定（wrangler config、CI workflow、header 政策）當程式碼對待：
+把部署設定（worker 平台的部署描述檔、CI workflow、header 政策）當程式碼對待：
 
 - 測試用**平台自己的 config resolver** 讀取設定檔，逐欄位斷言：綁定、
   compatibility 版本、必要 secrets 清單、cron 表達式、允許的 vars key 集合……
@@ -58,8 +58,9 @@ flowchart LR
 
 一條非常好用的分類法：**可逆的變更走自動部署**（code push → 自動上線，
 出錯 rollback 即可）；**不可逆的變更手動執行、單獨出貨、永不跨越 rollback**
-（schema 變更、資源生命週期操作）。同一原則同時適用於 DB（自動 CI vs 手動
-`db:push` + 事前 clone 演練）與 worker 平台（Workers Builds 自動 vs 手動 wrangler）。
+（schema 變更、資源生命週期操作）。同一原則同時適用於資料庫（程式碼變更走 CI 自動
+部署；schema push 手動執行、事前在 clone 上演練 diff）與 worker 平台（git 觸發的自動
+build vs 手動 CLI 部署）。
 
 ```mermaid
 flowchart TD
@@ -76,7 +77,8 @@ flowchart TD
 
 小型自營專案可以沒有 staging——但要寫下來：為什麼（成本、單人維運）、
 邊界靠什麼補（token 授權而非環境隔離、kill switch 作為事故邊界、
-可逆變更全部可 rollback）。沒寫下來的省略是債，寫下來的省略是決策。
+可逆變更全部可 rollback）。沒寫下來的省略是債，寫下來的省略是決策——
+這是 [記錄下來的拒絕](./recorded-refusals.md) 的一個實例。
 
 ### 7. 行為開關的紀律
 
@@ -101,7 +103,9 @@ kill switch／feature flag 讀取集中在一個具名函式；fail-closed 的�
 ## 本專案中的實例
 
 - Env schema 與 build 期驗證：`apps/web/src/env.ts`（`@t3-oss/env-nextjs` + zod，
-  被 `next.config.ts` 頂部 import）。
+  被 `next.config.ts` 頂部 import）；逃生門是 `SKIP_ENV_VALIDATION`（僅 Playwright E2E）。
+- 可逆自動／不可逆手動的具體工具：DB 走手動 `db:push`；worker 走 Cloudflare Workers Builds
+  （自動）與手動 `wrangler deploy`；部署描述檔為 `wrangler.jsonc`。
 - 憑證分離：`CRON_SECRET` 與 `COLLAB_OUTBOX_CRON_SECRET` 分開（理由註在 env.ts）。
 - config 稽核測試：`apps/collaboration-do/tests/config-audit.test.ts`
   （wrangler 官方 resolver 讀入、逐欄位釘住、`exports` 生命週期欄位即 review 訊號、

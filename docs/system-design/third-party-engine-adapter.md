@@ -45,12 +45,12 @@ flowchart LR
 
 上游套件只出現在一個 adapter package 的 `dependencies` 裡；全 repo 其他地方 import 它
 都是 lint error + 測試失敗。adapter 對外輸出時**改名成宿主的命名空間**
-（`Engine → HostCanvas`、`restore → restoreScene`）——下游程式碼從此拼不出任何上游符號，
-「哪些程式碼受上游升級影響」變成一個 grep 就能回答的問題。
+（引擎的元件、函式、型別都以宿主的領域詞彙重新輸出）——下游程式碼從此拼不出任何
+上游符號，「哪些程式碼受上游升級影響」變成一個 grep 就能回答的問題。
 
 介面窄化的兩個技巧：
 
-- **Props allowlist**：不透傳整包上游 props，而是 `Pick<UpstreamProps, ...17 個明確核准的鍵>`，
+- **Props allowlist**：不透傳整包上游 props，而是 `Pick<UpstreamProps, 明確核准的鍵>`，
   每個非顯然的鍵附註為什麼需要；
 - **型別用推導不用重述**：`type ExportOptions = Parameters<typeof upstreamExport>[0]`——
   包裝層無法與引擎 drift。
@@ -78,7 +78,7 @@ API、一次走 adapter，斷言完整語意結果逐項相同。這是「我們
 
 ```mermaid
 flowchart TD
-    FX["fixture（以鎖定的上游版本命名<br/>fixtures/engine-0.18.1/…）"]
+    FX["fixture（以鎖定的上游版本命名<br/>fixtures/engine-&lt;version&gt;/…）"]
     FX --> A["路徑 A：直接組合上游原始 API"]
     FX --> B["路徑 B：經過 adapter 包裝層"]
     A --> RA["結果 A"]
@@ -113,7 +113,7 @@ embed），在 adapter 包裝層攔截：關掉上游的入口、換成自己有
 
 ### 7. 消滅 vendor fallback 用 build step，不用 runtime 分支
 
-上游寫死了第三方 CDN fallback（字型、資產）？正解不是 patch 上游，而是：
+上游寫死了對第三方 CDN 的靜態資產 fallback？正解不是 patch 上游，而是：
 build 時把資產從 lockfile 解析的同一版本複製到自家 origin、設定上游的資產路徑
 指向自己，讓 CDN 從「每次都走的正常路徑」降級為「永不觸發的錯誤路徑」，
 再用 CSP 把錯誤路徑也擋掉。判準是**正常路徑的網路行為**，
@@ -137,9 +137,13 @@ build 時把資產從 lockfile 解析的同一版本複製到自家 origin、設
 
 - adapter 套件：`packages/excalidraw-adapter`（5 個 subpath entry、改名輸出、
   props allowlist、`assertNoUnauditedKeys` tripwire、reconcile differential tests、
-  library 下載的 byte-capped 收窄）。
+  library 下載的 byte-capped 收窄）。改名的例子：`Excalidraw → HostCanvas`、
+  `restore → restoreScene`；props allowlist 目前核准 17 個鍵；differential fixture
+  目錄以鎖定版本命名為 `tests/fixtures/excalidraw-0.18.1/`。
 - 不得重寫清單與 gap 流程：[architecture contract](../architecture/architecture-contract.md)、
   [ADR 0001](../adr/0001-excalidraw-persistence-boundary.md)、
   [public API gap audit](../architecture/excalidraw-public-api-gap-audit.md)。
-- 字型自託管與 esm.sh fallback 的 trade-off 推導：
+- §7 的實例：Excalidraw 字型與 CJK 子集在 build 時同步到自家 origin
+  （`scripts/sync-excalidraw-assets.mjs` + `window.EXCALIDRAW_ASSET_PATH`），
+  上游寫死的 esm.sh fallback 因此永不觸發、也不進 CSP allowlist；trade-off 推導在
   [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)。

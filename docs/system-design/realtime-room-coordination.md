@@ -44,8 +44,9 @@ flowchart LR
 
 ### 1. 一個房間 = 一個 coordination atom
 
-以「房間 + 授權世代」作為實例身分（例如 Cloudflare Durable Object、或帶 sticky routing
-的 actor）。平台保證同一身分只有一個實例，因此：
+以「房間 + 授權世代」作為實例身分，交給一個 **single-writer coordinator** 承載
+（平台原生的 per-key actor、或帶 sticky routing 的有狀態服務）。平台保證同一身分
+只有一個實例，因此：
 
 - 房間內的成員表、fanout、撤銷 cutoff 天然序列化，不需要分散式鎖；
 - 「fanout 狀態被意外分裂到多個 instance」這類威脅**在結構上被消滅**，而不是靠小心維護；
@@ -99,7 +100,7 @@ sequenceDiagram
     autonumber
     participant N as 新加入的 client
     participant DO as Room Coordinator
-    participant P as 在線 peer（最小 peerId 的 editor）
+    participant P as 在線 peer（被選出的 responder）
     participant W as Web 後端（持久快照）
 
     N->>DO: 1. 先訂閱即時頻道
@@ -108,7 +109,7 @@ sequenceDiagram
         N->>P: 請求即時快照（經 DO 轉發）
         P-->>N: 加密的當前場景
     and
-        N->>W: 請求持久化快照（5s timeout）
+        N->>W: 請求持久化快照（有界 timeout）
         W-->>N: 加密快照 + revision
     end
     Note over N: 2. 第一個有效基準勝出 → 套用<br/>（輸家降級為普通訊息處理）
@@ -120,6 +121,11 @@ sequenceDiagram
 「先訂閱、後取基準」的順序不可反轉：先取基準再訂閱，中間的訊息就永遠漏掉了。
 relay 完全不需要保存或重放歷史——恢復的正確性來自「快照 + 合併」，
 這讓 relay 保持無資料、可任意重啟。
+
+回應快照請求的 responder 用**確定性規則**從成員表選出（例如具寫入權限、連線 id
+最小的那個成員）：每個成員看同一份成員表都算出同一個答案，不需要協商回合，
+成員變動時自然換人。同一條規則也用來選唯一的持久快照 writer，見
+[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)。
 
 斷線分類成三種結果驅動不同行為：terminal（不重試）、retryable（有界退避重連）、
 generation rotation（換頻道重新加入）。所有關閉都帶明確的 close reason，
@@ -144,15 +150,10 @@ stateDiagram-v2
 注意 `syncing` 與 `live` 是分開的相位：連上又立刻死掉不算進展，
 否則一個 crash-loop 的 relay 會把 client 變成最快節奏的無界重試迴圈。
 
-### 7. 最後一筆寫入的生存設計
+### 7. 持久快照的寫入節奏與最後一筆寫入
 
-「使用者關閉分頁」是最容易丟資料的時刻。要點：
-
-- flush 在**任何 await 之前**先評估 guard 並抓取當下內容——teardown 可能在同一個 tick
-  關閉一切，await 之後再檢查的 guard 會否決掉唯一能保住資料的那次寫入；
-- 終止狀態的 session 自己清理計時器與狀態，不依賴 transport 通知斷線；
-- 接受殘餘風險並寫下來：browser process 被殺、離線時，這筆寫入就是會丟。
-  （為此加 IndexedDB 佇列 / Background Sync 是一個可以做但要明確決策的延伸。）
+client 端如何決定「誰寫、多快寫、被 429 後何時再寫、關閉分頁時如何搶救最後一筆」，
+獨立成一篇：[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)。
 
 ## 評估
 
@@ -165,15 +166,23 @@ stateDiagram-v2
 ## Trade-offs
 
 - 單房間內是單執行緒 O(members) fanout：房間人數有硬上限，這是**防護邊界，
-  不是容量承諾**，兩者要在文件裡明確區分。
-- coordination atom 依賴平台的唯一性保證（DO、actor framework）；
+  不是容量承諾**，兩者要在文件裡明確區分
+  （展開見 [上限是防護不是容量](./limits-as-protection-not-capacity.md)）。
+- coordination atom 依賴平台的唯一性保證（per-key actor runtime）；
   在純 serverless / 純 VM 架構上要自己搭 sticky routing，成本不同。
+- 若 coordinator 以 wall-time 計費且可休眠，liveness 與 keepalive 的設計會反過來被
+  成本形塑（見 [成本感知的有狀態服務](./cost-aware-stateful-services.md)）。
 - 收斂式恢復在超大場景下的成本是全量快照傳輸；事件重放在該情境反而可能更省。
 
 ## 本專案中的實例
 
 - 拓撲、身分、頻道、join barrier、恢復分類：
   [collaboration system design](../architecture/collaboration-system-design.md)。
+  coordinator 是 Cloudflare Durable Object（一個 `(roomId, authGeneration)` 一個 Object，
+  `apps/collaboration-do`），gateway 是同一個 Worker bundle 裡的無狀態 fetch handler。
+- responder／writer 選舉規則：最小 `peerId` 的 editor／owner
+  （`packages/collaboration/src/snapshot.ts` 的 `electSnapshotWriter`）；
+  持久快照競速的 timeout 為 5 s。
 - coordination atom 的決策與邊界（CLAIM-DO-1～6）：
   [ADR-0002](../adr/0002-collaboration-durable-object-target.md)。
 - 房間上限作為防護邊界而非容量承諾：

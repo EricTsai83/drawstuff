@@ -94,7 +94,8 @@ flowchart TD
   或在平台 timeout 時死在任意位置；
 - job 之間**具名、獨立執行、獨立回報**，一個失敗不吞掉後面的；
 - 會產生清理工作的 job 排在佇列 drain 之前，同一輪就能消化自己的產出；
-- 抽樣掃描在 SQL 內做（`ORDER BY random() LIMIT n`），完整候選集不進記憶體；
+- 抽樣掃描在資料庫端做（示意：`ORDER BY random() LIMIT n` 之類的 DB 端抽樣），
+  完整候選集不進記憶體；
 - 全程冪等：任何一輪在任何位置被殺，下一輪從頭跑都安全；
 - 入口用 advisory lock 單飛（single-flight），排程重疊不會並發互踩。
 

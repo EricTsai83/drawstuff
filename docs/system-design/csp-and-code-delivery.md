@@ -85,18 +85,20 @@ flowchart TD
 - 政策、測試、營運文件的觸發點表在同一個 commit 對齊；
 - 收緊流程：改動 → report-only 走查 → enforce。
 
-### 4. 對「擋不住什麼」誠實
+### 4. 對「CSP 擋不住什麼」誠實
 
-CSP 是 defense-in-depth，不是授權機制：
+「能改 bundle 的人拿得到頁面裡的一切」是 code delivery 這條信任邊界的性質，與 CSP
+無關、也無法用 CSP 解決，在 [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md) §6 處理。
+這裡只列 CSP **特有**的兩條誠實邊界：
 
-- 它不阻止把秘密送到 allowlist **內**的 origin（包括自家）；
-- 它完全不約束能改動 bundle 本身的人（部署操作者、supply chain）；
-- 若頁面秘密會出現在 URL 上，違規報告端點（`report-uri`）本身就是一條外送
-  URL 的通道——「為了緩解而新增出口」可能是負收益，值得明確決策拒絕。
+- 它不阻止把秘密送到 allowlist **內**的 origin（包括自家）——`connect-src` 是收斂出口，
+  不是封鎖出口；
+- 若頁面秘密會出現在 URL 上，違規報告端點（`report-uri`／`report-to`）本身就是一條
+  外送 URL 的通道——「為了緩解而新增出口」可能是負收益，值得明確決策拒絕。
 
-配套的 supply-chain 常態要求（都是為了「誰能改 bundle」這個清單保持最小）：
-lockfile 凍結安裝、依賴 postinstall 預設拒絕、CI actions 釘 commit SHA、
-production 零第三方瀏覽器 SDK、部署路徑不留長期可推 production 的憑證。
+「誰能改 bundle」這份清單要靠 supply-chain 與部署紀律保持最小，那屬於
+[Config 與部署是受測工件](./config-and-deployment-as-artifacts.md) 的範疇（憑證按爆炸
+半徑分離、部署路徑不留長期憑證），本文不重複。
 
 ## 評估
 
@@ -122,3 +124,6 @@ production 零第三方瀏覽器 SDK、部署路徑不留長期可推 production
   `apps/web/tests/security-headers.test.ts`、
   embed 單一來源 `apps/web/src/config/embed-allowlist.ts`。
 - 營運程序（report-only → enforce）：[web security headers](../operations/web-security-headers.md)。
+- supply-chain 的具體清單（frozen lockfile、`allowBuilds` 拒絕 postinstall、Actions 釘 SHA、
+  零第三方瀏覽器 SDK、Vercel git integration 為唯一部署路徑）：
+  [threat model](../architecture/collaboration-threat-model.md) 的 Code delivery (B6) controls。

@@ -40,8 +40,10 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 | `gateway.room_fetch_failed`       | error | DO stub fetch 失敗（upgrade 回 503）                        | `errorName`（**不含 room 識別碼**：此時 join token 尚未驗證，route 仍是未驗證輸入） |
 | `gateway.control_token_rejected`  | warn  | control token 驗證失敗（回 401）                            | `tokenFailure`（bounded enum）                                                      |
 | `gateway.control_applied`         | info  | control RPC 成功（audit record）                            | `controlAction`、`roomId`、`authGeneration`、`closedSessions`                       |
+| `gateway.control_rejected`        | error | Object 確定性拒絕 control（回 422，不可 retry）             | `roomId`、`authGeneration`、`controlRejection`（bounded enum）                      |
 | `gateway.control_dispatch_failed` | error | RPC 失敗（回 503，caller 的 durable dispatcher 負責 retry） | `roomId`、`authGeneration`、`errorName`                                             |
 | `room.invalid_object_identity`    | error | Object 被非 canonical 名稱定址                              | —                                                                                   |
+| `room.schema_bootstrap_failed`    | error | constructor schema bootstrap 拋出（runtime 重置該 Object）  | `errorName`                                                                         |
 | `room.frame_dispatch_failed`      | error | frame handler 拋出（該連線關 4014）                         | `errorName`                                                                         |
 | `room.socket_error`               | warn  | socket transport error                                      | `errorName`                                                                         |
 | `room.secret_not_ready`           | error | Object 端 secret 缺失                                       | —                                                                                   |
@@ -61,7 +63,7 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 ## 3. 資料分級（threat model §5 逐項對照）
 
 - 允許且使用：驗證後的 `roomId`／`authGeneration`、Object 產生的 `peerId`、role、close code
-  與 bounded enums（`tokenFailure`、`socketState`、`controlAction`）、計數（`members`、
+  與 bounded enums（`tokenFailure`、`socketState`、`controlAction`、`controlRejection`）、計數（`members`、
   `closedSessions`）。
 - **subject 永不落地**：raw subject 被 §5 禁止；退役的 relay 曾用 48-bit per-process HMAC
   pseudonym，DO 版 logger 連 pseudonym salt 都不保留，`revoke-member` 的 audit record 刻意

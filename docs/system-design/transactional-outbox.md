@@ -42,37 +42,6 @@ flowchart TD
     K -->|超過上限| L["標記 poison（終態）<br/>保留供人工調查"]
 ```
 
-放到「前端 → 後端 → worker」的實際溝通脈絡裡，時序如下（以「撤銷協作成員」為例）：
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant UI as 前端
-    participant API as 後端 API
-    participant DB as 資料庫
-    participant CR as 排程器（cron）
-    participant EXT as 外部系統<br/>（realtime worker / object storage）
-
-    UI->>API: 業務操作（撤銷成員）
-    API->>DB: BEGIN：鎖行 → 改授權 → INSERT outbox 意圖
-    DB-->>API: COMMIT
-    API-)EXT: 同步 best-effort 執行（現簽短效 token）
-    alt 外部確認完成
-        API-->>UI: enforced
-    else 逾時或失敗
-        API-->>UI: pending（誠實回報，不謊稱完成）
-    end
-    loop 每分鐘
-        CR->>DB: claim pending（lease + backoff 篩選）
-        CR->>EXT: 重送外部動作（接收端冪等吸收）
-        alt 成功
-            CR->>DB: delivered
-        else 重試超限
-            CR->>DB: poison（終態，下 alert）
-        end
-    end
-```
-
 關鍵設計點：
 
 1. **意圖與業務改動在同一交易內**。這是整個 pattern 的核心：資料庫的原子性被「借用」來保證
@@ -83,7 +52,11 @@ sequenceDiagram
    看到結果；但即使這一步整個省略，系統仍然正確。回應可以誠實區分兩種狀態：
    「已執行完成」與「已提交、等待執行」。
 4. **poison 是終態，不是刪除**。無限重試會讓一筆壞資料永久占用排程器；直接刪除則抹掉了
-   故障證據。標記終態、設定有界保留期（例如成功列保留 7 天、poison 列保留 30 天）。
+   故障證據。標記終態、設定有界保留期（示意：成功列保留幾天即可、poison 列保留
+   較長以供調查；實際天數是各專案的營運決策）。
+   接收端要區分「確定性的拒絕」（同一筆意圖再送幾次都只會被拒）與「暫時不可用」：前者
+   用獨立的狀態碼與 body 契約回覆，排程器收到就直接標 poison，不消耗重試預算；後者才
+   走 backoff。把兩者混成同一種 5xx，poison 就只能靠次數上限被動觸發。
 5. **pending 永不過期清除**。還沒執行的意圖是「欠著的債」，清掉它等於默默放棄一致性。
 
 ## 評估：為什麼這個 pattern 值得學
@@ -112,8 +85,9 @@ Drawstuff 用同一個 outbox 形狀承載兩種完全不同的外部系統：
   見 [data lifecycle](../architecture/data-lifecycle.md)。
 - `collaboration_control_outbox`：協作房間的授權變更（踢人、關房、世代輪替）在同一交易內
   寫入 enforcement 意圖，由每分鐘的排程 drain 到 Durable Object；投遞以 revision-max 冪等，
-  回應區分 `enforced` 與 `pending`。見
-  [collaboration system design](../architecture/collaboration-system-design.md)。
+  回應區分 `enforced` 與 `pending`；成功列保留 7 天、poison 列保留 30 天。見
+  [collaboration system design](../architecture/collaboration-system-design.md) 與
+  [data lifecycle](../architecture/data-lifecycle.md)。
 
 「誰來當時鐘」的實例：web 平台（Vercel Hobby）的 cron 只有每日精度，因此分鐘級 drain
 由 Cloudflare Worker 的 cron trigger 代打，而每週的清理仍留在 web 平台的 cron。

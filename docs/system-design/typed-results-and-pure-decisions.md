@@ -23,29 +23,6 @@ type SaveResult =
   | { status: "forbidden" };
 ```
 
-```mermaid
-flowchart TD
-    subgraph Transports["多個入口（薄翻譯層）"]
-        T1["RPC router<br/>→ RPC error code"]
-        T2["server action<br/>→ { data | error, code }"]
-        T3["背景 job<br/>→ 重試 / 記錄決策"]
-    end
-    S["domain service（只有一份）<br/>授權 + 交易 + 業務規則"]
-    DB[("資料庫")]
-    U["回傳封閉結果 union：<br/>success | conflict | missing_assets | forbidden"]
-
-    T1 --> S
-    T2 --> S
-    T3 --> S
-    S --> DB
-    S --> U
-    U --> T1
-    U --> T2
-    U --> T3
-    T1 --> C1["前端：對 code 分支，窮舉處理"]
-    T2 --> C1
-```
-
 - service 內含完整的授權與交易邏輯，**只有一份**；
 - RPC router 把 union 翻成 RPC error code；server action 翻成可序列化的
   `{ data | error, code }`；每個 transport 是薄薄的翻譯層；

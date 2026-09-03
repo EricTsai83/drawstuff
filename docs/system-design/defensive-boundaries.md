@@ -79,7 +79,7 @@ fail open 的兩個紀律：
 
 ```mermaid
 flowchart TD
-    REQ["已驗證身分 + 結構有效的請求"] --> RL["共享限流決策<br/>（一次 Redis 呼叫、750ms timeout、不 retry）"]
+    REQ["已驗證身分 + 結構有效的請求"] --> RL["共享限流決策<br/>（一次呼叫、短 timeout、不 retry）"]
     RL -->|allowed| GUARD["授權 / hard guards（fail closed）"]
     RL -->|"degraded（timeout / SDK 錯誤）"| EVT["發出結構化降級事件<br/>（只有 operation + cause enum）"]
     EVT --> GUARD
@@ -92,15 +92,19 @@ flowchart TD
     GUARD -->|任一失敗| DENY["拒絕（授權永遠 fail closed）"]
 ```
 
-- 計數器放在共享儲存（Redis sliding window），key 一律來自**已驗證的伺服器端狀態**
-  （authenticated userId、已解析的 resourceId），永不接受呼叫端自選的 key；
-- namespace 帶版本（`app:domain:ratelimit:v1:<operation>`），演算法或 key 語意改變
-  就換新 namespace，不重用舊計數；
+- 計數器放在**共享儲存**（serverless 的 process-local 計數器不是限流，是每個
+  warm instance 各一份的幻覺），演算法選不會在視窗邊界穿透兩倍流量的那種（sliding
+  window）；key 一律來自**已驗證的伺服器端狀態**（authenticated userId、已解析的
+  resourceId），永不接受呼叫端自選的 key；
+- namespace 帶版本，演算法或 key 語意改變就換新 namespace，不重用舊計數
+  （見 [版本與相容性](./versioning-and-compatibility.md) §4）；
 - 真正的拒絕回 429 + 機器可讀的 reset／retryAfter；client 依 deadline 排程，
   永不 parse 訊息文字；
 - 對「最後一筆關鍵寫入」（例如離開前的 final flush）可以設計一個獨立的小額
-  **保留預算**：只有正常預算明確拒絕後才能動用、上限極小（如 2 tokens）、
-  所有授權 guard 照常適用——謊報意圖最多多買到兩次有界嘗試，換不到 bypass。
+  **保留預算**：只有正常預算明確拒絕後才能動用、上限極小（只夠一次最終寫入
+  加一次衝突重試）、所有授權 guard 照常適用——謊報意圖最多多買到幾次有界嘗試，
+  換不到 bypass。client 端如何配合這個預算，見
+  [Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)。
 
 ### 6. 檢查順序影響回報語意
 
@@ -117,9 +121,11 @@ flowchart TD
 
 ## Trade-offs
 
-- 上限的具體數字需要證據（量測、fixture），拍腦袋的數字會誤傷正常使用者——
-  本專案就有一次核准後才發現數字推導錯誤、會斷開正常使用者的修訂紀錄
-  （SLO 文件的修訂 R1），教訓是：上限要伴隨 sustained-cadence 測試。
+- 上限的具體數字需要證據（量測、fixture），拍腦袋的數字會誤傷正常使用者，
+  而且錯誤往往在實作後才被 review 發現。上限要伴隨 **sustained-cadence 測試**：
+  以合法客戶端的最快節奏持續打，證明它不會被自己的防線切斷。
+- 上限是防護邊界而不是容量承諾，兩者混用會讓 SLO 與錯誤訊息一起說錯話
+  （見 [上限是防護不是容量](./limits-as-protection-not-capacity.md)）。
 - fail open 意味著接受「故障期間暫時沒有上界」；若某條路徑的濫用後果不可接受，
   它就不該被歸為容量類。
 
@@ -133,4 +139,9 @@ flowchart TD
   DB `check()` constraint 直接 import 套件常數（`apps/web/src/server/db/schema.ts`）。
 - 共享限流、三態決策、finalization reserve、429 契約：
   [collaboration system design](../architecture/collaboration-system-design.md) 的
-  shared backend rate limits 章節。
+  shared backend rate limits 章節。具體參數——Upstash Redis sliding window、
+  750 ms timeout、namespace `drawstuff:collab:ratelimit:v1:<operation>`、
+  reserve 每使用者每房間 2 tokens／分鐘——在
+  [collaboration SLO §5](../performance/collaboration-slo-capacity.md)。
+- 「數字推導錯誤、會斷開正常使用者」的真實案例與 sustained-cadence 測試的由來：
+  同一份 SLO 文件的「修訂 R1」小節。

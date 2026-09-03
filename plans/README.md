@@ -9,10 +9,10 @@
 Durable Object migration series（plans 09–15）已全數完成：production routing 無條件
 DO-only，Node relay infrastructure 已退役刪除。現況與長期 invariant 見
 [collaboration system design](../docs/architecture/collaboration-system-design.md)、
-[DO 部署 runbook](../docs/operations/collaboration-do-deployment.md)、
-[ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md) 與
-[collaboration SLO 文件](../docs/performance/collaboration-slo-capacity.md)；完成證據在
-git history。
+[DO 部署 runbook](../docs/operations/collaboration-do-deployment.md) 與
+[collaboration SLO 文件](../docs/performance/collaboration-slo-capacity.md)；遷移決策見已標為
+Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md)，完成證據在 git
+history。
 
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) —
   Cloudflare alerts／dashboards 依已核准定義配置，以及 relay 主機（pm2、reverse proxy、

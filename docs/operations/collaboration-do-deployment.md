@@ -23,6 +23,16 @@ cohort。可逆的變更走自動部署，不可逆的變更走手動——與 r
 `tests/config-audit.test.ts` 釘住 `exports` 與 wrangler 設定，lifecycle 變更無法不動測試
 就合併——這就是刻意的人工審查訊號（CLAIM-MIG-4）。
 
+**Protocol version bump 不需要部署順序。** `COLLABORATION_PROTOCOL_VERSION` 一起改動時，
+web（Vercel）與 Worker（Workers Builds）各自從同一個 `main` commit 自動部署，落地時間差幾分鐘、
+先後不定。這段 skew 期間 relay 對版本不符的 join——不論 client 較舊或較新——一律以
+`unsupportedProtocolVersion`（4013）關閉，close reason 同時寫出兩邊版本（例如
+`unsupported protocol version 5; relay speaks 4`），不會落入 terminal 的 `protocolViolation`。
+client 端把這個 code 視為 deploy skew：以 backoff 重連最多 5 分鐘
+（`DEFAULT_PROTOCOL_SKEW_WINDOW_MS`，不消耗一般 retry budget），另一側落地後自動接上；超過
+視窗仍被拒（例如跨 bump 開著好幾天的分頁）才 terminal，提示使用者 reload。因此 bump 走一般
+Code-only 自動部署即可，不需先手動部署 Worker。
+
 ## 2. Secrets
 
 三個 Cloudflare secret 缺一不可（`secrets.required` 會讓缺 secret 的部署直接拒絕）：
@@ -43,7 +53,7 @@ Secret 變更會產生新的 Worker version（Dashboard 顯示為 Secret Change 
 1. `curl https://drawstuff-collaboration-do.ericts.workers.dev/healthz` —— `ok:true`、
    新 version id、`roomTokenSecret`/`allowedOrigins` ready；
 2. `pnpm cf:smoke <worker-url>`（帶 `COLLAB_JOIN_TOKEN_SECRET` 跑完整 WS 層）；
-3. 大變更加跑 `pnpm cf:conformance <worker-url>`（45 個 black-box case，數分鐘）；
+3. 大變更加跑 `pnpm cf:conformance <worker-url>`（46 個 black-box case，數分鐘）；
 4. 記錄 version id 作為下次 rollback 的已知良好版本。
 
 ## 4. Rollback

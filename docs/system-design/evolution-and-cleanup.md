@@ -104,6 +104,6 @@ cross-reference。這是讓文件與程式碼保持同步的實際機制——
 - 分階段收緊與 backfill 規則：
   [engineering conventions](../operations/engineering-conventions.md)。
 - plans 生命週期：`plans/README.md` 與 conventions 的 active work retirement 節；
-  實例——Node relay 於退役當日整體刪除，ADR-0002 就地標注哪些敘述自此僅為歷史。
+  實例——Node relay 於退役當日整體刪除，ADR-0002 標為 Superseded 並移除 rollout 暫態敘述。
 - 帶移除條件的依賴例外：`pnpm-workspace.yaml` 的 `overrides` 逐條註記 advisory
   與移除條件。

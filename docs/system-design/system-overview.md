@@ -99,19 +99,10 @@ sequenceDiagram
 | 元件 | 適用的 pattern 文件 |
 | --- | --- |
 | 引擎 Adapter | [第三方引擎 Adapter](./third-party-engine-adapter.md)、[模組邊界](./module-boundaries.md) |
-| Web App API 層 | [分層授權](./layered-authorization.md)、[封閉結果型別](./typed-results-and-pure-decisions.md)、[防禦性邊界](./defensive-boundaries.md) |
+| Web App API 層 | [分層授權](./layered-authorization.md)、[封閉結果型別](./typed-results-and-pure-decisions.md)、[防禦性邊界](./defensive-boundaries.md)、[上限是防護不是容量](./limits-as-protection-not-capacity.md) |
 | 關聯式 DB | [Transactional outbox](./transactional-outbox.md)、[資料生命週期與 GC](./data-lifecycle-and-gc.md)、[版本與相容性](./versioning-and-compatibility.md) |
-| 共享計數器 | [防禦性邊界](./defensive-boundaries.md) §5 |
-| Gateway + Coordinator | [即時協作房間](./realtime-room-coordination.md)、[隱私安全 observability](./privacy-safe-observability.md) |
-| 協作 Session（client） | [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md)、[即時協作房間](./realtime-room-coordination.md) §6–7 |
-| 瀏覽器 UI 殼 | [持久工作區與 overlay routing](./persistent-shell-overlay-routing.md)、[server-resolved i18n](./server-resolved-i18n.md) |
-| Headers／部署／CI | [CSP 與 code delivery](./csp-and-code-delivery.md)、[Config 與部署是受測工件](./config-and-deployment-as-artifacts.md)、[測試作為契約](./testing-as-contracts.md)、[演進與清理紀律](./evolution-and-cleanup.md) |
-
-## 為什麼是「兩個平台」
-
-Web 平台承載 SSR、授權與交易性資料；Edge 平台只承載即時協作的 gateway 與
-per-room coordinator。這個拆分不是為了炫技，而是每邊各取所長：交易與關聯式
-資料留在 serverless Web 平台，「一房一實例」的序列化狀態交給平台原生保證唯一性的
-coordinator（見 [即時協作房間](./realtime-room-coordination.md) §1）。代價是跨平台的
-契約必須極度明確——這正是共用契約套件、簽章 token、
-outbox drain「借用對方平台的 cron 當時鐘」等 pattern 存在的原因。
+| 共享計數器 | [防禦性邊界](./defensive-boundaries.md) §5、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md) §3 |
+| Gateway + Coordinator | [即時協作房間](./realtime-room-coordination.md)、[成本感知的有狀態服務](./cost-aware-stateful-services.md)、[上限是防護不是容量](./limits-as-protection-not-capacity.md)、[隱私安全 observability](./privacy-safe-observability.md) |
+| 協作 Session（client） | [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md)、[即時協作房間](./realtime-room-coordination.md) §6、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)、[遠端狀態回灌的重入抑制](./reentrancy-suppression-for-echoed-remote-state.md) |
+| 瀏覽器 UI 殼 | [持久工作區與 overlay routing](./persistent-shell-overlay-routing.md)、[Server 端解析狀態的 hydration 邊界](./hydration-boundary-for-server-resolved-state.md) |
+| Headers／部署／CI | [CSP 與 code delivery](./csp-and-code-delivery.md)、[Config 與部署是受測工件](./config-and-deployment-as-artifacts.md)、[測試作為契約](./testing-as-contracts.md)、[演進與清理紀律](./evolution-and-cleanup.md)、[記錄下來的拒絕](./recorded-refusals.md) |

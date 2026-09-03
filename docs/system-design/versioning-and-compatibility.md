@@ -20,21 +20,24 @@
 否則升級一次協定，所有存檔密文變成不可解。格式版本以 AAD 綁定而不是
 進入金鑰衍生，這樣格式修訂不會把活躍資源的金鑰整個換掉。
 
+一個典型系統的格式登錄表長這樣（名稱與版號只是示意）：
+
 ```mermaid
 flowchart TD
     subgraph Formats["同一系統內並存的格式（各自編號，互不閘門）"]
-        F1["wire protocol v4"]
-        F2["token v1"]
-        F3["realtime envelope v3"]
-        F4["snapshot v1"]
-        F5["儲存 schema v2"]
-        F6["內部 RPC applyControlV1"]
+        F1["wire protocol vA"]
+        F2["auth token vB"]
+        F3["即時訊息加密封裝 vC"]
+        F4["持久文件／快照 vD"]
+        F5["儲存 schema vE"]
+        F6["內部 RPC handler vF"]
     end
     F1 x--x F4
     F3 x--x F4
 ```
 
 （`x--x`：傳輸版本升級**不得**使持久資料失效——這是分開編號要守住的核心性質。）
+把這張表寫進架構文件：每一列一個 owner、一個常數所在檔案、一句「為什麼它不跟別人共用版號」。
 
 ### 2. Skew 規則按邊界性質選擇
 
@@ -87,9 +90,11 @@ flowchart TD
 
 ## 本專案中的實例
 
-- 六個獨立版本號（wire v4、token v1、realtime envelope v3、snapshot、keycheck、
-  DO SQLite schema v2）與 decoupling 理由：`packages/collaboration/src/messages.ts`、
-  `realtime-crypto.ts`。
+- 本專案的格式登錄表：wire protocol v4、join/control token v1、realtime envelope v3、
+  snapshot v1、keycheck、Durable Object SQLite schema v2、內部 RPC `applyControlV1`；
+  decoupling 理由在 `packages/collaboration/src/messages.ts`、`realtime-crypto.ts`
+  與 [collaboration system design](../architecture/collaboration-system-design.md)
+  的 E2EE 章節（「snapshot／asset 的 AAD 不含 transport version」）。
 - 寬鬆版本探測（過舊 client → close code「請重整」）：`src/relay-protocol.ts`。
 - 內部 RPC 的 V1/V2 規則：`apps/collaboration-do/src/control.ts` docstring。
 - 「儲存 schema 比程式碼新 → throw」與冪等遷移：`apps/collaboration-do/src/room.ts`
