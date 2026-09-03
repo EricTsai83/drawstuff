@@ -139,45 +139,39 @@ describe("DrawstuffDocumentV4", () => {
     expect(serializeDrawstuffDocumentV4(stored)).not.toContain("uploadedBy");
   });
 
-  it("reads raw legacy Excalidraw payloads", () => {
-    const legacy = parsedDocument({
-      elements,
-      appState: { name: "Legacy", theme: "light", scrollX: 99 },
-    });
-    expect(legacy.metadata.name).toBe("Legacy");
-    expect(legacy.scene.elements).toEqual(elements);
-    expect(legacy.scene.appState).not.toHaveProperty("scrollX");
-    expect(legacy.scene.appState).not.toHaveProperty("theme");
-  });
-
-  it("rejects Owned Whiteboard V3 payloads instead of misreading them", () => {
-    const result = parseDrawstuffDocument({
-      version: 3,
-      elements: [{ id: "v3-rect", type: "rectangle", updatedAt: 1234 }],
-      metadata: { name: "V3 fixture", theme: "dark" },
-    });
-    expect(result).toMatchObject({
+  it.each([
+    [
+      "a raw Excalidraw payload",
+      { elements, appState: { name: "Legacy", theme: "light" } },
+    ],
+    [
+      "an Owned Whiteboard V3 payload",
+      {
+        version: 3,
+        elements: [{ id: "v3-rect", type: "rectangle", updatedAt: 1234 }],
+        metadata: { name: "V3 fixture", theme: "dark" },
+      },
+    ],
+    [
+      "an upstream format-version-3 export",
+      {
+        type: "excalidraw",
+        version: 3,
+        source: "https://excalidraw.com",
+        elements,
+        appState: { name: "Upstream v3" },
+      },
+    ],
+  ])("refuses %s instead of upgrading it on read", (_label, payload) => {
+    // Stored rows were rewritten to V4 once (2026-08-01) and audited empty of
+    // anything else; a reader that quietly upgraded would be a lingering shim.
+    expect(parseDrawstuffDocument(payload)).toEqual({
       ok: false,
-      error: { code: "retired-owned-whiteboard-v3" },
+      error: {
+        code: "unsupported-payload",
+        detail: "Unsupported Drawstuff document payload",
+      },
     });
-    if (result.ok) throw new Error("expected a failed parse");
-    expect(result.error.detail).toMatch(
-      /Owned Whiteboard V3 documents are no longer readable/,
-    );
-  });
-
-  it("reads raw Excalidraw payloads whose upstream format version is 3", () => {
-    const legacy = parsedDocument({
-      type: "excalidraw",
-      version: 3,
-      source: "https://excalidraw.com",
-      elements,
-      appState: { name: "Upstream v3", theme: "light", scrollX: 99 },
-    });
-    expect(legacy.metadata.name).toBe("Upstream v3");
-    expect(legacy.scene.elements).toEqual(elements);
-    expect(legacy.scene.appState).not.toHaveProperty("scrollX");
-    expect(legacy.scene.appState).not.toHaveProperty("theme");
   });
 
   it("rejects payloads that are neither V4 documents nor Excalidraw scenes", () => {

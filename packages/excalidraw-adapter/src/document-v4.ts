@@ -106,8 +106,7 @@ export function createLocalExportDocument(input: {
 }
 
 export type DrawstuffDocumentParseError = {
-  code:
-    "malformed-json" | "retired-owned-whiteboard-v3" | "unsupported-payload";
+  code: "malformed-json" | "unsupported-payload";
   detail: string;
 };
 
@@ -136,29 +135,13 @@ export function parseDrawstuffDocument(
       },
     };
   }
+  // V4 is the only stored shape: every pre-V4 row was rewritten on
+  // 2026-08-01 and a 2026-09-04 audit of stored documents found none left, so
+  // anything else — including a raw `.excalidraw` payload — is refused rather
+  // than upgraded on read. Disk imports go through the adapter's import path,
+  // never through this reader.
   if (isDrawstuffDocumentV4(parsed)) {
     return { ok: true, document: canonicalize(parsed) };
-  }
-  if (isOwnedWhiteboardV3(parsed)) {
-    return {
-      ok: false,
-      error: {
-        code: "retired-owned-whiteboard-v3",
-        detail:
-          "Owned Whiteboard V3 documents are no longer readable; they were " +
-          "rewritten to Drawstuff V4 on 2026-08-01",
-      },
-    };
-  }
-  if (isLegacyExcalidrawPayload(parsed)) {
-    return {
-      ok: true,
-      document: createDrawstuffDocumentV4({
-        elements: parsed.elements,
-        appState: objectOrEmpty(parsed.appState),
-        name: objectOrEmpty(parsed.appState).name as string | undefined,
-      }),
-    };
   }
   return {
     ok: false,
@@ -190,10 +173,8 @@ function canonicalize(document: DrawstuffDocumentV4): DrawstuffDocumentV4 {
 
 /**
  * Asset entries get the same treatment as `appState`: only the contract
- * fields survive canonicalization, so a stored entry that carries anything
- * extra loses it on the next read instead of ferrying it forward forever.
- * Stripping rather than refusing keeps documents written before asset
- * entries were validated readable.
+ * fields survive canonicalization, so an entry that carries anything extra
+ * loses it on the next read instead of ferrying it forward forever.
  */
 function canonicalAssets(
   assets: Readonly<Record<string, DrawstuffAssetMetadata>>,
@@ -270,28 +251,6 @@ function isAssetMetadata(value: unknown): value is DrawstuffAssetMetadata {
   }
   return (
     value.lastRetrieved === undefined || typeof value.lastRetrieved === "number"
-  );
-}
-
-function isLegacyExcalidrawPayload(value: unknown): value is {
-  readonly elements: readonly unknown[];
-  readonly appState?: unknown;
-} {
-  return isObject(value) && Array.isArray(value.elements);
-}
-
-/**
- * Owned Whiteboard V3 was rewritten to V4 in production, so the reader is
- * gone. V3 payloads still carry a top-level `elements` array, so they are
- * rejected explicitly instead of falling through to the raw `.excalidraw`
- * reader, which would misread their renamed fields.
- */
-function isOwnedWhiteboardV3(value: unknown): boolean {
-  return (
-    isObject(value) &&
-    value.type !== "excalidraw" &&
-    value.version === 3 &&
-    Array.isArray(value.elements)
   );
 }
 
