@@ -50,6 +50,15 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
     return Promise.resolve(decision);
   },
 }));
+vi.mock("@/server/rate-limit/shared-scene", () => ({
+  checkSharedSceneRateLimit: (input: {
+    operation: string;
+    identifier: string;
+  }) => {
+    checks.push(input);
+    return Promise.resolve(decision);
+  },
+}));
 
 import { NextRequest } from "next/server";
 
@@ -114,10 +123,26 @@ describe("what the collaboration upload limit counts", () => {
     expect(delegated).toHaveLength(1);
   });
 
-  it("does not count uploads for the app's other file routes", async () => {
-    // This budget is the collaboration one; scene and thumbnail uploads are a
-    // different route's traffic and out of this plan's scope.
-    await POST(request("?actionType=upload&slug=sceneAssetUploader"));
+  it("charges the app's other file routes to one shared per-user upload budget", async () => {
+    // Not the collaboration budget: shared-scene, scene-asset and thumbnail
+    // uploads share the `upload` budget of the shared-scene limiter.
+    for (const slug of [
+      "sharedSceneFileUploader",
+      "sceneAssetUploader",
+      "sceneThumbnailUploader",
+    ]) {
+      await POST(request(`?actionType=upload&slug=${slug}`));
+    }
+    expect(checks).toEqual([
+      { operation: "upload", identifier: "user-a" },
+      { operation: "upload", identifier: "user-a" },
+      { operation: "upload", identifier: "user-a" },
+    ]);
+    expect(delegated).toHaveLength(3);
+  });
+
+  it("does not count an unknown slug", async () => {
+    await POST(request("?actionType=upload&slug=notARoute"));
     expect(checks).toEqual([]);
     expect(delegated).toHaveLength(1);
   });
@@ -155,6 +180,18 @@ describe("what a refusal looks like", () => {
     // Nothing reached UploadThing: the refusal happens before the storage
     // object, the room lookup and the commit transaction.
     expect(delegated).toEqual([]);
+  });
+
+  it("names the scene upload budget in a scene route's 429", async () => {
+    decision = { status: "limited", reset: 1_000, retryAfterMs: 500 };
+    const response = await POST(
+      request("?actionType=upload&slug=sceneThumbnailUploader"),
+    );
+    expect(response.status).toBe(429);
+    expect(await response.json()).toMatchObject({
+      error: COLLAB_RATE_LIMITED_ERROR,
+      operation: "scene-upload",
+    });
   });
 
   it("delegates when the caller is under the limit", async () => {

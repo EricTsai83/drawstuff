@@ -1,5 +1,13 @@
 // @vitest-environment node
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -16,6 +24,8 @@ import {
   type CollaborationRateLimiter,
   type CollaborationRateLimitOperation,
 } from "@/server/rate-limit/collaboration";
+
+import { requestUrl } from "./support/request-url";
 
 /**
  * The shared-limiter contract.
@@ -181,7 +191,7 @@ describe("the shared Redis client", () => {
     const stub = vi
       .spyOn(globalThis, "fetch")
       .mockImplementation((input: RequestInfo | URL) => {
-        fetchCalls.push(String(input));
+        fetchCalls.push(requestUrl(input));
         return Promise.reject(new Error("ECONNRESET"));
       });
     const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
@@ -202,7 +212,7 @@ describe("the shared Redis client", () => {
 });
 
 describe("collaboration rate limit decisions", () => {
-  let warn: ReturnType<typeof vi.spyOn>;
+  let warn: MockInstance<typeof console.warn>;
 
   beforeEach(() => {
     warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

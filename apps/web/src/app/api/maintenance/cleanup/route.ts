@@ -4,6 +4,7 @@ import { UTApi } from "uploadthing/server";
 import { z } from "zod";
 
 import { env } from "@/env";
+import { bearerTokenMatches } from "@/server/bearer-token";
 import {
   createUserPurgeJob,
   MAINTENANCE_LOCK_KEY,
@@ -65,9 +66,7 @@ const RequestBodySchema = z.object({
 
 function unauthorized(request: Request): NextResponse | null {
   // 授權：僅接受 Authorization: Bearer <CRON_SECRET>
-  const authHeader = request.headers.get("authorization");
-  const expected = `Bearer ${env.CRON_SECRET}`;
-  if (authHeader !== expected) {
+  if (!bearerTokenMatches(request, env.CRON_SECRET)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   return null;

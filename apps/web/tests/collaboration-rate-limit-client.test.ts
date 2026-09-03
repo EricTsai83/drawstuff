@@ -223,7 +223,7 @@ describe("asset lookups", () => {
       now: () => timers.now,
     });
 
-  const rejectingApi = (error: unknown): AssetApi & { calls: number } => {
+  const rejectingApi = (error: Error): AssetApi & { calls: number } => {
     const api = {
       calls: 0,
       resolve: () => {

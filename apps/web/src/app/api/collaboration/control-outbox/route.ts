@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 
 import { env } from "@/env";
+import { bearerTokenMatches } from "@/server/bearer-token";
 import { drainControlOutbox } from "@/server/collab/control-outbox";
 import { db } from "@/server/db";
 
@@ -35,9 +36,7 @@ export const maxDuration = 60;
 export async function GET(request: Request) {
   // 授權：僅接受 Authorization: Bearer <COLLAB_OUTBOX_CRON_SECRET>。secret 未
   // 設定時一律 401（fail closed）：drain 只是延遲，不是安全問題。
-  const secret = env.COLLAB_OUTBOX_CRON_SECRET;
-  const authHeader = request.headers.get("authorization");
-  if (secret === undefined || authHeader !== `Bearer ${secret}`) {
+  if (!bearerTokenMatches(request, env.COLLAB_OUTBOX_CRON_SECRET)) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   const report = await drainControlOutbox({ db });

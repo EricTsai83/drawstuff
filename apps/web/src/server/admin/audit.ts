@@ -33,13 +33,21 @@ export async function beginAdminAudit(params: {
   return event.id;
 }
 
+function classifyError(error: unknown): string {
+  if (!(error instanceof Error)) return "UnknownError";
+  const code = "code" in error ? error.code : undefined;
+  return typeof code === "string" ? `${error.name}:${code}` : error.name;
+}
+
 export async function completeAdminAudit(params: {
   db: Database;
   auditId: string;
   status: "succeeded" | "failed";
   error?: unknown;
 }): Promise<void> {
-  const error = params.error ? String(params.error).slice(0, 2_000) : null;
+  // 只存分類（error name + 短 code），不存 message：Drizzle 的錯誤 message 內含
+  // query params，直接持久化等於把資料列複製進 audit 表。
+  const error = params.error ? classifyError(params.error) : null;
   await params.db
     .update(adminAuditEvent)
     .set({ status: params.status, error, completedAt: new Date() })

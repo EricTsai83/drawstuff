@@ -116,8 +116,9 @@ export const uploadRouter = {
     })
     .onUploadComplete(async ({ metadata, file }) => {
       // This code RUNS ON YOUR SERVER after upload
-      console.log("Scene file upload complete for userId:", metadata.userId);
-      console.log("file url", file.ufsUrl);
+      // 不記 URL 也不記整個 error：URL 是取得密文的 capability，而 Drizzle 的
+      // 錯誤 message 內含 insert params（同樣含 url）。與 collaborationAssetUploader
+      // 一致，失敗時只記 error.name。
       // 僅處理 sharedScene 檔案紀錄（不處理縮圖、也不處理 scene 資產）
       if (metadata.sharedSceneId) {
         try {
@@ -149,9 +150,11 @@ export const uploadRouter = {
               fileKey: file.key,
             };
           }
-          console.log("File record saved to database:", file.key);
         } catch (error) {
-          console.error("Error saving file record to database:", error);
+          console.error("Error saving file record to database:", {
+            sharedSceneId: metadata.sharedSceneId,
+            error: error instanceof Error ? error.name : "unknown",
+          });
           // 清理剛上傳的檔案
           const ok = await deleteFileWithRetry(file.key, {
             sharedSceneId: metadata.sharedSceneId,
@@ -232,7 +235,10 @@ export const uploadRouter = {
           }
         }
       } catch (error) {
-        console.error("Error saving scene asset record:", error);
+        console.error("Error saving scene asset record:", {
+          sceneId,
+          error: error instanceof Error ? error.name : "unknown",
+        });
         const ok = await deleteFileWithRetry(file.key, {
           sceneId,
           reason: "db-write-failed",
@@ -403,7 +409,10 @@ export const uploadRouter = {
             deleteFileWithRetry(key, { sceneId, reason: "replace-thumbnail" }),
         });
       } catch (error) {
-        console.error("Error updating scene thumbnail:", error);
+        console.error("Error updating scene thumbnail:", {
+          sceneId,
+          error: error instanceof Error ? error.name : "unknown",
+        });
         const ok = await deleteFileWithRetry(file.key, {
           sceneId,
           reason: "db-write-failed",

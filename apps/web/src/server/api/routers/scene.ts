@@ -32,6 +32,7 @@ import {
 } from "@/server/scene/save-owned-scene";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 import { retireScene } from "@/server/admin/retirement";
+import { enforcePublicSceneReadRateLimit } from "@/server/rate-limit/shared-scene";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -586,6 +587,8 @@ export const sceneRouter = createTRPCRouter({
     .input(z.object({ slug: z.string().min(1).max(64) }))
     .output(publicSceneOutput.nullable())
     .query(async ({ ctx, input }) => {
+      // Public 且每次回傳最多 5 MiB：與分享連結讀取共用同一個 per-IP 預算。
+      await enforcePublicSceneReadRateLimit(ctx.headers);
       const publishedScene = await ctx.db.query.scene.findFirst({
         where: and(
           eq(scene.publishedSlug, input.slug),

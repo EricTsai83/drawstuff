@@ -63,7 +63,8 @@ export async function prepareSceneDataForExport(
   return {
     compressedSceneData,
     compressedFilesData,
-    encryptionKey: (encryptionKey ?? undefined) as unknown as string,
+    /** `null` when `options.encrypt` is false. */
+    encryptionKey,
   } as const;
 }
 

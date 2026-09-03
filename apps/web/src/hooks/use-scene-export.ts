@@ -74,6 +74,12 @@ export function useSceneExport() {
           { profile: "readonly-share" },
         );
 
+        // 分享連結一定加密（encrypt 預設為 true），沒有金鑰就不能產生可讀的連結
+        if (!sceneData.encryptionKey) {
+          throw new Error("Share export produced no encryption key");
+        }
+        const { encryptionKey } = sceneData;
+
         // 如果有文件需要上傳，先整理檔案。每個檔案帶自己的 Excalidraw file id
         // 作為身份，檔名不承載任何意義。
         const filesToUpload = sceneData.compressedFilesData.map((file) => ({
@@ -104,7 +110,7 @@ export function useSceneExport() {
         let shareableUrlString = "";
         try {
           const u = new URL(base);
-          u.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
+          u.hash = `json=${result.sharedSceneId},${encryptionKey}`;
           shareableUrlString = u.toString();
         } catch {
           const origin =
@@ -112,7 +118,7 @@ export function useSceneExport() {
               ? window.location.origin
               : "http://localhost:3000";
           const u = new URL(origin);
-          u.hash = `json=${result.sharedSceneId},${sceneData.encryptionKey}`;
+          u.hash = `json=${result.sharedSceneId},${encryptionKey}`;
           shareableUrlString = u.toString();
         }
 

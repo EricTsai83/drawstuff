@@ -7,6 +7,7 @@ import {
   describe,
   expect,
   it,
+  type MockInstance,
   vi,
 } from "vitest";
 
@@ -458,7 +459,7 @@ describe("a real refusal", () => {
 });
 
 describe("Redis degradation", () => {
-  let warn: ReturnType<typeof vi.spyOn>;
+  let warn: MockInstance<typeof console.warn>;
 
   beforeEach(() => {
     warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);

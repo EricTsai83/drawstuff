@@ -30,7 +30,7 @@ describe("signInWithGoogle", () => {
     await expect(signInWithGoogle()).resolves.toBeUndefined();
     expect(socialSignIn).toHaveBeenCalledWith(
       { provider: "google", callbackURL: "/" },
-      { signal: expect.any(AbortSignal) },
+      { signal: expect.any(AbortSignal) as AbortSignal },
     );
   });
 

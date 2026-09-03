@@ -6,6 +6,7 @@ import type { Redis } from "@upstash/redis";
 import {
   COLLABORATION_RATE_LIMIT_TIMEOUT_MS,
   createSharedRedis,
+  enforceCollaborationRateLimitDecision,
   evaluateCollaborationRateLimit,
   type CollaborationRateLimitDecision,
 } from "./collaboration";
@@ -18,22 +19,29 @@ import {
  * boundary.
  *
  * Why these exist (plan 03, M12/L3): creating a shared scene writes up to
- * 5 MiB of `bytea` per call behind nothing but a login session, and the two
- * public read procedures could be hammered anonymously. Creation is limited
- * per authenticated user; public reads are limited per client IP.
+ * 5 MiB of `bytea` per call behind nothing but a login session, and the
+ * public read procedures (share links and published scenes, each up to 5 MiB)
+ * could be hammered anonymously. Creation and file uploads are limited per
+ * authenticated user; public reads are limited per client IP.
  */
 
 /** Version/ownership boundary, disjoint from the collaboration namespace. */
 export const SHARED_SCENE_RATE_LIMIT_KEY_PREFIX =
   "drawstuff:shared-scene:ratelimit:v1";
 
-export type SharedSceneRateLimitOperation = "create" | "read";
+export type SharedSceneRateLimitOperation = "create" | "read" | "upload";
 
 export const SHARED_SCENE_RATE_LIMITS = {
   /** Per user. Each call may persist a multi-MiB row that lives 30 days. */
   create: { tokens: 10, window: "60 s" },
-  /** Per client IP, covering both public read procedures together. */
+  /** Per client IP, covering every public scene read procedure together. */
   read: { tokens: 120, window: "60 s" },
+  /**
+   * Per user, one budget across the shared-scene, scene-asset and thumbnail
+   * file routes. A save may carry several images plus a thumbnail, so this is
+   * a multiple of the 10/min `create` budget rather than equal to it.
+   */
+  upload: { tokens: 60, window: "60 s" },
 } as const satisfies Record<
   SharedSceneRateLimitOperation,
   { tokens: number; window: `${number} s` }
@@ -67,6 +75,7 @@ function limiterFor(operation: SharedSceneRateLimitOperation): Ratelimit {
     limiters = {
       create: createSharedSceneRateLimiter(redis, "create"),
       read: createSharedSceneRateLimiter(redis, "read"),
+      upload: createSharedSceneRateLimiter(redis, "upload"),
     };
   }
   return limiters[operation];
@@ -97,5 +106,24 @@ export function clientIpFromHeaders(headers: Headers): string | null {
   const forwarded = headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   if (forwarded) return forwarded;
   const realIp = headers.get("x-real-ip")?.trim();
-  return realIp ? realIp : null;
+  if (realIp) return realIp;
+  return null;
+}
+
+/**
+ * Per-client-IP limit for public (unauthenticated) scene reads. The link or
+ * slug is the capability, so the IP is the only identity to charge; no IP
+ * (local dev) and Redis degraded both let the read through.
+ */
+export async function enforcePublicSceneReadRateLimit(
+  headers: Headers,
+): Promise<void> {
+  const clientIp = clientIpFromHeaders(headers);
+  if (!clientIp) return;
+  enforceCollaborationRateLimitDecision(
+    await checkSharedSceneRateLimit({
+      operation: "read",
+      identifier: clientIp,
+    }),
+  );
 }

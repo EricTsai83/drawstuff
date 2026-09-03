@@ -6,9 +6,13 @@ import {
   COLLAB_RATE_LIMITED_ERROR,
   type CollaborationRateLimitErrorBody,
 } from "@/lib/collab/rate-limit";
-import { checkCollaborationRateLimit } from "@/server/rate-limit/collaboration";
+import {
+  checkCollaborationRateLimit,
+  type CollaborationRateLimitDecision,
+} from "@/server/rate-limit/collaboration";
+import { checkSharedSceneRateLimit } from "@/server/rate-limit/shared-scene";
 
-import { uploadRouter } from "./core";
+import { uploadRouter, type UploadRouter } from "./core";
 
 const { GET, POST: handleUploadThingRequest } = createRouteHandler({
   router: uploadRouter,
@@ -18,7 +22,7 @@ const { GET, POST: handleUploadThingRequest } = createRouteHandler({
 });
 
 /**
- * Rate limits collaboration asset uploads at the presign request.
+ * Rate limits uploads at the presign request, per user, per file route budget.
  *
  * The limit cannot live in the FileRoute middleware: UploadThing 7.7.4 has no
  * `TOO_MANY_REQUESTS` error code, so anything thrown from there becomes a 400
@@ -34,32 +38,67 @@ const { GET, POST: handleUploadThingRequest } = createRouteHandler({
  * server-to-server traffic, not the user's, and counting them would let a busy
  * room limit itself.
  */
-const COLLABORATION_UPLOAD_SLUG = "collaborationAssetUploader";
+type PresignBudget = {
+  /** Reported in the 429 body; which budget was spent. */
+  operation: string;
+  check: (userId: string) => Promise<CollaborationRateLimitDecision>;
+};
+
+const sceneUploadBudget: PresignBudget = {
+  operation: "scene-upload",
+  check: (userId) =>
+    checkSharedSceneRateLimit({ operation: "upload", identifier: userId }),
+};
+
+/** Every file route has a budget; `satisfies` makes a new route pick one. */
+const PRESIGN_BUDGETS = {
+  collaborationAssetUploader: {
+    operation: "asset-upload",
+    check: (userId) =>
+      checkCollaborationRateLimit({
+        operation: "asset-upload",
+        identifier: userId,
+      }),
+  },
+  sharedSceneFileUploader: sceneUploadBudget,
+  sceneAssetUploader: sceneUploadBudget,
+  sceneThumbnailUploader: sceneUploadBudget,
+} satisfies Record<keyof UploadRouter, PresignBudget>;
+
+function isKnownSlug(slug: string): slug is keyof typeof PRESIGN_BUDGETS {
+  return Object.hasOwn(PRESIGN_BUDGETS, slug);
+}
 
 /**
- * True only for the client's authenticated presign request.
+ * The budget for the client's authenticated presign request, or `null` for
+ * anything else.
  *
  * `actionType=upload` identifies the presign; the `uploadthing-hook` header
  * identifies a callback or error hook, which never carries an `actionType`.
  * Requiring the first and rejecting the second means neither hook can consume
  * a caller's budget even if UploadThing later adds a query parameter.
  */
-function isCollaborationPresignRequest(request: NextRequest): boolean {
+function presignBudgetFor(request: NextRequest): PresignBudget | null {
   const params = new URL(request.url).searchParams;
-  return (
-    params.get("slug") === COLLABORATION_UPLOAD_SLUG &&
-    params.get("actionType") === "upload" &&
-    request.headers.get("uploadthing-hook") === null
-  );
+  const slug = params.get("slug");
+  if (
+    slug === null ||
+    !isKnownSlug(slug) ||
+    params.get("actionType") !== "upload" ||
+    request.headers.get("uploadthing-hook") !== null
+  ) {
+    return null;
+  }
+  return PRESIGN_BUDGETS[slug];
 }
 
-function rateLimitedResponse(metadata: {
-  reset: number;
-  retryAfterMs: number;
-}): Response {
+function rateLimitedResponse(
+  operation: string,
+  metadata: { reset: number; retryAfterMs: number },
+): Response {
   const body: CollaborationRateLimitErrorBody = {
     error: COLLAB_RATE_LIMITED_ERROR,
-    operation: "asset-upload",
+    operation,
     reset: metadata.reset,
     retryAfterMs: metadata.retryAfterMs,
   };
@@ -76,9 +115,8 @@ function rateLimitedResponse(metadata: {
 }
 
 async function POST(request: NextRequest): Promise<Response> {
-  if (!isCollaborationPresignRequest(request)) {
-    return handleUploadThingRequest(request);
-  }
+  const budget = presignBudgetFor(request);
+  if (!budget) return handleUploadThingRequest(request);
   const session = await getServerSession();
   // Authentication is the FileRoute middleware's job and stays there; this only
   // decides whose budget to spend. An unauthenticated request has no identity
@@ -87,15 +125,13 @@ async function POST(request: NextRequest): Promise<Response> {
   // in either direction.
   if (!session) return handleUploadThingRequest(request);
 
-  const decision = await checkCollaborationRateLimit({
-    operation: "asset-upload",
-    identifier: session.user.id,
-  });
-  // `degraded` delegates exactly like `allowed`: the middleware's room access,
-  // role, generation and size checks and the 512-assets-per-generation cap all
-  // still run, so a Redis outage costs the abuse ceiling and nothing else.
+  const decision = await budget.check(session.user.id);
+  // `degraded` delegates exactly like `allowed`: the middleware's ownership /
+  // room access, role, generation and size checks and the
+  // 512-assets-per-generation cap all still run, so a Redis outage costs the
+  // abuse ceiling and nothing else.
   if (decision.status !== "limited") return handleUploadThingRequest(request);
-  return rateLimitedResponse(decision);
+  return rateLimitedResponse(budget.operation, decision);
 }
 
 export { GET, POST };
