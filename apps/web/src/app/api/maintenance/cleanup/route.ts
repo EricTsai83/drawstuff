@@ -6,6 +6,8 @@ import { z } from "zod";
 import { env } from "@/env";
 import { bearerTokenMatches } from "@/server/bearer-token";
 import {
+  createRoomRetentionJob,
+  createUnreferencedAssetGcJob,
   createUserPurgeJob,
   MAINTENANCE_LOCK_KEY,
   routineMaintenanceJobs,
@@ -50,6 +52,17 @@ function drainDeadline(): Date {
 }
 
 const RequestBodySchema = z.object({
+  /**
+   * Read-only retention audit: runs only the named jobs in dry-run mode with
+   * wide bounds and skips every routine job, so a manual POST can answer
+   * "what would retention reclaim right now?" without writing anything.
+   */
+  audit: z
+    .object({
+      roomRetention: z.boolean().default(false),
+      unreferencedAssetGc: z.boolean().default(false),
+    })
+    .optional(),
   /**
    * Explicit opt-in to the single-tenant user purge. Never part of a routine
    * run: the cron path (GET) cannot express it, and the job additionally
@@ -128,6 +141,30 @@ export async function POST(request: Request) {
   const parsedBody = RequestBodySchema.safeParse(rawBody ?? {});
   if (!parsedBody.success) {
     return NextResponse.json({ error: "invalid-body" }, { status: 400 });
+  }
+
+  if (parsedBody.data.audit) {
+    const audit = parsedBody.data.audit;
+    return await runUnderLock([
+      ...(audit.roomRetention
+        ? [
+            createRoomRetentionJob({
+              dryRun: true,
+              maxRooms: 10_000,
+              maxAssetObjects: Number.MAX_SAFE_INTEGER,
+            }),
+          ]
+        : []),
+      ...(audit.unreferencedAssetGc
+        ? [
+            createUnreferencedAssetGcJob({
+              dryRun: true,
+              maxScenes: 10_000,
+              maxRecords: 100_000,
+            }),
+          ]
+        : []),
+    ]);
   }
 
   const jobs: MaintenanceJob[] = [];

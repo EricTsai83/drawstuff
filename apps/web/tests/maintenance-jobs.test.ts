@@ -28,7 +28,6 @@ import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
 
 import * as schema from "@/server/db/schema";
-import { QUERIES } from "@/server/db/queries";
 import {
   createExpiredSharedScenesJob,
   createQueueDrainJob,
@@ -432,6 +431,30 @@ describe("unreferenced asset GC", () => {
     expect(await recordKeys(sceneId)).toEqual(["key-a"]);
   });
 
+  it("reports reclaimable records in a dry run without touching them", async () => {
+    const sceneId = await insertScene(
+      await storedScene([imageElement(FILE_A, "el-a")]),
+    );
+    await record(sceneId, FILE_A, "key-a");
+    await record(sceneId, FILE_B, "key-b");
+
+    const { deps, deletedKeys } = makeDeps();
+    const detail = await createUnreferencedAssetGcJob({ dryRun: true }).run(
+      deps,
+    );
+
+    expect(detail).toMatchObject({
+      dryRun: true,
+      reclaimableRecords: 1,
+      records: [{ sceneId, fileId: FILE_B, utFileKey: "key-b" }],
+      truncated: false,
+    });
+    expect(detail).not.toHaveProperty("deletedRecords");
+    expect((await recordKeys(sceneId)).sort()).toEqual(["key-a", "key-b"]);
+    expect(deletedKeys).toEqual([]);
+    expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
+  });
+
   it("leaves records younger than the grace period alone", async () => {
     const sceneId = await insertScene(
       await storedScene([imageElement(FILE_A, "el-a")]),
@@ -480,10 +503,9 @@ describe("unreferenced asset GC", () => {
 describe("bounded queue drain", () => {
   it("drains up to the task cap and reports what is left", async () => {
     for (let i = 0; i < 5; i += 1) {
-      await QUERIES.enqueueDeferredCleanup({
-        utFileKey: `key-${i}`,
-        reason: "test",
-      });
+      await testDb
+        .insert(schema.deferredFileCleanup)
+        .values({ utFileKey: `key-${i}`, reason: "test" });
     }
 
     const { deps } = makeDeps();
@@ -496,7 +518,9 @@ describe("bounded queue drain", () => {
   });
 
   it("stops when the wall-clock budget is spent", async () => {
-    await QUERIES.enqueueDeferredCleanup({ utFileKey: "key-0", reason: "t" });
+    await testDb
+      .insert(schema.deferredFileCleanup)
+      .values({ utFileKey: "key-0", reason: "t" });
 
     const { deps } = makeDeps();
     const detail = await createQueueDrainJob({ budgetMs: 0 }).run({
@@ -515,7 +539,9 @@ describe("bounded queue drain", () => {
     // The route hands the drain a deadline inside its execution envelope; a
     // long pre-drain run must shrink the drain, not push the route past its
     // maxDuration.
-    await QUERIES.enqueueDeferredCleanup({ utFileKey: "key-0", reason: "t" });
+    await testDb
+      .insert(schema.deferredFileCleanup)
+      .values({ utFileKey: "key-0", reason: "t" });
 
     const { deps } = makeDeps();
     const detail = await createQueueDrainJob({
@@ -530,7 +556,9 @@ describe("bounded queue drain", () => {
   });
 
   it("marks a task failed after its attempts are exhausted", async () => {
-    await QUERIES.enqueueDeferredCleanup({ utFileKey: "key-x", reason: "t" });
+    await testDb
+      .insert(schema.deferredFileCleanup)
+      .values({ utFileKey: "key-x", reason: "t" });
     await testDb
       .update(schema.deferredFileCleanup)
       .set({ attempts: 5 })
@@ -655,6 +683,59 @@ describe("collab room retention", () => {
     // Idempotent: the swept room no longer holds data, so a rerun finds nothing.
     const second = await createRoomRetentionJob().run(deps);
     expect(second).toMatchObject({ roomsReclaimed: 0, enqueuedObjects: 0 });
+  });
+
+  it("reports a dry run without ending or reclaiming anything", async () => {
+    await insertRoom({
+      roomId: "room-ended-old",
+      status: "ended",
+      expiresAt: new Date(Date.now() - 9 * DAY_MS),
+      endedAt: new Date(Date.now() - 8 * DAY_MS),
+    });
+    await insertSnapshot("room-ended-old", 8);
+    await insertAsset("room-ended-old", FILE_A, "room-key-a");
+    await insertAsset("room-ended-old", FILE_B, "room-key-b");
+    await insertRoom({
+      roomId: "room-expired-empty",
+      status: "active",
+      expiresAt: new Date(Date.now() - 9 * DAY_MS),
+    });
+
+    const { deps, deletedKeys } = makeDeps();
+    const detail = await createRoomRetentionJob({ dryRun: true }).run(deps);
+
+    expect(detail).toMatchObject({
+      dryRun: true,
+      roomsReclaimable: 1,
+      endableExpiredRooms: 1,
+      snapshotRows: 1,
+      snapshotBytes: 8,
+      assetRows: 2,
+      truncated: false,
+    });
+    expect(detail.rooms).toEqual(
+      expect.arrayContaining([
+        {
+          roomId: "room-ended-old",
+          status: "ended",
+          snapshots: 1,
+          snapshotBytes: 8,
+          assets: 2,
+        },
+        {
+          roomId: "room-expired-empty",
+          status: "active",
+          snapshots: 0,
+          snapshotBytes: 0,
+          assets: 0,
+        },
+      ]),
+    );
+    expect(await snapshotCount("room-ended-old")).toBe(1);
+    expect(await assetCount("room-ended-old")).toBe(2);
+    expect((await roomRow("room-expired-empty"))?.status).toBe("active");
+    expect(deletedKeys).toEqual([]);
+    expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
   });
 
   it("leaves live and recently ended or expired rooms alone", async () => {

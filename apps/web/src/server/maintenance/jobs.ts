@@ -39,9 +39,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 /** Advisory lock key for single-flighting the whole maintenance run. */
 export const MAINTENANCE_LOCK_KEY = 727_431_601;
 
-export type JobDetail = Record<string, unknown>;
+type JobDetail = Record<string, unknown>;
 
-export type JobOutcome =
+type JobOutcome =
   | { name: string; status: "ok"; detail: JobDetail }
   | { name: string; status: "error"; error: string; detail?: JobDetail };
 
@@ -243,7 +243,7 @@ export const expiredSessionsJob: MaintenanceJob = {
   },
 };
 
-export const expiredVerificationsJob: MaintenanceJob = {
+const expiredVerificationsJob: MaintenanceJob = {
   name: "expired-verifications",
   run: async (deps) => {
     const deleted = await QUERIES.deleteExpiredVerifications(deps.now());
@@ -251,7 +251,7 @@ export const expiredVerificationsJob: MaintenanceJob = {
   },
 };
 
-export const purgeFinishedQueueRowsJob: MaintenanceJob = {
+const purgeFinishedQueueRowsJob: MaintenanceJob = {
   name: "purge-finished-queue-rows",
   run: async (deps) => {
     const cutoff = new Date(deps.now().getTime() - 30 * DAY_MS);
@@ -268,7 +268,7 @@ export const purgeFinishedQueueRowsJob: MaintenanceJob = {
  * pending events is the minute-level `/api/collaboration/control-outbox`
  * cron's job, and this run never touches them.
  */
-export const purgeControlOutboxRowsJob: MaintenanceJob = {
+const purgeControlOutboxRowsJob: MaintenanceJob = {
   name: "purge-control-outbox-rows",
   run: async (deps) => {
     const purgedRows = await purgeControlOutboxRows(db, deps.now());
@@ -288,6 +288,11 @@ export type UnreferencedAssetGcOptions = {
    * avoids failing that save at all.
    */
   graceMs?: number;
+  /**
+   * Report the records a real run would reclaim without deleting or
+   * enqueuing anything. Reads without the scene row lock.
+   */
+  dryRun?: boolean;
 };
 
 /**
@@ -310,7 +315,12 @@ export type UnreferencedAssetGcOptions = {
 export function createUnreferencedAssetGcJob(
   options: UnreferencedAssetGcOptions = {},
 ): MaintenanceJob {
-  const { maxScenes = 200, maxRecords = 500, graceMs = DAY_MS } = options;
+  const {
+    maxScenes = 200,
+    maxRecords = 500,
+    graceMs = DAY_MS,
+    dryRun = false,
+  } = options;
   return {
     name: "unreferenced-asset-gc",
     run: async (deps) => {
@@ -327,16 +337,19 @@ export function createUnreferencedAssetGcJob(
       let scenesScanned = 0;
       let unreadableScenes = 0;
       let reclaimedRecords = 0;
+      const reclaimable: JobDetail[] = [];
 
       for (const sceneId of sceneIds.slice(0, maxScenes)) {
         if (reclaimedRecords >= maxRecords) break;
         const budget = maxRecords - reclaimedRecords;
         const result = await db.transaction(async (tx) => {
-          const [row] = await tx
+          const sceneQuery = tx
             .select({ sceneData: scene.sceneData })
             .from(scene)
-            .where(eq(scene.id, sceneId))
-            .for("update");
+            .where(eq(scene.id, sceneId));
+          const [row] = dryRun
+            ? await sceneQuery
+            : await sceneQuery.for("update");
           // Scene gone: its records went with it via cascade.
           if (!row) return { reclaimed: 0, unreadable: false };
 
@@ -360,7 +373,15 @@ export function createUnreferencedAssetGcJob(
                 record.createdAt < graceCutoff,
             )
             .slice(0, budget);
-          if (stale.length > 0) {
+          if (dryRun) {
+            for (const record of stale) {
+              reclaimable.push({
+                sceneId,
+                fileId: record.excalidrawFileId,
+                utFileKey: record.utFileKey,
+              });
+            }
+          } else if (stale.length > 0) {
             await tx.delete(fileRecord).where(
               inArray(
                 fileRecord.id,
@@ -389,9 +410,17 @@ export function createUnreferencedAssetGcJob(
       return {
         scenesScanned,
         unreadableScenes,
-        deletedRecords: reclaimedRecords,
-        enqueuedObjects: reclaimedRecords,
         truncated: truncatedScenes || reclaimedRecords >= maxRecords,
+        ...(dryRun
+          ? {
+              dryRun: true,
+              reclaimableRecords: reclaimedRecords,
+              records: reclaimable,
+            }
+          : {
+              deletedRecords: reclaimedRecords,
+              enqueuedObjects: reclaimedRecords,
+            }),
       };
     },
   };
@@ -419,6 +448,11 @@ export type RoomRetentionOptions = {
    * The default leaves the drain headroom for other jobs' enqueues.
    */
   maxAssetObjects?: number;
+  /**
+   * Report the rooms a real run would end or reclaim, with their snapshot
+   * and asset tallies, without writing anything. Reads without the room lock.
+   */
+  dryRun?: boolean;
 };
 
 /**
@@ -457,6 +491,7 @@ export function createRoomRetentionJob(
     graceMs = 7 * DAY_MS,
     maxRooms = 50,
     maxAssetObjects = 400,
+    dryRun = false,
   } = options;
   return {
     name: "collab-room-retention",
@@ -511,6 +546,7 @@ export function createRoomRetentionJob(
       let deletedSnapshotBytes = 0;
       let enqueuedObjects = 0;
       let budgetExhausted = false;
+      const rooms: JobDetail[] = [];
 
       type ReclaimOutcome =
         | {
@@ -531,7 +567,14 @@ export function createRoomRetentionJob(
         const now = deps.now();
         const outcome = await db.transaction(
           async (tx): Promise<ReclaimOutcome | null> => {
-            const room = await lockRoom(tx, candidate.roomId);
+            const room = dryRun
+              ? (
+                  await tx
+                    .select()
+                    .from(collaborationRoom)
+                    .where(eq(collaborationRoom.roomId, candidate.roomId))
+                )[0]
+              : await lockRoom(tx, candidate.roomId);
             const eligible =
               room !== undefined &&
               (room.status === "ended"
@@ -555,6 +598,32 @@ export function createRoomRetentionJob(
               enqueuedObjects + assetCount > maxAssetObjects
             ) {
               return { kind: "deferred" };
+            }
+
+            if (dryRun) {
+              const [snapshotTally] = await tx
+                .select({
+                  count: sql<number>`count(*)::int`,
+                  bytes: sql<number>`coalesce(sum(${collaborationSnapshot.byteLength}), 0)::int`,
+                })
+                .from(collaborationSnapshot)
+                .where(eq(collaborationSnapshot.roomId, room.roomId));
+              const snapshotCount = snapshotTally?.count ?? 0;
+              const snapshotBytes = snapshotTally?.bytes ?? 0;
+              rooms.push({
+                roomId: room.roomId,
+                status: room.status,
+                snapshots: snapshotCount,
+                snapshotBytes,
+                assets: assetCount,
+              });
+              return {
+                kind: "reclaimed",
+                wasExpiredActive: room.status === "active",
+                snapshots: snapshotCount,
+                snapshotBytes,
+                assets: assetCount,
+              };
             }
 
             if (room.status === "active") {
@@ -616,6 +685,19 @@ export function createRoomRetentionJob(
         enqueuedObjects += outcome.assets;
       }
 
+      const truncatedRun = truncated || budgetExhausted;
+      if (dryRun) {
+        return {
+          dryRun: true,
+          roomsReclaimable: roomsReclaimed,
+          endableExpiredRooms: endedExpiredRooms,
+          snapshotRows: deletedSnapshots,
+          snapshotBytes: deletedSnapshotBytes,
+          assetRows: enqueuedObjects,
+          rooms,
+          truncated: truncatedRun,
+        };
+      }
       return {
         roomsReclaimed,
         endedExpiredRooms,
@@ -623,7 +705,7 @@ export function createRoomRetentionJob(
         deletedSnapshotBytes,
         deletedAssetRows: enqueuedObjects,
         enqueuedObjects,
-        truncated: truncated || budgetExhausted,
+        truncated: truncatedRun,
       };
     },
   };
