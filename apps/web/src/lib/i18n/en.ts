@@ -367,6 +367,8 @@ export const en = {
   "public.viewer.zoomOut": "Zoom out",
   "public.viewer.fit": "Fit",
   "public.viewer.reset": "Reset",
+  "public.viewer.handTool": "Hand: drag to pan (H)",
+  "public.viewer.selectTool": "Select: drag to select text (V)",
   "public.viewer.hideUI": "Hide controls",
   "public.viewer.showUI": "Show controls",
 

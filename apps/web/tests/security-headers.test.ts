@@ -99,7 +99,7 @@ describe("buildContentSecurityPolicy", () => {
     const csp = buildContentSecurityPolicy(PROD_INPUT);
 
     expect(directive(csp, "script-src")).toBe(
-      "script-src 'self' 'unsafe-inline'",
+      "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval'",
     );
     // srcdoc embed 的第三方 script（validator 已一併封鎖）不得回流。
     expect(csp).not.toContain("platform.twitter.com");

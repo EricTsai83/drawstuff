@@ -31,7 +31,7 @@
 | `frame-src` | `EMBED_FRAME_SRC_HOSTS`（embed-allowlist.ts） | 純 iframe embed；twitter/reddit/gist 已在 validator 封鎖 |
 | `img-src` | `'self' blob: data: https://lh3.googleusercontent.com` | canvas 匯出、解密 asset object URL、Google 頭像原生 `<img>` |
 | `font-src` / `worker-src` | `'self'` | Excalidraw 字型與 subset 資產自託管於 `/excalidraw-assets/`（`scripts/sync-excalidraw-assets.mjs`），esm.sh 不得出現 |
-| `script-src` | `'self' 'unsafe-inline'`（rationale 見 ADR-0004） | 無外部 script origin |
+| `script-src` | `'self' 'unsafe-inline' 'wasm-unsafe-eval'`（rationale 見 ADR-0004；wasm 見 [web-csp-design](../architecture/web-csp-design.md)） | 無外部 script origin；`'wasm-unsafe-eval'` 只放行 WebAssembly 編譯（Excalidraw 字型 subset），不放行 JS eval |
 | 其他 | `default-src 'self'`、`object-src 'none'`、`base-uri 'none'`、`frame-ancestors 'none'`、`form-action 'self'`、`style-src 'self' 'unsafe-inline'` | |
 | dev-only | `'unsafe-eval'`、`unpkg.com`、`ws://127.0.0.1:*`、`ws://localhost:*` | 測試釘住不得洩入 production |
 

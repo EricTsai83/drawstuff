@@ -17,7 +17,7 @@ runtime injection 來源）能用它做什麼？然後收斂到正常功能所�
 
 | 通道 | Directive | 被注入程式碼能拿它做什麼 | 我們的收斂 |
 | --- | --- | --- | --- |
-| 執行外部程式碼 | `script-src` | 從外部 origin 載入任意 script，以頁面權限執行 | `'self' 'unsafe-inline'`；**零外部 origin** |
+| 執行外部程式碼 | `script-src` | 從外部 origin 載入任意 script，以頁面權限執行 | `'self' 'unsafe-inline' 'wasm-unsafe-eval'`；**零外部 origin**（wasm 見下節） |
 | 背景執行程式碼 | `worker-src` | `new Worker(url)` 把程式碼丟進背景執行緒執行 | `'self' blob:`（見下節） |
 | 把資料送出去 | `connect-src` | `fetch`／XHR／WebSocket 外送任意資料（room key 的 exfiltration 通道） | 5 個有明確觸發點的 origin |
 | 內嵌別人 | `frame-src` | 嵌入外部頁面（跨 origin iframe 摸不到父頁） | 精確等於 embed 決策清單 |
@@ -61,6 +61,21 @@ script——完整推導在 ADR-0004。取捨結果：`script-src` 放棄 inline
 origin」；`worker-src` 沒有對應的 inline 需求，因此不需要同等妥協。這也解釋了 embed 決策
 （見 ADR-0004）：twitter/x、reddit、gist 的 embed 需要外部 script origin 才能動，直接在
 validator 層拒絕，讓「零外部 script origin」保持無例外。
+
+## script-src 為什麼需要 'wasm-unsafe-eval'
+
+`script-src` 一旦存在，Chrome 與 Safari 就把 `WebAssembly.instantiate` 視為 eval 的一種：
+沒有 `'unsafe-eval'` 或 `'wasm-unsafe-eval'` 就拒絕編譯（Firefox 較寬鬆，不擋）。
+唯一使用者是 **Excalidraw 的字型 subset（harfbuzz wasm）**：畫布匯出 SVG 與 `/p/[slug]`
+靜態 viewer 都靠它把字型裁成子集後以 data URL 內嵌到 `@font-face`。
+
+失敗模式很安靜：上游把 wasm 錯誤吃掉，改把 `src` 退回候選清單最後一個 URL（esm.sh），
+接著被 `font-src 'self'` 擋下，文字就靜默落到系統字型——沒有錯誤頁、沒有 toast。dev 因為
+本來就放 `'unsafe-eval'` 所以看不出來，只有 production 會壞。
+
+`'wasm-unsafe-eval'` 只放行 wasm 編譯、不放行 `eval()`／`new Function()`，且 wasm 位元組
+仍須先能被載入（同源 chunk），沒有新的外部程式碼進入面；因此屬於「功能必需的最小放寬」，
+不是對「零外部 origin」的退讓。
 
 ## 變更守則
 

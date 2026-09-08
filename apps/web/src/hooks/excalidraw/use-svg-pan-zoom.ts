@@ -205,6 +205,11 @@ type UseSvgPanZoomOptions = ScaleLimits & {
    */
   readonly contentKey?: unknown;
   readonly margin: number;
+  /**
+   * When false, mouse/pen drags do nothing so text stays selectable. Wheel
+   * zoom and touch gestures (pan, pinch) still work: touch has no drag-to-select.
+   */
+  readonly panEnabled?: boolean;
 };
 
 type UseSvgPanZoomResult = {
@@ -226,12 +231,16 @@ type UseSvgPanZoomResult = {
 /** Movement below this many px still counts as a click, not a pan. */
 const CLICK_PAN_TOLERANCE = 4;
 
+/** Wheel events stop arriving for this long before the gesture counts as over. */
+const WHEEL_IDLE_MS = 150;
+
 export function useSvgPanZoom({
   content,
   contentKey,
   margin,
   maxScale,
   minScale,
+  panEnabled = true,
 }: UseSvgPanZoomOptions): UseSvgPanZoomResult {
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
@@ -239,6 +248,7 @@ export function useSvgPanZoom({
   const pinchDistanceRef = useRef<number | null>(null);
   const pinchMidpointRef = useRef<Point | null>(null);
   const panDistanceRef = useRef(0);
+  const wheelIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [transform, setTransform] = useState<Transform>(IDENTITY_TRANSFORM);
   const [hasFitted, setHasFitted] = useState(false);
   const previousContentKeyRef = useRef(contentKey);
@@ -267,6 +277,17 @@ export function useSvgPanZoom({
     return rect.width > 0 && rect.height > 0
       ? { width: rect.width, height: rect.height }
       : null;
+  }, []);
+
+  // `will-change: transform` keeps pan/zoom on the compositor, but a promoted
+  // layer is rasterised once and only bitmap-scaled afterwards, so vector text
+  // goes blurry after zooming in. Promote only for the duration of a gesture;
+  // dropping the hint afterwards makes the browser re-rasterise at the final
+  // scale.
+  const setGestureActive = useCallback((active: boolean) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    stage.style.willChange = active ? "transform" : "";
   }, []);
 
   const toViewportPoint = useCallback((clientX: number, clientY: number) => {
@@ -348,13 +369,23 @@ export function useSvgPanZoom({
       const factor = Math.exp(-delta * WHEEL_ZOOM_SENSITIVITY);
       const origin = toViewportPoint(event.clientX, event.clientY);
 
+      setGestureActive(true);
+      if (wheelIdleTimerRef.current) clearTimeout(wheelIdleTimerRef.current);
+      wheelIdleTimerRef.current = setTimeout(() => {
+        wheelIdleTimerRef.current = null;
+        if (pointersRef.current.size === 0) setGestureActive(false);
+      }, WHEEL_IDLE_MS);
+
       setTransform((current) => zoomAtPoint(current, factor, origin, limits));
     };
 
     // Must be non-passive: the page would scroll otherwise.
     viewport.addEventListener("wheel", handleWheel, { passive: false });
-    return () => viewport.removeEventListener("wheel", handleWheel);
-  }, [limits, toViewportPoint]);
+    return () => {
+      viewport.removeEventListener("wheel", handleWheel);
+      if (wheelIdleTimerRef.current) clearTimeout(wheelIdleTimerRef.current);
+    };
+  }, [limits, setGestureActive, toViewportPoint]);
 
   useEffect(() => {
     const pointers = pointersRef.current;
@@ -407,6 +438,9 @@ export function useSvgPanZoom({
       // pair, so the pinch baseline is always rebuilt on the next move.
       pinchDistanceRef.current = null;
       pinchMidpointRef.current = null;
+      if (pointers.size === 0 && !wheelIdleTimerRef.current) {
+        setGestureActive(false);
+      }
     };
 
     window.addEventListener("pointermove", handlePointerMove);
@@ -419,12 +453,14 @@ export function useSvgPanZoom({
       window.removeEventListener("pointercancel", handlePointerEnd);
       pointers.clear();
     };
-  }, [limits, toViewportPoint]);
+  }, [limits, setGestureActive, toViewportPoint]);
 
   const onPointerDown = useCallback(
     (event: ReactPointerEvent<HTMLDivElement>) => {
+      if (!panEnabled && event.pointerType !== "touch") return;
       if (event.pointerType === "mouse" && event.button !== 0) return;
 
+      setGestureActive(true);
       pointersRef.current.set(
         event.pointerId,
         toViewportPoint(event.clientX, event.clientY),
@@ -433,7 +469,7 @@ export function useSvgPanZoom({
       pinchMidpointRef.current = null;
       panDistanceRef.current = 0;
     },
-    [toViewportPoint],
+    [panEnabled, setGestureActive, toViewportPoint],
   );
 
   // The scene keeps upstream's exported `<a>` anchors clickable, but a pan

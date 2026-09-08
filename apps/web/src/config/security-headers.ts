@@ -126,6 +126,11 @@ export function buildContentSecurityPolicy(
     // 各注入一段無 nonce inline script；因此保留 'unsafe-inline'，本 CSP 的
     // 核心控制是 connect-src 出口收斂，不是 inline script 防護（ADR-0004）。
     "'unsafe-inline'",
+    // Excalidraw 字型 subset（harfbuzz wasm）在 worker 與主執行緒 fallback 都要
+    // WebAssembly.instantiate；Chrome/Safari 在 script-src 存在時需要此關鍵字，
+    // 否則上游靜默退回 esm.sh 字型 URL（再被 font-src 擋下）→ 匯出與 /p 頁
+    // 的文字落到系統字型。只放行 wasm 編譯，不放行 JS eval。
+    "'wasm-unsafe-eval'",
     // dev-only：Turbopack eval sourcemap 與 unpkg 載入的 react-grab
     ...(input.isDev ? ["'unsafe-eval'", "unpkg.com"] : []),
   ];

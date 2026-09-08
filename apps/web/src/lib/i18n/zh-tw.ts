@@ -338,6 +338,8 @@ export const zhTW = {
   "public.viewer.zoomOut": "縮小",
   "public.viewer.fit": "符合視窗",
   "public.viewer.reset": "重設",
+  "public.viewer.handTool": "拖曳：拖拉移動畫面（H）",
+  "public.viewer.selectTool": "選取：拖拉選取文字（V）",
   "public.viewer.hideUI": "隱藏控制列",
   "public.viewer.showUI": "顯示控制列",
 

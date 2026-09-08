@@ -9,14 +9,16 @@ import { installExcalidrawAssetPath } from "@/config/excalidraw-asset-path";
 import {
   Eye,
   EyeOff,
+  Hand,
   Menu,
   Moon,
+  MousePointer2,
   RefreshCw,
   Sun,
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type {
   BinaryFileData,
   BinaryFiles,
@@ -77,6 +79,12 @@ function isNotDeleted(
   return !element.isDeleted;
 }
 
+/**
+ * Hand: dragging pans and text is not selectable. Select: dragging selects the
+ * exported `<text>` nodes for copy/paste; holding Space pans temporarily.
+ */
+type ViewerTool = "hand" | "select";
+
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.2;
@@ -96,6 +104,29 @@ const TEXT_BTN = buttonVariants({
   className: "min-w-11 text-xs text-muted-foreground",
 });
 
+const ACTIVE_TOOL_BTN = `${ICON_BTN} bg-accent text-foreground`;
+
+type SceneBackdrop = {
+  /** The scene's raw `viewBackgroundColor`. */
+  fill: string;
+  /** Upstream's dark-mode filter on the SVG root, or `null` in light mode. */
+  filter: string | null;
+};
+
+/**
+ * `exportToSvg` paints the scene background as the first direct `<rect>`
+ * child (elements are wrapped in `<g>`) and applies dark mode as a CSS
+ * `filter` on the root, so the rect keeps the raw colour. Both are read back
+ * so the viewport can paint the same background, through the same filter,
+ * under the parts of the viewport the SVG does not cover.
+ */
+function readSceneBackdrop(svg: SVGSVGElement): SceneBackdrop | null {
+  const rect = svg.querySelector(':scope > rect[x="0"][y="0"]');
+  if (rect?.getAttribute("width") !== svg.getAttribute("width")) return null;
+  const fill = rect.getAttribute("fill");
+  return fill ? { fill, filter: svg.getAttribute("filter") } : null;
+}
+
 const CONTROLS_MENU =
   "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
 
@@ -112,6 +143,9 @@ export function PublishedSceneViewer({
   const [loadError, setLoadError] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
+  const [tool, setTool] = useState<ViewerTool>("hand");
+  const [spaceHeld, setSpaceHeld] = useState(false);
+  const panEnabled = tool === "hand" || spaceHeld;
   const headerRef = useRef<HTMLElement | null>(null);
   const headerLeftRef = useRef<HTMLAnchorElement | null>(null);
   const headerRightRef = useRef<HTMLDivElement | null>(null);
@@ -133,7 +167,12 @@ export function PublishedSceneViewer({
     margin: FIT_MARGIN,
     minScale: MIN_ZOOM,
     maxScale: MAX_ZOOM,
+    panEnabled,
   });
+  const backdrop = useMemo(
+    () => (sceneSvg ? readSceneBackdrop(sceneSvg) : null),
+    [sceneSvg],
+  );
 
   useEffect(() => {
     const controller = new AbortController();
@@ -225,9 +264,10 @@ export function PublishedSceneViewer({
           appState: {
             ...loaded.appState,
             exportWithDarkMode: browserActiveTheme === "dark",
-            // Transparent canvas: the viewport paints the app theme's
-            // background token instead of the scene's own color.
-            exportBackground: false,
+            // Keep the scene's own background (dark-mode filtered upstream,
+            // exactly like the editor). Dropping it made light strokes drawn
+            // on a dark scene vanish against the app's light background.
+            exportBackground: true,
           },
           files: loaded.files,
           skipInliningFonts,
@@ -305,6 +345,48 @@ export function PublishedSceneViewer({
       setControlsMenuOpen(false);
     }
   }, [uiVisible]);
+
+  // Excalidraw's own shortcuts: H = hand, V = selection, Space = pan while held.
+  useEffect(() => {
+    const isTypingTarget = (target: EventTarget | null) =>
+      target instanceof HTMLElement &&
+      (target.isContentEditable ||
+        ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
+    // Space on a focused button/link must keep activating it.
+    const isActivatable = (target: EventTarget | null) =>
+      target instanceof HTMLElement && ["BUTTON", "A"].includes(target.tagName);
+
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.metaKey || event.ctrlKey || event.altKey) return;
+      if (isTypingTarget(event.target)) return;
+
+      if (event.key === " ") {
+        if (isActivatable(event.target)) return;
+        // Would otherwise scroll the page.
+        event.preventDefault();
+        setSpaceHeld(true);
+      } else if (event.key === "h" || event.key === "H") {
+        setTool("hand");
+      } else if (event.key === "v" || event.key === "V") {
+        setTool("select");
+      }
+    };
+
+    const handleKeyUp = (event: KeyboardEvent) => {
+      if (event.key === " ") setSpaceHeld(false);
+    };
+    // A Space held across a tab switch never gets its keyup.
+    const handleBlur = () => setSpaceHeld(false);
+
+    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keyup", handleKeyUp);
+    window.addEventListener("blur", handleBlur);
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keyup", handleKeyUp);
+      window.removeEventListener("blur", handleBlur);
+    };
+  }, []);
 
   useEffect(() => {
     if (!controlsMenuOpen) return;
@@ -412,6 +494,27 @@ export function PublishedSceneViewer({
               )}
               <button
                 type="button"
+                onClick={() => setTool("hand")}
+                className={tool === "hand" ? ACTIVE_TOOL_BTN : ICON_BTN}
+                aria-label={t("public.viewer.handTool")}
+                aria-pressed={tool === "hand"}
+                title={t("public.viewer.handTool")}
+              >
+                <Hand aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setTool("select")}
+                className={tool === "select" ? ACTIVE_TOOL_BTN : ICON_BTN}
+                aria-label={t("public.viewer.selectTool")}
+                aria-pressed={tool === "select"}
+                title={t("public.viewer.selectTool")}
+              >
+                <MousePointer2 aria-hidden="true" />
+              </button>
+              <div className="bg-border my-1 h-px w-4" />
+              <button
+                type="button"
                 onClick={() => zoomBy(1 / ZOOM_STEP)}
                 className={ICON_BTN}
                 aria-label={t("public.viewer.zoomOut")}
@@ -475,6 +578,27 @@ export function PublishedSceneViewer({
             <div className="hidden items-center gap-0.5 lg:flex">
               <button
                 type="button"
+                onClick={() => setTool("hand")}
+                className={tool === "hand" ? ACTIVE_TOOL_BTN : ICON_BTN}
+                aria-label={t("public.viewer.handTool")}
+                aria-pressed={tool === "hand"}
+                title={t("public.viewer.handTool")}
+              >
+                <Hand aria-hidden="true" />
+              </button>
+              <button
+                type="button"
+                onClick={() => setTool("select")}
+                className={tool === "select" ? ACTIVE_TOOL_BTN : ICON_BTN}
+                aria-label={t("public.viewer.selectTool")}
+                aria-pressed={tool === "select"}
+                title={t("public.viewer.selectTool")}
+              >
+                <MousePointer2 aria-hidden="true" />
+              </button>
+              <div className="bg-border mx-1 h-4 w-px" />
+              <button
+                type="button"
                 onClick={() => zoomBy(1 / ZOOM_STEP)}
                 className={ICON_BTN}
                 aria-label={t("public.viewer.zoomOut")}
@@ -536,13 +660,31 @@ export function PublishedSceneViewer({
           ref={viewportRef}
           onPointerDown={onPointerDown}
           onClickCapture={onClickCapture}
-          className="bg-background relative h-full w-full cursor-grab touch-none overflow-hidden active:cursor-grabbing"
+          className={`bg-background relative h-full w-full touch-none overflow-hidden ${
+            panEnabled
+              ? "cursor-grab select-none active:cursor-grabbing"
+              : "cursor-default"
+          }`}
         >
+          {/* Painted behind the stage; the filter applies to this layer only,
+              never to the SVG, which already carries its own. */}
+          {backdrop && (
+            <div
+              aria-hidden="true"
+              className="absolute inset-0"
+              style={{
+                backgroundColor: backdrop.fill,
+                filter: backdrop.filter ?? undefined,
+              }}
+            />
+          )}
+          {/* No `will-change` here: the hook promotes the stage only during a
+              gesture so the browser re-rasterises crisp text afterwards. */}
           <div
             ref={stageRef}
             role="img"
             aria-label={sceneName}
-            className="absolute top-0 left-0 transition-opacity duration-200 will-change-transform"
+            className="absolute top-0 left-0 transition-opacity duration-200"
             style={{ ...transformStyle, opacity: hasFitted ? 1 : 0 }}
           />
         </div>
