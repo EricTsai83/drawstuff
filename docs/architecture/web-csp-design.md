@@ -26,7 +26,7 @@ runtime injection 來源）能用它做什麼？然後收斂到正常功能所�
 | 外掛執行 | `object-src` | `<object>`／`<embed>` 舊式執行面 | `'none'` |
 | 表單外送 | `form-action` | 注入表單把輸入送到外部 | `'self'` |
 | 樣式 | `style-src` | 注入 CSS（低風險：無程式碼執行） | `'self' 'unsafe-inline'` |
-| 圖片／字型 | `img-src`／`font-src` | 低風險載入面；仍收斂以縮小出口 | 各自的最小清單 |
+| 圖片／字型 | `img-src`／`font-src` | 低風險載入面；仍收斂以縮小出口 | 各自的最小清單；`font-src` 含 `data:`（見下節） |
 
 核心觀念（CLAIM-CDB-3）：`connect-src` 是本設計的主控制——它決定 room key「送得出去嗎、
 送得到哪」。`script-src`／`worker-src` 是次控制——它們決定「多容易把惡意程式碼弄進來」。
@@ -76,6 +76,15 @@ validator 層拒絕，讓「零外部 script origin」保持無例外。
 `'wasm-unsafe-eval'` 只放行 wasm 編譯、不放行 `eval()`／`new Function()`，且 wasm 位元組
 仍須先能被載入（同源 chunk），沒有新的外部程式碼進入面；因此屬於「功能必需的最小放寬」，
 不是對「零外部 origin」的退讓。
+
+## font-src 為什麼需要 data:
+
+`exportToSvg` 內嵌字型的方式是把子集化後的 woff2 轉成 `data:font/woff2;base64,…` 寫進
+SVG 的 `<style>`。`/p/[slug]` 的靜態 viewer 把這個 SVG 直接掛進 document，`@font-face`
+因此由頁面 CSP 管：`font-src 'self'` 不含 `data:`，瀏覽器會把每個 face 標成 `error`，文字
+靜默落到系統字型（`document.fonts` 可觀察到 status 全為 error）。`data:` 字型無外連能力、
+內容完全來自同源 JS 產生的位元組，放行它不新增任何出口。編輯器畫布不受影響，因為它走
+FontFace API 從 `/excalidraw-assets/` 載入。
 
 ## 變更守則
 

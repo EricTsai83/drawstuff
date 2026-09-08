@@ -83,7 +83,7 @@ describe("buildContentSecurityPolicy", () => {
     expect(directive(csp, "base-uri")).toBe("base-uri 'none'");
     expect(directive(csp, "frame-ancestors")).toBe("frame-ancestors 'none'");
     expect(directive(csp, "form-action")).toBe("form-action 'self'");
-    expect(directive(csp, "font-src")).toBe("font-src 'self'");
+    expect(directive(csp, "font-src")).toBe("font-src 'self' data:");
     expect(directive(csp, "worker-src")).toBe("worker-src 'self'");
   });
 

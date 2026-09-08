@@ -36,7 +36,8 @@ flowchart LR
 做法：
 
 - **枚舉依賴**：匯出流程碰到的每個「環境能力」——網路（字型 URL 是否自託管）、wasm（CSP
-  `script-src` 要 `'wasm-unsafe-eval'`）、worker（`worker-src`）、圖片來源（`img-src data:`）。
+  `script-src` 要 `'wasm-unsafe-eval'`）、內嵌字型（`font-src data:`，因為匯出物把字型寫成
+  data URL）、worker（`worker-src`）、圖片來源（`img-src data:`）。
   每一項對應到 CSP 或部署設定裡的一行，並在該行註解寫明是誰需要。
 - **驗證產物而非呼叫**：對匯出物做結構性斷言——`<style>` 裡的 `src` 必須是 `data:`、不得出現
   第三方 host；文字元素數量與輸入相符。把它放進走查清單，且**在 production 等價的 CSP 下**

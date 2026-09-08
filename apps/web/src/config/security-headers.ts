@@ -148,8 +148,10 @@ export function buildContentSecurityPolicy(
     // Google profile 頭像走原生 <img>，不經 next/image
     `img-src 'self' blob: data: https://lh3.googleusercontent.com`,
     // P3.0：Excalidraw 字型由 /excalidraw-assets 自家 origin 提供，esm.sh
-    // fallback 不得出現在任何 directive
-    `font-src 'self'`,
+    // fallback 不得出現在任何 directive。data:：exportToSvg 把子集化後的字型
+    // 以 data URL 內嵌進 <style>，/p/[slug] 的靜態 viewer 只靠這條路徑取得
+    // 畫布字型；沒有 data: 時瀏覽器把每個 @font-face 標成 error、文字落到系統字型。
+    `font-src 'self' data:`,
     // Excalidraw subset worker 是 bundle 內的同源 module worker（report-only
     // 走查全程無 blob: 違規，2026-08-28 起不再放行）
     `worker-src 'self'`,
