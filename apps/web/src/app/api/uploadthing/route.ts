@@ -63,6 +63,7 @@ const PRESIGN_BUDGETS = {
   sharedSceneFileUploader: sceneUploadBudget,
   sceneAssetUploader: sceneUploadBudget,
   sceneThumbnailUploader: sceneUploadBudget,
+  publishedArtifactUploader: sceneUploadBudget,
 } satisfies Record<keyof UploadRouter, PresignBudget>;
 
 function isKnownSlug(slug: string): slug is keyof typeof PRESIGN_BUDGETS {

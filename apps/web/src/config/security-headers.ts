@@ -8,11 +8,13 @@
 
 import { EMBED_FRAME_SRC_HOSTS } from "./embed-allowlist";
 
-// Enforce（2026-08-28 起）：report-only 走查（docs/operations/web-security-headers.md
-// 清單）已逐項完成、零預期外違規後切換。日後放寬或新增來源時，先改回 true 以
-// report-only 重新走查，再切回 enforce。不接 report-uri/report-to——違規報告含
-// URL，而 fragment 是金鑰載體，不為此新增外部出口。
+// 整站與公開頁共用 rollout 旗標。變更時依
+// docs/operations/web-security-headers.md 的「Report-only → enforce 程序」走查。
+// 不接違規報告端點的理由見 ADR-0004 CLAIM-CDB-1。
 export const CSP_REPORT_ONLY = false;
+
+/** `next.config.ts` `headers()` 的 `source`；必須排在整站規則之後才能覆蓋。 */
+export const PUBLIC_VIEWER_ROUTE_SOURCE = "/p/:slug*";
 
 export interface SecurityHeadersInput {
   /** `next dev`；dev 放寬（HMR、unpkg react-grab）不得洩入 production。 */
@@ -111,7 +113,7 @@ export function buildContentSecurityPolicy(
     // browser 直傳 ingest region 子網域（uploadthing 7.7.4 upload-builder）；
     // api.uploadthing.com 是 server-side presign 端點，browser 不連，不列入。
     "https://*.ingest.uploadthing.com",
-    // asset-store／published viewer／import 的 ciphertext fetch
+    // asset-store／import 的 ciphertext，以及 published viewer 的成品 SVG
     ...(ufsHost ? [ufsHost] : []),
     // 官方 library 安裝（packages/excalidraw-adapter fetchOfficialExcalidrawLibrary）
     "https://libraries.excalidraw.com",
@@ -126,12 +128,8 @@ export function buildContentSecurityPolicy(
     // 各注入一段無 nonce inline script；因此保留 'unsafe-inline'，本 CSP 的
     // 核心控制是 connect-src 出口收斂，不是 inline script 防護（ADR-0004）。
     "'unsafe-inline'",
-    // Excalidraw 字型 subset（harfbuzz wasm）在 worker 與主執行緒 fallback 都要
-    // WebAssembly.instantiate；Chrome/Safari 在 script-src 存在時需要此關鍵字，
-    // 否則上游靜默退回 esm.sh 字型 URL（再被 font-src 擋下）→ 匯出的文字落到
-    // 系統字型。唯一使用者是工作區的「下載 SVG／PNG」；/p/[slug] 以
-    // skipInliningFonts 匯出、字型走 fonts.css，已不依賴。只放行 wasm 編譯，
-    // 不放行 JS eval。是否對 /p/* 發更緊的 per-route CSP 另開決策。
+    // 工作區匯出 SVG／PNG 的 harfbuzz 字型 subset 需要 wasm 編譯，不需 JS eval。
+    // 被擋時上游會退回 esm.sh 字型；公開 viewer 不載入引擎，另用收緊政策。
     "'wasm-unsafe-eval'",
     // dev-only：Turbopack eval sourcemap 與 unpkg 載入的 react-grab
     ...(input.isDev ? ["'unsafe-eval'", "unpkg.com"] : []),
@@ -149,13 +147,11 @@ export function buildContentSecurityPolicy(
     // blob:/data:：canvas 匯出與解密後的 asset object URL；lh3：better-auth
     // Google profile 頭像走原生 <img>，不經 next/image
     `img-src 'self' blob: data: https://lh3.googleusercontent.com`,
-    // P3.0：Excalidraw 字型由 /excalidraw-assets 自家 origin 提供（工作區走
-    // 上游 FontFace API，/p/[slug] 走 build 時產生的 fonts.css），esm.sh
-    // fallback 不得出現在任何 directive。曾為 /p 的內嵌字型放行 data:，
-    // viewer 改 skipInliningFonts 後不再需要。
+    // /excalidraw-assets/ 自託管字型：編輯器用 FontFace API，公開頁用 fonts.css。
+    // 成品不內嵌字型，不開放 data: 或 esm.sh fallback。
     `font-src 'self'`,
-    // Excalidraw subset worker 是 bundle 內的同源 module worker（report-only
-    // 走查全程無 blob: 違規，2026-08-28 起不再放行）
+    // 保留給同源 Excalidraw subset worker；現有 Turbopack 走查發現 worker URL
+    // 解析成 file:///ROOT/... 後啟動失敗，上游改走主執行緒。未使用 blob:。
     `worker-src 'self'`,
     `connect-src ${connectSrc.join(" ")}`,
     // embed 決策的單一來源在 embed-allowlist.ts，與 validateEmbeddable 一致
@@ -163,6 +159,67 @@ export function buildContentSecurityPolicy(
   ];
 
   return directives.join("; ");
+}
+
+/**
+ * 公開 viewer 只需 app chunks、同源字型與成品 SVG；政策必須是整站的子集。
+ * 成品先經 sanitizer 再掛入 DOM，CSP 是額外防線。Inline script 供 framework
+ * 使用，inline style 供 React 與 SVG 文字使用。理由見 docs/architecture/web-csp-design.md。
+ */
+export function buildPublicViewerContentSecurityPolicy(
+  input: SecurityHeadersInput,
+): string {
+  const ufsHost = resolveUfsHost(input);
+
+  const connectSrc = [
+    // 同源資源請求；頁面資料由 server 查詢。離開公開頁須整頁導覽以替換 CSP。
+    "'self'",
+    // 成品 SVG（淺／深各一份）
+    ...(ufsHost ? [ufsHost] : []),
+    ...(input.isDev ? ["ws://127.0.0.1:*", "ws://localhost:*"] : []),
+  ];
+
+  const scriptSrc = [
+    "'self'",
+    "'unsafe-inline'",
+    // 沒有 'wasm-unsafe-eval'：這條路由不載入引擎，wasm 編譯沒有使用者。
+    ...(input.isDev ? ["'unsafe-eval'", "unpkg.com"] : []),
+  ];
+
+  return [
+    `default-src 'self'`,
+    `base-uri 'none'`,
+    `object-src 'none'`,
+    `frame-ancestors 'none'`,
+    `form-action 'self'`,
+    `script-src ${scriptSrc.join(" ")}`,
+    `style-src 'self' 'unsafe-inline'`,
+    // 成品把場景圖片以 data URL 內嵌；沒有 canvas 匯出（blob:）也沒有 Google 頭像
+    `img-src 'self' data:`,
+    // /excalidraw-assets/fonts.css 與同源 woff2
+    `font-src 'self'`,
+    `worker-src 'none'`,
+    `connect-src ${connectSrc.join(" ")}`,
+    // 公開頁不渲染 embed；成品的 sanitizer 也已移除 iframe
+    `frame-src 'none'`,
+  ].join("; ");
+}
+
+/**
+ * 公開頁只覆蓋 CSP，其餘 headers 沿用整站；規則須排在整站之後。
+ * 共用 rollout 旗標，公開頁驗證見 docs/operations/web-security-headers.md 第 11 項。
+ */
+export function buildPublicViewerSecurityHeaders(
+  input: SecurityHeadersInput,
+): { key: string; value: string }[] {
+  return [
+    {
+      key: CSP_REPORT_ONLY
+        ? "Content-Security-Policy-Report-Only"
+        : "Content-Security-Policy",
+      value: buildPublicViewerContentSecurityPolicy(input),
+    },
+  ];
 }
 
 export function buildSecurityHeaders(

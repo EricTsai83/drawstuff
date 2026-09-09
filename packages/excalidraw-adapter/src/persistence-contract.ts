@@ -4,6 +4,15 @@ export const EXCALIDRAW_PERSISTENCE_CONTRACT = {
   upstreamFormatVersion: 2,
 } as const;
 
+/**
+ * The installed `@excalidraw/excalidraw` version, as a literal: the package's
+ * `exports` map does not expose `package.json`, and upstream has no runtime
+ * version export. Recorded on every published render artifact so an engine
+ * upgrade makes stale artifacts detectable (`published_render_engine_version`);
+ * `tests/package-contract.test.ts` pins it to the resolved install.
+ */
+export const EXCALIDRAW_ENGINE_VERSION = "0.18.1";
+
 export const OFFICIAL_SERVER_APP_STATE_KEYS = [
   "gridSize",
   "gridStep",

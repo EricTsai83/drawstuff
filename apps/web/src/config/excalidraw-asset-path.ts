@@ -14,9 +14,7 @@ declare global {
 
 // upstream 於字型實際載入時才讀取這個值；在任何會觸發字型載入的進入點
 // （workspace 的 excalidraw-client-wrapper）的 module scope 呼叫即足夠早。
-// /p/[slug] 的 published-scene-viewer 以 skipInliningFonts 匯出、字型改走
-// public/excalidraw-assets/fonts.css，正常路徑已不讀此值，但仍保留設定以防
-// 上游其他路徑 fallback 到 esm.sh。
+// /p/[slug] 不載入引擎（只下載發布時渲染好的成品 SVG），不需要呼叫。
 export function installExcalidrawAssetPath(): void {
   if (typeof window !== "undefined") {
     window.EXCALIDRAW_ASSET_PATH = EXCALIDRAW_ASSET_PATH;

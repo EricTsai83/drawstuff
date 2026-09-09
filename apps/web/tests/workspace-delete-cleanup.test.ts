@@ -104,6 +104,10 @@ describe("workspace.delete storage lifecycle", () => {
         userId: "owner-user",
         workspaceId: doomedId,
         thumbnailFileKey: "thumb-key",
+        publishedSvgLightKey: "svg-light-key",
+        publishedSvgLightUrl: "https://app.ufs.sh/f/svg-light-key",
+        publishedSvgDarkKey: "svg-dark-key",
+        publishedSvgDarkUrl: "https://app.ufs.sh/f/svg-dark-key",
       })
       .returning({ id: schema.scene.id });
     if (!doomedScene) throw new Error("scene insert failed");
@@ -158,6 +162,8 @@ describe("workspace.delete storage lifecycle", () => {
     ).toEqual([
       ["asset-key", "delete-workspace", "pending"],
       ["room-asset-key", "delete-workspace", "pending"],
+      ["svg-dark-key", "delete-workspace", "pending"],
+      ["svg-light-key", "delete-workspace", "pending"],
       ["thumb-key", "delete-workspace", "pending"],
     ]);
     // lastActive was re-pointed at the default workspace before the delete.

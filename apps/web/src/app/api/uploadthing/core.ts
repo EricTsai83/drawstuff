@@ -9,7 +9,10 @@ import {
   roomAuthGenerationSchema,
   roomRoleCanEditScene,
 } from "@drawstuff/collaboration/room-auth";
-import { FILE_UPLOAD_MAX_BYTES } from "@/config/app-constants";
+import {
+  FILE_UPLOAD_MAX_BYTES,
+  PUBLISHED_ARTIFACT_MAX_BYTES,
+} from "@/config/app-constants";
 import { getMaxFileSizeString } from "@/lib/utils";
 import {
   commitRoomAssetUpload,
@@ -19,6 +22,7 @@ import { resolveRoomAccess, roomIdInputSchema } from "@/server/collab/rooms";
 import { db } from "@/server/db";
 import { QUERIES } from "@/server/db/queries";
 import { replaceSceneThumbnail } from "@/server/scene/thumbnail-replace";
+import { reservePublishedArtifactUpload } from "@/server/scene/published-artifacts";
 import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth/server";
@@ -420,6 +424,67 @@ export const uploadRouter = {
           });
         }
         throw new Error("Failed to update scene thumbnail");
+      }
+      return {
+        uploadedBy: metadata.userId,
+        fileUrl: file.ufsUrl,
+        fileKey: file.key,
+      };
+    }),
+
+  /**
+   * 已發布場景的渲染成品（淺／深各一份 SVG）。這裡不寫任何 scene 欄位：兩份必須
+   * 一起生效，由 `scene.publish`／`scene.setPublishedArtifacts` 在一個交易內接手。
+   * 為了不讓「上傳完成但 client 沒呼叫 mutation」留下沒有指標的物件，完成時把
+   * key 以未來到期的 reservation 寫進 deferred_file_cleanup；mutation claim 它，
+   * 沒人 claim 就由 drain 在到期後刪除（見 published-artifacts.ts）。
+   */
+  publishedArtifactUploader: f({
+    blob: {
+      maxFileSize: getMaxFileSizeString(PUBLISHED_ARTIFACT_MAX_BYTES),
+      maxFileCount: 1,
+    },
+  })
+    .input(
+      z.object({
+        sceneId: z.uuid(),
+        variant: z.enum(["light", "dark"]),
+        // 內容雜湊只是 storage 層的 lookup 提示與檔名成分，不是身份。
+        contentHash: z.string().regex(/^[a-f0-9]{64}$/),
+      }),
+    )
+    .middleware(async ({ input }) => {
+      const session = await getServerSession();
+      if (!session) throw new Error("Unauthorized");
+      const ownerId = await QUERIES.getSceneOwnerId(input.sceneId);
+      if (!ownerId || ownerId !== session.user.id) throw new Error("Forbidden");
+      return {
+        userId: session.user.id,
+        sceneId: input.sceneId,
+        variant: input.variant,
+      } as const;
+    })
+    .onUploadComplete(async ({ metadata, file }) => {
+      const context = { sceneId: metadata.sceneId, variant: metadata.variant };
+      try {
+        await reservePublishedArtifactUpload(db, {
+          sceneId: metadata.sceneId,
+          fileKey: file.key,
+        });
+      } catch (error) {
+        // 沒有 reservation 的物件永遠不會被任何人指到或回收：立刻刪，刪不掉就
+        // 走一般 deferred cleanup。
+        console.error("Error reserving published artifact upload:", {
+          ...context,
+          error: error instanceof Error ? error.name : "unknown",
+        });
+        const ok = await deleteFileWithRetry(file.key, {
+          ...context,
+          reason: "db-write-failed",
+        });
+        if (!ok)
+          await enqueueDeferredCleanup(file.key, "db-write-failed", context);
+        throw new Error("Failed to reserve published artifact");
       }
       return {
         uploadedBy: metadata.userId,

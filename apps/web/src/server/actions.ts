@@ -172,7 +172,16 @@ export type CreateSceneDraftResult =
   | { ok: false; error: AppErrorCode; message?: string };
 
 export type SaveSceneResult =
-  | { ok: true; data: { id: string; revision: number; updatedAt: string } }
+  | {
+      ok: true;
+      data: {
+        id: string;
+        revision: number;
+        updatedAt: string;
+        /** Published scenes re-render their public artifacts after each save. */
+        isPublished: boolean;
+      };
+    }
   | {
       ok: false;
       error: AppErrorCode;
@@ -264,6 +273,7 @@ export async function saveSceneAction(raw: unknown): Promise<SaveSceneResult> {
           id: saveResult.data.id,
           revision: saveResult.data.revision,
           updatedAt: saveResult.data.updatedAt.toISOString(),
+          isPublished: saveResult.data.isPublished,
         },
       };
     case "not_found":

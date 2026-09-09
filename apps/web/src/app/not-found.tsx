@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Home, PanelsTopLeft } from "lucide-react";
 
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
@@ -32,8 +31,13 @@ export default function NotFound() {
           {t("notFound.description")}
         </p>
 
+        {/* Native anchors, not next/link: this page also renders for a missing
+            or unpublished `/p/<slug>`, whose document carries the tighter
+            public-viewer CSP (security-headers.ts). A soft navigation would
+            keep that policy alive in the workspace and block its uploads,
+            collaboration socket and wasm; leaving must load a new document. */}
         <div className="mt-8 flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:justify-center">
-          <Link
+          <a
             href={routes.canvas}
             className={buttonVariants({
               className: "w-full sm:w-auto",
@@ -41,8 +45,8 @@ export default function NotFound() {
           >
             <Home data-icon="inline-start" aria-hidden="true" />
             {t("navigation.backToCanvas")}
-          </Link>
-          <Link
+          </a>
+          <a
             href={routes.dashboard()}
             className={buttonVariants({
               variant: "outline",
@@ -51,7 +55,7 @@ export default function NotFound() {
           >
             <PanelsTopLeft data-icon="inline-start" aria-hidden="true" />
             {t("labels.openDashboard")}
-          </Link>
+          </a>
         </div>
       </section>
     </main>

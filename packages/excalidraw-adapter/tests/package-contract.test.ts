@@ -55,6 +55,21 @@ describe("@drawstuff/excalidraw-adapter package contract", () => {
     expect(packageJson.dependencies["@excalidraw/excalidraw"]).toBe("^0.18.1");
   });
 
+  it("records the installed engine version literally", async () => {
+    const { EXCALIDRAW_ENGINE_VERSION } =
+      await import("@drawstuff/excalidraw-adapter/codec");
+    const installed = JSON.parse(
+      readFileSync(
+        path.join(
+          packageRoot,
+          "node_modules/@excalidraw/excalidraw/package.json",
+        ),
+        "utf8",
+      ),
+    ) as { version: string };
+    expect(EXCALIDRAW_ENGINE_VERSION).toBe(installed.version);
+  });
+
   it("loads server-safe entries without a browser environment", async () => {
     const [codecEntry, typesEntry] = await Promise.all([
       import("@drawstuff/excalidraw-adapter/codec"),
@@ -64,6 +79,7 @@ describe("@drawstuff/excalidraw-adapter package contract", () => {
     expect(Object.keys(codecEntry).sort()).toEqual(
       [
         "DRAWSTUFF_DOCUMENT_VERSION",
+        "EXCALIDRAW_ENGINE_VERSION",
         "EXCALIDRAW_PERSISTENCE_CONTRACT",
         "OFFICIAL_SERVER_APP_STATE_KEYS",
         "clearElementsForOfficialExport",

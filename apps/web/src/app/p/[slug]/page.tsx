@@ -67,12 +67,14 @@ export default async function PublishedScenePage({
   return (
     <main className="h-dvh">
       <PublishedSceneViewerWrapper
-        sceneData={scene.sceneData}
-        fileRecords={scene.files}
+        // Server components pass only serialisable props; the artifact object
+        // with its Date is reduced to the two URLs the viewer needs.
+        artifacts={{
+          lightUrl: scene.artifacts.lightUrl,
+          darkUrl: scene.artifacts.darkUrl,
+        }}
         sceneName={scene.name}
-        sceneDescription={scene.description}
         authorName={scene.authorName}
-        updatedAt={scene.updatedAt.toISOString()}
       />
     </main>
   );

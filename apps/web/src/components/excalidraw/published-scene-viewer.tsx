@@ -1,12 +1,6 @@
 "use client";
 
 import {
-  exportSceneToSvg,
-  type ExcalidrawSvgExportOptions,
-} from "@drawstuff/excalidraw-adapter/client";
-
-import { installExcalidrawAssetPath } from "@/config/excalidraw-asset-path";
-import {
   Eye,
   EyeOff,
   Hand,
@@ -18,66 +12,43 @@ import {
   ZoomIn,
   ZoomOut,
 } from "lucide-react";
+import { useTheme } from "next-themes";
 import { useEffect, useMemo, useRef, useState } from "react";
-import type {
-  BinaryFileData,
-  BinaryFiles,
-  DataURL,
-  ExcalidrawElement,
-  FileId,
-  NonDeleted,
-} from "@drawstuff/excalidraw-adapter/types";
-import { base64ToArrayBuffer, decompressData } from "@/lib/encode";
-import { decodePersistedScene } from "@/lib/persisted-scene";
-import { hardenSvgLinks } from "@/lib/svg-links";
-import Link from "next/link";
+
 import { DrawstuffLogo } from "@/components/icons";
-import { useSyncTheme } from "@/hooks/use-sync-theme";
-import { useAppI18n } from "@/hooks/use-app-i18n";
-import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
 import { buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-
-// /p/[slug] 不在 workspace layout（excalidraw-client-wrapper）底下。畫布字型
-// 由 app/p/[slug]/layout.tsx 載入的 fonts.css 提供，匯出不再內嵌字型；但上游
-// 其他路徑仍可能讀取這個值，保留指向自家 origin，避免任何 fallback 到 esm.sh。
-installExcalidrawAssetPath();
-
-type PublishedSceneViewerProps = {
-  sceneData: string;
-  fileRecords: Array<{
-    /** Immutable Excalidraw file id; the identity the element's `fileId` matches. */
-    excalidrawFileId: string;
-    url: string;
-  }>;
-  sceneName: string;
-  sceneDescription: string;
-  authorName?: string;
-  updatedAt: string;
-};
-
-type DecompressedFileMetadata = {
-  id: string;
-  mimeType: string;
-  created: number;
-  lastRetrieved: number;
-};
+import { useAppI18n } from "@/hooks/use-app-i18n";
+import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
 
 /**
- * Everything the SVG export needs, decoded once per published scene. Derived
- * from the adapter's option type so it cannot drift from the engine.
+ * The published page's chrome and stage. It never imports the engine: the
+ * scene arrives as an `SVGSVGElement` from a {@link PublishedSceneSource}, a
+ * pre-rendered artifact downloaded from storage (render once, serve many).
+ * The source is an interface rather than a fetch inlined here so the shell
+ * stays testable and independent of where the SVG comes from.
+ *
+ * `tests/published-viewer-engine-free.test.ts` pins the import graph of this
+ * module to stay free of `@drawstuff/excalidraw-adapter/client`; that is what
+ * keeps Excalidraw out of the visitor's bundle.
  */
-type LoadedScene = {
-  elements: ExcalidrawSvgExportOptions["elements"];
-  appState: NonNullable<ExcalidrawSvgExportOptions["appState"]>;
-  files: NonNullable<ExcalidrawSvgExportOptions["files"]>;
+export type PublishedSceneTheme = "light" | "dark";
+
+export type PublishedSceneSource = {
+  /** Identity of the scene content; a change re-fits the viewport. */
+  readonly key: string;
+  /** Produces the scene for one theme. Called again whenever the theme changes. */
+  readonly load: (
+    theme: PublishedSceneTheme,
+    signal: AbortSignal,
+  ) => Promise<SVGSVGElement>;
 };
 
-function isNotDeleted(
-  element: ExcalidrawElement,
-): element is NonDeleted<ExcalidrawElement> {
-  return !element.isDeleted;
-}
+type PublishedSceneViewerProps = {
+  source: PublishedSceneSource;
+  sceneName: string;
+  authorName?: string;
+};
 
 /**
  * Hand: dragging pans and text is not selectable. Select: dragging selects the
@@ -134,14 +105,16 @@ const CONTROLS_MENU =
   "border-border bg-background/95 absolute top-[calc(100%+0.5rem)] right-0 z-20 flex origin-top-right flex-col items-center gap-0.5 rounded-md border p-1 shadow-sm backdrop-blur transition-[opacity,transform] duration-150 ease-out will-change-transform motion-reduce:transition-none";
 
 export function PublishedSceneViewer({
-  sceneData,
-  fileRecords,
+  source,
   sceneName,
   authorName,
 }: PublishedSceneViewerProps) {
   const { t } = useAppI18n();
-  const { setTheme, browserActiveTheme } = useSyncTheme();
-  const [scene, setScene] = useState<LoadedScene | null>(null);
+  // Not `useSyncTheme`: it reaches into the adapter's client entry for the
+  // theme constants, which would pull the engine into this bundle.
+  const { setTheme, resolvedTheme } = useTheme();
+  const browserActiveTheme: PublishedSceneTheme =
+    resolvedTheme === "dark" ? "dark" : "light";
   const [sceneSvg, setSceneSvg] = useState<SVGSVGElement | null>(null);
   const [fontsReady, setFontsReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -167,7 +140,7 @@ export function PublishedSceneViewer({
     onClickCapture,
   } = useSvgPanZoom({
     content: sceneSvg,
-    contentKey: sceneData,
+    contentKey: source.key,
     margin: FIT_MARGIN,
     minScale: MIN_ZOOM,
     maxScale: MAX_ZOOM,
@@ -178,131 +151,40 @@ export function PublishedSceneViewer({
     [sceneSvg],
   );
 
+  // A new scene starts from an empty stage; a theme change keeps the current
+  // SVG mounted until the other variant has arrived.
+  useEffect(() => {
+    setSceneSvg(null);
+    setLoadError(false);
+  }, [source]);
+
   useEffect(() => {
     const controller = new AbortController();
     let isActive = true;
 
-    setScene(null);
-    setSceneSvg(null);
-    setLoadError(false);
-
-    async function loadPublishedScene() {
-      try {
-        const compressedBuffer = new Uint8Array(base64ToArrayBuffer(sceneData));
-        const { data } = await decompressData<Record<string, never>>(
-          compressedBuffer,
-          { decryptionKey: "" },
-        );
-        const parsed = decodePersistedScene(data);
-
-        const files: BinaryFiles = {};
-
-        await Promise.allSettled(
-          fileRecords.map(async ({ excalidrawFileId, url }) => {
-            const response = await fetch(url, {
-              signal: controller.signal,
-            });
-            if (!response.ok) return;
-
-            const fileBuffer = new Uint8Array(await response.arrayBuffer());
-            const { metadata, data: fileData } =
-              await decompressData<DecompressedFileMetadata>(fileBuffer, {
-                decryptionKey: "",
-              });
-
-            // The record owns the identity; the id inside the payload is a copy.
-            // A disagreement means the wrong object is stored under this record,
-            // and rendering it would put one image where another belongs.
-            if (metadata.id !== excalidrawFileId) return;
-
-            const id = metadata.id as FileId;
-            files[id] = {
-              id,
-              dataURL: new TextDecoder().decode(fileData) as DataURL,
-              mimeType: metadata.mimeType as BinaryFileData["mimeType"],
-              created: metadata.created,
-              lastRetrieved: metadata.lastRetrieved,
-            };
-          }),
-        );
-
+    source.load(browserActiveTheme, controller.signal).then(
+      (svg) => {
         if (!isActive) return;
-
-        setScene({
-          // `exportToSvg` renders exactly the elements it is given, so
-          // tombstones are dropped here rather than by an editor.
-          elements: parsed.elements.filter(isNotDeleted),
-          appState: parsed.appState,
-          files,
-        });
-      } catch (error) {
-        if (error instanceof Error && error.name === "AbortError") {
-          return;
-        }
-
-        console.error("Failed to load published scene", error);
-        if (isActive) {
-          setLoadError(true);
-        }
-      }
-    }
-
-    void loadPublishedScene();
+        setSceneSvg(svg);
+        // A failed load (e.g. before a theme retry) must not keep covering a
+        // successful one.
+        setLoadError(false);
+      },
+      (error: unknown) => {
+        if (error instanceof Error && error.name === "AbortError") return;
+        console.error(
+          "Failed to load published scene:",
+          error instanceof Error ? (error.stack ?? error.message) : error,
+        );
+        if (isActive) setLoadError(true);
+      },
+    );
 
     return () => {
       isActive = false;
       controller.abort();
     };
-  }, [fileRecords, sceneData]);
-
-  // The published page renders a static export instead of mounting the editor,
-  // so a theme change means re-exporting the scene.
-  useEffect(() => {
-    if (!scene) return;
-    let isActive = true;
-
-    async function renderSceneSvg(loaded: LoadedScene) {
-      try {
-        const svg = await exportSceneToSvg({
-          elements: loaded.elements,
-          appState: {
-            ...loaded.appState,
-            exportWithDarkMode: browserActiveTheme === "dark",
-            // Keep the scene's own background (dark-mode filtered upstream,
-            // exactly like the editor). Dropping it made light strokes drawn
-            // on a dark scene vanish against the app's light background.
-            exportBackground: true,
-          },
-          files: loaded.files,
-          // Fonts come from /excalidraw-assets/fonts.css (loaded by the /p
-          // layout) through the browser's own unicode-range loading, so the
-          // export never runs upstream's subsetting worker + wasm pipeline.
-          skipInliningFonts: true,
-        });
-
-        if (!isActive) return;
-        hardenSvgLinks(svg);
-        setSceneSvg(svg);
-        // A failed export (e.g. before a theme retry) must not keep covering a
-        // successful one.
-        setLoadError(false);
-      } catch (error) {
-        console.error(
-          "Failed to render published scene:",
-          error instanceof Error ? (error.stack ?? error.message) : error,
-        );
-        if (isActive) {
-          setLoadError(true);
-        }
-      }
-    }
-
-    void renderSceneSvg(scene);
-
-    return () => {
-      isActive = false;
-    };
-  }, [browserActiveTheme, scene]);
+  }, [browserActiveTheme, source]);
 
   // fonts.css declares the canvas faces with `font-display: block`, so text is
   // invisible until its faces arrive. Ask for exactly the faces the exported
@@ -310,7 +192,7 @@ export function PublishedSceneViewer({
   // they are loaded, so the scene never flashes in a fallback font. This is an
   // explicit request rather than `document.fonts.ready`: `ready` only reflects
   // loads the browser has already started, which depends on a layout pass
-  // having run over the mounted SVG. Later re-exports (theme change) reuse the
+  // having run over the mounted SVG. Later loads (theme change) reuse the
   // same text and already-loaded faces, so the gate is only applied once.
   useEffect(() => {
     if (!sceneSvg || fontsReady) return;
@@ -484,7 +366,13 @@ export function PublishedSceneViewer({
           ref={headerRef}
           className="app-safe-header border-border bg-background relative flex min-h-12 shrink-0 items-center justify-between gap-2 border-b py-2"
         >
-          <Link
+          {/* A plain anchor, not next/link: `/p/*` is served under its own,
+              tighter CSP (security-headers.ts), and a soft navigation would
+              carry this document's policy into the workspace, where the
+              editor's uploads, collaboration socket and wasm would then be
+              blocked. Leaving the policy boundary must load a new document. */}
+          {/* eslint-disable-next-line @next/next/no-html-link-for-pages -- full-document navigation across the /p CSP boundary is the point */}
+          <a
             ref={headerLeftRef}
             href="/"
             className="z-10 flex shrink-0 items-center gap-1.5 px-2"
@@ -493,7 +381,7 @@ export function PublishedSceneViewer({
             <span className="hidden text-lg font-medium sm:inline">
               drawstuff
             </span>
-          </Link>
+          </a>
 
           <div
             className="pointer-events-none absolute left-1/2 flex max-w-[calc(100vw-8rem)] min-w-0 -translate-x-1/2 items-center justify-center gap-2 px-2 sm:max-w-[40vw]"

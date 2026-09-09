@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { Home, RefreshCw } from "lucide-react";
 import { useEffect } from "react";
 
@@ -62,7 +61,11 @@ export function ErrorPage({ error, reset, labels }: ErrorPageProps) {
             <RefreshCw data-icon="inline-start" aria-hidden="true" />
             {labels.retry}
           </Button>
-          <Link
+          {/* Native anchor, not next/link: an error under `/p/<slug>` renders
+              this page in a document that carries the tighter public-viewer
+              CSP (security-headers.ts); a soft navigation would keep that
+              policy alive in the workspace. Leaving must load a new document. */}
+          <a
             href={routes.canvas}
             className={buttonVariants({
               variant: "outline",
@@ -71,7 +74,7 @@ export function ErrorPage({ error, reset, labels }: ErrorPageProps) {
           >
             <Home data-icon="inline-start" aria-hidden="true" />
             {labels.backToCanvas}
-          </Link>
+          </a>
         </div>
 
         {error.digest ? (

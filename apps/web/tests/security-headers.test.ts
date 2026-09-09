@@ -3,9 +3,12 @@ import { describe, expect, it } from "vitest";
 import { EMBED_FRAME_SRC_HOSTS } from "@/config/embed-allowlist";
 import {
   buildContentSecurityPolicy,
+  buildPublicViewerContentSecurityPolicy,
+  buildPublicViewerSecurityHeaders,
   buildSecurityHeaders,
   CSP_REPORT_ONLY,
   deriveUploadThingAppId,
+  PUBLIC_VIEWER_ROUTE_SOURCE,
   type SecurityHeadersInput,
 } from "@/config/security-headers";
 
@@ -237,6 +240,127 @@ describe("buildSecurityHeaders", () => {
     expect(headers["X-Content-Type-Options"]).toBe("nosniff");
     expect(headers["Referrer-Policy"]).toBe("no-referrer");
     expect(headers["X-Frame-Options"]).toBe("DENY");
+  });
+});
+
+describe("buildPublicViewerContentSecurityPolicy (/p/[slug])", () => {
+  it("is the site policy minus everything the public viewer never uses", () => {
+    const csp = buildPublicViewerContentSecurityPolicy(PROD_INPUT);
+
+    // 不載入引擎：無 wasm、無 worker。
+    expect(directive(csp, "script-src")).toBe(
+      "script-src 'self' 'unsafe-inline'",
+    );
+    expect(csp).not.toContain("'wasm-unsafe-eval'");
+    expect(directive(csp, "worker-src")).toBe("worker-src 'none'");
+    // 只連自家 origin（RSC navigation）與成品所在的 storage host。
+    expect(directive(csp, "connect-src")).toBe(
+      "connect-src 'self' https://abc123.ufs.sh",
+    );
+    expect(csp).not.toContain("ingest.uploadthing.com");
+    expect(csp).not.toContain("libraries.excalidraw.com");
+    expect(csp).not.toContain("wss://");
+    // 成品內嵌 data: 圖片；沒有 canvas blob，沒有 Google 頭像。
+    expect(directive(csp, "img-src")).toBe("img-src 'self' data:");
+    expect(csp).not.toContain("lh3.googleusercontent.com");
+    // 公開頁不渲染 embed。
+    expect(directive(csp, "frame-src")).toBe("frame-src 'none'");
+    expect(directive(csp, "font-src")).toBe("font-src 'self'");
+    expect(directive(csp, "style-src")).toBe(
+      "style-src 'self' 'unsafe-inline'",
+    );
+  });
+
+  it("keeps the injection-surface directives identical to the site policy", () => {
+    const site = buildContentSecurityPolicy(PROD_INPUT);
+    const viewer = buildPublicViewerContentSecurityPolicy(PROD_INPUT);
+    for (const name of [
+      "default-src",
+      "base-uri",
+      "object-src",
+      "frame-ancestors",
+      "form-action",
+    ]) {
+      expect(directive(viewer, name)).toBe(directive(site, name));
+    }
+    expect(viewer).not.toContain("report-uri");
+    expect(viewer).not.toContain("esm.sh");
+  });
+
+  it("never grants the viewer a source the site policy does not have", () => {
+    const sourcesOf = (csp: string) =>
+      new Map(
+        csp.split(";").map((part) => {
+          const [name, ...sources] = part.trim().split(" ");
+          return [name, new Set(sources)] as const;
+        }),
+      );
+    const site = sourcesOf(buildContentSecurityPolicy(PROD_INPUT));
+    const viewer = sourcesOf(
+      buildPublicViewerContentSecurityPolicy(PROD_INPUT),
+    );
+    for (const [name, sources] of viewer) {
+      for (const source of sources) {
+        if (source === "'none'") continue;
+        expect(site.get(name), `${name} ${source}`).toContain(source);
+      }
+    }
+  });
+
+  it("applies the same dev-only relaxations and env failures as the site policy", () => {
+    const dev = buildPublicViewerContentSecurityPolicy({
+      ...PROD_INPUT,
+      isDev: true,
+    });
+    expect(directive(dev, "script-src")).toContain("'unsafe-eval'");
+    expect(directive(dev, "connect-src")).toContain("ws://127.0.0.1:*");
+    expect(dev).not.toContain("'wasm-unsafe-eval'");
+
+    expect(() =>
+      buildPublicViewerContentSecurityPolicy({
+        ...PROD_INPUT,
+        uploadThingToken: "nope",
+      }),
+    ).toThrow(/UPLOADTHING_TOKEN/);
+    // 不需要 gateway：缺 COLLAB_CONTROL_URL 不影響這條路由。
+    expect(
+      directive(
+        buildPublicViewerContentSecurityPolicy({
+          ...PROD_INPUT,
+          collabGatewayUrl: undefined,
+        }),
+        "connect-src",
+      ),
+    ).toBe("connect-src 'self' https://abc123.ufs.sh");
+    expect(
+      buildPublicViewerContentSecurityPolicy({
+        isDev: false,
+        collabGatewayUrl: undefined,
+        uploadThingToken: "something-cool",
+        allowIncompleteEnv: true,
+      }),
+    ).not.toContain("ufs.sh");
+  });
+
+  it("emits only the CSP, enforced, and overrides the site header on its route", () => {
+    const headers = buildPublicViewerSecurityHeaders(PROD_INPUT);
+    expect(headers).toHaveLength(1);
+    // Same header name as the site policy so Next's last-rule-wins merge
+    // replaces it on /p/*; follows the site-wide report-only switch.
+    expect(headers[0]?.key).toBe(
+      CSP_REPORT_ONLY
+        ? "Content-Security-Policy-Report-Only"
+        : "Content-Security-Policy",
+    );
+    expect(headers[0]?.key).toBe(
+      buildSecurityHeaders(PROD_INPUT).find((header) =>
+        header.key.startsWith("Content-Security-Policy"),
+      )?.key,
+    );
+    expect(headers[0]?.value).toBe(
+      buildPublicViewerContentSecurityPolicy(PROD_INPUT),
+    );
+    expect(PUBLIC_VIEWER_ROUTE_SOURCE).toBe("/p/:slug*");
   });
 });
 

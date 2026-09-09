@@ -16,6 +16,7 @@ export {
 export {
   clearElementsForOfficialExport,
   collectReferencedFileIds,
+  EXCALIDRAW_ENGINE_VERSION,
   EXCALIDRAW_PERSISTENCE_CONTRACT,
   filterReferencedFiles,
   OFFICIAL_SERVER_APP_STATE_KEYS,

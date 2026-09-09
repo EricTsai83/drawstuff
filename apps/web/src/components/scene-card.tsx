@@ -42,6 +42,12 @@ import {
 } from "@/components/ui/tooltip";
 import { copyTextToSystemClipboard } from "@/lib/utils";
 import { getPublishedSceneUrl } from "@/lib/published-scene";
+import { loadOwnedSceneForRender } from "@/lib/import-data-from-db";
+import { renderPublishedArtifacts } from "@/lib/render-published-artifacts";
+import {
+  usePublishedArtifactUpload,
+  type PublishedArtifactsInput,
+} from "@/hooks/use-published-artifacts";
 
 type SceneListItem =
   RouterOutputs["scene"]["getUserScenesInfinite"]["items"][number];
@@ -82,6 +88,7 @@ export const SceneCard = memo(function SceneCard({
   const assignCategoryMutation = api.category.assignToScene.useMutation();
   const unassignCategoryMutation = api.category.unassignFromScene.useMutation();
   const publishSceneMutation = api.scene.publish.useMutation();
+  const uploadPublishedArtifacts = usePublishedArtifactUpload();
   const unpublishSceneMutation = api.scene.unpublish.useMutation();
   const archiveSceneMutation = api.scene.archive.useMutation();
   const unarchiveSceneMutation = api.scene.unarchive.useMutation();
@@ -238,12 +245,34 @@ export const SceneCard = memo(function SceneCard({
     }
   };
 
+  // 發布是 client 兩步：公開頁只讀渲染成品，所以先把儲存中的場景載進來、以引擎
+  // 渲染淺／深兩份 SVG 並上傳，再帶著成品 key 呼叫 publish。伺服器拒絕沒有成品的
+  // 發布；上傳了卻沒 publish 成功的物件由 reservation 到期後回收。
   const handlePublishScene = useCallback(
     async (e: React.MouseEvent) => {
       e.stopPropagation();
 
+      const toastId = toast.loading(t("publish.toast.preparing"));
+      let artifacts: PublishedArtifactsInput;
       try {
-        const result = await publishSceneMutation.mutateAsync({ id: item.id });
+        const snapshot = await loadOwnedSceneForRender(item.id);
+        const rendered = await renderPublishedArtifacts(snapshot);
+        artifacts = await uploadPublishedArtifacts({
+          sceneId: item.id,
+          rendered,
+          revision: snapshot.revision,
+        });
+      } catch (error) {
+        console.error("Failed to render published artifacts:", error);
+        toast.error(t("publish.toast.renderFailed"), { id: toastId });
+        return;
+      }
+
+      try {
+        const result = await publishSceneMutation.mutateAsync({
+          id: item.id,
+          artifacts,
+        });
         await invalidateSceneQueries(item.id);
         await copyTextToSystemClipboard(getPublishedSceneUrl(result.slug));
         toast.success(
@@ -252,13 +281,20 @@ export const SceneCard = memo(function SceneCard({
               ? "publish.toast.copied"
               : "publish.toast.published",
           ),
+          { id: toastId },
         );
       } catch (error) {
         console.error("Failed to publish scene:", error);
-        toast.error(t("publish.toast.failed"));
+        toast.error(t("publish.toast.failed"), { id: toastId });
       }
     },
-    [item.id, publishSceneMutation, t, invalidateSceneQueries],
+    [
+      item.id,
+      publishSceneMutation,
+      uploadPublishedArtifacts,
+      t,
+      invalidateSceneQueries,
+    ],
   );
 
   const handleCopyPublicLink = useCallback(

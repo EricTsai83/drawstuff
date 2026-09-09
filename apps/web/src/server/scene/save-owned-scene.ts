@@ -51,6 +51,8 @@ export type SaveOwnedSceneResult =
         action: "created" | "updated";
         revision: number;
         updatedAt: Date;
+        /** Published scenes re-render their public artifacts after each save. */
+        isPublished: boolean;
       };
     }
   | { status: "forbidden"; message: string }
@@ -248,6 +250,7 @@ async function saveOwnedSceneInTransaction({
           id: scene.id,
           revision: scene.revision,
           updatedAt: scene.updatedAt,
+          isPublished: scene.isPublished,
         });
 
       if (!createdScene?.id) {
@@ -276,6 +279,7 @@ async function saveOwnedSceneInTransaction({
           action: "created",
           revision: createdScene.revision,
           updatedAt: createdScene.updatedAt,
+          isPublished: createdScene.isPublished,
         },
       } as const;
     }
@@ -339,6 +343,7 @@ async function saveOwnedSceneInTransaction({
         id: scene.id,
         revision: scene.revision,
         updatedAt: scene.updatedAt,
+        isPublished: scene.isPublished,
       });
 
     if (!updatedScene?.id) {
@@ -388,6 +393,7 @@ async function saveOwnedSceneInTransaction({
         action: "updated",
         revision: updatedScene.revision,
         updatedAt: updatedScene.updatedAt,
+        isPublished: updatedScene.isPublished,
       },
     } as const;
   });

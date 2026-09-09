@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
   cleanupSceneAssetUploads: vi.fn(),
   startAssetUpload: vi.fn(),
   startThumbnailUpload: vi.fn(),
+  startArtifactUpload: vi.fn(),
+  setPublishedArtifacts: vi.fn(),
+  renderPublishedArtifacts: vi.fn(),
   deleteScene: vi.fn(),
   getSceneMeta: vi.fn(),
   getCurrentSceneSnapshot: vi.fn(),
@@ -46,7 +49,9 @@ vi.mock("@/lib/uploadthing", () => ({
     startUpload:
       endpoint === "sceneAssetUploader"
         ? mocks.startAssetUpload
-        : mocks.startThumbnailUpload,
+        : endpoint === "publishedArtifactUploader"
+          ? mocks.startArtifactUpload
+          : mocks.startThumbnailUpload,
   }),
 }));
 vi.mock("@/trpc/react", () => ({
@@ -57,8 +62,14 @@ vi.mock("@/trpc/react", () => ({
     }),
     scene: {
       deleteScene: { useMutation: () => ({ mutateAsync: mocks.deleteScene }) },
+      setPublishedArtifacts: {
+        useMutation: () => ({ mutateAsync: mocks.setPublishedArtifacts }),
+      },
     },
   },
+}));
+vi.mock("@/lib/render-published-artifacts", () => ({
+  renderPublishedArtifacts: mocks.renderPublishedArtifacts,
 }));
 vi.mock("@/lib/excalidraw", () => ({
   getCurrentSceneSnapshot: mocks.getCurrentSceneSnapshot,
@@ -126,10 +137,16 @@ const upload = async (options?: Parameters<Hook["uploadSceneToCloud"]>[0]) => {
 
 const SCENE_BYTES = new Uint8Array([1, 2, 3]);
 const ASSET_BYTES = new Uint8Array([9]);
-const saved = (id: string, revision: number): SaveSceneResult => ({
+const saved = (
+  id: string,
+  revision: number,
+  isPublished = false,
+): SaveSceneResult => ({
   ok: true,
-  data: { id, revision, updatedAt: "2026-01-01T00:00:00.000Z" },
+  data: { id, revision, updatedAt: "2026-01-01T00:00:00.000Z", isPublished },
 });
+
+const ARTIFACT_URL = (key: string) => `https://app.ufs.sh/f/${key}`;
 
 const sha256Hex = async (bytes: Uint8Array<ArrayBuffer>) =>
   Array.from(
@@ -164,6 +181,23 @@ beforeEach(() => {
   ]);
   mocks.saveScene.mockResolvedValue(saved("scene-1", 4));
   mocks.exportSceneThumbnail.mockResolvedValue(new Blob(["png"]));
+  mocks.renderPublishedArtifacts.mockResolvedValue({
+    light: new Blob(["<svg/>"], { type: "image/svg+xml" }),
+    dark: new Blob(["<svg dark/>"], { type: "image/svg+xml" }),
+    engineVersion: "0.18.1",
+  });
+  mocks.startArtifactUpload.mockImplementation(
+    (_files: File[], input: { variant: "light" | "dark" }) =>
+      Promise.resolve([
+        {
+          serverData: {
+            fileKey: `${input.variant}-key`,
+            fileUrl: ARTIFACT_URL(`${input.variant}-key`),
+          },
+        },
+      ]),
+  );
+  mocks.setPublishedArtifacts.mockResolvedValue({ applied: true });
   mocks.createSceneDraft.mockResolvedValue({
     ok: true,
     data: { id: "scene-new", revision: 0, updatedAt: "" },
@@ -283,6 +317,88 @@ describe("useCloudUpload success path", () => {
     expect(mocks.saveScene).toHaveBeenCalledWith(
       expect.objectContaining({ expectedRevision: 9 }),
     );
+  });
+
+  it("leaves published artifacts alone for a private scene", async () => {
+    await expect(upload()).resolves.toBe(true);
+    expect(mocks.renderPublishedArtifacts).not.toHaveBeenCalled();
+    expect(mocks.startArtifactUpload).not.toHaveBeenCalled();
+    expect(mocks.setPublishedArtifacts).not.toHaveBeenCalled();
+  });
+
+  it("re-renders and replaces both artifacts after saving a published scene", async () => {
+    mocks.saveScene.mockResolvedValue(saved("scene-1", 4, true));
+    await expect(upload()).resolves.toBe(true);
+
+    expect(mocks.renderPublishedArtifacts).toHaveBeenCalledWith({
+      elements: [],
+      appState: { name: "  My scene  " },
+      files: {},
+    });
+    expect(mocks.startArtifactUpload).toHaveBeenCalledTimes(2);
+    const variants = mocks.startArtifactUpload.mock.calls.map(
+      ([files, input]) => {
+        const [file] = files as File[];
+        const upload = input as {
+          sceneId: string;
+          variant: string;
+          contentHash: string;
+        };
+        expect(upload.sceneId).toBe("scene-1");
+        expect(upload.contentHash).toMatch(/^[a-f0-9]{64}$/);
+        expect(file?.type).toBe("image/svg+xml");
+        expect(file?.name).toBe(`${upload.variant}-${upload.contentHash}.svg`);
+        return upload.variant;
+      },
+    );
+    expect(variants.sort()).toEqual(["dark", "light"]);
+    expect(mocks.setPublishedArtifacts).toHaveBeenCalledWith({
+      id: "scene-1",
+      artifacts: {
+        light: { key: "light-key", url: ARTIFACT_URL("light-key") },
+        dark: { key: "dark-key", url: ARTIFACT_URL("dark-key") },
+        engineVersion: "0.18.1",
+        // The revision the save returned, not the one it started from.
+        revision: 4,
+      },
+    });
+    expect(hook().status).toBe("success");
+  });
+
+  it("keeps the commit when the published artifacts fail, and tells the author", async () => {
+    mocks.saveScene.mockResolvedValue(saved("scene-1", 4, true));
+    mocks.startArtifactUpload.mockRejectedValue(new Error("svg down"));
+    await expect(upload()).resolves.toBe(true);
+    expect(mocks.setPublishedArtifacts).not.toHaveBeenCalled();
+    expect(console.error).toHaveBeenCalledWith(
+      "Failed to render/upload published artifacts after cloud upload:",
+      expect.any(Error),
+    );
+    // The save succeeded, so the failure is a warning with the sizes that
+    // matter for an oversized artifact, not a save error.
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      en["app.cloudUpload.toast.error.publishedArtifactsUpload"]
+        .replace("{light}", "0.0 MB")
+        .replace("{dark}", "0.0 MB"),
+    );
+    expect(mocks.toastSuccess).toHaveBeenCalledWith(
+      en["app.cloudUpload.toast.success"],
+    );
+    // The thumbnail is independent of the artifacts.
+    expect(mocks.startThumbnailUpload).toHaveBeenCalledTimes(1);
+    expect(mocks.session.syncCurrentScene).toHaveBeenCalledTimes(1);
+    expect(hook().status).toBe("success");
+  });
+
+  it("reports a render failure without artifact sizes", async () => {
+    mocks.saveScene.mockResolvedValue(saved("scene-1", 4, true));
+    mocks.renderPublishedArtifacts.mockRejectedValue(new Error("no canvas"));
+    await expect(upload()).resolves.toBe(true);
+    expect(mocks.startArtifactUpload).not.toHaveBeenCalled();
+    expect(mocks.toastError).toHaveBeenCalledWith(
+      en["app.cloudUpload.toast.error.publishedArtifactsRender"],
+    );
+    expect(hook().status).toBe("success");
   });
 
   it("keeps the commit when only the thumbnail fails", async () => {

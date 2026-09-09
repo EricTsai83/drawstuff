@@ -1,5 +1,11 @@
 export const FILE_UPLOAD_MAX_BYTES = 3 * 1024 * 1024; // 3 MiB
 
+/**
+ * 已發布場景的渲染成品（單份 SVG）上限。成品把場景圖片以 data URL 內嵌（見
+ * docs/system-design/render-once-serve-many.md），多張大圖的場景可能達數 MB；任一成品超過約 2 MB 時要重新評估改為外部引用。
+ */
+export const PUBLISHED_ARTIFACT_MAX_BYTES = 16 * 1024 * 1024; // 16 MiB
+
 export const STORAGE_KEYS = {
   LOCAL_STORAGE_ELEMENTS: "excalidraw",
   LOCAL_STORAGE_APP_STATE: "excalidraw-state",

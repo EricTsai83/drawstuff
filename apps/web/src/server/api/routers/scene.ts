@@ -30,31 +30,60 @@ import {
   saveOwnedScene,
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
-import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 import { retireScene } from "@/server/admin/retirement";
 import { enforcePublicSceneReadRateLimit } from "@/server/rate-limit/shared-scene";
+import {
+  applyPublishedArtifacts,
+  CLEARED_PUBLISHED_ARTIFACT_COLUMNS,
+  publishedArtifactsInputSchema,
+  readPublishedArtifacts,
+  type PublishedArtifactsOutcome,
+} from "@/server/scene/published-artifacts";
+import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
   alreadyPublished: z.boolean(),
 });
 
+const publishedArtifactsOutcomeOutput = z.union([
+  z.object({ applied: z.literal(true) }),
+  z.object({
+    applied: z.literal(false),
+    reason: z.enum(["not-published", "unclaimed", "stale"]),
+  }),
+]);
+
 const publicSceneOutput = z.object({
   id: z.uuid(),
   name: z.string(),
   description: z.string(),
-  sceneData: z.string(),
+  /**
+   * 發布成品：viewer 依主題下載其一，不載入引擎。公開頁不回傳 sceneData／資產：
+   * 場景資料只服務作者，訪客只拿成品。
+   */
+  artifacts: z.object({
+    lightUrl: z.string(),
+    darkUrl: z.string(),
+    engineVersion: z.string(),
+    renderedAt: z.date(),
+  }),
   thumbnailUrl: z.string().optional(),
   updatedAt: z.date(),
   publishedAt: z.date().optional(),
   authorName: z.string().optional(),
-  files: z.array(
-    z.object({
-      excalidrawFileId: z.string(),
-      url: z.string(),
-    }),
-  ),
 });
+
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "cause" in error &&
+    typeof error.cause === "object" &&
+    error.cause !== null &&
+    "code" in error.cause &&
+    (error.cause as { code?: string }).code === "23505"
+  );
+}
 
 function normalizeSearchTerm(search: string | undefined): string | null {
   const trimmed = search?.trim();
@@ -482,112 +511,210 @@ export const sceneRouter = createTRPCRouter({
       return { id: updated[0].id, revision: updated[0].revision };
     }),
 
+  /**
+   * 發布是 client 兩步的第二步：成品先由作者瀏覽器渲染並上傳（reservation 已在
+   * upload handler 寫入），這裡在同一交易內 claim 成品、設 slug 並公開。沒有成品的
+   * 請求在 input 層就被拒絕——公開頁不得在無成品的狀態下存在。
+   */
   publish: protectedProcedure
-    .input(z.object({ id: z.uuid() }))
+    .input(z.object({ id: z.uuid(), artifacts: publishedArtifactsInputSchema }))
     .output(publishMutationOutput)
     .mutation(async ({ ctx, input }) => {
-      const ownedScene = await ctx.db.query.scene.findFirst({
-        where: and(
-          eq(scene.id, input.id),
-          eq(scene.userId, ctx.auth.user.id),
-          isNotNull(scene.sceneData),
-        ),
-        columns: {
-          id: true,
-          publishedSlug: true,
-          isPublished: true,
-        },
-      });
+      return await ctx.db.transaction(async (tx) => {
+        const [ownedScene] = await tx
+          .select({
+            id: scene.id,
+            publishedSlug: scene.publishedSlug,
+            isPublished: scene.isPublished,
+          })
+          .from(scene)
+          .where(
+            and(
+              eq(scene.id, input.id),
+              eq(scene.userId, ctx.auth.user.id),
+              isNotNull(scene.sceneData),
+            ),
+          )
+          .for("update");
 
-      if (!ownedScene) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
-      }
+        if (!ownedScene) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Scene not found",
+          });
+        }
+        // After the lock: the claim's due-line check must not be evaluated
+        // against a clock reading taken before a possibly long lock wait.
+        const now = new Date();
 
-      if (ownedScene.isPublished && ownedScene.publishedSlug) {
-        return {
-          slug: ownedScene.publishedSlug,
-          alreadyPublished: true,
-        };
-      }
-
-      const MAX_SLUG_ATTEMPTS = 5;
-      for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
-        const nextSlug = nanoid(12);
-
-        try {
-          const [updated] = await ctx.db
-            .update(scene)
-            .set({
-              isPublished: true,
-              publishedSlug: nextSlug,
-              publishedAt: new Date(),
-              updatedAt: new Date(),
-            })
-            .where(
-              and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
-            )
-            .returning({
-              publishedSlug: scene.publishedSlug,
-            });
-
-          if (!updated?.publishedSlug) {
+        const rejectUnlessApplied = (outcome: PublishedArtifactsOutcome) => {
+          if (!outcome.applied) {
             throw new TRPCError({
-              code: "NOT_FOUND",
-              message: "Scene not found",
+              code: "BAD_REQUEST",
+              message: `Published artifacts not applied: ${outcome.reason}`,
             });
           }
+        };
 
+        if (ownedScene.isPublished && ownedScene.publishedSlug) {
+          // 已公開（例如另一個分頁搶先）：成品仍然是新的，一樣套用。
+          rejectUnlessApplied(
+            await applyPublishedArtifacts(tx, {
+              sceneId: input.id,
+              artifacts: input.artifacts,
+              now,
+              reason: "replace-published-artifacts",
+              update: async (columns) => {
+                const rows = await tx
+                  .update(scene)
+                  .set({ ...columns, updatedAt: now })
+                  .where(eq(scene.id, input.id))
+                  .returning({ id: scene.id });
+                return { updated: rows.length === 1 };
+              },
+            }),
+          );
           return {
-            slug: updated.publishedSlug,
-            alreadyPublished: false,
+            slug: ownedScene.publishedSlug,
+            alreadyPublished: true,
           };
-        } catch (error) {
-          const isUniqueViolation =
-            error instanceof Error &&
-            "cause" in error &&
-            typeof error.cause === "object" &&
-            error.cause !== null &&
-            "code" in error.cause &&
-            (error.cause as { code?: string }).code === "23505";
+        }
 
-          if (!isUniqueViolation) {
-            throw error;
+        // slug 唯一違反會讓整個交易失效，所以每次嘗試包在 savepoint 裡；
+        // rollback 同時撤銷該次的成品 claim，下一次嘗試重新 claim。
+        const MAX_SLUG_ATTEMPTS = 5;
+        for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt += 1) {
+          const nextSlug = nanoid(12);
+          try {
+            const outcome = await tx.transaction(async (sp) => {
+              const result = await applyPublishedArtifacts(sp, {
+                sceneId: input.id,
+                artifacts: input.artifacts,
+                now,
+                reason: "replace-published-artifacts",
+                update: async (columns) => {
+                  const rows = await sp
+                    .update(scene)
+                    .set({
+                      ...columns,
+                      isPublished: true,
+                      publishedSlug: nextSlug,
+                      publishedAt: now,
+                      updatedAt: now,
+                    })
+                    .where(eq(scene.id, input.id))
+                    .returning({ id: scene.id });
+                  return { updated: rows.length === 1 };
+                },
+              });
+              return result;
+            });
+            rejectUnlessApplied(outcome);
+            return { slug: nextSlug, alreadyPublished: false };
+          } catch (error) {
+            if (!isUniqueViolation(error)) {
+              throw error;
+            }
           }
         }
-      }
 
-      throw new TRPCError({
-        code: "INTERNAL_SERVER_ERROR",
-        message: "Failed to publish scene",
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: "Failed to publish scene",
+        });
+      });
+    }),
+
+  /**
+   * 每次雲端儲存後，已發布場景的新成品由這裡接手：CAS 式替換，舊 key 同交易入
+   * outbox。回 `applied: false` 而不 throw——未公開、reservation 已過期或成品比現有
+   * 的舊都是可預期的競態，client 只需記錄並在下次儲存重試。
+   */
+  setPublishedArtifacts: protectedProcedure
+    .input(z.object({ id: z.uuid(), artifacts: publishedArtifactsInputSchema }))
+    .output(publishedArtifactsOutcomeOutput)
+    .mutation(async ({ ctx, input }) => {
+      return await ctx.db.transaction(async (tx) => {
+        const [ownedScene] = await tx
+          .select({ id: scene.id, isPublished: scene.isPublished })
+          .from(scene)
+          .where(
+            and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
+          )
+          .for("update");
+        if (!ownedScene) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Scene not found",
+          });
+        }
+        if (!ownedScene.isPublished) {
+          return { applied: false, reason: "not-published" };
+        }
+        const now = new Date();
+        return await applyPublishedArtifacts(tx, {
+          sceneId: input.id,
+          artifacts: input.artifacts,
+          now,
+          reason: "replace-published-artifacts",
+          update: async (columns) => {
+            const rows = await tx
+              .update(scene)
+              .set(columns)
+              .where(eq(scene.id, input.id))
+              .returning({ id: scene.id });
+            return { updated: rows.length === 1 };
+          },
+        });
       });
     }),
 
   unpublish: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const [updated] = await ctx.db
-        .update(scene)
-        .set({
-          isPublished: false,
-          publishedSlug: null,
-          publishedAt: null,
-          updatedAt: new Date(),
-        })
-        .where(and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)))
-        .returning({ id: scene.id });
-
-      if (!updated?.id) {
-        throw new TRPCError({ code: "NOT_FOUND", message: "Scene not found" });
-      }
-
-      return { id: updated.id };
+      const now = new Date();
+      return await ctx.db.transaction(async (tx) => {
+        const [ownedScene] = await tx
+          .select({ id: scene.id })
+          .from(scene)
+          .where(
+            and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
+          )
+          .for("update");
+        if (!ownedScene) {
+          throw new TRPCError({
+            code: "NOT_FOUND",
+            message: "Scene not found",
+          });
+        }
+        // 成品只服務公開頁：撤回公開時清指標並把兩個物件排進 outbox。
+        const artifacts = await readPublishedArtifacts(tx, input.id);
+        await tx
+          .update(scene)
+          .set({
+            isPublished: false,
+            publishedSlug: null,
+            publishedAt: null,
+            updatedAt: now,
+            ...CLEARED_PUBLISHED_ARTIFACT_COLUMNS,
+          })
+          .where(eq(scene.id, input.id));
+        await enqueueStorageKeyCleanup(
+          tx,
+          artifacts?.keys ?? [],
+          "unpublish-scene",
+          { sceneId: input.id },
+        );
+        return { id: ownedScene.id };
+      });
     }),
 
   getPublishedSceneBySlug: publicProcedure
     .input(z.object({ slug: z.string().min(1).max(64) }))
     .output(publicSceneOutput.nullable())
     .query(async ({ ctx, input }) => {
-      // Public 且每次回傳最多 5 MiB：與分享連結讀取共用同一個 per-IP 預算。
+      // Public：與分享連結讀取共用同一個 per-IP 預算（回應本身很小，成品由
+      // storage 直接供應，限流擋的是 slug 枚舉）。
       await enforcePublicSceneReadRateLimit(ctx.headers);
       const publishedScene = await ctx.db.query.scene.findFirst({
         where: and(
@@ -598,10 +725,13 @@ export const sceneRouter = createTRPCRouter({
           id: true,
           name: true,
           description: true,
-          sceneData: true,
           thumbnailUrl: true,
           updatedAt: true,
           publishedAt: true,
+          publishedSvgLightUrl: true,
+          publishedSvgDarkUrl: true,
+          publishedRenderEngineVersion: true,
+          publishedRenderedAt: true,
         },
         with: {
           user: {
@@ -609,42 +739,34 @@ export const sceneRouter = createTRPCRouter({
               name: true,
             },
           },
-          fileRecords: {
-            columns: {
-              url: true,
-              excalidrawFileId: true,
-            },
-          },
         },
       });
 
-      if (!publishedScene?.sceneData) {
+      // publish 要求成品、unpublish 清成品，所以已發布卻無成品不會發生；真發生
+      // 就當不存在，而不是回傳一個沒有畫面的頁。
+      if (
+        !publishedScene?.publishedSvgLightUrl ||
+        !publishedScene.publishedSvgDarkUrl ||
+        !publishedScene.publishedRenderEngineVersion ||
+        !publishedScene.publishedRenderedAt
+      ) {
         return null;
       }
-
-      const referencedFileIds = await readReferencedSceneAssetIds(
-        publishedScene.sceneData,
-      );
-      const visibleFiles =
-        referencedFileIds === null
-          ? []
-          : (publishedScene.fileRecords ?? []).filter((file) =>
-              referencedFileIds.has(file.excalidrawFileId),
-            );
 
       return {
         id: publishedScene.id,
         name: publishedScene.name,
         description: publishedScene.description ?? "",
-        sceneData: publishedScene.sceneData,
+        artifacts: {
+          lightUrl: publishedScene.publishedSvgLightUrl,
+          darkUrl: publishedScene.publishedSvgDarkUrl,
+          engineVersion: publishedScene.publishedRenderEngineVersion,
+          renderedAt: publishedScene.publishedRenderedAt,
+        },
         thumbnailUrl: publishedScene.thumbnailUrl ?? undefined,
         updatedAt: publishedScene.updatedAt,
         publishedAt: publishedScene.publishedAt ?? undefined,
         authorName: publishedScene.user?.name ?? undefined,
-        files: visibleFiles.map((file) => ({
-          excalidrawFileId: file.excalidrawFileId,
-          url: file.url,
-        })),
       };
     }),
 

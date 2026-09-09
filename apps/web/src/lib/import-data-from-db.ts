@@ -3,11 +3,14 @@ import { decompressData, base64ToArrayBuffer } from "./encode";
 import { getTrpcClient } from "@/trpc/client";
 import type { FileId } from "@drawstuff/excalidraw-adapter/types";
 import type {
+  AppState,
   BinaryFiles,
   BinaryFileData,
   DataURL,
+  ExcalidrawElement,
 } from "@drawstuff/excalidraw-adapter/types";
 import { decodePersistedScene } from "./persisted-scene";
+import { collectReferencedFileIds } from "@drawstuff/excalidraw-adapter/codec";
 
 export async function importDataFromBackend(
   id: string,
@@ -242,6 +245,47 @@ export async function importSceneDataBySceneId(
     console.error("importSceneDataBySceneId error", error);
     return {};
   }
+}
+
+export type OwnedSceneRenderSnapshot = {
+  elements: readonly ExcalidrawElement[];
+  appState: Partial<AppState>;
+  files: BinaryFiles;
+  revision: number;
+};
+
+/**
+ * Everything the publish action needs to render a stored scene the author is
+ * not currently editing: the document, its assets, and the revision the
+ * artifacts will be recorded against. Throws instead of returning a partial
+ * scene: the asset loaders above swallow failed downloads, and an artifact
+ * rendered from an incomplete file map would publish permanently missing
+ * images — unlike the old per-visit export, no later visitor retries them.
+ */
+export async function loadOwnedSceneForRender(
+  sceneId: string,
+): Promise<OwnedSceneRenderSnapshot> {
+  const [imported, files] = await Promise.all([
+    importSceneDataBySceneId(sceneId),
+    importSceneFilesBySceneId(sceneId),
+  ]);
+  if (!Array.isArray(imported.elements) || imported.revision === undefined) {
+    throw new Error("Scene could not be loaded for rendering");
+  }
+  const missing = collectReferencedFileIds(imported.elements).filter(
+    (fileId) => !files[fileId as FileId],
+  );
+  if (missing.length > 0) {
+    throw new Error(
+      `Scene assets could not be loaded for rendering: ${missing.join(", ")}`,
+    );
+  }
+  return {
+    elements: imported.elements,
+    appState: imported.appState ?? {},
+    files,
+    revision: imported.revision,
+  };
 }
 
 export async function getSceneMetaBySceneId(

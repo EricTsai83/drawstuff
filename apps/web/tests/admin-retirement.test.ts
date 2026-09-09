@@ -235,6 +235,10 @@ describe("admin data retirement", () => {
         name: "Target",
         sceneData: "stub",
         thumbnailFileKey: "thumb-key",
+        publishedSvgLightKey: "svg-light-key",
+        publishedSvgLightUrl: "https://app.ufs.sh/f/svg-light-key",
+        publishedSvgDarkKey: "svg-dark-key",
+        publishedSvgDarkUrl: "https://app.ufs.sh/f/svg-dark-key",
       })
       .returning({ id: schema.scene.id });
     if (!target) throw new Error("scene insert failed");
@@ -266,7 +270,7 @@ describe("admin data retirement", () => {
       callerFor("admin-user").admin.retireScene({ sceneId: target.id }),
     ).resolves.toMatchObject({
       found: true,
-      enqueuedObjects: 3,
+      enqueuedObjects: 5,
     });
     expect(await testDb.select().from(schema.scene)).toEqual([]);
     expect(await testDb.select().from(schema.fileRecord)).toEqual([]);
@@ -279,6 +283,8 @@ describe("admin data retirement", () => {
     ).toEqual([
       ["asset-key", "delete-scene", "pending"],
       ["room-asset-key", "delete-scene", "pending"],
+      ["svg-dark-key", "delete-scene", "pending"],
+      ["svg-light-key", "delete-scene", "pending"],
       ["thumb-key", "delete-scene", "pending"],
     ]);
     expect(await testDb.select().from(schema.adminAuditEvent)).toEqual([

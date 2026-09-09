@@ -18,6 +18,10 @@ export const zhTW = {
   "app.cloudUpload.toast.error.sceneData": "無法取得當前場景資料，請重試。",
   "app.cloudUpload.toast.error.noSceneToUpdate": "此場景尚未儲存。",
   "app.cloudUpload.toast.error.upload": "上傳場景至雲端時發生錯誤，請重試。",
+  "app.cloudUpload.toast.error.publishedArtifactsRender":
+    "已儲存，但無法產生公開版本；再儲存一次即可重試。",
+  "app.cloudUpload.toast.error.publishedArtifactsUpload":
+    "已儲存，但公開版本上傳失敗（淺色 {light}、深色 {dark}）；再儲存一次即可重試。",
   "app.cloudUpload.toast.error.unknown":
     "上傳場景至雲端時發生未知錯誤，請重試。",
 
@@ -330,6 +334,8 @@ export const zhTW = {
   "publish.toast.unpublished": "此場景已設為私人。",
   "publish.toast.copied": "已複製公開連結。",
   "publish.toast.failed": "更新發布狀態失敗，請再試一次。",
+  "publish.toast.preparing": "正在產生公開版本…",
+  "publish.toast.renderFailed": "無法產生此場景的公開版本，請再試一次。",
   "public.theme.light": "淺色",
   "public.theme.dark": "深色",
   "public.viewer.loading": "載入場景中...",

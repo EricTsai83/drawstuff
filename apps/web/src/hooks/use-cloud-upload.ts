@@ -18,11 +18,17 @@ import {
 } from "@/lib/excalidraw";
 import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { useUploadThing } from "@/lib/uploadthing";
+import { renderPublishedArtifacts } from "@/lib/render-published-artifacts";
+import { usePublishedArtifactUpload } from "@/hooks/use-published-artifacts";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { APP_ERROR } from "@/lib/errors";
 import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
+
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
 
 export type SceneConflictInfo = {
   sceneId: string;
@@ -103,6 +109,9 @@ export function useCloudUpload(
   const { startUpload: startThumbnailUpload } = useUploadThing(
     "sceneThumbnailUploader",
   );
+  const uploadPublishedArtifacts = usePublishedArtifactUpload();
+  const { mutateAsync: setPublishedArtifactsAsync } =
+    api.scene.setPublishedArtifacts.useMutation();
   const { mutateAsync: deleteSceneAsync } = api.scene.deleteScene.useMutation();
 
   type UploadOptions = {
@@ -422,31 +431,87 @@ export function useCloudUpload(
             }
             throw new Error(result.message ?? result.error);
           }
-          const { id, revision } = result.data;
+          const { id, revision, isPublished } = result.data;
 
-          try {
-            const pngBlob = await exportSceneThumbnail(
-              elements,
-              appState,
-              files,
-            );
-            const thumbnailFile = new File([pngBlob], "thumbnail.png", {
-              type: "image/png",
-            });
-            const thumbnailResult = await startThumbnailUpload(
-              [thumbnailFile],
-              {
+          const uploadThumbnail = async () => {
+            try {
+              const pngBlob = await exportSceneThumbnail(
+                elements,
+                appState,
+                files,
+              );
+              const thumbnailFile = new File([pngBlob], "thumbnail.png", {
+                type: "image/png",
+              });
+              const thumbnailResult = await startThumbnailUpload(
+                [thumbnailFile],
+                {
+                  sceneId: id,
+                },
+              );
+              assertSingleUploadResult(thumbnailResult, "Thumbnail");
+            } catch (thumbErr) {
+              // 縮圖失敗不影響已完成的 scene + asset commit
+              console.error(
+                "Failed to generate/upload thumbnail after cloud upload:",
+                thumbErr,
+              );
+            }
+          };
+
+          // 已發布場景：公開頁讀的是渲染成品而不是即時 sceneData，所以每次儲存後
+          // 由作者的瀏覽器重新渲染淺／深兩份 SVG 並替換（render once, serve many）。
+          // 與縮圖同一策略：失敗只記錄，不影響已 commit 的儲存；沒有成品或版本落後
+          // 的舊場景也靠這裡在下次儲存自動補齊。
+          const uploadPublishedRender = async () => {
+            if (!isPublished) return;
+            let rendered: Awaited<
+              ReturnType<typeof renderPublishedArtifacts>
+            > | null = null;
+            try {
+              rendered = await renderPublishedArtifacts({
+                elements,
+                appState,
+                files,
+              });
+              const artifacts = await uploadPublishedArtifacts({
                 sceneId: id,
-              },
-            );
-            assertSingleUploadResult(thumbnailResult, "Thumbnail");
-          } catch (thumbErr) {
-            // 縮圖失敗不影響已完成的 scene + asset commit
-            console.error(
-              "Failed to generate/upload thumbnail after cloud upload:",
-              thumbErr,
-            );
-          }
+                rendered,
+                revision,
+              });
+              const outcome = await setPublishedArtifactsAsync({
+                id,
+                artifacts,
+              });
+              if (!outcome.applied) {
+                // Expected races (another tab rendered a newer revision, the
+                // scene was unpublished meanwhile): nothing for the author to
+                // act on, the next save re-renders anyway.
+                console.warn(
+                  "Published artifacts were not applied:",
+                  outcome.reason,
+                );
+              }
+            } catch (renderErr) {
+              // The save itself is committed; only the public page is stale.
+              // Say so — a silent console line would hide an oversized artifact
+              // (upload limit) or a broken render until a visitor notices.
+              console.error(
+                "Failed to render/upload published artifacts after cloud upload:",
+                renderErr,
+              );
+              toast.error(
+                rendered
+                  ? t("app.cloudUpload.toast.error.publishedArtifactsUpload", {
+                      light: formatMegabytes(rendered.light.size),
+                      dark: formatMegabytes(rendered.dark.size),
+                    })
+                  : t("app.cloudUpload.toast.error.publishedArtifactsRender"),
+              );
+            }
+          };
+
+          await Promise.all([uploadThumbnail(), uploadPublishedRender()]);
 
           syncCurrentScene({
             id: String(id),
@@ -482,6 +547,8 @@ export function useCloudUpload(
     [
       startAssetUpload,
       startThumbnailUpload,
+      uploadPublishedArtifacts,
+      setPublishedArtifactsAsync,
       deleteSceneAsync,
       excalidrawAPI,
       utils,

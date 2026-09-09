@@ -49,8 +49,14 @@ vi.mock("@/trpc/react", () => ({
     }),
     scene: {
       deleteScene: { useMutation: () => ({ mutateAsync: mocks.deleteScene }) },
+      setPublishedArtifacts: {
+        useMutation: () => ({ mutateAsync: vi.fn() }),
+      },
     },
   },
+}));
+vi.mock("@/lib/render-published-artifacts", () => ({
+  renderPublishedArtifacts: vi.fn(),
 }));
 vi.mock("@/lib/excalidraw", () => ({
   getCurrentSceneSnapshot: mocks.getCurrentSceneSnapshot,
@@ -153,7 +159,7 @@ beforeEach(() => {
   mocks.startThumbnailUpload.mockResolvedValue([{ key: "thumb" }]);
   mocks.saveScene.mockResolvedValue({
     ok: true,
-    data: { id: "scene-1", revision: 4, updatedAt: "" },
+    data: { id: "scene-1", revision: 4, updatedAt: "", isPublished: false },
   } satisfies SaveSceneResult);
   mocks.createSceneDraft.mockResolvedValue({
     ok: true,

@@ -7,8 +7,10 @@ import "./src/env.ts";
 import type { NextConfig } from "next";
 
 import {
+  buildPublicViewerSecurityHeaders,
   buildSecurityHeaders,
   deriveUploadThingAppId,
+  PUBLIC_VIEWER_ROUTE_SOURCE,
 } from "./src/config/security-headers.ts";
 
 // next/image 的 remote allowlist 沿用既有行為：token 缺失時退回萬用網域。
@@ -40,15 +42,22 @@ const config: NextConfig = {
     ],
   },
   async headers() {
+    const securityInput = {
+      isDev: process.env.NODE_ENV === "development",
+      collabGatewayUrl: process.env.COLLAB_CONTROL_URL,
+      uploadThingToken: process.env.UPLOADTHING_TOKEN,
+      allowIncompleteEnv: !!process.env.SKIP_ENV_VALIDATION,
+    };
     return [
       {
         source: "/(.*)",
-        headers: buildSecurityHeaders({
-          isDev: process.env.NODE_ENV === "development",
-          collabGatewayUrl: process.env.COLLAB_CONTROL_URL,
-          uploadThingToken: process.env.UPLOADTHING_TOKEN,
-          allowIncompleteEnv: !!process.env.SKIP_ENV_VALIDATION,
-        }),
+        headers: buildSecurityHeaders(securityInput),
+      },
+      {
+        // 公開 viewer 的收緊 CSP。排在整站規則之後：Next 對同一路徑的同名 header
+        // 取最後一條，這裡的 Content-Security-Policy 才會覆蓋整站版。
+        source: PUBLIC_VIEWER_ROUTE_SOURCE,
+        headers: buildPublicViewerSecurityHeaders(securityInput),
       },
       {
         // Next 對 public/ 預設 max-age=0：回訪會對每個用到的字型子集檔各發

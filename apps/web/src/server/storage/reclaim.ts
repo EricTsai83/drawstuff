@@ -18,8 +18,8 @@ type DatabaseExecutor =
 
 /**
  * Storage keys that deleting the given scenes would orphan: their asset
- * records, their thumbnails, and the assets of collaboration rooms bound to
- * them (scene deletion cascades collaboration_room → collaboration_asset).
+ * records, their thumbnails, their published render artifacts, and the
+ * assets of collaboration rooms bound to them (scene deletion cascades collaboration_room → collaboration_asset).
  *
  * Callers collect inside the same transaction that deletes the rows and hand
  * the keys to {@link enqueueStorageKeyCleanup}: once the rows are gone the
@@ -45,13 +45,22 @@ export async function collectSceneStorageKeys(
   const keys = new Set<string>();
   if (sceneIds.length === 0) return keys;
 
-  const thumbnails = await db
-    .select({ key: scene.thumbnailFileKey })
+  // Thumbnail plus the published render artifact pair; artifact replacement
+  // updates the same row, so the FOR UPDATE below serializes with it.
+  const sceneRows = await db
+    .select({
+      thumbnail: scene.thumbnailFileKey,
+      light: scene.publishedSvgLightKey,
+      dark: scene.publishedSvgDarkKey,
+    })
     .from(scene)
     .where(inArray(scene.id, sceneIds))
     .orderBy(scene.id)
     .for("update");
-  for (const { key } of thumbnails) if (key) keys.add(key);
+  for (const row of sceneRows) {
+    for (const key of [row.thumbnail, row.light, row.dark])
+      if (key) keys.add(key);
+  }
 
   await db
     .select({ id: collaborationRoom.roomId })
