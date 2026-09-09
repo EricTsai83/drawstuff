@@ -14,6 +14,12 @@ DO-only，Node relay infrastructure 已退役刪除。現況與長期 invariant 
 Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md)，完成證據在 git
 history。
 
+- [18-published-viewer-fonts-via-css.md](18-published-viewer-fonts-via-css.md) —
+  公開 viewer 字型改走 build 時從 woff2 產生的 `fonts.css`，匯出 `skipInliningFonts`，
+  訪客頁面移除 wasm 與 `font-src data:`
+- [19-publish-time-rendered-artifacts.md](19-publish-time-rendered-artifacts.md) —
+  已發布場景在寫入端渲染淺／深兩份 SVG 成品，`/p` 只下載成品；含儲存時 vs 發布時、
+  兩份 SVG、圖片內嵌等決策紀錄；前置 plan 18
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) —
   Cloudflare alerts／dashboards 依已核准定義配置，以及 relay 主機（pm2、reverse proxy、
   DNS、host secrets）拆除；全部是 repo 之外的營運操作
