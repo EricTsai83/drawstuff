@@ -1,18 +1,18 @@
 ---
-name: claude-implement-with-gpt56-sol-review
-description: Implement a plan or scoped change with Claude, verify it, obtain a read-only Codex GPT-5.6 Sol review at high reasoning, immediately surface every reviewer finding before review-driven fixes, validate and fix confirmed findings, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Claude implementation with GPT-5.6 Sol or cross-model review. Fall back to an independent Claude review when Codex is unavailable and disclose the reason.
+name: claude-implement-with-gpt6-astra-review
+description: Implement a plan or scoped change with Claude, verify it, obtain a read-only Codex GPT-6 Astra review at medium reasoning, immediately surface every reviewer finding before review-driven fixes, validate and fix confirmed findings, then report every finding and final disposition in Traditional Chinese alongside a purpose-led per-file summary. Use for end-to-end implementation requests that require Claude implementation with GPT-6 Astra or cross-model review. Fall back to an independent Claude review when Codex is unavailable and disclose the reason.
 ---
 
-# Claude Implement with GPT-5.6 Sol Review
+# Claude Implement with GPT-6 Astra Review
 
-Claude owns implementation, final technical judgment, fixes, verification, and reporting. Codex GPT-5.6 Sol is a read-only reviewer.
+Claude owns implementation, final technical judgment, fixes, verification, and reporting. Codex GPT-6 Astra is a read-only reviewer.
 
 ## Workflow
 
 1. Read the requirements, repository instructions, and starting `git status`; preserve unrelated changes.
 2. Implement without committing, pushing, deploying, or expanding scope unless requested.
 3. Run proportionate checks.
-4. Request a read-only Codex GPT-5.6 Sol review against the requirements, diff, and check results.
+4. Request a read-only Codex GPT-6 Astra review against the requirements, diff, and check results.
 5. Immediately present every returned finding to the user before making any review-driven code change. Mark these as unvalidated reviewer findings, not Claude's final judgment.
 6. Validate every finding; accept only concrete correctness, regression, security, requirement, or meaningful test-coverage issues.
 7. Present Claude's acceptance or rejection decisions, then fix accepted findings and rerun affected checks. Reject style-only, speculative, or false-positive findings.
@@ -28,9 +28,9 @@ These rules apply to the whole workflow — long-running implementation or verif
 - If the coordinating session is interrupted or restarted while an invocation is running, state that immediately at the start of the next turn: what was lost, what evidence remains, and the recovery plan.
 - Report phase transitions (implementation done, checks passing or failing, review started, findings returned) as they happen; do not batch them into the final report.
 
-## Codex GPT-5.6 Sol Review
+## Codex GPT-6 Astra Review
 
-Use Codex GPT-5.6 Sol for every review pass. Run non-interactively at high reasoning in read-only review mode.
+Use Codex GPT-6 Astra for every review pass. Run non-interactively at medium reasoning in read-only review mode.
 
 Never run `codex exec` in the foreground or as a directly tracked background command: a review routinely runs past 10 minutes, a foreground call is killed at the tool timeout, a tracked background call is killed when the session restarts, and a killed pass emits no findings at all. Launch it through a wrapper script that returns immediately:
 
@@ -38,8 +38,8 @@ Never run `codex exec` in the foreground or as a directly tracked background com
 cat > /tmp/codex-review.sh <<'WRAPPER'
 #!/bin/sh
 codex exec -C "$PWD" \
-  --model gpt-5.6-sol \
-  --config 'model_reasoning_effort="high"' \
+  --model gpt-6-astra \
+  --config 'model_reasoning_effort="medium"' \
   review - > /tmp/codex-review.log 2>&1 <<'EOF'
 <focused review prompt>
 EOF
@@ -65,7 +65,7 @@ Retain the review output until the final report is complete. Present every usabl
 
 After each review invocation returns, send a commentary update before editing any code in response to that review. Do not defer this disclosure to the final report.
 
-Use the heading `Codex GPT-5.6 Sol Review Pass N — 初始 findings（尚未經 Claude 驗證）` and include the provider plus every usable finding's ID, severity, file/line, failure mode, impact, and proposed fix direction. State clearly that Claude may accept or reject each finding after inspecting the code. When the reviewer reports no findings, immediately say `本 pass 無 findings`.
+Use the heading `Codex GPT-6 Astra Review Pass N — 初始 findings（尚未經 Claude 驗證）` and include the provider plus every usable finding's ID, severity, file/line, failure mode, impact, and proposed fix direction. State clearly that Claude may accept or reject each finding after inspecting the code. When the reviewer reports no findings, immediately say `本 pass 無 findings`.
 
 After validation, send a second concise commentary update with the acceptance or rejection of each finding and the reason before or while applying accepted fixes. The later final report remains the authoritative record of findings, decisions, changes, and verification.
 
@@ -122,7 +122,7 @@ Write explanations and headings in Traditional Chinese; preserve commands, ident
 
 ## Review 結果
 
-- 先明確說明 Codex GPT-5.6 Sol 是否完成 review；若使用 fallback，列出規定的完整 provider label。
+- 先明確說明 Codex GPT-6 Astra 是否完成 review；若使用 fallback，列出規定的完整 provider label。
 - 依 pass 逐項呈現 reviewer 回傳的每一個可用 finding，不論接受、拒絕或已在後續 pass 解決：
   - `[finding ID] severity — path:line`（reviewer 未提供位置時明確註明）。
   - **Reviewer finding**：忠實呈現 failure mode、觸發條件、影響與 reviewer 建議的修正方向；不可只寫 finding 標題或最終結論。
@@ -167,4 +167,4 @@ Use this distinction:
 - **設計理由**：對完整 request tree 做一次純 traversal，讓 path、patch、prompt 與 model 共用同一政策，避免各 engine adapter 各自 redaction 而產生漏接或行為分歧。
 ```
 
-State whether Codex GPT-5.6 Sol completed review. For fallback, repeat the exact provider label and reason, and never imply Codex approved the work.
+State whether Codex GPT-6 Astra completed review. For fallback, repeat the exact provider label and reason, and never imply Codex approved the work.

@@ -63,8 +63,8 @@ If Claude returns no usable review—because of access, quota, policy, authentic
 cat > /tmp/codex-review.sh <<'WRAPPER'
 #!/bin/sh
 codex exec -C "$PWD" \
-  --model gpt-5.6-sol \
-  --config 'model_reasoning_effort="high"' \
+  --model gpt-6-astra \
+  --config 'model_reasoning_effort="medium"' \
   review - > /tmp/codex-review.log 2>&1 <<'EOF'
 <same review context>
 EOF

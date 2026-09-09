@@ -1,6 +1,6 @@
 ---
 name: codex-review
-description: Ask Codex CLI (gpt-5.6-sol) for an independent code review of uncommitted changes, a branch diff, a commit, or a specific implementation. This is how gpt-5.6-sol is invoked for review work. Use when the user asks Claude to have Codex or gpt-5.6-sol review work, when the model-selection rubric calls for a gpt-5.6-sol review perspective, or when Codex should audit a diff, find bugs or regressions, or compare Claude's implementation against requirements. For a review by Claude itself, use the normal review process instead.
+description: Ask Codex CLI (gpt-6-astra) for an independent code review of uncommitted changes, a branch diff, a commit, or a specific implementation. This is how gpt-6-astra is invoked for review work. Use when the user asks Claude to have Codex or gpt-6-astra review work, when the model-selection rubric calls for a gpt-6-astra review perspective, or when Codex should audit a diff, find bugs or regressions, or compare Claude's implementation against requirements. For a review by Claude itself, use the normal review process instead.
 
 ---
 
@@ -16,7 +16,7 @@ Prefer Claude's normal review process for small local checks. Do not delegate re
 3. Run `codex review` with a focused review prompt.
 4. Read Codex's report and verify important claims against the code before presenting them.
 
-Use one of these command shapes:
+Use GPT-6 Astra with medium reasoning effort for every review. Use one of these command shapes:
 
 ```bash
 ARTIFACT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex-review.XXXXXX")"
@@ -24,13 +24,13 @@ REPORT="$ARTIFACT_DIR/report.md"
 PROMPT="$ARTIFACT_DIR/prompt.md"
 
 # Review staged, unstaged, and untracked changes
-codex -C "$PWD" review --uncommitted - < "$PROMPT" > "$REPORT"
+codex -C "$PWD" --config 'model="gpt-6-astra"' --config 'model_reasoning_effort="medium"' review --uncommitted - < "$PROMPT" > "$REPORT"
 
 # Review current branch against a base branch
-codex -C "$PWD" review --base main - < "$PROMPT" > "$REPORT"
+codex -C "$PWD" --config 'model="gpt-6-astra"' --config 'model_reasoning_effort="medium"' review --base main - < "$PROMPT" > "$REPORT"
 
 # Review a single commit
-codex -C "$PWD" review --commit <sha> - < "$PROMPT" > "$REPORT"
+codex -C "$PWD" --config 'model="gpt-6-astra"' --config 'model_reasoning_effort="medium"' review --commit <sha> - < "$PROMPT" > "$REPORT"
 ```
 
 ## Review Prompt

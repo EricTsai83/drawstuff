@@ -1,0 +1,4 @@
+interface:
+  display_name: "Claude Implement with GPT-6 Astra Review"
+  short_description: "Claude implements; GPT-6 Astra performs the review."
+  default_prompt: "Use $claude-implement-with-gpt6-astra-review to have Claude implement this change and GPT-6 Astra review it."
