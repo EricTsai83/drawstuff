@@ -103,7 +103,7 @@
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "^4.1.11",
     "eslint": "catalog:",
-    "playwright": "^1.62.1",
+    "playwright": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

@@ -15,6 +15,13 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.sha }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+# Turborepo remote cache. Both values are optional: while the secret and the
+# repository variable are unset, turbo prints "Remote caching disabled" and
+# runs every task locally, exactly as before.
+env:
+  TURBO_TOKEN: ${{ secrets.TURBO_TOKEN }}
+  TURBO_TEAM: ${{ vars.TURBO_TEAM }}
+
 jobs:
   quality:
     name: Quality
@@ -26,22 +33,8 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-        with:
-          run_install: false
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --trust-lockfile
-
-      - name: Copy environment examples
-        run: cp apps/web/.env.example apps/web/.env
+      - name: Setup workspace
+        uses: ./.github/actions/setup
 
       - name: Format
         run: pnpm format:check
@@ -55,11 +48,14 @@ jobs:
       - name: Check unused production dependencies
         run: pnpm knip
 
+      # A new upstream advisory would otherwise fail every open PR regardless
+      # of its diff. Gate on merged commits so main still records the result.
       - name: Audit production dependencies
+        if: github.event_name == 'push'
         run: pnpm audit:ci
 
-  test:
-    name: Test
+  test-web:
+    name: Unit tests (web)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -68,61 +64,66 @@ jobs:
         with:
           persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - name: Setup workspace
+        uses: ./.github/actions/setup
+
+      # jsdom only. Running it on its own runner keeps the largest suite off
+      # the two cores the package suites share.
+      - name: Test
+        run: pnpm exec turbo run test --filter=@drawstuff/web
+
+  test-packages:
+    name: Unit and browser tests (packages)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # @drawstuff/collaboration exercises Web Crypto in real Chromium and WebKit.
+    # The Playwright image ships both browsers and their system libraries, so
+    # there is no `playwright install --with-deps` and no apt-get. Its tag must
+    # match the Playwright version pinned in pnpm-workspace.yaml. The job runs
+    # as root on purpose: Playwright passes --no-sandbox to Chromium by default,
+    # and root keeps every tool cache and home directory writable for pnpm,
+    # turbo, and workerd. (The upstream `--user 1001` example exists for
+    # Firefox, which refuses to start as root; this suite does not use it.)
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          run_install: false
+          persist-credentials: false
 
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --trust-lockfile
-
-      - name: Copy environment examples
-        run: cp apps/web/.env.example apps/web/.env
-
-      # @drawstuff/collaboration exercises Web Crypto in real Chromium and
-      # WebKit. Install with that package's Playwright version so future
-      # workspace version changes cannot silently select the wrong build.
-      - name: Install Playwright browsers
-        run: pnpm --filter @drawstuff/collaboration exec playwright install --with-deps chromium webkit
+      - name: Setup workspace
+        uses: ./.github/actions/setup
 
       - name: Test
-        run: pnpm test
+        run: pnpm exec turbo run test --filter='!@drawstuff/web'
 
   e2e:
     name: Browser, mobile, and accessibility gates
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # See test-packages for why the browser image is used.
+    container:
+      image: mcr.microsoft.com/playwright:v1.62.1-noble
     steps:
       - name: Checkout
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           persist-credentials: false
 
-      - name: Setup pnpm
-        uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+      - name: Setup workspace
+        uses: ./.github/actions/setup
+
+      # `next build` reuses this directory for its incremental compiler cache.
+      # The key falls back to the newest cache for the same lockfile when the
+      # sources changed, which is still a valid warm start.
+      - name: Restore Next.js build cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          run_install: false
-
-      - name: Setup Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version-file: .node-version
-          cache: pnpm
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile --trust-lockfile
-
-      - name: Copy environment examples
-        run: cp apps/web/.env.example apps/web/.env
-
-      - name: Install Playwright browsers
-        run: pnpm --filter @drawstuff/web exec playwright install --with-deps chromium webkit
+          path: apps/web/.next/cache
+          key: nextjs-${{ hashFiles('pnpm-lock.yaml') }}-${{ hashFiles('apps/web/src/**', 'packages/*/src/**') }}
+          restore-keys: |
+            nextjs-${{ hashFiles('pnpm-lock.yaml') }}-
 
       # Playwright's webServer runs `pnpm preview`, which builds the production
       # app once before starting it. A separate build step would build it twice.

@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # Actions are pinned to commit SHAs; Dependabot bumps the SHA and the
+  # trailing version comment together. The composite action lives outside
+  # .github/workflows, so list its directory explicitly.
+  - package-ecosystem: github-actions
+    directories:
+      - /
+      - /.github/actions/setup
+    schedule:
+      interval: weekly

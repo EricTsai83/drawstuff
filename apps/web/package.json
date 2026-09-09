@@ -62,7 +62,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.12.1",
     "@electric-sql/pglite": "^0.5.4",
-    "@playwright/test": "^1.62.0",
+    "@playwright/test": "catalog:",
     "@tailwindcss/postcss": "^4.3.3",
     "@types/fontkit": "^2.0.9",
     "@types/node": "catalog:",
