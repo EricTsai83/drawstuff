@@ -12,6 +12,7 @@
     "lib": ["dom", "dom.iterable", "ES2022"],
     "types": ["node"],
     "noEmit": true,
+    "allowImportingTsExtensions": true,
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "jsx": "react-jsx",

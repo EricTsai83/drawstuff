@@ -44,18 +44,25 @@ export default async function RootLayout({
       className={`${geist.variable} antialiased`}
       suppressHydrationWarning
     >
-      <head>
+      <body>
+        {/* Dev tooling can load after hydration; it does not need the
+            beforeInteractive bootstrap script during client rendering. */}
         {process.env.NODE_ENV === "development" && (
           <Script
-            src="//unpkg.com/react-grab/dist/index.global.js"
+            src="https://unpkg.com/react-grab/dist/index.global.js"
             crossOrigin="anonymous"
-            strategy="beforeInteractive"
+            strategy="afterInteractive"
           />
         )}
-      </head>
-      <body>
         <I18nProvider initialLanguage={language} initialDictionary={dictionary}>
-          <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
+          {/* Keep the provider stable across routes so its SSR bootstrap is
+              hydrated, rather than recreated by client-only mounts. */}
+          <ThemeProvider
+            attribute="class"
+            defaultTheme="system"
+            enableSystem
+            storageKey="theme"
+          >
             <TRPCReactProvider>
               <NextSSRPlugin
                 /**

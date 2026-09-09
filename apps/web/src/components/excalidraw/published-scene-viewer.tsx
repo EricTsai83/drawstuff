@@ -13,7 +13,13 @@ import {
   ZoomOut,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 
 import { DrawstuffLogo } from "@/components/icons";
 import { buttonVariants } from "@/components/ui/button";
@@ -59,6 +65,12 @@ type ViewerTool = "hand" | "select";
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 6;
 const ZOOM_STEP = 1.2;
+
+const subscribeToHydration = () => () => {
+  // The client snapshot is constant, so there are no events to unsubscribe.
+};
+const clientSnapshot = () => true;
+const serverSnapshot = () => false;
 
 /** Breathing room left around the scene when framing it. */
 const FIT_MARGIN = 32;
@@ -113,8 +125,15 @@ export function PublishedSceneViewer({
   // Not `useSyncTheme`: it reaches into the adapter's client entry for the
   // theme constants, which would pull the engine into this bundle.
   const { setTheme, resolvedTheme } = useTheme();
+  // Saved/system preferences may already be available on the first client
+  // render. Keep the server's icon and labels until hydration finishes.
+  const hydrated = useSyncExternalStore(
+    subscribeToHydration,
+    clientSnapshot,
+    serverSnapshot,
+  );
   const browserActiveTheme: PublishedSceneTheme =
-    resolvedTheme === "dark" ? "dark" : "light";
+    hydrated && resolvedTheme === "dark" ? "dark" : "light";
   const [sceneSvg, setSceneSvg] = useState<SVGSVGElement | null>(null);
   const [fontsReady, setFontsReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
@@ -159,6 +178,11 @@ export function PublishedSceneViewer({
   }, [source]);
 
   useEffect(() => {
+    // Hydration has not resolved the saved/system theme yet. Loading the
+    // light fallback here can briefly display it before the dark SVG arrives.
+    if (!hydrated || (resolvedTheme !== "light" && resolvedTheme !== "dark"))
+      return;
+
     const controller = new AbortController();
     let isActive = true;
 
@@ -184,7 +208,7 @@ export function PublishedSceneViewer({
       isActive = false;
       controller.abort();
     };
-  }, [browserActiveTheme, source]);
+  }, [browserActiveTheme, hydrated, resolvedTheme, source]);
 
   // fonts.css declares the canvas faces with `font-display: block`, so text is
   // invisible until its faces arrive. Ask for exactly the faces the exported
@@ -661,7 +685,9 @@ export function PublishedSceneViewer({
         )}
 
         {isLoading && (
-          <div className="bg-background absolute inset-0 flex flex-col items-center justify-center gap-4">
+          // Keep the viewport's scene backdrop visible while fonts load, so
+          // removing this overlay does not also replace a white background.
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-4">
             <div className="flex size-11 items-center justify-center">
               <Spinner className="size-7" aria-hidden="true" />
             </div>

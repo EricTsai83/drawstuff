@@ -60,6 +60,7 @@ const eslintConfig = [
     languageOptions: {
       parserOptions: {
         projectService: true,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
     rules: {

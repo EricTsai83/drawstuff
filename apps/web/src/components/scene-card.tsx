@@ -485,7 +485,7 @@ export const SceneCard = memo(function SceneCard({
                 {item.workspaceName ?? ""}
               </Badge>
             </div>
-            <div className="absolute top-1 right-1 flex gap-2">
+            <div className="absolute top-3 right-3">
               <SceneCardMenu
                 scene={{
                   isPublished: item.isPublished,

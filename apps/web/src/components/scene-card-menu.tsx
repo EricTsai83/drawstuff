@@ -13,7 +13,7 @@ import {
   DropdownMenuSubContent,
 } from "@/components/ui/dropdown-menu";
 import {
-  EllipsisVertical,
+  Ellipsis,
   Download,
   Edit,
   Trash2,
@@ -89,13 +89,13 @@ export function SceneCardMenu({
       <DropdownMenuTrigger
         render={
           <Button
-            variant="secondary"
-            size="icon-lg"
-            className="bg-background/80 hover:bg-background size-11"
+            variant="outline"
+            size="icon"
+            className="size-7 rounded-full bg-clip-border pointer-coarse:size-8"
             onClick={(e) => e.stopPropagation()}
             aria-label={t("menu.moreOptions")}
           >
-            <EllipsisVertical aria-hidden="true" />
+            <Ellipsis strokeWidth={3.5} aria-hidden="true" />
           </Button>
         }
       />

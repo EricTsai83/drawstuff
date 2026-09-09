@@ -1,5 +1,4 @@
 import tseslint from "typescript-eslint";
-// @ts-ignore -- no types for this plugin
 import drizzle from "eslint-plugin-drizzle";
 
 import {
@@ -113,6 +112,7 @@ export default tseslint.config(
     languageOptions: {
       parserOptions: {
         projectService: true,
+        tsconfigRootDir: import.meta.dirname,
       },
     },
   },
