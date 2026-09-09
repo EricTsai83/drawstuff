@@ -22,17 +22,8 @@
 - 建立 §6 尾段列出的 dashboard 面板組；
 - 每個 alert 觸發一次人工驗證（或以 log 注入驗證查詢正確）。
 
-## P2 — Relay 主機拆除
-
-Node relay 程式碼已自 repo 刪除且無 production traffic；主機側資源仍在：
-
-- 停止並移除 pm2 process（`collaboration-relay`）與 pm2 開機啟動項；
-- 移除 reverse proxy 的 WebSocket route 與對應 DNS 記錄；
-- 移除主機上的 relay secrets／環境設定（host/port/log/RSS/drain/watchdog 相關）；
-- 確認移除後 production 共編不受影響（`pnpm cf:smoke <worker-url>` 通過即可）。
 
 ## 完成條件
 
 - §6／§6.1 每個 alert 都存在且驗證過一次；
-- relay 主機無殘留 process、route、DNS 或 secrets；
 - 依 plans/README 完成規則移除本 plan。
