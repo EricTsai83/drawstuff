@@ -92,7 +92,15 @@ filter——顏色與濾鏡都來自匯出物本身，不在自己這邊重算�
 - viewer：`apps/web/src/components/excalidraw/published-scene-viewer.tsx`（模式切換、背景讀取、
   `exportBackground: true`）；手勢層：`src/hooks/excalidraw/use-svg-pan-zoom.ts`
   （`panEnabled`、手勢範圍的 `will-change`）；純函式測試 `tests/svg-pan-zoom.test.ts`。
-- CSP 依賴：`src/config/security-headers.ts` 的 `'wasm-unsafe-eval'`，推導見
+- 字型管線成本：每次開頁（與每次切換主題）都重跑「fetch 子集檔 → wasm 子集化 → 內嵌」，
+  中文場景約 50 個 Xiaolai 子集檔、約 3 MB、主執行緒約 1 秒。`next.config.ts` 對內容雜湊
+  檔名的字型加 `immutable` 快取，回訪不再打網路。這條管線是上游為「自包含匯出檔」設計的，
+  編輯器本身從不走它：編輯器用 FontFace API 註冊帶 unicode-range 的自託管字型，由瀏覽器
+  按需載入。viewer 不需要上游的 `Fonts` 類別也能做到同一件事：家族名稱與 unicode-range 都
+  在 woff2 的 name／cmap table 裡，由 sync script 在 build 時讀出來產生 `fonts.css`，匯出改
+  `skipInliningFonts: true`，頁面載入該 CSS 即可。wasm、`font-src data:` 隨之從訪客頁面消失。
+  再進一步是把同一個匯出從觀看時搬到發布時，存成品給訪客。
+- CSP 依賴：`src/config/security-headers.ts` 的 `'wasm-unsafe-eval'` 與 `font-src data:`，推導見
   [web-csp-design](../architecture/web-csp-design.md)；字型自託管見
   `scripts/sync-excalidraw-assets.mjs` 與 [web-security-headers](../operations/web-security-headers.md)。
 - 相關 pattern：[第三方引擎的 Adapter 邊界](./third-party-engine-adapter.md)、
