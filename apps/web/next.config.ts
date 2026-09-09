@@ -50,6 +50,19 @@ const config: NextConfig = {
           allowIncompleteEnv: !!process.env.SKIP_ENV_VALIDATION,
         }),
       },
+      {
+        // Next 對 public/ 預設 max-age=0：/p/[slug] 每次開頁要對 50+ 個字型
+        // 子集檔各發一次 revalidate。內容雜湊檔名的字型可以永久快取；未雜湊
+        // 的（Virgil-Regular.woff2）不符合此 pattern，維持預設。
+        source:
+          "/excalidraw-assets/fonts/:family/:file([A-Za-z]+-Regular-[0-9a-f]{32}\\.woff2)",
+        headers: [
+          {
+            key: "Cache-Control",
+            value: "public, max-age=31536000, immutable",
+          },
+        ],
+      },
     ];
   },
 };
