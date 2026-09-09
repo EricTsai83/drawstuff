@@ -51,9 +51,13 @@ const config: NextConfig = {
         }),
       },
       {
-        // Next 對 public/ 預設 max-age=0：/p/[slug] 每次開頁要對 50+ 個字型
-        // 子集檔各發一次 revalidate。內容雜湊檔名的字型可以永久快取；未雜湊
-        // 的（Virgil-Regular.woff2）不符合此 pattern，維持預設。
+        // Next 對 public/ 預設 max-age=0：回訪會對每個用到的字型子集檔各發
+        // 一次 revalidate。內容雜湊檔名（Excalifont、Xiaolai、ComicShanns 的
+        // 32 位 hex）可以永久快取；不符合此 pattern 的維持預設：未雜湊的
+        // Virgil／Cascadia／Liberation，以及 Nunito、Lilita 的 Google Fonts
+        // 衍生檔名（版本穩定但不是內容雜湊，不冒 immutable 的風險）。同目錄的
+        // fonts.css 內容隨字型檔變動但檔名沒有雜湊，刻意不在此規則內，維持
+        // 預設 max-age=0 + ETag。
         source:
           "/excalidraw-assets/fonts/:family/:file([A-Za-z]+-Regular-[0-9a-f]{32}\\.woff2)",
         headers: [

@@ -83,7 +83,8 @@ describe("buildContentSecurityPolicy", () => {
     expect(directive(csp, "base-uri")).toBe("base-uri 'none'");
     expect(directive(csp, "frame-ancestors")).toBe("frame-ancestors 'none'");
     expect(directive(csp, "form-action")).toBe("form-action 'self'");
-    expect(directive(csp, "font-src")).toBe("font-src 'self' data:");
+    // /p/[slug] 的字型走 fonts.css + 同源 woff2；匯出不再內嵌 data: 字型。
+    expect(directive(csp, "font-src")).toBe("font-src 'self'");
     expect(directive(csp, "worker-src")).toBe("worker-src 'self'");
   });
 

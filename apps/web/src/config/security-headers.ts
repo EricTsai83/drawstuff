@@ -128,8 +128,10 @@ export function buildContentSecurityPolicy(
     "'unsafe-inline'",
     // Excalidraw 字型 subset（harfbuzz wasm）在 worker 與主執行緒 fallback 都要
     // WebAssembly.instantiate；Chrome/Safari 在 script-src 存在時需要此關鍵字，
-    // 否則上游靜默退回 esm.sh 字型 URL（再被 font-src 擋下）→ 匯出與 /p 頁
-    // 的文字落到系統字型。只放行 wasm 編譯，不放行 JS eval。
+    // 否則上游靜默退回 esm.sh 字型 URL（再被 font-src 擋下）→ 匯出的文字落到
+    // 系統字型。唯一使用者是工作區的「下載 SVG／PNG」；/p/[slug] 以
+    // skipInliningFonts 匯出、字型走 fonts.css，已不依賴。只放行 wasm 編譯，
+    // 不放行 JS eval。是否對 /p/* 發更緊的 per-route CSP 另開決策。
     "'wasm-unsafe-eval'",
     // dev-only：Turbopack eval sourcemap 與 unpkg 載入的 react-grab
     ...(input.isDev ? ["'unsafe-eval'", "unpkg.com"] : []),
@@ -147,11 +149,11 @@ export function buildContentSecurityPolicy(
     // blob:/data:：canvas 匯出與解密後的 asset object URL；lh3：better-auth
     // Google profile 頭像走原生 <img>，不經 next/image
     `img-src 'self' blob: data: https://lh3.googleusercontent.com`,
-    // P3.0：Excalidraw 字型由 /excalidraw-assets 自家 origin 提供，esm.sh
-    // fallback 不得出現在任何 directive。data:：exportToSvg 把子集化後的字型
-    // 以 data URL 內嵌進 <style>，/p/[slug] 的靜態 viewer 只靠這條路徑取得
-    // 畫布字型；沒有 data: 時瀏覽器把每個 @font-face 標成 error、文字落到系統字型。
-    `font-src 'self' data:`,
+    // P3.0：Excalidraw 字型由 /excalidraw-assets 自家 origin 提供（工作區走
+    // 上游 FontFace API，/p/[slug] 走 build 時產生的 fonts.css），esm.sh
+    // fallback 不得出現在任何 directive。曾為 /p 的內嵌字型放行 data:，
+    // viewer 改 skipInliningFonts 後不再需要。
+    `font-src 'self'`,
     // Excalidraw subset worker 是 bundle 內的同源 module worker（report-only
     // 走查全程無 blob: 違規，2026-08-28 起不再放行）
     `worker-src 'self'`,

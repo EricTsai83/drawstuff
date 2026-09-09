@@ -26,7 +26,7 @@ runtime injection 來源）能用它做什麼？然後收斂到正常功能所�
 | 外掛執行 | `object-src` | `<object>`／`<embed>` 舊式執行面 | `'none'` |
 | 表單外送 | `form-action` | 注入表單把輸入送到外部 | `'self'` |
 | 樣式 | `style-src` | 注入 CSS（低風險：無程式碼執行） | `'self' 'unsafe-inline'` |
-| 圖片／字型 | `img-src`／`font-src` | 低風險載入面；仍收斂以縮小出口 | 各自的最小清單；`font-src` 含 `data:`（見下節） |
+| 圖片／字型 | `img-src`／`font-src` | 低風險載入面；仍收斂以縮小出口 | 各自的最小清單；`font-src 'self'`（字型全數自託管，含 `/p` 的 `fonts.css`） |
 
 核心觀念（CLAIM-CDB-3）：`connect-src` 是本設計的主控制——它決定 room key「送得出去嗎、
 送得到哪」。`script-src`／`worker-src` 是次控制——它們決定「多容易把惡意程式碼弄進來」。
@@ -66,8 +66,10 @@ validator 層拒絕，讓「零外部 script origin」保持無例外。
 
 `script-src` 一旦存在，Chrome 與 Safari 就把 `WebAssembly.instantiate` 視為 eval 的一種：
 沒有 `'unsafe-eval'` 或 `'wasm-unsafe-eval'` 就拒絕編譯（Firefox 較寬鬆，不擋）。
-唯一使用者是 **Excalidraw 的字型 subset（harfbuzz wasm）**：畫布匯出 SVG 與 `/p/[slug]`
-靜態 viewer 都靠它把字型裁成子集後以 data URL 內嵌到 `@font-face`。
+唯一使用者是 **Excalidraw 的字型 subset（harfbuzz wasm）**：工作區「下載 SVG／PNG」靠它
+把字型裁成子集後以 data URL 內嵌到匯出檔。`/p/[slug]` 的靜態 viewer 曾是第二個使用者，
+改以 `skipInliningFonts` 匯出、字型走 `fonts.css` 後不再依賴（見下節）；是否對 `/p/*`
+發一份不含此關鍵字的 per-route CSP，另開決策。
 
 失敗模式很安靜：上游把 wasm 錯誤吃掉，改把 `src` 退回候選清單最後一個 URL（esm.sh），
 接著被 `font-src 'self'` 擋下，文字就靜默落到系統字型——沒有錯誤頁、沒有 toast。dev 因為
@@ -77,14 +79,13 @@ validator 層拒絕，讓「零外部 script origin」保持無例外。
 仍須先能被載入（同源 chunk），沒有新的外部程式碼進入面；因此屬於「功能必需的最小放寬」，
 不是對「零外部 origin」的退讓。
 
-## font-src 為什麼需要 data:
+## font-src 為什麼是 `'self'`（曾經含 `data:`）
 
-`exportToSvg` 內嵌字型的方式是把子集化後的 woff2 轉成 `data:font/woff2;base64,…` 寫進
-SVG 的 `<style>`。`/p/[slug]` 的靜態 viewer 把這個 SVG 直接掛進 document，`@font-face`
-因此由頁面 CSP 管：`font-src 'self'` 不含 `data:`，瀏覽器會把每個 face 標成 `error`，文字
-靜默落到系統字型（`document.fonts` 可觀察到 status 全為 error）。`data:` 字型無外連能力、
-內容完全來自同源 JS 產生的位元組，放行它不新增任何出口。編輯器畫布不受影響，因為它走
-FontFace API 從 `/excalidraw-assets/` 載入。
+`/p/[slug]` 的靜態 viewer 曾直接把 `exportToSvg` 內嵌了 base64 字型的 SVG 掛進 document，
+因此 `font-src` 一度放行 `data:`。viewer 改以 `skipInliningFonts` 匯出後，畫布字型由 build 時
+從自託管 woff2 產生的 `/excalidraw-assets/fonts.css` 宣告（帶 `unicode-range`，見
+[static-export-as-read-only-viewer §1b](../system-design/static-export-as-read-only-viewer.md)），
+與編輯器一樣全部落在 `'self'`，`data:` 隨之移除。
 
 ## 變更守則
 

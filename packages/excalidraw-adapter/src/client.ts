@@ -9,6 +9,7 @@ import {
   Excalidraw,
   exportToBlob,
   exportToSvg,
+  FONT_FAMILY,
   Footer,
   getVisibleSceneBounds,
   languages,
@@ -251,6 +252,10 @@ export {
   defaultLang as DEFAULT_EXCALIDRAW_LANGUAGE,
   exportToBlob as exportCanvasToBlob,
   exportToSvg as exportSceneToSvg,
+  // Canvas font families as the export writes them into `font-family`; the
+  // generated fonts.css (apps/web/scripts/excalidraw-fonts-css.mjs) is pinned
+  // to this set by test.
+  FONT_FAMILY as EXCALIDRAW_FONT_FAMILY,
   Footer as ExcalidrawFooter,
   // Follow mode: measure the local viewport in scene coordinates, and fit the
   // local viewport to a followed peer's bounds. Both are upstream public API.

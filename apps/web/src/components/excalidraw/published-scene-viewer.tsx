@@ -38,9 +38,9 @@ import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
 import { buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 
-// /p/[slug] 不在 workspace layout（excalidraw-client-wrapper）底下，
-// `exportSceneToSvg` 的字型載入需要自己把資產指向自家 origin，否則 fallback
-// 到 esm.sh。upstream 於字型載入時才讀取這個值，module scope 呼叫即足夠早。
+// /p/[slug] 不在 workspace layout（excalidraw-client-wrapper）底下。畫布字型
+// 由 app/p/[slug]/layout.tsx 載入的 fonts.css 提供，匯出不再內嵌字型；但上游
+// 其他路徑仍可能讀取這個值，保留指向自家 origin，避免任何 fallback 到 esm.sh。
 installExcalidrawAssetPath();
 
 type PublishedSceneViewerProps = {
@@ -92,6 +92,9 @@ const ZOOM_STEP = 1.2;
 /** Breathing room left around the scene when framing it. */
 const FIT_MARGIN = 32;
 
+/** Matches the `font-display: block` period of the fonts.css faces. */
+const FONT_LOAD_DEADLINE_MS = 3000;
+
 const ICON_BTN = buttonVariants({
   variant: "ghost",
   size: "icon-lg",
@@ -140,6 +143,7 @@ export function PublishedSceneViewer({
   const { setTheme, browserActiveTheme } = useSyncTheme();
   const [scene, setScene] = useState<LoadedScene | null>(null);
   const [sceneSvg, setSceneSvg] = useState<SVGSVGElement | null>(null);
+  const [fontsReady, setFontsReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [uiVisible, setUiVisible] = useState(true);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
@@ -258,8 +262,8 @@ export function PublishedSceneViewer({
     let isActive = true;
 
     async function renderSceneSvg(loaded: LoadedScene) {
-      const exportOnce = (skipInliningFonts: true | undefined) =>
-        exportSceneToSvg({
+      try {
+        const svg = await exportSceneToSvg({
           elements: loaded.elements,
           appState: {
             ...loaded.appState,
@@ -270,24 +274,11 @@ export function PublishedSceneViewer({
             exportBackground: true,
           },
           files: loaded.files,
-          skipInliningFonts,
+          // Fonts come from /excalidraw-assets/fonts.css (loaded by the /p
+          // layout) through the browser's own unicode-range loading, so the
+          // export never runs upstream's subsetting worker + wasm pipeline.
+          skipInliningFonts: true,
         });
-
-      try {
-        let svg: SVGSVGElement;
-        try {
-          svg = await exportOnce(undefined);
-        } catch (error) {
-          // Font inlining runs upstream's subsetting worker + wasm pipeline,
-          // which is environment-dependent and can fail where the rest of the
-          // export would succeed. Degrade to system-font text instead of an
-          // error page.
-          console.warn(
-            "Falling back to exporting without inlined fonts:",
-            error instanceof Error ? (error.stack ?? error.message) : error,
-          );
-          svg = await exportOnce(true);
-        }
 
         if (!isActive) return;
         hardenSvgLinks(svg);
@@ -312,6 +303,67 @@ export function PublishedSceneViewer({
       isActive = false;
     };
   }, [browserActiveTheme, scene]);
+
+  // fonts.css declares the canvas faces with `font-display: block`, so text is
+  // invisible until its faces arrive. Ask for exactly the faces the exported
+  // `<text>` nodes need (family list × characters) and fade the stage in once
+  // they are loaded, so the scene never flashes in a fallback font. This is an
+  // explicit request rather than `document.fonts.ready`: `ready` only reflects
+  // loads the browser has already started, which depends on a layout pass
+  // having run over the mounted SVG. Later re-exports (theme change) reuse the
+  // same text and already-loaded faces, so the gate is only applied once.
+  useEffect(() => {
+    if (!sceneSvg || fontsReady) return;
+    let isActive = true;
+
+    const charsByFamily = new Map<string, Set<string>>();
+    for (const text of sceneSvg.querySelectorAll("text")) {
+      const family = text.getAttribute("font-family");
+      if (!family) continue;
+      const chars = charsByFamily.get(family) ?? new Set<string>();
+      for (const char of text.textContent ?? "") chars.add(char);
+      charsByFamily.set(family, chars);
+    }
+
+    // `document.fonts` is absent in jsdom; a face that fails to load (or a
+    // font string the browser cannot parse) must not keep the scene hidden.
+    const fonts = document.fonts as FontFaceSet | undefined;
+    const loads = fonts
+      ? [...charsByFamily].map(([family, chars]) =>
+          fonts.load(`16px ${family}`, [...chars].join("")).catch(() => []),
+        )
+      : [];
+
+    // Bound the wait: past the `font-display: block` period the browser
+    // paints a fallback font anyway, so a stalled transfer must not leave the
+    // visitor with a spinner forever.
+    let deadline: ReturnType<typeof setTimeout> | undefined;
+    const timedOut = new Promise<"timeout">((resolve) => {
+      deadline = setTimeout(() => resolve("timeout"), FONT_LOAD_DEADLINE_MS);
+    });
+
+    void Promise.race([Promise.all(loads), timedOut]).then((result) => {
+      if (!isActive) return;
+      if (
+        result !== "timeout" &&
+        charsByFamily.size > 0 &&
+        result.every((faces) => faces.length === 0)
+      ) {
+        // fonts.css did not deliver a single face: most likely missing or
+        // blocked. Text still renders (system font), so surface it here
+        // rather than degrading silently.
+        console.warn(
+          "Published scene fonts unavailable; falling back to system fonts.",
+        );
+      }
+      setFontsReady(true);
+    });
+
+    return () => {
+      isActive = false;
+      clearTimeout(deadline);
+    };
+  }, [fontsReady, sceneSvg]);
 
   useEffect(() => {
     if (!uiVisible) return;
@@ -421,7 +473,8 @@ export function PublishedSceneViewer({
       ? t("public.theme.light")
       : t("public.theme.dark");
 
-  const isLoading = !sceneSvg && !loadError;
+  const sceneVisible = hasFitted && fontsReady;
+  const isLoading = !sceneVisible && !loadError;
 
   return (
     <div className="flex h-full w-full flex-col overflow-hidden">
@@ -707,7 +760,7 @@ export function PublishedSceneViewer({
             role="img"
             aria-label={sceneName}
             className="absolute top-0 left-0 transition-opacity duration-200"
-            style={{ ...transformStyle, opacity: hasFitted ? 1 : 0 }}
+            style={{ ...transformStyle, opacity: sceneVisible ? 1 : 0 }}
           />
         </div>
 

@@ -1,6 +1,6 @@
 # 19 — 公開場景改為「發布時渲染成品」，訪客頁面不再載入引擎
 
-- 前置：[18 — 公開 viewer 字型改走 CSS](18-published-viewer-fonts-via-css.md)（成品 SVG 必須是
+- 前置：無（公開 viewer 字型已改走 `/excalidraw-assets/fonts.css`；成品 SVG 必須維持
   `skipInliningFonts` 版本，否則成品會帶 base64 字型並要求 `font-src data:`）
 - 後續：無
 - Pattern 文件：[Render once, serve many](../docs/system-design/render-once-serve-many.md)
@@ -44,7 +44,8 @@
 
 ### D3 — 圖片與字型都用網址引用
 
-- 字型：由 plan 18 的 `fonts.css` 提供，成品不內嵌（`skipInliningFonts: true`）。
+- 字型：由 `/excalidraw-assets/fonts.css`（`scripts/sync-excalidraw-assets.mjs` 產生）提供，
+  成品不內嵌（`skipInliningFonts: true`）。
 - 圖片：上游 `exportToSvg` 會把圖片以 data URL 內嵌進 SVG。**第一版接受內嵌**：現有
   `file_record` 是壓縮（可能加密）的 payload，viewer 端解密才能顯示，公開場景的檔案本來就
   隨場景一起送到瀏覽器；成品裡內嵌相當於把「解壓後的圖」存一份。若成品尺寸成為問題

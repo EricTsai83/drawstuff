@@ -30,9 +30,9 @@
 | `connect-src` | `https://libraries.excalidraw.com` | 官方 library 安裝 |
 | `frame-src` | `EMBED_FRAME_SRC_HOSTS`（embed-allowlist.ts） | 純 iframe embed；twitter/reddit/gist 已在 validator 封鎖 |
 | `img-src` | `'self' blob: data: https://lh3.googleusercontent.com` | canvas 匯出、解密 asset object URL、Google 頭像原生 `<img>` |
-| `font-src` | `'self' data:` | Excalidraw 字型自託管於 `/excalidraw-assets/`（`scripts/sync-excalidraw-assets.mjs`），esm.sh 不得出現；`data:` 給 `exportToSvg` 內嵌的子集字型（`/p/[slug]` 靜態 viewer 唯一的畫布字型來源） |
+| `font-src` | `'self'` | Excalidraw 字型自託管於 `/excalidraw-assets/`（`scripts/sync-excalidraw-assets.mjs`），esm.sh 不得出現。編輯器走上游 FontFace API；`/p/[slug]` 走同一 script 產生的 `/excalidraw-assets/fonts.css`（`@font-face` + `unicode-range`），匯出不再內嵌 `data:` 字型 |
 | `worker-src` | `'self'` | 保留給 Excalidraw subset worker；目前 Turbopack 把上游 chunk 的 `import.meta.url` 解析成 `file:///ROOT/...`，worker 建立失敗後上游靜默改走主執行緒（dev 與 production build 皆然），因此此 directive 實際上未被使用 |
-| `script-src` | `'self' 'unsafe-inline' 'wasm-unsafe-eval'`（rationale 見 ADR-0004；wasm 見 [web-csp-design](../architecture/web-csp-design.md)） | 無外部 script origin；`'wasm-unsafe-eval'` 只放行 WebAssembly 編譯（Excalidraw 字型 subset），不放行 JS eval |
+| `script-src` | `'self' 'unsafe-inline' 'wasm-unsafe-eval'`（rationale 見 ADR-0004；wasm 見 [web-csp-design](../architecture/web-csp-design.md)） | 無外部 script origin；`'wasm-unsafe-eval'` 只放行 WebAssembly 編譯（工作區匯出 SVG／PNG 的 Excalidraw 字型 subset；`/p/[slug]` 已不依賴），不放行 JS eval |
 | 其他 | `default-src 'self'`、`object-src 'none'`、`base-uri 'none'`、`frame-ancestors 'none'`、`form-action 'self'`、`style-src 'self' 'unsafe-inline'` | |
 | dev-only | `'unsafe-eval'`、`unpkg.com`、`ws://127.0.0.1:*`、`ws://localhost:*` | 測試釘住不得洩入 production |
 
@@ -58,7 +58,10 @@ console 確認零 CSP violation（`Report Only` 前綴的紅字）。
 8. 官方 library 安裝流程。
 9. Embed：貼 YouTube 連結確認可嵌入；貼 twitter/x 連結確認被拒絕（決策內行為）。
 10. Theme 切換（light/dark/system）無 flash。
-11. Published page 讀取。
+11. Published page 讀取（含中文場景）：`document.fonts.check("16px Excalifont")` 與
+    `document.fonts.check("16px Xiaolai", "外")` 皆 `true`，Network 無 wasm／`subset-worker`，
+    實際下載的只有 `fonts.css` 與文字用到的字型檔（對 esm.sh 的 blocked 項目是上游建構
+    FontFace 時被 CSP 擋下的預期紀錄，見 static-export-as-read-only-viewer）。
 
 全部通過後：把 `security-headers.ts` 的 `CSP_REPORT_ONLY` 改為 `false`，部署，抽測
 第 4、6、7 項確認 enforce 下無回歸。（`worker-src` 走查全程無 `blob:` 違規，`blob:` 已隨

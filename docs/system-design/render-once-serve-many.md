@@ -60,8 +60,9 @@ flowchart LR
 字型、大型圖片這類**跨成品共用**的資源，成品裡只放引用（URL 加 `unicode-range` 一類的
 宣告），由瀏覽器按需載入並跨成品快取。內嵌（base64）只保留給「檔案必須離開瀏覽器」的
 匯出情境。兩者的取捨：內嵌的成品自包含、首次顯示無閃動、但每個成品都重複攜帶字型且體積大；
-引用的成品小、共享快取、但首次顯示要等資源到達（用 `font-display: block` 或等待
-`document.fonts.ready` 處理）。判準是**這個成品會不會離開你的頁面**。
+引用的成品小、共享快取、但首次顯示要等資源到達（用 `font-display: block`，並以
+`document.fonts.load(font, chars)` 明確等成品文字用到的 face；`document.fonts.ready` 只反映
+瀏覽器已開始的載入，不可靠）。判準是**這個成品會不會離開你的頁面**。
 
 ### 4. 寫入端在哪裡：作者的瀏覽器優先，保留搬到伺服器的形狀
 
@@ -98,8 +99,9 @@ flowchart LR
 ## 本專案中的實例
 
 - 計畫：[plans/19](../../plans/19-publish-time-rendered-artifacts.md)（發布時渲染成品，含
-  D1「儲存時 vs 發布時」、D2「兩份 SVG」、D3「圖片先內嵌」的決策與 trade-off）；前置
-  [plans/18](../../plans/18-published-viewer-fonts-via-css.md)（字型改引用）。
+  D1「儲存時 vs 發布時」、D2「兩份 SVG」、D3「圖片先內嵌」的決策與 trade-off）；字型改
+  引用的前置工作已完成（`/excalidraw-assets/fonts.css`，見
+  [static-export-as-read-only-viewer §1b](./static-export-as-read-only-viewer.md)）。
 - 既有先例：`apps/web/src/hooks/use-cloud-upload.ts` 在每次雲端儲存後產生並上傳 PNG 縮圖，
   即「寫入端渲染」的最小版本；成品刪除走 `deferred_file_cleanup` outbox
   （[data-lifecycle](../architecture/data-lifecycle.md)）。
