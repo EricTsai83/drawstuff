@@ -1,51 +1,18 @@
-# Web security headers 與 CSP rollout
+# Web CSP 驗證與部署
 
-- Status: **Enforced**（`CSP_REPORT_ONLY = false`；2026-08-28 report-only 走查清單逐項完成、
-  零預期外違規後切換）
-- 單一來源：`apps/web/src/config/security-headers.ts`（由 `next.config.ts` `headers()`
-  在 build 時凍結進部署；不在 Vercel dashboard 手動維護）
-- 政策測試：`apps/web/tests/security-headers.test.ts`
-- 決策依據：[ADR-0004](../adr/0004-code-delivery-trust-boundary.md)、threat model
-  [B6/T16](../architecture/collaboration-threat-model.md#code-delivery-b6-controls)
-- 設計說明（每條 directive 為什麼長這樣）：[web CSP design](../architecture/web-csp-design.md)
-
-## Header 一覽
-
-| Header | 值 | 備註 |
-| --- | --- | --- |
-| `Content-Security-Policy` | 見下表 | 已 enforce；放寬或新增來源前先把 `CSP_REPORT_ONLY` 改回 `true` 重新走查 |
-| `Strict-Transport-Security` | `max-age=63072000; includeSubDomains` | |
-| `X-Content-Type-Options` | `nosniff` | |
-| `Referrer-Policy` | `no-referrer` | fragment 本就不隨 Referer 送出；取最嚴格值縮小 URL 洩漏面 |
-| `X-Frame-Options` | `DENY` | 與 `frame-ancestors 'none'` 並存 |
-
-## CSP allowlist（每項有觸發點；變更需同步測試與本表）
-
-| Directive | 來源 | 觸發點 |
-| --- | --- | --- |
-| `connect-src` | `'self'` | tRPC streaming、Server Actions、`/api/uploadthing` presign |
-| `connect-src` | gateway WebSocket origin（build 時由 `COLLAB_CONTROL_URL` 的 http(s) origin 換成 ws(s)） | 共編 WebSocket（B1） |
-| `connect-src` | `https://*.ingest.uploadthing.com` | browser 直傳 region 子網域；`api.uploadthing.com` 是 server-side 端點，不列入 |
-| `connect-src` | `https://<appId>.ufs.sh`（取自 `UPLOADTHING_TOKEN`；缺失即 fail build，絕不退 `*.ufs.sh`） | asset-store／published viewer／import fetch |
-| `connect-src` | `https://libraries.excalidraw.com` | 官方 library 安裝 |
-| `frame-src` | `EMBED_FRAME_SRC_HOSTS`（embed-allowlist.ts） | 純 iframe embed；twitter/reddit/gist 已在 validator 封鎖 |
-| `img-src` | `'self' blob: data: https://lh3.googleusercontent.com` | canvas 匯出、解密 asset object URL、Google 頭像原生 `<img>` |
-| `font-src` | `'self'` | Excalidraw 字型自託管於 `/excalidraw-assets/`（`scripts/sync-excalidraw-assets.mjs`），esm.sh 不得出現。編輯器走上游 FontFace API；`/p/[slug]` 走同一 script 產生的 `/excalidraw-assets/fonts.css`（`@font-face` + `unicode-range`），匯出不再內嵌 `data:` 字型 |
-| `worker-src` | `'self'` | 保留給 Excalidraw subset worker；目前 Turbopack 把上游 chunk 的 `import.meta.url` 解析成 `file:///ROOT/...`，worker 建立失敗後上游靜默改走主執行緒（dev 與 production build 皆然），因此此 directive 實際上未被使用 |
-| `script-src` | `'self' 'unsafe-inline' 'wasm-unsafe-eval'`（rationale 見 ADR-0004；wasm 見 [web-csp-design](../architecture/web-csp-design.md)） | 無外部 script origin；`'wasm-unsafe-eval'` 只放行 WebAssembly 編譯（工作區匯出 SVG／PNG 的 Excalidraw 字型 subset；`/p/[slug]` 已不依賴），不放行 JS eval |
-| 其他 | `default-src 'self'`、`object-src 'none'`、`base-uri 'none'`、`frame-ancestors 'none'`、`form-action 'self'`、`style-src 'self' 'unsafe-inline'` | |
-| dev-only | `'unsafe-eval'`、`unpkg.com`、`ws://127.0.0.1:*`、`ws://localhost:*` | 測試釘住不得洩入 production |
-
-不接 `report-uri`/`report-to`（ADR-0004 CLAIM-CDB-1）；report-only 階段的違規由瀏覽器
-console 與下方走查收集。
+政策值與來源用途見 [security-headers.ts](../../apps/web/src/config/security-headers.ts)，
+斷言見 [security-headers.test.ts](../../apps/web/tests/security-headers.test.ts)。
+設計理由見 [web CSP design](../architecture/web-csp-design.md)；信任邊界與不接
+`report-uri`／`report-to` 的決策見 [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)。
 
 ## Report-only → enforce 程序
 
-初次 rollout 已於 2026-08-28 完成（走查全數通過後切換 enforce）。本節保留為**日後任何
-CSP 變更的標準程序**：先把 `CSP_REPORT_ONLY` 改回 `true` 部署，走完清單再切回 enforce。
+CSP 變更先把 `CSP_REPORT_ONLY` 改為 `true`，以 production build 部署後走查。
+整站與 `/p/*` 共用此旗標；目前值以程式碼為準。
 
-Repo 沒有自動違規收集，走查清單必須**逐項執行，不能抽樣**；每項都要開著 DevTools
-console 確認零 CSP violation（`Report Only` 前綴的紅字）。
+Repo 沒有自動違規收集。以下 11 項必須逐項執行，不能抽樣；全程開著 DevTools
+console 與 Network，確認沒有預期外的 CSP violation（含 `Report Only` 訊息）。
+若出現已知的上游 fallback 違規，記錄來源、觸發步驟與不影響功能的證據；不可直接忽略。
 
 1. 登入：Google OAuth 整段導覽來回。
 2. Google 頭像顯示（`lh3.googleusercontent.com`）。
@@ -58,17 +25,24 @@ console 確認零 CSP violation（`Report Only` 前綴的紅字）。
 8. 官方 library 安裝流程。
 9. Embed：貼 YouTube 連結確認可嵌入；貼 twitter/x 連結確認被拒絕（決策內行為）。
 10. Theme 切換（light/dark/system）無 flash。
-11. Published page 讀取（含中文場景）：`document.fonts.check("16px Excalifont")` 與
-    `document.fonts.check("16px Xiaolai", "外")` 皆 `true`，Network 無 wasm／`subset-worker`，
-    實際下載的只有 `fonts.css` 與文字用到的字型檔（對 esm.sh 的 blocked 項目是上游建構
-    FontFace 時被 CSP 擋下的預期紀錄，見 static-export-as-read-only-viewer）。
+11. Published page 讀取（含中文場景，場景已有發布成品）：Network 只有 HTML、app chunks、
+    **一個**成品 SVG（ufs host）、`fonts.css` 與文字用到的字型檔；無 Excalidraw chunk、無
+    wasm／`subset-worker`、無 esm.sh 項目；切換主題只多一個 SVG 請求。
+    `document.fonts.check("16px Excalifont")` 與 `document.fonts.check("16px Xiaolai", "外")`
+    皆 `true`；深色成品中的照片不是負片。**per-route CSP**：Response headers 的
+    `Content-Security-Policy` 是 `/p` 的收緊版（無 `'wasm-unsafe-eval'`），console 零違規
+    （含切主題、Hand／Select 工具、開含連結與圖片的場景）。點左上角回首頁必須是**整頁
+    導覽**（網址列重載、Network 出現新的 document 請求），回到工作區後上傳／匯出／共編
+    照常——soft navigation 會把 `/p` 的政策帶進編輯器。本機 production 驗證可在
+    停止開發伺服器後執行 `pnpm --filter @drawstuff/web build`，再以
+    `pnpm --filter @drawstuff/web start` 啟動並走查；輸出使用預設 `.next` 目錄。
 
-全部通過後：把 `security-headers.ts` 的 `CSP_REPORT_ONLY` 改為 `false`，部署，抽測
-第 4、6、7 項確認 enforce 下無回歸。（`worker-src` 走查全程無 `blob:` 違規，`blob:` 已隨
-enforce 切換移除。）
+全部通過後，將 `CSP_REPORT_ONLY` 改回 `false` 並部署，抽測第 4、6、7、11 項，
+確認 enforce 下無回歸。變更紀錄應附上部署或 commit、瀏覽器、走查結果與已知違規。
 
-## 常態要求（隨每次部署有效）
+## 常態要求
 
-- Allowlist 變更必須先更新 `security-headers.test.ts` 與本表，並確認觸發點。
-- 不得在 Vercel dashboard 另設 headers（會產生 config 之外的第二來源）。
-- Deployment 權限與 supply-chain 要求見 ADR-0004 最後一節。
+- 來源變更同步更新程式碼旁的用途註解與政策測試；設計理由或驗證步驟改變時才更新相應文件。
+- `/p/*` 必須維持整站政策的子集；整站新增來源不會自動加入公開頁。公開頁變更須走查第 11 項。
+- Headers 由 `next.config.ts` 在 build 時產生；環境值改變須重新部署，不得在 Vercel dashboard 另設 headers。
+- Deployment 權限與 supply-chain 要求見 [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)。

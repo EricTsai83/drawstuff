@@ -98,13 +98,36 @@ flowchart LR
 
 ## 本專案中的實例
 
-- 計畫：[plans/19](../../plans/19-publish-time-rendered-artifacts.md)（發布時渲染成品，含
-  D1「儲存時 vs 發布時」、D2「兩份 SVG」、D3「圖片先內嵌」的決策與 trade-off）；字型改
-  引用的前置工作已完成（`/excalidraw-assets/fonts.css`，見
-  [static-export-as-read-only-viewer §1b](./static-export-as-read-only-viewer.md)）。
+- 已發布場景的成品：作者瀏覽器在**每次雲端儲存**（`use-cloud-upload.ts`，
+  與 PNG 縮圖並列）與**發布**（`scene-card.tsx` 先載入場景、渲染、上傳，再呼叫
+  `scene.publish`）時，以 `src/lib/render-published-artifacts.ts` 產生淺／深兩份 SVG
+  （`skipInliningFonts`、`exportBackground: true`、`exportEmbedScene: false`、連結硬化），上傳到
+  與縮圖相同的 storage，`/p/[slug]` 依主題下載其一，不載入 Excalidraw
+  （`tests/published-viewer-engine-free.test.ts` 釘住）。決策與 trade-off：
+  - **儲存時渲染，發布補齊**（而非只在發布時）：公開頁語意不變（永遠是最新儲存），作者不必
+    學「發布版本」；代價是已發布場景每次儲存多兩個上傳。要改「草稿／公開版分離」只需停止
+    儲存時渲染，成品格式與 viewer 不變。
+  - **兩份 SVG 而非一份加濾鏡**：上游深色模式對根節點反轉、再對每個 `<image>` 反向，照片才
+    不變負片；viewer 自己加濾鏡就得抄這套邏輯。多幾十到幾百 KB，換 viewer 零特例。
+  - **圖片先內嵌**（data URL）：成品自包含，訪客不再抓、解壓每個 asset；成品可能達數 MB
+    （上限 `PUBLISHED_ARTIFACT_MAX_BYTES`）。上傳失敗會以 toast 告知作者（含兩份大小），
+    儲存本身不受影響。任一成品超過約 2 MB 時重新評估改為成品旁的獨立檔案。
+  - **縮圖即 `og:image`**：既有 PNG 縮圖直接用，不加第三個檔案。
+  - **成品是不可信輸入**：由作者瀏覽器產生，viewer 掛進 live DOM 前以 `sanitizeSvgArtifact`
+    處理，伺服器只接受自家 storage URL（[web-csp-design](../architecture/web-csp-design.md)）。
+  - **無成品不得發布**：`scene.publish` 的 input 要求成品；伺服器以「上傳時 reservation、
+    mutation 內 claim」保證每個物件不是被場景引用就是在清理 outbox 中
+    （[data-lifecycle](../architecture/data-lifecycle.md) 的 published render artifacts 一節）。
+    `published_render_engine_version` 與 `published_rendered_revision` 讓過時成品可偵測、亂序的
+    替換不會蓋掉較新成品。
 - 既有先例：`apps/web/src/hooks/use-cloud-upload.ts` 在每次雲端儲存後產生並上傳 PNG 縮圖，
   即「寫入端渲染」的最小版本；成品刪除走 `deferred_file_cleanup` outbox
   （[data-lifecycle](../architecture/data-lifecycle.md)）。
+- 過渡 shim 已刪除（2026-09-09）：所有已發布場景在作者重新儲存後都有成品，客戶端匯出
+  fallback、`getPublishedSceneBySlug` 過渡期回傳的 `sceneData`／`files`、以及「已發布但無
+  成品」計數一併移除；已發布卻無成品的資料列（API 走不到）視同不存在。
+- 圖片體積：成品內嵌圖片前先在作者端把 PNG／JPEG 重新編碼為 WebP（品質 0.85），只在
+  變小時採用，任何失敗保留原圖；編輯器內的原圖不受影響（`optimizeArtifactFiles`）。
 - 前身與對照：[以引擎的靜態匯出當唯讀 Viewer](./static-export-as-read-only-viewer.md)
   記錄了「觀看時渲染」版本的隱含依賴與量測成本，是本 pattern 的動機。
 - 相關 pattern：[Transactional Outbox](./transactional-outbox.md)、

@@ -5,7 +5,7 @@
   宣稱的措辭界線、security headers／CSP 政策，以及 deployment 與 build-time
   supply-chain 的常態要求。
 - 關聯：[collaboration threat model](../architecture/collaboration-threat-model.md)（B6、T16）、
-  [web security headers](../operations/web-security-headers.md)（政策細節與 rollout 程序）。
+  [web security headers](../operations/web-security-headers.md)（CSP 走查與部署要求）。
 
 ## 背景
 

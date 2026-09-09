@@ -128,8 +128,8 @@ work and releases timers, object URLs, sockets, and caches.
 None of these controls prevents an operator who can change the served bundle from reading room
 keys (CLAIM-CDB-1 in [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)); they narrow
 exfiltration outlets, shrink the injectable surface, and keep the deployed code auditable. The
-policy details and rollout procedure live in
-[web security headers](../operations/web-security-headers.md).
+rollout checklist and standing requirements live in
+[CSP verification and deployment](../operations/web-security-headers.md).
 
 - **Exfiltration-outlet convergence (CSP `connect-src`)**: the browser may open network
   connections only to the app origin, the relay origin, UploadThing's ingest/file hosts, and the
@@ -160,7 +160,7 @@ policy details and rollout procedure live in
 - **Deployment path**: `apps/web` deploys only through the Vercel git integration from reviewed
   commits on a protected branch; no long-lived deploy token can replace the bundle from CI. The
   Cloudflare Worker deploy path cannot reach room keys (its compromise is T15/T3 surface, not
-  T16). See [web security headers](../operations/web-security-headers.md) for the standing
+  T16). See [CSP verification and deployment](../operations/web-security-headers.md) for the standing
   requirements.
 
 ## Observability data classification

@@ -82,7 +82,7 @@ flowchart TD
   與 CSP header，兩者不可能各說各話）；
 - 環境值缺失時 **fail build**，不退回寬鬆值（寧可 build 失敗，不要靜默送出
   `*.example.com`）；
-- 政策、測試、營運文件的觸發點表在同一個 commit 對齊；
+- 政策、來源旁的用途註解與測試在同一個 commit 對齊；文件只隨設計理由或驗證程序改變；
 - 收緊流程：改動 → report-only 走查 → enforce。
 
 ### 4. 對「CSP 擋不住什麼」誠實
@@ -123,7 +123,7 @@ flowchart TD
 - config 模組與測試：`apps/web/src/config/security-headers.ts`、
   `apps/web/tests/security-headers.test.ts`、
   embed 單一來源 `apps/web/src/config/embed-allowlist.ts`。
-- 營運程序（report-only → enforce）：[web security headers](../operations/web-security-headers.md)。
+- 營運程序（report-only → enforce）：[CSP 走查與部署](../operations/web-security-headers.md)。
 - supply-chain 的具體清單（frozen lockfile、`allowBuilds` 拒絕 postinstall、Actions 釘 SHA、
   零第三方瀏覽器 SDK、Vercel git integration 為唯一部署路徑）：
   [threat model](../architecture/collaboration-threat-model.md) 的 Code delivery (B6) controls。

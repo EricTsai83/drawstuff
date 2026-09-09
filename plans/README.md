@@ -14,9 +14,6 @@ DO-only，Node relay infrastructure 已退役刪除。現況與長期 invariant 
 Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.md)，完成證據在 git
 history。
 
-- [19-publish-time-rendered-artifacts.md](19-publish-time-rendered-artifacts.md) —
-  已發布場景在寫入端渲染淺／深兩份 SVG 成品，`/p` 只下載成品；含儲存時 vs 發布時、
-  兩份 SVG、圖片內嵌等決策紀錄
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) —
   共編監控機制、logs／metrics 匯出、client telemetry、告警與 dashboard；目前單人使用、
   Vercel Hobby，暫緩實現，監控目的地未定，不綁定部署平台

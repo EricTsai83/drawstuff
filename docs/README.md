@@ -96,7 +96,7 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 | 動協作功能 | [collaboration system design](./architecture/collaboration-system-design.md) → [threat model](./architecture/collaboration-threat-model.md) → [SLO](./performance/collaboration-slo-capacity.md) |
 | 動資料保留／刪除 | [data lifecycle](./architecture/data-lifecycle.md) |
 | 動 DB schema、清理舊碼 | [engineering conventions](./operations/engineering-conventions.md) |
-| 動 headers／CSP／embed | [web CSP design](./architecture/web-csp-design.md) → [ADR-0004](./adr/0004-code-delivery-trust-boundary.md) → [web security headers](./operations/web-security-headers.md) |
+| 動 headers／CSP／embed | [web CSP design](./architecture/web-csp-design.md) → [ADR-0004](./adr/0004-code-delivery-trust-boundary.md) → [CSP 走查與部署](./operations/web-security-headers.md) |
 | 動路由／overlay | [workspace overlay routing](./architecture/workspace-overlay-routing-system-design.md) |
 | 動 DO 部署／監控 | [DO deployment](./operations/collaboration-do-deployment.md) → [DO observability](./observability/collaboration-do-observability.md) |
 | 動效能敏感路徑 | `performance/` 內對應的 budget 文件（數字的唯一來源） |

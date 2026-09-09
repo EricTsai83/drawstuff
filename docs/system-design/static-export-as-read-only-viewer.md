@@ -112,9 +112,15 @@ filter——顏色與濾鏡都來自匯出物本身，不在自己這邊重算�
 
 ## 本專案中的實例
 
-- viewer：`apps/web/src/components/excalidraw/published-scene-viewer.tsx`（模式切換、背景讀取、
-  `exportBackground: true`）；手勢層：`src/hooks/excalidraw/use-svg-pan-zoom.ts`
-  （`panEnabled`、手勢範圍的 `will-change`）；純函式測試 `tests/svg-pan-zoom.test.ts`。
+- viewer 外殼：`apps/web/src/components/excalidraw/published-scene-viewer.tsx`（模式切換、背景
+  讀取、字型 gate、手勢層），**不 import 引擎**——場景以 `SVGSVGElement` 從一個
+  `PublishedSceneSource` 進來。正常路徑是 `published-scene-artifact-source.ts`：下載發布時
+  渲染好的成品（[render once, serve many](./render-once-serve-many.md)）。本文描述的
+  「觀看時匯出」已不存在於訪客頁面；`exportBackground: true` 等保真設定與匯出的隱含依賴
+  清單搬到寫入端的 `src/lib/render-published-artifacts.ts`，仍然適用。手勢層：
+  `src/hooks/excalidraw/use-svg-pan-zoom.ts`（`panEnabled`、手勢範圍的 `will-change`）；
+  純函式測試 `tests/svg-pan-zoom.test.ts`；`tests/published-viewer-engine-free.test.ts` 釘住
+  外殼與成品路徑的 import graph 不含引擎。
 - 字型（§1b 的實作）：`apps/web/scripts/excalidraw-fonts-css.mjs` 在 `sync-excalidraw-assets.mjs`
   複製字型後，以 fontkit 讀每個 woff2 的 cmap／OS/2，產生 `public/excalidraw-assets/fonts.css`
   （230 條 `@font-face`，Xiaolai 209、Excalifont 7；`font-display: block`）；家族名稱由
@@ -133,10 +139,10 @@ filter——顏色與濾鏡都來自匯出物本身，不在自己這邊重算�
 - CSP 依賴：`src/config/security-headers.ts` 的 `font-src 'self'`（`data:` 已隨本做法移除）；
   `'wasm-unsafe-eval'` 仍保留給工作區「下載 SVG／PNG」，`/p` 不再依賴。推導見
   [web-csp-design](../architecture/web-csp-design.md)；字型自託管見
-  `scripts/sync-excalidraw-assets.mjs` 與 [web-security-headers](../operations/web-security-headers.md)。
+  `scripts/sync-excalidraw-assets.mjs`；驗證見 [CSP 走查與部署](../operations/web-security-headers.md)。
 - 兩套登錄方式並存：編輯器用上游 FontFace API，viewer 用我們產的 CSS；資料來源是同一批
   檔案，上游改切檔方式時 CSS 自動跟上，但家族名稱表需隨 `FONT_FAMILY` 變動（由測試把關）。
-- 後續方向：[Render once, serve many](./render-once-serve-many.md)（把渲染從觀看時搬到寫入端），
-  對應 [plans/19](../../plans/19-publish-time-rendered-artifacts.md)。
+- 後繼：[Render once, serve many](./render-once-serve-many.md)——渲染已搬到寫入端；本文的
+  依賴清單現在是**寫入端**渲染模組的走查清單，viewer 端只剩下載、sanitize 與手勢。
 - 相關 pattern：[第三方引擎的 Adapter 邊界](./third-party-engine-adapter.md)、
   [CSP 與 Code Delivery](./csp-and-code-delivery.md)。

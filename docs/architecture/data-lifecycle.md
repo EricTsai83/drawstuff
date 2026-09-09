@@ -21,6 +21,7 @@ deletion must preserve their transaction boundary through the durable cleanup ou
 | Collaboration asset    | room id + auth generation + `excalidraw_file_id` | At most 512 per generation                 | Old generation or room retention deletes rows and enqueues storage keys     |
 | Room metadata          | room id                                          | Active, ended, or within retention grace   | Expired active rooms become ended; the row remains as lifecycle history     |
 | Shared scene (link)    | shared scene id (nanoid)                         | 30 days from creation                      | Bounded maintenance job deletes rows after handling their storage objects   |
+| Published render artifacts | scene id + variant (light/dark); content-hashed immutable object | While the scene is published; the pair is replaced on every save of the scene | Unpublish and scene/workspace/account deletion enqueue both keys; an uploaded pair nobody claims expires from its reservation into the same queue |
 
 ## Personal Library
 
@@ -70,6 +71,36 @@ The losing key — the previous thumbnail on success, the fresh upload when the 
 or routed to the deferred-cleanup queue. Thumbnails have no GC sweep; the CAS is what prevents
 orphans.
 
+## Published render artifacts
+
+A published scene additionally owns a light and a dark SVG rendered by the author's browser
+(`render-published-artifacts.ts`) at publish time and after every later save; `/p/[slug]` serves
+the pair instead of loading the engine ([render once, serve
+many](../system-design/render-once-serve-many.md)). The scene row is the only pointer:
+`published_svg_{light,dark}_{key,url}`, the engine version, the revision rendered from, and the
+render time. A check constraint keeps the two keys paired.
+
+Unlike assets, no row is written when an artifact object lands, and the two objects must take
+effect together, so the upload handler cannot commit the pointer. Instead it *reserves* the key: a
+`deferred_file_cleanup` row with reason `published-artifact-unclaimed` due one claim window (1 h)
+later. `scene.publish` / `scene.setPublishedArtifacts` claim both reservations — delete the rows —
+in the same transaction that writes the pointer, and refuse (without referencing the objects, and
+without consuming a surviving reservation of a half-valid pair) when a reservation is missing or
+due. The claim reads the pair `FOR UPDATE` and accepts only rows that stay undue for at least a
+5-minute safety margin, taking its clock reading after the scene lock; the drain takes only due rows
+with a non-locking read. The two can therefore overlap only if a claim transaction stays open across
+the whole margin, so an artifact object is at every moment either referenced by exactly one scene
+row or queued for deletion. A pair whose owner closed the tab
+between upload and claim is therefore reclaimed by the routine drain with no special sweep.
+
+Replacement runs under the scene row lock and is revision-guarded: artifacts rendered from an older
+revision than the pair already stored are rejected as `stale` (two tabs saving), and the replaced
+pair's keys enter the outbox in the same transaction. Unpublishing clears the pointer and enqueues
+both keys; `collectSceneStorageKeys` includes both keys so scene, workspace and account deletion
+follow the standard shape. A published row without a pair cannot arise through the API and is served
+as not found rather than as an empty page; the public read returns only the artifact URLs — the scene
+document and asset records never leave the owner's endpoints.
+
 ## Deferred object cleanup
 
 PostgreSQL and object storage cannot share one transaction. Any operation that makes an object
@@ -87,8 +118,8 @@ enforcement debt and are never purged. See the
 
 Scene deletion, workspace deletion, account retirement, and the single-tenant purge all follow this
 shape: the deleting transaction collects every storage key its cascade will orphan — asset records,
-scene thumbnails, and the assets of collaboration rooms bound to the deleted scenes or owned by the
-deleted user — and inserts the keys into the outbox before the rows go. No deletion path calls
+scene thumbnails, published render artifacts, and the assets of collaboration rooms bound to the
+deleted scenes or owned by the deleted user — and inserts the keys into the outbox before the rows go. No deletion path calls
 storage inline; deleting objects first would let a mid-loop crash leave live rows pointing at
 missing objects, and deleting rows without enqueueing would strand objects the GC can never find
 (it sweeps only scenes that still exist).
