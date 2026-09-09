@@ -635,6 +635,28 @@ export function PublishedSceneViewer({
                 <RefreshCw aria-hidden="true" />
               </button>
               <div className="bg-border mx-1 h-4 w-px" />
+              <button
+                type="button"
+                onClick={toggleTheme}
+                className={ICON_BTN}
+                aria-label={themeLabel}
+                title={themeLabel}
+              >
+                {browserActiveTheme === "light" ? (
+                  <Sun aria-hidden="true" />
+                ) : (
+                  <Moon aria-hidden="true" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => setUiVisible(false)}
+                className={ICON_BTN}
+                aria-label={t("public.viewer.hideUI")}
+                title={t("public.viewer.hideUI")}
+              >
+                <EyeOff aria-hidden="true" />
+              </button>
             </div>
           </div>
         </header>
