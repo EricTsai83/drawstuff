@@ -1,5 +1,5 @@
 import AxeBuilder from "@axe-core/playwright";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 
 test("hard navigation renders canonical workspace destinations without a duplicate route dialog", async ({
   page,
@@ -26,13 +26,66 @@ test("invalid settings identifiers share the canonical not-found result", async 
       name: "This drawing space does not exist.",
     }),
   ).toBeVisible();
+  await page.locator("html").evaluate((element) => {
+    element.dataset.recoveryDocument = "original";
+  });
+  await page.getByRole("link", { name: "Open dashboard" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(
+    page.getByText("Sign in required", { exact: true }),
+  ).toBeVisible();
+  await expect(page.getByRole("dialog")).toHaveCount(0);
+  await expect(page.locator("html")).not.toHaveAttribute(
+    "data-recovery-document",
+    "original",
+  );
 });
+
+// Only the browser session is faked to expose the real Canvas Dashboard links.
+// Server routes remain anonymous; these tests exercise navigation and chrome,
+// without depending on a database or an OAuth login.
+async function prepareCanvas(page: Page) {
+  const timestamp = new Date().toISOString();
+  await page.route("**/api/auth/get-session**", (route) =>
+    route.fulfill({
+      json: {
+        session: {
+          id: "overlay-session",
+          token: "overlay-test-token",
+          userId: "overlay-user",
+          expiresAt: new Date(Date.now() + 3_600_000).toISOString(),
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+        user: {
+          id: "overlay-user",
+          name: "Overlay test",
+          email: "overlay@example.test",
+          emailVerified: true,
+          createdAt: timestamp,
+          updatedAt: timestamp,
+        },
+      },
+    }),
+  );
+  await page.goto("/");
+  await expect(page.locator(".excalidraw")).toBeVisible();
+}
+
+async function openDashboard(page: Page) {
+  if ((page.viewportSize()?.width ?? 0) < 1080) {
+    await page.getByTestId("main-menu-trigger").tap();
+    await page.getByRole("link", { name: "Open dashboard" }).tap();
+  } else {
+    await page.getByRole("button", { name: "Open dashboard" }).click();
+  }
+}
 
 test("clicking outside the modal panel closes the overlay to the Canvas", async ({
   page,
 }) => {
-  await page.goto("/workspaces/not-a-uuid/settings");
-  await page.getByRole("link", { name: "Open dashboard" }).click();
+  await prepareCanvas(page);
+  await openDashboard(page);
   await expect(page.getByRole("dialog", { name: "Dashboard" })).toBeVisible();
 
   await page.locator('[data-slot="dialog-viewport"]').click({
@@ -46,14 +99,14 @@ test("clicking outside the modal panel closes the overlay to the Canvas", async 
 test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas instance", async ({
   page,
 }) => {
-  await page.goto("/workspaces/not-a-uuid/settings");
+  await prepareCanvas(page);
   const canvasRoot = page.locator(".excalidraw");
   await expect(canvasRoot).toHaveCount(1);
   await canvasRoot.evaluate((element) => {
     element.setAttribute("data-workspace-routing-instance", "preserved");
   });
 
-  await page.getByRole("link", { name: "Open dashboard" }).click();
+  await openDashboard(page);
   await expect(page).toHaveURL(/\/dashboard$/);
   const dashboardDialog = page.getByRole("dialog", { name: "Dashboard" });
   await expect(dashboardDialog).toBeVisible();
@@ -221,7 +274,7 @@ test("soft Dashboard navigation, Back, Forward and Escape preserve the Canvas in
   );
 
   await page.goBack();
-  await expect(page).toHaveURL(/\/workspaces\/not-a-uuid\/settings$/);
+  await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("dialog")).toHaveCount(0);
   await expect(canvasRoot).toHaveAttribute(
     "data-workspace-routing-instance",
