@@ -45,6 +45,15 @@ flowchart LR
 - **對「引擎自己的 fallback」保持懷疑**：能吃錯誤再退回 CDN 的程式庫，在 CSP 收斂後其 fallback
   形同壞掉；你的 fallback（例如 `skipInliningFonts`）根本不會被觸發。
 
+### 1b. 宣告從出貨資產推導，不從引擎內部借
+
+引擎的字型載入常靠內部類別（註冊 FontFace、附 unicode-range），套件不一定公開。別因此
+把「引擎沒公開」等同「做不到」：家族名稱在字型檔的 name table、涵蓋字元在 cmap table，
+都是**出貨資產本身的內容**。build 時解析這些檔案產生一份 `fonts.css`，匯出時關掉內嵌
+（`skipInliningFonts`），頁面載入 CSS，瀏覽器就用原生的 unicode-range 按需載入。這比等引擎
+公開 API 穩：引擎改變註冊方式不影響你，資料來源永遠是你已經自託管的那批檔案。
+代價是多一個 build 期解析步驟，以及 cmap 算出的範圍可能比引擎手寫的略寬（多抓一個小檔）。
+
 ### 2. 保真設定以「重現編輯器」為準，不以頁面樣式為準
 
 匯出 API 的選項（背景、主題濾鏡、frame 裁切、embed 是否渲染）每一個都是編輯器行為的
@@ -103,5 +112,8 @@ filter——顏色與濾鏡都來自匯出物本身，不在自己這邊重算�
 - CSP 依賴：`src/config/security-headers.ts` 的 `'wasm-unsafe-eval'` 與 `font-src data:`，推導見
   [web-csp-design](../architecture/web-csp-design.md)；字型自託管見
   `scripts/sync-excalidraw-assets.mjs` 與 [web-security-headers](../operations/web-security-headers.md)。
+- 後續方向：[Render once, serve many](./render-once-serve-many.md)（把渲染從觀看時搬到寫入端），
+  對應 [plans/18](../../plans/18-published-viewer-fonts-via-css.md) 與
+  [plans/19](../../plans/19-publish-time-rendered-artifacts.md)。
 - 相關 pattern：[第三方引擎的 Adapter 邊界](./third-party-engine-adapter.md)、
   [CSP 與 Code Delivery](./csp-and-code-delivery.md)。

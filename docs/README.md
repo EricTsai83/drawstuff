@@ -71,13 +71,14 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 17. [遠端狀態回灌的重入抑制：引用計數的 dirty-tracking suppression](./system-design/reentrancy-suppression-for-echoed-remote-state.md)
 18. [Server 端解析狀態的 Hydration 邊界](./system-design/hydration-boundary-for-server-resolved-state.md)
 19. [以引擎的靜態匯出當唯讀 Viewer：隱含依賴、保真設定與手勢層](./system-design/static-export-as-read-only-viewer.md)
+20. [Render once, serve many：寫入端渲染成品，觀看端只下載與互動](./system-design/render-once-serve-many.md)
 
 **工程流程（橫切所有主題）**
 
-20. [Config 與部署是受測工件](./system-design/config-and-deployment-as-artifacts.md)
-21. [測試作為契約](./system-design/testing-as-contracts.md)
-22. [演進與清理紀律](./system-design/evolution-and-cleanup.md)
-23. [記錄下來的拒絕：把「刻意不做」寫成決策](./system-design/recorded-refusals.md)
+21. [Config 與部署是受測工件](./system-design/config-and-deployment-as-artifacts.md)
+22. [測試作為契約](./system-design/testing-as-contracts.md)
+23. [演進與清理紀律](./system-design/evolution-and-cleanup.md)
+24. [記錄下來的拒絕：把「刻意不做」寫成決策](./system-design/recorded-refusals.md)
 
 趕時間的話，最高槓桿的五篇：**模組邊界、Transactional Outbox、防禦性邊界、
 測試作為契約、記錄下來的拒絕**。（Adapter 邊界仍是本專案槓桿最大的單一決策，
