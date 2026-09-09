@@ -369,6 +369,7 @@ export const en = {
   "public.theme.light": "Use light theme",
   "public.theme.dark": "Use dark theme",
   "public.viewer.loading": "Loading scene...",
+  "public.viewer.switchingTheme": "Switching theme…",
   "public.viewer.loadError": "Failed to load this published scene.",
   "public.viewer.zoomIn": "Zoom in",
   "public.viewer.zoomOut": "Zoom out",

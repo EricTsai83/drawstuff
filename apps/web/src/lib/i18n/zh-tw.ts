@@ -339,6 +339,7 @@ export const zhTW = {
   "public.theme.light": "淺色",
   "public.theme.dark": "深色",
   "public.viewer.loading": "載入場景中...",
+  "public.viewer.switchingTheme": "切換主題中…",
   "public.viewer.loadError": "載入公開場景失敗。",
   "public.viewer.zoomIn": "放大",
   "public.viewer.zoomOut": "縮小",

@@ -109,3 +109,81 @@ it.each(["light", "dark"])(
     ).not.toBeNull();
   },
 );
+
+async function mountLoadedScene() {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
+    new DOMRect(0, 0, 800, 600),
+  );
+  const requests: {
+    signal: AbortSignal;
+    resolve: (svg: SVGSVGElement) => void;
+    reject: (error: Error) => void;
+  }[] = [];
+  const load = vi.fn<PublishedSceneSource["load"]>(
+    (_theme, signal) =>
+      new Promise((resolve, reject) => {
+        requests.push({ signal, resolve, reject });
+      }),
+  );
+  const source = { key: "switching", load };
+  const render = () =>
+    act(async () => {
+      root.render(<PublishedSceneViewer source={source} sceneName="Scene" />);
+    });
+  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
+  svg.setAttribute("width", "100");
+  svg.setAttribute("height", "100");
+  theme.resolvedTheme = "light";
+  await render();
+  await act(async () => requests[0]!.resolve(svg));
+  const stage = container.querySelector('[role="img"][aria-label="Scene"]')!;
+  expect(stage.firstElementChild).toBe(svg);
+  expect(container.textContent).not.toContain("public.viewer.loading");
+  // No request for the other theme before the user switches.
+  expect(load).toHaveBeenCalledTimes(1);
+  return { requests, render, stage, svg };
+}
+
+it.each(["success", "failure"])(
+  "keeps the scene visible with a loading status until theme switching ends in %s",
+  async (outcome) => {
+    const { requests, render, stage, svg } = await mountLoadedScene();
+    theme.resolvedTheme = "dark";
+    await render();
+    expect(stage.firstElementChild).toBe(svg);
+    expect(stage.getAttribute("aria-busy")).toBe("true");
+    expect(container.textContent).toContain("public.viewer.switchingTheme");
+    const nextSvg = svg.cloneNode(true) as SVGSVGElement;
+    nextSvg.setAttribute("filter", "invert(93%) hue-rotate(180deg)");
+    vi.spyOn(console, "error").mockImplementation(() => {
+      // The failure case deliberately exercises the download error UI.
+    });
+    await act(async () => {
+      if (outcome === "success") requests[1]!.resolve(nextSvg);
+      else requests[1]!.reject(new Error("Download failed"));
+    });
+    expect(container.textContent).not.toContain("public.viewer.switchingTheme");
+    expect(stage.getAttribute("aria-busy")).toBe("false");
+    if (outcome === "success") expect(stage.firstElementChild).toBe(nextSvg);
+    else expect(container.textContent).toContain("public.viewer.loadError");
+  },
+);
+
+it("does not let a cancelled theme request clear the current loading status", async () => {
+  const { requests, render, stage, svg } = await mountLoadedScene();
+  theme.resolvedTheme = "dark";
+  await render();
+  theme.resolvedTheme = "light";
+  await render();
+  expect(requests[1]!.signal.aborted).toBe(true);
+  await act(async () =>
+    requests[1]!.resolve(svg.cloneNode(true) as SVGSVGElement),
+  );
+  expect(container.textContent).toContain("public.viewer.switchingTheme");
+  expect(stage.getAttribute("aria-busy")).toBe("true");
+  await act(async () =>
+    requests[2]!.resolve(svg.cloneNode(true) as SVGSVGElement),
+  );
+  expect(container.textContent).not.toContain("public.viewer.switchingTheme");
+  expect(stage.getAttribute("aria-busy")).toBe("false");
+});

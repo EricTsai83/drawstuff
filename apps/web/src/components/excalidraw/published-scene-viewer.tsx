@@ -22,6 +22,7 @@ import {
 } from "react";
 
 import { DrawstuffLogo } from "@/components/icons";
+import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
@@ -137,6 +138,7 @@ export function PublishedSceneViewer({
   const [sceneSvg, setSceneSvg] = useState<SVGSVGElement | null>(null);
   const [fontsReady, setFontsReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  const [isFetchingScene, setIsFetchingScene] = useState(true);
   const [uiVisible, setUiVisible] = useState(true);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
   const [tool, setTool] = useState<ViewerTool>("hand");
@@ -185,11 +187,14 @@ export function PublishedSceneViewer({
 
     const controller = new AbortController();
     let isActive = true;
+    setIsFetchingScene(true);
+    setLoadError(false);
 
     source.load(browserActiveTheme, controller.signal).then(
       (svg) => {
         if (!isActive) return;
         setSceneSvg(svg);
+        setIsFetchingScene(false);
         // A failed load (e.g. before a theme retry) must not keep covering a
         // successful one.
         setLoadError(false);
@@ -200,7 +205,10 @@ export function PublishedSceneViewer({
           "Failed to load published scene:",
           error instanceof Error ? (error.stack ?? error.message) : error,
         );
-        if (isActive) setLoadError(true);
+        if (isActive) {
+          setLoadError(true);
+          setIsFetchingScene(false);
+        }
       },
     );
 
@@ -671,9 +679,26 @@ export function PublishedSceneViewer({
             ref={stageRef}
             role="img"
             aria-label={sceneName}
+            aria-busy={isFetchingScene}
             className="absolute top-0 left-0 transition-opacity duration-200"
             style={{ ...transformStyle, opacity: sceneVisible ? 1 : 0 }}
           />
+          {sceneVisible && isFetchingScene && !loadError && (
+            <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center px-4">
+              <Badge
+                variant="secondary"
+                role="status"
+                className="h-auto gap-2 px-3 py-2 shadow-sm"
+              >
+                <Spinner
+                  data-icon="inline-start"
+                  aria-hidden="true"
+                  className="motion-reduce:animate-none"
+                />
+                {t("public.viewer.switchingTheme")}
+              </Badge>
+            </div>
+          )}
         </div>
 
         {loadError && (
