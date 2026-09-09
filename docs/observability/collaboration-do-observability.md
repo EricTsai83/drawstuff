@@ -1,7 +1,10 @@
-# Collaboration Durable Object — Cloudflare-native observability 契約
+# Collaboration Durable Object — observability 訊號與監控契約
 
-Status: Current（工具與契約已實作；§6 的 production alerts／dashboards 為已核准定義，
-Cloudflare 端配置由 [`plans/17`](../../plans/17-collaboration-operations-follow-ups.md) 追蹤）
+Status: Current（既有 logger 與診斷工具已實作；production 監控鏈路、alerts／dashboards
+與 §8 client telemetry 尚待實現，由
+[`plans/17`](../../plans/17-collaboration-operations-follow-ups.md) 追蹤。
+目前單人使用且 web 部署於 Vercel Hobby，監控工作暫緩；目的地未定，可匯出至獨立服務，
+不要求在 Vercel／Cloudflare 建立告警。）
 
 門檻來源：[collaboration SLO 文件](../performance/collaboration-slo-capacity.md) §2／§3／§6／§9。
 資料分級來源：[collaboration threat model](../architecture/collaboration-threat-model.md)
@@ -113,9 +116,11 @@ availability 的判讀順序：
 2026-08-27 對 production version 執行通過（cutover verification，證據見 git history），此後
 每次重大變更後應重跑。
 
-## 6. Alert 定義（已核准，Cloudflare 端配置待辦）
+## 6. Alert 定義（門檻已核准，監控機制待實現）
 
 每一列都指回 SLO 節號或 threat model；本文件不提出新門檻。
+這些定義不代表已有可運作的告警。收集／匯出、規則評估與通知目的地仍未選定；
+sessions 分母、未指定的視窗、「持續」與無資料語意須依 Plan 17 補齊後才能驗收。
 
 | Alert                        | 資料來源                                                        | 條件                                    | 依據                                   |
 | ---------------------------- | --------------------------------------------------------------- | --------------------------------------- | -------------------------------------- |
@@ -148,8 +153,14 @@ SLO §5 的後端入口限制與 snapshot finalization reserve 都 fail open，�
 
 ## 7. 已知缺口
 
-- `session_closed` 是 log 行不是 metric series；比率判讀依賴 Workers Logs 查詢視窗，
-  取樣（head sampling）若未設為 1 會低估。配置 alerts 時必須確認 sampling rate。
+- 尚未建立完整的收集／匯出、保留、告警評估、通知／恢復與管線健康監控；
+  現有平台 logs／metrics 與手動工具不等於完整營運監控。
+- `session_closed` 是 log 行不是 metric series；比率依賴收集完整性與查詢視窗。
+  必須確認 head sampling = 1 及下游取樣／遺失行為；取樣會漏失低頻事件並影響比率判讀。
+- sessions 分母尚未完整定義：容量拒絕可能早於成功加入，且 client 自行斷線不產生
+  server close log，不能將 `session_joined`／`session_closed` 直接當成完整 session SLO。
+- overload 可辨識來源與 hibernation 比率公式仍須驗證；不能從一般 `errorName` 或
+  duration GB-s 直接推導。Vercel Hobby 的 web log 匯出路徑亦待選型。
 - client-side session success、decrypt failure、snapshot conflict 的 bounded
   authenticated telemetry carrier 仍未有 client/backend 實作（契約見 §8），對應
   SLO §6 門檻目前不可判定（retired relay 時期即存在的缺口）。

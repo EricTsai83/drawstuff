@@ -18,8 +18,8 @@ history。
   已發布場景在寫入端渲染淺／深兩份 SVG 成品，`/p` 只下載成品；含儲存時 vs 發布時、
   兩份 SVG、圖片內嵌等決策紀錄
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) —
-  Cloudflare alerts／dashboards 依已核准定義配置，以及 relay 主機（pm2、reverse proxy、
-  DNS、host secrets）拆除；全部是 repo 之外的營運操作
+  共編監控機制、logs／metrics 匯出、client telemetry、告警與 dashboard；目前單人使用、
+  Vercel Hobby，暫緩實現，監控目的地未定，不綁定部署平台
 
 ## Completion rule
 
