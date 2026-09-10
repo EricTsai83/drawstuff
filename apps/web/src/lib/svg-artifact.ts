@@ -1,5 +1,4 @@
 import { hardenSvgLinks } from "@/lib/svg-links";
-import { convertImageFiltersToSvgFilters } from "@/lib/svg-image-filters";
 
 /**
  * A published render artifact is an SVG the *owner's* browser produced and
@@ -106,9 +105,5 @@ export function parsePublishedSvgArtifact(source: string): SVGSVGElement {
   }
   const svg = root as unknown as SVGSVGElement;
   sanitizeSvgArtifact(svg);
-  // Immutable artifacts published before the image-filter fix still carry
-  // CSS functions. Normalize those on load too, including theme overrides.
-  // Already-converted artifacts keep their existing filter references.
-  convertImageFiltersToSvgFilters(svg);
   return svg;
 }

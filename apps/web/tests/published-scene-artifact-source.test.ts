@@ -2,7 +2,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createArtifactSceneSource } from "@/components/excalidraw/published-scene-artifact-source";
-import { applyArtifactTheme } from "@/lib/svg-theme-variants";
 
 const SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" data-scene="s"><script>alert(1)</script><text>t</text></svg>`;
 
@@ -13,37 +12,6 @@ afterEach(() => {
 });
 
 describe("createArtifactSceneSource", () => {
-  it("repairs legacy image filters before applying either theme", async () => {
-    const rootFilter = "invert(93%) hue-rotate(180deg)";
-    const imageFilter = "invert(100%) hue-rotate(180deg) saturate(1.25)";
-    const variants = (filter: string) =>
-      JSON.stringify({ light: { filter: null }, dark: { filter } });
-    const legacy = `<svg xmlns="http://www.w3.org/2000/svg" data-theme-variants='${variants(rootFilter)}'><defs><image id="photo" href="data:image/png;base64,AA==" width="4" height="4"/></defs><use href="#photo" data-theme-variants='${variants(imageFilter)}'/></svg>`;
-    const fetchMock = vi.fn(() => Promise.resolve(new Response(legacy)));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const source = createArtifactSceneSource(urls);
-    const svg = await source.load(new AbortController().signal);
-    const use = svg.querySelector("use");
-    const filter = svg.querySelector("defs > filter");
-
-    expect(filter).not.toBeNull();
-    expect(use?.hasAttribute("filter")).toBe(false);
-    applyArtifactTheme(svg, "dark");
-    expect(svg.getAttribute("filter")).toBe(rootFilter);
-    expect(use?.getAttribute("filter")).toBe(
-      `url(#${filter?.getAttribute("id")})`,
-    );
-    applyArtifactTheme(svg, "light");
-    expect(use?.hasAttribute("filter")).toBe(false);
-    applyArtifactTheme(svg, "dark");
-    expect(use?.getAttribute("filter")).toBe(
-      `url(#${filter?.getAttribute("id")})`,
-    );
-    expect(svg.querySelectorAll("defs > filter")).toHaveLength(1);
-    expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
   it("downloads the artifact once and sanitizes it", async () => {
     const fetchMock = vi.fn((_url: string) =>
       Promise.resolve(new Response(SVG, { status: 200 })),
