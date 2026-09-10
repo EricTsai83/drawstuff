@@ -1,7 +1,5 @@
-import { act, useEffect } from "react";
-import { createRoot, type Root } from "react-dom/client";
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
 import type {
   CreateSceneDraftResult,
@@ -9,131 +7,15 @@ import type {
   SaveSceneResult,
 } from "@/server/actions";
 
-const mocks = vi.hoisted(() => ({
-  createSceneDraft: vi.fn(),
-  saveScene: vi.fn(),
-  readSceneAssetFileIds: vi.fn(),
-  cleanupSceneAssetUploads: vi.fn(),
-  startAssetUpload: vi.fn(),
-  startThumbnailUpload: vi.fn(),
-  startArtifactUpload: vi.fn(),
-  setPublishedArtifacts: vi.fn(),
-  renderPublishedArtifacts: vi.fn(),
-  deleteScene: vi.fn(),
-  getSceneMeta: vi.fn(),
-  getCurrentSceneSnapshot: vi.fn(),
-  exportSceneThumbnail: vi.fn(),
-  prepareSceneDataForExport: vi.fn(),
-  invalidateScenes: vi.fn(),
-  invalidateCategories: vi.fn(),
-  toastError: vi.fn(),
-  toastSuccess: vi.fn(),
-  session: {
-    currentSceneId: undefined as string | undefined,
-    currentWorkspaceId: undefined as string | undefined,
-    lastSyncedRevision: undefined as number | undefined,
-    syncCurrentScene: vi.fn(),
-    clearCurrentScene: vi.fn(),
-    markCurrentSceneDirty: vi.fn(),
-  },
-}));
-
-vi.mock("@/server/actions", () => ({
-  createSceneDraftAction: mocks.createSceneDraft,
-  saveSceneAction: mocks.saveScene,
-  readSceneAssetFileIdsAction: mocks.readSceneAssetFileIds,
-  cleanupSceneAssetUploadsAction: mocks.cleanupSceneAssetUploads,
-}));
-vi.mock("@/lib/uploadthing", () => ({
-  useUploadThing: (endpoint: string) => ({
-    startUpload:
-      endpoint === "sceneAssetUploader"
-        ? mocks.startAssetUpload
-        : endpoint === "publishedArtifactUploader"
-          ? mocks.startArtifactUpload
-          : mocks.startThumbnailUpload,
-  }),
-}));
-vi.mock("@/trpc/react", () => ({
-  api: {
-    useUtils: () => ({
-      scene: { getUserScenesInfinite: { invalidate: mocks.invalidateScenes } },
-      category: { list: { invalidate: mocks.invalidateCategories } },
-    }),
-    scene: {
-      deleteScene: { useMutation: () => ({ mutateAsync: mocks.deleteScene }) },
-      setPublishedArtifacts: {
-        useMutation: () => ({ mutateAsync: mocks.setPublishedArtifacts }),
-      },
-    },
-  },
-}));
-vi.mock("@/lib/render-published-artifacts", () => ({
-  renderPublishedArtifacts: mocks.renderPublishedArtifacts,
-}));
-vi.mock("@/lib/excalidraw", () => ({
-  getCurrentSceneSnapshot: mocks.getCurrentSceneSnapshot,
-  exportSceneThumbnail: mocks.exportSceneThumbnail,
-}));
-vi.mock("@/lib/export-scene-to-backend", () => ({
-  prepareSceneDataForExport: mocks.prepareSceneDataForExport,
-}));
-vi.mock("@/lib/import-data-from-db", () => ({
-  getSceneMetaBySceneId: mocks.getSceneMeta,
-}));
-vi.mock("sonner", () => ({
-  toast: { error: mocks.toastError, success: mocks.toastSuccess },
-}));
-vi.mock("@/hooks/use-app-i18n", async () => {
-  const { en } = await import("@/lib/i18n/en");
-  const { createAppTranslate } = await import("@/lib/i18n");
-  return { useAppI18n: () => ({ langCode: "en", t: createAppTranslate(en) }) };
-});
-vi.mock("@/hooks/scene-session-context", () => ({
-  useSceneSession: () => mocks.session,
-}));
-
-import { useCloudUpload } from "@/hooks/use-cloud-upload";
 import { en } from "@/lib/i18n/en";
-
-(
-  globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
-).IS_REACT_ACT_ENVIRONMENT = true;
-
-type Hook = ReturnType<typeof useCloudUpload>;
-const probe: { hook?: Hook } = {};
-const onSceneNotFound = vi.fn();
-const excalidrawAPI = {} as ExcalidrawImperativeAPI;
-
-function Probe() {
-  const hook = useCloudUpload(onSceneNotFound, excalidrawAPI);
-  useEffect(() => {
-    probe.hook = hook;
-  }, [hook]);
-  return null;
-}
-
-let container: HTMLDivElement;
-let root: Root;
-
-const hook = (): Hook => {
-  if (!probe.hook) throw new Error("hook probe not ready");
-  return probe.hook;
-};
-
-/** The hook snapshots session values into refs on render, so a changed session
- *  is only seen after another render. */
-const rerender = (): void => {
-  act(() => root.render(<Probe />));
-};
-
-const upload = async (options?: Parameters<Hook["uploadSceneToCloud"]>[0]) => {
-  let result: boolean | undefined;
-  await act(async () => {
-    result = await hook().uploadSceneToCloud(options);
-  });
-  return result;
-};
+import {
+  hook,
+  mocks,
+  mountProbe,
+  rerender,
+  unmountProbe,
+  upload,
+} from "./support/cloud-upload-harness";
 
 const SCENE_BYTES = new Uint8Array([1, 2, 3]);
 const ASSET_BYTES = new Uint8Array([9]);
@@ -203,18 +85,10 @@ beforeEach(() => {
   mocks.cleanupSceneAssetUploads.mockResolvedValue({ success: true });
   mocks.deleteScene.mockResolvedValue(undefined);
 
-  container = document.createElement("div");
-  document.body.appendChild(container);
-  root = createRoot(container);
-  act(() => root.render(<Probe />));
+  mountProbe();
 });
 
-afterEach(() => {
-  act(() => root.unmount());
-  container.remove();
-  probe.hook = undefined;
-  vi.clearAllMocks();
-});
+afterEach(unmountProbe);
 
 describe("useCloudUpload success path", () => {
   it("uploads missing assets, commits with the synced revision, and syncs the session", async () => {

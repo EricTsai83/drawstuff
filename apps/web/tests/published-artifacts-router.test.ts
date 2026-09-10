@@ -1,27 +1,16 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 vi.mock("@/server/rate-limit/shared-scene", () => ({
   enforcePublicSceneReadRateLimit: () => Promise.resolve(),
 }));
 
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
 
-import { createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
 import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
+import { testCaller } from "./support/trpc-caller";
 import {
   isUploadThingFileUrl,
   PUBLISHED_ARTIFACT_CLAIM_SAFETY_MARGIN_MS,
@@ -30,10 +19,7 @@ import {
   reservePublishedArtifactUpload,
 } from "@/server/scene/published-artifacts";
 
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
-
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 // The server module is typed against the postgres-js database; PGlite speaks
 // the same SQL and the tests exercise it through that signature.
 const executor = testDb as unknown as Parameters<
@@ -43,20 +29,8 @@ const executor = testDb as unknown as Parameters<
 const OWNER = "owner-user";
 const OTHER = "other-user";
 
-function callerFor(userId: string) {
-  return createCaller({
-    db: testDb,
-    headers: new Headers(),
-    auth: { session: { id: `session-${userId}` }, user: { id: userId } },
-  } as unknown as TRPCContext);
-}
-
-const publicCaller = () =>
-  createCaller({
-    db: testDb,
-    headers: new Headers(),
-    auth: null,
-  } as unknown as TRPCContext);
+const callerFor = (userId: string) => testCaller(testDb, userId);
+const publicCaller = () => testCaller(testDb, null);
 
 const urlOf = (key: string) => `https://app.ufs.sh/f/${key}`;
 
@@ -96,16 +70,6 @@ const queue = async () =>
   (await testDb.select().from(schema.deferredFileCleanup))
     .map((task) => [task.utFileKey, task.reason, task.status] as const)
     .sort((a, b) => a[0].localeCompare(b[0]));
-
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(() => client.close());
 
 beforeEach(async () => {
   await testDb.delete(schema.deferredFileCleanup);
