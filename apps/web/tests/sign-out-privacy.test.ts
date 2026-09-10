@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import { STORAGE_KEYS } from "@/config/app-constants";

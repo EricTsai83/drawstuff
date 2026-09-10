@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { readAdapterFixture } from "@drawstuff/excalidraw-adapter/testing";
 import type { ExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 import type { BinaryFiles } from "@drawstuff/excalidraw-adapter/types";

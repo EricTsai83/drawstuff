@@ -8,7 +8,10 @@ export default defineConfig({
     },
   },
   test: {
-    environment: "jsdom",
+    // Most suites are server or protocol logic; the DOM ones opt in with a
+    // `// @vitest-environment jsdom` pragma, which is cheaper than paying for a
+    // jsdom window in every file.
+    environment: "node",
     server: {
       deps: {
         inline: ["@excalidraw/excalidraw", "open-color"],

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import {
   createDrawstuffDocumentV4,
   parseDrawstuffDocument,

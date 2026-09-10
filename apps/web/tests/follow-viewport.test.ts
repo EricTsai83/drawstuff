@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 
 import { getVisibleSceneBounds } from "@drawstuff/excalidraw-adapter/client";

@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { EXCALIDRAW_FONT_FAMILY } from "@drawstuff/excalidraw-adapter/client";
 import {
   cpSync,

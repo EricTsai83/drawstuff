@@ -1,3 +1,4 @@
+// @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createArtifactSceneSource } from "@/components/excalidraw/published-scene-artifact-source";
