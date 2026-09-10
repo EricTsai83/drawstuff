@@ -15,14 +15,14 @@ import {
 import { useTheme } from "next-themes";
 import {
   useEffect,
-  useMemo,
+  useLayoutEffect,
   useRef,
   useState,
   useSyncExternalStore,
 } from "react";
 
+import { applyArtifactTheme } from "@/lib/svg-theme-variants";
 import { DrawstuffLogo } from "@/components/icons";
-import { Badge } from "@/components/ui/badge";
 import { buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
@@ -39,16 +39,16 @@ import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
  * module to stay free of `@drawstuff/excalidraw-adapter/client`; that is what
  * keeps Excalidraw out of the visitor's bundle.
  */
-export type PublishedSceneTheme = "light" | "dark";
+type PublishedSceneTheme = "light" | "dark";
 
 export type PublishedSceneSource = {
   /** Identity of the scene content; a change re-fits the viewport. */
   readonly key: string;
-  /** Produces the scene for one theme. Called again whenever the theme changes. */
-  readonly load: (
-    theme: PublishedSceneTheme,
-    signal: AbortSignal,
-  ) => Promise<SVGSVGElement>;
+  /**
+   * Produces the scene. Called once per source: the artifact carries both
+   * themes, so switching one is a DOM write, not another load.
+   */
+  readonly load: (signal: AbortSignal) => Promise<SVGSVGElement>;
 };
 
 type PublishedSceneViewerProps = {
@@ -167,10 +167,19 @@ export function PublishedSceneViewer({
     maxScale: MAX_ZOOM,
     panEnabled,
   });
-  const backdrop = useMemo(
-    () => (sceneSvg ? readSceneBackdrop(sceneSvg) : null),
-    [sceneSvg],
-  );
+  // Theming is a DOM write on the mounted scene, in a layout effect so it
+  // lands before paint and the visitor never sees the other theme. The
+  // backdrop is read back afterwards because the root filter it mirrors is
+  // itself one of the themed attributes.
+  const [backdrop, setBackdrop] = useState<SceneBackdrop | null>(null);
+  useLayoutEffect(() => {
+    if (!sceneSvg) {
+      setBackdrop(null);
+      return;
+    }
+    applyArtifactTheme(sceneSvg, browserActiveTheme);
+    setBackdrop(readSceneBackdrop(sceneSvg));
+  }, [browserActiveTheme, sceneSvg]);
 
   // A new scene starts from an empty stage; a theme change keeps the current
   // SVG mounted until the other variant has arrived.
@@ -180,17 +189,15 @@ export function PublishedSceneViewer({
   }, [source]);
 
   useEffect(() => {
-    // Hydration has not resolved the saved/system theme yet. Loading the
-    // light fallback here can briefly display it before the dark SVG arrives.
-    if (!hydrated || (resolvedTheme !== "light" && resolvedTheme !== "dark"))
-      return;
-
+    // Downloaded and parsed once per artifact: the file serves both themes,
+    // so hydration no longer has to resolve before the fetch can start and a
+    // theme switch never comes back here.
     const controller = new AbortController();
     let isActive = true;
     setIsFetchingScene(true);
     setLoadError(false);
 
-    source.load(browserActiveTheme, controller.signal).then(
+    source.load(controller.signal).then(
       (svg) => {
         if (!isActive) return;
         setSceneSvg(svg);
@@ -216,7 +223,7 @@ export function PublishedSceneViewer({
       isActive = false;
       controller.abort();
     };
-  }, [browserActiveTheme, hydrated, resolvedTheme, source]);
+  }, [source]);
 
   // fonts.css declares the canvas faces with `font-display: block`, so text is
   // invisible until its faces arrive. Ask for exactly the faces the exported
@@ -683,22 +690,6 @@ export function PublishedSceneViewer({
             className="absolute top-0 left-0 transition-opacity duration-200"
             style={{ ...transformStyle, opacity: sceneVisible ? 1 : 0 }}
           />
-          {sceneVisible && isFetchingScene && !loadError && (
-            <div className="pointer-events-none absolute inset-x-0 top-4 flex justify-center px-4">
-              <Badge
-                variant="secondary"
-                role="status"
-                className="h-auto gap-2 px-3 py-2 shadow-sm"
-              >
-                <Spinner
-                  data-icon="inline-start"
-                  aria-hidden="true"
-                  className="motion-reduce:animate-none"
-                />
-                {t("public.viewer.switchingTheme")}
-              </Badge>
-            </div>
-          )}
         </div>
 
         {loadError && (

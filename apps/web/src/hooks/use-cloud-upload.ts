@@ -503,8 +503,7 @@ export function useCloudUpload(
               toast.error(
                 rendered
                   ? t("app.cloudUpload.toast.error.publishedArtifactsUpload", {
-                      light: formatMegabytes(rendered.light.size),
-                      dark: formatMegabytes(rendered.dark.size),
+                      size: formatMegabytes(rendered.artifact.size),
                     })
                   : t("app.cloudUpload.toast.error.publishedArtifactsRender"),
               );

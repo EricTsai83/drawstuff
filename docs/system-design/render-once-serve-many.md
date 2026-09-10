@@ -100,17 +100,26 @@ flowchart LR
 
 - 已發布場景的成品：作者瀏覽器在**每次雲端儲存**（`use-cloud-upload.ts`，
   與 PNG 縮圖並列）與**發布**（`scene-card.tsx` 先載入場景、渲染、上傳，再呼叫
-  `scene.publish`）時，以 `src/lib/render-published-artifacts.ts` 產生淺／深兩份 SVG
+  `scene.publish`）時，以 `src/lib/render-published-artifacts.ts` 產生**一份** SVG
   （`skipInliningFonts`、`exportBackground: true`、`exportEmbedScene: false`、連結硬化），上傳到
-  與縮圖相同的 storage，`/p/[slug]` 依主題下載其一，不載入 Excalidraw
+  與縮圖相同的 storage，`/p/[slug]` 下載這一份、以屬性切換主題，不載入 Excalidraw
   （`tests/published-viewer-engine-free.test.ts` 釘住）。決策與 trade-off：
   - **儲存時渲染，發布補齊**（而非只在發布時）：公開頁語意不變（永遠是最新儲存），作者不必
     學「發布版本」；代價是已發布場景每次儲存多兩個上傳。要改「草稿／公開版分離」只需停止
     儲存時渲染，成品格式與 viewer 不變。
-  - **兩份 SVG 而非一份加濾鏡**：上游深色模式對根節點反轉、再對每個 `<image>` 反向，照片才
-    不變負片；viewer 自己加濾鏡就得抄這套邏輯。多幾十到幾百 KB，換 viewer 零特例。
+  - **一份 SVG 同時服務兩種主題**（2026-09-10 改）：引擎的淺色與深色輸出只差少數屬性，
+    量測生產成品，一組純向量的差 40 bytes / 37 KB，一組含照片的差 96 bytes / 369 KB。
+    先前存兩份等於為了幾十個 bytes 複製整個檔案，切換主題還要把所有內嵌圖片重下載一次。
+    現在 `mergeThemeVariants` **比對引擎自己的兩份輸出**，把實際有差的屬性記進
+    `data-theme-variants`，viewer 以 `applyArtifactTheme` 寫屬性切換，零網路。
+    關鍵是不自行判斷哪些屬性跟主題有關——那是上游的決定，抄過來就會漂移；
+    `tests/published-artifact-theme-drift.test.ts` 跑真實引擎，
+    上游哪天改成用結構差異表達深色模式就會紅。
+  - **合併後才做後處理**：`mergeThemeVariants` 需要逐節點對齊引擎的兩棵樹，所以
+    `hardenSvgLinks` 與 `convertImageFiltersToSvgFilters` 都在合併之後、對合併結果執行。
+    順序反了會讓深色樹多出 `<filter>` 定義而結構不一致（該測試抓到過這個錯）。
   - **圖片先內嵌**（data URL）：成品自包含，訪客不再抓、解壓每個 asset；成品可能達數 MB
-    （上限 `PUBLISHED_ARTIFACT_MAX_BYTES`）。上傳失敗會以 toast 告知作者（含兩份大小），
+    （上限 `PUBLISHED_ARTIFACT_MAX_BYTES`）。上傳失敗會以 toast 告知作者（含成品大小），
     儲存本身不受影響。任一成品超過約 2 MB 時重新評估改為成品旁的獨立檔案。
   - **縮圖即 `og:image`**：既有 PNG 縮圖直接用，不加第三個檔案。
   - **成品是不可信輸入**：由作者瀏覽器產生，viewer 掛進 live DOM 前以 `sanitizeSvgArtifact`
@@ -132,3 +141,10 @@ flowchart LR
   記錄了「觀看時渲染」版本的隱含依賴與量測成本，是本 pattern 的動機。
 - 相關 pattern：[Transactional Outbox](./transactional-outbox.md)、
   [版本與相容性](./versioning-and-compatibility.md)、[演進與清理紀律](./evolution-and-cleanup.md)。
+- WebKit 的深色圖片修正（2026-09-10）：上游對每張點陣圖寫的抵銷濾鏡是 CSS filter 函式字串，
+  WebKit 只認 `filter="url(#…)"`，presentation attribute、inline style、包一層 `<g>` 一律忽略。
+  結果是 Safari 與所有 iOS 瀏覽器在深色模式下把照片一起反轉。
+  `convertImageFiltersToSvgFilters` 把函式清單編成等價的 `<filter>`（`color-interpolation-filters="sRGB"`，
+  CSS 濾鏡函式的定義色彩空間），只處理上游已標記的節點，也一併改寫記在主題 overrides 裡的值。
+  根節點的濾鏡刻意不動：它是 CSS box，WebKit 本來就支援，而且 viewer 會把它複製到 HTML
+  元素上畫視窗底色，換成 `url(#…)` 意義就不同了。

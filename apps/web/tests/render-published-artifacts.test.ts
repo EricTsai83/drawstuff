@@ -85,20 +85,22 @@ describe("renderPublishedArtifacts", () => {
     ).toEqual([false, true]);
 
     expect(rendered.engineVersion).toBe(EXCALIDRAW_ENGINE_VERSION);
-    expect(rendered.light.type).toBe("image/svg+xml");
-    expect(rendered.dark.type).toBe("image/svg+xml");
-    const [light, dark] = await Promise.all([
-      rendered.light.text(),
-      rendered.dark.text(),
-    ]);
-    expect(light).toContain('data-theme="light"');
-    expect(dark).toContain('data-theme="dark"');
+    expect(rendered.artifact.type).toBe("image/svg+xml");
+    const artifact = await rendered.artifact.text();
+    // One file: the light render is the artifact and the dark render's
+    // difference rides along as an override the viewer applies.
+    expect(artifact).toContain('data-theme="light"');
+    expect(artifact).not.toContain('data-theme="dark"');
+    expect(artifact).toContain("data-theme-variants");
+    expect(artifact).toContain(
+      "&quot;dark&quot;:{&quot;data-theme&quot;:&quot;dark&quot;}",
+    );
     // Links are hardened at render time; the viewer no longer post-processes.
-    expect(light).toContain('target="_blank"');
-    expect(light).toContain('rel="noopener noreferrer"');
+    expect(artifact).toContain('target="_blank"');
+    expect(artifact).toContain('rel="noopener noreferrer"');
   });
 
-  it("propagates an export failure instead of returning a partial pair", async () => {
+  it("propagates an export failure instead of returning a partial artifact", async () => {
     mocks.exportSceneToSvg.mockRejectedValueOnce(new Error("no canvas"));
     await expect(
       renderPublishedArtifacts({ elements: [], appState: {}, files: {} }),

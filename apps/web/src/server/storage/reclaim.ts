@@ -45,21 +45,19 @@ export async function collectSceneStorageKeys(
   const keys = new Set<string>();
   if (sceneIds.length === 0) return keys;
 
-  // Thumbnail plus the published render artifact pair; artifact replacement
+  // Thumbnail plus the published render artifact; artifact replacement
   // updates the same row, so the FOR UPDATE below serializes with it.
   const sceneRows = await db
     .select({
       thumbnail: scene.thumbnailFileKey,
-      light: scene.publishedSvgLightKey,
-      dark: scene.publishedSvgDarkKey,
+      artifact: scene.publishedSvgKey,
     })
     .from(scene)
     .where(inArray(scene.id, sceneIds))
     .orderBy(scene.id)
     .for("update");
   for (const row of sceneRows) {
-    for (const key of [row.thumbnail, row.light, row.dark])
-      if (key) keys.add(key);
+    for (const key of [row.thumbnail, row.artifact]) if (key) keys.add(key);
   }
 
   await db

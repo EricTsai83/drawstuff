@@ -338,14 +338,13 @@ export const scene = createTable(
     publishedSlug: varchar("published_slug", { length: 64 }),
     publishedAt: timestamp("published_at"),
     // 已發布場景的渲染成品（docs/system-design/render-once-serve-many.md）：作者瀏覽器在
-    // 儲存／發布時以引擎匯出淺色與
-    // 深色兩份 SVG 上傳，`/p/[slug]` 只下載成品、不載入引擎。兩份成對存在（見
-    // check）；替換時舊 key 在同一交易入 deferred_file_cleanup。引擎版本與渲染時
-    // 的 revision 讓過時成品可偵測、亂序的 setPublishedArtifacts 不會蓋掉較新成品。
-    publishedSvgLightKey: varchar("published_svg_light_key", { length: 256 }),
-    publishedSvgLightUrl: text("published_svg_light_url"),
-    publishedSvgDarkKey: varchar("published_svg_dark_key", { length: 256 }),
-    publishedSvgDarkUrl: text("published_svg_dark_url"),
+    // 儲存／發布時以引擎匯出 SVG 上傳，`/p/[slug]` 只下載成品、不載入引擎。
+    // 淺色與深色共用同一份檔案：兩種主題的差異只有少數屬性，成品把它們記成
+    // overrides，viewer 切換主題不需要再下載一次。替換時舊 key 在同一交易入
+    // deferred_file_cleanup。引擎版本與渲染時的 revision 讓過時成品可偵測、
+    // 亂序的 setPublishedArtifacts 不會蓋掉較新成品。
+    publishedSvgKey: varchar("published_svg_key", { length: 256 }),
+    publishedSvgUrl: text("published_svg_url"),
     publishedRenderEngineVersion: varchar("published_render_engine_version", {
       length: 32,
     }),
@@ -366,10 +365,10 @@ export const scene = createTable(
     index("scene_published_idx").on(table.isPublished),
     uniqueIndex("scene_published_slug_unique").on(table.publishedSlug),
     check("scene_revision_positive", sql`${table.revision} >= 1`),
-    // 成品成對：viewer 依主題選其一，缺一份就等於沒有成品。
+    // key 與 URL 同進同出：只有一邊等於沒有成品可指。
     check(
-      "scene_published_artifacts_paired",
-      sql`(${table.publishedSvgLightKey} is null) = (${table.publishedSvgDarkKey} is null)`,
+      "scene_published_artifact_complete",
+      sql`(${table.publishedSvgKey} is null) = (${table.publishedSvgUrl} is null)`,
     ),
     check(
       "scene_document_version_supported",

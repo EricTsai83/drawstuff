@@ -12,22 +12,31 @@ import type {
   NonDeleted,
 } from "@drawstuff/excalidraw-adapter/types";
 
+import { convertImageFiltersToSvgFilters } from "@/lib/svg-image-filters";
 import { hardenSvgLinks } from "@/lib/svg-links";
+import { mergeThemeVariants } from "@/lib/svg-theme-variants";
 
 /**
  * "Render once, serve many" (docs/system-design/render-once-serve-many.md):
  * the published page used to run this export in every visitor's browser. It
  * now runs here, in the author's browser at save/publish time, and the result
- * is uploaded as two immutable objects the viewer only downloads.
+ * is uploaded as one immutable object the viewer only downloads.
+ *
+ * Both themes travel in that single object. The engine's light and dark
+ * renders are byte-identical apart from a few attributes — measured on
+ * production artifacts, a real pair differed by 40 bytes out of 37 kB, and
+ * one carrying a photo by 96 bytes out of 369 kB — so shipping two files
+ * doubled storage and made a theme switch re-download every embedded image.
+ * `mergeThemeVariants` records the difference instead.
  *
  * Pure with respect to where it runs: the same inputs the editor holds produce
- * the same pair whether called from `use-cloud-upload`, the publish action, or
- * — should batch re-rendering ever be needed — a headless browser.
+ * the same artifact whether called from `use-cloud-upload`, the publish
+ * action, or — should batch re-rendering ever be needed — a headless browser.
  */
 export type RenderedPublishedArtifacts = {
-  light: Blob;
-  dark: Blob;
-  /** The engine that produced the pair; stored beside it so drift is visible. */
+  /** One SVG serving both themes; the viewer toggles it with no network. */
+  artifact: Blob;
+  /** The engine that produced it; stored beside it so drift is visible. */
   engineVersion: string;
 };
 
@@ -155,12 +164,13 @@ async function renderVariant(
   elements: readonly NonDeleted<ExcalidrawElement>[],
   files: BinaryFiles,
   exportWithDarkMode: boolean,
-): Promise<Blob> {
+): Promise<SVGSVGElement> {
   const appState: NonNullable<ExcalidrawSvgExportOptions["appState"]> = {
     ...input.appState,
-    // Two variants by the engine rather than one plus a viewer-side filter:
-    // upstream dark mode inverts the root and re-inverts every <image> so
-    // photos stay positive — logic that must not be re-implemented outside it.
+    // Rendered by the engine per theme, then merged. The viewer never
+    // derives dark mode itself: upstream inverts the root and re-inverts
+    // every <image> so photos stay positive, and restating which attributes
+    // that touches is exactly how the artifact would drift from the engine.
     exportWithDarkMode,
     // Keep the scene's own background, exactly like the editor; dropping it
     // made light strokes on a dark scene vanish against the page.
@@ -177,11 +187,7 @@ async function renderVariant(
     // artifact stays small and never runs the subsetting worker + wasm.
     skipInliningFonts: true,
   });
-  // Done once at render time; the viewer no longer post-processes links.
-  hardenSvgLinks(svg);
-  return new Blob([new XMLSerializer().serializeToString(svg)], {
-    type: PUBLISHED_ARTIFACT_MIME_TYPE,
-  });
+  return svg;
 }
 
 export async function renderPublishedArtifacts(
@@ -191,11 +197,28 @@ export async function renderPublishedArtifacts(
   // `exportToSvg` renders exactly the elements it is given; tombstones from
   // the collaboration-aware snapshot must be dropped here.
   const elements = input.elements.filter(isNotDeleted);
-  // Both variants embed the same bytes, so the images are optimised once.
+  // Both renders embed the same bytes, so the images are optimised once —
+  // and after the merge they are stored once, not twice.
   const files = await optimizeArtifactFiles(input.files, options.encodeImage);
   const [light, dark] = await Promise.all([
     renderVariant(input, elements, files, false),
     renderVariant(input, elements, files, true),
   ]);
-  return { light, dark, engineVersion: EXCALIDRAW_ENGINE_VERSION };
+  // The light render becomes the artifact and carries the dark render's
+  // differences as overrides, so which attributes are theme-dependent stays
+  // the engine's decision rather than something restated here. The merge
+  // walks the two trees in lockstep, so it has to see them exactly as the
+  // engine produced them; both post-processing steps run afterwards, on the
+  // one tree that ships.
+  const merged = mergeThemeVariants(light, dark);
+  // Done at render time; the viewer no longer post-processes links.
+  hardenSvgLinks(merged);
+  // The dark variant's per-image colour correction, which upstream writes in
+  // a form WebKit ignores, now lives in a theme override; the converter
+  // rewrites it there as well as on the node.
+  convertImageFiltersToSvgFilters(merged);
+  const artifact = new Blob([new XMLSerializer().serializeToString(merged)], {
+    type: PUBLISHED_ARTIFACT_MIME_TYPE,
+  });
+  return { artifact, engineVersion: EXCALIDRAW_ENGINE_VERSION };
 }

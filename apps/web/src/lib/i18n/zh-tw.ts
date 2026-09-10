@@ -21,7 +21,7 @@ export const zhTW = {
   "app.cloudUpload.toast.error.publishedArtifactsRender":
     "已儲存，但無法產生公開版本；再儲存一次即可重試。",
   "app.cloudUpload.toast.error.publishedArtifactsUpload":
-    "已儲存，但公開版本上傳失敗（淺色 {light}、深色 {dark}）；再儲存一次即可重試。",
+    "已儲存，但公開版本上傳失敗（{size}）；再儲存一次即可重試。",
   "app.cloudUpload.toast.error.unknown":
     "上傳場景至雲端時發生未知錯誤，請重試。",
 
@@ -339,7 +339,6 @@ export const zhTW = {
   "public.theme.light": "淺色",
   "public.theme.dark": "深色",
   "public.viewer.loading": "載入場景中...",
-  "public.viewer.switchingTheme": "切換主題中…",
   "public.viewer.loadError": "載入公開場景失敗。",
   "public.viewer.zoomIn": "放大",
   "public.viewer.zoomOut": "縮小",

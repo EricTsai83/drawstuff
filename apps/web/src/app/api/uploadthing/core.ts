@@ -433,8 +433,8 @@ export const uploadRouter = {
     }),
 
   /**
-   * 已發布場景的渲染成品（淺／深各一份 SVG）。這裡不寫任何 scene 欄位：兩份必須
-   * 一起生效，由 `scene.publish`／`scene.setPublishedArtifacts` 在一個交易內接手。
+   * 已發布場景的渲染成品（單一 SVG，同時服務兩種主題）。這裡不寫任何 scene
+   * 欄位：由 `scene.publish`／`scene.setPublishedArtifacts` 在一個交易內接手。
    * 為了不讓「上傳完成但 client 沒呼叫 mutation」留下沒有指標的物件，完成時把
    * key 以未來到期的 reservation 寫進 deferred_file_cleanup；mutation claim 它，
    * 沒人 claim 就由 drain 在到期後刪除（見 published-artifacts.ts）。
@@ -448,7 +448,6 @@ export const uploadRouter = {
     .input(
       z.object({
         sceneId: z.uuid(),
-        variant: z.enum(["light", "dark"]),
         // 內容雜湊只是 storage 層的 lookup 提示與檔名成分，不是身份。
         contentHash: z.string().regex(/^[a-f0-9]{64}$/),
       }),
@@ -461,11 +460,10 @@ export const uploadRouter = {
       return {
         userId: session.user.id,
         sceneId: input.sceneId,
-        variant: input.variant,
       } as const;
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      const context = { sceneId: metadata.sceneId, variant: metadata.variant };
+      const context = { sceneId: metadata.sceneId };
       try {
         await reservePublishedArtifactUpload(db, {
           sceneId: metadata.sceneId,

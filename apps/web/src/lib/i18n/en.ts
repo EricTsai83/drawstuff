@@ -23,7 +23,7 @@ export const en = {
   "app.cloudUpload.toast.error.publishedArtifactsRender":
     "Saved, but the public version could not be rendered. Save again to retry.",
   "app.cloudUpload.toast.error.publishedArtifactsUpload":
-    "Saved, but the public version could not be uploaded (light {light}, dark {dark}). Save again to retry.",
+    "Saved, but the public version could not be uploaded ({size}). Save again to retry.",
   "app.cloudUpload.toast.error.unknown":
     "Unknown error occurred while uploading scene to cloud, please try again.",
 
@@ -369,7 +369,6 @@ export const en = {
   "public.theme.light": "Use light theme",
   "public.theme.dark": "Use dark theme",
   "public.viewer.loading": "Loading scene...",
-  "public.viewer.switchingTheme": "Switching theme…",
   "public.viewer.loadError": "Failed to load this published scene.",
   "public.viewer.zoomIn": "Zoom in",
   "public.viewer.zoomOut": "Zoom out",

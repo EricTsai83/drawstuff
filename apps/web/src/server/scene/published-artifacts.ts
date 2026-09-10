@@ -13,9 +13,9 @@ type DatabaseExecutor =
 
 /**
  * Published render artifacts (docs/system-design/render-once-serve-many.md):
- * the author's browser exports a light
- * and a dark SVG of a published scene and uploads both; the scene row points
- * at the pair and `/p/[slug]` serves them without loading the engine.
+ * the author's browser exports one SVG of a published scene, carrying both
+ * themes, and uploads it; the scene row points at that object and
+ * `/p/[slug]` serves it without loading the engine.
  *
  * Object storage and PostgreSQL cannot share a transaction, and — unlike
  * assets — no row is written when an artifact object lands. To keep "every
@@ -79,19 +79,13 @@ const artifactFileSchema = z
     path: ["url"],
   });
 
-export const publishedArtifactsInputSchema = z
-  .object({
-    light: artifactFileSchema,
-    dark: artifactFileSchema,
-    /** `EXCALIDRAW_ENGINE_VERSION` of the renderer; frozen appearance marker. */
-    engineVersion: z.string().min(1).max(32),
-    /** Scene revision the artifacts were rendered from. */
-    revision: z.number().int().min(0),
-  })
-  .refine(({ light, dark }) => light.key !== dark.key, {
-    message: "Light and dark artifacts must be distinct objects",
-    path: ["dark", "key"],
-  });
+export const publishedArtifactsInputSchema = z.object({
+  artifact: artifactFileSchema,
+  /** `EXCALIDRAW_ENGINE_VERSION` of the renderer; frozen appearance marker. */
+  engineVersion: z.string().min(1).max(32),
+  /** Scene revision the artifact was rendered from. */
+  revision: z.number().int().min(0),
+});
 
 export type PublishedArtifactsInput = z.infer<
   typeof publishedArtifactsInputSchema
@@ -117,11 +111,9 @@ export async function reservePublishedArtifactUpload(
 }
 
 /**
- * Consumes the reservations of both keys; `false` — without touching either
- * row — when any is missing, already due, or too close to due (the drain owns
- * it now), so the caller must not reference the keys. Reading first, locked,
- * and deleting only a complete pair keeps a half-valid pair's surviving
- * reservation in the queue instead of leaving its object pointer-less.
+ * Consumes the reservation of the uploaded key; `false` — without touching
+ * the row — when it is missing, already due, or too close to due (the drain
+ * owns it now), so the caller must not reference the key.
  */
 async function claimPublishedArtifactUploads(
   tx: DatabaseExecutor,
@@ -155,10 +147,8 @@ async function claimPublishedArtifactUploads(
 }
 
 export type PublishedArtifactColumns = {
-  publishedSvgLightKey: string | null;
-  publishedSvgLightUrl: string | null;
-  publishedSvgDarkKey: string | null;
-  publishedSvgDarkUrl: string | null;
+  publishedSvgKey: string | null;
+  publishedSvgUrl: string | null;
   publishedRenderEngineVersion: string | null;
   publishedRenderedRevision: number | null;
   publishedRenderedAt: Date | null;
@@ -169,10 +159,8 @@ function publishedArtifactColumns(
   now: Date,
 ): PublishedArtifactColumns {
   return {
-    publishedSvgLightKey: artifacts.light.key,
-    publishedSvgLightUrl: artifacts.light.url,
-    publishedSvgDarkKey: artifacts.dark.key,
-    publishedSvgDarkUrl: artifacts.dark.url,
+    publishedSvgKey: artifacts.artifact.key,
+    publishedSvgUrl: artifacts.artifact.url,
     publishedRenderEngineVersion: artifacts.engineVersion,
     publishedRenderedRevision: artifacts.revision,
     publishedRenderedAt: now,
@@ -180,10 +168,8 @@ function publishedArtifactColumns(
 }
 
 export const CLEARED_PUBLISHED_ARTIFACT_COLUMNS: PublishedArtifactColumns = {
-  publishedSvgLightKey: null,
-  publishedSvgLightUrl: null,
-  publishedSvgDarkKey: null,
-  publishedSvgDarkUrl: null,
+  publishedSvgKey: null,
+  publishedSvgUrl: null,
   publishedRenderEngineVersion: null,
   publishedRenderedRevision: null,
   publishedRenderedAt: null,
@@ -204,15 +190,14 @@ export async function readPublishedArtifacts(
 ): Promise<CurrentPublishedArtifacts | null> {
   const [row] = await tx
     .select({
-      light: scene.publishedSvgLightKey,
-      dark: scene.publishedSvgDarkKey,
+      key: scene.publishedSvgKey,
       renderedRevision: scene.publishedRenderedRevision,
     })
     .from(scene)
     .where(eq(scene.id, sceneId));
   if (!row) return null;
   return {
-    keys: [row.light, row.dark].filter((key): key is string => key !== null),
+    keys: row.key === null ? [] : [row.key],
     renderedRevision: row.renderedRevision,
   };
 }
@@ -230,11 +215,11 @@ export type PublishedArtifactsOutcome =
     };
 
 /**
- * Points the (locked) scene row at a freshly uploaded pair and queues the
- * pair it replaces. The caller supplies the UPDATE so `publish` can flip the
+ * Points the (locked) scene row at a freshly uploaded artifact and queues the
+ * one it replaces. The caller supplies the UPDATE so `publish` can flip the
  * publish state and set the slug in the same statement; when it retries a
  * slug collision it wraps this whole call in a savepoint, which also undoes
- * the claim, so a retry claims the reservations again cleanly.
+ * the claim, so a retry claims the reservation again cleanly.
  */
 export async function applyPublishedArtifacts(
   tx: DatabaseExecutor,
@@ -257,7 +242,7 @@ export async function applyPublishedArtifacts(
     return { applied: false, reason: "stale" };
   }
 
-  const nextKeys = [params.artifacts.light.key, params.artifacts.dark.key];
+  const nextKeys = [params.artifacts.artifact.key];
   if (!(await claimPublishedArtifactUploads(tx, nextKeys, params.now))) {
     return { applied: false, reason: "unclaimed" };
   }

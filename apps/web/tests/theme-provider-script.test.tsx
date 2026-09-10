@@ -103,7 +103,7 @@ it("hydrates the existing bootstrap and persists theme changes", async () => {
 });
 
 it.each(["light", "dark"])(
-  "hydrates the public viewer and downloads only the saved %s variant",
+  "hydrates the public viewer under a saved %s preference",
   async (preference) => {
     localStorage.setItem("theme", preference);
     const load = vi.fn<PublishedSceneSource["load"]>(
@@ -133,10 +133,10 @@ it.each(["light", "dark"])(
     });
     expect(onRecoverableError).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
-    expect(load).toHaveBeenCalledExactlyOnceWith(
-      preference,
-      expect.any(AbortSignal),
-    );
+    // One artifact serves both themes, so the saved preference no longer
+    // decides what is downloaded, only how it is painted.
+    expect(load).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal));
+    expect(document.documentElement.classList.contains(preference)).toBe(true);
   },
 );
 

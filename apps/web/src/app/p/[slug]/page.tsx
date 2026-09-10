@@ -68,11 +68,8 @@ export default async function PublishedScenePage({
     <main className="h-dvh">
       <PublishedSceneViewerWrapper
         // Server components pass only serialisable props; the artifact object
-        // with its Date is reduced to the two URLs the viewer needs.
-        artifacts={{
-          lightUrl: scene.artifacts.lightUrl,
-          darkUrl: scene.artifacts.darkUrl,
-        }}
+        // with its Date is reduced to the one URL the viewer needs.
+        artifacts={{ url: scene.artifacts.url }}
         sceneName={scene.name}
         authorName={scene.authorName}
       />

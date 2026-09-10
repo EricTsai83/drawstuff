@@ -10,8 +10,6 @@ import type { RouterInputs } from "@/trpc/react";
 export type PublishedArtifactsInput =
   RouterInputs["scene"]["setPublishedArtifacts"]["artifacts"];
 
-type Variant = "light" | "dark";
-
 async function sha256Hex(blob: Blob): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
@@ -23,10 +21,10 @@ async function sha256Hex(blob: Blob): Promise<string> {
 }
 
 /**
- * Uploads a rendered light/dark pair through `publishedArtifactUploader` and
+ * Uploads the rendered artifact through `publishedArtifactUploader` and
  * shapes the result as the `artifacts` input of `scene.publish` and
- * `scene.setPublishedArtifacts`. The upload handler only reserves the keys;
- * whichever mutation the caller invokes next claims them.
+ * `scene.setPublishedArtifacts`. The upload handler only reserves the key;
+ * whichever mutation the caller invokes next claims it.
  */
 export function usePublishedArtifactUpload() {
   // Only `startUpload` is destructured: it is the one stable identity on the
@@ -37,29 +35,20 @@ export function usePublishedArtifactUpload() {
     async (params: {
       sceneId: string;
       rendered: RenderedPublishedArtifacts;
-      /** Scene revision the pair was rendered from. */
+      /** Scene revision the artifact was rendered from. */
       revision: number;
     }): Promise<PublishedArtifactsInput> => {
-      const uploadVariant = async (variant: Variant) => {
-        const blob = params.rendered[variant];
-        const contentHash = await sha256Hex(blob);
-        const file = new File([blob], `${variant}-${contentHash}.svg`, {
-          type: blob.type,
-        });
-        const result = await startUpload([file], {
-          sceneId: params.sceneId,
-          variant,
-          contentHash,
-        });
-        return readSingleUploadedFile(result, `Published ${variant} artifact`);
-      };
-      const [light, dark] = await Promise.all([
-        uploadVariant("light"),
-        uploadVariant("dark"),
-      ]);
+      const blob = params.rendered.artifact;
+      const contentHash = await sha256Hex(blob);
+      const file = new File([blob], `scene-${contentHash}.svg`, {
+        type: blob.type,
+      });
+      const result = await startUpload([file], {
+        sceneId: params.sceneId,
+        contentHash,
+      });
       return {
-        light,
-        dark,
+        artifact: readSingleUploadedFile(result, "Published artifact"),
         engineVersion: params.rendered.engineVersion,
         revision: params.revision,
       };

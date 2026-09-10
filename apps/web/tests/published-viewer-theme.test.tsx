@@ -7,6 +7,7 @@ import {
   PublishedSceneViewer,
   type PublishedSceneSource,
 } from "@/components/excalidraw/published-scene-viewer";
+import { mergeThemeVariants } from "@/lib/svg-theme-variants";
 
 const theme = vi.hoisted(() => ({
   resolvedTheme: undefined as string | undefined,
@@ -17,6 +18,30 @@ vi.mock("next-themes", () => ({ useTheme: () => theme }));
 vi.mock("@/hooks/use-app-i18n", () => ({
   useAppI18n: () => ({ t: (key: string) => key }),
 }));
+
+const SVG_NS = "http://www.w3.org/2000/svg";
+const ROOT_FILTER = "invert(93%) hue-rotate(180deg)";
+
+/** An artifact shaped like a real one: one file carrying both themes. */
+function buildArtifact(): SVGSVGElement {
+  const variant = (dark: boolean) => {
+    const svg = document.createElementNS(SVG_NS, "svg");
+    svg.setAttribute("width", "100");
+    svg.setAttribute("height", "100");
+    if (dark) svg.setAttribute("filter", ROOT_FILTER);
+    // The engine paints the scene background as the first direct rect; the
+    // viewer reads it back to extend the same colour across the viewport.
+    const background = document.createElementNS(SVG_NS, "rect");
+    background.setAttribute("x", "0");
+    background.setAttribute("y", "0");
+    background.setAttribute("width", "100");
+    background.setAttribute("height", "100");
+    background.setAttribute("fill", "#ffffff");
+    svg.appendChild(background);
+    return svg;
+  };
+  return mergeThemeVariants(variant(false), variant(true));
+}
 
 let root: Root;
 let container: HTMLDivElement;
@@ -34,45 +59,31 @@ afterEach(async () => {
   container.remove();
 });
 
-it.each(["light", "dark"])(
-  "waits for the resolved %s theme before requesting an artifact",
-  async (resolvedTheme) => {
-    const load = vi.fn<PublishedSceneSource["load"]>(
-      () =>
-        new Promise(() => {
-          // Keep the download pending to test theme resolution and cancellation.
-        }),
-    );
-    const source = { key: "scene", load };
-    const render = () =>
-      act(async () => {
-        root.render(<PublishedSceneViewer source={source} sceneName="Scene" />);
-      });
+it("starts the download without waiting for the theme to resolve", async () => {
+  // One artifact serves both themes, so there is no wrong variant to show
+  // early and no reason to hold the request until hydration settles.
+  const load = vi.fn<PublishedSceneSource["load"]>(
+    () =>
+      new Promise(() => {
+        // Keep the download pending.
+      }),
+  );
 
-    await render();
-    expect(load).not.toHaveBeenCalled();
-    expect(container.textContent).toContain("public.viewer.loading");
-
-    theme.resolvedTheme = resolvedTheme;
-    await render();
-    expect(load).toHaveBeenCalledExactlyOnceWith(
-      resolvedTheme,
-      expect.any(AbortSignal),
+  await act(async () => {
+    root.render(
+      <PublishedSceneViewer
+        source={{ key: "scene", load }}
+        sceneName="Scene"
+      />,
     );
+  });
 
-    const signal = load.mock.calls[0]![1];
-    theme.resolvedTheme = resolvedTheme === "dark" ? "light" : "dark";
-    await render();
-    expect(signal.aborted).toBe(true);
-    expect(load).toHaveBeenLastCalledWith(
-      theme.resolvedTheme,
-      expect.any(AbortSignal),
-    );
-  },
-);
+  expect(load).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal));
+  expect(container.textContent).toContain("public.viewer.loading");
+});
 
 it.each(["light", "dark"])(
-  "hydrates with the browser's %s preference without loading the server fallback",
+  "hydrates with the browser's %s preference and requests once",
   async (resolvedTheme) => {
     await act(async () => root.unmount());
     const load = vi.fn<PublishedSceneSource["load"]>(
@@ -98,10 +109,7 @@ it.each(["light", "dark"])(
 
     expect(onRecoverableError).not.toHaveBeenCalled();
     expect(error).not.toHaveBeenCalled();
-    expect(load).toHaveBeenCalledExactlyOnceWith(
-      resolvedTheme,
-      expect.any(AbortSignal),
-    );
+    expect(load).toHaveBeenCalledExactlyOnceWith(expect.any(AbortSignal));
     expect(
       container.querySelector(
         `.lucide-${resolvedTheme === "dark" ? "moon" : "sun"}`,
@@ -114,15 +122,11 @@ async function mountLoadedScene() {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue(
     new DOMRect(0, 0, 800, 600),
   );
-  const requests: {
-    signal: AbortSignal;
-    resolve: (svg: SVGSVGElement) => void;
-    reject: (error: Error) => void;
-  }[] = [];
+  let resolveLoad!: (svg: SVGSVGElement) => void;
   const load = vi.fn<PublishedSceneSource["load"]>(
-    (_theme, signal) =>
-      new Promise((resolve, reject) => {
-        requests.push({ signal, resolve, reject });
+    () =>
+      new Promise((resolve) => {
+        resolveLoad = resolve;
       }),
   );
   const source = { key: "switching", load };
@@ -130,60 +134,48 @@ async function mountLoadedScene() {
     act(async () => {
       root.render(<PublishedSceneViewer source={source} sceneName="Scene" />);
     });
-  const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
-  svg.setAttribute("width", "100");
-  svg.setAttribute("height", "100");
+  const svg = buildArtifact();
   theme.resolvedTheme = "light";
   await render();
-  await act(async () => requests[0]!.resolve(svg));
+  await act(async () => resolveLoad(svg));
   const stage = container.querySelector('[role="img"][aria-label="Scene"]')!;
   expect(stage.firstElementChild).toBe(svg);
   expect(container.textContent).not.toContain("public.viewer.loading");
-  // No request for the other theme before the user switches.
-  expect(load).toHaveBeenCalledTimes(1);
-  return { requests, render, stage, svg };
+  return { load, render, stage, svg };
 }
 
-it.each(["success", "failure"])(
-  "keeps the scene visible with a loading status until theme switching ends in %s",
-  async (outcome) => {
-    const { requests, render, stage, svg } = await mountLoadedScene();
-    theme.resolvedTheme = "dark";
-    await render();
-    expect(stage.firstElementChild).toBe(svg);
-    expect(stage.getAttribute("aria-busy")).toBe("true");
-    expect(container.textContent).toContain("public.viewer.switchingTheme");
-    const nextSvg = svg.cloneNode(true) as SVGSVGElement;
-    nextSvg.setAttribute("filter", "invert(93%) hue-rotate(180deg)");
-    vi.spyOn(console, "error").mockImplementation(() => {
-      // The failure case deliberately exercises the download error UI.
-    });
-    await act(async () => {
-      if (outcome === "success") requests[1]!.resolve(nextSvg);
-      else requests[1]!.reject(new Error("Download failed"));
-    });
-    expect(container.textContent).not.toContain("public.viewer.switchingTheme");
-    expect(stage.getAttribute("aria-busy")).toBe("false");
-    if (outcome === "success") expect(stage.firstElementChild).toBe(nextSvg);
-    else expect(container.textContent).toContain("public.viewer.loadError");
-  },
-);
+it("switches theme on the mounted scene without another download", async () => {
+  const { load, render, stage, svg } = await mountLoadedScene();
+  expect(svg.hasAttribute("filter")).toBe(false);
 
-it("does not let a cancelled theme request clear the current loading status", async () => {
-  const { requests, render, stage, svg } = await mountLoadedScene();
   theme.resolvedTheme = "dark";
   await render();
+
+  // Same element, same single request: the theme is a DOM write.
+  expect(stage.firstElementChild).toBe(svg);
+  expect(load).toHaveBeenCalledTimes(1);
+  expect(svg.getAttribute("filter")).toBe(ROOT_FILTER);
+  expect(stage.getAttribute("aria-busy")).toBe("false");
+
   theme.resolvedTheme = "light";
   await render();
-  expect(requests[1]!.signal.aborted).toBe(true);
-  await act(async () =>
-    requests[1]!.resolve(svg.cloneNode(true) as SVGSVGElement),
-  );
-  expect(container.textContent).toContain("public.viewer.switchingTheme");
-  expect(stage.getAttribute("aria-busy")).toBe("true");
-  await act(async () =>
-    requests[2]!.resolve(svg.cloneNode(true) as SVGSVGElement),
-  );
-  expect(container.textContent).not.toContain("public.viewer.switchingTheme");
-  expect(stage.getAttribute("aria-busy")).toBe("false");
+  expect(load).toHaveBeenCalledTimes(1);
+  expect(svg.hasAttribute("filter")).toBe(false);
+});
+
+it("paints the viewport backdrop through the active theme's filter", async () => {
+  const { render, svg } = await mountLoadedScene();
+  const backdrop = () =>
+    [...container.querySelectorAll<HTMLElement>('[aria-hidden="true"]')].find(
+      (element) => element.style.backgroundColor !== "",
+    );
+
+  // The backdrop mirrors the artifact's root filter, which is itself themed.
+  expect(svg.hasAttribute("filter")).toBe(false);
+
+  expect(backdrop()?.style.filter).toBe("");
+
+  theme.resolvedTheme = "dark";
+  await render();
+  expect(backdrop()?.style.filter).toBe(ROOT_FILTER);
 });

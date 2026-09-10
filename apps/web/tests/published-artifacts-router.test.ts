@@ -60,24 +60,21 @@ const publicCaller = () =>
 
 const urlOf = (key: string) => `https://app.ufs.sh/f/${key}`;
 
-function artifactsOf(prefix: string, revision: number) {
+function artifactsOf(key: string, revision: number) {
   return {
-    light: { key: `${prefix}-light`, url: urlOf(`${prefix}-light`) },
-    dark: { key: `${prefix}-dark`, url: urlOf(`${prefix}-dark`) },
+    artifact: { key, url: urlOf(key) },
     engineVersion: "0.18.1",
     revision,
   };
 }
 
-/** What the upload handler does when both objects have landed. */
-async function reservePair(sceneId: string, prefix: string, now?: Date) {
-  for (const variant of ["light", "dark"]) {
-    await reservePublishedArtifactUpload(executor, {
-      sceneId,
-      fileKey: `${prefix}-${variant}`,
-      now,
-    });
-  }
+/** What the upload handler does once the object has landed. */
+async function reserveArtifact(sceneId: string, key: string, now?: Date) {
+  await reservePublishedArtifactUpload(executor, {
+    sceneId,
+    fileKey: key,
+    now,
+  });
 }
 
 async function insertScene(
@@ -143,17 +140,17 @@ describe("scene.publish", () => {
 
   it("rejects an artifact URL that is not the storage URL of its key", async () => {
     const sceneId = await insertScene(OWNER);
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
     const artifacts = artifactsOf("a", 1);
-    artifacts.light.url = "https://attacker.example/anything.svg";
+    artifacts.artifact.url = "https://attacker.example/anything.svg";
     await expect(
       callerFor(OWNER).scene.publish({ id: sceneId, artifacts }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
   });
 
-  it("claims the reserved pair, assigns a slug and publishes in one transaction", async () => {
+  it("claims the reserved artifact, assigns a slug and publishes in one transaction", async () => {
     const sceneId = await insertScene(OWNER);
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
 
     const result = await callerFor(OWNER).scene.publish({
       id: sceneId,
@@ -166,25 +163,20 @@ describe("scene.publish", () => {
     expect(row).toMatchObject({
       isPublished: true,
       publishedSlug: result.slug,
-      publishedSvgLightKey: "a-light",
-      publishedSvgLightUrl: urlOf("a-light"),
-      publishedSvgDarkKey: "a-dark",
-      publishedSvgDarkUrl: urlOf("a-dark"),
+      publishedSvgKey: "a",
+      publishedSvgUrl: urlOf("a"),
       publishedRenderEngineVersion: "0.18.1",
       publishedRenderedRevision: 1,
     });
     expect(row.publishedRenderedAt).toBeInstanceOf(Date);
-    // The reservations were consumed: nothing is left for the drain.
+    // The reservation was consumed: nothing is left for the drain.
     expect(await queue()).toEqual([]);
   });
 
   it("refuses artifacts whose reservation is missing or already due", async () => {
     const sceneId = await insertScene(OWNER);
-    // Only one of the two objects was ever reserved.
-    await reservePublishedArtifactUpload(executor, {
-      sceneId,
-      fileKey: "a-light",
-    });
+    // A different object was reserved; the one being published never landed.
+    await reserveArtifact(sceneId, "other");
     await expect(
       callerFor(OWNER).scene.publish({
         id: sceneId,
@@ -192,14 +184,14 @@ describe("scene.publish", () => {
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
     expect((await sceneRow(sceneId)).isPublished).toBe(false);
-    // The lone reservation stays for the drain.
+    // The unrelated reservation is untouched and stays for the drain.
     expect(await queue()).toEqual([
-      ["a-light", PUBLISHED_ARTIFACT_RESERVATION_REASON, "pending"],
+      ["other", PUBLISHED_ARTIFACT_RESERVATION_REASON, "pending"],
     ]);
 
-    // Reserved long enough ago that the drain owns the objects now.
+    // Reserved long enough ago that the drain owns the object now.
     const sceneB = await insertScene(OWNER);
-    await reservePair(
+    await reserveArtifact(
       sceneB,
       "b",
       new Date(Date.now() - PUBLISHED_ARTIFACT_CLAIM_WINDOW_MS - 1000),
@@ -210,18 +202,18 @@ describe("scene.publish", () => {
         artifacts: artifactsOf("b", 1),
       }),
     ).rejects.toMatchObject({ code: "BAD_REQUEST" });
-    expect((await sceneRow(sceneB)).publishedSvgLightKey).toBeNull();
+    expect((await sceneRow(sceneB)).publishedSvgKey).toBeNull();
   });
 
   it("replaces the artifacts when the scene is already published", async () => {
     const sceneId = await insertScene(OWNER);
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
     const first = await callerFor(OWNER).scene.publish({
       id: sceneId,
       artifacts: artifactsOf("a", 1),
     });
 
-    await reservePair(sceneId, "b");
+    await reserveArtifact(sceneId, "b");
     const second = await callerFor(OWNER).scene.publish({
       id: sceneId,
       artifacts: artifactsOf("b", 2),
@@ -229,19 +221,17 @@ describe("scene.publish", () => {
 
     expect(second).toEqual({ slug: first.slug, alreadyPublished: true });
     expect(await sceneRow(sceneId)).toMatchObject({
-      publishedSvgLightKey: "b-light",
-      publishedSvgDarkKey: "b-dark",
+      publishedSvgKey: "b",
       publishedRenderedRevision: 2,
     });
     expect(await queue()).toEqual([
-      ["a-dark", "replace-published-artifacts", "pending"],
-      ["a-light", "replace-published-artifacts", "pending"],
+      ["a", "replace-published-artifacts", "pending"],
     ]);
   });
 
   it("is owner-only", async () => {
     const sceneId = await insertScene(OWNER);
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
     await expect(
       callerFor(OTHER).scene.publish({
         id: sceneId,
@@ -254,7 +244,7 @@ describe("scene.publish", () => {
 describe("scene.setPublishedArtifacts", () => {
   async function publishedScene() {
     const sceneId = await insertScene(OWNER);
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
     await callerFor(OWNER).scene.publish({
       id: sceneId,
       artifacts: artifactsOf("a", 3),
@@ -262,9 +252,9 @@ describe("scene.setPublishedArtifacts", () => {
     return sceneId;
   }
 
-  it("replaces the pair and queues the previous one", async () => {
+  it("replaces the artifact and queues the previous one", async () => {
     const sceneId = await publishedScene();
-    await reservePair(sceneId, "b");
+    await reserveArtifact(sceneId, "b");
 
     await expect(
       callerFor(OWNER).scene.setPublishedArtifacts({
@@ -274,19 +264,17 @@ describe("scene.setPublishedArtifacts", () => {
     ).resolves.toEqual({ applied: true });
 
     expect(await sceneRow(sceneId)).toMatchObject({
-      publishedSvgLightKey: "b-light",
-      publishedSvgDarkKey: "b-dark",
+      publishedSvgKey: "b",
       publishedRenderedRevision: 4,
     });
     expect(await queue()).toEqual([
-      ["a-dark", "replace-published-artifacts", "pending"],
-      ["a-light", "replace-published-artifacts", "pending"],
+      ["a", "replace-published-artifacts", "pending"],
     ]);
   });
 
   it("does not let a stale render overwrite a newer one", async () => {
     const sceneId = await publishedScene();
-    await reservePair(sceneId, "old");
+    await reserveArtifact(sceneId, "old");
 
     await expect(
       callerFor(OWNER).scene.setPublishedArtifacts({
@@ -295,39 +283,36 @@ describe("scene.setPublishedArtifacts", () => {
       }),
     ).resolves.toEqual({ applied: false, reason: "stale" });
 
-    expect((await sceneRow(sceneId)).publishedSvgLightKey).toBe("a-light");
-    // The stale objects keep their reservations and expire with them.
+    expect((await sceneRow(sceneId)).publishedSvgKey).toBe("a");
+    // The stale object keeps its reservation and expires with it.
     expect(await queue()).toEqual([
-      ["old-dark", PUBLISHED_ARTIFACT_RESERVATION_REASON, "pending"],
-      ["old-light", PUBLISHED_ARTIFACT_RESERVATION_REASON, "pending"],
+      ["old", PUBLISHED_ARTIFACT_RESERVATION_REASON, "pending"],
     ]);
   });
 
-  it("keeps the surviving reservation when only half of a pair is claimable", async () => {
+  it("leaves an unrelated reservation alone when the claim fails", async () => {
     const sceneId = await publishedScene();
-    // The light object was reserved; the dark one never landed.
-    await reservePublishedArtifactUpload(executor, {
-      sceneId,
-      fileKey: "half-light",
-    });
+    // Some other object of this scene is mid-flight; the one being applied
+    // never landed. The failed claim must not consume the bystander.
+    await reserveArtifact(sceneId, "bystander");
 
     await expect(
       callerFor(OWNER).scene.setPublishedArtifacts({
         id: sceneId,
-        artifacts: artifactsOf("half", 4),
+        artifacts: artifactsOf("never-landed", 4),
       }),
     ).resolves.toEqual({ applied: false, reason: "unclaimed" });
 
-    expect((await sceneRow(sceneId)).publishedSvgLightKey).toBe("a-light");
+    expect((await sceneRow(sceneId)).publishedSvgKey).toBe("a");
     // The valid reservation is not consumed: the drain still owns that object.
     expect(await queue()).toEqual([
-      ["half-light", PUBLISHED_ARTIFACT_RESERVATION_REASON, "pending"],
+      ["bystander", PUBLISHED_ARTIFACT_RESERVATION_REASON, "pending"],
     ]);
   });
 
-  it("refuses a pair whose reservation is about to fall due", async () => {
+  it("refuses an artifact whose reservation is about to fall due", async () => {
     const sceneId = await publishedScene();
-    await reservePair(
+    await reserveArtifact(
       sceneId,
       "late",
       new Date(
@@ -342,13 +327,10 @@ describe("scene.setPublishedArtifacts", () => {
         artifacts: artifactsOf("late", 4),
       }),
     ).resolves.toEqual({ applied: false, reason: "unclaimed" });
-    expect((await queue()).map(([key]) => key)).toEqual([
-      "late-dark",
-      "late-light",
-    ]);
+    expect((await queue()).map(([key]) => key)).toEqual(["late"]);
   });
 
-  it("reports an unclaimed pair instead of referencing it", async () => {
+  it("reports an unclaimed artifact instead of referencing it", async () => {
     const sceneId = await publishedScene();
     await expect(
       callerFor(OWNER).scene.setPublishedArtifacts({
@@ -356,26 +338,26 @@ describe("scene.setPublishedArtifacts", () => {
         artifacts: artifactsOf("never-uploaded", 4),
       }),
     ).resolves.toEqual({ applied: false, reason: "unclaimed" });
-    expect((await sceneRow(sceneId)).publishedSvgLightKey).toBe("a-light");
+    expect((await sceneRow(sceneId)).publishedSvgKey).toBe("a");
   });
 
   it("ignores artifacts for a scene that is not published", async () => {
     const sceneId = await insertScene(OWNER);
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
     await expect(
       callerFor(OWNER).scene.setPublishedArtifacts({
         id: sceneId,
         artifacts: artifactsOf("a", 1),
       }),
     ).resolves.toEqual({ applied: false, reason: "not-published" });
-    expect((await sceneRow(sceneId)).publishedSvgLightKey).toBeNull();
+    expect((await sceneRow(sceneId)).publishedSvgKey).toBeNull();
   });
 });
 
 describe("scene.unpublish and getPublishedSceneBySlug", () => {
-  it("serves the artifact URLs publicly and clears them with the outbox on unpublish", async () => {
+  it("serves the artifact URL publicly and clears it with the outbox on unpublish", async () => {
     const sceneId = await insertScene(OWNER, { name: "Public" });
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
     const { slug } = await callerFor(OWNER).scene.publish({
       id: sceneId,
       artifacts: artifactsOf("a", 1),
@@ -383,8 +365,7 @@ describe("scene.unpublish and getPublishedSceneBySlug", () => {
 
     const served = await publicCaller().scene.getPublishedSceneBySlug({ slug });
     expect(served?.artifacts).toMatchObject({
-      lightUrl: urlOf("a-light"),
-      darkUrl: urlOf("a-dark"),
+      url: urlOf("a"),
       engineVersion: "0.18.1",
     });
     expect(served?.artifacts?.renderedAt).toBeInstanceOf(Date);
@@ -394,18 +375,13 @@ describe("scene.unpublish and getPublishedSceneBySlug", () => {
     expect(await sceneRow(sceneId)).toMatchObject({
       isPublished: false,
       publishedSlug: null,
-      publishedSvgLightKey: null,
-      publishedSvgLightUrl: null,
-      publishedSvgDarkKey: null,
-      publishedSvgDarkUrl: null,
+      publishedSvgKey: null,
+      publishedSvgUrl: null,
       publishedRenderEngineVersion: null,
       publishedRenderedRevision: null,
       publishedRenderedAt: null,
     });
-    expect(await queue()).toEqual([
-      ["a-dark", "unpublish-scene", "pending"],
-      ["a-light", "unpublish-scene", "pending"],
-    ]);
+    expect(await queue()).toEqual([["a", "unpublish-scene", "pending"]]);
     expect(
       await publicCaller().scene.getPublishedSceneBySlug({ slug }),
     ).toBeNull();
@@ -427,7 +403,7 @@ describe("scene.unpublish and getPublishedSceneBySlug", () => {
 
   it("never exposes the scene document or asset records publicly", async () => {
     const sceneId = await insertScene(OWNER);
-    await reservePair(sceneId, "a");
+    await reserveArtifact(sceneId, "a");
     const { slug } = await callerFor(OWNER).scene.publish({
       id: sceneId,
       artifacts: artifactsOf("a", 1),

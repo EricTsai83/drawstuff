@@ -182,20 +182,18 @@ beforeEach(() => {
   mocks.saveScene.mockResolvedValue(saved("scene-1", 4));
   mocks.exportSceneThumbnail.mockResolvedValue(new Blob(["png"]));
   mocks.renderPublishedArtifacts.mockResolvedValue({
-    light: new Blob(["<svg/>"], { type: "image/svg+xml" }),
-    dark: new Blob(["<svg dark/>"], { type: "image/svg+xml" }),
+    artifact: new Blob(["<svg/>"], { type: "image/svg+xml" }),
     engineVersion: "0.18.1",
   });
-  mocks.startArtifactUpload.mockImplementation(
-    (_files: File[], input: { variant: "light" | "dark" }) =>
-      Promise.resolve([
-        {
-          serverData: {
-            fileKey: `${input.variant}-key`,
-            fileUrl: ARTIFACT_URL(`${input.variant}-key`),
-          },
+  mocks.startArtifactUpload.mockImplementation(() =>
+    Promise.resolve([
+      {
+        serverData: {
+          fileKey: "artifact-key",
+          fileUrl: ARTIFACT_URL("artifact-key"),
         },
-      ]),
+      },
+    ]),
   );
   mocks.setPublishedArtifacts.mockResolvedValue({ applied: true });
   mocks.createSceneDraft.mockResolvedValue({
@@ -335,28 +333,20 @@ describe("useCloudUpload success path", () => {
       appState: { name: "  My scene  " },
       files: {},
     });
-    expect(mocks.startArtifactUpload).toHaveBeenCalledTimes(2);
-    const variants = mocks.startArtifactUpload.mock.calls.map(
-      ([files, input]) => {
-        const [file] = files as File[];
-        const upload = input as {
-          sceneId: string;
-          variant: string;
-          contentHash: string;
-        };
-        expect(upload.sceneId).toBe("scene-1");
-        expect(upload.contentHash).toMatch(/^[a-f0-9]{64}$/);
-        expect(file?.type).toBe("image/svg+xml");
-        expect(file?.name).toBe(`${upload.variant}-${upload.contentHash}.svg`);
-        return upload.variant;
-      },
-    );
-    expect(variants.sort()).toEqual(["dark", "light"]);
+    // One artifact now serves both themes, so one object is uploaded.
+    expect(mocks.startArtifactUpload).toHaveBeenCalledTimes(1);
+    mocks.startArtifactUpload.mock.calls.forEach(([files, input]) => {
+      const [file] = files as File[];
+      const upload = input as { sceneId: string; contentHash: string };
+      expect(upload.sceneId).toBe("scene-1");
+      expect(upload.contentHash).toMatch(/^[a-f0-9]{64}$/);
+      expect(file?.type).toBe("image/svg+xml");
+      expect(file?.name).toBe(`scene-${upload.contentHash}.svg`);
+    });
     expect(mocks.setPublishedArtifacts).toHaveBeenCalledWith({
       id: "scene-1",
       artifacts: {
-        light: { key: "light-key", url: ARTIFACT_URL("light-key") },
-        dark: { key: "dark-key", url: ARTIFACT_URL("dark-key") },
+        artifact: { key: "artifact-key", url: ARTIFACT_URL("artifact-key") },
         engineVersion: "0.18.1",
         // The revision the save returned, not the one it started from.
         revision: 4,
@@ -377,9 +367,10 @@ describe("useCloudUpload success path", () => {
     // The save succeeded, so the failure is a warning with the sizes that
     // matter for an oversized artifact, not a save error.
     expect(mocks.toastError).toHaveBeenCalledWith(
-      en["app.cloudUpload.toast.error.publishedArtifactsUpload"]
-        .replace("{light}", "0.0 MB")
-        .replace("{dark}", "0.0 MB"),
+      en["app.cloudUpload.toast.error.publishedArtifactsUpload"].replace(
+        "{size}",
+        "0.0 MB",
+      ),
     );
     expect(mocks.toastSuccess).toHaveBeenCalledWith(
       en["app.cloudUpload.toast.success"],

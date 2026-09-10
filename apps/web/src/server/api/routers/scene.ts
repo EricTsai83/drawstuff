@@ -59,12 +59,11 @@ const publicSceneOutput = z.object({
   name: z.string(),
   description: z.string(),
   /**
-   * 發布成品：viewer 依主題下載其一，不載入引擎。公開頁不回傳 sceneData／資產：
-   * 場景資料只服務作者，訪客只拿成品。
+   * 發布成品：單一 SVG 同時服務兩種主題，不載入引擎。公開頁不回傳 sceneData／
+   * 資產：場景資料只服務作者，訪客只拿成品。
    */
   artifacts: z.object({
-    lightUrl: z.string(),
-    darkUrl: z.string(),
+    url: z.string(),
     engineVersion: z.string(),
     renderedAt: z.date(),
   }),
@@ -728,8 +727,7 @@ export const sceneRouter = createTRPCRouter({
           thumbnailUrl: true,
           updatedAt: true,
           publishedAt: true,
-          publishedSvgLightUrl: true,
-          publishedSvgDarkUrl: true,
+          publishedSvgUrl: true,
           publishedRenderEngineVersion: true,
           publishedRenderedAt: true,
         },
@@ -745,8 +743,7 @@ export const sceneRouter = createTRPCRouter({
       // publish 要求成品、unpublish 清成品，所以已發布卻無成品不會發生；真發生
       // 就當不存在，而不是回傳一個沒有畫面的頁。
       if (
-        !publishedScene?.publishedSvgLightUrl ||
-        !publishedScene.publishedSvgDarkUrl ||
+        !publishedScene?.publishedSvgUrl ||
         !publishedScene.publishedRenderEngineVersion ||
         !publishedScene.publishedRenderedAt
       ) {
@@ -758,8 +755,7 @@ export const sceneRouter = createTRPCRouter({
         name: publishedScene.name,
         description: publishedScene.description ?? "",
         artifacts: {
-          lightUrl: publishedScene.publishedSvgLightUrl,
-          darkUrl: publishedScene.publishedSvgDarkUrl,
+          url: publishedScene.publishedSvgUrl,
           engineVersion: publishedScene.publishedRenderEngineVersion,
           renderedAt: publishedScene.publishedRenderedAt,
         },

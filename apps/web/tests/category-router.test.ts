@@ -376,10 +376,8 @@ describe("scene archive lifecycle", () => {
         publishedSlug: "published-archive",
         // The public read serves render artifacts; a published row without
         // them is treated as absent, so the fixture needs the pair.
-        publishedSvgLightKey: "archive-light",
-        publishedSvgLightUrl: "https://app.ufs.sh/f/archive-light",
-        publishedSvgDarkKey: "archive-dark",
-        publishedSvgDarkUrl: "https://app.ufs.sh/f/archive-dark",
+        publishedSvgKey: "archive-artifact",
+        publishedSvgUrl: "https://app.ufs.sh/f/archive-artifact",
         publishedRenderEngineVersion: "0.18.1",
         publishedRenderedRevision: 1,
         publishedRenderedAt: new Date(),
