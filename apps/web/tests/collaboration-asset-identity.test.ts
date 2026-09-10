@@ -524,39 +524,47 @@ describe("collaboration room assets", () => {
   // Filling a generation is MAX_ROOM_ASSETS_PER_GENERATION (512) sequential
   // uploads through the full tRPC + PGlite path, which sits right at the 5s
   // default timeout on a loaded machine.
-  it(
-    "bounds the room's asset count and one lookup batch",
-    { timeout: 30_000 },
-    async () => {
-      const room = await openRoom();
-      const ids = (count: number, prefix: string) =>
-        Array.from({ length: count }, (_, index) =>
-          `${prefix}${String(index).padStart(6, "0")}`.padEnd(40, "0"),
-        );
+  it("bounds the room's asset count and one lookup batch", async () => {
+    const room = await openRoom();
+    const ids = (count: number, prefix: string) =>
+      Array.from({ length: count }, (_, index) =>
+        `${prefix}${String(index).padStart(6, "0")}`.padEnd(40, "0"),
+      );
 
-      await expect(
-        callerFor(OWNER).collaborationAsset.resolve({
-          roomId: room.roomId,
-          fileIds: ids(MAX_ASSET_LOOKUP_BATCH + 1, "batch"),
-        }),
-      ).rejects.toThrow();
+    await expect(
+      callerFor(OWNER).collaborationAsset.resolve({
+        roomId: room.roomId,
+        fileIds: ids(MAX_ASSET_LOOKUP_BATCH + 1, "batch"),
+      }),
+    ).rejects.toThrow();
 
-      // Fill the generation to its ceiling, then prove the next upload is refused:
-      // an authorized member must not be able to grow object storage without limit.
-      for (const fileId of ids(MAX_ROOM_ASSETS_PER_GENERATION, "fill")) {
-        expect(await upload(room.roomId, fileId)).toBe("recorded");
-      }
-      expect(await upload(room.roomId, FILE_A)).toBe("budget-exceeded");
+    // Fill the generation to one below its ceiling as stored rows (the commit
+    // path itself is exercised by every other case here), then prove the API
+    // records the last slot and refuses the next: an authorized member must
+    // not be able to grow object storage without limit.
+    await testDb.insert(schema.collaborationAsset).values(
+      ids(MAX_ROOM_ASSETS_PER_GENERATION - 1, "fill").map((fileId) => ({
+        roomId: room.roomId,
+        authGeneration: 1,
+        excalidrawFileId: fileId,
+        cryptoVersion: ASSET_CRYPTO_VERSION,
+        utFileKey: `object-${fileId}`,
+        url: `https://storage.example.com/objects/object-${fileId}`,
+        byteLength: CIPHERTEXT_BYTES,
+        registeredBy: OWNER,
+      })),
+    );
+    expect(await upload(room.roomId, ids(1, "last")[0]!)).toBe("recorded");
+    expect(await upload(room.roomId, FILE_A)).toBe("budget-exceeded");
 
-      // The refused asset really is absent rather than silently swallowed.
-      await expect(
-        callerFor(OWNER).collaborationAsset.resolve({
-          roomId: room.roomId,
-          fileIds: [FILE_A],
-        }),
-      ).resolves.toMatchObject({ assets: [], missing: [FILE_A] });
-    },
-  );
+    // The refused asset really is absent rather than silently swallowed.
+    await expect(
+      callerFor(OWNER).collaborationAsset.resolve({
+        roomId: room.roomId,
+        fileIds: [FILE_A],
+      }),
+    ).resolves.toMatchObject({ assets: [], missing: [FILE_A] });
+  });
 
   it("refuses a ciphertext length no sealed asset could have", async () => {
     const room = await openRoom();

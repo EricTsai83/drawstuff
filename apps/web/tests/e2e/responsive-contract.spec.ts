@@ -5,6 +5,14 @@ import {
   expectNoDocumentHorizontalOverflow,
 } from "../support/responsive";
 
+// Every test here sets its own viewport, so the mobile projects would only
+// repeat the desktop run with a touch flag; the two desktop projects keep the
+// Chromium/WebKit coverage.
+test.skip(
+  ({ hasTouch }) => hasTouch === true,
+  "viewports are set per test; desktop projects cover both engines",
+);
+
 const VIEWPORTS = [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
