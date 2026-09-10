@@ -1,13 +1,5 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -16,13 +8,9 @@ const SECRET = "test-cron-secret";
 
 const { pgClient, testDb, lockState, deletedObjectKeys } = await vi.hoisted(
   async () => {
-    const { PGlite } = await import("@electric-sql/pglite");
-    const { drizzle } = await import("drizzle-orm/pglite");
-    const testSchema = await import("@/server/db/schema");
-    const pgClient = new PGlite();
+    const { createTestDatabase } = await import("./support/pglite-db");
     return {
-      pgClient,
-      testDb: drizzle(pgClient, { schema: testSchema }),
+      ...createTestDatabase(),
       lockState: { locked: true, acquired: 0, released: 0, ended: 0 },
       deletedObjectKeys: [] as string[],
     };
@@ -70,9 +58,8 @@ vi.mock("postgres", () => ({
   },
 }));
 
-import { pushSchema } from "drizzle-kit/api";
-
 import * as schema from "@/server/db/schema";
+import { registerTestDatabase } from "./support/pglite-db";
 import * as route from "@/app/api/maintenance/cleanup/route";
 
 type MaintenanceResponse = {
@@ -94,17 +81,7 @@ const post = (init?: { secret?: string; body?: unknown }) =>
     }),
   );
 
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await pgClient.close();
-});
+registerTestDatabase({ pgClient, testDb });
 
 beforeEach(async () => {
   lockState.locked = true;

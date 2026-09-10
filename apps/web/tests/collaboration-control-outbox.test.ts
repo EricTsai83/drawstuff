@@ -1,13 +1,5 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -40,9 +32,6 @@ vi.mock("@/server/collab/do-control", () => ({
   },
 }));
 
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
 
 import {
@@ -57,9 +46,9 @@ import {
 } from "@/server/collab/control-outbox";
 import type { Database } from "@/server/collab/rooms";
 import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
 
-const client = new PGlite();
-const rawDb = drizzle(client, { schema });
+const rawDb = openTestDatabase();
 // The outbox API is typed against the app's postgres-js database; the PGlite
 // double satisfies the same Drizzle surface.
 const testDb = rawDb as unknown as Database;
@@ -89,18 +78,6 @@ const enqueue = (
     subjectUserId: "user-guest",
     now: overrides.now ?? new Date(),
   });
-
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await client.close();
-});
 
 beforeEach(async () => {
   dispatchState.doCalls.length = 0;

@@ -1,8 +1,6 @@
 // @vitest-environment node
 import {
-  afterAll,
   afterEach,
-  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -75,9 +73,6 @@ vi.mock("@upstash/ratelimit", async (importOriginal) => {
 });
 
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import { TRPCError } from "@trpc/server";
 
 import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
@@ -90,8 +85,9 @@ import {
 } from "@drawstuff/collaboration/snapshot";
 
 import { appRouter, createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
 import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
+import { testTrpcContext } from "./support/trpc-caller";
 import {
   collaborationRateLimitResponseMeta,
   rateLimitMetadataOf,
@@ -107,24 +103,14 @@ import {
  * changes nothing about the guards that are actually boundaries.
  */
 
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
-
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 
 const OWNER = "user-owner";
 const EDITOR = "user-editor";
 const VIEWER = "user-viewer";
 const STRANGER = "user-stranger";
 
-const contextFor = (userId: string | null): TRPCContext =>
-  ({
-    db: testDb,
-    headers: new Headers(),
-    auth: userId
-      ? { session: { id: `session-${userId}` }, user: { id: userId } }
-      : null,
-  }) as unknown as TRPCContext;
+const contextFor = (userId: string | null) => testTrpcContext(testDb, userId);
 
 const callerFor = (userId: string | null) => createCaller(contextFor(userId));
 
@@ -192,18 +178,6 @@ const put = (
 
 const codeOf = (error: unknown): string | undefined =>
   error instanceof TRPCError ? error.code : undefined;
-
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await client.close();
-});
 
 beforeEach(async () => {
   allow();

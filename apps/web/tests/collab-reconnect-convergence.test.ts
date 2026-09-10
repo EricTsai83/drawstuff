@@ -1050,44 +1050,51 @@ describe("fault-matrix convergence", () => {
     const profile = PROFILES.find(({ name }) => name === testCase.profile);
     if (!profile) throw new Error(`unknown profile ${testCase.profile}`);
     for (const seed of testCase.seeds) {
-      it(`converges with ${testCase.clients} clients under ${profile.name} faults (seed ${seed})`, async () => {
-        const random = createSeededRandom(seed);
-        const harness = createHarness({
-          random,
-          // A room exchanging snapshots puts a lot in flight at once; the bound
-          // is about the fake network, not about the protocol.
-          maxQueuedMessages: 4_096,
-        });
-        const clients = Array.from({ length: testCase.clients }, (_, index) =>
-          harness.createClient(`client-${index}`, {
-            recovery: TEST_RECOVERY,
-          }),
-        );
-        for (const client of clients) {
-          client.session.connect();
-          harness.settle(60);
-        }
+      // Generous, because the cost is the real reconciliation these cases run
+      // on purpose. A case that exceeds this has stopped converging, not slowed
+      // down: the heal loop is bounded and cannot spin.
+      it(
+        `converges with ${testCase.clients} clients under ${profile.name} faults (seed ${seed})`,
+        { timeout: 60_000 },
+        async () => {
+          const random = createSeededRandom(seed);
+          const harness = createHarness({
+            random,
+            // A room exchanging snapshots puts a lot in flight at once; the bound
+            // is about the fake network, not about the protocol.
+            maxQueuedMessages: 4_096,
+          });
+          const clients = Array.from({ length: testCase.clients }, (_, index) =>
+            harness.createClient(`client-${index}`, {
+              recovery: TEST_RECOVERY,
+            }),
+          );
+          for (const client of clients) {
+            client.session.connect();
+            harness.settle(60);
+          }
 
-        harness.network.setFaults(profile.faults);
-        for (let round = 0; round < testCase.edits; round += 1) {
-          const client = clients[Math.floor(random() * clients.length)];
-          if (!client) continue;
-          client.edit((elements) => [...elements, rect(`el-${round}`)]);
-          harness.network.flush();
-        }
-        // A mid-run disconnect and rejoin, so every case covers the recovery
-        // path and not only the delivery faults.
-        const victim = clients[testCase.clients - 1];
-        if (victim) {
-          harness.network.dropConnection(victim.transport);
-          victim.edit((elements) => [...elements, rect("offline-edit")]);
-          await harness.advanceAndSettle([victim], PAST_EVERY_TIMER_MS);
-        }
+          harness.network.setFaults(profile.faults);
+          for (let round = 0; round < testCase.edits; round += 1) {
+            const client = clients[Math.floor(random() * clients.length)];
+            if (!client) continue;
+            client.edit((elements) => [...elements, rect(`el-${round}`)]);
+            harness.network.flush();
+          }
+          // A mid-run disconnect and rejoin, so every case covers the recovery
+          // path and not only the delivery faults.
+          const victim = clients[testCase.clients - 1];
+          if (victim) {
+            harness.network.dropConnection(victim.transport);
+            victim.edit((elements) => [...elements, rect("offline-edit")]);
+            await harness.advanceAndSettle([victim], PAST_EVERY_TIMER_MS);
+          }
 
-        harness.network.setFaults();
-        healUntilConverged(harness, clients, 10);
-        expectAllConverged(clients);
-      }, 60_000); // down: the heal loop is bounded and cannot spin. // on purpose. A case that exceeds this has stopped converging, not slowed // Generous, because the cost is the real reconciliation these cases run
+          harness.network.setFaults();
+          healUntilConverged(harness, clients, 10);
+          expectAllConverged(clients);
+        },
+      );
     }
   }
 });

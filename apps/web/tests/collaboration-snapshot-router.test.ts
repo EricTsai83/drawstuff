@@ -1,13 +1,5 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -32,9 +24,6 @@ vi.mock("@/server/collab/do-control", () => ({
     Promise.resolve({ enforced: true, closedSessions: 0 }),
 }));
 
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import { and, eq } from "drizzle-orm";
 
 import {
@@ -44,9 +33,9 @@ import {
   SNAPSHOT_NO_REVISION,
 } from "@drawstuff/collaboration/snapshot";
 
-import { createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
 import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
+import { testCaller } from "./support/trpc-caller";
 
 /**
  * Durable snapshot storage as the API exposes it.
@@ -59,26 +48,14 @@ import * as schema from "@/server/db/schema";
  * sealing is covered in `@drawstuff/collaboration`.
  */
 
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
-
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 
 const OWNER = "user-owner";
 const EDITOR = "user-editor";
 const VIEWER = "user-viewer";
 const STRANGER = "user-stranger";
 
-function callerFor(userId: string | null) {
-  const ctx = {
-    db: testDb,
-    headers: new Headers(),
-    auth: userId
-      ? { session: { id: `session-${userId}` }, user: { id: userId } }
-      : null,
-  } as unknown as TRPCContext;
-  return createCaller(ctx);
-}
+const callerFor = (userId: string | null) => testCaller(testDb, userId);
 
 async function createScene(userId: string): Promise<string> {
   const [row] = await testDb
@@ -136,18 +113,6 @@ async function openRoom(
   });
   return room;
 }
-
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await client.close();
-});
 
 beforeEach(async () => {
   await testDb.delete(schema.collaborationSnapshot);

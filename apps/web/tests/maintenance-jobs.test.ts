@@ -1,33 +1,19 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
 const { pgClient, testDb } = await vi.hoisted(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { drizzle } = await import("drizzle-orm/pglite");
-  const testSchema = await import("@/server/db/schema");
-  const pgClient = new PGlite();
-  return {
-    pgClient,
-    testDb: drizzle(pgClient, { schema: testSchema }),
-  };
+  const { createTestDatabase } = await import("./support/pglite-db");
+  return createTestDatabase();
 });
 
 vi.mock("@/server/db/index", () => ({ db: testDb }));
 
-import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
 
 import * as schema from "@/server/db/schema";
+import { registerTestDatabase } from "./support/pglite-db";
 import {
   createExpiredSharedScenesJob,
   createQueueDrainJob,
@@ -117,17 +103,7 @@ function makeDeps(options?: { failKeys?: () => Set<string> }) {
   return { deps, deletedKeys };
 }
 
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await pgClient.close();
-});
+registerTestDatabase({ pgClient, testDb });
 
 beforeEach(async () => {
   await testDb.delete(schema.collaborationAsset);

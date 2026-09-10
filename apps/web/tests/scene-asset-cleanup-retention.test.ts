@@ -1,13 +1,5 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -19,13 +11,9 @@ const OWNER = "user-owner";
  * to exist before any module that reads `db` at import time is evaluated.
  */
 const { pgClient, testDb, deletedObjectKeys } = await vi.hoisted(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { drizzle } = await import("drizzle-orm/pglite");
-  const testSchema = await import("@/server/db/schema");
-  const pgClient = new PGlite();
+  const { createTestDatabase } = await import("./support/pglite-db");
   return {
-    pgClient,
-    testDb: drizzle(pgClient, { schema: testSchema }),
+    ...createTestDatabase(),
     deletedObjectKeys: [] as string[],
   };
 });
@@ -43,10 +31,10 @@ vi.mock("uploadthing/server", () => ({
   },
 }));
 
-import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
 
 import * as schema from "@/server/db/schema";
+import { registerTestDatabase } from "./support/pglite-db";
 import { cleanupSceneAssetUploadsAction } from "@/server/actions";
 import { QUERIES } from "@/server/db/queries";
 
@@ -228,17 +216,7 @@ describe("scene asset cleanup plan", () => {
 });
 
 describe("cleanupSceneAssetUploadsAction", () => {
-  beforeAll(async () => {
-    const { apply } = await pushSchema(
-      schema,
-      testDb as unknown as Parameters<typeof pushSchema>[1],
-    );
-    await apply();
-  });
-
-  afterAll(async () => {
-    await pgClient.close();
-  });
+  registerTestDatabase({ pgClient, testDb });
 
   beforeEach(async () => {
     deletedObjectKeys.length = 0;

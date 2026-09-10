@@ -1,13 +1,5 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -37,16 +29,12 @@ vi.mock("@/server/collab/do-control", () => ({
  * at import time is evaluated, which is what the hoisted block is for.
  */
 const { pgClient, testDb } = await vi.hoisted(async () => {
-  const { PGlite } = await import("@electric-sql/pglite");
-  const { drizzle } = await import("drizzle-orm/pglite");
-  const testSchema = await import("@/server/db/schema");
-  const pgClient = new PGlite();
-  return { pgClient, testDb: drizzle(pgClient, { schema: testSchema }) };
+  const { createTestDatabase } = await import("./support/pglite-db");
+  return createTestDatabase();
 });
 
 vi.mock("@/server/db/index", () => ({ db: testDb }));
 
-import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
 
 import {
@@ -57,8 +45,8 @@ import {
 } from "@drawstuff/collaboration/asset";
 
 import * as schema from "@/server/db/schema";
-import { createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
+import { registerTestDatabase } from "./support/pglite-db";
+import { testCaller } from "./support/trpc-caller";
 import {
   commitRoomAssetUpload,
   RETIRED_ASSET_CLEANUP_REASON,
@@ -85,8 +73,6 @@ import { QUERIES } from "@/server/db/queries";
  * cleanup worker in the same transaction that orphans them).
  */
 
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
-
 const OWNER = "user-owner";
 const EDITOR = "user-editor";
 const VIEWER = "user-viewer";
@@ -96,16 +82,7 @@ const STRANGER = "user-stranger";
 const FILE_A = "a".repeat(40);
 const FILE_B = "b".repeat(40);
 
-function callerFor(userId: string | null) {
-  const ctx = {
-    db: testDb,
-    headers: new Headers(),
-    auth: userId
-      ? { session: { id: `session-${userId}` }, user: { id: userId } }
-      : null,
-  } as unknown as TRPCContext;
-  return createCaller(ctx);
-}
+const callerFor = (userId: string | null) => testCaller(testDb, userId);
 
 async function createScene(userId = OWNER): Promise<string> {
   const [row] = await testDb
@@ -168,17 +145,7 @@ async function addMember(
     .values({ roomId, userId, role });
 }
 
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await pgClient.close();
-});
+registerTestDatabase({ pgClient, testDb });
 
 beforeEach(async () => {
   await testDb.delete(schema.collaborationAsset);

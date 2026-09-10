@@ -1,13 +1,5 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
@@ -63,9 +55,6 @@ vi.mock("@/server/collab/relay-routing", async () => {
   };
 });
 
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import { and, eq } from "drizzle-orm";
 
 import {
@@ -77,32 +66,20 @@ import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import { verifyJoinToken } from "@drawstuff/collaboration/room-token";
 
-import { createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
 import * as schema from "@/server/db/schema";
-
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
+import { openTestDatabase } from "./support/pglite-db";
+import { testCaller } from "./support/trpc-caller";
 
 const TOKEN_SECRET = "web-test-room-token-secret-0123456789";
 const RELAY_URL = "ws://127.0.0.1:3105";
 
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 
 const OWNER = "user-owner";
 const GUEST = "user-guest";
 const STRANGER = "user-stranger";
 
-function callerFor(userId: string | null) {
-  const ctx = {
-    db: testDb,
-    headers: new Headers(),
-    auth: userId
-      ? { session: { id: `session-${userId}` }, user: { id: userId } }
-      : null,
-  } as unknown as TRPCContext;
-  return createCaller(ctx);
-}
+const callerFor = (userId: string | null) => testCaller(testDb, userId);
 
 async function createScene(userId: string, name = "scene"): Promise<string> {
   const [row] = await testDb
@@ -153,18 +130,6 @@ const armKeyCheck = async (room: {
     }),
   });
 };
-
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await client.close();
-});
 
 beforeEach(async () => {
   relayControlCalls.length = 0;

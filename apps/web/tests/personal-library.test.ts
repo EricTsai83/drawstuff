@@ -1,26 +1,15 @@
 // @vitest-environment node
 
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { PGlite } from "@electric-sql/pglite";
-import { pushSchema } from "drizzle-kit/api";
-import { drizzle } from "drizzle-orm/pglite";
 import { eq } from "drizzle-orm";
 import type { ExcalidrawLibraryItems } from "@drawstuff/excalidraw-adapter/types";
 
-import { createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
 import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
+import { testCaller } from "./support/trpc-caller";
 import {
   compressPersonalLibrary,
   decodeStoredPersonalLibrary,
@@ -38,10 +27,7 @@ import {
   type PersonalLibraryApi,
 } from "@/lib/personal-library-adapter";
 
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
-
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 const USER_A = "library-user-a";
 const USER_B = "library-user-b";
 
@@ -55,16 +41,7 @@ const libraryItems = [
   },
 ] as unknown as ExcalidrawLibraryItems;
 
-function callerFor(userId: string) {
-  return createCaller({
-    db: testDb,
-    headers: new Headers(),
-    auth: {
-      session: { id: `session-${userId}` },
-      user: { id: userId },
-    },
-  } as unknown as TRPCContext);
-}
+const callerFor = (userId: string) => testCaller(testDb, userId);
 
 async function putItems(
   userId: string,
@@ -78,18 +55,6 @@ async function putItems(
     compressedDataBase64: encodePersonalLibraryBase64(compressed),
   });
 }
-
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await client.close();
-});
 
 beforeEach(async () => {
   await testDb.delete(schema.personalLibrary);

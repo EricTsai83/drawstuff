@@ -1,35 +1,16 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import { bootstrapFirstAdmin } from "@/server/admin/bootstrap";
 import { type Database } from "@/server/collab/rooms";
 import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
 
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 const bootstrapDb = testDb as unknown as Database;
 
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-afterAll(() => client.close());
 beforeEach(async () => {
   await testDb.delete(schema.adminAuditEvent);
   await testDb.delete(schema.user);
