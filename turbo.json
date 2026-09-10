@@ -42,11 +42,19 @@
       "cache": false,
       "persistent": true
     },
-    "lint": {},
+    "transit": {
+      "dependsOn": ["^transit"]
+    },
+    "lint": {
+      "dependsOn": ["transit"]
+    },
     "lint:fix": {
       "cache": false
     },
-    "test": {},
+    "test": {
+      "dependsOn": ["transit"],
+      "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"]
+    },
     "test:coverage": {
       "dependsOn": ["^test:coverage"],
       "outputs": ["coverage/**"]
