@@ -6,6 +6,7 @@ import { unstable_readConfig } from "wrangler";
 import { z } from "zod";
 
 import {
+  TEST_ROOM_JOIN_TIMEOUT_MS,
   TEST_ROOM_TOKEN_SECRET,
   WRANGLER_AUDIT_BINDING,
   type JsonValue,
@@ -112,6 +113,9 @@ export default defineConfig({
           // of view. A fixed test clock makes burst exhaustion deterministic;
           // absolute token/room/alarm time continues to use real Date.now().
           TEST_RATE_LIMIT_NOW_MS: 1_000_000,
+          // The shared conformance suite waits for the join deadline in real
+          // time (twice); at the production 10 s that was half the suite.
+          TEST_ROOM_JOIN_TIMEOUT_MS,
           [WRANGLER_AUDIT_BINDING]: auditConfig(),
         },
       },

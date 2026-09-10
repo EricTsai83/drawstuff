@@ -42,5 +42,13 @@ export type TestBindings = {
  * verification paths can be exercised hermetically, mirroring the token
  * vectors in packages/collaboration.
  */
+/**
+ * Join deadline the hermetic Worker (vitest workerd and harness-smoke) runs
+ * with, via the `TEST_ROOM_JOIN_TIMEOUT_MS` binding. Short enough that the two
+ * real-time deadline cases in the shared conformance suite cost seconds, long
+ * enough that a loaded host still accepts and reaps in order.
+ */
+export const TEST_ROOM_JOIN_TIMEOUT_MS = 1_000;
+
 export const TEST_ROOM_TOKEN_SECRET =
   "drawstuff-collaboration-do-test-secret-0000000000000000";

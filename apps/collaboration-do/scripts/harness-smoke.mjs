@@ -18,13 +18,19 @@ import { fileURLToPath } from "node:url";
 
 import { unstable_startWorker } from "wrangler";
 
-import { TEST_ROOM_TOKEN_SECRET } from "../tests/support/audit.ts";
+import {
+  TEST_ROOM_JOIN_TIMEOUT_MS,
+  TEST_ROOM_TOKEN_SECRET,
+} from "../tests/support/audit.ts";
 
 const packageRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const environment = {
   ...process.env,
   COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
   COLLAB_SMOKE_ORIGIN: "http://localhost:3000",
+  // The ephemeral Worker below runs with the same shortened join deadline the
+  // vitest suite uses, so the conformance runner has to wait for that one.
+  COLLAB_CONFORMANCE_JOIN_TIMEOUT_MS: String(TEST_ROOM_JOIN_TIMEOUT_MS),
 };
 
 const runNode = (script, args, timeoutMs) =>
@@ -108,6 +114,10 @@ try {
       COLLAB_JOIN_TOKEN_SECRET: {
         type: "plain_text",
         value: TEST_ROOM_TOKEN_SECRET,
+      },
+      TEST_ROOM_JOIN_TIMEOUT_MS: {
+        type: "json",
+        value: TEST_ROOM_JOIN_TIMEOUT_MS,
       },
     },
     dev: {

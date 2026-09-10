@@ -10,7 +10,10 @@ import {
   doGatewayControlResponseSchema,
 } from "@drawstuff/collaboration/relay-control";
 
-import { TEST_ROOM_TOKEN_SECRET } from "./support/audit.ts";
+import {
+  TEST_ROOM_JOIN_TIMEOUT_MS,
+  TEST_ROOM_TOKEN_SECRET,
+} from "./support/audit.ts";
 import {
   GATEWAY_BASE,
   openSocket,
@@ -28,6 +31,7 @@ afterEach(settleRoomEvents);
  */
 const harness: ConformanceHarness = {
   secret: TEST_ROOM_TOKEN_SECRET,
+  joinTimeoutMs: TEST_ROOM_JOIN_TIMEOUT_MS,
   async connect(roomId, authGeneration = 1) {
     const { connection } = await openSocket(roomId, authGeneration);
     return connection;

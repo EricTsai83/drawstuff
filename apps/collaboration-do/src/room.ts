@@ -120,6 +120,13 @@ type CollaborationRoomEnv = Env & {
    * The production config audit forbids this binding from wrangler.jsonc.
    */
   TEST_RATE_LIMIT_NOW_MS?: number;
+  /**
+   * Miniflare-only shorter join deadline so the conformance cases that wait
+   * for the deadline in real time finish in seconds rather than tens of
+   * seconds. Production keeps `ROOM_JOIN_TIMEOUT_MS`; the config audit
+   * forbids this binding from wrangler.jsonc.
+   */
+  TEST_ROOM_JOIN_TIMEOUT_MS?: number;
 };
 
 const encoder = new TextEncoder();
@@ -157,6 +164,8 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   >();
 
   private readonly rateLimitNow: () => number;
+  /** Pending sockets are reaped this long after acceptance. */
+  private readonly joinTimeoutMs: number;
 
   /** In-memory construction stamp; tests use it to prove the keepalive
    *  auto-response answered without waking the Object. */
@@ -169,6 +178,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     const fixedRateLimitNow = env.TEST_RATE_LIMIT_NOW_MS;
     this.rateLimitNow =
       fixedRateLimitNow === undefined ? Date.now : () => fixedRateLimitNow;
+    this.joinTimeoutMs = env.TEST_ROOM_JOIN_TIMEOUT_MS ?? ROOM_JOIN_TIMEOUT_MS;
     this.log = createDoLogger(env.VERSION_METADATA);
     // Keepalive request/response pair: workerd answers it for hibernated
     // sockets without waking this Object, so liveness costs no duration
@@ -268,7 +278,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       roomId: identity.roomId,
       authGeneration: identity.authGeneration,
     });
-    await this.ensureAlarmAtMost(now + ROOM_JOIN_TIMEOUT_MS);
+    await this.ensureAlarmAtMost(now + this.joinTimeoutMs);
     return new Response(null, { status: 101, webSocket: client });
   }
 
@@ -348,7 +358,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
         continue;
       }
       if (attachment.state === "pending") {
-        if (now - attachment.acceptedAt >= ROOM_JOIN_TIMEOUT_MS) {
+        if (now - attachment.acceptedAt >= this.joinTimeoutMs) {
           this.closeSocket(
             ws,
             RELAY_CLOSE_CODES.joinTimeout,
@@ -977,7 +987,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       const attachment = readRoomSocketAttachment(ws);
       if (attachment === undefined) continue;
       if (attachment.state === "pending") {
-        consider(attachment.acceptedAt + ROOM_JOIN_TIMEOUT_MS);
+        consider(attachment.acceptedAt + this.joinTimeoutMs);
         continue;
       }
       consider(

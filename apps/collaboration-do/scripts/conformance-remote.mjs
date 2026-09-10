@@ -43,9 +43,19 @@ if (!secret) {
   process.exit(2);
 }
 
+/**
+ * Only for a hermetic target started with the `TEST_ROOM_JOIN_TIMEOUT_MS`
+ * binding (harness-smoke): the deployed Worker enforces the published deadline
+ * and this stays unset.
+ */
+const joinTimeoutMs = readJoinTimeoutMs(
+  process.env.COLLAB_CONFORMANCE_JOIN_TIMEOUT_MS,
+);
+
 /** @type {import("@drawstuff/collaboration/protocol-conformance").ConformanceHarness} */
 const harness = {
   secret,
+  ...(joinTimeoutMs === undefined ? {} : { joinTimeoutMs }),
   async connect(roomId, authGeneration = 1) {
     const { connection, opened } = openConformanceSocket({
       url: roomSocketUrl(target, roomId, authGeneration),
@@ -68,6 +78,19 @@ const harness = {
     return { accepted: true, closed: parsed.closed };
   },
 };
+
+/** @param {string | undefined} raw */
+function readJoinTimeoutMs(raw) {
+  if (raw === undefined || raw === "") return undefined;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    console.error(
+      `COLLAB_CONFORMANCE_JOIN_TIMEOUT_MS must be a positive integer, got ${raw}`,
+    );
+    process.exit(2);
+  }
+  return parsed;
+}
 
 const cases = relayProtocolConformanceCases.filter(
   (conformanceCase) =>

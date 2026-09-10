@@ -62,8 +62,9 @@ import {
  *
  * Close-code coverage. Every shared close code that a black-box client can
  * deterministically trigger is exercised here: `protocolViolation`,
- * `roomAtCapacity`, `joinTimeout` (a real wait against the published 10 s
- * deadline), `unauthorized`, `readOnlyRole`, `roomEnded`, `rateLimited`,
+ * `roomAtCapacity`, `joinTimeout` (a real wait against the backend's join
+ * deadline: the published 10 s unless the harness states a shorter one),
+ * `unauthorized`, `readOnlyRole`, `roomEnded`, `rateLimited`,
  * `unsupportedProtocolVersion` (both an older and a newer declared version),
  * `membershipRevoked` (through the harness's
  * control capability, now that both backends dispatch control actions), plus
@@ -133,6 +134,13 @@ export type ConformanceHarness = {
    * backend's 401); any transport or unexpected-status failure must throw.
    */
   control(token: string): Promise<ConformanceControlResult>;
+  /**
+   * The join deadline the backend under test actually enforces. Defaults to
+   * the published `ROOM_JOIN_TIMEOUT_MS`; a hermetic backend started with a
+   * shorter test-only deadline states it here so the two deadline cases wait
+   * for that instead of the production 10 s.
+   */
+  readonly joinTimeoutMs?: number;
 };
 
 export type ConformanceCase = {
@@ -831,7 +839,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       // deterministic test (aged clocks/attachments); this case pins that the
       // reap happens at all and states the right code. It stays the slowest
       // case in the suite by design.
-      const event = await connection.next(ROOM_JOIN_TIMEOUT_MS + 15_000);
+      const event = await connection.next(
+        (harness.joinTimeoutMs ?? ROOM_JOIN_TIMEOUT_MS) + 15_000,
+      );
       if (event.kind !== "close") {
         fail(`Expected the join-deadline close, received ${event.kind}`);
       }
@@ -1205,10 +1215,12 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     async run(harness) {
       // The deadline case proves the timer fires; this proves it is
       // *cancelled* by a successful join — a backend that kept the timer
-      // armed would close this socket at the 10 s mark.
+      // armed would close this socket when the deadline passes.
       const roomId = uniqueRoomId("alive");
       const { connection } = await join(harness, roomId);
-      await connection.expectSilence(ROOM_JOIN_TIMEOUT_MS + 2_000);
+      await connection.expectSilence(
+        (harness.joinTimeoutMs ?? ROOM_JOIN_TIMEOUT_MS) + 2_000,
+      );
       connection.send(encodeRelayControl({ control: "leave" }));
       await expectClose(connection, 1000, "leave after the deadline window");
     },
