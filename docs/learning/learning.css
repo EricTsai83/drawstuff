@@ -1,0 +1,15 @@
+/*
+ * 協作學習系列的共用樣式。原本這份樣式在四篇文章裡各存一份完全相同的副本，
+ * 任何調整都要改四個地方，且沒有任何檢查會發現漏改的那一份，所以抽成單一檔案。
+ *
+ * 沒有建置步驟：文章以相對路徑 <link> 它，用 file:// 直接開啟也會套用，
+ * 前提是保留 docs/learning/ 的目錄結構（文章之間的相對連結本來就有同樣前提）。
+ *
+ * browser-e2ee-excalidraw.html 刻意不使用這份樣式：它的版面寬度、行高與導覽
+ * 結構都不同（inline 導覽列而非編號清單），套用這份樣式會改變它的排版而不會
+ * 消除任何重複——它從來只有一份。
+ */
+
+:root{color-scheme:light;--clay:#D97757;--slate:#141413;--ivory:#FAF9F5;--oat:#E3DACC;--white:#fff;--gray-100:#F0EEE6;--gray-700:#3D3D3A;--content-width:76ch}
+*{box-sizing:border-box}body{margin:0;background:var(--ivory);color:var(--slate);font-family:ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;font-size:16px;line-height:1.85}main{max-width:var(--content-width);margin:auto;padding:48px 24px 72px}article{background:transparent;border:0;padding:0}h1{font-size:1.8rem;line-height:1.4;text-wrap:balance;margin:0 0 18px}h2{font-size:1.25rem;line-height:1.5;margin:48px 0 16px;padding-top:18px;border-top:1px solid var(--oat)}h3{font-size:1.05rem;margin:26px 0 10px}p{margin:14px 0}.deck{font-size:1.05rem;color:var(--gray-700)}a{color:#a5472e;text-decoration:underline;text-underline-offset:3px;overflow-wrap:anywhere}a:focus-visible,summary:focus-visible,.table-wrap:focus-visible{outline:3px solid var(--clay);outline-offset:3px}nav{margin:28px 0;border-block:1px solid var(--oat);padding:14px 0}nav ol{columns:2;padding-left:24px}nav li{break-inside:avoid}li{margin:8px 0}code{background:var(--gray-100);border:1px solid var(--oat);border-radius:4px;padding:1px 4px;font-size:.88em;overflow-wrap:anywhere}.table-wrap{overflow-x:auto;margin:20px 0}table{width:100%;border-collapse:collapse;font-size:.92rem}th,td{padding:11px;text-align:left;vertical-align:top;border:1px solid var(--oat)}th{background:var(--gray-100)}caption{text-align:left;font-weight:650;margin-bottom:10px}.note,figcaption{font-size:.9rem;color:var(--gray-700)}.callout{background:var(--gray-100);border:1px solid var(--oat);border-left:4px solid var(--clay);padding:14px 18px;margin:24px 0}.callout p{margin:0}.sequence{border-left:2px solid var(--oat);padding-left:28px;margin-left:8px}.sequence li{padding:3px 0 8px 5px}.sequence strong{display:block}details{margin:20px 0}summary{font-weight:650;cursor:pointer}.sources{font-size:.9rem}html{scroll-padding-top:24px}@media(max-width:640px){body{font-size:15px}main{padding:24px 20px 48px}h1{font-size:1.65rem}nav ol{columns:1}th,td{padding:8px}table{font-size:.86rem;min-width:540px}}@media print{body{background:white}main{max-width:none;padding:0}h2{break-after:avoid}tr{break-inside:avoid}}
+.architecture-scroll{overflow-x:auto;background:var(--white);border:1px solid var(--oat);padding:16px}.architecture-scroll svg{display:block;width:100%;height:auto;min-width:650px}.architecture-figure{margin:24px 0}.architecture-figure figcaption{margin-top:10px}.architecture-scroll:focus-visible{outline:3px solid var(--clay);outline-offset:3px}

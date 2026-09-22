@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="理解房間授權、跨服務存檔、既有連線與 E2EE 金鑰各自能保證什麼。">
+<title>協作安全：撤權、內容存取與解密金鑰</title>
+<link rel="stylesheet" href="learning.css">
+</head>
+<body><main><article><h1>協作安全：撤權、內容存取與解密金鑰</h1><p class="deck">理解房間授權、跨服務存檔、既有連線與 E2EE 金鑰各自能保證什麼。</p><p class="note">學習文章・目標設計尚未實作。資料查核基準：2026-09-22。<a href="../../plans/18b-collaboration-authority-reset.md">Plan 18B</a> 保存最終契約與驗收。</p><nav aria-label="學習系列導覽"><a href="README.md">學習索引</a><ol><li><a href="serverless-collaboration-production.html">協作架構選型：Neon 與 Room DO 如何分工</a></li><li><a href="durable-outbox-and-alarms.html">持久待辦與 alarm：有工作才喚醒</a></li><li><a href="serverless-storage-and-cost.html">Serverless 成本：儲存增量、免費額度與休眠</a></li><li><strong aria-current="page">協作安全：撤權、內容存取與解密金鑰</strong></li></ol></nav><p>本文以 Drawstuff 多人白板為例：瀏覽器保存解密金鑰，Room Durable Object（DO）管理房間連線；目標設計另讓它保存房間權限，Neon PostgreSQL 保留房間列表與加密快照。以下說明目標設計，尚未完成遷移。</p><p>房主 A 想移除 C，讓 B 繼續編輯。這個動作涉及四件不同的事：停止即時收發、拒絕後續存檔與下載、更新房間列表，以及處理 C 已持有的金鑰。不能用其中一項完成，推論其他三項也自動完成。</p><p class="note">窄螢幕上的表格與架構圖可左右捲動。</p><section id="snapshot"><h2>畫布留在 Neon，必須處理跨服務存取順序</h2>
+<p>目前個人白板存於 <code>scene.scene_data</code>，共編加密快照另存 <code>collaboration_snapshot.ciphertext</code>。兩者是獨立的保存流程，不互相覆寫。把授權交給 DO 不要求搬走這些內容，也不要求新增 R2。</p>
+<p>然而，如果 Next.js 先問 DO「C 能寫嗎？」，得到 yes 後過一會兒才寫 DB，而 A 剛好在中間踢掉 C，就會發生<strong>授權檢查與實際寫入之間的競態</strong>。只把檢查位置換成 RPC，還沒有解決這個問題。</p>
+<p>目標做法是由 DO 接受並排序內容操作；Neon 的內部儲存 adapter 用操作 ID、權威版本與快照版本驗證寫入。踢人時，DO 先拒絕 C 的新操作，再確認較早接受的操作已完成，或已被版本屏障隔離。只有必要的在途工作都不會在日後繞過撤權，才顯示完整撤權生效。</p>
+<p>「版本屏障」可以理解為儲存端的一條界線：低於目前有效版本的舊請求，不得再改變最新資料。DO 與 DB 之間仍可能逾時、回覆遺失，故需要查詢結果與冪等重送；具體協定須以故障原型驗收，不能只測正常流程。</p>
+<p>保留 Neon 的好處是沿用現有存檔、查詢與備份。代價是內容讀寫跨 Cloudflare 與 Next.js／Neon，增加延遲與失敗恢復邏輯。Neon 故障時，即時協作可能仍在運作，但 UI 必須清楚顯示尚未成功儲存；不能把「目前還能畫」說成「內容已保存」。</p>
+<h3>圖片下載也是授權入口</h3>
+<p>如果附件有永久公開 URL，DO 踢人並不會讓該 URL 失效。因此沿用 UploadThing 的前提，是驗證私有物件與授權代理可滿足需求。若採預簽下載 URL，已發出的連結在有效期內可能仍可使用；這個窗口要明示。無法滿足契約時先阻擋上線、另評估最小變更，不把「不換儲存服務」當成可以略過的理由。</p>
+</section><section id="e2ee"><h2>列表記住房間，金鑰決定能否解密</h2>
+<p>「我的房間」是 Neon 中按使用者查詢的列表副本。DO 同步建立、加入、角色變更、踢人與關閉的結果；每筆帶版本，晚到事件不能把已移除的房間重新顯示為有效。列表允許短暫落後，實際點入仍由 DO 判斷。</p>
+<p>A 踢掉 C 後，C 的首頁可能暫時仍顯示那張白板，但 DO 已拒絕 C 進入。這是列表的顯示延遲，不是繼續授權。反過來，新加入的人也可能在列表同步完成前，已經能從分享連結進房。</p>
+<p><strong>列表中的 roomId 不是解密金鑰。</strong>房間秘密留在完整連結的 fragment。首版可以在同一瀏覽器按使用者與房間保存已驗證的金鑰；從列表點入時取回它。換裝置或清除本機資料後，列表仍存在，但需要再次提供完整邀請連結。</p>
+<p>這個選擇避免新增跨裝置金鑰管理，但犧牲「只要登入就能在任何裝置解密」的便利性。本機記住秘密也增加它在瀏覽器中保留的時間。伺服器不保存 root key、完整分享連結或明文；缺鑰／錯鑰要提示使用者，不能當成空白畫布覆寫雲端內容。</p>
+<p>一般踢人維持 A、B 的金鑰與連結不變。C 已取得的明文、金鑰與密文無法收回；若 C 另行取得同鑰加密的新密文，仍可能解密。這是以服務端授權阻止後續取得資料的取捨，不是密碼學上的換鑰撤銷。</p>
+</section><section id="guarantees"><h2>故障下的撤權與完成條件</h2><h3>更直接的踢人，不等於所有故障都能瞬間完成</h3>
+<p><strong>「故障時不保證瞬間全面失效」是在說：請求還沒送達、儲存端尚未確認、或涉及多個房間時，不能把未完成的事顯示成已完成。</strong>這不代表 DO 沒能力強制踢人。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="比較表格，窄螢幕可左右捲動"><table><thead><tr><th scope="col">情境</th><th scope="col">能說什麼</th></tr></thead><tbody>
+<tr><td>A 的踢人請求已到 DO，撤權已持久化</td><td>DO 可立即依新狀態停止 C 後續收發，不等列表同步。</td></tr>
+<tr><td>A 到 DO 的請求失敗</td><td>無法確認撤權，顯示處理中或失敗，用操作 ID 查詢；不能說成功。</td></tr>
+<tr><td>DO 已擋訊息，但 DB 寫入屏障待確認</td><td>即時收發已拒絕，完整內容撤權仍 pending。</td></tr>
+<tr><td>全站刪除帳號，部分房間無法連線</td><td>阻擋新活動並持久重試；所有房間確認前不能說全面完成。</td></tr>
+<tr><td>資料已下載或訊息已送出</td><td>無法從對方裝置收回，撤權限制後續服務存取。</td></tr>
+</tbody></table></div>
+<p>「加入憑證五分鐘到期」只限制那張憑證能否用來建立連線，不會自動關閉已存在的 socket。若未來要求「不管故障，最多再存取 60 秒」，就需要另設短效授權租約，持續收發時執行到期拒絕、未續租就停止。60 秒只是示例；嚴格上限還涉及時鐘誤差與所有入口的檢查。代價是更多驗證流量，以及權限服務故障時正常使用者也被迫中斷。</p>
+<h3>已有的帳號／白板刪除仍要處理</h3>
+<p>Drawstuff 已有管理員退休帳號與白板的能力。這不是為未來組織功能預先做大型系統，而是遷移後不能讓 DB 刪了帳號、DO 卻保留活躍授權。</p>
+<p>Lifecycle DO 先持久記錄操作，再凍結帳號／白板與新加入，逐房間確認撤權，最後完成 DB 刪除和附件清理。用於找齊房間的登記必須在成員啟用前完成，不能只依賴可能落後的首頁列表。這需要額外資料與工作流，也使刪除從一次交易變成可查詢的處理過程。</p>
+</section><section class="sources" id="sources"><h2>延伸閱讀與現況依據</h2><ul>
+<li><a href="../architecture/collaboration-system-design.md">目前協作契約</a>：遷移前的系統行為。</li>
+<li><a href="../adr/0001-excalidraw-persistence-boundary.md">持久化邊界 ADR</a>：個人白板與共編的儲存責任。</li>
+<li><a href="../operations/admin-data-retirement.md">管理員退休操作</a>：既有帳號／白板刪除能力。</li>
+<li><a href="https://developers.cloudflare.com/reference-architecture/diagrams/storage/durable-object-control-data-plane-pattern/">Cloudflare 控制與資料處理分工</a>：按資源拆分協調責任。</li>
+<li><a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/">WebSocket 休眠與恢復</a>：連線可以保留，但記憶體狀態需要恢復。</li>
+<li><a href="browser-e2ee-excalidraw.html">瀏覽器端 E2EE 與共享金鑰</a>：授權與解密能力的分界。</li>
+</ul></section></article></main></body></html>

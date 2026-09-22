@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="從一次踢人後的列表同步，理解持久待辦、重試、去重與停止排程如何一起運作。">
+<title>持久待辦與 alarm：有工作才喚醒</title>
+<link rel="stylesheet" href="learning.css">
+</head>
+<body><main><article><h1>持久待辦與 alarm：有工作才喚醒</h1><p class="deck">從一次踢人後的列表同步，理解持久待辦、重試、去重與停止排程如何一起運作。</p><p class="note">學習文章・目標設計尚未實作。資料查核基準：2026-09-22。<a href="../../plans/18b-collaboration-authority-reset.md">Plan 18B</a> 保存最終契約與驗收。</p><nav aria-label="學習系列導覽"><a href="README.md">學習索引</a><ol><li><a href="serverless-collaboration-production.html">協作架構選型：Neon 與 Room DO 如何分工</a></li><li><strong aria-current="page">持久待辦與 alarm：有工作才喚醒</strong></li><li><a href="serverless-storage-and-cost.html">Serverless 成本：儲存增量、免費額度與休眠</a></li><li><a href="collaboration-authorization-and-keys.html">協作安全：撤權、內容存取與解密金鑰</a></li></ol></nav><p>本文以 Drawstuff 多人白板為例：瀏覽器保存解密金鑰，Room Durable Object（DO）管理房間連線；目標設計另讓它保存房間權限，Neon PostgreSQL 保留房間列表與加密快照。以下說明目標設計，尚未完成遷移。</p><p>房主 A 與成員 B、C 在同一房間。A 移除 C 時，DO 先限制 C 的存取，還需要把結果同步到 Neon 的「我的房間」列表。這份列表可以稍晚更新，但同步工作不能因原請求結束而遺失。</p><p class="note">窄螢幕上的表格與架構圖可左右捲動。</p><section id="event-driven"><h2>持久待辦記住工作，alarm 負責再叫醒 DO</h2>
+<p>持久待辦是一份存入 SQLite 的工作紀錄，例如「把 C 從 Neon 的房間列表移除」。Alarm 是交給 Cloudflare 平台保存的喚醒安排：到時間時呼叫這個 DO 的 <code>alarm()</code>，即使原本的使用者請求早已結束、DO 已休眠，也不依賴原程序繼續活著。<a href="https://developers.cloudflare.com/durable-objects/api/alarms/">官方 alarm 說明</a>。</p>
+<p>以房主 A 踢除成員 C 的例子，下列流程只追蹤<strong>房間列表的同步</strong>；完整內容撤權另外還要完成<a href="collaboration-authorization-and-keys.html#snapshot">內容存取篇的儲存屏障</a>。</p>
+<ol class="sequence">
+<li><strong>① 把撤權與待辦一起保存</strong>DO 在本地交易撤銷 C 的成員資格、增加版本，同時寫入「Neon 列表移除 C」的待辦與可靠喚醒安排。避免權限改了、程序卻在記下待辦前中斷。</li>
+<li><strong>② 立即停止 C 的即時收發</strong>DO 依最新狀態拒絕訊息與重連，關閉 C 的 socket。這一步不需要等列表同步成功；A、B 繼續使用原房間金鑰。</li>
+<li><strong>③ 嘗試把列表變更寫入 Neon</strong>立即執行或由近期 alarm 執行有界批次，透過內部認證的資料端點更新列表。待辦帶有操作 ID 與版本。</li>
+<li><strong>④ 成功則清理，失敗則改約時間</strong>收到確認後完成待辦。若 Neon 暫時不可用，保存錯誤與重試時間，再安排 alarm；下次由平台叫醒 DO 重試。失敗越久可以逐步拉長間隔。</li>
+<li><strong>⑤ 沒有待辦就停止排程</strong>這個 DO 不再為列表同步查 Neon。只有新的業務操作產生工作時，才再次安排喚醒。</li>
+</ol>
+<p>這與現況每分鐘詢問 DB「有沒有工作？」不同。新方案在產生工作時就把「要做什麼、什麼時候再做」一起記住；閒置時不需要用 DB 查詢找工作。</p>
+<h3>當程序中斷或回覆遺失</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-label="比較表格，窄螢幕可左右捲動"><table><thead><tr><th scope="col">中斷位置</th><th scope="col">恢復方式</th></tr></thead><tbody>
+<tr><td>本地交易尚未提交</td><td>不宣稱撤權已完成；使用相同 operationId 重試。</td></tr>
+<tr><td>本地交易完成，但尚未同步 Neon</td><td>持久待辦與 alarm 保留，重新喚醒後繼續執行。</td></tr>
+<tr><td>Neon 已寫入，但成功回覆遺失</td><td>安全重送；接收端以 operationId 去重，舊版本不能反轉新狀態。</td></tr>
+<tr><td>下游持續故障</td><td>保留未完成工作、退避重試與告警；不能把失敗改成成功或無聲刪除。</td></tr>
+</tbody></table></div>
+<p>每個 DO 同時只有一個 alarm，可把多筆工作保存在 SQLite，將 alarm 設為下一筆需要執行的時間。平台提供至少一次執行，意味著 handler 可能重跑；內建錯誤重試也有次數限制。因此應用仍需自己保存待辦、安排後續重試並支援人工恢復。<a href="https://developers.cloudflare.com/durable-objects/api/alarms/">Alarm 的交付與重試契約</a>。</p>
+<div class="callout"><p>Alarm 是可靠工作流的一部分，不是永久成功保證。待辦與喚醒安排的原子性、重複執行，以及新工作到來時不能被舊 handler 清掉喚醒，都必須測試。等待退避的工作仍是 pending，不能因「現在沒有到期工作」就停止恢復。</p></div>
+</section><section class="sources" id="sources"><h2>延伸閱讀與現況依據</h2><ul>
+<li><a href="../architecture/collaboration-system-design.md">目前協作契約</a>：遷移前的系統行為。</li>
+<li><a href="../adr/0001-excalidraw-persistence-boundary.md">持久化邊界 ADR</a>：個人白板與共編的儲存責任。</li>
+<li><a href="../operations/admin-data-retirement.md">管理員退休操作</a>：既有帳號／白板刪除能力。</li>
+<li><a href="https://developers.cloudflare.com/reference-architecture/diagrams/storage/durable-object-control-data-plane-pattern/">Cloudflare 控制與資料處理分工</a>：按資源拆分協調責任。</li>
+<li><a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/">WebSocket 休眠與恢復</a>：連線可以保留，但記憶體狀態需要恢復。</li>
+<li><a href="browser-e2ee-excalidraw.html">瀏覽器端 E2EE 與共享金鑰</a>：授權與解密能力的分界。</li>
+</ul></section></article></main></body></html>

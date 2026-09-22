@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="區分執行與儲存成本，估算 DO 新增資料，並理解降低 Neon 空輪詢的收益與限制。">
+<title>Serverless 成本：儲存增量、免費額度與休眠</title>
+<link rel="stylesheet" href="learning.css">
+</head>
+<body><main><article><h1>Serverless 成本：儲存增量、免費額度與休眠</h1><p class="deck">區分執行與儲存成本，估算 DO 新增資料，並理解降低 Neon 空輪詢的收益與限制。</p><p class="note">學習文章・目標設計尚未實作。資料查核基準：2026-09-22。<a href="../../plans/18b-collaboration-authority-reset.md">Plan 18B</a> 保存最終契約與驗收。</p><nav aria-label="學習系列導覽"><a href="README.md">學習索引</a><ol><li><a href="serverless-collaboration-production.html">協作架構選型：Neon 與 Room DO 如何分工</a></li><li><a href="durable-outbox-and-alarms.html">持久待辦與 alarm：有工作才喚醒</a></li><li><strong aria-current="page">Serverless 成本：儲存增量、免費額度與休眠</strong></li><li><a href="collaboration-authorization-and-keys.html">協作安全：撤權、內容存取與解密金鑰</a></li></ol></nav><p>本文以 Drawstuff 多人白板為例：瀏覽器保存解密金鑰，Room Durable Object（DO）管理房間連線；目標設計另讓它保存房間權限，Neon PostgreSQL 保留房間列表與加密快照。以下說明目標設計，尚未完成遷移。</p><p class="note">窄螢幕上的表格與架構圖可左右捲動。</p><section id="storage"><h2>DO 會增加資料，但不再存一整份畫布</h2>
+<p><strong>會增加一些儲存。主要是權限資料、列表同步待辦與失敗恢復所需的紀錄，不是所有畫布與圖片再複製一份。</strong>Neon 原本的角色資料不再作授權依據，但仍可能保留列表投影與房間關聯，因此 metadata 的確有部分重複。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="比較表格，窄螢幕可左右捲動"><table><thead><tr><th scope="col">DO 裡的資料</th><th scope="col">如何增加</th><th scope="col">保留方式</th></tr></thead><tbody>
+<tr><td>房間設定、owner、版本</td><td>隨房間數量增加</td><td>房間存在期間保留。</td></tr>
+<tr><td>成員、角色、撤權紀錄</td><td>隨不同成員數量增加</td><td>撤權狀態不能隨意過期，否則舊連結可能重新放人進來。</td></tr>
+<tr><td>尚未完成的同步工作</td><td>隨變更頻率與故障時間增加</td><td>完成後清理；失敗保留進度及告警。</td></tr>
+<tr><td>操作去重與回覆結果</td><td>隨管理／持久寫入操作增加</td><td>依可接受重送窗口回收，不永久累積每次歷史。</td></tr>
+<tr><td>必要的在途寫入 payload</td><td>儲存操作待確認時暫存</td><td>受 bytes／筆數上限約束，確認後清理；不是第二份永久快照。</td></tr>
+</tbody></table></div>
+<p>用一組<strong>純假設、非量測</strong>的數字看量級：1,000 個房間、每房間 10 位成員、每筆成員資料按 1 KB 粗估，成員紀錄約 10 MB。這不包含 SQLite、索引、房間設定、去重與待辦的額外空間，不能直接當帳單估計。</p>
+<p>真正需要注意的是故障時待辦累積。若下游長時間無法寫入，而新操作持續到來，資料會增加。因此實作要限制每房間 pending 筆數與 bytes，監控最老待辦的年齡；達到容量時回報無法接受新操作，不能先宣稱成功再丟掉工作。也不把每筆畫圖訊息存成永久 outbox 歷史。</p>
+<p><strong>DO 休眠只會釋放執行中的記憶體，持久資料仍保留。</strong>這讓同一 roomId 日後可以重新進入，也代表房間長期存在就持續占用儲存額度。DO 儲存與執行是不同計費項目。<a href="https://developers.cloudflare.com/durable-objects/platform/pricing/">官方計價</a>、<a href="https://developers.cloudflare.com/durable-objects/concepts/durable-object-lifecycle/">生命週期</a>。</p>
+</section><section id="cost"><h2>減少空輪詢，不等於總費用一定下降</h2>
+<p><strong>「不承諾全面更便宜」的意思是：已知可以移除一種浪費，但尚未量測完整的新帳單。</strong>Neon 可能少了閒置喚醒；同時增加 DO 的 SQLite、請求、alarm，以及跨平台內部 API 工作。總費用須在相同使用量下合計比較。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="比較表格，窄螢幕可左右捲動"><table><thead><tr><th scope="col">使用情境</th><th scope="col">對 Neon 的影響</th></tr></thead><tbody>
+<tr><td>無使用者、無待辦</td><td>房間授權／列表同步不再定期查 DB，提供更長休眠機會。</td></tr>
+<tr><td>有人登入、開列表或重進房間</td><td>正常查詢會喚醒 DB。</td></tr>
+<tr><td>持續共編並保存快照</td><td>保存流量仍可能讓 DB 一直啟用。</td></tr>
+<tr><td>有失敗待辦持續重試</td><td>重試可能繼續產生 DB 活動，需觀測與處理。</td></tr>
+</tbody></table></div>
+<p>如果產品一天大部分時間閒置，移除空查詢很可能值得；如果流量本來就讓 Neon 持續運作，compute 改善可能有限。長期保存的畫布與附件仍占容量，DO 休眠也不取消儲存費用。實際驗收要看 Neon 曲線及其他服務用量，不能先承諾固定百分比。</p>
+<h3>本專案先以 Workers Free 為基準</h3>
+<p>使用者確認目前沒有支付 Workers 每月 $5；本方案不假設已有 Paid 額度，也不要求自動升級。使用 Workers 或 DO 不等於付費：SQLite-backed DO 可使用 Free。現有 wrangler 設定已包含 Gateway、SQLite Room DO 及分鐘 cron。</p>
+<p>截至 2026-09-22，DO Free 額度是請求 100,000／日、執行時間 13,000 GB-s／日、讀取 500 萬 rows／日、寫入 100,000 rows／日，以及總儲存 5 GB。帳號其他用量一起計算；一般 Worker 入口另有自己的限制。這不是每房間額度，也不能將每日額度任意挪到流量尖峰日。超出 Free 限制會拒絕相應操作，而不是自動採用 Paid 超額單價。<a href="https://developers.cloudflare.com/durable-objects/platform/pricing/">官方 DO 計價</a>。</p>
+<p>因此 plan 的架構不必改，容量驗收必須按 Free 的每日峰值評估，包含既有 WebSocket、新增管理操作、alarm、SQLite 寫入與重試。額度耗盡時，新增撤權或持久待辦也可能無法完成，UI 不能回報成功。若測得不足，再比較降低用量與另行選擇 Paid；$5 是可能的方案升級成本，不是使用此設計的必付費。</p>
+</section><section class="sources" id="sources"><h2>延伸閱讀與現況依據</h2><ul>
+<li><a href="../architecture/collaboration-system-design.md">目前協作契約</a>：遷移前的系統行為。</li>
+<li><a href="../adr/0001-excalidraw-persistence-boundary.md">持久化邊界 ADR</a>：個人白板與共編的儲存責任。</li>
+<li><a href="../operations/admin-data-retirement.md">管理員退休操作</a>：既有帳號／白板刪除能力。</li>
+<li><a href="https://developers.cloudflare.com/reference-architecture/diagrams/storage/durable-object-control-data-plane-pattern/">Cloudflare 控制與資料處理分工</a>：按資源拆分協調責任。</li>
+<li><a href="https://developers.cloudflare.com/durable-objects/best-practices/websockets/">WebSocket 休眠與恢復</a>：連線可以保留，但記憶體狀態需要恢復。</li>
+<li><a href="browser-e2ee-excalidraw.html">瀏覽器端 E2EE 與共享金鑰</a>：授權與解密能力的分界。</li>
+</ul></section></article></main></body></html>
