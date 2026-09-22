@@ -1,22 +1,38 @@
 # Docs 閱讀指南
 
-這個目錄有兩種性質不同的文件，讀之前先分清楚：
+這個目錄有三種性質不同的文件，讀之前先分清楚：
 
 | 目錄 | 性質 | 讀者 | 語言風格 |
 | --- | --- | --- | --- |
+| `learning/` | **HTML 學習文章與導讀**：按主題解說、比較與圖解。學習文章可包含明確標示的目標設計；導讀不重述契約數字 | 學習者與設計討論參與者 | 獨立可讀、解釋理由與取捨 |
 | `system-design/` | **可轉移的 System Design pattern**：從本專案萃取、以通用語言撰寫，目標是能套用到其他專案 | 任何工程師（不需要熟悉本 codebase） | 通用術語為主，只在文末連回本專案實例 |
 | `adr/`、`architecture/`、`observability/`、`operations/`、`performance/` | **本專案的現況契約**：具體到檔名、常數與門檻數字，是實作與 review 的依據 | 本專案的開發者 | 專案術語 |
 
 另外，repo 根目錄的 `plans/` 只放**未完成**的範圍化工作；計畫完成後會回寫到
 `docs/` 的現況文件並刪除計畫檔（規則見
 [engineering conventions](./operations/engineering-conventions.md)）。
-所以：`docs/` 永遠描述現在的系統，歷史在 git history 與 ADR 裡。
+所以：`system-design/`、`adr/`、`architecture/`、`observability/`、`operations/`、`performance/`
+**永遠描述現在的系統**，歷史在 git history 與 ADR 裡。
+
+`learning/` 是這條規則唯一的例外，而且是有條件的例外：該目錄的文章**必須**在標題下方標示類型、
+狀態與查核日期。沒有標示狀態的目標設計不該放進 `docs/`——它屬於 `plans/`。
 
 ## 如何讀 `system-design/`
 
 **從 [系統總覽](./system-design/system-overview.md) 開始**：它有整體 System
 Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker 的完整時序），
 以及「元件 × pattern」對照表，讀完就知道每篇 pattern 落在系統的哪個位置。
+
+學習文章與導讀集中於 [learning/ 閱讀索引](learning/README.md)。協作架構系列已拆成
+[架構選型與新舊圖](learning/serverless-collaboration-production.html)、
+[持久待辦與 alarm](learning/durable-outbox-and-alarms.html)、
+[儲存與成本](learning/serverless-storage-and-cost.html)、
+[授權與金鑰](learning/collaboration-authorization-and-keys.html)；這四篇描述的目標設計尚未實作，
+現況仍以架構契約為準（最終契約與驗收在 [Plan 18B](../plans/18b-collaboration-authority-reset.md)）。
+
+兩份現況契約另有導讀，解釋每章為什麼存在但不重述數字：
+[協作系統設計怎麼讀](learning/collaboration-system-design.html)、
+[共編 SLO 與 capacity 怎麼讀](learning/collaboration-slo-capacity.html)。
 
 圖示慣例：所有架構圖與流程圖用 Mermaid 撰寫（GitHub 直接渲染）。
 `flowchart` 畫拓撲與決策流、`sequenceDiagram` 畫跨元件的溝通時序、
@@ -54,6 +70,7 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 
 7. [分層授權：每層一種機制、每跳重新驗證](./system-design/layered-authorization.md)
 8. [瀏覽器端 E2EE 與金鑰生命週期](./system-design/e2ee-key-lifecycle.md)
+   — [Excalidraw 原始碼對照與共享金鑰架構圖（HTML）](learning/browser-e2ee-excalidraw.html)
 9. [CSP 與 Code Delivery：以通道為單位收斂](./system-design/csp-and-code-delivery.md)
 10. [防禦性邊界：輸入界限、資源上限與 fail-open/fail-closed](./system-design/defensive-boundaries.md)
 
