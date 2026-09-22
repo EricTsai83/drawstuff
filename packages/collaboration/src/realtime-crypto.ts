@@ -41,7 +41,12 @@ import {
  *   others.
  * - A room's authorization generation is part of the salt, so rotating it
  *   (`collaborationRoom.rotateGeneration`) produces a key that cannot open the
- *   previous generation's ciphertext.
+ *   previous generation's ciphertext. That separates generations; it is not
+ *   revocation by itself, because the salt is public and anyone still holding
+ *   the room key derives the new generation too. Closing future ciphertext to
+ *   a removed member takes a new room key, which the rotation flow mints on
+ *   the client and the owner then reshares by hand; ciphertext that member
+ *   already captured stays readable either way.
  *
  * Those are the only two inputs. Envelope and protocol versions stay out of the
  * derivation and bind to the ciphertext as authenticated data instead, so a

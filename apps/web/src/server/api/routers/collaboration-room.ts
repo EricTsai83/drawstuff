@@ -607,8 +607,10 @@ export const collaborationRoomRouter = createTRPCRouter({
    * Withdraws a member's authorization. New joins are refused immediately and
    * the member's existing sockets are closed. This is authorization
    * revocation only: a member who already holds a room encryption key can
-   * still read ciphertext captured earlier, which is what `rotateGeneration`
-   * exists for.
+   * still read ciphertext they captured earlier, and nothing here or in
+   * `rotateGeneration` reaches bytes already in someone else's hands. What a
+   * fresh room key buys is that ciphertext written *after* the rotation stays
+   * closed to them; the history does not.
    */
   removeMember: protectedProcedure
     .input(
@@ -663,9 +665,23 @@ export const collaborationRoomRouter = createTRPCRouter({
 
   /**
    * Advances the room's authorization generation. Every outstanding token
-   * becomes unusable and the relay channel for the previous generation is
-   * emptied, which is the hook a future room key rotation binds to: only a new
-   * generation gives cryptographic revocation, not member removal.
+   * becomes unusable, the relay channel for the previous generation is
+   * emptied, and the stored key-check value is cleared so the row never pairs
+   * a new generation with the key being retired.
+   *
+   * This is not cryptographic revocation on its own. The generation is public
+   * HKDF salt (`realtime-crypto.ts`), so a removed member who still holds the
+   * room key derives the new generation's keys exactly as easily as the
+   * remaining members do. Only a *fresh room key* closes future ciphertext to
+   * them, and it never closes ciphertext they already captured.
+   *
+   * Minting that key is the client's half: after this returns,
+   * `collaboration-room-dialog.tsx` generates one, stores its check value via
+   * `setKeyCheck`, and puts it in the owner's own URL fragment. The server
+   * cannot hand it to anyone — the remaining members get it only when the
+   * owner reshares the complete link out of band, which is what the success
+   * toast asks them to do. Two of this operation's three parts therefore
+   * happen outside this procedure.
    */
   rotateGeneration: protectedProcedure
     .input(z.object({ roomId: roomIdInput }))
