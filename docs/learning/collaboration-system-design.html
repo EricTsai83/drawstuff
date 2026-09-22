@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="導讀協作系統設計契約：責任如何分工、為什麼授權撤銷與密碼學撤銷分開、join 為什麼先訂閱再載入，以及每一章回答什麼問題。">
+<title>導讀：協作系統設計契約怎麼讀</title>
+<link rel="stylesheet" href="learning.css">
+</head>
+<body><main><article><h1>導讀：協作系統設計契約怎麼讀</h1>
+<p class="deck">解釋契約裡每條邊界為什麼存在、哪些設計決定是刻意的，以及讀的時候最容易略過的幾個要點。具體規格、版本與上限只存在於 Markdown 契約本身。</p>
+<p class="note">導讀文章・不含規格數值。權威來源是 <a href="../architecture/collaboration-system-design.md">Collaboration system design</a>；本文與它不一致時，以該 Markdown 為準。</p>
+<nav aria-label="導讀導覽"><a href="README.md">學習索引</a><ol>
+<li><a href="#split">責任分工：誰能看到明文，誰只能搬 bytes</a></li>
+<li><a href="#revoke">授權撤銷與密碼學撤銷是兩件事</a></li>
+<li><a href="#outbox">為什麼授權變更與它的強制執行必須同一個交易</a></li>
+<li><a href="#skew">兩邊各自部署：把版本落差當常態而非缺陷</a></li>
+<li><a href="#join">加入順序：先訂閱再載入，claim 最後才成立</a></li>
+<li><a href="#honest">契約裡的誠實條款</a></li>
+<li><a href="#map">章節地圖</a></li>
+</ol></nav>
+
+<section id="split"><h2>責任分工：誰能看到明文，誰只能搬 bytes</h2>
+<p>整份契約的骨架是一句話：<strong>明文只存在於瀏覽器</strong>。其他每個元件都被刻意設計成「即使被完全觀察，也讀不懂畫布」。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="責任分工表格，窄螢幕可左右捲動"><table>
+<thead><tr><th scope="col">元件</th><th scope="col">負責什麼</th><th scope="col">刻意不負責什麼</th></tr></thead>
+<tbody>
+<tr><td>瀏覽器</td><td>明文畫布、加解密、官方語意的 reconcile</td><td>—</td></tr>
+<tr><td><code>@drawstuff/collaboration</code></td><td>與傳輸無關的訊息定義、驗證、密碼學、排序、join barrier、離線佇列與 recovery policy</td><td>不知道自己跑在哪一種傳輸或哪一個 app</td></tr>
+<tr><td><code>apps/web</code></td><td>把上述契約綁到已驗證身分的 room API 與編輯器</td><td>—</td></tr>
+<tr><td>relay（Worker ＋ Durable Object）</td><td>驗 token、路由、有界 fanout</td><td><strong>從不持有房間金鑰，因此無法解密</strong>；也不持久化內容（只 import server-safe 的協定入口）</td></tr>
+<tr><td>Upstash Redis</td><td>只存會過期的限流視窗狀態</td><td>不接觸房間金鑰、明文、密文快照、附件 bytes 或儲存 capability</td></tr>
+<tr><td>PostgreSQL／物件儲存</td><td>唯一的持久協作資料來源</td><td>—</td></tr>
+</tbody></table></div>
+<p>值得學的是<strong>這些「不負責」各自靠什麼保證</strong>，因為它們的強度並不相同。</p>
+<p><strong>relay 讀不懂畫布，靠的是它從不持有金鑰。</strong>房間金鑰只存在於 URL fragment 與瀏覽器記憶體，不隨任何請求送出，所以 relay 收到的就只是密文——這是威脅模型 T2 的保證，屬於密碼學層級。「只 import server-safe 的協定入口」<strong>不是</strong>這個保證的來源：AES-GCM 是公開演算法，任何人只要拿到金鑰，自己寫一份解密程式就能讀。匯入邊界是另一種東西——架構約束：它讓「不小心在 relay 側解密」在結構上做不到，也讓「relay 到底需不需要金鑰」這個問題在每次 review 都有明確答案。一個防對手，一個防自己人失手，不能互相取代，也不該被寫成同一件事。</p>
+<p>Redis 那一列是第三種保證：它確實收得到使用者與房間識別碼（那是計數器的 key），所以保證來自契約明文列出它<strong>收不到</strong>什麼。把「這個依賴看得到什麼」寫下來，比事後從程式碼推斷可靠得多。</p>
+<p>另外兩條資料分流也是刻意的：presence 與 scene 走不同通道（presence 是易失的，壓力下可以丟；scene 在同一個 socket session 內可靠），而二進位附件 bytes 從不放進 scene 訊息裡。</p>
+</section>
+
+<section id="revoke"><h2>授權撤銷與密碼學撤銷是兩件事</h2>
+<p>契約把這兩者分開寫，因為它們的能力邊界完全不同：把成員移出名單，擋得住他<strong>未來</strong>的存取，但無法從他腦中抹掉已經學到的金鑰。</p>
+<p>所以真正的密碼學撤銷是世代輪替：換頻道、換金鑰衍生的 salt、換 verifier、換持久資料的世代。但要注意輪替本身<strong>也不是</strong>密碼學撤銷的全部——salt 是公開的，只有在同時換一把新的房間金鑰、且只交給留下來的成員時，讀取能力才真的被收回。可轉移的完整論述見 <a href="../system-design/e2ee-key-lifecycle.md">E2EE 與金鑰生命週期</a>與<a href="browser-e2ee-excalidraw.html">共享金鑰架構導讀</a>。</p>
+<p>與之配套的是 key-check：房間列上存一個固定大小的加密檢查值，client 在<strong>接管或清空畫布之前、以及請求 join token 之前</strong>先驗它。缺少檢查值時 fail closed，伺服器也拒發 token。這樣一條錯誤的連結會在動到使用者畫布之前就停住，而不是先清空畫布再發現開不了。</p>
+<p>還有一個容易略過的細節：錯鑰的判定是<strong>聚合</strong>的，而不是單筆失敗就下結論。連續失敗且沒有任何一次成功，才在在途的那批訊息塵埃落定後判定房間不可讀；只要有一次成功開啟，就永久解除該傳輸的這個判定。目的是避免個別損毀的訊息把使用者推進「空房間」的錯誤結論。</p>
+</section>
+
+<section id="outbox"><h2>為什麼授權變更與它的強制執行必須同一個交易</h2>
+<p>「移除成員」其實是兩個動作：改資料庫裡的授權狀態，以及去把對方已經連上的 socket 關掉。前者在自己的資料庫裡，後者在另一個服務上。如果分兩步做，總有一個中間狀態是「已經沒有權限，但還連著」。</p>
+<p>契約的做法是：房間變更路徑<strong>鎖住房間列、重新評估授權、把強制執行的意圖寫進 durable control outbox、然後在同一個交易裡 commit</strong>。授權狀態與它的執行意圖因此不可分割——要嘛都成立，要嘛都不成立。commit 之後才做一次同步的 best-effort 派送，只為了讓 UI 快速回應；派送失敗的留在 outbox 由獨立排程重送。</p>
+<p>由此得到的最重要的產物是<strong>誠實的回應語意</strong>：mutation 的結果區分 <code>enforced</code>（Durable Object 已確認關閉 socket）與 <code>pending</code>（已提交、稍後強制）。<code>pending</code> 不是「成功」的同義詞，UI 不能把它顯示成已完成。很多系統在這裡選擇含糊，代價是使用者以為踢人已經生效。</p>
+<p>投遞端的設計也值得看：派送是 revision-max 冪等的，所以超時後重送永遠安全；閘道回傳一個明確的拒絕碼時當作<strong>確定性拒絕</strong>直接判定失敗，其餘所有非 2xx、超時與傳輸錯誤都保持可重試。把「確定不會成功」與「這次沒成功」分開，重試才不會變成無止境地撞同一面牆。可轉移的 pattern 見 <a href="../system-design/transactional-outbox.md">transactional outbox</a>。</p>
+</section>
+
+<section id="skew"><h2>兩邊各自部署：把版本落差當常態而非缺陷</h2>
+<p><code>apps/web</code> 與 Worker 都從 <code>main</code> 自動部署，落地時間差幾分鐘。所以每次協定版本升版之後，必然有一段時間是其中一邊比另一邊新。</p>
+<p>契約沒有用「部署時請注意順序」來解決，而是把它做成協定的一部分：版本不符的 join 用<strong>專屬的關閉碼</strong>拒絕（不是通用的協定違規），關閉原因同時寫出兩邊的版本，讓落差在關閉紀錄裡直接可見。client 把這個拒絕讀成部署時差而非缺陷，在一個有界的時鐘視窗內退避重試，而且這段重試<strong>記在該視窗的帳上、不吃掉一般的重試預算</strong>；視窗關閉後才變成終端錯誤，補救方式是重新載入——對應的正是「分頁在升版期間一直開著」這個情境。</p>
+<p>結論是：協定升版不需要 web 與 Worker 之間有任何部署順序要求。這是把維運限制轉成協定設計的好例子。</p>
+</section>
+
+<section id="join"><h2>加入順序：先訂閱再載入，claim 最後才成立</h2>
+<p>兩個順序在契約裡被寫成硬性要求，因為反過來做會產生難以察覺的資料遺失。</p>
+<p><strong>第一，先訂閱再載入 baseline。</strong>加入時先訂閱，收到的 scene 訊息暫存在一個有界的 join barrier 裡，同時讓「某個 peer 提供的快照」與「持久快照」賽跑，第一個有效的 baseline 獲勝，然後緩衝的訊息依序回放並 reconcile。契約明寫 <em>client 絕不可以先 fetch 再 subscribe</em>——那樣做，兩個動作之間抵達的所有編輯都會憑空消失。</p>
+<p><strong>第二，claim 畫布是最後一步。</strong>加入房間會取得這個分頁的畫布所有權，提交順序是：驗金鑰 → 處理本地草稿並清空畫布 → 換 token 並確認世代沒變 → 最後才 claim 並開 socket。因此一個被拒絕的加入、耗盡的重試或世代競態，都不會留下任何協作 claim；而 claim 之後才失敗的話，該路徑會立刻釋放 claim 與所有半成品資源。</p>
+<p>另一個細節值得單獨記住：定期與離開時的快照 flush，會在<strong>等待任何東西之前</strong>就先評估守衛條件並擷取畫布。因為拆除流程會在同一個 tick 關閉傳輸，而寫入要走網路——一個在 await 之後才檢查的守衛，會否決掉那一次唯一能保住房間最後編輯的寫入。</p>
+<p>還有一個誠實的界線：畫布準備是使用者核准過的提交。若使用者選擇捨棄本地草稿而後續加入失敗，系統<strong>不會</strong>把捨棄掉的畫布重建回來。</p>
+</section>
+
+<section id="honest"><h2>契約裡的誠實條款</h2>
+<p>最後一章「Current operational boundaries」列的不是功能，而是<strong>已知的不足</strong>：部分 SLO 已定義但沒有任何 telemetry 承載因此無法評估；直接切換沒有 Node fallback 也沒有百分比 rollout，全域的 create/join kill switch 就是事故邊界；沒有 staging、沒有正式容量 load test、沒有完整 incident runbook。</p>
+<p>這些被明確標示為「目前這個個人營運、有限公開測試服務可接受的營運限制」。把可接受的限制寫進契約，讀者才不會把沉默誤讀成「這部分沒問題」。</p>
+</section>
+
+<section id="map"><h2>章節地圖</h2>
+<p>用問題找章節。所有規格請直接讀 <a href="../architecture/collaboration-system-design.md">Markdown 契約</a>。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="章節對照表格，窄螢幕可左右捲動"><table>
+<thead><tr><th scope="col">你想知道</th><th scope="col">契約章節</th></tr></thead>
+<tbody>
+<tr><td>資料怎麼流動、哪個元件看得到什麼</td><td>Components and data flow</td></tr>
+<tr><td>角色怎麼解析、token 綁了什麼、撤權如何生效</td><td>Identity, authorization, and room lifecycle</td></tr>
+<tr><td>房間如何對應到 Durable Object、kill switch 的範圍</td><td>Durable Object-only realtime routing</td></tr>
+<tr><td>版本落差、通道分離、排序與關閉原因</td><td>Protocol and delivery semantics</td></tr>
+<tr><td>金鑰衍生、AAD、key-check 與錯鑰判定</td><td>End-to-end encryption and key confirmation</td></tr>
+<tr><td>加入順序、快照寫入者選舉、claim 與釋放</td><td>Join bootstrap, snapshots, and recovery</td></tr>
+<tr><td>為什麼限流計數器要放在共享服務、降級怎麼處理</td><td>Shared backend rate limits</td></tr>
+<tr><td>附件身分、儲存 URL 的定位、跨世代退休</td><td>Encrypted assets</td></tr>
+<tr><td>目前已知的營運限制</td><td>Current operational boundaries</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sources" id="sources"><h2>延伸閱讀</h2><ul>
+<li><a href="../architecture/collaboration-system-design.md">Collaboration system design</a>：本文導讀的權威契約。</li>
+<li><a href="../architecture/collaboration-threat-model.md">協作威脅模型</a>：E2EE 保證的邊界 B6 與可接受限制 T16 的定義處。</li>
+<li><a href="../architecture/data-lifecycle.md">資料生命週期</a>：房間與個人存檔的保留行為。</li>
+<li><a href="../system-design/realtime-room-coordination.md">Realtime room coordination</a>：從本專案萃取的可轉移 pattern。</li>
+<li><a href="../system-design/transactional-outbox.md">Transactional outbox</a>：授權變更與強制執行不可分割的一般化寫法。</li>
+<li><a href="../system-design/defensive-boundaries.md">防禦性邊界</a>：輸入界限與 fail-open／fail-closed 的判準。</li>
+<li><a href="../adr/0002-collaboration-durable-object-target.md">ADR-0002</a>：遷移到 Durable Object 的決策紀錄（已 Superseded）。</li>
+<li><a href="collaboration-slo-capacity.html">導讀：共編 SLO 與 capacity</a>：容量與延遲預算的同類導讀。</li>
+</ul></section>
+</article></main></body></html>

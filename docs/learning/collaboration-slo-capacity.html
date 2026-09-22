@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="description" content="導讀共編 SLO 與 capacity 契約：safety limit 與容量承諾的差別、為什麼上限以 room 為界、速率限制為何 fail open，以及該怎麼讀這份文件。">
+<title>導讀：共編 SLO 與 capacity 契約怎麼讀</title>
+<link rel="stylesheet" href="learning.css">
+</head>
+<body><main><article><h1>導讀：共編 SLO 與 capacity 契約怎麼讀</h1>
+<p class="deck">解釋這份契約在回答什麼問題、每一章為什麼存在，以及讀它時最容易誤解的地方。所有具體數字只存在於 Markdown 契約本身。</p>
+<p class="note">導讀文章・不含任何門檻數字。權威來源是 <a href="../performance/collaboration-slo-capacity.md">共編 SLO 與 capacity</a>；本文與它不一致時，以該 Markdown 為準。</p>
+<nav aria-label="導讀導覽"><a href="README.md">學習索引</a><ol>
+<li><a href="#why">為什麼一個單人專案需要 SLO 文件</a></li>
+<li><a href="#limit">最容易誤解的一件事：safety limit 不是容量承諾</a></li>
+<li><a href="#room">為什麼所有上限以 room 為界</a></li>
+<li><a href="#failopen">速率限制為什麼 fail open</a></li>
+<li><a href="#provenance">為什麼數字帶日期、核准與修訂紀錄</a></li>
+<li><a href="#map">章節地圖</a></li>
+</ol></nav>
+
+<section id="why"><h2>為什麼一個單人專案需要 SLO 文件</h2>
+<p>這份契約的作用不是對使用者承諾服務品質，而是讓<strong>實作、metrics 與 alert 共用同一組數字</strong>。沒有它的時候，一個上限會有三份互相矛盾的副本：程式碼裡的常數、監控告警的門檻、以及記在某個人腦中的「大概多少算不正常」。三者一旦分歧，告警就會在正常流量下響，或在真正的 regression 發生時沉默。</p>
+<p>所以這份文件的定位寫在標題下方第一行：<em>internal operating budget，not a product capacity promise</em>。它是對內的預算表，不是對外的保證書。這個定位決定了後面每一章的讀法。</p>
+</section>
+
+<section id="limit"><h2>最容易誤解的一件事：safety limit 不是容量承諾</h2>
+<p>契約 §2 的標題直接寫著「非容量承諾」，這不是客套。一個「單一 room 成員上限」的數字，意思是<strong>超過就明確拒絕</strong>，不是「這麼多人可以順暢共編」。兩者差很遠：前者是防止無界資源使用的保護界，後者需要 load test、staging 環境與實際 workload shape 才能宣稱。</p>
+<p>把保護界反推成容量承諾是很自然的閱讀錯誤，也是最貴的一種——它會讓人在沒有任何量測支撐的情況下對外承諾一個數字。契約用兩個設計把這條線劃出來：</p>
+<ul>
+<li><strong>超限必須明確拒絕，不得默默錯誤。</strong>成員數超過上限用專屬的 close code 關閉連線；Object 層級的 socket 防護界在 WebSocket upgrade 之前就以 HTTP 拒絕。使用者會知道自己被擋了，維運者會在 log 裡看到。</li>
+<li><strong>平台能力不等於協定能力。</strong>Durable Object 可以維持大量低活動 WebSocket，但每個 Object 是單執行緒，而本協定對每個被接受的 frame 做 O(members) 的 fanout。連線數的平台上限不能推導為活躍共編容量。</li>
+</ul>
+<p>契約 §7 把這件事講到底：沒有 staging、沒有正式 load test 報告、沒有完整 incident runbook，因此<strong>刻意不做任何經驗證的 production capacity 宣稱</strong>。誠實地寫下「我們沒驗證過這個」，比寫一個沒有證據的數字有用。</p>
+</section>
+
+<section id="room"><h2>為什麼所有上限以 room 為界</h2>
+<p>契約 §0 是整份文件的前提：一個 room generation 對應一個 <code>CollaborationRoom</code> Object，fanout 不跨 Object，也沒有外部 pub/sub 依賴。這個模型一成立，好幾件事就自動跟著決定：</p>
+<ul>
+<li>所有 hard limit 的計算單位是<strong>單一 room</strong>，不是整個服務。要知道服務總量，得另外乘以 room 數並考慮平台配額，這份文件不做這件事。</li>
+<li>「fanout 依賴故障」與「fanout 網路分區」這兩類情境<strong>不適用</strong>——沒有外部 fanout 依賴可以故障。少一個依賴，就少一整類要寫進 runbook 的失效模式。</li>
+<li>「水平擴展」由平台以 room 為單位提供，而不是由應用程式自己做。單一 room 內部仍然是單執行緒。</li>
+</ul>
+<p>這是把架構決定寫進 capacity 文件的好例子：容量數字若不說明它的邊界單位，讀者無從判斷能不能相加。</p>
+</section>
+
+<section id="failopen"><h2>速率限制為什麼 fail open</h2>
+<p>共編的後端速率限制跑在 serverless function 上，process-local 計數器在多個 invocation 之間不成立，所以需要一個共享儲存（本專案用 Upstash Redis）。共享儲存意味著多一個會故障的依賴，於是必須先回答一個問題：<strong>這個依賴掛掉時，請求該放行還是該擋下？</strong></p>
+<p>契約給的答案是 fail open，理由只有一句話：<em>速率限制是額外的濫用與容量保護，不是 authorization boundary</em>。授權邊界故障時必須 fail closed，因為放行等於洩漏；但速率限制放行只是暫時失去一層防濫用，擋下卻會讓正常使用者在依賴故障期間完全無法共編。方向由「這是哪一種邊界」決定，不由直覺決定。</p>
+<p>重點是這個決定被畫得很窄，降級期間仍然 fail closed 的東西包括：登入、room role、generation 是否為當前世代、payload 與 batch 大小，以及 room runtime 本身的 token bucket。降級只影響那一層共享計數器。</p>
+<p>另外兩個值得學的細節：降級事件記成<strong>封閉列舉的結構化事件</strong>（事件名 + operation + cause，不含任何 identifier 或 error payload），所以相同故障可以被聚合告警，而不必逐筆 grep log；而 <code>degraded</code> 明確<strong>不等於 rate limited</strong>，不回 429、不消耗 client 的 retry budget——否則一次依賴故障會被客戶端誤讀成「我被限流了」而進入退避。</p>
+<p>還有一個反模式被明文禁止：任何路徑都不准在降級時切換回 process-local counter。那會產生一個「看起來是全域、實際上每個 instance 各有一份」的限制，比沒有限制更難除錯。</p>
+</section>
+
+<section id="provenance"><h2>為什麼數字帶日期、核准與修訂紀錄</h2>
+<p>契約裡的每組量測結果都標了量測日期與方法，rate limit 那一節還留著一筆<strong>修訂 R1</strong> 的紀錄：原本的兩個數字是依錯誤的推導定出的，實作後才由 review 發現會斷開正常使用者，修正後的數字有 sustained-cadence 測試守住。</p>
+<p>把「這個數字曾經是錯的，錯在哪裡，現在靠什麼守住」留在文件裡，比默默改掉數字有價值得多。它讓後來的人知道哪些數字是推導出來的、哪些是量測出來的，以及哪些曾經因為推導錯誤而咬過人。</p>
+<p>同樣的精神也出現在 §1：有一批數字被明確標為「已鎖定、不在本文件範圍」，因為它們屬於 protocol、crypto 與 snapshot contract，列在這裡只是為了讓 SLO 可推導。哪些數字可以在這份文件裡調整、哪些不行，被講清楚了。</p>
+<p>§7 則區分了三種狀態：已實作、已定義但沒有實作承載（因此對應門檻<strong>目前無法評估</strong>）、以及明確不在契約內的未來選項。第二種最容易被誤讀成「已經在監控了」。</p>
+</section>
+
+<section id="map"><h2>章節地圖</h2>
+<p>用問題找章節。所有數字請直接讀 <a href="../performance/collaboration-slo-capacity.md">Markdown 契約</a>。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="章節對照表格，窄螢幕可左右捲動"><table>
+<thead><tr><th scope="col">你想知道</th><th scope="col">契約章節</th></tr></thead>
+<tbody>
+<tr><td>這些上限的計算單位是什麼？故障情境有哪些不適用？</td><td>§0 前提：internal limits 以 room 為界</td></tr>
+<tr><td>哪些數字不歸這份文件管？</td><td>§1 已鎖定、不在本文件範圍的數字</td></tr>
+<tr><td>成員數、socket 數的保護界與超限行為</td><td>§2 Internal safety limits</td></tr>
+<tr><td>延遲要怎麼量、server 端與 client 端分別看什麼</td><td>§3 延遲 SLO</td></tr>
+<tr><td>記憶體、排水與路由排隊的界線</td><td>§4 資源上限</td></tr>
+<tr><td>限流打在哪幾個入口、依賴故障時怎麼辦</td><td>§5 速率限制</td></tr>
+<tr><td>錯誤率與斷線率的門檻</td><td>§6 錯誤與斷線率 SLO</td></tr>
+<tr><td>哪些已實作、哪些定義了卻還無法評估</td><td>§7 Implementation status and accepted limits</td></tr>
+<tr><td>快照編解碼在主執行緒上的成本</td><td>§8 Durable snapshot Base64 codec</td></tr>
+<tr><td>連線存活偵測與 Object 的排水政策</td><td>§9 liveness／keepalive 對應</td></tr>
+<tr><td>撤權多久會真的關掉對方的 socket</td><td>§10 Control enforcement latency</td></tr>
+</tbody></table></div>
+</section>
+
+<section class="sources" id="sources"><h2>延伸閱讀</h2><ul>
+<li><a href="../performance/collaboration-slo-capacity.md">共編 SLO 與 capacity</a>：本文導讀的權威契約，所有數字在這裡。</li>
+<li><a href="../observability/collaboration-do-observability.md">DO observability 契約</a>：告警定義與結構化 log 的封閉 schema。</li>
+<li><a href="../operations/collaboration-do-deployment.md">DO 部署 runbook</a>：部署與 rollback 程序。</li>
+<li><a href="../architecture/collaboration-threat-model.md">協作威脅模型</a>：速率限制要防的 T6 缺口出處。</li>
+<li><a href="collaboration-system-design.html">導讀：協作系統設計</a>：責任分工與資料流的同類導讀。</li>
+<li><a href="../performance/reconciliation-adapter.md">Reconciliation adapter</a>：client 端 frame budget 的來源。</li>
+</ul></section>
+</article></main></body></html>
