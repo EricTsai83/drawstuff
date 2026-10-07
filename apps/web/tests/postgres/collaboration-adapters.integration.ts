@@ -700,6 +700,8 @@ describe("actual PostgreSQL adapter lock races", () => {
       });
     await apply(previous.statements);
     await client`INSERT INTO drawstuff_collaboration_room (room_id,scene_id,owner_id,expires_at,created_at,updated_at) VALUES ('old-fixture',${source!.id},${f.owner},now()+interval '1 day',now(),now())`;
+    // Restored production web can persist this state while dispatch is disabled.
+    await client`INSERT INTO drawstuff_collaboration_control_outbox (event_id,room_id,auth_generation,auth_revision,action,attempts,next_attempt_at,status,last_failure,created_at,updated_at) VALUES (${crypto.randomUUID()},'old-fixture',1,1,'end-room',0,now(),'pending','dispatch-disabled',now(),now())`;
     await client`INSERT INTO drawstuff_collaboration_asset (room_id,auth_generation,excalidraw_file_id,crypto_version,byte_length,url,ut_file_key,registered_by,created_at) VALUES ('old-fixture',1,'old-file',1,128,'https://fixture.test/sealed','old-collab-key',${f.owner},now())`;
     await client`INSERT INTO drawstuff_collaboration_asset (room_id,auth_generation,excalidraw_file_id,crypto_version,byte_length,url,ut_file_key,created_at) VALUES ('old-fixture',1,'colliding-file',1,128,'https://fixture.test/sealed','preserve-asset',now())`;
     const manifestSQL = readFileSync(

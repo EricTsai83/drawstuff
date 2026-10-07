@@ -1,4 +1,4 @@
-/** Collaboration-only protocol-5 fixture copied from c6f2044. Parent tables are preserved current fixtures. */
+/** Protocol-5 fixture derived from c6f2044, calibrated against production on 2026-10-07. */
 import {
   pgTableCreator,
   varchar,
@@ -37,7 +37,7 @@ export const collaborationRoom = createTable(
   "collaboration_room",
   {
     // relay 用的 room id（nanoid），同時是主鍵：不另外維護第二組識別碼。
-    roomId: varchar("room_id", { length: 64 }).primaryKey(),
+    roomId: varchar("room_id", { length: 64 }).notNull(),
     sceneId: uuid("scene_id")
       .notNull()
       .references(() => scene.id, { onDelete: "cascade" }),
@@ -76,6 +76,10 @@ export const collaborationRoom = createTable(
       .notNull(),
   },
   (table) => [
+    primaryKey({
+      name: "excalidraw-ericts_collaboration_room_pkey",
+      columns: [table.roomId],
+    }),
     index("collaboration_room_owner_id_idx").on(table.ownerId),
     // 「這個 scene 現在有沒有 active room」與生命週期清理都走這兩個索引。
     index("collaboration_room_status_expires_at_idx").on(
@@ -120,7 +124,7 @@ export const collaborationRoomMember = createTable(
   "collaboration_room_member",
   {
     id: uuid("id")
-      .primaryKey()
+      .notNull()
       .$defaultFn(() => crypto.randomUUID()),
     roomId: varchar("room_id", { length: 64 }).notNull(),
     userId: text("user_id").notNull(),
@@ -134,6 +138,10 @@ export const collaborationRoomMember = createTable(
       .notNull(),
   },
   (table) => [
+    primaryKey({
+      name: "excalidraw-ericts_collaboration_room_member_pkey",
+      columns: [table.id],
+    }),
     foreignKey({
       name: "collab_member_room_fk",
       columns: [table.roomId],
@@ -343,6 +351,8 @@ export const ROOM_CONTROL_FAILURES = [
   "malformed-response",
   /** Durable Object gateway URL 沒有設定。 */
   "unconfigured",
+  /** Production 的停用 dispatch 狀態；回滾仍須接受舊 web 寫入。 */
+  "dispatch-disabled",
 ] as const;
 export type RoomControlFailure = (typeof ROOM_CONTROL_FAILURES)[number];
 

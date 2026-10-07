@@ -36,14 +36,14 @@ CREATE TABLE "drawstuff_collaboration_control_outbox" (
 	CONSTRAINT "collaboration_control_outbox_action_supported" CHECK ("drawstuff_collaboration_control_outbox"."action" in ('revoke-member', 'end-room')),
 	CONSTRAINT "collaboration_control_outbox_status_supported" CHECK ("drawstuff_collaboration_control_outbox"."status" in ('pending', 'delivered', 'failed')),
 	CONSTRAINT "collaboration_control_outbox_subject_present" CHECK ("drawstuff_collaboration_control_outbox"."action" <> 'revoke-member' or "drawstuff_collaboration_control_outbox"."subject_user_id" is not null),
-	CONSTRAINT "collaboration_control_outbox_last_failure_supported" CHECK ("drawstuff_collaboration_control_outbox"."last_failure" is null or "drawstuff_collaboration_control_outbox"."last_failure" in ('unreachable', 'timeout', 'rejected', 'malformed-response', 'unconfigured')),
+	CONSTRAINT "collaboration_control_outbox_last_failure_supported" CHECK ("drawstuff_collaboration_control_outbox"."last_failure" is null or "drawstuff_collaboration_control_outbox"."last_failure" in ('unreachable', 'timeout', 'rejected', 'malformed-response', 'unconfigured', 'dispatch-disabled')),
 	CONSTRAINT "collaboration_control_outbox_attempts_nonnegative" CHECK ("drawstuff_collaboration_control_outbox"."attempts" >= 0),
 	CONSTRAINT "collaboration_control_outbox_auth_generation_positive" CHECK ("drawstuff_collaboration_control_outbox"."auth_generation" >= 1),
 	CONSTRAINT "collaboration_control_outbox_auth_revision_positive" CHECK ("drawstuff_collaboration_control_outbox"."auth_revision" >= 1)
 );
 
 CREATE TABLE "drawstuff_collaboration_room" (
-	"room_id" varchar(64) PRIMARY KEY NOT NULL,
+	"room_id" varchar(64) NOT NULL,
 	"scene_id" uuid NOT NULL,
 	"owner_id" text NOT NULL,
 	"auth_generation" integer DEFAULT 1 NOT NULL,
@@ -55,6 +55,7 @@ CREATE TABLE "drawstuff_collaboration_room" (
 	"ended_at" timestamp,
 	"created_at" timestamp NOT NULL,
 	"updated_at" timestamp NOT NULL,
+	CONSTRAINT "excalidraw-ericts_collaboration_room_pkey" PRIMARY KEY("room_id"),
 	CONSTRAINT "collaboration_room_auth_generation_positive" CHECK ("drawstuff_collaboration_room"."auth_generation" >= 1),
 	CONSTRAINT "collaboration_room_auth_revision_positive" CHECK ("drawstuff_collaboration_room"."auth_revision" >= 1),
 	CONSTRAINT "collaboration_room_status_supported" CHECK ("drawstuff_collaboration_room"."status" in ('active', 'ended')),
@@ -63,13 +64,14 @@ CREATE TABLE "drawstuff_collaboration_room" (
 );
 
 CREATE TABLE "drawstuff_collaboration_room_member" (
-	"id" uuid PRIMARY KEY NOT NULL,
+	"id" uuid NOT NULL,
 	"room_id" varchar(64) NOT NULL,
 	"user_id" text NOT NULL,
 	"role" varchar(16) NOT NULL,
 	"revoked_at" timestamp,
 	"created_at" timestamp NOT NULL,
 	"updated_at" timestamp NOT NULL,
+	CONSTRAINT "excalidraw-ericts_collaboration_room_member_pkey" PRIMARY KEY("id"),
 	CONSTRAINT "collaboration_room_member_role_supported" CHECK ("drawstuff_collaboration_room_member"."role" in ('owner', 'editor', 'viewer'))
 );
 

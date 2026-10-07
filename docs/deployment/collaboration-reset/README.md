@@ -1,11 +1,11 @@
 # 18B P3 維護窗口與回滾
 
-這是待執行清單。P2／P3 準備只使用隔離 workerd 與本機 PostgreSQL；尚未修改 production DB、secret、cron 或部署。production 目前仍使用 protocol 5。不要直接 push `main`：先暫停 Workers Builds／Vercel 自動部署，這次 web、Worker 與 schema 必須配套切換。
+這是待執行清單。P2／P3 的寫入演練只使用隔離 workerd 與本機 PostgreSQL；另已完成 production 唯讀核對，尚未修改 production DB、secret、cron 或部署。production 目前仍使用 protocol 5。web、Worker 與 schema 必須配套切換；自動部署若未暫停，維護窗口中不要 push `main`。
 
 ## 已準備的 artifact
 
 - `upgrade.sql`：清空共編表後建立目前 schema。
-- `rollback.sql`：清空新版共編表後恢復 `c6f2044` 的 protocol-5 共編 schema；程式也必須配套為 protocol 5。
+- `rollback.sql`：清空新版共編表後恢復 protocol-5 共編 schema；以 `c6f2044` 為基礎並依 2026-10-07 production 唯讀核對校準。程式也必須配套為 protocol 5。
 - `manifest.sql`：唯讀匯出密文 object key 與已知舊 DO 名稱；排除個人附件、縮圖、發布成品。
 - `pnpm --filter @drawstuff/web collaboration:reset-plan`：再生 SQL，**不連資料庫**。
 - `collaboration:reset-check`：在 PostgreSQL repeatable-read／read-only 交易中核對共編表名、欄位、型別與 nullable；記錄索引／constraint、舊物件清單及所有非共編 `public.drawstuff_*` 表的筆數／內容指紋。`after` 必須與同一 endpoint 的 `before` 比對一致。索引、constraint、default 仍須人工對照 SQL，工具不宣稱完整 schema 相容性。
@@ -18,6 +18,14 @@
 - `pnpm --filter @drawstuff/collaboration-do preflight:maintenance`：兩個維護 artifact 的部署 dry-run，**不部署**。
 
 SQL 只 DROP `drawstuff_collaboration_*`，不使用 CASCADE。未預期的外部 FK 會擋住檢查與交易。artifact 不刪 UploadThing 物件。重置適用於目前可丟棄的共編測試資料；開放正式使用後須重新設計。
+
+## 2026-10-07 production 唯讀核對
+
+Cloudflare CLI 登入已恢復。當時 Worker version 為 `b2d48da5-f2dc-497f-893c-1c76edc161f9`，只有 Room binding，尚無 Lifecycle；Vercel production deployment 為 `dpl_9gSwefb4PmqRLQTQMyDMb8aJgRYw`。已私下比對 Vercel production 的 `POSTGRES_URL` 與本機設定，確認 host、port、database 相同；production 尚無新版三個 capability secret。
+
+實際 DB 的 Room／RoomMember 主鍵仍使用 `excalidraw-ericts_*_pkey` 舊名稱，outbox failure check 也允許 `dispatch-disabled`；已校準 legacy fixture 與 `rollback.sql`，並以本機 PostgreSQL 比對欄位、constraint 與 index 的 catalog 定義。這些差異只影響回滾 artifact，不改新版 schema。
+
+唯讀 report、deployment metadata 與 namespace inventory 存於本機 git 忽略的 `.local/collaboration-cutover/`。manifest 有兩個舊 Room 名稱；當時 namespace inventory 回傳零個已儲存 instance，仍須 quiesce manifest 中的名稱。這次讀取發生於服務運行中，不能用作 migration 前後比對的最終 baseline；進入維護窗口後必須重新擷取 report 與 inventory。
 
 ## 上線前準備回滾 artifact
 
@@ -59,7 +67,7 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 在 root 的 `.env.cutover.local` 私下設定 **只有** `COLLAB_RESET_DATABASE_URL`，使用 Neon 可做一致性讀取的連線字串；不要把 URL 放進命令或聊天。可用獨立唯讀 role。將檔案權限設為 600；它與 `.local/` 報告均被 git 忽略。CLI 不使用應用程式的 `POSTGRES_URL` fallback。
 
 ```sh
-pnpm --filter @drawstuff/web exec node --env-file=../../.env.cutover.local scripts/collaboration-reset-check.mjs before
+pnpm --filter @drawstuff/web exec node --env-file="$(pwd)/.env.cutover.local" scripts/collaboration-reset-check.mjs before
 ```
 
 保存 CLI 回傳的 `before-<timestamp>.json` 路徑，人工檢視 constraint／index 對照 `rollback.sql`。欄位不符、外部 FK、連線／權限問題都會退出失敗，**先修正 artifact，不要繼續重置**。另保存未落 DB 的在途上傳、歷史 generation DO 的 namespace inventory／log 證據：manifest 不是完整 namespace inventory。
@@ -67,7 +75,7 @@ pnpm --filter @drawstuff/web exec node --env-file=../../.env.cutover.local scrip
 確認 namespace inventory 覆蓋舊 generation（包含未落 DB 的 instance）。另保存 `inventory.json`，格式為 `{"roomIds":["<64位小寫hex DO ID>"],"lifecycleIds":[]}`；IDs 必須來自已核對的正確 namespace。以下命令讀取受控 manifest 與 inventory，每批最多 16 個，未收到停止 ACK 就失敗；可重跑，不刪 storage：
 
 ```sh
-pnpm --filter @drawstuff/collaboration-do exec node --env-file=../../.env.collaboration-worker.local scripts/quiesce-rooms.mjs https://<worker-origin> /absolute/path/to/before-report.json /absolute/path/to/inventory.json
+pnpm --filter @drawstuff/collaboration-do exec node --env-file="$(pwd)/.env.collaboration-worker.local" scripts/quiesce-rooms.mjs https://<worker-origin> /absolute/path/to/before-report.json /absolute/path/to/inventory.json
 ```
 
 清單數量只代表提供的 instance 已停止，**不證明 inventory 完整**。未知歷史 generation／socket 尚未排除時，不能切換到會重新啟用 Room handlers 的正式 runtime；維持維護狀態並補齊 inventory。quiesce 路徑只存在於維護 artifact，新版正式 Gateway 不提供它。
@@ -83,7 +91,7 @@ pnpm --filter @drawstuff/collaboration-do exec node --env-file=../../.env.collab
 在部署任何會產生新 DB 寫入的新版程式前，將下列路徑換成第 2 步保存的**絕對路徑**：
 
 ```sh
-pnpm --filter @drawstuff/web exec node --env-file=../../.env.cutover.local scripts/collaboration-reset-check.mjs after /absolute/path/to/before-report.json
+pnpm --filter @drawstuff/web exec node --env-file="$(pwd)/.env.cutover.local" scripts/collaboration-reset-check.mjs after /absolute/path/to/before-report.json
 ```
 
 工具確認新版欄位及所有非共編表指紋一致。失敗就保持維護狀態並調查；這時不要恢復流量。指紋是完整 row 的排序 MD5 摘要，用於比對意外變動，不代替備份或防竄改稽核。
