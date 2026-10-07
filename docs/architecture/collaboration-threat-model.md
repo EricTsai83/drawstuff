@@ -104,6 +104,14 @@ work and releases timers, object URLs, sockets, and caches.
 
 ## Threats and current disposition
 
+Room assets remain public UploadThing ciphertext objects. Asset resolution and upload/finalize
+require current room authorization, but the provider does not recheck membership on direct URL
+downloads. A removed member or anyone else who retains or obtains the permanent URL can still
+download that ciphertext while the object exists and decrypt it if they possess the matching key.
+This is an explicitly accepted temporary limitation (owner decision, 2026-10-07); enforcement
+claims cover controlled application/relay entrances, not invalidation of public object URLs.
+Public ACLs do not permit plaintext assets or room keys to be uploaded.
+
 | ID  | Threat                                                     | Control or accepted limitation                                                                                                                                                                                                                                                                                                                       |
 | --- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | T1  | Non-member reads room content                              | Every join requires an authorized short-lived token; generation rotation isolates old tokens and keys.                                                                                                                                                                                                                                               |

@@ -7,14 +7,14 @@
 <title>協作安全：撤權、內容存取與解密金鑰</title>
 <link rel="stylesheet" href="learning.css">
 </head>
-<body><main><article><h1>協作安全：撤權、內容存取與解密金鑰</h1><p class="deck">理解房間授權、跨服務存檔、既有連線與 E2EE 金鑰各自能保證什麼。</p><p class="note">學習文章・目標設計尚未實作。資料查核基準：2026-09-22。<a href="../../plans/18b-collaboration-authority-reset.md">Plan 18B</a> 保存最終契約與驗收。</p><nav aria-label="學習系列導覽"><a href="README.md">學習索引</a><ol><li><a href="serverless-collaboration-production.html">協作架構選型：Neon 與 Room DO 如何分工</a></li><li><a href="durable-outbox-and-alarms.html">持久待辦與 alarm：有工作才喚醒</a></li><li><a href="serverless-storage-and-cost.html">Serverless 成本：儲存增量、免費額度與休眠</a></li><li><strong aria-current="page">協作安全：撤權、內容存取與解密金鑰</strong></li></ol></nav><p>本文以 Drawstuff 多人白板為例：瀏覽器保存解密金鑰，Room Durable Object（DO）管理房間連線；目標設計另讓它保存房間權限，Neon PostgreSQL 保留房間列表與加密快照。以下說明目標設計，尚未完成遷移。</p><p>房主 A 想移除 C，讓 B 繼續編輯。這個動作涉及四件不同的事：停止即時收發、拒絕後續存檔與下載、更新房間列表，以及處理 C 已持有的金鑰。不能用其中一項完成，推論其他三項也自動完成。</p><p class="note">窄螢幕上的表格與架構圖可左右捲動。</p><section id="snapshot"><h2>畫布留在 Neon，必須處理跨服務存取順序</h2>
+<body><main><article><h1>協作安全：撤權、內容存取與解密金鑰</h1><p class="deck">理解房間授權、跨服務存檔、既有連線與 E2EE 金鑰各自能保證什麼。</p><p class="note">學習文章・目標設計尚未實作。資料查核基準：2026-09-22。<a href="../../plans/18b-collaboration-authority-reset.md">Plan 18B</a> 保存最終契約與驗收。</p><nav aria-label="學習系列導覽"><a href="README.md">學習索引</a><ol><li><a href="serverless-collaboration-production.html">協作架構選型：Neon 與 Room DO 如何分工</a></li><li><a href="durable-outbox-and-alarms.html">持久待辦與 alarm：有工作才喚醒</a></li><li><a href="serverless-storage-and-cost.html">Serverless 成本：儲存增量、免費額度與休眠</a></li><li><strong aria-current="page">協作安全：撤權、內容存取與解密金鑰</strong></li></ol></nav><p>本文以 Drawstuff 多人白板為例：瀏覽器保存解密金鑰，Room Durable Object（DO）管理房間連線；目標設計另讓它保存房間權限，Neon PostgreSQL 保留房間列表與加密快照。以下說明目標設計，尚未完成遷移。</p><p>房主 A 想移除 C，讓 B 繼續編輯。這個動作涉及四件不同的事：停止即時收發、拒絕後續存檔與受控讀取、更新房間列表，以及處理 C 已持有的金鑰。不能用其中一項完成，推論其他三項也自動完成。</p><p class="note">窄螢幕上的表格與架構圖可左右捲動。</p><section id="snapshot"><h2>畫布留在 Neon，必須處理跨服務存取順序</h2>
 <p>目前個人白板存於 <code>scene.scene_data</code>，共編加密快照另存 <code>collaboration_snapshot.ciphertext</code>。兩者是獨立的保存流程，不互相覆寫。把授權交給 DO 不要求搬走這些內容，也不要求新增 R2。</p>
 <p>然而，如果 Next.js 先問 DO「C 能寫嗎？」，得到 yes 後過一會兒才寫 DB，而 A 剛好在中間踢掉 C，就會發生<strong>授權檢查與實際寫入之間的競態</strong>。只把檢查位置換成 RPC，還沒有解決這個問題。</p>
 <p>目標做法是由 DO 接受並排序內容操作；Neon 的內部儲存 adapter 用操作 ID、權威版本與快照版本驗證寫入。踢人時，DO 先拒絕 C 的新操作，再確認較早接受的操作已完成，或已被版本屏障隔離。只有必要的在途工作都不會在日後繞過撤權，才顯示完整撤權生效。</p>
 <p>「版本屏障」可以理解為儲存端的一條界線：低於目前有效版本的舊請求，不得再改變最新資料。DO 與 DB 之間仍可能逾時、回覆遺失，故需要查詢結果與冪等重送；具體協定須以故障原型驗收，不能只測正常流程。</p>
 <p>保留 Neon 的好處是沿用現有存檔、查詢與備份。代價是內容讀寫跨 Cloudflare 與 Next.js／Neon，增加延遲與失敗恢復邏輯。Neon 故障時，即時協作可能仍在運作，但 UI 必須清楚顯示尚未成功儲存；不能把「目前還能畫」說成「內容已保存」。</p>
-<h3>圖片下載也是授權入口</h3>
-<p>如果附件有永久公開 URL，DO 踢人並不會讓該 URL 失效。因此沿用 UploadThing 的前提，是驗證私有物件與授權代理可滿足需求。若採預簽下載 URL，已發出的連結在有效期內可能仍可使用；這個窗口要明示。無法滿足契約時先阻擋上線、另評估最小變更，不把「不換儲存服務」當成可以略過的理由。</p>
+<h3>附件索引受控，已知 public 密文 URL 暫不撤回</h3>
+<p>UploadThing 維持 public 密文上傳（2026-10-07 擁有者決定）。DO 撤權限制後續取得附件索引與 URL、上傳授權及確認寫入；已取得或另行獲得的永久 URL，在物件刪除前仍能下載密文。持有對應金鑰的人仍可解密，已下載的內容無法收回。這個限制暫時接受；本次不要求私有上傳、下載代理、付費升級或更換儲存服務，也不宣稱 URL 隨撤權失效。</p>
 </section><section id="e2ee"><h2>列表記住房間，金鑰決定能否解密</h2>
 <p>「我的房間」是 Neon 中按使用者查詢的列表副本。DO 同步建立、加入、角色變更、踢人與關閉的結果；每筆帶版本，晚到事件不能把已移除的房間重新顯示為有效。列表允許短暫落後，實際點入仍由 DO 判斷。</p>
 <p>A 踢掉 C 後，C 的首頁可能暫時仍顯示那張白板，但 DO 已拒絕 C 進入。這是列表的顯示延遲，不是繼續授權。反過來，新加入的人也可能在列表同步完成前，已經能從分享連結進房。</p>
@@ -26,7 +26,7 @@
 <div class="table-wrap" tabindex="0" role="region" aria-label="比較表格，窄螢幕可左右捲動"><table><thead><tr><th scope="col">情境</th><th scope="col">能說什麼</th></tr></thead><tbody>
 <tr><td>A 的踢人請求已到 DO，撤權已持久化</td><td>DO 可立即依新狀態停止 C 後續收發，不等列表同步。</td></tr>
 <tr><td>A 到 DO 的請求失敗</td><td>無法確認撤權，顯示處理中或失敗，用操作 ID 查詢；不能說成功。</td></tr>
-<tr><td>DO 已擋訊息，但 DB 寫入屏障待確認</td><td>即時收發已拒絕，完整內容撤權仍 pending。</td></tr>
+<tr><td>DO 已擋訊息，但 DB 寫入屏障待確認</td><td>即時收發已拒絕，受控內容入口撤權仍 pending；public 物件 URL 不在可撤回範圍。</td></tr>
 <tr><td>全站刪除帳號，部分房間無法連線</td><td>阻擋新活動並持久重試；所有房間確認前不能說全面完成。</td></tr>
 <tr><td>資料已下載或訊息已送出</td><td>無法從對方裝置收回，撤權限制後續服務存取。</td></tr>
 </tbody></table></div>

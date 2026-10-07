@@ -38,6 +38,13 @@ open stale canvas from silently overwriting the committed version.
 
 ## Cross-member durable confirmation
 
+UploadThing room objects retain public ACLs and contain ciphertext only. Authorized asset resolution
+returns their permanent download URLs. Revocation blocks subsequent application API resolution and
+upload/finalize, but cannot invalidate a URL already learned or otherwise obtained while its object
+exists. A holder of the matching room key can still decrypt it; downloaded copies cannot be recalled.
+This provider-level download limitation is explicitly accepted for now. Private uploads, proxy reads
+and a provider upgrade are not prerequisites for the authority reset.
+
 `save-state.ts` compares exact canonical coverage: sorted tuples of element ID, version,
 versionNonce, and isDeleted, using the same identity contract as the snapshot digest. Coverage
 includes syncable tombstones and conflict winners. Confirmation records the actual durable revision
