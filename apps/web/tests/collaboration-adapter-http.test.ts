@@ -4,11 +4,14 @@ vi.mock("server-only", () => ({}));
 import {
   ADAPTER_METADATA_HEADER,
   ADAPTER_METADATA_MAX_BYTES,
+  SNAPSHOT_RECEIPT_HEADER,
+  snapshotAbsenceReceiptSchema,
   type AdapterCommand,
 } from "@drawstuff/collaboration/authority";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 import * as schema from "@/server/db/schema";
 import type { Database } from "@/server/collab/rooms";
+import { executeStorageOperation } from "@/server/collab/authority-storage";
 import { handleAdapterRequest } from "@/server/collab/adapter-http";
 import { openTestDatabase } from "./support/pglite-db";
 import {
@@ -135,6 +138,53 @@ describe("private binary adapter endpoint", () => {
         )
       ).json(),
     ).toEqual({ status: "written", revision: 1 });
+  });
+  it("returns the locked revision on an absent snapshot after reset, allowing the next conditional write", async () => {
+    const f = await adapterFixture(db);
+    await executeStorageOperation(db, "write", f.operation(), testCiphertext());
+    const reset = f.operation({
+      kind: "snapshot-reset",
+      expectedRevision: 1,
+      checksum: ciphertextChecksum(new Uint8Array()),
+    });
+    expect(
+      await (
+        await handleAdapterRequest(
+          controlRequest({ v: 1, action: "write", operation: reset }),
+          db,
+          secret,
+        )
+      ).json(),
+    ).toEqual({ status: "written", revision: 2 });
+    const read = await handleAdapterRequest(
+      controlRequest({
+        v: 1,
+        action: "read-snapshot",
+        roomId: f.roomId,
+        authGeneration: 1,
+        authorityEpoch: 1,
+      }),
+      db,
+      secret,
+    );
+    expect(read.status).toBe(404);
+    const receipt = snapshotAbsenceReceiptSchema.parse(
+      JSON.parse(read.headers.get(SNAPSHOT_RECEIPT_HEADER)!) as unknown,
+    );
+    expect(receipt).toEqual({
+      roomId: f.roomId,
+      authGeneration: 1,
+      authorityEpoch: 1,
+      revision: 2,
+    });
+    expect(
+      await executeStorageOperation(
+        db,
+        "write",
+        f.operation({ expectedRevision: receipt.revision }),
+        testCiphertext(),
+      ),
+    ).toEqual({ status: "written", revision: 3 });
   });
   it("bounds actual chunked bytes despite a misleading Content-Length and cancels excess input", async () => {
     const f = await adapterFixture(db);

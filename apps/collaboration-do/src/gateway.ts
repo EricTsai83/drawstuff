@@ -15,7 +15,12 @@ import {
   AUTHORITY_GATEWAY_PATH,
   AUTHORITY_LIMITS,
   authorityGatewayRequestSchema,
+  snapshotGatewayRequestSchema,
+  SNAPSHOT_GATEWAY_PATH,
+  SNAPSHOT_REQUEST_HEADER,
+  ADAPTER_METADATA_MAX_BYTES,
 } from "@drawstuff/collaboration/authority";
+import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 
 import {
@@ -46,6 +51,7 @@ import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
  *   GET  /v1/rooms/:roomId/socket                               (identity proof join)
  *   POST /v1/control                                           (Vercel only)
  *   POST /v1/authority                                         (Vercel only)
+ *   POST /v1/snapshot                                          (Vercel only)
  */
 
 const HEALTH_PATH = "/healthz";
@@ -98,6 +104,8 @@ export async function handleGatewayRequest(
     if (url.pathname === HEALTH_PATH) return handleHealth(request, env);
     if (url.pathname === AUTHORITY_GATEWAY_PATH)
       return await handleAuthority(request, env);
+    if (url.pathname === SNAPSHOT_GATEWAY_PATH)
+      return await handleSnapshot(request, env);
     if (url.pathname === DO_GATEWAY_CONTROL_PATH) {
       return await handleControl(request, env, log);
     }
@@ -216,18 +224,116 @@ async function handleSocket(
   }
 }
 
-async function handleAuthority(request: Request, env: Env): Promise<Response> {
+function serviceAuthorized(request: Request, env: Env): boolean {
   const secret = env.COLLAB_AUTHORITY_SECRET;
   const header = request.headers.get("authorization");
   const received = encoder.encode(
     header?.startsWith("Bearer ") ? header.slice(7) : "",
   );
   const expected = encoder.encode(secret ?? "");
+  return (
+    expected.byteLength >= 32 &&
+    received.byteLength === expected.byteLength &&
+    timingSafeEqual(received, expected)
+  );
+}
+
+async function handleSnapshot(request: Request, env: Env): Promise<Response> {
+  if (!serviceAuthorized(request, env))
+    return closedJsonResponse(401, "unauthorized");
+  if (request.method !== "POST")
+    return closedJsonResponse(405, "method-not-allowed", { Allow: "POST" });
+  const metadata = request.headers.get(SNAPSHOT_REQUEST_HEADER);
   if (
-    expected.byteLength < 32 ||
-    received.byteLength !== expected.byteLength ||
-    !timingSafeEqual(received, expected)
+    !metadata ||
+    encoder.encode(metadata).byteLength > ADAPTER_METADATA_MAX_BYTES
   )
+    return closedJsonResponse(400, "malformed");
+  let input: unknown;
+  try {
+    input = JSON.parse(metadata) as unknown;
+  } catch {
+    return closedJsonResponse(400, "malformed");
+  }
+  const parsed = snapshotGatewayRequestSchema.safeParse(input);
+  if (!parsed.success) return closedJsonResponse(400, "malformed");
+  if (!roomTokenSecretReady(env.COLLAB_IDENTITY_SECRET))
+    return closedJsonResponse(503, "not-ready");
+  const intent =
+    parsed.data.request.action === "read"
+      ? parsed.data.request
+      : parsed.data.request.operation;
+  const verified = verifyIdentityProof({
+    token: parsed.data.proof,
+    secret: env.COLLAB_IDENTITY_SECRET,
+    expectedRoomId: intent.roomId,
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+  if (!verified.ok) return closedJsonResponse(401, "unauthorized");
+  if (request.headers.get("content-type") !== "application/octet-stream")
+    return closedJsonResponse(415, "unsupported-media-type");
+  const maximum =
+    parsed.data.request.action === "write" &&
+    parsed.data.request.operation.kind === "snapshot-put"
+      ? MAX_SNAPSHOT_CIPHERTEXT_BYTES
+      : 0;
+  if (Number(request.headers.get("content-length") ?? 0) > maximum)
+    return closedJsonResponse(413, "payload-too-large");
+  // Forward at most maximum+1 actual bytes: the extra byte makes an oversized stream
+  // unambiguously fail the Object's own bound instead of silently truncating it.
+  // Generated HTTP body types are unparameterized; HTTP chunks are bytes.
+  const reader = request.body?.getReader() as
+    ReadableStreamDefaultReader<Uint8Array> | undefined;
+  let forwarded = 0;
+  const body = reader
+    ? new ReadableStream({
+        type: "bytes",
+        async pull(controller) {
+          try {
+            const chunk = await reader.read();
+            if (chunk.done) {
+              controller.close();
+              reader.releaseLock();
+              return;
+            }
+            const remaining = maximum + 1 - forwarded;
+            const bytes =
+              chunk.value.byteLength > remaining
+                ? chunk.value.slice(0, remaining)
+                : chunk.value;
+            forwarded += bytes.byteLength;
+            controller.enqueue(bytes);
+            if (forwarded > maximum) {
+              controller.close();
+              await reader.cancel();
+              reader.releaseLock();
+            }
+          } catch (error) {
+            controller.error(error);
+          }
+        },
+        async cancel() {
+          await reader.cancel();
+          reader.releaseLock();
+        },
+      })
+    : null;
+  const internal = new Request("https://room.internal/v1/snapshot", {
+    method: "POST",
+    headers: { [SNAPSHOT_REQUEST_HEADER]: metadata },
+    body,
+  });
+  try {
+    return await env.COLLABORATION_ROOM.getByName(
+      intent.roomId,
+    ).applySnapshotV1(internal);
+  } catch {
+    return closedJsonResponse(503, "unavailable");
+  }
+}
+
+async function handleAuthority(request: Request, env: Env): Promise<Response> {
+  if (!serviceAuthorized(request, env))
     return closedJsonResponse(401, "unauthorized");
   if (request.method !== "POST")
     return closedJsonResponse(405, "method-not-allowed", { Allow: "POST" });

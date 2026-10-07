@@ -131,7 +131,8 @@ describe("CollaborationRoom alarm identity", () => {
     const key = roomChannelKey(ROOM_A, 3);
     const stub = env.COLLABORATION_ROOM.getByName(key);
     await runInDurableObject(stub, async (_instance, state) => {
-      await state.storage.setAlarm(Date.now() + 50);
+      // The helper forces execution; a short wall-clock deadline can fire first under suite load.
+      await state.storage.setAlarm(Date.now() + 60_000);
     });
     // No sockets, no cohort, no cutoffs: the scheduler treats the room as
     // never joined and releases its storage entirely.

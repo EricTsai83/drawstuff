@@ -749,6 +749,22 @@ export class RoomAuthority {
       : undefined;
   }
 
+  /** Receipt lookups bind the complete immutable intent, even after its deadline. */
+  queryContent(input: ContentOperation): ContentResult | undefined {
+    const operation = contentOperationSchema.parse(input);
+    if (operation.roomId !== this.roomId) throw new Error("wrong-room");
+    const row = this.storage.sql
+      .exec<{ request: string }>(
+        "SELECT request FROM authority_content WHERE id=?",
+        operation.operationId,
+      )
+      .toArray()[0];
+    if (!row) return undefined;
+    if (row.request !== JSON.stringify(operation))
+      throw new Error("operation-mismatch");
+    return this.contentResult(operation.operationId);
+  }
+
   async settleContent(
     operationId: string,
     input: ContentResult,

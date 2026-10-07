@@ -452,6 +452,12 @@ export async function readAdapterSnapshot(
   db: Database,
   context: StorageContext,
 ) {
+  return (await readAdapterSnapshotState(db, context)).snapshot;
+}
+export async function readAdapterSnapshotState(
+  db: Database,
+  context: StorageContext,
+) {
   return db.transaction(async (tx) => {
     const room = await lockRoom(tx, context.roomId);
     if (!room || !matches(room, context))
@@ -460,7 +466,10 @@ export async function readAdapterSnapshot(
       .select()
       .from(collaborationSnapshot)
       .where(snapshotWhere(context));
-    return snapshot ?? null;
+    return {
+      snapshot: snapshot ?? null,
+      revision: Math.max(room.snapshotRevision, snapshot?.revision ?? 0),
+    };
   });
 }
 export async function readAdapterAssets(

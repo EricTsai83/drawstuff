@@ -76,6 +76,7 @@ import { RoomAuthority } from "./room-authority.ts";
 import { AdapterClient } from "./adapter-client.ts";
 import { applyAuthorityEntry } from "./authority-entry.ts";
 import { RoomDelivery } from "./room-delivery.ts";
+import { SnapshotEntry } from "./snapshot-entry.ts";
 
 /** Standard `WebSocket.OPEN`; stated like the relay does rather than read off
  *  a runtime constant the workerd type surface does not export uniformly. */
@@ -179,6 +180,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
 
   private readonly log: DoLogger;
   private authority: RoomAuthority | undefined;
+  private snapshotEntry: SnapshotEntry | undefined;
 
   constructor(ctx: DurableObjectState, env: CollaborationRoomEnv) {
     super(ctx, env);
@@ -231,6 +233,13 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       await this.scheduleAfterMembershipChange();
     }
     return reply;
+  }
+
+  async applySnapshotV1(request: Request): Promise<Response> {
+    this.requireChannelKey();
+    if (!this.authority) return closedJsonResponse(503, "unavailable");
+    this.snapshotEntry ??= new SnapshotEntry(this.authority, this.env);
+    return this.snapshotEntry.handle(request);
   }
 
   override async fetch(request: Request): Promise<Response> {

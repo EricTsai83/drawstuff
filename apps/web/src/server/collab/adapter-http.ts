@@ -6,6 +6,7 @@ import {
   ADAPTER_METADATA_HEADER,
   ADAPTER_METADATA_MAX_BYTES,
   AUTHORITY_LIMITS,
+  SNAPSHOT_RECEIPT_HEADER,
   type AdapterCommand,
 } from "@drawstuff/collaboration/authority";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
@@ -17,7 +18,7 @@ import {
   cleanupAdapterRoom,
   executeStorageOperation,
   readAdapterAssets,
-  readAdapterSnapshot,
+  readAdapterSnapshotState,
   verifyAdapterInitialization,
 } from "./authority-storage";
 import {
@@ -141,13 +142,28 @@ export async function handleAdapterRequest(
       case "cleanup":
         return jsonResponse(await cleanupAdapterRoom(db, command));
       case "read-snapshot": {
-        const snapshot = await readAdapterSnapshot(db, command);
-        if (!snapshot) return jsonResponse({ error: "not-found" }, 404);
+        const { snapshot, revision } = await readAdapterSnapshotState(
+          db,
+          command,
+        );
+        if (!snapshot) {
+          const response = jsonResponse({ error: "not-found" }, 404);
+          response.headers.set(
+            SNAPSHOT_RECEIPT_HEADER,
+            JSON.stringify({
+              roomId: command.roomId,
+              authGeneration: command.authGeneration,
+              authorityEpoch: command.authorityEpoch,
+              revision,
+            }),
+          );
+          return response;
+        }
         return new Response(new Uint8Array(snapshot.ciphertext), {
           headers: {
             "content-type": "application/octet-stream",
             "cache-control": "no-store",
-            "x-drawstuff-snapshot": JSON.stringify({
+            [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
               roomId: command.roomId,
               authGeneration: command.authGeneration,
               authorityEpoch: command.authorityEpoch,

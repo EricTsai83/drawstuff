@@ -17,6 +17,7 @@ import {
   applyStorageFence,
   executeStorageOperation,
   readAdapterSnapshot,
+  readAdapterSnapshotState,
 } from "@/server/collab/authority-storage";
 import {
   applyRoomProjection,
@@ -26,6 +27,7 @@ import { lockRoom } from "@/server/collab/rooms";
 import {
   adapterFixture,
   testCiphertext,
+  ciphertextChecksum,
 } from "../support/authority-adapter-fixtures";
 
 const url = process.env.COLLAB_ADAPTER_DATABASE_URL;
@@ -176,6 +178,37 @@ describe("actual PostgreSQL adapter lock races", () => {
       await executeStorageOperation(db, "write", winner, testCiphertext()),
     ).toEqual({ status: "written", revision: 1 });
     expect((await readAdapterSnapshot(db, winner))?.revision).toBe(2);
+  });
+  it("orders an absent-snapshot read after reset under the room lock and preserves its revision", async () => {
+    const f = await adapterFixture(db);
+    await executeStorageOperation(db, "write", f.operation(), testCiphertext());
+    const held = await holdRoom(f.roomId);
+    const reset = f.operation({
+      kind: "snapshot-reset",
+      expectedRevision: 1,
+      checksum: ciphertextChecksum(new Uint8Array()),
+    });
+    const resetting = executeStorageOperation(db, "write", reset);
+    let reading: ReturnType<typeof readAdapterSnapshotState> | undefined;
+    try {
+      await waitForBlocked(1);
+      reading = readAdapterSnapshotState(db, reset);
+      await waitForBlocked(2);
+    } finally {
+      held.release();
+    }
+    await held.finished;
+    expect(await resetting).toEqual({ status: "written", revision: 2 });
+    const state = await reading;
+    expect(state).toEqual({ snapshot: null, revision: 2 });
+    expect(
+      await executeStorageOperation(
+        db,
+        "write",
+        f.operation({ expectedRevision: state.revision }),
+        testCiphertext(),
+      ),
+    ).toEqual({ status: "written", revision: 3 });
   });
   it("binds global operation identity even when the same UUID is submitted to different locked rooms", async () => {
     const a = await adapterFixture(db);

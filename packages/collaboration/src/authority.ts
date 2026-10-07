@@ -244,6 +244,31 @@ export const contentOperationSchema = z
     "asset-finalize requires an immutable asset descriptor",
   );
 export type ContentOperation = z.infer<typeof contentOperationSchema>;
+/** The login service supplies identity; callers only supply an immutable snapshot intent. */
+const snapshotIntentSchema = z
+  .strictObject(contentOperationSchema.shape)
+  .omit({ actor: true, asset: true })
+  .extend({ kind: z.enum(["snapshot-put", "snapshot-reset"]) });
+export const snapshotRequestSchema = z.discriminatedUnion("action", [
+  z.strictObject({
+    action: z.enum(["write", "query", "cancel"]),
+    operation: snapshotIntentSchema,
+  }),
+  z.strictObject({
+    action: z.literal("read"),
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    roomId: roomIdSchema,
+    operationId: operationIdSchema,
+    deadline: z.int().positive(),
+  }),
+]);
+export const snapshotGatewayRequestSchema = z.strictObject({
+  proof: z.string().min(1).max(2_048),
+  request: snapshotRequestSchema,
+});
+export const SNAPSHOT_GATEWAY_PATH = "/v1/snapshot";
+export const SNAPSHOT_REQUEST_HEADER = "x-drawstuff-snapshot-request";
+export const SNAPSHOT_RECEIPT_HEADER = "x-drawstuff-snapshot";
 export const storageCommandSchema = z.discriminatedUnion("action", [
   z.strictObject({
     v: z.literal(AUTHORITY_CONTRACT_VERSION),
@@ -367,6 +392,11 @@ export const snapshotReceiptSchema = z.strictObject({
   cryptoVersion: z.literal(1),
   byteLength: z.int().positive(),
   checksum: checksumSchema,
+});
+/** An absent snapshot still has a durable revision after reset. */
+export const snapshotAbsenceReceiptSchema = z.strictObject({
+  ...storageContext,
+  revision: z.int().nonnegative(),
 });
 export const roomListInputSchema = z.strictObject({
   limit: z.int().min(1).max(100).default(30),

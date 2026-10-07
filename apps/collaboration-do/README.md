@@ -22,12 +22,12 @@ The Worker carries production collaboration traffic through DO-only routing.
 development; short-lived join tokens remain the authorization boundary.
 
 **18B source is not independently deployable.** The source adds protocol-v6 Room authority,
-durable adapter delivery, verified login proofs, private management ingress and formal WebSocket authority,
-while product initialization/content/upload and Lifecycle retirement remain pending. Formal authority rooms refuse
+durable adapter delivery, verified login proofs, private management/binary snapshot ingress and formal WebSocket authority,
+while web binary/product initialization/upload and Lifecycle retirement remain pending. Formal authority rooms refuse
 legacy socket/control ingress. The P3 reset must precede deployment; do not push this intermediate
 artifact to an automatic deployment branch. Source configuration currently requires seven secrets;
 the two adapter bindings plus `COLLAB_IDENTITY_SECRET` and `COLLAB_AUTHORITY_SECRET` are unprovisioned.
-See the [source boundary](../../docs/architecture/collaboration-system-design.md#18b-p2-formal-websocket-authority)
+See the [source boundary](../../docs/architecture/collaboration-system-design.md#18b-p2-binary-snapshot-backend-entry)
 and [deployment runbook](../../docs/operations/collaboration-do-deployment.md#2-secrets).
 
 ## Public surface (fixed, versioned)

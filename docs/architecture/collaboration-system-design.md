@@ -102,8 +102,8 @@ the authenticated management unit below supplies creation and pre-activation reg
   snapshot bytes are bounded at the existing ciphertext ceiling, independently of Content-Length,
   and their envelope version/checksum are checked before a DB lock is taken. Snapshot reads return
   binary bytes plus revision/checksum metadata and `no-store`. No Base64 or DO payload staging is
-  introduced. The future DO caller must enforce its two-body quota and recheck local access after
-  reads return; this endpoint alone does not establish those cross-hop guarantees.
+  introduced. The binary Room entry below enforces the two-body quota and local access recheck;
+  this private adapter endpoint alone does not establish those cross-hop guarantees.
 - Finalization trusts only provider metadata supplied by the authenticated upload delivery path.
   It preserves the existing file-id identity, bounds assets per generation, and queues rejected or
   duplicate unreferenced provider keys for cleanup in the same transaction. Provider-key advisory
@@ -134,8 +134,8 @@ The artifact remains unsuitable for independent deployment; no production creden
 - `AdapterClient` uses the dedicated `COLLAB_ADAPTER_SECRET` and operator-configured
   `COLLAB_ADAPTER_URL`. It accepts only the exact HTTPS adapter path without URL credentials,
   query, or fragment, forbids redirects, propagates the alarm abort signal, and bounds actual JSON
-  command/response bytes at 64 KiB. Response schemas are strict. It cannot forward snapshot bodies
-  or read ciphertext; those entry points still need the two-body quota and local access recheck.
+  command/response bytes at 64 KiB. Response schemas are strict. Alarm calls remain metadata-only; dedicated binary methods
+  serve the snapshot entry below, which owns its two-body quota and local access recheck.
 - `RoomDelivery` sends projections, storage fences, receipt queries/cancellations, initialization
   verification, and terminal cleanup. A successful obsolete/negative projection acknowledgment
   completes that job. A fence acknowledgment must match its sent epoch; a future epoch fails closed.
@@ -202,8 +202,8 @@ remaining P2 entry points and the P3 reset. No service credentials or production
 workerd tests cover verified Gateway → Room RPC forwarding, private Gateway refusal, proof boundaries, registration failure/late retirement,
 eviction and parent-job recovery, strict target versions, own-actor queries and legacy ingress isolation.
 Web tests cover the live session/account contract, pre-parent registration, parent replay/cancellation,
-forwarding bounds and tRPC identity binding. `pnpm collab:adapters` now runs eight actual PostgreSQL
-tests, including account freeze versus registration and terminal fence versus missing-parent creation.
+forwarding bounds and tRPC identity binding. `pnpm collab:adapters` now runs nine actual PostgreSQL
+tests, including account freeze versus registration, terminal fence versus missing-parent creation, and reset versus a missing-snapshot revision read.
 These local tests do not establish deployed cross-cloud behavior or complete product flows. Lifecycle
 delivery, every deletion entry, binary/upload product entry points, legacy path removal, and
 reset/rollback rehearsal remain P2 work before P3 deployment.
@@ -248,8 +248,52 @@ proof expiry during registration, adapter failures and generation/end transition
 all retained fields and maximal sizes; the web router test pins the returned generation-free URL.
 Ready state is seeded only in these realtime tests: they do not claim a completed product initialization,
 binary persistence, verified upload callback, Lifecycle retirement, or deployed cross-cloud acceptance.
-The next unit connects product initialization and snapshot/asset entry points. P2 still requires every
-retirement/deletion entry, legacy path removal and reset/rollback rehearsal before P3 deployment.
+The binary snapshot backend unit below connects Room authorization to storage. Product initialization/
+binary session routes and asset entry points still need conversion, alongside every retirement/deletion
+entry, legacy path removal and reset/rollback rehearsal before P3 deployment.
+
+## 18B P2 binary snapshot backend entry
+
+The source adds private `POST /v1/snapshot`, authenticated with the existing management service
+capability plus a live room-bound identity proof. An 8 KiB `x-drawstuff-snapshot-request` header
+contains a strict read request or immutable snapshot-put/reset intent; actor fields are refused.
+The body is binary ciphertext for put and empty for read/query/cancel/reset. Gateway verifies the
+service capability and proof before selecting the roomId binding, bounds actual forwarded bytes,
+and uses streaming [Request/Response RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/#readablestream-writablestream-request-and-response) to the same Room. This is a backend source unit;
+there is no browser session proxy or product snapshot-client conversion yet.
+
+- Room verifies identity again, checks its current role and confirmed storage parent, and obtains
+  the private live actor/owner/scene lifecycle registration receipt before handling content. Only
+  the owner can use initializing-room content before its deadline, or reset; ready-room viewers can read, not write.
+  PostgreSQL projections and browser actor claims never grant access. External I/O stays outside
+  local transactions and does not block other Room events.
+- At most two read/put transfers run per Room. Each body is bounded by the 4 MiB plaintext budget
+  plus the existing sealed-envelope overhead, including replays and dishonest Content-Length.
+  Room buffers a bounded body in memory, validates envelope/checksum, and stores only immutable
+  operation metadata plus an alarm-backed result. Adapter writes remain conditional PostgreSQL
+  transactions; only a confirmed receipt produces written. Control/query/cancel requests do not
+  consume a body slot. A 15-second timeout cancels stalled readers and releases reservations.
+- Replays bind the complete intent and verified actor. Query/cancel cannot create a new intent or
+  inspect another actor's receipt, and can recover retained receipts after the original deadline.
+  Lost write replies leave pending work; query/alarm can recover the original revision after eviction
+  or durably cancel a missing body. An unavailable adapter never becomes a successful/cancelled
+  local receipt. Alarms never recreate or persist ciphertext.
+- Reads bind adapter room/generation/epoch/revision metadata, actual length, envelope and checksum.
+  Room rechecks current access and generation/epoch after I/O, including missing-snapshot replies,
+  and before each bounded response chunk. A missing snapshot returns its locked revision watermark
+  in the receipt header, so reset cannot cause subsequent writers to assume revision zero.
+  The read slot remains reserved through stream consumption
+  or cancellation. Previously delivered/enqueued bytes cannot be recalled after revocation; later
+  Room chunks fail closed. Revocation while receiving a write body prevents its adapter dispatch.
+
+Fifteen new workerd tests cover maximum legal Gateway/RPC/adapter round trips, oversized and corrupt
+bodies/receipts, identity/service boundaries, immutable replay/cancel, lost-reply eviction recovery,
+initial owner/manifest completion, two-body saturation, response cancellation and revocation races.
+Actual WebSocket fanout and management remain live while a snapshot adapter read is stalled.
+These runtime tests use fake private adapter HTTP responses; the existing real PostgreSQL adapter
+suite separately verifies storage/fence ordering. Deployed Vercel body limits, cross-cloud load and
+product flows remain acceptance gates. The next unit connects the authenticated web binary entry
+and product snapshot calls; attachments and Lifecycle/deletion conversion remain P2 work.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation
