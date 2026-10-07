@@ -125,7 +125,10 @@ const MAX_SCENE_REPAIR_ATTEMPTS = 3;
 
 const MAX_MESSAGE_ID_LENGTH = 64;
 
+import type { RoomSaveState } from "@/lib/collab/session/save-state";
+
 export type CollaborationSessionOptions = {
+  onSaveStateChange?: (state: RoomSaveState) => void;
   transport: CollaborationTransport;
   roomId: RoomId;
   /**
@@ -289,6 +292,8 @@ export type CollaborationSession = {
    * session down.
    */
   flushSnapshot(): Promise<void>;
+  requestSave(): void;
+  getSaveState(): RoomSaveState;
   getConnectionState(): ConnectionState;
   /** Current recovery phase; see `onRecoveryStateChange`. */
   getRecoveryState(): RecoveryState;
@@ -469,6 +474,21 @@ export function createCollaborationSession(
     context,
     snapshotStore,
     snapshotIntervalMs,
+    assetStore,
+    onSaveStateChange: options.onSaveStateChange,
+    sendSaveRequest: () => {
+      publisher.sendSceneDelta();
+      publisher.sendSnapshotControl({
+        kind: "request",
+        requestId: crypto.randomUUID(),
+      });
+    },
+    onSnapshotWritten: (receipt) =>
+      publisher.sendSnapshotControl({
+        kind: "persisted",
+        authGeneration,
+        ...receipt,
+      }),
     getJoinEpoch: () => joinEpoch,
     isDestroyed: () => destroyed,
     isTerminated: () => terminated,
@@ -518,6 +538,15 @@ export function createCollaborationSession(
     wrapRemoteApply,
     getGate: () => gate,
     isKnownPeer: (peerId) => knownPeerIds.has(peerId),
+    onSceneApplied: () => cadence.onSceneChange(),
+    receiveSnapshotControl: (message) => {
+      if (message.payload.kind === "request") cadence.requestSave(true);
+      else if (message.payload.authGeneration === authGeneration)
+        cadence.receivePersisted(
+          message.payload.revision,
+          message.payload.checksum,
+        );
+    },
     receivePresence: (message) => presence.receivePresence(message),
     interceptSceneMessage: (message, byteLength) =>
       joinBaseline.interceptSceneMessage(message, byteLength),
@@ -714,6 +743,7 @@ export function createCollaborationSession(
       if (context.isStopped()) return;
       // A real edit means this client has something new to say, so the repair
       // budget is not being spent on a silent room.
+      cadence.onSceneChange();
       repair.noteRoomActivity();
       presence.setSelection(appState.selectedElementIds);
       // The flush reads the live scene from the API at send time, so
@@ -746,6 +776,8 @@ export function createCollaborationSession(
       if (context.isStopped()) return;
       presence.setIdleState(nextIdleState);
     },
+    requestSave: () => cadence.requestSave(),
+    getSaveState: () => cadence.getSaveState(),
     flushSnapshot() {
       return cadence.writeSnapshot({ force: true });
     },

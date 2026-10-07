@@ -1,6 +1,7 @@
 import {
   createAssetCryptoCodec,
   MAX_ROOM_ASSETS_PER_GENERATION,
+  MAX_ASSET_LOOKUP_BATCH,
   type ASSET_CRYPTO_VERSION,
   type CollaborationAssetRecord,
 } from "@drawstuff/collaboration/asset";
@@ -8,6 +9,7 @@ import type { RoomId } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 
+import { withCollaborationRequestDeadline } from "@/lib/collab/request-deadline";
 import { createAssetDownloader } from "@/lib/collab/asset-download";
 import { createAssetPublisher } from "@/lib/collab/asset-publish";
 import { createUnreadableAssetVerdict } from "@/lib/collab/asset-unreadable-verdict";
@@ -119,6 +121,8 @@ export type CollaborationAssetStore = {
   request: (fileIds: readonly string[]) => Promise<void>;
   /** Aborts in-flight transfers, cancels the retry timer, and drops all state. */
   destroy: () => void;
+  /** Server records prove all referenced ciphertext objects were finalized. */
+  areAvailable?: (fileIds: readonly string[]) => Promise<boolean>;
 };
 
 const RETRY_BASE_DELAY_MS = 1_000;
@@ -311,6 +315,33 @@ export async function createCollaborationAssetStore(options: {
   return {
     publish: publisher.publish,
     request: downloader.request,
+    async areAvailable(fileIds) {
+      if (destroyed) return false;
+      try {
+        for (
+          let offset = 0;
+          offset < fileIds.length;
+          offset += MAX_ASSET_LOOKUP_BATCH
+        ) {
+          const batch = fileIds.slice(offset, offset + MAX_ASSET_LOOKUP_BATCH);
+          const result = await withCollaborationRequestDeadline(
+            (signal) => api.resolve({ roomId, fileIds: [...batch] }, signal),
+            controller.signal,
+          );
+          const present = new Set(
+            result.assets.map((asset) => asset.excalidrawFileId),
+          );
+          if (
+            result.authGeneration !== authGeneration ||
+            batch.some((id) => !present.has(id))
+          )
+            return false;
+        }
+        return !destroyed;
+      } catch {
+        return false;
+      }
+    },
     destroy() {
       if (destroyed) return;
       destroyed = true;

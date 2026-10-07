@@ -1,3 +1,4 @@
+import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import type { RoomPeer } from "@drawstuff/collaboration/transport";
 import {
   collaborationSnapshotDigest,
@@ -16,12 +17,22 @@ import {
 import type { SnapshotBaselineSink } from "@/lib/collab/session/join-baseline";
 import type { SessionContext } from "@/lib/collab/session/session-context";
 import type { SyncBlockReporter } from "@/lib/collab/session/sync-block-reporter";
+import { collectReferencedFileIds } from "@drawstuff/excalidraw-adapter/codec";
+import type { CollaborationAssetStore } from "@/lib/collab/asset-store";
+import {
+  createRoomSaveState,
+  type RoomSaveState,
+} from "@/lib/collab/session/save-state";
 import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
 
 export type SnapshotCadence = SnapshotBaselineSink & {
   /** Publishes the durable snapshot; `force` marks the leave flush. */
   writeSnapshot(params?: { force?: boolean }): Promise<void>;
   start(epoch: number): void;
+  requestSave(fromPeer?: boolean): void;
+  onSceneChange(): void;
+  getSaveState(): RoomSaveState;
+  receivePersisted(revision: number, checksum: string): void;
   stop(): void;
   /** New socket: the revision and digest belong to the previous session. */
   resetForConnection(): void;
@@ -45,6 +56,14 @@ export const createSnapshotCadence = (options: {
   context: SessionContext;
   snapshotStore: CollaborationSnapshotStore | undefined;
   snapshotIntervalMs: number;
+  assetStore?: CollaborationAssetStore;
+  onSaveStateChange?: (state: RoomSaveState) => void;
+  sendSaveRequest?: () => void;
+  onSnapshotWritten?: (receipt: {
+    captureId: string;
+    revision: number;
+    checksum: string;
+  }) => void;
   getJoinEpoch(): number;
   /**
    * Both teardown flags, separately: a forced leave flush survives `destroy()`
@@ -66,6 +85,79 @@ export const createSnapshotCadence = (options: {
   const { context, snapshotStore, snapshotIntervalMs, reporter } = options;
   const { sceneApi } = context;
 
+  const saveState = createRoomSaveState({
+    currentElements: () =>
+      toSyncedElements(
+        getSyncableElements(
+          sceneApi.getSceneElementsIncludingDeleted(),
+          context.now(),
+        ),
+      ),
+    onChange: options.onSaveStateChange,
+  });
+  let lastObservedElements = sceneApi.getSceneElementsIncludingDeleted();
+  let confirming = false;
+  let cancelRequestDeadline: (() => void) | undefined;
+  let lastVerificationAt = Number.NEGATIVE_INFINITY;
+  let cancelVerification: (() => void) | undefined;
+  const assetsAvailable = async (
+    elements: readonly SyncedElement[],
+  ): Promise<boolean> => {
+    const ids = collectReferencedFileIds(elements);
+    try {
+      return (
+        ids.length === 0 ||
+        (await options.assetStore?.areAvailable?.(ids)) === true
+      );
+    } catch {
+      return false;
+    }
+  };
+  const confirm = async (
+    revision: number,
+    elements: readonly SyncedElement[],
+    checksum?: string,
+  ): Promise<void> => {
+    const epoch = options.getJoinEpoch();
+    const available = await assetsAvailable(elements);
+    if (context.isStopped() || epoch !== options.getJoinEpoch()) return;
+    if (!available) {
+      saveState.failed();
+      return;
+    }
+    saveState.confirm(revision, elements, checksum);
+    if (saveState.state().status === "saved") {
+      cancelRequestDeadline?.();
+      cancelRequestDeadline = undefined;
+    }
+  };
+  // Coalesced API verification: peer receipts are hints, never proof. A read
+  // independently opens server ciphertext and its revision/checksum seal.
+  const verifyPersisted = async (): Promise<void> => {
+    if (
+      !snapshotStore ||
+      confirming ||
+      context.isStopped() ||
+      !context.connected ||
+      !context.canSyncScene()
+    )
+      return;
+    confirming = true;
+    const epoch = options.getJoinEpoch();
+    lastVerificationAt = context.now();
+    try {
+      const stored = await snapshotStore.load();
+      if (context.isStopped() || epoch !== options.getJoinEpoch()) return;
+      if (stored.status === "loaded")
+        await confirm(stored.revision, stored.elements, stored.checksum);
+      else if (stored.status === "unreadable") saveState.failed();
+    } catch {
+      saveState.failed();
+    } finally {
+      confirming = false;
+    }
+  };
+
   let cancelSnapshotCadence: (() => void) | undefined;
   /** Last revision this session knows the durable snapshot to be at. */
   let snapshotRevision = SNAPSHOT_NO_REVISION;
@@ -74,6 +166,7 @@ export const createSnapshotCadence = (options: {
   /** Digest of the element set last written, so an idle room writes nothing. */
   let lastSnapshotDigest: string | undefined;
   let snapshotWriteInFlight = false;
+  let digestInFlight = false;
   /** The write currently settling, so a leave flush can queue behind it. */
   let inFlightWrite: Promise<void> | undefined;
   /**
@@ -142,7 +235,7 @@ export const createSnapshotCadence = (options: {
       (options.isDestroyed() && !force) ||
       !snapshotStore ||
       !snapshotBaselineKnown ||
-      (snapshotWriteInFlight && !force) ||
+      ((snapshotWriteInFlight || digestInFlight) && !force) ||
       !context.connected ||
       options.hasBarrier() ||
       !context.canEditScene() ||
@@ -160,6 +253,8 @@ export const createSnapshotCadence = (options: {
       context.now(),
     );
     const elements = toSyncedElements(syncableElements);
+    const capturedFiles = sceneApi.getFiles();
+    const capturedAppState = sceneApi.getAppState();
     // A leave flush queues behind the cadence write rather than dropping. The
     // cadence write carries the scene from *before* the edits this flush was
     // asked to persist, so waiting — with the decision to write already made —
@@ -182,7 +277,13 @@ export const createSnapshotCadence = (options: {
     const expectedRevision = awaitedWriteConflicted
       ? preWaitRevision
       : snapshotRevision;
-    const digest = await collaborationSnapshotDigest(elements);
+    digestInFlight = true;
+    let digest: string;
+    try {
+      digest = await collaborationSnapshotDigest(elements);
+    } finally {
+      digestInFlight = false;
+    }
     if ((options.isDestroyed() && !force) || epoch !== options.getJoinEpoch()) {
       return;
     }
@@ -194,10 +295,34 @@ export const createSnapshotCadence = (options: {
       // write that would have cleared the block is exactly the write this return
       // skips, and the room would stay marked as un-backed-up for good.
       reporter.noteSnapshotWritten();
+      // A previously loaded snapshot may have lacked finalized attachments.
+      // Retry the independent read even when the element digest is unchanged.
+      if (saveState.state().status !== "saved") await verifyPersisted();
       return;
     }
 
     const run = async (): Promise<void> => {
+      saveState.saving();
+      // Upload only referenced local images, then independently check all
+      // records. A snapshot cannot confirm a not-yet-finalized attachment.
+      const ids = collectReferencedFileIds(elements);
+      if (ids.length > 0 && context.canEditScene()) {
+        const files = capturedFiles;
+        await options.assetStore?.publish(
+          ids.flatMap((id) => (files[id] ? [files[id]] : [])),
+        );
+      }
+      if (!(await assetsAvailable(elements))) {
+        saveState.failed();
+        return;
+      }
+      if (
+        epoch !== options.getJoinEpoch() ||
+        options.isTerminated() ||
+        (options.isDestroyed() && !force)
+      )
+        return;
+      const captureId = crypto.randomUUID();
       const result = await store.save({
         elements,
         expectedRevision,
@@ -209,6 +334,13 @@ export const createSnapshotCadence = (options: {
       if (result.status === "written") {
         snapshotRevision = result.revision;
         lastSnapshotDigest = digest;
+        await confirm(result.revision, elements, result.checksum);
+        if (!context.isStopped() && result.checksum)
+          options.onSnapshotWritten?.({
+            captureId,
+            revision: result.revision,
+            checksum: result.checksum,
+          });
         reporter.noteSnapshotWritten();
         return;
       }
@@ -217,6 +349,7 @@ export const createSnapshotCadence = (options: {
       // persist anything — will be refused for the same reason. Unlike a failed
       // request this is not something waiting fixes, so it is surfaced instead of
       // being dropped along with the other non-conflict outcomes below.
+      saveState.failed();
       if (result.status === "oversize") {
         reporter.noteSnapshotRefusedAsOversize({
           byteLength: result.byteLength,
@@ -262,7 +395,7 @@ export const createSnapshotCadence = (options: {
         reconcileRemoteElements(
           syncableElements,
           toExcalidrawElements(winner.elements),
-          sceneApi.getAppState(),
+          capturedAppState,
         ),
       );
       const retried = await store.save({
@@ -274,6 +407,13 @@ export const createSnapshotCadence = (options: {
       if (retried.status === "written") {
         snapshotRevision = retried.revision;
         snapshotBaselineKnown = true;
+        await confirm(retried.revision, merged, retried.checksum);
+        if (!context.isStopped() && retried.checksum)
+          options.onSnapshotWritten?.({
+            captureId,
+            revision: retried.revision,
+            checksum: retried.checksum,
+          });
         reporter.noteSnapshotWritten();
         return;
       }
@@ -298,6 +438,8 @@ export const createSnapshotCadence = (options: {
     inFlightWrite = write;
     try {
       await write;
+    } catch {
+      saveState.failed();
     } finally {
       snapshotWriteInFlight = false;
       if (inFlightWrite === write) inFlightWrite = undefined;
@@ -307,11 +449,53 @@ export const createSnapshotCadence = (options: {
   const stop = (): void => {
     cancelSnapshotCadence?.();
     cancelSnapshotCadence = undefined;
+    cancelRequestDeadline?.();
+    cancelRequestDeadline = undefined;
+    cancelVerification?.();
+    cancelVerification = undefined;
   };
 
   return {
     writeSnapshot,
     stop,
+    onSceneChange() {
+      const elements = sceneApi.getSceneElementsIncludingDeleted();
+      if (elements === lastObservedElements) return;
+      lastObservedElements = elements;
+      saveState.changed();
+    },
+    getSaveState: () => saveState.state(),
+    receivePersisted(revision, _checksum) {
+      if (revision <= (saveState.state().revision ?? 0) || cancelVerification)
+        return;
+      const delay = Math.max(0, 1_000 - (context.now() - lastVerificationAt));
+      cancelVerification = context.scheduleTimeout(() => {
+        cancelVerification = undefined;
+        void verifyPersisted();
+      }, delay);
+    },
+    requestSave(fromPeer = false) {
+      if (fromPeer && !isElectedSnapshotWriter()) return;
+      if (
+        context.isStopped() ||
+        !context.canEditScene() ||
+        options.hasBarrier()
+      )
+        return;
+      if (saveState.state().status === "saved") return;
+      saveState.saving();
+      cancelRequestDeadline ??= context.scheduleTimeout(() => {
+        cancelRequestDeadline = undefined;
+        if (saveState.state().status !== "saved") saveState.failed();
+      }, snapshotIntervalMs);
+      if (isElectedSnapshotWriter()) {
+        if (snapshotBaselineKnown) void writeSnapshot();
+        else
+          void options
+            .loadDurableBaseline(options.getJoinEpoch())
+            .then(() => writeSnapshot());
+      } else options.sendSaveRequest?.();
+    },
     start(epoch) {
       stop();
       if (!snapshotStore) return;
@@ -325,7 +509,8 @@ export const createSnapshotCadence = (options: {
         // bounded cadence. A genuinely unreadable snapshot simply keeps failing,
         // which correctly keeps writing disabled.
         if (snapshotBaselineKnown) {
-          void writeSnapshot();
+          if (isElectedSnapshotWriter()) void writeSnapshot();
+          else if (saveState.state().status !== "saved") void verifyPersisted();
         } else {
           void options.loadDurableBaseline(epoch);
         }
@@ -339,11 +524,24 @@ export const createSnapshotCadence = (options: {
       cancelSnapshotCadence = context.scheduleTimeout(tick, snapshotIntervalMs);
     },
     resetForConnection() {
+      saveState.reset();
       snapshotRevision = SNAPSHOT_NO_REVISION;
       snapshotBaselineKnown = false;
       lastSnapshotDigest = undefined;
     },
-    adoptLoaded(revision) {
+    adoptLoaded(revision, elements, checksum) {
+      if (elements) {
+        const epoch = options.getJoinEpoch();
+        void confirm(revision, elements, checksum);
+        void collaborationSnapshotDigest(elements).then((digest) => {
+          if (
+            !context.isStopped() &&
+            epoch === options.getJoinEpoch() &&
+            snapshotRevision === revision
+          )
+            lastSnapshotDigest = digest;
+        });
+      }
       snapshotRevision = revision;
       snapshotBaselineKnown = true;
     },

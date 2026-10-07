@@ -68,7 +68,11 @@ type BaselineKnowledge =
 
 /** The durable-revision bookkeeping the baseline load feeds; the cadence owns it. */
 export type SnapshotBaselineSink = {
-  adoptLoaded(revision: number): void;
+  adoptLoaded(
+    revision: number,
+    elements?: readonly SyncedElement[],
+    checksum?: string,
+  ): void;
   adoptEmpty(): void;
   markUnknown(): void;
 };
@@ -261,7 +265,11 @@ export const createJoinBaselineGate = (options: {
 
     if (result.status === "loaded") {
       options.applyRemoteElements(result.elements);
-      snapshotBaseline.adoptLoaded(result.revision);
+      snapshotBaseline.adoptLoaded(
+        result.revision,
+        result.elements,
+        result.checksum,
+      );
       if (barrier?.claimBaseline()) releaseBarrier("durable-snapshot", "known");
       return;
     }

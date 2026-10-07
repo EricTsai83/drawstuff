@@ -3,6 +3,7 @@ import type {
   InboundMessageGate,
   PresenceMessage,
   SceneMessage,
+  SnapshotControlMessage,
   SyncedElement,
 } from "@drawstuff/collaboration/protocol";
 import { EXCALIDRAW_CAPTURE_UPDATE_ACTION } from "@drawstuff/excalidraw-adapter/client";
@@ -37,6 +38,8 @@ export const createRemoteApplier = (options: {
   getGate: () => InboundMessageGate | undefined;
   /** Presence settles asynchronously; membership is the synchronous truth. */
   isKnownPeer: (peerId: string) => boolean;
+  receiveSnapshotControl?: (message: SnapshotControlMessage) => void;
+  onSceneApplied?: () => void;
   receivePresence: (message: PresenceMessage) => void;
   /** Join-baseline barrier; true when it consumed the message. */
   interceptSceneMessage: (message: SceneMessage, byteLength: number) => boolean;
@@ -65,6 +68,7 @@ export const createRemoteApplier = (options: {
       tracker.markAdoptedRemoteElements(reconciled, elements);
     });
     options.requestMissingAssets(elements);
+    options.onSceneApplied?.();
   };
 
   /**
@@ -135,6 +139,12 @@ export const createRemoteApplier = (options: {
         return;
       }
 
+      if (message.type === "snapshot-control") {
+        if (!options.isKnownPeer(message.senderPeerId)) return;
+        if (verdict.sceneSyncRequired) options.sendFullScene();
+        options.receiveSnapshotControl?.(message);
+        return;
+      }
       if (options.interceptSceneMessage(message, meta.byteLength)) return;
 
       deliverSceneMessage(message, verdict.sceneSyncRequired);

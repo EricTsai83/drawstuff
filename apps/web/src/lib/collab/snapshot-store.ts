@@ -13,6 +13,7 @@ import {
   SNAPSHOT_NO_REVISION,
 } from "@drawstuff/collaboration/snapshot";
 
+import { withCollaborationRequestDeadline } from "@/lib/collab/request-deadline";
 import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 
 /**
@@ -35,7 +36,10 @@ import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 
 /** The backend surface this store needs; `api.useUtils().client` satisfies it. */
 export type SnapshotApi = {
-  get(input: { roomId: string }): Promise<{
+  get(
+    input: { roomId: string },
+    signal?: AbortSignal,
+  ): Promise<{
     authGeneration: number;
     snapshot: {
       revision: number;
@@ -45,24 +49,32 @@ export type SnapshotApi = {
       checksum: string;
     } | null;
   }>;
-  put(input: {
-    roomId: string;
-    /** Scheduling hint only; the server never treats this as authorization. */
-    intent: "cadence" | "leave";
-    /** Generation the ciphertext was sealed for; the server refuses a mismatch. */
-    authGeneration: number;
-    expectedRevision: number;
-    cryptoVersion: typeof SNAPSHOT_CRYPTO_VERSION;
-    ciphertextBase64: string;
-    checksum: string;
-  }): Promise<
+  put(
+    input: {
+      roomId: string;
+      /** Scheduling hint only; the server never treats this as authorization. */
+      intent: "cadence" | "leave";
+      /** Generation the ciphertext was sealed for; the server refuses a mismatch. */
+      authGeneration: number;
+      expectedRevision: number;
+      cryptoVersion: typeof SNAPSHOT_CRYPTO_VERSION;
+      ciphertextBase64: string;
+      checksum: string;
+    },
+    signal?: AbortSignal,
+  ): Promise<
     | { status: "written"; revision: number }
     | { status: "conflict"; currentRevision: number | undefined }
   >;
 };
 
 type LoadSnapshotResult =
-  | { status: "loaded"; revision: number; elements: readonly SyncedElement[] }
+  | {
+      status: "loaded";
+      revision: number;
+      elements: readonly SyncedElement[];
+      checksum?: string;
+    }
   /** This room generation has no baseline yet; a fresh room looks like this. */
   | { status: "empty" }
   | {
@@ -77,7 +89,7 @@ type LoadSnapshotResult =
     };
 
 export type SaveSnapshotResult =
-  | { status: "written"; revision: number }
+  | { status: "written"; revision: number; checksum?: string }
   | { status: "conflict"; currentRevision: number | undefined }
   /**
    * The scene is larger than the locked snapshot contract, so nothing was
@@ -134,7 +146,9 @@ export async function createCollaborationSnapshotStore(options: {
     async load() {
       let response: Awaited<ReturnType<SnapshotApi["get"]>>;
       try {
-        response = await api.get({ roomId });
+        response = await withCollaborationRequestDeadline((signal) =>
+          api.get({ roomId }, signal),
+        );
       } catch {
         return { status: "unreadable", reason: "unavailable" };
       }
@@ -182,6 +196,7 @@ export async function createCollaborationSnapshotStore(options: {
         status: "loaded",
         revision: stored.revision,
         elements: decoded.snapshot.elements,
+        checksum: stored.checksum,
       };
     },
 
@@ -215,18 +230,30 @@ export async function createCollaborationSnapshotStore(options: {
       if (!sealed.ok) return { status: "failed" };
 
       try {
-        return await api.put({
-          roomId,
-          intent,
-          // Sent so the server stores the ciphertext under the generation it was
-          // sealed for, or refuses: a rotation racing this write would otherwise
-          // produce a row nobody can open.
-          authGeneration,
-          expectedRevision,
-          cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
-          ciphertextBase64: encodeBase64(sealed.ciphertext),
-          checksum: await snapshotCiphertextChecksum(sealed.ciphertext),
-        });
+        const checksum = await snapshotCiphertextChecksum(sealed.ciphertext);
+        const result = await withCollaborationRequestDeadline((signal) =>
+          api.put(
+            {
+              roomId,
+              intent,
+              // Sent so the server stores the ciphertext under the generation it was
+              // sealed for, or refuses: a rotation racing this write would otherwise
+              // produce a row nobody can open.
+              authGeneration,
+              expectedRevision,
+              cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
+              ciphertextBase64: encodeBase64(sealed.ciphertext),
+              checksum,
+            },
+            signal,
+          ),
+        );
+        if (result.status === "written") {
+          return result.revision === revision
+            ? { ...result, checksum }
+            : { status: "failed" };
+        }
+        return result;
       } catch (error) {
         const retryAfterMs = rateLimitRetryAfterMs(error);
         if (retryAfterMs !== null)

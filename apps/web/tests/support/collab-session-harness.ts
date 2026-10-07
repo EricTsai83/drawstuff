@@ -295,7 +295,12 @@ export function createSnapshotBackend() {
           if (revision === SNAPSHOT_NO_REVISION) {
             return { status: "empty" as const };
           }
-          return { status: "loaded" as const, revision, elements };
+          return {
+            status: "loaded" as const,
+            revision,
+            elements,
+            checksum: String(revision).padStart(64, "0"),
+          };
         },
         save: ({ elements: next, expectedRevision, intent = "cadence" }) => {
           saves.push({ expectedRevision, count: next.length });
@@ -309,7 +314,11 @@ export function createSnapshotBackend() {
           }
           revision += 1;
           elements = next;
-          return Promise.resolve({ status: "written" as const, revision });
+          return Promise.resolve({
+            status: "written" as const,
+            revision,
+            checksum: String(revision).padStart(64, "0"),
+          });
         },
       };
     },

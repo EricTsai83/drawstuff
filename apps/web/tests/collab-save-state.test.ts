@@ -1,0 +1,239 @@
+// @vitest-environment jsdom
+import { describe, expect, it } from "vitest";
+import type { SyncedElement } from "@drawstuff/collaboration/protocol";
+import { createRoomSaveState } from "@/lib/collab/session/save-state";
+import {
+  createHarness,
+  createSnapshotBackend,
+  createRawSender,
+} from "./support/collab-session-harness";
+import {
+  collabImage,
+  collabRectangle,
+  editedElement,
+} from "./support/collab-scene-fixtures";
+import { drainAsync } from "./support/async-drain";
+
+const settle = async (h: ReturnType<typeof createHarness>) => {
+  for (let round = 0; round < 10; round++) {
+    await drainAsync();
+    if (!h.network.pendingMessageCount()) return;
+    h.settle();
+  }
+  throw new Error("save exchange did not settle");
+};
+
+describe("durable room save coverage", () => {
+  it("old and duplicate receipts cannot clear newer edits, conflicts or tombstones", () => {
+    let current: readonly SyncedElement[] = [collabRectangle({ id: "a" })];
+    const saved = [...current];
+    const state = createRoomSaveState({ currentElements: () => current });
+    state.confirm(1, saved, "old");
+    expect(state.state().status).toBe("saved");
+    current = [collabRectangle({ id: "a", version: 2, versionNonce: 3 })];
+    state.changed();
+    state.confirm(1, saved, "old");
+    expect(state.state().status).toBe("pending");
+    current = [
+      collabRectangle({
+        id: "a",
+        version: 2,
+        versionNonce: 4,
+        isDeleted: true,
+      }),
+    ];
+    state.confirm(2, [
+      collabRectangle({ id: "a", version: 2, versionNonce: 4 }),
+    ]);
+    expect(state.state().status).toBe("pending");
+    state.confirm(3, current);
+    state.confirm(2, saved);
+    expect(state.state()).toMatchObject({ status: "saved", revision: 3 });
+    state.reset();
+    expect(state.state().status).toBe("pending");
+  });
+
+  it("a nonwriter shortcut coalesces at the elected writer and confirms all members", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    const b = h.createClient("b", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    b.session.connect();
+    await settle(h);
+    b.edit(() => [collabRectangle({ id: "from-b" })]);
+    b.session.requestSave();
+    b.session.requestSave();
+    await settle(h);
+    b.timers.advance(1_000);
+    await settle(h);
+    expect(backend.saves).toHaveLength(1);
+    expect(backend.saveIntents).toEqual(["cadence"]);
+    expect(a.session.getSaveState().status).toBe("saved");
+    expect(b.session.getSaveState().status).toBe("saved");
+    a.session.destroy();
+    b.session.destroy();
+  });
+
+  it("a peer's invented receipt triggers an independent read and cannot mark edits saved", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    await settle(h);
+    a.edit(() => [collabRectangle({ id: "not-stored" })]);
+    const raw = createRawSender(h.network);
+    const base = raw.sceneMessage({ sequence: 1, elements: [] });
+    raw.transport.sendSceneMessage({
+      ...base,
+      type: "snapshot-control",
+      payload: {
+        kind: "persisted",
+        captureId: "invented",
+        authGeneration: 1,
+        revision: 99,
+        checksum: "0".repeat(64),
+      },
+    });
+    h.settle();
+    a.timers.advance(1_000);
+    await settle(h);
+    expect(a.session.getSaveState().status).toBe("pending");
+    expect(backend.loadCount).toBeGreaterThan(1);
+    a.session.destroy();
+    raw.transport.close();
+  });
+
+  it("writer departure permits takeover and a conflict confirms the durable winner", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    const b = h.createClient("b", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    b.session.connect();
+    await settle(h);
+    b.edit(() => [collabRectangle({ id: "takeover" })]);
+    await settle(h);
+    a.session.destroy();
+    b.session.requestSave();
+    await settle(h);
+    expect(backend.elements.map((e) => e.id)).toEqual(["takeover"]);
+    expect(b.session.getSaveState().status).toBe("saved");
+    b.edit((elements) => elements.map((e) => editedElement(e, { x: 100 })));
+    backend.publish(b.host.elements);
+    b.timers.advance(30_000);
+    await settle(h);
+    // Conflict loads the independently stored winner and confirms its coverage.
+    expect(b.session.getSaveState().status).toBe("saved");
+    b.session.destroy();
+  });
+
+  it("a nonwriter recovers a lost persistence notice without uploading a snapshot", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    const b = h.createClient("b", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    b.session.connect();
+    await settle(h);
+    b.edit(() => [collabRectangle({ id: "lost-notice" })]);
+    await settle(h);
+    a.session.requestSave();
+    await drainAsync();
+    expect(a.session.getSaveState().status).toBe("saved");
+    h.network.setFaults({ dropProbability: 1 });
+    h.network.flush();
+    h.network.setFaults();
+    expect(b.session.getSaveState().status).toBe("pending");
+    b.timers.advance(30_000);
+    await settle(h);
+    expect(b.session.getSaveState().status).toBe("saved");
+    expect(backend.saves).toHaveLength(1);
+    a.session.destroy();
+    b.session.destroy();
+  });
+
+  it("a delayed successful write only covers its captured edits", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const store = backend.createStore();
+    let release: (() => void) | undefined;
+    const a = h.createClient("a", {
+      snapshotStore: {
+        ...store,
+        save: async (input) => {
+          await new Promise<void>((resolve) => {
+            release = resolve;
+          });
+          return store.save(input);
+        },
+      },
+    });
+    a.session.connect();
+    await settle(h);
+    a.edit(() => [collabRectangle({ id: "edit" })]);
+    a.session.requestSave();
+    await settle(h);
+    a.edit((elements) => elements.map((e) => editedElement(e, { x: 100 })));
+    release?.();
+    await settle(h);
+    expect(backend.elements[0]?.x).toBe(0);
+    expect(a.session.getSaveState().status).toBe("pending");
+    a.session.destroy();
+    await drainAsync();
+    release?.();
+    await drainAsync();
+  });
+
+  it("an unchanged loaded snapshot is confirmed after its attachments become available", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    backend.publish([collabImage({ id: "image", fileId: "image-file" })]);
+    let available = false;
+    const a = h.createClient("a", {
+      snapshotStore: backend.createStore(),
+      assetStore: {
+        publish: async () => undefined,
+        request: async () => undefined,
+        destroy: () => undefined,
+        areAvailable: async () => available,
+      },
+    });
+    a.session.connect();
+    await settle(h);
+    expect(a.session.getSaveState().status).toBe("failed");
+    available = true;
+    a.session.requestSave();
+    await settle(h);
+    expect(a.session.getSaveState()).toMatchObject({
+      status: "saved",
+      revision: 1,
+    });
+    expect(backend.saves).toHaveLength(0);
+    a.session.destroy();
+  });
+
+  it("missing durable attachments refuse saved state; viewers cannot request writes", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    await settle(h);
+    a.edit(() => [collabImage({ id: "image", fileId: "missing" })]);
+    a.session.requestSave();
+    await settle(h);
+    expect(backend.saves).toHaveLength(0);
+    expect(a.session.getSaveState().status).toBe("failed");
+    const viewer = h.createClient("viewer", {
+      role: "viewer",
+      snapshotStore: backend.createStore(),
+    });
+    viewer.session.connect();
+    await settle(h);
+    viewer.session.requestSave();
+    await settle(h);
+    expect(backend.saves).toHaveLength(0);
+    a.session.destroy();
+    viewer.session.destroy();
+  });
+});

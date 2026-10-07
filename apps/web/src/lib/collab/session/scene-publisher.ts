@@ -1,4 +1,7 @@
-import type { SceneMessage } from "@drawstuff/collaboration/protocol";
+import type {
+  SceneMessage,
+  SnapshotControlMessage,
+} from "@drawstuff/collaboration/protocol";
 import type { createOfflineChangeQueue } from "@drawstuff/collaboration/offline-queue";
 import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import type {
@@ -22,6 +25,7 @@ export type PublishOutcome = "sent" | "nothing-to-send" | "failed";
 
 export type ScenePublisher = {
   sendFullScene(): void;
+  sendSnapshotControl(payload: SnapshotControlMessage["payload"]): void;
   /**
    * Sends the elements the tracker still holds as pending, as one delta.
    *
@@ -228,6 +232,17 @@ export const createScenePublisher = (options: {
 
   return {
     sendFullScene,
+    sendSnapshotControl(payload) {
+      const connected = context.connected;
+      if (!connected || options.hasBarrier() || !context.canEditScene()) return;
+      const result = transport.sendSceneMessage({
+        ...buildEnvelope(connected, sceneSequence + 1),
+        type: "snapshot-control",
+        payload,
+      });
+      if (result.ok) sceneSequence += 1;
+      else handleSceneSendError(result.error);
+    },
     sendSceneDelta,
     scheduleFlush,
     cancelPendingFlush() {

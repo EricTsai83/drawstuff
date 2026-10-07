@@ -58,7 +58,11 @@ const IDLE_THRESHOLD_MS = 60_000;
 
 const MAX_USERNAME_LENGTH = 128;
 
+import type { RoomSaveState } from "@/lib/collab/session/save-state";
+
 export type CollaborationRoomHandle = {
+  requestSave(): void;
+  getSaveState(): RoomSaveState;
   handleSceneChange(
     elements: readonly OrderedExcalidrawElement[],
     appState: AppState,
@@ -133,6 +137,7 @@ export async function startCollaborationRoomSession(options: {
    * consult a synchronous source of truth rather than a prop.
    */
   canSyncScene: () => boolean;
+  onSaveStateChange?: (state: RoomSaveState) => void;
   onConnectionStateChange?: (state: ConnectionState) => void;
   /**
    * Reported on every recovery phase change. This — not the socket state — is
@@ -262,6 +267,7 @@ export async function startCollaborationRoomSession(options: {
     sceneApi,
     snapshotStore,
     assetStore,
+    onSaveStateChange: options.onSaveStateChange,
     wrapRemoteApply: options.wrapRemoteApply,
     wrapPresenceApply: options.wrapPresenceApply,
     followHost,
@@ -358,6 +364,8 @@ export async function startCollaborationRoomSession(options: {
   relayVisibleSceneBounds();
 
   return {
+    requestSave: () => session.requestSave(),
+    getSaveState: () => session.getSaveState(),
     handleSceneChange: (elements, appState) => {
       session.handleLocalSceneChange(elements, appState);
     },
