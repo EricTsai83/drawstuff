@@ -1,6 +1,14 @@
 # 18B P3 維護窗口與回滾
 
-2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。Worker／web 的配套部署與 remote L3 驗收仍需另行確認。
+2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。2026-10-08 配套 web／Worker 已部署，protocol-6 remote smoke 通過；完整 L3 驗收與舊 storage 清理仍待完成。
+
+## 2026-10-08 配套部署與 smoke
+
+Vercel Production 已設定三個新版 capability secret，並重新部署為 `dpl_5nW2yDGT4mErDsW5KKshePEBLGsS`（READY）。Cloudflare 先部署維護 runtime，依重置前 manifest quiesce 兩個舊 Room 並取得 ACK；當次 namespace inventory 為零個已儲存 instance。接著獨立部署 bootstrap，建立 Lifecycle namespace `789308f282c349b58578e29496dfa502`；原 Room namespace `5f0f6fe2322c4f20b23c08018c9f9c08` 保留。Cloudflare schedules API 確認 cron 清單為空。
+
+第一輪正式 smoke 揭露 adapter client 將原生 `fetch` 當 class method 呼叫時產生 TypeError，建房回 503；已改為透過 `globalThis.fetch` 保留原生 receiver，補上回歸測試與只記錄 HTTP status／固定 error kind 的診斷。最後手動部署的 Worker version 為 `6063aab4-c2a2-4a63-a709-d5b53607ef3e`。修正後使用兩個既有已驗證帳號，通過最大合法密文快照往返／解密、ready、正式 WebSocket 加入、撤權關線、舊 generation socket 404 與 end-room。測試不刪帳號或個人 scene；兩次單次 snapshot read 樣本為 1930ms／2883ms，不能作為 SLO 的 p95／p99 結論。Worker lint、typecheck、213 個測試、5 個維護測試、本機 product harness 與 Knip 全部通過。
+
+本次配套部署未再次 DB push 或執行 SQL migration。quiesce 保留舊 SQLite／KV；不宣稱已完成舊 storage 刪除、真實 UploadThing callback、退休入口、三人 fanout、故障恢復或其他完整 L3 項目。
 
 ## 本次 DB push 結果
 
@@ -8,7 +16,7 @@ Drizzle 已新增 creation fence、operation、Lifecycle 與 tombstone 表，移
 
 `collaboration:reset-check after` 已核對新版欄位及所有非共編 `public.drawstuff_*` 表的前後筆數／內容指紋一致；另唯讀確認新版 status check 接受 `initializing`／`ready`／`ended`，unique index 使用 `initializing`／`ready` predicate，舊 check／index 已移除。本機 13 個 PostgreSQL adapter／重置／回滾測試、TypeScript 與 schema lint 通過。受控 before／after report 保存在 git 忽略的 `.local/collaboration-cutover/`。
 
-這次未部署維護 Worker、未 quiesce 舊 DO、未新增 Lifecycle namespace，也未變更 production secrets／cron；不能將 DB push 成功視為 18B 全部上線。先前查得 web 尚缺三個 capability secret、Worker 尚缺 Lifecycle／新版 capability 設定，配套部署與 smoke 仍待完成。
+DB push 當時尚未部署維護 Worker、quiesce 舊 DO、新增 Lifecycle namespace 或變更 production secrets／cron。這些配套部署與 smoke 已於 2026-10-08 完成，見上節；不能將 DB push 或 smoke 成功視為完整 L3 驗收完成。
 
 ## 已準備的 artifact
 

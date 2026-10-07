@@ -1,6 +1,6 @@
 # 18B — 共編授權權威重置
 
-- 狀態：P2 source 已完成：儲存／投影 adapter、Room 授權與管理 UI、允許清單、快照／附件、獨立建房與列表、Lifecycle 所有退休入口、舊 DB writer／outbox／cron 移除，以及本機 PostgreSQL 重置／升版／回滾演練。2026-10-07 已依使用者要求對 production 做 DB push 並確認非共編資料指紋一致；配套 web／Worker 部署、舊 DO 清理與 L3 驗收仍待確認，見 [維護窗口 runbook](../docs/deployment/collaboration-reset/README.md)。
+- 狀態：P2 source 已完成：儲存／投影 adapter、Room 授權與管理 UI、允許清單、快照／附件、獨立建房與列表、Lifecycle 所有退休入口、舊 DB writer／outbox／cron 移除，以及本機 PostgreSQL 重置／升版／回滾演練。2026-10-07 已依使用者要求對 production 做 DB push 並確認非共編資料指紋一致；2026-10-08 配套 web／Worker 已部署，舊 Room 已 quiesce、Lifecycle namespace 已建立、protocol-6 remote smoke 通過。舊 DO storage 清理與完整 L3 驗收仍待完成，見 [維護窗口 runbook](../docs/deployment/collaboration-reset/README.md)。
   UploadThing public 密文附件限制已接受。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
 - 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。

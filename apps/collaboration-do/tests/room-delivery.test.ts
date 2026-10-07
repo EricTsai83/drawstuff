@@ -90,6 +90,35 @@ async function initialize(
 }
 
 describe("metadata adapter transport", () => {
+  it("preserves the global receiver required by native Worker fetch", async () => {
+    const nativeFetch = globalThis.fetch;
+    const calls: unknown[] = [];
+    globalThis.fetch = async function (this: unknown) {
+      calls.push(this);
+      if (this !== globalThis)
+        throw new TypeError("Illegal invocation: incorrect this reference");
+      return Response.json({ authorityEpoch: 2 });
+    };
+    try {
+      const result = await new AdapterClient(config).call(
+        {
+          v: 1,
+          action: "fence",
+          roomId: fixture().roomId,
+          authGeneration: 1,
+          authorityEpoch: 2,
+          state: "ended",
+        },
+        z.strictObject({ authorityEpoch: z.number() }),
+        signal(),
+      );
+      expect(result).toEqual({ authorityEpoch: 2 });
+      expect(calls).toEqual([globalThis]);
+    } finally {
+      globalThis.fetch = nativeFetch;
+    }
+  });
+
   it("uses only the adapter capability and forbids redirects", async () => {
     let request: RequestInit | undefined;
     const c = new AdapterClient(config, async (url, init) => {

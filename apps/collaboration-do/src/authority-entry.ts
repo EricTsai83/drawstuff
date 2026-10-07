@@ -10,6 +10,7 @@ import {
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 import { AdapterClient } from "./adapter-client.ts";
 import type { RoomAuthority } from "./room-authority.ts";
+import { createDoLogger, errorNameOf } from "./logger.ts";
 
 /** Called over the private DO binding. The public Gateway also requires its own service capability. */
 export async function applyAuthorityEntry(
@@ -134,6 +135,10 @@ export async function applyAuthorityEntry(
     const code = authorityErrorSchema.safeParse(
       error instanceof Error ? error.message : undefined,
     );
+    if (!code.success)
+      createDoLogger(env.VERSION_METADATA).warn("authority.entry_failed", {
+        errorName: errorNameOf(error),
+      });
     return {
       ok: false as const,
       error: code.success ? code.data : "unavailable",

@@ -7,12 +7,12 @@
 - 相關文件：[SLO 與 capacity](../performance/collaboration-slo-capacity.md)、
   [DO observability 契約](../observability/collaboration-do-observability.md)
 
-**18B P2 source 已完成；配套部署仍待確認。** Artifact 包含 protocol v6、roomId 定址、SQLite v3、
+**18B P2 source 與配套部署已完成；完整 L3 驗收仍待完成。** Artifact 包含 protocol v6、roomId 定址、SQLite v3、
 `CollaborationLifecycle` class／binding，以及所有管理、儲存、退休入口。2026-10-07 依使用者要求
 直接對 production 執行 DB push，套用新版 schema 並清空兩筆舊共編 Room；非共編表前後內容指紋一致。
-未切維護 Worker、quiesce 舊 Object 或配置新版 secrets／namespace。管理與 binary 入口未配置新憑證時
-拒絕請求，adapter 未配置 `COLLAB_ADAPTER_SECRET` 時也拒絕全部請求。DB push 不代表新版服務已驗收，
-剩餘設定、class lifecycle 與 remote smoke 見 [P3 runbook](../deployment/collaboration-reset/README.md)。
+2026-10-08 已配置新版 secrets、重新部署 web、quiesce 清單中的兩個舊 Room、建立 Lifecycle namespace，
+並部署新版 Worker；protocol-6 remote smoke 已通過。舊 DO storage 清理與完整 L3 驗收仍待完成，
+實際部署紀錄與驗證範圍見 [P3 runbook](../deployment/collaboration-reset/README.md)。
 下面記錄既有 production 的部署模型。
 
 ## 1. 部署模型

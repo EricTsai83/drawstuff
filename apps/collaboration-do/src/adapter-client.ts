@@ -13,19 +13,22 @@ import {
 } from "@drawstuff/collaboration/authority";
 
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { createDoLogger } from "./logger.ts";
 import {
   readSnapshotBody,
   readAdapterJson,
   SnapshotTransferError,
 } from "./snapshot-body.ts";
 
-type AdapterConfig = Pick<Env, "COLLAB_ADAPTER_URL" | "COLLAB_ADAPTER_SECRET">;
+type AdapterConfig = Pick<Env, "COLLAB_ADAPTER_URL" | "COLLAB_ADAPTER_SECRET"> &
+  Partial<Pick<Env, "VERSION_METADATA">>;
 
 /** Private adapter transport; snapshot entry owns the per-Room body quota. */
 export class AdapterClient {
   constructor(
     private readonly config: AdapterConfig,
-    private readonly fetchImpl: typeof fetch = fetch,
+    private readonly fetchImpl: typeof fetch = (...args) =>
+      globalThis.fetch(...args),
   ) {}
 
   async call<T>(
@@ -55,6 +58,14 @@ export class AdapterClient {
       body,
       signal,
     });
+    if (
+      !response.ok ||
+      !response.headers.get("content-type")?.startsWith("application/json")
+    )
+      createDoLogger(this.config.VERSION_METADATA).warn(
+        "adapter.delivery_failed",
+        { status: response.status },
+      );
     return readAdapterJson(
       response,
       (input) => responseSchema.parse(input),
