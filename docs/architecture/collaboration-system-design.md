@@ -259,8 +259,8 @@ capability plus a live room-bound identity proof. An 8 KiB `x-drawstuff-snapshot
 contains a strict read request or immutable snapshot-put/reset intent; actor fields are refused.
 The body is binary ciphertext for put and empty for read/query/cancel/reset. Gateway verifies the
 service capability and proof before selecting the roomId binding, bounds actual forwarded bytes,
-and uses streaming [Request/Response RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/#readablestream-writablestream-request-and-response) to the same Room. This is a backend source unit;
-there is no browser session proxy or product snapshot-client conversion yet.
+and uses streaming [Request/Response RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/#readablestream-writablestream-request-and-response) to the same Room. The authenticated web proxy is described below;
+product snapshot-client conversion remains pending.
 
 - Room verifies identity again, checks its current role and confirmed storage parent, and obtains
   the private live actor/owner/scene lifecycle registration receipt before handling content. Only
@@ -292,8 +292,51 @@ initial owner/manifest completion, two-body saturation, response cancellation an
 Actual WebSocket fanout and management remain live while a snapshot adapter read is stalled.
 These runtime tests use fake private adapter HTTP responses; the existing real PostgreSQL adapter
 suite separately verifies storage/fence ordering. Deployed Vercel body limits, cross-cloud load and
-product flows remain acceptance gates. The next unit connects the authenticated web binary entry
-and product snapshot calls; attachments and Lifecycle/deletion conversion remain P2 work.
+product flows remain acceptance gates. Product snapshot calls, attachments and Lifecycle/deletion
+conversion remain P2 work.
+
+## 18B P2 authenticated web binary snapshot entry
+
+The source adds cookie-authenticated `POST /api/collaboration/snapshot` and a browser binary
+transport client. They are not connected to product snapshot cadence/reset yet and are **not
+independently deployable**. Old tRPC snapshot entry removal belongs to that product conversion;
+the coexistence in source is not a supported production mode.
+
+- Every request requires the configured application Origin and octet-stream content type. Strict
+  metadata is capped at 8 KiB and refuses actor/proof fields. The server authenticates the session,
+  then issues a room-bound proof from the live verified account/session and lifecycle state. Only
+  that proof and the private server capability reach Gateway; browser cookies and authorization
+  headers never do. Missing credentials, disabled rooms and non-HTTPS Gateway URLs fail closed.
+- A new `snapshot-request` budget allows 120 requests/minute per authenticated account, including
+  reads and receipt recovery, before live proof issuance. Writes additionally obtain a Room role
+  precheck before spending the existing shared 6/minute snapshot-put budget. Only explicitly limited
+  put requests marked leave may use the existing 2/minute `(room,user)` reserve. Room authorizes
+  again on the binary operation, including owner-only reset and initializing-room access. Redis
+  degradation does not bypass those checks. Query/cancel do not spend room write budgets.
+- Uploads are bounded by actual ciphertext bytes before forwarding, with checksum/envelope checks;
+  read/query/cancel/reset bodies must be empty. No room key or plaintext is accepted. Downloads stay
+  streamed so web does not prefetch the whole Room reply and delay its chunk-time authorization.
+  Receipt metadata binds room and legal byte length; stream truncation/overflow, abort and the
+  15-second overall deadline cancel the upstream reader. Only whitelisted response headers and
+  strict outcomes are forwarded; malformed or oversized upstream JSON returns unavailable.
+- The browser transport verifies length/envelope/checksum before returning encrypted read bytes,
+  preserves an absence revision watermark, and leaves pending as pending. It accepts the caller's
+  original operationId/intent and ciphertext for write/query/cancel and never invents retry IDs or
+  re-encrypts. A written receipt must have expectedRevision + 1. Product code must still retain
+  pending ciphertext and bind a recovered receipt to the saved canvas before displaying saved.
+- Fifteen web/client tests exercise ingress refusal, live identity plumbing, room budget ordering,
+  late Room refusal, reset watermarks, metadata/body bounds, upstream error sanitization, cancellation,
+  exact immutable requests, and a maximum 4 MiB valid snapshot JSON sealed in the browser, transported
+  through the real web handler with fake Gateway replies, then opened and decoded. These do not
+  establish deployed Vercel body admission or cross-cloud load; both remain P3 acceptance gates.
+
+No production DB migration, schema push, reset or deployment was performed for this unit. Schema
+changes remain source artifacts. After all P2 entries are converted and reset/rollback rehearsals
+pass, P3 must review/apply the collaboration-only schema diff and reset collaboration test data,
+preserving accounts, personal/shared/published scenes and their attachments. See
+[18B §P3](../../plans/18b-collaboration-authority-reset.md).
+The next unit switches product snapshot load/save/reset, retains pending operations and reset
+watermarks, and removes the old tRPC snapshot authorization surface.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation

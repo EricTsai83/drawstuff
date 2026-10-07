@@ -64,6 +64,7 @@ const OPERATIONS: CollaborationRateLimitOperation[] = [
   "join",
   "snapshot-put",
   "snapshot-finalize",
+  "snapshot-request",
   "asset-upload",
   "asset-resolve",
 ];
@@ -91,7 +92,7 @@ const allowedResponse = {
 };
 
 describe("collaboration rate limit configuration", () => {
-  it("matches the approved SLO §5 values", () => {
+  it("matches SLO §5 and the P2 binary ingress account budget", () => {
     // These four numbers are the contract with
     // docs/performance/collaboration-slo-capacity.md §5. Changing one here
     // without changing it there is the failure this asserts against.
@@ -99,6 +100,7 @@ describe("collaboration rate limit configuration", () => {
       join: { tokens: 20, window: "60 s" },
       "snapshot-put": { tokens: 6, window: "60 s" },
       "snapshot-finalize": { tokens: 2, window: "60 s" },
+      "snapshot-request": { tokens: 120, window: "60 s" },
       "asset-upload": { tokens: 60, window: "60 s" },
       "asset-resolve": { tokens: 120, window: "60 s" },
     });
@@ -117,6 +119,7 @@ describe("collaboration rate limit configuration", () => {
       "drawstuff:collab:ratelimit:v1:join",
       "drawstuff:collab:ratelimit:v1:snapshot-put",
       "drawstuff:collab:ratelimit:v1:snapshot-finalize",
+      "drawstuff:collab:ratelimit:v1:snapshot-request",
       "drawstuff:collab:ratelimit:v1:asset-upload",
       "drawstuff:collab:ratelimit:v1:asset-resolve",
     ]);
@@ -160,6 +163,7 @@ describe("collaboration rate limit configuration", () => {
         [20, "60 s"],
         [6, "60 s"],
         [2, "60 s"],
+        [120, "60 s"],
         [60, "60 s"],
         [120, "60 s"],
       ]);

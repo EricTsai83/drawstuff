@@ -13,6 +13,7 @@ export async function callAuthorityGateway(
   proof: string,
   request: AuthorityRequest,
   fetchImpl: typeof fetch = fetch,
+  signal?: AbortSignal,
 ) {
   const endpoint = new URL(AUTHORITY_GATEWAY_PATH, config.url);
   if (
@@ -37,7 +38,10 @@ export async function callAuthorityGateway(
         "content-type": "application/json",
       },
       body,
-      signal: AbortSignal.timeout(AUTHORITY_LIMITS.externalTimeoutMs),
+      signal: AbortSignal.any([
+        AbortSignal.timeout(AUTHORITY_LIMITS.externalTimeoutMs),
+        ...(signal ? [signal] : []),
+      ]),
     });
     if (!response.ok) {
       await response.body?.cancel();

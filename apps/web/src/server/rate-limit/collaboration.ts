@@ -64,11 +64,13 @@ export type CollaborationRateLimitOperation =
   | "join"
   | "snapshot-put"
   | "snapshot-finalize"
+  | "snapshot-request"
   | "asset-upload"
   | "asset-resolve";
 
 /**
- * The approved values, straight from SLO §5. Windows are one minute because
+ * Production values from SLO §5, plus the P2 binary ingress account budget.
+ * Windows are one minute because
  * every number in that table is stated per minute; sliding rather than fixed so
  * a caller cannot push two full windows' worth of traffic through a boundary.
  */
@@ -79,6 +81,9 @@ export const COLLABORATION_RATE_LIMITS = {
   // already spent. The identifier is (room, user), so a client calling every
   // write "leave" only buys two bounded requests, not an unlimited bypass.
   "snapshot-finalize": { tokens: 2, window: "60 s" },
+  // P2 binary ingress, per account: includes reads and receipt recovery, not
+  // extra write capacity. Writes still spend the shared snapshot-put budget.
+  "snapshot-request": { tokens: 120, window: "60 s" },
   "asset-upload": { tokens: 60, window: "60 s" },
   "asset-resolve": { tokens: 120, window: "60 s" },
 } as const satisfies Record<CollaborationRateLimitOperation, RateLimitBudget>;
@@ -177,6 +182,7 @@ const limiters: Record<CollaborationRateLimitOperation, Ratelimit> = {
     redis,
     "snapshot-finalize",
   ),
+  "snapshot-request": createCollaborationRateLimiter(redis, "snapshot-request"),
   "asset-upload": createCollaborationRateLimiter(redis, "asset-upload"),
   "asset-resolve": createCollaborationRateLimiter(redis, "asset-resolve"),
 };

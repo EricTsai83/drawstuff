@@ -49,8 +49,8 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 
 ### 執行順序與交接
 
-1. 18B 下一步為 P2 產品入口與退休串接；Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權與 binary 快照後端入口已完成，未部署邊界見
-   [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-binary-snapshot-backend-entry)，
+1. 18B 下一步為產品快照保存／reset 切換與舊 tRPC 快照入口移除，接著 P2 初始化／附件與退休串接；Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 authenticated web binary 入口／client 已完成，未部署邊界見
+   [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-authenticated-web-binary-snapshot-entry)，
    P0 契約見 [本機儲存驗證](../docs/performance/collaboration-storage-p0.md)。
    UploadThing 維持 public 上傳；已取得 URL 的密文下載無法隨撤權失效，此限制暫時接受（見 18B §4.5）。
 2. 執行 18B P2，串接產品初始化與內容／附件入口、Lifecycle 及所有刪除入口，移除舊授權路徑；

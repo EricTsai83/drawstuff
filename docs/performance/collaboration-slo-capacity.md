@@ -155,6 +155,14 @@ threat model T6 記錄的缺口：大小有界、速率無界。以下為**新�
 
 ### 後端限制的失效模式：fail open（2026-08-08 核准）
 
+18B P2 未部署的 binary 入口另有 `snapshot-request` 每登入帳號 **120 次／分鐘** 的
+入口額度，供讀取、query/cancel 與寫入使用；不增加 room 寫入容量。寫入先經 Room
+role precheck，再檢查上述 6/minute room 額度，只有明確受限的 leave put 使用 2/minute
+預留。此來源端額度位於 live proof 簽發前；故 binary read/control 有一次 Redis decision，
+write 有兩次，啟用 leave 預留最多三次。每次 decision 仍不重試、degraded 仍 fail open，
+實際授權由 Room 及 lifecycle/storage fence 決定。此 P2 source 契約不代表現有 production
+入口已切換。
+
 速率限制是額外的濫用與容量保護，不是 authorization boundary，這句話直接決定失效方向。
 Upstash timeout（明確設為 **750 ms**，不用 SDK 預設的 5 秒）、network failure 與 SDK
 exception 一律 **fail open**：請求照常進入既有檢查，並記一筆結構化 degradation event
