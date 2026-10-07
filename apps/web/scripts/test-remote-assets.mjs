@@ -18,6 +18,7 @@ import { createAssetCryptoCodec, encodeCollaborationAssetPayload, decodeCollabor
 import { deriveSnapshotKey, sealCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 import { SNAPSHOT_REQUEST_HEADER } from "@drawstuff/collaboration/authority";
 import { runAccessAcceptance, faultRuntimeSource } from "./remote-access-acceptance.mjs";
+import { runTypicalHotPerformance } from "./remote-performance-acceptance.mjs";
 
 const workerDir = fileURLToPath(new URL("../../collaboration-do/", import.meta.url));
 const rootDir = fileURLToPath(new URL("../../../", import.meta.url));
@@ -31,7 +32,8 @@ const gateway = origin(process.argv[3]);
 const failureInjection = process.argv[4] === "--fail-after-upload";
 const retirementMode = process.argv[4] === "--retire-scene" ? "scene" : process.argv[4] === "--retire-account" ? "account" : null;
 const accessMode = process.argv[4] === "--access-recovery";
-assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode), "Unexpected argument");
+const performanceMode = process.argv[4] === "--performance-typical-hot";
+assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode || performanceMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
 assert.equal(web, "https://draw.ericts.com");
 for (const name of ["POSTGRES_URL", "BETTER_AUTH_SECRET", "UPLOADTHING_TOKEN", "COLLAB_IDENTITY_SECRET", "COLLAB_AUTHORITY_SECRET"]) assert(process.env[name], `Missing ${name}`);
@@ -59,7 +61,7 @@ const roomIds = retirementMode ? [roomId, raceRoomId] : [roomId];
 const sceneId = retirementMode === "scene" ? randomUUID() : null;
 const guest = { subject: `asset-guest-${runId}`, email: `guest-${runId}@example.invalid`, lifecycleVersion: 1 };
 const peer = { subject: `asset-peer-${runId}`, email: `peer-${runId}@example.invalid`, lifecycleVersion: 1 };
-const subjects = accessMode ? [subject, guest.subject, peer.subject] : retirementMode ? [subject, guest.subject] : [subject];
+const subjects = accessMode ? [subject, guest.subject, peer.subject] : retirementMode || performanceMode ? [subject, guest.subject] : [subject];
 const lifecycleScope = retirementMode === "scene" ? `scene:${sceneId}` : retirementMode === "account" ? `account:${subject}` : null;
 const email = `${runId}@example.invalid`;
 const sessionId = randomUUID();
@@ -89,6 +91,7 @@ let retirementStarted = false;
 let retirementCompleted = false;
 let retirementOperation;
 let faultRuntimeActive = false;
+let performanceReport;
 const sockets = [];
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { interrupted = true; report("interrupt-requested-cleanup-will-run"); });
 let cfToken;
@@ -356,8 +359,8 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   await saveJournal();
   await sql.begin(async (tx) => {
     await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${subject},'Automated asset acceptance',${email},true,now(),now())`;
-    await tx`insert into drawstuff_session (id,user_id,token,expires_at,created_at,updated_at) values (${sessionId},${subject},${sessionToken},now()+interval '15 minutes',now(),now())`;
-    if (retirementMode || accessMode) await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${guest.subject},'Automated acceptance guest',${guest.email},true,now(),now())`;
+    await tx`insert into drawstuff_session (id,user_id,token,expires_at,created_at,updated_at) values (${sessionId},${subject},${sessionToken},now()+make_interval(mins => ${performanceMode ? 120 : 15}),now(),now())`;
+    if (retirementMode || accessMode || performanceMode) await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${guest.subject},'Automated acceptance guest',${guest.email},true,now(),now())`;
     if (accessMode) {
       await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${peer.subject},'Automated acceptance peer',${peer.email},true,now(),now())`;
       await tx`insert into drawstuff_session (id,user_id,token,expires_at,created_at,updated_at) values (${peerSessionId},${peer.subject},${peerSessionToken},now()+interval '15 minutes',now(),now())`;
@@ -372,7 +375,19 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   report("authenticated-fixture");
   assert(!interrupted, "Acceptance interrupted");
   roomAttempted = true;
-  await settle({ ...envelope(), action: "create", sceneId, label: "Automated asset acceptance", linkRole: retirementMode || accessMode ? "editor" : "none" });
+  const create = { ...envelope(), action: "create", sceneId, label: "Automated asset acceptance", linkRole: retirementMode || accessMode || performanceMode ? "editor" : "none" };
+  if (performanceMode) {
+    // First DO access must originate from the real web service, as in product initialization.
+    const response = await fetch(`${web}/api/trpc/collaborationAuthority.execute`, {
+      method: "POST", headers: { cookie, origin: web, "content-type": "application/json" },
+      body: JSON.stringify({ json: create }), redirect: "error", signal: AbortSignal.timeout(30000),
+    });
+    assert.equal(response.status, 200);
+    const initial = (await response.json()).result?.data?.json;
+    assert(["pending", "enforced"].includes(initial?.status));
+    report("production-web-created-fixture-room");
+  }
+  await settle(create);
   const roomKey = generateRoomKey();
   await settle({ ...envelope(), action: "set-key-check", expectedGeneration: 1, keyCheck: [...Buffer.from(await sealRoomKeyCheck({ roomKey, roomId, authGeneration: 1 }), "base64")] });
   const codec = await createAssetCryptoCodec({ roomKey, roomId, authGeneration: 1 });
@@ -434,10 +449,19 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       },
     });
   }
-  testPassed = true; report("attachment-initialization-passed");
+  if (performanceMode) {
+    const toolSha256 = {
+      runner: digest(await readFile(fileURLToPath(import.meta.url))),
+      measurement: digest(await readFile(new URL("./remote-performance-acceptance.mjs", import.meta.url))),
+    };
+    await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
+      interrupted: () => interrupted, observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
+    });
+  }
+  testPassed = !performanceMode || performanceReport.gatePassed; report("attachment-initialization-passed");
 } catch (error) {
   // Do not log SQL, signed URLs, cookie, provider response, keys or encrypted payload.
-  const locations = error instanceof Error ? error.stack?.match(/(?:remote-access-acceptance|test-remote-assets)\.mjs:\d+:\d+/g)?.slice(0, 4) : undefined;
+  const locations = error instanceof Error ? error.stack?.match(/(?:remote-access-acceptance|remote-performance-acceptance|test-remote-assets)\.mjs:\d+:\d+/g)?.slice(0, 4) : undefined;
   report("test-failed", { errorName: error instanceof Error ? error.name : "unknown", locations });
 } finally {
   let cleanupStage = "retirement";
@@ -471,7 +495,13 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
               return Number(row?.authority_epoch) >= state.authorityEpoch;
             }
             await settle({ ...envelope(), action: "end-room" }); return true;
-          } catch { await pause(15000); return false; }
+          } catch (error) {
+            if (error instanceof assert.AssertionError && error.actual === 404) {
+              const [row] = await sql`select (select count(*) from drawstuff_collaboration_room where room_id=${roomId}) + (select count(*) from drawstuff_collaboration_creation_fence where room_id=${roomId}) as count`;
+              if (Number(row.count) === 0) return true;
+            }
+            await pause(15000); return false;
+          }
         }, 180000);
         ended = true;
       }
@@ -528,5 +558,14 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   }
 }
 const expectedFailureHandled = failureInjection && injectedFailure && cleanupPassed && restored;
+if (performanceReport) {
+  performanceReport.acceptance = { testPassed, cleanupPassed, restored };
+  performanceReport.runtime.commit = (await new Promise((resolve, reject) => {
+    const child = spawn("git", ["rev-parse", "HEAD"], { cwd: rootDir, stdio: ["ignore", "pipe", "pipe"] });
+    let output="";child.stdout.on("data", chunk=>{output+=chunk.toString();});child.once("error",reject);child.once("close",code=>code===0 ? resolve(output.trim()) : reject(new Error("commit-unavailable")));
+  }));
+  performanceReport.runtime.normalWorkerSha256 = normalRuntimeHash;
+  await writeFile(`${rootDir}docs/performance/collaboration-production-3a.json`, JSON.stringify(performanceReport, null, 2)+"\n");
+}
 report("result", { testPassed, cleanupPassed, restored, expectedFailureHandled });
 if ((!testPassed && !expectedFailureHandled) || !cleanupPassed || !restored) process.exitCode = 1;

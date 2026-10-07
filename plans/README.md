@@ -40,7 +40,7 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
-  下一步為 **P3：剩餘正式環境驗收**，依該 plan 的三個剩餘 scope 分輪執行，從正式環境效能量測開始。三人撤權／故障恢復已驗收並完成資源清理與 Worker 還原。
+  下一步為 **P3：剩餘正式環境驗收**。3A 已完成 200 筆正式量測及清理／還原，但保存與加入 p95 未達門檻；先定位延遲、改善後重測，再完成 3B／3C、跨日／閒置／成本與回歸結案。三人撤權／故障恢復已驗收。
   配套 web／Worker 與新版 schema 已部署；DO 不持久暫存完整畫布，只記小型待辦與操作結果。
   退休以按主體分割的 **Lifecycle DO** 執行（§7.1）；操作與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —

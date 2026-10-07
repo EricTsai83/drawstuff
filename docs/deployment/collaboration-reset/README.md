@@ -165,6 +165,35 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 
 驗收前發現授權入口的撤權原先先等 adapter 註冊，外部失效會阻擋本地撤權。`e7d6bd1` 改為在有效 owner proof 與本地授權檢查後先持久撤權／fence，未確認屏障保持 pending；增加權限的入口仍需遠端註冊。新增 workerd 回歸確認非 owner 拒絕、原撤權冪等且未呼叫 adapter、故障時重新授權失敗。Worker lint、typecheck、214 個測試、maintenance 8 個測試、product harness 與 Knip，以及 remote runner lint／語法檢查均通過。這完成 scope 2；效能分位數、跨日／閒置／成本及完整回歸仍待後續 scope。
 
+### 3A：典型熱場景效能量測
+
+在 root 執行下列命令；macOS 的 `caffeinate -i` 僅在子程序存活期間防止閒置睡眠，不阻止螢幕關閉、不修改永久電源設定。關蓋或手動睡眠不在此保護範圍。其他系統直接執行 pnpm 指令並自行保持主機與網路可用。
+
+```sh
+caffeinate -i pnpm collab:assets:remote --performance-typical-hot
+```
+
+固定 20 筆 warmup、200 筆正式保存／加入配對樣本，單一測試 Room、兩個已驗證測試身分。第一次 Room 存取由正式 Vercel `collaborationAuthority.execute` 建房入口發出，避免本機預建改變 DO 初始放置條件；不設定 location hint。Cloudflare 的 [放置文件](https://developers.cloudflare.com/durable-objects/reference/data-location/#provide-a-location-hint) 說明初次請求會影響位置，實際 DO 所在地仍未量測。
+
+每筆使用精確 256 KiB 的合法快照 JSON，引用一個約 64 KiB、含合法 PNG 的新附件密文。保存計時包括客戶端加密、正式 presign／provider PUT／真實 callback、必要的原 intent 查詢，以及 snapshot `written`；初始化／建房不混入保存。加入包括 socket 驗權、binary 基線下載／解密／解碼、授權索引、附件下載／解密／解碼，最後驗證加密 frame 可傳遞與解密；不只計 upgrade。固定 presence 流量維持 DO 熱態，但不宣稱獨立確認 Vercel／Neon 每筆皆無冷啟動。
+
+此 runner 使用 live fixture proof 直連私有 Gateway，沒有計入 OAuth、web proof 簽發、一次性金鑰衍生、web snapshot／join 的速率限制或完整畫布呈現；不能作為全 app UI 延遲。分段記錄 crypto、upload、snapshot、join socket／baseline／assets 與 fanout，DO→Vercel 與 adapter→Neon 的獨立 span 仍待後續補齊。原 P0 門檻不變：保存 p95 ≤ 3s／p99 ≤ 8s，加入 p95 ≤ 3s／p99 ≤ 5s；nearest-rank 分位數包含全部正式成功樣本，不丟棄慢樣本，故障／pending 另記。
+
+兩個測試身分與唯一 Room 沿用限定清理流程；長測試的 owner session 僅在該 fixture 設 120 分鐘，收尾刪除。生成的 runtime／journal／lock 在確認 provider、DB、DO 與 Worker 還原後移除。機器可讀報告寫入 `docs/performance/collaboration-production-3a.json`，含原始數值、完成／門檻／清理狀態、commit、tool SHA-256 與測試前正常 Worker SHA-256，不含身分、key、物件 URL 或 payload。樣本不足或門檻未過仍保留報告並回非零，不能標為驗收通過。
+
+量測先揭露附件索引的 adapter 格式落差：正式服務回 `{ assets: [...] }`，DO 卻解析陣列，導致合法讀取 503。`a64e42d` 已對齊格式、更新 product fixture 並新增缺漏 ID 回歸；Worker lint、typecheck、215 個測試、maintenance 8 個測試、harness 與 Knip 通過，修正已部署。首輪故障與後續初始化方法校準的 warmup 都已限定清理、精確還原，沒有將它們當作正式樣本。
+
+2026-10-08 的 [3A 正式報告](../../performance/collaboration-production-3a.json) 完成 20 筆 warmup 與 200 筆正式配對樣本，請求失敗與初始 pending 均為零；**量測完成，但效能驗收未過**。
+
+| 項目 | p95 | p99 | 原門檻 p95／p99 | 結果 |
+| --- | --- | --- | --- | --- |
+| 典型保存 | 4,807.18 ms | 5,828.91 ms | 3,000／8,000 ms | p95 未過 |
+| 典型加入 | 3,553.04 ms | 4,480.95 ms | 3,000／5,000 ms | p95 未過 |
+
+保存最高 18,987.61 ms、加入最高 7,207.26 ms，全部保留。客戶端分段中，upload p50 為 3,041.12 ms、snapshot 為 996.76 ms；加入的附件索引／下載／解碼 p50 為 1,957.06 ms。這些數字指出應先追查附件路徑，但不足以判定平台或跨雲根因；各分段分位數不能直接相加當總分位數。下一輪先定位並改善 p95，再依原門檻重測；3B／3C 及完整跨雲 span 仍未完成。
+
+Provider／DB／DO 限定清理通過，正常 Worker 精確還原至 version `5f7dbe32-4c37-408b-93e4-d21e3ba66094`，來源 SHA-256 與測試前一致；臨時 runtime、journal 與 lock 已移除，與本輪程序綁定的防睡眠保護也已結束。CLI exit 1 是效能 gate 未過的預期結果，不是清理失敗；未執行 DB push／migration。
+
 ## 舊物件／DO 清理
 
 先完成可回滾 smoke，再按受控 manifest 清理有明確共編來源且不被任何個人資料引用的物件。DO metadata 清理必須對已確認的舊 instance 停止工作、取消 alarm 並 `storage.deleteAll()`。一般 quiesce 保留資料；legacy cleanup 是獨立、capability 保護的維護入口，正常 production Gateway 不提供它。
