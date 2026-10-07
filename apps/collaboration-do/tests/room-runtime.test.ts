@@ -16,6 +16,10 @@ import {
   socketBufferedAmount,
 } from "../src/room-policy.ts";
 import {
+  readRoomSocketAttachment,
+  writeRoomSocketAttachment,
+} from "../src/attachment.ts";
+import {
   expectClose,
   expectPeers,
   issueJoinToken,
@@ -65,12 +69,31 @@ describe("socket caps", () => {
     { timeout: 20_000 },
     async () => {
       const roomId = uniqueRoomId("pendingcap");
+      const stub = roomStub(roomId);
       const sockets: OpenSocket[] = [];
-      for (let index = 0; index < MAX_PENDING_SOCKETS; index += 1) {
-        sockets.push(await openSocket(roomId));
+      try {
+        for (let index = 0; index < MAX_PENDING_SOCKETS; index += 1) {
+          sockets.push(await openSocket(roomId));
+          // Test capacity independently of the one-second fixture join deadline on a loaded host.
+          // The separate conformance cases verify real join expiration.
+          await runInDurableObject(stub, (_instance, state) => {
+            for (const ws of state.getWebSockets()) {
+              const attachment = readRoomSocketAttachment(ws);
+              if (attachment?.state === "pending")
+                writeRoomSocketAttachment(ws, {
+                  ...attachment,
+                  acceptedAt: Date.now() + 60_000,
+                });
+            }
+          });
+        }
+        await runInDurableObject(stub, (_instance, state) =>
+          expect(state.getWebSockets()).toHaveLength(MAX_PENDING_SOCKETS),
+        );
+        await expect(openSocket(roomId)).rejects.toThrow("status 503");
+      } finally {
+        for (const socket of sockets) socket.connection.close();
       }
-      await expect(openSocket(roomId)).rejects.toThrow("status 503");
-      for (const socket of sockets) socket.connection.close();
     },
   );
 });
