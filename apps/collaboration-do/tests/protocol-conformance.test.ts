@@ -1,4 +1,33 @@
-import { SELF } from "cloudflare:test";
+import { env } from "cloudflare:test";
+import { roomChannelKey } from "@drawstuff/collaboration/room-auth";
+import { verifyRoomControlToken } from "@drawstuff/collaboration/room-token";
+import { roomControlCommandFromClaims } from "../src/control.ts";
+async function privateLegacyControl(
+  _url: string,
+  init?: RequestInit,
+): Promise<Response> {
+  const body = JSON.parse(
+    typeof init?.body === "string" ? init.body : "{}",
+  ) as { token?: string };
+  const verified = verifyRoomControlToken({
+    token: body.token ?? "",
+    secret: TEST_ROOM_TOKEN_SECRET,
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+  if (!verified.ok)
+    return Response.json({ error: "unauthorized" }, { status: 401 });
+  const claims = verified.claims;
+  const stub = env.COLLABORATION_ROOM.getByName(
+    roomChannelKey(claims.rid, claims.gen),
+  );
+  try {
+    return Response.json(
+      await stub.applyControlV1(roomControlCommandFromClaims(claims)),
+    );
+  } catch {
+    return Response.json({ error: "rejected" }, { status: 422 });
+  }
+}
 import { afterEach, describe, it } from "vitest";
 
 import {
@@ -37,7 +66,7 @@ const harness: ConformanceHarness = {
     return connection;
   },
   async control(token) {
-    const response = await SELF.fetch(
+    const response = await privateLegacyControl(
       `${GATEWAY_BASE}${DO_GATEWAY_CONTROL_PATH}`,
       {
         method: "POST",

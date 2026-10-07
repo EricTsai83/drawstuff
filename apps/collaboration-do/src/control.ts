@@ -4,8 +4,6 @@ import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
   roomAuthGenerationSchema,
   roomAuthRevisionSchema,
-  roomChannelKey,
-  type RoomChannelKey,
   type RoomControlClaims,
 } from "@drawstuff/collaboration/room-auth";
 
@@ -85,7 +83,7 @@ export type ControlRejectionCode =
  * The RPC boundary re-materialises a thrown error as a plain `Error` (no
  * `instanceof`), preserving `name` and own enumerable properties, so the
  * gateway classifies by name and re-validates `code` against the closed set
- * via {@link controlRejectionOf}.
+ * at the private RPC boundary.
  */
 export class ControlRejectedError extends Error {
   override readonly name = "ControlRejectedError";
@@ -93,33 +91,6 @@ export class ControlRejectedError extends Error {
   constructor(readonly code: ControlRejectionCode) {
     super(`room: control rejected (${code})`);
   }
-}
-
-const CONTROL_REJECTION_CODES: ReadonlySet<string> =
-  new Set<ControlRejectionCode>([
-    "malformed-command",
-    "channel-mismatch",
-    "schema-skew",
-  ]);
-
-/** The rejection code of a (possibly RPC-serialised) refusal; else undefined. */
-export function controlRejectionOf(
-  error: unknown,
-): ControlRejectionCode | undefined {
-  if (!(error instanceof Error) || error.name !== "ControlRejectedError") {
-    return undefined;
-  }
-  const code: unknown = Reflect.get(error, "code");
-  return typeof code === "string" && CONTROL_REJECTION_CODES.has(code)
-    ? (code as ControlRejectionCode)
-    : undefined;
-}
-
-/** Channel key a verified control token addresses. */
-export function controlClaimsChannelKey(
-  claims: RoomControlClaims,
-): RoomChannelKey {
-  return roomChannelKey(claims.rid, claims.gen);
 }
 
 /** Maps verified control-token claims onto the V1 command, field by field. */

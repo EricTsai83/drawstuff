@@ -1,7 +1,6 @@
 # 18B — 共編授權權威重置
 
-- 狀態：P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端、authenticated web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照入口移除、產品無附件初始化與 proof 加入已完成；下一步為附件授權／finalize 與含附件初始化，再接其餘管理與退休入口，尚未部署；source artifact 與邊界見
-  [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-product-authority-initialization)。
+- 狀態：P2 source 已完成：儲存／投影 adapter、Room 授權與管理 UI、允許清單、快照／附件、獨立建房與列表、Lifecycle 所有退休入口、舊 DB writer／outbox／cron 移除，以及本機 PostgreSQL 重置／升版／回滾演練；尚未部署。P3 的實際 schema 審閱、受控重置與 L3 驗收仍待執行，見 [維護窗口 runbook](../docs/deployment/collaboration-reset/README.md)。
   UploadThing public 密文附件限制已接受。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
 - 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。
@@ -536,7 +535,7 @@ P1/P2 沿用這些契約；正式登入／proof、所有入口與 Lifecycle 串�
 
 | 現有入口／呼叫端                                                                              | P2 必須改由新權威處理的部分                                                                    |
 | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `collaborationAuthority`、`collab/authority-client.ts`／`room-initialization.ts`；舊 room router 尚待整體退役 | 建房、key check、含附件初始化與 proof 加入已接 Room；其餘管理、舊 DB issuer／metadata panel 路徑仍待轉換 |
+| `collaborationAuthority`、`collab/authority-client.ts`／`room-initialization.ts`；room router 僅保留 read façade | 建房、key check、含附件初始化與 proof 加入已接 Room；其餘管理與 metadata panel 已接 Room；舊 DB issuer 已移除 |
 | 同 router：leave、setLinkRole、setMemberRole、removeMember、rotateGeneration、end             | 本地授權 revision、operationId 去重、儲存 fence 及加密 generation 的獨立語意                   |
 | `server/collab/rooms.ts` 的 `signJoinToken`；`collab/control-token.ts`                        | 不從舊 DB 角色簽新權限；刪除舊 control token／outbox writer                                    |
 | `collaboration-do/src/gateway.ts`、`room.ts`、`control.ts`                                    | roomId 定址；升級、加入、重進、每次訊息／轉送／休眠 attachment 都核對 SQLite 權限              |

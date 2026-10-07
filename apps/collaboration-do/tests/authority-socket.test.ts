@@ -255,7 +255,7 @@ describe("formal Room WebSocket authority", () => {
         },
       },
     );
-    expect(legacy.status).toBe(503);
+    expect(legacy.status).toBe(404);
     const missing = await SELF.fetch(
       `https://gateway.test/v1/rooms/${uniqueRoomId("missing")}/socket`,
       {

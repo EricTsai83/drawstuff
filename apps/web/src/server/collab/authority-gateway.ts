@@ -87,7 +87,7 @@ export async function callAuthorityGateway(
       JSON.parse(json) as unknown,
     ).result;
     if (
-      request.action === "get-state"
+      request.action === "get-state" || request.action === "get-management"
         ? !("roomId" in result) || result.roomId !== request.roomId
         : !("operationId" in result) ||
           result.operationId !== request.operationId

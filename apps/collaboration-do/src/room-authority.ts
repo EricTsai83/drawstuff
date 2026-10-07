@@ -50,6 +50,7 @@ type MemberRow = {
   revoked: number;
   lifecycle_version: number;
   email_key: string | null;
+  last_joined_at: number | null;
 };
 
 /** Persistent authority primitives. P2 verifies service/proof and registration before invoking these. */
@@ -93,6 +94,15 @@ export class RoomAuthority {
     ); CREATE TABLE IF NOT EXISTS authority_initial_assets (
       file_id TEXT PRIMARY KEY, auth_generation INTEGER NOT NULL CHECK(auth_generation>0)
     );`);
+    if (
+      !storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(authority_members)")
+        .toArray()
+        .some((column) => column.name === "last_joined_at")
+    )
+      storage.sql.exec(
+        "ALTER TABLE authority_members ADD COLUMN last_joined_at INTEGER",
+      );
     this.work = new DurableWork(storage);
   }
 
@@ -162,6 +172,56 @@ export class RoomAuthority {
     if (allowed)
       return allowed.removed ? undefined : roomRoleSchema.parse(allowed.role);
     return undefined;
+  }
+
+  management(identity: TrustedIdentity, cursor = "", emailCursor = "") {
+    this.authorizeRequest(identity, {
+      v: 1,
+      roomId: this.roomId,
+      operationId: crypto.randomUUID(),
+      deadline: Date.now() + 1_000,
+      action: "get-management",
+    });
+    const owner = this.requireRoom().owner === identity.subject;
+    const rows = owner
+      ? this.storage.sql
+          .exec<MemberRow>(
+            "SELECT * FROM authority_members WHERE subject>? ORDER BY subject LIMIT 51",
+            cursor,
+          )
+          .toArray()
+      : [];
+    const emails = owner
+      ? this.storage.sql
+          .exec<{
+            email_key: string;
+            display_email: string;
+            role: "viewer" | "editor";
+            removed: number;
+            last_joined_at: number | null;
+          }>(
+            "SELECT email_key,display_email,role,removed,(SELECT max(last_joined_at) FROM authority_members WHERE authority_members.email_key=authority_allowlist.email_key) AS last_joined_at FROM authority_allowlist WHERE email_key>? ORDER BY email_key LIMIT 51",
+            emailCursor,
+          )
+          .toArray()
+      : [];
+    return {
+      members: rows.slice(0, 50).map((row) => ({
+        userId: row.subject,
+        name: row.email_key,
+        role: roomRoleSchema.parse(row.role),
+        revoked: !!row.revoked,
+        lastJoinedAt: row.last_joined_at,
+      })),
+      nextCursor: rows.length > 50 ? rows[49]!.subject : null,
+      allowlist: emails.slice(0, 50).map((row) => ({
+        email: row.display_email,
+        role: row.role,
+        removed: !!row.removed,
+        lastJoinedAt: row.last_joined_at,
+      })),
+      nextEmailCursor: emails.length > 50 ? emails[49]!.email_key : null,
+    };
   }
 
   query(operationId: string): ManagementResult | undefined {
@@ -250,6 +310,30 @@ export class RoomAuthority {
               command.registrationVersion,
               command.actor.email,
             );
+            this.storage.sql.exec(
+              "UPDATE authority_members SET last_joined_at=? WHERE subject=?",
+              Date.now(),
+              command.actor.subject,
+            );
+          } else if (command.action === "leave") {
+            if (
+              room.owner === command.actor.subject ||
+              !this.role(command.actor)
+            )
+              throw new Error("forbidden");
+            this.storage.sql.exec(
+              "UPDATE authority_members SET revoked=1 WHERE subject=?",
+              command.actor.subject,
+            );
+            // A linked participant can leave before the join projection has arrived.
+            if (!this.member(command.actor.subject))
+              this.storage.sql.exec(
+                "INSERT INTO authority_members(subject,role,revoked,lifecycle_version,email_key) VALUES (?, 'viewer',1,?,?)",
+                command.actor.subject,
+                command.actor.lifecycleVersion,
+                command.actor.email,
+              );
+            needsFence = true;
           } else {
             if (room.owner !== command.actor.subject)
               throw new Error("forbidden");
@@ -283,7 +367,7 @@ export class RoomAuthority {
                 if (command.subject === room.owner)
                   throw new Error("forbidden");
                 this.storage.sql.exec(
-                  "INSERT INTO authority_members VALUES (?,'viewer',1,1,NULL) ON CONFLICT(subject) DO UPDATE SET revoked=1",
+                  "INSERT INTO authority_members(subject,role,revoked,lifecycle_version,email_key) VALUES (?,'viewer',1,1,NULL) ON CONFLICT(subject) DO UPDATE SET revoked=1",
                   command.subject,
                 );
                 needsFence = true;
@@ -445,10 +529,23 @@ export class RoomAuthority {
         throw new Error("forbidden");
       return;
     }
-    if (request.action === "get-state" && room.owner === identity.subject)
+    if (
+      (request.action === "get-state" || request.action === "get-management") &&
+      room.owner === identity.subject
+    )
       return;
-    if (request.action === "get-state" || request.action === "join") {
-      if (!this.role(identity, request.action === "get-state"))
+    if (
+      request.action === "get-state" ||
+      request.action === "get-management" ||
+      request.action === "join" ||
+      request.action === "leave"
+    ) {
+      if (
+        !this.role(
+          identity,
+          request.action === "get-state" || request.action === "get-management",
+        )
+      )
         throw new Error("forbidden");
       return;
     }
@@ -491,7 +588,7 @@ export class RoomAuthority {
     const old = this.member(subject);
     if (old && version < old.lifecycle_version) throw new Error("stale-proof");
     this.storage.sql.exec(
-      "INSERT INTO authority_members VALUES (?,?,0,?,?) ON CONFLICT(subject) DO UPDATE SET role=excluded.role,revoked=0,lifecycle_version=excluded.lifecycle_version,email_key=coalesce(excluded.email_key,email_key)",
+      "INSERT INTO authority_members(subject,role,revoked,lifecycle_version,email_key) VALUES (?,?,0,?,?) ON CONFLICT(subject) DO UPDATE SET role=excluded.role,revoked=0,lifecycle_version=excluded.lifecycle_version,email_key=coalesce(excluded.email_key,email_key)",
       subject,
       role,
       version,
@@ -645,6 +742,13 @@ export class RoomAuthority {
   async retireSubject(subject: string, version: number): Promise<void> {
     await this.work.commit(
       () => {
+        const prior = this.storage.sql
+          .exec<{ version: number }>(
+            "SELECT version FROM authority_retired_subjects WHERE subject=?",
+            subject,
+          )
+          .toArray()[0];
+        if (prior && prior.version >= version) return;
         this.storage.sql.exec(
           "INSERT INTO authority_retired_subjects VALUES (?,?) ON CONFLICT(subject) DO UPDATE SET version=max(version,excluded.version)",
           subject,

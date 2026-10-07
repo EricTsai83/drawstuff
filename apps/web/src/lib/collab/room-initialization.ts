@@ -36,7 +36,8 @@ import type { SnapshotApi } from "./snapshot-http";
 export function createRoomInitialization(options: {
   authority: AuthorityApi;
   snapshots: SnapshotApi;
-  sceneId: string;
+  sceneId: string | null;
+  rotate?: { roomId: string; expectedGeneration: number };
   elements: readonly SyncedElement[];
   files?: readonly BinaryFileData[];
   assets?: AssetApi;
@@ -54,7 +55,10 @@ export function createRoomInitialization(options: {
         assetIds.some((id) => !files.some((file) => file.id === id))))
   )
     throw new AuthorityRoomError("attachments-required");
-  const roomId = roomIdSchema.parse(crypto.randomUUID());
+  const roomId = roomIdSchema.parse(
+    options.rotate?.roomId ?? crypto.randomUUID(),
+  );
+  const generation = options.rotate ? options.rotate.expectedGeneration + 1 : 1;
   if (
     files.some(
       (file) =>
@@ -70,13 +74,19 @@ export function createRoomInitialization(options: {
   if (!encodeCollaborationSnapshot({ roomId, elements }).ok)
     throw new Error("invalid-initial-snapshot");
   const roomKey = generateRoomKey();
-  const creation = {
-    ...authorityEnvelope(roomId),
-    action: "create",
-    sceneId: options.sceneId,
-    label: "",
-    linkRole: "none",
-  } as const;
+  const creation = options.rotate
+    ? {
+        ...authorityEnvelope(roomId),
+        action: "rotate-generation" as const,
+        expectedGeneration: options.rotate.expectedGeneration,
+      }
+    : {
+        ...authorityEnvelope(roomId),
+        action: "create" as const,
+        sceneId: options.sceneId,
+        label: "",
+        linkRole: "none" as const,
+      };
   const create = createAuthorityOperation(options.authority, creation);
   let setCheck: ReturnType<typeof createAuthorityOperation> | undefined;
   let complete: ReturnType<typeof createAuthorityOperation> | undefined;
@@ -103,20 +113,20 @@ export function createRoomInitialization(options: {
       const state = await readAuthorityState(options.authority, roomId);
       assertActive();
       if (state.state === "ended") throw new AuthorityRoomError("ended");
-      if (state.authGeneration !== 1)
+      if (state.authGeneration !== generation)
         throw new AuthorityRoomError("generation-mismatch");
       if (!setCheck) {
         const keyCheckBase64 = await sealRoomKeyCheck({
           roomKey,
           roomId,
-          authGeneration: 1,
+          authGeneration: generation,
         });
         const decoded = decodeBase64(keyCheckBase64, { maxBytes: 256 });
         if (!decoded.ok) throw new Error("key-check-encoding-failed");
         setCheck = createAuthorityOperation(options.authority, {
           ...authorityEnvelope(roomId),
           action: "set-key-check",
-          expectedGeneration: 1,
+          expectedGeneration: generation,
           keyCheck: Array.from(decoded.bytes),
         });
       }
@@ -128,7 +138,7 @@ export function createRoomInitialization(options: {
           api: options.assets!,
           roomId,
           roomKey,
-          authGeneration: 1,
+          authGeneration: generation,
           onAssetsResolved: () => undefined,
         });
         if (disposed) assets.destroy();
@@ -143,7 +153,7 @@ export function createRoomInitialization(options: {
         api: options.snapshots,
         roomId,
         roomKey,
-        authGeneration: 1,
+        authGeneration: generation,
       });
       if (!stored) {
         if (expectedRevision === undefined) {
@@ -163,7 +173,7 @@ export function createRoomInitialization(options: {
       complete ??= createAuthorityOperation(options.authority, {
         ...authorityEnvelope(roomId),
         action: "complete-initialization",
-        manifest: { authGeneration: 1, ...stored, assetIds },
+        manifest: { authGeneration: generation, ...stored, assetIds },
       });
       assertActive();
       await complete();
@@ -172,12 +182,12 @@ export function createRoomInitialization(options: {
       assertActive();
       if (ready.state !== "ready") throw new AuthorityRoomError(ready.state);
       if (
-        ready.authGeneration !== 1 ||
+        ready.authGeneration !== generation ||
         !ready.keyCheck ||
         !(await verifyRoomKeyCheck({
           roomKey,
           roomId,
-          authGeneration: 1,
+          authGeneration: generation,
           keyCheckBase64: encodeBase64(new Uint8Array(ready.keyCheck)),
         }))
       )

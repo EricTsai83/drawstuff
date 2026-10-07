@@ -46,7 +46,7 @@ export default async function DashboardContent({
   return (
     <Suspense fallback={<DashboardListFallback showHeading={showHeading} />}>
       <HydrateClient>
-        <SceneSearchList showHeading={showHeading} />
+        <SceneSearchList key={session.user.id} showHeading={showHeading} />
       </HydrateClient>
     </Suspense>
   );

@@ -85,6 +85,17 @@ function fixture() {
     if (request.action === "create") {
       state = { ...state, roomId: request.roomId };
       storage = binarySnapshotBackend(request.roomId);
+    } else if (request.action === "rotate-generation") {
+      state = {
+        ...state,
+        state: "initializing",
+        authGeneration: request.expectedGeneration + 1,
+        authorityEpoch: state.authorityEpoch + 1,
+        keyCheck: null,
+      };
+      storage = binarySnapshotBackend(request.roomId);
+      storage.emptyAt(1, state.authGeneration, state.authorityEpoch);
+      records.clear();
     } else if (request.action === "set-key-check")
       state = { ...state, keyCheck: request.keyCheck };
     else if (request.action === "complete-initialization") {
@@ -145,6 +156,30 @@ function fixture() {
 }
 
 describe("product Room authority initialization", () => {
+  it("rotates an existing Room through the full encrypted initialization before releasing its replacement key", async () => {
+    const f = fixture();
+    f.updateState({ state: "ready", authGeneration: 1 });
+    const roomId = f.state().roomId;
+    const initialization = createRoomInitialization({
+      authority: f.authority,
+      snapshots: f.snapshots,
+      assets: f.assets,
+      sceneId: null,
+      elements: [],
+      files: [],
+      rotate: { roomId, expectedGeneration: 1 },
+    });
+    const result = await initialization.start();
+    expect(result.roomId).toBe(roomId);
+    expect(result.roomKey).toBeTruthy();
+    expect(f.state()).toMatchObject({ state: "ready", authGeneration: 2 });
+    expect(f.execute.mock.calls.map(([request]) => request.action)).toContain(
+      "rotate-generation",
+    );
+    expect(
+      f.execute.mock.calls.map(([request]) => request.action),
+    ).not.toContain("create");
+  });
   it("stops a reconnect on a changed generation even while the new generation is still initializing", async () => {
     const f = fixture();
     f.updateState({ state: "initializing", authGeneration: 2 });

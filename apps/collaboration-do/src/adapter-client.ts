@@ -47,7 +47,7 @@ export class AdapterClient {
     signal.throwIfAborted();
     const response = await this.fetchImpl(url.href, {
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       headers: {
         authorization: `Bearer ${secret}`,
         "content-type": "application/json",
@@ -88,7 +88,7 @@ export class AdapterClient {
     signal.throwIfAborted();
     const response = await this.fetchImpl(url.href, {
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       signal,
       headers: {
         authorization: `Bearer ${secret}`,
@@ -112,7 +112,7 @@ export class AdapterClient {
     const { url, secret } = this.endpoint();
     const response = await this.fetchImpl(url.href, {
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       signal,
       headers: {
         authorization: `Bearer ${secret}`,

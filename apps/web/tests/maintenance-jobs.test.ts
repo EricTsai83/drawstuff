@@ -1,7 +1,46 @@
+import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
+import type { Database } from "@/server/collab/rooms";
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/server/collab/lifecycle-gateway", () => ({
+  callLifecycleGateway: async (input: {
+    action: string;
+    roomId?: string;
+    command?: LifecycleCommand;
+  }) => {
+    if (input.action === "end-room" && input.roomId) {
+      await testDb
+        .update(schema.collaborationRoom)
+        .set({ status: "ended", authRevision: 2 })
+        .where(eq(schema.collaborationRoom.roomId, input.roomId));
+      return { enforcement: "enforced" };
+    }
+    if (input.action !== "begin" || !input.command)
+      throw new Error("unexpected");
+    const { applyLifecycleAdapter } =
+      await import("@/server/collab/authority-lifecycle");
+    const database = testDb as unknown as Database;
+    const frozen = await applyLifecycleAdapter(database, {
+      v: 1,
+      action: "lifecycle-freeze",
+      command: input.command,
+    });
+    if (!("version" in frozen)) throw new Error("missing-version");
+    await applyLifecycleAdapter(database, {
+      v: 1,
+      action: "lifecycle-delete",
+      command: input.command,
+      version: frozen.version,
+    });
+    return {
+      operationId: input.command.operationId,
+      phase: "completed",
+      version: frozen.version,
+    };
+  },
+}));
 
 const { pgClient, testDb } = await vi.hoisted(async () => {
   const { createTestDatabase } = await import("./support/pglite-db");
@@ -106,6 +145,8 @@ function makeDeps(options?: { failKeys?: () => Set<string> }) {
 registerTestDatabase({ pgClient, testDb });
 
 beforeEach(async () => {
+  await testDb.delete(schema.collaborationLifecycleSubject);
+  await testDb.delete(schema.collaborationLifecycleRegistration);
   await testDb.delete(schema.collaborationAsset);
   await testDb.delete(schema.collaborationSnapshot);
   await testDb.delete(schema.collaborationRoom);
@@ -555,6 +596,7 @@ describe("collab room retention", () => {
   async function insertRoom(params: {
     roomId: string;
     status: "ready" | "ended";
+    storageState?: "ended";
     endedAt?: Date;
   }) {
     const sceneId = await insertScene(null);
@@ -563,6 +605,8 @@ describe("collab room retention", () => {
       sceneId,
       ownerId: OWNER,
       status: params.status,
+      storageState:
+        params.storageState ?? (params.status === "ended" ? "ended" : "ready"),
       endedAt: params.endedAt ?? null,
     });
   }
@@ -617,6 +661,7 @@ describe("collab room retention", () => {
     await insertRoom({
       roomId: "room-ended-old",
       status: "ended",
+      storageState: "ended",
 
       endedAt: new Date(Date.now() - 8 * DAY_MS),
     });
@@ -663,6 +708,7 @@ describe("collab room retention", () => {
     await insertRoom({
       roomId: "room-ended-old",
       status: "ended",
+      storageState: "ended",
 
       endedAt: new Date(Date.now() - 8 * DAY_MS),
     });
@@ -716,6 +762,7 @@ describe("collab room retention", () => {
     await insertRoom({
       roomId: "room-just-ended",
       status: "ended",
+      storageState: "ended",
 
       endedAt: new Date(Date.now() - HOUR_MS),
     });
@@ -775,6 +822,7 @@ describe("collab room retention", () => {
     await insertRoom({
       roomId: "room-combo",
       status: "ended",
+      storageState: "ended",
 
       endedAt: new Date(Date.now() - 8 * DAY_MS),
     });
@@ -802,6 +850,7 @@ describe("collab room retention", () => {
       await insertRoom({
         roomId,
         status: "ended",
+        storageState: "ended",
 
         endedAt: new Date(Date.now() - 8 * DAY_MS),
       });
@@ -844,6 +893,7 @@ describe("collab room retention", () => {
       await insertRoom({
         roomId,
         status: "ended",
+        storageState: "ended",
 
         endedAt: new Date(Date.now() - 8 * DAY_MS),
       });
@@ -961,7 +1011,6 @@ describe("user purge", () => {
     expect(detail).toMatchObject({
       dryRun: false,
       users: 1,
-      enqueuedObjects: 3,
     });
     expect(await userIds()).toEqual([OWNER]);
     // The purge itself touches no storage; the keys wait durably in the queue.

@@ -25,6 +25,7 @@ import {
   registerAuthorityCommand,
   createAuthorityParent,
 } from "./authority-registration";
+import { applyLifecycleAdapter } from "./authority-lifecycle";
 import { applyRoomProjection } from "./authority-projection";
 
 /** Enforce actual streamed bytes, regardless of Content-Length. Never hold a DB lock while reading a body. */
@@ -104,6 +105,10 @@ export async function handleAdapterRequest(
     )
       throw new AdapterError("invalid-body");
     switch (command.action) {
+      case "lifecycle-freeze":
+      case "lifecycle-list":
+      case "lifecycle-delete":
+        return jsonResponse(await applyLifecycleAdapter(db, command));
       case "register":
         return jsonResponse(await registerAuthorityCommand(db, command));
       case "create-parent":

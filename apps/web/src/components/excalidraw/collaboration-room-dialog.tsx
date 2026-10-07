@@ -13,16 +13,15 @@ import { createRoomInitialization } from "@/lib/collab/room-initialization";
 import {
   AuthorityRoomError,
   readAuthorityState,
+  authorityEnvelope,
+  createAuthorityOperation,
 } from "@/lib/collab/authority-client";
 import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import { createSnapshotReset } from "@/lib/collab/snapshot-reset";
 
-import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
+import type { AuthorityRequest } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import {
-  generateRoomKey,
-  type RoomKey,
-} from "@drawstuff/collaboration/realtime-crypto";
+import { type RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 
 import { CopyButton } from "@/components/copy-button";
@@ -37,6 +36,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
 import {
   Select,
   SelectContent,
@@ -109,6 +109,7 @@ export type CollaborationRoomDialogProps = {
   onOpenChange: (open: boolean) => void;
   /** Auth is resolved by the editor so unauthenticated dialogs make no API calls. */
   isAuthenticated: boolean;
+  authIdentity?: string | null;
   isAuthenticationPending: boolean;
   /** Cloud scene id; a room can only be started for a saved scene. */
   sceneId: string | null;
@@ -135,6 +136,7 @@ export function CollaborationRoomDialog({
   open,
   onOpenChange,
   isAuthenticated,
+  authIdentity,
   isAuthenticationPending,
   sceneId,
   getInitialElements,
@@ -175,9 +177,20 @@ export function CollaborationRoomDialog({
   useEffect(() => {
     setIsResetArmed(false);
   }, [open, roomId, failureReason]);
+  const [emailCursor, setEmailCursor] = useState<string | undefined>();
+  const [memberCursor, setMemberCursor] = useState<string | undefined>();
+  useEffect(() => {
+    setMemberCursor(undefined);
+    setEmailCursor(undefined);
+  }, [roomId]);
   const roomQuery = api.collaborationRoom.get.useQuery(
     // 成員面板要能顯示（並復原）已移除的成員，所以明確要求 revoked rows。
-    { roomId: roomId ?? "", includeRevokedMembers: true },
+    {
+      roomId: roomId ?? "",
+      includeRevokedMembers: true,
+      cursor: memberCursor,
+      emailCursor,
+    },
     {
       enabled: open && !isAuthenticationPending && isAuthenticated && !!roomId,
     },
@@ -199,39 +212,7 @@ export function CollaborationRoomDialog({
       undefined,
       options?.refetchPanel === false ? { refetchType: "none" } : undefined,
     );
-    await utils.collaborationRoom.getActiveForScene.invalidate();
-  };
-
-  const reportEnforcement = (enforcement: "enforced" | "pending"): void => {
-    if (enforcement === "enforced") return;
-    // The change is committed and new joins are already refused, but sockets
-    // that already joined may still be live until the queued enforcement
-    // event is delivered: never present a pending revocation as complete.
-    toast.warning(t("collaboration.toast.enforcementPending"));
-  };
-
-  /**
-   * Seals the key-check value for a freshly minted key and stores it. This is
-   * the write that makes the key verifiable before join, so both
-   * flows that mint a key — create and rotate — must not hand the key out
-   * until it lands: a link shared without it would be refused by every joiner
-   * as unverifiable.
-   */
-  const storeKeyCheck = async (params: {
-    roomId: string;
-    roomKey: RoomKey;
-    authGeneration: number;
-  }): Promise<void> => {
-    const keyCheckBase64 = await sealRoomKeyCheck({
-      roomKey: params.roomKey,
-      roomId: roomIdSchema.parse(params.roomId),
-      authGeneration: params.authGeneration,
-    });
-    await utils.client.collaborationRoom.setKeyCheck.mutate({
-      roomId: params.roomId,
-      authGeneration: params.authGeneration,
-      keyCheckBase64,
-    });
+    await utils.collaborationRoom.list.invalidate();
   };
 
   const initialization = useRef<ReturnType<
@@ -243,6 +224,7 @@ export function CollaborationRoomDialog({
     useState(false);
   const initializationEpoch = useRef(0);
   const operationInFlight = useRef(false);
+  const initializationIdentity = useRef(authIdentity);
   useEffect(
     () => () => {
       initializationEpoch.current++;
@@ -252,7 +234,9 @@ export function CollaborationRoomDialog({
   );
   useEffect(() => {
     if (roomId) onInitializationChange?.(false);
-    if (!isAuthenticationPending && !isAuthenticated) {
+    const identityChanged = initializationIdentity.current !== authIdentity;
+    initializationIdentity.current = authIdentity;
+    if (identityChanged || (!isAuthenticationPending && !isAuthenticated)) {
       initializationEpoch.current++;
       initialization.current?.dispose?.();
       initialization.current = null;
@@ -263,6 +247,7 @@ export function CollaborationRoomDialog({
       onInitializationChange?.(false);
     }
   }, [
+    authIdentity,
     isAuthenticated,
     isAuthenticationPending,
     roomId,
@@ -373,6 +358,10 @@ export function CollaborationRoomDialog({
       if (epoch !== initializationEpoch.current) return;
       initialization.current?.dispose?.();
       initialization.current = null;
+      if (roomId) {
+        onRoomIdChange(null);
+        onRoomKeyChange(null);
+      }
       setIsCancellingInitialization(false);
       setHasInitialization(false);
       onInitializationChange?.(false);
@@ -385,84 +374,194 @@ export function CollaborationRoomDialog({
       }
     }
   };
-  const endRoom = api.collaborationRoom.end.useMutation({
-    onSuccess: async (result) => {
-      reportEnforcement(result.enforcement);
-      onRoomIdChange(null);
-      // Drop the key from the address bar too: an ended room's link should not
-      // keep a usable key sitting in browser history.
+  const managementEpoch = useRef(0);
+  const [managementPending, setManagementPending] = useState(false);
+  const [hasManagementIntent, setHasManagementIntent] = useState(false);
+  const managementIntent = useRef<{
+    key: string;
+    request: Mutation;
+    exit: boolean;
+    run: ReturnType<typeof createAuthorityOperation>;
+  } | null>(null);
+  useEffect(() => {
+    managementEpoch.current++;
+    managementIntent.current = null;
+    setHasManagementIntent(false);
+    setManagementPending(false);
+  }, [roomId, isAuthenticated, authIdentity]);
+  type Mutation = Exclude<
+    AuthorityRequest,
+    { action: "query" | "get-state" | "get-management" }
+  >;
+  const manage = async (request: Mutation, exit = false) => {
+    if (managementPending) return;
+    const key = JSON.stringify({
+      ...request,
+      operationId: undefined,
+      deadline: undefined,
+    });
+    if (managementIntent.current && managementIntent.current.key !== key) {
+      toast.warning(t("collaboration.toast.enforcementPending"));
+      return;
+    }
+    managementIntent.current ??= {
+      key,
+      request,
+      exit,
+      run: createAuthorityOperation(
+        {
+          execute: (input) =>
+            utils.client.collaborationAuthority.execute.mutate(input),
+        },
+        request,
+      ),
+    };
+    setHasManagementIntent(true);
+    const epoch = managementEpoch.current;
+    setManagementPending(true);
+    try {
+      await managementIntent.current.run();
+      if (epoch !== managementEpoch.current) return;
+      managementIntent.current = null;
+      setHasManagementIntent(false);
+      if (exit) {
+        onRoomIdChange(null);
+        onRoomKeyChange(null);
+        onOpenChange(false);
+      }
+      await invalidateRoom({ refetchPanel: !exit });
+    } catch (error) {
+      if (epoch !== managementEpoch.current) return;
+      if (
+        error instanceof AuthorityRoomError &&
+        error.code === "expired-operation"
+      ) {
+        managementIntent.current = null;
+        setHasManagementIntent(false);
+      }
+      if (error instanceof AuthorityRoomError && error.code === "pending")
+        toast.warning(t("collaboration.toast.enforcementPending"));
+      else reportRoomError(error);
+    } finally {
+      if (epoch === managementEpoch.current) setManagementPending(false);
+    }
+  };
+  const endRoom = {
+    isPending: managementPending,
+    mutate: ({ roomId }: { roomId: string }) =>
+      void manage(
+        {
+          ...authorityEnvelope(roomIdSchema.parse(roomId)),
+          action: "end-room",
+        },
+        true,
+      ),
+  };
+  const leaveRoom = {
+    isPending: managementPending,
+    mutate: ({ roomId }: { roomId: string }) =>
+      void manage(
+        { ...authorityEnvelope(roomIdSchema.parse(roomId)), action: "leave" },
+        true,
+      ),
+  };
+  const removeMember = {
+    isPending: managementPending,
+    mutate: ({ roomId, userId }: { roomId: string; userId: string }) =>
+      void manage({
+        ...authorityEnvelope(roomIdSchema.parse(roomId)),
+        action: "revoke-member",
+        subject: userId,
+      }),
+  };
+  const setMemberRole = {
+    isPending: managementPending,
+    mutate: ({
+      roomId,
+      userId,
+      role,
+    }: {
+      roomId: string;
+      userId: string;
+      role: "viewer" | "editor";
+    }) =>
+      void manage({
+        ...authorityEnvelope(roomIdSchema.parse(roomId)),
+        action: "set-member-role",
+        subject: userId,
+        role,
+      }),
+  };
+  const setLinkRole = {
+    isPending: managementPending,
+    mutate: ({ roomId, linkRole }: { roomId: string; linkRole: LinkRole }) =>
+      void manage({
+        ...authorityEnvelope(roomIdSchema.parse(roomId)),
+        action: "set-link-role",
+        linkRole,
+      }),
+  };
+  const [allowEmail, setAllowEmail] = useState("");
+  const [allowRole, setAllowRole] = useState<"viewer" | "editor">("viewer");
+  const rotateGeneration = {
+    isPending: isCreatePending,
+    mutate: async ({ roomId }: { roomId: string }) => {
+      if (!room || operationInFlight.current) return;
+      if (!initialization.current) {
+        const elements = getInitialElements();
+        if (!elements) return;
+        initialization.current = createRoomInitialization({
+          authority: {
+            execute: (input) =>
+              utils.client.collaborationAuthority.execute.mutate(input),
+            identity: (input) =>
+              utils.client.collaborationAuthority.identity.mutate(input),
+          },
+          snapshots: createBinarySnapshotClient(),
+          sceneId: room.sceneId,
+          rotate: { roomId, expectedGeneration: room.authGeneration },
+          elements,
+          files: getInitialFiles(),
+          assets: createAuthorityAssetApi({
+            authority: {
+              execute: (input) =>
+                utils.client.collaborationAuthority.execute.mutate(input),
+              identity: (input) =>
+                utils.client.collaborationAuthority.identity.mutate(input),
+            },
+            resolve: (input, signal) =>
+              utils.client.collaborationAsset.resolve.query(input, { signal }),
+            execute: (input, signal) =>
+              utils.client.collaborationAsset.execute.mutate(input, { signal }),
+          }),
+        });
+      }
+      const epoch = initializationEpoch.current;
+      operationInFlight.current = true;
+      setIsCreatePending(true);
+      setHasInitialization(true);
+      onInitializationChange?.(true);
       onRoomKeyChange(null);
-      await invalidateRoom({ refetchPanel: false });
-      onOpenChange(false);
-    },
-    onError: reportRoomError,
-  });
-  const leaveRoom = api.collaborationRoom.leave.useMutation({
-    onSuccess: async (result) => {
-      reportEnforcement(result.enforcement);
-      onRoomIdChange(null);
-      onRoomKeyChange(null);
-      await invalidateRoom({ refetchPanel: false });
-      onOpenChange(false);
-    },
-    onError: reportRoomError,
-  });
-  const removeMember = api.collaborationRoom.removeMember.useMutation({
-    onSuccess: async (result) => {
-      reportEnforcement(result.enforcement);
-      await invalidateRoom();
-    },
-    onError: reportRoomError,
-  });
-  const setMemberRole = api.collaborationRoom.setMemberRole.useMutation({
-    onSuccess: async (result) => {
-      reportEnforcement(result.enforcement);
-      await invalidateRoom();
-    },
-    onError: reportRoomError,
-  });
-  const setLinkRole = api.collaborationRoom.setLinkRole.useMutation({
-    onSuccess: () => invalidateRoom(),
-    onError: reportRoomError,
-  });
-  const rotateGeneration = api.collaborationRoom.rotateGeneration.useMutation({
-    onSuccess: async (result) => {
-      reportEnforcement(result.enforcement);
-      // A new generation derives a new key from the room key, but a removed
-      // member still holds that room key. Minting a fresh one is what actually
-      // takes reading access away, so rotation replaces both. The rotation
-      // cleared the stored check value with it, so the new key's value must
-      // land before the new link is handed out.
-      //
-      // The old key is retired the moment the rotation commits, so it comes
-      // out of the URL first: if storing the new check value fails below, the
-      // dialog must show "缺少金鑰" rather than a complete-looking link built
-      // around a key that can no longer open anything.
-      onRoomKeyChange(null);
-      const nextKey = generateRoomKey();
-      if (roomId) {
-        try {
-          await storeKeyCheck({
-            roomId,
-            roomKey: nextKey,
-            authGeneration: result.authGeneration,
-          });
-        } catch {
-          toast.error(t("collaboration.toast.rotationSetupFailed"));
-          await invalidateRoom();
-          return;
+      try {
+        const result = await initialization.current.start();
+        if (epoch !== initializationEpoch.current) return;
+        onRoomKeyChange(result.roomKey);
+        initialization.current.dispose();
+        initialization.current = null;
+        setHasInitialization(false);
+        await invalidateRoom();
+        onRetryJoin();
+      } catch (error) {
+        if (epoch === initializationEpoch.current) reportRoomError(error);
+      } finally {
+        if (epoch === initializationEpoch.current) {
+          operationInFlight.current = false;
+          setIsCreatePending(false);
+          if (!initialization.current) onInitializationChange?.(false);
         }
       }
-      onRoomKeyChange(nextKey);
-      await invalidateRoom();
-      toast.success(
-        t("collaboration.toast.rotationSuccess", {
-          generation: result.authGeneration,
-        }),
-      );
     },
-    onError: reportRoomError,
-  });
+  };
 
   const performReset = useMemo(
     () =>
@@ -627,6 +726,17 @@ export function CollaborationRoomDialog({
               </div>
             )}
 
+            {hasManagementIntent && (
+              <Button
+                disabled={managementPending}
+                onClick={() => {
+                  const pending = managementIntent.current;
+                  if (pending) void manage(pending.request, pending.exit);
+                }}
+              >
+                {t("buttons.retry")}
+              </Button>
+            )}
             <div className="flex flex-col gap-2">
               <div className={COPY_LINK_ROW_CLASS_NAME}>
                 <div className="grid flex-1 gap-2">
@@ -677,6 +787,119 @@ export function CollaborationRoomDialog({
               </div>
             )}
 
+            {isOwner && room && (
+              <FieldGroup>
+                <Field>
+                  <FieldLabel htmlFor="collab-allow-email">
+                    {t("collaboration.allowlist.email")}
+                  </FieldLabel>
+                  <p className="text-muted-foreground text-sm">
+                    {t("collaboration.allowlist.hint")}
+                  </p>
+                  <Input
+                    id="collab-allow-email"
+                    type="email"
+                    value={allowEmail}
+                    onChange={(event) => setAllowEmail(event.target.value)}
+                  />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="collab-allow-role">
+                    {t("collaboration.allowlist.role")}
+                  </FieldLabel>
+                  <Select
+                    value={allowRole}
+                    onValueChange={(value) => {
+                      if (value) setAllowRole(value);
+                    }}
+                  >
+                    <SelectTrigger id="collab-allow-role">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {(["viewer", "editor"] as const).map((value) => (
+                          <SelectItem key={value} value={value}>
+                            {t(ROLE_LABEL_KEY[value])}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </Field>
+                <Button
+                  disabled={managementPending || !allowEmail.trim()}
+                  onClick={() =>
+                    void manage({
+                      ...authorityEnvelope(roomIdSchema.parse(roomId)),
+                      action: "allow-email",
+                      email: allowEmail.trim(),
+                      role: allowRole,
+                    })
+                  }
+                >
+                  {t("collaboration.allowlist.save")}
+                </Button>
+                <ul className="flex flex-col gap-2">
+                  {room.allowlist.map((entry) => (
+                    <li
+                      key={entry.email}
+                      className="flex items-center justify-between gap-2"
+                    >
+                      <span>
+                        {entry.email} · {t(ROLE_LABEL_KEY[entry.role])}
+                        {entry.removed
+                          ? t("collaboration.member.revoked")
+                          : ""}{" "}
+                        ·{" "}
+                        {entry.lastJoinedAt
+                          ? `${t("collaboration.allowlist.joined")} ${new Date(entry.lastJoinedAt).toLocaleString()}`
+                          : t("collaboration.allowlist.notJoined")}
+                      </span>
+                      <Button
+                        variant="secondary"
+                        disabled={managementPending}
+                        onClick={() =>
+                          void manage({
+                            ...authorityEnvelope(roomIdSchema.parse(roomId)),
+                            ...(entry.removed
+                              ? {
+                                  action: "allow-email",
+                                  email: entry.email,
+                                  role: entry.role,
+                                }
+                              : { action: "remove-email", email: entry.email }),
+                          })
+                        }
+                      >
+                        {entry.removed
+                          ? t("collaboration.allowlist.restore")
+                          : t("collaboration.member.remove")}
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </FieldGroup>
+            )}
+
+            {isOwner && (emailCursor ?? room?.nextEmailCursor) && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setEmailCursor(undefined)}
+                >
+                  {t("collaboration.members.first")}
+                </Button>
+                {room?.nextEmailCursor && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setEmailCursor(room.nextEmailCursor!)}
+                  >
+                    {t("collaboration.members.next")}
+                  </Button>
+                )}
+              </div>
+            )}
             {room && room.members.length > 0 && (
               <div className="flex flex-col gap-2">
                 <Label>{t("collaboration.members")}</Label>
@@ -741,6 +964,34 @@ export function CollaborationRoomDialog({
                   ))}
                 </ul>
               </div>
+            )}
+
+            {isOwner && (memberCursor ?? room?.nextCursor) && (
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => setMemberCursor(undefined)}
+                >
+                  {t("collaboration.members.first")}
+                </Button>
+                {room?.nextCursor && (
+                  <Button
+                    variant="outline"
+                    onClick={() => setMemberCursor(room.nextCursor!)}
+                  >
+                    {t("collaboration.members.next")}
+                  </Button>
+                )}
+              </div>
+            )}
+            {hasInitialization && roomId && (
+              <Button
+                variant="outline"
+                disabled={isCreatePending}
+                onClick={() => void cancelInitialization()}
+              >
+                {t("collaboration.action.cancelInitialization")}
+              </Button>
             )}
 
             <div className={DIALOG_ACTIONS_CLASS_NAME}>

@@ -23,7 +23,14 @@ export async function applyRoomProjection(
 ) {
   const event = projectionEventSchema.parse(input);
   return db.transaction(async (tx) => {
-    const room = await lockRoom(tx, event.roomId);
+    // Match retirement's account fence → user → Room lock order.
+    await tx
+      .select()
+      .from(collaborationLifecycleSubject)
+      .where(
+        eq(collaborationLifecycleSubject.scope, `account:${event.subject}`),
+      )
+      .for("update");
     const [account] = await tx
       .select({ id: user.id })
       .from(user)
@@ -35,6 +42,7 @@ export async function applyRoomProjection(
       .where(
         eq(collaborationLifecycleSubject.scope, `account:${event.subject}`),
       );
+    const room = await lockRoom(tx, event.roomId);
     const [negative] = await tx
       .select()
       .from(collaborationProjectionTombstone)

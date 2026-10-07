@@ -1,173 +1,25 @@
-# @drawstuff/collaboration-do
+# Collaboration Worker
 
-Cloudflare Worker gateway + `CollaborationRoom` Durable Object — the sole
-production collaboration backend. The Object runs the full
-Hibernatable-WebSocket room runtime — join, membership, role
-enforcement, opaque E2EE binary fanout, limits, backpressure, close
-semantics, a single-alarm scheduler and the keepalive auto-response — pinned
-by the black-box conformance suite
-(`@drawstuff/collaboration/protocol-conformance`), which runs both inside
-workerd and remotely against the deployed Worker. Connection state lives in
-per-socket attachments and SQLite only, so hibernation, eviction and code
-updates recover everything. Single environment by design — a solo,
-self-hosted project, deployed the same way `apps/web` is (main → the one
-deployment). Long-term claims live in
-[ADR-0002](../../docs/adr/0002-collaboration-durable-object-target.md) and
-[ADR-0003](../../docs/adr/0003-collaboration-do-gateway-foundation.md); the
-liveness/keepalive contract is documented in the
-[collaboration SLO document](../../docs/performance/collaboration-slo-capacity.md) §9.
+Source uses protocol 6: stable `roomId` routes, SQLite Room authority, identity proofs and private storage/Lifecycle capabilities. Production remains protocol 5 until the coordinated [18B P3 reset](../../docs/deployment/collaboration-reset/README.md). Do not push or deploy this artifact independently.
 
-The Worker carries production collaboration traffic through DO-only routing.
-`COLLAB_ALLOWED_ORIGINS` admits the production web app and localhost
-development; short-lived join tokens remain the authorization boundary.
+Room Durable Objects persist authorization, operation receipts and bounded metadata work. Snapshot ciphertext streams through the Worker; complete canvas bodies are never stored in DO SQLite. Lifecycle Objects freeze a subject, enumerate conservative preregistrations, obtain every Room storage-fence acknowledgment and then request DB deletion. Durable alarms retry without the original caller. There is no scheduled cron or control-outbox drain.
 
-**18B source is not independently deployable.** The source adds protocol-v6 Room authority,
-durable adapter delivery, verified login proofs, private management/binary snapshot ingress and formal WebSocket authority,
-plus authenticated web binary snapshot ingress/client, product snapshot cadence/reset and pending
-receipt recovery, product initialization and identity-proof joining, plus Room attachment discovery,
-presign/finalization and image-bearing initialization. Old tRPC snapshot ingress and the DB-authorized
-asset writer/resolver are removed. Remaining room management and legacy issuer removal, and Lifecycle
-retirement remain pending. Formal authority rooms refuse
-legacy socket/control ingress. The P3 reset must precede deployment; do not push this intermediate
-artifact to an automatic deployment branch. Source configuration currently requires seven secrets;
-the two adapter bindings plus `COLLAB_IDENTITY_SECRET` and `COLLAB_AUTHORITY_SECRET` are unprovisioned.
-See the [source boundary](../../docs/architecture/collaboration-system-design.md#18b-p2-product-attachment-authority)
-and [deployment runbook](../../docs/operations/collaboration-do-deployment.md#2-secrets).
+Public surfaces: `/healthz`, stable `/v1/rooms/:roomId/socket`, and capability-protected `/v1/authority`, `/v1/snapshot`, `/v1/assets`, `/v1/lifecycle`. The old `/v1/control` and generation socket paths return 404. Legacy internal runtime RPC remains private for regression coverage; no product writer routes to it.
 
-## Public surface (fixed, versioned)
+## Configuration
 
-```text
-GET  /healthz                                              readiness only, never touches a DO
-GET  /v1/rooms/:roomId/generations/:authGeneration/socket  WebSocket upgrade only
-GET  /v1/rooms/:roomId/socket                              identity-only join, 18B source only
-POST /v1/control                                           Vercel backend only
-POST /v1/authority                                         private management, 18B source only
+`wrangler.jsonc` pins the compatibility date, `nodejs_compat`, SQLite class exports, production origins, metadata and observability. Class lifecycle changes are manual: never roll back across namespace creation. Keep the existing Room namespace while isolating/cleaning its old generation-named objects; Lifecycle uses its own declared class export.
+
+Provision purpose-separated `COLLAB_IDENTITY_SECRET`, `COLLAB_AUTHORITY_SECRET`, `COLLAB_ADAPTER_SECRET` (each at least 32 characters), plus Worker-only `COLLAB_ADAPTER_URL=https://<web-origin>/api/internal/collaboration/adapter`. The matching web secrets authenticate identity issuance, service Gateway calls and adapter requests respectively. The private legacy regression path still has `COLLAB_JOIN_TOKEN_SECRET`; the protocol-6 public surface never accepts its role-bearing tokens. Secrets belong in Cloudflare secrets or private environment files, never `vars` or git.
+
+```sh
+pnpm --filter @drawstuff/collaboration-do verify
+pnpm --filter @drawstuff/collaboration-do test:harness
+pnpm cf:typegen
+pnpm cf:preflight
+pnpm cf:secrets
 ```
 
-## Commands
+`test:harness` starts an ephemeral, isolated workerd with the actual production Gateway/Room/Lifecycle classes and a test-only adapter. It verifies maximum encrypted snapshot write/read/decryption, attachment descriptor finalization, ready, formal WebSocket, revoke/closure and account retirement. The fixture entrypoint is never imported by production. Multi-connection SQL races and reset/rollback use `pnpm collab:adapters`.
 
-```bash
-pnpm --filter @drawstuff/collaboration-do lint
-pnpm --filter @drawstuff/collaboration-do typecheck
-pnpm --filter @drawstuff/collaboration-do test        # workerd suite + hermetic CLI harness smoke
-pnpm --filter @drawstuff/collaboration-do test:harness # remote runner + short load via localhost
-pnpm knip --workspace apps/collaboration-do             # knip runs from the repo root (knip.json)
-pnpm --filter @drawstuff/collaboration-do verify      # all four of the above
-pnpm --filter @drawstuff/collaboration-do cf:typegen  # regenerate worker-configuration.d.ts
-
-# Manual operations (the `db:push` analogs — human-triggered, evidence-producing):
-pnpm --filter @drawstuff/collaboration-do preflight   # dry-run bundle+config, zero side effects
-pnpm --filter @drawstuff/collaboration-do deploy      # verify → preflight → deploy
-pnpm --filter @drawstuff/collaboration-do secret:put  # prompts for COLLAB_JOIN_TOKEN_SECRET
-pnpm --filter @drawstuff/collaboration-do secret:put:cron # prompts for COLLAB_CRON_SECRET
-pnpm --filter @drawstuff/collaboration-do secret:put:drain-url # prompts for COLLAB_OUTBOX_DRAIN_URL
-pnpm --filter @drawstuff/collaboration-do secret:list # lists secret names, never values
-pnpm --filter @drawstuff/collaboration-do tail        # streams live Worker logs until stopped
-
-# Deployed-worker verification tooling (run before the first production
-# assignment; COLLAB_JOIN_TOKEN_SECRET must match the deployed Worker):
-pnpm --filter @drawstuff/collaboration-do conformance:remote <base-url>  # full shared conformance suite
-pnpm --filter @drawstuff/collaboration-do loadtest <base-url> [flags]    # diagnostic load harness
-pnpm --filter @drawstuff/collaboration-do smoke <url> # live gateway smoke, prints version id
-```
-
-`smoke` runs the closed-response HTTP checks with no credentials. When
-`COLLAB_JOIN_TOKEN_SECRET` is set in the environment (the deployed Worker's
-secret), it additionally runs the room-runtime smoke: two real WebSocket
-clients join a fresh room through the deployed Worker, exchange E2EE-sealed
-scene and presence frames (the room key never leaves the smoke process), and
-verify the keepalive auto-response.
-
-`MAX_CONNECTIONS_PER_ROOM` remains an internal safety and abuse bound, not a
-verified capacity promise. `loadtest` is available for targeted diagnosis when
-real usage or platform metrics justify it; release qualification only requires
-small-group fanout correctness, not an exhaustive member/cadence matrix.
-
-Root shortcuts: `pnpm cf:typegen`, `pnpm cf:preflight`, `pnpm cf:deploy`,
-`pnpm cf:smoke <url>`, `pnpm cf:conformance <url>`,
-`pnpm cf:loadtest <url>`, `pnpm cf:secrets`, and `pnpm cf:tail`.
-
-Wrangler is never part of the root `dev` pipeline.
-
-## Deployment
-
-Reversible deploys are automated; irreversible state changes are manual (same
-principle as the repo's `db:push` convention for Postgres schema).
-
-| Change                                                   | How it deploys                                                                                                                                                                                                        |
-| -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Code-only (the everyday case)                            | auto: Workers Builds on push to `main`                                                                                                                                                                                |
-| **First** deploy (creates the namespace)                 | the deliberate act of connecting Workers Builds in the Dashboard — that first build provisions the namespace, its build log is the evidence (zero CLI); `pnpm cf:deploy` from a `wrangler login`-ed machine works too |
-| Later lifecycle changes (`exports` create/rename/delete) | manual only: `pnpm cf:deploy` (one-time `wrangler login` when the day comes)                                                                                                                                          |
-| Secret                                                   | Dashboard → Settings → Variables and Secrets (or `pnpm --filter @drawstuff/collaboration-do secret:put`)                                                                                                              |
-
-The config-audit test pins `exports`, so a lifecycle change cannot merge
-without editing the test as well — that is the deliberate-review signal; ship
-it manually, alone, per CLAIM-MIG-4.
-
-Zero-CLI bootstrap, in this order — `secrets.required` makes the deploy
-refuse to ship while the secret is missing, so the secret comes first:
-connect Workers Builds (below; the first build will fail on the missing
-secret, which is the guardrail working) → Worker → Settings → Variables and
-Secrets → add `COLLAB_JOIN_TOKEN_SECRET` → Retry build → this build creates
-the namespace → verify with `pnpm cf:smoke <workers.dev-url>` (a plain HTTP
-probe, no credentials) or by opening `/healthz` in a browser (expect
-`"ok": true`).
-
-Workers Builds settings (Dashboard → Workers & Pages → connect
-`EricTsai83/drawstuff`):
-
-| Field                                | Value                                                                                                  |
-| ------------------------------------ | ------------------------------------------------------------------------------------------------------ |
-| Project name                         | `drawstuff-collaboration-do` (must equal `name` in wrangler.jsonc)                                     |
-| Root directory                       | `apps/collaboration-do`                                                                                |
-| Build command                        | `pnpm install --frozen-lockfile --trust-lockfile`                                                      |
-| Deploy command                       | `pnpm run deploy` (runs verify + preflight before deploying)                                           |
-| Builds for non-production branches   | **off** — preview builds run `wrangler versions upload`, which fails fast on configs with `exports`    |
-| Build watch paths (Settings → Build) | include `apps/collaboration-do/*`, `packages/collaboration/*`, `pnpm-lock.yaml`, `pnpm-workspace.yaml` |
-
-With GitHub branch protection on `main` (PR + required CI checks), every
-auto-deployed commit has passed the full repo CI, and the deploy command
-re-runs this package's own checks besides.
-
-## Environment facts
-
-|                                                             | value                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| ----------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Worker name                                                 | `drawstuff-collaboration-do`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Public URL                                                  | `https://drawstuff-collaboration-do.ericts.workers.dev`                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| Allowed origins (`COLLAB_ALLOWED_ORIGINS`, comma-separated) | `https://draw.ericts.com,http://localhost:3000`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| DO namespace                                                | `CollaborationRoom` (SQLite)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| Secrets                                                     | `COLLAB_JOIN_TOKEN_SECRET` (same value the app signs join/control tokens with, ≥32 bytes); `COLLAB_CRON_SECRET` (same value as the web app's `COLLAB_OUTBOX_CRON_SECRET` — a dedicated secret whose only power is triggering the idempotent outbox drain, never the maintenance `CRON_SECRET`); `COLLAB_OUTBOX_DRAIN_URL` (`https://<web origin>/api/collaboration/control-outbox`; a secret so deploys never clobber it, not because it is sensitive). Cloudflare secrets only — never in `vars`, git, logs or test fixtures |
-| Cron trigger                                                | `* * * * *` — pings the web app's control-outbox drain endpoint (`src/outbox-drain.ts`); the minute clock lives here because the Vercel deployment's Hobby-plan crons are daily-only                                                                                                                                                                                                                                                                                                                                          |
-
-`tests/config-audit.test.ts` audits all of the above against the resolved
-wrangler config on every test run.
-
-Custom domains are deliberately not configured; the production app uses the
-Worker's `workers.dev` URL directly.
-
-## Deployment lifecycle (CLAIM-MIG-4)
-
-Class lifecycle (create/rename/delete in `exports`) is not gradually
-deployable and cannot be rolled back across; it always ships alone:
-
-1. Set the secret first (`secrets.required` blocks any deploy without it),
-   then the first successful deploy (Workers Builds or local script)
-   provisions the namespace. Run `pnpm cf:smoke <workers.dev-url>` — it
-   checks `/healthz` plus the closed-response contract and prints the
-   version id.
-2. Record as evidence: Worker version id (from the build log, deploy output
-   or `/healthz`), compatibility date (`2026-08-01`), namespace/class/backend
-   (`CollaborationRoom`, SQLite), and that the secret is set.
-3. Never roll back to before a namespace existed. Rollback keeps the
-   namespace; before direct cutover the localhost-only Origin allowlist is
-   the traffic lock.
-4. Schema migrations are forward-only and re-entrant; class
-   lifecycle changes always deploy separately from runtime/schema/routing
-   changes, manually.
-5. Code-only deploys keep `exports` identical and may auto-deploy from
-   `main` (with `exports` present, `wrangler versions upload`/gradual
-   deployment is unavailable — do not switch back to legacy `migrations` to
-   obtain it). Only roll back to a known-good version after the latest
-   lifecycle boundary that can read and write the current SQLite schema.
+Remote `cf:smoke` / `cf:conformance` exercise the protocol-6 product path using two existing verified test principals. `cf:loadtest` gathers 30 maximum-snapshot read samples; it is not a full live fanout qualification. Inputs, maintenance isolation and the remaining deployed gates are documented in the P3 runbook. Remote tools create/end Rooms and preserve accounts; UploadThing live provider acceptance remains a separate gate.

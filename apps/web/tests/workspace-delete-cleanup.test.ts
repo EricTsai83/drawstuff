@@ -1,3 +1,5 @@
+import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
+import type { Database } from "@/server/collab/rooms";
 // @vitest-environment node
 import {
   afterAll,
@@ -10,6 +12,44 @@ import {
 } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/server/collab/lifecycle-gateway", () => ({
+  callLifecycleGateway: async (input: {
+    action: string;
+    roomId?: string;
+    command?: LifecycleCommand;
+  }) => {
+    if (input.action === "end-room" && input.roomId) {
+      await testDb
+        .update(schema.collaborationRoom)
+        .set({ status: "ended", authRevision: 2 })
+        .where(eq(schema.collaborationRoom.roomId, input.roomId));
+      return { enforcement: "enforced" };
+    }
+    if (input.action !== "begin" || !input.command)
+      throw new Error("unexpected");
+    const { applyLifecycleAdapter } =
+      await import("@/server/collab/authority-lifecycle");
+    const database = testDb as unknown as Database;
+    const frozen = await applyLifecycleAdapter(database, {
+      v: 1,
+      action: "lifecycle-freeze",
+      command: input.command,
+    });
+    if (!("version" in frozen)) throw new Error("missing-version");
+    await applyLifecycleAdapter(database, {
+      v: 1,
+      action: "lifecycle-delete",
+      command: input.command,
+      version: frozen.version,
+    });
+    return {
+      operationId: input.command.operationId,
+      phase: "completed",
+      version: frozen.version,
+    };
+  },
+}));
+
 vi.mock("@/server/rate-limit/collaboration", () => ({
   enforceCollaborationRateLimit: () => Promise.resolve(),
   rateLimitMetadataOf: () => null,
@@ -61,6 +101,8 @@ beforeAll(async () => {
 });
 afterAll(() => client.close());
 beforeEach(async () => {
+  await testDb.delete(schema.collaborationLifecycleSubject);
+  await testDb.delete(schema.collaborationLifecycleRegistration);
   await testDb.delete(schema.deferredFileCleanup);
   await testDb.delete(schema.userLastActiveWorkspace);
   await testDb.delete(schema.userDefaultWorkspace);
@@ -158,10 +200,10 @@ describe("workspace.delete storage lifecycle", () => {
     expect(
       queued.map((task) => [task.utFileKey, task.reason, task.status]).sort(),
     ).toEqual([
-      ["asset-key", "delete-workspace", "pending"],
-      ["room-asset-key", "delete-workspace", "pending"],
-      ["svg-key", "delete-workspace", "pending"],
-      ["thumb-key", "delete-workspace", "pending"],
+      ["asset-key", "delete-scene", "pending"],
+      ["room-asset-key", "delete-scene", "pending"],
+      ["svg-key", "delete-scene", "pending"],
+      ["thumb-key", "delete-scene", "pending"],
     ]);
     // lastActive was re-pointed at the default workspace before the delete.
     expect(await testDb.select().from(schema.userLastActiveWorkspace)).toEqual([

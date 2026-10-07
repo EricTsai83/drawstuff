@@ -85,7 +85,10 @@ export function createAuthorityRoomBackend(api: AuthorityApi) {
   };
 }
 
-type Mutation = Exclude<AuthorityRequest, { action: "get-state" | "query" }>;
+type Mutation = Exclude<
+  AuthorityRequest,
+  { action: "get-state" | "get-management" | "query" }
+>;
 /** One immutable management intent, retained across unknown outcomes and UI retries. */
 export function createAuthorityOperation(
   api: Pick<AuthorityApi, "execute">,

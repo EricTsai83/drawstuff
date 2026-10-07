@@ -3,6 +3,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { TRPCClientError } from "@trpc/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { createRoomInitialization as RoomInitializer } from "@/lib/collab/room-initialization";
 import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { SnapshotApi } from "@/lib/collab/snapshot-http";
@@ -24,11 +25,7 @@ const {
 } = vi.hoisted(() => ({
   findForScene: vi.fn<() => Promise<{ roomId: string } | null>>(),
   initialCapture: {
-    current: undefined as
-      | Parameters<
-          typeof import("@/lib/collab/room-initialization").createRoomInitialization
-        >[0]
-      | undefined,
+    current: undefined as Parameters<typeof RoomInitializer>[0] | undefined,
   },
   cancelCreate: vi.fn<() => Promise<void>>(),
   createMutate: vi.fn<() => Promise<{ roomId: string; roomKey: RoomKey }>>(),
@@ -62,9 +59,7 @@ vi.mock("@/lib/collab/snapshot-http", async (original) => ({
 
 vi.mock("@/lib/collab/room-initialization", () => ({
   createRoomInitialization: (
-    options: Parameters<
-      typeof import("@/lib/collab/room-initialization").createRoomInitialization
-    >[0],
+    options: Parameters<typeof RoomInitializer>[0],
   ) => {
     initialCapture.current = options;
     return { start: createMutate, cancel: cancelCreate };
@@ -116,7 +111,7 @@ vi.mock("@/trpc/react", () => {
       useUtils: () => ({
         collaborationRoom: {
           get: { invalidate: roomGetInvalidate },
-          getActiveForScene: { invalidate: getActiveForSceneInvalidate },
+          list: { invalidate: getActiveForSceneInvalidate },
         },
         client: {
           collaborationRoom: {
@@ -124,7 +119,16 @@ vi.mock("@/trpc/react", () => {
           },
           collaborationAuthority: {
             findForScene: { query: findForScene },
-            execute: { mutate: vi.fn() },
+            execute: {
+              mutate: (input: { operationId: string }) =>
+                Promise.resolve({
+                  operationId: input.operationId,
+                  status: "enforced",
+                  authRevision: 1,
+                  authorityEpoch: 1,
+                  projectionPending: false,
+                }),
+            },
             identity: { mutate: vi.fn() },
           },
         },
@@ -389,6 +393,7 @@ describe("collaboration room authentication guard", () => {
 
   it("shows no reset success or join retry for pending, then recovers the same operation on a confirmed button retry", async () => {
     roomGetUseQuery.mockReturnValue({
+      allowlist: [],
       role: "owner",
       members: [],
       linkRole: "none",
@@ -489,7 +494,7 @@ describe("collaboration room exit cache cleanup", () => {
     ["leaving", leaveSuccessHandler],
   ] as const)(
     "marks the inaccessible room stale without refetching after %s",
-    async (_operation, successHandler) => {
+    async (operation, _successHandler) => {
       const onOpenChange = vi.fn();
       const onRoomIdChange = vi.fn();
       const onRoomKeyChange = vi.fn();
@@ -501,8 +506,27 @@ describe("collaboration room exit cache cleanup", () => {
         onRoomKeyChange,
       });
 
+      roomGetUseQuery.mockReturnValue({
+        role: operation === "ending" ? "owner" : "viewer",
+        members: [],
+        allowlist: [],
+        linkRole: "none",
+      });
+      renderDialog({
+        isAuthenticated: true,
+        roomId: "room-exited",
+        onOpenChange,
+        onRoomIdChange,
+        onRoomKeyChange,
+      });
       await act(async () => {
-        await successHandler.current?.({ enforcement: "enforced" });
+        const label =
+          operation === "ending" ? "End collaboration" : "Leave collaboration";
+        const button = Array.from(container!.querySelectorAll("button")).find(
+          (button) => button.textContent === label,
+        );
+        expect(button).toBeDefined();
+        button?.click();
       });
 
       expect(onRoomIdChange).toHaveBeenCalledWith(null);

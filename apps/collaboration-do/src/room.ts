@@ -1,3 +1,4 @@
+import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
 import { DurableObject } from "cloudflare:workers";
 
 import {
@@ -234,6 +235,82 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       await this.scheduleAfterMembershipChange();
     }
     return reply;
+  }
+
+  async enforceRetirementV1(input: {
+    command: LifecycleCommand;
+    version: number;
+    room: { roomId: string; action: "end-room" | "revoke-member" };
+  }) {
+    this.requireChannelKey();
+    const authority = this.authority;
+    if (input.room.roomId !== authority?.roomId) throw new Error("wrong-room");
+    const { lifecycleCommandSchema, authorityVersionSchema } =
+      await import("@drawstuff/collaboration/authority");
+    const command = lifecycleCommandSchema.parse(input.command);
+    const version = authorityVersionSchema.parse(input.version);
+    const state = authority.state();
+    if (
+      input.room.action === "end-room" &&
+      state &&
+      (state.owner !== command.target.subject ||
+        (command.target.kind === "scene" &&
+          state.scene_id !== command.target.sceneId))
+    )
+      throw new Error("wrong-subject");
+    await authority.retireSubject(command.target.subject, version);
+    this.enforceAuthoritySockets();
+    if (!authority.state()) return "enforced" as const; // Durable tombstone prevents delayed creation.
+    const delivery = new RoomDelivery(authority, new AdapterClient(this.env));
+    await authority.work.drain(
+      (job, _timeoutMs, signal) => delivery.deliver(job, signal),
+      () => authority.nextDeadline(),
+    );
+    const current = authority.state()!;
+    return current.fenced_epoch >= current.authority_epoch
+      ? ("enforced" as const)
+      : ("pending" as const);
+  }
+
+  async endAuthorityV1(operationId: string) {
+    this.requireChannelKey();
+    const authority = this.authority;
+    if (!authority?.state()) throw new Error("not-found");
+    const current = authority.state()!;
+    // Private service override shares the same durable Room end/fence path.
+    const rows = this.ctx.storage.sql
+      .exec<{ email_key: string; lifecycle_version: number }>(
+        "SELECT email_key,lifecycle_version FROM authority_members WHERE subject=?",
+        current.owner,
+      )
+      .toArray();
+    const member = rows[0]!;
+    if (current.state !== "ended")
+      await authority.apply({
+        v: 1,
+        roomId: authority.roomId,
+        operationId,
+        deadline: Date.now() + 60_000,
+        actor: {
+          subject: current.owner,
+          email: member.email_key,
+          lifecycleVersion: member.lifecycle_version,
+        },
+        action: "end-room",
+      });
+    this.enforceAuthoritySockets();
+    const delivery = new RoomDelivery(authority, new AdapterClient(this.env));
+    await authority.work.drain(
+      (job, _timeoutMs, signal) => delivery.deliver(job, signal),
+      () => authority.nextDeadline(),
+    );
+    const state = authority.state()!;
+    return {
+      enforcement:
+        state.fenced_epoch >= state.authority_epoch
+          ? ("enforced" as const)
+          : ("pending" as const),
+    };
   }
 
   async applySnapshotV1(request: Request): Promise<Response> {

@@ -9,14 +9,17 @@
   ],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
+      "dependsOn": [
+        "^build"
+      ],
       "env": [
         "BETTER_AUTH_SECRET",
         "BETTER_AUTH_URL",
         "CLEANUP_OWNER_EMAIL",
+        "COLLAB_ADAPTER_SECRET",
+        "COLLAB_AUTHORITY_SECRET",
         "COLLAB_CONTROL_URL",
-        "COLLAB_JOIN_TOKEN_SECRET",
-        "COLLAB_OUTBOX_CRON_SECRET",
+        "COLLAB_IDENTITY_SECRET",
         "COLLAB_ROOMS_DISABLED",
         "CRON_SECRET",
         "GOOGLE_CLIENT_ID",
@@ -30,7 +33,11 @@
         "UPSTASH_REDIS_REST_URL",
         "VERCEL_ENV"
       ],
-      "inputs": ["$TURBO_DEFAULT$", ".env", ".env.*"],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        ".env",
+        ".env.*"
+      ],
       "outputs": [
         ".next/**",
         "!.next/cache/**",
@@ -43,24 +50,38 @@
       "persistent": true
     },
     "transit": {
-      "dependsOn": ["^transit"]
+      "dependsOn": [
+        "^transit"
+      ]
     },
     "lint": {
-      "dependsOn": ["transit"]
+      "dependsOn": [
+        "transit"
+      ]
     },
     "lint:fix": {
       "cache": false
     },
     "test": {
-      "dependsOn": ["transit"],
-      "passThroughEnv": ["PLAYWRIGHT_BROWSERS_PATH"]
+      "dependsOn": [
+        "transit"
+      ],
+      "passThroughEnv": [
+        "PLAYWRIGHT_BROWSERS_PATH"
+      ]
     },
     "test:coverage": {
-      "dependsOn": ["^test:coverage"],
-      "outputs": ["coverage/**"]
+      "dependsOn": [
+        "^test:coverage"
+      ],
+      "outputs": [
+        "coverage/**"
+      ]
     },
     "typecheck": {
-      "dependsOn": ["^typecheck"]
+      "dependsOn": [
+        "^typecheck"
+      ]
     },
     "db:push": {
       "cache": false

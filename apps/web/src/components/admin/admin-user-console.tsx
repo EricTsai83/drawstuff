@@ -136,7 +136,12 @@ export function AdminUserConsole({
     onError: (error) => toast.error(errorMessage(error, t)),
   });
   const retireScene = api.admin.retireScene.useMutation({
-    onSuccess: async () => {
+    onSuccess: async (result) => {
+      if (result.enforcement === "pending") {
+        toast.info(t("toast.retirementPending"));
+        await refresh();
+        return;
+      }
       toast.success(t("toast.sceneRetired"));
       setAction(null);
       await refresh();
@@ -156,7 +161,11 @@ export function AdminUserConsole({
     onError: (error) => toast.error(errorMessage(error, t)),
   });
   const retireAccount = api.admin.retireAccount.useMutation({
-    onSuccess: () => {
+    onSuccess: (result) => {
+      if (result.enforcement === "pending") {
+        toast.info(t("toast.retirementPending"));
+        return;
+      }
       toast.success(t("toast.accountRetired"));
       router.push("/admin");
       router.refresh();

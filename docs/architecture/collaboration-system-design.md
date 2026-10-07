@@ -488,6 +488,18 @@ Worker gateway plus one `CollaborationRoom` Durable Object per room generation
 (`apps/collaboration-do`); durable collaboration data belongs to the web backend; encryption and
 reconciliation run on clients.
 
+## 18B P2 management, Lifecycle and cutover artifact
+
+The source conversion is complete; production remains protocol 5 until the coordinated P3 reset. Room SQLite owns get-management, roles, leave/end, allowlist changes and generation rotation. Management pages independently bound members and email entries to 50; joined timestamps and negative decisions remain local. The dialog retains the immutable pending operation with a retry entry; rotation captures the encrypted baseline and attachments and releases the replacement key only after ready. Dashboard projection lists include independent Rooms; their keys remain in invitation fragments.
+
+Lifecycle's private Gateway validates its service capability and dispatches a durable subject-scoped operation. Web entry points persist the same intent for retries. Freeze advances the lifecycle version and revokes account sessions; registration shares its lock order. Bounded enumeration includes preregistered Rooms without DB parents. Room retirement immediately fences local authorization and sockets, retains retired-subject tombstones and acknowledges only the adapter storage fence. Missing parents retain tombstones. Retries preserve the authority epoch. Lifecycle's alarm resumes after eviction and only cascades DB rows/enqueues storage cleanup after every required Room ACK.
+
+Admin scene/account retirement, scene deletion, workspace deletion and account purge use that coordinator. Pending results retain the resource and report pending. Completed tombstones allow safe deletion retries. Better Auth self-delete is explicitly disabled because no self-delete product entry exists. Workspace cascade is allowed only after all source scenes have retired and a locked recheck proves the workspace empty; concurrent new scenes require retry. Ended Room retention also requires the terminal storage state before deleting rows.
+
+The DB permission router/writers, web control tokens/outbox, public legacy control and generation socket routes, drain route/table and Worker minute cron are removed. Private legacy runtime RPC remains for regression coverage and has no public/product issuer. Operator smoke uses identity-only protocol-6 proofs and real verified accounts. Adapter fetch uses workerd-supported manual redirect handling and rejects every non-2xx response without forwarding capabilities.
+
+Deployment preparation generates collaboration-only upgrade/rollback SQL without reading a database URL. PostgreSQL 17 rehearses protocol-5 → reset → protocol-6 → rollback → upgrade and compares full account, scene/shared/published, Library and attachment-reference values. The production Gateway harness verifies the maximum legal encrypted snapshot through write/read/decryption, attachment descriptor finalization, ready, WebSocket revoke and Lifecycle retirement. Workerd additionally tests failed fence ACK, durable eviction/retry, missing-parent tombstones and capacity fail-closed policy. See the [P3 runbook](../deployment/collaboration-reset/README.md) for manifests, writer isolation, paired deployment/rollback and remaining L3 acceptance. No production DB, secret, cron or deployment was changed by P2.
+
 ## Components and data flow
 
 ```text

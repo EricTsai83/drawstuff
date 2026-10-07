@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import postgres from "postgres";
+import { readFileSync } from "node:fs";
 import { drizzle } from "drizzle-orm/postgres-js";
 import {
   generateDrizzleJson,
@@ -24,6 +25,15 @@ import {
   applyRoomProjection,
   listProjectedRooms,
 } from "@/server/collab/authority-projection";
+import {
+  applyLifecycleAdapter,
+  retirementIntent,
+} from "@/server/collab/authority-lifecycle";
+import {
+  collaborationDDL,
+  resetDDL,
+} from "../../scripts/collaboration-reset-ddl";
+import * as legacy from "../support/legacy-collaboration-schema";
 import { lockRoom } from "@/server/collab/rooms";
 import {
   adapterFixture,
@@ -532,5 +542,192 @@ describe("actual PostgreSQL adapter lock races", () => {
         initializationDeadline: Date.now() + 900_000,
       }),
     ).rejects.toThrow("fence-mismatch");
+  });
+  it("serializes the actual scene freeze against preregistration, then prevents delayed parent creation", async () => {
+    const f = await adapterFixture(db);
+    await db
+      .update(schema.user)
+      .set({ emailVerified: true })
+      .where(eq(schema.user.id, f.owner));
+    const [source] = await db
+      .insert(schema.scene)
+      .values({ userId: f.owner, name: "Retirement source" })
+      .returning();
+    const target = {
+      kind: "scene" as const,
+      subject: f.owner,
+      sceneId: source!.id,
+    };
+    const command = await retirementIntent(db, target, f.owner);
+    await db
+      .insert(schema.collaborationLifecycleSubject)
+      .values({
+        scope: `account:${f.owner}`,
+        kind: "account",
+        subject: f.owner,
+      })
+      .onConflictDoNothing();
+    const reached = gate(),
+      unblock = gate();
+    const held = db.transaction(async (tx) => {
+      await tx
+        .select()
+        .from(schema.collaborationLifecycleSubject)
+        .where(
+          eq(schema.collaborationLifecycleSubject.scope, `account:${f.owner}`),
+        )
+        .for("update");
+      reached.release();
+      await unblock.wait;
+    });
+    await reached.wait;
+    const freeze = applyLifecycleAdapter(db, {
+      v: 1,
+      action: "lifecycle-freeze",
+      command,
+    });
+    await waitForBlocked(1);
+    const registration = registerAuthorityCommand(db, {
+      v: 1,
+      action: "register",
+      roomId: f.roomId,
+      operationId: crypto.randomUUID(),
+      identity: f.operation().actor,
+      ownerId: f.owner,
+      sceneId: source!.id,
+      create: true,
+    }).then(
+      () => "accepted",
+      () => "refused",
+    );
+    try {
+      await waitForBlocked(2);
+    } finally {
+      unblock.release();
+    }
+    await held;
+    expect(await freeze).toEqual({ version: 2 });
+    expect(await registration).toBe("refused");
+    expect(
+      await applyLifecycleAdapter(db, {
+        v: 1,
+        action: "lifecycle-list",
+        command,
+        version: 2,
+        cursor: null,
+      }),
+    ).toMatchObject({ rooms: [] });
+    expect(
+      await db.query.scene.findFirst({
+        where: eq(schema.scene.id, source!.id),
+      }),
+    ).toBeDefined();
+  });
+  it("rehearses protocol-5 reset, upgrade and rollback while preserving personal, shared, published and Library bytes and attachment references", async () => {
+    const f = await adapterFixture(db);
+    const [source] = await db
+      .insert(schema.scene)
+      .values({
+        userId: f.owner,
+        name: "Preserve",
+        sceneData: "exact-personal-document",
+        thumbnailFileKey: "preserve-thumbnail",
+        isPublished: true,
+        publishedSlug: "preserve-fixture",
+        publishedSvgKey: "preserve-published",
+        publishedSvgUrl: "https://personal.test/artifact",
+      })
+      .returning();
+    await db.insert(schema.sharedScene).values({
+      sharedSceneId: "preserve-share",
+      ownerId: f.owner,
+      compressedData: new Uint8Array([3, 7, 11]),
+    });
+    await db.insert(schema.personalLibrary).values({
+      userId: f.owner,
+      compressedData: new Uint8Array([13, 17]),
+      byteLength: 2,
+      checksum: "a".repeat(64),
+    });
+    await db.insert(schema.fileRecord).values([
+      {
+        sceneId: source!.id,
+        ownerId: f.owner,
+        utFileKey: "preserve-asset",
+        excalidrawFileId: "personal-file",
+        size: 3,
+        url: "https://personal.test/asset",
+      },
+      {
+        sharedSceneId: "preserve-share",
+        ownerId: f.owner,
+        utFileKey: "preserve-shared",
+        excalidrawFileId: "shared-file",
+        size: 4,
+        url: "https://personal.test/shared",
+      },
+    ]);
+    const preserved = async () => ({
+      accounts: await db.select().from(schema.user).orderBy(schema.user.id),
+      scenes: await db.select().from(schema.scene).orderBy(schema.scene.id),
+      shared: await db
+        .select()
+        .from(schema.sharedScene)
+        .orderBy(schema.sharedScene.sharedSceneId),
+      files: await db
+        .select()
+        .from(schema.fileRecord)
+        .orderBy(schema.fileRecord.id),
+      library: await db
+        .select()
+        .from(schema.personalLibrary)
+        .orderBy(schema.personalLibrary.userId),
+    });
+    const before = await preserved();
+    const current = await collaborationDDL(schema),
+      previous = await collaborationDDL(legacy);
+    const names = [...current.names, ...previous.names];
+    const apply = async (statements: string[]) =>
+      client.begin(async (tx) => {
+        for (const statement of resetDDL(names, statements))
+          await tx.unsafe(statement);
+      });
+    await apply(previous.statements);
+    await client`INSERT INTO drawstuff_collaboration_room (room_id,scene_id,owner_id,expires_at,created_at,updated_at) VALUES ('old-fixture',${source!.id},${f.owner},now()+interval '1 day',now(),now())`;
+    await client`INSERT INTO drawstuff_collaboration_asset (room_id,auth_generation,excalidraw_file_id,crypto_version,byte_length,url,ut_file_key,registered_by,created_at) VALUES ('old-fixture',1,'old-file',1,128,'https://fixture.test/sealed','old-collab-key',${f.owner},now())`;
+    await client`INSERT INTO drawstuff_collaboration_asset (room_id,auth_generation,excalidraw_file_id,crypto_version,byte_length,url,ut_file_key,created_at) VALUES ('old-fixture',1,'colliding-file',1,128,'https://fixture.test/sealed','preserve-asset',now())`;
+    const manifestSQL = readFileSync(
+      new URL(
+        "../../../../docs/deployment/collaboration-reset/manifest.sql",
+        import.meta.url,
+      ),
+      "utf8",
+    )
+      .replace(/^--.*$/gm, "")
+      .split(";")[0]!;
+    const manifest =
+      await client.unsafe<{ ut_file_key: string }[]>(manifestSQL);
+    expect(manifest.map((row) => row.ut_file_key)).toEqual(["old-collab-key"]);
+    await apply(current.statements);
+    expect(await preserved()).toEqual(before);
+    await db
+      .insert(schema.collaborationRoom)
+      .values({ roomId: "new-independent", ownerId: f.owner });
+    expect(
+      await db.query.collaborationRoom.findFirst({
+        where: eq(schema.collaborationRoom.roomId, "new-independent"),
+      }),
+    ).toMatchObject({ sceneId: null });
+    await apply(previous.statements);
+    expect(await preserved()).toEqual(before);
+    const columns = await client<
+      { column_name: string }[]
+    >`SELECT column_name FROM information_schema.columns WHERE table_name='drawstuff_collaboration_room'`;
+    expect(columns.map((row) => row.column_name)).toContain("expires_at");
+    expect(columns.map((row) => row.column_name)).not.toContain(
+      "authority_epoch",
+    );
+    await apply(current.statements);
+    expect(await preserved()).toEqual(before);
   });
 });

@@ -432,19 +432,19 @@ export const sceneRouter = createTRPCRouter({
   deleteScene: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
-      // 1) 擁有者驗證（缺場景與非擁有者同樣回 FORBIDDEN，不洩漏存在性）
-      const ownerId = await QUERIES.getSceneOwnerId(input.id);
-      if (!ownerId || ownerId !== ctx.auth.user.id) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
-      }
-
-      // 2) retireScene 在同一 transaction 內 enqueue 所有 storage key 並刪列；
-      //    ownerUserId 讓擁有權在該 transaction 內再次被 enforce。
-      await retireScene({
+      const retirement = await retireScene({
         db: ctx.db,
         sceneId: input.id,
         ownerUserId: ctx.auth.user.id,
       });
+      if (!retirement.found)
+        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
+      if (retirement.enforcement !== "enforced")
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "Scene retirement is pending. Retry after enforcement completes.",
+        });
 
       return { success: true };
     }),

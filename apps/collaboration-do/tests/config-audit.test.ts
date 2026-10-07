@@ -58,13 +58,8 @@ describe("deployment config", () => {
   });
 
   it("keeps secrets out of vars and declares the required secrets", () => {
-    // COLLAB_OUTBOX_DRAIN_URL rides as a secret not because it is sensitive
-    // but because `wrangler deploy` clobbers dashboard-edited vars; secrets
-    // are the deployment-stable operator-set bindings.
     expect(audit.requiredSecrets).toEqual([
       "COLLAB_JOIN_TOKEN_SECRET",
-      "COLLAB_CRON_SECRET",
-      "COLLAB_OUTBOX_DRAIN_URL",
       "COLLAB_ADAPTER_URL",
       "COLLAB_ADAPTER_SECRET",
       "COLLAB_IDENTITY_SECRET",
@@ -73,12 +68,8 @@ describe("deployment config", () => {
     expect(audit.varKeys).toEqual(["COLLAB_ALLOWED_ORIGINS"]);
   });
 
-  it("pins the minute-level control-outbox drain cron", () => {
-    // The web app stays on Vercel Hobby (daily-only crons), so this Worker
-    // supplies the minute clock for the durable control outbox. Removing or
-    // slowing this trigger silently stretches the enforcement-latency bound
-    // in docs/performance/collaboration-slo-capacity.md §10.
-    expect(audit.cronTriggers).toEqual(["* * * * *"]);
+  it("removes the legacy minute cron in the coupled P2 artifact", () => {
+    expect(audit.cronTriggers).toEqual([]);
   });
 
   it("binds version metadata and enables Workers Logs", () => {

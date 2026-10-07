@@ -13,11 +13,19 @@ import type { Ratelimit as UpstashRatelimit } from "@upstash/ratelimit";
 
 vi.mock("server-only", () => ({}));
 
-vi.mock("@/server/collab/do-control", () => ({
-  pushDoRoomControl: () =>
-    Promise.resolve({ enforced: true, closedSessions: 0 }),
+vi.mock("@/env", () => ({
+  env: {
+    COLLAB_IDENTITY_SECRET: "i".repeat(32),
+    COLLAB_AUTHORITY_SECRET: "a".repeat(32),
+    COLLAB_CONTROL_URL: "https://gateway.test",
+    UPSTASH_REDIS_REST_URL: "https://redis.test",
+    UPSTASH_REDIS_REST_TOKEN: "test",
+  },
 }));
-
+vi.mock("@/server/collab/authority-identity", () => ({
+  issueAuthorityIdentity: () =>
+    Promise.reject(new TRPCError({ code: "NOT_FOUND" })),
+}));
 /** Room gateway is isolated from these Redis-ordering tests; its live authorization and races are covered in workerd. */
 vi.mock("@/server/collab/asset-authority", () => ({
   requestAssetAuthority: async (
@@ -94,10 +102,6 @@ vi.mock("@upstash/ratelimit", async (importOriginal) => {
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch";
 import { TRPCError } from "@trpc/server";
 
-import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
-import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
-
 import { appRouter, createCaller } from "@/server/api/root";
 import * as schema from "@/server/db/schema";
 import { openTestDatabase } from "./support/pglite-db";
@@ -135,35 +139,14 @@ const refuse = (reset: number): void => {
   scripted = { success: false, limit: 20, remaining: 0, reset };
 };
 
-async function createScene(userId: string): Promise<string> {
-  const [row] = await testDb
-    .insert(schema.scene)
-    .values({ name: "scene", userId, sceneData: "stub" })
-    .returning({ id: schema.scene.id });
-  if (!row) throw new Error("failed to insert scene");
-  return row.id;
+async function openRoom() {
+  return { roomId: "room-rate-limit" };
 }
-
-async function openRoom(options: { linkRole?: "none" | "editor" } = {}) {
-  const sceneId = await createScene(OWNER);
-  const room = await callerFor(OWNER).collaborationRoom.create({
-    sceneId,
-    linkRole: options.linkRole ?? "none",
-  });
-  await callerFor(OWNER).collaborationRoom.setKeyCheck({
-    roomId: room.roomId,
-    authGeneration: room.authGeneration,
-    keyCheckBase64: await sealRoomKeyCheck({
-      roomKey: generateRoomKey(),
-      roomId: roomIdSchema.parse(room.roomId),
-      authGeneration: room.authGeneration,
-    }),
-  });
-  return room;
-}
-
-const grant = (roomId: string, userId: string, role: "editor" | "viewer") =>
-  callerFor(OWNER).collaborationRoom.setMemberRole({ roomId, userId, role });
+const grant = async (
+  _roomId: string,
+  _subject: string,
+  _role: "editor" | "viewer",
+) => undefined;
 
 const codeOf = (error: unknown): string | undefined =>
   error instanceof TRPCError ? error.code : undefined;
@@ -190,7 +173,9 @@ describe("rate limit ordering against authentication and authorization", () => {
     // canonical identity to charge yet, and charging a guessed one would let an
     // anonymous caller drain a signed-in user's budget.
     await expect(
-      callerFor(null).collaborationRoom.join({ roomId: "room-anything" }),
+      callerFor(null).collaborationAuthority.identity({
+        roomId: "room-anything",
+      }),
     ).rejects.toSatisfy((error) => codeOf(error) === "UNAUTHORIZED");
     expect(limitCalls).toEqual([]);
   });
@@ -210,7 +195,9 @@ describe("rate limit ordering against authentication and authorization", () => {
     // The room does not exist. A user-scoped limiter that ran after the lookup
     // would answer NOT_FOUND here and would have done a query to say so.
     await expect(
-      callerFor(EDITOR).collaborationRoom.join({ roomId: "room-missing" }),
+      callerFor(EDITOR).collaborationAuthority.identity({
+        roomId: "room-missing",
+      }),
     ).rejects.toSatisfy((error) => codeOf(error) === "TOO_MANY_REQUESTS");
     expect(limitCalls).toEqual([{ operation: "join", identifier: EDITOR }]);
   });
@@ -234,7 +221,7 @@ describe("a real refusal", () => {
     const reset = Date.now() + 45_000;
     refuse(reset);
     const error = await callerFor(EDITOR)
-      .collaborationRoom.join({ roomId: "room-a" })
+      .collaborationAuthority.identity({ roomId: "room-a" })
       .catch((thrown: unknown) => thrown);
 
     expect(codeOf(error)).toBe("TOO_MANY_REQUESTS");
@@ -252,7 +239,7 @@ describe("a real refusal", () => {
     const response = await fetchRequestHandler({
       endpoint: "/api/trpc",
       req: new Request(
-        "http://localhost/api/trpc/collaborationRoom.join?batch=1",
+        "http://localhost/api/trpc/collaborationAuthority.identity?batch=1",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -288,7 +275,7 @@ describe("a real refusal", () => {
     const response = await fetchRequestHandler({
       endpoint: "/api/trpc",
       req: new Request(
-        "http://localhost/api/trpc/collaborationRoom.join?batch=1",
+        "http://localhost/api/trpc/collaborationAuthority.identity?batch=1",
         {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -300,7 +287,7 @@ describe("a real refusal", () => {
       responseMeta: collaborationRateLimitResponseMeta,
     });
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(503);
     expect(response.headers.get("retry-after")).toBeNull();
     const body = (await response.json()) as [
       { error: { json: { data: { rateLimit: unknown } } } },
@@ -344,7 +331,7 @@ describe("Redis degradation", () => {
 
       it("still refuses an unauthenticated join", async () => {
         await expect(
-          callerFor(null).collaborationRoom.join({ roomId: "room-a" }),
+          callerFor(null).collaborationAuthority.identity({ roomId: "room-a" }),
         ).rejects.toSatisfy((error) => codeOf(error) === "UNAUTHORIZED");
       });
 

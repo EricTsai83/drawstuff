@@ -1,3 +1,4 @@
+import { retireScene } from "@/server/admin/retirement";
 import { z } from "zod";
 import {
   workspaceCreateSchema,
@@ -11,10 +12,6 @@ import {
   userDefaultWorkspace,
   userLastActiveWorkspace,
 } from "@/server/db/schema";
-import {
-  collectSceneStorageKeys,
-  enqueueStorageKeyCleanup,
-} from "@/server/storage/reclaim";
 import { TRPCError } from "@trpc/server";
 
 export const workspaceRouter = createTRPCRouter({
@@ -311,6 +308,23 @@ export const workspaceRouter = createTRPCRouter({
         });
       }
 
+      const retiringScenes = await ctx.db
+        .select({ id: scene.id })
+        .from(scene)
+        .where(eq(scene.workspaceId, input.id));
+      for (const source of retiringScenes) {
+        const result = await retireScene({
+          db: ctx.db,
+          sceneId: source.id,
+          ownerUserId: userId,
+        });
+        if (result.enforcement !== "enforced")
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message:
+              "Scene retirement is pending. Retry workspace deletion after it completes.",
+          });
+      }
       await ctx.db.transaction(async (tx) => {
         // 若 lastActive 指向此 workspace，事先調整
         if (lastActiveMapping?.workspaceId === input.id) {
@@ -342,7 +356,7 @@ export const workspaceRouter = createTRPCRouter({
 
         // 先鎖 workspace row 再枚舉：move／create scene 進這個 workspace 需要
         // 它的 FOREIGN KEY（KEY SHARE lock），會被 FOR UPDATE 擋住，所以枚舉後
-        // 不可能再有 scene 進來、逃過 key 收集。同時重新驗證歸屬。
+        // 不可能再有 scene 進來、逃過空白檢查。同時重新驗證歸屬。
         const [lockedWorkspace] = await tx
           .select({ id: workspace.id })
           .from(workspace)
@@ -355,22 +369,18 @@ export const workspaceRouter = createTRPCRouter({
           });
         }
 
-        // 刪除 workspace 會 cascade 掉場景與其 file_record／room／asset 列；
-        // storage 物件的 key 必須在同一個 transaction 內進 cleanup outbox，
-        // 否則 row 一旦刪除就沒有任何指向物件的線索（GC 只掃還存在的 scene）。
+        // 所有既有 scene 已經 Lifecycle 退休；只有鎖內仍空白才能安全刪 workspace。
         const workspaceScenes = await tx
           .select({ id: scene.id })
           .from(scene)
           .where(eq(scene.workspaceId, input.id))
           .orderBy(scene.id)
           .for("update");
-        const keys = await collectSceneStorageKeys(
-          tx,
-          workspaceScenes.map(({ id }) => id),
-        );
-        await enqueueStorageKeyCleanup(tx, keys, "delete-workspace", {
-          workspaceId: input.id,
-        });
+        if (workspaceScenes.length)
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "New scenes arrived. Retry workspace retirement.",
+          });
         await tx.delete(workspace).where(eq(workspace.id, input.id));
       });
 

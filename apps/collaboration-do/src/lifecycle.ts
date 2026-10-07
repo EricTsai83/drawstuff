@@ -6,9 +6,12 @@ import {
   lifecyclePhaseSchema,
   type LifecycleCommand,
   type DurableJob,
+  authorityVersionSchema,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 
+import { z } from "zod";
+import { AdapterClient } from "./adapter-client.ts";
 import { DurableWork } from "./durable-work.ts";
 
 type LifecycleRow = {
@@ -237,7 +240,7 @@ export class CollaborationLifecycle extends DurableObject<Env> {
     this.progress = new LifecycleProgress(ctx.storage, ctx.id.name);
   }
 
-  // Only available over the service's DO binding. P2 adds the authenticated gateway entry.
+  // Private binding RPC; Gateway authenticates the service capability.
   begin(command: LifecycleCommand) {
     return this.progress.begin(command);
   }
@@ -245,10 +248,46 @@ export class CollaborationLifecycle extends DurableObject<Env> {
     return this.progress.query(operationId);
   }
   override async alarm(): Promise<void> {
-    await this.progress.work.drain(async (_job: DurableJob) => {
-      // No destructive adapter is enabled in the P1 artifact.
-      // P2 connects freeze/list/Room enforcement/delete, using advance().
-      throw new Error("lifecycle-adapter-unconfigured");
-    });
+    await this.progress.work.drain(
+      async (job: DurableJob, _timeoutMs: number, signal: AbortSignal) => {
+        if (job.kind !== "retire") throw new Error("wrong-job");
+        const client = new AdapterClient(this.env);
+        const command = job.command;
+        const adapter: LifecycleAdapter = {
+          freeze: async () =>
+            (
+              await client.call(
+                { v: 1, action: "lifecycle-freeze", command },
+                z.strictObject({ version: authorityVersionSchema }),
+                signal,
+              )
+            ).version,
+          list: async (_command, version, cursor) =>
+            client.call(
+              {
+                v: 1,
+                action: "lifecycle-list",
+                command,
+                version,
+                cursor: cursor ? roomIdSchema.parse(cursor) : null,
+              },
+              lifecyclePageSchema,
+              signal,
+            ),
+          enforce: async (_command, version, room) =>
+            this.env.COLLABORATION_ROOM.getByName(
+              room.roomId,
+            ).enforceRetirementV1({ command, version, room }),
+          delete: async (_command, version) => {
+            await client.call(
+              { v: 1, action: "lifecycle-delete", command, version },
+              z.strictObject({ deleted: z.literal(true) }),
+              signal,
+            );
+          },
+        };
+        return this.progress.advance(command, adapter);
+      },
+    );
   }
 }

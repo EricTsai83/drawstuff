@@ -1,7 +1,47 @@
+import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
+import type { Database } from "@/server/collab/rooms";
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+vi.mock("@/server/collab/lifecycle-gateway", () => ({
+  callLifecycleGateway: async (input: {
+    action: string;
+    roomId?: string;
+    command?: LifecycleCommand;
+  }) => {
+    if (input.action === "end-room" && input.roomId) {
+      await testDb
+        .update(schema.collaborationRoom)
+        .set({ status: "ended", authRevision: 2 })
+        .where(eq(schema.collaborationRoom.roomId, input.roomId));
+      return { enforcement: "enforced" };
+    }
+    if (input.action !== "begin" || !input.command)
+      throw new Error("unexpected");
+    const { applyLifecycleAdapter } =
+      await import("@/server/collab/authority-lifecycle");
+    const database = testDb as unknown as Database;
+    const frozen = await applyLifecycleAdapter(database, {
+      v: 1,
+      action: "lifecycle-freeze",
+      command: input.command,
+    });
+    if (!("version" in frozen)) throw new Error("missing-version");
+    await applyLifecycleAdapter(database, {
+      v: 1,
+      action: "lifecycle-delete",
+      command: input.command,
+      version: frozen.version,
+    });
+    return {
+      operationId: input.command.operationId,
+      phase: "completed",
+      version: frozen.version,
+    };
+  },
+}));
+
 vi.mock("@/server/rate-limit/collaboration", () => ({
   enforceCollaborationRateLimit: () => Promise.resolve(),
   rateLimitMetadataOf: () => null,
@@ -45,10 +85,11 @@ const testDb = openTestDatabase();
 const callerFor = (userId: string | null) => testCaller(testDb, userId);
 
 beforeEach(async () => {
+  await testDb.delete(schema.collaborationLifecycleSubject);
+  await testDb.delete(schema.collaborationLifecycleRegistration);
   relayCalls.length = 0;
   storageDeletes.length = 0;
   await testDb.delete(schema.deferredFileCleanup);
-  await testDb.delete(schema.collaborationControlOutbox);
   await testDb.delete(schema.adminAuditEvent);
   await testDb.delete(schema.user);
   await testDb.insert(schema.user).values([
@@ -239,7 +280,7 @@ describe("admin data retirement", () => {
       callerFor("admin-user").admin.retireScene({ sceneId: target.id }),
     ).resolves.toMatchObject({
       found: true,
-      enqueuedObjects: 4,
+      enforcement: "enforced",
     });
     expect(await testDb.select().from(schema.scene)).toEqual([]);
     expect(await testDb.select().from(schema.fileRecord)).toEqual([]);
@@ -302,13 +343,7 @@ describe("admin data retirement", () => {
       where: eq(schema.collaborationRoom.roomId, "room-target"),
     });
     expect(room).toMatchObject({ status: "ended", authRevision: 2 });
-    expect(relayCalls).toEqual([
-      expect.objectContaining({
-        action: "end-room",
-        roomId: "room-target",
-        authRevision: 2,
-      }),
-    ]);
+    expect(relayCalls).toEqual([]);
   });
 
   it("retires an account in one transaction, queues every owned key, then pushes relay shutdown", async () => {
@@ -384,10 +419,7 @@ describe("admin data retirement", () => {
       }),
     ).resolves.toMatchObject({
       found: true,
-      scenes: 1,
-      rooms: 1,
-      enqueuedObjects: 4,
-      enforcedRooms: 1,
+      enforcement: "enforced",
     });
     expect(
       await testDb.query.user.findFirst({
@@ -410,12 +442,6 @@ describe("admin data retirement", () => {
     ]);
     // The relay push happens after the commit with the revision cutoff a
     // lifecycle bump would have produced.
-    expect(relayCalls).toEqual([
-      expect.objectContaining({
-        action: "end-room",
-        roomId: "room-account",
-        authRevision: 2,
-      }),
-    ]);
+    expect(relayCalls).toEqual([]);
   });
 });

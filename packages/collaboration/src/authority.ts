@@ -115,13 +115,13 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
   z.strictObject({
     ...envelope,
     action: z.literal("allow-email"),
-    email: z.email().max(254),
+    email: z.string().trim().pipe(z.email().max(254)),
     role: memberRoleSchema,
   }),
   z.strictObject({
     ...envelope,
     action: z.literal("remove-email"),
-    email: z.email().max(254),
+    email: z.string().trim().pipe(z.email().max(254)),
   }),
   z.strictObject({
     ...envelope,
@@ -143,6 +143,7 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
   }),
   z.strictObject({ ...envelope, action: z.literal("cancel-initialization") }),
   z.strictObject({ ...envelope, action: z.literal("end-room") }),
+  z.strictObject({ ...envelope, action: z.literal("leave") }),
 ]);
 export type RoomCommand = z.infer<typeof roomCommandSchema>;
 
@@ -169,6 +170,15 @@ export const authorityRequestSchema = z.discriminatedUnion("action", [
   roomCommandSchema.options[9].omit({ actor: true }),
   roomCommandSchema.options[10].omit({ actor: true }),
   roomCommandSchema.options[11].omit({ actor: true }),
+  roomCommandSchema.options[12].omit({ actor: true }),
+  z
+    .strictObject({
+      ...envelope,
+      action: z.literal("get-management"),
+      cursor: subjectSchema.optional(),
+      emailCursor: emailKeySchema.optional(),
+    })
+    .omit({ actor: true }),
   z
     .strictObject({ ...envelope, action: z.literal("get-state") })
     .omit({ actor: true }),
@@ -199,6 +209,31 @@ export const authorityStateSchema = z.strictObject({
     .array(z.int().min(0).max(255))
     .length(KEYCHECK_CIPHERTEXT_BYTES)
     .nullable(),
+});
+export const authorityManagementSchema = authorityStateSchema.extend({
+  members: z
+    .array(
+      z.strictObject({
+        userId: subjectSchema,
+        name: emailKeySchema.nullable(),
+        role: roomRoleSchema,
+        revoked: z.boolean(),
+        lastJoinedAt: z.int().nonnegative().nullable().default(null),
+      }),
+    )
+    .max(50),
+  nextCursor: subjectSchema.nullable(),
+  nextEmailCursor: emailKeySchema.nullable().default(null),
+  allowlist: z
+    .array(
+      z.strictObject({
+        email: z.string().trim().pipe(z.email().max(254)),
+        role: memberRoleSchema,
+        removed: z.boolean(),
+        lastJoinedAt: z.int().nonnegative().nullable().default(null),
+      }),
+    )
+    .max(50),
 });
 export const registrationCommandSchema = z.strictObject({
   v: z.literal(AUTHORITY_CONTRACT_VERSION),
@@ -386,7 +421,11 @@ export type ManagementResult = z.infer<typeof managementResultSchema>;
 
 export const authorityGatewayResponseSchema = z.strictObject({
   ok: z.literal(true),
-  result: z.union([managementResultSchema, authorityStateSchema]),
+  result: z.union([
+    managementResultSchema,
+    authorityManagementSchema,
+    authorityStateSchema,
+  ]),
 });
 
 export const projectionEventSchema = z.strictObject({
@@ -403,6 +442,68 @@ export const projectionEventSchema = z.strictObject({
   listedAt: z.int().nonnegative(),
 });
 export type ProjectionEvent = z.infer<typeof projectionEventSchema>;
+export const lifecycleTargetSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("account"), subject: subjectSchema }),
+  z.strictObject({
+    kind: z.literal("scene"),
+    subject: subjectSchema,
+    sceneId: z.uuid(),
+  }),
+]);
+export type LifecycleTarget = z.infer<typeof lifecycleTargetSchema>;
+export function lifecycleObjectName(target: LifecycleTarget): string {
+  return target.kind === "account"
+    ? `account:${target.subject}`
+    : `scene:${target.sceneId}`;
+}
+export const lifecycleCommandSchema = z.strictObject({
+  v: z.literal(AUTHORITY_CONTRACT_VERSION),
+  operationId: operationIdSchema,
+  actor: subjectSchema,
+  target: lifecycleTargetSchema,
+});
+export type LifecycleCommand = z.infer<typeof lifecycleCommandSchema>;
+export const lifecyclePhaseSchema = z.enum([
+  "freezing",
+  "enumerating",
+  "enforcing",
+  "deleting",
+  "completed",
+]);
+export const lifecyclePageSchema = z.strictObject({
+  version: authorityVersionSchema,
+  rooms: z
+    .array(
+      z.strictObject({
+        roomId: roomIdSchema,
+        action: z.enum(["end-room", "revoke-member"]),
+      }),
+    )
+    .max(AUTHORITY_LIMITS.alarmBatch),
+  cursor: z.string().max(256).nullable(),
+});
+export const LIFECYCLE_GATEWAY_PATH = "/v1/lifecycle";
+export const lifecycleGatewayRequestSchema = z.discriminatedUnion("action", [
+  z.strictObject({
+    action: z.literal("begin"),
+    command: lifecycleCommandSchema,
+  }),
+  z.strictObject({
+    action: z.literal("query"),
+    target: lifecycleTargetSchema,
+    operationId: operationIdSchema,
+  }),
+  z.strictObject({
+    action: z.literal("end-room"),
+    roomId: roomIdSchema,
+    operationId: operationIdSchema,
+  }),
+]);
+export const lifecycleResultSchema = z.strictObject({
+  operationId: operationIdSchema,
+  phase: lifecyclePhaseSchema,
+  version: authorityVersionSchema.nullable(),
+});
 /** Server-to-server adapter commands. Browser identity/roles are never sufficient to call these. */
 const storageContext = {
   roomId: roomIdSchema,
@@ -412,6 +513,13 @@ const storageContext = {
 export const adapterCommandSchema = z.discriminatedUnion("action", [
   registrationCommandSchema,
   createParentCommandSchema,
+  z.strictObject({
+    v: z.literal(1),
+    action: z.enum(["lifecycle-freeze", "lifecycle-list", "lifecycle-delete"]),
+    command: lifecycleCommandSchema,
+    version: authorityVersionSchema.optional(),
+    cursor: roomIdSchema.nullable().optional(),
+  }),
   storageCommandSchema.options[0],
   storageCommandSchema.options[1],
   z.strictObject({
@@ -471,46 +579,6 @@ export const roomListInputSchema = z.strictObject({
     .optional(),
 });
 
-export const lifecycleTargetSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("account"), subject: subjectSchema }),
-  z.strictObject({
-    kind: z.literal("scene"),
-    subject: subjectSchema,
-    sceneId: z.uuid(),
-  }),
-]);
-export type LifecycleTarget = z.infer<typeof lifecycleTargetSchema>;
-export function lifecycleObjectName(target: LifecycleTarget): string {
-  return target.kind === "account"
-    ? `account:${target.subject}`
-    : `scene:${target.sceneId}`;
-}
-export const lifecycleCommandSchema = z.strictObject({
-  v: z.literal(AUTHORITY_CONTRACT_VERSION),
-  operationId: operationIdSchema,
-  actor: subjectSchema,
-  target: lifecycleTargetSchema,
-});
-export type LifecycleCommand = z.infer<typeof lifecycleCommandSchema>;
-export const lifecyclePhaseSchema = z.enum([
-  "freezing",
-  "enumerating",
-  "enforcing",
-  "deleting",
-  "completed",
-]);
-export const lifecyclePageSchema = z.strictObject({
-  version: authorityVersionSchema,
-  rooms: z
-    .array(
-      z.strictObject({
-        roomId: roomIdSchema,
-        action: z.enum(["end-room", "revoke-member"]),
-      }),
-    )
-    .max(AUTHORITY_LIMITS.alarmBatch),
-  cursor: z.string().max(256).nullable(),
-});
 export const durableJobSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("create-parent"),

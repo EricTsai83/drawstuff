@@ -1,5 +1,6 @@
 "use client";
 
+import { CollaborationRoomList } from "@/components/collaboration-room-list";
 import { useMemo, useEffect, useState, useRef, useId } from "react";
 import { useQueryState } from "nuqs";
 import { z } from "zod";
@@ -236,6 +237,7 @@ export function SceneSearchList({
 
   return (
     <div className="flex max-w-full min-w-0 flex-col gap-5 overflow-x-clip p-4 pt-0 sm:p-6 sm:pt-0">
+      <CollaborationRoomList />
       {/* Header Section */}
       <div
         className={cn(

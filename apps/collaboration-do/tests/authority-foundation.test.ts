@@ -41,6 +41,86 @@ function fixture() {
 }
 
 describe("persistent Room authority foundation", () => {
+  it("bounds management pages independently, hides owner-only metadata, and retains joined/revoked state after leave", async () => {
+    const { roomId, stub, command } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const authority = new RoomAuthority(state.storage, roomId);
+      const create = {
+        ...command("create"),
+        action: "create" as const,
+        sceneId: null,
+        label: "",
+        linkRole: "editor" as const,
+      };
+      await authority.apply(create);
+      await authority.confirmParent(create.operationId);
+      state.storage.sql.exec("UPDATE authority_room SET state='ready'");
+      for (let index = 0; index < 51; index++) {
+        const email = `invited-${String(index).padStart(2, "0")}@example.com`;
+        await authority.apply({
+          ...command("allow-email"),
+          action: "allow-email",
+          email,
+          role: "viewer",
+        });
+        await authority.apply({
+          ...command("join"),
+          action: "join",
+          actor: {
+            subject: `member-${String(index).padStart(2, "0")}`,
+            email,
+            lifecycleVersion: 1,
+          },
+          registrationVersion: 1,
+        });
+      }
+      const first = authority.management(owner);
+      expect(first.members).toHaveLength(50);
+      expect(first.allowlist).toHaveLength(50);
+      expect(
+        first.members.every((member) => member.lastJoinedAt !== null),
+      ).toBe(true);
+      expect(
+        first.allowlist.every((entry) => entry.lastJoinedAt !== null),
+      ).toBe(true);
+      const second = authority.management(
+        owner,
+        first.nextCursor!,
+        first.nextEmailCursor!,
+      );
+      expect(second.members).toHaveLength(2);
+      expect(second.allowlist).toHaveLength(1);
+      expect(second.nextCursor).toBeNull();
+      expect(second.nextEmailCursor).toBeNull();
+      const identity = {
+        subject: "member-00",
+        email: "invited-00@example.com",
+        lifecycleVersion: 1,
+      };
+      expect(authority.management(identity)).toMatchObject({
+        members: [],
+        allowlist: [],
+      });
+      await authority.apply({
+        ...command("leave"),
+        action: "leave",
+        actor: identity,
+      });
+      expect(
+        authority
+          .management(owner)
+          .members.find((member) => member.userId === identity.subject),
+      ).toMatchObject({ revoked: true });
+      await expect(
+        authority.apply({
+          ...command("join"),
+          action: "join",
+          actor: identity,
+          registrationVersion: 1,
+        }),
+      ).rejects.toThrow("forbidden");
+    });
+  });
   it("deduplicates create across eviction and rejects a changed intent", async () => {
     const { roomId, stub, command } = fixture();
     const create = {
@@ -415,7 +495,7 @@ describe("persistent Room authority foundation", () => {
       await a.apply({
         ...command("allow-email"),
         action: "allow-email",
-        email: "Guest@Example.com",
+        email: "  Guest@Example.com  ",
         role: "editor",
       });
       await a.apply({

@@ -14,7 +14,7 @@ import {
   user,
 } from "@/server/db/schema";
 import { QUERIES } from "@/server/db/queries";
-import { purgeControlOutboxRows } from "@/server/collab/control-outbox";
+import { retireAccount } from "@/server/admin/retirement";
 import { lockRoom } from "@/server/collab/rooms";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 import {
@@ -263,19 +263,6 @@ const purgeFinishedQueueRowsJob: MaintenanceJob = {
   },
 };
 
-/**
- * Retention for terminal control-outbox rows. Storage cleanup only: draining
- * pending events is the minute-level `/api/collaboration/control-outbox`
- * cron's job, and this run never touches them.
- */
-const purgeControlOutboxRowsJob: MaintenanceJob = {
-  name: "purge-control-outbox-rows",
-  run: async (deps) => {
-    const purgedRows = await purgeControlOutboxRows(db, deps.now());
-    return { purgedRows };
-  },
-};
-
 export type UnreferencedAssetGcOptions = {
   /** Scenes inspected per run. */
   maxScenes?: number;
@@ -472,6 +459,7 @@ export function createRoomRetentionJob(
       // serialize it (PGlite in tests happens to accept it).
       const endedPastGrace = and(
         eq(collaborationRoom.status, "ended"),
+        eq(collaborationRoom.storageState, "ended"),
         or(
           lt(collaborationRoom.endedAt, graceCutoff),
           and(
@@ -537,6 +525,7 @@ export function createRoomRetentionJob(
               : await lockRoom(tx, candidate.roomId);
             const eligible =
               room?.status === "ended" &&
+              room.storageState === "ended" &&
               (room.endedAt ?? room.updatedAt) < graceCutoff;
             if (!eligible) return null;
 
@@ -769,7 +758,7 @@ export type UserPurgeParams = {
 export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
   return {
     name: "purge-non-owner-users",
-    run: async (deps) => {
+    run: async (_deps) => {
       if (params.confirmKeepOwnerEmail !== params.keepOwnerEmail) {
         throw new Error(
           "confirmation-mismatch: confirmKeepOwnerEmail does not match CLEANUP_OWNER_EMAIL",
@@ -782,7 +771,6 @@ export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
         .where(ne(user.email, params.keepOwnerEmail));
 
       const accounts: JobDetail[] = [];
-      let enqueuedObjects = 0;
       let failedAccounts = 0;
 
       // Per candidate, an account either fully reports or fully records its
@@ -805,32 +793,10 @@ export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
             continue;
           }
 
-          // Same shape as account retirement: every storage key the account
-          // holds (asset records, thumbnails, owned-room assets) enters the
-          // cleanup outbox in the transaction that cascade-deletes the user,
-          // and the drain — ordered after this job — deletes the objects.
-          const enqueued = await db.transaction(async (tx) => {
-            // Same serialization as account retirement: the user row lock
-            // blocks new scenes/rooms/shared scenes landing mid-collection.
-            await tx
-              .select({ id: user.id })
-              .from(user)
-              .where(eq(user.id, candidate.id))
-              .for("update");
-            const keys = await collectUserStorageKeys(tx, candidate.id);
-            const count = await enqueueStorageKeyCleanup(
-              tx,
-              keys,
-              "delete-user",
-              { userId: candidate.id },
-              deps.now(),
-            );
-            await tx.delete(user).where(eq(user.id, candidate.id));
-            return count;
-          });
-          account.storageObjects = enqueued;
-          enqueuedObjects += enqueued;
-          account.status = "deleted";
+          const retired = await retireAccount({ db, userId: candidate.id });
+          account.operationId = retired.operationId ?? null;
+          account.status =
+            retired.enforcement === "enforced" ? "deleted" : "pending";
         } catch (error) {
           account.status = "failed";
           account.error = String(error);
@@ -842,7 +808,6 @@ export function createUserPurgeJob(params: UserPurgeParams): MaintenanceJob {
         dryRun: params.dryRun,
         users: accounts.length,
         accounts,
-        ...(params.dryRun ? {} : { enqueuedObjects }),
       };
       if (failedAccounts > 0) {
         throw new MaintenanceJobError(
@@ -872,7 +837,6 @@ export function routineMaintenanceJobs(
     expiredSessionsJob,
     expiredVerificationsJob,
     purgeFinishedQueueRowsJob,
-    purgeControlOutboxRowsJob,
     // Sized to the producers' bounded aggregate per-run maximum — ~500 from
     // expired shared scenes (plus its permitted first-scene overshoot), 500
     // from the asset GC, and 512 from room retention's permitted first-room

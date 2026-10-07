@@ -376,6 +376,7 @@ export default function ExcalidrawEditor() {
                 open: isCollaborationDialogOpen,
                 onOpenChange: setIsCollaborationDialogOpen,
                 isAuthenticated: !!session,
+                authIdentity: session?.user.id ?? null,
                 isAuthenticationPending,
                 sceneId: currentSceneId ?? null,
                 getInitialElements: () =>

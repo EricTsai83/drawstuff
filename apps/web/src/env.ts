@@ -20,42 +20,20 @@ const parsedEnv = createEnv({
     GOOGLE_CLIENT_ID: z.string(),
     GOOGLE_CLIENT_SECRET: z.string(),
     CRON_SECRET: z.string().min(1),
-    /**
-     * Authorizes only `/api/collaboration/control-outbox`. Deliberately a
-     * different secret from `CRON_SECRET`: this one is handed to Cloudflare
-     * (the Worker cron trigger holds it as `COLLAB_CRON_SECRET`), and its
-     * blast radius must stay "can trigger an idempotent outbox drain" — never
-     * the maintenance route's user purge. Optional: unset means the drain
-     * endpoint answers 401 to everything (fail closed) until it is
-     * provisioned alongside the Worker.
-     */
-    COLLAB_OUTBOX_CRON_SECRET: z.string().min(1).optional(),
     CLEANUP_OWNER_EMAIL: z.string().email(),
-    /**
-     * HMAC secret shared with the collaboration Durable Object Worker
-     * (apps/collaboration-do). Signs the short-lived room join tokens and the
-     * server-to-server control tokens; required because the gateway has no
-     * unauthenticated join path.
-     */
-    COLLAB_JOIN_TOKEN_SECRET: z.string().min(32),
-    /** Private Room-to-storage adapter capability; unset refuses every request. Separate from login and cron secrets. */
+    /** Private Room-to-storage adapter capability; unset refuses every request. Separate from identity and Gateway secrets. */
     COLLAB_ADAPTER_SECRET: z.string().min(32).optional(),
     COLLAB_IDENTITY_SECRET: z.string().min(32).optional(),
     COLLAB_AUTHORITY_SECRET: z.string().min(32).optional(),
     /**
      * Public HTTP origin of the Durable Object gateway. One Worker serves both
      * the control endpoint and the room WebSocket, so the server derives the
-     * `ws(s)://` socket origin from this value, composes a generation-scoped
+     * `ws(s)://` socket origin from this value, composes a stable roomId-scoped
      * socket path and returns the resulting opaque URL to the client;
      * provider identity never enters client state.
      */
     COLLAB_CONTROL_URL: z.string().url(),
-    /**
-     * Kill switch: refuse `collaborationRoom.create` and `join` entirely
-     * with an explicit SERVICE_UNAVAILABLE. Existing sockets are untouched;
-     * lifecycle mutations (leave/end/revoke) keep working so owners can
-     * still shut rooms down. Same on-values as above.
-     */
+    /** Refuses formal identity/authority/content entries during an incident. Private admin Lifecycle remains available. */
     COLLAB_ROOMS_DISABLED: z.string().optional(),
     /**
      * Upstash Redis REST credentials for the shared collaboration rate limits.
@@ -96,9 +74,7 @@ const parsedEnv = createEnv({
     GOOGLE_CLIENT_ID: process.env.GOOGLE_CLIENT_ID,
     GOOGLE_CLIENT_SECRET: process.env.GOOGLE_CLIENT_SECRET,
     CRON_SECRET: process.env.CRON_SECRET,
-    COLLAB_OUTBOX_CRON_SECRET: process.env.COLLAB_OUTBOX_CRON_SECRET,
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
-    COLLAB_JOIN_TOKEN_SECRET: process.env.COLLAB_JOIN_TOKEN_SECRET,
     COLLAB_ADAPTER_SECRET: process.env.COLLAB_ADAPTER_SECRET,
     COLLAB_IDENTITY_SECRET: process.env.COLLAB_IDENTITY_SECRET,
     COLLAB_AUTHORITY_SECRET: process.env.COLLAB_AUTHORITY_SECRET,

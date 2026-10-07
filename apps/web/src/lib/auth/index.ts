@@ -6,6 +6,8 @@ import { schema } from "@/server/db/schema";
 import { env } from "@/env";
 
 export const auth = betterAuth({
+  // Account retirement must pass through the application Lifecycle service.
+  user: { deleteUser: { enabled: false } },
   baseURL: env.BETTER_AUTH_URL,
   trustedOrigins: [env.NEXT_PUBLIC_BASE_URL],
   /**

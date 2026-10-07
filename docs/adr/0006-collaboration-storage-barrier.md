@@ -1,6 +1,6 @@
 # ADR-0006：房間授權與持久保存以 epoch 屏障排序
 
-- Status: Accepted for implementation（2026-10-07）；P0／P1 與 P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照移除、產品初始化／proof 加入、Room 附件 discovery／presign／finalize 與含圖片初始化存在，production 權威仍在 DB。
+- Status: Accepted for implementation（2026-10-07）；P0／P1 與 P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照移除、產品初始化／proof 加入、Room 附件 discovery／presign／finalize 與含圖片初始化存在，管理／允許清單 UI、Lifecycle 退休與本機重置／回滾也已完成；production 權威仍在 DB。
 - 範圍：[18B](../../plans/18b-collaboration-authority-reset.md) P0／P1／P2。
 
 ## 分開三個版本與兩種成功
@@ -93,6 +93,6 @@ SQLite 的 SQL 與 alarm 使用同一個非同步 storage transaction，僅包�
 
 production transport protocol 仍是 5（18A 保存控制訊息）；P1 source artifact 已升至 6，
 新增 identity proof、roomId 定址、SQLite 待辦與 Lifecycle 進度、PostgreSQL fence／初始化／投影／
-登記 schema。P2 adapter、Room metadata delivery、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照切換與舊 tRPC 移除、產品無附件初始化與 proof 加入已完成；含附件初始化、其餘管理、附件與所有退休入口仍待接入，P3 重置後才部署。
+登記 schema。P2 adapter、Room metadata delivery、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照切換與舊 tRPC 移除、產品無附件初始化與 proof 加入已完成；含附件初始化、其餘管理、附件與所有退休入口也已接入；本機重置／升版／回滾完成，P3 受控重置後才部署。
 具體底座與邊界見 [system design](../architecture/collaboration-system-design.md#18b-p1-source-artifact-and-p2-boundary)。
 此 transport 升版不重設加密 authGeneration，也不改既有 durable crypto envelope 版本。

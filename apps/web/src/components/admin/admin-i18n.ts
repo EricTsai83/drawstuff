@@ -97,6 +97,8 @@ const en = {
   "toast.grantSucceeded":
     "Administrator access granted. Access is bound to the immutable user ID.",
   "toast.revokeSucceeded": "Administrator access revoked.",
+  "toast.retirementPending":
+    "Retirement is pending. Retry to check completion.",
   "toast.sceneRetired": "The scene and related data entered retirement.",
   "toast.roomEnded":
     "The collaboration room ended and relay connections were forcibly closed.",
@@ -211,6 +213,7 @@ const zhTW = {
   "toast.operationFailed": "管理操作失敗，請稍後再試。",
   "toast.grantSucceeded": "已授予管理者權限。管理權限綁定不可變的使用者 ID。",
   "toast.revokeSucceeded": "已撤銷管理者權限。",
+  "toast.retirementPending": "退場處理中，請稍後重試以確認完成。",
   "toast.sceneRetired": "場景與相關資料已進入退場流程。",
   "toast.roomEnded": "協作房間已結束，Relay 連線也已強制關閉。",
   "toast.roomEndedEnforcementPending":

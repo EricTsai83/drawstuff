@@ -81,16 +81,14 @@ is [apps/web/src/env.ts](./apps/web/src/env.ts).
 | Authentication | `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                    |
 | Storage        | `UPLOADTHING_TOKEN`                                                                                    |
 | Public origin  | `NEXT_PUBLIC_BASE_URL`                                                                                 |
-| Collaboration  | `COLLAB_JOIN_TOKEN_SECRET`, `COLLAB_CONTROL_URL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
+| Collaboration  | `COLLAB_IDENTITY_SECRET`, `COLLAB_AUTHORITY_SECRET`, `COLLAB_ADAPTER_SECRET`, `COLLAB_CONTROL_URL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
 | Maintenance    | `CRON_SECRET`, `CLEANUP_OWNER_EMAIL`                                                                   |
 
 Optional collaboration settings:
 
-- `COLLAB_OUTBOX_CRON_SECRET` authorizes the bounded control-outbox drain. It must match the
-  Worker's `COLLAB_CRON_SECRET`.
 - `COLLAB_ROOMS_DISABLED=true` prevents new room creation and joins during an incident.
 
-`COLLAB_JOIN_TOKEN_SECRET` must be at least 32 characters and must match the Worker secret.
+The three collaboration secrets must each be at least 32 characters and match the corresponding Worker capabilities. The coordinated schema reset and deployment are described in the [P3 runbook](./docs/deployment/collaboration-reset/README.md).
 `BETTER_AUTH_URL` and `NEXT_PUBLIC_BASE_URL` must be the same origin. For Google OAuth, register
 `<origin>/api/auth/callback/google` as an authorized redirect URI.
 

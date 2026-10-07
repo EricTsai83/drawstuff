@@ -26,6 +26,10 @@ import {
   signJoinToken,
 } from "@drawstuff/collaboration/room-token";
 
+import {
+  INTERNAL_ROOM_ID_HEADER,
+  INTERNAL_AUTH_GENERATION_HEADER,
+} from "../../src/internal.ts";
 import type { CollaborationRoom } from "../../src/room.ts";
 import { TEST_ROOM_TOKEN_SECRET } from "./audit.ts";
 
@@ -104,12 +108,22 @@ export async function openSocket(
   authGeneration = 1,
   formal = false,
 ): Promise<OpenSocket> {
-  const response = await SELF.fetch(
-    formal
-      ? `${GATEWAY_BASE}/v1/rooms/${roomId}/socket`
-      : `${GATEWAY_BASE}/v1/rooms/${roomId}/generations/${authGeneration}/socket`,
-    { headers: { Upgrade: "websocket", Origin: ALLOWED_ORIGIN } },
-  );
+  // Pre-reset generation-object regression tests use the private binding only.
+  // The production Gateway exposes exclusively the stable Room/proof route.
+  const response = formal
+    ? await SELF.fetch(`${GATEWAY_BASE}/v1/rooms/${roomId}/socket`, {
+        headers: { Upgrade: "websocket", Origin: ALLOWED_ORIGIN },
+      })
+    : await roomStub(roomId, authGeneration).fetch(
+        new Request(`${GATEWAY_BASE}/private-test/socket`, {
+          headers: {
+            Upgrade: "websocket",
+            Origin: ALLOWED_ORIGIN,
+            [INTERNAL_ROOM_ID_HEADER]: roomId,
+            [INTERNAL_AUTH_GENERATION_HEADER]: String(authGeneration),
+          },
+        }),
+      );
   if (response.status !== 101 || response.webSocket === null) {
     throw new Error(`Upgrade refused with status ${response.status}`);
   }

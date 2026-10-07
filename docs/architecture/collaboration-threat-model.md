@@ -8,13 +8,12 @@
 This document identifies trust boundaries, data that crosses them, implemented controls, and
 accepted gaps. Scene plaintext exists only in participating browsers.
 
-18B P1 defines an identity-only proof and Room SQLite allowlist; production entry points still use
-the existing controls below until P2/P3. Allowlist email addresses (including addresses without
+18B P2 source implements identity-only proofs, Room SQLite authority and allowlists, plus Lifecycle retirement and storage fences. Production still uses protocol 5 until the coordinated P3 reset; the tables below also describe those deployed controls. Allowlist email addresses (including addresses without
 registered accounts), normalized comparison keys, creator, and timestamps are visible server
 metadata. They must not be logged or included in analytics/error reports. Normalization trims
 outer whitespace and lowercases only; it preserves dots and plus addressing. Removed-address and
 member revocation decisions persist across crypto generation changes. Identity proofs do not grant
-a room role; P2 must validate proof signatures, current lifecycle registration, and local authority
+a room role; protocol-6 entries validate proof signatures, current lifecycle registration, and local authority
 on every entry. A SQLite primitive accepting a typed identity is not a public authentication boundary.
 
 ## Trust boundaries
@@ -129,7 +128,7 @@ Public ACLs do not permit plaintext assets or room keys to be uploaded.
 | T4  | Viewer mutates scene                                       | Relay rejects scene frames from viewer sessions; UI read-only state is secondary defense.                                                                                                                                                                                                                                                            |
 | T5  | Oversize/buffer abuse                                      | Raw-byte bounds precede decode; connection, room, buffer, queue, replay, asset, and snapshot limits are explicit.                                                                                                                                                                                                                                    |
 | T6  | Authorized caller amplifies load                           | Relay traffic/churn limits are implemented. Backend join, snapshot-write, asset-upload and asset-resolve rates are bounded by shared Redis counters that hold across serverless invocations; a real refusal is a 429 with a machine-readable reset, and Redis failure fails open as observable degradation while every hard guard stays fail-closed. |
-| T7  | Room key leaks from shared link                            | Accepted limitation: the complete link is a bearer secret. UI identifies the fragment as the key; generation rotation is the cryptographic revocation path.                                                                                                                                                                                          |
+| T7  | Room key leaks from shared link                            | Accepted limitation: the fragment reveals the cryptographic key. Restricted-mode Room authorization additionally requires a verified allowlisted account or active explicit member; link possession alone does not grant access. Public link modes still grant their configured role to eligible signed-in accounts. Already-known public ciphertext URLs remain accessible. Generation rotation changes the key.                                                                                                                                                                                          |
 | T8  | Telemetry leaks content or identity                        | Relay logger is the only sink, fields are a closed type plus runtime allowlist, metrics have bounded label sets, pre-verification failures log only enums, and integration tests scan complete logs/metrics for prohibited values. Subject IDs use per-process HMAC pseudonyms.                                                                      |
 | T9  | Ended room retains ciphertext forever                      | Seven-day-grace retention deletes snapshot rows and transactionally enqueues asset objects for cleanup; expired active rooms become ended under lock.                                                                                                                                                                                                |
 | T10 | One format-version change destroys unrelated durable data  | HKDF is purpose-scoped and version-neutral. Realtime AAD binds transport version; snapshot and asset payload/AAD bind only their own versions. Aggregate open-failure detection prevents silent wrong-key sessions while isolated corruption remains non-terminal.                                                                                   |
@@ -220,5 +219,5 @@ destroy user data or terminate live collaboration sessions.
 - Every accepted operation persists audit intent before execution and records success/failure in
   `admin_audit_event`, without scene plaintext or room key material. Audit rows survive target
   account deletion.
-- Storage deletion failures enter `deferred_file_cleanup`; room retirement advances authorization
-  and pushes relay control so existing sessions are closed.
+- In protocol-6 source, every scene/account cascade follows durable Lifecycle freeze and all Room storage-fence acknowledgments. Account freeze revokes sessions; local Room tombstones close sockets and refuse delayed activation. Pending leaves deletion unfinished. Workspace deletion rechecks that every source scene has retired before cascade. Better Auth self-delete is explicitly disabled.
+- Storage deletion failures enter `deferred_file_cleanup`. Capability separation prevents identity proofs from invoking Lifecycle or the storage adapter. Management exposes bounded allowlist/member pages to owners only, with identical add-email behavior for registered and unregistered addresses. No production controls changed during P2.

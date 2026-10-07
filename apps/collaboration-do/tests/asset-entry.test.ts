@@ -152,7 +152,7 @@ function adapter(
       expect(new Headers(init?.headers).get("authorization")).toBe(
         `Bearer ${config.COLLAB_ADAPTER_SECRET}`,
       );
-      expect(init?.redirect).toBe("error");
+      expect(init?.redirect).toBe("manual");
       const command = adapterCommandSchema.parse(
         JSON.parse(jsonBody(init)) as unknown,
       );

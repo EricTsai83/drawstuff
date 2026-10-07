@@ -1,17 +1,10 @@
-import {
-  DO_GATEWAY_CONTROL_PATH,
-  doGatewayControlRequestSchema,
-  type DoGatewayControlResponse,
-  DO_GATEWAY_CONTROL_REJECTED_STATUS,
-  type DoGatewayControlRejection,
-} from "@drawstuff/collaboration/relay-control";
-import {
-  MIN_ROOM_TOKEN_SECRET_BYTES,
-  verifyRoomControlToken,
-} from "@drawstuff/collaboration/room-token";
+import { MIN_ROOM_TOKEN_SECRET_BYTES } from "@drawstuff/collaboration/room-token";
 import { z } from "zod";
 import { timingSafeEqual } from "node:crypto";
 import {
+  LIFECYCLE_GATEWAY_PATH,
+  lifecycleGatewayRequestSchema,
+  lifecycleObjectName,
   AUTHORITY_GATEWAY_PATH,
   AUTHORITY_LIMITS,
   authorityGatewayRequestSchema,
@@ -25,11 +18,6 @@ import {
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 
-import {
-  controlClaimsChannelKey,
-  controlRejectionOf,
-  roomControlCommandFromClaims,
-} from "./control.ts";
 import {
   closedJsonResponse,
   INTERNAL_AUTH_GENERATION_HEADER,
@@ -58,15 +46,7 @@ import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
  */
 
 const HEALTH_PATH = "/healthz";
-const SOCKET_ROUTE_PATTERN =
-  /^\/v1\/rooms\/([^/]+)\/generations\/([^/]+)\/socket$/;
 const AUTHORITY_SOCKET_ROUTE_PATTERN = /^\/v1\/rooms\/([^/]+)\/socket$/;
-
-/**
- * A control body is one token in a JSON envelope; anything materially larger
- * is rejected before buffering.
- */
-const MAX_CONTROL_BODY_BYTES = 2_048;
 
 /**
  * The allowlist var is a comma-separated string ("" means: nothing allowed,
@@ -105,28 +85,17 @@ export async function handleGatewayRequest(
   try {
     const url = new URL(request.url);
     if (url.pathname === HEALTH_PATH) return handleHealth(request, env);
+    if (url.pathname === LIFECYCLE_GATEWAY_PATH)
+      return await handleLifecycle(request, env);
     if (url.pathname === AUTHORITY_GATEWAY_PATH)
       return await handleAuthority(request, env);
     if (url.pathname === SNAPSHOT_GATEWAY_PATH)
       return await handleSnapshot(request, env);
     if (url.pathname === ASSET_GATEWAY_PATH)
       return await handleAuthority(request, env, true);
-    if (url.pathname === DO_GATEWAY_CONTROL_PATH) {
-      return await handleControl(request, env, log);
-    }
     const authoritySocket = AUTHORITY_SOCKET_ROUTE_PATTERN.exec(url.pathname);
     if (authoritySocket)
       return await handleSocket(request, env, log, authoritySocket[1]!);
-    const socketMatch = SOCKET_ROUTE_PATTERN.exec(url.pathname);
-    if (socketMatch !== null) {
-      return await handleSocket(
-        request,
-        env,
-        log,
-        socketMatch[1] ?? "",
-        socketMatch[2] ?? "",
-      );
-    }
     return closedJsonResponse(404, "not-found");
   } catch (error) {
     log.error("gateway.unhandled_failure", { errorName: errorNameOf(error) });
@@ -144,7 +113,7 @@ function handleHealth(request: Request, env: Env): Response {
     return closedJsonResponse(405, "method-not-allowed", { Allow: "GET" });
   }
   const ready = {
-    roomTokenSecret: roomTokenSecretReady(env.COLLAB_JOIN_TOKEN_SECRET),
+    roomTokenSecret: roomTokenSecretReady(env.COLLAB_IDENTITY_SECRET),
     allowedOrigins: allowedOrigins(env) !== undefined,
   };
   return Response.json({
@@ -162,14 +131,10 @@ async function handleSocket(
   env: Env,
   log: DoLogger,
   roomIdSegment: string,
-  generationSegment?: string,
 ): Promise<Response> {
   // Identity segments are parsed with the canonical grammar before anything
   // else; a malformed room or generation is an unknown resource, full stop.
-  const identity = parseSocketRouteIdentity(
-    roomIdSegment,
-    generationSegment ?? "1",
-  );
+  const identity = parseSocketRouteIdentity(roomIdSegment, "1");
   if (identity === undefined) return closedJsonResponse(404, "not-found");
 
   if (request.method !== "GET") {
@@ -201,8 +166,7 @@ async function handleSocket(
   headers.delete(INTERNAL_ROOM_ID_HEADER);
   headers.delete(INTERNAL_AUTH_GENERATION_HEADER);
   headers.delete(INTERNAL_AUTHORITY_SOCKET_HEADER);
-  if (generationSegment === undefined)
-    headers.set(INTERNAL_AUTHORITY_SOCKET_HEADER, "1");
+  headers.set(INTERNAL_AUTHORITY_SOCKET_HEADER, "1");
   headers.set(INTERNAL_ROOM_ID_HEADER, identity.roomId);
   headers.set(INTERNAL_AUTH_GENERATION_HEADER, String(identity.authGeneration));
   const internalRequest = new Request(request, { headers });
@@ -405,115 +369,6 @@ async function handleAuthority(
   }
 }
 
-async function handleControl(
-  request: Request,
-  env: Env,
-  log: DoLogger,
-): Promise<Response> {
-  if (request.method !== "POST") {
-    return closedJsonResponse(405, "method-not-allowed", { Allow: "POST" });
-  }
-  const contentType = request.headers.get("Content-Type") ?? "";
-  if (
-    contentType.split(";", 1)[0]?.trim().toLowerCase() !== "application/json"
-  ) {
-    return closedJsonResponse(415, "unsupported-media-type");
-  }
-
-  const body = await readBoundedBody(request, MAX_CONTROL_BODY_BYTES);
-  if (body === undefined) return closedJsonResponse(413, "payload-too-large");
-
-  let parsedJson: unknown;
-  try {
-    parsedJson = JSON.parse(new TextDecoder().decode(body));
-  } catch {
-    return closedJsonResponse(400, "malformed");
-  }
-  const controlRequest = doGatewayControlRequestSchema.safeParse(parsedJson);
-  if (!controlRequest.success) return closedJsonResponse(400, "malformed");
-
-  const secret = env.COLLAB_JOIN_TOKEN_SECRET;
-  if (!roomTokenSecretReady(secret)) {
-    log.error("gateway.secret_not_ready");
-    return closedJsonResponse(503, "not-ready");
-  }
-
-  const verified = verifyRoomControlToken({
-    token: controlRequest.data.token,
-    secret,
-    nowSeconds: Math.floor(Date.now() / 1000),
-  });
-  if (!verified.ok) {
-    // The reason is log-only; the response never distinguishes failure modes.
-    log.warn("gateway.control_token_rejected", {
-      tokenFailure: verified.reason,
-    });
-    return closedJsonResponse(401, "unauthorized");
-  }
-
-  // The verified claims are the only routing authority: the target Object is
-  // derived from them (never from anything else in the request), addressed by
-  // its canonical name, and handed one versioned typed RPC. The Object
-  // re-validates the command against its own identity, so gateway and claims
-  // must agree twice before any coordination state changes.
-  const claims = verified.claims;
-  const stub = env.COLLABORATION_ROOM.getByName(
-    controlClaimsChannelKey(claims),
-  );
-  try {
-    // Always awaited — a fire-and-forget control would report enforcement
-    // that may never have happened.
-    const result = await stub.applyControlV1(
-      roomControlCommandFromClaims(claims),
-    );
-    // The control audit record: which action, against which verified room
-    // identity, closing how many sessions. Never the subject (threat model
-    // §5 forbids raw subject ids and this logger keeps no pseudonym salt).
-    log.info("gateway.control_applied", {
-      controlAction: claims.action,
-      roomId: claims.rid,
-      authGeneration: claims.gen,
-      closedSessions: result.closed,
-    });
-    return Response.json({
-      appliedRevision: result.appliedRevision,
-      closed: result.closed,
-    } satisfies DoGatewayControlResponse);
-  } catch (error) {
-    // A deterministic Object-side refusal is answered non-retryably with its
-    // stable code: the caller's durable dispatcher must not spend its retry
-    // budget resending a command this build can only refuse again.
-    const rejection = controlRejectionOf(error);
-    if (rejection !== undefined) {
-      log.error("gateway.control_rejected", {
-        roomId: claims.rid,
-        authGeneration: claims.gen,
-        controlRejection: rejection,
-      });
-      return Response.json(
-        {
-          error: "control-rejected",
-          code: rejection,
-        } satisfies DoGatewayControlRejection,
-        { status: DO_GATEWAY_CONTROL_REJECTED_STATUS },
-      );
-    }
-    // Everything else is treated as infrastructure failure: one closed,
-    // retryable answer; detail stays in Workers Logs and the caller's durable
-    // dispatcher owns retries.
-    log.error("gateway.control_dispatch_failed", {
-      roomId: claims.rid,
-      authGeneration: claims.gen,
-      errorName: errorNameOf(error),
-    });
-    return closedJsonResponse(503, "unavailable");
-  }
-}
-
-/**
- * Buffers at most `maxBytes`; returns `undefined` the moment the body runs
- * past the bound, without reading the rest.
- */
 async function readBoundedBody(
   request: Request,
   maxBytes: number,
@@ -547,4 +402,50 @@ async function readBoundedBody(
     offset += chunk.byteLength;
   }
   return body;
+}
+
+async function handleLifecycle(request: Request, env: Env): Promise<Response> {
+  if (!serviceAuthorized(request, env))
+    return closedJsonResponse(401, "unauthorized");
+  if (request.method !== "POST")
+    return closedJsonResponse(405, "method-not-allowed");
+  if (
+    request.headers.get("content-type")?.split(";", 1)[0]?.trim() !==
+    "application/json"
+  )
+    return closedJsonResponse(415, "unsupported-media-type");
+  const bytes = await readBoundedBody(request, AUTHORITY_LIMITS.jobBytes);
+  if (!bytes) return closedJsonResponse(413, "payload-too-large");
+  let raw: unknown;
+  try {
+    raw = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
+    ) as unknown;
+  } catch {
+    return closedJsonResponse(400, "malformed");
+  }
+  const parsed = lifecycleGatewayRequestSchema.safeParse(raw);
+  if (!parsed.success) return closedJsonResponse(400, "malformed");
+  const input = parsed.data;
+  try {
+    if (input.action === "end-room")
+      return Response.json(
+        await env.COLLABORATION_ROOM.getByName(input.roomId).endAuthorityV1(
+          input.operationId,
+        ),
+      );
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(
+      lifecycleObjectName(
+        input.action === "begin" ? input.command.target : input.target,
+      ),
+    );
+    const result =
+      input.action === "begin"
+        ? await stub.begin(input.command)
+        : await stub.query(input.operationId);
+    if (!result) return closedJsonResponse(404, "not-found");
+    return Response.json(result, { headers: { "cache-control": "no-store" } });
+  } catch {
+    return closedJsonResponse(503, "unavailable");
+  }
 }

@@ -114,12 +114,38 @@ describe("metadata adapter transport", () => {
     ).toEqual({ authorityEpoch: 2 });
     expect(request).toMatchObject({
       method: "POST",
-      redirect: "error",
+      redirect: "manual",
       headers: {
         authorization: `Bearer ${config.COLLAB_ADAPTER_SECRET}`,
         "content-type": "application/json",
       },
     });
+  });
+
+  it("constructs a supported workerd Request and rejects redirects without forwarding the capability", async () => {
+    const fetchImpl = vi.fn<typeof fetch>(async (input, init) => {
+      const request = new Request(input, init);
+      expect(request.redirect).toBe("manual");
+      return new Response(null, {
+        status: 302,
+        headers: { location: "https://other.test/" },
+      });
+    });
+    const c = new AdapterClient(config, fetchImpl);
+    await expect(
+      c.call(
+        {
+          v: 1,
+          action: "cleanup",
+          roomId: fixture().roomId,
+          authGeneration: 1,
+          authorityEpoch: 1,
+        },
+        z.unknown(),
+        signal(),
+      ),
+    ).rejects.toThrow();
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it.each([

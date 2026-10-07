@@ -5,6 +5,7 @@ import {
   registrationReceiptSchema,
   roomCommandSchema,
   authorityStateSchema,
+  authorityManagementSchema,
 } from "@drawstuff/collaboration/authority";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 import { AdapterClient } from "./adapter-client.ts";
@@ -81,14 +82,24 @@ export async function applyAuthorityEntry(
         ok: true as const,
         result: authority.query(request.operationId)!,
       };
-    if (request.action === "get-state") {
+    if (request.action === "get-state" || request.action === "get-management") {
       const current = authority.state()!;
       const role =
         current.owner === identity.subject ? "owner" : authority.role(identity);
       if (!role) throw new Error("forbidden");
       return {
         ok: true as const,
-        result: authorityStateSchema.parse({
+        result: (request.action === "get-management"
+          ? authorityManagementSchema
+          : authorityStateSchema
+        ).parse({
+          ...(request.action === "get-management"
+            ? authority.management(
+                identity,
+                request.cursor,
+                request.emailCursor,
+              )
+            : {}),
           roomId: authority.roomId,
           state: current.state,
           role,
