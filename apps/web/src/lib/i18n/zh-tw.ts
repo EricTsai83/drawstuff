@@ -2,6 +2,28 @@ import type { AppDictionary } from "./types";
 
 // 應用層繁體中文字典；satisfies 讓缺 key 或多 key 直接編譯失敗。
 export const zhTW = {
+  "storage.personal": "個人場景",
+  "storage.savePersonal": "儲存至我的場景",
+  "storage.room": "加密共編房間 · {roomId}",
+  "storage.room.pending": "房間變更尚未保存",
+  "storage.room.saving": "房間自動保存中…",
+  "storage.room.saved": "房間已保存",
+  "storage.room.failed": "房間保存失敗 · 重試",
+  "storage.saveRoom": "保存房間／重試",
+  "storage.copy": "另存至我的場景…",
+  "storage.updateSource": "更新我的原場景「{name}」",
+  "storage.download": "下載本機副本…",
+  "storage.copyNotice":
+    "共編房間仍維持加密；個人雲端副本不採端對端加密，不會自動公開。",
+  "storage.downloadNotice": "下載的本機檔案未加密。",
+  "storage.personalCopySaved": "已儲存至我的場景；房間保存狀態另行確認。",
+  "storage.keepRoom": "繼續編輯此房間",
+  "storage.keepRoomNotice": "保留房間內容，稍後再處理原場景的版本衝突。",
+  "storage.originalSaved": "已更新原場景。",
+  "storage.sourceConflict":
+    "原場景已在其他地方更新。請另存個人副本，或離房並重新載入原稿後再更新。",
+  "storage.leaveRisk": "房間尚有未確認保存的變更，離開可能遺失。仍要離開嗎？",
+
   "app.export.cloud.title": "上傳雲端",
   "app.export.cloud.subtitle": "將場景上傳至雲端儲存。",
   "app.export.cloud.loading": "上傳中...",

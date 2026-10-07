@@ -102,6 +102,7 @@ export type CollaborationRoomDialogProps = {
   /** Active room id from the URL, if the editor is in a room. */
   roomId: string | null;
   onRoomIdChange: (roomId: string | null) => void;
+  confirmRoomExit?: () => boolean;
   /** Active room key from the URL fragment; `null` means the link is partial. */
   roomKey: RoomKey | null;
   onRoomKeyChange: (roomKey: RoomKey | null) => void;
@@ -122,6 +123,7 @@ export function CollaborationRoomDialog({
   sceneId,
   roomId,
   onRoomIdChange,
+  confirmRoomExit,
   roomKey,
   onRoomKeyChange,
   status,
@@ -591,7 +593,10 @@ export function CollaborationRoomDialog({
                   <Button
                     variant="destructive"
                     disabled={endRoom.isPending}
-                    onClick={() => endRoom.mutate({ roomId })}
+                    onClick={() => {
+                      if (confirmRoomExit?.() !== false)
+                        endRoom.mutate({ roomId });
+                    }}
                   >
                     {t("collaboration.action.end")}
                   </Button>
@@ -608,7 +613,10 @@ export function CollaborationRoomDialog({
                 <Button
                   variant="secondary"
                   disabled={leaveRoom.isPending}
-                  onClick={() => leaveRoom.mutate({ roomId })}
+                  onClick={() => {
+                    if (confirmRoomExit?.() !== false)
+                      leaveRoom.mutate({ roomId });
+                  }}
                 >
                   {t("collaboration.action.leave")}
                 </Button>

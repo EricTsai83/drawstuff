@@ -1,5 +1,7 @@
 "use client";
 
+import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
+
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { useSceneSession } from "@/hooks/scene-session-context";
@@ -109,7 +111,8 @@ export function useSceneRemoteRevisionCheck({
 
   const checkRemoteRevision = useCallback(
     async ({ suppressToast = false }: { suppressToast?: boolean } = {}) => {
-      if (!currentSceneId || !isReady) return;
+      if (!currentSceneId || !isReady || isLocalScenePersistencePaused())
+        return;
       if (isUploadInProgress || isBlockingDialogOpen || pendingConflict) return;
       if (shouldSuppressDirtyTracking()) return;
       if (inFlightRef.current) return;
@@ -122,7 +125,11 @@ export function useSceneRemoteRevisionCheck({
         if (!remoteMeta?.id) return;
 
         // Guard: bail if scene changed during the await
-        if (currentSceneIdRef.current !== capturedSceneId) return;
+        if (
+          currentSceneIdRef.current !== capturedSceneId ||
+          isLocalScenePersistencePaused()
+        )
+          return;
 
         const action = resolveSceneSyncAction({
           localRevision: lastSyncedRevisionRef.current,
@@ -145,7 +152,11 @@ export function useSceneRemoteRevisionCheck({
 
         // action === "refresh_remote"
         // Guard: bail if scene changed before applying
-        if (currentSceneIdRef.current !== capturedSceneId) return;
+        if (
+          currentSceneIdRef.current !== capturedSceneId ||
+          isLocalScenePersistencePaused()
+        )
+          return;
 
         const result = await applyRemoteScene({
           sceneId: capturedSceneId,
@@ -153,7 +164,11 @@ export function useSceneRemoteRevisionCheck({
         });
 
         // Guard: bail if scene changed during apply
-        if (currentSceneIdRef.current !== capturedSceneId) return;
+        if (
+          currentSceneIdRef.current !== capturedSceneId ||
+          isLocalScenePersistencePaused()
+        )
+          return;
 
         const applied = isApplyResultAcceptable(result);
         if (applied) {

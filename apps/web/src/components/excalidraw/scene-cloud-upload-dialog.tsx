@@ -36,6 +36,7 @@ import {
 } from "@/components/responsive-dialog-layout";
 
 type SceneCloudUploadDialogProps = {
+  isRoom?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   excalidrawAPI?: ExcalidrawImperativeAPI | null;
@@ -49,6 +50,7 @@ type SceneCloudUploadDialogProps = {
 
 export function SceneCloudUploadDialog({
   open,
+  isRoom = false,
   onOpenChange,
   excalidrawAPI,
   onConfirm,
@@ -152,10 +154,10 @@ export function SceneCloudUploadDialog({
       >
         <DialogHeader>
           <DialogTitle className="text-xl font-bold">
-            {t("scene.save.title")}
+            {t(isRoom ? "storage.copy" : "storage.savePersonal")}
           </DialogTitle>
-          <DialogDescription className="sr-only">
-            {t("scene.save.description")}
+          <DialogDescription className={isRoom ? undefined : "sr-only"}>
+            {t(isRoom ? "storage.copyNotice" : "scene.save.description")}
           </DialogDescription>
         </DialogHeader>
 

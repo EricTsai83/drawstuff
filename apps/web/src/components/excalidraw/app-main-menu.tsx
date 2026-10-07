@@ -282,7 +282,9 @@ function AppMainMenu({
               !compactPresentation ? "min-[1080px]:hidden!" : undefined
             }
           />
-          {session && <NewSceneItem onActivate={handleOpenNewSceneDialog} />}
+          {session && !isCollaborating && (
+            <NewSceneItem onActivate={handleOpenNewSceneDialog} />
+          )}
           {compactPresentation && (
             <ProductActionsItems
               actions={productActions}

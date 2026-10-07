@@ -35,6 +35,8 @@ import {
   EXTRA_EMBED_DOMAINS,
 } from "@/config/embed-allowlist";
 import { useAppI18n } from "@/hooks/use-app-i18n";
+import { useSaveShortcut } from "@/hooks/excalidraw/use-save-shortcut";
+import { EditorStorageStatus } from "./editor-storage-status";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
 import type { CanvasProductActions } from "./canvas-product-actions";
@@ -83,6 +85,8 @@ export default function ExcalidrawEditor() {
     null,
   );
   const {
+    handleUpdateSource,
+    sourceConflictDialog,
     sceneName,
     handleSceneChange,
     handleSetSceneName,
@@ -130,6 +134,10 @@ export default function ExcalidrawEditor() {
   }, [excalidrawAPI]);
 
   const {
+    roomSaveState,
+    sourceSceneId,
+    requestRoomSave,
+    confirmRoomExit,
     collaborationRoomId,
     setCollaborationRoomId,
     collaborationRoomKey,
@@ -151,10 +159,15 @@ export default function ExcalidrawEditor() {
     currentSceneId,
     hasCurrentCanvasContent,
     uploadSceneToCloud,
-    clearCurrentScene,
     sceneChangeConfirm,
     handleSceneChange,
     cancelPendingSceneSave,
+  });
+
+  const isRoomMode = !!collaborationRoomId || isCanvasOwnedByRoom;
+  useSaveShortcut({
+    enabled: !!session,
+    onSave: isRoomMode ? requestRoomSave : handleCloudUpload,
   });
 
   const { initialDataPromise, conflictDialog } = useEditorSceneLoading({
@@ -183,8 +196,22 @@ export default function ExcalidrawEditor() {
       },
       cloudSave: session
         ? {
-            status: uploadStatus,
-            onActivate: () => void handleCloudUpload(),
+            statusLabel: isRoomMode
+              ? t(`storage.room.${roomSaveState.status}`)
+              : undefined,
+            label: t(isRoomMode ? "storage.saveRoom" : "storage.savePersonal"),
+            status: isRoomMode
+              ? roomSaveState.status === "saving"
+                ? "uploading"
+                : roomSaveState.status === "saved"
+                  ? "success"
+                  : roomSaveState.status === "failed"
+                    ? "error"
+                    : "idle"
+              : uploadStatus,
+            onActivate: isRoomMode
+              ? requestRoomSave
+              : () => void handleCloudUpload(),
           }
         : null,
       share: {
@@ -194,6 +221,10 @@ export default function ExcalidrawEditor() {
     }),
     [
       collaborationStatus,
+      isRoomMode,
+      roomSaveState.status,
+      requestRoomSave,
+      t,
       exportStatus,
       handleCloudUpload,
       handleShareLinkClick,
@@ -231,124 +262,142 @@ export default function ExcalidrawEditor() {
   );
 
   return (
-    <div className="h-dvh w-full">
-      {initialDataPromise && (
-        <ExcalidrawCanvas
-          excalidrawAPI={excalidrawRefCallback}
-          initialData={initialDataPromise}
-          onChange={handleCanvasChange}
-          onPointerUpdate={handleCollabPointerUpdate}
-          // 跟隨模式:上游負責 UI(點頭像、紫色外框),這裡把自己的視角廣播給
-          // 跟隨者;「自己開始/停止跟隨」走 imperative API 訂閱(room-session)。
-          onScrollChange={handleCollabScrollChange}
-          isCollaborating={isCollaborating}
-          // Viewer 角色在 UI 也是唯讀；server 端仍是唯一的權限來源。
-          viewModeEnabled={isCollaborationReadOnly}
-          UIOptions={{
-            canvasActions: {
-              toggleTheme: true,
-              export: {
-                saveFileToDisk: false, // 移除預設的「儲存到磁碟」按鈕
-                renderCustomUI: renderCustomUiForExport,
+    <div className="flex h-dvh w-full flex-col">
+      <EditorStorageStatus
+        roomId={isRoomMode ? collaborationRoomId : null}
+        state={roomSaveState}
+        sourceSceneId={sourceSceneId}
+        onRetry={requestRoomSave}
+        onCopy={openCloudUploadDialog}
+        onUpdateSource={handleUpdateSource}
+        api={excalidrawAPI}
+        isAuthenticated={!!session}
+      />
+      <div className="min-h-0 flex-1">
+        {initialDataPromise && (
+          <ExcalidrawCanvas
+            excalidrawAPI={excalidrawRefCallback}
+            initialData={initialDataPromise}
+            onChange={handleCanvasChange}
+            onPointerUpdate={handleCollabPointerUpdate}
+            // 跟隨模式:上游負責 UI(點頭像、紫色外框),這裡把自己的視角廣播給
+            // 跟隨者;「自己開始/停止跟隨」走 imperative API 訂閱(room-session)。
+            onScrollChange={handleCollabScrollChange}
+            isCollaborating={isCollaborating}
+            // Viewer 角色在 UI 也是唯讀；server 端仍是唯一的權限來源。
+            viewModeEnabled={isCollaborationReadOnly}
+            UIOptions={{
+              canvasActions: {
+                toggleTheme: true,
+                export: {
+                  saveFileToDisk: false, // 移除預設的「儲存到磁碟」按鈕
+                  renderCustomUI: renderCustomUiForExport,
+                },
               },
-            },
-          }}
-          langCode={langCode}
-          libraryReturnUrl={libraryReturnUrl}
-          theme={browserActiveTheme}
-          renderTopRightUI={renderTopRightUI}
-          renderCustomStats={renderCustomStats}
-          validateEmbeddable={embedUrlValidator}
-        >
-          <PersonalLibraryController
-            key={libraryIdentity}
-            excalidrawAPI={excalidrawAPI ?? null}
-            userId={session?.user.id ?? null}
-            isAuthenticationPending={isAuthenticationPending}
-          />
-          <ExcalidrawDefaultSidebar.Trigger
-            icon={<LibraryBig aria-hidden="true" />}
-            tab="library"
-            title={libraryLabel}
-          >
-            {libraryLabel}
-          </ExcalidrawDefaultSidebar.Trigger>
-          <AppMainMenu
-            userChosenTheme={userChosenTheme}
-            setTheme={setTheme}
+            }}
             langCode={langCode}
-            onLangCodeChange={handleLangCodeChange}
-            excalidrawAPI={excalidrawAPI}
-            handleSetSceneName={handleSetSceneName}
-            sceneName={sceneName}
-            isCollaborating={isCanvasOwnedByRoom}
-            cancelPendingSceneSave={cancelPendingSceneSave}
-            productActions={productActions}
-            compactPresentation={isMobileCanvasSlot !== false}
-          />
-
-          <SceneRenameDialog
-            excalidrawAPI={excalidrawAPI}
-            trigger={
-              <SceneNameTrigger
-                sceneName={sceneName}
-                isMobileSlot={isMobileCanvasSlot !== false}
-              />
-            }
-            onConfirmName={handleSceneRename}
-          />
-
-          <Footer>
-            <EditorFooter
-              showDesktopActions={isMobileCanvasSlot === false}
-              showDashboardShortcut={!!session}
-              latestShareableLink={latestShareableLink}
-              isShareDialogOpen={isShareDialogOpen}
-              onShareDialogOpenChange={setIsShareDialogOpen}
-              workspaceId={currentWorkspaceId}
+            libraryReturnUrl={libraryReturnUrl}
+            theme={browserActiveTheme}
+            renderTopRightUI={renderTopRightUI}
+            renderCustomStats={renderCustomStats}
+            validateEmbeddable={embedUrlValidator}
+          >
+            <PersonalLibraryController
+              key={libraryIdentity}
+              excalidrawAPI={excalidrawAPI ?? null}
+              userId={session?.user.id ?? null}
+              isAuthenticationPending={isAuthenticationPending}
             />
-          </Footer>
+            <ExcalidrawDefaultSidebar.Trigger
+              icon={<LibraryBig aria-hidden="true" />}
+              tab="library"
+              title={libraryLabel}
+            >
+              {libraryLabel}
+            </ExcalidrawDefaultSidebar.Trigger>
+            <AppMainMenu
+              userChosenTheme={userChosenTheme}
+              setTheme={setTheme}
+              langCode={langCode}
+              onLangCodeChange={handleLangCodeChange}
+              excalidrawAPI={excalidrawAPI}
+              handleSetSceneName={handleSetSceneName}
+              sceneName={sceneName}
+              isCollaborating={isRoomMode}
+              cancelPendingSceneSave={cancelPendingSceneSave}
+              productActions={productActions}
+              compactPresentation={isMobileCanvasSlot !== false}
+            />
 
-          <AppWelcomeScreen />
-          <EditorDialogs
-            excalidrawAPI={excalidrawAPI}
-            sceneChange={{
-              open: isSceneChangeDialogOpen,
-              onOpenChange: handleSceneChangeDialogOpenChange,
-              onChoose: resolveSceneChangeDecision,
-              isLoading: Boolean(isSceneChangeDialogLoading),
-            }}
-            overwrite={{
-              clearCurrentSceneId: clearCurrentScene,
-              onSceneNotFoundError: openCloudUploadDialog,
-            }}
-            remoteConflict={conflictDialog}
-            collaboration={{
-              open: isCollaborationDialogOpen,
-              onOpenChange: setIsCollaborationDialogOpen,
-              isAuthenticated: !!session,
-              isAuthenticationPending,
-              sceneId: currentSceneId ?? null,
-              roomId: collaborationRoomId,
-              onRoomIdChange: (nextRoomId) => {
-                void setCollaborationRoomId(nextRoomId);
-              },
-              roomKey: collaborationRoomKey,
-              onRoomKeyChange: setCollaborationRoomKey,
-              status: collaborationStatus,
-              failureReason: collaborationFailureReason,
-              role: collaborationRole,
-              errorMessage: collaborationErrorMessage,
-              onRetryJoin: retryCollaborationJoin,
-            }}
-            cloudUpload={{
-              open: isCloudUploadDialogOpen,
-              onOpenChange: setIsCloudUploadDialogOpen,
-              onConfirm: handleCloudUploadConfirm,
-            }}
-          />
-        </ExcalidrawCanvas>
-      )}
+            <SceneRenameDialog
+              excalidrawAPI={excalidrawAPI}
+              trigger={
+                <SceneNameTrigger
+                  sceneName={sceneName}
+                  isMobileSlot={isMobileCanvasSlot !== false}
+                />
+              }
+              onConfirmName={handleSceneRename}
+            />
+
+            <Footer>
+              <EditorFooter
+                showDesktopActions={isMobileCanvasSlot === false}
+                showDashboardShortcut={!!session}
+                latestShareableLink={latestShareableLink}
+                isShareDialogOpen={isShareDialogOpen}
+                onShareDialogOpenChange={setIsShareDialogOpen}
+                workspaceId={currentWorkspaceId}
+              />
+            </Footer>
+
+            <AppWelcomeScreen />
+            <EditorDialogs
+              excalidrawAPI={excalidrawAPI}
+              sceneChange={{
+                open: isSceneChangeDialogOpen,
+                onOpenChange: handleSceneChangeDialogOpenChange,
+                onChoose: resolveSceneChangeDecision,
+                isLoading: Boolean(isSceneChangeDialogLoading),
+              }}
+              overwrite={{
+                clearCurrentSceneId: clearCurrentScene,
+                onSceneNotFoundError: openCloudUploadDialog,
+              }}
+              remoteConflict={
+                sourceConflictDialog.open
+                  ? sourceConflictDialog
+                  : conflictDialog
+              }
+              collaboration={{
+                open: isCollaborationDialogOpen,
+                onOpenChange: setIsCollaborationDialogOpen,
+                isAuthenticated: !!session,
+                isAuthenticationPending,
+                sceneId: currentSceneId ?? null,
+                roomId: collaborationRoomId,
+                onRoomIdChange: (nextRoomId) => {
+                  void setCollaborationRoomId(nextRoomId);
+                },
+                roomKey: collaborationRoomKey,
+                onRoomKeyChange: setCollaborationRoomKey,
+                status: collaborationStatus,
+                failureReason: collaborationFailureReason,
+                role: collaborationRole,
+                errorMessage: collaborationErrorMessage,
+                onRetryJoin: retryCollaborationJoin,
+                confirmRoomExit,
+              }}
+              cloudUpload={{
+                isRoom: isRoomMode,
+                open: isCloudUploadDialogOpen,
+                onOpenChange: setIsCloudUploadDialogOpen,
+                onConfirm: handleCloudUploadConfirm,
+              }}
+            />
+          </ExcalidrawCanvas>
+        )}
+      </div>
     </div>
   );
 }

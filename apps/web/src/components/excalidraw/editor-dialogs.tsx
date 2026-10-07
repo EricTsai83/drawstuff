@@ -30,6 +30,7 @@ export function EditorDialogs(props: {
   remoteConflict: ComponentProps<typeof SceneRemoteConflictDialog>;
   collaboration: ComponentProps<typeof CollaborationRoomDialog>;
   cloudUpload: {
+    isRoom?: boolean;
     open: boolean;
     onOpenChange: (open: boolean) => void;
     onConfirm: ComponentProps<typeof SceneCloudUploadDialog>["onConfirm"];
@@ -51,6 +52,7 @@ export function EditorDialogs(props: {
       <SceneRemoteConflictDialog {...props.remoteConflict} />
       <CollaborationRoomDialog {...props.collaboration} />
       <SceneCloudUploadDialog
+        isRoom={props.cloudUpload.isRoom}
         open={props.cloudUpload.open}
         onOpenChange={props.cloudUpload.onOpenChange}
         excalidrawAPI={props.excalidrawAPI}

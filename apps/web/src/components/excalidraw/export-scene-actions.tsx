@@ -33,6 +33,7 @@ type ExportUIHandlers = {
 
 export type ExportSceneActionsProps = {
   session: AuthSessionData;
+  isRoom?: boolean;
   elements: readonly NonDeletedExcalidrawElement[];
   appState: Partial<AppState>;
   files: BinaryFiles;
@@ -43,6 +44,7 @@ export type ExportSceneActionsProps = {
 
 export function ExportSceneActions({
   session,
+  isRoom = false,
   elements,
   appState,
   files,
@@ -54,9 +56,11 @@ export function ExportSceneActions({
 
   const configs: ExportActionConfig[] = [
     {
-      title: t("exportDialog.disk_title"),
-      subtitle: t("exportDialog.disk_details"),
-      buttonLabel: t("exportDialog.disk_title"),
+      title: t(isRoom ? "storage.download" : "exportDialog.disk_title"),
+      subtitle: t(
+        isRoom ? "storage.downloadNotice" : "exportDialog.disk_details",
+      ),
+      buttonLabel: t(isRoom ? "storage.download" : "exportDialog.disk_title"),
       icon: <Download className="h-4 w-4" />,
       onClick: () => {
         void handlers.handleSaveToDisk(elements, appState, files);
@@ -65,9 +69,9 @@ export function ExportSceneActions({
       needLogin: false,
     },
     {
-      title: t("app.export.cloud.title"),
-      subtitle: t("app.export.cloud.subtitle"),
-      buttonLabel: t("app.export.cloud.title"),
+      title: t(isRoom ? "storage.copy" : "storage.savePersonal"),
+      subtitle: t(isRoom ? "storage.copyNotice" : "app.export.cloud.subtitle"),
+      buttonLabel: t(isRoom ? "storage.copy" : "storage.savePersonal"),
       icon: <CloudUpload className="h-4 w-4" />,
       onClick: () => {
         void handlers.handleCloudUpload(elements, appState, files);
@@ -100,7 +104,7 @@ export function ExportSceneActions({
   return (
     <div className="flex w-full max-w-2xl flex-col items-stretch gap-4 sm:flex-row">
       {configs
-        .filter((config) => config.needLogin === !!session)
+        .filter((config) => !config.needLogin || !!session)
         .map((config) => (
           <div
             key={`top-icon-${config.title}`}

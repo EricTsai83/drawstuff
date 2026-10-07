@@ -16,6 +16,7 @@ import {
   importSceneFilesBySceneId,
 } from "@/lib/import-data-from-db";
 import { useSceneSession } from "@/hooks/scene-session-context";
+import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
 import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
 
 type ApplyRemoteSceneParams = {
@@ -51,7 +52,7 @@ export function useApplyRemoteScene(
       getActiveTheme,
       shouldCenter = true,
     }: ApplyRemoteSceneParams): Promise<ApplyRemoteSceneResult> => {
-      if (!excalidrawAPI) {
+      if (!excalidrawAPI || isLocalScenePersistencePaused()) {
         return { ok: false, reason: "scene_data_missing" };
       }
 
@@ -71,6 +72,9 @@ export function useApplyRemoteScene(
       if (!imported?.elements && !imported?.appState) {
         return { ok: false, reason: "scene_data_missing" };
       }
+
+      if (isLocalScenePersistencePaused())
+        return { ok: false, reason: "scene_data_missing" };
 
       // 2. Prepare merged appState
       const baseAppState = excalidrawAPI.getAppState() as AppState | undefined;

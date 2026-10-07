@@ -148,7 +148,7 @@ describe("Canvas product action presentations", () => {
       "Library",
       "Collaborate",
       "Share",
-      "Save to cloud",
+      "Save to my scenes",
     ]);
     expect(
       Array.from(
@@ -157,7 +157,7 @@ describe("Canvas product action presentations", () => {
         ),
         (label) => label.textContent,
       ),
-    ).toEqual(["Library", "Collaborate", "Share", "Save to cloud"]);
+    ).toEqual(["Library", "Collaborate", "Share", "Save to my scenes"]);
 
     act(() => items[3]?.click());
     expect(save).toHaveBeenCalledOnce();
@@ -204,7 +204,7 @@ describe("Canvas product action presentations", () => {
     expect(currentBadgeLabel()).toBe("Saving…");
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[role="menuitem"][aria-label="Save to cloud"]',
+        '[role="menuitem"][aria-label="Save to my scenes"]',
       )?.disabled,
     ).toBe(true);
 

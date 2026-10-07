@@ -225,6 +225,11 @@ export function clearCurrentSceneSessionFromStorage(): void {
  * deliberately preserved.
  */
 export function clearLocalSceneStorage(): void {
+  try {
+    sessionStorage.removeItem(STORAGE_KEYS.PERSONAL_DRAFT_BEFORE_ROOM);
+  } catch {
+    /* storage may be unavailable */
+  }
   // The collaboration claim lives in sessionStorage and must be released even
   // when localStorage is unavailable.
   releaseCanvasRoom();

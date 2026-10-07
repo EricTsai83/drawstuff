@@ -25,7 +25,12 @@ export function useScenePersistence(
   excalidrawAPI?: ExcalidrawImperativeAPI | null,
 ): UseScenePersistenceResult {
   const [sceneName, setSceneName] = useState<string>("");
-  const [debouncedSave, cancelPendingSave] = useDebounce(saveData, 300);
+  const [debouncedSave, cancelPendingSave] = useDebounce(
+    (data: Parameters<typeof saveData>[0]) => {
+      if (!isLocalScenePersistencePaused()) saveData(data);
+    },
+    300,
+  );
   const { currentSceneId, markCurrentSceneDirty, shouldSuppressDirtyTracking } =
     useSceneSession();
 
@@ -58,20 +63,16 @@ export function useScenePersistence(
       files: BinaryFiles,
     ): void => {
       setSceneName(appState.name ?? "");
+      if (isLocalScenePersistencePaused()) {
+        cancelPendingSave();
+        return;
+      }
       if (
         currentSceneId &&
         !skipDirtyRef.current &&
         !shouldSuppressDirtyTracking()
       ) {
         markCurrentSceneDirty();
-      }
-      // A room owns this canvas and there is no owned scene to cache it for, so
-      // the local cache must not accumulate the room's content. Checked
-      // synchronously (a memory read) because this runs on every `onChange`, and
-      // a save queued before the pause is cancelled rather than left to fire.
-      if (isLocalScenePersistencePaused()) {
-        cancelPendingSave();
-        return;
       }
       debouncedSave({ elements, appState, files });
     },

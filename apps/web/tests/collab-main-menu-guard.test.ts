@@ -58,25 +58,20 @@ describe("main menu collaboration guard", () => {
     // would leave a window in which the canvas already belongs to the room while
     // the file-import item is still offered.
     expect(collaborationSource).toContain("ownsCanvas: isCanvasOwnedByRoom");
-    expect(editorSource).toContain("isCollaborating={isCanvasOwnedByRoom}");
+    expect(editorSource).toContain("isCollaborating={isRoomMode}");
   });
 
-  it("does not use the canvas claim to skip the replacement prompt", () => {
-    // The join sequence is the React-free controller behind
-    // `useCollaborationRoom`; the hook only binds it to the effect.
-    const hookSource = readFileSync(
-      path.resolve(
-        import.meta.dirname,
-        "../src/hooks/excalidraw/collaboration-room-controller.ts",
-      ),
+  it("reloads rooms from a durable baseline rather than the personal cache", () => {
+    const initialSource = readFileSync(
+      path.resolve(import.meta.dirname, "../src/lib/excalidraw.ts"),
       "utf8",
     );
-    // The claim is per tab; the restored canvas in localStorage is not. Another
-    // tab loading an unrelated scene leaves this tab's claim pointing at a canvas
-    // it no longer describes, so a reload must still ask before handing the
-    // canvas to the room.
-    expect(hookSource).toContain(
-      "if (!isOpenScene && !(await prepareCanvas())) return;",
+    expect(initialSource).toContain("preserveCachedPersonalDraft()");
+    expect(initialSource).toContain(
+      "searchParams.has(COLLABORATION_ROOM_PARAM)",
+    );
+    expect(initialSource).toContain(
+      "return { elements: [], files: {}, appState: { viewModeEnabled: true } }",
     );
   });
 });

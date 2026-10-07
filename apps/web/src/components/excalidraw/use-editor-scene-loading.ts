@@ -24,6 +24,7 @@ import type { useSyncTheme } from "@/hooks/use-sync-theme";
 import { LOAD_SCENE_EVENT, type LoadSceneRequestDetail } from "@/lib/events";
 import { createInitialDataPromise } from "@/lib/excalidraw";
 import type { AuthSessionData } from "@/lib/types";
+import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
 import { api } from "@/trpc/react";
 
 type CloudUpload = ReturnType<typeof useCloudUpload>;
@@ -122,11 +123,15 @@ export function useEditorSceneLoading(options: {
     uploadSceneToCloud,
     getActiveTheme: () => browserActiveTheme,
     workspaceId: currentWorkspaceId,
-    isReady: !!excalidrawAPI && isSessionReady && !!session,
+    isReady:
+      !!excalidrawAPI &&
+      isSessionReady &&
+      !!session &&
+      !isLocalScenePersistencePaused(),
     isUploadInProgress: uploadStatus === "uploading",
     isBlockingDialogOpen:
       sceneChangeConfirm.isSceneChangeDialogOpen || isCloudUploadDialogOpen,
-    externalConflict: lastConflict,
+    externalConflict: lastConflict?.roomSource ? null : lastConflict,
     onExternalConflictHandled: clearLastConflict,
   });
 

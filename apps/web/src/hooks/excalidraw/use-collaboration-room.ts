@@ -1,6 +1,13 @@
 "use client";
 
-import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
@@ -15,10 +22,6 @@ import type {
   OrderedExcalidrawElement,
 } from "@drawstuff/excalidraw-adapter/types";
 
-import {
-  pauseLocalScenePersistence,
-  resumeLocalScenePersistence,
-} from "@/data/local-scene-persistence";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
@@ -35,6 +38,11 @@ import {
   type CollaborationRoomStatus,
 } from "@/lib/collab/room-state-reducer";
 import type { CollaborationRoomHandle } from "@/lib/collab/room-session";
+import {
+  clearPersonalDraft,
+  restorePersonalDraft,
+} from "@/lib/collab/personal-draft";
+import { resumeLocalScenePersistence } from "@/data/local-scene-persistence";
 import { api } from "@/trpc/react";
 
 export type {
@@ -74,28 +82,20 @@ export type {
  * session at all — reporting `missing-room-key` is the only option, because a
  * session without the key could neither read nor write the room.
  *
- * ## Joining a room whose scene you do not have
- *
- * A session publishes the local canvas once it is synced, so joining with an
- * unrelated scene loaded would push that scene's content into the room. The
- * leak is closed by making the canvas the room's *before* the socket opens:
- *
- * 1. Unsaved local work is resolved through the editor's existing
- *    save/discard/cancel prompt. Cancelling means no connection is attempted.
- * 2. The canvas is emptied and the scene session cleared, which also drops the
- *    guest's `currentSceneId`. A guest must never adopt the owner's scene id —
- *    its own save would then try to overwrite somebody else's scene.
- * 3. The join mutation succeeds and its authorization generation is checked.
- *    A refused or exhausted join therefore leaves no collaboration ownership
- *    marker behind.
- * 4. The canvas is claimed for the room, and only then does the session connect
- *    and receive the room's baseline from an elected peer or from the durable
- *    snapshot.
- *
- * Because step 2 leaves the guest without a scene id, `canSyncScene` cannot be a
- * scene-id comparison any more; it is the canvas claim from step 4.
+ * ## Canvas ownership
+ * Authorization and key verification precede the handoff. The personal draft
+ * and its identity/revision are preserved per tab; all local canvas writers
+ * pause synchronously before room state can be applied. Room links reload from
+ * the encrypted baseline, and teardown restores the personal draft before
+ * releasing the persistence hold. Personal copies never attach to room edits.
  */
+import type { RoomSaveState } from "@/lib/collab/session/save-state";
+
 export type UseCollaborationRoomResult = {
+  saveState: RoomSaveState;
+  sourceSceneId: string | null;
+  requestSave: () => void;
+  confirmExit: () => boolean;
   status: CollaborationRoomStatus;
   /** Set while `status` is `failed`; `null` otherwise. */
   failureReason: CollaborationFailureReason | null;
@@ -145,12 +145,14 @@ export function useCollaborationRoom(options: {
   isAuthenticated: boolean;
   /**
    * Makes the on-screen canvas this room's scene before anything connects:
-   * unsaved work is resolved through the editor's prompt, then the scene
-   * session and the canvas are cleared. See `useCanvasHandoff`, which owns the
+   * unsaved work is resolved through the editor's prompt, then the personal
+   * draft is preserved and the room claims an isolated canvas. See `useCanvasHandoff`, which owns the
    * whole sequence — this hook only consumes the outcome.
    */
   prepareCanvasForRoom: (params: {
     isCancelled: () => boolean;
+    keepCanvas?: boolean;
+    skipPrompt?: boolean;
     onDecisionPrompt: () => void;
   }) => Promise<CanvasHandoffOutcome>;
   /**
@@ -160,19 +162,11 @@ export function useCollaborationRoom(options: {
    */
   cancelPendingCanvasDecision: () => void;
 }): UseCollaborationRoomResult {
-  const {
-    excalidrawAPI,
-    roomId,
-    roomKey,
-    username,
-    isAuthenticated,
-    // Used only to decide whether the local canvas cache is still meaningful;
-    // the join effect deliberately reads this through `canvasRef` instead.
-    currentSceneId,
-  } = options;
+  const { excalidrawAPI, roomId, roomKey, username, isAuthenticated } = options;
   const { t } = useAppI18n();
   const tRef = useRef(t);
-  const { suppressDirtyTracking, resumeDirtyTracking } = useSceneSession();
+  const { suppressDirtyTracking, resumeDirtyTracking, reloadSceneSession } =
+    useSceneSession();
   const utils = api.useUtils();
 
   const handleRef = useRef<CollaborationRoomHandle | null>(null);
@@ -181,6 +175,12 @@ export function useCollaborationRoom(options: {
    * an effect, so the retry bumps a counter the effect depends on, which tears
    * the failed attempt down through the normal cleanup and starts over.
    */
+  const [saveState, setSaveState] = useState<RoomSaveState>({
+    status: "pending",
+    revision: null,
+    checksum: null,
+  });
+  const [sourceSceneId, setSourceSceneId] = useState<string | null>(null);
   const [joinAttempt, setJoinAttempt] = useState(0);
   const [state, dispatch] = useReducer(roomStateReducer, initialRoomState);
   const { status, syncBlock, assetsUnreadable, ownsCanvas } = state;
@@ -190,12 +190,8 @@ export function useCollaborationRoom(options: {
    * that arrives with the auth session, a new tRPC utils identity, or a
    * re-created editor callback must not tear down and rejoin a live room.
    *
-   * `currentSceneId` is in here for a sharper reason. Preparing the canvas
-   * *clears* the scene session, so treating it as a dependency would make the
-   * join re-trigger itself: connect, clear, re-render, tear down, connect again.
-   * The session's ongoing "is this still my canvas?" question is answered by the
-   * canvas claim (`canvasBelongsToRoom`), not by this id — the id only decides,
-   * once, whether the canvas has to be replaced at all.
+   * `currentSceneId` selects the source once at entry. Later personal uploads or
+   * metadata updates must not restart a live room; ownership is the tab claim.
    */
   const usernameRef = useRef(username);
   const utilsRef = useRef(utils);
@@ -204,7 +200,7 @@ export function useCollaborationRoom(options: {
   // concurrent render that is thrown away must not leave its uncommitted
   // values behind in the refs. Declared before the join effect so the refs are
   // current by the time it runs.
-  useEffect(() => {
+  useLayoutEffect(() => {
     tRef.current = t;
     usernameRef.current = username;
     utilsRef.current = utils;
@@ -243,30 +239,6 @@ export function useCollaborationRoom(options: {
     },
     [suppressDirtyTracking, resumeDirtyTracking],
   );
-
-  /**
-   * Stops caching the canvas locally while a room owns it and no owned scene
-   * backs it.
-   *
-   * Upstream pauses its local persistence for the whole collaboration session
-   * (`LocalData.pauseSave("collaboration")`). Drawstuff cannot copy that
-   * unconditionally: our browser storage is a cache of an owned cloud scene, so
-   * pausing it for the room *owner* would leave a stale cache that a reload
-   * restores and the next save uploads over their newer cloud scene. For a guest
-   * there is no such scene, so the cache has nothing to be a cache of — and
-   * leaving it on would write another user's room content to this machine and
-   * let a collaborating tab overwrite an unrelated tab's cached canvas.
-   *
-   * Re-evaluated when the guest saves a copy: from that point there *is* an owned
-   * scene, the room's content is legitimately its content, and caching resumes.
-   */
-  useEffect(() => {
-    if (!ownsCanvas || currentSceneId) return;
-    pauseLocalScenePersistence("collaboration-guest-canvas");
-    return () => {
-      resumeLocalScenePersistence("collaboration-guest-canvas");
-    };
-  }, [ownsCanvas, currentSceneId]);
 
   useEffect(() => {
     if (!excalidrawAPI || !roomId || !isAuthenticated) return;
@@ -307,10 +279,14 @@ export function useCollaborationRoom(options: {
         // Adapted rather than passed through: the store's contract is two
         // plain async functions, which keeps it testable without tRPC.
         snapshotApi: {
-          get: (input) =>
-            utilsRef.current.client.collaborationSnapshot.get.query(input),
-          put: (input) =>
-            utilsRef.current.client.collaborationSnapshot.put.mutate(input),
+          get: (input, signal) =>
+            utilsRef.current.client.collaborationSnapshot.get.query(input, {
+              signal,
+            }),
+          put: (input, signal) =>
+            utilsRef.current.client.collaborationSnapshot.put.mutate(input, {
+              signal,
+            }),
         },
         // Same shape, and for the same reason: the store needs two plain async
         // functions, one to find out where a room's ciphertext lives and one to
@@ -324,6 +300,8 @@ export function useCollaborationRoom(options: {
         },
       },
       dispatch,
+      onSaveStateChange: setSaveState,
+      onSourceScene: setSourceSceneId,
       getTranslate: () => tRef.current,
       getUsername: () => usernameRef.current,
       getCurrentSceneId: () => canvasRef.current.currentSceneId,
@@ -331,10 +309,26 @@ export function useCollaborationRoom(options: {
         canvasRef.current.prepareCanvasForRoom(params),
       cancelPendingCanvasDecision: () =>
         canvasRef.current.cancelPendingCanvasDecision(),
+      restorePersonalCanvas: () => {
+        wrapRemoteApply(() => {
+          if (!canvasRef.current.isAuthenticated) {
+            clearPersonalDraft();
+            excalidrawAPI.resetScene();
+            resumeLocalScenePersistence("collaboration-canvas");
+            reloadSceneSession();
+            return;
+          }
+          if (restorePersonalDraft(excalidrawAPI)) reloadSceneSession();
+        });
+      },
       wrapRemoteApply,
       wrapPresenceApply,
       onHandleChange: (handle) => {
         handleRef.current = handle;
+        if (!handle) {
+          setSourceSceneId(null);
+          setSaveState({ status: "pending", revision: null, checksum: null });
+        }
       },
     });
     void controller.start();
@@ -345,11 +339,19 @@ export function useCollaborationRoom(options: {
     roomKey,
     isAuthenticated,
     joinAttempt,
+    reloadSceneSession,
     wrapRemoteApply,
     wrapPresenceApply,
     suppressDirtyTracking,
     resumeDirtyTracking,
   ]);
+
+  useEffect(() => {
+    if (roomId || !excalidrawAPI) return;
+    wrapRemoteApply(() => {
+      if (restorePersonalDraft(excalidrawAPI)) reloadSceneSession();
+    });
+  }, [roomId, excalidrawAPI, reloadSceneSession, wrapRemoteApply]);
 
   const retryJoin = useCallback(() => {
     setJoinAttempt((attempt) => attempt + 1);
@@ -368,6 +370,30 @@ export function useCollaborationRoom(options: {
     },
     [],
   );
+
+  const requestSave = useCallback(() => handleRef.current?.requestSave(), []);
+  const confirmExit = useCallback(
+    () =>
+      !handleRef.current ||
+      handleRef.current.getSaveState().status === "saved" ||
+      window.confirm(tRef.current("storage.leaveRisk")),
+    [],
+  );
+  // Consult the live session for a change in the same tick as beforeunload.
+  useEffect(() => {
+    if (!roomId) return;
+    const guard = (event: BeforeUnloadEvent) => {
+      if (
+        !handleRef.current ||
+        handleRef.current.getSaveState().status === "saved"
+      )
+        return;
+      event.preventDefault();
+      Reflect.set(event, "returnValue", "");
+    };
+    window.addEventListener("beforeunload", guard);
+    return () => window.removeEventListener("beforeunload", guard);
+  }, [roomId]);
 
   const onScrollChange = useCallback(() => {
     handleRef.current?.handleScrollChange();
@@ -398,6 +424,10 @@ export function useCollaborationRoom(options: {
     : null;
 
   return {
+    saveState,
+    sourceSceneId,
+    requestSave,
+    confirmExit,
     status: visibleStatus,
     // Reported only while the status actually is a failure: the reason is a
     // property of the failed state, not a sticky flag, and a stale one would
@@ -414,9 +444,11 @@ export function useCollaborationRoom(options: {
     // authorization the app has withdrawn is read-only whatever role this hook
     // still holds — see `roleWithdrawn`.
     isReadOnly:
-      ownsCanvas &&
-      (state.roleWithdrawn ||
-        (state.role !== null && !roomRoleCanEditScene(state.role))),
+      (!!roomId &&
+        (!ownsCanvas || status === "joining" || status === "failed")) ||
+      (ownsCanvas &&
+        (state.roleWithdrawn ||
+          (state.role !== null && !roomRoleCanEditScene(state.role)))),
     errorMessage: state.errorMessage ?? sizeWarning ?? assetWarning,
     ownsCanvas,
     retryJoin,

@@ -1,5 +1,6 @@
 "use client";
 
+import { getEditorStorageMode } from "@/lib/editor-storage-mode";
 import { useCallback, useRef } from "react";
 import { toast } from "sonner";
 import { loadCurrentSceneIdFromStorage } from "@/data/local-storage";
@@ -20,6 +21,7 @@ export function useSceneRename(currentSceneId: string | null | undefined) {
 
   const renameScene = useCallback(
     (nextName: string) => {
+      if (getEditorStorageMode() === "room") return;
       const effectiveId = loadCurrentSceneIdFromStorage();
       if (!effectiveId) {
         pendingRenameRef.current = nextName;
@@ -44,7 +46,7 @@ export function useSceneRename(currentSceneId: string | null | undefined) {
               void utils.scene.getUserScenesInfinite.invalidate();
               window.setTimeout(() => {
                 const retryId = loadCurrentSceneIdFromStorage();
-                if (!retryId) return;
+                if (!retryId || getEditorStorageMode() === "room") return;
                 renameSceneMutation.mutate(
                   { id: retryId, name: nextName },
                   {

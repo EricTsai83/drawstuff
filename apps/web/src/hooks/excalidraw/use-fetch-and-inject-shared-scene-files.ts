@@ -4,6 +4,7 @@
 // 3) 以可中止的並行請求下載、解密檔案
 // 4) 注入到 Excalidraw（避免重複注入）
 // 5) 對失敗的檔案採用有上限的指數退避重試，並以場景為命名空間記錄狀態
+import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { api } from "@/trpc/react";
@@ -193,7 +194,7 @@ export function useFetchAndInjectSharedSceneFiles(
         ),
       );
 
-      if (controller.signal.aborted) {
+      if (controller.signal.aborted || isLocalScenePersistencePaused()) {
         isRunning = false;
         return;
       }

@@ -56,7 +56,9 @@ vi.mock("@/trpc/react", () => ({
           join: { mutate: joinMutate },
         },
         collaborationSnapshot: {
-          get: { query: vi.fn() },
+          get: {
+            query: vi.fn(async () => ({ snapshot: null, authGeneration: 1 })),
+          },
           put: { mutate: vi.fn() },
         },
         collaborationAsset: { resolve: { query: vi.fn() } },

@@ -59,7 +59,7 @@ let root: ReturnType<typeof createRoot> | undefined;
 beforeEach(() => {
   vi.useFakeTimers();
   saveDataMock.mockClear();
-  resumeLocalScenePersistence("collaboration-guest-canvas");
+  resumeLocalScenePersistence("collaboration-canvas");
   container = document.createElement("div");
   document.body.appendChild(container);
   root = createRoot(container);
@@ -95,7 +95,7 @@ describe("local scene persistence under the collaboration lock", () => {
   });
 
   it("does not cache the canvas while the lock is held", () => {
-    pauseLocalScenePersistence("collaboration-guest-canvas");
+    pauseLocalScenePersistence("collaboration-canvas");
     act(() => {
       sceneChange();
       vi.advanceTimersByTime(400);
@@ -109,7 +109,7 @@ describe("local scene persistence under the collaboration lock", () => {
     act(() => {
       sceneChange(); // queues a debounced save
     });
-    pauseLocalScenePersistence("collaboration-guest-canvas");
+    pauseLocalScenePersistence("collaboration-canvas");
     act(() => {
       sceneChange(); // the pause is observed here and cancels the queued save
       vi.advanceTimersByTime(400);
@@ -118,14 +118,14 @@ describe("local scene persistence under the collaboration lock", () => {
   });
 
   it("resumes caching once the lock is released", () => {
-    pauseLocalScenePersistence("collaboration-guest-canvas");
+    pauseLocalScenePersistence("collaboration-canvas");
     act(() => {
       sceneChange();
       vi.advanceTimersByTime(400);
     });
     expect(saveDataMock).not.toHaveBeenCalled();
 
-    resumeLocalScenePersistence("collaboration-guest-canvas");
+    resumeLocalScenePersistence("collaboration-canvas");
     act(() => {
       sceneChange();
       vi.advanceTimersByTime(400);

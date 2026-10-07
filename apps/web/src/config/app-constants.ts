@@ -20,6 +20,7 @@ export const STORAGE_KEYS = {
   CURRENT_SCENE_IS_DIRTY: "excalidraw-current-scene-is-dirty",
   CURRENT_SCENE_WORKSPACE_ID: "excalidraw-current-scene-workspace-id",
   /** Room whose scene the on-screen canvas currently is; see canvas-room-marker. */
+  PERSONAL_DRAFT_BEFORE_ROOM: "drawstuff-personal-draft-before-room",
   COLLAB_CANVAS_ROOM_ID: "excalidraw-collab-canvas-room-id",
 } as const;
 

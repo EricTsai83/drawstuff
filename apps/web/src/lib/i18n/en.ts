@@ -1,6 +1,30 @@
 // 應用層英文字典：所有 app 翻譯 key 的唯一來源，AppTranslationKey 由此推導。
 // 僅由 loadAppDictionary() 以 dynamic import 載入，避免兩種語言同時進共用 client chunk。
 export const en = {
+  "storage.personal": "My scenes",
+  "storage.savePersonal": "Save to my scenes",
+  "storage.room": "Encrypted room · {roomId}",
+  "storage.room.pending": "Room changes awaiting save",
+  "storage.room.saving": "Saving room automatically…",
+  "storage.room.saved": "Room saved",
+  "storage.room.failed": "Room save failed · retry",
+  "storage.saveRoom": "Save room / retry",
+  "storage.copy": "Save a copy to my scenes…",
+  "storage.updateSource": "Update my original scene “{name}”",
+  "storage.download": "Download a local copy…",
+  "storage.copyNotice":
+    "The room remains encrypted. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
+  "storage.downloadNotice": "The downloaded file is not encrypted.",
+  "storage.personalCopySaved":
+    "Saved to my scenes. The room save status is unchanged.",
+  "storage.keepRoom": "Keep editing this room",
+  "storage.keepRoomNotice":
+    "Keep the room intact and resolve the original scene later.",
+  "storage.originalSaved": "Original scene updated.",
+  "storage.sourceConflict":
+    "The original scene changed elsewhere. Save a personal copy, or leave the room and reload the original before updating it.",
+  "storage.leaveRisk": "Unconfirmed room changes may be lost. Leave this room?",
+
   "app.export.cloud.title": "Cloud Upload",
   "app.export.cloud.subtitle": "Save the scene to cloud storage.",
   "app.export.cloud.loading": "Uploading...",

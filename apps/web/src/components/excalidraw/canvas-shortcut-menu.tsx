@@ -98,7 +98,8 @@ export function CanvasShortcutMenu({
             exit={{ opacity: 0, scale: 0.96, x: 4 }}
             data-testid="cloud-save-status"
           >
-            {t(`canvas.saveStatus.${actions.cloudSave.status}`)}
+            {actions.cloudSave.statusLabel ??
+              t(`canvas.saveStatus.${actions.cloudSave.status}`)}
           </StatusBadge>
         ) : null}
       </AnimatePresence>
@@ -158,7 +159,7 @@ export function CanvasShortcutMenu({
                 <save.icon aria-hidden="true" />
               )
             }
-            label={t("canvas.actions.save")}
+            label={actions.cloudSave.label ?? t("storage.savePersonal")}
             title={`${save.tooltip} · ${t("canvas.actions.saveShortcut")}`}
             onClick={actions.cloudSave.onActivate}
           />

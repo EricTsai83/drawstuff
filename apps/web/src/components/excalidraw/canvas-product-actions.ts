@@ -9,6 +9,8 @@ export type CanvasProductActions = {
     onActivate: () => void;
   };
   cloudSave: {
+    label?: string;
+    statusLabel?: string;
     status: UploadStatus;
     onActivate: () => void;
   } | null;

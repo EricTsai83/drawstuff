@@ -31,7 +31,6 @@ export function useEditorCollaboration(options: {
   /** 畫布是否還有內容：加入共編前要用同一個判斷去問「未存內容要不要先存」。 */
   hasCurrentCanvasContent: () => boolean;
   uploadSceneToCloud: CloudUpload["uploadSceneToCloud"];
-  clearCurrentScene: CloudUpload["clearCurrentScene"];
   sceneChangeConfirm: Pick<
     UseSceneChangeConfirm,
     | "requestSceneChangeDecision"
@@ -47,7 +46,6 @@ export function useEditorCollaboration(options: {
     currentSceneId,
     hasCurrentCanvasContent,
     uploadSceneToCloud,
-    clearCurrentScene,
     sceneChangeConfirm,
     handleSceneChange,
     cancelPendingSceneSave,
@@ -78,10 +76,14 @@ export function useEditorCollaboration(options: {
       resolveSceneChangeDecision: sceneChangeConfirm.resolveSceneChangeDecision,
       closeSceneChangeConfirm: sceneChangeConfirm.closeSceneChangeDialog,
       uploadSceneToCloud,
-      clearCurrentScene,
+      cancelPendingSceneSave,
     });
 
   const {
+    saveState: roomSaveState,
+    sourceSceneId,
+    requestSave: requestRoomSave,
+    confirmExit: confirmRoomExit,
     status: collaborationStatus,
     failureReason: collaborationFailureReason,
     role: collaborationRole,
@@ -136,6 +138,10 @@ export function useEditorCollaboration(options: {
   );
 
   return {
+    roomSaveState,
+    sourceSceneId,
+    requestRoomSave,
+    confirmRoomExit,
     collaborationRoomId,
     setCollaborationRoomId,
     collaborationRoomKey,

@@ -20,6 +20,7 @@ import {
   canvasBelongsToRoom,
   claimCanvasForRoom,
   releaseCanvasRoom,
+  readCanvasRoomId,
 } from "@/lib/collab/canvas-room-marker";
 import {
   FAILURE_MESSAGE_KEY,
@@ -81,10 +82,15 @@ export type CollaborationRoomControllerDeps = {
   /** See `useCanvasHandoff`; the controller only maps its outcome to status. */
   prepareCanvasForRoom: (params: {
     isCancelled: () => boolean;
+    keepCanvas?: boolean;
+    skipPrompt?: boolean;
     onDecisionPrompt: () => void;
   }) => Promise<CanvasHandoffOutcome>;
   /** Settles a still-open canvas prompt as "cancel" during teardown. */
   cancelPendingCanvasDecision: () => void;
+  onSaveStateChange?: RoomSessionOptions["onSaveStateChange"];
+  onSourceScene?: (sceneId: string | null) => void;
+  restorePersonalCanvas?: () => void;
   wrapRemoteApply: (apply: () => void) => void;
   wrapPresenceApply: (apply: () => void) => void;
   /**
@@ -156,17 +162,25 @@ export function createCollaborationRoomController(
 
   /**
    * Makes the on-screen canvas this room's scene before anything connects.
-   * Returns false when the user declined, which is the only way to keep their
-   * work: once the canvas is claimed the room's baseline replaces it. The
+   * Returns false when the user declined. The personal draft is preserved
+   * before the room baseline replaces the canvas. The
    * canvas sequence itself lives in `useCanvasHandoff`; this maps its outcome
    * onto the room status.
    */
-  const prepareCanvas = async (): Promise<boolean> => {
+  const prepareCanvas = async (
+    keepCanvas = false,
+    skipPrompt = false,
+  ): Promise<boolean> => {
     const outcome = await deps.prepareCanvasForRoom({
       isCancelled: () => cancelled,
+      keepCanvas,
+      skipPrompt,
       onDecisionPrompt: () => dispatch({ type: "preparing-canvas" }),
     });
-    if (cancelled || outcome === "torn-down") return false;
+    if (cancelled || outcome === "torn-down") {
+      if (outcome === "prepared") deps.restorePersonalCanvas?.();
+      return false;
+    }
     if (outcome === "declined") {
       dispatch({
         type: "join-blocked",
@@ -217,9 +231,8 @@ export function createCollaborationRoomController(
    * The token is fetched imperatively so it is minted immediately before
    * the socket opens: join tokens are short-lived by design.
    *
-   * Only this call is retried, never the bootstrap around it: the canvas
-   * has already been prepared and claimed by the time it runs, and re-running
-   * that would re-prompt the user for work they already gave up.
+   * Only this call is retried, never the surrounding bootstrap. Authorization
+   * succeeds before canvas preparation or ownership can change.
    */
   const joinRoom = async (room: RoomLookup): Promise<RoomJoin | null> => {
     const joinOutcome = await joinWithRateLimitRetry({
@@ -301,6 +314,9 @@ export function createCollaborationRoomController(
       username: toCollaborationUsername(deps.getUsername()),
       snapshotApi: backend.snapshotApi,
       assetApi: backend.assetApi,
+      onSaveStateChange: (state) => {
+        if (!cancelled) deps.onSaveStateChange?.(state);
+      },
       wrapRemoteApply: deps.wrapRemoteApply,
       wrapPresenceApply: deps.wrapPresenceApply,
       canSyncScene: () => canvasBelongsToRoom(joined.roomId),
@@ -392,6 +408,7 @@ export function createCollaborationRoomController(
     if (cancelled) return;
     if (claimedDuringStart) {
       releaseCanvasRoom();
+      deps.restorePersonalCanvas?.();
       claimedDuringStart = false;
       dispatch({ type: "canvas-released" });
     }
@@ -430,16 +447,24 @@ export function createCollaborationRoomController(
     try {
       const room = await lookUpRoom();
       if (!room) return;
-      const isOpenScene = room.sceneId === deps.getCurrentSceneId();
-      // The claim is deliberately *not* used to skip this. It is per tab, but
-      // the restored canvas in localStorage is not: another tab that loaded an
-      // unrelated scene leaves this tab's claim intact while replacing the
-      // canvas it points at, so a reload would hand that unrelated scene to the
-      // room. Asking again is the only answer that cannot be wrong.
-      if (!isOpenScene && !(await prepareCanvas())) return;
-      if (cancelled) return;
       const joined = await joinRoom(room);
-      if (!joined) return;
+      if (!joined || cancelled) return;
+      const reloading = readCanvasRoomId() === roomId;
+      const isOpenScene = room.sceneId === deps.getCurrentSceneId();
+      deps.onSourceScene?.(
+        isOpenScene && joined.role === "owner" ? room.sceneId : null,
+      );
+      const stored = await backend.snapshotApi.get({ roomId });
+      if (cancelled) return;
+      // Only an empty fresh room may be seeded from its owner's source canvas.
+      if (
+        !(await prepareCanvas(
+          isOpenScene && !reloading && !stored.snapshot,
+          reloading || isOpenScene,
+        ))
+      )
+        return;
+      if (cancelled) return;
       // Commit the canvas claim only after join and generation validation
       // succeed. No socket exists yet, so this is still before the first
       // inbound frame; a refused/exhausted join no longer leaves a tab in
@@ -477,7 +502,10 @@ export function createCollaborationRoomController(
     void handle?.destroy();
     // The canvas is no longer a room's scene: dropping the claim stops any
     // late callback from writing room state onto it.
-    releaseCanvasRoom();
+    if (claimedDuringStart && canvasBelongsToRoom(roomId)) {
+      releaseCanvasRoom();
+      deps.restorePersonalCanvas?.();
+    }
     dispatch({ type: "torn-down" });
   };
 

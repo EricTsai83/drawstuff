@@ -24,6 +24,12 @@ import { useSceneSession } from "@/hooks/scene-session-context";
 import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { APP_ERROR } from "@/lib/errors";
+import { getEditorStorageMode } from "@/lib/editor-storage-mode";
+import {
+  updatePreservedPersonalDraft,
+  preservedSourceScene,
+} from "@/lib/collab/personal-draft";
+import { collectReferencedFileIds } from "@drawstuff/excalidraw-adapter/codec";
 import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
 
 function formatMegabytes(bytes: number): string {
@@ -31,6 +37,7 @@ function formatMegabytes(bytes: number): string {
 }
 
 export type SceneConflictInfo = {
+  roomSource?: boolean;
   sceneId: string;
   remoteRevision?: number;
 };
@@ -126,10 +133,27 @@ export function useCloudUpload(
     // - "update": 更新既有場景（若未提供 existingSceneId，會回退到目前 context 的 sceneId）
     // 若未指定，將自動依據 existingSceneId 或目前 context 決定行為（向下相容）
     mode?: "create" | "update";
+    roomAction?: "copy" | "source";
   };
 
+  const uploadInFlightRef = useRef(false);
   const uploadSceneToCloud = useCallback(
     async (options?: UploadOptions): Promise<boolean> => {
+      if (uploadInFlightRef.current) return false;
+      const detached = getEditorStorageMode() === "room";
+      // Require an explicit room destination. No legacy automatic update path
+      // may attach room edits to the source scene or a just-created copy.
+      if (detached && !options?.roomAction) {
+        onSceneNotFoundError();
+        return false;
+      }
+      const capturedSceneId = currentSceneIdRef.current;
+      const capturedWorkspaceId = currentWorkspaceIdRef.current;
+      let capturedRevision =
+        detached && options?.roomAction === "source"
+          ? preservedSourceScene()?.revision
+          : lastSyncedRevisionRef.current;
+      uploadInFlightRef.current = true;
       setStatus("uploading");
       setLastConflict(null);
 
@@ -141,9 +165,20 @@ export function useCloudUpload(
           return false;
         }
 
-        const elements = scene.elements;
-        const appState = scene.appState;
-        const files = scene.files;
+        const captured = structuredClone(scene);
+        const elements = captured.elements;
+        const appState = captured.appState;
+        const referencedIds = collectReferencedFileIds(elements);
+        const files = Object.fromEntries(
+          referencedIds.flatMap((id) =>
+            captured.files[id] ? [[id, captured.files[id]]] : [],
+          ),
+        );
+        if (collectReferencedFileIds(elements).some((id) => !files[id])) {
+          setStatus("error");
+          toast.error(t("app.cloudUpload.toast.error.sceneData"));
+          return false;
+        }
 
         // 準備資料（場景 JSON 與檔案皆壓縮；不加密）並存 DB
         try {
@@ -163,15 +198,18 @@ export function useCloudUpload(
             t("labels.untitled");
 
           // 依據 mode 推導有效的 sceneId 與行為
-          const mode = options?.mode;
+          const mode = detached
+            ? options?.roomAction === "source"
+              ? "update"
+              : "create"
+            : options?.mode;
           let effectiveSceneId: string | undefined;
           if (mode === "create") {
             // 明確要求建立，不帶 id
             effectiveSceneId = undefined;
           } else if (mode === "update") {
             // 明確要求更新，若未提供則回退到 context 的 sceneId
-            effectiveSceneId =
-              options?.existingSceneId ?? currentSceneIdRef.current;
+            effectiveSceneId = options?.existingSceneId ?? capturedSceneId;
             if (!effectiveSceneId) {
               setStatus("error");
               toast.error(t("app.cloudUpload.toast.error.noSceneToUpdate"));
@@ -179,8 +217,7 @@ export function useCloudUpload(
             }
           } else {
             // 未指定 mode：向下相容，依 existingSceneId 或 context 判斷
-            effectiveSceneId =
-              options?.existingSceneId ?? currentSceneIdRef.current;
+            effectiveSceneId = options?.existingSceneId ?? capturedSceneId;
           }
 
           // Auto-recover missing revision: fetch from remote before saving.
@@ -190,18 +227,27 @@ export function useCloudUpload(
           // The server-side optimistic lock is the real safety net — if another
           // client updated in between, the server rejects with SCENE_CONFLICT.
           if (
+            detached &&
+            options?.roomAction === "source" &&
+            capturedRevision === undefined
+          ) {
+            setStatus("error");
+            toast.error(t("toast.scene.versionCheckFailed"));
+            return false;
+          }
+          if (
             effectiveSceneId !== undefined &&
-            lastSyncedRevisionRef.current === undefined
+            capturedRevision === undefined
           ) {
             try {
               const remoteMeta = await getSceneMetaBySceneId(effectiveSceneId);
               if (remoteMeta?.revision !== undefined) {
-                lastSyncedRevisionRef.current = remoteMeta.revision;
+                capturedRevision = remoteMeta.revision;
               }
             } catch {
               // ignore fetch errors — will proceed without revision
             }
-            if (lastSyncedRevisionRef.current === undefined) {
+            if (capturedRevision === undefined) {
               setStatus("error");
               toast.error(t("toast.scene.versionCheckFailed"));
               return false;
@@ -211,7 +257,7 @@ export function useCloudUpload(
           // 優先使用呼叫端顯式傳入的 workspaceId（例如首次上傳 Dialog），
           // 其次使用 session 記錄的場景所屬 workspaceId
           const effectiveWorkspaceId =
-            options?.workspaceId ?? currentWorkspaceIdRef.current;
+            options?.workspaceId ?? capturedWorkspaceId;
           if (!effectiveWorkspaceId) {
             setStatus("error");
             toast.error(t("toast.workspace.required"));
@@ -237,7 +283,7 @@ export function useCloudUpload(
           const sceneDescription = options?.description ?? "";
           const createdNewScene = effectiveSceneId === undefined;
           let targetSceneId = effectiveSceneId;
-          let expectedRevision = lastSyncedRevisionRef.current;
+          let expectedRevision = capturedRevision;
 
           if (!targetSceneId) {
             const draftResult = await createSceneDraftAction({
@@ -362,7 +408,7 @@ export function useCloudUpload(
             ({ excalidrawFileId }) => !existingFileIds.has(excalidrawFileId),
           );
           if (!(await uploadAssetFiles(filesMissingOnScene))) {
-            markCurrentSceneDirty();
+            if (!detached) markCurrentSceneDirty();
             await cleanupUploadedAssetKeys(uploadedAssetKeys);
             await rollbackCreatedDraft();
             setStatus("error");
@@ -402,19 +448,19 @@ export function useCloudUpload(
               }
             }
           } catch (saveErr) {
-            markCurrentSceneDirty();
+            if (!detached) markCurrentSceneDirty();
             await cleanupUploadedAssetKeys(uploadedAssetKeys);
             await rollbackCreatedDraft();
             throw saveErr;
           }
 
           if (!result.ok) {
-            markCurrentSceneDirty();
+            if (!detached) markCurrentSceneDirty();
             await cleanupUploadedAssetKeys(uploadedAssetKeys);
             await rollbackCreatedDraft();
 
             if (result.error === APP_ERROR.SCENE_NOT_FOUND) {
-              if (!createdNewScene) {
+              if (!createdNewScene && !detached) {
                 clearCurrentScene();
                 onSceneNotFoundError();
               }
@@ -424,6 +470,7 @@ export function useCloudUpload(
             if (result.error === APP_ERROR.SCENE_CONFLICT) {
               setStatus("idle");
               setLastConflict({
+                ...(detached ? { roomSource: true } : {}),
                 sceneId: result.data?.id ?? sceneIdForCommit,
                 remoteRevision: result.data?.revision,
               });
@@ -512,16 +559,39 @@ export function useCloudUpload(
 
           await Promise.all([uploadThumbnail(), uploadPublishedRender()]);
 
-          syncCurrentScene({
-            id: String(id),
-            revision,
-            workspaceId: effectiveWorkspaceId,
-          });
+          if (detached || getEditorStorageMode() === "room") {
+            if (!detached || options?.roomAction === "source") {
+              updatePreservedPersonalDraft(
+                String(id),
+                revision,
+                {
+                  elements: [...elements],
+                  appState: { ...appState, name: sceneName },
+                  files,
+                },
+                detached ? String(id) : capturedSceneId,
+              );
+            }
+          } else if (currentSceneIdRef.current === capturedSceneId) {
+            syncCurrentScene({
+              id: String(id),
+              revision,
+              workspaceId: effectiveWorkspaceId,
+            });
+          }
           setStatus("success");
 
           // 可選地顯示成功 toast（由呼叫端統一顯示避免重複）
           if (!options?.suppressSuccessToast) {
-            toast.success(t("app.cloudUpload.toast.success"));
+            toast.success(
+              t(
+                detached
+                  ? options?.roomAction === "source"
+                    ? "storage.originalSaved"
+                    : "storage.personalCopySaved"
+                  : "app.cloudUpload.toast.success",
+              ),
+            );
           }
 
           // 完成雲端上傳後，讓清單失效以取得最新資料；
@@ -541,6 +611,8 @@ export function useCloudUpload(
         setStatus("error");
         toast.error(t("app.cloudUpload.toast.error.unknown"));
         return false;
+      } finally {
+        uploadInFlightRef.current = false;
       }
     },
     [

@@ -1,5 +1,6 @@
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import { pauseLocalScenePersistence } from "@/data/local-scene-persistence";
+import { clearPersonalDraft } from "@/lib/collab/personal-draft";
 import { clearLocalSceneStorage } from "@/data/local-storage";
 
 type ClearCanvasForSignOutOptions = {
@@ -33,6 +34,7 @@ export function clearCanvasForSignOut({
   } finally {
     // Storage cleanup is the privacy boundary and must run even if the canvas
     // engine fails while resetting its in-memory state.
+    clearPersonalDraft();
     clearLocalSceneStorage();
   }
 }

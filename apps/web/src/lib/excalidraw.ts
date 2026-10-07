@@ -34,9 +34,25 @@ import { createLocalExportDocument } from "@drawstuff/excalidraw-adapter/codec";
 import { getBaseUrl } from "@/lib/base-url";
 import { dispatchLocalSceneSaved } from "@/lib/events";
 
+import {
+  isLocalScenePersistencePaused,
+  pauseLocalScenePersistence,
+} from "@/data/local-scene-persistence";
+import { preserveCachedPersonalDraft } from "@/lib/collab/personal-draft";
+import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
+
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
   try {
+    // A room link always reloads from an authorized encrypted baseline. The
+    // personal cache remains untouched, including when the key is missing.
+    if (
+      new URL(window.location.href).searchParams.has(COLLABORATION_ROOM_PARAM)
+    ) {
+      preserveCachedPersonalDraft();
+      pauseLocalScenePersistence("collaboration-canvas");
+      return { elements: [], files: {}, appState: { viewModeEnabled: true } };
+    }
     const localDataState = importFromLocalStorage();
 
     // 先檢查 URL hash 是否包含外部場景連結
@@ -71,6 +87,7 @@ export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataS
           localDataState,
         );
 
+        if (isLocalScenePersistencePaused()) return null;
         // 清除加密資訊，避免資訊殘留在 URL 上
         window.history.replaceState({}, document.title, window.location.origin);
 
@@ -115,6 +132,8 @@ async function restoreInitialDataFromLocal(
 
   try {
     const restored = await loadScene(undefined, undefined, localDataState);
+    if (isLocalScenePersistencePaused())
+      return { elements: [], files: {}, appState: { viewModeEnabled: true } };
     const appState = ensureInitialAppState(restored.appState ?? {});
     return {
       elements: restored.elements ?? [],
@@ -144,6 +163,7 @@ async function loadInitialRemoteScene(): Promise<ExcalidrawInitialDataState | nu
       await import("@/lib/import-data-from-db");
     const imported = await importSceneDataBySceneId(sceneId);
     const files = await importSceneFilesBySceneId(sceneId);
+    if (isLocalScenePersistencePaused()) return null;
     const appState = ensureInitialAppState(imported.appState ?? {});
     const elements = imported.elements;
 
@@ -197,6 +217,7 @@ export function saveData(data: {
   appState: AppState;
   files: BinaryFiles;
 }) {
+  if (isLocalScenePersistencePaused()) return;
   const timestamp = Date.now();
 
   try {
@@ -284,6 +305,7 @@ export function saveToLocalStorage(
   appState: Partial<AppState>,
   files: BinaryFiles,
 ) {
+  if (isLocalScenePersistencePaused()) return;
   try {
     localStorage.setItem(
       STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
@@ -323,6 +345,8 @@ export function saveSceneJsonToDisk(
   files: BinaryFiles,
   fileName?: string,
 ): void {
+  if (!hasCompleteSceneFileHydration(elements, files))
+    throw new Error("Scene images are not available yet");
   const sceneData = createLocalExportDocument({
     elements,
     appState,

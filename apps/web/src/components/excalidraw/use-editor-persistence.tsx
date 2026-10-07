@@ -23,7 +23,9 @@ import { useConfirmBeforeUnload } from "@/hooks/use-confirm-before-unload";
 import { useSceneExport } from "@/hooks/use-scene-export";
 import { useEditorStatusToasts } from "@/hooks/excalidraw/use-editor-status-toasts";
 import { useExportHandlers } from "@/hooks/excalidraw/use-export-handlers";
-import { useSaveShortcut } from "@/hooks/excalidraw/use-save-shortcut";
+import { readCanvasRoomId } from "@/lib/collab/canvas-room-marker";
+import { preservedSourceScene } from "@/lib/collab/personal-draft";
+import { getEditorStorageMode } from "@/lib/editor-storage-mode";
 import { useScenePersistence } from "@/hooks/excalidraw/use-scene-persistence";
 import { closeExcalidrawDialog } from "@/lib/excalidraw";
 import type { AuthSessionData } from "@/lib/types";
@@ -115,7 +117,7 @@ export function useEditorPersistence(options: {
         handleSaveToDisk,
         // 第一次需開 dialog 命名與標籤，之後直接儲存
         handleCloudUpload: (_els, _state, _files) => {
-          if (!currentSceneId) {
+          if (getEditorStorageMode() === "room" || !currentSceneId) {
             setIsCloudUploadDialogOpen(true);
             return;
           }
@@ -127,6 +129,7 @@ export function useEditorPersistence(options: {
       return (
         <ExportSceneActions
           session={session}
+          isRoom={getEditorStorageMode() === "room"}
           elements={elements}
           appState={appState}
           files={files}
@@ -150,7 +153,7 @@ export function useEditorPersistence(options: {
 
   const handleCloudUpload = useCallback(async (): Promise<void> => {
     // 若尚未儲存過，先開啟命名/標籤/描述 Dialog
-    if (!currentSceneId) {
+    if (getEditorStorageMode() === "room" || !currentSceneId) {
       openCloudUploadDialog();
       return;
     }
@@ -170,14 +173,15 @@ export function useEditorPersistence(options: {
       workspaceId?: string;
     }) => {
       // 先把名稱寫回 Excalidraw appState（透過既有 helper）
-      handleSetSceneName(input.name);
-      void uploadSceneToCloud(input);
+      const isRoom = getEditorStorageMode() === "room";
+      if (!isRoom) handleSetSceneName(input.name);
+      void uploadSceneToCloud({
+        ...input,
+        ...(isRoom ? ({ mode: "create", roomAction: "copy" } as const) : {}),
+      });
     },
     [handleSetSceneName, uploadSceneToCloud],
   );
-
-  // 攔截瀏覽器原生儲存快捷鍵，改走專案的雲端儲存流程。
-  useSaveShortcut({ enabled: !!session, onSave: handleCloudUpload });
 
   // 上傳／匯出狀態的短暫顯示與錯誤 toast。
   useEditorStatusToasts({
@@ -198,7 +202,7 @@ export function useEditorPersistence(options: {
     // 先同步更新到 Excalidraw appState
     handleSetSceneName(newName);
     // 若已有雲端場景 ID，直接更新 DB 名稱
-    if (currentSceneId) {
+    if (currentSceneId && getEditorStorageMode() === "personal") {
       renameSceneMutation.mutate(
         { id: currentSceneId, name: newName },
         {
@@ -214,7 +218,46 @@ export function useEditorPersistence(options: {
     }
   };
 
+  const handleUpdateSource = useCallback(
+    async (sourceSceneId: string) => {
+      if (getEditorStorageMode() !== "room") return;
+      const roomId = readCanvasRoomId();
+      if (!roomId) return;
+      try {
+        const room = await utils.client.collaborationRoom.get.query({ roomId });
+        if (room.role !== "owner" || room.sceneId !== sourceSceneId) return;
+      } catch {
+        toast.error(t("toast.scene.versionCheckFailed"));
+        return;
+      }
+      if (getEditorStorageMode() !== "room" || readCanvasRoomId() !== roomId)
+        return;
+      await uploadSceneToCloud({
+        name: preservedSourceScene()?.name,
+        mode: "update",
+        existingSceneId: sourceSceneId,
+        roomAction: "source",
+        workspaceId: currentWorkspaceId,
+      });
+    },
+    [uploadSceneToCloud, currentWorkspaceId, utils, t],
+  );
+
   return {
+    sourceConflictDialog: {
+      open:
+        lastConflict?.roomSource === true && getEditorStorageMode() === "room",
+      roomSource: true,
+      onOpenChange: (open: boolean) => {
+        if (!open) clearLastConflict();
+      },
+      onChoose: (choice: "loadRemote" | "keepLocal" | "saveAsNew") => {
+        if (choice === "loadRemote") return;
+        clearLastConflict();
+        if (choice === "saveAsNew") openCloudUploadDialog();
+      },
+    },
+    handleUpdateSource,
     sceneName,
     handleSceneChange,
     handleSetSceneName,

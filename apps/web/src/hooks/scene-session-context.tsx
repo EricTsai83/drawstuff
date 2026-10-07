@@ -27,7 +27,15 @@ import {
  *  re-created on render. */
 const SUPPRESS_SAFETY_NET_MS = 5_000;
 
+export type SceneIdentity = {
+  id: string | undefined;
+  revision: number | undefined;
+  workspaceId: string | undefined;
+  isDirty: boolean;
+};
+
 type SceneSessionContextValue = {
+  getCurrentSceneIdentity: () => SceneIdentity;
   currentSceneId: string | undefined;
   currentWorkspaceId: string | undefined;
   lastSyncedRevision: number | undefined;
@@ -89,6 +97,18 @@ export function SceneSessionProvider({
   // Mirror of isDirty readable synchronously without triggering re-renders.
   // Used to skip redundant localStorage writes on the high-frequency onChange path.
   const isDirtyRef = useRef(isDirty);
+  const identityRef = useRef({
+    id: currentSceneId,
+    revision: lastSyncedRevision,
+    workspaceId: currentWorkspaceId,
+  });
+  const getCurrentSceneIdentity = useCallback(
+    (): SceneIdentity => ({
+      ...identityRef.current,
+      isDirty: isDirtyRef.current,
+    }),
+    [],
+  );
   const [isSessionReady, setIsSessionReady] = useState(false);
   // Dirty-tracking suppression is reference-counted: independent suppressors
   // overlap (a collaboration write and a remote-scene apply can hold windows in
@@ -131,6 +151,11 @@ export function SceneSessionProvider({
       revision?: number;
       workspaceId?: string;
     }) => {
+      identityRef.current = {
+        id,
+        revision,
+        workspaceId: workspaceId ?? identityRef.current.workspaceId,
+      };
       setCurrentSceneId(id);
       setLastSyncedRevision(revision);
       if (workspaceId !== undefined) {
@@ -157,6 +182,11 @@ export function SceneSessionProvider({
   );
 
   const clearCurrentScene = useCallback(() => {
+    identityRef.current = {
+      id: undefined,
+      revision: undefined,
+      workspaceId: undefined,
+    };
     setCurrentSceneId(undefined);
     setCurrentWorkspaceId(undefined);
     setLastSyncedRevision(undefined);
@@ -174,6 +204,11 @@ export function SceneSessionProvider({
 
   const reloadSceneSession = useCallback(() => {
     try {
+      identityRef.current = {
+        id: loadCurrentSceneIdFromStorage(),
+        revision: loadCurrentSceneRevisionFromStorage(),
+        workspaceId: loadCurrentSceneWorkspaceIdFromStorage(),
+      };
       const dirty = loadCurrentSceneDirtyFromStorage();
       setCurrentSceneId(loadCurrentSceneIdFromStorage());
       setCurrentWorkspaceId(loadCurrentSceneWorkspaceIdFromStorage());
@@ -181,6 +216,11 @@ export function SceneSessionProvider({
       setIsDirty(dirty);
       isDirtyRef.current = dirty;
     } catch {
+      identityRef.current = {
+        id: undefined,
+        revision: undefined,
+        workspaceId: undefined,
+      };
       setCurrentSceneId(undefined);
       setCurrentWorkspaceId(undefined);
       setLastSyncedRevision(undefined);
@@ -215,6 +255,7 @@ export function SceneSessionProvider({
   }, []);
 
   const updateLastSyncedRevision = useCallback((revision: number) => {
+    identityRef.current.revision = revision;
     setLastSyncedRevision(revision);
     try {
       saveCurrentSceneRevisionToStorage(revision);
@@ -224,6 +265,7 @@ export function SceneSessionProvider({
   }, []);
 
   const updateCurrentWorkspaceId = useCallback((workspaceId: string) => {
+    identityRef.current.workspaceId = workspaceId;
     setCurrentWorkspaceId(workspaceId);
     try {
       saveCurrentSceneWorkspaceIdToStorage(workspaceId);
@@ -281,6 +323,7 @@ export function SceneSessionProvider({
 
   const value = useMemo<SceneSessionContextValue>(
     () => ({
+      getCurrentSceneIdentity,
       currentSceneId,
       currentWorkspaceId,
       lastSyncedRevision,
@@ -301,6 +344,7 @@ export function SceneSessionProvider({
       resetCanvasAfterWorkspaceDeletion,
     }),
     [
+      getCurrentSceneIdentity,
       currentSceneId,
       currentWorkspaceId,
       lastSyncedRevision,

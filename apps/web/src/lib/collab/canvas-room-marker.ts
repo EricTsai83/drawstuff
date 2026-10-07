@@ -21,10 +21,9 @@ import { STORAGE_KEYS } from "@/config/app-constants";
  * - **Survives a reload.** Refreshing inside a room must not turn the canvas back
  *   into a private scene.
  *
- * The claim is deliberately *not* used to skip the join's "replace this canvas?"
- * prompt. A guest's canvas is no longer cached locally while a room owns it
- * (`@/data/local-scene-persistence`), so what a reload restores is the guest's own
- * pre-join scene — content that genuinely has to go through that prompt.
+ * Room links reload an empty, read-only canvas until authorization and an
+ * encrypted baseline arrive. The personal draft is separately preserved per
+ * tab, so another tab's personal cache cannot be published into this room.
  *
  * Release is centralized where it can be: the two scene-session storage writers
  * (`@/data/local-storage`) cover loading another cloud scene and starting a new

@@ -13,6 +13,7 @@ import { useAppI18n } from "@/hooks/use-app-i18n";
 import { CONFIRM_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
 
 type Props = {
+  roomSource?: boolean;
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onChoose: (choice: "loadRemote" | "keepLocal" | "saveAsNew") => void;
@@ -24,6 +25,7 @@ export function SceneRemoteConflictDialog({
   onOpenChange,
   onChoose,
   isLoading = false,
+  roomSource = false,
 }: Props) {
   const { t } = useAppI18n();
 
@@ -46,28 +48,34 @@ export function SceneRemoteConflictDialog({
           <DialogDescription>
             {isLoading
               ? t("common.processing")
-              : t("scene.conflict.description")}
+              : t(
+                  roomSource
+                    ? "storage.sourceConflict"
+                    : "scene.conflict.description",
+                )}
           </DialogDescription>
         </DialogHeader>
 
         <div className="grid gap-2">
-          <Button
-            type="button"
-            variant="default"
-            className="h-auto justify-start gap-3 px-4 py-3 whitespace-normal"
-            disabled={isLoading}
-            onClick={() => onChoose("loadRemote")}
-          >
-            <CloudDownload className="size-4 shrink-0" />
-            <div className="min-w-0 text-left">
-              <div className="text-sm font-medium">
-                {t("scene.conflict.load.title")}
+          {!roomSource && (
+            <Button
+              type="button"
+              variant="default"
+              className="h-auto justify-start gap-3 px-4 py-3 whitespace-normal"
+              disabled={isLoading}
+              onClick={() => onChoose("loadRemote")}
+            >
+              <CloudDownload className="size-4 shrink-0" />
+              <div className="min-w-0 text-left">
+                <div className="text-sm font-medium">
+                  {t("scene.conflict.load.title")}
+                </div>
+                <div className="text-xs font-normal opacity-80">
+                  {t("scene.conflict.load.description")}
+                </div>
               </div>
-              <div className="text-xs font-normal opacity-80">
-                {t("scene.conflict.load.description")}
-              </div>
-            </div>
-          </Button>
+            </Button>
+          )}
           <Button
             type="button"
             variant="outline"
@@ -78,10 +86,14 @@ export function SceneRemoteConflictDialog({
             <CopyPlus className="size-4 shrink-0" />
             <div className="min-w-0 text-left">
               <div className="text-sm font-medium">
-                {t("scene.conflict.save.title")}
+                {t(roomSource ? "storage.copy" : "scene.conflict.save.title")}
               </div>
               <div className="text-muted-foreground text-xs font-normal">
-                {t("scene.conflict.save.description")}
+                {t(
+                  roomSource
+                    ? "storage.copyNotice"
+                    : "scene.conflict.save.description",
+                )}
               </div>
             </div>
           </Button>
@@ -95,10 +107,16 @@ export function SceneRemoteConflictDialog({
             <Pause className="size-4 shrink-0" />
             <div className="min-w-0 text-left">
               <div className="text-sm font-medium">
-                {t("scene.conflict.keep.title")}
+                {t(
+                  roomSource ? "storage.keepRoom" : "scene.conflict.keep.title",
+                )}
               </div>
               <div className="text-muted-foreground text-xs font-normal">
-                {t("scene.conflict.keep.description")}
+                {t(
+                  roomSource
+                    ? "storage.keepRoomNotice"
+                    : "scene.conflict.keep.description",
+                )}
               </div>
             </div>
           </Button>
