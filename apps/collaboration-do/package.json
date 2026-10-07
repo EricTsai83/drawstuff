@@ -11,6 +11,7 @@
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "loadtest": "node scripts/loadtest.mjs",
+    "test:p0": "node scripts/p0.mjs",
     "preflight": "wrangler deploy --dry-run --outdir .wrangler/dry-run",
     "secret:list": "wrangler secret list",
     "secret:put": "wrangler secret put COLLAB_JOIN_TOKEN_SECRET",
@@ -30,6 +31,7 @@
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.0.0",
     "eslint": "catalog:",
+    "postgres": "^3.4.9",
     "typescript": "catalog:",
     "vitest": "4.1.11",
     "wrangler": "4.125.0",

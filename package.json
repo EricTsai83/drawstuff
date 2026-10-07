@@ -19,6 +19,8 @@
     "cf:smoke": "pnpm --filter @drawstuff/collaboration-do smoke",
     "cf:tail": "pnpm --filter @drawstuff/collaboration-do tail",
     "cf:typegen": "pnpm --filter @drawstuff/collaboration-do cf:typegen",
+    "collab:p0": "pnpm --filter @drawstuff/collaboration-do test:p0",
+    "collab:p0:load": "pnpm --filter @drawstuff/collaboration-do test:p0 --load",
     "db:push": "turbo run db:push --filter=@drawstuff/web",
     "db:studio": "pnpm --filter @drawstuff/web db:studio",
     "dev": "turbo run dev",

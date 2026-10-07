@@ -63,6 +63,9 @@ overrides:
   nanoid@>=4.0.0 <5.0.9: 5.1.16
   '@babel/core@7': 7.29.7
 
+patchedDependencies:
+  '@cloudflare/vitest-plugin@1.0.0': 81499c1d30c1e51a8ce8e0e53e16a19bf59cab994d4a0b7eadd6993f89f1a579
+
 importers:
 
   .:
@@ -109,10 +112,13 @@ importers:
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: 1.0.0
-        version: 1.0.0(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)
+        version: 1.0.0(patch_hash=81499c1d30c1e51a8ce8e0e53e16a19bf59cab994d4a0b7eadd6993f89f1a579)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)
       eslint:
         specifier: 'catalog:'
         version: 9.39.5(jiti@2.7.0)(supports-color@10.2.2)
+      postgres:
+        specifier: ^3.4.9
+        version: 3.4.9
       typescript:
         specifier: 'catalog:'
         version: 6.0.3
@@ -315,7 +321,7 @@ importers:
     devDependencies:
       '@cloudflare/vitest-plugin':
         specifier: ^1.0.0
-        version: 1.0.0(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)
+        version: 1.0.0(patch_hash=81499c1d30c1e51a8ce8e0e53e16a19bf59cab994d4a0b7eadd6993f89f1a579)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)
       '@types/node':
         specifier: 'catalog:'
         version: 24.13.3
@@ -7329,7 +7335,7 @@ snapshots:
     optionalDependencies:
       workerd: 1.20260820.1
 
-  '@cloudflare/vitest-plugin@1.0.0(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)':
+  '@cloudflare/vitest-plugin@1.0.0(patch_hash=81499c1d30c1e51a8ce8e0e53e16a19bf59cab994d4a0b7eadd6993f89f1a579)(@vitest/runner@4.1.11)(@vitest/snapshot@4.1.11)(vitest@4.1.11)':
     dependencies:
       '@vitest/runner': 4.1.11
       '@vitest/snapshot': 4.1.11

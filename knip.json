@@ -9,7 +9,9 @@
     "apps/web": {},
     "apps/collaboration-do": {
       "entry": [
-        "tests/**/*.test.ts"
+        "tests/**/*.test.ts",
+        "vitest.p0.config.ts",
+        "tests/p0/worker.ts"
       ],
       "project": [
         "src/**/*.ts",

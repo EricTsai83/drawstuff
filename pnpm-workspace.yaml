@@ -61,3 +61,6 @@ auditConfig:
     # here were dropped on 2026-08-06: next 16.3.0 ships patched pins, so with
     # this whole list removed only GHSA-67mh-4wv8-2f99 still reports. Keeping
     # them would have left four entries silently accepting nothing.
+
+patchedDependencies:
+  "@cloudflare/vitest-plugin@1.0.0": patches/@cloudflare__vitest-plugin@1.0.0.patch
