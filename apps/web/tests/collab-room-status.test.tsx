@@ -40,6 +40,16 @@ const { toastWarning, startRoomSession, joinMutate, roomGetQuery } = vi.hoisted(
   }),
 );
 
+// Controller/status cases inject the plain authority backend. Its real proof
+// and initialization contract is exercised in collaboration-product-authority.
+vi.mock("@/lib/collab/authority-client", async (original) => ({
+  ...(await original<typeof import("@/lib/collab/authority-client")>()),
+  createAuthorityRoomBackend: () => ({
+    getRoom: roomGetQuery,
+    joinRoom: joinMutate,
+  }),
+}));
+
 vi.mock("@/lib/collab/snapshot-http", async (original) => ({
   ...(await original<typeof SnapshotHttp>()),
   createBinarySnapshotClient: () => ({

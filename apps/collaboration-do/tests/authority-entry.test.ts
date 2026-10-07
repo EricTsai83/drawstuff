@@ -351,6 +351,7 @@ describe("registered Room authority entry", () => {
           operationId: crypto.randomUUID(),
           deadline: Date.now() + 55_000,
           action: "set-key-check",
+          expectedGeneration: 1,
           keyCheck: Array.from({ length: KEYCHECK_CIPHERTEXT_BYTES }, () => 0),
         };
         expect(
@@ -360,6 +361,27 @@ describe("registered Room authority entry", () => {
             config,
           ),
         ).toMatchObject({ ok: true });
+        const stateRequest: AuthorityRequest = {
+          v: 1,
+          roomId: f.roomId,
+          operationId: crypto.randomUUID(),
+          deadline: Date.now() + 55_000,
+          action: "get-state",
+        };
+        expect(
+          await applyAuthorityEntry(
+            a,
+            { proof: proof(stateRequest), request: stateRequest },
+            config,
+          ),
+        ).toMatchObject({
+          ok: true,
+          result: {
+            state: "initializing",
+            authGeneration: 1,
+            keyCheck: keyCheck.keyCheck,
+          },
+        });
         const keyQuery: AuthorityRequest = {
           v: 1,
           roomId: f.roomId,

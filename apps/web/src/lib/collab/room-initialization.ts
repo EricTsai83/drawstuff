@@ -1,0 +1,171 @@
+import { TRPCClientError } from "@trpc/client";
+import { encodeCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
+import {
+  sealRoomKeyCheck,
+  verifyRoomKeyCheck,
+} from "@drawstuff/collaboration/keycheck";
+import { decodeBase64, encodeBase64 } from "@drawstuff/collaboration/base64";
+import {
+  roomIdSchema,
+  type SyncedElement,
+} from "@drawstuff/collaboration/protocol";
+import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
+import { collectReferencedFileIds } from "@drawstuff/excalidraw-adapter/codec";
+import {
+  AuthorityRoomError,
+  authorityEnvelope,
+  createAuthorityOperation,
+  readAuthorityState,
+  type AuthorityApi,
+} from "./authority-client";
+import {
+  createCollaborationSnapshotStore,
+  type CollaborationSnapshotStore,
+} from "./snapshot-store";
+import type { SnapshotApi } from "./snapshot-http";
+
+/** Browser-only initialization. Unknown replies keep the room, key, captured elements and every intent. */
+export function createRoomInitialization(options: {
+  authority: AuthorityApi;
+  snapshots: SnapshotApi;
+  sceneId: string;
+  elements: readonly SyncedElement[];
+}) {
+  // Attachments must be finalized through Room authority before they can appear
+  // in a ready manifest. Never publish a partial canvas through the legacy uploader.
+  const elements = structuredClone(options.elements);
+  if (collectReferencedFileIds(elements).length)
+    throw new AuthorityRoomError("attachments-required");
+  const roomId = roomIdSchema.parse(crypto.randomUUID());
+  if (!encodeCollaborationSnapshot({ roomId, elements }).ok)
+    throw new Error("invalid-initial-snapshot");
+  const roomKey = generateRoomKey();
+  const creation = {
+    ...authorityEnvelope(roomId),
+    action: "create",
+    sceneId: options.sceneId,
+    label: "",
+    linkRole: "none",
+  } as const;
+  const create = createAuthorityOperation(options.authority, creation);
+  let setCheck: ReturnType<typeof createAuthorityOperation> | undefined;
+  let complete: ReturnType<typeof createAuthorityOperation> | undefined;
+  let store: CollaborationSnapshotStore | undefined;
+  let expectedRevision: number | undefined;
+  let stored: { revision: number; checksum: string } | undefined;
+  let active = false;
+  let cancelled = false;
+  let abandoning = false;
+  let cancel: ReturnType<typeof createAuthorityOperation> | undefined;
+  const start = async () => {
+    if (cancelled || abandoning) throw new AuthorityRoomError("cancelled");
+    if (active) throw new AuthorityRoomError("pending");
+    active = true;
+    try {
+      await create(); // Enforced means the immutable parent job was confirmed.
+      const state = await readAuthorityState(options.authority, roomId);
+      if (state.state === "ended") throw new AuthorityRoomError("ended");
+      if (state.authGeneration !== 1)
+        throw new AuthorityRoomError("generation-mismatch");
+      if (!setCheck) {
+        const keyCheckBase64 = await sealRoomKeyCheck({
+          roomKey,
+          roomId,
+          authGeneration: 1,
+        });
+        const decoded = decodeBase64(keyCheckBase64, { maxBytes: 256 });
+        if (!decoded.ok) throw new Error("key-check-encoding-failed");
+        setCheck = createAuthorityOperation(options.authority, {
+          ...authorityEnvelope(roomId),
+          action: "set-key-check",
+          expectedGeneration: 1,
+          keyCheck: Array.from(decoded.bytes),
+        });
+      }
+      await setCheck();
+      store ??= await createCollaborationSnapshotStore({
+        api: options.snapshots,
+        roomId,
+        roomKey,
+        authGeneration: 1,
+      });
+      if (!stored) {
+        if (expectedRevision === undefined) {
+          const baseline = await store.load();
+          if (baseline.status === "unreadable")
+            throw new Error("initial-snapshot-unavailable");
+          expectedRevision = baseline.revision ?? 0;
+        }
+        const result = await store.save({ elements, expectedRevision });
+        if (result.status === "conflict") expectedRevision = undefined;
+        if (result.status !== "written" || !result.checksum)
+          throw new AuthorityRoomError("pending");
+        stored = { revision: result.revision, checksum: result.checksum };
+      }
+      complete ??= createAuthorityOperation(options.authority, {
+        ...authorityEnvelope(roomId),
+        action: "complete-initialization",
+        manifest: { authGeneration: 1, ...stored, assetIds: [] },
+      });
+      await complete();
+      const ready = await readAuthorityState(options.authority, roomId);
+      if (ready.state !== "ready") throw new AuthorityRoomError(ready.state);
+      if (
+        ready.authGeneration !== 1 ||
+        !ready.keyCheck ||
+        !(await verifyRoomKeyCheck({
+          roomKey,
+          roomId,
+          authGeneration: 1,
+          keyCheckBase64: encodeBase64(new Uint8Array(ready.keyCheck)),
+        }))
+      )
+        throw new AuthorityRoomError("generation-mismatch");
+      return { roomId, roomKey };
+    } finally {
+      active = false;
+    }
+  };
+  return {
+    start,
+    async cancel() {
+      if (active) throw new AuthorityRoomError("pending");
+      if (cancelled) return;
+      abandoning = true;
+      try {
+        const state = await readAuthorityState(options.authority, roomId);
+        if (state.state === "ended" && !cancel) {
+          cancelled = true;
+          return;
+        }
+      } catch (error) {
+        if (
+          creation.deadline <= Date.now() &&
+          error instanceof TRPCClientError &&
+          (error.data as { code?: unknown } | undefined)?.code === "NOT_FOUND"
+        ) {
+          cancelled = true;
+          return;
+        }
+        throw error;
+      }
+      cancel ??= createAuthorityOperation(options.authority, {
+        ...authorityEnvelope(roomId),
+        action: "end-room",
+      });
+      try {
+        await cancel();
+      } catch (error) {
+        // A queried, absent and expired intent is known not to have been
+        // accepted. A later cancel click may safely create a fresh end intent.
+        if (
+          error instanceof AuthorityRoomError &&
+          error.code === "expired-operation"
+        )
+          cancel = undefined;
+        throw error;
+      }
+      cancelled = true;
+    },
+  };
+}

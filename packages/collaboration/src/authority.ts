@@ -125,6 +125,7 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
   z.strictObject({
     ...envelope,
     action: z.literal("set-key-check"),
+    expectedGeneration: roomAuthGenerationSchema,
     keyCheck: z
       .instanceof(Uint8Array)
       .refine((value) => value.byteLength === KEYCHECK_CIPHERTEXT_BYTES),
@@ -153,6 +154,7 @@ export const authorityRequestSchema = z.discriminatedUnion("action", [
     .strictObject({
       ...envelope,
       action: z.literal("set-key-check"),
+      expectedGeneration: roomAuthGenerationSchema,
       keyCheck: z
         .array(z.int().min(0).max(255))
         .length(KEYCHECK_CIPHERTEXT_BYTES),
@@ -187,6 +189,10 @@ export const authorityStateSchema = z.strictObject({
   authRevision: authorityVersionSchema,
   authorityEpoch: authorityVersionSchema,
   initializationDeadline: z.int().positive(),
+  keyCheck: z
+    .array(z.int().min(0).max(255))
+    .length(KEYCHECK_CIPHERTEXT_BYTES)
+    .nullable(),
 });
 export const registrationCommandSchema = z.strictObject({
   v: z.literal(AUTHORITY_CONTRACT_VERSION),

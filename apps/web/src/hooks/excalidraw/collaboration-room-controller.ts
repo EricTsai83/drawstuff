@@ -47,11 +47,15 @@ import {
   type CollaborationRoomHandle,
 } from "@/lib/collab/room-session";
 import type { AppTranslate } from "@/lib/i18n";
-import type { RouterOutputs } from "@/trpc/react";
+import type { createAuthorityRoomBackend } from "@/lib/collab/authority-client";
 
 type RoomSessionOptions = Parameters<typeof startCollaborationRoomSession>[0];
-type RoomLookup = RouterOutputs["collaborationRoom"]["get"];
-type RoomJoin = RouterOutputs["collaborationRoom"]["join"];
+type RoomLookup = Awaited<
+  ReturnType<ReturnType<typeof createAuthorityRoomBackend>["getRoom"]>
+>;
+type RoomJoin = Awaited<
+  ReturnType<ReturnType<typeof createAuthorityRoomBackend>["joinRoom"]>
+>;
 
 /**
  * The backend calls the join makes. Adapted from the tRPC client by the hook
@@ -59,10 +63,13 @@ type RoomJoin = RouterOutputs["collaborationRoom"]["join"];
  * controller stays testable with four plain functions.
  */
 type CollaborationRoomBackend = {
-  /** `collaborationRoom.get`: which scene the room is for, plus its key check. */
+  /** Live Room metadata and its encrypted key check; never a DB role projection. */
   getRoom: (input: { roomId: RoomId }) => Promise<RoomLookup>;
-  /** `collaborationRoom.join`: mints a short-lived join token. */
-  joinRoom: (input: { roomId: RoomId }) => Promise<RoomJoin>;
+  /** Gets a fresh identity proof; the socket grants the current Room role. */
+  joinRoom: (input: {
+    roomId: RoomId;
+    authGeneration?: number;
+  }) => Promise<RoomJoin>;
   snapshotApi: RoomSessionOptions["snapshotApi"];
   assetApi: RoomSessionOptions["assetApi"];
 };
@@ -121,6 +128,7 @@ export function createCollaborationRoomController(
   let claimedDuringStart = false;
   /** Separates the first join from every reconnect after it. */
   let hasBeenLive = false;
+  let verifiedGeneration: number | undefined;
 
   /**
    * Looks the room up and verifies the link's key against its stored check.
@@ -161,6 +169,7 @@ export function createCollaborationRoomController(
       });
       return null;
     }
+    verifiedGeneration = room.authGeneration;
     return room;
   };
 
@@ -228,7 +237,7 @@ export function createCollaborationRoomController(
     });
 
   /**
-   * Exchanges the room id for a join token and checks the token's generation
+   * Obtains a fresh identity proof after checking the current Room generation
    * against the one the key was verified for. Returns `null` once the join is
    * over — cancelled, rate-limited, or refused for a rotated generation.
    *
@@ -240,7 +249,8 @@ export function createCollaborationRoomController(
    */
   const joinRoom = async (room: RoomLookup): Promise<RoomJoin | null> => {
     const joinOutcome = await joinWithRateLimitRetry({
-      attempt: () => backend.joinRoom({ roomId }),
+      attempt: () =>
+        backend.joinRoom({ roomId, authGeneration: room.authGeneration }),
       isCancelled: () => cancelled,
       wait: waitBeforeRejoin,
     });
@@ -290,7 +300,10 @@ export function createCollaborationRoomController(
    */
   const refreshJoinToken = async (): Promise<JoinCredentialsResult> => {
     try {
-      const refreshed = await backend.joinRoom({ roomId });
+      const refreshed = await backend.joinRoom({
+        roomId,
+        authGeneration: verifiedGeneration,
+      });
       return {
         ok: true,
         token: refreshed.token,
@@ -423,12 +436,17 @@ export function createCollaborationRoomController(
     // they already have.
     const refusal = classifyJoinFailure(error);
     if (!refusal.ok && !refusal.retry) {
-      if (refusal.failure === "room-ended") {
+      if (
+        refusal.failure === "room-ended" ||
+        refusal.failure === "generation-rotated"
+      ) {
         // The same terminal verdict recovery would report for this room.
         dispatch({
           type: "failed",
-          reason: "room-ended",
-          errorMessage: deps.getTranslate()(FAILURE_MESSAGE_KEY["room-ended"]),
+          reason: refusal.failure,
+          errorMessage: deps.getTranslate()(
+            FAILURE_MESSAGE_KEY[refusal.failure],
+          ),
         });
         return;
       }
@@ -454,7 +472,8 @@ export function createCollaborationRoomController(
       const joined = await joinRoom(room);
       if (!joined || cancelled) return;
       const reloading = readCanvasRoomId() === roomId;
-      const isOpenScene = room.sceneId === deps.getCurrentSceneId();
+      const isOpenScene =
+        room.sceneId !== null && room.sceneId === deps.getCurrentSceneId();
       deps.onSourceScene?.(
         isOpenScene && joined.role === "owner" ? room.sceneId : null,
       );

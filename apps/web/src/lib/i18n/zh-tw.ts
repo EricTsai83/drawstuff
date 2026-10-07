@@ -143,6 +143,11 @@ export const zhTW = {
   "collaboration.status.missingRoomKey": "連結不完整",
   "collaboration.status.readOnly": "僅檢視",
   "collaboration.status.readOnlyWithStatus": "{status}（僅檢視）",
+  "collaboration.toast.initializationPending":
+    "建立房間尚未確認，畫布暫停編輯；請重試或取消這次建立。",
+  "collaboration.action.cancelInitialization": "取消建立房間",
+  "collaboration.toast.initializationAttachments":
+    "含圖片的房間需等附件授權接好後才能建立。",
   "collaboration.error.operationFailed": "即時共編操作失敗，請稍後再試。",
   "collaboration.action.creating": "建立中…",
   "collaboration.action.start": "開始共編",

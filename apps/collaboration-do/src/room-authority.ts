@@ -336,6 +336,8 @@ export class RoomAuthority {
                 needsFence = true;
                 break;
               case "set-key-check":
+                if (command.expectedGeneration !== room.auth_generation)
+                  throw new Error("generation-mismatch");
                 if (
                   room.key_check !== null &&
                   room.key_check !==

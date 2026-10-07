@@ -84,6 +84,9 @@ original operation and ciphertext in memory, queries before retry, and cancels e
 work before minting another intent. A recovered old capture cannot confirm newer edits. New write
 attempts invalidate prior saved coverage, and empty reads retain reset's revision watermark;
 see [the P2 product source boundary](collaboration-system-design.md#18b-p2-product-binary-snapshots).
+Attachment-free product initialization now confirms the encrypted initial snapshot and ready receipt
+before sharing a key; image-bearing initialization awaits attachment finalization. See the
+[initialization source boundary](collaboration-system-design.md#18b-p2-product-authority-initialization).
 Production still uses the earlier deployment until P2 completion and P3 reset.
 
 **Confirmed data is durable; unconfirmed data may be lost when its last browser holder exits.**

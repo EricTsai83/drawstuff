@@ -132,7 +132,7 @@ export type CollaborationSessionOptions = {
   transport: CollaborationTransport;
   roomId: RoomId;
   /**
-   * Short-lived join token from `collaborationRoom.join`, already minted for the
+   * Short-lived identity proof from `collaborationAuthority.identity`, minted for the
    * first attempt. The session never decides its own role: the granted role comes
    * back in the connected state.
    */

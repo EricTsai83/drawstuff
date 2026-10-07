@@ -90,6 +90,7 @@ describe("persistent Room authority foundation", () => {
       await a.apply({
         ...command("set-key-check"),
         action: "set-key-check",
+        expectedGeneration: 1,
         keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
       });
       const complete = {
@@ -157,6 +158,7 @@ describe("persistent Room authority foundation", () => {
       await a.apply({
         ...command("set-key-check"),
         action: "set-key-check",
+        expectedGeneration: 2,
         keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
       });
       const complete = {
@@ -362,6 +364,7 @@ describe("persistent Room authority foundation", () => {
       await a.apply({
         ...command("set-key-check"),
         action: "set-key-check",
+        expectedGeneration: 1,
         keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
       });
       const complete = {
@@ -642,5 +645,41 @@ describe("Lifecycle durable progress", () => {
       ).toBeGreaterThan(0);
       expect(await state.storage.getAlarm()).not.toBeNull();
     });
+  });
+});
+
+it("refuses an old generation key-check after rotation without poisoning the new generation", async () => {
+  const { roomId, stub, command } = fixture();
+  await runInDurableObject(stub, async (_instance, state) => {
+    const a = new RoomAuthority(state.storage, roomId);
+    await a.apply({
+      ...command("create"),
+      action: "create",
+      sceneId: null,
+      label: "",
+      linkRole: "none",
+    });
+    const late = {
+      ...command("set-key-check"),
+      action: "set-key-check" as const,
+      expectedGeneration: 1,
+      keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
+    };
+    await a.apply({
+      ...command("rotate-generation"),
+      action: "rotate-generation",
+      expectedGeneration: 1,
+    });
+    await expect(a.apply(late)).rejects.toThrow("generation-mismatch");
+    expect(a.state()?.key_check).toBeNull();
+    await a.apply({
+      ...command("set-key-check"),
+      action: "set-key-check",
+      expectedGeneration: 2,
+      keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES).fill(1),
+    });
+    expect(JSON.parse(a.state()!.key_check!)).toEqual(
+      Array.from({ length: KEYCHECK_CIPHERTEXT_BYTES }, () => 1),
+    );
   });
 });

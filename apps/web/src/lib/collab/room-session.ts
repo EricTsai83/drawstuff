@@ -40,7 +40,7 @@ import { fitViewportToFollowBounds } from "@/lib/collab/follow-viewport";
  * Runtime wiring for one authorized collaboration room: realtime crypto codec +
  * relay transport + collaboration session + upstream-style idle detection.
  * Everything it needs to authorize the connection (room, join token) is
- * supplied by the caller, which obtained it from `collaborationRoom.join`;
+ * supplied by the caller, which obtained a proof from `collaborationAuthority.identity`;
  * this module never decides access and never sees the signing secret.
  *
  * The room key is the other half, and it comes from the other direction: the
@@ -109,7 +109,7 @@ export async function startCollaborationRoomSession(options: {
   /** End-to-end room key from the URL fragment; never from the backend. */
   roomKey: RoomKey;
   /**
-   * The room's durable authorization generation, from `collaborationRoom.join`.
+   * The room's durable authorization generation, from live Room metadata.
    * Key derivation is bound to it, so rotating the generation makes the previous
    * generation's ciphertext unreadable.
    */

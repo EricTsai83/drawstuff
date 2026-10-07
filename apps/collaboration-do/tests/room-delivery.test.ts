@@ -77,6 +77,7 @@ async function initialize(
   await a.apply({
     ...command("set-key-check"),
     action: "set-key-check",
+    expectedGeneration: 1,
     keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
   });
   const complete = {
@@ -625,6 +626,7 @@ describe("Room adapter delivery in workerd", () => {
       await a.apply({
         ...command("set-key-check"),
         action: "set-key-check",
+        expectedGeneration: 2,
         keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
       });
       const complete = () => ({

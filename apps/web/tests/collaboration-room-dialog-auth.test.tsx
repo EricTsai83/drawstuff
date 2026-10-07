@@ -4,11 +4,14 @@ import { createRoot, type Root } from "react-dom/client";
 import { TRPCClientError } from "@trpc/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
+import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { SnapshotApi } from "@/lib/collab/snapshot-http";
 
 const {
-  createErrorHandler,
   createMutate,
+  findForScene,
+  initialCapture,
+  cancelCreate,
   endSuccessHandler,
   getActiveForSceneInvalidate,
   idleMutate,
@@ -19,10 +22,16 @@ const {
   toastSuccess,
   binaryApi,
 } = vi.hoisted(() => ({
-  createErrorHandler: {
-    current: undefined as ((error: unknown) => void) | undefined,
+  findForScene: vi.fn<() => Promise<{ roomId: string } | null>>(),
+  initialCapture: {
+    current: undefined as
+      | Parameters<
+          typeof import("@/lib/collab/room-initialization").createRoomInitialization
+        >[0]
+      | undefined,
   },
-  createMutate: vi.fn(),
+  cancelCreate: vi.fn<() => Promise<void>>(),
+  createMutate: vi.fn<() => Promise<{ roomId: string; roomKey: RoomKey }>>(),
   endSuccessHandler: {
     current: undefined as
       | ((result: { enforcement: "enforced" | "pending" }) => Promise<void>)
@@ -49,6 +58,17 @@ const {
 vi.mock("@/lib/collab/snapshot-http", async (original) => ({
   ...(await original<typeof SnapshotHttp>()),
   createBinarySnapshotClient: () => binaryApi,
+}));
+
+vi.mock("@/lib/collab/room-initialization", () => ({
+  createRoomInitialization: (
+    options: Parameters<
+      typeof import("@/lib/collab/room-initialization").createRoomInitialization
+    >[0],
+  ) => {
+    initialCapture.current = options;
+    return { start: createMutate, cancel: cancelCreate };
+  },
 }));
 
 vi.mock("sonner", () => ({
@@ -102,18 +122,17 @@ vi.mock("@/trpc/react", () => {
           collaborationRoom: {
             setKeyCheck: { mutate: vi.fn() },
           },
+          collaborationAuthority: {
+            findForScene: { query: findForScene },
+            execute: { mutate: vi.fn() },
+            identity: { mutate: vi.fn() },
+          },
         },
       }),
       collaborationRoom: {
         get: {
           useQuery: (...args: unknown[]) => {
             return { data: roomGetUseQuery(...args) ?? null };
-          },
-        },
-        create: {
-          useMutation: (options: { onError?: (error: unknown) => void }) => {
-            createErrorHandler.current = options.onError;
-            return { isPending: false, mutate: createMutate };
           },
         },
         end: {
@@ -166,10 +185,14 @@ const renderDialog = (params: {
   onRoomKeyChange?: CollaborationRoomDialogProps["onRoomKeyChange"];
   failureReason?: CollaborationRoomDialogProps["failureReason"];
   onRetryJoin?: () => void;
+  onInitializationChange?: (active: boolean) => void;
+  getInitialElements?: CollaborationRoomDialogProps["getInitialElements"];
 }): void => {
-  container = document.createElement("div");
-  document.body.appendChild(container);
-  root = createRoot(container);
+  if (!root) {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  }
 
   act(() => {
     root?.render(
@@ -179,6 +202,8 @@ const renderDialog = (params: {
         isAuthenticated={params.isAuthenticated}
         isAuthenticationPending={params.isAuthenticationPending ?? false}
         sceneId="scene-1"
+        getInitialElements={params.getInitialElements ?? (() => [])}
+        onInitializationChange={params.onInitializationChange}
         roomId={params.roomId ?? null}
         onRoomIdChange={params.onRoomIdChange ?? (() => undefined)}
         roomKey={null}
@@ -194,10 +219,15 @@ const renderDialog = (params: {
 };
 
 beforeEach(() => {
-  createErrorHandler.current = undefined;
+  findForScene.mockReset().mockResolvedValue(null);
+  initialCapture.current = undefined;
+  cancelCreate.mockReset().mockResolvedValue(undefined);
   endSuccessHandler.current = undefined;
   leaveSuccessHandler.current = undefined;
-  createMutate.mockClear();
+  createMutate.mockReset().mockResolvedValue({
+    roomId: "ready-room",
+    roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
+  });
   getActiveForSceneInvalidate.mockClear();
   roomGetInvalidate.mockClear();
   roomGetUseQuery.mockReset();
@@ -226,6 +256,121 @@ afterEach(() => {
 });
 
 describe("collaboration room authentication guard", () => {
+  it("captures and pauses the source canvas before scene lookup can yield to a different canvas", async () => {
+    let finish: ((candidate: null) => void) | undefined;
+    findForScene.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const elements = [
+      { id: "source", version: 1, versionNonce: 1, isDeleted: false },
+    ];
+    const change = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      getInitialElements: () => elements,
+      onInitializationChange: change,
+    });
+    await act(async () => {
+      Array.from(container?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent === "Start collaboration")
+        ?.click();
+      await vi.waitFor(() => expect(findForScene).toHaveBeenCalled());
+    });
+    expect(change).toHaveBeenCalledWith(true);
+    elements[0]!.id = "unrelated-canvas";
+    await act(async () => {
+      finish?.(null);
+      await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
+    });
+    expect(initialCapture.current?.elements[0]?.id).toBe("source");
+  });
+  it("ignores a late initialization success after sign-out and releases the paused personal canvas", async () => {
+    let finish:
+      ((ready: { roomId: string; roomKey: RoomKey }) => void) | undefined;
+    createMutate.mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const keyChange = vi.fn();
+    const roomChange = vi.fn();
+    const change = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      onRoomKeyChange: keyChange,
+      onRoomIdChange: roomChange,
+      onInitializationChange: change,
+    });
+    await act(async () => {
+      Array.from(container?.querySelectorAll("button") ?? [])
+        .find((button) => button.textContent === "Start collaboration")
+        ?.click();
+      await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
+    });
+    renderDialog({
+      isAuthenticated: false,
+      onRoomKeyChange: keyChange,
+      onRoomIdChange: roomChange,
+      onInitializationChange: change,
+    });
+    await act(async () => {
+      finish?.({
+        roomId: "late-room",
+        roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
+      });
+    });
+    expect(keyChange).not.toHaveBeenCalled();
+    expect(roomChange).not.toHaveBeenCalled();
+    expect(change).toHaveBeenLastCalledWith(false);
+  });
+  it("keeps the captured canvas paused and never exposes a key for pending initialization; confirmed cancellation releases it", async () => {
+    const { AuthorityRoomError } =
+      await import("@/lib/collab/authority-client");
+    createMutate.mockRejectedValueOnce(new AuthorityRoomError("pending"));
+    cancelCreate.mockRejectedValueOnce(new AuthorityRoomError("pending"));
+    const change = vi.fn();
+    const keyChange = vi.fn();
+    const roomChange = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      onInitializationChange: change,
+      onRoomKeyChange: keyChange,
+      onRoomIdChange: roomChange,
+    });
+    const button = (text: string) => {
+      const result = Array.from(
+        container?.querySelectorAll("button") ?? [],
+      ).find((button) => button.textContent === text);
+      if (!result) throw new Error(`missing-button:${text}`);
+      return result;
+    };
+    await act(async () => {
+      button("Start collaboration").click();
+      await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
+    });
+    expect(change).toHaveBeenCalledWith(true);
+    expect(change).not.toHaveBeenCalledWith(false);
+    expect(keyChange).not.toHaveBeenCalled();
+    expect(roomChange).not.toHaveBeenCalled();
+    await act(async () => {
+      button("Cancel room creation").click();
+      await vi.waitFor(() => expect(cancelCreate).toHaveBeenCalledTimes(1));
+    });
+    expect(change).not.toHaveBeenCalledWith(false);
+    expect(button("Start collaboration").disabled).toBe(true);
+    await act(async () => {
+      button("Cancel room creation").click();
+      await vi.waitFor(() => expect(cancelCreate).toHaveBeenCalledTimes(2));
+    });
+    expect(change).toHaveBeenLastCalledWith(false);
+    expect(keyChange).not.toHaveBeenCalled();
+    expect(roomChange).not.toHaveBeenCalled();
+  });
+
   it("shows no reset success or join retry for pending, then recovers the same operation on a confirmed button retry", async () => {
     roomGetUseQuery.mockReturnValue({
       role: "owner",
@@ -286,28 +431,35 @@ describe("collaboration room authentication guard", () => {
     );
   });
 
-  it("creates a room normally after authentication", () => {
+  it("opens a room only after initialization confirms readiness", async () => {
     renderDialog({ isAuthenticated: true });
     const startButton = Array.from(
       container?.querySelectorAll("button") ?? [],
     ).find((button) => button.textContent === "Start collaboration");
 
     expect(startButton).toBeDefined();
-    act(() => {
+    await act(async () => {
       startButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+      await vi.waitFor(() => expect(createMutate).toHaveBeenCalledTimes(1));
     });
-    // linkRole 不再隨 create 送出：重開既有房間不得重設連結權限（plan 03 M7）。
-    expect(createMutate).toHaveBeenCalledWith({ sceneId: "scene-1" });
+    expect(createMutate).toHaveBeenCalledWith();
   });
 
-  it("turns a late unauthorized response into a useful message", () => {
-    renderDialog({ isAuthenticated: true });
+  it("turns a late unauthorized response into a useful message", async () => {
     const error = new TRPCClientError("UNAUTHORIZED");
     Object.defineProperty(error, "data", {
       value: { code: "UNAUTHORIZED" },
     });
 
-    act(() => createErrorHandler.current?.(error));
+    createMutate.mockRejectedValueOnce(error);
+    renderDialog({ isAuthenticated: true });
+    await act(async () => {
+      const start = Array.from(
+        container?.querySelectorAll("button") ?? [],
+      ).find((button) => button.textContent === "Start collaboration");
+      start?.click();
+      await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
+    });
 
     expect(toastError).toHaveBeenCalledWith(
       "Sign in to create or join a collaboration room.",

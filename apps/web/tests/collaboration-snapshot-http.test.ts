@@ -74,6 +74,7 @@ const state = {
   authRevision: 1,
   authorityEpoch: 1,
   initializationDeadline: Date.now() + 900_000,
+  keyCheck: null,
 };
 const limited = {
   status: "limited" as const,

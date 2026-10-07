@@ -55,7 +55,10 @@ type JoinCredentialsRefusal =
       retry: false;
       failure: Extract<
         UnrecoverableReason,
-        "unauthorized" | "membership-revoked" | "room-ended"
+        | "unauthorized"
+        | "membership-revoked"
+        | "room-ended"
+        | "generation-rotated"
       >;
     };
 

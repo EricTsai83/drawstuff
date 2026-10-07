@@ -1,5 +1,6 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
+import { and, eq, inArray } from "drizzle-orm";
 import {
   authorityRequestSchema,
   authoritySocketPath,
@@ -15,6 +16,7 @@ import {
   collaborationRoomsDisabledError,
 } from "@/server/collab/relay-routing";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
+import { collaborationRoom, scene } from "@/server/db/schema";
 
 function configured() {
   if (collaborationRoomsDisabled()) throw collaborationRoomsDisabledError();
@@ -37,6 +39,29 @@ function identityError(error: unknown): TRPCError {
       });
 }
 export const collaborationAuthorityRouter = createTRPCRouter({
+  /** A display candidate only. The browser must ask Room before opening it. */
+  findForScene: protectedProcedure
+    .input(z.strictObject({ sceneId: z.uuid() }))
+    .query(async ({ ctx, input }) => {
+      configured();
+      const source = await ctx.db.query.scene.findFirst({
+        where: and(
+          eq(scene.id, input.sceneId),
+          eq(scene.userId, ctx.auth.user.id),
+        ),
+        columns: { id: true },
+      });
+      if (!source) throw new TRPCError({ code: "NOT_FOUND" });
+      const candidate = await ctx.db.query.collaborationRoom.findFirst({
+        where: and(
+          eq(collaborationRoom.sceneId, input.sceneId),
+          eq(collaborationRoom.ownerId, ctx.auth.user.id),
+          inArray(collaborationRoom.status, ["initializing", "ready"]),
+        ),
+        columns: { roomId: true },
+      });
+      return candidate ?? null;
+    }),
   identity: protectedProcedure
     .input(z.strictObject({ roomId: roomIdSchema }))
     .mutation(async ({ ctx, input }) => {

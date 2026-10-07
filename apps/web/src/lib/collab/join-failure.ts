@@ -1,17 +1,18 @@
 import { TRPCClientError } from "@trpc/client";
 import { SnapshotHttpError } from "./snapshot-http";
+import { AuthorityRoomError } from "./authority-client";
 
 import type { JoinCredentialsResult } from "@/lib/collab/collaboration-session";
 import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 
 /**
- * Turns a failed `collaborationRoom.join` into the credential refusal recovery
+ * Turns a failed Room lookup or identity-proof request into the refusal recovery
  * acts on.
  *
  * This is the only place that can make the call. The relay closes a socket as soon
  * as the app withdraws the authorization it holds, and it uses one close code for
  * both "removed from the room" and "role changed" — and a role change *must*
- * reconnect, because the role travels in the token. So the relay's close is always
+ * reconnect, so the Room can grant the new role in its socket ACK. So the relay's close is always
  * retried, and this request is where a client that genuinely cannot come back is
  * stopped.
  *
@@ -26,6 +27,12 @@ import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
  * would spend the whole budget and then report the wrong reason.
  */
 export function classifyJoinFailure(error: unknown): JoinCredentialsResult {
+  if (error instanceof AuthorityRoomError)
+    return error.code === "ended"
+      ? { ok: false, retry: false, failure: "room-ended" }
+      : error.code === "generation-mismatch"
+        ? { ok: false, retry: false, failure: "generation-rotated" }
+        : { ok: false, retry: true };
   if (error instanceof SnapshotHttpError) {
     if (error.status === 401)
       return { ok: false, retry: false, failure: "unauthorized" };

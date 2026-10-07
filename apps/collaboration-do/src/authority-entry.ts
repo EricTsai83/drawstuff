@@ -99,6 +99,9 @@ export async function applyAuthorityEntry(
           authRevision: current.auth_revision,
           authorityEpoch: current.authority_epoch,
           initializationDeadline: current.initialization_deadline,
+          keyCheck: current.key_check
+            ? (JSON.parse(current.key_check) as unknown)
+            : null,
         }),
       };
     }

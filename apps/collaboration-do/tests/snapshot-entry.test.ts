@@ -148,6 +148,7 @@ async function create(
       ...f.command,
       operationId: crypto.randomUUID(),
       action: "set-key-check",
+      expectedGeneration: 1,
       keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
     });
     const manifest = {
@@ -586,6 +587,7 @@ describe("formal binary snapshot entry", () => {
         ...f.command,
         operationId: crypto.randomUUID(),
         action: "set-key-check",
+        expectedGeneration: 1,
         keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
       });
       const operationId = crypto.randomUUID();

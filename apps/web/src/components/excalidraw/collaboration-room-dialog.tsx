@@ -1,12 +1,18 @@
 "use client";
 
 import { TRPCClientError } from "@trpc/client";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
   createBinarySnapshotClient,
   SnapshotHttpError,
 } from "@/lib/collab/snapshot-http";
+import { createRoomInitialization } from "@/lib/collab/room-initialization";
+import {
+  AuthorityRoomError,
+  readAuthorityState,
+} from "@/lib/collab/authority-client";
+import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import { createSnapshotReset } from "@/lib/collab/snapshot-reset";
 
 import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
@@ -104,6 +110,8 @@ export type CollaborationRoomDialogProps = {
   isAuthenticationPending: boolean;
   /** Cloud scene id; a room can only be started for a saved scene. */
   sceneId: string | null;
+  getInitialElements: () => readonly SyncedElement[] | null;
+  onInitializationChange?: (active: boolean) => void;
   /** Active room id from the URL, if the editor is in a room. */
   roomId: string | null;
   onRoomIdChange: (roomId: string | null) => void;
@@ -126,6 +134,8 @@ export function CollaborationRoomDialog({
   isAuthenticated,
   isAuthenticationPending,
   sceneId,
+  getInitialElements,
+  onInitializationChange,
   roomId,
   onRoomIdChange,
   confirmRoomExit,
@@ -220,52 +230,144 @@ export function CollaborationRoomDialog({
     });
   };
 
-  const createRoom = api.collaborationRoom.create.useMutation({
-    onSuccess: async (created) => {
-      // The key is minted here and never sent with the mutation: the backend
-      // knows the room exists, not how to read it. Only the sealed check
-      // value travels, which reveals nothing about the key.
-      const nextKey = generateRoomKey();
-      try {
-        await storeKeyCheck({
-          roomId: created.roomId,
-          roomKey: nextKey,
-          authGeneration: created.authGeneration,
-        });
-      } catch (error) {
-        // `create` returns the scene's existing active room, whose key was
-        // minted by whoever set the check value first. The value is immutable
-        // within a generation — replacing it would lock out every holder of
-        // the original link — so this device's fresh key is discarded and the
-        // room is entered without one. The link hint already points at the
-        // remedy: share from the original device, or rotate the generation.
-        if (
-          error instanceof TRPCClientError &&
-          (error.data as { code?: unknown } | null | undefined)?.code ===
-            "CONFLICT"
-        ) {
-          // Whatever key is sitting in the URL fragment was not verified
-          // against this room; carrying it into the room UI would render a
-          // complete-looking invite link around the wrong key.
+  const initialization = useRef<ReturnType<
+    typeof createRoomInitialization
+  > | null>(null);
+  const [isCreatePending, setIsCreatePending] = useState(false);
+  const [hasInitialization, setHasInitialization] = useState(false);
+  const [isCancellingInitialization, setIsCancellingInitialization] =
+    useState(false);
+  const initializationEpoch = useRef(0);
+  const operationInFlight = useRef(false);
+  useEffect(
+    () => () => {
+      initializationEpoch.current++;
+    },
+    [],
+  );
+  useEffect(() => {
+    if (roomId) onInitializationChange?.(false);
+    if (!isAuthenticationPending && !isAuthenticated) {
+      initializationEpoch.current++;
+      initialization.current = null;
+      operationInFlight.current = false;
+      setHasInitialization(false);
+      setIsCreatePending(false);
+      setIsCancellingInitialization(false);
+      onInitializationChange?.(false);
+    }
+  }, [
+    isAuthenticated,
+    isAuthenticationPending,
+    roomId,
+    onInitializationChange,
+  ]);
+  const startRoom = async () => {
+    if (
+      !isAuthenticated ||
+      !sceneId ||
+      operationInFlight.current ||
+      isCancellingInitialization
+    )
+      return;
+    operationInFlight.current = true;
+    const epoch = initializationEpoch.current;
+    let enteringRoom = false;
+    setIsCreatePending(true);
+    const authority = {
+      execute: (
+        input: Parameters<
+          typeof utils.client.collaborationAuthority.execute.mutate
+        >[0],
+      ) => utils.client.collaborationAuthority.execute.mutate(input),
+      identity: (input: { roomId: ReturnType<typeof roomIdSchema.parse> }) =>
+        utils.client.collaborationAuthority.identity.mutate(input),
+    };
+    try {
+      if (!initialization.current) {
+        onInitializationChange?.(true);
+        const current = getInitialElements();
+        if (!current) throw new Error("canvas-unavailable");
+        // Capture the source before lookup yields; another scene may load while
+        // the request is in flight, and must never initialize this source room.
+        const elements = structuredClone(current);
+        const existing =
+          await utils.client.collaborationAuthority.findForScene.query({
+            sceneId,
+          });
+        if (epoch !== initializationEpoch.current) return;
+        if (existing) {
+          // A display candidate is verified by Room before it is opened.
+          const state = await readAuthorityState(
+            authority,
+            roomIdSchema.parse(existing.roomId),
+          );
+          if (epoch !== initializationEpoch.current) return;
+          if (state.state !== "ready")
+            throw new AuthorityRoomError(state.state);
+          enteringRoom = true;
           onRoomKeyChange(null);
-          onRoomIdChange(created.roomId);
-          await invalidateRoom();
+          onRoomIdChange(state.roomId);
           toast.info(t("collaboration.toast.keyConflict"));
           return;
         }
-        // The room exists but is not joinable (no check value). Re-running
-        // 開始共編 returns the same active room and repairs it with a fresh
-        // key — so the one action offered is the one that fixes it.
-        toast.error(t("collaboration.toast.keySetupFailed"));
-        await invalidateRoom();
-        return;
+        initialization.current = createRoomInitialization({
+          authority,
+          snapshots: createBinarySnapshotClient(),
+          sceneId,
+          elements,
+        });
+        setHasInitialization(true);
       }
-      onRoomKeyChange(nextKey);
-      onRoomIdChange(created.roomId);
+      const ready = await initialization.current.start();
+      if (epoch !== initializationEpoch.current) return;
+      enteringRoom = true;
+      onRoomKeyChange(ready.roomKey);
+      onRoomIdChange(ready.roomId);
+      initialization.current = null;
+      setHasInitialization(false);
       await invalidateRoom();
-    },
-    onError: reportRoomError,
-  });
+    } catch (error) {
+      if (epoch !== initializationEpoch.current) return;
+      if (error instanceof AuthorityRoomError && error.code === "pending")
+        toast.info(t("collaboration.toast.initializationPending"));
+      else if (
+        error instanceof AuthorityRoomError &&
+        error.code === "attachments-required"
+      )
+        toast.error(t("collaboration.toast.initializationAttachments"));
+      else reportRoomError(error);
+    } finally {
+      if (epoch === initializationEpoch.current) {
+        operationInFlight.current = false;
+        setIsCreatePending(false);
+        if (!initialization.current && !enteringRoom)
+          onInitializationChange?.(false);
+      }
+    }
+  };
+  const cancelInitialization = async () => {
+    if (!initialization.current || operationInFlight.current) return;
+    operationInFlight.current = true;
+    const epoch = initializationEpoch.current;
+    setIsCancellingInitialization(true);
+    setIsCreatePending(true);
+    try {
+      await initialization.current.cancel();
+      if (epoch !== initializationEpoch.current) return;
+      initialization.current = null;
+      setIsCancellingInitialization(false);
+      setHasInitialization(false);
+      onInitializationChange?.(false);
+    } catch (error) {
+      if (epoch === initializationEpoch.current) reportRoomError(error);
+    } finally {
+      if (epoch === initializationEpoch.current) {
+        operationInFlight.current = false;
+        setIsCreatePending(false);
+      }
+    }
+  };
   const endRoom = api.collaborationRoom.end.useMutation({
     onSuccess: async (result) => {
       reportEnforcement(result.enforcement);
@@ -401,7 +503,11 @@ export function CollaborationRoomDialog({
           <DialogTitle className="text-xl font-bold">
             {t("collaboration.title")}
           </DialogTitle>
-          <DialogDescription>{dialogDescription}</DialogDescription>
+          <DialogDescription>
+            {hasInitialization
+              ? t("collaboration.toast.initializationPending")
+              : dialogDescription}
+          </DialogDescription>
         </DialogHeader>
 
         {!isAuthenticationPending && !isAuthenticated && (
@@ -416,21 +522,31 @@ export function CollaborationRoomDialog({
         {!isAuthenticationPending && isAuthenticated && !roomId && (
           <div className="flex flex-col">
             <Button
-              disabled={!sceneId || createRoom.isPending}
+              disabled={
+                !sceneId || isCreatePending || isCancellingInitialization
+              }
               onClick={() => {
                 if (!isAuthenticated) {
                   toast.error(authRequiredMessage);
                   return;
                 }
                 if (!sceneId) return;
-                // 不帶 linkRole：重開既有房間只延長時效，不得重設連結權限。
-                createRoom.mutate({ sceneId });
+                void startRoom();
               }}
             >
-              {createRoom.isPending
+              {isCreatePending
                 ? t("collaboration.action.creating")
                 : t("collaboration.action.start")}
             </Button>
+            {hasInitialization && (
+              <Button
+                variant="outline"
+                disabled={isCreatePending}
+                onClick={() => void cancelInitialization()}
+              >
+                {t("collaboration.action.cancelInitialization")}
+              </Button>
+            )}
           </div>
         )}
 

@@ -155,6 +155,11 @@ export const en = {
   "collaboration.status.missingRoomKey": "Incomplete link",
   "collaboration.status.readOnly": "View only",
   "collaboration.status.readOnlyWithStatus": "{status} (View only)",
+  "collaboration.toast.initializationPending":
+    "Room creation is not confirmed yet. The canvas is paused; retry or cancel this creation.",
+  "collaboration.action.cancelInitialization": "Cancel room creation",
+  "collaboration.toast.initializationAttachments":
+    "Creating a room with images will be available after attachment authorization is connected.",
   "collaboration.error.operationFailed":
     "The collaboration action failed. Please try again.",
   "collaboration.action.creating": "Creating...",

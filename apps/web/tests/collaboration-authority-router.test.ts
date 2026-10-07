@@ -24,13 +24,16 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
 }));
 import { collaborationAuthorityRouter } from "@/server/api/routers/collaboration-authority";
 import type { createTRPCContext } from "@/server/api/trpc";
+import { eq } from "drizzle-orm";
+import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
 import { AdapterError } from "@/server/collab/authority-storage";
 
 // Only request plumbing is synthetic; these tests exercise the real protected procedure and schema.
 const database = {};
-function caller(subject: string | null = "owner") {
+function caller(subject: string | null = "owner", db: unknown = database) {
   return collaborationAuthorityRouter.createCaller({
-    db: database,
+    db,
     headers: new Headers(),
     auth: subject
       ? { user: { id: subject }, session: { id: "live-session" } }
@@ -122,5 +125,46 @@ describe("formal authorization router", () => {
       caller().identity({ roomId: request().roomId }),
     ).rejects.toMatchObject({ code: "SERVICE_UNAVAILABLE" });
     expect(doubles.gateway).not.toHaveBeenCalled();
+  });
+});
+
+const testDb = openTestDatabase();
+describe("source scene display candidates", () => {
+  it("includes initializing rooms, omits ended rooms and never treats projected roles as access credentials", async () => {
+    await testDb.insert(schema.user).values({
+      id: "candidate-owner",
+      name: "Owner",
+      email: "candidate-owner@example.com",
+    });
+    const [source] = await testDb
+      .insert(schema.scene)
+      .values({ userId: "candidate-owner", name: "Source" })
+      .returning();
+    if (!source) throw new Error("missing-source");
+    await testDb.insert(schema.collaborationRoom).values({
+      roomId: "candidate-room",
+      sceneId: source.id,
+      ownerId: "candidate-owner",
+      status: "initializing",
+    });
+    const input = { sceneId: source.id };
+    expect(await caller("candidate-owner", testDb).findForScene(input)).toEqual(
+      { roomId: "candidate-room" },
+    );
+    await expect(
+      caller("stranger", testDb).findForScene(input),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+    await expect(
+      caller(null, testDb).findForScene(input),
+    ).rejects.toMatchObject({ code: "UNAUTHORIZED" });
+    expect(doubles.identity).not.toHaveBeenCalled();
+    expect(doubles.gateway).not.toHaveBeenCalled();
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ status: "ended" })
+      .where(eq(schema.collaborationRoom.roomId, "candidate-room"));
+    expect(
+      await caller("candidate-owner", testDb).findForScene(input),
+    ).toBeNull();
   });
 });

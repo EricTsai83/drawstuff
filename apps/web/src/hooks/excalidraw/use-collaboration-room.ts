@@ -26,6 +26,7 @@ import { useSceneSession } from "@/hooks/scene-session-context";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
 import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
+import { createAuthorityRoomBackend } from "@/lib/collab/authority-client";
 import { createCollaborationRoomController } from "@/hooks/excalidraw/collaboration-room-controller";
 import type { CanvasHandoffOutcome } from "@/hooks/excalidraw/use-canvas-handoff";
 import {
@@ -273,12 +274,17 @@ export function useCollaborationRoom(options: {
       roomId: parsedRoomId.data,
       roomKey,
       backend: {
-        getRoom: (input) =>
-          utilsRef.current.client.collaborationRoom.get.query(input),
-        joinRoom: (input) =>
-          utilsRef.current.client.collaborationRoom.join.mutate(input),
-        // Adapted rather than passed through: the store's contract is two
-        // plain async functions, which keeps it testable without tRPC.
+        ...createAuthorityRoomBackend({
+          execute: (input) =>
+            utilsRef.current.client.collaborationAuthority.execute.mutate(
+              input,
+            ),
+          identity: (input) =>
+            utilsRef.current.client.collaborationAuthority.identity.mutate(
+              input,
+            ),
+        }),
+        // The store's binary transport retains opaque original operations.
         snapshotApi: createBinarySnapshotClient(),
         // Same shape, and for the same reason: the store needs two plain async
         // functions, one to find out where a room's ciphertext lives and one to

@@ -7,6 +7,7 @@ import {
 } from "@drawstuff/excalidraw-adapter/client";
 import { LibraryBig } from "lucide-react";
 import { useState, useCallback, useMemo } from "react";
+import { toSyncedElements } from "@/lib/collab/element-bridge";
 import type {
   ExcalidrawImperativeAPI,
   UIAppState,
@@ -81,6 +82,7 @@ export default function ExcalidrawEditor() {
     setIsCloudUploadDialogOpen,
     openCloudUploadDialog,
   } = useEditorDialogs();
+  const [isRoomInitializing, setIsRoomInitializing] = useState(false);
   const [isMobileCanvasSlot, setIsMobileCanvasSlot] = useState<boolean | null>(
     null,
   );
@@ -191,7 +193,7 @@ export default function ExcalidrawEditor() {
     () => ({
       collaboration: {
         status: collaborationStatus,
-        isReadOnly: isCollaborationReadOnly,
+        isReadOnly: isCollaborationReadOnly || isRoomInitializing,
         onActivate: openCollaborationDialog,
       },
       cloudSave: session
@@ -229,6 +231,7 @@ export default function ExcalidrawEditor() {
       handleCloudUpload,
       handleShareLinkClick,
       isCollaborationReadOnly,
+      isRoomInitializing,
       openCollaborationDialog,
       session,
       uploadStatus,
@@ -285,7 +288,7 @@ export default function ExcalidrawEditor() {
             onScrollChange={handleCollabScrollChange}
             isCollaborating={isCollaborating}
             // Viewer 角色在 UI 也是唯讀；server 端仍是唯一的權限來源。
-            viewModeEnabled={isCollaborationReadOnly}
+            viewModeEnabled={isCollaborationReadOnly || isRoomInitializing}
             UIOptions={{
               canvasActions: {
                 toggleTheme: true,
@@ -375,6 +378,13 @@ export default function ExcalidrawEditor() {
                 isAuthenticated: !!session,
                 isAuthenticationPending,
                 sceneId: currentSceneId ?? null,
+                getInitialElements: () =>
+                  excalidrawAPI
+                    ? toSyncedElements(
+                        excalidrawAPI.getSceneElementsIncludingDeleted(),
+                      )
+                    : null,
+                onInitializationChange: setIsRoomInitializing,
                 roomId: collaborationRoomId,
                 onRoomIdChange: (nextRoomId) => {
                   void setCollaborationRoomId(nextRoomId);

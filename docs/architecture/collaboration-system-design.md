@@ -66,8 +66,8 @@ local persistence and schema semantics; they do not establish cross-cloud or pro
 
 ## 18B P2 storage and projection adapters
 
-The source now contains the storage/projection adapter backend; it has not been deployed or wired
-into browser/UploadThing/retirement product entry points. Authenticated management and parent creation
+The source contains the undeployed storage/projection adapter backend. Browser snapshot and
+attachment-free initialization wiring are described below; UploadThing and retirement remain pending. Authenticated management and parent creation
 are described below. The existing DB-role writers and control outbox remain until the remaining P2 units. Room delivery is described below; Lifecycle
 delivery remains unconfigured. This intermediate artifact cannot be deployed on its own.
 
@@ -248,9 +248,9 @@ proof expiry during registration, adapter failures and generation/end transition
 all retained fields and maximal sizes; the web router test pins the returned generation-free URL.
 Ready state is seeded only in these realtime tests: they do not claim a completed product initialization,
 binary persistence, verified upload callback, Lifecycle retirement, or deployed cross-cloud acceptance.
-The binary snapshot backend unit below connects Room authorization to storage. Product initialization/
-binary session routes and asset entry points still need conversion, alongside every retirement/deletion
-entry, legacy path removal and reset/rollback rehearsal before P3 deployment.
+The units below connect binary storage, snapshot cadence/reset, attachment-free product initialization
+and identity-proof session routes. Asset-bearing initialization, management UI, every retirement/deletion
+entry, legacy path removal and reset/rollback rehearsal remain gates before P3 deployment.
 
 ## 18B P2 binary snapshot backend entry
 
@@ -260,7 +260,7 @@ contains a strict read request or immutable snapshot-put/reset intent; actor fie
 The body is binary ciphertext for put and empty for read/query/cancel/reset. Gateway verifies the
 service capability and proof before selecting the roomId binding, bounds actual forwarded bytes,
 and uses streaming [Request/Response RPC](https://developers.cloudflare.com/workers/runtime-apis/rpc/#readablestream-writablestream-request-and-response) to the same Room. The authenticated web proxy is described below;
-product snapshot-client conversion remains pending.
+product snapshot-client conversion is described below.
 
 - Room verifies identity again, checks its current role and confirmed storage parent, and obtains
   the private live actor/owner/scene lifecycle registration receipt before handling content. Only
@@ -292,8 +292,8 @@ initial owner/manifest completion, two-body saturation, response cancellation an
 Actual WebSocket fanout and management remain live while a snapshot adapter read is stalled.
 These runtime tests use fake private adapter HTTP responses; the existing real PostgreSQL adapter
 suite separately verifies storage/fence ordering. Deployed Vercel body limits, cross-cloud load and
-product flows remain acceptance gates. Product snapshot calls, attachments and Lifecycle/deletion
-conversion remain P2 work.
+complete product flows remain acceptance gates. Attachment, remaining management and Lifecycle/deletion
+conversion remain P2 work; product snapshot and attachment-free initialization wiring are described below.
 
 ## 18B P2 authenticated web binary snapshot entry
 
@@ -342,7 +342,7 @@ The product unit below completes snapshot load/save/reset conversion and old tRP
 Product bootstrap, durable load/save cadence, and the owner's two-click reset now use the binary
 client. `collaborationSnapshot.get/put/reset` and their legacy storage helpers are removed from
 source. The tRPC transport refuses all three old procedures even for a signed-in caller. Remaining
-room management/initialization, attachment finalization and deletion/retirement paths still require
+room management, attachment-bearing initialization/finalization and deletion/retirement paths still require
 P2 conversion; this is not a deployable cutover by itself.
 
 - Bootstrap checks the receipt's generation against the joined generation before claiming the
@@ -375,9 +375,65 @@ P2 conversion; this is not a deployable cutover by itself.
   join and attachment limiter regression tests remain.
 
 This unit changes no DB schema and performs no production migration/reset/deployment. Tests use
-fake binary storage effects and local PGlite for remaining router regressions. The next unit connects
-product creation/join/initialization to formal Room authority. Attachment and Lifecycle/deletion
+fake binary storage effects and local PGlite for remaining router regressions. Product creation/join
+and attachment-free initialization are described below. Attachment and Lifecycle/deletion
 conversion and deployed body-limit/cross-cloud acceptance remain pending before P3.
+
+## 18B P2 product authority initialization
+
+The undeployed product now creates attachment-free rooms through `collaborationAuthority.execute`,
+loads key-check metadata from live Room state and connects/reconnects with `collaborationAuthority.identity`.
+The proof is identity-only and the generation-free socket grants the latest Room role. No product
+bootstrap or creation call uses the old DB `create/join` procedures. Remaining legacy room management,
+key rotation, DB panel/projection reads, upload and retirement entry points still need conversion/removal;
+this artifact cannot be deployed independently or pushed to the automatic deployment branch.
+
+- A browser initialization attempt retains one roomId, root key and immutable captured scene. Create,
+  key-check, snapshot and completion have separate immutable UUIDs. The key-check intent pins its
+  expected generation; Room rejects a late old-generation verifier after rotation. Management retries
+  query the
+  original operation with a fresh query deadline; only an explicitly absent, unexpired intent is
+  replayed. Unknown results and pending receipts never allocate another room or publish a link.
+  Snapshot retries retain the original sealed bytes through the binary store. No key or plaintext
+  travels in authority commands; the manifest carries only generation, revision, ciphertext checksum
+  and declared asset IDs.
+- Create must confirm the parent job before content starts. The browser seals the generation-one
+  key-check, explicitly stores a legal encrypted snapshot even for an empty canvas, and completes
+  only with its confirmed snapshot receipt. It waits for the completion receipt and rechecks live
+  ready/generation/key-check before exposing the fragment key. Lagging display projection does not
+  block readiness. Inputs are validated before creating a Room.
+- The editor captures and pauses the source before the scene lookup yields, so a newly loaded
+  canvas cannot seed an unrelated source room. It keeps editing paused while initialization is
+  unresolved, and button retries retain the same attempt. Cancellation uses an immutable owner end intent and releases the pause only
+  after confirmed enforcement or an independently ended Room. Its own pending end intent must still
+  be queried to enforcement even when local Room state is already ended. An absent creation past its deadline
+  can be abandoned without sending a late create. Sign-out discards the local attempt and rejects
+  late success; Room's existing initialization deadline cleans up stranded metadata/objects.
+  Browser exit can still lose the unshared key or unconfirmed bytes; durable browser recovery is
+  outside this unit.
+- `findForScene` checks source ownership and returns only an initializing/ready display candidate,
+  including an in-progress room so another attempt does not knowingly create a duplicate. The
+  browser asks Room before opening it. An existing ready room is opened without a newly minted key;
+  the original complete link or subsequent key-recovery/rotation work is required. DB candidate
+  absence and concurrent creation are still bounded by the existing active-scene unique constraint.
+- Joining checks the live encrypted verifier before preparing/claiming the canvas, then rechecks
+  generation before acquiring an identity proof. Rotation is terminal even when the new generation
+  remains initializing. Independent rooms never compare two NULL scene IDs as the same source canvas.
+  The actual socket ACK continues to decide the live editor/viewer role.
+- Image-bearing initialization is deliberately refused before Room creation, with a product message,
+  until the next attachment authorization/finalization unit can provide the complete durable manifest.
+  It never omits an image or uses the old uploader to claim a partial canvas is ready.
+- Sixteen new browser/store/UI/PGlite cases cover encrypted empty initialization, lost create and
+  snapshot replies, exact request replay, receipt mismatch, pending completion, cancellation, sign-out,
+  generation rotation, image refusal, proof-only joining and source candidate ownership/status.
+  Existing workerd authority tests verify encrypted key-check metadata, and a new SQLite runtime
+  case proves late old-generation key-checks cannot poison the rotated generation.
+  These tests use fake Room/storage effects, real browser crypto and local PGlite; they do not establish
+  deployed cross-cloud product acceptance.
+
+No production schema/migration/reset/deployment or credentials changed in this unit. Next connect
+attachment authorization/finalization and image-bearing initialization, then remaining Room management
+and Lifecycle/deletion paths; retire the old DB issuers/control outbox before the P3 controlled reset.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation
