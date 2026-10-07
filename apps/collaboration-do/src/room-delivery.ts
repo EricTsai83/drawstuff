@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   authorityVersionSchema,
+  parentReceiptSchema,
   contentResultSchema,
   initializationManifestSchema,
   type AdapterCommand,
@@ -29,6 +30,23 @@ export class RoomDelivery {
     signal.throwIfAborted();
     const room = this.authority.state();
     switch (job.kind) {
+      case "create-parent": {
+        if (job.command.roomId !== this.authority.roomId || !room)
+          throw new Error("wrong-room");
+        if (room.state === "ended") return true;
+        const receipt = await this.adapter.call(
+          job.command,
+          parentReceiptSchema,
+          signal,
+        );
+        if (
+          receipt.roomId !== job.command.roomId ||
+          receipt.createOperationId !== job.command.createOperationId
+        )
+          throw new Error("operation-mismatch");
+        await this.authority.confirmParent(receipt.createOperationId);
+        return true;
+      }
       case "projection":
         if (job.event.roomId !== this.authority.roomId)
           throw new Error("wrong-room");

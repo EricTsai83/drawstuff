@@ -107,6 +107,10 @@ export default defineConfig({
       miniflare: {
         bindings: {
           COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
+          COLLAB_IDENTITY_SECRET: "test-identity-secret-purpose-only-0001",
+          COLLAB_AUTHORITY_SECRET: "test-authority-secret-purpose-only-0001",
+          COLLAB_ADAPTER_SECRET: "test-adapter-secret-purpose-only-0001",
+          COLLAB_ADAPTER_URL: "",
           // Freeze only the rate-limit elapsed-time source. workerd can process
           // a queued frame flood below the production refill rate on a loaded
           // CI host, which is not an over-rate stream from the Object's point

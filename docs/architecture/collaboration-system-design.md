@@ -58,24 +58,24 @@ points and storage adapters, and P3 must perform the controlled reset before it 
 P1 leaves the legacy DB-role issuer, control outbox/drainer/cron, and ordinary content/retirement
 entry points for the P2 replacement. The P1 alarms retained unconfigured delivery jobs for retry;
 the P2 Room delivery unit below now supplies its authenticated client. Lifecycle delivery remains
-unconfigured. P2 must verify identity proofs and lifecycle registration, supply
-binary write/query/cancel/fence and projection adapters, acknowledge initialization/fences, connect
-retirement from every deletion entry, and remove the old paths. P1 runtime/PGlite tests establish
+unconfigured. The P2 units below verify login proofs and pre-activation registration, provide storage/
+projection adapters, and deliver initialization/fence acknowledgments. P2 must still connect binary
+product and realtime entry points, retirement from every deletion entry, and remove the old paths. P1 runtime/PGlite tests establish
 local persistence and schema semantics; they do not establish cross-cloud or production behavior.
 
 ## 18B P2 storage and projection adapters
 
 The source now contains the storage/projection adapter backend; it has not been deployed or wired
-into authenticated Gateway/browser/UploadThing/retirement entry points. The existing DB-role writers and
-control outbox remain until that next P2 unit. Room delivery is described below; Lifecycle
+into browser/UploadThing/retirement product entry points. Authenticated management and parent creation
+are described below. The existing DB-role writers and control outbox remain until the remaining P2 units. Room delivery is described below; Lifecycle
 delivery remains unconfigured. This intermediate artifact cannot be deployed on its own.
 
 `POST /api/internal/collaboration/adapter` accepts only the private `COLLAB_ADAPTER_SECRET` bearer
 capability. It is separate from join/login and cron credentials; unset configuration refuses all
 requests before body parsing. Browser sessions, identity proofs and caller-supplied roles do not
 authenticate this endpoint. Provision matching service credentials only when the authenticated
-Room delivery path is complete. Its storage helpers require an already-persisted room parent;
-creation and lifecycle registration remain responsibilities of the next unit.
+Room delivery path is complete. Content storage helpers require an already-persisted room parent;
+the authenticated management unit below supplies creation and pre-activation registration.
 
 - `authority-storage.ts` locks the room row for writes, cancellation, result query, reads,
   initialization checks, cleanup and fence advancement. Snapshot effects and immutable operation
@@ -94,8 +94,8 @@ creation and lifecycle registration remain responsibilities of the next unit.
 - Initialization verification checks the latest declared snapshot and all declared finalized
   assets under the same lock. It does not make the Room ready. A subsequent snapshot write
   invalidates that verification; promoting adapter state to ready requires a current confirmation.
-  DO key-check verification and local completion still belong to the next authenticated delivery
-  path, which must not report Room readiness before the required adapter acknowledgment.
+  Room delivery checks local key-check and completion state, and does not report Room readiness
+  before the required parent and ready-fence acknowledgments.
 - Snapshot writes use an octet-stream body plus a strict command header capped at 8 KiB. Other
   commands use bounded JSON bodies (64 KiB), including initialization manifests. Actual streamed
   snapshot bytes are bounded at the existing ciphertext ceiling, independently of Content-Length,
@@ -126,8 +126,8 @@ deployed Vercel body-limit, UploadThing, DO delivery or end-to-end product accep
 ## 18B P2 Room adapter delivery
 
 Room alarms now deliver metadata jobs through the private adapter endpoint. This is a source-only
-unit: the login/Gateway authority entry points, room-parent creation/registration, browser content
-forwarding, verified upload callbacks, Lifecycle adapters, and deletion entry points are still pending.
+unit: browser content forwarding, verified upload callbacks, Lifecycle adapters, and deletion entry
+points are still pending. The following unit supplies login/Gateway management and parent registration.
 The artifact remains unsuitable for independent deployment; no production credentials were provisioned.
 
 - `AdapterClient` uses the dedicated `COLLAB_ADAPTER_SECRET` and operator-configured
@@ -156,6 +156,56 @@ The artifact remains unsuitable for independent deployment; no production creden
   manifest persistence, and competing completion requests. They do not establish deployed cross-cloud
   latency or complete authenticated product flows. Alarm delivery retains the existing 16-job/5-second
   budget and persistent retry schedule; it does not add a periodic idle-room tick.
+
+## 18B P2 authenticated management entry
+
+The server management path now connects a live login to Room authority:
+`collaborationAuthority.identity/execute` → private `POST /v1/authority` → `applyAuthorityV1` →
+private registration adapter → local Room transaction. This remains a source artifact awaiting the
+remaining P2 entry points and the P3 reset. No service credentials or production schema were changed.
+
+- `authority-identity.ts` reads the current verified user and unexpired session in PostgreSQL under
+  the account lifecycle lock. A 60-second protocol-v6 proof binds roomId, subject, normalized verified
+  email and lifecycle version; it contains no room role. The router binds issuance to the logged-in
+  session, rate-limits by subject, and rejects disabled or unconfigured service. Frozen accounts and
+  missing sessions refuse authorization; database outages report unavailable.
+- `COLLAB_IDENTITY_SECRET` signs identity proofs. A separate `COLLAB_AUTHORITY_SECRET` authenticates
+  Vercel to Gateway; neither is the legacy join secret or the adapter capability. Gateway validates
+  the private bearer before parsing a bounded 64-KiB body, then validates the proof before obtaining
+  a Room binding. Room independently validates the proof and request deadline. Strict public commands
+  cannot choose actors or registration versions. The forwarder forbids redirects and binds responses
+  to the requested operation or room, with a 15-second deadline; a failed response is never success.
+- Before activation, `authority-registration.ts` locks active account lifecycle rows in sorted subject
+  order, including the room owner and any explicit grant target, followed by the optional source scene.
+  It validates current proof identity and source ownership, then durably registers subjects without
+  requiring a room parent. Freeze must use the same lock order. Registration rows survive parent cascade;
+  conservative extra rows are safe. Room authorizes locally before and after external registration,
+  obtains grant-target versions from the adapter, and exposes operation receipts only to their actor.
+- Creation atomically records the initializing Room and a metadata-only `create-parent` job. Its result
+  remains pending until a bound PostgreSQL parent receipt arrives through durable delivery. Readiness
+  additionally requires the existing complete snapshot/asset manifest and ready fence acknowledgment.
+  Create replay preserves the original operation identity; it does not allocate another room parent.
+  The parent acknowledgment is retained in Room state independently of the 24-hour receipt cleanup,
+  so later generation rotation can initialize after the original create result has been pruned.
+- Parent creation and terminal fencing share a persistent `collaboration_creation_fence` row lock.
+  A terminal fence can acknowledge an absent parent only after recording an irreversible ended marker.
+  The marker has no parent FK: cancellation before parent delivery and parent deletion both prevent a
+  delayed create from resurrecting the parent. Content writes still require a present, unfenced parent.
+- Any Room with formal authority state refuses legacy WebSocket and control ingress and disconnects
+  existing legacy sockets. Formal realtime and browser initialization/content/upload flows must be
+  connected next; this unit does not expose a working product realtime channel or provide a mixed-mode
+  deployment. Owner management/state queries can inspect initializing or ended state; ordinary join
+  requires ready state and Room-derived access. Restricted mode uses the allowlist; open-link mode
+  uses linkRole, with persistent member revocation taking precedence in both modes.
+
+workerd tests cover verified Gateway → Room RPC forwarding, private Gateway refusal, proof boundaries, registration failure/late retirement,
+eviction and parent-job recovery, strict target versions, own-actor queries and legacy ingress isolation.
+Web tests cover the live session/account contract, pre-parent registration, parent replay/cancellation,
+forwarding bounds and tRPC identity binding. `pnpm collab:adapters` now runs eight actual PostgreSQL
+tests, including account freeze versus registration and terminal fence versus missing-parent creation.
+These local tests do not establish deployed cross-cloud behavior or complete product flows. Lifecycle
+delivery, every deletion entry, formal WebSocket/binary/upload entry points, legacy path removal, and
+reset/rollback rehearsal remain P2 work before P3 deployment.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation

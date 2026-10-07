@@ -30,6 +30,7 @@ const webRoot = path.resolve(import.meta.dirname, "..");
 /** Server paths that handle collaboration input signed or stored as given. */
 const GUARDED_PATHS = [
   path.join("src", "server", "collab"),
+  path.join("src", "server", "api", "routers", "collaboration-authority.ts"),
   path.join("src", "server", "api", "routers", "collaboration-room.ts"),
   path.join("src", "server", "api", "routers", "collaboration-snapshot.ts"),
   path.join("src", "server", "api", "routers", "collaboration-asset.ts"),

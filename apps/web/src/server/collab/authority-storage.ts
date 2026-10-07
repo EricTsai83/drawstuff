@@ -21,6 +21,7 @@ import {
   collaborationAsset,
   collaborationOperation,
   collaborationRoom,
+  collaborationCreationFence,
   collaborationSnapshot,
   deferredFileCleanup,
 } from "@/server/db/schema";
@@ -346,8 +347,22 @@ export async function applyStorageFence(
   const command = adapterCommandSchema.parse(input);
   if (command.action !== "fence") throw new AdapterError("invalid-body");
   return db.transaction(async (tx) => {
+    if (command.state === "ended") {
+      // Serialize against parent creation even when no FK parent exists yet.
+      await tx
+        .insert(collaborationCreationFence)
+        .values({ roomId: command.roomId, ended: true })
+        .onConflictDoUpdate({
+          target: collaborationCreationFence.roomId,
+          set: { ended: true },
+        });
+    }
     const room = await lockRoom(tx, command.roomId);
-    if (!room) throw new AdapterError("not-found");
+    if (!room) {
+      if (command.state === "ended")
+        return { authorityEpoch: command.authorityEpoch };
+      throw new AdapterError("not-found");
+    }
     if (command.authorityEpoch < room.authorityEpoch)
       return { authorityEpoch: room.authorityEpoch };
     if (

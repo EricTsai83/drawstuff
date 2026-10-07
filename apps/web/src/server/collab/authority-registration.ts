@@ -1,0 +1,208 @@
+import "server-only";
+import { and, eq } from "drizzle-orm";
+import {
+  registrationCommandSchema,
+  createParentCommandSchema,
+  type AdapterCommand,
+  type TrustedIdentity,
+} from "@drawstuff/collaboration/authority";
+import {
+  collaborationLifecycleRegistration,
+  collaborationLifecycleSubject,
+  collaborationRoom,
+  collaborationCreationFence,
+  scene,
+} from "@/server/db/schema";
+import type { Database, RoomTransaction } from "./rooms";
+import { lockRoom } from "./rooms";
+import { AdapterError } from "./authority-storage";
+import { lockActiveAccount } from "./authority-identity";
+
+type Registration = Extract<AdapterCommand, { action: "register" }>;
+async function lockSource(
+  tx: RoomTransaction,
+  subject: string,
+  sceneId: string | null,
+): Promise<void> {
+  if (!sceneId) return;
+  const scope = `scene:${sceneId}`;
+  await tx
+    .insert(collaborationLifecycleSubject)
+    .values({ scope, kind: "scene", subject, sceneId })
+    .onConflictDoNothing();
+  const [lifecycle] = await tx
+    .select()
+    .from(collaborationLifecycleSubject)
+    .where(eq(collaborationLifecycleSubject.scope, scope))
+    .for("update");
+  const [source] = await tx
+    .select({ userId: scene.userId })
+    .from(scene)
+    .where(eq(scene.id, sceneId))
+    .for("key share");
+  if (
+    !lifecycle ||
+    lifecycle.frozen ||
+    lifecycle.retired ||
+    source?.userId !== subject
+  )
+    throw new AdapterError("fence-mismatch");
+}
+function checkIdentity(actual: TrustedIdentity, expected: TrustedIdentity) {
+  if (JSON.stringify(actual) !== JSON.stringify(expected))
+    throw new AdapterError("fence-mismatch");
+}
+async function registerSubject(
+  tx: RoomTransaction,
+  command: Registration,
+  identity: TrustedIdentity,
+) {
+  const [existing] = await tx
+    .select()
+    .from(collaborationLifecycleRegistration)
+    .where(
+      and(
+        eq(collaborationLifecycleRegistration.subject, identity.subject),
+        eq(collaborationLifecycleRegistration.roomId, command.roomId),
+      ),
+    );
+  const owner = command.ownerId === identity.subject;
+  if (
+    existing &&
+    (existing.sceneId !== command.sceneId ||
+      (command.create && existing.operationId !== command.operationId))
+  )
+    throw new AdapterError("operation-mismatch");
+  await tx
+    .insert(collaborationLifecycleRegistration)
+    .values({
+      subject: identity.subject,
+      roomId: command.roomId,
+      sceneId: command.sceneId,
+      owner,
+      lifecycleVersion: identity.lifecycleVersion,
+      operationId: command.operationId,
+    })
+    .onConflictDoUpdate({
+      target: [
+        collaborationLifecycleRegistration.subject,
+        collaborationLifecycleRegistration.roomId,
+      ],
+      set: {
+        lifecycleVersion: identity.lifecycleVersion,
+        owner: (existing?.owner ?? false) || owner,
+      },
+    });
+}
+
+/** Conservative registration may contain extra rows, but can never miss a pre-activation subject. */
+export async function registerAuthorityCommand(
+  db: Database,
+  input: Registration,
+) {
+  const command = registrationCommandSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const identities = new Map<string, TrustedIdentity>();
+    for (const subject of [
+      ...new Set([
+        command.identity.subject,
+        command.ownerId,
+        ...(command.targetSubject ? [command.targetSubject] : []),
+      ]),
+    ].sort())
+      identities.set(subject, await lockActiveAccount(tx, subject));
+    const identity = identities.get(command.identity.subject)!;
+    checkIdentity(identity, command.identity);
+    if (command.create && command.ownerId !== identity.subject)
+      throw new AdapterError("fence-mismatch");
+    await lockSource(tx, command.ownerId, command.sceneId);
+    await registerSubject(tx, command, identity);
+    if (command.targetSubject)
+      await registerSubject(
+        tx,
+        command,
+        identities.get(command.targetSubject)!,
+      );
+    return {
+      roomId: command.roomId,
+      operationId: command.operationId,
+      subject: identity.subject,
+      lifecycleVersion: identity.lifecycleVersion,
+      ...(command.targetSubject
+        ? {
+            targetSubject: command.targetSubject,
+            targetVersion: identities.get(command.targetSubject)!
+              .lifecycleVersion,
+          }
+        : {}),
+    };
+  });
+}
+
+/** Delivered from the Room's immutable create job, after its authority transaction has committed. */
+export async function createAuthorityParent(
+  db: Database,
+  input: Extract<AdapterCommand, { action: "create-parent" }>,
+) {
+  const command = createParentCommandSchema.parse(input);
+  return db.transaction(async (tx) => {
+    const owner = await lockActiveAccount(tx, command.owner.subject);
+    checkIdentity(owner, command.owner);
+    await lockSource(tx, owner.subject, command.sceneId);
+    const [registered] = await tx
+      .select()
+      .from(collaborationLifecycleRegistration)
+      .where(
+        and(
+          eq(collaborationLifecycleRegistration.subject, owner.subject),
+          eq(collaborationLifecycleRegistration.roomId, command.roomId),
+        ),
+      );
+    if (
+      !registered?.owner ||
+      registered.operationId !== command.createOperationId ||
+      registered.sceneId !== command.sceneId ||
+      registered.lifecycleVersion !== owner.lifecycleVersion
+    )
+      throw new AdapterError("fence-mismatch");
+    await tx
+      .insert(collaborationCreationFence)
+      .values({ roomId: command.roomId })
+      .onConflictDoNothing();
+    const [creation] = await tx
+      .select()
+      .from(collaborationCreationFence)
+      .where(eq(collaborationCreationFence.roomId, command.roomId))
+      .for("update");
+    if (creation?.ended) throw new AdapterError("fence-mismatch");
+    const receipt = {
+      roomId: command.roomId,
+      createOperationId: command.createOperationId,
+    };
+    let room = await lockRoom(tx, command.roomId);
+    if (!room) {
+      if (command.initializationDeadline <= Date.now())
+        throw new AdapterError("initialization-incomplete");
+      await tx
+        .insert(collaborationRoom)
+        .values({
+          roomId: command.roomId,
+          ownerId: owner.subject,
+          sceneId: command.sceneId,
+          createOperationId: command.createOperationId,
+          label: command.label,
+          linkRole: command.linkRole,
+          initializationDeadline: new Date(command.initializationDeadline),
+        })
+        .onConflictDoNothing();
+      room = await lockRoom(tx, command.roomId);
+    }
+    if (
+      room?.ownerId !== owner.subject ||
+      room.createOperationId !== command.createOperationId ||
+      room.sceneId !== command.sceneId
+    )
+      throw new AdapterError("operation-mismatch");
+    return receipt;
+  });
+}

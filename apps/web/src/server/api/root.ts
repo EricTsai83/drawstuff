@@ -1,4 +1,5 @@
 import { categoryRouter } from "@/server/api/routers/category";
+import { collaborationAuthorityRouter } from "@/server/api/routers/collaboration-authority";
 import { collaborationAssetRouter } from "@/server/api/routers/collaboration-asset";
 import { collaborationRoomRouter } from "@/server/api/routers/collaboration-room";
 import { collaborationSnapshotRouter } from "@/server/api/routers/collaboration-snapshot";
@@ -17,6 +18,7 @@ import { adminRouter } from "@/server/api/routers/admin";
 export const appRouter = createTRPCRouter({
   admin: adminRouter,
   category: categoryRouter,
+  collaborationAuthority: collaborationAuthorityRouter,
   collaborationAsset: collaborationAssetRouter,
   collaborationRoom: collaborationRoomRouter,
   collaborationSnapshot: collaborationSnapshotRouter,

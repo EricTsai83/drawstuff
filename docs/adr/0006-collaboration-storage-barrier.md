@@ -1,6 +1,6 @@
 # ADR-0006：房間授權與持久保存以 epoch 屏障排序
 
-- Status: Accepted for implementation（2026-10-07）；P0 原型、P1 底座與 P2 儲存／投影 adapter 與 Room alarm delivery 存在，production 權威仍在 DB。
+- Status: Accepted for implementation（2026-10-07）；P0 原型、P1 底座與 P2 adapter、Room alarm、登入 proof／Gateway 管理入口及預啟用登記存在，production 權威仍在 DB。
 - 範圍：[18B](../../plans/18b-collaboration-authority-reset.md) P0／P1／P2。
 
 ## 分開三個版本與兩種成功
@@ -28,6 +28,14 @@ epoch、期限與 expectedRevision；快照及終態結果一同 commit。fence 
 adapter 的 storage generation／state 與顯示投影分開，投影不能倒退儲存 fence。
 reset 刪除快照後仍保留 revision 高水位，避免舊 expectedRevision 重新有效；詳見
 [P2 adapter 邊界](../architecture/collaboration-system-design.md#18b-p2-storage-and-projection-adapters)。
+
+建立 parent 前也需要終態屏障：Room 初始化可能在 PostgreSQL parent 尚未建立時被取消。
+`create-parent` 與 ended fence 先鎖共同的 `collaboration_creation_fence` 列，再鎖房間 parent。
+ended marker 不隨 parent cascade 刪除；缺 parent 的 terminal ACK 只有在 marker commit 後才能返回。
+因此晚到的建立無法復活已取消或已刪除的 parent，create 結果也必須等 parent ACK 才能 enforced。
+登入 proof 不帶角色；預啟用登記與 freeze 共用帳號／scene lifecycle 列鎖，Room 在登記 I/O 前後
+重查本地授權。正式管理入口的界線見
+[P2 management entry](../architecture/collaboration-system-design.md#18b-p2-authenticated-management-entry)。
 
 回覆遺失時先查結果；已 commit 的操作仍回報原 revision，重送不重寫。缺 payload 的 pending
 操作由持久 alarm 查詢／取消；取消取同一鎖，已 commit 則返回 written，否則持久記錄 cancelled。
@@ -78,6 +86,6 @@ SQLite 的 SQL 與 alarm 使用同一個非同步 storage transaction，僅包�
 
 production transport protocol 仍是 5（18A 保存控制訊息）；P1 source artifact 已升至 6，
 新增 identity proof、roomId 定址、SQLite 待辦與 Lifecycle 進度、PostgreSQL fence／初始化／投影／
-登記 schema。P2 adapter 後端與 Room alarm 的 metadata delivery 已完成；正式 proof、binary 產品入口與所有退休入口仍待接入，P3 重置後才部署。
+登記 schema。P2 adapter、Room metadata delivery、正式登入 proof／Gateway 管理與預啟用登記已完成；正式即時通道、binary／附件產品入口與所有退休入口仍待接入，P3 重置後才部署。
 具體底座與邊界見 [system design](../architecture/collaboration-system-design.md#18b-p1-source-artifact-and-p2-boundary)。
 此 transport 升版不重設加密 authGeneration，也不改既有 durable crypto envelope 版本。

@@ -107,6 +107,7 @@ describe("persistent Room authority foundation", () => {
         a.confirmInitialization(complete.operationId, complete.manifest),
       ).rejects.toThrow("initialization-incomplete");
       await a.recordInitialAsset("file-a", 1);
+      await a.confirmParent(a.state()!.create_operation);
       await a.confirmInitialization(complete.operationId, complete.manifest);
       expect(a.state()?.state).toBe("ready");
       await a.apply({
@@ -124,6 +125,15 @@ describe("persistent Room authority foundation", () => {
       expect(a.role(guest)).toBeUndefined();
       await a.confirmFence(revoked.authorityEpoch);
       expect(a.query(revoked.operationId)?.status).toBe("enforced");
+      const createOperation = a.state()!.create_operation;
+      await a.work.commit(() => {
+        state.storage.sql.exec(
+          "UPDATE authority_results SET terminal_at=0 WHERE id=?",
+          createOperation,
+        );
+        a.work.prune();
+      });
+      expect(a.query(createOperation)).toBeUndefined();
       await a.apply({
         ...command("rotate-generation"),
         action: "rotate-generation",
@@ -139,10 +149,29 @@ describe("persistent Room authority foundation", () => {
       ).toBe(1);
     });
     await evictDurableObject(stub);
-    await runInDurableObject(stub, (_instance, state) => {
+    await runInDurableObject(stub, async (_instance, state) => {
       const a = new RoomAuthority(state.storage, roomId);
       expect(a.state()?.auth_generation).toBe(2);
       expect(a.role(guest)).toBeUndefined();
+      expect(a.state()?.parent_confirmed).toBe(1);
+      await a.apply({
+        ...command("set-key-check"),
+        action: "set-key-check",
+        keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
+      });
+      const complete = {
+        ...command("complete-initialization"),
+        action: "complete-initialization" as const,
+        manifest: {
+          authGeneration: 2,
+          revision: 1,
+          checksum: "b".repeat(64),
+          assetIds: [],
+        },
+      };
+      await a.apply(complete);
+      await a.confirmInitialization(complete.operationId, complete.manifest);
+      expect(a.state()?.state).toBe("ready");
     });
   });
 
@@ -418,6 +447,46 @@ describe("persistent Room authority foundation", () => {
         state: "ended",
         projection_dirty: 1,
       });
+    });
+  });
+
+  it("consults the allowlist only in restricted mode, while keeping member revocation authoritative", async () => {
+    const { roomId, stub, command } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = new RoomAuthority(state.storage, roomId);
+      await a.apply({
+        ...command("create"),
+        action: "create",
+        sceneId: null,
+        label: "",
+        linkRole: "none",
+      });
+      state.storage.sql.exec("UPDATE authority_room SET state='ready'");
+      await a.apply({
+        ...command("allow-email"),
+        action: "allow-email",
+        email: guest.email,
+        role: "editor",
+      });
+      expect(a.role(guest)).toBe("editor");
+      await a.apply({
+        ...command("set-link-role"),
+        action: "set-link-role",
+        linkRole: "viewer",
+      });
+      expect(a.role(guest)).toBe("viewer");
+      await a.apply({
+        ...command("join"),
+        action: "join",
+        actor: guest,
+        registrationVersion: 1,
+      });
+      await a.apply({
+        ...command("revoke-member"),
+        action: "revoke-member",
+        subject: guest.subject,
+      });
+      expect(a.role(guest)).toBeUndefined();
     });
   });
 

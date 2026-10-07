@@ -67,6 +67,8 @@ describe("deployment config", () => {
       "COLLAB_OUTBOX_DRAIN_URL",
       "COLLAB_ADAPTER_URL",
       "COLLAB_ADAPTER_SECRET",
+      "COLLAB_IDENTITY_SECRET",
+      "COLLAB_AUTHORITY_SECRET",
     ]);
     expect(audit.varKeys).toEqual(["COLLAB_ALLOWED_ORIGINS"]);
   });

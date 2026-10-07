@@ -139,6 +139,88 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
 ]);
 export type RoomCommand = z.infer<typeof roomCommandSchema>;
 
+/** Authenticated entry input: actor and lifecycle versions are supplied only by trusted services. */
+export const authorityRequestSchema = z.discriminatedUnion("action", [
+  roomCommandSchema.options[0].omit({ actor: true }),
+  roomCommandSchema.options[1].omit({ actor: true, registrationVersion: true }),
+  roomCommandSchema.options[2].omit({ actor: true }),
+  roomCommandSchema.options[3].omit({ actor: true, registrationVersion: true }),
+  roomCommandSchema.options[4].omit({ actor: true }),
+  roomCommandSchema.options[5].omit({ actor: true }),
+  roomCommandSchema.options[6].omit({ actor: true }),
+  roomCommandSchema.options[7].omit({ actor: true }),
+  z
+    .strictObject({
+      ...envelope,
+      action: z.literal("set-key-check"),
+      keyCheck: z
+        .array(z.int().min(0).max(255))
+        .length(KEYCHECK_CIPHERTEXT_BYTES),
+    })
+    .omit({ actor: true }),
+  roomCommandSchema.options[9].omit({ actor: true }),
+  roomCommandSchema.options[10].omit({ actor: true }),
+  roomCommandSchema.options[11].omit({ actor: true }),
+  z
+    .strictObject({ ...envelope, action: z.literal("get-state") })
+    .omit({ actor: true }),
+  z
+    .strictObject({ ...envelope, action: z.literal("query") })
+    .omit({ actor: true }),
+]);
+export type AuthorityRequest = z.infer<typeof authorityRequestSchema>;
+export const AUTHORITY_GATEWAY_PATH = "/v1/authority";
+export const authorityGatewayRequestSchema = z.strictObject({
+  proof: z.string().min(1).max(2_048),
+  request: authorityRequestSchema,
+});
+export const authorityStateSchema = z.strictObject({
+  roomId: roomIdSchema,
+  state: roomStateSchema,
+  role: roomRoleSchema,
+  sceneId: z.uuid().nullable(),
+  label: z.string().max(120),
+  linkRole: linkRoleSchema,
+  authGeneration: roomAuthGenerationSchema,
+  authRevision: authorityVersionSchema,
+  authorityEpoch: authorityVersionSchema,
+  initializationDeadline: z.int().positive(),
+});
+export const registrationCommandSchema = z.strictObject({
+  v: z.literal(AUTHORITY_CONTRACT_VERSION),
+  action: z.literal("register"),
+  operationId: operationIdSchema,
+  roomId: roomIdSchema,
+  identity: trustedIdentitySchema,
+  ownerId: subjectSchema,
+  sceneId: z.uuid().nullable(),
+  create: z.boolean(),
+  targetSubject: subjectSchema.optional(),
+});
+export const registrationReceiptSchema = z.strictObject({
+  roomId: roomIdSchema,
+  operationId: operationIdSchema,
+  subject: subjectSchema,
+  lifecycleVersion: authorityVersionSchema,
+  targetSubject: subjectSchema.optional(),
+  targetVersion: authorityVersionSchema.optional(),
+});
+export const createParentCommandSchema = z.strictObject({
+  v: z.literal(AUTHORITY_CONTRACT_VERSION),
+  action: z.literal("create-parent"),
+  roomId: roomIdSchema,
+  owner: trustedIdentitySchema,
+  createOperationId: operationIdSchema,
+  sceneId: z.uuid().nullable(),
+  label: z.string().max(120),
+  linkRole: linkRoleSchema,
+  initializationDeadline: z.int().positive(),
+});
+export const parentReceiptSchema = z.strictObject({
+  roomId: roomIdSchema,
+  createOperationId: operationIdSchema,
+});
+
 export const contentOperationSchema = z
   .strictObject({
     ...envelope,
@@ -209,6 +291,11 @@ export const managementResultSchema = z.strictObject({
 });
 export type ManagementResult = z.infer<typeof managementResultSchema>;
 
+export const authorityGatewayResponseSchema = z.strictObject({
+  ok: z.literal(true),
+  result: z.union([managementResultSchema, authorityStateSchema]),
+});
+
 export const projectionEventSchema = z.strictObject({
   v: z.literal(AUTHORITY_CONTRACT_VERSION),
   roomId: roomIdSchema,
@@ -230,6 +317,8 @@ const storageContext = {
   authorityEpoch: authorityVersionSchema,
 };
 export const adapterCommandSchema = z.discriminatedUnion("action", [
+  registrationCommandSchema,
+  createParentCommandSchema,
   storageCommandSchema.options[0],
   storageCommandSchema.options[1],
   z.strictObject({
@@ -325,6 +414,10 @@ export const lifecyclePageSchema = z.strictObject({
   cursor: z.string().max(256).nullable(),
 });
 export const durableJobSchema = z.discriminatedUnion("kind", [
+  z.strictObject({
+    kind: z.literal("create-parent"),
+    command: createParentCommandSchema,
+  }),
   z.strictObject({
     kind: z.literal("projection"),
     event: projectionEventSchema,

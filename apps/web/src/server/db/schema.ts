@@ -768,6 +768,15 @@ export const collaborationAsset = createTable(
   ],
 );
 
+/** Terminal creation barrier survives missing parents and their cascades. */
+export const collaborationCreationFence = createTable(
+  "collaboration_creation_fence",
+  {
+    roomId: varchar("room_id", { length: 64 }).primaryKey(),
+    ended: boolean("ended").default(false).notNull(),
+  },
+);
+
 /** Adapter result and snapshot commit share the room's FOR UPDATE fence. No ciphertext payload here. */
 export const collaborationOperation = createTable(
   "collaboration_operation",
@@ -1344,6 +1353,7 @@ export const schema = {
   collaborationSnapshot,
   collaborationAsset,
   collaborationOperation,
+  collaborationCreationFence,
   collaborationLifecycleSubject,
   collaborationLifecycleRegistration,
   collaborationProjectionTombstone,

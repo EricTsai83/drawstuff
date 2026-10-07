@@ -64,6 +64,7 @@ import {
 } from "./room-policy.ts";
 import { RoomAuthority } from "./room-authority.ts";
 import { AdapterClient } from "./adapter-client.ts";
+import { applyAuthorityEntry } from "./authority-entry.ts";
 import { RoomDelivery } from "./room-delivery.ts";
 
 /** Standard `WebSocket.OPEN`; stated like the relay does rather than read off
@@ -210,6 +211,22 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       });
   }
 
+  async applyAuthorityV1(input: unknown) {
+    this.requireChannelKey();
+    if (!this.authority) return { ok: false as const, error: "unavailable" };
+    const reply = await applyAuthorityEntry(this.authority, input, this.env);
+    if (this.authority.state()) {
+      // The formal WebSocket entry is a subsequent unit; legacy attachment roles grant no access here.
+      for (const ws of this.ctx.getWebSockets())
+        this.closeSocket(
+          ws,
+          RELAY_CLOSE_CODES.membershipRevoked,
+          "authority entry required",
+        );
+    }
+    return reply;
+  }
+
   override async fetch(request: Request): Promise<Response> {
     const channelKey = this.channelKey();
     // Fail closed when the Object was not addressed via getByName with a
@@ -231,6 +248,9 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
         Upgrade: "websocket",
       });
     }
+
+    if (this.authority?.state())
+      return closedJsonResponse(503, "authority-socket-unavailable");
 
     // Pending and total caps are enforced before the socket exists, so an
     // unauthenticated flood can never hold room slots for the join deadline.
@@ -421,6 +441,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   async applyControlV1(
     command: RoomControlCommandV1,
   ): Promise<RoomControlResultV1> {
+    if (this.authority?.state()) throw new Error("authority-entry-required");
     const channelKey = this.requireChannelKey();
     // Runtime re-validation despite the static type: gateway and Object may
     // skew across a rollout, and an RPC payload is still input. Unknown
@@ -504,6 +525,14 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     ws: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
+    if (this.authority?.state()) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.membershipRevoked,
+        "authority entry required",
+      );
+      return;
+    }
     const attachment = readRoomSocketAttachment(ws);
     if (attachment === undefined) {
       // No attachment, or a version this code does not speak: fail closed.

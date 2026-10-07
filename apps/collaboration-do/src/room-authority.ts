@@ -5,6 +5,7 @@ import {
   managementResultSchema,
   normalizeAccountEmail,
   roomCommandSchema,
+  type AuthorityRequest,
   trustedIdentitySchema,
   initializationManifestSchema,
   type ContentOperation,
@@ -40,6 +41,7 @@ type RoomRow = {
   denied: number;
   projection_dirty: number;
   projection_cursor: string | null;
+  parent_confirmed: number;
 };
 type MemberRow = {
   subject: string;
@@ -61,11 +63,11 @@ export class RoomAuthority {
     this.roomId = roomIdSchema.parse(objectName);
     storage.sql
       .exec(`CREATE TABLE IF NOT EXISTS authority_schema(version INTEGER NOT NULL);
-      INSERT INTO authority_schema SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM authority_schema);`);
+      INSERT INTO authority_schema SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM authority_schema);`);
     if (
       storage.sql
         .exec<{ version: number }>("SELECT version FROM authority_schema")
-        .one().version !== 1
+        .one().version !== 2
     )
       throw new Error("schema-skew");
     storage.sql.exec(`CREATE TABLE IF NOT EXISTS authority_room (
@@ -75,7 +77,8 @@ export class RoomAuthority {
       auth_revision INTEGER NOT NULL CHECK(auth_revision>0), authority_epoch INTEGER NOT NULL CHECK(authority_epoch>0),
       fenced_epoch INTEGER NOT NULL CHECK(fenced_epoch>0), auth_generation INTEGER NOT NULL CHECK(auth_generation>0),
       create_operation TEXT NOT NULL UNIQUE, initialization_deadline INTEGER NOT NULL, listed_at INTEGER NOT NULL,
-      key_check TEXT, denied INTEGER NOT NULL DEFAULT 0 CHECK(denied IN (0,1)), projection_dirty INTEGER NOT NULL DEFAULT 0 CHECK(projection_dirty IN (0,1)), projection_cursor TEXT
+      key_check TEXT, denied INTEGER NOT NULL DEFAULT 0 CHECK(denied IN (0,1)), projection_dirty INTEGER NOT NULL DEFAULT 0 CHECK(projection_dirty IN (0,1)), projection_cursor TEXT,
+      parent_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(parent_confirmed IN (0,1))
     ); CREATE TABLE IF NOT EXISTS authority_members (
       subject TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('owner','editor','viewer')),
       revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0,1)), lifecycle_version INTEGER NOT NULL CHECK(lifecycle_version>0), email_key TEXT
@@ -148,6 +151,7 @@ export class RoomAuthority {
     const member = this.member(identity.subject);
     if (member)
       return member.revoked ? undefined : roomRoleSchema.parse(member.role);
+    if (room.link_role !== "none") return room.link_role;
     const allowed = this.storage.sql
       .exec<{ role: RoomRole; removed: number }>(
         "SELECT role,removed FROM authority_allowlist WHERE email_key=?",
@@ -156,7 +160,7 @@ export class RoomAuthority {
       .toArray()[0];
     if (allowed)
       return allowed.removed ? undefined : roomRoleSchema.parse(allowed.role);
-    return room.link_role === "none" ? undefined : room.link_role;
+    return undefined;
   }
 
   query(operationId: string): ManagementResult | undefined {
@@ -186,7 +190,7 @@ export class RoomAuthority {
           if (this.state()) throw new Error("operation-mismatch");
           const now = Date.now();
           this.storage.sql.exec(
-            "INSERT INTO authority_room VALUES (?,?,?,?, 'initializing',?,1,1,1,1,?,?,?,NULL,0,0,NULL)",
+            "INSERT INTO authority_room VALUES (?,?,?,?, 'initializing',?,1,1,1,1,?,?,?,NULL,0,0,NULL,0)",
             this.roomId,
             command.actor.subject,
             command.sceneId,
@@ -202,6 +206,28 @@ export class RoomAuthority {
             command.actor.lifecycleVersion,
             command.actor.email,
           );
+          if (
+            !this.work.enqueue(
+              `parent:${command.operationId}`,
+              {
+                kind: "create-parent",
+                command: {
+                  v: 1,
+                  action: "create-parent",
+                  roomId: this.roomId,
+                  owner: command.actor,
+                  createOperationId: command.operationId,
+                  sceneId: command.sceneId,
+                  label: command.label,
+                  linkRole: command.linkRole,
+                  initializationDeadline:
+                    this.requireRoom().initialization_deadline,
+                },
+              },
+              false,
+            )
+          )
+            throw new Error("capacity");
         } else {
           const room = this.requireRoom();
           if (room.state === "ended") throw new Error("ended");
@@ -371,7 +397,9 @@ export class RoomAuthority {
             : command.actor.subject,
         );
         const pending =
-          needsFence || command.action === "complete-initialization";
+          needsFence ||
+          command.action === "complete-initialization" ||
+          command.action === "create";
         const result: ManagementResult = {
           operationId: command.operationId,
           status: pending ? "pending" : "enforced",
@@ -382,6 +410,70 @@ export class RoomAuthority {
         };
         this.work.result(command.operationId, request, result, !pending);
         return result;
+      },
+      () => this.nextDeadline(),
+    );
+  }
+
+  /** Preflight locally before any external registration. Identity alone grants no owner capability. */
+  authorizeRequest(identity: TrustedIdentity, request: AuthorityRequest): void {
+    this.checkIdentity(identity);
+    const room = this.state();
+    if (request.action === "create") {
+      if (room && room.owner !== identity.subject) throw new Error("forbidden");
+      return;
+    }
+    if (!room) throw new Error("not-found");
+    if (request.action === "query") {
+      const row = this.storage.sql
+        .exec<{ request: string }>(
+          "SELECT request FROM authority_results WHERE id=?",
+          request.operationId,
+        )
+        .toArray()[0];
+      if (!row) throw new Error("not-found");
+      // Serialized key-check bytes are arrays; only the immutable actor is needed here.
+      const original: unknown = JSON.parse(row.request);
+      if (!original || typeof original !== "object" || !("actor" in original))
+        throw new Error("malformed");
+      if (
+        trustedIdentitySchema.parse(original.actor).subject !== identity.subject
+      )
+        throw new Error("forbidden");
+      return;
+    }
+    if (request.action === "get-state" && room.owner === identity.subject)
+      return;
+    if (request.action === "get-state" || request.action === "join") {
+      if (!this.role(identity, request.action === "get-state"))
+        throw new Error("forbidden");
+      return;
+    }
+    if (room.owner !== identity.subject) throw new Error("forbidden");
+  }
+
+  async confirmParent(operationId: string): Promise<void> {
+    await this.work.commit(
+      () => {
+        const room = this.requireRoom();
+        if (room.create_operation !== operationId)
+          throw new Error("operation-mismatch");
+        const result = this.query(operationId);
+        if (result?.status !== "pending" || room.state === "ended") return;
+        const request = this.storage.sql
+          .exec<{ request: string }>(
+            "SELECT request FROM authority_results WHERE id=?",
+            operationId,
+          )
+          .one().request;
+        this.storage.sql.exec("UPDATE authority_room SET parent_confirmed=1");
+        this.work.result(
+          operationId,
+          request,
+          { ...result, status: "enforced" },
+          true,
+        );
+        this.work.done(`parent:${operationId}`, 1);
       },
       () => this.nextDeadline(),
     );
@@ -457,6 +549,22 @@ export class RoomAuthority {
 
   private cancelInitializationWork(room: RoomRow): void {
     this.cancelCompletionWork();
+    const created = this.query(room.create_operation);
+    if (created?.status === "pending") {
+      const request = this.storage.sql
+        .exec<{ request: string }>(
+          "SELECT request FROM authority_results WHERE id=?",
+          room.create_operation,
+        )
+        .one().request;
+      this.work.result(
+        room.create_operation,
+        request,
+        { ...created, status: "cancelled" },
+        true,
+      );
+    }
+    this.work.done(`parent:${room.create_operation}`, 1);
     const cleanup = {
       kind: "cleanup" as const,
       roomId: this.roomId,
@@ -515,7 +623,8 @@ export class RoomAuthority {
           );
           if (
             result.authorityEpoch > epoch ||
-            command.data?.action === "complete-initialization"
+            command.data?.action === "complete-initialization" ||
+            command.data?.action === "create"
           )
             continue;
           this.work.result(
@@ -809,6 +918,7 @@ export class RoomAuthority {
     if (
       !room ||
       result?.status !== "pending" ||
+      !room.parent_confirmed ||
       room.state !== "initializing" ||
       room.denied ||
       !room.key_check ||

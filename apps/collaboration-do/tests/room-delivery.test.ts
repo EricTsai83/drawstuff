@@ -73,6 +73,7 @@ async function initialize(
     label: "",
     linkRole: "editor",
   });
+  await a.confirmParent(a.state()!.create_operation);
   await a.apply({
     ...command("set-key-check"),
     action: "set-key-check",

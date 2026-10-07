@@ -21,12 +21,22 @@ The Worker carries production collaboration traffic through DO-only routing.
 `COLLAB_ALLOWED_ORIGINS` admits the production web app and localhost
 development; short-lived join tokens remain the authorization boundary.
 
+**18B source is not independently deployable.** The source adds protocol-v6 Room authority,
+durable adapter delivery, verified login proofs and private management ingress, while product
+realtime/content/upload and Lifecycle retirement remain pending. Formal authority rooms refuse
+legacy socket/control ingress. The P3 reset must precede deployment; do not push this intermediate
+artifact to an automatic deployment branch. Source configuration currently requires seven secrets;
+the two adapter bindings plus `COLLAB_IDENTITY_SECRET` and `COLLAB_AUTHORITY_SECRET` are unprovisioned.
+See the [source boundary](../../docs/architecture/collaboration-system-design.md#18b-p2-authenticated-management-entry)
+and [deployment runbook](../../docs/operations/collaboration-do-deployment.md#2-secrets).
+
 ## Public surface (fixed, versioned)
 
 ```text
 GET  /healthz                                              readiness only, never touches a DO
 GET  /v1/rooms/:roomId/generations/:authGeneration/socket  WebSocket upgrade only
 POST /v1/control                                           Vercel backend only
+POST /v1/authority                                         private management, 18B source only
 ```
 
 ## Commands

@@ -6,7 +6,11 @@ import {
   generateMigration,
   type DrizzleSnapshotJSON,
 } from "drizzle-kit/api";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
+import {
+  registerAuthorityCommand,
+  createAuthorityParent,
+} from "@/server/collab/authority-registration";
 vi.mock("server-only", () => ({}));
 import * as schema from "@/server/db/schema";
 import {
@@ -263,5 +267,150 @@ describe("actual PostgreSQL adapter lock races", () => {
     expect(await applyRoomProjection(db, f.projection({ version: 6 }))).toEqual(
       { applied: false },
     );
+  });
+  it("orders registration against account freeze under the same lifecycle row lock", async () => {
+    const f = await adapterFixture(db);
+    await db
+      .update(schema.user)
+      .set({ emailVerified: true })
+      .where(eq(schema.user.id, f.owner));
+    const scope = `account:${f.owner}`;
+    await db
+      .insert(schema.collaborationLifecycleSubject)
+      .values({ scope, subject: f.owner, kind: "account" });
+    const reached = gate();
+    const unblock = gate();
+    const freezing = db.transaction(async (tx) => {
+      await tx
+        .select()
+        .from(schema.collaborationLifecycleSubject)
+        .where(eq(schema.collaborationLifecycleSubject.scope, scope))
+        .for("update");
+      reached.release();
+      await unblock.wait;
+      await tx
+        .update(schema.collaborationLifecycleSubject)
+        .set({ frozen: true, version: 2 })
+        .where(eq(schema.collaborationLifecycleSubject.scope, scope));
+    });
+    await reached.wait;
+    const registration = registerAuthorityCommand(db, {
+      v: 1,
+      action: "register",
+      roomId: f.roomId,
+      operationId: crypto.randomUUID(),
+      identity: f.operation().actor,
+      ownerId: f.owner,
+      sceneId: null,
+      create: true,
+    });
+    const outcome = registration.then(
+      () => "accepted",
+      () => "refused",
+    );
+    try {
+      await waitForBlocked(1);
+    } finally {
+      unblock.release();
+    }
+    await freezing;
+    expect(await outcome).toBe("refused");
+    expect(
+      await db
+        .select()
+        .from(schema.collaborationLifecycleRegistration)
+        .where(
+          and(
+            eq(schema.collaborationLifecycleRegistration.subject, f.owner),
+            eq(schema.collaborationLifecycleRegistration.roomId, f.roomId),
+          ),
+        ),
+    ).toHaveLength(0);
+  });
+
+  it("a missing-parent terminal fence orders against delayed parent creation", async () => {
+    const f = await adapterFixture(db);
+    await db
+      .update(schema.user)
+      .set({ emailVerified: true })
+      .where(eq(schema.user.id, f.owner));
+    await db
+      .delete(schema.collaborationRoom)
+      .where(eq(schema.collaborationRoom.roomId, f.roomId));
+    const operationId = crypto.randomUUID();
+    await registerAuthorityCommand(db, {
+      v: 1,
+      action: "register",
+      roomId: f.roomId,
+      operationId,
+      identity: f.operation().actor,
+      ownerId: f.owner,
+      sceneId: null,
+      create: true,
+    });
+    await db
+      .insert(schema.collaborationCreationFence)
+      .values({ roomId: f.roomId });
+    const reached = gate();
+    const unblock = gate();
+    const holding = db.transaction(async (tx) => {
+      await tx
+        .select()
+        .from(schema.collaborationCreationFence)
+        .where(eq(schema.collaborationCreationFence.roomId, f.roomId))
+        .for("update");
+      reached.release();
+      await unblock.wait;
+    });
+    await reached.wait;
+    const parent = createAuthorityParent(db, {
+      v: 1,
+      action: "create-parent",
+      roomId: f.roomId,
+      owner: f.operation().actor,
+      createOperationId: operationId,
+      sceneId: null,
+      label: "",
+      linkRole: "none",
+      initializationDeadline: Date.now() + 900_000,
+    });
+    const outcome = parent.then(
+      () => "created",
+      () => "refused",
+    );
+    const fence = applyStorageFence(db, {
+      v: 1,
+      action: "fence",
+      roomId: f.roomId,
+      authorityEpoch: 2,
+      authGeneration: 1,
+      state: "ended",
+    });
+    try {
+      await waitForBlocked(2);
+    } finally {
+      unblock.release();
+    }
+    await holding;
+    await fence;
+    await outcome;
+    // Either lock winner is valid: created parents are ended; absent parents can never appear later.
+    const row = await db.query.collaborationRoom.findFirst({
+      where: eq(schema.collaborationRoom.roomId, f.roomId),
+    });
+    if (row) expect(row.storageState).toBe("ended");
+    await expect(
+      createAuthorityParent(db, {
+        v: 1,
+        action: "create-parent",
+        roomId: f.roomId,
+        owner: f.operation().actor,
+        createOperationId: operationId,
+        sceneId: null,
+        label: "",
+        linkRole: "none",
+        initializationDeadline: Date.now() + 900_000,
+      }),
+    ).rejects.toThrow("fence-mismatch");
   });
 });

@@ -10,6 +10,13 @@ import {
   verifyRoomControlToken,
 } from "@drawstuff/collaboration/room-token";
 import { z } from "zod";
+import { timingSafeEqual } from "node:crypto";
+import {
+  AUTHORITY_GATEWAY_PATH,
+  AUTHORITY_LIMITS,
+  authorityGatewayRequestSchema,
+} from "@drawstuff/collaboration/authority";
+import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 
 import {
   controlClaimsChannelKey,
@@ -36,6 +43,7 @@ import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
  *   GET  /healthz
  *   GET  /v1/rooms/:roomId/generations/:authGeneration/socket  (Upgrade only)
  *   POST /v1/control                                           (Vercel only)
+ *   POST /v1/authority                                         (Vercel only)
  */
 
 const HEALTH_PATH = "/healthz";
@@ -85,6 +93,8 @@ export async function handleGatewayRequest(
   try {
     const url = new URL(request.url);
     if (url.pathname === HEALTH_PATH) return handleHealth(request, env);
+    if (url.pathname === AUTHORITY_GATEWAY_PATH)
+      return await handleAuthority(request, env);
     if (url.pathname === DO_GATEWAY_CONTROL_PATH) {
       return await handleControl(request, env, log);
     }
@@ -190,6 +200,73 @@ async function handleSocket(
     log.error("gateway.room_fetch_failed", {
       errorName: errorNameOf(error),
     });
+    return closedJsonResponse(503, "unavailable");
+  }
+}
+
+async function handleAuthority(request: Request, env: Env): Promise<Response> {
+  const secret = env.COLLAB_AUTHORITY_SECRET;
+  const header = request.headers.get("authorization");
+  const received = encoder.encode(
+    header?.startsWith("Bearer ") ? header.slice(7) : "",
+  );
+  const expected = encoder.encode(secret ?? "");
+  if (
+    expected.byteLength < 32 ||
+    received.byteLength !== expected.byteLength ||
+    !timingSafeEqual(received, expected)
+  )
+    return closedJsonResponse(401, "unauthorized");
+  if (request.method !== "POST")
+    return closedJsonResponse(405, "method-not-allowed", { Allow: "POST" });
+  if (
+    request.headers
+      .get("content-type")
+      ?.split(";", 1)[0]
+      ?.trim()
+      .toLowerCase() !== "application/json"
+  )
+    return closedJsonResponse(415, "unsupported-media-type");
+  const bytes = await readBoundedBody(request, AUTHORITY_LIMITS.jobBytes);
+  if (!bytes) return closedJsonResponse(413, "payload-too-large");
+  let body: unknown;
+  try {
+    body = JSON.parse(
+      new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes),
+    ) as unknown;
+  } catch {
+    return closedJsonResponse(400, "malformed");
+  }
+  const parsed = authorityGatewayRequestSchema.safeParse(body);
+  if (!parsed.success) return closedJsonResponse(400, "malformed");
+  if (!roomTokenSecretReady(env.COLLAB_IDENTITY_SECRET))
+    return closedJsonResponse(503, "not-ready");
+  const verified = verifyIdentityProof({
+    token: parsed.data.proof,
+    secret: env.COLLAB_IDENTITY_SECRET,
+    expectedRoomId: parsed.data.request.roomId,
+    nowSeconds: Math.floor(Date.now() / 1000),
+  });
+  if (!verified.ok) return closedJsonResponse(401, "unauthorized");
+  try {
+    const result = await env.COLLABORATION_ROOM.getByName(
+      parsed.data.request.roomId,
+    ).applyAuthorityV1(parsed.data);
+    if (!result.ok)
+      return closedJsonResponse(
+        result.error === "unavailable"
+          ? 503
+          : result.error === "not-found"
+            ? 404
+            : result.error === "unauthorized"
+              ? 401
+              : result.error === "forbidden"
+                ? 403
+                : 409,
+        result.error,
+      );
+    return Response.json(result, { headers: { "cache-control": "no-store" } });
+  } catch {
     return closedJsonResponse(503, "unavailable");
   }
 }

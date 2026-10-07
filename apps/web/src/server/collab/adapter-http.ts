@@ -20,6 +20,10 @@ import {
   readAdapterSnapshot,
   verifyAdapterInitialization,
 } from "./authority-storage";
+import {
+  registerAuthorityCommand,
+  createAuthorityParent,
+} from "./authority-registration";
 import { applyRoomProjection } from "./authority-projection";
 
 /** Enforce actual streamed bytes, regardless of Content-Length. Never hold a DB lock while reading a body. */
@@ -99,6 +103,10 @@ export async function handleAdapterRequest(
     )
       throw new AdapterError("invalid-body");
     switch (command.action) {
+      case "register":
+        return jsonResponse(await registerAuthorityCommand(db, command));
+      case "create-parent":
+        return jsonResponse(await createAuthorityParent(db, command));
       case "write":
       case "query":
       case "cancel": {

@@ -9,8 +9,9 @@
 
 **18B source 尚未部署。** 工作區 artifact 已包含 protocol v6、roomId 定址、SQLite v3 與新增的
 `CollaborationLifecycle` class／binding，以及移除房間到期的 PostgreSQL schema；P2 的正式
-身分、退休與舊路徑移除尚未接入。儲存／投影 adapter 與 Room alarm delivery 已存在於 source，
-但尚未被產品授權入口呼叫；私有端點在未配置 `COLLAB_ADAPTER_SECRET` 時拒絕全部請求。
+即時通道、產品內容／附件、退休與舊路徑移除尚未接入。儲存／投影 adapter、Room alarm、
+登入 proof／Gateway 管理與預啟用登記已存在於 source；管理入口在未配置新服務憑證時拒絕請求，
+私有 adapter 在未配置 `COLLAB_ADAPTER_SECRET` 時拒絕全部請求。
 不能把這個 artifact 當 code-only 變更自動部署，
 也不能先對正式資料庫 `db:push`。P2 完成後，P3 的手動重置清單必須納入 class lifecycle、
 舊 Object 隔離、schema diff 與配套 rollback 演練；本文件下面仍記錄現有 production 的部署模型。
@@ -43,15 +44,18 @@ Code-only 自動部署即可，不需先手動部署 Worker。
 
 ## 2. Secrets
 
-現有 production 使用下面三個 secret。18B source 的 `secrets.required` 另新增兩個
-adapter binding，P2 完整串接與 P3 重置部署時才配置；目前沒有設定它們：
+現有 production 使用下面三個 secret。18B source 的 `secrets.required` 另新增四個
+adapter／identity／Gateway binding，P2 完整串接與 P3 重置部署時才配置；目前沒有設定它們：
 
 | 18B 新增 binding        | 值／用途                                                                                                                 |
 | ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `COLLAB_ADAPTER_URL`    | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect |
 | `COLLAB_ADAPTER_SECRET` | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用 join／cron secret                         |
+| `COLLAB_IDENTITY_SECRET` | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 不授予角色，與舊 join secret 分開 |
+| `COLLAB_AUTHORITY_SECRET` | 與 web 端同名值相同的 Vercel → Gateway 私有管理入口憑證；與 proof／adapter 憑證分開 |
 
-source 的五個 required secret 缺一會拒絕正式部署。下面仍是舊部署的三個 binding：
+source 的七個 required secret 缺一會拒絕正式部署。P2 移除舊 cron／授權路徑時還須刪除對應舊 binding。
+下面仍是舊部署的三個 binding：
 
 | Secret                     | 耦合對象                                                                                                                                            |
 | -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
