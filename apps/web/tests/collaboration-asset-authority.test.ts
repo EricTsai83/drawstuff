@@ -215,7 +215,7 @@ describe("verified attachment server path", () => {
     });
     await expect(
       finalizeAuthorityAssetUpload(db, f.metadata, f.file),
-    ).rejects.toThrow("asset-finalization-unknown");
+    ).resolves.toEqual({ status: "unknown" });
     expect(
       await db.query.collaborationAsset.findFirst({
         where: eq(schema.collaborationAsset.utFileKey, f.file.key),
@@ -232,7 +232,7 @@ describe("verified attachment server path", () => {
     f.gateway.mockRejectedValue(new Error("never-accepted"));
     await expect(
       finalizeAuthorityAssetUpload(db, f.metadata, f.file),
-    ).rejects.toThrow();
+    ).resolves.toEqual({ status: "unknown" });
     expect(
       await db.query.deferredFileCleanup.findFirst({
         where: eq(schema.deferredFileCleanup.utFileKey, f.file.key),
@@ -270,7 +270,7 @@ describe("verified attachment server path", () => {
         ...f.file,
         size: f.file.size + 1,
       }),
-    ).rejects.toThrow();
+    ).resolves.toEqual({ status: "unknown" });
     expect(f.gateway).not.toHaveBeenCalled();
     expect(
       await db.query.deferredFileCleanup.findFirst({
@@ -305,7 +305,7 @@ describe("verified attachment server path", () => {
           );
       await expect(
         finalizeAuthorityAssetUpload(db, f.metadata, f.file),
-      ).rejects.toThrow();
+      ).resolves.toEqual({ status: "unknown" });
       expect(f.gateway).not.toHaveBeenCalled();
     },
   );

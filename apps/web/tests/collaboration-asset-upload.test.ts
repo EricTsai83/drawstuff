@@ -103,6 +103,20 @@ describe("immutable browser attachment uploads", () => {
     expect(f.upload).toHaveBeenCalledTimes(1);
     expect(f.execute).toHaveBeenCalledTimes(4);
   });
+  it("queries an unknown provider callback without uploading a replacement object", async () => {
+    const f = fixture();
+    f.upload.mockResolvedValue({ status: "unknown" });
+    await expect(f.api.upload(f.input)).rejects.toBeInstanceOf(
+      AssetUploadPendingError,
+    );
+    f.execute.mockResolvedValue({ status: "written", revision: 1 });
+    await f.api.upload(f.input);
+    expect(f.upload).toHaveBeenCalledTimes(1);
+    expect(f.execute.mock.calls[0]![0]).toEqual({
+      action: "query",
+      intent: f.upload.mock.calls[0]![0],
+    });
+  });
   it("does not treat malformed callback/query responses as confirmation", async () => {
     const f = fixture();
     f.upload.mockResolvedValue({ uploadedBy: "legacy-writer" });

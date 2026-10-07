@@ -120,6 +120,9 @@ export async function finalizeAuthorityAssetUpload(
       // Provider SDK logs callback errors. Driver errors may contain storage keys in SQL params.
       throw new Error("asset-cleanup-unconfirmed");
     }
-    throw new Error("asset-finalization-unknown");
+    // UploadThing sends callback-result only when onUploadComplete resolves.
+    // Unknown is deliberately not a content result: the client retains its
+    // original intent and queries it before attempting another provider upload.
+    return { status: "unknown" as const };
   }
 }
