@@ -1,6 +1,6 @@
 # 18B — 共編授權權威重置
 
-- 狀態：規劃中，尚未實作。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
+- 狀態：P0 已通過；UploadThing public 密文附件限制已接受，下一步為 P1／P2，尚未部署。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
 - 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。
 - 後續：[18C](18c-collaboration-surface.md)（房間列表、金鑰體驗、獨立建房 UX、全產品加密告知）。
@@ -86,7 +86,7 @@ PGlite 在空白 DB 推 schema 只證明最終形狀合法。P2 另用本機 Pos
 
 驗收分成三道 gate，避免「必須部署後才能驗證，卻要求驗證完才准部署」：
 
-1. **實作前 P0：** 私有附件可行性、最大 payload 設計、真實多連線儲存屏障原型通過，才進 P1／P2。
+1. **實作前 P0：** public 密文附件限制已定案、最大 payload 設計與真實多連線儲存屏障原型通過，才進 P1／P2。
 2. **部署前 P2：** L1／L2／L2′／L2″、故障恢復、重置與回滾演練通過；L3 測量方法與門檻已寫定。
 3. **部署後 P3：** 先做受控重置部署，再做 L3 驗收。通過 smoke 才恢復入口；全部 L3 完成才可宣稱計畫完成。
 
@@ -161,7 +161,7 @@ flowchart LR
 | `getActiveForScene`                      | 保留為產品查詢，但不得是房間存在或授權的必要入口                                                                                  | 同上                                          |
 | 允許清單                                 | 以 roomId 為 parent 的清單；**權威在 Room DO 的 SQLite**，Neon 只在需要顯示時保留投影                                             | 原 20 §6 的「18C P3 匯入清單要加上這張表」    |
 | `collaboration_control_outbox`           | 本計畫完成後**整表刪除**（Room DO 本地 outbox 取代）                                                                              | 原 18C P4 的「確認全部房間已接管才停舊 cron」 |
-| join token 的 `rexp` claim               | **移除**，`COLLABORATION_PROTOCOL_VERSION` 由 4 升為 5                                                                            | 原 18B §3                                     |
+| join token 的 `rexp` claim               | **移除**，`COLLABORATION_PROTOCOL_VERSION` 由目前的 5 升為 6                                                                      | 原 18B §3                                     |
 
 ### 3.1 `rexp` 與 `retireScene` 的順序問題已經消失
 
@@ -265,6 +265,7 @@ event**。房間列靠 FK cascade 消失，Room DO 完全不知情，已連線�
 
 - `accepted/pending`：已保存操作，但仍有必要的儲存拒絕／在途操作屏障未確認。
 - `enforced`：該房間後續新加入、既有收發與內容操作均已受新權限限制；不是只有 socket close 呼叫成功。
+  public 密文物件已知 URL 的直接下載依 §4.5 為接受限制，不宣稱它隨 `enforced` 失效。
 - `projectionPending`：真正撤權已生效，但「我的房間」顯示副本仍待同步。這不阻擋 `enforced`。
 
 請求沒到 DO，或回覆遺失時，不能顯示成功；用 operationId 查詢結果。已送出的訊息、已下載的內容不能收回。
@@ -290,7 +291,7 @@ owned-scene 儲存的獨立生命週期。不得把共編快照自動蓋回 `sce
   結果，重送不得覆寫較新的快照。
 - 撤權先阻擋該成員新操作與即時訊息，再完成／隔離撤權前已接受的寫入。adapter 確認屏障前不宣稱全入口
   `enforced`。可允許撤權前接受的寫入在屏障前完成，但不得讓其在撤權完成後才改變最新資料。
-- 在途讀取回到 DO 時重新核對權限，再回傳密文。已交付到網路的 bytes 不可回收。
+- 快照與附件索引的在途讀取回到 DO 時重新核對權限，再回傳結果。已交付到網路的 bytes 不可回收；UploadThing public 密文物件的直接下載依 §4.5 為接受限制。
 - adapter／DB 故障時內容操作拒絕或保持未完成，不能退回相信舊的 DB 角色。即時訊息可能繼續，但 UI 必須
   顯示尚未成功持久儲存。
 
@@ -340,14 +341,16 @@ P0 固定期限、重放拒絕與清理規則。瀏覽器離開不會永久阻�
 
 ### 4.5 附件存取
 
-保留 UploadThing，但檔案索引／上傳確認／下載入口都經相同房間授權。上傳允許檔案先存在隔離區；只有通過
+保留 UploadThing public 上傳，檔案索引／上傳確認仍經相同房間授權。上傳允許密文檔案先存在而尚未登記；只有通過
 最新授權、版本與去重的 finalize 才能成為房間附件，失敗檔案加入清理待辦。
 
-受保護附件不得繼續暴露永久可直接下載的 URL。首選私有物件＋經授權的代理讀取；**必須先驗證 UploadThing
-現有方案與 API 是否支援**。若只能使用預簽 URL，必須明確記錄有效期內不可收回的窗口，不能宣稱附件與 DO
-撤權同時失效。若既有 provider 無法滿足選定契約，這是上線阻擋項，另立最小附件存取方案，不默默搬到 R2。
-
-**這一項同樣不受前提影響，而且可能直接否決整個方案，所以在 P0 最先做（§8 P0）。**
+**暫時接受的限制（2026-10-07，擁有者決定）：** 密文物件 URL 是可直接下載的永久 capability，
+不要求私有上傳、下載代理或預簽 URL，也不因此升級 UploadThing 方案或更換 provider。
+撤權後應拒絕透過應用 API 取得新的附件索引／URL、上傳授權與 finalize；但已取得或由其他人
+另行交付的 public URL，在物件刪除前仍能下載。持有對應金鑰的人仍可解密，已下載的副本無法收回。
+不得宣稱 DO 的 `enforced` 代表 public 物件 URL 同時失效；它只涵蓋受控的房間、快照、附件索引與寫入入口。
+附件 bytes 仍須由瀏覽器加密，public ACL 不允許明文上傳或金鑰進入服務端。
+若日後需要 provider 層的下載撤權，再獨立評估；本次不將私有附件作為 P0 或上線 gate。
 
 ## 5. 帳號允許清單
 
@@ -489,30 +492,19 @@ class、一張進度表與一組故障測試。
 不做漸進遷移；P0 是實作前可行性 gate，P1／P2 完成程式與部署前驗證，P3 受控停機部署後做 L3。
 18C 可依已固定 API 開發畫面，production 開放須等待 18B 驗收與既有儲存契約回歸驗證。
 
-### P0 — 實作前可否決驗證
+### P0 — 已固定的實作 gate
 
-不需要 Neon，以下通過才開始 P1／P2：
-
-- 驗證 UploadThing 私有物件與授權代理讀取；若選預簽 URL，固定並揭露不可撤回窗口。
-  與 §4.5 契約不符時先決定最小替代方案。
-- 在 Worker runtime ＋本機多連線 Postgres 做 §4.4 故障原型：保存與撤權並行、commit 後回應遺失、
-  相同操作重送、取消與延遲寫入競爭、瀏覽器消失及 DO 重啟。PGlite 不能代替鎖競態。
-- 驗證 binary 快照完整往返、最大合法大小與超限拒絕；確認 DO 不落地 payload，
-  保存延遲不阻塞即時收發。部署平台實際 body 上限另列 P3 的 L3 驗收。
-- 固定操作期限、取消／結果保留、初始化 ready 與逾時清理、queue 各類預算及安全保留容量。
-- 新增 ADR，區分授權 revision、authorityEpoch、加密 authGeneration，以及管理操作 pending 與保存成功。
-- 列出 join、內容 API、附件 URL／callback、刪除與 token 簽發入口，作為 P2 無旁路檢查表。
-- 寫定效能測量場景、樣本數與可接受的 join／保存／撤權 p95、p99 門檻，再做量測；
-  即時傳輸沿用現有 SLO。現有 `pnpm cf:loadtest` 只測 WebSocket，必須擴充或新增完整保存／附件／
-  撤權 harness，不能用 fanout 數字代替持久保存延遲。涵蓋典型與最大畫布、冷／熱啟動、
-  保存與撤權並行、慢附件、DB 故障恢復；L3 記錄跨雲各段與端到端延遲。
-
-不因只有一人就省略合成負載驗證；本次不做免費額度尖峰容量認證，不宣稱已驗證容量上限。
+P0 已完成；原型命令、完整量測、接受限制與證據見
+[本機儲存驗證](../docs/performance/collaboration-storage-p0.md)。
+public 附件決定見 [ADR-0005](../docs/adr/0005-public-collaboration-assets.md)，
+版本、期限、初始化與工作預算見 [ADR-0006](../docs/adr/0006-collaboration-storage-barrier.md)。
+P1/P2 沿用這些契約；正式登入／proof、所有入口與 Lifecycle 串接、部署 body 上限和跨雲量測
+仍按下列順序驗收，不能用本機原型冒充 production 已搬遷。
 
 ### P1 — 共用契約與資料底座
 
 - `packages/collaboration`：可信身分與內部操作 schema、operationId、版本、錯誤、enforcement 狀態，
-  不引入 browser-only code 到 server 協定。移除 `rexp`，協定版本升至 5。
+  不引入 browser-only code 到 server 協定。移除 `rexp`，協定版本由目前的 5 升至 6；18A 的保存控制訊息已使用 5，不能沿用舊版升至 5 的敘述。
 - `apps/collaboration-do`：Room DO 的 SQLite schema（房間狀態、成員、允許清單、撤權 tombstone、
   本地待辦）、本地交易／去重／alarm，以及 §4.1 的 roomId 定址。
 - `apps/collaboration-do`：**Lifecycle DO**（按主體分割）的 SQLite schema 與退休進度狀態機；
@@ -537,6 +529,23 @@ class、一張進度表與一組故障測試。
 - 在本機舊 schema fixture 演練重置、升版及回滾；檢查個人資料內容與附件引用，不只比較列數。
 - 舊 outbox／drain route／minute cron／舊權限 writer 的程式碼在此移除，作為同一次部署 artifact；
   production 舊排程在 P3 維護窗口停止，不做長期相容 flag。
+
+#### P2 受控入口盤點
+
+| 現有入口／呼叫端                                                                              | P2 必須改由新權威處理的部分                                                                    |
+| --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
+| `server/api/routers/collaboration-room.ts`：create、get、getActiveForScene、setKeyCheck、join | 建立／初始化、可信帳號身分、key check metadata；DB 副本不能簽出角色                            |
+| 同 router：leave、setLinkRole、setMemberRole、removeMember、rotateGeneration、end             | 本地授權 revision、operationId 去重、儲存 fence 及加密 generation 的獨立語意                   |
+| `server/collab/rooms.ts` 的 `signJoinToken`；`collab/control-token.ts`                        | 不從舊 DB 角色簽新權限；刪除舊 control token／outbox writer                                    |
+| `collaboration-do/src/gateway.ts`、`room.ts`、`control.ts`                                    | roomId 定址；升級、加入、重進、每次訊息／轉送／休眠 attachment 都核對 SQLite 權限              |
+| `server/api/routers/collaboration-snapshot.ts`：get、put、reset                               | binary 讀寫；不能留下原 tRPC 快照授權旁路；reset 也需 owner 及 fence                           |
+| `server/api/routers/collaboration-asset.ts`：resolve                                          | 最新授權、同 generation 索引；回傳 public URL 的既有 capability 限制沿用                       |
+| `app/api/uploadthing/core.ts`：collaborationAssetUploader middleware／onUploadComplete        | presign 與 finalize 重新驗權；pending 物件不能成為附件引用；失敗 enqueue cleanup；不私有化物件 |
+| `server/admin/retirement.ts`：retireScene、retireAccount、endRoom                             | Lifecycle DO 接手意圖、凍結、登記、逐房間確認後才刪 DB                                         |
+| `server/api/routers/scene.ts`、`admin.ts` 的退休入口                                          | owner／admin 授權後呼叫相同退休協定                                                            |
+| `server/maintenance/jobs.ts` 的 `purge-non-owner-users` 直接 `tx.delete(user)`                | 同樣經退休協定，不得沿用直接 cascade bypass；房間清理候選不再靠 TTL                            |
+| Better Auth／其他直接 account、scene cascade 呼叫端                                           | 在 P2 重新以全 repo 搜尋核對，若新增自刪入口須納入相同協定                                     |
+| UploadThing 的永久 public URL                                                                 | 接受的 provider 下載限制，不當作可隨 DO 撤回的受控入口                                         |
 
 ### P3 — 允許停機的一次重置與部署 `[L3]`
 
@@ -568,7 +577,7 @@ class、一張進度表與一組故障測試。
 | 情境                                        | 必須證明的結果                                                                                              |
 | ------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
 | **個人資料未受影響** `[L3]`                 | 重置前後，既有個人場景、附件、分享與發布內容完全可用；`scene` 相關列數不變                                  |
-| §4.5 附件私有化 `[L3]`                      | 受保護附件沒有永久可直接下載的 URL；若只能預簽，窗口已明確記錄且不宣稱與撤權同時失效                        |
+| §4.5 public 密文附件 `[L3]`                 | 維持 public 密文物件；撤權後索引／上傳授權／finalize 拒絕；已知 URL 仍能下載的限制明示，沒有明文或金鑰上傳  |
 | §4.4 儲存屏障 `[L2″]`                       | 踢人與 snapshot put 並行時，撤權完成後不出現晚到的未授權寫入；timeout 查詢／重送不覆蓋新版                  |
 | 保存回應遺失／瀏覽器消失 `[L2″]`            | commit 可查；取消與寫入排序，晚到寫入拒絕；DO 重啟不遺失操作，無 payload 不永久卡住退休                     |
 | 最大快照與超限 `[L3]`                       | binary 完整往返與解密成功，無 Base64 放大／DO payload 落地；超限明確拒絕，保存期間即時流量不被外部 I/O 鎖住 |

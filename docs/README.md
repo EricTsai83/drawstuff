@@ -111,7 +111,7 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 | --- | --- |
 | 動 Excalidraw 整合 | [architecture contract](./architecture/architecture-contract.md) → [ADR 0001](./adr/0001-excalidraw-persistence-boundary.md) → [native UI integration contract](./architecture/native-ui-integration-contract.md) |
 | 動共編儲存／快取／另存 | [collaboration storage](./architecture/collaboration-storage.md) |
-| 動協作功能 | [collaboration system design](./architecture/collaboration-system-design.md) → [threat model](./architecture/collaboration-threat-model.md) → [SLO](./performance/collaboration-slo-capacity.md) |
+| 動協作功能 | [collaboration system design](./architecture/collaboration-system-design.md) → [threat model](./architecture/collaboration-threat-model.md) → [SLO](./performance/collaboration-slo-capacity.md)；18B 本機原型見 [P0 儲存驗證](./performance/collaboration-storage-p0.md) |
 | 動資料保留／刪除 | [data lifecycle](./architecture/data-lifecycle.md) |
 | 動 DB schema、清理舊碼 | [engineering conventions](./operations/engineering-conventions.md) |
 | 動 headers／CSP／embed | [web CSP design](./architecture/web-csp-design.md) → [ADR-0004](./adr/0004-code-delivery-trust-boundary.md) → [CSP 走查與部署](./operations/web-security-headers.md) |

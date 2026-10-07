@@ -1,0 +1,36 @@
+{
+  "schemaVersion": 1,
+  "commit": "dfb8e96125e03b0db8a759a1af6e770d95ecbc36",
+  "workingTree": "uncommitted P0 prototype",
+  "runtime": {
+    "node": "v24.18.0",
+    "postgres": "17-alpine",
+    "workerdCompatibility": "2026-08-01",
+    "vitest": "4.1.11"
+  },
+  "scope": "Local workerd + host service binding + real PostgreSQL; synthetic provider and fixed identities; no deployed latency or capacity claim",
+  "generatedAt": "2026-10-07T06:55:33.056Z",
+  "scenarios": [
+    {
+      "name": "save-typical-hot",
+      "payloadBytes": 262144,
+      "assetPlaintextBytes": 65536,
+      "sampleCount": 200,
+      "warmup": 20,
+      "completed": 200,
+      "failed": 0,
+      "pending": 0,
+      "failureRatio": 0,
+      "pendingRatio": 0,
+      "p50Ms": 1349,
+      "p95Ms": 4282,
+      "p99Ms": 4796,
+      "limitsMs": {
+        "p95": 3000,
+        "p99": 8000
+      },
+      "localDenyP99Ms": 0,
+      "presenceP99Ms": 0
+    }
+  ]
+}
