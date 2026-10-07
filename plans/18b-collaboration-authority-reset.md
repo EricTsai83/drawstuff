@@ -588,7 +588,6 @@ manifest 無 provider object key，未刪任何個人附件。完整 L3 仍待�
 
 | Scope | 範圍 | 完成條件 |
 | --- | --- | --- |
-| 1：活躍房間退休競態 | 新建測試白板／帳號的退休入口；現存 socket；退休與建房、加入、快照寫入、附件 finalize 並行；原 request 消失後的 Lifecycle alarm 恢復 | freeze 後不啟用新成員；socket 關閉；舊 proof／epoch 與晚到 callback 不復活主體；Room fence ACK 後才刪 DB；重試沿用 operationId；本輪 Lifecycle／Room／provider 資源清理確認 |
 | 2：三人撤權與故障恢復 | A/B/C 真實 socket fanout、踢 C、角色／允許清單；受控 adapter／DB 失效與恢復；DO 重啟後授權恢復 | A/B 可繼續共編，C 的收發、重進、索引／上傳／finalize 被拒；外部失效時保存不誤報成功且本地撤權生效；恢復後冪等完成；所有故障注入與測試資源清除 |
 | 3：正式環境效能量測 | join、保存、撤權與最大／超限 payload；依既有 P0／SLO 契約區分冷熱場景及樣本 | 保存樣本數與 p95／p99，對照既定門檻；超限明確拒絕；保存期間 fanout 不受外部 I/O 鎖住；不以單次 smoke 代替分位數；樣本資源清理確認 |
 | 4：跨日、閒置與成本 | 同一連結／金鑰跨日重進；無使用者、無待辦的閒置窗口；Neon autosuspend 與新增跨雲成本 | 實際跨日後恢復原內容；不用調時鐘替代；閒置觀測不以輪詢 DB 持續喚醒 Neon；保存窗口、查詢／喚醒與成本證據，確認授權週期查詢為零；觀測結束後清理 |

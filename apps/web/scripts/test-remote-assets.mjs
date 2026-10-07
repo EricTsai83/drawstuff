@@ -4,8 +4,11 @@ import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { createRequire } from "node:module";
 import { setTimeout as pause } from "node:timers/promises";
 import postgres from "postgres";
+import { drizzle } from "drizzle-orm/postgres-js";
+import * as schema from "../src/server/db/schema.ts";
 import { UTApi } from "uploadthing/server";
 import { makeSignature } from "better-auth/crypto";
 import { signIdentityProof } from "@drawstuff/collaboration/room-token";
@@ -25,7 +28,8 @@ const origin = (value) => {
 const web = origin(process.argv[2]);
 const gateway = origin(process.argv[3]);
 const failureInjection = process.argv[4] === "--fail-after-upload";
-assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection), "Unexpected argument");
+const retirementMode = process.argv[4] === "--retire-scene" ? "scene" : process.argv[4] === "--retire-account" ? "account" : null;
+assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
 assert.equal(web, "https://draw.ericts.com");
 for (const name of ["POSTGRES_URL", "BETTER_AUTH_SECRET", "UPLOADTHING_TOKEN", "COLLAB_IDENTITY_SECRET", "COLLAB_AUTHORITY_SECRET"]) assert(process.env[name], `Missing ${name}`);
@@ -45,6 +49,12 @@ const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
 const runId = randomUUID();
 const subject = `asset-test-${runId}`;
 const roomId = `asset-test-${runId}`;
+const raceRoomId = `${roomId}-race`;
+const roomIds = retirementMode ? [roomId, raceRoomId] : [roomId];
+const sceneId = retirementMode === "scene" ? randomUUID() : null;
+const guest = { subject: `asset-guest-${runId}`, email: `guest-${runId}@example.invalid`, lifecycleVersion: 1 };
+const subjects = retirementMode ? [subject, guest.subject] : [subject];
+const lifecycleScope = retirementMode === "scene" ? `scene:${sceneId}` : retirementMode === "account" ? `account:${subject}` : null;
 const email = `${runId}@example.invalid`;
 const sessionId = randomUUID();
 const sessionToken = randomUUID();
@@ -53,7 +63,9 @@ const journal = `${rootDir}.local/asset-acceptance-${runId}.json`;
 const lock = `${rootDir}.local/asset-acceptance.lock`;
 await mkdir(`${rootDir}.local`, { recursive: true });
 await writeFile(lock, runId, { mode: 0o600, flag: "wx" });
-const sql = postgres(process.env.POSTGRES_URL, { max: 1 });
+const sql = postgres(process.env.POSTGRES_URL, { max: 3 });
+const db = drizzle(sql, { schema });
+const { WebSocket } = createRequire(`${workerDir}package.json`)("ws");
 // SDK error logging can include provider URLs. Keep SDK diagnostics out of acceptance logs.
 const utapi = new UTApi({ token: process.env.UPLOADTHING_TOKEN, logLevel: "None" });
 const keys = new Set();
@@ -66,6 +78,10 @@ let cleanupPassed = false;
 let lastProofExpires = 0;
 let interrupted = false;
 let injectedFailure = false;
+let retirementStarted = false;
+let retirementCompleted = false;
+let retirementOperation;
+const sockets = [];
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { interrupted = true; report("interrupt-requested-cleanup-will-run"); });
 let cfToken;
 let initialBindings;
@@ -93,14 +109,14 @@ async function providerFiles() {
   }
   throw new Error("Provider inventory incomplete");
 }
-const proof = () => {
+const proof = (identity = { subject, email, lifecycleVersion: 1 }, targetRoomId = roomId) => {
   const now = Math.floor(Date.now() / 1000);
   lastProofExpires = now * 1000 + 60000;
-  return signIdentityProof({ v: 1, aud: "drawstuff-room-identity", protocolVersion: 6, jti: randomUUID(), iat: now, exp: now + 60, roomId, identity: { subject, email, lifecycleVersion: 1 } }, process.env.COLLAB_IDENTITY_SECRET);
+  return signIdentityProof({ v: 1, aud: "drawstuff-room-identity", protocolVersion: 6, jti: randomUUID(), iat: now, exp: now + 60, roomId: targetRoomId, identity }, process.env.COLLAB_IDENTITY_SECRET);
 };
-const envelope = () => ({ v: 1, roomId, operationId: randomUUID(), deadline: Date.now() + 60000 });
+const envelope = (targetRoomId = roomId) => ({ v: 1, roomId: targetRoomId, operationId: randomUUID(), deadline: Date.now() + 60000 });
 async function jsonPost(path, body) {
-  const response = await fetch(`${gateway}${path}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json" }, body: JSON.stringify(body) });
+  const response = await fetch(`${gateway}${path}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json", ...(path === "/internal/asset-test-cleanup" ? { connection: "close" } : {}) }, body: JSON.stringify(body) });
   assert.equal(response.status, 200, `${path}: HTTP ${response.status}`);
   return response.json();
 }
@@ -115,12 +131,110 @@ async function settle(request) {
 }
 async function saveJournal() {
   await mkdir(`${rootDir}.local`, { recursive: true });
-  await writeFile(journal, JSON.stringify({ runId, subject, roomId, sessionId, keys: [...keys], maintenanceAttempted, restored, normalRuntimeHash }, null, 2), { mode: 0o600 });
+  await writeFile(journal, JSON.stringify({ runId, subjects, roomIds, sceneId, lifecycleScope, retirementOperation, sessionId, keys: [...keys], maintenanceAttempted, restored, normalRuntimeHash, initialBindings }, null, 2), { mode: 0o600 });
 }
 async function retry(task) {
   for (let attempt = 0; ; attempt++) {
     try { return await task(); } catch (error) { if (attempt === 2) throw error; await pause(2000); }
   }
+}
+async function until(check, timeout = 20000) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) { if (await check()) return; await pause(200); }
+  throw new Error("Acceptance condition timed out");
+}
+async function connect(identity = { subject, email, lifecycleVersion: 1 }) {
+  const ws = new WebSocket(`${gateway.replace(/^http/, "ws")}/v1/rooms/${roomId}/socket`, { headers: { Origin: web } });
+  sockets.push(ws); ws.on("error", () => {});
+  const closed = new Promise((resolve) => ws.once("close", (code) => resolve(code)));
+  await new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Join timeout")), 15000);
+    const done = (error) => { clearTimeout(timer); ws.off("message", message); ws.off("error", failed); ws.off("close", failed); error ? reject(error) : resolve(); };
+    const failed = () => done(new Error("Socket refused"));
+    const message = (data, binary) => { if (!binary && JSON.parse(data.toString()).control === "joined") done(); };
+    ws.on("message", message); ws.once("error", failed); ws.once("close", failed);
+    ws.once("open", () => ws.send(JSON.stringify({ control: "join", protocolVersion: 6, roomId, token: proof(identity) })));
+  });
+  return { ws, closed };
+}
+async function retirementEntry() {
+  process.env.COLLAB_CONTROL_URL = gateway;
+  const { retireAccount, retireScene } = await import("../src/server/admin/retirement.ts");
+  return retirementMode === "scene" ? retireScene({ db, sceneId, ownerUserId: subject }) : retireAccount({ db, userId: subject });
+}
+async function awaitRetirement() {
+  const target = retirementMode === "scene" ? { kind: "scene", subject, sceneId } : { kind: "account", subject };
+  await until(async () => {
+    const result = await jsonPost("/v1/lifecycle", { action: "query", target, operationId: retirementOperation });
+    return result.phase === "completed";
+  }, 90000);
+  retirementCompleted = true;
+}
+async function verifyRetirement(snapshotKey, cookie, fileId, assetBytes) {
+  const ownerSocket = await connect(); const guestSocket = await connect(guest);
+  const state = (await jsonPost("/v1/authority", { proof: proof(), request: { ...envelope(), action: "get-state" } })).result;
+  await until(async () => {
+    const [row] = await sql`select projection_version from drawstuff_collaboration_room where room_id=${roomId}`;
+    return row?.projection_version >= state.authRevision;
+  });
+  // Presign while authorized; the actual provider callback will arrive after retirement.
+  const lateIntent = { ...envelope(), kind: "asset-finalize", authGeneration: 1, authorityEpoch: state.authorityEpoch, expectedRevision: 0, checksum: digest(assetBytes), excalidrawFileId: fileId, cryptoVersion: 1, byteLength: assetBytes.byteLength };
+  const presign = await fetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { cookie, "content-type": "application/json", "x-uploadthing-version": "7.7.4" }, body: JSON.stringify({ input: lateIntent, files: [{ name: `${runId}.bin`, type: "application/octet-stream", size: assetBytes.byteLength, lastModified: Date.now() }] }) });
+  assert.equal(presign.status, 200); const [lateSigned] = await presign.json(); assert.equal(typeof lateSigned.key, "string"); keys.add(lateSigned.key); await saveJournal();
+  const sealed = await sealCollaborationSnapshot({ key: snapshotKey, plaintext: new TextEncoder().encode('{"elements":[],"appState":{}}'), roomId, authGeneration: 1, revision: 2 }); assert(sealed.ok);
+  const operation = { ...envelope(), kind: "snapshot-put", authGeneration: 1, authorityEpoch: state.authorityEpoch, expectedRevision: 1, checksum: digest(sealed.ciphertext) };
+  const write = () => fetch(`${gateway}/v1/snapshot`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/octet-stream", [SNAPSHOT_REQUEST_HEADER]: JSON.stringify({ proof: proof(), request: { action: "write", operation } }) }, body: sealed.ciphertext });
+  let unlock;
+  const ready = Promise.withResolvers();
+  const release = new Promise((resolve) => { unlock = resolve; });
+  const held = sql.begin(async (tx) => {
+    await tx`select room_id from drawstuff_collaboration_room where room_id=${roomId} for update`;
+    const [row] = await tx`select pg_backend_pid() as pid`; ready.resolve(row.pid); await release;
+  });
+  void held.catch(ready.reject);
+  let pendingWrite;
+  try {
+    const pid = await ready.promise;
+    pendingWrite = write().then((response) => ({ response }), () => ({ failed: true }));
+    await until(async () => {
+      const [row] = await sql`select exists(select 1 from pg_stat_activity a where ${pid} = any(pg_blocking_pids(a.pid))) as blocked`;
+      return row.blocked;
+    }, 10000);
+    retirementStarted = true; await saveJournal();
+    const results = await Promise.all([retirementEntry(), retirementEntry()]);
+    retirementOperation = results[0].operationId; assert(retirementOperation); assert.equal(results[1].operationId, retirementOperation); await saveJournal();
+    await until(async () => {
+      const [fence] = await sql`select frozen from drawstuff_collaboration_lifecycle_subject where scope=${lifecycleScope}`; return fence?.frozen;
+    });
+    const created = await fetch(`${gateway}/v1/authority`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json" }, body: JSON.stringify({ proof: proof(undefined, raceRoomId), request: { ...envelope(raceRoomId), action: "create", sceneId, label: "Retirement race", linkRole: "none" } }) });
+    assert.notEqual(created.status, 200, "Frozen subject must not create a new Room"); await created.body?.cancel();
+    await assert.rejects(() => connect(guest));
+    await until(() => Promise.resolve(ownerSocket.ws.readyState === WebSocket.CLOSED && guestSocket.ws.readyState === WebSocket.CLOSED));
+    const [source] = retirementMode === "scene" ? await sql`select count(*)::int as count from drawstuff_scene where id=${sceneId}` : await sql`select count(*)::int as count from drawstuff_user where id=${subject}`;
+    assert.equal(source.count, 1, "Parent deletion must wait for the Room storage fence ACK");
+    const target = retirementMode === "scene" ? { kind: "scene", subject, sceneId } : { kind: "account", subject };
+    assert.notEqual((await jsonPost("/v1/lifecycle", { action: "query", target, operationId: retirementOperation })).phase, "completed");
+    report("retirement-blocked-write-fence", { target: retirementMode, duplicateOperation: true, frozenCreateAndJoinRejected: true, socketsClosedBeforeParentDelete: true });
+  } finally { unlock?.(); await held; }
+  const writeResult = await pendingWrite;
+  await writeResult.response?.body?.cancel();
+  // No second begin is needed: the original requests have ended and only the durable alarm advances retirement.
+  await awaitRetirement();
+  const repeat = await retirementEntry(); assert.equal(repeat.operationId, retirementOperation); assert.equal(repeat.enforcement, "enforced");
+  assert(Date.now() < lateIntent.deadline, "Late callback test must use an unexpired presign intent");
+  const form = new FormData(); form.append("file", new File([assetBytes], `${runId}.bin`, { type: "application/octet-stream" }));
+  const lateUpload = await fetch(lateSigned.url, { method: "PUT", redirect: "error", signal: AbortSignal.timeout(120000), headers: { Range: "bytes=0-", "x-uploadthing-version": "7.7.4" }, body: form });
+  assert.equal(lateUpload.status, 200, "Provider must finish the genuine late callback");
+  const lateResult = await lateUpload.json();
+  assert.equal(lateResult.serverData?.status, "unknown", "Retired Room must not accept a genuine late callback");
+  const [orphan] = await sql`select ut_file_key from drawstuff_deferred_file_cleanup where ut_file_key=${lateSigned.key}`;
+  assert(orphan, "Late callback must durably schedule unreferenced provider cleanup");
+  const deniedWrite = await write(); assert.notEqual(deniedWrite.status, 200); await deniedWrite.body?.cancel();
+  await assert.rejects(() => connect());
+  const [rows] = await sql`select (select count(*) from drawstuff_collaboration_room where room_id in ${sql(roomIds)}) + (select count(*) from drawstuff_collaboration_asset where room_id=${roomId}) + (select count(*) from drawstuff_collaboration_snapshot where room_id=${roomId}) as count`;
+  assert.equal(Number(rows.count), 0);
+  const [fence] = await sql`select frozen,retired from drawstuff_collaboration_lifecycle_subject where scope=${lifecycleScope}`; assert(fence?.frozen && fence.retired);
+  report("retirement-alarm-and-late-callback-passed", { target: retirementMode, duplicateRetry: true, deletedRoomContent: true, lateWriteAndRejoinRejected: true });
 }
 
 try {
@@ -131,16 +245,40 @@ try {
   // Only this run's name can be cleared, and only after terminal authority/fence ACK.
   const cleaner = `import { timingSafeEqual } from "node:crypto";
 import { CollaborationRoom as Room } from "../../src/room.ts";
-export { CollaborationLifecycle } from "../../src/lifecycle.ts";
-const roomId = ${JSON.stringify(roomId)}, subject = ${JSON.stringify(subject)};
+import { CollaborationLifecycle as Lifecycle } from "../../src/lifecycle.ts";
+const roomIds = ${JSON.stringify(roomIds)}, subject = ${JSON.stringify(subject)}, lifecycleScope = ${JSON.stringify(lifecycleScope)};
 export class CollaborationRoom extends Room {
+  override async alarm():Promise<void> {
+    if(roomIds.includes(this.ctx.id.name ?? "")) await this.ctx.storage.deleteAlarm();
+    else await super.alarm();
+  }
   override async fetch(request: Request): Promise<Response> {
     if (request.url !== "https://internal.invalid/asset-test-cleanup") return super.fetch(request);
     return this.ctx.blockConcurrencyWhile(async () => {
-      if (this.ctx.id.name !== roomId) return Response.json({cleared:false},{status:409});
+      if (!roomIds.includes(this.ctx.id.name ?? "")) return Response.json({cleared:false},{status:409});
       const rows = this.ctx.storage.sql.exec<{owner:string;state:string;authority_epoch:number;fenced_epoch:number}>("SELECT owner,state,authority_epoch,fenced_epoch FROM authority_room").toArray();
       if (rows.length && (rows.length !== 1 || rows[0]!.owner !== subject || rows[0]!.state !== "ended" || rows[0]!.fenced_epoch < rows[0]!.authority_epoch)) return Response.json({cleared:false},{status:409});
       if (this.ctx.getWebSockets().length) return Response.json({cleared:false},{status:409});
+      await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); await this.ctx.storage.sync();
+      return Response.json({cleared:(await this.ctx.storage.list()).size === 0 && await this.ctx.storage.getAlarm() === null});
+    });
+  }
+}
+export class CollaborationLifecycle extends Lifecycle {
+  override async alarm():Promise<void> {
+    if(lifecycleScope && this.ctx.id.name === lifecycleScope) await this.ctx.storage.deleteAlarm();
+    else await super.alarm();
+  }
+  override async fetch(request:Request):Promise<Response> {
+    if(request.url !== "https://internal.invalid/asset-test-cleanup") return new Response(null,{status:404});
+    return this.ctx.blockConcurrencyWhile(async()=>{
+      if(!lifecycleScope || this.ctx.id.name !== lifecycleScope) return Response.json({cleared:false},{status:409});
+      const rows = this.ctx.storage.sql.exec<{command:string;phase:string}>("SELECT command,phase FROM lifecycle_progress").toArray();
+      if(rows.length > 1 || rows.some(row=>{
+        const command = JSON.parse(row.command) as {target:{kind:string;subject:string;sceneId?:string}};
+        const scope = command.target.kind === "scene" ? "scene:"+command.target.sceneId : "account:"+command.target.subject;
+        return row.phase !== "completed" || scope !== lifecycleScope || command.target.subject !== subject;
+      })) return Response.json({cleared:false},{status:409});
       await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); await this.ctx.storage.sync();
       return Response.json({cleared:(await this.ctx.storage.list()).size === 0 && await this.ctx.storage.getAlarm() === null});
     });
@@ -151,7 +289,15 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   const token = new TextEncoder().encode(request.headers.get("authorization")?.replace(/^Bearer /,"") ?? "");
   if(secret.length < 32 || token.length !== secret.length || !timingSafeEqual(secret,token)) return new Response(null,{status:401});
   if(request.method !== "POST" || new URL(request.url).pathname !== "/internal/asset-test-cleanup") return new Response(null,{status:503});
-  return env.COLLABORATION_ROOM.getByName(roomId).fetch("https://internal.invalid/asset-test-cleanup");
+  for(const name of roomIds){
+    const result = await env.COLLABORATION_ROOM.getByName(name).fetch("https://internal.invalid/asset-test-cleanup");
+    if(!result.ok || !(await result.json() as {cleared:boolean}).cleared) return Response.json({cleared:false},{status:409});
+  }
+  if(lifecycleScope){
+    const result = await env.COLLABORATION_LIFECYCLE.getByName(lifecycleScope).fetch("https://internal.invalid/asset-test-cleanup");
+    if(!result.ok || !(await result.json() as {cleared:boolean}).cleared) return Response.json({cleared:false},{status:409});
+  }
+  return Response.json({cleared:true});
 }} satisfies ExportedHandler<Env>;
 `;
   await writeFile(`${directory}/cleanup.ts`, cleaner, { mode: 0o600 });
@@ -171,6 +317,8 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   await sql.begin(async (tx) => {
     await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${subject},'Automated asset acceptance',${email},true,now(),now())`;
     await tx`insert into drawstuff_session (id,user_id,token,expires_at,created_at,updated_at) values (${sessionId},${subject},${sessionToken},now()+interval '15 minutes',now(),now())`;
+    if (retirementMode) await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${guest.subject},'Automated retirement guest',${guest.email},true,now(),now())`;
+    if (sceneId) await tx`insert into drawstuff_scene (id,name,user_id,last_updated,created_at,updated_at,is_archived) values (${sceneId},'Automated retirement source',${subject},now(),now(),now(),false)`;
   });
   fixtureCreated = true;
   const cookie = `__Secure-better-auth.session_token=${encodeURIComponent(`${sessionToken}.${await makeSignature(sessionToken, process.env.BETTER_AUTH_SECRET)}`)}`;
@@ -180,7 +328,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   report("authenticated-fixture");
   assert(!interrupted, "Acceptance interrupted");
   roomAttempted = true;
-  await settle({ ...envelope(), action: "create", sceneId: null, label: "Automated asset acceptance", linkRole: "none" });
+  await settle({ ...envelope(), action: "create", sceneId, label: "Automated asset acceptance", linkRole: retirementMode ? "editor" : "none" });
   const roomKey = generateRoomKey();
   await settle({ ...envelope(), action: "set-key-check", expectedGeneration: 1, keyCheck: [...Buffer.from(await sealRoomKeyCheck({ roomKey, roomId, authGeneration: 1 }), "base64")] });
   const codec = await createAssetCryptoCodec({ roomKey, roomId, authGeneration: 1 });
@@ -227,18 +375,26 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   const saved = await fetch(`${gateway}/v1/snapshot`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/octet-stream", [SNAPSHOT_REQUEST_HEADER]: JSON.stringify({ proof: proof(), request: { action: "write", operation } }) }, body: snapshot.ciphertext });
   assert.equal(saved.status, 200); assert.equal((await saved.json()).status, "written");
   await settle({ ...envelope(), action: "complete-initialization", manifest: { authGeneration: 1, revision: 1, checksum, assetIds: [fileId] } });
+  if (retirementMode) await verifyRetirement(snapshotKey, cookie, fileId, bytes);
   testPassed = true; report("attachment-initialization-passed");
 } catch (error) {
   // Do not log SQL, signed URLs, cookie, provider response, keys or encrypted payload.
   report("test-failed", { errorName: error instanceof Error ? error.name : "unknown" });
 } finally {
+  let cleanupStage = "retirement";
   try {
-    let ended = !roomAttempted;
-    if (roomAttempted) {
+    if (retirementStarted && !retirementCompleted) {
+      const result = await retirementEntry(); retirementOperation ??= result.operationId; await saveJournal(); await awaitRetirement();
+    }
+    for (const ws of sockets) ws.terminate();
+    cleanupStage = "room-end";
+    let ended = !roomAttempted || retirementCompleted;
+    if (roomAttempted && !retirementCompleted) {
       try { await retry(() => settle({ ...envelope(), action: "end-room" })); ended = true; }
       catch { report("room-end-unconfirmed-provider-cleanup-will-still-run"); }
     }
     // A lost presign response must not hide this run's uploaded objects.
+    cleanupStage = "provider";
     if (fixtureCreated) for (const file of await providerFiles()) if (file.name === `${runId}.bin`) keys.add(file.key);
     await saveJournal();
     for (const key of keys) {
@@ -250,36 +406,53 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       assert(attempt < 30, "Provider deletion remains pending"); await pause(2000);
     }
     assert(ended, "Room end must be confirmed before removing its owner");
-    if (fixtureCreated) await sql`delete from drawstuff_user where id=${subject} and email=${email}`;
+    cleanupStage = "accounts";
+    if (fixtureCreated) for (const id of subjects) await sql`delete from drawstuff_user where id=${id} and email in (${email},${guest.email})`;
     // Expired fixture proofs plus the deleted account prevent delayed requests from recreating authority.
     while (Date.now() < lastProofExpires + 1000) await pause(Math.min(5000, lastProofExpires + 1000 - Date.now()));
     if (roomAttempted) {
       report("temporary-cleanup-runtime-deploying");
       maintenanceAttempted = true; await saveJournal();
+      cleanupStage = "maintenance-deployment";
       await command(["exec", "wrangler", "deploy", `${directory}/cleanup.ts`, "--config", "wrangler.jsonc", "--keep-vars"]);
-      const result = await retry(() => jsonPost("/internal/asset-test-cleanup", {})); assert.equal(result.cleared, true);
+      cleanupStage = "durable-storage";
+      await until(async () => {
+        try { return (await jsonPost("/internal/asset-test-cleanup", {})).cleared === true; }
+        catch { await pause(2000); return false; }
+      }, 60000);
     }
+    cleanupStage = "database";
     await sql.begin(async (tx) => {
-      await tx`delete from drawstuff_collaboration_projection_tombstone where room_id=${roomId}`;
-      await tx`delete from drawstuff_collaboration_lifecycle_registration where room_id=${roomId}`;
-      await tx`delete from drawstuff_collaboration_lifecycle_subject where scope=${`account:${subject}`} and subject=${subject}`;
+      await tx`delete from drawstuff_collaboration_projection_tombstone where room_id in ${tx(roomIds)}`;
+      await tx`delete from drawstuff_collaboration_lifecycle_registration where room_id in ${tx(roomIds)}`;
+      await tx`delete from drawstuff_collaboration_creation_fence where room_id in ${tx(roomIds)}`;
+      await tx`delete from drawstuff_collaboration_lifecycle_subject where subject in ${tx(subjects)}`;
       for (const key of keys) await tx`delete from drawstuff_deferred_file_cleanup where ut_file_key=${key}`;
-      const [remaining] = await tx`select (select count(*) from drawstuff_user where id=${subject}) + (select count(*) from drawstuff_session where id=${sessionId}) + (select count(*) from drawstuff_collaboration_room where room_id=${roomId}) + (select count(*) from drawstuff_collaboration_asset where room_id=${roomId}) as count`;
+      const [remaining] = await tx`select (select count(*) from drawstuff_user where id in ${tx(subjects)}) + (select count(*) from drawstuff_session where id=${sessionId}) + (select count(*) from drawstuff_scene where id=${sceneId}) + (select count(*) from drawstuff_collaboration_room where room_id in ${tx(roomIds)}) + (select count(*) from drawstuff_collaboration_asset where room_id in ${tx(roomIds)}) + (select count(*) from drawstuff_collaboration_snapshot where room_id in ${tx(roomIds)}) as count`;
       assert.equal(Number(remaining.count), 0);
     });
     cleanupPassed = true; report("provider-db-do-cleanup-passed");
-  } catch (error) { report("cleanup-unconfirmed", { errorName: error instanceof Error ? error.name : "unknown", recoveryJournal: journal }); }
+  } catch (error) { report("cleanup-unconfirmed", { stage: cleanupStage, errorName: error instanceof Error ? error.name : "unknown", recoveryJournal: journal }); }
   finally {
     if (maintenanceAttempted) {
+      let restoreStage = "deployment";
       try {
         report("normal-worker-restoring");
         await retry(() => command(["exec", "wrangler", "deploy", `${directory}/restore/index.js`, "--config", "wrangler.jsonc", "--no-bundle", "--keep-vars"]));
-        const response = await fetch(`${gateway}/v1/authority`, { method: "POST", signal: AbortSignal.timeout(20000) }); assert.equal(response.status, 401);
-        const cleanupRoute = await fetch(`${gateway}/internal/asset-test-cleanup`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}` } }); assert.equal(cleanupRoute.status, 404);
-        assert.deepEqual(sortedBindings(await cfGet(settingsPath)), initialBindings, "Worker bindings and variables must be restored");
-        assert.equal(digest(await deployedRuntime()), normalRuntimeHash, "Deployed Worker module must exactly match the pre-test backup");
+        restoreStage = "routes";
+        await until(async () => {
+          try {
+            const response = await fetch(`${gateway}/v1/authority`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { connection: "close" } }); await response.body?.cancel();
+            const cleanupRoute = await fetch(`${gateway}/internal/asset-test-cleanup`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, connection: "close" } }); await cleanupRoute.body?.cancel();
+            return response.status === 401 && cleanupRoute.status === 404;
+          } catch { await pause(2000); return false; }
+        }, 60000);
+        restoreStage = "bindings";
+        await retry(async () => assert.deepEqual(sortedBindings(await cfGet(settingsPath)), initialBindings, "Worker bindings and variables must be restored"));
+        restoreStage = "module";
+        await retry(async () => assert.equal(digest(await deployedRuntime()), normalRuntimeHash, "Deployed Worker module must exactly match the pre-test backup"));
         restored = true; report("normal-worker-restored");
-      } catch { report("restore-unconfirmed", { recoveryJournal: journal }); }
+      } catch { report("restore-unconfirmed", { stage: restoreStage, recoveryJournal: journal }); }
     } else restored = true;
     await sql.end();
     if (cleanupPassed && restored) { await rm(directory, { recursive: true, force: true }); await rm(journal, { force: true }); await rm(lock, { force: true }); }

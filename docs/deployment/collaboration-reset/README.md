@@ -141,7 +141,15 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 
 執行 `pnpm collab:assets:remote --fail-after-upload`，可在真實 callback／下載解密成功後故意中止驗收，確認未 ready 的 Room、provider 物件與 DB／DO 仍會清理，Worker 仍會還原。故障只注入本機 runner，不更改 production 服務行為。此模式以 `expectedFailureHandled: true` 表示失敗路徑清理通過；一般模式須同時得到 `testPassed`、`cleanupPassed`、`restored` 三項 true。
 
-2026-10-08 正常流程與上傳後故意失敗的清理流程均通過；失敗流程另確認還原 Worker module 的 SHA-256 與測試前完全一致。此證據只完成單一小型真實附件往返與初始化、失敗時的清理／還原。活躍連線／scene 退休競態、三人 fanout、延遲分位數、跨日重進、閒置與成本仍待完成。
+退休競態分別使用 `pnpm collab:assets:remote --retire-scene` 與 `pnpm collab:assets:remote --retire-account`，兩輪依序執行。工具額外建立本輪 guest 與可刪除主體，以 owner／guest 連上 ready Room。持有真實 PostgreSQL Room row lock，確認快照寫入被阻擋後，同時呼叫兩次產品退休入口；核對 operationId 相同、主體 frozen、新建房與加入被拒、原 socket 關閉，而父資料在 storage fence ACK 前仍存在。釋放鎖後只查原 operation，確認 Lifecycle alarm 自行完成，再上傳退休前已 presign 的真實附件，驗證晚到 callback 未寫入且進入 deferred cleanup，舊寫入與重新加入亦遭拒。清理範圍涵蓋兩個測試 Room、Lifecycle、guest、scene、creation fence 與 provider keys；journal 保存原 bindings，還原檢查會有限重試並回報失敗階段。臨時清理 runtime 只對本輪 DO 暫停 alarm；部署後的維護／還原探針使用 `Connection: close` 重建連線，避免長時間 runner 沿用切換前連線而無法確認新路由。
+
+退休拒絕 callback 的首輪測試揭露 UploadThing 7.7.4 在 `onUploadComplete` 拋錯時不送出 `/callback-result`，provider PUT 因而逾時。finalize 現在於安全 orphan 檢查完成後回傳 `{ status: "unknown" }`；此值不符合成功 content receipt，客户端保留原 intent 並查詢原操作，不立即重傳。若 orphan 檢查本身失敗，仍拋出不含儲存能力的固定錯誤，不能宣稱已安全排入清理。28 個 server／client 回歸測試、TypeScript 與相關 lint 已通過。
+
+2026-10-08 正常流程與上傳後故意失敗的清理流程均通過；失敗流程另確認還原 Worker module 的 SHA-256 與測試前完全一致。白板與帳號退休競態重測均取得 `testPassed: true`、`cleanupPassed: true`、`restored: true`，包含晚到的真實 provider callback。前序 callback 逾時、DO 清理與還原路由未確認的各輪亦已完成限定資源清理與原 Worker 還原，相關 recovery 檔／lock 均移除。兩種退休情境的最終正常 runtime SHA-256 均與各自測試前備份一致。這些證據完成 scope 1，不涵蓋三人 fanout、延遲分位數、跨日重進、閒置與成本。
+
+整體掃描另找到先前兩輪附件 smoke 遺留的 creation fence；已限定原測試 UUID，核對兩筆 `ended=true`、帳號／Room／snapshot／asset／operation／registration 皆不存在，provider inventory 也無對應檔名後移除。新版工具會一併刪除本輪 creation fence；所有 `asset-test-*`／`asset-guest-*` 主體、Room 與相關 fence／registration 掃描為零。
+
+本輪 `pnpm check` 全部通過：web 902、collaboration Node 682（另 1 skipped）／workerd 79、excalidraw-adapter 117、Worker 213、maintenance 8 個測試及本機產品 harness；format、lint、typecheck、Knip 均通過。lint 尚有兩項既有測試警告，完整檢查不能取代尚未完成的正式環境驗收。
 
 ## 舊物件／DO 清理
 
