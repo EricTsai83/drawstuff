@@ -16,6 +16,7 @@
     "apps/collaboration-do": {
       "entry": [
         "tests/**/*.test.ts",
+        "vitest.config.ts",
         "vitest.p0.config.ts",
         "tests/p0/worker.ts",
         "tests/support/product-worker.ts",
@@ -28,6 +29,7 @@
         "scripts/**/*.mjs",
         "*.ts"
       ],
+      "vitest": false,
       "ignoreDependencies": [
         "cloudflare"
       ]

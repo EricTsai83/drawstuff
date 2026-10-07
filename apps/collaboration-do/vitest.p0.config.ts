@@ -41,7 +41,7 @@ export default defineConfig(async () => {
                     postgres: "17-alpine",
                     workerdCompatibility: "2026-08-01",
                     vitest: "4.1.11",
-                    vitestPlugin: "1.0.0 with repository prototype-proxy patch",
+                    vitestPlugin: "1.3.7",
                   },
                   scope:
                     "Local workerd + host service binding + real PostgreSQL; synthetic provider and fixed identities; no deployed latency or capacity claim",

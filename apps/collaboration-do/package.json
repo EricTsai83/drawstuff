@@ -35,7 +35,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "1.0.0",
+    "@cloudflare/vitest-plugin": "catalog:",
     "eslint": "catalog:",
     "postgres": "^3.4.9",
     "typescript": "catalog:",

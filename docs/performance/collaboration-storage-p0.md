@@ -60,7 +60,11 @@ L3 另記瀏覽器→Gateway、DO→Vercel、adapter→Neon 及端到端耗時�
 
 冷啟動重建途中另發現 `@cloudflare/vitest-plugin@1.0.0` 的測試 wrapper 每建立 instance 都重包同一個 prototype Proxy，累積後發生 `Maximum call stack size exceeded`。先前未修補數字含測試整合的累積成本，不作為正式驗收證據。
 
-本 repo 以 [pnpm patch](../../patches/@cloudflare__vitest-plugin@1.0.0.patch) 在同一版本只安裝一次 Proxy；700 次建立／eviction 的回歸測試覆蓋此問題。升級 plugin 後，確認上游已修復且此測試與完整 harness 仍通過，才移除 patch。
+當時以 pnpm patch 在 `1.0.0` 只安裝一次 Proxy；700 次建立／eviction 的回歸測試覆蓋此問題。Cloudflare 已在 [1.1.2 官方 release](https://github.com/cloudflare/workers-sdk/releases/tag/@cloudflare%2Fvitest-plugin@1.1.2) 修復（[#15106](https://github.com/cloudflare/workers-sdk/pull/15106)）。目前升級至官方 `1.3.7`，移除 repository patch，並保留此回歸測試。以下歷史量測報告仍記錄當時的 `1.0.0` 修補版本，不能當成新版效能量測。
+
+2026-10-07 升級驗證：`pnpm collab:p0` 的 18 個測試（含 700 次建立／eviction）、Worker 212 個測試、維護 5 個測試與 protocol-6 product harness 通過；共用 collaboration 套件 682 個測試（另 1 個既有 skip）及 79 個 workerd 測試通過。Worker lint／typecheck／knip 與共用套件 typecheck 也通過；未重跑完整效能量測。
+
+Knip 的設定載入器無法執行 Wrangler 的 Miniflare 相依套件，因此依 [Knip 官方 workaround](https://knip.dev/reference/known-issues#exceptions-from-config-files) 關閉該 workspace 的 Vitest 自動設定載入；改由 entry 與 package scripts 靜態掃描設定、測試與匯入，實際設定執行由上述 Vitest 測試驗證。
 
 2026-10-07：`pnpm collab:p0:load` **3 個 test files／19 個 tests 通過**（18 個核心／回歸案例＋1 個完整 harness）。11 組場景共 2,200 筆正式觀測，全部完成且最終失敗／pending 比例皆為 0；fault 期間則按預期維持 pending。機器可讀證據見 [完整報告](collaboration-p0-2026-10-07.json)。
 

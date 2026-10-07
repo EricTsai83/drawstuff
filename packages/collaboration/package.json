@@ -103,7 +103,7 @@
     "zod": "catalog:"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.0.0",
+    "@cloudflare/vitest-plugin": "catalog:",
     "@types/node": "catalog:",
     "@vitest/browser-playwright": "^4.1.11",
     "eslint": "catalog:",
