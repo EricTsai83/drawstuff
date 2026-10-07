@@ -28,7 +28,8 @@
     "test:maintenance": "vitest run --config vitest.maintenance.config.ts",
     "preflight:maintenance": "wrangler deploy --config wrangler.maintenance.jsonc --dry-run --outdir .wrangler/maintenance && wrangler deploy --config wrangler.bootstrap.jsonc --dry-run --outdir .wrangler/bootstrap",
     "prepare:rollback": "node scripts/prepare-rollback.mjs",
-    "quiesce": "node scripts/quiesce-rooms.mjs"
+    "quiesce": "node scripts/quiesce-rooms.mjs",
+    "cleanup:legacy": "node scripts/cleanup-legacy.mjs"
   },
   "dependencies": {
     "@drawstuff/collaboration": "workspace:*",

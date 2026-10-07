@@ -11,7 +11,7 @@
 `CollaborationLifecycle` class／binding，以及所有管理、儲存、退休入口。2026-10-07 依使用者要求
 直接對 production 執行 DB push，套用新版 schema 並清空兩筆舊共編 Room；非共編表前後內容指紋一致。
 2026-10-08 已配置新版 secrets、重新部署 web、quiesce 清單中的兩個舊 Room、建立 Lifecycle namespace，
-並部署新版 Worker；protocol-6 remote smoke 已通過。舊 DO storage 清理與完整 L3 驗收仍待完成，
+並部署新版 Worker；protocol-6 remote smoke 已通過，重置前清單中的兩個舊 DO storage 已取得清理 ACK。完整 L3 驗收仍待完成，
 實際部署紀錄與驗證範圍見 [P3 runbook](../deployment/collaboration-reset/README.md)。
 下面記錄既有 production 的部署模型。
 
@@ -46,12 +46,12 @@ Code-only 自動部署即可，不需先手動部署 Worker。
 現有 production 使用下面三個 secret。18B source 的 `secrets.required` 另新增四個
 adapter／identity／Gateway binding，P2 完整串接與 P3 重置部署時才配置；目前沒有設定它們：
 
-| 18B 新增 binding        | 值／用途                                                                                                                 |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `COLLAB_ADAPTER_URL`    | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect |
-| `COLLAB_ADAPTER_SECRET` | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用 join／cron secret                         |
-| `COLLAB_IDENTITY_SECRET` | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 不授予角色，與舊 join secret 分開 |
-| `COLLAB_AUTHORITY_SECRET` | 與 web 端同名值相同的 Vercel → Gateway 私有管理入口憑證；與 proof／adapter 憑證分開 |
+| 18B 新增 binding          | 值／用途                                                                                                                 |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `COLLAB_ADAPTER_URL`      | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect |
+| `COLLAB_ADAPTER_SECRET`   | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用 join／cron secret                         |
+| `COLLAB_IDENTITY_SECRET`  | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 不授予角色，與舊 join secret 分開                              |
+| `COLLAB_AUTHORITY_SECRET` | 與 web 端同名值相同的 Vercel → Gateway 私有管理入口憑證；與 proof／adapter 憑證分開                                      |
 
 source 的七個 required secret 缺一會拒絕正式部署。P2 移除舊 cron／授權路徑時還須刪除對應舊 binding。
 下面仍是舊部署的三個 binding：

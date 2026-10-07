@@ -2,7 +2,20 @@ import { timingSafeEqual } from "node:crypto";
 import { z } from "zod";
 import { DurableObject } from "cloudflare:workers";
 
-/** Closed cutover runtime. Preserves storage for rollback; never calls adapters. */
+function userTables(storage: DurableObjectStorage): string[] {
+  return storage.sql
+    .exec<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'")
+    .toArray()
+    .map(({ name }) => name)
+    .filter(
+      (name) =>
+        !name.startsWith("_cf_") &&
+        !name.startsWith("__cf_") &&
+        !name.startsWith("sqlite_"),
+    );
+}
+
+/** Closed cutover runtime. Storage is preserved unless explicit legacy cleanup is requested. */
 export class CollaborationRoom extends DurableObject {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -14,12 +27,53 @@ export class CollaborationRoom extends DurableObject {
     });
   }
 
-  fetch(_request: Request): Response {
+  fetch(request: Request): Response | Promise<Response> {
+    const url = new URL(request.url);
+    if (
+      request.method === "POST" &&
+      url.origin === "https://internal.invalid" &&
+      url.pathname === "/cleanup-legacy"
+    )
+      return this.#clearLegacyStorage().then((result) => Response.json(result));
     return maintenanceResponse();
   }
 
   async alarm(): Promise<void> {
     await this.ctx.storage.deleteAlarm();
+  }
+
+  async #clearLegacyStorage(): Promise<{ cleared: boolean }> {
+    return this.ctx.blockConcurrencyWhile(async () => {
+      const tables = userTables(this.ctx.storage);
+      if (tables.length > 0) {
+        if (
+          !tables.includes("room_meta") ||
+          tables.some(
+            (name) => !["room_meta", "revocation_cutoffs"].includes(name),
+          )
+        )
+          return { cleared: false };
+        const versions = this.ctx.storage.sql
+          .exec<{ schema_version: number }>(
+            "SELECT schema_version FROM room_meta",
+          )
+          .toArray();
+        if (versions.length !== 1 || versions[0]!.schema_version !== 2)
+          return { cleared: false };
+      } else if ((await this.ctx.storage.list({ limit: 1 })).size > 0) {
+        // Unknown KV-only storage is not a recognized legacy Room.
+        return { cleared: false };
+      }
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      await this.ctx.storage.sync();
+      return {
+        cleared:
+          userTables(this.ctx.storage).length === 0 &&
+          (await this.ctx.storage.list({ limit: 1 })).size === 0 &&
+          (await this.ctx.storage.getAlarm()) === null,
+      };
+    });
   }
 
   webSocketMessage(socket: WebSocket): void {
@@ -59,7 +113,11 @@ const quiesceSchema = z.strictObject({
 });
 const encoder = new TextEncoder();
 
-async function quiesce(request: Request, env: Env): Promise<Response> {
+async function quiesce(
+  request: Request,
+  env: Env,
+  cleanup = false,
+): Promise<Response> {
   const expected = encoder.encode(env.COLLAB_AUTHORITY_SECRET ?? "");
   const header = request.headers.get("authorization") ?? "";
   const received = encoder.encode(
@@ -102,6 +160,16 @@ async function quiesce(request: Request, env: Env): Promise<Response> {
     JSON.parse(new TextDecoder().decode(bytes)),
   );
   if (
+    cleanup &&
+    (input.namespace !== "room" ||
+      input.objects.some(
+        (object) =>
+          !("name" in object) ||
+          !/^[A-Za-z0-9_-]+-g[1-9][0-9]*$/.test(object.name),
+      ))
+  )
+    return Response.json({ error: "invalid-legacy-target" }, { status: 400 });
+  if (
     input.namespace === "lifecycle" &&
     !Object.hasOwn(env, "COLLABORATION_LIFECYCLE")
   )
@@ -110,6 +178,7 @@ async function quiesce(request: Request, env: Env): Promise<Response> {
     input.namespace === "room"
       ? env.COLLABORATION_ROOM
       : env.COLLABORATION_LIFECYCLE;
+  const clearedIds: string[] = [];
   for (const object of input.objects) {
     const stub =
       "name" in object
@@ -124,22 +193,46 @@ async function quiesce(request: Request, env: Env): Promise<Response> {
         .safeParse(result).success
     )
       return maintenanceResponse();
+    if (cleanup) {
+      const reply = await stub.fetch(
+        "https://internal.invalid/cleanup-legacy",
+        { method: "POST" },
+      );
+      if (
+        reply.status !== 200 ||
+        !z
+          .strictObject({ cleared: z.literal(true) })
+          .safeParse(await reply.json()).success
+      )
+        return Response.json({ error: "storage-not-legacy" }, { status: 409 });
+      clearedIds.push(stub.id.toString());
+    }
   }
   return Response.json(
-    { quiesced: input.objects.length },
+    cleanup
+      ? { cleared: input.objects.length, clearedIds }
+      : { quiesced: input.objects.length },
     { headers: { "Cache-Control": "no-store" } },
   );
 }
 
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
+    const path = new URL(request.url).pathname;
     if (
       request.method !== "POST" ||
-      new URL(request.url).pathname !== "/internal/cutover/quiesce"
+      ![
+        "/internal/cutover/quiesce",
+        "/internal/cutover/cleanup-legacy",
+      ].includes(path)
     )
       return maintenanceResponse();
     try {
-      return await quiesce(request, env);
+      return await quiesce(
+        request,
+        env,
+        path === "/internal/cutover/cleanup-legacy",
+      );
     } catch (error) {
       return error instanceof z.ZodError || error instanceof SyntaxError
         ? Response.json({ error: "invalid-request" }, { status: 400 })

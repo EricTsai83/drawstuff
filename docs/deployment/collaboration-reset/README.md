@@ -1,6 +1,6 @@
 # 18B P3 維護窗口與回滾
 
-2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。2026-10-08 配套 web／Worker 已部署，protocol-6 remote smoke 通過；完整 L3 驗收與舊 storage 清理仍待完成。
+2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。2026-10-08 配套 web／Worker 已部署，protocol-6 remote smoke 通過，重置前清單中的舊 DO storage 清理已取得 ACK；完整 L3 驗收仍待完成。
 
 ## 2026-10-08 配套部署與 smoke
 
@@ -8,7 +8,7 @@ Vercel Production 已設定三個新版 capability secret，並重新部署為 `
 
 第一輪正式 smoke 揭露 adapter client 將原生 `fetch` 當 class method 呼叫時產生 TypeError，建房回 503；已改為透過 `globalThis.fetch` 保留原生 receiver，補上回歸測試與只記錄 HTTP status／固定 error kind 的診斷。最後手動部署的 Worker version 為 `6063aab4-c2a2-4a63-a709-d5b53607ef3e`。修正後使用兩個既有已驗證帳號，通過最大合法密文快照往返／解密、ready、正式 WebSocket 加入、撤權關線、舊 generation socket 404 與 end-room。測試不刪帳號或個人 scene；兩次單次 snapshot read 樣本為 1930ms／2883ms，不能作為 SLO 的 p95／p99 結論。Worker lint、typecheck、213 個測試、5 個維護測試、本機 product harness 與 Knip 全部通過。
 
-本次配套部署未再次 DB push 或執行 SQL migration。quiesce 保留舊 SQLite／KV；不宣稱已完成舊 storage 刪除、真實 UploadThing callback、退休入口、三人 fanout、故障恢復或其他完整 L3 項目。
+初次配套部署未再次 DB push 或執行 SQL migration，quiesce 當時保留舊 SQLite／KV；後續清理結果見下方「舊物件／DO 清理」。真實 UploadThing callback、退休入口、三人 fanout、故障恢復與其他完整 L3 項目仍待驗收。
 
 ## 本次 DB push 結果
 
@@ -25,8 +25,9 @@ DB push 當時尚未部署維護 Worker、quiesce 舊 DO、新增 Lifecycle name
 - `manifest.sql`：唯讀匯出密文 object key 與已知舊 DO 名稱；排除個人附件、縮圖、發布成品。
 - `pnpm --filter @drawstuff/web collaboration:reset-plan`：再生 SQL，**不連資料庫**。
 - `collaboration:reset-check`：在 PostgreSQL repeatable-read／read-only 交易中核對共編表名、欄位、型別與 nullable；記錄索引／constraint、舊物件清單及所有非共編 `public.drawstuff_*` 表的筆數／內容指紋。`after` 必須與同一 endpoint 的 `before` 比對一致。索引、constraint、default 仍須人工對照 SQL，工具不宣稱完整 schema 相容性。
-- `wrangler.maintenance.jsonc`：同名 Worker、原 Room namespace；一般 HTTP 入口回 503，僅私有 quiesce 入口可批次確認停止；無 cron，DO 啟動時取消 alarm、關閉 hibernated socket。**保留 SQLite／KV，不是清除工具。**
+- `wrangler.maintenance.jsonc`：同名 Worker、原 Room namespace；一般 HTTP 入口回 503，私有 quiesce 入口可批次確認停止；無 cron，DO 啟動時取消 alarm、關閉 hibernated socket。**quiesce 保留 SQLite／KV；只有另行呼叫 capability 保護的 legacy cleanup 才清除已確認的舊 storage。**
 - `quiesce`：使用 authority capability 依 manifest／namespace inventory 批次喚醒舊 DO，逐一確認維護 runtime 已接手；取消 alarm、關 socket，保留 storage。
+- `cleanup:legacy`：只接受 before manifest 中的舊 generation 名稱；維護端拒絕 Lifecycle、直接 ID、新版 schema 與未知表，清除後核對 SQL／KV／alarm 為空並回傳已清理 ID；CLI 保存逐批 ACK，可使用新結果檔安全重試。
 - `wrangler.bootstrap.jsonc`：同一維護程式，只新增 Lifecycle namespace／binding，作為獨立手動 namespace 部署。
 - `prepare:rollback`：從固定 `c6f2044` 建立本機 detached worktree，產生 protocol-5 Worker 的回滾入口／設定；保留新增的 Lifecycle namespace，該 class 仍執行封閉維護程式。沒有 remote 操作，也不覆寫既有 checkout。
 - `pnpm collab:adapters`：Docker PostgreSQL 17 的競態、重置／升版／回滾及唯讀 CLI 演練；核對個人、分享、發布、Library 與附件引用。
@@ -130,7 +131,19 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 
 ## 舊物件／DO 清理
 
-先完成可回滾 smoke，再按受控 manifest 清理有明確共編來源且不被任何個人資料引用的物件。DO metadata 清理必須對已確認的舊 instance 停止工作、取消 alarm 並 `storage.deleteAll()`；本次維護程式只保留狀態，不提供公開刪除入口。**舊 SQLite 與已停止的歷史 generation 清理仍是 P3 待辦，不能稱已全刪。** 保留識別、清理狀態與重試證據，不能以「已不可達」代替完成。
+先完成可回滾 smoke，再按受控 manifest 清理有明確共編來源且不被任何個人資料引用的物件。DO metadata 清理必須對已確認的舊 instance 停止工作、取消 alarm 並 `storage.deleteAll()`。一般 quiesce 保留資料；legacy cleanup 是獨立、capability 保護的維護入口，正常 production Gateway 不提供它。
+
+2026-10-08 已對重置前 manifest 的兩個舊 generation 執行 cleanup 並取得 ACK，服務已恢復。兩個 ID 清理前後的 `hasStoredData` 都是 false：它們原本沒有持久內容，本次仍明確執行 `deleteAlarm()`／`deleteAll()` 並確認 storage 為空。Cloudflare inventory 仍列出這兩個確定性 ID，不等同仍有持久資料。其餘七個 Room instance 的存在與 storage flag、Room／Lifecycle namespace ID 前後一致；這個比對不宣稱所有新 Room 的內容指紋已驗證。manifest 的 provider object key 清單為空，未刪任何 UploadThing 物件或 DB 資料。
+
+受控報告保存在 git 忽略的 `.local/collaboration-cutover/legacy-cleanup-result.json`、`cleanup-inventory-before.json`、`cleanup-inventory-after.json` 與 `cleanup-comparison.json`。還原的 Worker version 為 `b2cab370-4df4-41e9-838d-fdf68d02d398`。只對已確認的清單宣稱完成；未知歷史 generation 必須另行核對，不可直接以目前 namespace 全部 ID 當清除名單。
+
+重跑時先保存正確 namespace inventory，確認沒有需要保留待辦／alarm 的新 active 房間，再短暫部署 bootstrap 維護 runtime（Lifecycle 已存在，不可用只有 Room 的 stage-one config）。在 root 使用相同私下設定的 authority secret，結果檔必須是新路徑：
+
+```sh
+pnpm --filter @drawstuff/collaboration-do exec node --env-file="$(pwd)/apps/web/.env" scripts/cleanup-legacy.mjs https://<worker-origin> /absolute/path/to/before-report.json /absolute/path/to/new-cleanup-result.json
+```
+
+入口只清除沒有自訂表／KV 的空 Room，或僅含 `room_meta`／`revocation_cutoffs` 且 `schema_version=2` 的 legacy Room。拒絕新版／未知 storage 時回 409；一批若中途失敗，前面的個別 DO 可能已清除，CLI 記錄 incomplete，重試同一清單可重新取得 ACK。清理後核對 inventory，恢復正常 Worker 並重跑 remote smoke；不可刪除 namespace 來清資料。
 
 ## 回滾
 

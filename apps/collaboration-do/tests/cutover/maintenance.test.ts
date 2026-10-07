@@ -10,6 +10,93 @@ import { describe, expect, it } from "vitest";
 const namespaces = [env.COLLABORATION_ROOM, env.COLLABORATION_LIFECYCLE];
 
 describe("cutover maintenance runtime", () => {
+  const cleanup = (name: string, authorized = true, namespace = "room") =>
+    SELF.fetch("https://fixture.test/internal/cutover/cleanup-legacy", {
+      method: "POST",
+      headers: authorized
+        ? { authorization: "Bearer test-authority-secret-purpose-only-0001" }
+        : {},
+      body: JSON.stringify({ namespace, objects: [{ name }] }),
+    });
+
+  it("clears legacy SQL, KV and alarms, and acknowledges safe retries", async () => {
+    const name = `legacy-${crypto.randomUUID()}-g1`;
+    const stub = env.COLLABORATION_ROOM.getByName(name);
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.sql.exec(
+        "CREATE TABLE room_meta(schema_version INTEGER); INSERT INTO room_meta VALUES (2); CREATE TABLE revocation_cutoffs(scope TEXT)",
+      );
+      await state.storage.put("legacy-evidence", "old");
+      await state.storage.setAlarm(Date.now() + 60_000);
+    });
+    expect((await cleanup(name, false)).status).toBe(401);
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(await state.storage.get("legacy-evidence")).toBe("old");
+    });
+    await evictDurableObject(stub);
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const response = await cleanup(name);
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        cleared: 1,
+        clearedIds: [stub.id.toString()],
+      });
+      await evictDurableObject(stub);
+      await runInDurableObject(stub, async (_instance, state) => {
+        expect(await state.storage.getAlarm()).toBeNull();
+        expect((await state.storage.list()).size).toBe(0);
+        expect(
+          state.storage.sql
+            .exec(
+              "SELECT name FROM sqlite_master WHERE name IN ('room_meta','revocation_cutoffs')",
+            )
+            .toArray(),
+        ).toEqual([]);
+      });
+    }
+  });
+
+  it("refuses newer and unknown storage without deleting it", async () => {
+    for (const schema of [
+      "CREATE TABLE room_meta(schema_version INTEGER); INSERT INTO room_meta VALUES (3)",
+      "CREATE TABLE room_meta(schema_version INTEGER); INSERT INTO room_meta VALUES (2); CREATE TABLE authority_schema(version INTEGER)",
+      "CREATE TABLE unrelated(value TEXT)",
+      "",
+    ]) {
+      const name = `protected-${crypto.randomUUID()}-g1`;
+      const stub = env.COLLABORATION_ROOM.getByName(name);
+      await runInDurableObject(stub, async (_instance, state) => {
+        if (schema) state.storage.sql.exec(schema);
+        await state.storage.put("protected", "keep");
+      });
+      expect((await cleanup(name)).status).toBe(409);
+      await runInDurableObject(stub, async (_instance, state) => {
+        expect(await state.storage.get("protected")).toBe("keep");
+      });
+    }
+  });
+
+  it("excludes Lifecycle, stable room names and unnamed IDs", async () => {
+    expect((await cleanup("old-g1", true, "lifecycle")).status).toBe(400);
+    expect((await cleanup("stable-room")).status).toBe(400);
+    const response = await SELF.fetch(
+      "https://fixture.test/internal/cutover/cleanup-legacy",
+      {
+        method: "POST",
+        headers: {
+          authorization: "Bearer test-authority-secret-purpose-only-0001",
+        },
+        body: JSON.stringify({
+          namespace: "room",
+          objects: [
+            { id: env.COLLABORATION_ROOM.idFromName("old-g1").toString() },
+          ],
+        }),
+      },
+    );
+    expect(response.status).toBe(400);
+  });
+
   it("rejects public, private, socket and cron drain entry paths", async () => {
     for (const path of [
       "/health",
