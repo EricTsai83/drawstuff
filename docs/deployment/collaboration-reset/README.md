@@ -127,7 +127,7 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 
 用兩個真實、已驗證的測試帳號執行 `pnpm cf:smoke <https-gateway-origin>`。私下設定 `COLLAB_HARNESS_OWNER_SUBJECT/EMAIL/VERSION`、`COLLAB_HARNESS_GUEST_SUBJECT/EMAIL/VERSION`、identity／authority secret 與允許的 `COLLAB_SMOKE_ORIGIN`。工具不建立假帳號，也不刪帳號，只建立及結束測試 Room。覆蓋最大合法密文快照往返／解密、ready、正式 WebSocket、撤權關線與 end。
 
-`cf:loadtest` 是 30 次最大快照讀取樣本。真實 UploadThing 上傳／callback、三人 fanout、scene／帳號退休、故障恢復、join／保存／撤權 p95/p99、跨日重進、Neon autosuspend 與成本仍依 [18B §9](../../../plans/18b-collaboration-authority-reset.md#9-驗收矩陣) 記錄 L3；pending 不算完成。確認個人場景、分享、發布、Library 與附件可用，smoke 通過才恢復流量與自動部署。
+`cf:loadtest` 是 30 次最大快照讀取樣本。真實附件、退休競態與三人／故障恢復的驗收證據見下節。join／保存／撤權 p95/p99、跨日重進、Neon autosuspend 與成本仍依 [18B §9](../../../plans/18b-collaboration-authority-reset.md#9-驗收矩陣) 記錄 L3；pending 不算完成。個人場景、分享、發布、Library 與附件回歸仍須完成。
 
 ### 真實附件自動驗收
 
@@ -150,6 +150,20 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 整體掃描另找到先前兩輪附件 smoke 遺留的 creation fence；已限定原測試 UUID，核對兩筆 `ended=true`、帳號／Room／snapshot／asset／operation／registration 皆不存在，provider inventory 也無對應檔名後移除。新版工具會一併刪除本輪 creation fence；所有 `asset-test-*`／`asset-guest-*` 主體、Room 與相關 fence／registration 掃描為零。
 
 本輪 `pnpm check` 全部通過：web 902、collaboration Node 682（另 1 skipped）／workerd 79、excalidraw-adapter 117、Worker 213、maintenance 8 個測試及本機產品 harness；format、lint、typecheck、Knip 均通過。lint 尚有兩項既有測試警告，完整檢查不能取代尚未完成的正式環境驗收。
+
+### 三人撤權與故障恢復
+
+在 root 執行 `pnpm collab:assets:remote --access-recovery`。沿用上述鎖、journal、限定資源清理與精確還原流程，另建立 B／C 測試帳號及 C 的正式 session。臨時 runtime 保留一般產品入口，只對本輪 Room 提供 authority capability 保護的控制入口，並以該 Room 的獨立 env 副本切換 adapter；其他 Room 的 adapter 設定不變。故障 runtime 不加入正常 Worker artifact。
+
+驗收以 A owner、B editor、C viewer 起步，確認 viewer 的加密 scene 寫入被拒；link role 只決定新成員預設角色，既有成員透過 `set-member-role` 更新。限定模式拒絕未列入清單者，允許清單讓 B 加入，移除信箱後關線並拒絕重進，owner 明確重新授權後可加入。C 改為 editor 後，三個真實 socket 以原金鑰傳遞加密 frame 並核對接收內容。
+
+持有真實 PostgreSQL Room row lock，透過 `pg_blocking_pids` 確認 snapshot 寫入被阻擋；鎖持有期間 A/B/C fanout 仍成功，釋放後以相同 operation 完成保存。接著讓限定 adapter 回 503，確認保存不回 `written`，owner 撤銷 C 先在本地持久接手並回 `pending`，C socket 關閉且 A/B 繼續共編；C 重新加入、附件索引、prepare、finalize 均遭拒。使用撤權前的真實 presign 上傳密文，晚到 provider callback 回 `unknown` 並確認 deferred cleanup，不能當作成功 receipt。這裡注入的是 adapter HTTP 失效，沒有關閉整個 Neon endpoint。
+
+透過 DO `ctx.abort()` 觸發實際重啟，確認 constructor 時間改變、故障狀態與撤權從 SQLite 恢復。恢復 adapter 後，只查原 revoke operation，確認 alarm 完成 fence；A/B 使用原金鑰重進仍可 fanout，C 仍被拒。撤權前未提交的舊 epoch 保存保持被隔離，新 epoch 的 owner 保存成功，原 operation 重送結果一致。收尾先停用故障注入，再還原正常 Worker；關房回應遺失時核對本地 ended 與 PostgreSQL epoch，DO 清理仍另外要求 ended／fenced ACK。未實際上傳的 presign key 以 provider inventory 確認不存在；不能把刪除 API 的失敗當作已清除。
+
+2026-10-08 run `960c2110-74ff-48a1-92df-5421af41402a` 取得 `testPassed: true`、`cleanupPassed: true`、`restored: true`；觀察到 7 次限定 adapter 失敗，晚到真實 callback 拒絕與保存恢復均通過。最終正常 Worker version 為 `39ef1166-7d1f-4b86-8d21-5c6cbedf87e7`，module SHA-256 `4d0c5e6b04c8da40bf23e21cef3b4a6a311b30cdd0ee64081f1b1b043f6ecc89` 與測試前一致，bindings／namespace 與臨時入口消失均已核對。前序失敗輪也已完成 provider／DB／DO 清理與精確還原，暫時 recovery 工具、journal、lock 與生成 runtime 全部移除；最後掃描 `asset-test-*`／`asset-guest-*`／`asset-peer-*` 的帳號、Room、creation fence、registration、tombstone 與 lifecycle subject 都為零。
+
+驗收前發現授權入口的撤權原先先等 adapter 註冊，外部失效會阻擋本地撤權。`e7d6bd1` 改為在有效 owner proof 與本地授權檢查後先持久撤權／fence，未確認屏障保持 pending；增加權限的入口仍需遠端註冊。新增 workerd 回歸確認非 owner 拒絕、原撤權冪等且未呼叫 adapter、故障時重新授權失敗。Worker lint、typecheck、214 個測試、maintenance 8 個測試、product harness 與 Knip，以及 remote runner lint／語法檢查均通過。這完成 scope 2；效能分位數、跨日／閒置／成本及完整回歸仍待後續 scope。
 
 ## 舊物件／DO 清理
 

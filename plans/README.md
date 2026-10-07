@@ -40,7 +40,7 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
-  下一步為 **P3：剩餘正式環境驗收**，依該 plan 的四個剩餘 scope 分輪執行，從三人撤權／故障恢復開始。
+  下一步為 **P3：剩餘正式環境驗收**，依該 plan 的三個剩餘 scope 分輪執行，從正式環境效能量測開始。三人撤權／故障恢復已驗收並完成資源清理與 Worker 還原。
   配套 web／Worker 與新版 schema 已部署；DO 不持久暫存完整畫布，只記小型待辦與操作結果。
   退休以按主體分割的 **Lifecycle DO** 執行（§7.1）；操作與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —
@@ -49,7 +49,7 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 
 ### 執行順序與交接
 
-1. 18B 依 P3 剩餘工作分 scope 執行：三人撤權／故障恢復 → 效能量測 → 跨日／閒置／成本 → 回歸結案。
+1. 18B 依 P3 剩餘工作分 scope 執行：效能量測 → 跨日／閒置／成本 → 回歸結案。
    每輪限定測試資源並清理、還原環境；現況與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)，
    P0 契約見 [本機儲存驗證](../docs/performance/collaboration-storage-p0.md)。
    UploadThing 維持 public 上傳；已取得 URL 的密文下載無法隨撤權失效，此限制暫時接受（見 18B §4.5）。

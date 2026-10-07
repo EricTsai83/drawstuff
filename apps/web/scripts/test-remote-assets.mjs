@@ -17,6 +17,7 @@ import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import { createAssetCryptoCodec, encodeCollaborationAssetPayload, decodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset";
 import { deriveSnapshotKey, sealCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 import { SNAPSHOT_REQUEST_HEADER } from "@drawstuff/collaboration/authority";
+import { runAccessAcceptance, faultRuntimeSource } from "./remote-access-acceptance.mjs";
 
 const workerDir = fileURLToPath(new URL("../../collaboration-do/", import.meta.url));
 const rootDir = fileURLToPath(new URL("../../../", import.meta.url));
@@ -29,7 +30,8 @@ const web = origin(process.argv[2]);
 const gateway = origin(process.argv[3]);
 const failureInjection = process.argv[4] === "--fail-after-upload";
 const retirementMode = process.argv[4] === "--retire-scene" ? "scene" : process.argv[4] === "--retire-account" ? "account" : null;
-assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode), "Unexpected argument");
+const accessMode = process.argv[4] === "--access-recovery";
+assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
 assert.equal(web, "https://draw.ericts.com");
 for (const name of ["POSTGRES_URL", "BETTER_AUTH_SECRET", "UPLOADTHING_TOKEN", "COLLAB_IDENTITY_SECRET", "COLLAB_AUTHORITY_SECRET"]) assert(process.env[name], `Missing ${name}`);
@@ -41,7 +43,10 @@ async function command(args) {
     const capture = (chunk) => { output = (output + chunk.toString()).slice(-100000); };
     child.stdout.on("data", capture); child.stderr.on("data", capture);
     child.once("error", reject);
-    child.once("close", (code) => code === 0 ? resolve(output) : reject(new Error(`Command failed (${code}): ${args.slice(0, 3).join(" ")}`)));
+    child.once("close", (code) => {
+      if (args[1] === "wrangler" && args[2] === "deploy" && !args.includes("--dry-run")) report("worker-deploy-command", { code, version: output.match(/Current Version ID: ([a-f0-9-]+)/)?.[1], uploaded: output.match(/Uploaded ([a-z0-9-]+)/)?.[1], unexpectedDryRun: /dry.run.*exit|exit.*dry.run/i.test(output) });
+      code === 0 ? resolve(output) : reject(new Error(`Command failed (${code}): ${args.slice(0, 3).join(" ")}`));
+    });
   });
 }
 const report = (phase, fields = {}) => console.log(JSON.stringify({ phase, ...fields }));
@@ -53,11 +58,13 @@ const raceRoomId = `${roomId}-race`;
 const roomIds = retirementMode ? [roomId, raceRoomId] : [roomId];
 const sceneId = retirementMode === "scene" ? randomUUID() : null;
 const guest = { subject: `asset-guest-${runId}`, email: `guest-${runId}@example.invalid`, lifecycleVersion: 1 };
-const subjects = retirementMode ? [subject, guest.subject] : [subject];
+const peer = { subject: `asset-peer-${runId}`, email: `peer-${runId}@example.invalid`, lifecycleVersion: 1 };
+const subjects = accessMode ? [subject, guest.subject, peer.subject] : retirementMode ? [subject, guest.subject] : [subject];
 const lifecycleScope = retirementMode === "scene" ? `scene:${sceneId}` : retirementMode === "account" ? `account:${subject}` : null;
 const email = `${runId}@example.invalid`;
 const sessionId = randomUUID();
 const sessionToken = randomUUID();
+const peerSessionId = randomUUID(), peerSessionToken = randomUUID();
 const directory = `${workerDir}.wrangler/asset-acceptance-${runId}`;
 const journal = `${rootDir}.local/asset-acceptance-${runId}.json`;
 const lock = `${rootDir}.local/asset-acceptance.lock`;
@@ -81,6 +88,7 @@ let injectedFailure = false;
 let retirementStarted = false;
 let retirementCompleted = false;
 let retirementOperation;
+let faultRuntimeActive = false;
 const sockets = [];
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { interrupted = true; report("interrupt-requested-cleanup-will-run"); });
 let cfToken;
@@ -117,6 +125,7 @@ const proof = (identity = { subject, email, lifecycleVersion: 1 }, targetRoomId 
 const envelope = (targetRoomId = roomId) => ({ v: 1, roomId: targetRoomId, operationId: randomUUID(), deadline: Date.now() + 60000 });
 async function jsonPost(path, body) {
   const response = await fetch(`${gateway}${path}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json", ...(path === "/internal/asset-test-cleanup" ? { connection: "close" } : {}) }, body: JSON.stringify(body) });
+  if (response.status !== 200) report("gateway-request-refused", { path, http: response.status });
   assert.equal(response.status, 200, `${path}: HTTP ${response.status}`);
   return response.json();
 }
@@ -131,7 +140,7 @@ async function settle(request) {
 }
 async function saveJournal() {
   await mkdir(`${rootDir}.local`, { recursive: true });
-  await writeFile(journal, JSON.stringify({ runId, subjects, roomIds, sceneId, lifecycleScope, retirementOperation, sessionId, keys: [...keys], maintenanceAttempted, restored, normalRuntimeHash, initialBindings }, null, 2), { mode: 0o600 });
+  await writeFile(journal, JSON.stringify({ runId, subjects, roomIds, sceneId, lifecycleScope, retirementOperation, sessionId, peerSessionId: accessMode ? peerSessionId : undefined, keys: [...keys], maintenanceAttempted, faultRuntimeActive, restored, normalRuntimeHash, initialBindings }, null, 2), { mode: 0o600 });
 }
 async function retry(task) {
   for (let attempt = 0; ; attempt++) {
@@ -147,15 +156,40 @@ async function connect(identity = { subject, email, lifecycleVersion: 1 }) {
   const ws = new WebSocket(`${gateway.replace(/^http/, "ws")}/v1/rooms/${roomId}/socket`, { headers: { Origin: web } });
   sockets.push(ws); ws.on("error", () => {});
   const closed = new Promise((resolve) => ws.once("close", (code) => resolve(code)));
+  let joined;
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("Join timeout")), 15000);
     const done = (error) => { clearTimeout(timer); ws.off("message", message); ws.off("error", failed); ws.off("close", failed); error ? reject(error) : resolve(); };
     const failed = () => done(new Error("Socket refused"));
-    const message = (data, binary) => { if (!binary && JSON.parse(data.toString()).control === "joined") done(); };
+    const message = (data, binary) => { if (!binary) { const notice = JSON.parse(data.toString()); if (notice.control === "joined") { joined = notice; done(); } } };
     ws.on("message", message); ws.once("error", failed); ws.once("close", failed);
     ws.once("open", () => ws.send(JSON.stringify({ control: "join", protocolVersion: 6, roomId, token: proof(identity) })));
   });
-  return { ws, closed };
+  return { ws, closed, joined };
+}
+async function restoreRuntime() {
+  let restoreStage = "deployment";
+  try {
+        report("normal-worker-restoring");
+        await retry(() => command(["exec", "wrangler", "deploy", `${directory}/restore/index.js`, "--config", "wrangler.jsonc", "--no-bundle", "--keep-vars"]));
+        restoreStage = "routes";
+        await until(async () => {
+          try {
+            const response = await fetch(`${gateway}/v1/authority`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { connection: "close" } }); await response.body?.cancel();
+            const cleanupRoute = await fetch(`${gateway}/internal/asset-test-cleanup`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, connection: "close" } }); await cleanupRoute.body?.cancel();
+            const faultRoute = accessMode ? await fetch(`${gateway}/internal/access-test/${runId}/probe`, { method: "POST", headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, connection: "close" }, signal: AbortSignal.timeout(20000) }) : null;
+            await faultRoute?.body?.cancel();
+            return response.status === 401 && cleanupRoute.status === 404 && (!faultRoute || faultRoute.status === 404);
+          } catch { await pause(2000); return false; }
+        }, 60000);
+        restoreStage = "bindings";
+        const auth = JSON.parse(await command(["exec", "wrangler", "auth", "token", "--json"]));
+        cfToken = auth.token ?? auth.oauth_token ?? auth.api_token; assert(cfToken);
+        await retry(async () => assert.deepEqual(sortedBindings(await cfGet(settingsPath)), initialBindings, "Worker bindings and variables must be restored"));
+        restoreStage = "module";
+        await retry(async () => assert.equal(digest(await deployedRuntime()), normalRuntimeHash, "Deployed Worker module must exactly match the pre-test backup"));
+        restored = true; report("normal-worker-restored");
+  } catch (error) { report("restore-unconfirmed", { stage: restoreStage, errorName: error instanceof Error ? error.name : "unknown", recoveryJournal: journal }); throw new Error("runtime-restore-unconfirmed"); }
 }
 async function retirementEntry() {
   process.env.COLLAB_CONTROL_URL = gateway;
@@ -301,6 +335,12 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
 }} satisfies ExportedHandler<Env>;
 `;
   await writeFile(`${directory}/cleanup.ts`, cleaner, { mode: 0o600 });
+  if (accessMode) {
+    await writeFile(`${directory}/fault.ts`, faultRuntimeSource({ roomId, runId, gateway }), { mode: 0o600 });
+    await writeFile(`${directory}/tsconfig.json`, JSON.stringify({ extends: "../../tsconfig.json", include: ["fault.ts", "../../*.ts"], exclude: [] }), { mode: 0o600 });
+    await command(["exec", "tsc", "--noEmit", "--project", `${directory}/tsconfig.json`]);
+    await command(["exec", "wrangler", "deploy", `${directory}/fault.ts`, "--config", "wrangler.jsonc", "--dry-run", "--outdir", `${directory}/fault-check`]);
+  }
   await command(["exec", "wrangler", "deploy", `${directory}/cleanup.ts`, "--config", "wrangler.jsonc", "--dry-run", "--outdir", `${directory}/check`]);
   await command(["exec", "wrangler", "deploy", "--config", "wrangler.jsonc", "--dry-run", "--outdir", `${directory}/restore`]);
   assert((await readFile(`${directory}/restore/index.js`)).byteLength > 0);
@@ -317,7 +357,11 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   await sql.begin(async (tx) => {
     await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${subject},'Automated asset acceptance',${email},true,now(),now())`;
     await tx`insert into drawstuff_session (id,user_id,token,expires_at,created_at,updated_at) values (${sessionId},${subject},${sessionToken},now()+interval '15 minutes',now(),now())`;
-    if (retirementMode) await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${guest.subject},'Automated retirement guest',${guest.email},true,now(),now())`;
+    if (retirementMode || accessMode) await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${guest.subject},'Automated acceptance guest',${guest.email},true,now(),now())`;
+    if (accessMode) {
+      await tx`insert into drawstuff_user (id,name,email,email_verified,created_at,updated_at) values (${peer.subject},'Automated acceptance peer',${peer.email},true,now(),now())`;
+      await tx`insert into drawstuff_session (id,user_id,token,expires_at,created_at,updated_at) values (${peerSessionId},${peer.subject},${peerSessionToken},now()+interval '15 minutes',now(),now())`;
+    }
     if (sceneId) await tx`insert into drawstuff_scene (id,name,user_id,last_updated,created_at,updated_at,is_archived) values (${sceneId},'Automated retirement source',${subject},now(),now(),now(),false)`;
   });
   fixtureCreated = true;
@@ -328,7 +372,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   report("authenticated-fixture");
   assert(!interrupted, "Acceptance interrupted");
   roomAttempted = true;
-  await settle({ ...envelope(), action: "create", sceneId, label: "Automated asset acceptance", linkRole: retirementMode ? "editor" : "none" });
+  await settle({ ...envelope(), action: "create", sceneId, label: "Automated asset acceptance", linkRole: retirementMode || accessMode ? "editor" : "none" });
   const roomKey = generateRoomKey();
   await settle({ ...envelope(), action: "set-key-check", expectedGeneration: 1, keyCheck: [...Buffer.from(await sealRoomKeyCheck({ roomKey, roomId, authGeneration: 1 }), "base64")] });
   const codec = await createAssetCryptoCodec({ roomKey, roomId, authGeneration: 1 });
@@ -376,13 +420,41 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   assert.equal(saved.status, 200); assert.equal((await saved.json()).status, "written");
   await settle({ ...envelope(), action: "complete-initialization", manifest: { authGeneration: 1, revision: 1, checksum, assetIds: [fileId] } });
   if (retirementMode) await verifyRetirement(snapshotKey, cookie, fileId, bytes);
+  if (accessMode) {
+    const peerCookie = `__Secure-better-auth.session_token=${encodeURIComponent(`${peerSessionToken}.${await makeSignature(peerSessionToken, process.env.BETTER_AUTH_SECRET)}`)}`;
+    await runAccessAcceptance({ roomId, runId, web, gateway, guest, peer, peerCookie, roomKey, snapshotKey, fileId, bytes, sql, keys, saveJournal, proof, envelope, jsonPost, settle, connect, until, report,
+      deployFault: async () => {
+        maintenanceAttempted = true; faultRuntimeActive = true; restored = false; await saveJournal();
+        await command(["exec", "wrangler", "deploy", `${directory}/fault.ts`, "--config", "wrangler.jsonc", "--keep-vars"]);
+        const auth = JSON.parse(await command(["exec", "wrangler", "auth", "token", "--json"])); cfToken = auth.token ?? auth.oauth_token ?? auth.api_token;
+        const response = await fetch("https://api.cloudflare.com/client/v4/accounts/01db0963ee12ab1901ca993a89ac45f8/workers/scripts/drawstuff-collaboration-do/content/v2", { headers: { authorization: `Bearer ${cfToken}` }, signal: AbortSignal.timeout(20000) }); assert.equal(response.status,200);
+        const modules = [...(await response.formData()).entries()];
+        const scopedRuntimeIncluded = (await Promise.all(modules.map(async ([,file]) => file instanceof File && (await file.text()).includes(`/internal/access-test/${runId}/`)))).some(Boolean);
+        report("scoped-fault-deployment-verified", { modules: modules.map(([name]) => name), scopedRuntimeIncluded }); assert(scopedRuntimeIncluded);
+      },
+    });
+  }
   testPassed = true; report("attachment-initialization-passed");
 } catch (error) {
   // Do not log SQL, signed URLs, cookie, provider response, keys or encrypted payload.
-  report("test-failed", { errorName: error instanceof Error ? error.name : "unknown" });
+  const locations = error instanceof Error ? error.stack?.match(/(?:remote-access-acceptance|test-remote-assets)\.mjs:\d+:\d+/g)?.slice(0, 4) : undefined;
+  report("test-failed", { errorName: error instanceof Error ? error.name : "unknown", locations });
 } finally {
   let cleanupStage = "retirement";
   try {
+    if (faultRuntimeActive) {
+      cleanupStage = "fault-runtime-restoring";
+      try {
+        await until(async () => {
+          try {
+            const response = await fetch(`${gateway}/internal/access-test/${runId}/fault-off`, { method: "POST", headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, connection: "close" }, signal: AbortSignal.timeout(20000) });
+            if (response.status !== 200) { await response.body?.cancel(); await pause(15000); return false; }
+            return (await response.json()).enabled === 0;
+          } catch { await pause(15000); return false; }
+        }, 180000);
+      } catch { report("fault-disable-unconfirmed-normal-runtime-will-still-restore"); }
+      await restoreRuntime(); faultRuntimeActive = false; await saveJournal();
+    }
     if (retirementStarted && !retirementCompleted) {
       const result = await retirementEntry(); retirementOperation ??= result.operationId; await saveJournal(); await awaitRetirement();
     }
@@ -390,7 +462,19 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     cleanupStage = "room-end";
     let ended = !roomAttempted || retirementCompleted;
     if (roomAttempted && !retirementCompleted) {
-      try { await retry(() => settle({ ...envelope(), action: "end-room" })); ended = true; }
+      try {
+        await until(async () => {
+          try {
+            const state = (await jsonPost("/v1/authority", { proof: proof(), request: { ...envelope(), action: "get-state" } })).result;
+            if (state.state === "ended") {
+              const [row] = await sql`select authority_epoch from drawstuff_collaboration_room where room_id=${roomId}`;
+              return Number(row?.authority_epoch) >= state.authorityEpoch;
+            }
+            await settle({ ...envelope(), action: "end-room" }); return true;
+          } catch { await pause(15000); return false; }
+        }, 180000);
+        ended = true;
+      }
       catch { report("room-end-unconfirmed-provider-cleanup-will-still-run"); }
     }
     // A lost presign response must not hide this run's uploaded objects.
@@ -398,7 +482,8 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     if (fixtureCreated) for (const file of await providerFiles()) if (file.name === `${runId}.bin`) keys.add(file.key);
     await saveJournal();
     for (const key of keys) {
-      const deleted = await retry(() => utapi.deleteFiles(key)); assert.equal(deleted.success, true);
+      const deleted = await retry(() => utapi.deleteFiles(key));
+      if (!deleted.success) assert(!(await providerFiles()).some(file => file.key === key), "Provider object deletion unconfirmed");
     }
     for (let attempt = 0; keys.size > 0; attempt++) {
       const remaining = (await providerFiles()).filter((file) => keys.has(file.key));
@@ -407,19 +492,19 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     }
     assert(ended, "Room end must be confirmed before removing its owner");
     cleanupStage = "accounts";
-    if (fixtureCreated) for (const id of subjects) await sql`delete from drawstuff_user where id=${id} and email in (${email},${guest.email})`;
+    if (fixtureCreated) for (const id of subjects) await sql`delete from drawstuff_user where id=${id} and email in (${email},${guest.email},${peer.email})`;
     // Expired fixture proofs plus the deleted account prevent delayed requests from recreating authority.
     while (Date.now() < lastProofExpires + 1000) await pause(Math.min(5000, lastProofExpires + 1000 - Date.now()));
     if (roomAttempted) {
       report("temporary-cleanup-runtime-deploying");
-      maintenanceAttempted = true; await saveJournal();
+      maintenanceAttempted = true; restored = false; await saveJournal();
       cleanupStage = "maintenance-deployment";
       await command(["exec", "wrangler", "deploy", `${directory}/cleanup.ts`, "--config", "wrangler.jsonc", "--keep-vars"]);
       cleanupStage = "durable-storage";
       await until(async () => {
         try { return (await jsonPost("/internal/asset-test-cleanup", {})).cleared === true; }
-        catch { await pause(2000); return false; }
-      }, 60000);
+        catch { await pause(15000); return false; }
+      }, 180000);
     }
     cleanupStage = "database";
     await sql.begin(async (tx) => {
@@ -428,31 +513,14 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       await tx`delete from drawstuff_collaboration_creation_fence where room_id in ${tx(roomIds)}`;
       await tx`delete from drawstuff_collaboration_lifecycle_subject where subject in ${tx(subjects)}`;
       for (const key of keys) await tx`delete from drawstuff_deferred_file_cleanup where ut_file_key=${key}`;
-      const [remaining] = await tx`select (select count(*) from drawstuff_user where id in ${tx(subjects)}) + (select count(*) from drawstuff_session where id=${sessionId}) + (select count(*) from drawstuff_scene where id=${sceneId}) + (select count(*) from drawstuff_collaboration_room where room_id in ${tx(roomIds)}) + (select count(*) from drawstuff_collaboration_asset where room_id in ${tx(roomIds)}) + (select count(*) from drawstuff_collaboration_snapshot where room_id in ${tx(roomIds)}) as count`;
+      const [remaining] = await tx`select (select count(*) from drawstuff_user where id in ${tx(subjects)}) + (select count(*) from drawstuff_session where id in (${sessionId},${peerSessionId})) + (select count(*) from drawstuff_scene where id=${sceneId}) + (select count(*) from drawstuff_collaboration_room where room_id in ${tx(roomIds)}) + (select count(*) from drawstuff_collaboration_asset where room_id in ${tx(roomIds)}) + (select count(*) from drawstuff_collaboration_snapshot where room_id in ${tx(roomIds)}) as count`;
       assert.equal(Number(remaining.count), 0);
     });
     cleanupPassed = true; report("provider-db-do-cleanup-passed");
   } catch (error) { report("cleanup-unconfirmed", { stage: cleanupStage, errorName: error instanceof Error ? error.name : "unknown", recoveryJournal: journal }); }
   finally {
     if (maintenanceAttempted) {
-      let restoreStage = "deployment";
-      try {
-        report("normal-worker-restoring");
-        await retry(() => command(["exec", "wrangler", "deploy", `${directory}/restore/index.js`, "--config", "wrangler.jsonc", "--no-bundle", "--keep-vars"]));
-        restoreStage = "routes";
-        await until(async () => {
-          try {
-            const response = await fetch(`${gateway}/v1/authority`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { connection: "close" } }); await response.body?.cancel();
-            const cleanupRoute = await fetch(`${gateway}/internal/asset-test-cleanup`, { method: "POST", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, connection: "close" } }); await cleanupRoute.body?.cancel();
-            return response.status === 401 && cleanupRoute.status === 404;
-          } catch { await pause(2000); return false; }
-        }, 60000);
-        restoreStage = "bindings";
-        await retry(async () => assert.deepEqual(sortedBindings(await cfGet(settingsPath)), initialBindings, "Worker bindings and variables must be restored"));
-        restoreStage = "module";
-        await retry(async () => assert.equal(digest(await deployedRuntime()), normalRuntimeHash, "Deployed Worker module must exactly match the pre-test backup"));
-        restored = true; report("normal-worker-restored");
-      } catch { report("restore-unconfirmed", { stage: restoreStage, recoveryJournal: journal }); }
+      try { await restoreRuntime(); } catch { /* Recovery journal is retained below. */ }
     } else restored = true;
     await sql.end();
     if (cleanupPassed && restored) { await rm(directory, { recursive: true, force: true }); await rm(journal, { force: true }); await rm(lock, { force: true }); }
