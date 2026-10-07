@@ -6,7 +6,7 @@ import {
   generateMigration,
   type DrizzleSnapshotJSON,
 } from "drizzle-kit/api";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import {
   registerAuthorityCommand,
   createAuthorityParent,
@@ -18,6 +18,7 @@ import {
   executeStorageOperation,
   readAdapterSnapshot,
   readAdapterSnapshotState,
+  queueAuthorityAssetOrphan,
 } from "@/server/collab/authority-storage";
 import {
   applyRoomProjection,
@@ -242,6 +243,92 @@ describe("actual PostgreSQL adapter lock races", () => {
       .where(eq(schema.collaborationOperation.operationId, operationId));
     expect(receipt?.status).toBe("written");
   });
+  it("queues an unknown callback before a blocked write and refuses later object adoption", async () => {
+    const f = await adapterFixture(db);
+    const asset = {
+      excalidrawFileId: "callback-orphan",
+      utFileKey: `orphan-${crypto.randomUUID()}`,
+      cryptoVersion: 1,
+      byteLength: 32,
+      url: "https://storage.test/ciphertext",
+    };
+    const held = await holdRoom(f.roomId);
+    const write = executeStorageOperation(
+      db,
+      "write",
+      f.operation({ kind: "asset-finalize", asset }),
+    );
+    try {
+      await waitForBlocked(1);
+      await queueAuthorityAssetOrphan(db, asset.utFileKey, f.roomId);
+    } finally {
+      held.release();
+      await held.finished;
+    }
+    expect(await write).toEqual({ status: "refused" });
+    expect(
+      await db
+        .select()
+        .from(schema.collaborationAsset)
+        .where(eq(schema.collaborationAsset.utFileKey, asset.utFileKey)),
+    ).toHaveLength(0);
+    expect(
+      await db
+        .select()
+        .from(schema.deferredFileCleanup)
+        .where(eq(schema.deferredFileCleanup.utFileKey, asset.utFileKey)),
+    ).toHaveLength(1);
+  });
+
+  it("lets a waiting write win the object lock and keeps unknown callback cleanup from deleting its live reference", async () => {
+    const f = await adapterFixture(db);
+    const asset = {
+      excalidrawFileId: "callback-committed",
+      utFileKey: `committed-${crypto.randomUUID()}`,
+      cryptoVersion: 1,
+      byteLength: 32,
+      url: "https://storage.test/ciphertext",
+    };
+    const reached = gate(),
+      unblock = gate();
+    const held = db.transaction(async (tx) => {
+      await tx.execute(
+        sql`SELECT pg_advisory_xact_lock(hashtextextended(${"drawstuff:collab-asset:" + asset.utFileKey},0))`,
+      );
+      reached.release();
+      await unblock.wait;
+    });
+    await reached.wait;
+    const write = executeStorageOperation(
+      db,
+      "write",
+      f.operation({ kind: "asset-finalize", asset }),
+    );
+    let cleanup: Promise<void> | undefined;
+    try {
+      await waitForBlocked(1);
+      cleanup = queueAuthorityAssetOrphan(db, asset.utFileKey, f.roomId);
+      await waitForBlocked(2);
+    } finally {
+      unblock.release();
+      await held;
+    }
+    expect(await write).toEqual({ status: "written", revision: 1 });
+    await cleanup;
+    expect(
+      await db
+        .select()
+        .from(schema.collaborationAsset)
+        .where(eq(schema.collaborationAsset.utFileKey, asset.utFileKey)),
+    ).toHaveLength(1);
+    expect(
+      await db
+        .select()
+        .from(schema.deferredFileCleanup)
+        .where(eq(schema.deferredFileCleanup.utFileKey, asset.utFileKey)),
+    ).toHaveLength(0);
+  });
+
   it("protects a provider key from simultaneous reference and orphan cleanup across rooms", async () => {
     const a = await adapterFixture(db);
     const b = await adapterFixture(db);

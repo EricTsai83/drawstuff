@@ -567,3 +567,12 @@ export async function cleanupAdapterRoom(
     return { cleaned: true };
   });
 }
+
+/** Queue unknown outcomes under the object lock; never delete a referenced object or later adopt queued garbage. */
+export async function queueAuthorityAssetOrphan(
+  db: Database,
+  key: string,
+  roomId: string,
+): Promise<void> {
+  await db.transaction((tx) => queueOrphan(tx, key, roomId));
+}

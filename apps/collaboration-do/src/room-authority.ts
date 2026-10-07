@@ -9,6 +9,7 @@ import {
   trustedIdentitySchema,
   initializationManifestSchema,
   type ContentOperation,
+  type AssetUploadIntent,
   type ContentResult,
   type ManagementResult,
   type RoomCommand,
@@ -749,6 +750,39 @@ export class RoomAuthority {
     return row
       ? contentResultSchema.parse(JSON.parse(row.result) as unknown)
       : undefined;
+  }
+
+  /** The browser cannot know the provider descriptor; bind its entire intent and verified actor before revealing a receipt. */
+  assetContent(
+    input: AssetUploadIntent,
+    actor: TrustedIdentity,
+  ): ContentOperation | undefined {
+    const row = this.storage.sql
+      .exec<{ request: string }>(
+        "SELECT request FROM authority_content WHERE id=?",
+        input.operationId,
+      )
+      .toArray()[0];
+    if (!row) return undefined;
+    const operation = contentOperationSchema.parse(
+      JSON.parse(row.request) as unknown,
+    );
+    const { excalidrawFileId, cryptoVersion, byteLength, ...intent } = input;
+    if (
+      JSON.stringify(operation) !==
+        JSON.stringify(
+          contentOperationSchema.parse({
+            ...intent,
+            actor,
+            asset: operation.asset,
+          }),
+        ) ||
+      operation.asset?.excalidrawFileId !== excalidrawFileId ||
+      operation.asset.cryptoVersion !== cryptoVersion ||
+      operation.asset.byteLength !== byteLength
+    )
+      throw new Error("operation-mismatch");
+    return operation;
   }
 
   /** Receipt lookups bind the complete immutable intent, even after its deadline. */

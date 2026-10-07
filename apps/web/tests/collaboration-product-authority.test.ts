@@ -14,6 +14,18 @@ import {
   createAuthorityRoomBackend,
   type AuthorityApi,
 } from "@/lib/collab/authority-client";
+import {
+  ASSET_CRYPTO_VERSION,
+  createAssetCryptoCodec,
+  decodeCollaborationAssetPayload,
+  type CollaborationAssetRecord,
+} from "@drawstuff/collaboration/asset";
+import type {
+  BinaryFileData,
+  FileId,
+  DataURL,
+} from "@drawstuff/excalidraw-adapter/types";
+import type { AssetApi } from "@/lib/collab/asset-store";
 import { createRoomInitialization } from "@/lib/collab/room-initialization";
 import type { SnapshotApi } from "@/lib/collab/snapshot-http";
 import { createCollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
@@ -40,6 +52,26 @@ function fixture() {
     keyCheck: null,
   });
   let storage = binarySnapshotBackend(state.roomId);
+  const records = new Map<string, CollaborationAssetRecord>();
+  const assetUploads = new Map<string, Uint8Array>();
+  const assets: AssetApi = {
+    upload: vi.fn<AssetApi["upload"]>(async (input) => {
+      assetUploads.set(input.excalidrawFileId, input.ciphertext.slice());
+      records.set(input.excalidrawFileId, {
+        excalidrawFileId: input.excalidrawFileId,
+        cryptoVersion: input.cryptoVersion,
+        byteLength: input.ciphertext.byteLength,
+        url: "https://storage.test/ciphertext",
+      });
+    }),
+    resolve: vi.fn<AssetApi["resolve"]>(async ({ fileIds }) => ({
+      authGeneration: state.authGeneration,
+      assets: fileIds.flatMap((id) =>
+        records.get(id) ? [records.get(id)!] : [],
+      ),
+      missing: fileIds.filter((id) => !records.has(id)),
+    })),
+  };
   const results = new Map<string, ManagementResult>();
   const execute = vi.fn<AuthorityApi["execute"]>(async (request) => {
     if (request.action === "get-state") return { ...state };
@@ -64,7 +96,7 @@ function fixture() {
         !saved.found ||
         request.manifest.revision !== saved.receipt.revision ||
         request.manifest.checksum !== saved.receipt.checksum ||
-        request.manifest.assetIds.length
+        request.manifest.assetIds.some((id) => !records.has(id))
       )
         throw new Error("invalid-manifest");
       state = { ...state, state: "ready" };
@@ -97,6 +129,9 @@ function fixture() {
   };
   return {
     authority,
+    assets,
+    records,
+    assetUploads,
     execute,
     commit: execute.getMockImplementation()!,
     snapshots,
@@ -321,6 +356,134 @@ describe("product Room authority initialization", () => {
     expect(f.storage().write).not.toHaveBeenCalled();
   });
 
+  it("initializes an encrypted image and includes it in the ready manifest only after finalization", async () => {
+    const f = fixture();
+    const file = initialFile();
+    const initialization = createRoomInitialization({
+      authority: f.authority,
+      snapshots: f.snapshots,
+      assets: f.assets,
+      sceneId,
+      elements: [initialImage()],
+      files: [file],
+    });
+    file.dataURL = "data:image/png;base64,AAAA" as DataURL;
+    const ready = await initialization.start();
+    expect(f.state().state).toBe("ready");
+    const complete = f.execute.mock.calls
+      .map(([request]) => request)
+      .find((request) => request.action === "complete-initialization");
+    expect(complete).toMatchObject({
+      manifest: { assetIds: [initialFile().id] },
+    });
+    const codec = await createAssetCryptoCodec({
+      roomId: ready.roomId,
+      roomKey: ready.roomKey,
+      authGeneration: 1,
+    });
+    const opened = await codec.open({
+      excalidrawFileId: initialFile().id,
+      ciphertext: f.assetUploads.get(initialFile().id)!,
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) throw new Error("unreadable-upload");
+    expect(
+      decodeCollaborationAssetPayload(opened.plaintext, {
+        roomId: ready.roomId,
+        excalidrawFileId: initialFile().id,
+      }),
+    ).toMatchObject({ ok: true, payload: { dataUrl: initialFile().dataURL } });
+    expect(f.storage().write).toHaveBeenCalledTimes(1);
+  });
+
+  it("retains the same Room/key and withholds its snapshot/manifest while an attachment is missing", async () => {
+    const f = fixture();
+    const original = f.assets.upload;
+    f.assets.upload = vi.fn(async () => {
+      throw new Error("upload-unknown");
+    });
+    const initialization = createRoomInitialization({
+      authority: f.authority,
+      snapshots: f.snapshots,
+      assets: f.assets,
+      sceneId,
+      elements: [initialImage()],
+      files: [initialFile()],
+    });
+    await expect(initialization.start()).rejects.toMatchObject({
+      code: "pending",
+    });
+    expect(f.storage().write).not.toHaveBeenCalled();
+    expect(
+      f.execute.mock.calls.some(
+        ([request]) => request.action === "complete-initialization",
+      ),
+    ).toBe(false);
+    // The provider callback and Room recovery eventually finalize the original ciphertext.
+    f.records.set(initialFile().id, {
+      excalidrawFileId: initialFile().id,
+      cryptoVersion: ASSET_CRYPTO_VERSION,
+      byteLength: 32,
+      url: "https://storage.test/ciphertext",
+    });
+    const ready = await initialization.start();
+    expect(ready.roomId).toBe(f.state().roomId);
+    expect(
+      f.execute.mock.calls.filter(([request]) => request.action === "create"),
+    ).toHaveLength(1);
+    expect(
+      f.execute.mock.calls.filter(
+        ([request]) => request.action === "set-key-check",
+      ),
+    ).toHaveLength(1);
+    expect(original).not.toHaveBeenCalled();
+  });
+
+  it("refuses incomplete or unsupported source image bytes before creating a Room", () => {
+    const f = fixture();
+    for (const files of [
+      [],
+      [{ ...initialFile(), dataURL: "not-an-image" as DataURL }],
+    ])
+      expect(() =>
+        createRoomInitialization({
+          authority: f.authority,
+          snapshots: f.snapshots,
+          assets: f.assets,
+          sceneId,
+          elements: [initialImage()],
+          files,
+        }),
+      ).toThrow(AuthorityRoomError);
+    expect(f.execute).not.toHaveBeenCalled();
+  });
+
+  it("stops after disposal before a late creation reply can upload images or set a key check", async () => {
+    const f = fixture();
+    let finish: (() => void) | undefined;
+    f.execute.mockImplementationOnce(async (request) => {
+      await new Promise<void>((resolve) => {
+        finish = resolve;
+      });
+      return f.commit(request);
+    });
+    const initialization = createRoomInitialization({
+      authority: f.authority,
+      snapshots: f.snapshots,
+      assets: f.assets,
+      sceneId,
+      elements: [initialImage()],
+      files: [initialFile()],
+    });
+    const starting = initialization.start();
+    await vi.waitFor(() => expect(finish).toBeDefined());
+    initialization.dispose();
+    finish!();
+    await expect(starting).rejects.toMatchObject({ code: "cancelled" });
+    expect(f.assets.upload).not.toHaveBeenCalled();
+    expect(f.storage().write).not.toHaveBeenCalled();
+  });
+
   it("keeps querying its pending end intent even after local Room state is ended, until the fence is confirmed", async () => {
     const f = fixture();
     f.snapshots.write = vi
@@ -419,3 +582,22 @@ describe("product Room authority initialization", () => {
     }
   });
 });
+
+function initialFile(): BinaryFileData {
+  return {
+    id: "a".repeat(40) as FileId,
+    mimeType: "image/png",
+    dataURL: "data:image/png;base64,AAECAwQFBg==" as DataURL,
+    created: 1,
+  };
+}
+function initialImage() {
+  return {
+    id: "initial-image",
+    type: "image",
+    fileId: initialFile().id,
+    version: 1,
+    versionNonce: 1,
+    isDeleted: false,
+  };
+}

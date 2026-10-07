@@ -24,9 +24,12 @@ import type {
 
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { useAppI18n } from "@/hooks/use-app-i18n";
-import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
+import { createAuthorityAssetApi } from "@/lib/collab/asset-upload";
 import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
-import { createAuthorityRoomBackend } from "@/lib/collab/authority-client";
+import {
+  createAuthorityRoomBackend,
+  type AuthorityApi,
+} from "@/lib/collab/authority-client";
 import { createCollaborationRoomController } from "@/hooks/excalidraw/collaboration-room-controller";
 import type { CanvasHandoffOutcome } from "@/hooks/excalidraw/use-canvas-handoff";
 import {
@@ -269,33 +272,34 @@ export function useCollaborationRoom(options: {
     // effect only binds it to React: refs are read through getters so their
     // latest committed value is used at call time, and the reducer receives
     // every transition.
+    const authority: AuthorityApi = {
+      execute: (input) =>
+        utilsRef.current.client.collaborationAuthority.execute.mutate(input),
+      identity: (input: { roomId: string }) =>
+        utilsRef.current.client.collaborationAuthority.identity.mutate(input),
+    };
     const controller = createCollaborationRoomController({
       excalidrawApi: excalidrawAPI,
       roomId: parsedRoomId.data,
       roomKey,
       backend: {
-        ...createAuthorityRoomBackend({
-          execute: (input) =>
-            utilsRef.current.client.collaborationAuthority.execute.mutate(
-              input,
-            ),
-          identity: (input) =>
-            utilsRef.current.client.collaborationAuthority.identity.mutate(
-              input,
-            ),
-        }),
+        ...createAuthorityRoomBackend(authority),
         // The store's binary transport retains opaque original operations.
         snapshotApi: createBinarySnapshotClient(),
         // Same shape, and for the same reason: the store needs two plain async
         // functions, one to find out where a room's ciphertext lives and one to
         // put ciphertext there. Neither can read what it carries.
-        assetApi: {
+        assetApi: createAuthorityAssetApi({
+          authority,
+          execute: (input, signal) =>
+            utilsRef.current.client.collaborationAsset.execute.mutate(input, {
+              signal,
+            }),
           resolve: (input, signal) =>
             utilsRef.current.client.collaborationAsset.resolve.query(input, {
               signal,
             }),
-          upload: uploadCollaborationAsset,
-        },
+        }),
       },
       dispatch,
       onSaveStateChange: setSaveState,

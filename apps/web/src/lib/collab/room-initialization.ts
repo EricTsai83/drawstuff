@@ -1,3 +1,5 @@
+import { AUTHORITY_LIMITS } from "@drawstuff/collaboration/authority";
+import { encodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset";
 import { TRPCClientError } from "@trpc/client";
 import { encodeCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 import {
@@ -22,6 +24,12 @@ import {
   createCollaborationSnapshotStore,
   type CollaborationSnapshotStore,
 } from "./snapshot-store";
+import {
+  createCollaborationAssetStore,
+  type AssetApi,
+  type CollaborationAssetStore,
+} from "./asset-store";
+import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 import type { SnapshotApi } from "./snapshot-http";
 
 /** Browser-only initialization. Unknown replies keep the room, key, captured elements and every intent. */
@@ -30,13 +38,35 @@ export function createRoomInitialization(options: {
   snapshots: SnapshotApi;
   sceneId: string;
   elements: readonly SyncedElement[];
+  files?: readonly BinaryFileData[];
+  assets?: AssetApi;
 }) {
-  // Attachments must be finalized through Room authority before they can appear
-  // in a ready manifest. Never publish a partial canvas through the legacy uploader.
+  // Capture both elements and files before any asynchronous work; incomplete source images cannot seed a room.
   const elements = structuredClone(options.elements);
-  if (collectReferencedFileIds(elements).length)
+  const assetIds = collectReferencedFileIds(elements);
+  const files = structuredClone(options.files ?? []).filter((file) =>
+    assetIds.includes(file.id),
+  );
+  if (
+    assetIds.length > AUTHORITY_LIMITS.initializationAssets ||
+    (assetIds.length &&
+      (!options.assets ||
+        assetIds.some((id) => !files.some((file) => file.id === id))))
+  )
     throw new AuthorityRoomError("attachments-required");
   const roomId = roomIdSchema.parse(crypto.randomUUID());
+  if (
+    files.some(
+      (file) =>
+        !encodeCollaborationAssetPayload({
+          roomId,
+          excalidrawFileId: file.id,
+          mimeType: file.mimeType,
+          dataUrl: file.dataURL,
+        }).ok,
+    )
+  )
+    throw new AuthorityRoomError("attachments-required");
   if (!encodeCollaborationSnapshot({ roomId, elements }).ok)
     throw new Error("invalid-initial-snapshot");
   const roomKey = generateRoomKey();
@@ -51,19 +81,27 @@ export function createRoomInitialization(options: {
   let setCheck: ReturnType<typeof createAuthorityOperation> | undefined;
   let complete: ReturnType<typeof createAuthorityOperation> | undefined;
   let store: CollaborationSnapshotStore | undefined;
+  let assets: CollaborationAssetStore | undefined;
   let expectedRevision: number | undefined;
   let stored: { revision: number; checksum: string } | undefined;
+  let disposed = false;
+  const assertActive = () => {
+    if (disposed) throw new AuthorityRoomError("cancelled");
+  };
   let active = false;
   let cancelled = false;
   let abandoning = false;
   let cancel: ReturnType<typeof createAuthorityOperation> | undefined;
   const start = async () => {
-    if (cancelled || abandoning) throw new AuthorityRoomError("cancelled");
+    if (disposed || cancelled || abandoning)
+      throw new AuthorityRoomError("cancelled");
     if (active) throw new AuthorityRoomError("pending");
     active = true;
     try {
       await create(); // Enforced means the immutable parent job was confirmed.
+      assertActive();
       const state = await readAuthorityState(options.authority, roomId);
+      assertActive();
       if (state.state === "ended") throw new AuthorityRoomError("ended");
       if (state.authGeneration !== 1)
         throw new AuthorityRoomError("generation-mismatch");
@@ -82,7 +120,25 @@ export function createRoomInitialization(options: {
           keyCheck: Array.from(decoded.bytes),
         });
       }
+      assertActive();
       await setCheck();
+      assertActive();
+      if (assetIds.length) {
+        assets ??= await createCollaborationAssetStore({
+          api: options.assets!,
+          roomId,
+          roomKey,
+          authGeneration: 1,
+          onAssetsResolved: () => undefined,
+        });
+        if (disposed) assets.destroy();
+        assertActive();
+        await assets.publish(files);
+        assertActive();
+        if (!(await assets.areAvailable?.(assetIds)))
+          throw new AuthorityRoomError("pending");
+      }
+      assertActive();
       store ??= await createCollaborationSnapshotStore({
         api: options.snapshots,
         roomId,
@@ -96,7 +152,9 @@ export function createRoomInitialization(options: {
             throw new Error("initial-snapshot-unavailable");
           expectedRevision = baseline.revision ?? 0;
         }
+        assertActive();
         const result = await store.save({ elements, expectedRevision });
+        assertActive();
         if (result.status === "conflict") expectedRevision = undefined;
         if (result.status !== "written" || !result.checksum)
           throw new AuthorityRoomError("pending");
@@ -105,10 +163,13 @@ export function createRoomInitialization(options: {
       complete ??= createAuthorityOperation(options.authority, {
         ...authorityEnvelope(roomId),
         action: "complete-initialization",
-        manifest: { authGeneration: 1, ...stored, assetIds: [] },
+        manifest: { authGeneration: 1, ...stored, assetIds },
       });
+      assertActive();
       await complete();
+      assertActive();
       const ready = await readAuthorityState(options.authority, roomId);
+      assertActive();
       if (ready.state !== "ready") throw new AuthorityRoomError(ready.state);
       if (
         ready.authGeneration !== 1 ||
@@ -121,6 +182,7 @@ export function createRoomInitialization(options: {
         }))
       )
         throw new AuthorityRoomError("generation-mismatch");
+      assets?.destroy();
       return { roomId, roomKey };
     } finally {
       active = false;
@@ -128,6 +190,10 @@ export function createRoomInitialization(options: {
   };
   return {
     start,
+    dispose() {
+      disposed = true;
+      assets?.destroy();
+    },
     async cancel() {
       if (active) throw new AuthorityRoomError("pending");
       if (cancelled) return;
@@ -136,6 +202,7 @@ export function createRoomInitialization(options: {
         const state = await readAuthorityState(options.authority, roomId);
         if (state.state === "ended" && !cancel) {
           cancelled = true;
+          assets?.destroy();
           return;
         }
       } catch (error) {
@@ -145,6 +212,7 @@ export function createRoomInitialization(options: {
           (error.data as { code?: unknown } | undefined)?.code === "NOT_FOUND"
         ) {
           cancelled = true;
+          assets?.destroy();
           return;
         }
         throw error;
@@ -166,6 +234,7 @@ export function createRoomInitialization(options: {
         throw error;
       }
       cancelled = true;
+      assets?.destroy();
     },
   };
 }

@@ -67,7 +67,7 @@ local persistence and schema semantics; they do not establish cross-cloud or pro
 ## 18B P2 storage and projection adapters
 
 The source contains the undeployed storage/projection adapter backend. Browser snapshot and
-attachment-free initialization wiring are described below; UploadThing and retirement remain pending. Authenticated management and parent creation
+product initialization and attachment wiring are described below; remaining management and retirement remain pending. Authenticated management and parent creation
 are described below. The existing DB-role writers and control outbox remain until the remaining P2 units. Room delivery is described below; Lifecycle
 delivery remains unconfigured. This intermediate artifact cannot be deployed on its own.
 
@@ -420,9 +420,9 @@ this artifact cannot be deployed independently or pushed to the automatic deploy
   generation before acquiring an identity proof. Rotation is terminal even when the new generation
   remains initializing. Independent rooms never compare two NULL scene IDs as the same source canvas.
   The actual socket ACK continues to decide the live editor/viewer role.
-- Image-bearing initialization is deliberately refused before Room creation, with a product message,
-  until the next attachment authorization/finalization unit can provide the complete durable manifest.
-  It never omits an image or uses the old uploader to claim a partial canvas is ready.
+- This initial slice refused image-bearing initialization before Room creation. The attachment unit
+  below supersedes that refusal with the complete durable manifest; it still never omits an image or
+  uses the old uploader to claim a partial canvas is ready.
 - Sixteen new browser/store/UI/PGlite cases cover encrypted empty initialization, lost create and
   snapshot replies, exact request replay, receipt mismatch, pending completion, cancellation, sign-out,
   generation rotation, image refusal, proof-only joining and source candidate ownership/status.
@@ -431,9 +431,57 @@ this artifact cannot be deployed independently or pushed to the automatic deploy
   These tests use fake Room/storage effects, real browser crypto and local PGlite; they do not establish
   deployed cross-cloud product acceptance.
 
-No production schema/migration/reset/deployment or credentials changed in this unit. Next connect
-attachment authorization/finalization and image-bearing initialization, then remaining Room management
-and Lifecycle/deletion paths; retire the old DB issuers/control outbox before the P3 controlled reset.
+No production schema/migration/reset/deployment or credentials changed in this initial slice. The
+attachment extension follows below; remaining Room management and Lifecycle/deletion paths must
+retire the old DB issuers/control outbox before the P3 controlled reset.
+
+## 18B P2 product attachment authority
+
+Source-only; the attachment unit extends the initialization above to image-bearing scenes. It uses
+`POST /v1/assets`, the existing private service capability and a fresh identity proof. The protected
+web resolver, UploadThing presign and verified provider callback now consult Room rather than DB roles.
+The old `collab/assets.ts` DB-authorized writer/resolver is removed.
+
+- Room authorizes owner-only initialization and current ready-room access before and after live
+  registration. Reads ask the adapter for bounded current-generation records, then recheck roles,
+  generation, epoch, proof and deadline before exposing any provider URLs. Viewer reads are allowed;
+  viewer presign/finalization and non-owner initialization access are refused.
+- Presign checks the immutable actorless intent against current generation/epoch/deadline. It does
+  not stage bytes or reserve a durable content job. Only the verified UploadThing callback binds the
+  actual provider key/URL/length. It reissues proof from the live original account/session, requiring
+  unchanged lifecycle identity and verified email. Descriptor length must equal the bounded intent.
+  Room then accepts `asset-finalize`, writes through the adapter's existing locks/fences, and commits
+  the written receipt with its local initialization asset manifest. Alarms recover or cancel unknown
+  accepted operations, including after eviction; no alarm retries ciphertext uploads.
+- The browser retains bounded metadata for at most 512 unknown intents and permits one provider
+  upload per intent. Retry queries the complete original browser intent/actor binding. A pending
+  deadline may request storage cancellation; a written cancellation race is adopted. Only a terminal
+  cancellation or Room-certified expired absence permits a new upload. Browser time alone never
+  establishes absence. Recovery does not spend the publisher's three ordinary failure attempts.
+- The intent checksum binds metadata to the browser's sealed payload; the server does not download
+  provider objects to verify their hash or decrypt them. Browser asset opening still validates its
+  authenticated envelope and payload identity. Provider URLs retain the accepted public ACL limitation.
+- Unknown/refused callbacks enqueue cleanup under the same provider-object advisory lock as
+  finalization. A referenced object is never queued, and queued garbage cannot later become a live
+  reference. No callback directly deletes an object after an unknown write result. Cleanup driver
+  failures are sanitized before the provider SDK can log SQL parameters containing object keys.
+- The editor captures both elements and local image files before source lookup can yield. Initialization
+  validates the complete bounded source manifest before creating a Room, publishes encrypted assets,
+  confirms their current-generation availability, stores the encrypted snapshot, and completes with
+  every referenced file ID. Pending attachments withhold the snapshot/ready link. Retry retains the
+  same Room/key; unmount/sign-out disposes local transfers and refuses late continuation. Explicit
+  cancellation still waits for the Room's enforced fence. Browser exit may lose an unshared key or
+  unconfirmed bytes; there is no durable browser recovery.
+
+Local validation adds 31 browser intent/recovery, verified callback/PGlite cleanup and encrypted image
+initialization cases, plus 14 workerd authorization/race cases. The disposable Docker PostgreSQL suite
+passes all 11 cases, including two new blocked-lock races for callback cleanup versus object adoption. The former DB-authorized asset test cases are
+replaced by Room entry and existing adapter invariants; personal/shared scene identity tests remain.
+These checks establish the local adapter lock behavior, not live UploadThing or deployed cross-cloud
+acceptance; the remaining Lifecycle/product race gates still need their later P2 work.
+No DB schema, production migration/reset, credentials or deployment changed. Remaining P2 work is
+Room management/panel/projection integration, legacy issuer removal, Lifecycle/deletion entry points,
+real PostgreSQL race gates and reset/rollback rehearsal before the coordinated P3 reset/deployment.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation

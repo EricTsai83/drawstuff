@@ -159,7 +159,7 @@ export const en = {
     "Room creation is not confirmed yet. The canvas is paused; retry or cancel this creation.",
   "collaboration.action.cancelInitialization": "Cancel room creation",
   "collaboration.toast.initializationAttachments":
-    "Creating a room with images will be available after attachment authorization is connected.",
+    "Some image files are missing or unsupported. Reload the scene or remove those images before starting collaboration.",
   "collaboration.error.operationFailed":
     "The collaboration action failed. Please try again.",
   "collaboration.action.creating": "Creating...",

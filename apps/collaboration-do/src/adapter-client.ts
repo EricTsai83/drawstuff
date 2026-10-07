@@ -35,7 +35,11 @@ export class AdapterClient {
   ): Promise<T> {
     const command = adapterCommandSchema.parse(input);
     const { url, secret } = this.endpoint();
-    if (command.action === "write" || command.action.startsWith("read-"))
+    if (
+      (command.action === "write" &&
+        command.operation.kind !== "asset-finalize") ||
+      command.action === "read-snapshot"
+    )
       throw new Error("metadata-only");
     const body = JSON.stringify(command);
     if (new TextEncoder().encode(body).byteLength > AUTHORITY_LIMITS.jobBytes)

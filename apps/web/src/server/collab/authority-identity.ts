@@ -56,12 +56,23 @@ export async function lockActiveAccount(
 /** No room role lookup. Re-read the live account/session, rather than trusting cached auth.user metadata. */
 export async function issueAuthorityIdentity(
   db: Database,
-  params: { subject: string; sessionId: string; roomId: string },
+  params: {
+    subject: string;
+    sessionId: string;
+    roomId: string;
+    expectedIdentity?: TrustedIdentity;
+  },
   secret: string,
 ) {
   const roomId = roomIdSchema.parse(params.roomId);
   return db.transaction(async (tx) => {
     const identity = await lockActiveAccount(tx, params.subject);
+    if (
+      params.expectedIdentity &&
+      JSON.stringify(identity) !==
+        JSON.stringify(trustedIdentitySchema.parse(params.expectedIdentity))
+    )
+      throw new AdapterError("fence-mismatch");
     const [activeSession] = await tx
       .select({ id: session.id })
       .from(session)

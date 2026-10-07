@@ -19,6 +19,8 @@ import {
   SNAPSHOT_GATEWAY_PATH,
   SNAPSHOT_REQUEST_HEADER,
   ADAPTER_METADATA_MAX_BYTES,
+  ASSET_GATEWAY_PATH,
+  assetGatewayRequestSchema,
 } from "@drawstuff/collaboration/authority";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
@@ -52,6 +54,7 @@ import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
  *   POST /v1/control                                           (Vercel only)
  *   POST /v1/authority                                         (Vercel only)
  *   POST /v1/snapshot                                          (Vercel only)
+ *   POST /v1/assets                                            (Vercel only)
  */
 
 const HEALTH_PATH = "/healthz";
@@ -106,6 +109,8 @@ export async function handleGatewayRequest(
       return await handleAuthority(request, env);
     if (url.pathname === SNAPSHOT_GATEWAY_PATH)
       return await handleSnapshot(request, env);
+    if (url.pathname === ASSET_GATEWAY_PATH)
+      return await handleAuthority(request, env, true);
     if (url.pathname === DO_GATEWAY_CONTROL_PATH) {
       return await handleControl(request, env, log);
     }
@@ -332,7 +337,11 @@ async function handleSnapshot(request: Request, env: Env): Promise<Response> {
   }
 }
 
-async function handleAuthority(request: Request, env: Env): Promise<Response> {
+async function handleAuthority(
+  request: Request,
+  env: Env,
+  assets = false,
+): Promise<Response> {
   if (!serviceAuthorized(request, env))
     return closedJsonResponse(401, "unauthorized");
   if (request.method !== "POST")
@@ -355,21 +364,28 @@ async function handleAuthority(request: Request, env: Env): Promise<Response> {
   } catch {
     return closedJsonResponse(400, "malformed");
   }
-  const parsed = authorityGatewayRequestSchema.safeParse(body);
+  const parsed = assets
+    ? assetGatewayRequestSchema.safeParse(body)
+    : authorityGatewayRequestSchema.safeParse(body);
   if (!parsed.success) return closedJsonResponse(400, "malformed");
   if (!roomTokenSecretReady(env.COLLAB_IDENTITY_SECRET))
     return closedJsonResponse(503, "not-ready");
+  const roomId =
+    "intent" in parsed.data.request
+      ? parsed.data.request.intent.roomId
+      : parsed.data.request.roomId;
   const verified = verifyIdentityProof({
     token: parsed.data.proof,
     secret: env.COLLAB_IDENTITY_SECRET,
-    expectedRoomId: parsed.data.request.roomId,
+    expectedRoomId: roomId,
     nowSeconds: Math.floor(Date.now() / 1000),
   });
   if (!verified.ok) return closedJsonResponse(401, "unauthorized");
   try {
-    const result = await env.COLLABORATION_ROOM.getByName(
-      parsed.data.request.roomId,
-    ).applyAuthorityV1(parsed.data);
+    const stub = env.COLLABORATION_ROOM.getByName(roomId);
+    const result = assets
+      ? await stub.applyAssetsV1(parsed.data)
+      : await stub.applyAuthorityV1(parsed.data);
     if (!result.ok)
       return closedJsonResponse(
         result.error === "unavailable"

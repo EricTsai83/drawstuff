@@ -536,13 +536,13 @@ P1/P2 沿用這些契約；正式登入／proof、所有入口與 Lifecycle 串�
 
 | 現有入口／呼叫端                                                                              | P2 必須改由新權威處理的部分                                                                    |
 | --------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------- |
-| `collaborationAuthority`、`collab/authority-client.ts`／`room-initialization.ts`；舊 room router 尚待整體退役 | 無附件建房、key check、初始化與 proof 加入已接 Room；含附件初始化、其餘管理、舊 DB issuer／metadata panel 路徑仍待轉換 |
+| `collaborationAuthority`、`collab/authority-client.ts`／`room-initialization.ts`；舊 room router 尚待整體退役 | 建房、key check、含附件初始化與 proof 加入已接 Room；其餘管理、舊 DB issuer／metadata panel 路徑仍待轉換 |
 | 同 router：leave、setLinkRole、setMemberRole、removeMember、rotateGeneration、end             | 本地授權 revision、operationId 去重、儲存 fence 及加密 generation 的獨立語意                   |
 | `server/collab/rooms.ts` 的 `signJoinToken`；`collab/control-token.ts`                        | 不從舊 DB 角色簽新權限；刪除舊 control token／outbox writer                                    |
 | `collaboration-do/src/gateway.ts`、`room.ts`、`control.ts`                                    | roomId 定址；升級、加入、重進、每次訊息／轉送／休眠 attachment 都核對 SQLite 權限              |
 | web binary 快照入口、`collab/snapshot-store.ts`、`snapshot-reset.ts`（舊 tRPC 已移除）         | 已接 binary 讀寫／reset、pending receipt、reset 水位；Room 驗權與 PG fence，待其餘 P2 與 P3 部署 |
-| `server/api/routers/collaboration-asset.ts`：resolve                                          | 最新授權、同 generation 索引；回傳 public URL 的既有 capability 限制沿用                       |
-| `app/api/uploadthing/core.ts`：collaborationAssetUploader middleware／onUploadComplete        | presign 與 finalize 重新驗權；pending 物件不能成為附件引用；失敗 enqueue cleanup；不私有化物件 |
+| `server/api/routers/collaboration-asset.ts`：resolve／execute                                          | 已接 Room 最新授權、同 generation 索引與 I/O 後重查；原操作 query／cancel 恢復；維持 public URL capability 限制                       |
+| `app/api/uploadthing/core.ts`：collaborationAssetUploader middleware／onUploadComplete        | 已接 Room presign／callback finalize 與原 intent 收據恢復；unknown 結果取物件鎖 enqueue cleanup，禁止刪除 live reference；維持 public 密文物件 |
 | `server/admin/retirement.ts`：retireScene、retireAccount、endRoom                             | Lifecycle DO 接手意圖、凍結、登記、逐房間確認後才刪 DB                                         |
 | `server/api/routers/scene.ts`、`admin.ts` 的退休入口                                          | owner／admin 授權後呼叫相同退休協定                                                            |
 | `server/maintenance/jobs.ts` 的 `purge-non-owner-users` 直接 `tx.delete(user)`                | 同樣經退休協定，不得沿用直接 cascade bypass；房間清理候選不再靠 TTL                            |

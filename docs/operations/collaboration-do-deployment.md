@@ -9,8 +9,8 @@
 
 **18B source 尚未部署。** 工作區 artifact 已包含 protocol v6、roomId 定址、SQLite v3 與新增的
 `CollaborationLifecycle` class／binding，以及移除房間到期的 PostgreSQL schema；P2 的正式
-含附件初始化／附件、其餘管理、退休與舊路徑移除尚未接入。儲存／投影 adapter、Room alarm、
-登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照切換、pending 操作保留、reset 水位與舊 tRPC 快照入口移除已完成。產品無附件初始化與 proof 加入已接入；含附件初始化、其餘管理、附件與退休入口仍待接入。管理與 web binary 入口在未配置新服務憑證時拒絕請求，
+其餘管理、退休與舊路徑移除尚未接入。儲存／投影 adapter、Room alarm、
+登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照切換、pending 操作保留、reset 水位與舊 tRPC 快照入口移除已完成。產品初始化與 proof 加入、Room 附件 discovery／presign／finalize 與含圖片初始化已接入；其餘管理與退休入口仍待接入。管理與 web binary 入口在未配置新服務憑證時拒絕請求，
 私有 adapter 在未配置 `COLLAB_ADAPTER_SECRET` 時拒絕全部請求。
 不能把這個 artifact 當 code-only 變更自動部署，
 也不能先對正式資料庫 `db:push`。P2 完成後，P3 的手動重置清單必須納入 class lifecycle、

@@ -187,6 +187,7 @@ const renderDialog = (params: {
   onRetryJoin?: () => void;
   onInitializationChange?: (active: boolean) => void;
   getInitialElements?: CollaborationRoomDialogProps["getInitialElements"];
+  getInitialFiles?: CollaborationRoomDialogProps["getInitialFiles"];
 }): void => {
   if (!root) {
     container = document.createElement("div");
@@ -203,6 +204,7 @@ const renderDialog = (params: {
         isAuthenticationPending={params.isAuthenticationPending ?? false}
         sceneId="scene-1"
         getInitialElements={params.getInitialElements ?? (() => [])}
+        getInitialFiles={params.getInitialFiles ?? (() => [])}
         onInitializationChange={params.onInitializationChange}
         roomId={params.roomId ?? null}
         onRoomIdChange={params.onRoomIdChange ?? (() => undefined)}
@@ -267,10 +269,19 @@ describe("collaboration room authentication guard", () => {
     const elements = [
       { id: "source", version: 1, versionNonce: 1, isDeleted: false },
     ];
+    const files = [
+      {
+        id: "a".repeat(40),
+        dataURL: "data:image/png;base64,AAAA",
+        mimeType: "image/png",
+        created: 1,
+      },
+    ] as unknown as ReturnType<CollaborationRoomDialogProps["getInitialFiles"]>;
     const change = vi.fn();
     renderDialog({
       isAuthenticated: true,
       getInitialElements: () => elements,
+      getInitialFiles: () => files,
       onInitializationChange: change,
     });
     await act(async () => {
@@ -281,11 +292,16 @@ describe("collaboration room authentication guard", () => {
     });
     expect(change).toHaveBeenCalledWith(true);
     elements[0]!.id = "unrelated-canvas";
+    (files[0] as unknown as { dataURL: string }).dataURL =
+      "data:image/png;base64,BBBB";
     await act(async () => {
       finish?.(null);
       await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
     });
     expect(initialCapture.current?.elements[0]?.id).toBe("source");
+    expect(initialCapture.current?.files?.[0]?.dataURL).toBe(
+      "data:image/png;base64,AAAA",
+    );
   });
   it("ignores a late initialization success after sign-out and releases the paused personal canvas", async () => {
     let finish:

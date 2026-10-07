@@ -18,6 +18,26 @@ vi.mock("@/server/collab/do-control", () => ({
     Promise.resolve({ enforced: true, closedSessions: 0 }),
 }));
 
+/** Room gateway is isolated from these Redis-ordering tests; its live authorization and races are covered in workerd. */
+vi.mock("@/server/collab/asset-authority", () => ({
+  requestAssetAuthority: async (
+    _db: unknown,
+    account: { subject: string },
+    request: { roomId: string; fileIds: string[] },
+  ) => {
+    if (account.subject === "user-stranger")
+      throw new TRPCError({ code: "FORBIDDEN" });
+    return {
+      result: {
+        roomId: request.roomId,
+        authGeneration: 1,
+        assets: [],
+        missing: request.fileIds,
+      },
+    };
+  },
+}));
+
 /**
  * Scripted Redis answers, one per `limit()` call.
  *

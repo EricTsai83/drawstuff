@@ -24,13 +24,14 @@ development; short-lived join tokens remain the authorization boundary.
 **18B source is not independently deployable.** The source adds protocol-v6 Room authority,
 durable adapter delivery, verified login proofs, private management/binary snapshot ingress and formal WebSocket authority,
 plus authenticated web binary snapshot ingress/client, product snapshot cadence/reset and pending
-receipt recovery, attachment-free product initialization and identity-proof joining. Old tRPC snapshot
-ingress is removed. Image-bearing initialization/upload, remaining room management and legacy
-issuer removal, and Lifecycle retirement remain pending. Formal authority rooms refuse
+receipt recovery, product initialization and identity-proof joining, plus Room attachment discovery,
+presign/finalization and image-bearing initialization. Old tRPC snapshot ingress and the DB-authorized
+asset writer/resolver are removed. Remaining room management and legacy issuer removal, and Lifecycle
+retirement remain pending. Formal authority rooms refuse
 legacy socket/control ingress. The P3 reset must precede deployment; do not push this intermediate
 artifact to an automatic deployment branch. Source configuration currently requires seven secrets;
 the two adapter bindings plus `COLLAB_IDENTITY_SECRET` and `COLLAB_AUTHORITY_SECRET` are unprovisioned.
-See the [source boundary](../../docs/architecture/collaboration-system-design.md#18b-p2-product-authority-initialization)
+See the [source boundary](../../docs/architecture/collaboration-system-design.md#18b-p2-product-attachment-authority)
 and [deployment runbook](../../docs/operations/collaboration-do-deployment.md#2-secrets).
 
 ## Public surface (fixed, versioned)

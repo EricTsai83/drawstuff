@@ -7,6 +7,8 @@ import {
   createBinarySnapshotClient,
   SnapshotHttpError,
 } from "@/lib/collab/snapshot-http";
+import { createAuthorityAssetApi } from "@/lib/collab/asset-upload";
+import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 import { createRoomInitialization } from "@/lib/collab/room-initialization";
 import {
   AuthorityRoomError,
@@ -111,6 +113,7 @@ export type CollaborationRoomDialogProps = {
   /** Cloud scene id; a room can only be started for a saved scene. */
   sceneId: string | null;
   getInitialElements: () => readonly SyncedElement[] | null;
+  getInitialFiles: () => readonly BinaryFileData[];
   onInitializationChange?: (active: boolean) => void;
   /** Active room id from the URL, if the editor is in a room. */
   roomId: string | null;
@@ -135,6 +138,7 @@ export function CollaborationRoomDialog({
   isAuthenticationPending,
   sceneId,
   getInitialElements,
+  getInitialFiles,
   onInitializationChange,
   roomId,
   onRoomIdChange,
@@ -242,6 +246,7 @@ export function CollaborationRoomDialog({
   useEffect(
     () => () => {
       initializationEpoch.current++;
+      initialization.current?.dispose?.();
     },
     [],
   );
@@ -249,6 +254,7 @@ export function CollaborationRoomDialog({
     if (roomId) onInitializationChange?.(false);
     if (!isAuthenticationPending && !isAuthenticated) {
       initializationEpoch.current++;
+      initialization.current?.dispose?.();
       initialization.current = null;
       operationInFlight.current = false;
       setHasInitialization(false);
@@ -291,6 +297,7 @@ export function CollaborationRoomDialog({
         // Capture the source before lookup yields; another scene may load while
         // the request is in flight, and must never initialize this source room.
         const elements = structuredClone(current);
+        const files = structuredClone(getInitialFiles());
         const existing =
           await utils.client.collaborationAuthority.findForScene.query({
             sceneId,
@@ -316,6 +323,14 @@ export function CollaborationRoomDialog({
           snapshots: createBinarySnapshotClient(),
           sceneId,
           elements,
+          files,
+          assets: createAuthorityAssetApi({
+            authority,
+            execute: (input, signal) =>
+              utils.client.collaborationAsset.execute.mutate(input, { signal }),
+            resolve: (input, signal) =>
+              utils.client.collaborationAsset.resolve.query(input, { signal }),
+          }),
         });
         setHasInitialization(true);
       }
@@ -324,6 +339,7 @@ export function CollaborationRoomDialog({
       enteringRoom = true;
       onRoomKeyChange(ready.roomKey);
       onRoomIdChange(ready.roomId);
+      initialization.current?.dispose?.();
       initialization.current = null;
       setHasInitialization(false);
       await invalidateRoom();
@@ -355,6 +371,7 @@ export function CollaborationRoomDialog({
     try {
       await initialization.current.cancel();
       if (epoch !== initializationEpoch.current) return;
+      initialization.current?.dispose?.();
       initialization.current = null;
       setIsCancellingInitialization(false);
       setHasInitialization(false);

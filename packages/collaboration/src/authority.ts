@@ -6,6 +6,12 @@ import { KEYCHECK_CIPHERTEXT_BYTES } from "./keycheck.ts";
 import {
   collaborationAssetRecordSchema,
   MAX_ROOM_ASSETS_PER_GENERATION,
+  MAX_ASSET_LOOKUP_BATCH,
+  ASSET_CRYPTO_VERSION,
+  MIN_ASSET_CIPHERTEXT_BYTES,
+  MAX_ASSET_CIPHERTEXT_BYTES,
+  excalidrawFileIdSchema,
+  collaborationAssetLookupSchema,
 } from "./asset.ts";
 
 /** Metadata only. Neither proofs nor durable jobs carry plaintext or room keys. */
@@ -302,6 +308,60 @@ export const contentResultSchema = z.discriminatedUnion("status", [
   z.strictObject({ status: z.enum(["cancelled", "refused", "conflict"]) }),
 ]);
 export type ContentResult = z.infer<typeof contentResultSchema>;
+
+/** Browser intent has no provider URL/key or actor. Only the signed upload callback binds a descriptor. */
+export const assetUploadIntentSchema = z.strictObject({
+  ...snapshotIntentSchema.shape,
+  kind: z.literal("asset-finalize"),
+  expectedRevision: z.literal(0),
+  excalidrawFileId: excalidrawFileIdSchema,
+  cryptoVersion: z.literal(ASSET_CRYPTO_VERSION),
+  byteLength: z
+    .int()
+    .min(MIN_ASSET_CIPHERTEXT_BYTES)
+    .max(MAX_ASSET_CIPHERTEXT_BYTES),
+});
+export type AssetUploadIntent = z.infer<typeof assetUploadIntentSchema>;
+export const assetClientRequestSchema = z.discriminatedUnion("action", [
+  z.strictObject({
+    action: z.enum(["prepare", "query", "cancel"]),
+    intent: assetUploadIntentSchema,
+  }),
+  z.strictObject({
+    action: z.literal("read"),
+    v: z.literal(1),
+    roomId: roomIdSchema,
+    operationId: operationIdSchema,
+    deadline: z.int().positive(),
+    fileIds: z.array(excalidrawFileIdSchema).min(1).max(MAX_ASSET_LOOKUP_BATCH),
+  }),
+]);
+export const assetRequestSchema = z.union([
+  assetClientRequestSchema,
+  z.strictObject({
+    action: z.literal("finalize"),
+    intent: assetUploadIntentSchema,
+    asset: contentOperationSchema.shape.asset.unwrap(),
+  }),
+]);
+export type AssetClientRequest = z.infer<typeof assetClientRequestSchema>;
+export type AssetRequest = z.infer<typeof assetRequestSchema>;
+export const assetGatewayRequestSchema = z.strictObject({
+  proof: z.string().min(1).max(2_048),
+  request: assetRequestSchema,
+});
+export const ASSET_GATEWAY_PATH = "/v1/assets";
+export const assetGatewayResultSchema = z.union([
+  collaborationAssetLookupSchema,
+  z.strictObject({
+    status: z.literal("authorized"),
+    authGeneration: roomAuthGenerationSchema,
+    authorityEpoch: authorityVersionSchema,
+  }),
+  z.strictObject({ status: z.literal("absent"), expired: z.boolean() }),
+  contentResultSchema,
+]);
+export type AssetGatewayResult = z.infer<typeof assetGatewayResultSchema>;
 export const authorityErrorSchema = z.enum([
   "not-found",
   "forbidden",

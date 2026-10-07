@@ -40,7 +40,7 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
-  下一步為 **P2：附件初始化、其餘管理與退休入口串接**；登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權與 binary 快照後端入口已完成；
+  下一步為 **P2：其餘管理與退休入口串接**；登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權與 binary 快照後端入口已完成；
   DO 不持久暫存完整畫布，只記小型待辦與操作結果；初始化／可靠投影後端在本計畫完成。
   退休以按主體分割的 **Lifecycle DO** 執行（§7.1，2026-09-23 定案）；P3 需要 Neon 可用
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —
@@ -49,11 +49,11 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 
 ### 執行順序與交接
 
-1. 18B 下一步為 P2 附件授權／finalize 與含附件初始化，再接其餘管理與退休串接；Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照入口移除、產品無附件初始化與 proof 加入已完成，未部署邊界見
-   [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-product-authority-initialization)，
+1. 18B 下一步為 P2 其餘管理、projection panel、舊 issuer 移除及退休入口串接；Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照入口移除、產品初始化／proof 加入、Room 附件 discovery／presign／finalize 與含圖片初始化已完成，未部署邊界見
+   [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-product-attachment-authority)，
    P0 契約見 [本機儲存驗證](../docs/performance/collaboration-storage-p0.md)。
    UploadThing 維持 public 上傳；已取得 URL 的密文下載無法隨撤權失效，此限制暫時接受（見 18B §4.5）。
-2. 執行 18B P2，串接含附件初始化與內容／附件入口、其餘管理及 Lifecycle 及所有刪除入口，移除舊授權路徑；
+2. 執行 18B P2，串接其餘管理及 Lifecycle 及所有刪除入口，移除舊授權路徑；
    儲存／投影 adapter、Room alarm 的保存查詢／取消與 fence，以及正式管理授權入口已完成。
 3. L1／L2／L2′／L2″ 與重置／回滾演練通過，服務可用後執行 18B P3：停寫、重置、部署、smoke、恢復入口，
    再完成其餘 L3；不要求部署後驗收在部署前完成。

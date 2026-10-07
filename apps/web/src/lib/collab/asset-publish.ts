@@ -11,6 +11,7 @@ import {
   type BoundedIdSet,
   type TransferGate,
 } from "@/lib/collab/bounded-containers";
+import { AssetUploadPendingError } from "./asset-upload";
 import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 
 /**
@@ -157,7 +158,12 @@ export const createAssetPublisher = (
       resolved.add(file.id);
       uploadRetrying.delete(file.id);
     } catch (error) {
-      const attempts = (uploadRetrying.get(file.id)?.attempts ?? 0) + 1;
+      // Receipt recovery is not another provider upload and must not spend the three-upload budget.
+      const previousAttempts = uploadRetrying.get(file.id)?.attempts ?? 0;
+      const attempts =
+        error instanceof AssetUploadPendingError
+          ? previousAttempts
+          : previousAttempts + 1;
       if (attempts >= MAX_PUBLISH_ATTEMPTS) {
         abandon(file.id);
         uploadRetrying.delete(file.id);
@@ -168,8 +174,10 @@ export const createAssetPublisher = (
       // timer, so the timer never fires before the file it was armed for is
       // eligible.
       const delayMs = Math.max(
-        context.retryDelayMs(attempts),
-        rateLimitRetryAfterMs(error) ?? 0,
+        context.retryDelayMs(Math.max(1, attempts)),
+        rateLimitRetryAfterMs(
+          error instanceof AssetUploadPendingError ? error.cause : error,
+        ) ?? 0,
       );
       uploadRetrying.set(file.id, { attempts, notBefore: now() + delayMs });
       // A timer, not "the next scene flush": a user who pastes an image and then

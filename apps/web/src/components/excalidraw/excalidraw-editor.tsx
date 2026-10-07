@@ -384,6 +384,8 @@ export default function ExcalidrawEditor() {
                         excalidrawAPI.getSceneElementsIncludingDeleted(),
                       )
                     : null,
+                getInitialFiles: () =>
+                  Object.values(excalidrawAPI?.getFiles() ?? {}),
                 onInitializationChange: setIsRoomInitializing,
                 roomId: collaborationRoomId,
                 onRoomIdChange: (nextRoomId) => {
