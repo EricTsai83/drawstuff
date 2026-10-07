@@ -65,6 +65,8 @@ describe("deployment config", () => {
       "COLLAB_JOIN_TOKEN_SECRET",
       "COLLAB_CRON_SECRET",
       "COLLAB_OUTBOX_DRAIN_URL",
+      "COLLAB_ADAPTER_URL",
+      "COLLAB_ADAPTER_SECRET",
     ]);
     expect(audit.varKeys).toEqual(["COLLAB_ALLOWED_ORIGINS"]);
   });

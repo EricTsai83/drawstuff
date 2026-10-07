@@ -7,10 +7,10 @@
 - 相關文件：[SLO 與 capacity](../performance/collaboration-slo-capacity.md)、
   [DO observability 契約](../observability/collaboration-do-observability.md)
 
-**18B P1 尚未部署。** 工作區 artifact 已包含 protocol v6、roomId 定址、SQLite v3 與新增的
+**18B source 尚未部署。** 工作區 artifact 已包含 protocol v6、roomId 定址、SQLite v3 與新增的
 `CollaborationLifecycle` class／binding，以及移除房間到期的 PostgreSQL schema；P2 的正式
-身分、DO delivery、退休與舊路徑移除尚未接入。儲存／投影 adapter 後端已存在於 source，
-但尚未被產品入口呼叫；私有端點在未配置 `COLLAB_ADAPTER_SECRET` 時拒絕全部請求。
+身分、退休與舊路徑移除尚未接入。儲存／投影 adapter 與 Room alarm delivery 已存在於 source，
+但尚未被產品授權入口呼叫；私有端點在未配置 `COLLAB_ADAPTER_SECRET` 時拒絕全部請求。
 不能把這個 artifact 當 code-only 變更自動部署，
 也不能先對正式資料庫 `db:push`。P2 完成後，P3 的手動重置清單必須納入 class lifecycle、
 舊 Object 隔離、schema diff 與配套 rollback 演練；本文件下面仍記錄現有 production 的部署模型。
@@ -22,11 +22,11 @@
 production 共編流量，與 `apps/web` 的部署方式一致（main → 唯一部署），沒有 staging 或
 cohort。可逆的變更走自動部署，不可逆的變更走手動——與 repo 的 `db:push` 慣例同一原則。
 
-| 變更類型                                        | 部署方式                                                                          |
-| ----------------------------------------------- | --------------------------------------------------------------------------------- |
-| Code-only（日常情況）                           | 自動：push 到 `main` 觸發 Workers Builds（deploy command 會先重跑 package verify） |
+| 變更類型                                          | 部署方式                                                                           |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| Code-only（日常情況）                             | 自動：push 到 `main` 觸發 Workers Builds（deploy command 會先重跑 package verify） |
 | Class lifecycle（`exports` create/rename/delete） | **只能手動**：`pnpm cf:deploy`，單獨成一次部署，永不與 runtime/routing 變更混合    |
-| Secret                                          | 手動：Dashboard 或 `pnpm --filter @drawstuff/collaboration-do secret:put*`         |
+| Secret                                            | 手動：Dashboard 或 `pnpm --filter @drawstuff/collaboration-do secret:put*`         |
 
 `tests/config-audit.test.ts` 釘住 `exports` 與 wrangler 設定，lifecycle 變更無法不動測試
 就合併——這就是刻意的人工審查訊號（CLAIM-MIG-4）。
@@ -43,12 +43,20 @@ Code-only 自動部署即可，不需先手動部署 Worker。
 
 ## 2. Secrets
 
-三個 Cloudflare secret 缺一不可（`secrets.required` 會讓缺 secret 的部署直接拒絕）：
+現有 production 使用下面三個 secret。18B source 的 `secrets.required` 另新增兩個
+adapter binding，P2 完整串接與 P3 重置部署時才配置；目前沒有設定它們：
 
-| Secret                     | 耦合對象                                                                                     |
-| -------------------------- | -------------------------------------------------------------------------------------------- |
-| `COLLAB_JOIN_TOKEN_SECRET` | web 端簽 join/control token 用的同一值（≥32 bytes）                                          |
-| `COLLAB_CRON_SECRET`       | **必須等於 web 端 `COLLAB_OUTBOX_CRON_SECRET`**；輪替必須同步，錯配症狀是 drain route 回 401 |
+| 18B 新增 binding        | 值／用途                                                                                                                 |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `COLLAB_ADAPTER_URL`    | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect |
+| `COLLAB_ADAPTER_SECRET` | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用 join／cron secret                         |
+
+source 的五個 required secret 缺一會拒絕正式部署。下面仍是舊部署的三個 binding：
+
+| Secret                     | 耦合對象                                                                                                                                            |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `COLLAB_JOIN_TOKEN_SECRET` | web 端簽 join/control token 用的同一值（≥32 bytes）                                                                                                 |
+| `COLLAB_CRON_SECRET`       | **必須等於 web 端 `COLLAB_OUTBOX_CRON_SECRET`**；輪替必須同步，錯配症狀是 drain route 回 401                                                        |
 | `COLLAB_OUTBOX_DRAIN_URL`  | `https://<web origin>/api/collaboration/control-outbox`；設錯的症狀是 cron 每分鐘記 `cron.outbox_drain_failed`（例如 404），outbox 修復路徑靜默死亡 |
 
 Secret 變更會產生新的 Worker version（Dashboard 顯示為 Secret Change deployment）。

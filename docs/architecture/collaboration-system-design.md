@@ -56,9 +56,9 @@ points and storage adapters, and P3 must perform the controlled reset before it 
   scene joins are not required. Snapshot bytes still live only in the existing snapshot table.
 
 P1 leaves the legacy DB-role issuer, control outbox/drainer/cron, and ordinary content/retirement
-entry points for the P2 replacement. Room and Lifecycle alarms intentionally refuse delivery
-while their authenticated adapters are unconfigured, preserve the job, and retry; this is not an
-implemented production backend. P2 must verify identity proofs and lifecycle registration, supply
+entry points for the P2 replacement. The P1 alarms retained unconfigured delivery jobs for retry;
+the P2 Room delivery unit below now supplies its authenticated client. Lifecycle delivery remains
+unconfigured. P2 must verify identity proofs and lifecycle registration, supply
 binary write/query/cancel/fence and projection adapters, acknowledge initialization/fences, connect
 retirement from every deletion entry, and remove the old paths. P1 runtime/PGlite tests establish
 local persistence and schema semantics; they do not establish cross-cloud or production behavior.
@@ -66,9 +66,9 @@ local persistence and schema semantics; they do not establish cross-cloud or pro
 ## 18B P2 storage and projection adapters
 
 The source now contains the storage/projection adapter backend; it has not been deployed or wired
-into the Room/Gateway/browser/UploadThing/retirement entry points. The existing DB-role writers and
-control outbox remain until that next P2 unit. Room and Lifecycle alarms still refuse unconfigured
-delivery. This intermediate artifact cannot be deployed on its own.
+into authenticated Gateway/browser/UploadThing/retirement entry points. The existing DB-role writers and
+control outbox remain until that next P2 unit. Room delivery is described below; Lifecycle
+delivery remains unconfigured. This intermediate artifact cannot be deployed on its own.
 
 `POST /api/internal/collaboration/adapter` accepts only the private `COLLAB_ADAPTER_SECRET` bearer
 capability. It is separate from join/login and cron credentials; unset configuration refuses all
@@ -122,6 +122,40 @@ the application database URI. Tests apply DDL generated from the current source 
 the actual adapter implementations with multiple connections. PGlite `pushSchema` tests separately
 cover schema/constraints and HTTP binary bounds. These are local SQL and handler tests, not a
 deployed Vercel body-limit, UploadThing, DO delivery or end-to-end product acceptance.
+
+## 18B P2 Room adapter delivery
+
+Room alarms now deliver metadata jobs through the private adapter endpoint. This is a source-only
+unit: the login/Gateway authority entry points, room-parent creation/registration, browser content
+forwarding, verified upload callbacks, Lifecycle adapters, and deletion entry points are still pending.
+The artifact remains unsuitable for independent deployment; no production credentials were provisioned.
+
+- `AdapterClient` uses the dedicated `COLLAB_ADAPTER_SECRET` and operator-configured
+  `COLLAB_ADAPTER_URL`. It accepts only the exact HTTPS adapter path without URL credentials,
+  query, or fragment, forbids redirects, propagates the alarm abort signal, and bounds actual JSON
+  command/response bytes at 64 KiB. Response schemas are strict. It cannot forward snapshot bodies
+  or read ciphertext; those entry points still need the two-body quota and local access recheck.
+- `RoomDelivery` sends projections, storage fences, receipt queries/cancellations, initialization
+  verification, and terminal cleanup. A successful obsolete/negative projection acknowledgment
+  completes that job. A fence acknowledgment must match its sent epoch; a future epoch fails closed.
+  Local fence/result commits and version-checked job deletion preserve newer coalesced work when
+  an older response returns. Failures retain the durable job/backoff across eviction.
+- Missing snapshot bytes are never retransmitted by alarms. Content jobs query the immutable
+  receipt and, after the original operation deadline, cancel under the same adapter lock. A prior
+  written result keeps its original revision. Settling a written asset receipt also records its local
+  initialization asset identity in the same SQLite transaction, if that generation is still initializing.
+- Initialization delivery checks current local state/assets, verifies the adapter manifest, rechecks
+  local state after that response, and obtains the adapter's ready fence acknowledgment before
+  committing local readiness. Lost responses repeat the verification/fence sequence. Safety epoch
+  changes cancel obsolete completion work; successful readiness cancels competing completion
+  requests. A late response cannot override local cancellation, rotation, or initialization expiry.
+  Terminal cleanup waits for the local acknowledgment of the terminal storage fence.
+- Tests run in workerd with bounded fake HTTP responses, actual SQLite transactions, eviction, and
+  the actual alarm's configured delivery and unconfigured failure paths. They cover recovery, coalesced fence responses,
+  aborts, response bounds, receipt query/cancel, ready acknowledgment, local cancellation, asset
+  manifest persistence, and competing completion requests. They do not establish deployed cross-cloud
+  latency or complete authenticated product flows. Alarm delivery retains the existing 16-job/5-second
+  budget and persistent retry schedule; it does not add a periodic idle-room tick.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation

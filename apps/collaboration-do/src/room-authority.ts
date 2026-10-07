@@ -439,6 +439,7 @@ export class RoomAuthority {
   }
 
   private fence(): void {
+    this.cancelCompletionWork();
     this.storage.sql.exec(
       "UPDATE authority_room SET authority_epoch=authority_epoch+1",
     );
@@ -455,6 +456,19 @@ export class RoomAuthority {
   }
 
   private cancelInitializationWork(room: RoomRow): void {
+    this.cancelCompletionWork();
+    const cleanup = {
+      kind: "cleanup" as const,
+      roomId: this.roomId,
+      operationId: room.create_operation,
+    };
+    if (!this.work.enqueue(`cleanup:${room.create_operation}`, cleanup, true)) {
+      this.storage.sql.exec("UPDATE authority_room SET denied=1");
+      this.work.emergencyCleanup(cleanup);
+    }
+  }
+
+  private cancelCompletionWork(): void {
     const pending = this.storage.sql
       .exec<{ id: string; request: string; result: string }>(
         "SELECT id,request,result FROM authority_results WHERE terminal_at IS NULL",
@@ -475,15 +489,6 @@ export class RoomAuthority {
         true,
       );
       this.work.done(`initialize:${row.id}`, 1);
-    }
-    const cleanup = {
-      kind: "cleanup" as const,
-      roomId: this.roomId,
-      operationId: room.create_operation,
-    };
-    if (!this.work.enqueue(`cleanup:${room.create_operation}`, cleanup, true)) {
-      this.storage.sql.exec("UPDATE authority_room SET denied=1");
-      this.work.emergencyCleanup(cleanup);
     }
   }
 
@@ -650,6 +655,31 @@ export class RoomAuthority {
             throw new Error("operation-mismatch");
           return;
         }
+        const operation = this.storage.sql
+          .exec<{ request: string }>(
+            "SELECT request FROM authority_content WHERE id=?",
+            operationId,
+          )
+          .one();
+        const intent = contentOperationSchema.parse(
+          JSON.parse(operation.request) as unknown,
+        );
+        const room = this.requireRoom();
+        if (
+          result.status === "written" &&
+          intent.kind === "asset-finalize" &&
+          intent.asset &&
+          room.state === "initializing" &&
+          !room.denied &&
+          room.auth_generation === intent.authGeneration &&
+          room.initialization_deadline > Date.now()
+        ) {
+          // Receipt and local manifest commit together, including recovery after a lost write reply.
+          this.insertInitialAsset(
+            intent.asset.excalidrawFileId,
+            intent.authGeneration,
+          );
+        }
         this.storage.sql.exec(
           "UPDATE authority_content SET result=?,terminal_at=? WHERE id=?",
           JSON.stringify(result),
@@ -746,21 +776,67 @@ export class RoomAuthority {
           generation !== room.auth_generation
         )
           throw new Error("ended");
-        const count = this.storage.sql
-          .exec<{ count: number }>(
-            "SELECT count(*) AS count FROM authority_initial_assets WHERE file_id!=?",
-            fileId,
-          )
-          .one().count;
-        if (count >= AUTHORITY_LIMITS.initializationAssets)
-          throw new Error("capacity");
-        this.storage.sql.exec(
-          "INSERT INTO authority_initial_assets VALUES (?,?) ON CONFLICT(file_id) DO UPDATE SET auth_generation=excluded.auth_generation",
-          fileId,
-          generation,
-        );
+        this.insertInitialAsset(fileId, generation);
       },
       () => this.nextDeadline(),
+    );
+  }
+
+  private insertInitialAsset(fileId: string, generation: number): void {
+    const count = this.storage.sql
+      .exec<{ count: number }>(
+        "SELECT count(*) AS count FROM authority_initial_assets WHERE file_id!=?",
+        fileId,
+      )
+      .one().count;
+    if (count >= AUTHORITY_LIMITS.initializationAssets)
+      throw new Error("capacity");
+    this.storage.sql.exec(
+      "INSERT INTO authority_initial_assets VALUES (?,?) ON CONFLICT(file_id) DO UPDATE SET auth_generation=excluded.auth_generation",
+      fileId,
+      generation,
+    );
+  }
+
+  /** Pure local check, repeated after each external initialization response. */
+  canConfirmInitialization(
+    operationId: string,
+    confirmation: unknown,
+  ): boolean {
+    const manifest = initializationManifestSchema.parse(confirmation);
+    const result = this.query(operationId);
+    const room = this.state();
+    if (
+      !room ||
+      result?.status !== "pending" ||
+      room.state !== "initializing" ||
+      room.denied ||
+      !room.key_check ||
+      room.initialization_deadline <= Date.now() ||
+      room.authority_epoch !== result.authorityEpoch ||
+      room.auth_generation !== manifest.authGeneration
+    )
+      return false;
+    const row = this.storage.sql
+      .exec<{ request: string }>(
+        "SELECT request FROM authority_results WHERE id=?",
+        operationId,
+      )
+      .one();
+    const command = roomCommandSchema.parse(JSON.parse(row.request) as unknown);
+    if (
+      command.action !== "complete-initialization" ||
+      JSON.stringify(command.manifest) !== JSON.stringify(manifest)
+    )
+      throw new Error("operation-mismatch");
+    const assets = this.storage.sql
+      .exec<{ file_id: string }>(
+        "SELECT file_id FROM authority_initial_assets WHERE auth_generation=?",
+        manifest.authGeneration,
+      )
+      .toArray();
+    return manifest.assetIds.every((id) =>
+      assets.some((asset) => asset.file_id === id),
     );
   }
 
@@ -790,27 +866,7 @@ export class RoomAuthority {
         )
           throw new Error("operation-mismatch");
         if (result.status === "enforced") return;
-        const room = this.requireRoom();
-        if (
-          room.state !== "initializing" ||
-          room.denied ||
-          room.initialization_deadline <= Date.now() ||
-          !room.key_check ||
-          room.authority_epoch !== result.authorityEpoch ||
-          room.auth_generation !== manifest.authGeneration
-        )
-          throw new Error("initialization-incomplete");
-        const assets = this.storage.sql
-          .exec<{ file_id: string }>(
-            "SELECT file_id FROM authority_initial_assets WHERE auth_generation=?",
-            manifest.authGeneration,
-          )
-          .toArray();
-        if (
-          manifest.assetIds.some(
-            (id) => !assets.some((asset) => asset.file_id === id),
-          )
-        )
+        if (!this.canConfirmInitialization(operationId, manifest))
           throw new Error("initialization-incomplete");
         this.storage.sql.exec(
           "UPDATE authority_room SET state='ready',auth_revision=auth_revision+1,projection_dirty=1,projection_cursor=NULL",
@@ -827,6 +883,8 @@ export class RoomAuthority {
           true,
         );
         this.work.done(`initialize:${operationId}`, 1);
+        // Competing completion requests cannot keep stale initialization work alive after readiness.
+        this.cancelCompletionWork();
       },
       () => this.nextDeadline(),
     );

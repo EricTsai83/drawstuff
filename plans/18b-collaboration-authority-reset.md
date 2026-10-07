@@ -1,7 +1,7 @@
 # 18B — 共編授權權威重置
 
-- 狀態：下一步為 P2 正式授權／DO delivery 與退休入口串接，尚未部署；source artifact 與邊界見
-  [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-storage-and-projection-adapters)。
+- 狀態：P2 儲存／投影 adapter 與 Room alarm delivery 已完成；下一步為正式身分／Gateway 與產品、退休入口串接，尚未部署；source artifact 與邊界見
+  [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-room-adapter-delivery)。
   UploadThing public 密文附件限制已接受。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
 - 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。

@@ -63,6 +63,8 @@ import {
   socketBufferedAmount,
 } from "./room-policy.ts";
 import { RoomAuthority } from "./room-authority.ts";
+import { AdapterClient } from "./adapter-client.ts";
+import { RoomDelivery } from "./room-delivery.ts";
 
 /** Standard `WebSocket.OPEN`; stated like the relay does rather than read off
  *  a runtime constant the workerd type surface does not export uniformly. */
@@ -346,16 +348,18 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   private async runAlarmPass(): Promise<void> {
     // Identity stays load-bearing in every entry point.
     this.requireChannelKey();
+    const authority = this.authority;
+    if (authority) {
+      await authority.expireInitialization();
+      const delivery = new RoomDelivery(authority, new AdapterClient(this.env));
+      await authority.work.drain(
+        (job, _timeoutMs, signal) => delivery.deliver(job, signal),
+        () => authority.nextDeadline(),
+      );
+      await authority.repairProjections();
+    }
+    // External delivery may consume the alarm budget; reap sockets against the current time.
     const now = Date.now();
-    await this.authority?.expireInitialization();
-    await this.authority?.work.drain(
-      async () => {
-        // P2 supplies authenticated storage/projection adapters before deployment.
-        throw new Error("room-adapter-unconfigured");
-      },
-      () => this.authority?.nextDeadline(),
-    );
-    await this.authority?.repairProjections();
 
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = readRoomSocketAttachment(ws);
