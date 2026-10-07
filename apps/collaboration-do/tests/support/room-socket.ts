@@ -102,9 +102,12 @@ export type OpenSocket = {
 export async function openSocket(
   roomId: RoomId,
   authGeneration = 1,
+  formal = false,
 ): Promise<OpenSocket> {
   const response = await SELF.fetch(
-    `${GATEWAY_BASE}/v1/rooms/${roomId}/generations/${authGeneration}/socket`,
+    formal
+      ? `${GATEWAY_BASE}/v1/rooms/${roomId}/socket`
+      : `${GATEWAY_BASE}/v1/rooms/${roomId}/generations/${authGeneration}/socket`,
     { headers: { Upgrade: "websocket", Origin: ALLOWED_ORIGIN } },
   );
   if (response.status !== 101 || response.webSocket === null) {

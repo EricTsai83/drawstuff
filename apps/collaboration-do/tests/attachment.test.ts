@@ -43,7 +43,7 @@ const maxJoined: JoinedSocketAttachment = {
   state: "joined",
   peerId: peerIdSchema.parse(MAX_ID),
   // Longest subject the token contract admits.
-  subject: "s".repeat(128),
+  subject: "界".repeat(128),
   role: "viewer",
   tokenRevision: 2_147_483_647,
   roomEpoch: 2_147_483_647,
@@ -51,12 +51,24 @@ const maxJoined: JoinedSocketAttachment = {
   joinedAt: MAX_EPOCH_MS,
   lastFrameAt: MAX_EPOCH_MS,
 };
+const maxAuthorityPending: PendingSocketAttachment = { ...maxPending, v: 3 };
+const maxAuthorityJoined: JoinedSocketAttachment = {
+  ...maxJoined,
+  v: 3,
+  email: `${"e".repeat(64)}@${"d".repeat(63)}.${"d".repeat(63)}.${"d".repeat(57)}.com`,
+  lifecycleVersion: 2_147_483_647,
+};
 
 const encoder = new TextEncoder();
 
 describe("room socket attachment", () => {
   it("keeps every maximal variant well under the 2 KiB platform cap", () => {
-    for (const attachment of [maxPending, maxJoined]) {
+    for (const attachment of [
+      maxPending,
+      maxJoined,
+      maxAuthorityPending,
+      maxAuthorityJoined,
+    ]) {
       const bytes = encoder.encode(JSON.stringify(attachment)).byteLength;
       expect(bytes).toBeLessThanOrEqual(ATTACHMENT_BUDGET_BYTES);
     }
@@ -65,6 +77,12 @@ describe("room socket attachment", () => {
   it("round-trips both variants through the schema", () => {
     expect(roomSocketAttachmentSchema.parse(maxPending)).toEqual(maxPending);
     expect(roomSocketAttachmentSchema.parse(maxJoined)).toEqual(maxJoined);
+    expect(roomSocketAttachmentSchema.parse(maxAuthorityPending)).toEqual(
+      maxAuthorityPending,
+    );
+    expect(roomSocketAttachmentSchema.parse(maxAuthorityJoined)).toEqual(
+      maxAuthorityJoined,
+    );
   });
 
   it("pins the exact persisted keys so no secret field can ride in unnoticed", () => {
@@ -73,6 +91,14 @@ describe("room socket attachment", () => {
     ]);
     expect(Object.keys(maxJoined)).toEqual([
       ...roomSocketAttachmentKeys.joined,
+    ]);
+    expect(Object.keys(maxAuthorityPending)).toEqual([
+      ...roomSocketAttachmentKeys.pending,
+    ]);
+    expect(Object.keys(maxAuthorityJoined)).toEqual([
+      ...roomSocketAttachmentKeys.joined,
+      "email",
+      "lifecycleVersion",
     ]);
     for (const keys of Object.values(roomSocketAttachmentKeys)) {
       for (const forbidden of ["token", "roomKey", "ciphertext", "presence"]) {
@@ -94,6 +120,12 @@ describe("room socket attachment", () => {
     expect(
       roomSocketAttachmentSchema.safeParse({ ...maxJoined, token: "t" })
         .success,
+    ).toBe(false);
+    expect(
+      roomSocketAttachmentSchema.safeParse({
+        ...maxAuthorityJoined,
+        proof: "secret",
+      }).success,
     ).toBe(false);
   });
 });

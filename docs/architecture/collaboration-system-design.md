@@ -60,7 +60,8 @@ entry points for the P2 replacement. The P1 alarms retained unconfigured deliver
 the P2 Room delivery unit below now supplies its authenticated client. Lifecycle delivery remains
 unconfigured. The P2 units below verify login proofs and pre-activation registration, provide storage/
 projection adapters, and deliver initialization/fence acknowledgments. P2 must still connect binary
-product and realtime entry points, retirement from every deletion entry, and remove the old paths. P1 runtime/PGlite tests establish
+product entry points, retirement from every deletion entry, and remove the old paths. Formal realtime
+authority is described below. P1 runtime/PGlite tests establish
 local persistence and schema semantics; they do not establish cross-cloud or production behavior.
 
 ## 18B P2 storage and projection adapters
@@ -192,8 +193,8 @@ remaining P2 entry points and the P3 reset. No service credentials or production
   The marker has no parent FK: cancellation before parent delivery and parent deletion both prevent a
   delayed create from resurrecting the parent. Content writes still require a present, unfenced parent.
 - Any Room with formal authority state refuses legacy WebSocket and control ingress and disconnects
-  existing legacy sockets. Formal realtime and browser initialization/content/upload flows must be
-  connected next; this unit does not expose a working product realtime channel or provide a mixed-mode
+  existing legacy sockets. The next unit below supplies formal realtime authority; browser
+  initialization/content/upload flows still need connection. This does not provide a mixed-mode
   deployment. Owner management/state queries can inspect initializing or ended state; ordinary join
   requires ready state and Room-derived access. Restricted mode uses the allowlist; open-link mode
   uses linkRole, with persistent member revocation taking precedence in both modes.
@@ -204,8 +205,51 @@ Web tests cover the live session/account contract, pre-parent registration, pare
 forwarding bounds and tRPC identity binding. `pnpm collab:adapters` now runs eight actual PostgreSQL
 tests, including account freeze versus registration and terminal fence versus missing-parent creation.
 These local tests do not establish deployed cross-cloud behavior or complete product flows. Lifecycle
-delivery, every deletion entry, formal WebSocket/binary/upload entry points, legacy path removal, and
+delivery, every deletion entry, binary/upload product entry points, legacy path removal, and
 reset/rollback rehearsal remain P2 work before P3 deployment.
+
+## 18B P2 formal WebSocket authority
+
+The source now exposes `GET /v1/rooms/:roomId/socket` for formal rooms. Its generation-free URL
+keeps one Room authority across crypto rotation. The authenticated `collaborationAuthority.identity`
+procedure returns a live verified proof, expiry and relayUrl; the browser presents that proof only in
+the existing bounded first `join` control frame's `token` field, never a URL or attachment. Gateway
+checks method, canonical room grammar and allowed Origin, strips caller-supplied internal route
+headers, and forwards to the roomId binding. Unknown, initializing, ended or denied rooms refuse upgrade.
+
+- Formal pending/joined socket attachments use version 3; joined attachments retain only verified
+  subject/email/lifecycle identity plus bounded session metadata. The verified subject is the
+  root attachment subject; it is stored once, with email and lifecycleVersion. Maximal variants,
+  including a Unicode subject, remain below the existing half-platform-cap byte budget.
+  Proofs, room keys and payloads are excluded. Legacy version-2 attachments grant no formal access.
+- Joining verifies the identity proof and room binding, uses the private pre-activation registration
+  adapter, and commits membership through `RoomAuthority`. Proof expiry bounds the join operation's
+  deadline, so an expired proof cannot create membership after delayed registration. After all awaited
+  work, the handler rechecks socket/deadline, Room role, current generation and live-member capacity
+  before publishing attachment and ACK without another await. Registration failure, mismatched receipts,
+  late retirement and stale generations fail closed. The proof grants identity; Room supplies the role.
+- Every formal inbound frame and every fanout receiver rechecks durable Room authority using its
+  retained identity. Role copies in attachments and PostgreSQL projections do not authorize traffic.
+  Role changes close affected sessions so reconnect obtains the correct role. Owner management RPCs
+  close affected joined/pending sockets after local commit; unaffected members remain connected.
+  The alarm rechecks access before external delivery. A crash before close is recovered by the next
+  inbound/fanout/alarm check; ciphertext is never delivered to a revoked receiver in the meantime.
+- Existing opaque binary fanout, viewer restrictions, byte/rate budgets, backpressure, idle/liveness
+  deadlines, hibernation attachments and cohort epoch high-water are reused. There is no periodic idle
+  authority poll. Rotation closes the old cohort and refuses new joins until initialization completes;
+  Room identity and membership tombstones persist. Ended state refuses future upgrades and traffic.
+  Legacy generation routes/control tokens remain source-only pending product conversion and removal;
+  they cannot enter a formal authority room or select the formal route using spoofed internal headers.
+
+workerd tests exercise actual Gateway/WebSocket and management RPCs with bounded fake adapter HTTP:
+registered join, eviction/fanout recovery, legacy/expired/wrong-room proofs, Origin/internal-header
+boundaries, prompt revocation, recovery after a missed close, viewer restrictions, late retirement,
+proof expiry during registration, adapter failures and generation/end transitions. Attachment tests pin
+all retained fields and maximal sizes; the web router test pins the returned generation-free URL.
+Ready state is seeded only in these realtime tests: they do not claim a completed product initialization,
+binary persistence, verified upload callback, Lifecycle retirement, or deployed cross-cloud acceptance.
+The next unit connects product initialization and snapshot/asset entry points. P2 still requires every
+retirement/deletion entry, legacy path removal and reset/rollback rehearsal before P3 deployment.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation

@@ -1,7 +1,7 @@
 # 18B — 共編授權權威重置
 
-- 狀態：P2 儲存／投影 adapter、Room alarm delivery、正式登入 proof／Gateway 管理入口與預啟用登記已完成；下一步為正式即時通道、產品初始化／內容／附件與退休入口串接，尚未部署；source artifact 與邊界見
-  [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-authenticated-management-entry)。
+- 狀態：P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記與正式 WebSocket 授權已完成；下一步為產品初始化／內容／附件與退休入口串接，尚未部署；source artifact 與邊界見
+  [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-formal-websocket-authority)。
   UploadThing public 密文附件限制已接受。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
 - 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。

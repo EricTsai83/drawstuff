@@ -38,10 +38,11 @@ export const relayPeerSchema = z.strictObject({
 export type RelayPeer = z.infer<typeof relayPeerSchema>;
 
 /**
- * Join request. The room token is mandatory: the relay has no unauthenticated
+ * Join request. The token is mandatory: the relay has no unauthenticated
  * join path, so an unauthorized client can neither subscribe to nor publish
  * into a room. The declared `roomId` must match the token claims, and the
- * room's authorization generation is taken from the token only. The join
+ * formal v6 route uses an identity-only proof and derives role/generation from Room authority.
+ * The legacy generation route still uses its role-bearing join token until P2 removes it. The join
  * deliberately carries no client-selected identity: session identity
  * is the relay-assigned `peerId`, so no client-provided string is ever signed
  * or recorded.
@@ -72,7 +73,7 @@ export const relayJoinedNoticeSchema = z.strictObject({
   roomId: roomIdSchema,
   peerId: peerIdSchema,
   roomGeneration: z.int().positive(),
-  /** Echoed from the verified token so the client mirrors the authoritative
+  /** Derived from Room authority on the formal route so the client mirrors the authoritative
    *  server-side decision instead of trusting its own copy. */
   role: roomRoleSchema,
   peers: z.array(relayPeerSchema),

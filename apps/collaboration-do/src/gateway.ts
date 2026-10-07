@@ -27,6 +27,7 @@ import {
   closedJsonResponse,
   INTERNAL_AUTH_GENERATION_HEADER,
   INTERNAL_ROOM_ID_HEADER,
+  INTERNAL_AUTHORITY_SOCKET_HEADER,
   parseSocketRouteIdentity,
 } from "./internal.ts";
 import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
@@ -42,6 +43,7 @@ import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
  *
  *   GET  /healthz
  *   GET  /v1/rooms/:roomId/generations/:authGeneration/socket  (Upgrade only)
+ *   GET  /v1/rooms/:roomId/socket                               (identity proof join)
  *   POST /v1/control                                           (Vercel only)
  *   POST /v1/authority                                         (Vercel only)
  */
@@ -49,6 +51,7 @@ import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
 const HEALTH_PATH = "/healthz";
 const SOCKET_ROUTE_PATTERN =
   /^\/v1\/rooms\/([^/]+)\/generations\/([^/]+)\/socket$/;
+const AUTHORITY_SOCKET_ROUTE_PATTERN = /^\/v1\/rooms\/([^/]+)\/socket$/;
 
 /**
  * A control body is one token in a JSON envelope; anything materially larger
@@ -98,6 +101,9 @@ export async function handleGatewayRequest(
     if (url.pathname === DO_GATEWAY_CONTROL_PATH) {
       return await handleControl(request, env, log);
     }
+    const authoritySocket = AUTHORITY_SOCKET_ROUTE_PATTERN.exec(url.pathname);
+    if (authoritySocket)
+      return await handleSocket(request, env, log, authoritySocket[1]!);
     const socketMatch = SOCKET_ROUTE_PATTERN.exec(url.pathname);
     if (socketMatch !== null) {
       return await handleSocket(
@@ -143,11 +149,14 @@ async function handleSocket(
   env: Env,
   log: DoLogger,
   roomIdSegment: string,
-  generationSegment: string,
+  generationSegment?: string,
 ): Promise<Response> {
   // Identity segments are parsed with the canonical grammar before anything
   // else; a malformed room or generation is an unknown resource, full stop.
-  const identity = parseSocketRouteIdentity(roomIdSegment, generationSegment);
+  const identity = parseSocketRouteIdentity(
+    roomIdSegment,
+    generationSegment ?? "1",
+  );
   if (identity === undefined) return closedJsonResponse(404, "not-found");
 
   if (request.method !== "GET") {
@@ -178,6 +187,9 @@ async function handleSocket(
   const headers = new Headers(request.headers);
   headers.delete(INTERNAL_ROOM_ID_HEADER);
   headers.delete(INTERNAL_AUTH_GENERATION_HEADER);
+  headers.delete(INTERNAL_AUTHORITY_SOCKET_HEADER);
+  if (generationSegment === undefined)
+    headers.set(INTERNAL_AUTHORITY_SOCKET_HEADER, "1");
   headers.set(INTERNAL_ROOM_ID_HEADER, identity.roomId);
   headers.set(INTERNAL_AUTH_GENERATION_HEADER, String(identity.authGeneration));
   const internalRequest = new Request(request, { headers });

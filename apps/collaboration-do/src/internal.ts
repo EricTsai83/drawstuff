@@ -16,6 +16,8 @@ import { roomIdSchema, type RoomId } from "@drawstuff/collaboration/protocol";
  * to verify, never an authority to trust.
  */
 export const INTERNAL_ROOM_ID_HEADER = "x-drawstuff-internal-room-id";
+export const INTERNAL_AUTHORITY_SOCKET_HEADER =
+  "x-drawstuff-internal-authority-socket";
 export const INTERNAL_AUTH_GENERATION_HEADER =
   "x-drawstuff-internal-auth-generation";
 

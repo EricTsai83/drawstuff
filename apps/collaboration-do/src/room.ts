@@ -34,10 +34,12 @@ import {
   roomRoleCanEditScene,
   ROOM_TOKEN_CLOCK_SKEW_SECONDS,
   type RoomChannelKey,
+  type RoomRole,
 } from "@drawstuff/collaboration/room-auth";
 import {
   assertRoomTokenSecret,
   verifyJoinToken,
+  verifyIdentityProof,
 } from "@drawstuff/collaboration/room-token";
 
 import {
@@ -52,7 +54,15 @@ import {
   type RoomControlCommandV1,
   type RoomControlResultV1,
 } from "./control.ts";
-import { closedJsonResponse, readInternalSocketIdentity } from "./internal.ts";
+import {
+  closedJsonResponse,
+  readInternalSocketIdentity,
+  INTERNAL_AUTHORITY_SOCKET_HEADER,
+} from "./internal.ts";
+import {
+  AUTHORITY_LIMITS,
+  type TrustedIdentity,
+} from "@drawstuff/collaboration/authority";
 import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
 import {
   fanoutDeliveryAction,
@@ -215,14 +225,10 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     this.requireChannelKey();
     if (!this.authority) return { ok: false as const, error: "unavailable" };
     const reply = await applyAuthorityEntry(this.authority, input, this.env);
+    this.enforceAuthoritySockets();
     if (this.authority.state()) {
-      // The formal WebSocket entry is a subsequent unit; legacy attachment roles grant no access here.
-      for (const ws of this.ctx.getWebSockets())
-        this.closeSocket(
-          ws,
-          RELAY_CLOSE_CODES.membershipRevoked,
-          "authority entry required",
-        );
+      this.broadcastPeers();
+      await this.scheduleAfterMembershipChange();
     }
     return reply;
   }
@@ -249,7 +255,12 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       });
     }
 
-    if (this.authority?.state())
+    const formal =
+      request.headers.get(INTERNAL_AUTHORITY_SOCKET_HEADER) === "1";
+    const room = this.authority?.state();
+    if (formal && (room?.state !== "ready" || room.denied))
+      return closedJsonResponse(503, "authority-socket-unavailable");
+    if (!formal && room)
       return closedJsonResponse(503, "authority-socket-unavailable");
 
     // Pending and total caps are enforced before the socket exists, so an
@@ -291,11 +302,11 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // Object between them.
     this.ctx.acceptWebSocket(server);
     writeRoomSocketAttachment(server, {
-      v: 2,
+      v: formal ? 3 : 2,
       state: "pending",
       acceptedAt: now,
       roomId: identity.roomId,
-      authGeneration: identity.authGeneration,
+      authGeneration: formal ? room!.auth_generation : identity.authGeneration,
     });
     await this.ensureAlarmAtMost(now + this.joinTimeoutMs);
     return new Response(null, { status: 101, webSocket: client });
@@ -330,7 +341,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     if (
       attachment === undefined ||
       (attachment.state === "joined" &&
-        attachment.authGeneration === this.readMeta().authGeneration)
+        attachment.authGeneration === this.currentGeneration())
     ) {
       this.broadcastPeers();
     }
@@ -371,6 +382,10 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     const authority = this.authority;
     if (authority) {
       await authority.expireInitialization();
+      if (authority.state()) {
+        this.enforceAuthoritySockets();
+        this.broadcastPeers();
+      }
       const delivery = new RoomDelivery(authority, new AdapterClient(this.env));
       await authority.work.drain(
         (job, _timeoutMs, signal) => delivery.deliver(job, signal),
@@ -525,18 +540,32 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     ws: WebSocket,
     message: string | ArrayBuffer,
   ): Promise<void> {
-    if (this.authority?.state()) {
-      this.closeSocket(
-        ws,
-        RELAY_CLOSE_CODES.membershipRevoked,
-        "authority entry required",
-      );
-      return;
-    }
     const attachment = readRoomSocketAttachment(ws);
     if (attachment === undefined) {
       // No attachment, or a version this code does not speak: fail closed.
       this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
+      return;
+    }
+    if (
+      this.authority?.state() &&
+      (attachment.v !== 3 ||
+        (attachment.state === "joined" &&
+          !this.authorizedSocket(ws, attachment)))
+    ) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.membershipRevoked,
+        "authority access required",
+      );
+      this.broadcastPeers();
+      return;
+    }
+    if (attachment.v === 3 && !this.authority?.state()) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.membershipRevoked,
+        "authority access required",
+      );
       return;
     }
     if (typeof message !== "string") {
@@ -602,6 +631,11 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     declaredRoomId: RoomId,
     token: string,
   ): Promise<void> {
+    const pending = readRoomSocketAttachment(ws);
+    if (pending?.v === 3) {
+      await this.handleAuthorityJoin(ws, declaredRoomId, token);
+      return;
+    }
     const now = Date.now();
     const secret = this.env.COLLAB_JOIN_TOKEN_SECRET;
     try {
@@ -780,7 +814,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       );
       return;
     }
-    if (attachment.authGeneration !== this.readMeta().authGeneration) {
+    if (attachment.authGeneration !== this.currentGeneration()) {
       this.closeSocket(
         ws,
         RELAY_CLOSE_CODES.roomEnded,
@@ -935,10 +969,210 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       if (ws.readyState !== SOCKET_OPEN) continue;
       const attachment = readRoomSocketAttachment(ws);
       if (attachment?.state === "joined") {
+        if (!this.authorizedSocket(ws, attachment)) continue;
         members.push({ ws, attachment });
       }
     }
     return members;
+  }
+
+  private currentGeneration(): number {
+    return (
+      this.authority?.state()?.auth_generation ?? this.readMeta().authGeneration
+    );
+  }
+
+  /** Attachment identity survives hibernation; role copies never authorize formal traffic. */
+  private authorizedSocket(
+    ws: WebSocket,
+    attachment: JoinedSocketAttachment,
+  ): boolean {
+    const room = this.authority?.state();
+    if (!room) return attachment.v === 2;
+    let allowed = false;
+    try {
+      allowed =
+        attachment.v === 3 &&
+        attachment.authGeneration === room.auth_generation &&
+        this.authority!.role({
+          subject: attachment.subject,
+          email: attachment.email,
+          lifecycleVersion: attachment.lifecycleVersion,
+        }) === attachment.role;
+    } catch {
+      /* retired or stale identity fails closed */
+    }
+    if (!allowed)
+      this.closeSocket(
+        ws,
+        room.state === "ended"
+          ? RELAY_CLOSE_CODES.roomEnded
+          : RELAY_CLOSE_CODES.membershipRevoked,
+        "authority access changed",
+      );
+    return allowed;
+  }
+
+  private enforceAuthoritySockets(): void {
+    const room = this.authority?.state();
+    if (!room) return;
+    for (const ws of this.ctx.getWebSockets()) {
+      const attachment = readRoomSocketAttachment(ws);
+      if (attachment?.state === "joined") {
+        this.authorizedSocket(ws, attachment);
+      } else if (
+        attachment?.v !== 3 ||
+        room.state !== "ready" ||
+        room.denied ||
+        attachment.authGeneration !== room.auth_generation
+      ) {
+        this.closeSocket(
+          ws,
+          room.state === "ended"
+            ? RELAY_CLOSE_CODES.roomEnded
+            : RELAY_CLOSE_CODES.membershipRevoked,
+          "authority access changed",
+        );
+      }
+    }
+  }
+
+  private async handleAuthorityJoin(
+    ws: WebSocket,
+    roomId: RoomId,
+    proof: string,
+  ): Promise<void> {
+    const authority = this.authority;
+    const verified = verifyIdentityProof({
+      token: proof,
+      secret: this.env.COLLAB_IDENTITY_SECRET,
+      expectedRoomId: roomId,
+      nowSeconds: Math.floor(Date.now() / 1000),
+    });
+    if (!verified.ok || roomId !== authority?.roomId) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.unauthorized,
+        "identity proof rejected",
+      );
+      return;
+    }
+    const identity: TrustedIdentity = verified.claims.identity;
+    const result = await applyAuthorityEntry(
+      authority,
+      {
+        proof,
+        request: {
+          v: 1,
+          action: "join",
+          roomId,
+          operationId: crypto.randomUUID(),
+          deadline: Math.min(
+            Date.now() + AUTHORITY_LIMITS.operationTtlMs,
+            verified.claims.exp * 1000,
+          ),
+        },
+      },
+      this.env,
+    );
+    if (!result.ok) {
+      this.closeSocket(
+        ws,
+        result.error === "unavailable"
+          ? RELAY_CLOSE_CODES.internalError
+          : RELAY_CLOSE_CODES.membershipRevoked,
+        "authority join refused",
+      );
+      return;
+    }
+    // All awaited work precedes final access/capacity checks and attachment + ACK publication.
+    await this.ensureAlarmAtMost(
+      Date.now() + ROOM_IDLE_TIMEOUT_MS + LAST_FRAME_PERSIST_QUANTUM_MS,
+    );
+    const pending = readRoomSocketAttachment(ws);
+    if (
+      ws.readyState !== SOCKET_OPEN ||
+      pending?.state !== "pending" ||
+      pending.v !== 3
+    )
+      return;
+    if (
+      Date.now() - pending.acceptedAt >= this.joinTimeoutMs ||
+      verified.claims.exp * 1000 <= Date.now()
+    ) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.joinTimeout,
+        "join deadline exceeded",
+      );
+      return;
+    }
+    const room = authority.state()!;
+    let role: RoomRole | undefined;
+    try {
+      role = authority.role(identity);
+    } catch {
+      /* lifecycle changed during I/O */
+    }
+    if (!role || pending.authGeneration !== room.auth_generation) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.membershipRevoked,
+        "authority access changed",
+      );
+      return;
+    }
+    let members = this.joinedSockets();
+    if (members.length >= MAX_CONNECTIONS_PER_ROOM) {
+      for (const member of members)
+        if (this.livenessExpired(member.ws, member.attachment, Date.now()))
+          this.closeSocket(member.ws, 1001, "liveness timeout");
+      members = this.joinedSockets();
+      if (members.length >= MAX_CONNECTIONS_PER_ROOM) {
+        this.closeSocket(
+          ws,
+          RELAY_CLOSE_CODES.roomAtCapacity,
+          "room at capacity",
+        );
+        return;
+      }
+    }
+    const now = Date.now();
+    const attachment: JoinedSocketAttachment = {
+      v: 3,
+      state: "joined",
+      peerId: peerIdSchema.parse(`peer-${crypto.randomUUID()}`),
+      subject: identity.subject,
+      role,
+      tokenRevision: room.auth_revision,
+      roomEpoch: this.acquireEpoch(members.length === 0),
+      authGeneration: room.auth_generation,
+      joinedAt: now,
+      lastFrameAt: now,
+      email: identity.email,
+      lifecycleVersion: identity.lifecycleVersion,
+    };
+    writeRoomSocketAttachment(ws, attachment);
+    const peers = this.currentPeers();
+    ws.send(
+      encodeRelayControl({
+        control: "joined",
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+        roomId,
+        peerId: attachment.peerId,
+        roomGeneration: attachment.roomEpoch,
+        role,
+        peers,
+      }),
+    );
+    this.broadcastPeers(ws);
+    this.log.info("room.session_joined", {
+      roomId,
+      authGeneration: room.auth_generation,
+      peerId: attachment.peerId,
+      role,
+      members: peers.length,
+    });
   }
 
   private rateLimiterFor(ws: WebSocket): ConnectionRateLimiter {

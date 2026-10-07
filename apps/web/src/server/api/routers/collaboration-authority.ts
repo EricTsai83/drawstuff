@@ -1,6 +1,9 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { authorityRequestSchema } from "@drawstuff/collaboration/authority";
+import {
+  authorityRequestSchema,
+  authoritySocketPath,
+} from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { env } from "@/env";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
@@ -43,7 +46,7 @@ export const collaborationAuthorityRouter = createTRPCRouter({
         identifier: ctx.auth.user.id,
       });
       try {
-        return await issueAuthorityIdentity(
+        const identity = await issueAuthorityIdentity(
           ctx.db,
           {
             subject: ctx.auth.user.id,
@@ -52,6 +55,12 @@ export const collaborationAuthorityRouter = createTRPCRouter({
           },
           config.identitySecret,
         );
+        const socketUrl = new URL(
+          authoritySocketPath(input.roomId),
+          env.COLLAB_CONTROL_URL,
+        );
+        socketUrl.protocol = socketUrl.protocol === "https:" ? "wss:" : "ws:";
+        return { ...identity, relayUrl: socketUrl.toString() };
       } catch (error) {
         throw identityError(error);
       }

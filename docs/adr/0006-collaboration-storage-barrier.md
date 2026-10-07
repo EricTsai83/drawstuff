@@ -1,6 +1,6 @@
 # ADR-0006：房間授權與持久保存以 epoch 屏障排序
 
-- Status: Accepted for implementation（2026-10-07）；P0 原型、P1 底座與 P2 adapter、Room alarm、登入 proof／Gateway 管理入口及預啟用登記存在，production 權威仍在 DB。
+- Status: Accepted for implementation（2026-10-07）；P0／P1 與 P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記與正式 WebSocket 授權存在，production 權威仍在 DB。
 - 範圍：[18B](../../plans/18b-collaboration-authority-reset.md) P0／P1／P2。
 
 ## 分開三個版本與兩種成功
@@ -36,6 +36,13 @@ ended marker 不隨 parent cascade 刪除；缺 parent 的 terminal ACK 只有�
 登入 proof 不帶角色；預啟用登記與 freeze 共用帳號／scene lifecycle 列鎖，Room 在登記 I/O 前後
 重查本地授權。正式管理入口的界線見
 [P2 management entry](../architecture/collaboration-system-design.md#18b-p2-authenticated-management-entry)。
+
+正式 socket 以不含 generation 的路由進入同一 Room，加入先驗證 identity proof／登記，角色
+由 Room 決定。版本 3 attachment 只保留可信身分及連線 metadata；每次 inbound 與 fanout receiver
+均重查本地權限，撤權後即使 close 在 crash 前遺漏，也不能再收到密文。角色變更、輪替與關房
+關閉受影響的連線；不以 attachment 角色或 PostgreSQL 投影副本授權。proof 過期限制加入操作，
+不把短期 proof 的到期當成已加入連線的房間 TTL。詳見
+[formal WebSocket authority](../architecture/collaboration-system-design.md#18b-p2-formal-websocket-authority)。
 
 回覆遺失時先查結果；已 commit 的操作仍回報原 revision，重送不重寫。缺 payload 的 pending
 操作由持久 alarm 查詢／取消；取消取同一鎖，已 commit 則返回 written，否則持久記錄 cancelled。
@@ -86,6 +93,6 @@ SQLite 的 SQL 與 alarm 使用同一個非同步 storage transaction，僅包�
 
 production transport protocol 仍是 5（18A 保存控制訊息）；P1 source artifact 已升至 6，
 新增 identity proof、roomId 定址、SQLite 待辦與 Lifecycle 進度、PostgreSQL fence／初始化／投影／
-登記 schema。P2 adapter、Room metadata delivery、正式登入 proof／Gateway 管理與預啟用登記已完成；正式即時通道、binary／附件產品入口與所有退休入口仍待接入，P3 重置後才部署。
+登記 schema。P2 adapter、Room metadata delivery、登入 proof／Gateway 管理、預啟用登記與正式 WebSocket 授權已完成；產品初始化／binary／附件與所有退休入口仍待接入，P3 重置後才部署。
 具體底座與邊界見 [system design](../architecture/collaboration-system-design.md#18b-p1-source-artifact-and-p2-boundary)。
 此 transport 升版不重設加密 authGeneration，也不改既有 durable crypto envelope 版本。

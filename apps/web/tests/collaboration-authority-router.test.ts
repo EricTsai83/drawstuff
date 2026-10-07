@@ -97,6 +97,7 @@ describe("formal authorization router", () => {
     );
     expect(await caller().identity({ roomId: input.roomId })).toMatchObject({
       proof: "live-proof",
+      relayUrl: `wss://gateway.test/v1/rooms/${input.roomId}/socket`,
     });
   });
   it("fails closed on disabled/unconfigured service, distinguishes identity refusal from outages, and never forwards", async () => {

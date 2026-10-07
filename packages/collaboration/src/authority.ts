@@ -170,6 +170,8 @@ export const authorityRequestSchema = z.discriminatedUnion("action", [
 ]);
 export type AuthorityRequest = z.infer<typeof authorityRequestSchema>;
 export const AUTHORITY_GATEWAY_PATH = "/v1/authority";
+export const authoritySocketPath = (roomId: string): string =>
+  `/v1/rooms/${roomIdSchema.parse(roomId)}/socket`;
 export const authorityGatewayRequestSchema = z.strictObject({
   proof: z.string().min(1).max(2_048),
   request: authorityRequestSchema,

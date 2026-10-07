@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { trustedIdentitySchema } from "@drawstuff/collaboration/authority";
 
 import { peerIdSchema, roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
@@ -40,7 +41,7 @@ const joinedAttachmentSchema = z.strictObject({
   v: z.literal(2),
   state: z.literal("joined"),
   peerId: peerIdSchema,
-  /** Authenticated user id from the verified join token (`sub`). */
+  /** Authenticated account subject from the verified join token or identity proof. */
   subject: z.string().min(1).max(128),
   role: roomRoleSchema,
   /** Authorization revision (`arev`) of the join token presented. */
@@ -63,13 +64,27 @@ const joinedAttachmentSchema = z.strictObject({
  * closed: after a code rollback or a corrupted write the socket is closed
  * with `internalError` rather than interpreted by guesswork.
  */
-export const roomSocketAttachmentSchema = z.discriminatedUnion("state", [
+const authorityPendingSchema = pendingAttachmentSchema.extend({
+  v: z.literal(3),
+});
+const authorityJoinedSchema = joinedAttachmentSchema.extend({
+  v: z.literal(3),
+  email: trustedIdentitySchema.shape.email,
+  lifecycleVersion: trustedIdentitySchema.shape.lifecycleVersion,
+});
+export const roomSocketAttachmentSchema = z.union([
   pendingAttachmentSchema,
   joinedAttachmentSchema,
+  authorityPendingSchema,
+  authorityJoinedSchema,
 ]);
 
-export type PendingSocketAttachment = z.infer<typeof pendingAttachmentSchema>;
-export type JoinedSocketAttachment = z.infer<typeof joinedAttachmentSchema>;
+export type PendingSocketAttachment =
+  | z.infer<typeof pendingAttachmentSchema>
+  | z.infer<typeof authorityPendingSchema>;
+export type JoinedSocketAttachment =
+  | z.infer<typeof joinedAttachmentSchema>
+  | z.infer<typeof authorityJoinedSchema>;
 export type RoomSocketAttachment = z.infer<typeof roomSocketAttachmentSchema>;
 
 /**
