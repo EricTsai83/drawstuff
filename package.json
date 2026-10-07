@@ -21,6 +21,7 @@
     "cf:typegen": "pnpm --filter @drawstuff/collaboration-do cf:typegen",
     "collab:p0": "pnpm --filter @drawstuff/collaboration-do test:p0",
     "collab:adapters": "pnpm --filter @drawstuff/web test:adapters",
+    "collab:assets:remote": "pnpm --filter @drawstuff/web test:assets:remote https://draw.ericts.com/ https://drawstuff-collaboration-do.ericts.workers.dev/",
     "collab:p0:load": "pnpm --filter @drawstuff/collaboration-do test:p0 --load",
     "db:push": "turbo run db:push --filter=@drawstuff/web",
     "db:studio": "pnpm --filter @drawstuff/web db:studio",
