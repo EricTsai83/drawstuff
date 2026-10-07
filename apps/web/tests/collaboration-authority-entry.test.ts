@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 vi.mock("server-only", () => ({}));
 import { authorityRequestSchema } from "@drawstuff/collaboration/authority";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
@@ -58,6 +58,77 @@ async function fixture() {
   return { ...f, sessionId, registration };
 }
 describe("formal identity and pre-activation registration", () => {
+  it("replays an existing registration while still enforcing live lifecycle and create intent", async () => {
+    const f = await fixture();
+    const receipt = await registerAuthorityCommand(db, f.registration);
+    const storedVersion = () =>
+      db
+        .select({ version: sql<string>`xmin::text` })
+        .from(collaborationLifecycleRegistration)
+        .where(
+          and(
+            eq(collaborationLifecycleRegistration.subject, f.owner),
+            eq(collaborationLifecycleRegistration.roomId, f.roomId),
+          ),
+        );
+    const before = await storedVersion();
+    expect(await registerAuthorityCommand(db, f.registration)).toEqual(receipt);
+    expect(await storedVersion()).toEqual(before);
+    await expect(
+      registerAuthorityCommand(db, {
+        ...f.registration,
+        operationId: crypto.randomUUID(),
+      }),
+    ).rejects.toThrow("operation-mismatch");
+    await db
+      .update(collaborationLifecycleSubject)
+      .set({ frozen: true })
+      .where(eq(collaborationLifecycleSubject.scope, `account:${f.owner}`));
+    await expect(registerAuthorityCommand(db, f.registration)).rejects.toThrow(
+      "fence-mismatch",
+    );
+  });
+  it("promotes an existing non-owner registration without changing its lifecycle version", async () => {
+    const f = await fixture();
+    await registerAuthorityCommand(db, f.registration);
+    await db
+      .update(collaborationLifecycleRegistration)
+      .set({ owner: false })
+      .where(eq(collaborationLifecycleRegistration.roomId, f.roomId));
+    await registerAuthorityCommand(db, f.registration);
+    const [registered] = await db
+      .select()
+      .from(collaborationLifecycleRegistration)
+      .where(eq(collaborationLifecycleRegistration.roomId, f.roomId));
+    expect(registered).toMatchObject({ owner: true, lifecycleVersion: 1 });
+  });
+  it("refreshes an existing registration's lifecycle version and preserves its owner flag", async () => {
+    const f = await fixture();
+    await registerAuthorityCommand(db, f.registration);
+    await db
+      .update(collaborationLifecycleSubject)
+      .set({ version: 2 })
+      .where(eq(collaborationLifecycleSubject.scope, `account:${f.owner}`));
+    await registerAuthorityCommand(db, {
+      ...f.registration,
+      create: false,
+      identity: { ...f.registration.identity, lifecycleVersion: 2 },
+    });
+    const [registered] = await db
+      .select()
+      .from(collaborationLifecycleRegistration)
+      .where(
+        and(
+          eq(collaborationLifecycleRegistration.subject, f.owner),
+          eq(collaborationLifecycleRegistration.roomId, f.roomId),
+        ),
+      );
+    expect(registered).toMatchObject({
+      lifecycleVersion: 2,
+      owner: true,
+      operationId: f.registration.operationId,
+    });
+  });
   it("issues identity only from the live account/session, without room roles", async () => {
     const f = await fixture();
     const issued = await issueAuthorityIdentity(

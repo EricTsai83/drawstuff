@@ -73,6 +73,13 @@ async function registerSubject(
       (command.create && existing.operationId !== command.operationId))
   )
     throw new AdapterError("operation-mismatch");
+  // The caller still locks and validates every live lifecycle before this read.
+  // An unchanged registration already participates in retirement enumeration.
+  if (
+    existing?.lifecycleVersion === identity.lifecycleVersion &&
+    (existing.owner || !owner)
+  )
+    return;
   await tx
     .insert(collaborationLifecycleRegistration)
     .values({
