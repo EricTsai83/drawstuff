@@ -43,6 +43,13 @@ export async function applyAuthorityEntry(
       return { ok: false as const, error: "expired-operation" };
     const identity = verified.claims.identity;
     authority.authorizeRequest(identity, request);
+    // Revocation only removes access. Persist it and its fence locally even when
+    // registration/storage is unavailable; delivery keeps the result pending.
+    if (request.action === "revoke-member")
+      return {
+        ok: true as const,
+        result: await authority.apply({ ...request, actor: identity }),
+      };
     const room = authority.state();
     const creating = request.action === "create";
     const registration = await new AdapterClient(env).call(

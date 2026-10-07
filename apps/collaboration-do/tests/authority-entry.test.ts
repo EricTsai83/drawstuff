@@ -112,6 +112,99 @@ function post(body: unknown, secret = SERVICE_SECRET) {
   });
 }
 describe("formal authority Gateway", () => {
+  it("persists owner revocation during adapter failure without granting offline access", async () => {
+    const f = fixture();
+    const fetchSpy = mockAdapter();
+    try {
+      await runInDurableObject(f.stub, async (_instance, state) => {
+        const a = new RoomAuthority(state.storage, f.roomId);
+        await applyAuthorityEntry(
+          a,
+          { proof: proof(f.create), request: f.create },
+          config,
+        );
+        const grant: AuthorityRequest = {
+          v: 1,
+          roomId: f.roomId,
+          operationId: crypto.randomUUID(),
+          deadline: Date.now() + 55_000,
+          action: "set-member-role",
+          subject: guest.subject,
+          role: "editor",
+        };
+        expect(
+          await applyAuthorityEntry(
+            a,
+            { proof: proof(grant), request: grant },
+            config,
+          ),
+        ).toMatchObject({ ok: true });
+        fetchSpy.mockRejectedValue(new Error("adapter-offline"));
+        fetchSpy.mockClear();
+        const revoke: AuthorityRequest = {
+          v: 1,
+          roomId: f.roomId,
+          operationId: crypto.randomUUID(),
+          deadline: Date.now() + 55_000,
+          action: "revoke-member",
+          subject: guest.subject,
+        };
+        expect(
+          await applyAuthorityEntry(
+            a,
+            {
+              proof: proof(revoke, { ...guest, lifecycleVersion: 2 }),
+              request: revoke,
+            },
+            config,
+          ),
+        ).toMatchObject({ ok: false, error: "forbidden" });
+        const result = await applyAuthorityEntry(
+          a,
+          { proof: proof(revoke), request: revoke },
+          config,
+        );
+        expect(result).toMatchObject({
+          ok: true,
+          result: { status: "pending" },
+        });
+        expect(
+          await applyAuthorityEntry(
+            a,
+            { proof: proof(revoke), request: revoke },
+            config,
+          ),
+        ).toEqual(result);
+        expect(
+          state.storage.sql
+            .exec<{ revoked: number }>(
+              "SELECT revoked FROM authority_members WHERE subject='guest'",
+            )
+            .one().revoked,
+        ).toBe(1);
+        expect(fetchSpy).not.toHaveBeenCalled();
+        expect(
+          await applyAuthorityEntry(
+            a,
+            {
+              proof: proof(grant),
+              request: { ...grant, operationId: crypto.randomUUID() },
+            },
+            config,
+          ),
+        ).toMatchObject({ ok: false, error: "unavailable" });
+        expect(
+          state.storage.sql
+            .exec<{ revoked: number }>(
+              "SELECT revoked FROM authority_members WHERE subject='guest'",
+            )
+            .one().revoked,
+        ).toBe(1);
+      });
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  });
   it("routes a verified management request through the actual private Room RPC", async () => {
     const f = fixture();
     const fetchSpy = mockAdapter();
