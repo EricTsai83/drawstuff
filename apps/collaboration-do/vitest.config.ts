@@ -128,6 +128,6 @@ export default defineConfig({
   test: {
     name: "collaboration-do",
     include: ["tests/**/*.test.ts"],
-    exclude: ["tests/p0/**"],
+    exclude: ["tests/p0/**", "tests/cutover/**"],
   },
 });

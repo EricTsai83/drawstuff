@@ -550,6 +550,12 @@ P1/P2 沿用這些契約；正式登入／proof、所有入口與 Lifecycle 串�
 
 ### P3 — 允許停機的一次重置與部署 `[L3]`
 
+2026-10-07 部署前準備：已新增唯讀 production DB 檢查／前後非共編資料指紋比對、
+Room 維護 runtime 與獨立 Lifecycle namespace bootstrap 設定，並準備保留 namespace 的
+protocol-5 回滾 worktree。隔離 PostgreSQL、workerd 與部署 dry-run 驗證完成。
+production DB／部署未變更；舊物件／DO 實際清理及所有 remote L3 仍待執行。
+操作指令見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)。
+
 需要 Neon 可用及 P2 部署前 gate 通過；事先寫成可執行清單。零正式使用者允許停機，
 不需零停機遷移或 web／Worker 混合版本相容，但必須確定沒有舊背景工作寫入。
 

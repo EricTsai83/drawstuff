@@ -64,3 +64,6 @@ apps/web/public/excalidraw-assets/
 **/.wrangler/
 .dev.vars
 .dev.vars.*
+
+# private cutover reports (object keys / schema evidence)
+/.local/

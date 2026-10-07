@@ -9,7 +9,8 @@
     "apps/web": {
       "entry": [
         "vitest.adapters.config.ts",
-        "tests/postgres/*.integration.ts"
+        "tests/postgres/*.integration.ts",
+        "scripts/collaboration-reset-inspect.ts"
       ]
     },
     "apps/collaboration-do": {
@@ -17,7 +18,9 @@
         "tests/**/*.test.ts",
         "vitest.p0.config.ts",
         "tests/p0/worker.ts",
-        "tests/support/product-worker.ts"
+        "tests/support/product-worker.ts",
+        "src/maintenance.ts",
+        "tests/cutover/worker.ts"
       ],
       "project": [
         "src/**/*.ts",

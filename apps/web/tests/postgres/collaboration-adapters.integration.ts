@@ -1,6 +1,8 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import postgres from "postgres";
-import { readFileSync } from "node:fs";
+import { readFileSync, unlinkSync } from "node:fs";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import {
   generateDrizzleJson,
@@ -33,6 +35,10 @@ import {
   collaborationDDL,
   resetDDL,
 } from "../../scripts/collaboration-reset-ddl";
+import {
+  inspectResetDatabase,
+  compareResetReports,
+} from "../../scripts/collaboration-reset-inspect";
 import * as legacy from "../support/legacy-collaboration-schema";
 import { lockRoom } from "@/server/collab/rooms";
 import {
@@ -704,11 +710,76 @@ describe("actual PostgreSQL adapter lock races", () => {
       "utf8",
     )
       .replace(/^--.*$/gm, "")
-      .split(";")[0]!;
-    const manifest =
-      await client.unsafe<{ ut_file_key: string }[]>(manifestSQL);
+      .split(";")
+      .map((statement) => statement.trim())
+      .filter(Boolean);
+    const manifest = await client.unsafe<{ ut_file_key: string }[]>(
+      manifestSQL[0]!,
+    );
     expect(manifest.map((row) => row.ut_file_key)).toEqual(["old-collab-key"]);
+    const inspectionBefore = await inspectResetDatabase(
+      client,
+      url,
+      "before",
+      legacy,
+      manifestSQL,
+    );
+    expect(inspectionBefore.readOnly).toBe(true);
+    expect(inspectionBefore.objectKeys).toEqual(["old-collab-key"]);
+    expect(inspectionBefore.oldRoomNames).toEqual(["old-fixture-g1"]);
+    await expect(
+      inspectResetDatabase(client, url, "after", schema, manifestSQL),
+    ).rejects.toThrow("differ");
+    await client`CREATE TABLE public.external_reset_blocker (room_id varchar(64) REFERENCES drawstuff_collaboration_room(room_id))`;
+    await expect(
+      inspectResetDatabase(client, url, "before", legacy, manifestSQL),
+    ).rejects.toThrow("External foreign keys");
+    await client`DROP TABLE public.external_reset_blocker`;
+    const cli = fileURLToPath(
+      new URL("../../scripts/collaboration-reset-check.mjs", import.meta.url),
+    );
+    const runCheck = (args: string[]) =>
+      /Report: (.+)/.exec(
+        execFileSync(process.execPath, [cli, ...args], {
+          env: { ...process.env, COLLAB_RESET_DATABASE_URL: url },
+          encoding: "utf8",
+        }),
+      )![1]!;
+    const beforeReport = runCheck(["before"]);
     await apply(current.statements);
+    let afterReport: string | undefined;
+    try {
+      afterReport = runCheck(["after", beforeReport]);
+      expect(JSON.parse(readFileSync(afterReport, "utf8"))).toMatchObject({
+        phase: "after",
+        readOnly: true,
+      });
+    } finally {
+      unlinkSync(beforeReport);
+      if (afterReport) unlinkSync(afterReport);
+    }
+    const inspectionAfter = await inspectResetDatabase(
+      client,
+      url,
+      "after",
+      schema,
+      manifestSQL,
+    );
+    expect(() =>
+      compareResetReports(inspectionBefore, inspectionAfter),
+    ).not.toThrow();
+    expect(() =>
+      compareResetReports(inspectionBefore, {
+        ...inspectionAfter,
+        target: "other-endpoint",
+      }),
+    ).toThrow("same database");
+    expect(() =>
+      compareResetReports(inspectionBefore, {
+        ...inspectionAfter,
+        personal: [],
+      }),
+    ).toThrow("changed");
     expect(await preserved()).toEqual(before);
     await db
       .insert(schema.collaborationRoom)
