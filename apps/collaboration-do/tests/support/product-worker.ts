@@ -160,12 +160,19 @@ globalThis.fetch = async (input, init) => {
   }
   if (command.action === "read-assets")
     return json({
-      roomId: command.roomId,
-      authGeneration: room.generation,
-      assets: command.assetIds.flatMap((id) =>
-        room.assets.get(id) ? [room.assets.get(id)!] : [],
-      ),
-      missing: command.assetIds.filter((id) => !room.assets.has(id)),
+      assets: command.assetIds.flatMap((id) => {
+        const asset = room.assets.get(id);
+        return asset
+          ? [
+              {
+                excalidrawFileId: asset.excalidrawFileId,
+                cryptoVersion: asset.cryptoVersion,
+                byteLength: asset.byteLength,
+                url: asset.url,
+              },
+            ]
+          : [];
+      }),
     });
   if (command.action === "verify-initialization") {
     if (

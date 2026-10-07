@@ -97,7 +97,7 @@ export async function applyAssetEntry(
       validateDeadline();
       const current = authority.state()!;
       const assetIds = canonicalizeAssetIds(request.fileIds);
-      const assets = await adapter.call(
+      const { assets } = await adapter.call(
         {
           v: 1,
           action: "read-assets",
@@ -106,7 +106,9 @@ export async function applyAssetEntry(
           authorityEpoch: current.authority_epoch,
           assetIds,
         },
-        z.array(collaborationAssetRecordSchema).max(assetIds.length),
+        z.strictObject({
+          assets: z.array(collaborationAssetRecordSchema).max(assetIds.length),
+        }),
         controller.signal,
       );
       authorize();

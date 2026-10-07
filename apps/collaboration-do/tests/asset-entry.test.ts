@@ -259,7 +259,9 @@ describe("Room attachment authority", () => {
   });
   it("lets a viewer resolve records but refuses presign and finalization", async () => {
     const f = fixture();
-    adapter(() => Response.json([{ ...f.asset, utFileKey: undefined }]));
+    adapter(() =>
+      Response.json({ assets: [{ ...f.asset, utFileKey: undefined }] }),
+    );
     await initialized(
       f,
       async (a) => {
@@ -452,6 +454,45 @@ describe("Room attachment authority", () => {
       expect(a.contentResult(f.intent.operationId)).toBeUndefined();
     });
   });
+  it("reads the production adapter asset wrapper and derives missing IDs", async () => {
+    const f = fixture();
+    await initialized(
+      f,
+      async (a) => {
+        adapter(async (command) => {
+          if (command.action !== "read-assets")
+            throw new Error("unexpected-command");
+          return Response.json({
+            assets: [{ ...f.asset, utFileKey: undefined }],
+          });
+        });
+        const missing = "b".repeat(40);
+        expect(
+          await call(a, f, {
+            ...f.envelope,
+            action: "read",
+            fileIds: [fileId, missing],
+          }),
+        ).toEqual({
+          ok: true,
+          result: {
+            roomId: f.roomId,
+            authGeneration: 1,
+            assets: [
+              {
+                excalidrawFileId: fileId,
+                cryptoVersion: f.asset.cryptoVersion,
+                byteLength: f.asset.byteLength,
+                url: f.asset.url,
+              },
+            ],
+            missing: [missing],
+          },
+        });
+      },
+      true,
+    );
+  });
   it("withholds discovered URLs when a generation rotates during storage I/O", async () => {
     const f = fixture();
     await initialized(
@@ -467,7 +508,9 @@ describe("Room attachment authority", () => {
             action: "rotate-generation",
             expectedGeneration: 1,
           });
-          return Response.json([{ ...f.asset, utFileKey: undefined }]);
+          return Response.json({
+            assets: [{ ...f.asset, utFileKey: undefined }],
+          });
         });
         expect(await call(a, f, read(f))).toEqual({
           ok: false,
@@ -507,10 +550,12 @@ describe("Room attachment authority", () => {
     const f = fixture();
     await initialized(f, async (a) => {
       adapter(() =>
-        Response.json([
-          { ...f.asset, utFileKey: undefined },
-          { ...f.asset, utFileKey: undefined },
-        ]),
+        Response.json({
+          assets: [
+            { ...f.asset, utFileKey: undefined },
+            { ...f.asset, utFileKey: undefined },
+          ],
+        }),
       );
       expect(await call(a, f, read(f))).toEqual({
         ok: false,
