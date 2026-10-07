@@ -37,11 +37,6 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) —
   共編監控機制、logs／metrics 匯出、client telemetry、告警與 dashboard；單人使用、Vercel Hobby，
   **暫緩實現**，監控目的地未定，不綁定部署平台
-- [18a-collaboration-storage-ux.md](18a-collaboration-storage-ux.md) —
-  共編儲存入口的模式／目的地語意，以及房間內容與個人場景本機快取的隔離。**無前置，可立即開始。**
-  修的是現況 `use-collaboration-room.ts` 以 `ownsCanvas && !currentSceneId` 判斷造成的既有行為：
-  有個人 sceneId 的共編使用者，房間畫布仍會寫進個人 localStorage。
-  優先保護個人草稿與恢復邊界，再完成跨成員保存確認；主要開發驗證不受 Neon 額度影響
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
@@ -50,15 +45,15 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
   退休以按主體分割的 **Lifecycle DO** 執行（§7.1，2026-09-23 定案）；P3 需要 Neon 可用
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —
   我的房間列表、本機金鑰與缺鑰體驗、未儲存畫布直接建立獨立房間，以及全產品加密狀態告知。
-  依賴 18B 與 18A
+  依賴 18B；沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)
 
 ### 執行順序與交接
 
-1. 18B P0 固定可行性與故障契約，可與 18A 並行；18A 先快取隔離／恢復，再保存確認與入口。
+1. 下一步執行 18B P0，固定私有附件、binary payload 與真實多連線儲存屏障的可行性與故障契約。
 2. P0 通過後做 18B P1／P2，包含初始化與投影後端、保存查詢／取消、撤權安全預算。
 3. L1／L2／L2′／L2″ 與重置／回滾演練通過，服務可用後執行 18B P3：停寫、重置、部署、smoke、恢復入口，
    再完成其餘 L3；不要求部署後驗收在部署前完成。
-4. 18C 可依固定契約提早開發 UI，但 production 開放獨立房間須等待 18A／18B 驗收與本身加密告知完成。
+4. 18C 可依固定契約提早開發 UI，但 production 開放獨立房間須等待 18B 驗收與既有儲存契約回歸驗證與本身加密告知完成。
 
 已保存代表內容已持久成功；未確認內容在瀏覽器退出後可能遺失。完整快照留在 Neon、圖片在 UploadThing，
 DO 的 outbox 不暫存整份畫布；無 payload 的操作須能查明成功或經 adapter fence 取消，不能永遠 pending。

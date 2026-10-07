@@ -2,7 +2,7 @@
 
 - 狀態：規劃中，尚未實作。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
-- 前置：**無**。與 [18A](18a-collaboration-storage-ux.md) 沒有硬性前後相依，可並行；保存確認的產品契約沿用 18A。
+- 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。
 - 後續：[18C](18c-collaboration-surface.md)（房間列表、金鑰體驗、獨立建房 UX、全產品加密告知）。
 - 本文件描述目標，不代表現況。
 
@@ -110,7 +110,7 @@ PGlite 在空白 DB 推 schema 只證明最終形狀合法。P2 另用本機 Pos
 
 - 「我的房間」列表 UI、本機金鑰體驗、獨立建房的瀏覽器流程、全產品加密告知
   → [18C](18c-collaboration-surface.md)。
-- 共編儲存 UX 與本機快取邊界 → [18A](18a-collaboration-storage-ux.md)。
+- 共編儲存 UX 與本機快取邊界 → [共編儲存契約](../docs/architecture/collaboration-storage.md)。
 - 將個人雲端場景改為 E2EE；組織／團隊繼承式權限。
 - 更換 Neon、搬畫布到 R2、改用 tldraw sync 或更換 Excalidraw。
 - 自動輪替房間秘密金鑰、伺服器持有解密金鑰、跨裝置自動金鑰恢復。
@@ -305,7 +305,7 @@ owned-scene 儲存的獨立生命週期。不得把共編快照自動蓋回 `sce
 - 瀏覽器捕捉一致快照並加密；DO 驗證／排序後，經 adapter 將完整密文寫入 Neon。
   圖片 bytes 仍獨立放 UploadThing。DO 僅持久保存 operationId、actor、版本、checksum、期限與結果。
 - adapter 在同一 DB 交易提交快照與操作成功結果；只有此結果確認後才回覆 `written`。
-  `pending`／收到請求／WebSocket 已送出都不能顯示已保存。跨成員確認沿用 18A §3.1。
+  `pending`／收到請求／WebSocket 已送出都不能顯示已保存。跨成員確認沿用共編儲存契約的跨成員確認。
 - 同一 operationId 綁定不可變的 room、actor、generation、epoch、expectedRevision 與密文 checksum；
   重送不同內容拒絕。瀏覽器在未完成期間保留同一份密文於記憶體，不能每次重新加密後沿用操作編號。
 - 操作狀態至少區分 `pending`、`written`、`cancelled`／明確拒絕；逾時本身不是取消，
@@ -487,7 +487,7 @@ class、一張進度表與一組故障測試。
 ## 8. 實作順序
 
 不做漸進遷移；P0 是實作前可行性 gate，P1／P2 完成程式與部署前驗證，P3 受控停機部署後做 L3。
-18A 可與 P0 並行；18C 可依已固定 API 開發畫面，production 開放須等待 18A／18B 驗收。
+18C 可依已固定 API 開發畫面，production 開放須等待 18B 驗收與既有儲存契約回歸驗證。
 
 ### P0 — 實作前可否決驗證
 
@@ -533,7 +533,7 @@ class、一張進度表與一組故障測試。
 - 移除 `ttlMinutes` 輸入、TTL 常數、`resolveRoomAccess` 的 `expired` 分支，調整 admin 顯示與清理工作的
   候選來源。
 - 完成 §4.2.1 初始化與列表投影後端；尚未 ready 的 owner 可走專用初始化 API，一般成員不可寫入。
-- 接入 18A 保存確認契約；擴充完整內容路徑 harness，跑 L1／L2／L2′／L2″ 與滿載安全工作測試。
+- 接入既有跨成員保存確認契約；擴充完整內容路徑 harness，跑 L1／L2／L2′／L2″ 與滿載安全工作測試。
 - 在本機舊 schema fixture 演練重置、升版及回滾；檢查個人資料內容與附件引用，不只比較列數。
 - 舊 outbox／drain route／minute cron／舊權限 writer 的程式碼在此移除，作為同一次部署 artifact；
   production 舊排程在 P3 維護窗口停止，不做長期相容 flag。

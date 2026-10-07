@@ -147,6 +147,22 @@ Creating a shared scene is rate limited per user, and the public shared-scene re
 client IP, on the same Upstash fail-open pipeline as the collaboration limits (key prefix
 `drawstuff:shared-scene:ratelimit:v1`).
 
+## Room canvases and personal copies
+
+Room content is never automatically written into the personal scene localStorage cache, for either
+owners or guests, including after a copy upload. Before entry, only the prior personal canvas and
+its identity/revision are preserved in per-tab sessionStorage. Leave restores that personal canvas
+before enabling cache writers; sign-out clears the backup. A room reload uses an authorized
+encrypted baseline and cannot use personal cache as the room baseline. Unconfirmed room edits have
+no offline/reload recovery guarantee.
+
+An explicit personal copy captures the current canvas and uploads referenced files into the normal
+personal asset lifecycle. It neither references room ciphertext objects nor creates a source-room
+cascade relation; deleting the room cannot reclaim the copy's attachments. Explicit original
+updates use the preserved expected revision and update its separate backup only after success.
+Destinations and confirmation semantics are defined in
+[collaboration storage](./collaboration-storage.md).
+
 ## Collaboration generation retirement
 
 Snapshots and collaboration assets are scoped to an authorization generation. A successful write in

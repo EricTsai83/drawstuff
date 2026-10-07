@@ -82,6 +82,17 @@ The persistence profiles, app-state allowlists, and asset relation rationale liv
 [ADR 0001](../adr/0001-excalidraw-persistence-boundary.md). The collaboration-specific runtime
 contract lives in [collaboration system design](./collaboration-system-design.md).
 
+## Canvas storage ownership
+
+The editor's synchronous storage mode separates personal scenes from room canvases. Room ownership
+holds every automatic personal canvas write before the handoff, regardless of source scene ID.
+The pre-room personal draft and its identity/revision are preserved per tab and restored before
+personal writes resume. Named copies and explicit original updates are independent user operations;
+a copy never attaches future room edits to its new scene. Room **saved** means verified durable
+coverage of the current syncable canvas and finalized attachments, independent of personal upload
+status. Destinations, encrypted confirmation, and recovery contracts live in
+[collaboration storage](./collaboration-storage.md).
+
 ## Enforcement and change rules
 
 - ESLint and package-contract tests enforce direct-import and dependency boundaries.

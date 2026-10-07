@@ -181,6 +181,15 @@ session that reaches a terminal recovery state clears its own connection state, 
 collaborator cursors and refuses further snapshot writes — it never depends on the transport
 announcing the disconnect, synchronously or at all.
 
+Room-save state is separate from transport readiness and personal upload status. Protocol v5 uses
+encrypted, sequenced save requests and persistence receipts. Nonwriters request the elected writer;
+receipts trigger an independent decrypted durable read. Exact element/version/tombstone coverage
+and finalized attachment records must match before a member reports saved. Older captures, forged
+receipts, or a copy upload cannot clear newer edits. Pending members verify on the bounded cadence
+and reconnect reloads confirmation. HTTP persistence calls have deadlines; leave networking remains
+best effort. The full destination, timing, and recovery contract is
+[collaboration storage](./collaboration-storage.md).
+
 Remote canvas writes run inside the host's dirty-tracking suppression, which is reference-counted:
 overlapping windows (element applies resume a frame later; other suppressors may be open in the
 same frame) release exactly one hold each, never each other's. Presence-only writes take a separate
@@ -192,11 +201,12 @@ over the owner's scene. The claim is committed in this order:
 
 1. Fetch room metadata and verify the fragment-held key against the generation's key check. A bad
    or incomplete link stops before changing the canvas or minting a token.
-2. If the room's owned scene is not already open, resolve local work through the existing
-   save/discard/cancel prompt, clear the scene session and empty the canvas. Retries never repeat
-   this preparation.
-3. Mint the join token through the bounded rate-limit-aware join call, then verify that the returned
-   authorization generation is still the one whose key check passed.
+2. Mint the join token through the bounded rate-limit-aware join call and verify that its generation
+   is still the one whose key check passed. Read the snapshot locator before the handoff.
+3. Resolve local work through save/discard/cancel where needed, preserve the personal draft and
+   per-tab identity, cancel debounce, and synchronously hold all personal canvas persistence.
+   Only a fresh empty room may use its owner's open source as the initial seed. Reloaded/stored
+   rooms reset the canvas and recover from a room baseline rather than the personal cache.
 4. Claim the canvas in tab-scoped storage and only then construct the session and open the socket.
    No inbound frame can exist before this point.
 
@@ -208,8 +218,8 @@ refusal: only a stated `UNAUTHORIZED`/`FORBIDDEN` verdict reads as an authorizat
 ended room reads as the room ending, and everything else (network, 5xx, crypto, construction) is
 reported as a retryable join failure with a translated message, never the raw error text.
 Replacing or clearing the canvas also releases the claim and tears down collaboration-owned
-resources. Canvas preparation is still a user-approved commit: if the user chose to discard local
-work and the later join fails, the system does not reconstruct the discarded canvas.
+resources. After a completed handoff, teardown restores the preserved personal draft before resuming its
+cache writers. Sign-out clears that backup instead of restoring private data.
 
 Recovery classifies disconnects into terminal, retryable, and generation-rotation outcomes. A
 bounded exponential backoff reconnects, obtains a new `peerId`, rebuilds presence, and uses the same
