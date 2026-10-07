@@ -32,7 +32,8 @@ const gateway = origin(process.argv[3]);
 const failureInjection = process.argv[4] === "--fail-after-upload";
 const retirementMode = process.argv[4] === "--retire-scene" ? "scene" : process.argv[4] === "--retire-account" ? "account" : null;
 const accessMode = process.argv[4] === "--access-recovery";
-const performanceMode = process.argv[4] === "--performance-typical-hot";
+const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic";
+const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic;
 assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode || performanceMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
 assert.equal(web, "https://draw.ericts.com");
@@ -455,10 +456,11 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       measurement: digest(await readFile(new URL("./remote-performance-acceptance.mjs", import.meta.url))),
     };
     await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
+      diagnostic: performanceDiagnostic,
       interrupted: () => interrupted, observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
     });
   }
-  testPassed = !performanceMode || performanceReport.gatePassed; report("attachment-initialization-passed");
+  testPassed = !performanceMode || (performanceDiagnostic ? performanceReport.completed : performanceReport.gatePassed); report("attachment-initialization-passed");
 } catch (error) {
   // Do not log SQL, signed URLs, cookie, provider response, keys or encrypted payload.
   const locations = error instanceof Error ? error.stack?.match(/(?:remote-access-acceptance|remote-performance-acceptance|test-remote-assets)\.mjs:\d+:\d+/g)?.slice(0, 4) : undefined;
@@ -565,7 +567,8 @@ if (performanceReport) {
     let output="";child.stdout.on("data", chunk=>{output+=chunk.toString();});child.once("error",reject);child.once("close",code=>code===0 ? resolve(output.trim()) : reject(new Error("commit-unavailable")));
   }));
   performanceReport.runtime.normalWorkerSha256 = normalRuntimeHash;
-  await writeFile(`${rootDir}docs/performance/collaboration-production-3a.json`, JSON.stringify(performanceReport, null, 2)+"\n");
+  const reportName = performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
+  await writeFile(`${rootDir}docs/performance/${reportName}.json`, JSON.stringify(performanceReport, null, 2)+"\n");
 }
 report("result", { testPassed, cleanupPassed, restored, expectedFailureHandled });
 if ((!testPassed && !expectedFailureHandled) || !cleanupPassed || !restored) process.exitCode = 1;

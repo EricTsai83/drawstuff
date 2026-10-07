@@ -194,6 +194,20 @@ caffeinate -i pnpm collab:assets:remote --performance-typical-hot
 
 Provider／DB／DO 限定清理通過，正常 Worker 精確還原至 version `5f7dbe32-4c37-408b-93e4-d21e3ba66094`，來源 SHA-256 與測試前一致；臨時 runtime、journal 與 lock 已移除，與本輪程序綁定的防睡眠保護也已結束。CLI exit 1 是效能 gate 未過的預期結果，不是清理失敗；未執行 DB push／migration。
 
+### 3A：附件路徑診斷與重播寫入改善
+
+`pnpm collab:assets:remote --performance-typical-hot-diagnostic` 使用同一真實流程，但固定 20 warmup／20 診斷樣本，另外寫入 [診斷報告](../../performance/collaboration-production-3a-diagnostic.json)，不覆寫上述 200 筆驗收基準。`purpose=latency-diagnostic`、`requiredSamples=200`、`gatePassed=false` 明確區別診斷完成與驗收；診斷的 `testPassed=true` 只代表流程完成，原 P0 gate 仍未通過。
+
+2026-10-08 的修正前診斷請求失敗為零，保存／加入 p50 分別為 4,001.54／3,124.02 ms。上傳分段 p50 為 presign 1,006.70 ms、PUT 與真實 callback 1,991.28 ms；加入分段為索引 226.31 ms、provider 密文下載 1,722.68 ms、解密／解碼 0.38 ms。測試 recovery journal 寫入 p50 0.72 ms，仍計入原保存總耗時以維持邊界。下載段包含網路與 body 讀取，PUT 段包含 callback，尚無法將 provider、Vercel 或跨區網路單獨歸因。
+
+每筆都是新上傳附件的第一次下載，因此這是熱 DO／新附件流程，不代表 provider CDN 已暖。沒有用預先下載、移除 callback、快取索引或放寬原門檻來提高分數。下一步優先檢查 provider 下載與 callback 路徑，而不是把主要延遲歸因於附件索引。
+
+本機 token 僅在記憶體內解析，輸出只允許 region alias，確認設定為 `sea1`；未輸出或記錄 token／API key／app ID。使用者確認目前為免費方案。UploadThing [官方區域文件](https://docs.uploadthing.com/concepts/regions-acl) 將它列為美國西部預設區域；調整 region 需付費方案，而且只影響新物件，既有物件不會自動搬移。維持免費方案，不改平台設定或搬移物件；目前只能列為待驗證的跨區因素，下一步先細分 callback 與 CDN 下載路徑。
+
+另改善 adapter 的重複註冊：保持 live lifecycle／帳號／來源鎖定與驗證、create intent 綁定；當 registration 的版本與 owner flag 不需更新時省略 upsert，需提升 owner 或更新版本時仍寫入。不宣稱這項小幅 SQL 改善解決 provider 主要延遲。22 個身分、授權入口與退休 adapter 測試、web typecheck 與變更檔 lint 通過；測試確認重播不改寫資料列版本，frozen 身分仍拒絕，必要更新仍完成。
+
+診斷資源 provider／DB／DO 清理、正常 Worker 精確還原通過；還原 version `45fa9b09-0691-4639-9733-8cb66aa757c5`，臨時 runtime／journal／lock 已移除。此報告量測的是改善前的正式服務；改善後仍待重新量測，不以診斷樣本當作 200 筆正式驗收。
+
 ## 舊物件／DO 清理
 
 先完成可回滾 smoke，再按受控 manifest 清理有明確共編來源且不被任何個人資料引用的物件。DO metadata 清理必須對已確認的舊 instance 停止工作、取消 alarm 並 `storage.deleteAll()`。一般 quiesce 保留資料；legacy cleanup 是獨立、capability 保護的維護入口，正常 production Gateway 不提供它。
