@@ -17,6 +17,7 @@
     "preview": "node scripts/sync-excalidraw-assets.mjs && next build && next start",
     "start": "next start",
     "test": "vitest run",
+    "test:adapters": "node scripts/test-collaboration-adapters.mjs",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit"

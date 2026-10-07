@@ -1,6 +1,6 @@
 # ADR-0006：房間授權與持久保存以 epoch 屏障排序
 
-- Status: Accepted for implementation（2026-10-07）；P0 原型與 P1 底座存在，production 權威仍在 DB。
+- Status: Accepted for implementation（2026-10-07）；P0 原型、P1 底座與 P2 儲存／投影 adapter 存在，production 權威仍在 DB。
 - 範圍：[18B](../../plans/18b-collaboration-authority-reset.md) P0／P1／P2。
 
 ## 分開三個版本與兩種成功
@@ -24,6 +24,10 @@ public 密文物件 URL 的下載屬 [ADR-0005](0005-public-collaboration-assets
 adapter 的寫入、取消、fence 取同一房間列的 `FOR UPDATE` 鎖。取得鎖後查去重結果，再檢查
 epoch、期限與 expectedRevision；快照及終態結果一同 commit。fence 返回後，舊 epoch 請求
 無法改變最新快照。正常保存併發則由 expectedRevision 拒絕覆蓋新版。
+
+adapter 的 storage generation／state 與顯示投影分開，投影不能倒退儲存 fence。
+reset 刪除快照後仍保留 revision 高水位，避免舊 expectedRevision 重新有效；詳見
+[P2 adapter 邊界](../architecture/collaboration-system-design.md#18b-p2-storage-and-projection-adapters)。
 
 回覆遺失時先查結果；已 commit 的操作仍回報原 revision，重送不重寫。缺 payload 的 pending
 操作由持久 alarm 查詢／取消；取消取同一鎖，已 commit 則返回 written，否則持久記錄 cancelled。

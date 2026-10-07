@@ -1,0 +1,224 @@
+import { describe, expect, it, vi } from "vitest";
+import { eq } from "drizzle-orm";
+vi.mock("server-only", () => ({}));
+import {
+  ADAPTER_METADATA_HEADER,
+  ADAPTER_METADATA_MAX_BYTES,
+  type AdapterCommand,
+} from "@drawstuff/collaboration/authority";
+import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import * as schema from "@/server/db/schema";
+import type { Database } from "@/server/collab/rooms";
+import { handleAdapterRequest } from "@/server/collab/adapter-http";
+import { openTestDatabase } from "./support/pglite-db";
+import {
+  adapterFixture,
+  ciphertextChecksum,
+  testCiphertext,
+} from "./support/authority-adapter-fixtures";
+const testDb = openTestDatabase();
+const db = testDb as unknown as Database;
+const secret = "adapter-test-service-secret-at-least-32-bytes";
+const controlRequest = (command: AdapterCommand) =>
+  new Request("https://adapter.invalid", {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${secret}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(command),
+  });
+describe("private binary adapter endpoint", () => {
+  it.each([Error, TypeError, SyntaxError])(
+    "keeps DB %s failures retryable and does not expose private driver details",
+    async (Failure) => {
+      const f = await adapterFixture(db);
+      vi.spyOn(testDb, "transaction").mockRejectedValueOnce(
+        new Failure("private database URI and provider details"),
+      );
+      const response = await handleAdapterRequest(
+        controlRequest(f.fence()),
+        db,
+        secret,
+      );
+      expect(response.status).toBe(503);
+      expect(await response.json()).toEqual({ error: "adapter-unavailable" });
+    },
+  );
+  it("rejects malformed UTF-8 as a command error before accessing storage", async () => {
+    const request = new Request("https://adapter.invalid", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}` },
+      body: new Uint8Array([0xff]),
+    });
+    const response = await handleAdapterRequest(request, db, secret);
+    expect(response.status).toBe(400);
+  });
+  it("fails closed before parsing a body without a service secret, even with browser identity metadata", async () => {
+    const request = () =>
+      new Request("https://adapter.invalid", {
+        method: "POST",
+        headers: { authorization: `Bearer ${secret}`, "x-room-role": "owner" },
+        body: "not-json",
+      });
+    expect((await handleAdapterRequest(request(), db, undefined)).status).toBe(
+      401,
+    );
+    expect(
+      (await handleAdapterRequest(request(), db, "different-service-secret"))
+        .status,
+    ).toBe(401);
+    expect(
+      (
+        await handleAdapterRequest(
+          new Request("https://adapter.invalid", {
+            headers: { authorization: `Bearer ${secret}` },
+          }),
+          db,
+          secret,
+        )
+      ).status,
+    ).toBe(405);
+  });
+  it("round trips the maximum binary snapshot without base64 and reports its immutable receipt", async () => {
+    const f = await adapterFixture(db);
+    const bytes = testCiphertext(MAX_SNAPSHOT_CIPHERTEXT_BYTES);
+    const operation = f.operation({}, bytes);
+    const response = await handleAdapterRequest(
+      new Request("https://adapter.invalid", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          [ADAPTER_METADATA_HEADER]: JSON.stringify({
+            v: 1,
+            action: "write",
+            operation,
+          }),
+          "content-type": "application/octet-stream",
+        },
+        body: new Uint8Array(bytes),
+      }),
+      db,
+      secret,
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ status: "written", revision: 1 });
+    const read = await handleAdapterRequest(
+      controlRequest({
+        v: 1,
+        roomId: f.roomId,
+        authorityEpoch: 1,
+        authGeneration: 1,
+        action: "read-snapshot",
+      }),
+      db,
+      secret,
+    );
+    expect(read.headers.get("content-type")).toBe("application/octet-stream");
+    expect(read.headers.get("cache-control")).toBe("no-store");
+    expect(
+      JSON.parse(read.headers.get("x-drawstuff-snapshot") ?? "null") as unknown,
+    ).toMatchObject({
+      revision: 1,
+      checksum: operation.checksum,
+      byteLength: MAX_SNAPSHOT_CIPHERTEXT_BYTES,
+    });
+    const returned = new Uint8Array(await read.arrayBuffer());
+    expect(returned.byteLength).toBe(MAX_SNAPSHOT_CIPHERTEXT_BYTES);
+    expect(ciphertextChecksum(returned)).toBe(operation.checksum);
+    expect(
+      await (
+        await handleAdapterRequest(
+          controlRequest({ v: 1, action: "query", operation }),
+          db,
+          secret,
+        )
+      ).json(),
+    ).toEqual({ status: "written", revision: 1 });
+  });
+  it("bounds actual chunked bytes despite a misleading Content-Length and cancels excess input", async () => {
+    const f = await adapterFixture(db);
+    let cancelled = false;
+    const body = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(testCiphertext(MAX_SNAPSHOT_CIPHERTEXT_BYTES));
+        controller.enqueue(new Uint8Array([1]));
+      },
+      cancel() {
+        cancelled = true;
+      },
+    });
+    const response = await handleAdapterRequest(
+      new Request("https://adapter.invalid", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${secret}`,
+          "content-length": "1",
+          [ADAPTER_METADATA_HEADER]: JSON.stringify({
+            v: 1,
+            action: "write",
+            operation: f.operation(),
+          }),
+        },
+        body,
+        duplex: "half",
+      } as RequestInit),
+      db,
+      secret,
+    );
+    expect(response.status).toBe(413);
+    expect(cancelled).toBe(true);
+    expect(
+      await testDb.query.collaborationSnapshot.findFirst({
+        where: eq(schema.collaborationSnapshot.roomId, f.roomId),
+      }),
+    ).toBeUndefined();
+  });
+  it("rejects oversized metadata, JSON snapshots, unknown fields and mismatched operations", async () => {
+    const f = await adapterFixture(db);
+    const oversized = new Request("https://adapter.invalid", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${secret}`,
+        [ADAPTER_METADATA_HEADER]: "a".repeat(ADAPTER_METADATA_MAX_BYTES + 1),
+      },
+    });
+    expect((await handleAdapterRequest(oversized, db, secret)).status).toBe(
+      413,
+    );
+    expect(
+      (
+        await handleAdapterRequest(
+          controlRequest({ v: 1, action: "write", operation: f.operation() }),
+          db,
+          secret,
+        )
+      ).status,
+    ).toBe(400);
+    const unknown = new Request("https://adapter.invalid", {
+      method: "POST",
+      headers: { authorization: `Bearer ${secret}` },
+      body: JSON.stringify({ ...f.fence(), role: "owner" }),
+    });
+    expect((await handleAdapterRequest(unknown, db, secret)).status).toBe(400);
+    const operation = f.operation();
+    await handleAdapterRequest(
+      controlRequest({ v: 1, action: "cancel", operation }),
+      db,
+      secret,
+    );
+    expect(
+      (
+        await handleAdapterRequest(
+          controlRequest({
+            v: 1,
+            action: "query",
+            operation: { ...operation, expectedRevision: 1 },
+          }),
+          db,
+          secret,
+        )
+      ).status,
+    ).toBe(409);
+  });
+});

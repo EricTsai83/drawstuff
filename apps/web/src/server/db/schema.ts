@@ -449,6 +449,12 @@ export const collaborationRoom = createTable(
     keyCheck: bytea("key_check"),
     status: varchar("status", { length: 16 }).default("initializing").notNull(),
     authorityEpoch: integer("authority_epoch").default(1).notNull(),
+    /** Adapter fence is independent of the display projection and DB role copies. */
+    storageGeneration: integer("storage_generation").default(1).notNull(),
+    storageState: varchar("storage_state", { length: 16 })
+      .default("initializing")
+      .notNull(),
+    snapshotRevision: integer("snapshot_revision").default(0).notNull(),
     projectionVersion: integer("projection_version").default(1).notNull(),
     label: varchar("label", { length: 120 }).default("").notNull(),
     createOperationId: uuid("create_operation_id")
@@ -481,6 +487,10 @@ export const collaborationRoom = createTable(
     check(
       "collaboration_room_authority_epoch_positive",
       sql`${table.authorityEpoch} >= 1`,
+    ),
+    check(
+      "collaboration_room_storage_fence",
+      sql`${table.storageGeneration}>0 and ${table.snapshotRevision}>=0 and ${table.storageState} in ('initializing','ready','ended')`,
     ),
     check(
       "collaboration_room_projection_version_positive",
@@ -772,6 +782,10 @@ export const collaborationOperation = createTable(
     authGeneration: integer("auth_generation").notNull(),
     expectedRevision: integer("expected_revision").notNull(),
     checksum: varchar("checksum", { length: 64 }).notNull(),
+    /** Digest of the complete canonical intent, including immutable asset metadata and deadline. */
+    requestFingerprint: varchar("request_fingerprint", {
+      length: 64,
+    }).notNull(),
     assetId: varchar("asset_id", { length: 64 }),
     utFileKey: varchar("ut_file_key", { length: 256 }),
     deadline: timestamp("deadline").notNull(),
@@ -795,7 +809,7 @@ export const collaborationOperation = createTable(
     ),
     check(
       "collaboration_operation_checksum",
-      sql`${table.checksum} ~ '^[a-f0-9]{64}$'`,
+      sql`${table.checksum} ~ '^[a-f0-9]{64}$' and ${table.requestFingerprint} ~ '^[a-f0-9]{64}$'`,
     ),
     check(
       "collaboration_operation_asset_identity",

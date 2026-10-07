@@ -78,6 +78,7 @@ describe("P1 PostgreSQL authority schema", () => {
       authGeneration: 1,
       expectedRevision: 0,
       checksum: "a".repeat(64),
+      requestFingerprint: "b".repeat(64),
       deadline: new Date(Date.now() + 60_000),
       status: "written",
       revision: 1,

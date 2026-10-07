@@ -38,6 +38,8 @@ const parsedEnv = createEnv({
      * unauthenticated join path.
      */
     COLLAB_JOIN_TOKEN_SECRET: z.string().min(32),
+    /** Private Room-to-storage adapter capability; unset refuses every request. Separate from login and cron secrets. */
+    COLLAB_ADAPTER_SECRET: z.string().min(32).optional(),
     /**
      * Public HTTP origin of the Durable Object gateway. One Worker serves both
      * the control endpoint and the room WebSocket, so the server derives the
@@ -95,6 +97,7 @@ const parsedEnv = createEnv({
     COLLAB_OUTBOX_CRON_SECRET: process.env.COLLAB_OUTBOX_CRON_SECRET,
     CLEANUP_OWNER_EMAIL: process.env.CLEANUP_OWNER_EMAIL,
     COLLAB_JOIN_TOKEN_SECRET: process.env.COLLAB_JOIN_TOKEN_SECRET,
+    COLLAB_ADAPTER_SECRET: process.env.COLLAB_ADAPTER_SECRET,
     COLLAB_CONTROL_URL: process.env.COLLAB_CONTROL_URL,
     COLLAB_ROOMS_DISABLED: process.env.COLLAB_ROOMS_DISABLED,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,

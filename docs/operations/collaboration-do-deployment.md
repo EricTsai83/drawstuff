@@ -9,7 +9,9 @@
 
 **18B P1 尚未部署。** 工作區 artifact 已包含 protocol v6、roomId 定址、SQLite v3 與新增的
 `CollaborationLifecycle` class／binding，以及移除房間到期的 PostgreSQL schema；P2 的正式
-身分、adapter、退休與舊路徑移除尚未接入。不能把這個 artifact 當 code-only 變更自動部署，
+身分、DO delivery、退休與舊路徑移除尚未接入。儲存／投影 adapter 後端已存在於 source，
+但尚未被產品入口呼叫；私有端點在未配置 `COLLAB_ADAPTER_SECRET` 時拒絕全部請求。
+不能把這個 artifact 當 code-only 變更自動部署，
 也不能先對正式資料庫 `db:push`。P2 完成後，P3 的手動重置清單必須納入 class lifecycle、
 舊 Object 隔離、schema diff 與配套 rollback 演練；本文件下面仍記錄現有 production 的部署模型。
 

@@ -223,6 +223,60 @@ export const projectionEventSchema = z.strictObject({
   listedAt: z.int().nonnegative(),
 });
 export type ProjectionEvent = z.infer<typeof projectionEventSchema>;
+/** Server-to-server adapter commands. Browser identity/roles are never sufficient to call these. */
+const storageContext = {
+  roomId: roomIdSchema,
+  authGeneration: roomAuthGenerationSchema,
+  authorityEpoch: authorityVersionSchema,
+};
+export const adapterCommandSchema = z.discriminatedUnion("action", [
+  storageCommandSchema.options[0],
+  storageCommandSchema.options[1],
+  z.strictObject({
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    action: z.literal("fence"),
+    ...storageContext,
+    state: roomStateSchema,
+    initializationDeadline: z.int().positive().optional(),
+  }),
+  z.strictObject({
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    action: z.literal("read-snapshot"),
+    ...storageContext,
+  }),
+  z.strictObject({
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    action: z.literal("read-assets"),
+    ...storageContext,
+    assetIds: initializationManifestSchema.shape.assetIds,
+  }),
+  z.strictObject({
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    action: z.literal("verify-initialization"),
+    ...storageContext,
+    manifest: initializationManifestSchema,
+  }),
+  z.strictObject({
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    action: z.literal("cleanup"),
+    ...storageContext,
+  }),
+  z.strictObject({
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    action: z.literal("project"),
+    event: projectionEventSchema,
+  }),
+]);
+export type AdapterCommand = z.infer<typeof adapterCommandSchema>;
+export const ADAPTER_METADATA_HEADER = "x-drawstuff-adapter-command";
+export const ADAPTER_METADATA_MAX_BYTES = 8_192;
+export const snapshotReceiptSchema = z.strictObject({
+  ...storageContext,
+  revision: z.int().positive(),
+  cryptoVersion: z.literal(1),
+  byteLength: z.int().positive(),
+  checksum: checksumSchema,
+});
 export const roomListInputSchema = z.strictObject({
   limit: z.int().min(1).max(100).default(30),
   cursor: z

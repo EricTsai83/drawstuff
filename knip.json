@@ -6,7 +6,12 @@
         ".agents/**"
       ]
     },
-    "apps/web": {},
+    "apps/web": {
+      "entry": [
+        "vitest.adapters.config.ts",
+        "tests/postgres/*.integration.ts"
+      ]
+    },
     "apps/collaboration-do": {
       "entry": [
         "tests/**/*.test.ts",

@@ -63,7 +63,67 @@ binary write/query/cancel/fence and projection adapters, acknowledge initializat
 retirement from every deletion entry, and remove the old paths. P1 runtime/PGlite tests establish
 local persistence and schema semantics; they do not establish cross-cloud or production behavior.
 
-This document describes the collaboration system as it exists today. The relay is a Cloudflare
+## 18B P2 storage and projection adapters
+
+The source now contains the storage/projection adapter backend; it has not been deployed or wired
+into the Room/Gateway/browser/UploadThing/retirement entry points. The existing DB-role writers and
+control outbox remain until that next P2 unit. Room and Lifecycle alarms still refuse unconfigured
+delivery. This intermediate artifact cannot be deployed on its own.
+
+`POST /api/internal/collaboration/adapter` accepts only the private `COLLAB_ADAPTER_SECRET` bearer
+capability. It is separate from join/login and cron credentials; unset configuration refuses all
+requests before body parsing. Browser sessions, identity proofs and caller-supplied roles do not
+authenticate this endpoint. Provision matching service credentials only when the authenticated
+Room delivery path is complete. Its storage helpers require an already-persisted room parent;
+creation and lifecycle registration remain responsibilities of the next unit.
+
+- `authority-storage.ts` locks the room row for writes, cancellation, result query, reads,
+  initialization checks, cleanup and fence advancement. Snapshot effects and immutable operation
+  receipts commit together. The fingerprint includes the entire parsed intent, including actor,
+  deadline and asset descriptor. Replays return the original outcome/revision; changed intent is
+  rejected, including concurrent UUID reuse across rooms. Missing receipts are pending, not proof
+  of cancellation. Expired original writes and old epochs/generations cannot write after receipt
+  pruning. Terminal receipts are pruned in bounded batches after 24 hours; pending rows remain.
+- `storageGeneration`, `storageState` and `authorityEpoch` are adapter fence state, independent
+  from display projections. A fence waits for earlier room-locked writes to commit. Terminal
+  storage state cannot reopen. Generation rotation requires a new epoch and an initialization
+  deadline, resets the snapshot revision for that generation, and retires older ciphertext through
+  the existing deferred object cleanup queue. Snapshot reset retains a revision high-water so
+  revision zero does not become valid again. A reset receipt's revision identifies the deletion;
+  an asset-finalize receipt uses revision 1 for the immutable generation/file identity.
+- Initialization verification checks the latest declared snapshot and all declared finalized
+  assets under the same lock. It does not make the Room ready. A subsequent snapshot write
+  invalidates that verification; promoting adapter state to ready requires a current confirmation.
+  DO key-check verification and local completion still belong to the next authenticated delivery
+  path, which must not report Room readiness before the required adapter acknowledgment.
+- Snapshot writes use an octet-stream body plus a strict command header capped at 8 KiB. Other
+  commands use bounded JSON bodies (64 KiB), including initialization manifests. Actual streamed
+  snapshot bytes are bounded at the existing ciphertext ceiling, independently of Content-Length,
+  and their envelope version/checksum are checked before a DB lock is taken. Snapshot reads return
+  binary bytes plus revision/checksum metadata and `no-store`. No Base64 or DO payload staging is
+  introduced. The future DO caller must enforce its two-body quota and recheck local access after
+  reads return; this endpoint alone does not establish those cross-hop guarantees.
+- Finalization trusts only provider metadata supplied by the authenticated upload delivery path.
+  It preserves the existing file-id identity, bounds assets per generation, and queues rejected or
+  duplicate unreferenced provider keys for cleanup in the same transaction. Provider-key advisory
+  locks serialize new references and orphan-cleanup decisions across rooms. Existing references
+  are never queued as orphans, and keys already queued for deletion cannot become new references.
+  Direct UploadThing bytes/ACLs and verified upload callbacks remain part of the next entry unit.
+- `authority-projection.ts` conditionally applies per-subject versions and persistent negative
+  tombstones, without changing the storage fence. It handles re-grants only above the tombstone,
+  ignores obsolete events, rejects parent-deleted/frozen accounts, and cannot reopen ended rooms.
+  Negative events still apply while an account is frozen. The server-only list helper uses stable
+  descending `(listedAt, roomId)` pagination, excludes negative/frozen projections, and includes
+  NULL-source rooms without a scene join. Role copies are display data, never an authorization source.
+
+Run `pnpm collab:adapters` for actual PostgreSQL races. The wrapper creates one random disposable
+PostgreSQL 17 container on a localhost-only random port and removes it afterwards; it never reads
+the application database URI. Tests apply DDL generated from the current source schema and invoke
+the actual adapter implementations with multiple connections. PGlite `pushSchema` tests separately
+cover schema/constraints and HTTP binary bounds. These are local SQL and handler tests, not a
+deployed Vercel body-limit, UploadThing, DO delivery or end-to-end product acceptance.
+
+The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation
 (`apps/collaboration-do`); durable collaboration data belongs to the web backend; encryption and
 reconciliation run on clients.
