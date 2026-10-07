@@ -605,7 +605,7 @@ scope 3 結束前須補齊跨雲分段耗時與平台冷啟動分類；不能只
 
 後續 20 筆診斷已確認下載段 p50 1,722.68 ms，索引僅 226.31 ms；完成限定清理／還原。
 已省略版本與 owner 未變的重複 registration upsert，保留所有 live 屏障。
-接著確認 provider 區域／方案與 callback 分段、驗證改善後行為，再重跑 200 筆 gate；
+改善後正式附件 smoke 與清理／還原已通過；接著細分 provider 下載與 callback，再重跑 200 筆 gate；
 已確認免費方案，維持 sea1；region 尚未調整，不能把改善前診斷或小幅 SQL 改善當作效能已通過。
 
 ## 9. 驗收矩陣

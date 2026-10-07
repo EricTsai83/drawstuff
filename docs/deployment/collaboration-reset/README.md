@@ -208,6 +208,8 @@ Provider／DB／DO 限定清理通過，正常 Worker 精確還原至 version `5
 
 診斷資源 provider／DB／DO 清理、正常 Worker 精確還原通過；還原 version `45fa9b09-0691-4639-9733-8cb66aa757c5`，臨時 runtime／journal／lock 已移除。此報告量測的是改善前的正式服務；改善後仍待重新量測，不以診斷樣本當作 200 筆正式驗收。
 
+改善 commit `df3776d` 已隨 `c8f7c2e` 推送 main，Vercel 回報部署成功後再次執行 `pnpm collab:assets:remote`。真實上傳、callback、索引、下載與解密、provider／DB／DO 清理、正常 Worker 精確還原全部通過；還原 version `ce6003e3-ab36-48eb-9230-cd0b340a6554`。另核對測試前綴的帳號／房間／附件／快照殘留為零、暫存檔與目錄已移除。這是改善後行為 smoke，不是效能分位數驗收；下一步仍為免費方案下的傳輸／callback 診斷與原門檻重測。
+
 ## 舊物件／DO 清理
 
 先完成可回滾 smoke，再按受控 manifest 清理有明確共編來源且不被任何個人資料引用的物件。DO metadata 清理必須對已確認的舊 instance 停止工作、取消 alarm 並 `storage.deleteAll()`。一般 quiesce 保留資料；legacy cleanup 是獨立、capability 保護的維護入口，正常 production Gateway 不提供它。
