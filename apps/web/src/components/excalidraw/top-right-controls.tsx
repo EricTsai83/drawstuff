@@ -1,7 +1,7 @@
 "use client";
 
 import type { CanvasProductActions } from "./canvas-product-actions";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { CanvasShortcutMenu } from "./canvas-shortcut-menu";
 
 type TopRightControlsProps = {
@@ -9,6 +9,7 @@ type TopRightControlsProps = {
   isMobile: boolean;
   onLibraryActivate: () => void;
   onSlotChange?: (isMobile: boolean) => void;
+  storageStatus?: ReactNode;
 };
 
 export function TopRightControls({
@@ -16,6 +17,7 @@ export function TopRightControls({
   isMobile,
   onLibraryActivate,
   onSlotChange,
+  storageStatus,
 }: TopRightControlsProps) {
   useEffect(() => {
     onSlotChange?.(isMobile);
@@ -26,7 +28,11 @@ export function TopRightControls({
   }
 
   return (
-    <div data-testid="canvas-product-actions">
+    <div
+      className="flex items-center gap-2"
+      data-testid="canvas-product-actions"
+    >
+      {storageStatus}
       <CanvasShortcutMenu
         actions={actions}
         onLibraryActivate={onLibraryActivate}

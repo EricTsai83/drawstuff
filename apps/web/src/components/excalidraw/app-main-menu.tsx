@@ -8,6 +8,7 @@ import {
   useState,
   type Dispatch,
   type SetStateAction,
+  type ReactNode,
 } from "react";
 import { useOutsideClick } from "@/hooks/use-outside-click";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
@@ -66,6 +67,7 @@ type AppMainMenuProps = {
   isCollaborating?: boolean;
   productActions: CanvasProductActions;
   compactPresentation: boolean;
+  storageStatus?: ReactNode;
 };
 
 /**
@@ -86,6 +88,7 @@ function AppMainMenu({
   isCollaborating = false,
   productActions,
   compactPresentation,
+  storageStatus,
 }: AppMainMenuProps) {
   const router = useRouter();
   const menuRef = useRef<HTMLDivElement>(null);
@@ -284,6 +287,9 @@ function AppMainMenu({
           />
           {session && !isCollaborating && (
             <NewSceneItem onActivate={handleOpenNewSceneDialog} />
+          )}
+          {compactPresentation && (
+            <div className="px-2 py-1">{storageStatus}</div>
           )}
           {compactPresentation && (
             <ProductActionsItems

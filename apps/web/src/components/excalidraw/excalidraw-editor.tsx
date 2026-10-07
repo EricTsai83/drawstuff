@@ -250,32 +250,49 @@ export default function ExcalidrawEditor() {
     });
   }, [excalidrawAPI]);
 
+  const storageStatusProps = useMemo(
+    () => ({
+      roomId: isRoomMode ? collaborationRoomId : null,
+      state: roomSaveState,
+      sourceSceneId,
+      onRetry: requestRoomSave,
+      onCopy: openCloudUploadDialog,
+      onUpdateSource: handleUpdateSource,
+      api: excalidrawAPI,
+      isAuthenticated: !!session,
+    }),
+    [
+      isRoomMode,
+      collaborationRoomId,
+      roomSaveState,
+      sourceSceneId,
+      requestRoomSave,
+      openCloudUploadDialog,
+      handleUpdateSource,
+      excalidrawAPI,
+      session,
+    ],
+  );
+
   const renderTopRightUI = useCallback(
     (isMobile: boolean, _appState: UIAppState) => {
       return (
         <TopRightControls
           actions={productActions}
+          storageStatus={
+            <EditorStorageStatus {...storageStatusProps} compact />
+          }
           isMobile={isMobile}
           onLibraryActivate={handleLibraryToggle}
           onSlotChange={setIsMobileCanvasSlot}
         />
       );
     },
-    [handleLibraryToggle, productActions],
+    [handleLibraryToggle, productActions, storageStatusProps],
   );
 
   return (
     <div className="flex h-dvh w-full flex-col">
-      <EditorStorageStatus
-        roomId={isRoomMode ? collaborationRoomId : null}
-        state={roomSaveState}
-        sourceSceneId={sourceSceneId}
-        onRetry={requestRoomSave}
-        onCopy={openCloudUploadDialog}
-        onUpdateSource={handleUpdateSource}
-        api={excalidrawAPI}
-        isAuthenticated={!!session}
-      />
       <div className="min-h-0 flex-1">
         {initialDataPromise && (
           <ExcalidrawCanvas
@@ -330,6 +347,7 @@ export default function ExcalidrawEditor() {
               cancelPendingSceneSave={cancelPendingSceneSave}
               productActions={productActions}
               compactPresentation={isMobileCanvasSlot !== false}
+              storageStatus={<EditorStorageStatus {...storageStatusProps} />}
             />
 
             <SceneRenameDialog
