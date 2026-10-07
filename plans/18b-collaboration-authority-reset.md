@@ -1,6 +1,6 @@
 # 18B — 共編授權權威重置
 
-- 狀態：P2 source 已完成：儲存／投影 adapter、Room 授權與管理 UI、允許清單、快照／附件、獨立建房與列表、Lifecycle 所有退休入口、舊 DB writer／outbox／cron 移除，以及本機 PostgreSQL 重置／升版／回滾演練；尚未部署。P3 的實際 schema 審閱、受控重置與 L3 驗收仍待執行，見 [維護窗口 runbook](../docs/deployment/collaboration-reset/README.md)。
+- 狀態：P2 source 已完成：儲存／投影 adapter、Room 授權與管理 UI、允許清單、快照／附件、獨立建房與列表、Lifecycle 所有退休入口、舊 DB writer／outbox／cron 移除，以及本機 PostgreSQL 重置／升版／回滾演練。2026-10-07 已依使用者要求對 production 做 DB push 並確認非共編資料指紋一致；配套 web／Worker 部署、舊 DO 清理與 L3 驗收仍待確認，見 [維護窗口 runbook](../docs/deployment/collaboration-reset/README.md)。
   UploadThing public 密文附件限制已接受。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
 - 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。
@@ -553,7 +553,9 @@ P1/P2 沿用這些契約；正式登入／proof、所有入口與 Lifecycle 串�
 2026-10-07 部署前準備：已新增唯讀 production DB 檢查／前後非共編資料指紋比對、
 Room 維護 runtime 與獨立 Lifecycle namespace bootstrap 設定，並準備保留 namespace 的
 protocol-5 回滾 worktree。隔離 PostgreSQL、workerd 與部署 dry-run 驗證完成。
-production DB／部署未變更；舊物件／DO 實際清理及所有 remote L3 仍待執行。
+其後依使用者要求直接對 production DB push（未執行 SQL migration 檔），清空兩筆舊 Room，
+套用新版 schema 並確認所有非共編表前後內容指紋一致。未切維護 Worker、quiesce 或配置新 secrets／namespace；
+配套部署、舊物件／DO 實際清理及 remote L3 仍待確認。
 操作指令見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)。
 
 需要 Neon 可用及 P2 部署前 gate 通過；事先寫成可執行清單。零正式使用者允許停機，

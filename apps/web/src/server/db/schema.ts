@@ -509,7 +509,8 @@ export const collaborationRoom = createTable(
       sql`(${table.initializationRevision} is null) = (${table.initializationChecksum} is null) and (${table.initializationRevision} is null or ${table.initializationRevision} > 0)`,
     ),
     // 同一個 scene 最多一個 active room；ended room 保留為歷史紀錄。
-    uniqueIndex("collaboration_room_active_scene_unique")
+    // A new name lets db:push replace protocol-5's status='active' predicate.
+    uniqueIndex("collaboration_room_active_scene_unique_v6")
       .on(table.sceneId)
       .where(sql`status in ('initializing', 'ready')`),
     check(
@@ -521,7 +522,7 @@ export const collaborationRoom = createTable(
       sql`${table.authRevision} >= 1`,
     ),
     check(
-      "collaboration_room_status_supported",
+      "collaboration_room_status_supported_v6",
       sql`${table.status} in ('initializing', 'ready', 'ended')`,
     ),
     check(

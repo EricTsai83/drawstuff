@@ -1,6 +1,14 @@
 # 18B P3 維護窗口與回滾
 
-這是待執行清單。P2／P3 的寫入演練只使用隔離 workerd 與本機 PostgreSQL；另已完成 production 唯讀核對，尚未修改 production DB、secret、cron 或部署。production 目前仍使用 protocol 5。web、Worker 與 schema 必須配套切換；自動部署若未暫停，維護窗口中不要 push `main`。
+2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。Worker／web 的配套部署與 remote L3 驗收仍需另行確認。
+
+## 本次 DB push 結果
+
+Drizzle 已新增 creation fence、operation、Lifecycle 與 tombstone 表，移除舊 outbox、`expires_at`，並加入新版 Room／Member 欄位。為加入沒有 SQL default 的 `create_operation_id`，已確認清空兩筆舊 Room；TRUNCATE 只 cascade 到共編 member、snapshot、asset 表。新版 status check 與 active-scene partial index 使用 `_v6` 名稱，讓 Drizzle 正確移除舊定義並建立新定義。
+
+`collaboration:reset-check after` 已核對新版欄位及所有非共編 `public.drawstuff_*` 表的前後筆數／內容指紋一致；另唯讀確認新版 status check 接受 `initializing`／`ready`／`ended`，unique index 使用 `initializing`／`ready` predicate，舊 check／index 已移除。本機 13 個 PostgreSQL adapter／重置／回滾測試、TypeScript 與 schema lint 通過。受控 before／after report 保存在 git 忽略的 `.local/collaboration-cutover/`。
+
+這次未部署維護 Worker、未 quiesce 舊 DO、未新增 Lifecycle namespace，也未變更 production secrets／cron；不能將 DB push 成功視為 18B 全部上線。先前查得 web 尚缺三個 capability secret、Worker 尚缺 Lifecycle／新版 capability 設定，配套部署與 smoke 仍待完成。
 
 ## 已準備的 artifact
 

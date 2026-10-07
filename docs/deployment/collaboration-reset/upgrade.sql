@@ -113,7 +113,7 @@ CREATE TABLE "drawstuff_collaboration_room" (
 	CONSTRAINT "collaboration_room_initialization_manifest" CHECK (("drawstuff_collaboration_room"."initialization_revision" is null) = ("drawstuff_collaboration_room"."initialization_checksum" is null) and ("drawstuff_collaboration_room"."initialization_revision" is null or "drawstuff_collaboration_room"."initialization_revision" > 0)),
 	CONSTRAINT "collaboration_room_auth_generation_positive" CHECK ("drawstuff_collaboration_room"."auth_generation" >= 1),
 	CONSTRAINT "collaboration_room_auth_revision_positive" CHECK ("drawstuff_collaboration_room"."auth_revision" >= 1),
-	CONSTRAINT "collaboration_room_status_supported" CHECK ("drawstuff_collaboration_room"."status" in ('initializing', 'ready', 'ended')),
+	CONSTRAINT "collaboration_room_status_supported_v6" CHECK ("drawstuff_collaboration_room"."status" in ('initializing', 'ready', 'ended')),
 	CONSTRAINT "collaboration_room_link_role_supported" CHECK ("drawstuff_collaboration_room"."link_role" in ('none', 'viewer', 'editor')),
 	CONSTRAINT "collaboration_room_key_check_length" CHECK ("drawstuff_collaboration_room"."key_check" is null or octet_length("drawstuff_collaboration_room"."key_check") = 53)
 );
@@ -164,7 +164,7 @@ CREATE INDEX "collaboration_lifecycle_registration_scene_idx" ON "drawstuff_coll
 CREATE INDEX "collaboration_operation_terminal_idx" ON "drawstuff_collaboration_operation" USING btree ("terminal_at");
 CREATE INDEX "collaboration_room_owner_id_idx" ON "drawstuff_collaboration_room" USING btree ("owner_id");
 CREATE INDEX "collaboration_room_status_ended_at_idx" ON "drawstuff_collaboration_room" USING btree ("status","ended_at");
-CREATE UNIQUE INDEX "collaboration_room_active_scene_unique" ON "drawstuff_collaboration_room" USING btree ("scene_id") WHERE status in ('initializing', 'ready');
+CREATE UNIQUE INDEX "collaboration_room_active_scene_unique_v6" ON "drawstuff_collaboration_room" USING btree ("scene_id") WHERE status in ('initializing', 'ready');
 CREATE UNIQUE INDEX "collaboration_room_member_room_user_unique" ON "drawstuff_collaboration_room_member" USING btree ("room_id","user_id");
 CREATE INDEX "collaboration_room_member_user_listed_idx" ON "drawstuff_collaboration_room_member" USING btree ("user_id","listed_at" DESC NULLS LAST,"room_id" DESC NULLS LAST);
 COMMIT;
