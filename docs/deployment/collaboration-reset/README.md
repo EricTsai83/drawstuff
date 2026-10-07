@@ -129,6 +129,20 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 
 `cf:loadtest` 是 30 次最大快照讀取樣本。真實 UploadThing 上傳／callback、三人 fanout、scene／帳號退休、故障恢復、join／保存／撤權 p95/p99、跨日重進、Neon autosuspend 與成本仍依 [18B §9](../../../plans/18b-collaboration-authority-reset.md#9-驗收矩陣) 記錄 L3；pending 不算完成。確認個人場景、分享、發布、Library 與附件可用，smoke 通過才恢復流量與自動部署。
 
+### 真實附件自動驗收
+
+在專案 root 執行 `pnpm collab:assets:remote`。此指令直接測試目前 production，不啟動 dev server、不執行 DB push／migration，也不需要既有使用者的密碼。需要已登入 Wrangler，以及 `apps/web/.env` 的 production DB、Better Auth、UploadThing、identity／authority secrets。本機以 `.local/asset-acceptance.lock` 拒絕重複執行；勿與其他驗收或 Worker 部署並行。
+
+工具建立本輪唯一、無個資的臨時帳號／session／Room，確認正式 Better Auth 能辨識 session；以產品的資產 codec 加密合法 PNG，經正式 UploadThing presign、provider PUT 與真實 callback 完成 finalize，再下載、解密、解碼並確認含附件初始化 ready。這涵蓋 HTTP／provider／儲存流程，不宣稱 OAuth 登入或完整瀏覽器 UI 已驗收。
+
+`finally` 先結束本輪 Room 並確認 fence，刪除限定 provider keys，等 provider inventory 確認移除，再刪本輪帳號與 DB 資料。待短效 proof 過期後，短暫部署只接受本輪 Room 名稱的維護 runtime（共編入口暫回 503），核對 owner、ended 與 fence ACK，執行 `deleteAlarm()`／`deleteAll()`。隨後還原測試前下載的 Worker module，核對 module SHA-256、bindings／vars、namespace ID 與維護路徑 404；正常 runtime 不含測試清理入口。此流程會產生新的 Worker deployment version，但保留原程式與設定。
+
+成功後移除本輪 `.wrangler/asset-acceptance-*`、`.local/asset-acceptance-*.json` 與 lock；只保留 protocol-6 的可重跑驗收工具。若外部服務失效，清理／還原未確認會回傳非零並留下 mode 600 的 recovery journal、lock 與原 Worker bundle，不能把這種情況視為清理成功；先依 journal 清理本輪識別碼並用保存的 `restore/index.js` 還原 Worker，再移除 recovery 檔與 lock。SIGINT／SIGTERM 會要求在途步驟結束後清理；SIGKILL／斷電仍需要 recovery 檔。
+
+執行 `pnpm collab:assets:remote --fail-after-upload`，可在真實 callback／下載解密成功後故意中止驗收，確認未 ready 的 Room、provider 物件與 DB／DO 仍會清理，Worker 仍會還原。故障只注入本機 runner，不更改 production 服務行為。此模式以 `expectedFailureHandled: true` 表示失敗路徑清理通過；一般模式須同時得到 `testPassed`、`cleanupPassed`、`restored` 三項 true。
+
+2026-10-08 正常流程與上傳後故意失敗的清理流程均通過；失敗流程另確認還原 Worker module 的 SHA-256 與測試前完全一致。此證據只完成單一小型真實附件往返與初始化、失敗時的清理／還原。活躍連線／scene 退休競態、三人 fanout、延遲分位數、跨日重進、閒置與成本仍待完成。
+
 ## 舊物件／DO 清理
 
 先完成可回滾 smoke，再按受控 manifest 清理有明確共編來源且不被任何個人資料引用的物件。DO metadata 清理必須對已確認的舊 instance 停止工作、取消 alarm 並 `storage.deleteAll()`。一般 quiesce 保留資料；legacy cleanup 是獨立、capability 保護的維護入口，正常 production Gateway 不提供它。

@@ -40,24 +40,21 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
-  下一步為 **P2：其餘管理與退休入口串接**；登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權與 binary 快照後端入口已完成；
-  DO 不持久暫存完整畫布，只記小型待辦與操作結果；初始化／可靠投影後端在本計畫完成。
-  退休以按主體分割的 **Lifecycle DO** 執行（§7.1，2026-09-23 定案）；P3 需要 Neon 可用
+  下一步為 **P3：剩餘正式環境驗收**，依該 plan 的五個 scope 分輪執行，從活躍房間退休競態開始。
+  配套 web／Worker 與新版 schema 已部署；DO 不持久暫存完整畫布，只記小型待辦與操作結果。
+  退休以按主體分割的 **Lifecycle DO** 執行（§7.1）；操作與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —
   我的房間列表、本機金鑰與缺鑰體驗、未儲存畫布直接建立獨立房間，以及全產品加密狀態告知。
   依賴 18B；沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)
 
 ### 執行順序與交接
 
-1. 18B 下一步為 P2 其餘管理、projection panel、舊 issuer 移除及退休入口串接；Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照入口移除、產品初始化／proof 加入、Room 附件 discovery／presign／finalize 與含圖片初始化已完成，未部署邊界見
-   [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-product-attachment-authority)，
+1. 18B 依 P3 剩餘工作分 scope 執行：退休競態 → 三人撤權／故障恢復 → 效能量測 → 跨日／閒置／成本 → 回歸結案。
+   每輪限定測試資源並清理、還原環境；現況與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)，
    P0 契約見 [本機儲存驗證](../docs/performance/collaboration-storage-p0.md)。
    UploadThing 維持 public 上傳；已取得 URL 的密文下載無法隨撤權失效，此限制暫時接受（見 18B §4.5）。
-2. 執行 18B P2，串接其餘管理及 Lifecycle 及所有刪除入口，移除舊授權路徑；
-   儲存／投影 adapter、Room alarm 的保存查詢／取消與 fence，以及正式管理授權入口已完成。
-3. L1／L2／L2′／L2″ 與重置／回滾演練通過，服務可用後執行 18B P3：停寫、重置、部署、smoke、恢復入口，
-   再完成其餘 L3；不要求部署後驗收在部署前完成。
-4. 18C 可依固定契約提早開發 UI，但 production 開放獨立房間須等待 18B 驗收與既有儲存契約回歸驗證與本身加密告知完成。
+2. 18B 的 L3 未完成前不宣稱結案；跨日觀測需等待實際時間，最後通過完整檢查與文件整理後才移除本 plan。
+3. 18C 可依固定契約提早開發 UI，但 production 開放獨立房間須等待 18B 驗收與既有儲存契約回歸驗證與本身加密告知完成。
 
 已保存代表內容已持久成功；未確認內容在瀏覽器退出後可能遺失。完整快照留在 Neon、圖片在 UploadThing，
 DO 的 outbox 不暫存整份畫布；無 payload 的操作須能查明成功或經 adapter fence 取消，不能永遠 pending。
