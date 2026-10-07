@@ -25,6 +25,7 @@ import type {
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { uploadCollaborationAsset } from "@/lib/collab/asset-upload";
+import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
 import { createCollaborationRoomController } from "@/hooks/excalidraw/collaboration-room-controller";
 import type { CanvasHandoffOutcome } from "@/hooks/excalidraw/use-canvas-handoff";
 import {
@@ -278,16 +279,7 @@ export function useCollaborationRoom(options: {
           utilsRef.current.client.collaborationRoom.join.mutate(input),
         // Adapted rather than passed through: the store's contract is two
         // plain async functions, which keeps it testable without tRPC.
-        snapshotApi: {
-          get: (input, signal) =>
-            utilsRef.current.client.collaborationSnapshot.get.query(input, {
-              signal,
-            }),
-          put: (input, signal) =>
-            utilsRef.current.client.collaborationSnapshot.put.mutate(input, {
-              signal,
-            }),
-        },
+        snapshotApi: createBinarySnapshotClient(),
         // Same shape, and for the same reason: the store needs two plain async
         // functions, one to find out where a room's ciphertext lives and one to
         // put ciphertext there. Neither can read what it carries.

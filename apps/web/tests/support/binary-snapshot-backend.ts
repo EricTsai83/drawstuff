@@ -1,0 +1,92 @@
+import { vi } from "vitest";
+import type { RoomId } from "@drawstuff/collaboration/protocol";
+import type { ContentResult } from "@drawstuff/collaboration/authority";
+import {
+  SnapshotHttpError,
+  type SnapshotApi,
+} from "@/lib/collab/snapshot-http";
+
+/** Fake Room/storage effects; real store encryption and transport are tested around it. */
+export function binarySnapshotBackend(roomId: RoomId) {
+  let revision = 0;
+  let authGeneration = 1;
+  let authorityEpoch = 1;
+  let snapshot:
+    | Extract<Awaited<ReturnType<SnapshotApi["read"]>>, { found: true }>
+    | undefined;
+  const results = new Map<string, ContentResult>();
+  const write = vi.fn<SnapshotApi["write"]>(async (operation, bytes) => {
+    const old = results.get(operation.operationId);
+    if (old) return old;
+    if (operation.deadline <= Date.now()) return { status: "refused" };
+    if (
+      operation.expectedRevision !== revision ||
+      operation.authGeneration !== authGeneration ||
+      operation.authorityEpoch !== authorityEpoch
+    ) {
+      results.set(operation.operationId, { status: "conflict" });
+      return { status: "conflict" };
+    }
+    revision++;
+    snapshot =
+      operation.kind === "snapshot-reset"
+        ? undefined
+        : {
+            found: true,
+            bytes: bytes.slice(),
+            receipt: {
+              roomId,
+              authGeneration,
+              authorityEpoch,
+              revision,
+              cryptoVersion: 1,
+              byteLength: bytes.byteLength,
+              checksum: operation.checksum,
+            },
+          };
+    const result = { status: "written" as const, revision };
+    results.set(operation.operationId, result);
+    return result;
+  });
+  const api: SnapshotApi = {
+    read: vi.fn<SnapshotApi["read"]>(
+      async () =>
+        snapshot ?? {
+          found: false,
+          bytes: null,
+          receipt: { roomId, authGeneration, authorityEpoch, revision },
+        },
+    ),
+    write,
+    query: vi.fn<SnapshotApi["query"]>(async (operation) => {
+      const result = results.get(operation.operationId);
+      if (!result) throw new SnapshotHttpError(404, "not-found");
+      return result;
+    }),
+    cancel: vi.fn<SnapshotApi["cancel"]>(async (operation) => {
+      const existing = results.get(operation.operationId);
+      const result =
+        existing && existing.status !== "pending"
+          ? existing
+          : { status: "cancelled" as const };
+      results.set(operation.operationId, result);
+      return result;
+    }),
+  };
+  return {
+    api,
+    write,
+    results,
+    commit: write.getMockImplementation()!,
+    emptyAt(
+      nextRevision: number,
+      generation = authGeneration,
+      epoch = authorityEpoch,
+    ) {
+      revision = nextRevision;
+      authGeneration = generation;
+      authorityEpoch = epoch;
+      snapshot = undefined;
+    },
+  };
+}

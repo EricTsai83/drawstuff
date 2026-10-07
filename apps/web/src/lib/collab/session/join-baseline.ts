@@ -73,7 +73,7 @@ export type SnapshotBaselineSink = {
     elements?: readonly SyncedElement[],
     checksum?: string,
   ): void;
-  adoptEmpty(): void;
+  adoptEmpty(revision?: number): void;
   markUnknown(): void;
 };
 
@@ -274,7 +274,9 @@ export const createJoinBaselineGate = (options: {
       return;
     }
     if (result.status === "empty") {
-      snapshotBaseline.adoptEmpty();
+      snapshotBaseline.adoptEmpty(
+        "revision" in result ? result.revision : undefined,
+      );
       // An empty room is a baseline: "the room has nothing" is knowledge, and it
       // is what makes a first publish of the local canvas correct.
       if (barrier?.claimBaseline()) releaseBarrier("empty", "known");

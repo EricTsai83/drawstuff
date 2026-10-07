@@ -79,6 +79,13 @@ confirmation arrives. Errors retain edits and permit retry; a late real confirma
 establish coverage. A lost write response is reconciled by subsequent conditional write/read,
 never treated as an ACK. These are request/cadence intervals, not a data-loss guarantee.
 
+The undeployed 18B P2 source now uses binary snapshot read/write/reset. The store retains one
+original operation and ciphertext in memory, queries before retry, and cancels expired pending
+work before minting another intent. A recovered old capture cannot confirm newer edits. New write
+attempts invalidate prior saved coverage, and empty reads retain reset's revision watermark;
+see [the P2 product source boundary](collaboration-system-design.md#18b-p2-product-binary-snapshots).
+Production still uses the earlier deployment until P2 completion and P3 reset.
+
 **Confirmed data is durable; unconfirmed data may be lost when its last browser holder exits.**
 Beforeunload and explicit leave/end read live coverage and warn when it is unconfirmed. The existing
 best-effort leave flush is retained, but unload networking is not a durability guarantee. There is

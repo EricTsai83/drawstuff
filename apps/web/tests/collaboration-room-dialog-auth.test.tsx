@@ -3,6 +3,8 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { TRPCClientError } from "@trpc/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
+import type { SnapshotApi } from "@/lib/collab/snapshot-http";
 
 const {
   createErrorHandler,
@@ -14,6 +16,8 @@ const {
   roomGetInvalidate,
   roomGetUseQuery,
   toastError,
+  toastSuccess,
+  binaryApi,
 } = vi.hoisted(() => ({
   createErrorHandler: {
     current: undefined as ((error: unknown) => void) | undefined,
@@ -32,15 +36,26 @@ const {
       | undefined,
   },
   roomGetInvalidate: vi.fn(() => Promise.resolve()),
-  roomGetUseQuery: vi.fn(),
+  roomGetUseQuery: vi.fn<(...args: unknown[]) => unknown>(),
   toastError: vi.fn(),
+  toastSuccess: vi.fn(),
+  binaryApi: {
+    read: vi.fn<SnapshotApi["read"]>(),
+    write: vi.fn<SnapshotApi["write"]>(),
+    query: vi.fn<SnapshotApi["query"]>(),
+    cancel: vi.fn<SnapshotApi["cancel"]>(),
+  },
+}));
+vi.mock("@/lib/collab/snapshot-http", async (original) => ({
+  ...(await original<typeof SnapshotHttp>()),
+  createBinarySnapshotClient: () => binaryApi,
 }));
 
 vi.mock("sonner", () => ({
   toast: {
     error: toastError,
     info: vi.fn(),
-    success: vi.fn(),
+    success: toastSuccess,
     warning: vi.fn(),
   },
 }));
@@ -92,8 +107,7 @@ vi.mock("@/trpc/react", () => {
       collaborationRoom: {
         get: {
           useQuery: (...args: unknown[]) => {
-            roomGetUseQuery(...args);
-            return { data: null };
+            return { data: roomGetUseQuery(...args) ?? null };
           },
         },
         create: {
@@ -127,9 +141,6 @@ vi.mock("@/trpc/react", () => {
         setLinkRole: { useMutation: () => idleMutation },
         rotateGeneration: { useMutation: () => idleMutation },
       },
-      collaborationSnapshot: {
-        reset: { useMutation: () => idleMutation },
-      },
     },
   };
 });
@@ -153,6 +164,8 @@ const renderDialog = (params: {
   onOpenChange?: (open: boolean) => void;
   onRoomIdChange?: (roomId: string | null) => void;
   onRoomKeyChange?: CollaborationRoomDialogProps["onRoomKeyChange"];
+  failureReason?: CollaborationRoomDialogProps["failureReason"];
+  onRetryJoin?: () => void;
 }): void => {
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -171,10 +184,10 @@ const renderDialog = (params: {
         roomKey={null}
         onRoomKeyChange={params.onRoomKeyChange ?? (() => undefined)}
         status="idle"
-        failureReason={null}
+        failureReason={params.failureReason ?? null}
         role={null}
         errorMessage={null}
-        onRetryJoin={() => undefined}
+        onRetryJoin={params.onRetryJoin ?? (() => undefined)}
       />,
     );
   });
@@ -187,8 +200,22 @@ beforeEach(() => {
   createMutate.mockClear();
   getActiveForSceneInvalidate.mockClear();
   roomGetInvalidate.mockClear();
-  roomGetUseQuery.mockClear();
+  roomGetUseQuery.mockReset();
   toastError.mockClear();
+  toastSuccess.mockClear();
+  binaryApi.read.mockReset().mockImplementation(async (request) => ({
+    found: false,
+    bytes: null,
+    receipt: {
+      roomId: request.roomId,
+      authGeneration: 1,
+      authorityEpoch: 1,
+      revision: 4,
+    },
+  }));
+  binaryApi.write.mockReset().mockResolvedValue({ status: "pending" });
+  binaryApi.query.mockReset().mockResolvedValue({ status: "pending" });
+  binaryApi.cancel.mockReset().mockResolvedValue({ status: "cancelled" });
 });
 
 afterEach(() => {
@@ -199,6 +226,49 @@ afterEach(() => {
 });
 
 describe("collaboration room authentication guard", () => {
+  it("shows no reset success or join retry for pending, then recovers the same operation on a confirmed button retry", async () => {
+    roomGetUseQuery.mockReturnValue({
+      role: "owner",
+      members: [],
+      linkRole: "none",
+      authGeneration: 1,
+    });
+    const retryJoin = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "reset-room",
+      failureReason: "unreadable-room",
+      onRetryJoin: retryJoin,
+    });
+    const button = (text: string) => {
+      const result = Array.from(
+        container?.querySelectorAll("button") ?? [],
+      ).find((el) => el.textContent === text);
+      if (!result) throw new Error(`missing-button:${text}`);
+      return result;
+    };
+    act(() => button("Reset cloud canvas...").click());
+    await act(async () => {
+      button("Delete cloud canvas").click();
+      await vi.waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
+    });
+    expect(toastSuccess).not.toHaveBeenCalled();
+    expect(retryJoin).not.toHaveBeenCalled();
+    const operation = binaryApi.write.mock.calls[0]![0];
+    expect(operation).toMatchObject({
+      kind: "snapshot-reset",
+      expectedRevision: 4,
+    });
+    expect(binaryApi.write.mock.calls[0]![1].byteLength).toBe(0);
+    binaryApi.query.mockResolvedValueOnce({ status: "written", revision: 5 });
+    await act(async () => {
+      button("Delete cloud canvas").click();
+      await vi.waitFor(() => expect(retryJoin).toHaveBeenCalledTimes(1));
+    });
+    expect(binaryApi.query).toHaveBeenCalledWith(operation);
+    expect(binaryApi.write).toHaveBeenCalledTimes(1);
+    expect(toastSuccess).toHaveBeenCalledTimes(1);
+  });
   it("shows sign-in UI and disables the room query for signed-out users", () => {
     renderDialog({ isAuthenticated: false, roomId: "room-from-link" });
 

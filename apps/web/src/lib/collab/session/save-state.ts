@@ -48,6 +48,10 @@ export function createRoomSaveState(options: {
   };
   return {
     state,
+    invalidateConfirmation() {
+      confirmedCoverage = undefined;
+      notify();
+    },
     changed() {
       if (activity !== "saving") activity = "pending";
       notify();

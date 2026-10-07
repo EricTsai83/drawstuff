@@ -1,3 +1,4 @@
+import { emptySnapshotApi } from "./support/snapshot-api";
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from "vitest";
 
@@ -286,24 +287,18 @@ describe("oversize scenes on the durable path", () => {
 });
 
 describe("snapshot store size classification", () => {
-  const snapshotApi = (
-    put: SnapshotApi["put"] = () =>
-      Promise.resolve({ status: "written" as const, revision: 1 }),
-  ): SnapshotApi => ({
-    get: () =>
-      Promise.resolve({ authGeneration: AUTH_GENERATION, snapshot: null }),
-    put,
-  });
-
-  const buildStore = (
-    put?: SnapshotApi["put"],
-  ): Promise<CollaborationSnapshotStore> =>
-    createCollaborationSnapshotStore({
-      api: snapshotApi(put),
+  const buildStore = async (
+    write?: SnapshotApi["write"],
+  ): Promise<CollaborationSnapshotStore> => {
+    const store = await createCollaborationSnapshotStore({
+      api: emptySnapshotApi(ROOM_ID, AUTH_GENERATION, write),
       roomId: ROOM_ID,
       roomKey: ROOM_KEY,
       authGeneration: AUTH_GENERATION,
     });
+    await store.load();
+    return store;
+  };
 
   it("distinguishes an oversize scene from a failed write", async () => {
     const store = await buildStore();

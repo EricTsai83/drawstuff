@@ -21,11 +21,21 @@ import { withCollaborationRequestDeadline } from "./request-deadline";
 const SNAPSHOT_HTTP_PATH = "/api/collaboration/snapshot";
 export const SNAPSHOT_INTENT_HEADER = "x-drawstuff-snapshot-intent";
 type SnapshotRequest = z.infer<typeof snapshotRequestSchema>;
-type SnapshotOperation = Exclude<
+export type SnapshotOperation = Exclude<
   SnapshotRequest,
   { action: "read" }
 >["operation"];
 type SnapshotRead = Extract<SnapshotRequest, { action: "read" }>;
+export const snapshotReadRequest = (
+  roomId: SnapshotRead["roomId"],
+): SnapshotRead => ({
+  action: "read",
+  v: 1,
+  roomId,
+  operationId: crypto.randomUUID(),
+  deadline: Date.now() + AUTHORITY_LIMITS.operationTtlMs,
+});
+export type SnapshotApi = ReturnType<typeof createBinarySnapshotClient>;
 
 export const snapshotHttpErrorSchema = z.strictObject({
   ok: z.literal(false),
@@ -244,7 +254,7 @@ export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
     }, parentSignal);
   }
   return {
-    read(request: SnapshotRead, parentSignal?: AbortSignal) {
+    read(this: void, request: SnapshotRead, parentSignal?: AbortSignal) {
       return withCollaborationRequestDeadline(async (signal) => {
         const response = await send(
           request,
@@ -289,6 +299,7 @@ export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
       }, parentSignal);
     },
     write(
+      this: void,
       operation: SnapshotOperation,
       bytes: Uint8Array,
       intent: "cadence" | "leave" = "cadence",
@@ -296,7 +307,7 @@ export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
     ) {
       return control({ action: "write", operation }, bytes, intent, signal);
     },
-    query(operation: SnapshotOperation, signal?: AbortSignal) {
+    query(this: void, operation: SnapshotOperation, signal?: AbortSignal) {
       return control(
         { action: "query", operation },
         new Uint8Array(),
@@ -304,7 +315,7 @@ export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
         signal,
       );
     },
-    cancel(operation: SnapshotOperation, signal?: AbortSignal) {
+    cancel(this: void, operation: SnapshotOperation, signal?: AbortSignal) {
       return control(
         { action: "cancel", operation },
         new Uint8Array(),

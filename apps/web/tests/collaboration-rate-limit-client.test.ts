@@ -1,3 +1,4 @@
+import { emptySnapshotApi } from "./support/snapshot-api";
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 
@@ -150,17 +151,16 @@ describe("join", () => {
 });
 
 describe("snapshot writes", () => {
-  const storeWith = (put: SnapshotApi["put"], roomKey: RoomKey) =>
-    createCollaborationSnapshotStore({
-      api: {
-        get: () =>
-          Promise.resolve({ authGeneration: AUTH_GENERATION, snapshot: null }),
-        put,
-      },
+  const storeWith = async (write: SnapshotApi["write"], roomKey: RoomKey) => {
+    const store = await createCollaborationSnapshotStore({
+      api: emptySnapshotApi(ROOM_ID, AUTH_GENERATION, write),
       roomId: ROOM_ID,
       roomKey,
       authGeneration: AUTH_GENERATION,
     });
+    await store.load();
+    return store;
+  };
 
   it("reports a rate limit as its own outcome, with the wait", async () => {
     // Folded into `failed` this would be retried on the caller's own 30 s
@@ -185,7 +185,7 @@ describe("snapshot writes", () => {
   });
 
   it("passes cadence and leave intent through to the server", async () => {
-    const put = vi.fn<SnapshotApi["put"]>(() =>
+    const put = vi.fn<SnapshotApi["write"]>(() =>
       Promise.resolve({ status: "written", revision: 1 }),
     );
     const store = await storeWith(put, generateRoomKey());
@@ -200,7 +200,7 @@ describe("snapshot writes", () => {
       intent: "leave",
     });
 
-    expect(put.mock.calls.map(([input]) => input.intent)).toEqual([
+    expect(put.mock.calls.map(([, , intent]) => intent)).toEqual([
       "cadence",
       "leave",
     ]);

@@ -39,7 +39,6 @@ let scripted: ScriptedResponse = {
   remaining: 19,
   reset: 60_000,
 };
-let scriptedResponses: ScriptedResponse[] = [];
 
 vi.mock("@upstash/ratelimit", async (importOriginal) => {
   const actual = await importOriginal<{ Ratelimit: typeof UpstashRatelimit }>();
@@ -52,7 +51,7 @@ vi.mock("@upstash/ratelimit", async (importOriginal) => {
         operation: prefix.split(":").pop() ?? prefix,
         identifier,
       });
-      const response = scriptedResponses.shift() ?? scripted;
+      const response = scripted;
       if ("kind" in response) {
         if (response.kind === "throw") {
           return Promise.reject(new Error("redis unreachable"));
@@ -78,11 +77,6 @@ import { TRPCError } from "@trpc/server";
 import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
-import {
-  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  SNAPSHOT_CRYPTO_VERSION,
-  SNAPSHOT_NO_REVISION,
-} from "@drawstuff/collaboration/snapshot";
 
 import { appRouter, createCaller } from "@/server/api/root";
 import * as schema from "@/server/db/schema";
@@ -115,15 +109,10 @@ const contextFor = (userId: string | null) => testTrpcContext(testDb, userId);
 const callerFor = (userId: string | null) => createCaller(contextFor(userId));
 
 const allow = (): void => {
-  scriptedResponses = [];
   scripted = { success: true, limit: 20, remaining: 19, reset: 60_000 };
 };
 const refuse = (reset: number): void => {
-  scriptedResponses = [];
   scripted = { success: false, limit: 20, remaining: 0, reset };
-};
-const script = (...responses: ScriptedResponse[]): void => {
-  scriptedResponses = [...responses];
 };
 
 async function createScene(userId: string): Promise<string> {
@@ -155,26 +144,6 @@ async function openRoom(options: { linkRole?: "none" | "editor" } = {}) {
 
 const grant = (roomId: string, userId: string, role: "editor" | "viewer") =>
   callerFor(OWNER).collaborationRoom.setMemberRole({ roomId, userId, role });
-
-const ciphertext = (byteLength: number): string => {
-  const bytes = new Uint8Array(byteLength).fill(7);
-  bytes[0] = SNAPSHOT_CRYPTO_VERSION;
-  return Buffer.from(bytes).toString("base64");
-};
-
-const put = (
-  userId: string,
-  input: { roomId: string; authGeneration?: number; byteLength?: number },
-) =>
-  callerFor(userId).collaborationSnapshot.put({
-    roomId: input.roomId,
-    intent: "cadence",
-    authGeneration: input.authGeneration ?? 1,
-    expectedRevision: SNAPSHOT_NO_REVISION,
-    cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
-    ciphertextBase64: ciphertext(input.byteLength ?? 64),
-    checksum: "ab".padEnd(64, "0").replace(/[^0-9a-f]/g, "a"),
-  });
 
 const codeOf = (error: unknown): string | undefined =>
   error instanceof TRPCError ? error.code : undefined;
@@ -237,118 +206,6 @@ describe("rate limit ordering against authentication and authorization", () => {
     expect(limitCalls).toEqual([
       { operation: "asset-resolve", identifier: EDITOR },
     ]);
-  });
-
-  it("will not let a stranger spend a room's snapshot budget", async () => {
-    const room = await openRoom();
-    limitCalls.length = 0;
-    // Room-scoped budget: if the limiter ran before access resolution, anybody
-    // holding a room id could exhaust that room's writes for a minute.
-    await expect(put(STRANGER, { roomId: room.roomId })).rejects.toSatisfy(
-      (error) => codeOf(error) === "FORBIDDEN",
-    );
-    expect(limitCalls).toEqual([]);
-  });
-
-  it("will not let a viewer spend the room's snapshot budget", async () => {
-    const room = await openRoom();
-    await grant(room.roomId, VIEWER, "viewer");
-    limitCalls.length = 0;
-    await expect(put(VIEWER, { roomId: room.roomId })).rejects.toSatisfy(
-      (error) => codeOf(error) === "FORBIDDEN",
-    );
-    expect(limitCalls).toEqual([]);
-  });
-
-  it("charges an authorized snapshot write to the room, not to the writer", async () => {
-    const room = await openRoom();
-    await grant(room.roomId, EDITOR, "editor");
-    limitCalls.length = 0;
-    await put(EDITOR, { roomId: room.roomId });
-    // The identifier is the canonical room id from the resolved row, never a
-    // string the caller chose.
-    expect(limitCalls).toEqual([
-      { operation: "snapshot-put", identifier: room.roomId },
-    ]);
-  });
-
-  it("uses the user-room finalization reserve only after the room budget refuses a leave", async () => {
-    const room = await openRoom();
-    await grant(room.roomId, EDITOR, "editor");
-    limitCalls.length = 0;
-    const reset = Date.now() + 30_000;
-    script(
-      { success: false, limit: 6, remaining: 0, reset },
-      { success: true, limit: 2, remaining: 1, reset },
-    );
-
-    await callerFor(EDITOR).collaborationSnapshot.put({
-      roomId: room.roomId,
-      intent: "leave",
-      authGeneration: room.authGeneration,
-      expectedRevision: SNAPSHOT_NO_REVISION,
-      cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
-      ciphertextBase64: ciphertext(64),
-      checksum: "ab".padEnd(64, "0"),
-    });
-
-    expect(limitCalls).toEqual([
-      { operation: "snapshot-put", identifier: room.roomId },
-      {
-        operation: "snapshot-finalize",
-        identifier: JSON.stringify([room.roomId, EDITOR]),
-      },
-    ]);
-  });
-
-  it("does not let cadence writes use the finalization reserve", async () => {
-    const room = await openRoom();
-    await grant(room.roomId, EDITOR, "editor");
-    limitCalls.length = 0;
-    refuse(Date.now() + 30_000);
-
-    await expect(put(EDITOR, { roomId: room.roomId })).rejects.toSatisfy(
-      (error) => codeOf(error) === "TOO_MANY_REQUESTS",
-    );
-    expect(limitCalls).toEqual([
-      { operation: "snapshot-put", identifier: room.roomId },
-    ]);
-  });
-
-  it("still returns 429 when both leave budgets are spent", async () => {
-    const room = await openRoom();
-    await grant(room.roomId, EDITOR, "editor");
-    limitCalls.length = 0;
-    refuse(Date.now() + 30_000);
-
-    await expect(
-      callerFor(EDITOR).collaborationSnapshot.put({
-        roomId: room.roomId,
-        intent: "leave",
-        authGeneration: room.authGeneration,
-        expectedRevision: SNAPSHOT_NO_REVISION,
-        cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
-        ciphertextBase64: ciphertext(64),
-        checksum: "ab".padEnd(64, "0"),
-      }),
-    ).rejects.toSatisfy((error) => codeOf(error) === "TOO_MANY_REQUESTS");
-    expect(limitCalls.map(({ operation }) => operation)).toEqual([
-      "snapshot-put",
-      "snapshot-finalize",
-    ]);
-  });
-
-  it("refuses an oversize snapshot before spending the room's budget", async () => {
-    const room = await openRoom();
-    await grant(room.roomId, EDITOR, "editor");
-    limitCalls.length = 0;
-    await expect(
-      put(EDITOR, {
-        roomId: room.roomId,
-        byteLength: MAX_SNAPSHOT_CIPHERTEXT_BYTES + 1,
-      }),
-    ).rejects.toSatisfy((error) => codeOf(error) === "BAD_REQUEST");
-    expect(limitCalls).toEqual([]);
   });
 });
 
@@ -453,52 +310,16 @@ describe("Redis degradation", () => {
         scripted = script;
       });
 
-      it("lets an authorized snapshot write through instead of returning 429", async () => {
-        const room = await openRoom();
-        await grant(room.roomId, EDITOR, "editor");
-        scripted = script;
-        await expect(put(EDITOR, { roomId: room.roomId })).resolves.toEqual({
-          status: "written",
-          revision: 1,
-        });
-      });
-
-      it("still refuses a viewer's snapshot write", async () => {
-        const room = await openRoom();
-        await grant(room.roomId, VIEWER, "viewer");
-        scripted = script;
-        await expect(put(VIEWER, { roomId: room.roomId })).rejects.toSatisfy(
-          (error) => codeOf(error) === "FORBIDDEN",
-        );
-      });
-
-      it("still refuses a stranger's snapshot write", async () => {
-        const room = await openRoom();
-        scripted = script;
-        await expect(put(STRANGER, { roomId: room.roomId })).rejects.toSatisfy(
-          (error) => codeOf(error) === "FORBIDDEN",
-        );
-      });
-
-      it("still refuses a write sealed under a retired generation", async () => {
+      it("lets an authorized asset lookup through instead of returning 429", async () => {
         const room = await openRoom();
         await grant(room.roomId, EDITOR, "editor");
         scripted = script;
         await expect(
-          put(EDITOR, { roomId: room.roomId, authGeneration: 2 }),
-        ).rejects.toSatisfy((error) => codeOf(error) === "PRECONDITION_FAILED");
-      });
-
-      it("still refuses an oversize snapshot", async () => {
-        const room = await openRoom();
-        await grant(room.roomId, EDITOR, "editor");
-        scripted = script;
-        await expect(
-          put(EDITOR, {
+          callerFor(EDITOR).collaborationAsset.resolve({
             roomId: room.roomId,
-            byteLength: MAX_SNAPSHOT_CIPHERTEXT_BYTES + 1,
+            fileIds: ["abcdef0123456789abcdef0123456789abcdef01"],
           }),
-        ).rejects.toSatisfy((error) => codeOf(error) === "BAD_REQUEST");
+        ).resolves.toMatchObject({ assets: [] });
       });
 
       it("still refuses an unauthenticated join", async () => {
@@ -522,9 +343,12 @@ describe("Redis degradation", () => {
         const room = await openRoom();
         await grant(room.roomId, EDITOR, "editor");
         scripted = script;
-        const outcome = await put(EDITOR, { roomId: room.roomId }).catch(
-          (error: unknown) => error,
-        );
+        const outcome = await callerFor(EDITOR)
+          .collaborationAsset.resolve({
+            roomId: room.roomId,
+            fileIds: ["abcdef0123456789abcdef0123456789abcdef01"],
+          })
+          .catch((error: unknown) => error);
         expect(codeOf(outcome)).not.toBe("TOO_MANY_REQUESTS");
       });
 
@@ -533,7 +357,10 @@ describe("Redis degradation", () => {
         await grant(room.roomId, EDITOR, "editor");
         scripted = script;
         limitCalls.length = 0;
-        await put(EDITOR, { roomId: room.roomId });
+        await callerFor(EDITOR).collaborationAsset.resolve({
+          roomId: room.roomId,
+          fileIds: ["abcdef0123456789abcdef0123456789abcdef01"],
+        });
         expect(limitCalls).toHaveLength(1);
       });
     });

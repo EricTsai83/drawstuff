@@ -9,6 +9,10 @@
  */
 
 import { toast } from "sonner";
+import {
+  snapshotReadRequest,
+  SnapshotHttpError,
+} from "@/lib/collab/snapshot-http";
 
 import { verifyRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
@@ -454,12 +458,19 @@ export function createCollaborationRoomController(
       deps.onSourceScene?.(
         isOpenScene && joined.role === "owner" ? room.sceneId : null,
       );
-      const stored = await backend.snapshotApi.get({ roomId });
+      const stored = await backend.snapshotApi.read(
+        snapshotReadRequest(roomId),
+      );
       if (cancelled) return;
+      if (stored.receipt.authGeneration !== joined.authGeneration)
+        throw new SnapshotHttpError(409, "generation-mismatch");
       // Only an empty fresh room may be seeded from its owner's source canvas.
       if (
         !(await prepareCanvas(
-          isOpenScene && !reloading && !stored.snapshot,
+          isOpenScene &&
+            !reloading &&
+            !stored.found &&
+            stored.receipt.revision === 0,
           reloading || isOpenScene,
         ))
       )

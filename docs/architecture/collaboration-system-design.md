@@ -298,9 +298,9 @@ conversion remain P2 work.
 ## 18B P2 authenticated web binary snapshot entry
 
 The source adds cookie-authenticated `POST /api/collaboration/snapshot` and a browser binary
-transport client. They are not connected to product snapshot cadence/reset yet and are **not
-independently deployable**. Old tRPC snapshot entry removal belongs to that product conversion;
-the coexistence in source is not a supported production mode.
+transport client. The product conversion below connects snapshot cadence/reset and removes the old
+tRPC snapshot endpoints. The source is **not independently deployable** until all P2 entries are
+converted and P3 resets storage and deploys matching builds.
 
 - Every request requires the configured application Origin and octet-stream content type. Strict
   metadata is capped at 8 KiB and refuses actor/proof fields. The server authenticates the session,
@@ -322,8 +322,8 @@ the coexistence in source is not a supported production mode.
 - The browser transport verifies length/envelope/checksum before returning encrypted read bytes,
   preserves an absence revision watermark, and leaves pending as pending. It accepts the caller's
   original operationId/intent and ciphertext for write/query/cancel and never invents retry IDs or
-  re-encrypts. A written receipt must have expectedRevision + 1. Product code must still retain
-  pending ciphertext and bind a recovered receipt to the saved canvas before displaying saved.
+  re-encrypts. A written receipt must have expectedRevision + 1. The product store below retains
+  pending ciphertext and binds recovered receipts to the saved canvas before displaying saved.
 - Fifteen web/client tests exercise ingress refusal, live identity plumbing, room budget ordering,
   late Room refusal, reset watermarks, metadata/body bounds, upstream error sanitization, cancellation,
   exact immutable requests, and a maximum 4 MiB valid snapshot JSON sealed in the browser, transported
@@ -335,8 +335,49 @@ changes remain source artifacts. After all P2 entries are converted and reset/ro
 pass, P3 must review/apply the collaboration-only schema diff and reset collaboration test data,
 preserving accounts, personal/shared/published scenes and their attachments. See
 [18B §P3](../../plans/18b-collaboration-authority-reset.md).
-The next unit switches product snapshot load/save/reset, retains pending operations and reset
-watermarks, and removes the old tRPC snapshot authorization surface.
+The product unit below completes snapshot load/save/reset conversion and old tRPC removal.
+
+## 18B P2 product binary snapshots
+
+Product bootstrap, durable load/save cadence, and the owner's two-click reset now use the binary
+client. `collaborationSnapshot.get/put/reset` and their legacy storage helpers are removed from
+source. The tRPC transport refuses all three old procedures even for a signed-in caller. Remaining
+room management/initialization, attachment finalization and deletion/retirement paths still require
+P2 conversion; this is not a deployable cutover by itself.
+
+- Bootstrap checks the receipt's generation against the joined generation before claiming the
+  canvas. Only revision-zero absence can seed a fresh room from its owner's source scene. The
+  store opens/validates ciphertext before adopting an authority epoch; an empty receipt must also
+  match the session generation. An unreadable/unavailable load cannot authorize a new store write.
+- One in-memory pending operation retains its original UUID, deadline, generation, epoch,
+  expectedRevision, checksum and sealed bytes. Retries query that exact intent before retransmitting
+  the same ciphertext. After expiry they cancel until a terminal receipt; unavailable query/cancel
+  leaves the original intent intact. A never-accepted intent queried absent after its deadline cannot
+  arrive as a new write, so it is discarded without late body replay. No new UUID is minted until
+  the old intent settles. Alarms retain metadata only, and browser exit can still lose unconfirmed bytes.
+- A private plaintext/context fingerprint binds recovered receipts to the caller's captured canvas.
+  A receipt for older edits returns conflict rather than written for newer edits. Cadence reloads
+  and merges the durable winner before saving a new capture. New attempts invalidate old coverage
+  confirmation, so reverting the canvas while a different operation is pending cannot revive an
+  obsolete saved indicator. Only confirmed matching coverage restores saved.
+- Empty baselines retain the reset watermark, clear the prior digest/coverage and supply the next
+  expectedRevision. A leave conflict with an empty winner retains captured final edits and retries
+  once using that watermark. Query/cancel remain available for pending work even when the caller's
+  current capture changed, and an unchanged digest cannot skip an outstanding operation.
+- Owner reset uses a read receipt and an empty-body snapshot-reset intent. Button retries retain
+  the same operation. Pending, refusal and transport failure do not emit the success toast or retry
+  join; only written does. No room key/plaintext is sent for reset.
+- Nineteen new product/store/surface/session/UI tests cover the old endpoint refusal, generation
+  mismatch, immutable lost-reply recovery, byte-identical retransmission, expiry and unavailable
+  cancellation, concurrent saves, actual binary-client encryption/load, reset receipt recovery,
+  initial/reset/leave watermarks, saved coverage after edits/reverts, and reset-button confirmation.
+  Obsolete router tests are replaced by these plus the existing binary ingress/Room/storage suites;
+  join and attachment limiter regression tests remain.
+
+This unit changes no DB schema and performs no production migration/reset/deployment. Tests use
+fake binary storage effects and local PGlite for remaining router regressions. The next unit connects
+product creation/join/initialization to formal Room authority. Attachment and Lifecycle/deletion
+conversion and deployed body-limit/cross-cloud acceptance remain pending before P3.
 
 The production description below describes the existing deployment. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation

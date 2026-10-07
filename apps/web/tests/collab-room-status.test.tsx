@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -39,6 +40,25 @@ const { toastWarning, startRoomSession, joinMutate, roomGetQuery } = vi.hoisted(
   }),
 );
 
+vi.mock("@/lib/collab/snapshot-http", async (original) => ({
+  ...(await original<typeof SnapshotHttp>()),
+  createBinarySnapshotClient: () => ({
+    read: async (request: { roomId: string }) => ({
+      found: false,
+      bytes: null,
+      receipt: {
+        roomId: request.roomId,
+        authGeneration: 1,
+        authorityEpoch: 1,
+        revision: 0,
+      },
+    }),
+    write: vi.fn(),
+    query: vi.fn(),
+    cancel: vi.fn(),
+  }),
+}));
+
 vi.mock("sonner", () => ({ toast: { warning: toastWarning } }));
 
 vi.mock("@/lib/collab/room-session", () => ({
@@ -54,12 +74,6 @@ vi.mock("@/trpc/react", () => ({
         collaborationRoom: {
           get: { query: roomGetQuery },
           join: { mutate: joinMutate },
-        },
-        collaborationSnapshot: {
-          get: {
-            query: vi.fn(async () => ({ snapshot: null, authGeneration: 1 })),
-          },
-          put: { mutate: vi.fn() },
         },
         collaborationAsset: { resolve: { query: vi.fn() } },
       },

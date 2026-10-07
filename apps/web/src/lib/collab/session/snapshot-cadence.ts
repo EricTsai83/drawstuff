@@ -150,7 +150,12 @@ export const createSnapshotCadence = (options: {
       if (context.isStopped() || epoch !== options.getJoinEpoch()) return;
       if (stored.status === "loaded")
         await confirm(stored.revision, stored.elements, stored.checksum);
-      else if (stored.status === "unreadable") saveState.failed();
+      else if (stored.status === "empty") {
+        snapshotRevision = stored.revision ?? SNAPSHOT_NO_REVISION;
+        snapshotBaselineKnown = true;
+        lastSnapshotDigest = undefined;
+        saveState.invalidateConfirmation();
+      } else if (stored.status === "unreadable") saveState.failed();
     } catch {
       saveState.failed();
     } finally {
@@ -228,7 +233,7 @@ export const createSnapshotCadence = (options: {
     // transport in the same tick — `connected` is cleared synchronously, and the
     // canvas may be handed to another scene moments later — so a guard or a
     // scene read on the far side of an await would see the torn-down world and
-    // drop the room's last edits. The write itself goes over tRPC and needs no
+    // drop the room's last edits. The binary write needs no
     // live socket, so deciding now and writing later is sound.
     if (
       options.isTerminated() ||
@@ -287,7 +292,7 @@ export const createSnapshotCadence = (options: {
     if ((options.isDestroyed() && !force) || epoch !== options.getJoinEpoch()) {
       return;
     }
-    if (digest === lastSnapshotDigest && !force) {
+    if (digest === lastSnapshotDigest && !force && !store.hasPendingWrite?.()) {
       // Nothing to write — and that also means durability is *intact*, because
       // `lastSnapshotDigest` is only ever set by a write that landed. This has to
       // clear a latched block explicitly: an oversize edit that was subsequently
@@ -323,6 +328,9 @@ export const createSnapshotCadence = (options: {
       )
         return;
       const captureId = crypto.randomUUID();
+      // This mutation may replace the previously confirmed baseline even if
+      // its reply is lost. Reverting the canvas cannot revive that old ACK.
+      saveState.invalidateConfirmation();
       const result = await store.save({
         elements,
         expectedRevision,
@@ -388,19 +396,22 @@ export const createSnapshotCadence = (options: {
       // reconciliation rather than the canvas, because the canvas may already be
       // gone — and because the result has to contain *both* sides.
       const winner = await store.load();
-      if (epoch !== options.getJoinEpoch() || winner.status !== "loaded") {
+      if (epoch !== options.getJoinEpoch() || winner.status === "unreadable") {
         return;
       }
-      const merged = toSyncedElements(
-        reconcileRemoteElements(
-          syncableElements,
-          toExcalidrawElements(winner.elements),
-          capturedAppState,
-        ),
-      );
+      const merged =
+        winner.status === "empty"
+          ? elements
+          : toSyncedElements(
+              reconcileRemoteElements(
+                syncableElements,
+                toExcalidrawElements(winner.elements),
+                capturedAppState,
+              ),
+            );
       const retried = await store.save({
         elements: merged,
-        expectedRevision: winner.revision,
+        expectedRevision: winner.revision ?? SNAPSHOT_NO_REVISION,
         intent: "leave",
       });
       if (epoch !== options.getJoinEpoch()) return;
@@ -545,9 +556,11 @@ export const createSnapshotCadence = (options: {
       snapshotRevision = revision;
       snapshotBaselineKnown = true;
     },
-    adoptEmpty() {
-      snapshotRevision = SNAPSHOT_NO_REVISION;
+    adoptEmpty(revision = SNAPSHOT_NO_REVISION) {
+      snapshotRevision = revision;
       snapshotBaselineKnown = true;
+      lastSnapshotDigest = undefined;
+      saveState.invalidateConfirmation();
     },
     markUnknown() {
       snapshotBaselineKnown = false;

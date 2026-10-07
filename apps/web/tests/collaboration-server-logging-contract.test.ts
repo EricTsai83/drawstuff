@@ -32,7 +32,7 @@ const GUARDED_PATHS = [
   path.join("src", "server", "collab"),
   path.join("src", "server", "api", "routers", "collaboration-authority.ts"),
   path.join("src", "server", "api", "routers", "collaboration-room.ts"),
-  path.join("src", "server", "api", "routers", "collaboration-snapshot.ts"),
+  path.join("src", "app", "api", "collaboration"),
   path.join("src", "server", "api", "routers", "collaboration-asset.ts"),
 ];
 

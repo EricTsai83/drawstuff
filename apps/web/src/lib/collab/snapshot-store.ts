@@ -1,4 +1,4 @@
-import { decodeBase64, encodeBase64 } from "@drawstuff/collaboration/base64";
+import { AUTHORITY_LIMITS } from "@drawstuff/collaboration/authority";
 import type { RoomId, SyncedElement } from "@drawstuff/collaboration/protocol";
 import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
@@ -10,64 +10,12 @@ import {
   sealCollaborationSnapshot,
   snapshotCiphertextChecksum,
   SNAPSHOT_CRYPTO_VERSION,
-  SNAPSHOT_NO_REVISION,
 } from "@drawstuff/collaboration/snapshot";
+import { rateLimitRetryAfterMs } from "./rate-limit";
+import { snapshotReadRequest, type SnapshotApi } from "./snapshot-http";
+import { createSnapshotWriter } from "./snapshot-writer";
 
-import { withCollaborationRequestDeadline } from "@/lib/collab/request-deadline";
-import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
-
-/**
- * Client half of durable snapshot storage: the only place a snapshot is sealed
- * or opened.
- *
- * The split mirrors the realtime one. Authorization comes from the backend (the
- * room API decides who may read or write a baseline); confidentiality comes from
- * the URL fragment (the room key, which never leaves the browser). So this module
- * needs both, and the transport layer below it only ever handles base64
- * ciphertext — there is no code path that could send a readable snapshot, because
- * `save` seals before it calls the API and `load` opens after.
- *
- * Every failure is reported as a typed outcome rather than thrown. A snapshot
- * that cannot be opened is a real, expected state — a link carrying the wrong
- * key, or a generation that was rotated after the link was shared — and the
- * caller has to distinguish it from "this room has no baseline yet": one is a
- * dead end for the session, the other is a perfectly normal empty room.
- */
-
-/** The backend surface this store needs; `api.useUtils().client` satisfies it. */
-export type SnapshotApi = {
-  get(
-    input: { roomId: string },
-    signal?: AbortSignal,
-  ): Promise<{
-    authGeneration: number;
-    snapshot: {
-      revision: number;
-      cryptoVersion: number;
-      ciphertextBase64: string;
-      byteLength: number;
-      checksum: string;
-    } | null;
-  }>;
-  put(
-    input: {
-      roomId: string;
-      /** Scheduling hint only; the server never treats this as authorization. */
-      intent: "cadence" | "leave";
-      /** Generation the ciphertext was sealed for; the server refuses a mismatch. */
-      authGeneration: number;
-      expectedRevision: number;
-      cryptoVersion: typeof SNAPSHOT_CRYPTO_VERSION;
-      ciphertextBase64: string;
-      checksum: string;
-    },
-    signal?: AbortSignal,
-  ): Promise<
-    | { status: "written"; revision: number }
-    | { status: "conflict"; currentRevision: number | undefined }
-  >;
-};
-
+export type { SnapshotApi } from "./snapshot-http";
 type LoadSnapshotResult =
   | {
       status: "loaded";
@@ -75,190 +23,154 @@ type LoadSnapshotResult =
       elements: readonly SyncedElement[];
       checksum?: string;
     }
-  /** This room generation has no baseline yet; a fresh room looks like this. */
-  | { status: "empty" }
-  | {
-      status: "unreadable";
-      /**
-       * `wrong-key` covers a bad key, a rotated generation and tampered bytes
-       * alike — AES-GCM cannot tell them apart, and neither should a message
-       * shown to a user. `unavailable` is a transport or authorization failure,
-       * which a retry could still fix.
-       */
-      reason: "wrong-key" | "malformed" | "unavailable";
-    };
-
+  | { status: "empty"; revision?: number }
+  | { status: "unreadable"; reason: "wrong-key" | "malformed" | "unavailable" };
 export type SaveSnapshotResult =
   | { status: "written"; revision: number; checksum?: string }
   | { status: "conflict"; currentRevision: number | undefined }
-  /**
-   * The scene is larger than the locked snapshot contract, so nothing was
-   * sealed and nothing was sent.
-   *
-   * Separate from `failed` because the two need opposite handling. A failed
-   * write is a transient condition the next cadence tick usually resolves, so
-   * ignoring it is correct; an oversize scene will be refused on every tick
-   * until the user removes content, so ignoring it is a canvas that silently
-   * stops being backed up. A caller that cannot tell them apart has no way to
-   * say which one it is.
-   */
   | { status: "oversize"; byteLength: number; maxByteLength: number }
-  /**
-   * The room's shared write budget is spent. Retryable — unlike `oversize` the
-   * scene is fine and unlike `failed` the server said exactly when — so it is
-   * reported as itself, carrying the deadline the caller must not write before.
-   * Folding it into `failed` would leave the caller retrying on its own cadence
-   * into a window that has not reset, spending the budget it is waiting for.
-   */
   | { status: "rate-limited"; retryAfterMs: number }
-  /** Sealing, encoding or the request failed; the caller retries on cadence. */
   | { status: "failed" };
-
 export type CollaborationSnapshotStore = {
   load: () => Promise<LoadSnapshotResult>;
+  hasPendingWrite?: () => boolean;
   save: (input: {
     elements: readonly SyncedElement[];
-    /** Revision the caller believes is current, or `SNAPSHOT_NO_REVISION`. */
     expectedRevision: number;
-    /** A leave flush may use the server's separate bounded finalization reserve. */
     intent?: "cadence" | "leave";
   }) => Promise<SaveSnapshotResult>;
 };
 
+/** Keys and plaintext stay here; the transport only handles encrypted bytes. */
 export async function createCollaborationSnapshotStore(options: {
   api: SnapshotApi;
   roomId: RoomId;
-  /** End-to-end room key from the URL fragment; never from the backend. */
   roomKey: RoomKey;
-  /** Authorization generation the session joined under. */
   authGeneration: number;
 }): Promise<CollaborationSnapshotStore> {
   const { api, roomId, authGeneration } = options;
-  // Derived once per session: the key is bound to (room, generation, purpose),
-  // and it is non-extractable, so it cannot end up in a log or an error payload.
   const key = await deriveSnapshotKey({
     roomKey: options.roomKey,
     roomId,
     authGeneration,
   });
-
+  const writer = createSnapshotWriter(api);
+  let authorityEpoch: number | undefined;
   return {
+    hasPendingWrite: writer.hasPending,
     async load() {
-      let response: Awaited<ReturnType<SnapshotApi["get"]>>;
+      authorityEpoch = undefined;
       try {
-        response = await withCollaborationRequestDeadline((signal) =>
-          api.get({ roomId }, signal),
-        );
+        const response = await api.read(snapshotReadRequest(roomId));
+        const { receipt } = response;
+        // Even an empty snapshot from a rotated generation is not our baseline.
+        if (receipt.authGeneration !== authGeneration) {
+          authorityEpoch = undefined;
+          return { status: "unreadable", reason: "wrong-key" };
+        }
+        if (!response.found) {
+          authorityEpoch = receipt.authorityEpoch;
+          return { status: "empty", revision: receipt.revision };
+        }
+        const { bytes } = response;
+        if (
+          bytes.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES ||
+          bytes.byteLength !== response.receipt.byteLength ||
+          response.receipt.cryptoVersion !== SNAPSHOT_CRYPTO_VERSION ||
+          (await snapshotCiphertextChecksum(bytes)) !==
+            response.receipt.checksum
+        )
+          return { status: "unreadable", reason: "malformed" };
+        const opened = await openCollaborationSnapshot({
+          key,
+          ciphertext: bytes,
+          roomId,
+          authGeneration,
+          revision: receipt.revision,
+        });
+        if (!opened.ok) return { status: "unreadable", reason: "wrong-key" };
+        const decoded = decodeCollaborationSnapshot(opened.plaintext, {
+          roomId,
+        });
+        if (!decoded.ok) return { status: "unreadable", reason: "malformed" };
+        authorityEpoch = receipt.authorityEpoch;
+        return {
+          status: "loaded",
+          revision: receipt.revision,
+          elements: decoded.snapshot.elements,
+          checksum: response.receipt.checksum,
+        };
       } catch {
         return { status: "unreadable", reason: "unavailable" };
       }
-      const stored = response.snapshot;
-      if (!stored) return { status: "empty" };
-      // The generation the row belongs to is the one the key was derived for;
-      // a mismatch means the room rotated under us and the bytes are not ours
-      // to read.
-      if (
-        response.authGeneration !== authGeneration ||
-        stored.cryptoVersion !== SNAPSHOT_CRYPTO_VERSION
-      ) {
-        return { status: "unreadable", reason: "wrong-key" };
-      }
-
-      // Canonical decode via the shared codec (native TypedArray Base64 where
-      // the browser has it), bounded by the locked ciphertext contract before
-      // any multi-MiB allocation happens.
-      const decodedCiphertext = decodeBase64(stored.ciphertextBase64, {
-        maxBytes: MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-      });
-      if (!decodedCiphertext.ok) {
-        return { status: "unreadable", reason: "malformed" };
-      }
-      const ciphertext = decodedCiphertext.bytes;
-      if (ciphertext.byteLength !== stored.byteLength) {
-        return { status: "unreadable", reason: "malformed" };
-      }
-      if ((await snapshotCiphertextChecksum(ciphertext)) !== stored.checksum) {
-        return { status: "unreadable", reason: "malformed" };
-      }
-
-      const opened = await openCollaborationSnapshot({
-        key,
-        ciphertext,
-        roomId,
-        authGeneration,
-        revision: stored.revision,
-      });
-      if (!opened.ok) return { status: "unreadable", reason: "wrong-key" };
-
-      const decoded = decodeCollaborationSnapshot(opened.plaintext, { roomId });
-      if (!decoded.ok) return { status: "unreadable", reason: "malformed" };
-      return {
-        status: "loaded",
-        revision: stored.revision,
-        elements: decoded.snapshot.elements,
-        checksum: stored.checksum,
-      };
     },
-
     async save({ elements, expectedRevision, intent = "cadence" }) {
       const encoded = encodeCollaborationSnapshot({ roomId, elements });
-      if (!encoded.ok) {
-        // "Too big" is the one encoding failure the user can act on, and the
-        // only one that will still be true on the next tick, so it is reported
-        // as itself instead of being folded into the generic failure.
-        if (encoded.error.code === "oversize-snapshot") {
-          return {
-            status: "oversize",
-            byteLength: encoded.error.byteLength,
-            maxByteLength: encoded.error.maxByteLength,
-          };
-        }
-        return { status: "failed" };
-      }
-      // The revision the bytes will live at is authenticated into the seal, so
-      // it has to be predicted here — which is exactly the revision the
-      // conditional write will produce if it wins.
-      const revision =
-        expectedRevision === SNAPSHOT_NO_REVISION ? 1 : expectedRevision + 1;
-      const sealed = await sealCollaborationSnapshot({
-        key,
-        plaintext: encoded.bytes,
-        roomId,
-        authGeneration,
-        revision,
-      });
-      if (!sealed.ok) return { status: "failed" };
-
+      if (!encoded.ok)
+        return encoded.error.code === "oversize-snapshot"
+          ? {
+              status: "oversize",
+              byteLength: encoded.error.byteLength,
+              maxByteLength: encoded.error.maxByteLength,
+            }
+          : { status: "failed" };
+      if (authorityEpoch === undefined) return { status: "failed" };
+      const epoch = authorityEpoch;
       try {
-        const checksum = await snapshotCiphertextChecksum(sealed.ciphertext);
-        const result = await withCollaborationRequestDeadline((signal) =>
-          api.put(
-            {
+        // This private fingerprint never crosses the wire. A recovered receipt
+        // must not confirm edits or a revision/authority context it did not save.
+        const fingerprint = JSON.stringify([
+          await snapshotCiphertextChecksum(encoded.bytes),
+          expectedRevision,
+          authGeneration,
+          epoch,
+        ]);
+        const { result, operation, matches } = await writer.run({
+          fingerprint,
+          intent,
+          create: async () => {
+            const sealed = await sealCollaborationSnapshot({
+              key,
+              plaintext: encoded.bytes,
               roomId,
-              intent,
-              // Sent so the server stores the ciphertext under the generation it was
-              // sealed for, or refuses: a rotation racing this write would otherwise
-              // produce a row nobody can open.
               authGeneration,
-              expectedRevision,
-              cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
-              ciphertextBase64: encodeBase64(sealed.ciphertext),
-              checksum,
-            },
-            signal,
-          ),
-        );
-        if (result.status === "written") {
-          return result.revision === revision
-            ? { ...result, checksum }
-            : { status: "failed" };
-        }
-        return result;
+              revision: expectedRevision + 1,
+            });
+            if (!sealed.ok) throw new Error("snapshot-seal-failed");
+            return {
+              bytes: sealed.ciphertext,
+              operation: {
+                v: 1,
+                kind: "snapshot-put",
+                roomId,
+                operationId: crypto.randomUUID(),
+                deadline: Date.now() + AUTHORITY_LIMITS.operationTtlMs,
+                authGeneration,
+                authorityEpoch: epoch,
+                expectedRevision,
+                checksum: await snapshotCiphertextChecksum(sealed.ciphertext),
+              },
+            };
+          },
+        });
+        if (result.status === "written")
+          return matches && authorityEpoch === operation.authorityEpoch
+            ? {
+                status: "written",
+                revision: result.revision,
+                checksum: operation.checksum,
+              }
+            : { status: "conflict", currentRevision: result.revision };
+        if (result.status === "pending") return { status: "failed" };
+        // Terminal refusal/conflict/cancellation requires a fresh baseline and
+        // authority epoch; no new operation is minted against stale metadata.
+        authorityEpoch = undefined;
+        return { status: "conflict", currentRevision: undefined };
       } catch (error) {
         const retryAfterMs = rateLimitRetryAfterMs(error);
-        if (retryAfterMs !== null)
-          return { status: "rate-limited", retryAfterMs };
-        return { status: "failed" };
+        return retryAfterMs !== null
+          ? { status: "rate-limited", retryAfterMs }
+          : { status: "failed" };
       }
     },
   };

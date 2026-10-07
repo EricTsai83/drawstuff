@@ -2,7 +2,6 @@ import { categoryRouter } from "@/server/api/routers/category";
 import { collaborationAuthorityRouter } from "@/server/api/routers/collaboration-authority";
 import { collaborationAssetRouter } from "@/server/api/routers/collaboration-asset";
 import { collaborationRoomRouter } from "@/server/api/routers/collaboration-room";
-import { collaborationSnapshotRouter } from "@/server/api/routers/collaboration-snapshot";
 import { sceneRouter } from "@/server/api/routers/scene";
 import { workspaceRouter } from "@/server/api/routers/workspace";
 import { sharedSceneRouter } from "@/server/api/routers/shared-scene";
@@ -21,7 +20,6 @@ export const appRouter = createTRPCRouter({
   collaborationAuthority: collaborationAuthorityRouter,
   collaborationAsset: collaborationAssetRouter,
   collaborationRoom: collaborationRoomRouter,
-  collaborationSnapshot: collaborationSnapshotRouter,
   personalLibrary: personalLibraryRouter,
   scene: sceneRouter,
   sharedScene: sharedSceneRouter,

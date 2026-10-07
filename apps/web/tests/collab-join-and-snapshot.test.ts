@@ -1,5 +1,7 @@
 // @vitest-environment jsdom
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createCollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
+import { binarySnapshotBackend } from "./support/binary-snapshot-backend";
 
 import {
   collaborationSnapshotDigest,
@@ -22,7 +24,118 @@ import {
   createSnapshotBackend,
   expectConverged,
   ROOM_ID,
+  ROOM_KEY,
 } from "./support/collab-session-harness";
+
+describe("binary snapshot cadence and reset watermarks", () => {
+  async function client(initialRevision = 0) {
+    const backend = binarySnapshotBackend(ROOM_ID);
+    backend.emptyAt(initialRevision);
+    const store = await createCollaborationSnapshotStore({
+      api: backend.api,
+      roomId: ROOM_ID,
+      roomKey: ROOM_KEY,
+      authGeneration: 1,
+    });
+    const harness = createHarness();
+    const alice = harness.createClient("client-alice", {
+      snapshotStore: store,
+    });
+    alice.session.connect();
+    await settle(harness);
+    await vi.waitFor(() => expect(alice.baselineOutcomes).toContain("empty"));
+    return { ...backend, store, harness, alice };
+  }
+  it("keeps new edits unsaved when query recovers an older capture, then confirms only their own revision", async () => {
+    const f = await client();
+    f.write.mockImplementationOnce(async (...args) => {
+      await f.commit(...args);
+      throw new Error("lost-reply");
+    });
+    f.alice.edit(() => [collabRectangle({ id: "first" })]);
+    f.alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await vi.waitFor(() => expect(f.write).toHaveBeenCalledTimes(1));
+    await vi.waitFor(() =>
+      expect(f.alice.session.getSaveState().status).not.toBe("saving"),
+    );
+    expect(f.alice.session.getSaveState().status).not.toBe("saved");
+    f.alice.edit((els) => [...els, collabRectangle({ id: "second" })]);
+    f.alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await vi.waitFor(() => expect(f.api.query).toHaveBeenCalled());
+    await vi.waitFor(() =>
+      expect(f.alice.session.getSaveState().status).not.toBe("saving"),
+    );
+    expect(f.alice.session.getSaveState().status).not.toBe("saved");
+    expect(f.write).toHaveBeenCalledTimes(1);
+    f.alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await vi.waitFor(() =>
+      expect(f.alice.session.getSaveState()).toMatchObject({
+        status: "saved",
+        revision: 2,
+      }),
+    );
+    expect(await f.store.load()).toMatchObject({
+      status: "loaded",
+      revision: 2,
+      elements: [
+        expect.objectContaining({ id: "first" }),
+        expect.objectContaining({ id: "second" }),
+      ],
+    });
+    f.alice.session.destroy();
+  });
+  it("retries a leave conflict against a reset's empty revision watermark", async () => {
+    const f = await client();
+    f.emptyAt(7);
+    f.alice.edit(() => [collabRectangle({ id: "last-edit" })]);
+    const flush = f.alice.session.flushSnapshot();
+    f.alice.session.destroy();
+    await flush;
+    expect(f.write.mock.calls.map(([op]) => op.expectedRevision)).toEqual([
+      0, 7,
+    ]);
+    expect(await f.store.load()).toMatchObject({
+      status: "loaded",
+      revision: 8,
+      elements: [expect.objectContaining({ id: "last-edit" })],
+    });
+  });
+  it("adopts a nonzero empty watermark during join before its first cadence write", async () => {
+    const f = await client(7);
+    f.alice.edit(() => [collabRectangle({ id: "first-after-reset" })]);
+    f.alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await vi.waitFor(() =>
+      expect(f.alice.session.getSaveState()).toMatchObject({
+        status: "saved",
+        revision: 8,
+      }),
+    );
+    expect(f.write.mock.calls[0]![0].expectedRevision).toBe(7);
+    f.alice.session.destroy();
+  });
+  it("does not revive an old saved acknowledgement when edits revert while another write is pending", async () => {
+    const f = await client();
+    f.alice.edit(() => [collabRectangle({ id: "first" })]);
+    f.alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await vi.waitFor(() =>
+      expect(f.alice.session.getSaveState().status).toBe("saved"),
+    );
+    const oldCanvas = f.alice.host.elements;
+    f.write.mockResolvedValueOnce({ status: "pending" });
+    f.alice.edit((els) => [...els, collabRectangle({ id: "pending-edit" })]);
+    f.alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await vi.waitFor(() => expect(f.write).toHaveBeenCalledTimes(2));
+    await vi.waitFor(() =>
+      expect(f.alice.session.getSaveState().status).not.toBe("saving"),
+    );
+    f.alice.edit(() => oldCanvas);
+    expect(f.store.hasPendingWrite?.()).toBe(true);
+    expect(f.alice.session.getSaveState().status).not.toBe("saved");
+    f.alice.timers.advance(SNAPSHOT_INTERVAL_MS);
+    await vi.waitFor(() => expect(f.api.query).toHaveBeenCalled());
+    f.alice.session.destroy();
+  });
+});
 
 /**
  * Plan 15: joining a room without losing an update, and recovering a room from

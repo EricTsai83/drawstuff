@@ -1,4 +1,5 @@
 import { TRPCClientError } from "@trpc/client";
+import { SnapshotHttpError } from "./snapshot-http";
 
 import type { JoinCredentialsResult } from "@/lib/collab/collaboration-session";
 import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
@@ -25,6 +26,19 @@ import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
  * would spend the whole budget and then report the wrong reason.
  */
 export function classifyJoinFailure(error: unknown): JoinCredentialsResult {
+  if (error instanceof SnapshotHttpError) {
+    if (error.status === 401)
+      return { ok: false, retry: false, failure: "unauthorized" };
+    if (error.status === 403)
+      return { ok: false, retry: false, failure: "membership-revoked" };
+    if (error.code === "ended" || error.code === "not-found")
+      return { ok: false, retry: false, failure: "room-ended" };
+    return {
+      ok: false,
+      retry: true,
+      retryAfterMs: rateLimitRetryAfterMs(error) ?? undefined,
+    };
+  }
   const code =
     error instanceof TRPCClientError
       ? (error.data as { code?: unknown } | null | undefined)?.code

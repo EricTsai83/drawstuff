@@ -1,7 +1,7 @@
 # 18B — 共編授權權威重置
 
-- 狀態：P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 authenticated web binary 入口／client 已完成；下一步為產品快照保存／reset 切換與舊 tRPC 快照入口移除，接著產品初始化／附件與退休入口串接，尚未部署；source artifact 與邊界見
-  [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-authenticated-web-binary-snapshot-entry)。
+- 狀態：P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端、authenticated web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照入口移除已完成；下一步為產品建房／加入初始化，再接附件與退休入口，尚未部署；source artifact 與邊界見
+  [系統設計](../docs/architecture/collaboration-system-design.md#18b-p2-product-binary-snapshots)。
   UploadThing public 密文附件限制已接受。2026-09-23 由原 18B（房間保留期）、18C（DO 授權權威）、
   18D §4（帳號／白板退休）、19 §3–§4（獨立房間資料模型）與 20（帳號允許清單）**合併**為單一計畫。
 - 前置：**無**。保存確認的產品語意沿用已實作的 [共編儲存契約](../docs/architecture/collaboration-storage.md)。
@@ -540,7 +540,7 @@ P1/P2 沿用這些契約；正式登入／proof、所有入口與 Lifecycle 串�
 | 同 router：leave、setLinkRole、setMemberRole、removeMember、rotateGeneration、end             | 本地授權 revision、operationId 去重、儲存 fence 及加密 generation 的獨立語意                   |
 | `server/collab/rooms.ts` 的 `signJoinToken`；`collab/control-token.ts`                        | 不從舊 DB 角色簽新權限；刪除舊 control token／outbox writer                                    |
 | `collaboration-do/src/gateway.ts`、`room.ts`、`control.ts`                                    | roomId 定址；升級、加入、重進、每次訊息／轉送／休眠 attachment 都核對 SQLite 權限              |
-| `server/api/routers/collaboration-snapshot.ts`：get、put、reset                               | binary 讀寫；不能留下原 tRPC 快照授權旁路；reset 也需 owner 及 fence                           |
+| web binary 快照入口、`collab/snapshot-store.ts`、`snapshot-reset.ts`（舊 tRPC 已移除）         | 已接 binary 讀寫／reset、pending receipt、reset 水位；Room 驗權與 PG fence，待其餘 P2 與 P3 部署 |
 | `server/api/routers/collaboration-asset.ts`：resolve                                          | 最新授權、同 generation 索引；回傳 public URL 的既有 capability 限制沿用                       |
 | `app/api/uploadthing/core.ts`：collaborationAssetUploader middleware／onUploadComplete        | presign 與 finalize 重新驗權；pending 物件不能成為附件引用；失敗 enqueue cleanup；不私有化物件 |
 | `server/admin/retirement.ts`：retireScene、retireAccount、endRoom                             | Lifecycle DO 接手意圖、凍結、登記、逐房間確認後才刪 DB                                         |

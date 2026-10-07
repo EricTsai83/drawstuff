@@ -3,6 +3,11 @@
 import { TRPCClientError } from "@trpc/client";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
+import {
+  createBinarySnapshotClient,
+  SnapshotHttpError,
+} from "@/lib/collab/snapshot-http";
+import { createSnapshotReset } from "@/lib/collab/snapshot-reset";
 
 import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
@@ -137,9 +142,10 @@ export function CollaborationRoomDialog({
   const authRequiredMessage = t("collaboration.authRequired");
   const reportRoomError = (error: unknown): void => {
     if (
-      error instanceof TRPCClientError &&
-      (error.data as { code?: unknown } | null | undefined)?.code ===
-        "UNAUTHORIZED"
+      (error instanceof SnapshotHttpError && error.status === 401) ||
+      (error instanceof TRPCClientError &&
+        (error.data as { code?: unknown } | null | undefined)?.code ===
+          "UNAUTHORIZED")
     ) {
       toast.error(authRequiredMessage);
       return;
@@ -339,17 +345,32 @@ export function CollaborationRoomDialog({
     onError: reportRoomError,
   });
 
-  const resetSnapshot = api.collaborationSnapshot.reset.useMutation({
-    onSuccess: async () => {
+  const performReset = useMemo(
+    () =>
+      roomId
+        ? createSnapshotReset(
+            createBinarySnapshotClient(),
+            roomIdSchema.parse(roomId),
+          )
+        : null,
+    [roomId],
+  );
+  const [isResetPending, setIsResetPending] = useState(false);
+  const resetSnapshot = async () => {
+    if (!performReset || isResetPending) return;
+    setIsResetPending(true);
+    try {
+      await performReset();
       setIsResetArmed(false);
       await invalidateRoom();
       toast.success(t("collaboration.toast.snapshotReset"));
-      // The failed session is only torn down by re-running the join; the
-      // deletion above is what made this retry able to succeed.
       onRetryJoin();
-    },
-    onError: reportRoomError,
-  });
+    } catch (error) {
+      reportRoomError(error);
+    } finally {
+      setIsResetPending(false);
+    }
+  };
 
   const roomUrl = useMemo(() => {
     if (!roomId || typeof window === "undefined") return "";
@@ -452,16 +473,18 @@ export function CollaborationRoomDialog({
                   <div className="flex items-center gap-2">
                     <Button
                       variant="destructive"
-                      disabled={resetSnapshot.isPending}
-                      onClick={() => resetSnapshot.mutate({ roomId })}
+                      disabled={isResetPending}
+                      onClick={() => {
+                        void resetSnapshot();
+                      }}
                     >
-                      {resetSnapshot.isPending
+                      {isResetPending
                         ? t("collaboration.recovery.resetting")
                         : t("collaboration.recovery.confirmReset")}
                     </Button>
                     <Button
                       variant="secondary"
-                      disabled={resetSnapshot.isPending}
+                      disabled={isResetPending}
                       onClick={() => setIsResetArmed(false)}
                     >
                       {t("collaboration.recovery.cancel")}
