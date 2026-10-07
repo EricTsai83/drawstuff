@@ -20,7 +20,7 @@ import { roomIdSchema, type RoomId } from "./messages.ts";
  * Removing a member (or ending a room) stops new connections and new frames
  * immediately, but a client that already holds a room key can still read
  * ciphertext it captured earlier. Cryptographic revocation requires a new
- * room generation — see `roomChannelKey`.
+ * root key shared only with remaining members; generation alone is insufficient.
  */
 
 export const ROOM_ROLES = ["owner", "editor", "viewer"] as const;
@@ -56,25 +56,15 @@ export const roomAuthRevisionSchema = z.int().positive();
  */
 export const roomAuthGenerationSchema = z.int().positive();
 
-/**
- * Relay routing key. Rooms are partitioned by authorization generation, so a
- * rotated room is a different channel by construction: a token minted for
- * generation N can never reach members of generation N+1, with no relay-side
- * revocation state required.
- */
-export const roomChannelKeySchema = z
-  .string()
-  .regex(/^[A-Za-z0-9_-]{1,80}$/)
-  .brand<"RoomChannelKey">();
+/** Stable DO identity. Encryption generation never selects a new authority store. */
+export const roomChannelKeySchema = roomIdSchema.brand<"RoomChannelKey">();
 export type RoomChannelKey = z.infer<typeof roomChannelKeySchema>;
-
 export function roomChannelKey(
   roomId: RoomId,
   authGeneration: number,
 ): RoomChannelKey {
-  return roomChannelKeySchema.parse(
-    `${roomId}-g${roomAuthGenerationSchema.parse(authGeneration)}`,
-  );
+  roomAuthGenerationSchema.parse(authGeneration);
+  return roomChannelKeySchema.parse(roomId);
 }
 
 /** Version of the room token format; bumped only on a breaking claim change. */
@@ -134,12 +124,6 @@ export const joinTokenClaimsSchema = z.strictObject({
   role: roomRoleSchema,
   /** Authorization revision this token was issued under. */
   arev: roomAuthRevisionSchema,
-  /**
-   * Room expiry, epoch seconds. `exp` bounds the token; this bounds the
-   * session it opens, so the relay drops a connection when the room's own
-   * lifetime ends instead of holding it open indefinitely.
-   */
-  rexp: z.int().positive(),
 });
 export type JoinTokenClaims = z.infer<typeof joinTokenClaimsSchema>;
 
@@ -183,19 +167,7 @@ export type RoomControlClaims = z.infer<typeof roomControlClaimsSchema>;
  * into a token the relay and its logs can see.
  */
 export const roomTokenClaimKeys = {
-  join: [
-    "v",
-    "jti",
-    "iat",
-    "exp",
-    "aud",
-    "rid",
-    "gen",
-    "sub",
-    "role",
-    "arev",
-    "rexp",
-  ],
+  join: ["v", "jti", "iat", "exp", "aud", "rid", "gen", "sub", "role", "arev"],
   control: {
     "revoke-member": [
       "v",

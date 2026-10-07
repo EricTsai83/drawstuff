@@ -164,41 +164,6 @@ describe("alarm deadlines", () => {
     ]);
     surviving.connection.close();
   });
-
-  it("closes members when the room's own lifetime ends", async () => {
-    const roomId = uniqueRoomId("rexp");
-    const member = await joinRoom(roomId);
-    const stub = roomStub(roomId);
-    await mutateJoinedAttachment(stub, member.joined.peerId, (attachment) => ({
-      ...attachment,
-      roomExpiresAt: Date.now() - 1_000,
-    }));
-    await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
-    await expectClose(member.connection, RELAY_CLOSE_CODES.roomEnded);
-  });
-
-  it("refuses a data frame past the room's lifetime even before the alarm runs", async () => {
-    const roomId = uniqueRoomId("rexpframe");
-    const sender = await joinRoom(roomId, { subject: "user-send" });
-    const receiver = await joinRoom(roomId, { subject: "user-recv" });
-    await expectPeers(sender.connection);
-    const stub = roomStub(roomId);
-    await mutateJoinedAttachment(stub, sender.joined.peerId, (attachment) => ({
-      ...attachment,
-      roomExpiresAt: Date.now() - 1_000,
-    }));
-    // Deliberately no alarm: the frame itself must hit the expiry bound —
-    // alarms are at-least-once and may run late, and nothing may publish
-    // past `rexp` in that window.
-    sender.connection.send(Uint8Array.from([1, 9, 9]));
-    await expectClose(sender.connection, RELAY_CLOSE_CODES.roomEnded);
-    // The receiver sees the corrected membership, never the frame.
-    const notice = await expectPeers(receiver.connection);
-    expect(notice.peers).toEqual([
-      { peerId: receiver.joined.peerId, role: receiver.joined.role },
-    ]);
-    receiver.connection.close();
-  });
 });
 
 describe("eviction and recovery", () => {
@@ -258,50 +223,29 @@ describe("eviction and recovery", () => {
 });
 
 describe("storage lifecycle", () => {
-  it("retains the epoch high-water for an empty room until its expiry, then deletes everything", async () => {
+  it("retains an empty room's epoch without a TTL or heartbeat", async () => {
     const roomId = uniqueRoomId("retain");
     const stub = roomStub(roomId);
     const member = await joinRoom(roomId);
-    const firstEpoch = member.joined.roomGeneration;
+    const epoch = member.joined.roomGeneration;
     member.connection.close();
     await sleep(100);
-
-    // Empty room, expiry in the future: the high-water must survive, and the
-    // alarm waits rather than deleting.
-    await runDurableObjectAlarm(stub);
-    const retained = await runInDurableObject(stub, (_instance, state) => ({
-      epoch: state.storage.sql
-        .exec<{ room_epoch: number }>(
-          "SELECT room_epoch FROM room_meta WHERE id = 1",
-        )
-        .one().room_epoch,
-    }));
-    expect(retained.epoch).toBe(firstEpoch);
-
-    // A rejoin before expiry continues above the retained high-water.
-    const rejoined = await joinRoom(roomId);
-    expect(rejoined.joined.roomGeneration).toBe(firstEpoch + 1);
-    rejoined.connection.close();
-    await sleep(100);
-
-    // Force the room past its own lifetime: cleanup may now actually delete.
-    await runInDurableObject(stub, (_instance, state) => {
-      state.storage.sql.exec(
-        "UPDATE room_meta SET room_expires_at_ms = ? WHERE id = 1",
-        Date.now() - 60_000,
-      );
+    await runInDurableObject(stub, async (instance, state) => {
+      await state.storage.setAlarm(Date.now() + 1000);
+      await instance.alarm();
+      expect(
+        state.storage.sql
+          .exec<{ room_epoch: number }>(
+            "SELECT room_epoch FROM room_meta WHERE id=1",
+          )
+          .one().room_epoch,
+      ).toBe(epoch);
+      expect(await state.storage.getAlarm()).toBeNull();
     });
-    await runDurableObjectAlarm(stub);
-    const after = await runInDurableObject(stub, async (_instance, state) => ({
-      tables: state.storage.sql
-        .exec<{ name: string }>(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('room_meta', 'revocation_cutoffs')",
-        )
-        .toArray().length,
-      alarm: await state.storage.getAlarm(),
-    }));
-    expect(after.tables).toBe(0);
-    expect(after.alarm).toBeNull();
+    await evictDurableObject(stub);
+    const rejoined = await joinRoom(roomId);
+    expect(rejoined.joined.roomGeneration).toBe(epoch + 1);
+    rejoined.connection.close();
   });
 
   it("retires expired cutoffs while the room is still occupied", async () => {
@@ -353,49 +297,31 @@ describe("storage lifecycle", () => {
     member.connection.close();
   });
 
-  it("keeps storage while a revocation cutoff still needs retaining", async () => {
-    const roomId = uniqueRoomId("cutoffhold");
+  it("keeps a room terminal after control cutoffs retire", async () => {
+    const roomId = uniqueRoomId("endterminal");
     const stub = roomStub(roomId);
-    const member = await joinRoom(roomId);
-    member.connection.close();
-    await sleep(100);
-
-    await runInDurableObject(stub, (_instance, state) => {
-      state.storage.sql.exec(
-        "UPDATE room_meta SET room_expires_at_ms = ? WHERE id = 1",
-        Date.now() - 60_000,
-      );
-      // A cutoff recorded just now: some token below it could still be
-      // unexpired, so the room's terminal state must be retained.
-      state.storage.sql.exec(
-        "INSERT OR REPLACE INTO revocation_cutoffs(scope, revision, recorded_at_s) VALUES ('channel', 9, ?)",
-        Math.floor(Date.now() / 1000),
-      );
+    await stub.applyControlV1({
+      v: 1,
+      action: "end-room",
+      roomId,
+      authGeneration: 1,
+      revision: 9,
     });
-    await runDurableObjectAlarm(stub);
-    const held = await runInDurableObject(stub, (_instance, state) =>
-      state.storage.sql
-        .exec<{ scope: string }>("SELECT scope FROM revocation_cutoffs")
-        .toArray(),
-    );
-    expect(held).toHaveLength(1);
-
-    // Once no token issued below the cutoff can still be alive, cleanup runs.
-    await runInDurableObject(stub, (_instance, state) => {
+    await runInDurableObject(stub, async (instance, state) => {
       state.storage.sql.exec(
-        "UPDATE revocation_cutoffs SET recorded_at_s = ?",
-        Math.floor(Date.now() / 1000) - 3_600,
+        "UPDATE revocation_cutoffs SET recorded_at_s=?",
+        Math.floor(Date.now() / 1000) - 3600,
       );
+      await instance.alarm();
+      expect(
+        state.storage.sql
+          .exec<{ room_ended: number }>(
+            "SELECT room_ended FROM room_meta WHERE id=1",
+          )
+          .one().room_ended,
+      ).toBe(1);
+      expect(await state.storage.getAlarm()).toBeNull();
     });
-    await runDurableObjectAlarm(stub);
-    const tables = await runInDurableObject(stub, (_instance, state) =>
-      state.storage.sql
-        .exec<{ name: string }>(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('room_meta', 'revocation_cutoffs')",
-        )
-        .toArray(),
-    );
-    expect(tables).toHaveLength(0);
   });
 });
 

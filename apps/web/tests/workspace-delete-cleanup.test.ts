@@ -118,10 +118,10 @@ describe("workspace.delete storage lifecycle", () => {
       url: "https://example.com/a",
     });
     await testDb.insert(schema.collaborationRoom).values({
+      status: "ready",
       roomId: "room-doomed",
       sceneId: doomedScene.id,
       ownerId: "owner-user",
-      expiresAt: new Date(Date.now() + 60_000),
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-doomed",

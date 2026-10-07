@@ -253,9 +253,6 @@ function issueToken(
     authGeneration?: number;
     authRevision?: number;
     expired?: boolean;
-    roomExpired?: boolean;
-    /** Room lifetime from now, when a case needs `rexp` to land mid-session. */
-    roomExpiresInSeconds?: number;
     secret?: string;
     /** Room id the claims carry, when it must differ from the join's. */
     claimedRoomId?: RoomId;
@@ -279,11 +276,6 @@ function issueToken(
       sub: overrides?.subject ?? `conf-${crypto.randomUUID().slice(0, 13)}`,
       role: overrides?.role ?? "editor",
       arev: overrides?.authRevision ?? 1,
-      rexp:
-        overrides?.roomExpired === true
-          ? Math.floor(Date.now() / 1000) - 10
-          : Math.floor(Date.now() / 1000) +
-            (overrides?.roomExpiresInSeconds ?? 3_600),
     },
     overrides?.secret ?? harness.secret,
   );
@@ -726,21 +718,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "a token whose room lifetime has ended closes with roomEnded",
-    async run(harness) {
-      const roomId = uniqueRoomId("roomexp");
-      const connection = await harness.connect(roomId);
-      connection.send(
-        joinFrame(roomId, issueToken(harness, roomId, { roomExpired: true })),
-      );
-      await expectClose(
-        connection,
-        RELAY_CLOSE_CODES.roomEnded,
-        "expired room",
-      );
-    },
-  },
-  {
     name: "leave closes normally and shrinks the peers broadcast",
     async run(harness) {
       const roomId = uniqueRoomId("leave");
@@ -947,20 +924,18 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "authorization generations of one room are disjoint channels",
+    name: "crypto rotation closes the old cohort within one stable room authority",
     async run(harness) {
       const roomId = uniqueRoomId("gens");
       const genOne = await join(harness, roomId);
       const genTwo = await join(harness, roomId, { authGeneration: 2 });
-      // Same roomId, different generation: a fresh channel with only itself.
       assertEqual(genTwo.joined.peers.length, 1, "gen-2 membership");
-      // Membership isolation, checked from the other side too: a backend that
-      // built gen 2's acknowledgment correctly but still broadcast the join
-      // to gen 1 would pass the assertion above.
-      await genOne.connection.expectSilence(250);
-      genOne.connection.send(sceneFrame([42]));
+      await expectClose(
+        genOne.connection,
+        RELAY_CLOSE_CODES.roomEnded,
+        "rotated cohort",
+      );
       await genTwo.connection.expectSilence(250);
-      genOne.connection.close();
       genTwo.connection.close();
     },
   },
@@ -1167,27 +1142,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "a live session closes with roomEnded when the room lifetime ends mid-session",
-    async run(harness) {
-      // The existing roomEnded case covers a join into an already-expired
-      // room; this one pins the *push* side — the server must end a session
-      // that was legal when it started.
-      const roomId = uniqueRoomId("midexp");
-      const { connection } = await join(harness, roomId, {
-        roomExpiresInSeconds: 3,
-      });
-      const event = await connection.next(15_000);
-      if (event.kind !== "close") {
-        fail(`Expected the room-expiry close, received ${event.kind}`);
-      }
-      assertEqual(
-        event.code,
-        RELAY_CLOSE_CODES.roomEnded,
-        "mid-session expiry close code",
-      );
-    },
-  },
-  {
     name: "a refused viewer scene frame is never delivered to the room",
     async run(harness) {
       const roomId = uniqueRoomId("norelay");
@@ -1341,7 +1295,7 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "control actions are scoped to their authorization generation",
+    name: "stale generation controls cannot end a rotated room",
     async run(harness) {
       const roomId = uniqueRoomId("genscope");
       const genOne = await join(harness, roomId);
@@ -1352,8 +1306,7 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
           authGeneration: 1,
         }),
       );
-      assertEqual(result.accepted, true, "gen-1 end accepted");
-      assertEqual(result.closed, 1, "only the gen-1 session closed");
+      assertEqual(result.accepted, false, "stale generation control refused");
       await expectClose(
         genOne.connection,
         RELAY_CLOSE_CODES.roomEnded,

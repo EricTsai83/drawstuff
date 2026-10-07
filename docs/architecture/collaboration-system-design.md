@@ -9,6 +9,60 @@
 - Capacity contract: [collaboration SLO](../performance/collaboration-slo-capacity.md)
 - Deployment contract: [Durable Object deployment runbook](../operations/collaboration-do-deployment.md)
 
+## 18B P1 source artifact and P2 boundary
+
+The repository contains the protocol-v6 data foundation. Production has not been reset or
+deployed to it: the production description below still refers to protocol v5 and DB authority.
+The P1 artifact is **not independently deployable**. P2 must connect all authenticated entry
+points and storage adapters, and P3 must perform the controlled reset before it is deployed.
+
+- `packages/collaboration/authority` defines strict identity-only proofs, immutable content
+  operations, query/cancel/fence commands, initialization manifests, monotonic projection events,
+  stable list cursors, management outcomes, and subject-scoped retirement commands. Proofs grant
+  identity, not a caller-selected role. HMAC signing stays in the server-only `room-token` module.
+- `RoomAuthority` owns SQLite room state (`initializing`, `ready`, `ended`), owner, members,
+  normalized allowlist addresses, permanent revocation/retirement decisions, crypto generation,
+  authorization revision, storage epoch, immutable operation metadata, and initialization progress.
+  `roomChannelKey` now resolves to roomId across generations; generation changes cannot create a
+  fresh authority store. The remaining generation URL segment is transport metadata, not DO identity.
+- Initialization completion stays pending until the adapter confirms the declared latest snapshot
+  and complete finalized asset manifest. A terminal local transition cancels completion work,
+  rejects late finalization, and durably retains fence and orphan-cleanup work. An empty ready
+  room has no TTL or heartbeat; its cohort high-water and terminal decisions remain durable.
+- `DurableWork` commits business state, operation results, jobs, and the alarm in one local storage
+  transaction. External delivery runs outside that transaction, with a 16-job/5-second alarm budget,
+  a cancellation signal, bounded persistent backoff, and version-checked acknowledgments. Only
+  terminal results expire after 24 hours; unfinished work does not disappear. No job stores a
+  snapshot, image bytes, plaintext, or root key.
+- Ordinary work is capped at 128 jobs and safety reserve at 64. Exhausted reserve durably denies
+  the whole room, retaining one emergency room fence and at most one emergency orphan-cleanup
+  job. Safety mutations that outrun ordinary projections retain a dirty cursor and rebuild
+  projections in bounded batches. Allowlist storage, including removed-address decisions, is
+  capped at 200 entries. Initialization allows the existing 512-asset generation limit;
+  individual metadata jobs are capped at 64 KiB. Management/content result stores each cap at
+  4,096 entries and refuse new work until capacity is available.
+- `CollaborationLifecycle` has a SQLite-backed binding per account/scene. `LifecycleProgress`
+  persists freeze, cursor enumeration, per-room enforcement, deletion, and completion. It
+  retains the terminal subject decision and compares a local progress revision after every
+  external response so late results cannot move retirement backwards. Adapter calls must
+  deduplicate by the original operationId and lifecycle version.
+- PostgreSQL now permits room rows without scenes, removes room expiry, and carries initialization,
+  epoch, and projection metadata. The partial unique scene index includes initializing/ready
+  rooms and permits multiple NULL scene ids. An optional scene FK retains cascade semantics
+  for source-linked rooms; P2 must confirm their retirement before any cascade. Independent
+  rooms have no such relation. Pre-activation lifecycle registration deliberately has no room
+  FK, so a still-creating room cannot be omitted. Lifecycle and projection tombstones have no
+  parent FK and outlive parent deletion. List projection indices use `(userId, listedAt, roomId)`;
+  scene joins are not required. Snapshot bytes still live only in the existing snapshot table.
+
+P1 leaves the legacy DB-role issuer, control outbox/drainer/cron, and ordinary content/retirement
+entry points for the P2 replacement. Room and Lifecycle alarms intentionally refuse delivery
+while their authenticated adapters are unconfigured, preserve the job, and retry; this is not an
+implemented production backend. P2 must verify identity proofs and lifecycle registration, supply
+binary write/query/cancel/fence and projection adapters, acknowledge initialization/fences, connect
+retirement from every deletion entry, and remove the old paths. P1 runtime/PGlite tests establish
+local persistence and schema semantics; they do not establish cross-cloud or production behavior.
+
 This document describes the collaboration system as it exists today. The relay is a Cloudflare
 Worker gateway plus one `CollaborationRoom` Durable Object per room generation
 (`apps/collaboration-do`); durable collaboration data belongs to the web backend; encryption and
@@ -174,7 +228,7 @@ room/generation. A client that does not know a valid baseline cannot overwrite i
 
 Snapshot writers merge the winner after a revision conflict before retrying. Periodic cadence and
 forced leave flush share authorization, role, generation, baseline-known, and revision guards. The
-flush evaluates those guards and captures the scene *before* it waits on anything: teardown closes
+flush evaluates those guards and captures the scene _before_ it waits on anything: teardown closes
 the transport in the same tick the flush is requested, and the write itself travels over tRPC, so a
 guard consulted after an await would veto the one write that persists the room's last edits. A
 session that reaches a terminal recovery state clears its own connection state, timers, and

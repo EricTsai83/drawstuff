@@ -25,6 +25,7 @@ import {
 } from "@drawstuff/collaboration/asset";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
+import { AUTHORITY_LIMITS } from "@drawstuff/collaboration/authority";
 import {
   PERSONAL_LIBRARY_FORMAT_VERSION,
   PERSONAL_LIBRARY_MAX_COMPRESSED_BYTES,
@@ -419,9 +420,9 @@ export const collaborationRoom = createTable(
   {
     // relay 用的 room id（nanoid），同時是主鍵：不另外維護第二組識別碼。
     roomId: varchar("room_id", { length: 64 }).primaryKey(),
-    sceneId: uuid("scene_id")
-      .notNull()
-      .references(() => scene.id, { onDelete: "cascade" }),
+    sceneId: uuid("scene_id").references(() => scene.id, {
+      onDelete: "cascade",
+    }),
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
@@ -446,8 +447,23 @@ export const collaborationRoom = createTable(
      * 寫入——client 端視為無法驗證而拒絕加入；rotate 會先清空再由 owner 重算。
      */
     keyCheck: bytea("key_check"),
-    status: varchar("status", { length: 16 }).default("active").notNull(),
-    expiresAt: timestamp("expires_at").notNull(),
+    status: varchar("status", { length: 16 }).default("initializing").notNull(),
+    authorityEpoch: integer("authority_epoch").default(1).notNull(),
+    projectionVersion: integer("projection_version").default(1).notNull(),
+    label: varchar("label", { length: 120 }).default("").notNull(),
+    createOperationId: uuid("create_operation_id")
+      .$defaultFn(() => crypto.randomUUID())
+      .notNull()
+      .unique(),
+    initializationDeadline: timestamp("initialization_deadline")
+      .default(sql`now() + interval '15 minutes'`)
+      .notNull(),
+    initializationAssetIds: text("initialization_asset_ids")
+      .array()
+      .default(sql`ARRAY[]::text[]`)
+      .notNull(),
+    initializationRevision: integer("initialization_revision"),
+    initializationChecksum: varchar("initialization_checksum", { length: 64 }),
     endedAt: timestamp("ended_at"),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
@@ -458,15 +474,34 @@ export const collaborationRoom = createTable(
   },
   (table) => [
     index("collaboration_room_owner_id_idx").on(table.ownerId),
-    // 「這個 scene 現在有沒有 active room」與生命週期清理都走這兩個索引。
-    index("collaboration_room_status_expires_at_idx").on(
+    index("collaboration_room_status_ended_at_idx").on(
       table.status,
-      table.expiresAt,
+      table.endedAt,
+    ),
+    check(
+      "collaboration_room_authority_epoch_positive",
+      sql`${table.authorityEpoch} >= 1`,
+    ),
+    check(
+      "collaboration_room_projection_version_positive",
+      sql`${table.projectionVersion} >= 1`,
+    ),
+    check(
+      "collaboration_room_initialization_assets_bounded",
+      sql`cardinality(${table.initializationAssetIds}) <= ${sql.raw(String(AUTHORITY_LIMITS.initializationAssets))}`,
+    ),
+    check(
+      "collaboration_room_initialization_checksum",
+      sql`${table.initializationChecksum} is null or ${table.initializationChecksum} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "collaboration_room_initialization_manifest",
+      sql`(${table.initializationRevision} is null) = (${table.initializationChecksum} is null) and (${table.initializationRevision} is null or ${table.initializationRevision} > 0)`,
     ),
     // 同一個 scene 最多一個 active room；ended room 保留為歷史紀錄。
     uniqueIndex("collaboration_room_active_scene_unique")
       .on(table.sceneId)
-      .where(sql`status = 'active'`),
+      .where(sql`status in ('initializing', 'ready')`),
     check(
       "collaboration_room_auth_generation_positive",
       sql`${table.authGeneration} >= 1`,
@@ -477,7 +512,7 @@ export const collaborationRoom = createTable(
     ),
     check(
       "collaboration_room_status_supported",
-      sql`${table.status} in ('active', 'ended')`,
+      sql`${table.status} in ('initializing', 'ready', 'ended')`,
     ),
     check(
       "collaboration_room_link_role_supported",
@@ -507,6 +542,8 @@ export const collaborationRoomMember = createTable(
     userId: text("user_id").notNull(),
     role: varchar("role", { length: 16 }).notNull(),
     revokedAt: timestamp("revoked_at"),
+    projectionVersion: integer("projection_version").default(1).notNull(),
+    listedAt: timestamp("listed_at").defaultNow().notNull(),
     createdAt: timestamp("created_at")
       .$defaultFn(() => new Date())
       .notNull(),
@@ -530,7 +567,15 @@ export const collaborationRoomMember = createTable(
       table.roomId,
       table.userId,
     ),
-    index("collaboration_room_member_user_id_idx").on(table.userId),
+    index("collaboration_room_member_user_listed_idx").on(
+      table.userId,
+      table.listedAt.desc(),
+      table.roomId.desc(),
+    ),
+    check(
+      "collaboration_room_member_projection_version_positive",
+      sql`${table.projectionVersion} >= 1`,
+    ),
     check(
       "collaboration_room_member_role_supported",
       sql`${table.role} in ('owner', 'editor', 'viewer')`,
@@ -709,6 +754,123 @@ export const collaborationAsset = createTable(
       sql`${table.byteLength} between 1 and ${sql.raw(
         String(MAX_ASSET_CIPHERTEXT_BYTES),
       )}`,
+    ),
+  ],
+);
+
+/** Adapter result and snapshot commit share the room's FOR UPDATE fence. No ciphertext payload here. */
+export const collaborationOperation = createTable(
+  "collaboration_operation",
+  {
+    operationId: uuid("operation_id").primaryKey(),
+    roomId: varchar("room_id", { length: 64 })
+      .notNull()
+      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
+    actor: text("actor").notNull(),
+    kind: varchar("kind", { length: 32 }).notNull(),
+    authorityEpoch: integer("authority_epoch").notNull(),
+    authGeneration: integer("auth_generation").notNull(),
+    expectedRevision: integer("expected_revision").notNull(),
+    checksum: varchar("checksum", { length: 64 }).notNull(),
+    assetId: varchar("asset_id", { length: 64 }),
+    utFileKey: varchar("ut_file_key", { length: 256 }),
+    deadline: timestamp("deadline").notNull(),
+    status: varchar("status", { length: 16 }).notNull(),
+    revision: integer("revision"),
+    terminalAt: timestamp("terminal_at"),
+  },
+  (table) => [
+    index("collaboration_operation_terminal_idx").on(table.terminalAt),
+    check(
+      "collaboration_operation_kind",
+      sql`${table.kind} in ('snapshot-put','snapshot-reset','asset-finalize')`,
+    ),
+    check(
+      "collaboration_operation_status",
+      sql`${table.status} in ('pending','written','cancelled','refused','conflict')`,
+    ),
+    check(
+      "collaboration_operation_versions",
+      sql`${table.authorityEpoch}>0 and ${table.authGeneration}>0 and ${table.expectedRevision}>=0`,
+    ),
+    check(
+      "collaboration_operation_checksum",
+      sql`${table.checksum} ~ '^[a-f0-9]{64}$'`,
+    ),
+    check(
+      "collaboration_operation_asset_identity",
+      sql`(${table.kind}='asset-finalize') = (${table.assetId} is not null) and (${table.assetId} is null) = (${table.utFileKey} is null)`,
+    ),
+    check(
+      "collaboration_operation_result",
+      sql`(${table.status}='written') = (${table.revision} is not null) and (${table.revision} is null or ${table.revision}>0) and (${table.status}='pending') = (${table.terminalAt} is null)`,
+    ),
+  ],
+);
+
+/** Terminal subject fences outlive cascades; subject ids are never reused. */
+export const collaborationLifecycleSubject = createTable(
+  "collaboration_lifecycle_subject",
+  {
+    scope: varchar("scope", { length: 160 }).primaryKey(),
+    kind: varchar("kind", { length: 16 }).notNull(),
+    subject: text("subject").notNull(),
+    sceneId: uuid("scene_id"),
+    version: integer("version").default(1).notNull(),
+    frozen: boolean("frozen").default(false).notNull(),
+    retired: boolean("retired").default(false).notNull(),
+    operationId: uuid("operation_id"),
+  },
+  (table) => [
+    check(
+      "collaboration_lifecycle_subject_shape",
+      sql`(${table.kind}='account' and ${table.sceneId} is null and ${table.scope}='account:' || ${table.subject}) or (${table.kind}='scene' and ${table.sceneId} is not null and ${table.scope}='scene:' || ${table.sceneId}::text)`,
+    ),
+    check("collaboration_lifecycle_subject_version", sql`${table.version}>0`),
+    check(
+      "collaboration_lifecycle_subject_retired_frozen",
+      sql`not ${table.retired} or ${table.frozen}`,
+    ),
+  ],
+);
+
+/** Reliable pre-activation registration includes rooms still being created (so no room FK). */
+export const collaborationLifecycleRegistration = createTable(
+  "collaboration_lifecycle_registration",
+  {
+    subject: text("subject").notNull(),
+    roomId: varchar("room_id", { length: 64 }).notNull(),
+    sceneId: uuid("scene_id"),
+    owner: boolean("owner").notNull(),
+    lifecycleVersion: integer("lifecycle_version").notNull(),
+    operationId: uuid("operation_id").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.subject, table.roomId] }),
+    index("collaboration_lifecycle_registration_scene_idx").on(
+      table.sceneId,
+      table.roomId,
+    ),
+    check(
+      "collaboration_lifecycle_registration_version",
+      sql`${table.lifecycleVersion}>0`,
+    ),
+  ],
+);
+
+/** Monotonic negative projection survives a deleted account/room and refuses delayed events. */
+export const collaborationProjectionTombstone = createTable(
+  "collaboration_projection_tombstone",
+  {
+    roomId: varchar("room_id", { length: 64 }).notNull(),
+    subject: text("subject").notNull(),
+    version: integer("version").notNull(),
+  },
+  (table) => [
+    primaryKey({ columns: [table.roomId, table.subject] }),
+    check(
+      "collaboration_projection_tombstone_version",
+      sql`${table.version}>0`,
     ),
   ],
 );
@@ -1167,4 +1329,8 @@ export const schema = {
   collaborationRoomMember,
   collaborationSnapshot,
   collaborationAsset,
+  collaborationOperation,
+  collaborationLifecycleSubject,
+  collaborationLifecycleRegistration,
+  collaborationProjectionTombstone,
 };

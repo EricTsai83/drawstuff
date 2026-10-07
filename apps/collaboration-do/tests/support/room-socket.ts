@@ -87,7 +87,6 @@ export function issueJoinToken(options: {
       sub: options.subject ?? "user-do-test",
       role: options.role ?? "editor",
       arev: options.authRevision ?? 1,
-      rexp: options.roomExpiresAtSeconds ?? now + 3_600,
     },
     options.secret ?? TEST_ROOM_TOKEN_SECRET,
   );

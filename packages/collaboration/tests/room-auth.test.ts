@@ -40,7 +40,7 @@ const claims = (overrides: Partial<JoinTokenClaims> = {}): JoinTokenClaims => ({
   sub: "user-1",
   role: "editor",
   arev: 1,
-  rexp: NOW_SECONDS + 3_600,
+
   ...overrides,
 });
 
@@ -79,9 +79,9 @@ describe("room roles", () => {
 });
 
 describe("roomChannelKey", () => {
-  it("partitions a room id by authorization generation", () => {
-    expect(roomChannelKey(ROOM_ID, 1)).toBe(`${ROOM_ID}-g1`);
-    expect(roomChannelKey(ROOM_ID, 2)).not.toBe(roomChannelKey(ROOM_ID, 1));
+  it("keeps authority identity stable across generations", () => {
+    expect(roomChannelKey(ROOM_ID, 1)).toBe(ROOM_ID);
+    expect(roomChannelKey(ROOM_ID, 2)).toBe(roomChannelKey(ROOM_ID, 1));
     expect(roomChannelKey(roomIdSchema.parse("other"), 1)).not.toBe(
       roomChannelKey(ROOM_ID, 1),
     );

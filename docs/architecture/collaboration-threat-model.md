@@ -8,6 +8,15 @@
 This document identifies trust boundaries, data that crosses them, implemented controls, and
 accepted gaps. Scene plaintext exists only in participating browsers.
 
+18B P1 defines an identity-only proof and Room SQLite allowlist; production entry points still use
+the existing controls below until P2/P3. Allowlist email addresses (including addresses without
+registered accounts), normalized comparison keys, creator, and timestamps are visible server
+metadata. They must not be logged or included in analytics/error reports. Normalization trims
+outer whitespace and lowercases only; it preserves dots and plus addressing. Removed-address and
+member revocation decisions persist across crypto generation changes. Identity proofs do not grant
+a room role; P2 must validate proof signatures, current lifecycle registration, and local authority
+on every entry. A SQLite primitive accepting a typed identity is not a public authentication boundary.
+
 ## Trust boundaries
 
 | Boundary | Sides                                | Reachability                                                                              |

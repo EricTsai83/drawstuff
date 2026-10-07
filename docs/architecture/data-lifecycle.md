@@ -10,6 +10,15 @@ This document defines how user-scoped Library data, owned-scene assets, and room
 data are retained and retired. Database rows and object-storage bytes are separate resources;
 deletion must preserve their transaction boundary through the durable cleanup outbox.
 
+18B P1 adds nullable source scenes, initializing/ready/ended room metadata, immutable operation
+results, pre-activation subject registration, and persistent lifecycle/projection tombstones to
+the source schema. Source retention now reclaims only explicitly ended rooms after grace;
+ready/initializing rooms never expire. Linked-room FKs still cascade, while NULL-source rooms
+are independent. Lifecycle terminal records survive account/scene deletion. All deletion callers
+must move to confirmed Lifecycle retirement in P2 before deployment; the matrix below describes
+the existing production deployment. See the
+[P1/P2 boundary](./collaboration-system-design.md#18b-p1-source-artifact-and-p2-boundary).
+
 ## Lifecycle matrix
 
 | Data                   | Identity                                         | Active retention                           | Retirement path                                                             |

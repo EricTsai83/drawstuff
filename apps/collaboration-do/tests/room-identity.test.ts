@@ -29,14 +29,14 @@ describe("RoomChannelKey object identity", () => {
     expect(first.id.toString()).toBe(second.id.toString());
   });
 
-  it("gives a rotated generation a different object", () => {
+  it("keeps a rotated generation in the same object", () => {
     const generationOne = env.COLLABORATION_ROOM.getByName(
       roomChannelKey(ROOM_A, 1),
     );
     const generationTwo = env.COLLABORATION_ROOM.getByName(
       roomChannelKey(ROOM_A, 2),
     );
-    expect(generationOne.id.toString()).not.toBe(generationTwo.id.toString());
+    expect(generationOne.id.toString()).toBe(generationTwo.id.toString());
   });
 
   it("gives different rooms different objects", () => {
@@ -65,12 +65,12 @@ describe("CollaborationRoom fetch identity check", () => {
     expect(response.status).toBe(403);
   });
 
-  it("fails closed on a mismatched generation", async () => {
+  it("accepts another crypto generation on the same authority object", async () => {
     const stub = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_A, 1));
     const response = await stub.fetch("https://room.internal/socket", {
       headers: identityHeaders(ROOM_A, "2"),
     });
-    expect(response.status).toBe(403);
+    expect(response.status).toBe(426);
   });
 
   it("fails closed without internal identity metadata", async () => {
@@ -99,7 +99,7 @@ describe("CollaborationRoom RPC identity", () => {
         v: 1,
         action: "end-room",
         roomId: ROOM_A,
-        authGeneration: 7,
+        authGeneration: 1,
         revision: 2,
       }),
     ).resolves.toEqual({ appliedRevision: 2, closed: 0 });
@@ -143,6 +143,6 @@ describe("CollaborationRoom alarm identity", () => {
         )
         .toArray(),
     );
-    expect(tables).toHaveLength(0);
+    expect(tables).toHaveLength(2);
   });
 });

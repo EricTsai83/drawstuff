@@ -554,8 +554,7 @@ describe("collab room retention", () => {
 
   async function insertRoom(params: {
     roomId: string;
-    status: "active" | "ended";
-    expiresAt: Date;
+    status: "ready" | "ended";
     endedAt?: Date;
   }) {
     const sceneId = await insertScene(null);
@@ -564,7 +563,6 @@ describe("collab room retention", () => {
       sceneId,
       ownerId: OWNER,
       status: params.status,
-      expiresAt: params.expiresAt,
       endedAt: params.endedAt ?? null,
     });
   }
@@ -619,7 +617,7 @@ describe("collab room retention", () => {
     await insertRoom({
       roomId: "room-ended-old",
       status: "ended",
-      expiresAt: new Date(Date.now() - 9 * DAY_MS),
+
       endedAt: new Date(Date.now() - 8 * DAY_MS),
     });
     await insertSnapshot("room-ended-old", 8);
@@ -637,7 +635,7 @@ describe("collab room retention", () => {
     if (retention?.status !== "ok") throw new Error("expected retention ok");
     expect(retention.detail).toMatchObject({
       roomsReclaimed: 1,
-      endedExpiredRooms: 0,
+
       deletedSnapshots: 1,
       deletedSnapshotBytes: 8,
       deletedAssetRows: 2,
@@ -665,7 +663,7 @@ describe("collab room retention", () => {
     await insertRoom({
       roomId: "room-ended-old",
       status: "ended",
-      expiresAt: new Date(Date.now() - 9 * DAY_MS),
+
       endedAt: new Date(Date.now() - 8 * DAY_MS),
     });
     await insertSnapshot("room-ended-old", 8);
@@ -673,8 +671,7 @@ describe("collab room retention", () => {
     await insertAsset("room-ended-old", FILE_B, "room-key-b");
     await insertRoom({
       roomId: "room-expired-empty",
-      status: "active",
-      expiresAt: new Date(Date.now() - 9 * DAY_MS),
+      status: "ready",
     });
 
     const { deps, deletedKeys } = makeDeps();
@@ -683,7 +680,7 @@ describe("collab room retention", () => {
     expect(detail).toMatchObject({
       dryRun: true,
       roomsReclaimable: 1,
-      endableExpiredRooms: 1,
+
       snapshotRows: 1,
       snapshotBytes: 8,
       assetRows: 2,
@@ -698,37 +695,28 @@ describe("collab room retention", () => {
           snapshotBytes: 8,
           assets: 2,
         },
-        {
-          roomId: "room-expired-empty",
-          status: "active",
-          snapshots: 0,
-          snapshotBytes: 0,
-          assets: 0,
-        },
       ]),
     );
     expect(await snapshotCount("room-ended-old")).toBe(1);
     expect(await assetCount("room-ended-old")).toBe(2);
-    expect((await roomRow("room-expired-empty"))?.status).toBe("active");
+    expect((await roomRow("room-expired-empty"))?.status).toBe("ready");
     expect(deletedKeys).toEqual([]);
     expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
   });
 
-  it("leaves live and recently ended or expired rooms alone", async () => {
+  it("leaves ready rooms and recently ended rooms alone", async () => {
     await insertRoom({
       roomId: "room-live",
-      status: "active",
-      expiresAt: new Date(Date.now() + 12 * HOUR_MS),
+      status: "ready",
     });
     await insertRoom({
       roomId: "room-just-expired",
-      status: "active",
-      expiresAt: new Date(Date.now() - HOUR_MS),
+      status: "ready",
     });
     await insertRoom({
       roomId: "room-just-ended",
       status: "ended",
-      expiresAt: new Date(Date.now() + 12 * HOUR_MS),
+
       endedAt: new Date(Date.now() - HOUR_MS),
     });
     for (const roomId of [
@@ -753,63 +741,26 @@ describe("collab room retention", () => {
       expect(await snapshotCount(roomId)).toBe(1);
       expect(await assetCount(roomId)).toBe(1);
     }
-    expect((await roomRow("room-just-expired"))?.status).toBe("active");
+    expect((await roomRow("room-just-expired"))?.status).toBe("ready");
     expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
   });
 
-  it("ends an expired-but-active room before reclaiming it", async () => {
-    // The create mutation refreshes an expired active room back to life
-    // (same roomId), so a reclaimed room must be closed in the same
-    // transaction — otherwise it could be resurrected with its baseline and
-    // assets already gone.
-    await insertRoom({
-      roomId: "room-expired-old",
-      status: "active",
-      expiresAt: new Date(Date.now() - 8 * DAY_MS),
-    });
-    await insertSnapshot("room-expired-old");
-    await insertAsset("room-expired-old", FILE_A, "expired-key");
-
+  it("never reclaims a ready room, even after years without activity", async () => {
+    await insertRoom({ roomId: "room-unbounded", status: "ready" });
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ updatedAt: new Date(0) })
+      .where(eq(schema.collaborationRoom.roomId, "room-unbounded"));
+    await insertSnapshot("room-unbounded");
+    await insertAsset("room-unbounded", FILE_A, "retained-key");
     const { deps } = makeDeps();
-    const detail = await createRoomRetentionJob().run(deps);
-
-    expect(detail).toMatchObject({
-      roomsReclaimed: 1,
-      endedExpiredRooms: 1,
-      deletedSnapshots: 1,
-      enqueuedObjects: 1,
-    });
-    const room = await roomRow("room-expired-old");
-    expect(room?.status).toBe("ended");
-    expect(room?.endedAt).not.toBeNull();
-    expect(await snapshotCount("room-expired-old")).toBe(0);
-    expect(await assetCount("room-expired-old")).toBe(0);
-  });
-
-  it("ends a long-expired room that holds no data", async () => {
-    // As long as it stays active the create mutation can refresh it back to
-    // life, so ending it after the grace period is retention work even with
-    // nothing to reclaim.
-    await insertRoom({
-      roomId: "room-empty-expired",
-      status: "active",
-      expiresAt: new Date(Date.now() - 8 * DAY_MS),
-    });
-
-    const { deps } = makeDeps();
-    const first = await createRoomRetentionJob().run(deps);
-    expect(first).toMatchObject({
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
       roomsReclaimed: 0,
-      endedExpiredRooms: 1,
       enqueuedObjects: 0,
     });
-    const room = await roomRow("room-empty-expired");
-    expect(room?.status).toBe("ended");
-    expect(room?.endedAt).not.toBeNull();
-
-    // Ended and data-less, it is no longer a candidate.
-    const second = await createRoomRetentionJob().run(deps);
-    expect(second).toMatchObject({ endedExpiredRooms: 0 });
+    expect((await roomRow("room-unbounded"))?.status).toBe("ready");
+    expect(await snapshotCount("room-unbounded")).toBe(1);
+    expect(await assetCount("room-unbounded")).toBe(1);
   });
 
   it("drains what the asset GC and room retention enqueue in one routine run", async () => {
@@ -824,7 +775,7 @@ describe("collab room retention", () => {
     await insertRoom({
       roomId: "room-combo",
       status: "ended",
-      expiresAt: new Date(Date.now() - 9 * DAY_MS),
+
       endedAt: new Date(Date.now() - 8 * DAY_MS),
     });
     await insertAsset("room-combo", FILE_A, "room-combo-key");
@@ -851,7 +802,7 @@ describe("collab room retention", () => {
       await insertRoom({
         roomId,
         status: "ended",
-        expiresAt: new Date(Date.now() - 9 * DAY_MS),
+
         endedAt: new Date(Date.now() - 8 * DAY_MS),
       });
       await insertAsset(roomId, FILE_A, `${roomId}-key-a`);
@@ -893,7 +844,7 @@ describe("collab room retention", () => {
       await insertRoom({
         roomId,
         status: "ended",
-        expiresAt: new Date(Date.now() - 9 * DAY_MS),
+
         endedAt: new Date(Date.now() - 8 * DAY_MS),
       });
       await insertSnapshot(roomId);
@@ -938,7 +889,6 @@ describe("user purge", () => {
       roomId: "room-intruder",
       sceneId: row.id,
       ownerId: "intruder",
-      expiresAt: new Date(Date.now() + 60_000),
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-intruder",

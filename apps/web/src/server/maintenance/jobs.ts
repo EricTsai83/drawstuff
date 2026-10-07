@@ -430,13 +430,7 @@ export function createUnreferencedAssetGcJob(
 export const ROOM_RETENTION_CLEANUP_REASON = "collab-room-retention";
 
 export type RoomRetentionOptions = {
-  /**
-   * How long a room must have been ended or expired before its durable data
-   * is reclaimed. Never immediate: room TTLs top out at 24h, so a room that
-   * left its live window a week ago cannot be one somebody is still using —
-   * while a freshly expired room may be seconds away from its owner
-   * refreshing it back to life.
-   */
+  /** Grace period after an explicit end, before reclaiming encrypted room data. */
   graceMs?: number;
   /** Rooms reclaimed per run. */
   maxRooms?: number;
@@ -456,33 +450,9 @@ export type RoomRetentionOptions = {
 };
 
 /**
- * Reclaims the durable data of rooms that ended or expired past the grace
- * period: generations retire within a room, but nothing
- * ever retired the room itself, so snapshots (Postgres ciphertext) and asset
- * objects (storage) accumulated at the rate rooms were opened.
- *
- * Snapshot rows are deleted outright — the ciphertext lives in the row.
- * Asset rows are deleted with their storage keys enqueued to the deferred
- * cleanup queue **in the same transaction**: after the commit the row is the
- * only pointer to the object, so the queue row must exist before it. The
- * drain job, always ordered after this one, deletes the objects in the run.
- *
- * An expired room that is still `active` is flipped to `ended` first, in the
- * same transaction under the room lock: the create mutation refreshes an
- * expired-but-active room back to life (same roomId, same generation), and a
- * room resurrected after its baseline and assets were reclaimed would greet
- * rejoining members with nothing. Ending it makes create open a fresh room
- * instead. No auth revision bump or relay push is needed — tokens carry the
- * room expiry, so every session and token died with the room days ago. The
- * room row itself stays, as history (unchanged from the end mutation).
- *
- * Eligibility is re-checked under the lock: between the candidate query and
- * the lock, the owner may have refreshed the room.
- *
- * Bounded (rooms and enqueued objects per run, sized to the same run's drain
- * capacity) and idempotent: an ended room is a candidate only while it still
- * holds data, and an expired room stops being one the moment it is ended, so
- * a rerun after a full sweep finds nothing.
+ * Reclaims only explicitly ended rooms after the grace period. Active/initializing rooms
+ * never expire. Snapshot deletion and encrypted object cleanup enqueue commit together;
+ * bounded room/object budgets leave remaining work for the next run.
  */
 export function createRoomRetentionJob(
   options: RoomRetentionOptions = {},
@@ -510,10 +480,6 @@ export function createRoomRetentionJob(
           ),
         ),
       );
-      const expiredPastGrace = and(
-        eq(collaborationRoom.status, "active"),
-        lt(collaborationRoom.expiresAt, graceCutoff),
-      );
       const holdsData = or(
         exists(
           db
@@ -528,20 +494,15 @@ export function createRoomRetentionJob(
             .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
         ),
       );
-      // An expired room is a candidate even with nothing to reclaim: as long
-      // as it stays `active` the create mutation can refresh it back to life,
-      // so ending it after the grace period is retention work too. An ended
-      // room only qualifies while it still holds data (once swept it drops
-      // out, which is what keeps reruns idempotent).
+      // Ended rooms qualify only while they still hold data; reruns are idempotent.
       const candidates = await db
         .select({ roomId: collaborationRoom.roomId })
         .from(collaborationRoom)
-        .where(or(expiredPastGrace, and(endedPastGrace, holdsData)))
+        .where(and(endedPastGrace, holdsData))
         .limit(maxRooms + 1);
       const truncated = candidates.length > maxRooms;
 
       let roomsReclaimed = 0;
-      let endedExpiredRooms = 0;
       let deletedSnapshots = 0;
       let deletedSnapshotBytes = 0;
       let enqueuedObjects = 0;
@@ -551,7 +512,6 @@ export function createRoomRetentionJob(
       type ReclaimOutcome =
         | {
             kind: "reclaimed";
-            wasExpiredActive: boolean;
             snapshots: number;
             snapshotBytes: number;
             assets: number;
@@ -576,10 +536,8 @@ export function createRoomRetentionJob(
                 )[0]
               : await lockRoom(tx, candidate.roomId);
             const eligible =
-              room !== undefined &&
-              (room.status === "ended"
-                ? (room.endedAt ?? room.updatedAt) < graceCutoff
-                : room.status === "active" && room.expiresAt < graceCutoff);
+              room?.status === "ended" &&
+              (room.endedAt ?? room.updatedAt) < graceCutoff;
             if (!eligible) return null;
 
             // Rooms are reclaimed whole — a half-swept room would defeat the
@@ -619,18 +577,10 @@ export function createRoomRetentionJob(
               });
               return {
                 kind: "reclaimed",
-                wasExpiredActive: room.status === "active",
                 snapshots: snapshotCount,
                 snapshotBytes,
                 assets: assetCount,
               };
-            }
-
-            if (room.status === "active") {
-              await tx
-                .update(collaborationRoom)
-                .set({ status: "ended", endedAt: now, updatedAt: now })
-                .where(eq(collaborationRoom.roomId, room.roomId));
             }
 
             const snapshots = await tx
@@ -661,7 +611,6 @@ export function createRoomRetentionJob(
             }
             return {
               kind: "reclaimed",
-              wasExpiredActive: room.status === "active",
               snapshots: snapshots.length,
               snapshotBytes: snapshots.reduce(
                 (total, row) => total + row.byteLength,
@@ -677,9 +626,8 @@ export function createRoomRetentionJob(
           break;
         }
 
-        // A data-less expired room is only ended, not "reclaimed".
+        // Count only rooms with reclaimed data.
         if (outcome.snapshots > 0 || outcome.assets > 0) roomsReclaimed += 1;
-        if (outcome.wasExpiredActive) endedExpiredRooms += 1;
         deletedSnapshots += outcome.snapshots;
         deletedSnapshotBytes += outcome.snapshotBytes;
         enqueuedObjects += outcome.assets;
@@ -690,7 +638,6 @@ export function createRoomRetentionJob(
         return {
           dryRun: true,
           roomsReclaimable: roomsReclaimed,
-          endableExpiredRooms: endedExpiredRooms,
           snapshotRows: deletedSnapshots,
           snapshotBytes: deletedSnapshotBytes,
           assetRows: enqueuedObjects,
@@ -700,7 +647,6 @@ export function createRoomRetentionJob(
       }
       return {
         roomsReclaimed,
-        endedExpiredRooms,
         deletedSnapshots,
         deletedSnapshotBytes,
         deletedAssetRows: enqueuedObjects,

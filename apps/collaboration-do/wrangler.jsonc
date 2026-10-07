@@ -49,6 +49,7 @@
   // Declarative SQLite-backed Durable Object lifecycle (mutually exclusive
   // with legacy `migrations` — do not add that key back for gradual rollouts).
   "exports": {
+    "CollaborationLifecycle": { "type": "durable-object", "storage": "sqlite" },
     "CollaborationRoom": {
       "type": "durable-object",
       "storage": "sqlite",
@@ -56,6 +57,10 @@
   },
   "durable_objects": {
     "bindings": [
+      {
+        "name": "COLLABORATION_LIFECYCLE",
+        "class_name": "CollaborationLifecycle",
+      },
       {
         "name": "COLLABORATION_ROOM",
         "class_name": "CollaborationRoom",

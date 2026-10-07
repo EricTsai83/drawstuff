@@ -156,8 +156,8 @@ describe("collaboration room creation", () => {
     expect(room.sceneId).toBe(sceneId);
     expect(room.authGeneration).toBe(1);
     expect(room.linkRole).toBe("none");
-    expect(room.status).toBe("active");
-    expect(room.expiresAt.getTime()).toBeGreaterThan(Date.now());
+    expect(room.status).toBe("ready");
+    expect(room).not.toHaveProperty("expiresAt");
     // The owner is recorded as a member so the panel can list participants.
     const members = await callerFor(OWNER).collaborationRoom.get({
       roomId: room.roomId,
@@ -266,7 +266,7 @@ describe("collaboration room join tokens", () => {
     ).toMatchObject({ role: "viewer", revoked: false });
   });
 
-  it("refuses a room that is not found, has ended, or has expired", async () => {
+  it("refuses a room that is not found, has ended", async () => {
     const sceneId = await createScene(OWNER);
     const caller = callerFor(OWNER);
     await expect(
@@ -278,7 +278,7 @@ describe("collaboration room join tokens", () => {
     const room = await caller.collaborationRoom.create({ sceneId });
     await testDb
       .update(schema.collaborationRoom)
-      .set({ expiresAt: new Date(Date.now() - 1_000) })
+      .set({ status: "ended" })
       .where(eq(schema.collaborationRoom.roomId, room.roomId));
     await expect(
       caller.collaborationRoom.join({
@@ -584,12 +584,11 @@ describe("collaboration room lifecycle", () => {
     expect(afterRotation.authGeneration).toBe(2);
   });
 
-  it("keeps the room's own expiry in the token so the relay can bound the session", async () => {
+  it("keeps join proofs short-lived without a room lifetime", async () => {
     const sceneId = await createScene(OWNER);
     const owner = callerFor(OWNER);
     const room = await owner.collaborationRoom.create({
       sceneId,
-      ttlMinutes: 30,
     });
     await armKeyCheck(room);
     const joined = await owner.collaborationRoom.join({
@@ -598,10 +597,8 @@ describe("collaboration room lifecycle", () => {
     const claims = claimsOf(joined.token, {
       roomId: room.roomId,
     });
-    // Without this the relay could only refuse the next join, leaving an
-    // already-connected socket alive past the room's lifetime.
-    expect(claims.rexp).toBe(Math.ceil(room.expiresAt.getTime() / 1000));
-    expect(claims.rexp * 1000).toBeGreaterThan(claims.exp * 1000);
+    expect(claims).not.toHaveProperty("rexp");
+    expect(claims.exp - claims.iat).toBe(60);
   });
 
   it("ends the generation that is current after a rotation", async () => {

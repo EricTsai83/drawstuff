@@ -82,7 +82,7 @@ export const adminRouter = createTRPCRouter({
       ctx.db
         .select({ value: count() })
         .from(collaborationRoom)
-        .where(eq(collaborationRoom.status, "active")),
+        .where(inArray(collaborationRoom.status, ["initializing", "ready"])),
       ctx.db
         .select({ value: count() })
         .from(deferredFileCleanup)
@@ -142,7 +142,7 @@ export const adminRouter = createTRPCRouter({
           .where(
             and(
               inArray(collaborationRoom.ownerId, userIds),
-              eq(collaborationRoom.status, "active"),
+              inArray(collaborationRoom.status, ["initializing", "ready"]),
             ),
           )
           .groupBy(collaborationRoom.ownerId),
@@ -207,7 +207,6 @@ export const adminRouter = createTRPCRouter({
             roomId: collaborationRoom.roomId,
             sceneId: collaborationRoom.sceneId,
             status: collaborationRoom.status,
-            expiresAt: collaborationRoom.expiresAt,
             endedAt: collaborationRoom.endedAt,
             updatedAt: collaborationRoom.updatedAt,
           })

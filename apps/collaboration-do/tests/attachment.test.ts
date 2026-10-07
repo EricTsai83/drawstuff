@@ -31,7 +31,7 @@ const MAX_ID = "A".repeat(64);
 const MAX_EPOCH_MS = 9_999_999_999_999;
 
 const maxPending: PendingSocketAttachment = {
-  v: 1,
+  v: 2,
   state: "pending",
   acceptedAt: MAX_EPOCH_MS,
   roomId: roomIdSchema.parse(MAX_ID),
@@ -39,7 +39,7 @@ const maxPending: PendingSocketAttachment = {
 };
 
 const maxJoined: JoinedSocketAttachment = {
-  v: 1,
+  v: 2,
   state: "joined",
   peerId: peerIdSchema.parse(MAX_ID),
   // Longest subject the token contract admits.
@@ -47,7 +47,7 @@ const maxJoined: JoinedSocketAttachment = {
   role: "viewer",
   tokenRevision: 2_147_483_647,
   roomEpoch: 2_147_483_647,
-  roomExpiresAt: MAX_EPOCH_MS,
+  authGeneration: 2_147_483_647,
   joinedAt: MAX_EPOCH_MS,
   lastFrameAt: MAX_EPOCH_MS,
 };
@@ -83,7 +83,7 @@ describe("room socket attachment", () => {
 
   it("fails closed on an unknown attachment version", () => {
     expect(
-      roomSocketAttachmentSchema.safeParse({ ...maxJoined, v: 2 }).success,
+      roomSocketAttachmentSchema.safeParse({ ...maxJoined, v: 1 }).success,
     ).toBe(false);
     expect(
       roomSocketAttachmentSchema.safeParse({ ...maxPending, v: 0 }).success,

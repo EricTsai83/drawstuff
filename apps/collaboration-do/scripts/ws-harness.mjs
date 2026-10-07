@@ -63,7 +63,7 @@ export function openConformanceSocket({ url, closeReason }) {
   return { socket, connection, opened };
 }
 
-/** A one-minute join token for a synthetic room that lives one hour. */
+/** A one-minute join token for a synthetic room. */
 export function issueSyntheticJoinToken({
   roomId,
   secret,
@@ -84,7 +84,6 @@ export function issueSyntheticJoinToken({
       sub: subject,
       role,
       arev: 1,
-      rexp: now + 3_600,
     },
     secret,
   );

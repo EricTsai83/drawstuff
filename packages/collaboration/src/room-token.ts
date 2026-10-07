@@ -1,6 +1,10 @@
 import { createHmac, randomUUID, timingSafeEqual } from "node:crypto";
 
 import { decodeBase64Url, encodeBase64Url } from "./base64.ts";
+import {
+  identityProofClaimsSchema,
+  type IdentityProofClaims,
+} from "./authority.ts";
 import type { RoomId } from "./messages.ts";
 import {
   joinTokenClaimsSchema,
@@ -72,6 +76,35 @@ export function createRoomTokenId(): string {
 export function signJoinToken(claims: JoinTokenClaims, secret: string): string {
   assertRoomTokenSecret(secret);
   return encodeToken(joinTokenClaimsSchema.parse(claims), secret);
+}
+
+export function signIdentityProof(
+  claims: IdentityProofClaims,
+  secret: string,
+): string {
+  assertRoomTokenSecret(secret);
+  return encodeToken(identityProofClaimsSchema.parse(claims), secret);
+}
+
+export function verifyIdentityProof(options: {
+  token: string;
+  secret: string;
+  nowSeconds: number;
+  expectedRoomId: RoomId;
+}): RoomTokenVerification<IdentityProofClaims> {
+  const signed = verifySignedPayload(options.token, options.secret);
+  if (!signed.ok) return signed;
+  const parsed = identityProofClaimsSchema.safeParse(signed.claims);
+  if (!parsed.success) return { ok: false, reason: "invalid-claims" };
+  const failure = checkLifetime(
+    parsed.data,
+    options.nowSeconds,
+    MAX_JOIN_TOKEN_TTL_SECONDS,
+  );
+  if (failure) return { ok: false, reason: failure };
+  if (parsed.data.roomId !== options.expectedRoomId)
+    return { ok: false, reason: "wrong-room" };
+  return { ok: true, claims: parsed.data };
 }
 
 export function signRoomControlToken(

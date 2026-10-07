@@ -66,17 +66,12 @@ export function createRoomId(): RoomId {
   return roomIdSchema.parse(nanoid(ROOM_ID_LENGTH));
 }
 
-/** Default room lifetime; the owner ends a room explicitly before that. */
-export const DEFAULT_ROOM_TTL_MINUTES = 12 * 60;
-export const MAX_ROOM_TTL_MINUTES = 24 * 60;
-
 export type RoomRecord = typeof collaborationRoom.$inferSelect;
 
 export type RoomAccess =
   | { status: "ok"; room: RoomRecord; role: RoomRole }
   | { status: "not-found" }
   | { status: "ended" }
-  | { status: "expired" }
   /** Authenticated, but not authorized for this room (or revoked). */
   | { status: "forbidden" };
 
@@ -94,11 +89,6 @@ export function roomAccessError(
       return new TRPCError({
         code: "PRECONDITION_FAILED",
         message: "This collaboration room has ended.",
-      });
-    case "expired":
-      return new TRPCError({
-        code: "PRECONDITION_FAILED",
-        message: "This collaboration room has expired.",
       });
     case "forbidden":
       return new TRPCError({
@@ -127,12 +117,7 @@ export async function resolveRoomAccess(
       where: eq(collaborationRoom.roomId, params.roomId),
     }));
   if (!room) return { status: "not-found" };
-  if (room.status !== "active") return { status: "ended" };
-  // Expiry is checked here rather than by a sweeper, so an expired room stops
-  // issuing tokens even if no cleanup job has run yet.
-  if (room.expiresAt.getTime() <= params.now.getTime()) {
-    return { status: "expired" };
-  }
+  if (room.status !== "ready") return { status: "ended" };
   if (room.ownerId === params.userId) {
     return { status: "ok", room, role: "owner" };
   }
@@ -195,10 +180,7 @@ export type IssuedJoinToken = {
  * distribution channel.
  */
 export function issueRoomJoinToken(params: {
-  room: Pick<
-    RoomRecord,
-    "roomId" | "authGeneration" | "authRevision" | "expiresAt"
-  >;
+  room: Pick<RoomRecord, "roomId" | "authGeneration" | "authRevision">;
   role: RoomRole;
   userId: string;
   secret: string;
@@ -222,9 +204,6 @@ export function issueRoomJoinToken(params: {
       // Read under the room lock, so the relay can order this token against
       // every revocation cutoff without relying on either side's clock.
       arev: params.room.authRevision,
-      // The room's lifetime travels with the token so the relay can close a
-      // live session when the room expires, not only refuse the next join.
-      rexp: Math.ceil(params.room.expiresAt.getTime() / 1000),
     },
     params.secret,
   );

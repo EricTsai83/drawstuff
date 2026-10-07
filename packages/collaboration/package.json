@@ -85,6 +85,10 @@
     "./testing": {
       "types": "./src/testing.ts",
       "default": "./src/testing.ts"
+    },
+    "./authority": {
+      "types": "./src/authority.ts",
+      "default": "./src/authority.ts"
     }
   },
   "scripts": {

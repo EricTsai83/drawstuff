@@ -28,11 +28,10 @@ export const JOIN_TOKEN_VECTOR_CLAIMS: JoinTokenClaims = {
   sub: "user_plan08_vector",
   role: "editor",
   arev: 7,
-  rexp: 1_755_986_400,
 };
 
 export const JOIN_TOKEN_VECTOR =
-  "eyJ2IjoxLCJqdGkiOiJwbGFuMDhqb2ludmVjdG9yMDAwMDAwMDAwMDAwMDAwMSIsImlhdCI6MTc1NTkwMDAwMCwiZXhwIjoxNzU1OTAwMDYwLCJhdWQiOiJkcmF3c3R1ZmYtcmVsYXktam9pbiIsInJpZCI6InBsYW4wOC1yb29tLXZlY3RvciIsImdlbiI6Mywic3ViIjoidXNlcl9wbGFuMDhfdmVjdG9yIiwicm9sZSI6ImVkaXRvciIsImFyZXYiOjcsInJleHAiOjE3NTU5ODY0MDB9.agN6DKBfrxFN6GPnOy7fAjesjJkKVnzDBSWMnPonuXE";
+  "eyJ2IjoxLCJqdGkiOiJwbGFuMDhqb2ludmVjdG9yMDAwMDAwMDAwMDAwMDAwMSIsImlhdCI6MTc1NTkwMDAwMCwiZXhwIjoxNzU1OTAwMDYwLCJhdWQiOiJkcmF3c3R1ZmYtcmVsYXktam9pbiIsInJpZCI6InBsYW4wOC1yb29tLXZlY3RvciIsImdlbiI6Mywic3ViIjoidXNlcl9wbGFuMDhfdmVjdG9yIiwicm9sZSI6ImVkaXRvciIsImFyZXYiOjd9.AD5kNmoOQt3hbnaImSeifzI6qVNZhs7pzJ7-qd7HCro";
 
 export const CONTROL_TOKEN_VECTOR_CLAIMS: RoomControlClaims = {
   v: 1,

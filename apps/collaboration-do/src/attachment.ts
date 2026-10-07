@@ -28,7 +28,7 @@ const epochMillisSchema = z.int().nonnegative();
 
 /** Accepted socket that has not presented a valid join control yet. */
 const pendingAttachmentSchema = z.strictObject({
-  v: z.literal(1),
+  v: z.literal(2),
   state: z.literal("pending"),
   acceptedAt: epochMillisSchema,
   roomId: roomIdSchema,
@@ -37,7 +37,7 @@ const pendingAttachmentSchema = z.strictObject({
 
 /** Authorized member; the fields the room runtime needs per socket. */
 const joinedAttachmentSchema = z.strictObject({
-  v: z.literal(1),
+  v: z.literal(2),
   state: z.literal("joined"),
   peerId: peerIdSchema,
   /** Authenticated user id from the verified join token (`sub`). */
@@ -47,8 +47,7 @@ const joinedAttachmentSchema = z.strictObject({
   tokenRevision: roomAuthRevisionSchema,
   /** Session epoch this cohort shares; `roomGeneration` on the wire. */
   roomEpoch: z.int().positive(),
-  /** Room lifetime bound from the token (`rexp`), epoch milliseconds. */
-  roomExpiresAt: epochMillisSchema,
+  authGeneration: roomAuthGenerationSchema,
   joinedAt: epochMillisSchema,
   /**
    * Last accepted data frame, epoch milliseconds — persisted lazily. The live
@@ -88,7 +87,7 @@ export const roomSocketAttachmentKeys = {
     "role",
     "tokenRevision",
     "roomEpoch",
-    "roomExpiresAt",
+    "authGeneration",
     "joinedAt",
     "lastFrameAt",
   ],

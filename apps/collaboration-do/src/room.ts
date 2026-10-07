@@ -62,6 +62,7 @@ import {
   ROOM_LIVENESS_TIMEOUT_MS,
   socketBufferedAmount,
 } from "./room-policy.ts";
+import { RoomAuthority } from "./room-authority.ts";
 
 /** Standard `WebSocket.OPEN`; stated like the relay does rather than read off
  *  a runtime constant the workerd type surface does not export uniformly. */
@@ -72,11 +73,10 @@ const SOCKET_OPEN = 1;
  * this is code-version skew (a rollback past a schema bump) and fails closed
  * in the constructor rather than letting old code reinterpret new rows.
  *
- * v2: `room_meta.room_ended` — a durable end-room marker that
- * outlives the swept channel cutoff, so the storage-retirement gate can
- * release an ended room before its natural expiry.
+ * v3: stable roomId identity, durable crypto generation and no room lifetime.
+ * Requires the 18B reset; older SQLite schemas are not migrated in place.
  */
-const ROOM_SCHEMA_VERSION = 2;
+const ROOM_SCHEMA_VERSION = 3;
 
 /**
  * The official runtime retries a failed alarm handler a bounded number of
@@ -96,18 +96,11 @@ const ALARM_RETRY_BACKSTOP_MS = 60_000;
 const CUTOFF_RETENTION_SECONDS =
   MAX_JOIN_TOKEN_TTL_SECONDS + ROOM_TOKEN_CLOCK_SKEW_SECONDS;
 
-/**
- * Margin past the room's own expiry before storage is deleted, covering the
- * issuer/verifier clock skew the token contract already allows.
- */
-const STORAGE_CLEANUP_SKEW_MS = ROOM_TOKEN_CLOCK_SKEW_SECONDS * 1_000;
-
 type RoomMeta = {
   schemaVersion: number;
   /** High-water session epoch; 0 until the first cohort forms. */
   roomEpoch: number;
-  /** High-water `rexp` seen across joins, epoch ms; null until first join. */
-  roomExpiresAtMs: number | null;
+  authGeneration: number;
   /** True once an `end-room` control has been durably applied. */
   roomEnded: boolean;
 };
@@ -132,7 +125,7 @@ type CollaborationRoomEnv = Env & {
 const encoder = new TextEncoder();
 
 /**
- * Hibernatable room runtime: one `RoomChannelKey`, one Object
+ * Hibernatable room runtime: one stable roomId, one Object
  * (CLAIM-MIG-2), speaking the shared wire contract — join, membership
  * notices, role enforcement, opaque binary fanout, limits, backpressure and
  * close codes — plus the P6 keepalive auto-response.
@@ -172,6 +165,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   readonly constructedAt = Date.now();
 
   private readonly log: DoLogger;
+  private authority: RoomAuthority | undefined;
 
   constructor(ctx: DurableObjectState, env: CollaborationRoomEnv) {
     super(ctx, env);
@@ -202,6 +196,9 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     this.ctx
       .blockConcurrencyWhile(() => {
         this.ensureSchema();
+        const identity = this.channelKey();
+        if (identity)
+          this.authority = new RoomAuthority(this.ctx.storage, identity);
         return Promise.resolve();
       })
       .catch((error: unknown) => {
@@ -272,7 +269,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // Object between them.
     this.ctx.acceptWebSocket(server);
     writeRoomSocketAttachment(server, {
-      v: 1,
+      v: 2,
       state: "pending",
       acceptedAt: now,
       roomId: identity.roomId,
@@ -308,7 +305,11 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // have been a member whose attachment was corrupted after it appeared in
     // an earlier snapshot, and a redundant full-membership notice is
     // harmless while a suppressed one leaves survivors a phantom peer.
-    if (attachment === undefined || attachment.state === "joined") {
+    if (
+      attachment === undefined ||
+      (attachment.state === "joined" &&
+        attachment.authGeneration === this.readMeta().authGeneration)
+    ) {
       this.broadcastPeers();
     }
     await this.scheduleAfterMembershipChange();
@@ -346,6 +347,15 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // Identity stays load-bearing in every entry point.
     this.requireChannelKey();
     const now = Date.now();
+    await this.authority?.expireInitialization();
+    await this.authority?.work.drain(
+      async () => {
+        // P2 supplies authenticated storage/projection adapters before deployment.
+        throw new Error("room-adapter-unconfigured");
+      },
+      () => this.authority?.nextDeadline(),
+    );
+    await this.authority?.repairProjections();
 
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = readRoomSocketAttachment(ws);
@@ -365,11 +375,6 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
             "join deadline exceeded",
           );
         }
-        continue;
-      }
-      if (now >= attachment.roomExpiresAt) {
-        this.closeSocket(ws, RELAY_CLOSE_CODES.roomEnded, "room expired");
-        this.broadcastPeers();
         continue;
       }
       // Idle before liveness: an abandoned session is stated as idle even if
@@ -422,7 +427,11 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       throw new ControlRejectedError("malformed-command");
     }
     const control = parsed.data;
-    if (roomChannelKey(control.roomId, control.authGeneration) !== channelKey) {
+    this.ensureSchema();
+    if (
+      roomChannelKey(control.roomId, control.authGeneration) !== channelKey ||
+      control.authGeneration !== this.readMeta().authGeneration
+    ) {
       throw new ControlRejectedError("channel-mismatch");
     }
 
@@ -570,9 +579,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
       return;
     }
-    // Re-entrant bootstrap: if this same live instance deleted its storage
-    // (empty room past expiry) and the channel is being addressed again, the
-    // rows must exist before the cutoff and epoch reads below.
+    // Verify the schema before reading durable cutoffs and cohort state.
     this.ensureSchema();
 
     // Authorization precedes every routing decision, and the generation comes
@@ -594,13 +601,18 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       );
       return;
     }
-    const { role, gen, sub, arev, rexp } = verified.claims;
+    const { role, gen, sub, arev } = verified.claims;
+    const attachment = readRoomSocketAttachment(ws);
+    if (attachment?.state !== "pending") throw new Error("invalid-attachment");
 
     // Token claims must land on exactly this Object: the canonical channel
     // key derived from the *verified* claims has to equal ctx.id.name. A
     // token for another room or generation presented on this route is an
     // authorization failure, not a routing accident.
-    if (roomChannelKey(verified.claims.rid, gen) !== this.requireChannelKey()) {
+    if (
+      roomChannelKey(verified.claims.rid, gen) !== this.requireChannelKey() ||
+      gen !== attachment.authGeneration
+    ) {
       this.closeSocket(
         ws,
         RELAY_CLOSE_CODES.unauthorized,
@@ -621,10 +633,29 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       return;
     }
 
-    const roomExpiresAt = rexp * 1000;
-    if (roomExpiresAt <= now) {
-      this.closeSocket(ws, RELAY_CLOSE_CODES.roomEnded, "room expired");
+    const currentGeneration = this.readMeta().authGeneration;
+    if (gen < currentGeneration) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.unauthorized,
+        "join rejected: stale-generation",
+      );
       return;
+    }
+    if (gen > currentGeneration) {
+      // The validated issuer's generation is retained inside the same Object.
+      // P2 replaces this issuer path with explicit RoomAuthority rotation.
+      this.ctx.storage.sql.exec(
+        "UPDATE room_meta SET auth_generation=? WHERE id=1",
+        gen,
+      );
+      for (const member of this.joinedSockets()) {
+        this.closeSocket(
+          member.ws,
+          RELAY_CLOSE_CODES.roomEnded,
+          "encryption generation changed",
+        );
+      }
     }
 
     let members = this.joinedSockets();
@@ -652,18 +683,18 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // high-water inside one SQLite transaction; later joiners share it. An
     // empty room never resets to 1 — the high-water survives until storage is
     // legitimately deleted (see the alarm's cleanup gate).
-    const roomEpoch = this.acquireEpoch(members.length === 0, roomExpiresAt);
+    const roomEpoch = this.acquireEpoch(members.length === 0);
 
     const peerId = peerIdSchema.parse(`peer-${crypto.randomUUID()}`);
     const joinedAttachment: JoinedSocketAttachment = {
-      v: 1,
+      v: 2,
       state: "joined",
       peerId,
       subject: sub,
       role,
       tokenRevision: arev,
       roomEpoch,
-      roomExpiresAt,
+      authGeneration: gen,
       joinedAt: now,
       // The idle budget starts at the join, not at the first frame: a socket
       // that joins and then says nothing is exactly the case it bounds.
@@ -674,10 +705,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // already-authorized member.
     writeRoomSocketAttachment(ws, joinedAttachment);
     await this.ensureAlarmAtMost(
-      Math.min(
-        now + ROOM_IDLE_TIMEOUT_MS + LAST_FRAME_PERSIST_QUANTUM_MS,
-        roomExpiresAt,
-      ),
+      now + ROOM_IDLE_TIMEOUT_MS + LAST_FRAME_PERSIST_QUANTUM_MS,
     );
 
     const peers = this.currentPeers();
@@ -719,17 +747,15 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       );
       return;
     }
-    // The room's lifetime is an authorization bound, so the frame path
-    // enforces it as well: the expiry alarm is at-least-once and may run
-    // late, and unlike the relay's in-process timer that lateness has no
-    // useful upper bound — without this check a publisher could keep fanning
-    // out past `rexp` until the alarm caught up.
-    const now = Date.now();
-    if (now >= attachment.roomExpiresAt) {
-      this.closeSocket(ws, RELAY_CLOSE_CODES.roomEnded, "room expired");
-      this.broadcastPeers();
+    if (attachment.authGeneration !== this.readMeta().authGeneration) {
+      this.closeSocket(
+        ws,
+        RELAY_CLOSE_CODES.roomEnded,
+        "encryption generation changed",
+      );
       return;
     }
+    const now = Date.now();
     // Shared frame parser and channel-size arithmetic; the payload stays
     // opaque E2EE ciphertext the Object cannot decrypt.
     const dataFrame = decodeRelayDataFrame(frame);
@@ -995,58 +1021,24 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
           ROOM_IDLE_TIMEOUT_MS +
           LAST_FRAME_PERSIST_QUANTUM_MS,
       );
-      consider(attachment.roomExpiresAt);
     }
     // Cutoff retirement is schedulable work of its own, independent of
     // sockets: when the earliest one fires, the sweep above removes it and
     // this recomputation moves on to the next.
     const cutoffRetirementMs = this.earliestCutoffRetirementMs();
     if (cutoffRetirementMs !== undefined) consider(cutoffRetirementMs);
+    const workDeadline = this.authority?.work.nextDeadline();
+    if (workDeadline !== undefined) consider(workDeadline);
+    const initializationDeadline = this.authority?.nextDeadline();
+    if (initializationDeadline !== undefined) consider(initializationDeadline);
 
-    if (sockets.length === 0) {
-      // Empty room. Either wait out the room's own lifetime (the same
-      // RoomChannelKey may still legally reconnect, and the epoch high-water
-      // must survive for it), or — once no join could ever succeed again and
-      // no cutoff still needs retaining — delete everything.
-      const meta = this.readMeta();
-      const expiryGateMs =
-        meta.roomExpiresAtMs === null
-          ? meta.roomEpoch === 0
-            ? // Never joined: nothing durable worth retaining.
-              now
-            : // Joined at some point but no recorded expiry should be
-              // impossible; fail safe by retaining.
-              undefined
-          : meta.roomExpiresAtMs + STORAGE_CLEANUP_SKEW_MS;
-      // An ended room may retire before its natural expiry: once the end-room
-      // cutoff itself has retired, every token issued before the end has
-      // expired, and the app's token authority (which advanced the revision
-      // under the room lock) issues no new ones — no durable tombstone is
-      // needed here. An ordinary empty room keeps its epoch high-water until
-      // expiry so a legal reconnect gets a strictly larger epoch.
-      const endedGateOpen = meta.roomEnded && cutoffRetirementMs === undefined;
-      if (
-        endedGateOpen ||
-        (expiryGateMs !== undefined &&
-          expiryGateMs <= now &&
-          cutoffRetirementMs === undefined)
-      ) {
-        await this.ctx.storage.deleteAlarm();
-        await this.ctx.storage.deleteAll();
-        return;
-      }
-      if (!meta.roomEnded && expiryGateMs !== undefined && expiryGateMs > now) {
-        consider(expiryGateMs);
-      }
-    }
-
-    if (next !== undefined) {
-      await this.ensureAlarmAtMost(next);
-    }
+    // No room TTL and no storage deletion: epoch and terminal authority survive empty cohorts.
+    if (next !== undefined) await this.ensureAlarmAtMost(next);
+    else await this.ctx.storage.deleteAlarm();
   }
 
   // ---------------------------------------------------------------------
-  // SQLite state: schema version, epoch high-water, room expiry, cutoffs
+  // SQLite state: schema version, epoch high-water, crypto generation, cutoffs
   // ---------------------------------------------------------------------
 
   /**
@@ -1060,7 +1052,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
          id INTEGER PRIMARY KEY CHECK (id = 1),
          schema_version INTEGER NOT NULL,
          room_epoch INTEGER NOT NULL,
-         room_expires_at_ms INTEGER,
+         auth_generation INTEGER NOT NULL DEFAULT 1,
          room_ended INTEGER NOT NULL DEFAULT 0
        )`,
     );
@@ -1074,15 +1066,15 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
         "SELECT schema_version FROM room_meta WHERE id = 1",
       )
       .toArray()[0]?.schema_version;
-    if (storedVersion !== undefined && storedVersion > ROOM_SCHEMA_VERSION) {
+    if (storedVersion !== undefined && storedVersion !== ROOM_SCHEMA_VERSION) {
       // Typed as a deterministic rejection: on the control RPC path the
       // gateway must answer it non-retryably (only a roll-forward cures it);
       // every other caller fails closed on any throw regardless of type.
       throw new ControlRejectedError("schema-skew");
     }
     this.ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO room_meta(id, schema_version, room_epoch, room_expires_at_ms, room_ended)
-       VALUES (1, ?, 0, NULL, 0)`,
+      `INSERT OR IGNORE INTO room_meta(id, schema_version, room_epoch, room_ended)
+       VALUES (1, ?, 0, 0)`,
       ROOM_SCHEMA_VERSION,
     );
     this.ctx.storage.sql.exec(
@@ -1099,27 +1091,25 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       .exec<{
         schema_version: number;
         room_epoch: number;
-        room_expires_at_ms: number | null;
+        auth_generation: number;
         room_ended: number;
       }>(
-        "SELECT schema_version, room_epoch, room_expires_at_ms, room_ended FROM room_meta WHERE id = 1",
+        "SELECT schema_version, room_epoch, auth_generation, room_ended FROM room_meta WHERE id = 1",
       )
       .one();
     return {
       schemaVersion: row.schema_version,
       roomEpoch: row.room_epoch,
-      roomExpiresAtMs: row.room_expires_at_ms,
+      authGeneration: row.auth_generation,
       roomEnded: row.room_ended !== 0,
     };
   }
 
   /**
-   * Epoch acquisition for a join. The first member of a cohort takes
-   * high-water + 1; everyone else shares the stored value. Also advances the
-   * room-expiry high-water so the empty-room retention gate knows how long a
-   * rejoin stays legal.
+   * First member of a cohort advances the durable high-water; later members share it.
+   * Empty rooms retain the high-water without a heartbeat or lifetime alarm.
    */
-  private acquireEpoch(cohortEmpty: boolean, roomExpiresAtMs: number): number {
+  private acquireEpoch(cohortEmpty: boolean): number {
     return this.ctx.storage.transactionSync(() => {
       this.ensureSchema();
       const meta = this.readMeta();
@@ -1127,14 +1117,9 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
         cohortEmpty || meta.roomEpoch === 0
           ? meta.roomEpoch + 1
           : meta.roomEpoch;
-      const expiresHighWater = Math.max(
-        meta.roomExpiresAtMs ?? 0,
-        roomExpiresAtMs,
-      );
       this.ctx.storage.sql.exec(
-        "UPDATE room_meta SET room_epoch = ?, room_expires_at_ms = ? WHERE id = 1",
+        "UPDATE room_meta SET room_epoch = ? WHERE id = 1",
         epoch,
-        expiresHighWater,
       );
       return epoch;
     });
@@ -1155,7 +1140,10 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
         `member:${subject}`,
       )
       .toArray();
-    return rows.some((row) => tokenRevision < row.revision);
+    return (
+      this.readMeta().roomEnded ||
+      rows.some((row) => tokenRevision < row.revision)
+    );
   }
 
   /**

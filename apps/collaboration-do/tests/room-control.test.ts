@@ -479,7 +479,7 @@ describe("schema skew", () => {
 });
 
 describe("ended-room storage retirement", () => {
-  it("retains storage while the end cutoff could still refuse a token, then deletes everything", async () => {
+  it("retains the terminal room fence after cutoff cleanup", async () => {
     const roomId = uniqueRoomId("ctlretire");
     const member = await joinRoom(roomId, { subject: "user-a" });
     const stub = roomStub(roomId);
@@ -524,7 +524,7 @@ describe("ended-room storage retirement", () => {
         .toArray().length,
       alarm: await state.storage.getAlarm(),
     }));
-    expect(after).toEqual({ tables: 0, alarm: null });
+    expect(after).toEqual({ tables: 2, alarm: null });
   });
 });
 

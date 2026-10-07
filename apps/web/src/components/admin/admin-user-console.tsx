@@ -469,7 +469,6 @@ export function AdminUserConsole({
                         <TableRow>
                           <TableHead>{t("table.roomId")}</TableHead>
                           <TableHead>{t("table.status")}</TableHead>
-                          <TableHead>{t("table.expiresAt")}</TableHead>
                           <TableHead className="text-right">
                             {t("table.actions")}
                           </TableHead>
@@ -493,9 +492,6 @@ export function AdminUserConsole({
                                 )}
                               />
                             </TableCell>
-                            <TableCell className="text-muted-foreground text-xs">
-                              {formatAdminDate(room.expiresAt, langCode)}
-                            </TableCell>
                             <TableCell className="text-right">
                               <Button
                                 size="icon-sm"
@@ -503,7 +499,7 @@ export function AdminUserConsole({
                                 aria-label={t("rooms.endLabel", {
                                   id: room.roomId,
                                 })}
-                                disabled={room.status !== "active"}
+                                disabled={room.status !== "ready"}
                                 onClick={() =>
                                   setAction({
                                     kind: "end-room",

@@ -28,6 +28,11 @@ describe("deployment config", () => {
   it("declares the full SQLite-backed Durable Object configuration", () => {
     expect(audit.durableObjectBindings).toEqual([
       {
+        name: "COLLABORATION_LIFECYCLE",
+        className: "CollaborationLifecycle",
+        scriptName: null,
+      },
+      {
         name: "COLLABORATION_ROOM",
         className: "CollaborationRoom",
         // Same-bundle gateway + object (CLAIM-MIG-3): never a service/script
@@ -40,9 +45,13 @@ describe("deployment config", () => {
     // editing this test, which is the deliberate-review signal CLAIM-MIG-4
     // requires. Lifecycle deploys themselves stay manual.
     expect(audit.exports).toMatchObject({
+      CollaborationLifecycle: { type: "durable-object", storage: "sqlite" },
       CollaborationRoom: { type: "durable-object", storage: "sqlite" },
     });
-    expect(Object.keys(audit.exports)).toEqual(["CollaborationRoom"]);
+    expect(Object.keys(audit.exports).sort()).toEqual([
+      "CollaborationLifecycle",
+      "CollaborationRoom",
+    ]);
     // Legacy migrations would reintroduce gradual-rollout semantics the
     // claims forbid.
     expect(audit.legacyMigrations).toEqual([]);

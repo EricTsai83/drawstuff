@@ -104,6 +104,8 @@ const en = {
     "The collaboration room ended and no new tokens can be issued. Disconnecting live sessions is queued; existing sessions and already-issued short-lived tokens may remain usable until delivery or expiry.",
   "toast.accountRetired": "The account and its data were retired.",
   "status.active": "Active",
+  "status.ready": "Ready",
+  "status.initializing": "Initializing",
   "status.ended": "Ended",
   "status.started": "Started",
   "status.succeeded": "Succeeded",
@@ -215,6 +217,8 @@ const zhTW = {
     "協作房間已結束，無法再簽發新權杖；強制中斷已排入佇列，送達或權杖過期前，既有連線與已簽出的短效權杖可能仍可使用。",
   "toast.accountRetired": "帳號與其資料已完成退場處理。",
   "status.active": "進行中",
+  "status.ready": "進行中",
+  "status.initializing": "初始化中",
   "status.ended": "已結束",
   "status.started": "處理中",
   "status.succeeded": "成功",
@@ -257,6 +261,8 @@ export function useAdminI18n() {
 const valueTranslationKeys = {
   status: {
     active: "status.active",
+    ready: "status.ready",
+    initializing: "status.initializing",
     ended: "status.ended",
     started: "status.started",
     succeeded: "status.succeeded",

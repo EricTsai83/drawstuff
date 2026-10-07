@@ -167,7 +167,7 @@ export async function retireAccount(params: { db: Database; userId: string }) {
       .for("update");
     const outboxEvents: ControlOutboxEvent[] = [];
     for (const room of rooms) {
-      if (room.status !== "active") continue;
+      if (room.status !== "ready") continue;
       outboxEvents.push(
         await enqueueRoomControlEvent(tx, {
           roomId: room.roomId,

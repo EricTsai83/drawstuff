@@ -104,10 +104,10 @@ describe("admin data retirement", () => {
       .returning({ id: schema.scene.id });
     if (!targetScene) throw new Error("scene insert failed");
     await testDb.insert(schema.collaborationRoom).values({
+      status: "ready",
       roomId: "room-overview",
       sceneId: targetScene.id,
       ownerId: "target-user",
-      expiresAt: new Date(Date.now() + 60_000),
     });
 
     const admin = callerFor("admin-user").admin;
@@ -136,7 +136,7 @@ describe("admin data retirement", () => {
     ).resolves.toMatchObject({
       user: { id: "target-user" },
       scenes: [{ id: targetScene.id }],
-      rooms: [{ roomId: "room-overview", status: "active" }],
+      rooms: [{ roomId: "room-overview", status: "ready" }],
       grant: undefined,
     });
 
@@ -220,10 +220,10 @@ describe("admin data retirement", () => {
       url: "https://example.com/a",
     });
     await testDb.insert(schema.collaborationRoom).values({
+      status: "ready",
       roomId: "room-scene",
       sceneId: target.id,
       ownerId: "target-user",
-      expiresAt: new Date(Date.now() + 60_000),
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-scene",
@@ -289,10 +289,10 @@ describe("admin data retirement", () => {
       .returning({ id: schema.scene.id });
     if (!target) throw new Error("scene insert failed");
     await testDb.insert(schema.collaborationRoom).values({
+      status: "ready",
       roomId: "room-target",
       sceneId: target.id,
       ownerId: "target-user",
-      expiresAt: new Date(Date.now() + 60_000),
     });
 
     await expect(
@@ -314,9 +314,10 @@ describe("admin data retirement", () => {
   it("retires an account in one transaction, queues every owned key, then pushes relay shutdown", async () => {
     await testDb.insert(schema.session).values({
       id: "session-target",
+      expiresAt: new Date(Date.now() + 60_000),
       token: "token-target",
       userId: "target-user",
-      expiresAt: new Date(Date.now() + 60_000),
+
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -347,10 +348,10 @@ describe("admin data retirement", () => {
       url: "https://example.com/a",
     });
     await testDb.insert(schema.collaborationRoom).values({
+      status: "ready",
       roomId: "room-account",
       sceneId: target.id,
       ownerId: "target-user",
-      expiresAt: new Date(Date.now() + 60_000),
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-account",

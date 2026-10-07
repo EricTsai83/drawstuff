@@ -1,10 +1,11 @@
 import { handleGatewayRequest } from "./gateway.ts";
 import { pingControlOutboxDrain } from "./outbox-drain.ts";
+import { CollaborationLifecycle } from "./lifecycle.ts";
 import { CollaborationRoom } from "./room.ts";
 
 // The Durable Object class ships in the same bundle as the gateway
 // (CLAIM-MIG-3) and must stay listed in wrangler.jsonc `exports`.
-export { CollaborationRoom };
+export { CollaborationRoom, CollaborationLifecycle };
 
 export default {
   fetch(request, env) {

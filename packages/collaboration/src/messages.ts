@@ -19,7 +19,8 @@ import { z } from "zod";
  * viewport-size ratio.
  */
 // v5 adds encrypted persistence requests and advisory durable receipts.
-export const COLLABORATION_PROTOCOL_VERSION = 5;
+// v6 separates stable room authority identity from crypto generation and removes room expiry.
+export const COLLABORATION_PROTOCOL_VERSION = 6;
 
 /**
  * Hard cap applied to raw encoded bytes before any JSON parsing. Messages

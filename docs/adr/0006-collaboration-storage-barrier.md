@@ -1,6 +1,6 @@
 # ADR-0006：房間授權與持久保存以 epoch 屏障排序
 
-- Status: Accepted for implementation（2026-10-07）；測試原型存在，production 權威仍在 DB。
+- Status: Accepted for implementation（2026-10-07）；P0 原型與 P1 底座存在，production 權威仍在 DB。
 - 範圍：[18B](../../plans/18b-collaboration-authority-reset.md) P0／P1／P2。
 
 ## 分開三個版本與兩種成功
@@ -72,5 +72,8 @@ SQLite 的 SQL 與 alarm 使用同一個非同步 storage transaction，僅包�
 外部 adapter I/O 在 transaction 之外。相關平台契約見
 [Cloudflare SQLite storage transactions](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transaction)。
 
-目前 production transport protocol 已是 5（18A 保存控制訊息）；18B 的新身分／roomId 定址契約
-在 P1/P2 升至 6。此 transport 升版不重設加密 authGeneration，也不改既有 durable crypto envelope 版本。
+production transport protocol 仍是 5（18A 保存控制訊息）；P1 source artifact 已升至 6，
+新增 identity proof、roomId 定址、SQLite 待辦與 Lifecycle 進度、PostgreSQL fence／初始化／投影／
+登記 schema。正式 proof、binary adapter、投影與所有退休入口在 P2 接入，P3 重置後才部署。
+具體底座與邊界見 [system design](../architecture/collaboration-system-design.md#18b-p1-source-artifact-and-p2-boundary)。
+此 transport 升版不重設加密 authGeneration，也不改既有 durable crypto envelope 版本。

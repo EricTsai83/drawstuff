@@ -24,12 +24,10 @@ import {
 import {
   bumpRoomAuthRevision,
   createRoomId,
-  DEFAULT_ROOM_TTL_MINUTES,
   ensureRoomMembership,
   issueRoomJoinToken,
   listRoomMembers,
   lockRoom,
-  MAX_ROOM_TTL_MINUTES,
   resolveRoomAccess,
   roomAccessError,
   roomIdInputSchema,
@@ -83,7 +81,6 @@ const roomSummary = (room: RoomRecord) => ({
   authGeneration: room.authGeneration,
   linkRole: room.linkRole as z.infer<typeof linkRoleSchema>,
   status: room.status,
-  expiresAt: room.expiresAt,
 });
 
 type AuthorizedRoom = Extract<RoomAccess, { status: "ok" }>;
@@ -163,18 +160,12 @@ export const collaborationRoomRouter = createTRPCRouter({
         sceneId: z.uuid(),
         /**
          * Optional on purpose: omitted means "leave the room's link role
-         * alone". Re-running 開始共編 refreshes an existing room's window, and
+         * alone". Re-running 開始共編 reuses an existing room, and
          * a default here would silently reset a link-editor room back to
          * invite-only in the same write. Only a brand-new room falls back to
          * `none`.
          */
         linkRole: linkRoleSchema.optional(),
-        ttlMinutes: z
-          .number()
-          .int()
-          .positive()
-          .max(MAX_ROOM_TTL_MINUTES)
-          .default(DEFAULT_ROOM_TTL_MINUTES),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -195,15 +186,14 @@ export const collaborationRoomRouter = createTRPCRouter({
         });
       }
 
-      const expiresAt = new Date(now.getTime() + input.ttlMinutes * 60_000);
       const existing = await ctx.db.query.collaborationRoom.findFirst({
         where: and(
           eq(collaborationRoom.sceneId, input.sceneId),
-          eq(collaborationRoom.status, "active"),
+          eq(collaborationRoom.status, "ready"),
         ),
       });
       // One active room per scene (enforced by a partial unique index too):
-      // re-opening refreshes the window instead of creating a second room.
+      // re-opening reuses its identity instead of creating a second room.
       // The status predicate matters: the room may have been ended between the
       // read above and this write, and refreshing an ended row would hand back
       // a room nobody can join.
@@ -211,7 +201,6 @@ export const collaborationRoomRouter = createTRPCRouter({
         const [refreshed] = await ctx.db
           .update(collaborationRoom)
           .set({
-            expiresAt,
             updatedAt: now,
             ...(input.linkRole !== undefined
               ? { linkRole: input.linkRole }
@@ -220,7 +209,7 @@ export const collaborationRoomRouter = createTRPCRouter({
           .where(
             and(
               eq(collaborationRoom.roomId, existing.roomId),
-              eq(collaborationRoom.status, "active"),
+              eq(collaborationRoom.status, "ready"),
             ),
           )
           .returning();
@@ -237,15 +226,15 @@ export const collaborationRoomRouter = createTRPCRouter({
           roomId: createRoomId(),
           sceneId: input.sceneId,
           ownerId: userId,
+          status: "ready",
           linkRole: input.linkRole ?? "none",
-          expiresAt,
           createdAt: now,
           updatedAt: now,
         })
         // Matches the partial unique index so Postgres can infer it.
         .onConflictDoNothing({
           target: collaborationRoom.sceneId,
-          where: sql`status = 'active'`,
+          where: sql`status in ('initializing', 'ready')`,
         })
         .returning();
       const room =
@@ -253,7 +242,7 @@ export const collaborationRoomRouter = createTRPCRouter({
         (await ctx.db.query.collaborationRoom.findFirst({
           where: and(
             eq(collaborationRoom.sceneId, input.sceneId),
-            eq(collaborationRoom.status, "active"),
+            eq(collaborationRoom.status, "ready"),
           ),
         }));
       if (!room) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR" });
@@ -379,7 +368,7 @@ export const collaborationRoomRouter = createTRPCRouter({
       const room = await ctx.db.query.collaborationRoom.findFirst({
         where: and(
           eq(collaborationRoom.sceneId, input.sceneId),
-          eq(collaborationRoom.status, "active"),
+          eq(collaborationRoom.status, "ready"),
         ),
       });
       if (!room) return null;

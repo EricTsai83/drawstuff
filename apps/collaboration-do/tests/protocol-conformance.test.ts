@@ -45,7 +45,8 @@ const harness: ConformanceHarness = {
         body: JSON.stringify({ token }),
       },
     );
-    if (response.status === 401) return { accepted: false, closed: 0 };
+    if (response.status === 401 || response.status === 422)
+      return { accepted: false, closed: 0 };
     if (response.status !== 200) {
       throw new Error(`control endpoint answered ${response.status}`);
     }
