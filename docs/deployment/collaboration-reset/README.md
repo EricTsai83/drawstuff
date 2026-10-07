@@ -210,6 +210,31 @@ Provider／DB／DO 限定清理通過，正常 Worker 精確還原至 version `5
 
 改善 commit `df3776d` 已隨 `c8f7c2e` 推送 main，Vercel 回報部署成功後再次執行 `pnpm collab:assets:remote`。真實上傳、callback、索引、下載與解密、provider／DB／DO 清理、正常 Worker 精確還原全部通過；還原 version `ce6003e3-ab36-48eb-9230-cd0b340a6554`。另核對測試前綴的帳號／房間／附件／快照殘留為零、暫存檔與目錄已移除。這是改善後行為 smoke，不是效能分位數驗收；下一步仍為免費方案下的傳輸／callback 診斷與原門檻重測。
 
+### 3A：Provider 回應分段與首次／重讀診斷
+
+在 root 執行 `caffeinate -i pnpm collab:assets:remote --performance-provider-diagnostic`，固定 20 warmup／20 診斷樣本。報告另存 `docs/performance/collaboration-production-3a-provider.json`，不覆寫既有診斷與 200 筆驗收基準。presign、provider PUT＋receipt、首次附件下載分別記錄 fetch 回傳 headers 前的時間與讀完 body 的時間。headers 耗時包含 DNS／連線／請求／伺服器等待，不是單獨的 callback、provider CPU 或精確 TTFB；body 耗時亦受 fetch buffering 影響。
+
+首次加入、下載／解密／解碼、frame 驗證與 `joinMs` 停表後，才以相同 URL 額外讀一次密文並核對內容。重讀只記獨立診斷值，沒有換 URL、加 cache header 或預暖下一份附件，也不計入原保存／加入分位數。cache 狀態只保留允許列出的 `CF-Cache-Status` 值，未提供時記 `unreported`；它不等於 MISS，也不能據此判斷 provider 全部快取層。UploadThing [官方存取契約](https://docs.uploadthing.com/working-with-files) 使用其 CDN URL，不改成底層 bucket URL。
+
+2026-10-08 的 [provider 診斷報告](../../performance/collaboration-production-3a-provider.json) 完成 20 warmup／20 配對樣本，失敗與 pending 為零，報告基底 commit `2ef4b86`。
+
+| 客戶端量測段 | p50（ms） | p95（ms） |
+| --- | --- | --- |
+| Presign：headers 前 | 1,014.63 | 1,178.01 |
+| Presign：body | 0.64 | 1.29 |
+| PUT＋receipt：headers 前 | 2,026.11 | 2,127.62 |
+| PUT＋receipt：body | 0.62 | 0.83 |
+| 首次附件下載：headers 前 | 1,527.67 | 1,640.71 |
+| 首次附件下載：body | 207.67 | 398.81 |
+| 重讀附件：headers 前 | 926.47 | 1,098.33 |
+| 重讀附件：body | 208.23 | 230.72 |
+
+首次完整下載 p50 1,762.44 ms、重讀 1,133.28 ms；解密／payload 解碼 p50 僅 1.07 ms。等待 headers 是主要量測段，重讀仍超過一秒，因此不能只歸因於首次傳輸或解密。首次與重讀各 20 筆全部為 `unreported`，沒有 HIT／MISS 證據；不能把第二次下載稱為已確認的熱 CDN 場景。不同分段的 p50／p95 不直接相加當總分位數。
+
+本輪沒有改產品流程或平台設定；維持免費方案／sea1。下一個改善範圍應加入伺服器端 presign／callback／Gateway／adapter 分段，與客戶端等待對照，再決定可降低哪段往返；不能從 PUT headers 前的 2 秒直接宣稱 callback 自身耗時 2 秒。保存／首次加入診斷 p95 4,133.31／3,414.84 ms，原 200 筆正式 gate 仍未通過。
+
+Provider／DB／DO 清理及正常 Worker 精確還原通過，還原 version `7deecfd4-4b07-4461-98e5-68bee7b829ae`；再次核對測試帳號／房間／附件／快照殘留為零，暫存 runtime、journal、lock 已移除。此輪僅 client 診斷工具與證據變更，未執行 DB push／migration。
+
 ## 舊物件／DO 清理
 
 先完成可回滾 smoke，再按受控 manifest 清理有明確共編來源且不被任何個人資料引用的物件。DO metadata 清理必須對已確認的舊 instance 停止工作、取消 alarm 並 `storage.deleteAll()`。一般 quiesce 保留資料；legacy cleanup 是獨立、capability 保護的維護入口，正常 production Gateway 不提供它。

@@ -40,7 +40,7 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
-  下一步為 **P3：剩餘正式環境驗收**。3A 已完成 200 筆正式量測及清理／還原，但保存與加入 p95 未達門檻；20 筆診斷顯示附件下載／PUT＋callback 為主要耗時段，已省略重複註冊的無變更 upsert。維持 UploadThing 免費方案與 sea1，接著細分傳輸／callback、改善後重測，再完成 3B／3C、跨日／閒置／成本與回歸結案。三人撤權／故障恢復已驗收。
+  下一步為 **P3：剩餘正式環境驗收**。3A 已完成 200 筆正式量測及清理／還原，但保存與加入 p95 未達門檻；診斷顯示主要耗時在 provider 回應 headers 前，重讀亦超過一秒，尚無 CDN 命中證據。已省略重複註冊的無變更 upsert。維持 UploadThing 免費方案與 sea1，接著加入伺服器端分段對照、改善後重測，再完成 3B／3C、跨日／閒置／成本與回歸結案。三人撤權／故障恢復已驗收。
   配套 web／Worker 與新版 schema 已部署；DO 不持久暫存完整畫布，只記小型待辦與操作結果。
   退休以按主體分割的 **Lifecycle DO** 執行（§7.1）；操作與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —

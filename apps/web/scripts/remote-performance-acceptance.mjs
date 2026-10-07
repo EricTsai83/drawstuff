@@ -15,6 +15,11 @@ import { encodeRelayDataFrame } from "@drawstuff/collaboration/relay-protocol";
 
 const WARMUP = 20, SAMPLES = 200, TYPICAL_BYTES = 256 * 1024;
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
+const cacheStatuses = new Set(["HIT","MISS","DYNAMIC","BYPASS","EXPIRED","STALE","UPDATING","REVALIDATED"]);
+const cacheStatus = response => {
+  const value=response.headers.get("cf-cache-status");
+  return cacheStatuses.has(value) ? value : "unreported";
+};
 const summary = values => {
   const sorted = values.toSorted((a,b) => a-b);
   const at = p => sorted.length ? Math.round(sorted[Math.ceil(sorted.length*p)-1]*100)/100 : null;
@@ -46,7 +51,7 @@ export async function runTypicalHotPerformance(c) {
   const {roomId,runId,web,gateway,cookie,roomKey,snapshotKey,guest,keys,saveJournal,proof,envelope,jsonPost,connect,until,report} = c;
   const samples = c.diagnostic ? 20 : SAMPLES;
   const result={schemaVersion:1,scope:"3A",startedAt:new Date().toISOString(),warmup:WARMUP,requiredSamples:SAMPLES,
-    purpose:c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
+    purpose:c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
     scenario:"typical-hot-real-upload",snapshotPlaintextBytes:TYPICAL_BYTES,assetPlaintextBytes:null,
     runtime:{client:process.version,protocol:6,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:true},
     measurementBoundary:"verified principals -> Gateway -> DO -> production adapter/Neon and genuine UploadThing callback; join includes baseline, asset download/decode and socket fanout",
@@ -86,14 +91,20 @@ export async function runTypicalHotPerformance(c) {
         method:"POST",headers:{cookie,"content-type":"application/json","x-uploadthing-version":"7.7.4"},
         body:JSON.stringify({input:intent,files:[{name:`${runId}.bin`,type:"application/octet-stream",size:asset.ciphertext.byteLength,lastModified:Date.now()}]}),redirect:"error",signal:AbortSignal.timeout(20000),
       });assert.equal(presign.status,200);
+      const presignHeadersMs=performance.now()-uploadStart;
+      const presignBodyStart=performance.now();
       const [signed]=await presign.json();assert.equal(typeof signed.key,"string");
+      const presignBodyMs=performance.now()-presignBodyStart;
       const presignMs=performance.now()-uploadStart;
       keys.add(signed.key);const journalStart=performance.now();await saveJournal();
       const journalMs=performance.now()-journalStart;
       const form=new FormData();form.append("file",new File([asset.ciphertext],`${runId}.bin`,{type:"application/octet-stream"}));
       const providerStart=performance.now();
       const uploaded=await fetch(signed.url,{method:"PUT",body:form,headers:{Range:"bytes=0-","x-uploadthing-version":"7.7.4"},redirect:"error",signal:AbortSignal.timeout(120000)});
+      const providerHeadersMs=performance.now()-providerStart;
+      const providerReceiptStart=performance.now();
       assert.equal(uploaded.status,200);const callback=contentResultSchema.parse((await uploaded.json()).serverData);assert(["written","pending"].includes(callback.status));
+      const providerReceiptBodyMs=performance.now()-providerReceiptStart;
       const providerPutCallbackMs=performance.now()-providerStart;
       let initialPending=callback.status==="pending";
       const pendingStart=performance.now();
@@ -128,7 +139,11 @@ export async function runTypicalHotPerformance(c) {
         const assetIndexMs=performance.now()-assetsStart;
         const downloadStart=performance.now();
         const download=await fetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});assert.equal(download.status,200);
-        const assetBytes=new Uint8Array(await download.arrayBuffer());assert.deepEqual(assetBytes,asset.ciphertext);
+        const assetDownloadHeadersMs=performance.now()-downloadStart;
+        const assetBodyStart=performance.now();
+        const assetBytes=new Uint8Array(await download.arrayBuffer());
+        const assetDownloadBodyMs=performance.now()-assetBodyStart;
+        assert.deepEqual(assetBytes,asset.ciphertext);
         const assetDownloadMs=performance.now()-downloadStart;
         const decodeStart=performance.now();
         const decoded=await assetCodec.open({excalidrawFileId:fileId,ciphertext:assetBytes});assert(decoded.ok);assert.deepEqual(decoded.plaintext,payload.bytes);
@@ -145,7 +160,22 @@ export async function runTypicalHotPerformance(c) {
         });
         const received=await realtime.open(frame.frame,"scene");assert(received.ok);assert.deepEqual(received.plaintext,clearFrame);
         const fanoutMs=performance.now()-fanoutStart, joinMs=performance.now()-joinStart;
-        const row={saveMs,joinMs,cryptoMs,uploadMs,presignMs,journalMs,providerPutCallbackMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDecodeMs,fanoutMs,initialPending};
+        let repeated = {};
+        if(c.providerDiagnostic) {
+          // Auxiliary probe begins after the first full join/fanout timer stopped.
+          // No cache headers, URL rewrites or prewarming before the measured read.
+          const repeatStart=performance.now();
+          const response=await fetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});
+          assert.equal(response.status,200);
+          const repeatedDownloadHeadersMs=performance.now()-repeatStart;
+          const bodyStart=performance.now();
+          const bytes=new Uint8Array(await response.arrayBuffer());
+          const repeatedDownloadBodyMs=performance.now()-bodyStart;
+          assert.deepEqual(bytes,asset.ciphertext);
+          repeated={repeatedDownloadMs:performance.now()-repeatStart,repeatedDownloadHeadersMs,repeatedDownloadBodyMs,
+            firstCacheStatus:cacheStatus(download),repeatedCacheStatus:cacheStatus(response)};
+        }
+        const row={saveMs,joinMs,cryptoMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...repeated};
         (index<WARMUP ? result.warmupRecords : result.records).push(row);
         report("performance-sample",{warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,saveMs:Math.round(saveMs),joinMs:Math.round(joinMs)});
       } finally {member?.ws.terminate();if(member)await until(()=>Promise.resolve(member.ws.readyState===3));}
@@ -156,7 +186,9 @@ export async function runTypicalHotPerformance(c) {
   finally {
     clearInterval(heartbeat);owner.ws.terminate();
     result.finishedAt=new Date().toISOString();
-    result.metrics=Object.fromEntries(["saveMs","joinMs","cryptoMs","uploadMs","presignMs","journalMs","providerPutCallbackMs","assetPendingMs","snapshotMs","joinSocketMs","joinSnapshotMs","joinAssetsMs","assetIndexMs","assetDownloadMs","assetDecodeMs","fanoutMs"].map(field=>[field,summary(result.records.map(row=>row[field]))]));
+    const fields=["saveMs","joinMs","cryptoMs","uploadMs","presignMs","presignHeadersMs","presignBodyMs","journalMs","providerPutCallbackMs","providerHeadersMs","providerReceiptBodyMs","assetPendingMs","snapshotMs","joinSocketMs","joinSnapshotMs","joinAssetsMs","assetIndexMs","assetDownloadMs","assetDownloadHeadersMs","assetDownloadBodyMs","assetDecodeMs","fanoutMs"];
+    if(c.providerDiagnostic) fields.push("repeatedDownloadMs","repeatedDownloadHeadersMs","repeatedDownloadBodyMs");
+    result.metrics=Object.fromEntries(fields.map(field=>[field,summary(result.records.map(row=>row[field]))]));
     result.pendingRatio=result.records.length ? result.records.filter(row=>row.initialPending).length/result.records.length : null;
     result.failureRatio=result.failures/(result.records.length+result.failures || 1);
     result.gatePassed=result.completed && result.records.length===SAMPLES && result.metrics.saveMs.p95<=3000 && result.metrics.saveMs.p99<=8000 && result.metrics.joinMs.p95<=3000 && result.metrics.joinMs.p99<=5000;
