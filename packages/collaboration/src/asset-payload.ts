@@ -68,7 +68,7 @@ export const MAX_ASSET_PLAINTEXT_BYTES =
 const encoder = utf8Encoder;
 // Fatal so malformed UTF-8 is refused rather than repaired into a different
 // (possibly valid) payload via U+FFFD replacement.
-const decoder = new TextDecoder("utf-8", { fatal: true });
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 /**
  * Metadata travelling inside the sealed payload.

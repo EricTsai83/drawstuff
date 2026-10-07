@@ -153,7 +153,7 @@ export type DecodeSnapshotResult =
 const encoder = utf8Encoder;
 // Fatal so malformed UTF-8 is refused rather than repaired into a different
 // (possibly valid) snapshot via U+FFFD replacement.
-const decoder = new TextDecoder("utf-8", { fatal: true });
+const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
   const digest = await crypto.subtle.digest("SHA-256", asBufferSource(bytes));
