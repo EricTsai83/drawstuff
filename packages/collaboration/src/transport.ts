@@ -4,6 +4,7 @@ import type {
   PresenceMessage,
   RoomId,
   SceneMessage,
+  SnapshotControlMessage,
 } from "./messages.ts";
 import type { CollaborationProtocolError } from "./codec.ts";
 import type { RoomRole } from "./room-auth.ts";
@@ -195,7 +196,7 @@ export interface CollaborationTransport {
   disconnect(): void;
   /** Terminal: disconnect, drop subscribers, and refuse further connects. */
   close(): void;
-  sendSceneMessage(message: SceneMessage): SendResult;
+  sendSceneMessage(message: SceneMessage | SnapshotControlMessage): SendResult;
   sendPresenceMessage(message: PresenceMessage): SendResult;
   /** Returns an unsubscribe function. */
   subscribe(subscriber: TransportSubscriber): () => void;

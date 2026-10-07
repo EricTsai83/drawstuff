@@ -213,10 +213,10 @@ describe("realtime sealed frames", () => {
     // cannot pass unnoticed. Both frames share an IV only because the test
     // injects a constant one; production draws a fresh IV per message.
     expect(toHex(await sealed(sender, "drawstuff", "scene"))).toBe(
-      "03abababababababababababab4e9be479aa206bee400d100f6a58f3deca3dd42fd9bd2f6006",
+      "03abababababababababababab4e9be479aa206bee40f67afd00b20b86cfe00e443272b4044f",
     );
     expect(toHex(await sealed(sender, "drawstuff", "presence"))).toBe(
-      "03abababababababababababab4e9be479aa206bee40107ad52db95c35b38712fb074cbcde60",
+      "03abababababababababababab4e9be479aa206bee40eb10274753a46db65ac890ec8327ba29",
     );
   });
 

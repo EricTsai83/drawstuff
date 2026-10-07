@@ -25,6 +25,7 @@ export {
   type RoomId,
   type SceneInitMessage,
   type SceneMessage,
+  type SnapshotControlMessage,
   type SceneUpdateMessage,
   type SyncedElement,
 } from "./messages.ts";

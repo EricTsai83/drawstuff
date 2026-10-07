@@ -18,7 +18,8 @@ import { z } from "zod";
  * bounds, so followers match scale instead of preserving their previous
  * viewport-size ratio.
  */
-export const COLLABORATION_PROTOCOL_VERSION = 4;
+// v5 adds encrypted persistence requests and advisory durable receipts.
+export const COLLABORATION_PROTOCOL_VERSION = 5;
 
 /**
  * Hard cap applied to raw encoded bytes before any JSON parsing. Messages
@@ -188,10 +189,32 @@ export const presenceMessageSchema = z.strictObject({
 });
 export type PresenceMessage = z.infer<typeof presenceMessageSchema>;
 
+const snapshotControlMessageSchema = z.strictObject({
+  ...messageEnvelopeFields,
+  type: z.literal("snapshot-control"),
+  payload: z.discriminatedUnion("kind", [
+    z.strictObject({
+      kind: z.literal("request"),
+      requestId: z.string().regex(ID_PATTERN),
+    }),
+    z.strictObject({
+      kind: z.literal("persisted"),
+      captureId: z.string().regex(ID_PATTERN),
+      authGeneration: z.int().positive(),
+      revision: z.int().positive(),
+      checksum: z.string().regex(/^[0-9a-f]{64}$/),
+    }),
+  ]),
+});
+export type SnapshotControlMessage = z.infer<
+  typeof snapshotControlMessageSchema
+>;
+
 export const collaborationMessageSchema = z.discriminatedUnion("type", [
   sceneInitMessageSchema,
   sceneUpdateMessageSchema,
   presenceMessageSchema,
+  snapshotControlMessageSchema,
 ]);
 export type CollaborationMessage = z.infer<typeof collaborationMessageSchema>;
 

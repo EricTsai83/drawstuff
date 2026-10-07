@@ -321,7 +321,7 @@ describe("collaboration protocol codec", () => {
     expect(roomIdSchema.safeParse("A-valid_room-42").success).toBe(true);
   });
 
-  it("pins protocol version 4 as the only active writer", () => {
-    expect(COLLABORATION_PROTOCOL_VERSION).toBe(4);
+  it("pins protocol version 5 as the only active writer", () => {
+    expect(COLLABORATION_PROTOCOL_VERSION).toBe(5);
   });
 });
