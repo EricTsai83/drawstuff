@@ -2,7 +2,7 @@
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 import { setTimeout as pause } from "node:timers/promises";
@@ -41,6 +41,8 @@ const snapshotDiagnostic = process.argv[4] === "--performance-snapshot-diagnosti
 const serverDiagnostic = process.argv[4] === "--performance-server-diagnostic" || presignDiagnostic || snapshotDiagnostic;
 const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic || (serverDiagnostic && !http2Performance);
 const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic || http2Performance;
+const reportName = http2Performance ? "collaboration-production-3a-http2" : snapshotDiagnostic ? "collaboration-production-3a-snapshot" : presignDiagnostic ? "collaboration-production-3a-presign" : serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
+if (performanceMode) await assert.rejects(access(`${rootDir}docs/performance/${reportName}.json`), { code: "ENOENT" }, "Archive the previous report before starting another run");
 assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode || performanceMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
 assert.equal(web, "https://draw.ericts.com");
@@ -106,6 +108,7 @@ for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { interrupt
 let cfToken;
 let initialBindings;
 let normalRuntimeHash;
+let initialDeploymentId;
 async function cfGet(path) {
   const response = await fetch(`https://api.cloudflare.com/client/v4/accounts/01db0963ee12ab1901ca993a89ac45f8${path}`, { headers: { authorization: `Bearer ${cfToken}` }, signal: AbortSignal.timeout(20000) });
   const data = await response.json(); assert(response.ok && data.success, `Cloudflare HTTP ${response.status}`); return data.result;
@@ -373,6 +376,11 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   assert.equal(initialBindings.find((b) => b.name === "COLLABORATION_ROOM")?.namespace_id, "5f0f6fe2322c4f20b23c08018c9f9c08");
   assert.equal(initialBindings.find((b) => b.name === "COLLABORATION_LIFECYCLE")?.namespace_id, "789308f282c349b58578e29496dfa502");
   const normalRuntime = await deployedRuntime(); normalRuntimeHash = digest(normalRuntime);
+  if (performanceMode) {
+    const deployments = await cfGet("/workers/scripts/drawstuff-collaboration-do/deployments");
+    initialDeploymentId = deployments.deployments?.[0]?.id;
+    assert.equal(typeof initialDeploymentId, "string", "Initial Worker deployment must be identifiable");
+  }
   await writeFile(`${directory}/restore/index.js`, normalRuntime, { mode: 0o600 });
   assert(!interrupted, "Acceptance interrupted");
   if (http2Performance) workerTail = await startWorkerTail({ workerDir, roomIds, report });
@@ -497,6 +505,20 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   let cleanupStage = "retirement";
   try {
     if (performanceReport) {
+      try {
+        const deployments = (await cfGet("/workers/scripts/drawstuff-collaboration-do/deployments")).deployments;
+        const unchanged = Array.isArray(deployments) && deployments[0]?.id === initialDeploymentId;
+        performanceReport.measurementValidity = {
+          initialDeploymentId, observedDeploymentId: deployments?.[0]?.id, workerDeploymentUnchanged: unchanged,
+          observedAt: new Date().toISOString(),
+          limitation: "Compares deployment identity before fixture creation and before cleanup; web deployments are not independently observed.",
+        };
+        if (!unchanged) { testPassed = false; performanceReport.gatePassed = false; report("performance-worker-deployment-changed"); }
+      } catch {
+        testPassed = false; performanceReport.gatePassed = false;
+        performanceReport.measurementValidity = { workerDeploymentUnchanged: null };
+        report("performance-deployment-unverified");
+      }
       // Read only owned fixture counts, before terminal retirement changes projection rows.
       try {
         const [counts] = await sql`select (select count(*) from drawstuff_collaboration_asset where room_id=${roomId}) as assets, (select count(*) from drawstuff_collaboration_snapshot where room_id=${roomId}) as snapshots`;
@@ -614,8 +636,7 @@ if (performanceReport) {
     let output="";child.stdout.on("data", chunk=>{output+=chunk.toString();});child.once("error",reject);child.once("close",code=>code===0 ? resolve(output.trim()) : reject(new Error("commit-unavailable")));
   }));
   performanceReport.runtime.normalWorkerSha256 = normalRuntimeHash;
-  const reportName = http2Performance ? "collaboration-production-3a-http2" : snapshotDiagnostic ? "collaboration-production-3a-snapshot" : presignDiagnostic ? "collaboration-production-3a-presign" : serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
-  await writeFile(`${rootDir}docs/performance/${reportName}.json`, JSON.stringify(performanceReport, null, 2)+"\n");
+  await writeFile(`${rootDir}docs/performance/${reportName}.json`, JSON.stringify(performanceReport, null, 2)+"\n", { flag: "wx" });
 }
 report("result", { testPassed, cleanupPassed, restored, expectedFailureHandled });
 if ((!testPassed && !expectedFailureHandled) || !cleanupPassed || !restored) process.exitCode = 1;

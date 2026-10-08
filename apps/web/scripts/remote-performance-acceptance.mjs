@@ -97,16 +97,18 @@ export async function runTypicalHotPerformance(c) {
       assert(sealed.ok);owner.ws.send(encodeRelayDataFrame("presence",sealed.frame));
     }).catch(()=>{heartbeatError=true;}).finally(()=>{heartbeatRunning=false;});
   },5000);
+  let failureContext;
+  const enterStage = stage => { failureContext.stage = stage; delete failureContext.httpStatus; };
   const snapshotRequest=async(request,body,identity,timings)=>{
     const response=await measuredFetch(`${gateway}/v1/snapshot`,{
     method:"POST",headers:{authorization:`Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`,"content-type":"application/octet-stream",
       [SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(identity),request}),...(timings ? {[PERFORMANCE_PROBE_HEADER]:"1"} : {})},
     ...(body ? {body} : {}),redirect:"error",signal:AbortSignal.timeout(20000),
     });
+    failureContext.httpStatus=response.status;
     if(timings) Object.assign(timings,readServerTimings(response.headers.get("server-timing")));
     return response;
   };
-  let failureContext;
   try {
     for(let index=0;index<WARMUP+samples;index++) {
       failureContext={warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,stage:"prepare"};
@@ -121,11 +123,11 @@ export async function runTypicalHotPerformance(c) {
       const cryptoMs=performance.now()-started;
       const intent={...envelope(),kind:"asset-finalize",authGeneration:1,authorityEpoch:1,expectedRevision:0,checksum:sha256(asset.ciphertext),excalidrawFileId:fileId,cryptoVersion:1,byteLength:asset.ciphertext.byteLength};
       const uploadStart=performance.now();
-      failureContext.stage="presign";
+      enterStage("presign");
       const presign=await measuredFetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`,{
         method:"POST",headers:{cookie,"content-type":"application/json","x-uploadthing-version":"7.7.4",...(c.serverDiagnostic ? {[PERFORMANCE_PROBE_HEADER]:issuePerformanceProbe(process.env.COLLAB_AUTHORITY_SECRET)} : {})},
         body:JSON.stringify({input:intent,files:[{name:`${runId}.bin`,type:"application/octet-stream",size:asset.ciphertext.byteLength,lastModified:Date.now()}]}),redirect:"error",signal:AbortSignal.timeout(20000),
-      });assert.equal(presign.status,200);
+      });failureContext.httpStatus=presign.status;assert.equal(presign.status,200);
       const presignHeadersMs=performance.now()-uploadStart;
       const presignBodyStart=performance.now();
       const [signed]=await presign.json();assert.equal(typeof signed.key,"string");
@@ -136,8 +138,9 @@ export async function runTypicalHotPerformance(c) {
       const journalMs=performance.now()-journalStart;
       const form=new FormData();form.append("file",new File([asset.ciphertext],`${runId}.bin`,{type:"application/octet-stream"}));
       const providerStart=performance.now();
-      failureContext.stage="provider-put";
+      enterStage("provider-put");
       const uploaded=await measuredFetch(signed.url,{method:"PUT",body:form,headers:{Range:"bytes=0-","x-uploadthing-version":"7.7.4"},redirect:"error",signal:AbortSignal.timeout(120000)});
+      failureContext.httpStatus=uploaded.status;
       const providerHeadersMs=performance.now()-providerStart;
       const providerReceiptStart=performance.now();
       assert.equal(uploaded.status,200);
@@ -157,7 +160,7 @@ export async function runTypicalHotPerformance(c) {
       const assetPendingMs=performance.now()-pendingStart;
       const uploadMs=performance.now()-uploadStart;
       const operation={...envelope(),kind:"snapshot-put",authGeneration:1,authorityEpoch:1,expectedRevision:revision,checksum:sha256(sealed.ciphertext)};
-      failureContext.stage="snapshot-write";
+      enterStage("snapshot-write");
       const saveStart=performance.now();let written;
       const snapshotWriteTimings=c.snapshotDiagnostic ? {} : undefined;
       let snapshotAttempts=0;
@@ -169,14 +172,14 @@ export async function runTypicalHotPerformance(c) {
       assert.equal(written.revision,++revision);
       const snapshotMs=performance.now()-saveStart;
       const saveMs=performance.now()-started;
-      failureContext.stage="join";
+      enterStage("join");
       const joinStart=performance.now();let member;
       try {
         member=await connect(guest);assert.equal(member.joined.role,"editor");
         const joinSocketMs=performance.now()-joinStart;
         const baselineStart=performance.now();
         const snapshotReadTimings=c.snapshotDiagnostic ? {} : undefined;
-        failureContext.stage="snapshot-read";
+        enterStage("snapshot-read");
         const response=await snapshotRequest({...envelope(),action:"read"},undefined,guest,snapshotReadTimings);assert.equal(response.status,200);
         const receipt=JSON.parse(response.headers.get(SNAPSHOT_RECEIPT_HEADER));assert.equal(receipt.revision,revision);
         const ciphertext=new Uint8Array(await response.arrayBuffer());assert.equal(sha256(ciphertext),receipt.checksum);
@@ -185,13 +188,13 @@ export async function runTypicalHotPerformance(c) {
         const joinSnapshotMs=performance.now()-baselineStart;
         const assetsStart=performance.now();
         const indexTimings=c.serverDiagnostic ? {} : undefined;
-        failureContext.stage="asset-index";
+        enterStage("asset-index");
         const lookup=(await jsonPost("/v1/assets",{proof:proof(guest),request:{...envelope(),action:"read",fileIds:[fileId]}},indexTimings)).result;
         assert.equal(lookup.assets.length,1);assert.equal(lookup.assets[0].excalidrawFileId,fileId);
         const assetIndexMs=performance.now()-assetsStart;
         const downloadStart=performance.now();
-        failureContext.stage="asset-download";
-        const download=await measuredFetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});assert.equal(download.status,200);
+        enterStage("asset-download");
+        const download=await measuredFetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});failureContext.httpStatus=download.status;assert.equal(download.status,200);
         const assetDownloadHeadersMs=performance.now()-downloadStart;
         const assetBodyStart=performance.now();
         const assetBytes=new Uint8Array(await download.arrayBuffer());
@@ -206,7 +209,8 @@ export async function runTypicalHotPerformance(c) {
         const clearFrame=new TextEncoder().encode(randomUUID());
         const frame=await realtime.seal(clearFrame,"scene");assert(frame.ok);
         const wire=encodeRelayDataFrame("scene",frame.frame), fanoutStart=performance.now();
-        failureContext={...failureContext,stage:"fanout",segments:{saveMs,presignMs,providerPutCallbackMs,snapshotMs,joinSocketMs,joinSnapshotMs,assetIndexMs,assetDownloadMs}};
+        enterStage("fanout");
+        failureContext={...failureContext,segments:{saveMs,presignMs,providerPutCallbackMs,snapshotMs,joinSocketMs,joinSnapshotMs,assetIndexMs,assetDownloadMs}};
         assert.equal(owner.ws.readyState,1);assert.equal(member.ws.readyState,1);
         await new Promise((resolve,reject)=>{
           const finish=error=>{
@@ -237,7 +241,7 @@ export async function runTypicalHotPerformance(c) {
           repeated={repeatedDownloadMs:performance.now()-repeatStart,repeatedDownloadHeadersMs,repeatedDownloadBodyMs,
             firstCacheStatus:cacheStatus(download),repeatedCacheStatus:cacheStatus(response)};
         }
-        failureContext.stage="server-timings";
+        enterStage("server-timings");
         const server={};
         if(c.serverDiagnostic) {
           const snapshots=c.snapshotDiagnostic ? [

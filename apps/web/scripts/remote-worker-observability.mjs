@@ -8,15 +8,37 @@ const events = new Set([
   "room.socket_error", "room.fanout_write_failed", "room.session_joined", "room.session_closed",
 ]);
 const errors = new Set(["Error", "TypeError", "RangeError", "SyntaxError", "ReferenceError", "EvalError", "URIError"]);
+const outcomes = new Set(["ok", "canceled", "exception", "unknown"]);
+const exceptionClass = message => {
+  if (typeof message !== "string") return "unclassified";
+  if (message.includes("reset because its code was updated")) return "code-update-reset";
+  if (message.includes("storage operation exceeded timeout")) return "storage-timeout-reset";
+  if (message.includes("Durable Object is overloaded")) return "object-overloaded";
+  if (message.includes("Network connection lost")) return "network-connection-lost";
+  if (message.includes("CPU time limit")) return "cpu-time-limit";
+  if (message.includes("Memory limit")) return "memory-limit";
+  return "unclassified";
+};
 
 export function createTailSummary(roomIds) {
-  const summary = { source: "wrangler-live-tail", platformEvents: 0, fixtureEvents: {}, unscopedFailures: {}, exceptions: 0, malformedRecords: 0 };
+  const summary = { source: "wrangler-live-tail", platformEvents: 0, fixtureEvents: {}, unscopedFailures: {}, outcomes: {}, exceptionClasses: {}, exceptions: 0, failureEvents: [], malformedRecords: 0 };
   const increment = (target, key) => { target[key] = (target[key] ?? 0) + 1; };
   const accept = value => {
     if (!value || typeof value !== "object" || !Array.isArray(value.logs)) return;
     summary.platformEvents++;
+    const outcome = outcomes.has(value.outcome) ? value.outcome : "unreported";
+    increment(summary.outcomes, outcome);
     // Platform exception text can include secrets. Keep only its count, without claiming fixture attribution.
     summary.exceptions += Array.isArray(value.exceptions) ? value.exceptions.length : 0;
+    const classes = (Array.isArray(value.exceptions) ? value.exceptions : []).map(exception => exceptionClass(exception?.message));
+    for (const name of classes) increment(summary.exceptionClasses, name);
+    if (classes.length || outcome === "exception") {
+      summary.failureEvents.push({
+        eventTimestamp: Number.isSafeInteger(value.eventTimestamp) ? value.eventTimestamp : undefined,
+        outcome, exceptionClasses: [...new Set(classes)],
+      });
+      if (summary.failureEvents.length > 20) summary.failureEvents.shift();
+    }
     for (const log of value.logs) for (const message of Array.isArray(log.message) ? log.message : []) {
       let record = message;
       if (typeof message === "string") {
@@ -87,7 +109,7 @@ export async function startWorkerTail({ workerDir, roomIds, report }) {
       await Promise.race([completion, pause(5000)]);
       if (!closed) { signal("SIGKILL"); await completion; }
       return { ...summary, unexpectedExit: failed, deliveryConfirmed: summary.platformEvents > 0,
-        limitation: "Live tail can sample or drop events; unscoped failures and platform exceptions cannot be attributed to this fixture. No historical log permission." };
+        limitation: "Live tail can sample or drop events; unscoped failures and platform exceptions cannot be attributed to this fixture. Exception classes match fixed documented phrases, not raw messages. No historical log permission." };
     },
   };
 }
