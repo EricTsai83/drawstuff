@@ -612,8 +612,11 @@ Provider 分段診斷另完成 20 配對樣本並清理／還原：首次下載 
 headers 前等待 1,527.67 ms；重讀仍為 1,133.28 ms，且無 CF cache 狀態證據。
 伺服器分段亦完成 20 配對診斷並清理／還原。callback p50 243.44 ms，DB write p50 46.05 ms；
 最慢保存樣本的 Gateway→DO RPC 為 6,310 ms、DO handler 僅 139 ms，最慢加入則有 7,511.53 ms
-花在下載 body。下一步區分 RPC dispatch／排程等待、SDK presign 與下載傳輸，依證據改善後再按原門檻
-重測；不能將未分類等待都歸因於 Neon、provider 或冷啟動，也不改付費方案／region。
+花在下載 body。已用 SDK 公開 handleDaemonPromise 設定接到 Next.js after，並完成 20 組真實配對診斷與
+清理／還原；presign p50 由 1,116.12 降到 474.43 ms，callback receipt 全數完成，沒有把相同等待轉移到 PUT。
+保存／加入 p95 仍為 4,945.67／4,948.49 ms，不能以 20 筆診斷替代正式 gate；本輪最慢保存的 snapshot
+另耗時 4,190.49 ms。下一步補齊 snapshot 伺服器分段，區分 RPC handler 外等待與下載傳輸，依證據改善後
+再按原門檻重測；不能將未分類等待都歸因於 Neon、provider 或冷啟動，也不改付費方案／region。
 
 ## 9. 驗收矩陣
 

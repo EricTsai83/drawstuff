@@ -316,3 +316,23 @@ UploadThing 7.7.4 的 `RouteHandlerConfig.handleDaemonPromise` 在 production �
 `awaitServerData` 維持預設 true；provider PUT 仍須等真實 `onUploadComplete` 的 content receipt，所有 live session、Room、lifecycle、generation 與 storage fence 仍執行。改善預期是移動 metadata registration 與 callback HTTP ACK 的等待位置，不預先宣稱端到端保存省下相同毫秒數。
 
 `caffeinate -i pnpm collab:assets:remote --performance-presign-diagnostic` 沿用 20 warmup／20 組伺服器配對診斷，另存 `docs/performance/collaboration-production-3a-presign.json`，保留改善前 server 報告與原 200 筆 gate。檢查背景 metadata 成功抵達 provider、verified callback 完成、首次下載／解密與原限定清理；同時對照 presign 的縮短是否只是轉移到 PUT＋receipt 等待。RPC handler 外與下載 body 慢樣本的根因仍待獨立追蹤。
+
+2026-10-08 的 [presign 改善後報告](../../performance/collaboration-production-3a-presign.json) 完成 20 warmup／20 組診斷，基底與工具 commit `426f297`，工具無未提交修改。真實 metadata registration、callback receipt、索引／首次下載／解密全部完成，失敗與初始 pending 均為零。
+
+| 分段 | 改善前 p50 ms | 本輪 p50 ms | 本輪 p95 ms |
+| --- | ---: | ---: | ---: |
+| 客戶端 presign | 1,116.12 | 474.43 | 745.06 |
+| SDK handler（包含 middleware） | 937.04 | 288.74 | 356.95 |
+| SDK handler 扣除每筆 middleware 區間 | 713.27 | 10.54 | 12.75 |
+| PUT＋callback receipt | 2,079.66 | 1,922.24 | 2,273.89 |
+| callback handler | 243.44 | 278.47 | 354.11 |
+| 保存總耗時 | 4,357.60 | 3,606.70 | 4,945.67 |
+| 首次加入總耗時 | 3,488.34 | 3,481.15 | 4,948.49 |
+| snapshot 保存 | 1,172.62 | 1,123.25 | 2,306.18 |
+| 首次附件下載 | 1,733.51 | 1,768.05 | 1,999.56 |
+
+SDK 剩餘區間從約 713ms 降為 11ms，支持 metadata daemon 已移出 presign 的同步等待；PUT＋receipt 沒有在本輪出現等量增加，真實 receipt 仍完整。兩輪是不同時間窗口的 20 筆診斷，不是隨機 A/B；不能把所有尾端波動降低都歸因於這個設定，也不能宣稱 callback RPC handler 外等待的根因已修復。
+
+本輪最慢保存 6,850.22 ms，其中 snapshot 4,190.49 ms，presign 573.72 ms、PUT＋callback 2,083.87 ms；下一輪優先補 snapshot Gateway／DO／adapter 分段，同時區分 RPC handler 外與傳輸等待。原 200 筆 gate 與 3,000 ms p95 門檻不變，`gatePassed=false`；保存／加入仍未達標，不重複以小樣本宣稱 P3 完成。
+
+Provider／DB／DO 清理與正常 Worker 精確還原通過，還原 version `eab0e029-5f65-4027-8860-3635d9ffe060`，正常 Worker hash 與改善前相同。再次唯讀核對測試前綴的帳號、房間、附件、快照、registration、tombstone、creation fence、lifecycle subject 全為零；暫時入口回 404，runtime／journal／lock 全已移除。沒有 DB push／migration、Worker 產品邏輯或免費方案／sea1 設定變更。
