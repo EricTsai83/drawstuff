@@ -2,6 +2,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+const probeSecret = "private-performance-capability-at-least-32-bytes";
+vi.mock("@/env", () => ({
+  env: {
+    COLLAB_AUTHORITY_SECRET: "private-performance-capability-at-least-32-bytes",
+  },
+}));
 
 /**
  * The upload route's rate limit, at the only request that may carry it.
@@ -64,6 +70,10 @@ import { NextRequest } from "next/server";
 
 import { COLLAB_RATE_LIMITED_ERROR } from "@/lib/collab/rate-limit";
 import { POST } from "@/app/api/uploadthing/route";
+import {
+  issuePerformanceProbe,
+  performanceProbeAuthorized,
+} from "@/server/collab/performance-probe";
 
 const ENDPOINT = "http://localhost/api/uploadthing";
 
@@ -85,6 +95,50 @@ beforeEach(() => {
 });
 
 describe("what the collaboration upload limit counts", () => {
+  it("rejects expired, tampered and differently signed timing capabilities", () => {
+    const token = issuePerformanceProbe(probeSecret);
+    const probe = (value: string) =>
+      presign({ "x-collab-performance-probe": value });
+    expect(performanceProbeAuthorized(probe(token), probeSecret)).toBe(true);
+    expect(
+      performanceProbeAuthorized(probe(token), `${probeSecret}-other`),
+    ).toBe(false);
+    expect(
+      performanceProbeAuthorized(probe(`${token.slice(0, -1)}!`), probeSecret),
+    ).toBe(false);
+    const clock = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 61_000);
+    try {
+      expect(performanceProbeAuthorized(probe(token), probeSecret)).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+  it("adds numeric timings only with the service capability, never cookies or callback hooks alone", async () => {
+    for (const header of [undefined, "1", "Bearer wrong-secret"]) {
+      const response = await POST(
+        presign(header ? { "x-collab-performance-probe": header } : undefined),
+      );
+      expect(response.headers.get("server-timing")).toBeNull();
+      expect(await response.json()).toEqual({ delegated: true });
+    }
+    const response = await POST(
+      presign({
+        "x-collab-performance-probe": issuePerformanceProbe(probeSecret),
+      }),
+    );
+    expect(response.headers.get("server-timing")).toMatch(
+      /routeSession;dur=\d/,
+    );
+    expect(response.headers.get("server-timing")).not.toContain(probeSecret);
+    expect(await response.json()).toEqual({ delegated: true });
+    const callback = await POST(
+      request("?slug=collaborationAssetUploader", {
+        "uploadthing-hook": "callback",
+        "x-collab-performance-probe": issuePerformanceProbe(probeSecret),
+      }),
+    );
+    expect(callback.headers.get("server-timing")).toBeNull();
+  });
   it("counts the authenticated presign request, charged to the caller", async () => {
     await POST(presign());
     expect(checks).toEqual([

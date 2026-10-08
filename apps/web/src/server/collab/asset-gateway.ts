@@ -2,6 +2,11 @@ import "server-only";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import {
+  PERFORMANCE_PROBE_HEADER,
+  readServerTimings,
+  type PerformanceTimings,
+} from "@drawstuff/collaboration/performance";
+import {
   ASSET_GATEWAY_PATH,
   AUTHORITY_LIMITS,
   assetGatewayResultSchema,
@@ -14,6 +19,7 @@ export async function callAssetGateway(
   proof: string,
   request: AssetRequest,
   fetchImpl: typeof fetch = fetch,
+  timings?: PerformanceTimings,
 ) {
   const endpoint = new URL(ASSET_GATEWAY_PATH, config.url);
   if (
@@ -33,6 +39,7 @@ export async function callAssetGateway(
       headers: {
         authorization: `Bearer ${config.secret}`,
         "content-type": "application/json",
+        ...(timings ? { [PERFORMANCE_PROBE_HEADER]: "1" } : {}),
       },
       body,
       signal: AbortSignal.timeout(AUTHORITY_LIMITS.externalTimeoutMs),
@@ -50,6 +57,11 @@ export async function callAssetGateway(
                 : "SERVICE_UNAVAILABLE",
       });
     }
+    if (timings)
+      Object.assign(
+        timings,
+        readServerTimings(response.headers.get("server-timing")),
+      );
     if (
       !response.body ||
       !response.headers.get("content-type")?.startsWith("application/json")

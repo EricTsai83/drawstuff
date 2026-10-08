@@ -22,6 +22,10 @@
       "types": "./src/protocol.ts",
       "default": "./src/protocol.ts"
     },
+    "./performance": {
+      "types": "./src/performance.ts",
+      "default": "./src/performance.ts"
+    },
     "./protocol-conformance": {
       "types": "./src/protocol-conformance.ts",
       "default": "./src/protocol-conformance.ts"

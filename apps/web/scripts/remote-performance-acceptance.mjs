@@ -12,6 +12,9 @@ import {
 import { SNAPSHOT_REQUEST_HEADER, SNAPSHOT_RECEIPT_HEADER, contentResultSchema } from "@drawstuff/collaboration/authority";
 import { createRealtimeCryptoCodec } from "@drawstuff/collaboration/realtime-crypto";
 import { encodeRelayDataFrame } from "@drawstuff/collaboration/relay-protocol";
+import { z } from "zod";
+import { PERFORMANCE_PROBE_HEADER, readServerTimings, performanceTimingsSchema } from "@drawstuff/collaboration/performance";
+import { issuePerformanceProbe } from "../src/server/collab/performance-probe.ts";
 
 const WARMUP = 20, SAMPLES = 200, TYPICAL_BYTES = 256 * 1024;
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -51,11 +54,11 @@ export async function runTypicalHotPerformance(c) {
   const {roomId,runId,web,gateway,cookie,roomKey,snapshotKey,guest,keys,saveJournal,proof,envelope,jsonPost,connect,until,report} = c;
   const samples = c.diagnostic ? 20 : SAMPLES;
   const result={schemaVersion:1,scope:"3A",startedAt:new Date().toISOString(),warmup:WARMUP,requiredSamples:SAMPLES,
-    purpose:c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
+    purpose:c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
     scenario:"typical-hot-real-upload",snapshotPlaintextBytes:TYPICAL_BYTES,assetPlaintextBytes:null,
-    runtime:{client:process.version,protocol:6,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:true},
+    runtime:{client:process.version,protocol:6,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:Boolean(c.toolsUncommitted)},
     measurementBoundary:"verified principals -> Gateway -> DO -> production adapter/Neon and genuine UploadThing callback; join includes baseline, asset download/decode and socket fanout",
-    limitations:["OAuth, web proof issuance/rate-limit ingress and UI application are excluded", "hot DO maintained by live presence traffic; Vercel/Neon cold starts are not independently classified", "client segments are measured; DO->Vercel and adapter->Neon spans require subsequent instrumentation"],
+    limitations:[c.serverDiagnostic ? "OAuth, web proof issuance and UI application are excluded; asset presign session and rate-limit spans are measured" : "OAuth, web proof issuance/rate-limit ingress and UI application are excluded", "hot DO maintained by live presence traffic; Vercel/Neon cold starts are not independently classified", c.serverDiagnostic ? "asset path records service and DB transaction spans; snapshot spans, callback dispatch and provider/network attribution remain unclassified" : "client segments are measured; DO->Vercel and adapter->Neon spans require subsequent instrumentation"],
     thresholdsMs:{save:{p95:3000,p99:8000},join:{p95:3000,p99:5000}},
     records:[],warmupRecords:[],failures:0,gatePassed:false,completed:false};
   c.observe(result);
@@ -88,13 +91,14 @@ export async function runTypicalHotPerformance(c) {
       const intent={...envelope(),kind:"asset-finalize",authGeneration:1,authorityEpoch:1,expectedRevision:0,checksum:sha256(asset.ciphertext),excalidrawFileId:fileId,cryptoVersion:1,byteLength:asset.ciphertext.byteLength};
       const uploadStart=performance.now();
       const presign=await fetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`,{
-        method:"POST",headers:{cookie,"content-type":"application/json","x-uploadthing-version":"7.7.4"},
+        method:"POST",headers:{cookie,"content-type":"application/json","x-uploadthing-version":"7.7.4",...(c.serverDiagnostic ? {[PERFORMANCE_PROBE_HEADER]:issuePerformanceProbe(process.env.COLLAB_AUTHORITY_SECRET)} : {})},
         body:JSON.stringify({input:intent,files:[{name:`${runId}.bin`,type:"application/octet-stream",size:asset.ciphertext.byteLength,lastModified:Date.now()}]}),redirect:"error",signal:AbortSignal.timeout(20000),
       });assert.equal(presign.status,200);
       const presignHeadersMs=performance.now()-uploadStart;
       const presignBodyStart=performance.now();
       const [signed]=await presign.json();assert.equal(typeof signed.key,"string");
       const presignBodyMs=performance.now()-presignBodyStart;
+      const routeTimings=c.serverDiagnostic ? readServerTimings(presign.headers.get("server-timing")) : {};
       const presignMs=performance.now()-uploadStart;
       keys.add(signed.key);const journalStart=performance.now();await saveJournal();
       const journalMs=performance.now()-journalStart;
@@ -103,7 +107,10 @@ export async function runTypicalHotPerformance(c) {
       const uploaded=await fetch(signed.url,{method:"PUT",body:form,headers:{Range:"bytes=0-","x-uploadthing-version":"7.7.4"},redirect:"error",signal:AbortSignal.timeout(120000)});
       const providerHeadersMs=performance.now()-providerStart;
       const providerReceiptStart=performance.now();
-      assert.equal(uploaded.status,200);const callback=contentResultSchema.parse((await uploaded.json()).serverData);assert(["written","pending"].includes(callback.status));
+      assert.equal(uploaded.status,200);
+      const serverData=(await uploaded.json()).serverData;
+      const measured=c.serverDiagnostic ? z.strictObject({result:contentResultSchema,presign:performanceTimingsSchema,timings:performanceTimingsSchema}).parse(serverData) : undefined;
+      const callback=contentResultSchema.parse(measured ? measured.result : serverData);assert(["written","pending"].includes(callback.status));
       const providerReceiptBodyMs=performance.now()-providerReceiptStart;
       const providerPutCallbackMs=performance.now()-providerStart;
       let initialPending=callback.status==="pending";
@@ -134,7 +141,8 @@ export async function runTypicalHotPerformance(c) {
         assert.deepEqual(opened.plaintext,plaintext);assert(decodeCollaborationSnapshot(opened.plaintext,{roomId}).ok);
         const joinSnapshotMs=performance.now()-baselineStart;
         const assetsStart=performance.now();
-        const lookup=(await jsonPost("/v1/assets",{proof:proof(guest),request:{...envelope(),action:"read",fileIds:[fileId]}})).result;
+        const indexTimings=c.serverDiagnostic ? {} : undefined;
+        const lookup=(await jsonPost("/v1/assets",{proof:proof(guest),request:{...envelope(),action:"read",fileIds:[fileId]}},indexTimings)).result;
         assert.equal(lookup.assets.length,1);assert.equal(lookup.assets[0].excalidrawFileId,fileId);
         const assetIndexMs=performance.now()-assetsStart;
         const downloadStart=performance.now();
@@ -175,7 +183,19 @@ export async function runTypicalHotPerformance(c) {
           repeated={repeatedDownloadMs:performance.now()-repeatStart,repeatedDownloadHeadersMs,repeatedDownloadBodyMs,
             firstCacheStatus:cacheStatus(download),repeatedCacheStatus:cacheStatus(response)};
         }
-        const row={saveMs,joinMs,cryptoMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...repeated};
+        const server={};
+        if(c.serverDiagnostic) {
+          for(const [prefix,timings,required] of [
+            ["presignRoute",routeTimings,["routeSession","rateLimit","uploadHandler"]],
+            ["presign",measured.presign,["session","identity","gateway","gatewayService","room","register","registerStorage"]],
+            ["callback",measured.timings,["callback","identity","gateway","gatewayService","room","register","registerStorage","write","writeStorage"]],
+            ["index",indexTimings,["gatewayService","room","register","registerStorage","readAssets","readAssetsStorage"]],
+          ]) {
+            for(const metric of required) assert.equal(typeof timings[metric],"number",`Missing ${prefix} ${metric} timing`);
+            for(const [metric,value] of Object.entries(timings)) server[`${prefix}_${metric}Ms`]=value;
+          }
+        }
+        const row={saveMs,joinMs,cryptoMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...repeated,...server};
         (index<WARMUP ? result.warmupRecords : result.records).push(row);
         report("performance-sample",{warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,saveMs:Math.round(saveMs),joinMs:Math.round(joinMs)});
       } finally {member?.ws.terminate();if(member)await until(()=>Promise.resolve(member.ws.readyState===3));}
@@ -188,6 +208,7 @@ export async function runTypicalHotPerformance(c) {
     result.finishedAt=new Date().toISOString();
     const fields=["saveMs","joinMs","cryptoMs","uploadMs","presignMs","presignHeadersMs","presignBodyMs","journalMs","providerPutCallbackMs","providerHeadersMs","providerReceiptBodyMs","assetPendingMs","snapshotMs","joinSocketMs","joinSnapshotMs","joinAssetsMs","assetIndexMs","assetDownloadMs","assetDownloadHeadersMs","assetDownloadBodyMs","assetDecodeMs","fanoutMs"];
     if(c.providerDiagnostic) fields.push("repeatedDownloadMs","repeatedDownloadHeadersMs","repeatedDownloadBodyMs");
+    if(c.serverDiagnostic) fields.push(...new Set(result.records.flatMap(row=>Object.keys(row).filter(field=>/^(?:presignRoute|presign|callback|index)_/.test(field)))));
     result.metrics=Object.fromEntries(fields.map(field=>[field,summary(result.records.map(row=>row[field]))]));
     result.pendingRatio=result.records.length ? result.records.filter(row=>row.initialPending).length/result.records.length : null;
     result.failureRatio=result.failures/(result.records.length+result.failures || 1);

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { PerformanceTimings } from "@drawstuff/collaboration/performance";
 import {
   AUTHORITY_LIMITS,
   assetGatewayRequestSchema,
@@ -21,6 +22,7 @@ export async function applyAssetEntry(
   authority: RoomAuthority,
   input: unknown,
   env: Env,
+  timings?: PerformanceTimings,
 ): Promise<
   { ok: true; result: AssetGatewayResult } | { ok: false; error: string }
 > {
@@ -61,7 +63,7 @@ export async function applyAssetEntry(
     };
     authorize();
     const room = authority.state()!;
-    const adapter = new AdapterClient(env);
+    const adapter = new AdapterClient(env, undefined, timings);
     const registration = await adapter.call(
       {
         v: 1,

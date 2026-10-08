@@ -32,6 +32,36 @@ const controlRequest = (command: AdapterCommand) =>
     body: JSON.stringify(command),
   });
 describe("private binary adapter endpoint", () => {
+  it("keeps storage timing opt-in and behind the adapter capability", async () => {
+    const f = await adapterFixture(db);
+    const command: AdapterCommand = {
+      v: 1,
+      action: "read-assets",
+      roomId: f.roomId,
+      authGeneration: 1,
+      authorityEpoch: 1,
+      assetIds: [],
+    };
+    const plain = await handleAdapterRequest(
+      controlRequest(command),
+      db,
+      secret,
+    );
+    expect(plain.headers.get("server-timing")).toBeNull();
+    const measured = controlRequest(command);
+    measured.headers.set("x-collab-performance-probe", "1");
+    const response = await handleAdapterRequest(measured, db, secret);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ assets: [] });
+    expect(response.headers.get("server-timing")).toMatch(/^storage;dur=\d/);
+    const denied = await handleAdapterRequest(
+      controlRequest(command),
+      db,
+      undefined,
+    );
+    expect(denied.status).toBe(401);
+    expect(denied.headers.get("server-timing")).toBeNull();
+  });
   it.each([Error, TypeError, SyntaxError])(
     "keeps DB %s failures retryable and does not expose private driver details",
     async (Failure) => {

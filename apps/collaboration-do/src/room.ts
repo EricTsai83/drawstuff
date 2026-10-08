@@ -1,4 +1,5 @@
 import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
+import type { PerformanceTimings } from "@drawstuff/collaboration/performance";
 import { DurableObject } from "cloudflare:workers";
 
 import {
@@ -320,10 +321,20 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     return this.snapshotEntry.handle(request);
   }
 
-  async applyAssetsV1(input: unknown) {
+  async applyAssetsV1(input: unknown, measure = false) {
     this.requireChannelKey();
     if (!this.authority) return { ok: false as const, error: "unavailable" };
-    return applyAssetEntry(this.authority, input, this.env);
+    const timings: PerformanceTimings | undefined = measure ? {} : undefined;
+    const start = performance.now();
+    const result = await applyAssetEntry(
+      this.authority,
+      input,
+      this.env,
+      timings,
+    );
+    return timings
+      ? { ...result, timings: { ...timings, room: performance.now() - start } }
+      : result;
   }
 
   override async fetch(request: Request): Promise<Response> {

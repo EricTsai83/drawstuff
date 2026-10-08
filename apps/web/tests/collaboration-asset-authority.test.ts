@@ -132,6 +132,49 @@ async function fixture() {
   };
 }
 describe("verified attachment server path", () => {
+  it("returns opt-in callback timing separately from a strict content receipt without identity or storage data", async () => {
+    const f = await fixture();
+    f.gateway.mockImplementation(async (_url, init) => {
+      expect(new Headers(init?.headers).get("x-collab-performance-probe")).toBe(
+        "1",
+      );
+      return Response.json(
+        { ok: true, result: { status: "written", revision: 1 } },
+        {
+          headers: {
+            "server-timing":
+              "room;dur=5, registerStorage;dur=2, privateUrl;dur=123",
+          },
+        },
+      );
+    });
+    const result = await finalizeAuthorityAssetUpload(
+      db,
+      {
+        ...f.metadata,
+        performance: { session: 1 },
+      },
+      f.file,
+    );
+    expect(result).toMatchObject({
+      result: { status: "written", revision: 1 },
+      presign: { session: 1 },
+      timings: {
+        room: 5,
+        registerStorage: 2,
+      },
+    });
+    expect("timings" in result).toBe(true);
+    if (!("timings" in result)) throw new Error("missing diagnostic timings");
+    expect(typeof result.timings.identity).toBe("number");
+    expect(typeof result.timings.gateway).toBe("number");
+    expect(typeof result.timings.callback).toBe("number");
+    const serialized = JSON.stringify(result);
+    expect(serialized).not.toContain(f.file.key);
+    expect(serialized).not.toContain(f.file.ufsUrl);
+    expect(serialized).not.toContain(f.owner);
+    expect(serialized).not.toContain("privateUrl");
+  });
   it("issues presign metadata from the live account/session and Room even when DB role projection disagrees", async () => {
     const f = await fixture();
     await db

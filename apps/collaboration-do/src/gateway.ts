@@ -1,5 +1,9 @@
 import { MIN_ROOM_TOKEN_SECRET_BYTES } from "@drawstuff/collaboration/room-token";
 import { z } from "zod";
+import {
+  PERFORMANCE_PROBE_HEADER,
+  formatServerTimings,
+} from "@drawstuff/collaboration/performance";
 import { timingSafeEqual } from "node:crypto";
 import {
   LIFECYCLE_GATEWAY_PATH,
@@ -347,8 +351,12 @@ async function handleAuthority(
   if (!verified.ok) return closedJsonResponse(401, "unauthorized");
   try {
     const stub = env.COLLABORATION_ROOM.getByName(roomId);
+    const dispatchStart = performance.now();
     const result = assets
-      ? await stub.applyAssetsV1(parsed.data)
+      ? await stub.applyAssetsV1(
+          parsed.data,
+          request.headers.get(PERFORMANCE_PROBE_HEADER) === "1",
+        )
       : await stub.applyAuthorityV1(parsed.data);
     if (!result.ok)
       return closedJsonResponse(
@@ -363,7 +371,22 @@ async function handleAuthority(
                 : 409,
         result.error,
       );
-    return Response.json(result, { headers: { "cache-control": "no-store" } });
+    return Response.json(
+      { ok: true, result: result.result },
+      {
+        headers: {
+          "cache-control": "no-store",
+          ...("timings" in result && result.timings
+            ? {
+                "server-timing": formatServerTimings({
+                  ...result.timings,
+                  gatewayService: performance.now() - dispatchStart,
+                }),
+              }
+            : {}),
+        },
+      },
+    );
   } catch {
     return closedJsonResponse(503, "unavailable");
   }

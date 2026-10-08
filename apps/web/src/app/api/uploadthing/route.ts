@@ -1,5 +1,11 @@
 import { type NextRequest } from "next/server";
 import { createRouteHandler } from "uploadthing/next";
+import { env } from "@/env";
+import {
+  formatServerTimings,
+  type PerformanceTimings,
+} from "@drawstuff/collaboration/performance";
+import { performanceProbeAuthorized } from "@/server/collab/performance-probe";
 
 import { getServerSession } from "@/lib/auth/server";
 import {
@@ -118,7 +124,15 @@ function rateLimitedResponse(
 async function POST(request: NextRequest): Promise<Response> {
   const budget = presignBudgetFor(request);
   if (!budget) return handleUploadThingRequest(request);
+  const timings: PerformanceTimings | undefined =
+    new URL(request.url).searchParams.get("slug") ===
+      "collaborationAssetUploader" &&
+    performanceProbeAuthorized(request, env.COLLAB_AUTHORITY_SECRET)
+      ? {}
+      : undefined;
+  const sessionStart = performance.now();
   const session = await getServerSession();
+  if (timings) timings.routeSession = performance.now() - sessionStart;
   // Authentication is the FileRoute middleware's job and stays there; this only
   // decides whose budget to spend. An unauthenticated request has no identity
   // to charge, so it is passed through to be refused as `Unauthorized` — a
@@ -126,12 +140,26 @@ async function POST(request: NextRequest): Promise<Response> {
   // in either direction.
   if (!session) return handleUploadThingRequest(request);
 
+  const limitStart = performance.now();
   const decision = await budget.check(session.user.id);
+  if (timings) timings.rateLimit = performance.now() - limitStart;
   // `degraded` delegates exactly like `allowed`: the middleware's ownership /
   // room access, role, generation and size checks and the
   // 512-assets-per-generation cap all still run, so a Redis outage costs the
   // abuse ceiling and nothing else.
-  if (decision.status !== "limited") return handleUploadThingRequest(request);
+  if (decision.status !== "limited") {
+    const start = performance.now();
+    const response = await handleUploadThingRequest(request);
+    if (!timings) return response;
+    timings.uploadHandler = performance.now() - start;
+    const headers = new Headers(response.headers);
+    headers.set("server-timing", formatServerTimings(timings));
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
   return rateLimitedResponse(budget.operation, decision);
 }
 

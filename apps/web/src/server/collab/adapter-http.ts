@@ -10,6 +10,10 @@ import {
   type AdapterCommand,
 } from "@drawstuff/collaboration/authority";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import {
+  PERFORMANCE_PROBE_HEADER,
+  formatServerTimings,
+} from "@drawstuff/collaboration/performance";
 import { bearerTokenMatches } from "@/server/bearer-token";
 import type { Database } from "./rooms";
 import {
@@ -77,6 +81,18 @@ export async function handleAdapterRequest(
     return jsonResponse({ error: "unauthorized" }, 401);
   if (request.method !== "POST")
     return jsonResponse({ error: "method-not-allowed" }, 405);
+  const measuredJson = async (operation: () => Promise<unknown>) => {
+    const start = performance.now();
+    const value = await operation();
+    const duration = performance.now() - start;
+    const response = jsonResponse(value);
+    if (request.headers.get(PERFORMANCE_PROBE_HEADER) === "1")
+      response.headers.set(
+        "server-timing",
+        formatServerTimings({ storage: duration }),
+      );
+    return response;
+  };
   try {
     const metadata = request.headers.get(ADAPTER_METADATA_HEADER);
     if (
@@ -110,7 +126,7 @@ export async function handleAdapterRequest(
       case "lifecycle-delete":
         return jsonResponse(await applyLifecycleAdapter(db, command));
       case "register":
-        return jsonResponse(await registerAuthorityCommand(db, command));
+        return await measuredJson(() => registerAuthorityCommand(db, command));
       case "create-parent":
         return jsonResponse(await createAuthorityParent(db, command));
       case "write":
@@ -125,13 +141,8 @@ export async function handleAdapterRequest(
         const bytes = metadata
           ? await readBoundedAdapterBody(request, MAX_SNAPSHOT_CIPHERTEXT_BYTES)
           : undefined;
-        return jsonResponse(
-          await executeStorageOperation(
-            db,
-            command.action,
-            command.operation,
-            bytes,
-          ),
+        return await measuredJson(() =>
+          executeStorageOperation(db, command.action, command.operation, bytes),
         );
       }
       case "fence":
@@ -139,9 +150,9 @@ export async function handleAdapterRequest(
       case "project":
         return jsonResponse(await applyRoomProjection(db, command.event));
       case "read-assets":
-        return jsonResponse({
+        return await measuredJson(async () => ({
           assets: await readAdapterAssets(db, command, command.assetIds),
-        });
+        }));
       case "verify-initialization":
         return jsonResponse(await verifyAdapterInitialization(db, command));
       case "cleanup":

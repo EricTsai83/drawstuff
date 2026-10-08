@@ -17,6 +17,7 @@ import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import { createAssetCryptoCodec, encodeCollaborationAssetPayload, decodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset";
 import { deriveSnapshotKey, sealCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 import { SNAPSHOT_REQUEST_HEADER } from "@drawstuff/collaboration/authority";
+import { PERFORMANCE_PROBE_HEADER, readServerTimings } from "@drawstuff/collaboration/performance";
 import { runAccessAcceptance, faultRuntimeSource } from "./remote-access-acceptance.mjs";
 import { runTypicalHotPerformance } from "./remote-performance-acceptance.mjs";
 
@@ -33,7 +34,8 @@ const failureInjection = process.argv[4] === "--fail-after-upload";
 const retirementMode = process.argv[4] === "--retire-scene" ? "scene" : process.argv[4] === "--retire-account" ? "account" : null;
 const accessMode = process.argv[4] === "--access-recovery";
 const providerDiagnostic = process.argv[4] === "--performance-provider-diagnostic";
-const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic;
+const serverDiagnostic = process.argv[4] === "--performance-server-diagnostic";
+const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic || serverDiagnostic;
 const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic;
 assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode || performanceMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
@@ -128,10 +130,11 @@ const proof = (identity = { subject, email, lifecycleVersion: 1 }, targetRoomId 
   return signIdentityProof({ v: 1, aud: "drawstuff-room-identity", protocolVersion: 6, jti: randomUUID(), iat: now, exp: now + 60, roomId: targetRoomId, identity }, process.env.COLLAB_IDENTITY_SECRET);
 };
 const envelope = (targetRoomId = roomId) => ({ v: 1, roomId: targetRoomId, operationId: randomUUID(), deadline: Date.now() + 60000 });
-async function jsonPost(path, body) {
-  const response = await fetch(`${gateway}${path}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json", ...(path === "/internal/asset-test-cleanup" ? { connection: "close" } : {}) }, body: JSON.stringify(body) });
+async function jsonPost(path, body, timings) {
+  const response = await fetch(`${gateway}${path}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json", ...(timings ? { [PERFORMANCE_PROBE_HEADER]: "1" } : {}), ...(path === "/internal/asset-test-cleanup" ? { connection: "close" } : {}) }, body: JSON.stringify(body) });
   if (response.status !== 200) report("gateway-request-refused", { path, http: response.status });
   assert.equal(response.status, 200, `${path}: HTTP ${response.status}`);
+  if(timings) Object.assign(timings,readServerTimings(response.headers.get("server-timing")));
   return response.json();
 }
 async function settle(request) {
@@ -378,7 +381,12 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   assert(!interrupted, "Acceptance interrupted");
   roomAttempted = true;
   const create = { ...envelope(), action: "create", sceneId, label: "Automated asset acceptance", linkRole: retirementMode || accessMode || performanceMode ? "editor" : "none" };
+  let toolsUncommitted = false;
   if (performanceMode) {
+    toolsUncommitted = await new Promise((resolve,reject) => {
+      const child=spawn("git",["diff","--quiet","HEAD","--","apps/web/scripts/test-remote-assets.mjs","apps/web/scripts/remote-performance-acceptance.mjs"],{cwd:rootDir,stdio:"ignore"});
+      child.once("error",reject);child.once("close",code=>code===0 || code===1 ? resolve(code===1) : reject(new Error("tool-status-unavailable")));
+    });
     // First DO access must originate from the real web service, as in product initialization.
     const response = await fetch(`${web}/api/trpc/collaborationAuthority.execute`, {
       method: "POST", headers: { cookie, origin: web, "content-type": "application/json" },
@@ -459,6 +467,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
       diagnostic: performanceDiagnostic,
       providerDiagnostic,
+      serverDiagnostic, toolsUncommitted,
       interrupted: () => interrupted, observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
     });
   }
@@ -569,7 +578,7 @@ if (performanceReport) {
     let output="";child.stdout.on("data", chunk=>{output+=chunk.toString();});child.once("error",reject);child.once("close",code=>code===0 ? resolve(output.trim()) : reject(new Error("commit-unavailable")));
   }));
   performanceReport.runtime.normalWorkerSha256 = normalRuntimeHash;
-  const reportName = providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
+  const reportName = serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
   await writeFile(`${rootDir}docs/performance/${reportName}.json`, JSON.stringify(performanceReport, null, 2)+"\n");
 }
 report("result", { testPassed, cleanupPassed, restored, expectedFailureHandled });

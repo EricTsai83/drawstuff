@@ -270,3 +270,13 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --cwd ../../.loca
 - [Cloudflare storage 清理](https://developers.cloudflare.com/durable-objects/best-practices/access-durable-objects-storage/)：取消 alarm 及 `deleteAll()`；只刪 SQL tables 不等同完整 storage 清理。
 
 指令已用專案固定 Wrangler 4.125.0 的 help、schema 與 dry-run 核對。dry-run／本機演練不能代替 remote namespace 狀態、真實 provider callback 或 production L3 驗證。
+
+### 3A：附件伺服器分段診斷
+
+`caffeinate -i pnpm collab:assets:remote --performance-server-diagnostic` 固定 20 warmup／20 配對樣本，另存 `docs/performance/collaboration-production-3a-server.json`。保留首次附件下載、真實 PUT／callback receipt 與原保存／加入停表邊界，不覆寫 200 筆驗收基準。
+
+公開 presign 只接受由 authority secret 簽出的 60 秒 HMAC 診斷能力，仍須通過既有 session、rate limit 與 Room 授權。一般 cookie、單純啟用 header 或過期／錯誤簽章不會開啟計時。私有 Gateway／adapter 先驗證既有服務授權再接受診斷 flag。callback 僅沿用 UploadThing 已驗證的 middleware metadata；一般上傳 receipt 形狀保持不變，診斷 receipt 才附加允許列出的數值。
+
+配對欄位涵蓋 presign session／rate limit／SDK handler、identity issuance、Gateway round trip／dispatch、DO asset handler，以及 register／write／read-assets adapter round trip 與服務端 DB transaction。這些為巢狀區間，不能相加分位數；DB 區間包含連線、網路、鎖等待與查詢，不等於 Neon CPU。Worker `performance.now()` 只用於跨 I/O 的 elapsed timing，不用來判斷同步 CPU。snapshot、provider callback dispatch、純網路／provider 內部耗時與獨立 cold-start 分類仍未量測。
+
+報告只記錄數值、commit／工具 hash 與清理還原結果，不記錄 token、帳號、provider key、URL 或 payload。缺少必要服務端計時會讓診斷失敗並進入原限定清理；保留 recovery journal 直到 provider／DB／DO 與正常 Worker 還原全部確認。

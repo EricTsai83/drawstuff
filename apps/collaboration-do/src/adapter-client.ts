@@ -1,5 +1,10 @@
 import type { z } from "zod";
 import {
+  PERFORMANCE_PROBE_HEADER,
+  readServerTimings,
+  type PerformanceTimings,
+} from "@drawstuff/collaboration/performance";
+import {
   adapterCommandSchema,
   AUTHORITY_LIMITS,
   type AdapterCommand,
@@ -29,6 +34,7 @@ export class AdapterClient {
     private readonly config: AdapterConfig,
     private readonly fetchImpl: typeof fetch = (...args) =>
       globalThis.fetch(...args),
+    private readonly timings?: PerformanceTimings,
   ) {}
 
   async call<T>(
@@ -48,12 +54,14 @@ export class AdapterClient {
     if (new TextEncoder().encode(body).byteLength > AUTHORITY_LIMITS.jobBytes)
       throw new Error("adapter-command-too-large");
     signal.throwIfAborted();
+    const started = performance.now();
     const response = await this.fetchImpl(url.href, {
       method: "POST",
       redirect: "manual",
       headers: {
         authorization: `Bearer ${secret}`,
         "content-type": "application/json",
+        ...(this.timings ? { [PERFORMANCE_PROBE_HEADER]: "1" } : {}),
       },
       body,
       signal,
@@ -66,11 +74,29 @@ export class AdapterClient {
         "adapter.delivery_failed",
         { status: response.status },
       );
-    return readAdapterJson(
+    const value = await readAdapterJson(
       response,
       (input) => responseSchema.parse(input),
       signal,
     );
+    if (this.timings) {
+      const metric =
+        command.action === "register"
+          ? "register"
+          : command.action === "read-assets"
+            ? "readAssets"
+            : command.action === "write"
+              ? "write"
+              : undefined;
+      if (metric) {
+        this.timings[metric] = performance.now() - started;
+        const storage = readServerTimings(
+          response.headers.get("server-timing"),
+        ).storage;
+        if (storage !== undefined) this.timings[`${metric}Storage`] = storage;
+      }
+    }
+    return value;
   }
 
   async writeSnapshot(

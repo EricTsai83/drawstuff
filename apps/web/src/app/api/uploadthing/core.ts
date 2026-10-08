@@ -1,4 +1,7 @@
 import { createUploadthing, type FileRouter } from "uploadthing/next";
+import { env } from "@/env";
+import type { PerformanceTimings } from "@drawstuff/collaboration/performance";
+import { performanceProbeAuthorized } from "@/server/collab/performance-probe";
 import {
   excalidrawFileIdSchema,
   MAX_ASSET_CIPHERTEXT_BYTES,
@@ -260,8 +263,14 @@ export const uploadRouter = {
     },
   })
     .input(assetUploadIntentSchema)
-    .middleware(async ({ input }) => {
+    .middleware(async ({ input, req }) => {
+      const timings: PerformanceTimings | undefined =
+        performanceProbeAuthorized(req, env.COLLAB_AUTHORITY_SECRET)
+          ? {}
+          : undefined;
+      const sessionStart = performance.now();
       const session = await getServerSession();
+      if (timings) timings.session = performance.now() - sessionStart;
       if (!session) throw new Error("Unauthorized");
       const metadata = await prepareAuthorityAssetUpload(
         db,
@@ -270,8 +279,9 @@ export const uploadRouter = {
           sessionId: session.session.id,
         },
         input,
+        timings,
       );
-      return metadata;
+      return timings ? { ...metadata, performance: timings } : metadata;
     })
     .onUploadComplete(async ({ metadata, file }) =>
       finalizeAuthorityAssetUpload(db, metadata, file),

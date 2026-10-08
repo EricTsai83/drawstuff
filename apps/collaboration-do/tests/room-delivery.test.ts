@@ -6,6 +6,7 @@ import {
 } from "cloudflare:test";
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
+import type { PerformanceTimings } from "@drawstuff/collaboration/performance";
 import {
   adapterCommandSchema,
   AUTHORITY_LIMITS,
@@ -90,6 +91,41 @@ async function initialize(
 }
 
 describe("metadata adapter transport", () => {
+  it("collects opt-in I/O and storage timings without accepting unknown header fields", async () => {
+    const timings: PerformanceTimings = {};
+    const c = new AdapterClient(
+      config,
+      async (_url, init) => {
+        expect(
+          new Headers(init?.headers).get("x-collab-performance-probe"),
+        ).toBe("1");
+        return Response.json(
+          { assets: [] },
+          { headers: { "server-timing": "storage;dur=2.5, secret;dur=9" } },
+        );
+      },
+      timings,
+    );
+    const result = await c.call(
+      {
+        v: 1,
+        action: "read-assets",
+        roomId: fixture().roomId,
+        authGeneration: 1,
+        authorityEpoch: 1,
+        assetIds: [],
+      },
+      z.strictObject({ assets: z.array(z.unknown()) }),
+      signal(),
+    );
+    expect(result).toEqual({ assets: [] });
+    expect(typeof timings.readAssets).toBe("number");
+    expect(timings.readAssetsStorage).toBe(2.5);
+    expect(Object.keys(timings).sort()).toEqual([
+      "readAssets",
+      "readAssetsStorage",
+    ]);
+  });
   it("preserves the global receiver required by native Worker fetch", async () => {
     const nativeFetch = globalThis.fetch;
     const calls: unknown[] = [];
