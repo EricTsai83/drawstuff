@@ -11,7 +11,8 @@ import {
 } from "@drawstuff/collaboration/snapshot";
 import { SNAPSHOT_REQUEST_HEADER, SNAPSHOT_RECEIPT_HEADER, contentResultSchema } from "@drawstuff/collaboration/authority";
 import { createRealtimeCryptoCodec } from "@drawstuff/collaboration/realtime-crypto";
-import { encodeRelayDataFrame } from "@drawstuff/collaboration/relay-protocol";
+import { KEEPALIVE_INTERVAL_MS } from "@drawstuff/collaboration/client-pacing";
+import { encodeRelayDataFrame, RELAY_KEEPALIVE_REQUEST, RELAY_KEEPALIVE_RESPONSE } from "@drawstuff/collaboration/relay-protocol";
 import { z } from "zod";
 import { Agent, buildConnector } from "undici";
 import undiciPackage from "undici/package.json" with {type:"json"};
@@ -134,6 +135,14 @@ export async function runTypicalHotPerformance(c) {
       assert(sealed.ok);owner.ws.send(encodeRelayDataFrame("presence",sealed.frame));
     }).catch(()=>{heartbeatError=true;}).finally(()=>{heartbeatRunning=false;});
   },5000);
+  result.keepalive={intervalMs:KEEPALIVE_INTERVAL_MS,sent:0,acknowledged:0};
+  const onKeepaliveAck=data=>{if(data.toString()===RELAY_KEEPALIVE_RESPONSE)result.keepalive.acknowledged++;};
+  owner.ws.on("message",onKeepaliveAck);
+  const keepalive=setInterval(()=>{
+    if(owner.ws.readyState!==1)return;
+    try {owner.ws.send(RELAY_KEEPALIVE_REQUEST);result.keepalive.sent++;}
+    catch {heartbeatError=true;}
+  },KEEPALIVE_INTERVAL_MS);
   let failureContext;
   const enterStage = stage => { failureContext.stage = stage; delete failureContext.httpStatus; };
   const snapshotRequest=async(request,body,identity,timings)=>{
@@ -310,7 +319,7 @@ export async function runTypicalHotPerformance(c) {
     result.completed=true;
   } catch(error) {result.failures++;result.failureDiagnostic??={...failureContext,ownerSocketState:owner.ws.readyState,ownerCloseCode:owner.closeCode};if(error instanceof z.ZodError)result.failureDiagnostic.schemaIssueCodes=[...new Set(error.issues.map(issue=>issue.code))];throw error;}
   finally {
-    clearInterval(heartbeat);owner.ws.terminate();
+    clearInterval(heartbeat);clearInterval(keepalive);owner.ws.off("message",onKeepaliveAck);owner.ws.terminate();
     if(dispatcher) await dispatcher.destroy();
     result.finishedAt=new Date().toISOString();
     const fields=["saveMs","joinMs","cryptoMs","uploadMs","presignMs","presignHeadersMs","presignBodyMs","journalMs","providerPutCallbackMs","providerHeadersMs","providerReceiptBodyMs","assetPendingMs","snapshotMs","joinSocketMs","joinSnapshotMs","joinAssetsMs","assetIndexMs","assetDownloadMs","assetDownloadHeadersMs","assetDownloadBodyMs","assetDecodeMs","fanoutMs"];

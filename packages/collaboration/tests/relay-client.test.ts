@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   COLLABORATION_PROTOCOL_VERSION,
@@ -24,6 +24,8 @@ import {
   encodeRelayDataFrame,
   parseRelayClientControl,
   RELAY_CLOSE_CODES,
+  RELAY_KEEPALIVE_REQUEST,
+  RELAY_KEEPALIVE_RESPONSE,
   type RelayServerControl,
 } from "../src/relay-protocol.ts";
 import type {
@@ -45,6 +47,15 @@ import {
   sceneMessage,
 } from "./helpers.ts";
 import type { MessageChannel } from "../src/codec.ts";
+
+import { KEEPALIVE_INTERVAL_MS } from "../src/client-pacing.ts";
+
+const cleanups = new Set<() => void>();
+afterEach(() => {
+  for (const cleanup of cleanups) cleanup();
+  cleanups.clear();
+  vi.useRealTimers();
+});
 
 class FakeSocket implements RelaySocketLike {
   binaryType = "blob";
@@ -151,6 +162,7 @@ async function setup(
       return socket;
     },
   });
+  cleanups.add(() => transport.close());
   const states: ConnectionState[] = [];
   const messages: CollaborationMessage[] = [];
   const peerUpdates: (readonly RoomPeer[])[] = [];
@@ -189,6 +201,71 @@ async function setup(
 }
 
 describe("createRelayWebSocketTransport", () => {
+  it("starts byte-exact keepalive only after joining; ACKs are optional", async () => {
+    vi.useFakeTimers();
+    const { transport, sockets, messages, peerUpdates } = await setup();
+    transport.connect({ roomId: ROOM_ID, joinToken: JOIN_TOKEN });
+    const socket = sockets[0]!;
+    socket.open();
+    vi.advanceTimersByTime(KEEPALIVE_INTERVAL_MS * 2);
+    expect(socket.sentText).toHaveLength(1);
+    socket.receiveControl(joinedNotice());
+    vi.advanceTimersByTime(KEEPALIVE_INTERVAL_MS - 1);
+    expect(socket.sentText).toHaveLength(1);
+    vi.advanceTimersByTime(1);
+    expect(socket.sentText.at(-1)).toBe(RELAY_KEEPALIVE_REQUEST);
+    vi.advanceTimersByTime(KEEPALIVE_INTERVAL_MS);
+    expect(socket.sentText.slice(1)).toEqual([
+      RELAY_KEEPALIVE_REQUEST,
+      RELAY_KEEPALIVE_REQUEST,
+    ]);
+    socket.onmessage?.({ data: RELAY_KEEPALIVE_RESPONSE });
+    expect(messages).toEqual([]);
+    expect(peerUpdates).toHaveLength(1);
+    expect(transport.getConnectionState().status).toBe("connected");
+    expect(socket.sentBinary).toEqual([]);
+  });
+
+  it.each(["disconnect", "remote-close", "close", "protocol-error"] as const)(
+    "clears keepalive after %s and gives reconnect its own timer",
+    async (reason) => {
+      vi.useFakeTimers();
+      const { transport, connectAndJoin } = await setup();
+      const oldSocket = connectAndJoin();
+      if (reason === "remote-close") oldSocket.serverClose(1006);
+      else if (reason === "protocol-error")
+        oldSocket.receiveControl(joinedNotice());
+      else transport[reason]();
+      const oldWrites = oldSocket.sentText.length;
+      expect(vi.getTimerCount()).toBe(0);
+      if (reason !== "close") {
+        const newSocket = connectAndJoin();
+        vi.advanceTimersByTime(KEEPALIVE_INTERVAL_MS);
+        expect(newSocket.sentText.at(-1)).toBe(RELAY_KEEPALIVE_REQUEST);
+        expect(vi.getTimerCount()).toBe(1);
+      } else vi.advanceTimersByTime(KEEPALIVE_INTERVAL_MS);
+      expect(oldSocket.sentText).toHaveLength(oldWrites);
+      transport.close();
+      expect(vi.getTimerCount()).toBe(0);
+    },
+  );
+
+  it("reports a keepalive send failure as transient and clears its timer", async () => {
+    vi.useFakeTimers();
+    const { transport, connectAndJoin } = await setup();
+    const socket = connectAndJoin();
+    vi.spyOn(socket, "send").mockImplementation(() => {
+      throw new Error("socket failed");
+    });
+    expect(() => vi.advanceTimersByTime(KEEPALIVE_INTERVAL_MS)).not.toThrow();
+    expect(transport.getConnectionState()).toEqual({
+      status: "disconnected",
+      reason: "transient",
+    });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(socket.closedWith?.code).toBe(1000);
+  });
+
   it("connects, joins, and adopts the relay-assigned session identity", async () => {
     const { transport, states, peerUpdates, connectAndJoin } = await setup();
     const socket = connectAndJoin();

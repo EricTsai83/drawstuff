@@ -1,3 +1,4 @@
+import { KEEPALIVE_INTERVAL_MS } from "./client-pacing.ts";
 import {
   decodeCollaborationMessage,
   encodeCollaborationMessage,
@@ -20,6 +21,7 @@ import {
   encodeRelayDataFrame,
   parseRelayServerControl,
   RELAY_DATA_FRAME_HEADER_BYTES,
+  RELAY_KEEPALIVE_REQUEST,
 } from "./relay-protocol.ts";
 import { roomRoleCanEditScene, type RoomRole } from "./room-auth.ts";
 import type {
@@ -182,6 +184,7 @@ export function createRelayWebSocketTransport(
    */
   type ActiveConnection = {
     socket: RelaySocketLike;
+    keepalive?: ReturnType<typeof setInterval>;
     roomId: RoomId;
     session?: { peerId: PeerId; roomGeneration: number; role: RoomRole };
     /** Sealing, not yet handed to the socket — `bufferedAmount` cannot see it. */
@@ -358,6 +361,7 @@ export function createRelayWebSocketTransport(
     if (active !== connection) return;
     active = undefined;
     disconnectReason = reason;
+    clearInterval(connection.keepalive);
     detachSocket(connection.socket);
     try {
       connection.socket.close(1000, "client disconnect");
@@ -387,6 +391,20 @@ export function createRelayWebSocketTransport(
         roomGeneration: control.roomGeneration,
         role: control.role,
       };
+      // Liveness only: this byte-exact frame bypasses crypto and does not
+      // count as room activity. Auto-response ACKs are optional.
+      connection.keepalive = setInterval(() => {
+        if (active !== connection) return;
+        if (connection.socket.readyState !== WEB_SOCKET_OPEN) {
+          teardown(connection, "transient");
+          return;
+        }
+        try {
+          connection.socket.send(RELAY_KEEPALIVE_REQUEST);
+        } catch {
+          teardown(connection, "transient");
+        }
+      }, KEEPALIVE_INTERVAL_MS);
       notifyConnectionState();
       notifyRoomPeers(control.peers);
       return;
@@ -616,6 +634,7 @@ export function createRelayWebSocketTransport(
         // ended. A missing code (a socket that failed before any close frame)
         // reads as transient, which is what a network failure is.
         disconnectReason = disconnectReasonForCloseCode(event?.code);
+        clearInterval(connection.keepalive);
         detachSocket(socket);
         notifyConnectionState();
       };

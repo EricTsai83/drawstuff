@@ -450,3 +450,12 @@ Live tail 收到 2,254 個事件，0 platform exception；tail 可能漏送／�
 工具再補非 200 presign 的 bounded response 分類：最多讀 64 KiB，只保存固定 SDK message 類別、允許的 Vercel error code、UploadThing version 是否吻合與封閉 Server-Timing 欄位，不保存 error message／SQL／URL／response body。依 lockfile 對齊的 UploadThing 7.7.4 source，預設 error formatter 只回 message，不含 code；`Failed to run middleware` 可對應 `middleware-failed`，不能把沒收到 error code 誤當成未知 SDK 版本。此新增分類已通過隱私／大小上限檢查，尚未在正式環境失敗回應驗證。
 
 下一步先取得 presign 500 的安全回應分類與 web session／identity／Gateway 錯誤區段，並以相同測量契約的預設 HTTP transport 作對照，避免先把 HTTP/2 工具的特定行為判成產品根因。確認原因後再做產品修正及完整 200 筆 gate。功能失敗與效能超標仍存在，不能只放寬門檻；跨日／閒置／成本及其他 P3 scope 仍待驗收。本輪沒有 DB push／migration、方案／region 變更。
+
+
+### 預設 transport 對照與 keepalive 補齊（2026-10-08）
+
+`collaboration-production-3a-transport-control-incomplete.json` 保存相同 20 warmup／200 formal 契約的 Node 預設 fetch 對照，未設定 HTTP/2 dispatcher。完成 144 筆後，第 145 筆 callback `written`、snapshot／附件恢復成功，fanout 時 owner socket 1006，guest 仍 OPEN。完成樣本 save p95／p99 5,019.64／7,805.21 ms，join p95／p99 4,803.65／6,666.47 ms；completed／gatePassed false。Worker deployment 前後相同，web alias 的人工前後核對亦相同，但不是持續觀測。不能據此證明斷線根因，也不能把失敗限定為 HTTP/2 行為。
+
+Live tail 收到 2,251 events、0 platform exception；未收到不代表無錯誤。退休前 166 assets／1 snapshot，退休後 normal／security jobs 與 pending content 全零；此計數不是 failure-time occupancy。Provider／DB／DO 清理與 exact module／bindings 還原通過，正常 Worker version `1abb2c23-454e-4c5b-9e57-9fb1ef870226`；runtime／journal／lock 已移除。
+
+程式核對發現 shared transport 未送出既定的 15 秒 keepalive，Worker 已設定 byte-exact auto-response。現已補 client 在 joined 後送出 keepalive，disconnect、remote close、protocol failure 與 close 都清除 timer；送出失敗回報 transient，ACK 可省略、不作失敗判定。此訊息不經 crypto、不算 room activity、不延長 idle deadline。測量工具同步加入相同 keepalive 與安全的送出／ACK 計數，仍保留 5 秒 presence 以符合原 hot-DO 情境；不重試失敗樣本或修改 SLO。Transport lifecycle 測試已通過；是否改善正式環境斷線及完整 gate，必須由下一輪實測判定。

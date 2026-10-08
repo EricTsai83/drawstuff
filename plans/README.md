@@ -40,7 +40,7 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
-  下一步為 **P3：剩餘正式環境驗收**。3A 原 200 筆正式量測未達門檻；已改善重複 registration upsert 與 UploadThing daemon 的同步等待。原 Node runner 實際使用 HTTP/1.1，另以 HTTP/2 串接 server spans 的兩輪測試均完成 156 筆後，在第 157 筆分別發生 fanout 逾時與 callback schema 錯誤；兩輪已清理並精確還原，保留失敗報告，不合併樣本。追加 live tail 的第三輪受量測中的 Worker 部署干擾；第四輪 Worker deployment 未變更，完成 152 筆後於第 153 筆 presign HTTP 500（owner socket OPEN），Vercel request log 無 application error detail，已清理／精確還原並保存證據。下一步用 bounded presign response 分類定位 web session／identity／Gateway 與預設 transport 對照，再改善並重跑原 gate。維持 UploadThing 免費方案與 sea1；3B／3C、跨日／閒置／成本及完整回歸仍待完成。完整 `pnpm check` 已通過，三人撤權／故障恢復已有驗收證據。
+  下一步為 **P3：剩餘正式環境驗收**。3A 原 200 筆正式量測未達門檻；已改善重複 registration upsert 與 UploadThing daemon 的同步等待。原 Node runner 實際使用 HTTP/1.1，另以 HTTP/2 串接 server spans 的兩輪測試均完成 156 筆後，在第 157 筆分別發生 fanout 逾時與 callback schema 錯誤；兩輪已清理並精確還原，保留失敗報告，不合併樣本。追加 live tail 的第三輪受量測中的 Worker 部署干擾；第四輪 Worker deployment 未變更，完成 152 筆後於第 153 筆 presign HTTP 500（owner socket OPEN），Vercel request log 無 application error detail，已清理／精確還原並保存證據。預設 transport 對照也在第 145 筆 fanout owner 1006，已清理／精確還原；找到 client 未送既定 keepalive 並補齊，下一步維持原契約實測保活與完整 gate，presign 500 根因仍待定位。維持 UploadThing 免費方案與 sea1；3B／3C、跨日／閒置／成本及完整回歸仍待完成。完整 `pnpm check` 已通過，三人撤權／故障恢復已有驗收證據。
   配套 web／Worker 與新版 schema 已部署；DO 不持久暫存完整畫布，只記小型待辦與操作結果。
   退休以按主體分割的 **Lifecycle DO** 執行（§7.1）；操作與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —

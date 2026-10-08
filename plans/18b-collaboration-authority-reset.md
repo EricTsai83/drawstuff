@@ -632,6 +632,8 @@ HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTT
 
 第四輪在 Worker deployment identity 未變更下完成 20 warmup＋152 formal，第 153 筆 presign HTTP 500，owner socket OPEN；保存／加入 p95 4,966.48／4,818.70 ms，P3 gate 仍 false。資料保存在 `docs/performance/collaboration-production-3a-http2-presign-incomplete.json`。Vercel request log 確認 500，但空 message／無 application logs；Worker tail 未收到 platform exception（非無錯誤證明）。最後完整樣本 snapshot DB register／write 分別 2,243.46／4,176.52 ms，但尚不能連結至下一筆 500 根因。清理與 module／bindings 精確還原通過，測試前綴 DB rows 全零。已補 bounded presign failure response 分類；下一步先定位 web session／identity／Gateway 與相同契約的預設 transport 對照，再修產品／跑完整 gate，仍不得合併 partial samples 或放寬門檻掩蓋失敗。
 
+預設 transport 對照完成 144 formal，第 145 筆 fanout owner 1006，callback written、guest OPEN；Worker identity 與人工 web alias 前後核對未變更，仍不能定位根因。證據保存於 `docs/performance/collaboration-production-3a-transport-control-incomplete.json`，已清理／精確還原。找到 shared client 未送既定 15 秒 keepalive 的缺口並補齊，測量工具同步加入保活計數；ACK 可省略、keepalive 不算活動、不延長 idle。Lifecycle 測試已通過，下一輪維持原 20＋200 與 SLO 驗證，不能先宣稱已修復 1006 或 P3 完成。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。
