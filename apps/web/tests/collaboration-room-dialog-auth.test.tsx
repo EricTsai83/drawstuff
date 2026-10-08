@@ -188,6 +188,7 @@ const renderDialog = (params: {
   onRoomIdChange?: (roomId: string | null) => void;
   onRoomKeyChange?: CollaborationRoomDialogProps["onRoomKeyChange"];
   failureReason?: CollaborationRoomDialogProps["failureReason"];
+  status?: CollaborationRoomDialogProps["status"];
   onRetryJoin?: () => void;
   onInitializationChange?: (active: boolean) => void;
   getInitialElements?: CollaborationRoomDialogProps["getInitialElements"];
@@ -214,7 +215,7 @@ const renderDialog = (params: {
         onRoomIdChange={params.onRoomIdChange ?? (() => undefined)}
         roomKey={null}
         onRoomKeyChange={params.onRoomKeyChange ?? (() => undefined)}
-        status="idle"
+        status={params.status ?? "idle"}
         failureReason={params.failureReason ?? null}
         role={null}
         errorMessage={null}
@@ -538,4 +539,53 @@ describe("collaboration room exit cache cleanup", () => {
       expect(onOpenChange).toHaveBeenCalledWith(false);
     },
   );
+
+  it("applies a pasted complete link for the same room and rejects other rooms or partial links", async () => {
+    const { buildRoomInviteUrl } = await import("@/lib/collab/room-link");
+    const roomKey = "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey;
+    const keyChange = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "missing-room-key",
+      onRoomKeyChange: keyChange,
+    });
+    const input = container?.querySelector<HTMLInputElement>(
+      "#collab-room-full-link",
+    );
+    const form = input?.closest("form");
+    if (!input || !form) throw new Error("missing-key form not rendered");
+    const submit = (value: string) =>
+      act(() => {
+        // React tracks the last value it rendered; going through the
+        // prototype setter makes the change visible to its onChange.
+        Reflect.set(HTMLInputElement.prototype, "value", value, input);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+        form.dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+      });
+    const link = (roomId: string, key: RoomKey | null) =>
+      buildRoomInviteUrl({
+        currentUrl: "https://drawstuff.example/",
+        roomId,
+        roomKey: key,
+      });
+
+    submit(link("room-b", roomKey));
+    submit(link("room-a", null));
+    expect(keyChange).not.toHaveBeenCalled();
+    expect(container?.textContent).toContain(
+      "This link is for a different room or is missing its key.",
+    );
+
+    submit(link("room-a", roomKey));
+    expect(keyChange).toHaveBeenCalledExactlyOnceWith(roomKey);
+    expect(input.value).toBe("");
+  });
+
+  it("does not offer the pasted-link form while the room has its key", () => {
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    expect(container?.querySelector("#collab-room-full-link")).toBeNull();
+  });
 });

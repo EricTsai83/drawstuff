@@ -188,6 +188,11 @@ export const zhTW = {
   "collaboration.recovery.resetting": "重設中…",
   "collaboration.recovery.confirmReset": "刪除雲端畫布",
   "collaboration.recovery.cancel": "取消",
+  "collaboration.missingKey.label": "完整邀請連結",
+  "collaboration.missingKey.apply": "使用連結",
+  "collaboration.missingKey.hint":
+    "貼上包含 # 之後內容的完整連結。只在此分頁使用，不會被保存。",
+  "collaboration.missingKey.invalid": "這個連結屬於其他房間，或缺少金鑰。",
   "collaboration.link.label": "共編連結",
   "collaboration.link.keyPresent":
     "# 後的金鑰只存在瀏覽器與連結中，不會傳到伺服器。請複製完整連結。",

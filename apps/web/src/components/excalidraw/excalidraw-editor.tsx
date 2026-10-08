@@ -6,7 +6,7 @@ import {
   ExcalidrawFooter as Footer,
 } from "@drawstuff/excalidraw-adapter/client";
 import { LibraryBig } from "lucide-react";
-import { useState, useCallback, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import { toSyncedElements } from "@/lib/collab/element-bridge";
 import type {
   ExcalidrawImperativeAPI,
@@ -165,6 +165,12 @@ export default function ExcalidrawEditor() {
     handleSceneChange,
     cancelPendingSceneSave,
   });
+
+  // A link without its key (e.g. opened from the room list) cannot join; open
+  // the dialog so the person can paste the complete invitation link.
+  useEffect(() => {
+    if (collaborationStatus === "missing-room-key") openCollaborationDialog();
+  }, [collaborationStatus, openCollaborationDialog]);
 
   const isRoomMode = !!collaborationRoomId || isCanvasOwnedByRoom;
   useSaveShortcut({

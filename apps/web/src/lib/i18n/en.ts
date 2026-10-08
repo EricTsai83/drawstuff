@@ -202,6 +202,12 @@ export const en = {
   "collaboration.recovery.resetting": "Resetting...",
   "collaboration.recovery.confirmReset": "Delete cloud canvas",
   "collaboration.recovery.cancel": "Cancel",
+  "collaboration.missingKey.label": "Complete invitation link",
+  "collaboration.missingKey.apply": "Use link",
+  "collaboration.missingKey.hint":
+    "Paste the complete link including the part after #. It is only used in this tab and is not stored.",
+  "collaboration.missingKey.invalid":
+    "This link is for a different room or is missing its key.",
   "collaboration.link.label": "Collaboration link",
   "collaboration.link.keyPresent":
     "The key after # stays in the browser and link, never on the server. Copy the complete link.",

@@ -51,7 +51,7 @@ import type {
 } from "@/hooks/excalidraw/use-collaboration-room";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { AppTranslationKey } from "@/lib/i18n";
-import { buildRoomInviteUrl } from "@/lib/collab/room-link";
+import { buildRoomInviteUrl, readRoomInviteLink } from "@/lib/collab/room-link";
 import { api } from "@/trpc/react";
 import {
   WORKFLOW_DIALOG_CONTENT_CLASS_NAME,
@@ -177,6 +177,24 @@ export function CollaborationRoomDialog({
   useEffect(() => {
     setIsResetArmed(false);
   }, [open, roomId, failureReason]);
+  // A pasted link lives only in this field until it is applied to the URL
+  // fragment; it is never persisted or sent anywhere.
+  const [pastedLink, setPastedLink] = useState("");
+  const [pastedLinkInvalid, setPastedLinkInvalid] = useState(false);
+  useEffect(() => {
+    setPastedLink("");
+    setPastedLinkInvalid(false);
+  }, [open, roomId]);
+  const applyPastedLink = (): void => {
+    const invite = readRoomInviteLink(pastedLink);
+    if (invite?.roomId !== roomId || !invite) {
+      setPastedLinkInvalid(true);
+      return;
+    }
+    setPastedLink("");
+    setPastedLinkInvalid(false);
+    onRoomKeyChange(invite.roomKey);
+  };
   const [emailCursor, setEmailCursor] = useState<string | undefined>();
   const [memberCursor, setMemberCursor] = useState<string | undefined>();
   useEffect(() => {
@@ -683,6 +701,51 @@ export function CollaborationRoomDialog({
             </div>
             {errorMessage && (
               <p className="text-destructive text-sm">{errorMessage}</p>
+            )}
+            {status === "missing-room-key" && (
+              <form
+                className="flex flex-col gap-2 rounded border p-3"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  applyPastedLink();
+                }}
+              >
+                <Label htmlFor="collab-room-full-link">
+                  {t("collaboration.missingKey.label")}
+                </Label>
+                <div className="flex gap-2">
+                  <Input
+                    id="collab-room-full-link"
+                    value={pastedLink}
+                    autoComplete="off"
+                    spellCheck={false}
+                    aria-invalid={pastedLinkInvalid}
+                    aria-describedby="collab-room-full-link-hint"
+                    onChange={(event) => {
+                      setPastedLink(event.target.value);
+                      setPastedLinkInvalid(false);
+                    }}
+                  />
+                  <Button type="submit" disabled={!pastedLink.trim()}>
+                    {t("collaboration.missingKey.apply")}
+                  </Button>
+                </div>
+                <p
+                  id="collab-room-full-link-hint"
+                  role={pastedLinkInvalid ? "alert" : undefined}
+                  className={
+                    pastedLinkInvalid
+                      ? "text-destructive text-xs"
+                      : "text-muted-foreground text-xs"
+                  }
+                >
+                  {t(
+                    pastedLinkInvalid
+                      ? "collaboration.missingKey.invalid"
+                      : "collaboration.missingKey.hint",
+                  )}
+                </p>
+              </form>
             )}
 
             {/* The owner's recovery path for a snapshot nobody's link can
