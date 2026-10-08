@@ -280,3 +280,31 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --cwd ../../.loca
 配對欄位涵蓋 presign session／rate limit／SDK handler、identity issuance、Gateway round trip／dispatch、DO asset handler，以及 register／write／read-assets adapter round trip 與服務端 DB transaction。這些為巢狀區間，不能相加分位數；DB 區間包含連線、網路、鎖等待與查詢，不等於 Neon CPU。Worker `performance.now()` 只用於跨 I/O 的 elapsed timing，不用來判斷同步 CPU。snapshot、provider callback dispatch、純網路／provider 內部耗時與獨立 cold-start 分類仍未量測。
 
 報告只記錄數值、commit／工具 hash 與清理還原結果，不記錄 token、帳號、provider key、URL 或 payload。缺少必要服務端計時會讓診斷失敗並進入原限定清理；保留 recovery journal 直到 provider／DB／DO 與正常 Worker 還原全部確認。
+
+2026-10-08 的 [伺服器分段報告](../../performance/collaboration-production-3a-server.json) 完成 20 warmup／20 診斷樣本，失敗與初始 pending 均為零。產品與量測工具皆為已提交的 `20ba2b3`，Web 部署成功後使用 Worker version `c31a441f-199e-46ce-baac-49cd2b6583a6` 執行；報告含工具與正常 Worker hash。
+
+| 配對分段 | p50 ms | p95 ms |
+| --- | ---: | ---: |
+| 保存總耗時 | 4,357.60 | 7,377.30 |
+| 首次加入總耗時 | 3,488.34 | 4,516.58 |
+| 客戶端 presign | 1,116.12 | 1,290.57 |
+| presign route session／rate limit | 5.58／8.43 | 8.31／10.13 |
+| presign SDK handler（包含 middleware） | 937.04 | 1,064.74 |
+| presign identity／Gateway round trip | 9.30／246.40 | 10.49／352.52 |
+| presign DO handler／registration DB | 51.00／20.52 | 69.00／28.60 |
+| PUT＋callback receipt | 2,079.66 | 5,097.65 |
+| callback handler／Gateway round trip | 243.44／233.63 | 2,884.81／2,869.21 |
+| callback Gateway→DO RPC／DO handler | 183.00／139.00 | 2,854.00／181.00 |
+| callback adapter write／DB transaction | 90.00／46.05 | 122.00／51.15 |
+| 附件索引／read-assets DB | 275.70／13.31 | 327.32／28.49 |
+| 首次下載 headers 前／body | 1,528.86／204.64 | 2,081.73／434.21 |
+
+按**每筆配對**相減後再取分位數，SDK handler 扣除 middleware 的 session＋identity＋Gateway 區間，剩餘 p50 713.27 ms／p95 716.97 ms。這顯示 presign 還有 SDK 內部／外部 I/O 等待，但沒有 SDK outbound tracing，不能直接稱為 provider CPU 或純網路延遲。PUT＋receipt 扣除 callback handler，剩餘 p50 1,832.07 ms／p95 2,212.85 ms，仍混合上傳、provider 處理、callback dispatch 與回應傳輸。
+
+最慢保存樣本為 12,657.99 ms，其中 PUT＋callback 8,697.87 ms；callback Gateway→DO RPC 6,310 ms，而 RPC 內 DO handler 139 ms、registration DB 20.47 ms、write DB 46.05 ms。相差的 6,171 ms 發生在 handler 外，值得下一輪追蹤 dispatch／排程或其他平台等待；目前沒有證據判定為冷啟動、DO input gate 或 Neon 鎖。snapshot 同筆另耗時 2,942.95 ms，尚缺伺服器分段。
+
+最慢加入樣本為 11,285.48 ms，索引 279.16 ms、首次下載 9,593.31 ms，其中 body 7,511.53 ms；解密／解碼僅 0.66 ms。這是傳輸等待的定位，尚不能區分本機網路與 provider streaming。慢樣本完整保留；此輪新增計時而非產品延遲改善，也不能與前輪不同時間窗口直接當作效能回歸。
+
+`testPassed=true` 代表診斷流程完成，`gatePassed=false`；原 200 筆正式 gate 仍未通過。下一個範圍為 RPC handler 外等待、SDK presign 與下載傳輸的來源定位，依確認的瓶頸改善後重測，再完成 3B／3C。維持免費方案與 sea1，不關閉 callback receipt、live lifecycle／generation 屏障，也不以重讀代替首次下載。
+
+Provider／DB／DO 清理及正常 Worker 精確還原皆通過，還原 version `950f8acc-4054-423b-b3d1-7b0f309e8c74`。另以唯讀查詢核對測試前綴帳號、房間、附件、快照、registration、tombstone 與 creation fence 殘留全為零，runtime／journal／lock 無殘留，暫時清理入口已移除；沒有 DB push／migration 或方案／區域變更。

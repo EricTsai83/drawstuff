@@ -610,8 +610,10 @@ scope 3 結束前須補齊跨雲分段耗時與平台冷啟動分類；不能只
 
 Provider 分段診斷另完成 20 配對樣本並清理／還原：首次下載 p50 1,762.44 ms，
 headers 前等待 1,527.67 ms；重讀仍為 1,133.28 ms，且無 CF cache 狀態證據。
-下一步加入伺服器端 presign／callback／Gateway／adapter 分段對照，定位可改善的往返，
-再按原門檻重測；不以重讀代替首次下載，也不宣稱已確認 CDN 命中。
+伺服器分段亦完成 20 配對診斷並清理／還原。callback p50 243.44 ms，DB write p50 46.05 ms；
+最慢保存樣本的 Gateway→DO RPC 為 6,310 ms、DO handler 僅 139 ms，最慢加入則有 7,511.53 ms
+花在下載 body。下一步區分 RPC dispatch／排程等待、SDK presign 與下載傳輸，依證據改善後再按原門檻
+重測；不能將未分類等待都歸因於 Neon、provider 或冷啟動，也不改付費方案／region。
 
 ## 9. 驗收矩陣
 
