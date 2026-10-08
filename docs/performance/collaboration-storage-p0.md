@@ -1,8 +1,8 @@
 # 共編儲存 P0：本機原型與負載驗證
 
 測試 class 只由 `vitest.p0.config.ts` 載入，不在正式 Worker 的入口或部署設定中。
-UploadThing 維持現有 public 密文上傳；正式權威搬遷與 Neon／Vercel 串接尚未交付，
-範圍與部署 gate 仍以 [18B](../../plans/18b-collaboration-authority-reset.md) 為準。
+UploadThing 維持 public 密文上傳；正式 protocol-6 權威與 Neon／Vercel 串接已部署。
+本文件保留 P0 測量契約；現況見 [授權契約](../architecture/collaboration-authority.md)，未完成驗收見 [18D](../../plans/18d-collaboration-acceptance-follow-ups.md)。
 
 ## 本機命令
 

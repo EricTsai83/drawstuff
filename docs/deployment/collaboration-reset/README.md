@@ -1,4 +1,6 @@
-# 18B P3 維護窗口與回滾
+# 共編重置部署與驗收紀錄
+
+2026-10-08 依擁有者決定收尾 18B。原 P3 的效能與部分 L3 驗收未全部通過，已移交 [18D 後續排查](../../../plans/18d-collaboration-acceptance-follow-ups.md)；[18C](../../../plans/18c-collaboration-surface.md) 可依 [已部署契約](../../architecture/collaboration-authority.md) 繼續。以下按時間保留操作／失敗／清理證據，早期「仍待 18B 結案」的敘述屬當時狀態，未改寫失敗為成功。原破壞性重置步驟不是後續正式資料的例行操作。
 
 2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。2026-10-08 配套 web／Worker 已部署，protocol-6 remote smoke 通過，重置前清單中的舊 DO storage 清理已取得 ACK；完整 L3 驗收仍待完成。
 
@@ -127,7 +129,7 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 
 用兩個真實、已驗證的測試帳號執行 `pnpm cf:smoke <https-gateway-origin>`。私下設定 `COLLAB_HARNESS_OWNER_SUBJECT/EMAIL/VERSION`、`COLLAB_HARNESS_GUEST_SUBJECT/EMAIL/VERSION`、identity／authority secret 與允許的 `COLLAB_SMOKE_ORIGIN`。工具不建立假帳號，也不刪帳號，只建立及結束測試 Room。覆蓋最大合法密文快照往返／解密、ready、正式 WebSocket、撤權關線與 end。
 
-`cf:loadtest` 是 30 次最大快照讀取樣本。真實附件、退休競態與三人／故障恢復的驗收證據見下節。join／保存／撤權 p95/p99、跨日重進、Neon autosuspend 與成本仍依 [18B §9](../../../plans/18b-collaboration-authority-reset.md#9-驗收矩陣) 記錄 L3；pending 不算完成。個人場景、分享、發布、Library 與附件回歸仍須完成。
+`cf:loadtest` 是 30 次最大快照讀取樣本。真實附件、退休競態與三人／故障恢復的驗收證據見下節。join／保存／撤權 p95/p99、跨日重進、Neon autosuspend 與成本仍依 [後續驗收 plan](../../../plans/18d-collaboration-acceptance-follow-ups.md) 記錄 L3；pending 不算完成。個人場景、分享、發布、Library 與附件回歸仍須完成。
 
 ### 真實附件自動驗收
 
@@ -552,3 +554,13 @@ Provider／DB／DO 清理與正常 Worker module／bindings 精確還原全部�
 未保存修改的保留只驗證同一個仍存在的 session 內重連；共編畫布刻意不進個人本機快取，所以不能保證未保存時關閉／重新整理分頁或程序退出後仍找回。已確認寫入的快照恢復與未確認的記憶體修改必須區分，不能宣稱任何情況皆不會遺失資料。
 
 故障測試後先還原正常 Worker，再執行 provider／DB／DO 清理，最後精確還原 version `d2f84e7d-219a-4ea3-a87a-8ad3e89d0372`；正常 module／bindings 與故障入口移除由 runner 驗證。另行唯讀核對 user／room／asset／snapshot／tombstone／registration／creation fence／lifecycle subject 的測試前綴 rows 全零，runtime／journal／lock 與本機檢查日誌已移除。沒有 DB push／migration、方案／region 變更。此 scope 通過，可繼續後續工作，但不足以把整個 P3 或「正常使用沒有 bug」標為通過。
+
+## 18B 結案決定（2026-10-08）
+
+擁有者明確決定現階段收尾 18B，把疑慮與未完成工作轉為後續排查。授權／儲存／退休核心實作、production 重置與已執行的 smoke／競態／有限恢復驗收保留上述證據；不是全 P3 通過或零 bug 的承諾。
+
+原 3 秒延遲 gate 未達、自然 1006／presign 500 根因、正式瀏覽器端到端恢復、3B／3C 效能、撤權分位數、跨日／受控閒置／autosuspend／成本與個人／分享／發布／Library 回歸移至 18D。Public 密文 URL 與未保存退出後可能遺失的限制仍明示。18D 待排程，不為結案重跑長測或改動平台；原完整／partial JSON 不合併、不改 gate。
+
+長期契約歸位至 `docs/architecture/collaboration-authority.md`，active 18B plan 移除、引用更新，18C 依固定後端契約繼續。這輪僅整理文件，無 production fixtures、DB push／migration 或 Worker／provider 設定變更。
+
+結案整理後 `pnpm check` 通過（Turbo source checks 使用既有快取）；所有變更文件的本機連結核對通過、已無舊 18B plan 引用，暫存檢查日誌已移除。

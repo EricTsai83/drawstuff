@@ -1,7 +1,7 @@
 # ADR-0006：房間授權與持久保存以 epoch 屏障排序
 
-- Status: Accepted for implementation（2026-10-07）；P0／P1 與 P2 adapter、Room alarm、登入 proof／Gateway 管理、預啟用登記、正式 WebSocket 授權、binary 快照後端與 web binary 入口／client、產品快照保存／reset、pending 操作保留與舊 tRPC 快照移除、產品初始化／proof 加入、Room 附件 discovery／presign／finalize 與含圖片初始化存在，管理／允許清單 UI、Lifecycle 退休與本機重置／回滾也已完成；production 權威仍在 DB。
-- 範圍：[18B](../../plans/18b-collaboration-authority-reset.md) P0／P1／P2。
+- Status: Accepted and deployed（2026-10-08）；Room DO 權威、PostgreSQL fence 與 Lifecycle 退休已部署；剩餘驗收轉入後續排查。
+- 範圍：[已部署授權契約](../architecture/collaboration-authority.md)。
 
 ## 分開三個版本與兩種成功
 

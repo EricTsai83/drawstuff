@@ -12,10 +12,10 @@
 
 現況契約仍在 `../architecture/`、`../operations/`、`../performance/` 等目錄；待執行工作在根目錄 `plans/`。
 
-## 協作架構學習系列（目標設計，尚未實作）
+## 協作架構學習系列（設計解說，保留歷史視角）
 
-建議按下列順序閱讀；每篇也提供背景，可單獨閱讀。最終契約與驗收在
-[Plan 18B](../../plans/18b-collaboration-authority-reset.md)。
+建議按下列順序閱讀；每篇也提供背景，可單獨閱讀。Protocol 6 已部署；文章保留 2026-09-22 的設計解說，舊「現況／目標」比較不是目前部署狀態。現況以
+[授權契約](../architecture/collaboration-authority.md) 為準，驗收與限制見 [部署 runbook](../deployment/collaboration-reset/README.md)。
 
 | 文章 | 想解答的問題 |
 | --- | --- |

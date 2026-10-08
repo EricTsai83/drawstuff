@@ -11,7 +11,7 @@ UploadThing 維持現有 public 上傳。附件由瀏覽器加密，服務端不
 `enforced` 不代表這些 URL 失效，不宣稱附件下載權與房間成員權限同步撤回。
 
 本次不要求私有上傳、下載代理、預簽 URL、付費升級或更換儲存服務。
-因此私有附件能力不再是 [18B P0](../../plans/18b-collaboration-authority-reset.md) 或部署 gate。
+因此私有附件能力不再是 [授權契約](../architecture/collaboration-authority.md) 或部署 gate。
 若日後需要 provider 層的下載撤權，另立計畫評估，不將 public ACL 的接受範圍擴大成明文可公開。
 
 目前行為與威脅範圍見 [共編儲存契約](../architecture/collaboration-storage.md) 與

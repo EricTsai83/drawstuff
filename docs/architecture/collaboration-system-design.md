@@ -11,10 +11,12 @@
 
 ## 18B P1 source artifact and P2 boundary
 
-The repository contains the protocol-v6 data foundation. Production has not been reset or
-deployed to it: the production description below still refers to protocol v5 and DB authority.
-The P1 artifact is **not independently deployable**. P2 must connect all authenticated entry
-points and storage adapters, and P3 must perform the controlled reset before it is deployed.
+Protocol 6, Room SQLite authority, storage/projection adapters and Lifecycle retirement are
+now deployed. Current invariants and the 18C handoff are defined in the
+[authority contract](collaboration-authority.md). The following P1/P2 boundary sections preserve
+implementation-stage context; references to undeployed P2 or protocol-v5 production describe
+the earlier stage, not today's production. Acceptance evidence is in the deployment runbook;
+remaining issues are tracked in [18D](../../plans/18d-collaboration-acceptance-follow-ups.md).
 
 - `packages/collaboration/authority` defines strict identity-only proofs, immutable content
   operations, query/cancel/fence commands, initialization manifests, monotonic projection events,
@@ -334,7 +336,7 @@ No production DB migration, schema push, reset or deployment was performed for t
 changes remain source artifacts. After all P2 entries are converted and reset/rollback rehearsals
 pass, P3 must review/apply the collaboration-only schema diff and reset collaboration test data,
 preserving accounts, personal/shared/published scenes and their attachments. See
-[18B §P3](../../plans/18b-collaboration-authority-reset.md).
+[deployment and acceptance evidence](../deployment/collaboration-reset/README.md).
 The product unit below completes snapshot load/save/reset conversion and old tRPC removal.
 
 ## 18B P2 product binary snapshots

@@ -28,7 +28,7 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 [持久待辦與 alarm](learning/durable-outbox-and-alarms.html)、
 [儲存與成本](learning/serverless-storage-and-cost.html)、
 [授權與金鑰](learning/collaboration-authorization-and-keys.html)；這四篇描述的目標設計尚未實作，
-現況仍以架構契約為準（最終契約與驗收在 [Plan 18B](../plans/18b-collaboration-authority-reset.md)）。
+現況仍以架構契約為準（現況見 [授權契約](architecture/collaboration-authority.md)，驗收證據見 [部署 runbook](deployment/collaboration-reset/README.md)）。
 
 兩份現況契約另有導讀，解釋每章為什麼存在但不重述數字：
 [協作系統設計怎麼讀](learning/collaboration-system-design.html)、

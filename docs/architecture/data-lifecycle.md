@@ -10,14 +10,11 @@ This document defines how user-scoped Library data, owned-scene assets, and room
 data are retained and retired. Database rows and object-storage bytes are separate resources;
 deletion must preserve their transaction boundary through the durable cleanup outbox.
 
-18B P1 adds nullable source scenes, initializing/ready/ended room metadata, immutable operation
-results, pre-activation subject registration, and persistent lifecycle/projection tombstones to
-the source schema. Source retention now reclaims only explicitly ended rooms after grace;
+The deployed protocol-6 schema includes nullable source scenes, initializing/ready/ended room metadata, immutable operation
+results, pre-activation subject registration, and persistent lifecycle/projection tombstones in
+PostgreSQL. Source retention now reclaims only explicitly ended rooms after grace;
 ready/initializing rooms never expire. Linked-room FKs still cascade, while NULL-source rooms
-are independent. Lifecycle terminal records survive account/scene deletion. All deletion callers
-must move to confirmed Lifecycle retirement in P2 before deployment; the matrix below describes
-the existing production deployment. See the
-[P1/P2 boundary](./collaboration-system-design.md#18b-p1-source-artifact-and-p2-boundary).
+are independent. Lifecycle terminal records survive account/scene deletion. All account/scene deletion callers use confirmed Lifecycle retirement before parent cascade. See the [authority contract](collaboration-authority.md).
 
 ## Lifecycle matrix
 
@@ -28,7 +25,7 @@ the existing production deployment. See the
 | Owned-scene asset      | scene id + `excalidraw_file_id`                  | While the committed document references it | Unreferenced-asset GC deletes the row and enqueues its storage key          |
 | Collaboration snapshot | room id + auth generation                        | One optimistic-revision row per generation | Old generation retirement, room retention, or owner reset                   |
 | Collaboration asset    | room id + auth generation + `excalidraw_file_id` | At most 512 per generation                 | Old generation or room retention deletes rows and enqueues storage keys     |
-| Room metadata          | room id                                          | Active, ended, or within retention grace   | Expired active rooms become ended; the row remains as lifecycle history     |
+| Room metadata          | room id                                          | Active, ended, or within retention grace   | Active rooms never expire; explicitly ended rooms are reclaimed after grace     |
 | Shared scene (link)    | shared scene id (nanoid)                         | 30 days from creation                      | Bounded maintenance job deletes rows after handling their storage objects   |
 | Published render artifacts | scene id + variant (light/dark); content-hashed immutable object | While the scene is published; the pair is replaced on every save of the scene | Unpublish and scene/workspace/account deletion enqueue both keys; an uploaded pair nobody claims expires from its reservation into the same queue |
 

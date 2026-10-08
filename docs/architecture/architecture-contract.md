@@ -10,7 +10,7 @@
 This document is the current architecture boundary for Drawstuff's Excalidraw integration. It
 defines ownership and compatibility rules; it is not an implementation history.
 
-18B P2 source separates SQLite authorization from PostgreSQL storage fences and display projections. Every controlled content entry consults Room authority; scene/account cascades wait for durable Lifecycle enforcement. Production cutover requires the paired schema/web/Worker [P3 maintenance window](../deployment/collaboration-reset/README.md).
+The deployed protocol-6 implementation separates SQLite authorization from PostgreSQL storage fences and display projections. Every controlled content entry consults Room authority; scene/account cascades wait for durable Lifecycle enforcement. The paired schema/web/Worker cutover is recorded in the [deployment runbook](../deployment/collaboration-reset/README.md); current invariants are in the [authority contract](collaboration-authority.md).
 
 ## Ownership
 

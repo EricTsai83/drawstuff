@@ -7,7 +7,7 @@
 <title>協作架構選型：Neon 與 Room DO 如何分工</title>
 <link rel="stylesheet" href="learning.css">
 </head>
-<body><main><article><h1>協作架構選型：Neon 與 Room DO 如何分工</h1><p class="deck">比較現有與目標架構，理解為何把房間權限放進 DO，並保留 Neon 的列表與加密快照。</p><p class="note">學習文章・目標設計尚未實作。資料查核基準：2026-09-22。<a href="../../plans/18b-collaboration-authority-reset.md">Plan 18B</a> 保存最終契約與驗收。</p><nav aria-label="學習系列導覽"><a href="README.md">學習索引</a><ol><li><strong aria-current="page">協作架構選型：Neon 與 Room DO 如何分工</strong></li><li><a href="durable-outbox-and-alarms.html">持久待辦與 alarm：有工作才喚醒</a></li><li><a href="serverless-storage-and-cost.html">Serverless 成本：儲存增量、免費額度與休眠</a></li><li><a href="collaboration-authorization-and-keys.html">協作安全：撤權、內容存取與解密金鑰</a></li></ol></nav><p class="note">窄螢幕上的表格與架構圖可左右捲動。</p><section id="current"><h2>房間獨立運作，列表與畫布仍留在 DB</h2>
+<body><main><article><h1>協作架構選型：Neon 與 Room DO 如何分工</h1><p class="deck">比較現有與目標架構，理解為何把房間權限放進 DO，並保留 Neon 的列表與加密快照。</p><p class="note">學習文章・歷史設計解說（2026-09-22）；protocol 6 已於 2026-10-08 部署，以下舊現況／目標比較保留設計脈絡。<a href="../architecture/collaboration-authority.md">現行授權契約</a> 為部署現況依據；未完成驗收已移交後續排查。</p><nav aria-label="學習系列導覽"><a href="README.md">學習索引</a><ol><li><strong aria-current="page">協作架構選型：Neon 與 Room DO 如何分工</strong></li><li><a href="durable-outbox-and-alarms.html">持久待辦與 alarm：有工作才喚醒</a></li><li><a href="serverless-storage-and-cost.html">Serverless 成本：儲存增量、免費額度與休眠</a></li><li><a href="collaboration-authorization-and-keys.html">協作安全：撤權、內容存取與解密金鑰</a></li></ol></nav><p class="note">窄螢幕上的表格與架構圖可左右捲動。</p><section id="current"><h2>房間獨立運作，列表與畫布仍留在 DB</h2>
 <p>Drawstuff 是多人協作白板。房主建立房間、分享完整連結；成員登入並通過授權後加入，日後可以用同一連結回來。目標設計也提供「我的房間」，讓使用者找到自己建立或加入的房間。瀏覽器負責共編內容的加解密，後端保存與轉送密文。</p>
 <p>假設房主 A 與成員 B、C 正在畫圖。現況由 Neon PostgreSQL 保存 C 的權限，再通知 Cloudflare 的房間 DO 停止 C 的 WebSocket 收發。兩個服務之間可能斷線，所以 DB 還保存一份 outbox（持久待辦），每分鐘掃描並重送。這讓漏送可以恢復，卻也讓沒人在使用時仍有 DB 查詢。</p>
 <p><strong>目標方案把房間權限的最終決定權移到 Room DO，讓它同時知道誰有權限、誰正在連線。</strong>Neon 不需要因此退出系統：個人白板、共編密文快照及房間列表仍留在原本適合查詢與儲存的位置。</p>
@@ -49,7 +49,7 @@
 <p>這項遷移的最大風險不是 SQL 多幾列，而是新舊權限同時生效，或有內容入口繞過 DO。因此先驗證快照屏障、附件授權與帳號退休的競態，再逐房間匯入、切換權威版本。所有舊 pending、退避與失敗工作完成或被明確接管後，才能關閉原分鐘 cron。</p>
 <p>短暫凍結單一房間與重新連線是可接受的遷移代價。回滾不能直接讓舊 DB 角色重新授權，必須接回 DO 的最新撤權與待辦，保留相同房間秘密和可解密的資料格式。</p>
 <p>驗收分成三件事：<strong>授權正確</strong>（踢人、重啟、舊憑證與資料入口）、<strong>恢復可靠</strong>（crash、重送、亂序與跨房間刪除）、<strong>閒置改善</strong>（無工作時沒有這條背景 DB 查詢，並量測完整成本）。前兩項通過，不等於已經省錢；費用下降，也不能替代授權驗收。</p>
-<p>實作契約、檔案範圍、分階段切換與測試矩陣集中在 <a href="../../plans/18b-collaboration-authority-reset.md">Plan 18B</a>。本學習系列說明設計理由；各主題的細節請從篇章導覽進入。</p>
+<p>實作契約、檔案範圍、分階段切換與測試矩陣集中在 <a href="../architecture/collaboration-authority.md">現行授權契約</a> 與部署驗收紀錄。本學習系列說明設計理由；各主題的細節請從篇章導覽進入。</p>
 </section><section class="sources" id="sources"><h2>延伸閱讀與現況依據</h2><ul>
 <li><a href="../architecture/collaboration-system-design.md">目前協作契約</a>：遷移前的系統行為。</li>
 <li><a href="../adr/0001-excalidraw-persistence-boundary.md">持久化邊界 ADR</a>：個人白板與共編的儲存責任。</li>

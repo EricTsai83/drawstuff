@@ -1,9 +1,10 @@
 # Collaboration storage and personal draft boundary
 
-This contract describes the current scene-linked room implementation. Room authorization remains
-DB-authoritative; independent rooms, local key retention, and the authority reset belong to the
-active [authority plan](../../plans/18b-collaboration-authority-reset.md) and
-[surface plan](../../plans/18c-collaboration-surface.md).
+Room DO is the deployed authorization authority; PostgreSQL stores encrypted snapshots, asset
+records, fences and display projections. Source scenes are optional. See the
+[current authority contract](collaboration-authority.md); local key retention and remaining
+product flows belong to the [surface plan](../../plans/18c-collaboration-surface.md).
+Unfinished acceptance is tracked separately, not treated as an undeployed authority reset.
 
 ## Storage modes and destinations
 
@@ -79,7 +80,7 @@ confirmation arrives. Errors retain edits and permit retry; a late real confirma
 establish coverage. A lost write response is reconciled by subsequent conditional write/read,
 never treated as an ACK. These are request/cadence intervals, not a data-loss guarantee.
 
-The undeployed 18B P2 source now uses binary snapshot read/write/reset. The store retains one
+The deployed protocol-6 implementation uses binary snapshot read/write/reset. The store retains one
 original operation and ciphertext in memory, queries before retry, and cancels expired pending
 work before minting another intent. A recovered old capture cannot confirm newer edits. New write
 attempts invalidate prior saved coverage, and empty reads retain reset's revision watermark;

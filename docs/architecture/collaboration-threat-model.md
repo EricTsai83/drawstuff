@@ -8,7 +8,7 @@
 This document identifies trust boundaries, data that crosses them, implemented controls, and
 accepted gaps. Scene plaintext exists only in participating browsers.
 
-18B P2 source implements identity-only proofs, Room SQLite authority and allowlists, plus Lifecycle retirement and storage fences. Production still uses protocol 5 until the coordinated P3 reset; the tables below also describe those deployed controls. Allowlist email addresses (including addresses without
+The deployed protocol-6 implementation uses identity-only proofs, Room SQLite authority and allowlists, plus Lifecycle retirement and storage fences. The Room DO is the authorization authority, with Lifecycle retirement and PostgreSQL fences; current boundaries are defined by the [authority contract](collaboration-authority.md). Allowlist email addresses (including addresses without
 registered accounts), normalized comparison keys, creator, and timestamps are visible server
 metadata. They must not be logged or included in analytics/error reports. Normalization trims
 outer whitespace and lowercases only; it preserves dots and plus addressing. Removed-address and
