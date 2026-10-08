@@ -1,6 +1,7 @@
 "use client";
 
 import { CollaborationRoomList } from "@/components/collaboration-room-list";
+import { Tabs, TabsList, TabsPanel, TabsTab } from "@/components/ui/tabs";
 import { useMemo, useEffect, useState, useRef, useId } from "react";
 import { useQueryState } from "nuqs";
 import { z } from "zod";
@@ -99,6 +100,13 @@ export function SceneSearchList({
   const [categoryFilter, setCategoryFilter] = useQueryState("category", {
     defaultValue: "",
     clearOnDefault: true,
+  });
+  // Which list the dashboard shows. Not a scene filter: switching it must not
+  // change the scene query or its server prefetch.
+  const [view, setView] = useQueryState("view", {
+    defaultValue: "scenes",
+    clearOnDefault: true,
+    parse: (value): DashboardView => (value === "rooms" ? "rooms" : "scenes"),
   });
   const [manageCategoriesOpen, setManageCategoriesOpen] = useState(false);
   const {
@@ -237,206 +245,220 @@ export function SceneSearchList({
 
   return (
     <div className="flex max-w-full min-w-0 flex-col gap-5 overflow-x-clip p-4 pt-0 sm:p-6 sm:pt-0">
-      <CollaborationRoomList />
-      {/* Header Section */}
-      <div
-        className={cn(
-          "flex flex-col gap-4 pb-2 sm:pb-4",
-          showHeading && "pt-6 sm:pt-10",
-        )}
+      {showHeading && (
+        <h1 className="pt-6 text-center text-2xl font-semibold sm:pt-10 lg:text-3xl">
+          {t("dashboard.title")}
+        </h1>
+      )}
+      <Tabs
+        value={view}
+        onValueChange={(value) =>
+          void setView(value === "rooms" ? "rooms" : "scenes")
+        }
       >
-        {showHeading && (
-          <h1 className="text-center text-2xl font-semibold lg:text-3xl">
-            {t("dashboard.title")}
-          </h1>
-        )}
-        <div className="flex w-full items-center gap-2 lg:justify-end">
-          <div className="min-w-0 flex-1 lg:max-w-80">
-            <WorkspaceSelector
-              options={workspaces}
-              value={effectiveWorkspaceId}
-              onChange={(workspace) => void setWorkspaceId(workspace.id)}
-            />
-          </div>
-          {selectedWorkspace ? (
-            <Button
-              variant="ghost"
-              size="icon"
-              aria-label={t("dashboard.workspace.manage")}
-              render={
-                <Link
-                  href={routes.workspaceSettings(selectedWorkspace.id)}
-                  replace={isInRouteOverlay}
+        <TabsList aria-label={t("dashboard.title")}>
+          <TabsTab value="scenes">{t("dashboard.tabs.scenes")}</TabsTab>
+          <TabsTab value="rooms">{t("collaboration.rooms.title")}</TabsTab>
+        </TabsList>
+        {/* Both panels stay mounted: the scene list keeps its pagination
+            observer, and room management keeps its retained intents. */}
+        <TabsPanel value="rooms" keepMounted>
+          <CollaborationRoomList />
+        </TabsPanel>
+        <TabsPanel value="scenes" keepMounted>
+          {/* Header Section */}
+          <div className="flex flex-col gap-4 pb-2 sm:pb-4">
+            <div className="flex w-full items-center gap-2 lg:justify-end">
+              <div className="min-w-0 flex-1 lg:max-w-80">
+                <WorkspaceSelector
+                  options={workspaces}
+                  value={effectiveWorkspaceId}
+                  onChange={(workspace) => void setWorkspaceId(workspace.id)}
                 />
-              }
-              nativeButton={false}
-            >
-              <Settings2 />
-            </Button>
-          ) : (
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              aria-label={t("dashboard.workspace.manage")}
-              disabled
-            >
-              <Settings2 />
-            </Button>
-          )}
-        </div>
-      </div>
-
-      <div className="flex min-w-0 flex-col gap-3">
-        <SceneSearchBar
-          searchQuery={searchQuery}
-          onSearchChange={setSearchQuery}
-        />
-        <DashboardFilters
-          publish={activePublishFilter}
-          archive={activeArchiveFilter}
-          category={activeCategoryId}
-          categories={categories ?? []}
-          onPublishChange={(value) => void setPublishFilter(value)}
-          onArchiveChange={(value) => void setArchiveFilter(value)}
-          onCategoryChange={(id) => void setCategoryFilter(id ?? "")}
-          onManageCategories={() => setManageCategoriesOpen(true)}
-        />
-        {/* 分類查詢單獨失敗時就地提示並提供重試，不遮蔽已載入的場景清單；
-            場景查詢也失敗時交由下方整頁錯誤狀態統一處理（其重試會一併重試分類） */}
-        {isCategoriesError && !isError && (
-          <div className="text-muted-foreground flex items-center gap-2 text-sm">
-            <span>{t("dashboard.categoriesLoadFailed")}</span>
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              onClick={() => void refetchCategories()}
-            >
-              <RotateCcw data-icon="inline-start" />
-              {t("buttons.retry")}
-            </Button>
-          </div>
-        )}
-      </div>
-      <CategoryManagementDialog
-        open={manageCategoriesOpen}
-        onOpenChange={setManageCategoriesOpen}
-      />
-
-      {isError ? (
-        <div className="border-border border-t py-12 text-center">
-          <div className="text-muted-foreground text-lg">
-            {t("dashboard.loadFailed")}
-          </div>
-          <div className="text-muted-foreground mt-2 text-sm">
-            {t("dashboard.loadFailed.hint")}
-          </div>
-          <Button
-            type="button"
-            variant="outline"
-            className="mt-4"
-            onClick={() => {
-              void refetch();
-              if (isCategoriesError) void refetchCategories();
-            }}
-          >
-            <RotateCcw data-icon="inline-start" />
-            {t("buttons.retry")}
-          </Button>
-        </div>
-      ) : (
-        <>
-          {/* Recently modified by you Section */}
-          <section className="flex flex-col gap-4">
-            <div className="border-border border-t pt-4">
-              <h2 className="text-lg font-medium">
-                {t("dashboard.recentlyModified")}
-              </h2>
+              </div>
+              {selectedWorkspace ? (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("dashboard.workspace.manage")}
+                  render={
+                    <Link
+                      href={routes.workspaceSettings(selectedWorkspace.id)}
+                      replace={isInRouteOverlay}
+                    />
+                  }
+                  nativeButton={false}
+                >
+                  <Settings2 />
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  aria-label={t("dashboard.workspace.manage")}
+                  disabled
+                >
+                  <Settings2 />
+                </Button>
+              )}
             </div>
-            {isLoading ? (
-              <SceneGridSkeleton count={5} />
-            ) : recentlyModifiedItems.length > 0 ? (
-              <SceneGrid
-                items={recentlyModifiedItems}
-                workspaces={workspaces}
-                categories={categories}
-              />
-            ) : (
-              <div className="py-8 text-center">
-                <div className="text-muted-foreground text-lg">
-                  {t("dashboard.noRecentlyModifiedScenes")}
-                </div>
+          </div>
+
+          <div className="flex min-w-0 flex-col gap-3">
+            <SceneSearchBar
+              searchQuery={searchQuery}
+              onSearchChange={setSearchQuery}
+            />
+            <DashboardFilters
+              publish={activePublishFilter}
+              archive={activeArchiveFilter}
+              category={activeCategoryId}
+              categories={categories ?? []}
+              onPublishChange={(value) => void setPublishFilter(value)}
+              onArchiveChange={(value) => void setArchiveFilter(value)}
+              onCategoryChange={(id) => void setCategoryFilter(id ?? "")}
+              onManageCategories={() => setManageCategoriesOpen(true)}
+            />
+            {/* 分類查詢單獨失敗時就地提示並提供重試，不遮蔽已載入的場景清單；
+            場景查詢也失敗時交由下方整頁錯誤狀態統一處理（其重試會一併重試分類） */}
+            {isCategoriesError && !isError && (
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                <span>{t("dashboard.categoriesLoadFailed")}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => void refetchCategories()}
+                >
+                  <RotateCcw data-icon="inline-start" />
+                  {t("buttons.retry")}
+                </Button>
               </div>
             )}
-          </section>
+          </div>
+          <CategoryManagementDialog
+            open={manageCategoriesOpen}
+            onOpenChange={setManageCategoriesOpen}
+          />
 
-          {/* Your scenes Section */}
-          <section className="flex flex-col gap-4">
-            <div className="border-border border-t pt-4">
-              <h2 className="text-lg font-medium">
-                {t("dashboard.yourScenes")}
-              </h2>
+          {isError ? (
+            <div className="border-border border-t py-12 text-center">
+              <div className="text-muted-foreground text-lg">
+                {t("dashboard.loadFailed")}
+              </div>
+              <div className="text-muted-foreground mt-2 text-sm">
+                {t("dashboard.loadFailed.hint")}
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="mt-4"
+                onClick={() => {
+                  void refetch();
+                  if (isCategoriesError) void refetchCategories();
+                }}
+              >
+                <RotateCcw data-icon="inline-start" />
+                {t("buttons.retry")}
+              </Button>
             </div>
-            {isLoading ? (
-              <SceneGridSkeleton count={5} />
-            ) : yourSceneItems.length > 0 ? (
-              <>
-                <SceneGrid
-                  items={yourSceneItems}
-                  workspaces={workspaces}
-                  categories={categories}
-                />
-                <div ref={sentinelRef} />
-                {isFetchingNextPage && <SceneGridSkeleton count={5} />}
-                {!hasNextPage && !isFetchingNextPage && (
+          ) : (
+            <>
+              {/* Recently modified by you Section */}
+              <section className="flex flex-col gap-4">
+                <div className="border-border border-t pt-4">
+                  <h2 className="text-lg font-medium">
+                    {t("dashboard.recentlyModified")}
+                  </h2>
+                </div>
+                {isLoading ? (
+                  <SceneGridSkeleton count={5} />
+                ) : recentlyModifiedItems.length > 0 ? (
+                  <SceneGrid
+                    items={recentlyModifiedItems}
+                    workspaces={workspaces}
+                    categories={categories}
+                  />
+                ) : (
+                  <div className="py-8 text-center">
+                    <div className="text-muted-foreground text-lg">
+                      {t("dashboard.noRecentlyModifiedScenes")}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              {/* Your scenes Section */}
+              <section className="flex flex-col gap-4">
+                <div className="border-border border-t pt-4">
+                  <h2 className="text-lg font-medium">
+                    {t("dashboard.yourScenes")}
+                  </h2>
+                </div>
+                {isLoading ? (
+                  <SceneGridSkeleton count={5} />
+                ) : yourSceneItems.length > 0 ? (
+                  <>
+                    <SceneGrid
+                      items={yourSceneItems}
+                      workspaces={workspaces}
+                      categories={categories}
+                    />
+                    <div ref={sentinelRef} />
+                    {isFetchingNextPage && <SceneGridSkeleton count={5} />}
+                    {!hasNextPage && !isFetchingNextPage && (
+                      <div className="text-muted-foreground py-6 text-center text-sm">
+                        {t("dashboard.reachedEnd")}
+                      </div>
+                    )}
+                  </>
+                ) : hasNextPage ? (
+                  <div className="py-8 text-center">
+                    <div className="text-muted-foreground text-lg">
+                      {t("dashboard.loading")}
+                    </div>
+                  </div>
+                ) : allItems.length > 0 ? (
                   <div className="text-muted-foreground py-6 text-center text-sm">
                     {t("dashboard.reachedEnd")}
                   </div>
+                ) : (
+                  <div className="py-8 text-center">
+                    <div className="text-muted-foreground text-lg">
+                      {t(
+                        activeArchiveFilter === "archived"
+                          ? "dashboard.noArchivedScenes"
+                          : "dashboard.noScenesFound",
+                      )}
+                    </div>
+                    <div className="text-muted-foreground mt-2 text-sm">
+                      {t(
+                        activeArchiveFilter === "archived"
+                          ? "dashboard.noArchivedScenes.hint"
+                          : "dashboard.noScenesFound.hint",
+                      )}
+                    </div>
+                  </div>
                 )}
-              </>
-            ) : hasNextPage ? (
-              <div className="py-8 text-center">
-                <div className="text-muted-foreground text-lg">
-                  {t("dashboard.loading")}
-                </div>
-              </div>
-            ) : allItems.length > 0 ? (
-              <div className="text-muted-foreground py-6 text-center text-sm">
-                {t("dashboard.reachedEnd")}
-              </div>
-            ) : (
-              <div className="py-8 text-center">
-                <div className="text-muted-foreground text-lg">
-                  {t(
-                    activeArchiveFilter === "archived"
-                      ? "dashboard.noArchivedScenes"
-                      : "dashboard.noScenesFound",
-                  )}
-                </div>
-                <div className="text-muted-foreground mt-2 text-sm">
-                  {t(
-                    activeArchiveFilter === "archived"
-                      ? "dashboard.noArchivedScenes.hint"
-                      : "dashboard.noScenesFound.hint",
-                  )}
-                </div>
-              </div>
-            )}
-          </section>
+              </section>
 
-          {/* Show results count if searching */}
-          {searchQuery && (
-            <SceneResultsCount
-              loadedCount={allItems.length}
-              searchQuery={searchQuery}
-            />
+              {/* Show results count if searching */}
+              {searchQuery && (
+                <SceneResultsCount
+                  loadedCount={allItems.length}
+                  searchQuery={searchQuery}
+                />
+              )}
+            </>
           )}
-        </>
-      )}
+        </TabsPanel>
+      </Tabs>
     </div>
   );
 }
+
+type DashboardView = "scenes" | "rooms";
 
 type DashboardFiltersProps = {
   categories: Array<{ id: string; name: string; sceneCount: number }>;

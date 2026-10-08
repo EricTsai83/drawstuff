@@ -13,6 +13,11 @@ export function DashboardListFallback({
             <span className="bg-muted inline-block h-[1em] w-56 rounded align-middle sm:w-64 md:w-80 lg:w-96" />
           </h1>
         )}
+        {/* Tab bar: My scenes / Collaboration rooms */}
+        <div className="border-border flex gap-6 border-b pb-2">
+          <div className="bg-muted h-5 w-20 rounded" />
+          <div className="bg-muted h-5 w-36 rounded" />
+        </div>
         <div className="ml-auto w-full sm:w-64">
           <div className="bg-muted h-10 w-full rounded" />
         </div>
