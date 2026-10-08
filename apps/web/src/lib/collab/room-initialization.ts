@@ -32,6 +32,15 @@ import {
 import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 import type { SnapshotApi } from "./snapshot-http";
 
+/**
+ * How long a product start waits for Room to confirm pending steps before
+ * asking the person to retry. Room confirms creation and completion only after
+ * its background registration, typically within a few seconds.
+ */
+export const INITIALIZATION_SETTLE_MS = 15_000;
+const SETTLE_FIRST_DELAY_MS = 250;
+const SETTLE_MAX_DELAY_MS = 2_000;
+
 /** Browser-only initialization. Unknown replies keep the room, key, captured elements and every intent. */
 export function createRoomInitialization(options: {
   authority: AuthorityApi;
@@ -41,6 +50,11 @@ export function createRoomInitialization(options: {
   elements: readonly SyncedElement[];
   files?: readonly BinaryFileData[];
   assets?: AssetApi;
+  /**
+   * Keep re-checking a step Room reports as pending for up to this long
+   * before rejecting with `pending`. Zero (the default) rejects at once.
+   */
+  settleWithinMs?: number;
 }) {
   // Capture both elements and files before any asynchronous work; incomplete source images cannot seed a room.
   const elements = structuredClone(options.elements);
@@ -102,7 +116,9 @@ export function createRoomInitialization(options: {
   let cancelled = false;
   let abandoning = false;
   let cancel: ReturnType<typeof createAuthorityOperation> | undefined;
-  const start = async () => {
+  /** Between pending re-checks: still started, so cancel must wait. */
+  let settling = false;
+  const attempt = async () => {
     if (disposed || cancelled || abandoning)
       throw new AuthorityRoomError("cancelled");
     if (active) throw new AuthorityRoomError("pending");
@@ -198,6 +214,37 @@ export function createRoomInitialization(options: {
       active = false;
     }
   };
+  // Every step keeps its intent across attempts, so re-running resumes where
+  // Room last answered pending instead of repeating confirmed work.
+  const start = async () => {
+    if (active || settling) throw new AuthorityRoomError("pending");
+    const deadline = Date.now() + (options.settleWithinMs ?? 0);
+    try {
+      for (let delay = SETTLE_FIRST_DELAY_MS; ;) {
+        settling = false;
+        try {
+          return await attempt();
+        } catch (error) {
+          const remaining = deadline - Date.now();
+          if (
+            !(
+              error instanceof AuthorityRoomError && error.code === "pending"
+            ) ||
+            remaining <= 0 ||
+            disposed
+          )
+            throw error;
+          settling = true;
+          await new Promise((resolve) =>
+            setTimeout(resolve, Math.min(delay, remaining)),
+          );
+          delay = Math.min(delay * 2, SETTLE_MAX_DELAY_MS);
+        }
+      }
+    } finally {
+      settling = false;
+    }
+  };
   return {
     start,
     dispose() {
@@ -205,7 +252,7 @@ export function createRoomInitialization(options: {
       assets?.destroy();
     },
     async cancel() {
-      if (active) throw new AuthorityRoomError("pending");
+      if (active || settling) throw new AuthorityRoomError("pending");
       if (cancelled) return;
       abandoning = true;
       try {

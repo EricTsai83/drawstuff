@@ -329,6 +329,73 @@ describe("product Room authority initialization", () => {
       elements: [{ id: "first", version: 1 }],
     });
   });
+  it("re-checks steps Room reports as pending within the settle window, so one start creates the room", async () => {
+    const f = fixture();
+    const commit = f.commit;
+    f.execute.mockImplementation(async (request) => {
+      const result = await commit(request);
+      if (
+        request.action !== "create" &&
+        request.action !== "complete-initialization"
+      )
+        return result;
+      // Room answers pending first and confirms in the background shortly after.
+      const enforced = f.results.get(request.operationId)!;
+      const pending = { ...enforced, status: "pending" as const };
+      f.results.set(request.operationId, pending);
+      if (request.action === "complete-initialization")
+        f.updateState({ state: "initializing" });
+      setTimeout(() => {
+        f.results.set(request.operationId, enforced);
+        if (request.action === "complete-initialization")
+          f.updateState({ state: "ready" });
+      }, 0);
+      return pending;
+    });
+    const init = createRoomInitialization({
+      authority: f.authority,
+      snapshots: f.snapshots,
+      sceneId,
+      elements: [],
+      settleWithinMs: 5_000,
+    });
+    const ready = await init.start();
+    expect(ready.roomId).toBe(f.state().roomId);
+    // Each pending step was re-checked by query, never re-sent.
+    for (const action of ["create", "complete-initialization"] as const)
+      expect(
+        f.execute.mock.calls.filter(([request]) => request.action === action),
+      ).toHaveLength(1);
+    expect(
+      f.execute.mock.calls.filter(([request]) => request.action === "query")
+        .length,
+    ).toBeGreaterThanOrEqual(2);
+  });
+  it("still asks for a retry once the settle window passes, and holds cancel while re-checking", async () => {
+    const f = fixture();
+    const commit = f.commit;
+    f.execute.mockImplementation(async (request) => {
+      const result = await commit(request);
+      if (request.action !== "create") return result;
+      const pending = {
+        ...f.results.get(request.operationId)!,
+        status: "pending" as const,
+      };
+      f.results.set(request.operationId, pending);
+      return pending;
+    });
+    const init = createRoomInitialization({
+      authority: f.authority,
+      snapshots: f.snapshots,
+      sceneId,
+      elements: [],
+      settleWithinMs: 400,
+    });
+    const started = init.start();
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    await expect(init.cancel()).rejects.toMatchObject({ code: "pending" });
+    await expect(started).rejects.toMatchObject({ code: "pending" });
+  });
   it("does not share or mint identity credentials until the completion receipt is confirmed", async () => {
     const f = fixture();
     const commit = f.commit;

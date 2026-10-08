@@ -6,7 +6,10 @@ import { api } from "@/trpc/react";
 import { Button } from "@/components/ui/button";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { buildRoomInviteUrl } from "@/lib/collab/room-link";
-import { createRoomInitialization } from "@/lib/collab/room-initialization";
+import {
+  createRoomInitialization,
+  INITIALIZATION_SETTLE_MS,
+} from "@/lib/collab/room-initialization";
 import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
 import type { AppTranslationKey } from "@/lib/i18n";
 import {
@@ -54,6 +57,7 @@ export function CollaborationRoomList() {
             utils.client.collaborationAuthority.identity.mutate(input),
         },
         snapshots: createBinarySnapshotClient(),
+        settleWithinMs: INITIALIZATION_SETTLE_MS,
         sceneId: null,
         elements: [],
       });

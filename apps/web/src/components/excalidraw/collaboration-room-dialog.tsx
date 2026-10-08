@@ -9,7 +9,10 @@ import {
 } from "@/lib/collab/snapshot-http";
 import { createAuthorityAssetApi } from "@/lib/collab/asset-upload";
 import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
-import { createRoomInitialization } from "@/lib/collab/room-initialization";
+import {
+  createRoomInitialization,
+  INITIALIZATION_SETTLE_MS,
+} from "@/lib/collab/room-initialization";
 import { markRoomInitializedFromCanvas } from "@/lib/collab/initialized-room-handoff";
 import {
   AuthorityRoomError,
@@ -331,6 +334,7 @@ export function CollaborationRoomDialog({
         initialization.current = createRoomInitialization({
           authority,
           snapshots: createBinarySnapshotClient(),
+          settleWithinMs: INITIALIZATION_SETTLE_MS,
           sceneId,
           elements,
           files,
@@ -550,6 +554,7 @@ export function CollaborationRoomDialog({
               utils.client.collaborationAuthority.identity.mutate(input),
           },
           snapshots: createBinarySnapshotClient(),
+          settleWithinMs: INITIALIZATION_SETTLE_MS,
           sceneId: room.sceneId,
           rotate: { roomId, expectedGeneration: room.authGeneration },
           elements,

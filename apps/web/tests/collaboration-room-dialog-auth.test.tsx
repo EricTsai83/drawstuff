@@ -66,6 +66,7 @@ vi.mock("@/lib/collab/snapshot-http", async (original) => ({
 }));
 
 vi.mock("@/lib/collab/room-initialization", () => ({
+  INITIALIZATION_SETTLE_MS: 15_000,
   createRoomInitialization: (
     options: Parameters<typeof RoomInitializer>[0],
   ) => {
