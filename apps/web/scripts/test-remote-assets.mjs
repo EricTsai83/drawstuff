@@ -34,7 +34,8 @@ const failureInjection = process.argv[4] === "--fail-after-upload";
 const retirementMode = process.argv[4] === "--retire-scene" ? "scene" : process.argv[4] === "--retire-account" ? "account" : null;
 const accessMode = process.argv[4] === "--access-recovery";
 const providerDiagnostic = process.argv[4] === "--performance-provider-diagnostic";
-const serverDiagnostic = process.argv[4] === "--performance-server-diagnostic";
+const presignDiagnostic = process.argv[4] === "--performance-presign-diagnostic";
+const serverDiagnostic = process.argv[4] === "--performance-server-diagnostic" || presignDiagnostic;
 const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic || serverDiagnostic;
 const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic;
 assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode || performanceMode), "Unexpected argument");
@@ -467,7 +468,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
       diagnostic: performanceDiagnostic,
       providerDiagnostic,
-      serverDiagnostic, toolsUncommitted,
+      serverDiagnostic, presignDiagnostic, toolsUncommitted,
       interrupted: () => interrupted, observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
     });
   }
@@ -578,7 +579,7 @@ if (performanceReport) {
     let output="";child.stdout.on("data", chunk=>{output+=chunk.toString();});child.once("error",reject);child.once("close",code=>code===0 ? resolve(output.trim()) : reject(new Error("commit-unavailable")));
   }));
   performanceReport.runtime.normalWorkerSha256 = normalRuntimeHash;
-  const reportName = serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
+  const reportName = presignDiagnostic ? "collaboration-production-3a-presign" : serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
   await writeFile(`${rootDir}docs/performance/${reportName}.json`, JSON.stringify(performanceReport, null, 2)+"\n");
 }
 report("result", { testPassed, cleanupPassed, restored, expectedFailureHandled });

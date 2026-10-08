@@ -2,6 +2,15 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
+const background = vi.hoisted(() => ({
+  callbacks: [] as (() => Promise<unknown>)[],
+  pending: undefined as Promise<unknown> | undefined,
+}));
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<Record<string, unknown>>()),
+  after: (callback: () => Promise<unknown>) =>
+    background.callbacks.push(callback),
+}));
 const probeSecret = "private-performance-capability-at-least-32-bytes";
 vi.mock("@/env", () => ({
   env: {
@@ -23,9 +32,13 @@ vi.mock("@/env", () => ({
 
 const delegated: string[] = [];
 vi.mock("uploadthing/next", () => ({
-  createRouteHandler: () => ({
+  createRouteHandler: (options: {
+    config: { handleDaemonPromise: (promise: Promise<unknown>) => void };
+  }) => ({
     GET: () => new Response("get"),
     POST: (request: Request) => {
+      if (background.pending)
+        options.config.handleDaemonPromise(background.pending);
       delegated.push(request.url);
       return new Response(JSON.stringify({ delegated: true }), { status: 200 });
     },
@@ -88,6 +101,8 @@ const presign = (headers?: Record<string, string>) =>
   request("?actionType=upload&slug=collaborationAssetUploader", headers);
 
 beforeEach(() => {
+  background.callbacks.length = 0;
+  background.pending = undefined;
   delegated.length = 0;
   checks.length = 0;
   session = { user: { id: "user-a" } };
@@ -95,6 +110,22 @@ beforeEach(() => {
 });
 
 describe("what the collaboration upload limit counts", () => {
+  it("returns presign while SDK work is pending and retains that work in the request lifecycle", async () => {
+    let complete: (value: unknown) => void = () => {
+      throw new Error("work-not-started");
+    };
+    const pending = new Promise<unknown>((resolve) => {
+      complete = resolve;
+    });
+    background.pending = pending;
+    const response = await POST(presign());
+    expect(await response.json()).toEqual({ delegated: true });
+    expect(background.callbacks).toHaveLength(1);
+    const retained = background.callbacks[0]!();
+    expect(retained).toBe(pending);
+    complete({ registered: true });
+    expect(await retained).toEqual({ registered: true });
+  });
   it("rejects expired, tampered and differently signed timing capabilities", () => {
     const token = issuePerformanceProbe(probeSecret);
     const probe = (value: string) =>

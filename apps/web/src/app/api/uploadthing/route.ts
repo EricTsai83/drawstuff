@@ -1,4 +1,4 @@
-import { type NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { createRouteHandler } from "uploadthing/next";
 import { env } from "@/env";
 import {
@@ -23,8 +23,9 @@ import { uploadRouter, type UploadRouter } from "./core";
 const { GET, POST: handleUploadThingRequest } = createRouteHandler({
   router: uploadRouter,
 
-  // Apply an (optional) custom config:
-  // config: { ... },
+  // Keep SDK metadata/callback work alive after the HTTP response. The upload
+  // still waits for onUploadComplete's content receipt (awaitServerData=true).
+  config: { handleDaemonPromise: (promise) => after(() => promise) },
 });
 
 /**

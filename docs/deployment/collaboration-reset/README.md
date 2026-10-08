@@ -308,3 +308,11 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --cwd ../../.loca
 `testPassed=true` 代表診斷流程完成，`gatePassed=false`；原 200 筆正式 gate 仍未通過。下一個範圍為 RPC handler 外等待、SDK presign 與下載傳輸的來源定位，依確認的瓶頸改善後重測，再完成 3B／3C。維持免費方案與 sea1，不關閉 callback receipt、live lifecycle／generation 屏障，也不以重讀代替首次下載。
 
 Provider／DB／DO 清理及正常 Worker 精確還原皆通過，還原 version `950f8acc-4054-423b-b3d1-7b0f309e8c74`。另以唯讀查詢核對測試前綴帳號、房間、附件、快照、registration、tombstone 與 creation fence 殘留全為零，runtime／journal／lock 無殘留，暫時清理入口已移除；沒有 DB push／migration 或方案／區域變更。
+
+### 3A：Presign 背景工作生命週期改善
+
+UploadThing 7.7.4 的 `RouteHandlerConfig.handleDaemonPromise` 在 production 預設為 `await`；已依專案 lockfile 版本的 SDK source／型別確認，它會等待 metadata registration daemon 完成才回 presign。SDK 同一設定也管理 verified callback 的工作生命週期。原伺服器配對報告在 middleware 之外仍有約 713 ms 的 SDK 等待，因此將 handler 設定接到 `next/server` 的 `after(() => promise)`，由 Next.js 保留背景工作，提前回傳 HTTP response。這是 SDK 公開設定，不修改依賴或以 `void` 丟棄工作；[Next.js 官方 after 契約](https://nextjs.org/docs/app/api-reference/functions/after)支援 Route Handlers 並沿用部署平台的 waitUntil 生命週期。
+
+`awaitServerData` 維持預設 true；provider PUT 仍須等真實 `onUploadComplete` 的 content receipt，所有 live session、Room、lifecycle、generation 與 storage fence 仍執行。改善預期是移動 metadata registration 與 callback HTTP ACK 的等待位置，不預先宣稱端到端保存省下相同毫秒數。
+
+`caffeinate -i pnpm collab:assets:remote --performance-presign-diagnostic` 沿用 20 warmup／20 組伺服器配對診斷，另存 `docs/performance/collaboration-production-3a-presign.json`，保留改善前 server 報告與原 200 筆 gate。檢查背景 metadata 成功抵達 provider、verified callback 完成、首次下載／解密與原限定清理；同時對照 presign 的縮短是否只是轉移到 PUT＋receipt 等待。RPC handler 外與下載 body 慢樣本的根因仍待獨立追蹤。
