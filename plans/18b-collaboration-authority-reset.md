@@ -644,6 +644,8 @@ Lifecycle 熱路徑改為直接 select for update 既有 account／scene row，�
 
 Lifecycle 改善後原契約重測完成 20 warmup＋26 formal，第 27 筆 fanout owner 1006、guest OPEN、callback written；keepalive 19／19 ACK、Worker deployment guard 成功。保存／加入 p95 4,249.95／3,637.80 ms，partial report `docs/performance/collaboration-production-3a-lifecycle-lock-incomplete.json` 保留全部樣本與失敗，gate false，不合併前輪。人工 web alias 前後相同但非連續監控；tail 零 exception 不能排除平台／網路問題。清理、精確還原與八類 DB 測試前綴全零已確認，沒有 DB 變更。下一 scope 先補 socket 安全時間軸／close-error 診斷定位斷線，再進行完整 20＋200；3B／3C 與其餘 P3 待驗收。
 
+斷線恢復／保存狀態有限驗收：現行 8 個產品／React hook 測試檔共 199 tests 通過；正式 `--access-recovery` 的真實附件、三 socket、blocked-save fanout、adapter 故障／DO restart／撤權與 fresh save 恢復通過，觀測 7 次 adapter 失敗請求。Provider／DB／DO 清理、normal Worker 精確還原與八類測試前綴 DB 全零已確認。正式工具主動 reconnect，產品自動重連與離線畫布收斂是本機可控測試；尚未完成正式瀏覽器自然 1006 的端到端恢復驗證。未保存修改不保證關閉／reload 後保留；效能、1006／500 根因及其他 P3 scope 仍未結案，不能宣稱零 bug 或整個 plan 完成。證據見 runbook「斷線恢復與保存狀態的有限範圍驗收」。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。

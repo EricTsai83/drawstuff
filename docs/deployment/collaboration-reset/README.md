@@ -532,3 +532,23 @@ Lifecycle fast path 的完整 `pnpm check` 通過（web 916／916）。修正 co
 Provider／DB／DO 清理與正常 Worker module／bindings 精確還原全部通過，還原 version `f587674f-6f74-4939-be2e-6934312725d5`。另行唯讀核對八類測試前綴 DB rows 全零，runtime／journal／lock 已移除。沒有 DB push／migration、方案／region 變更，沒有新增拋棄式測試碼。P3 仍未完成。
 
 本輪完整 `pnpm check` 通過；檢查日誌已移除，未遺留測試 runtime／journal／lock。
+
+### 斷線恢復與保存狀態的有限範圍驗收（2026-10-08）
+
+以 commit `7d12535` 的現行產品與測試執行以下驗收；本輪未修改產品、未新增臨時測試碼，不重跑 200 筆效能 gate，也不把既有 1006／500 的根因視為已修復。
+
+| 驗收層 | 命令／現行測試 | 結果與邊界 |
+| --- | --- | --- |
+| 產品 session／保存與 React hook | `pnpm --filter @drawstuff/web exec vitest run tests/collab-reconnect-convergence.test.ts tests/collab-save-state.test.ts tests/collab-room-status.test.tsx tests/collab-join-and-snapshot.test.ts tests/collab-asset-transfer.test.ts` | 5 files、164 tests 通過；可控 transport／backend，非正式瀏覽器操作 |
+| Dirty tracking／本機持久化鎖／room state | `pnpm --filter @drawstuff/web exec vitest run tests/collab-dirty-tracking-suppression.test.tsx tests/collab-local-persistence.test.tsx tests/collab-room-state-reducer.test.ts` | 3 files、35 tests 通過；涵蓋狀態與共編內容不得寫入個人快取 |
+| Production Gateway／DO／adapter／Neon／UploadThing | `caffeinate -i pnpm collab:assets:remote --access-recovery` | testPassed、cleanupPassed、restored 全 true；限本輪新建測試房間與三個測試主體 |
+
+本機 199 個測試涵蓋 transient drop 後 fresh token 重連、離線新增／修改／刪除重送、雙方離線編輯後完整畫布收斂、relay restart 後恢復、retry budget 耗盡與撤權／房間終止的停止語意。保存涵蓋回應遺失後 query、舊 capture 不清除新修改、延遲／偽造 receipt 不誤顯示 saved、附件 records 未出現時拒絕 snapshot 保存，以及背景 upload 未完成時維持 saving。這是現行產品邏輯與 React hook 的自動化證據，不是部署後整個瀏覽器 UI 的端到端證明。
+
+正式環境使用真實加密附件 upload／callback／download／decrypt，以及三個真實 socket。Viewer write 拒絕、角色／allowlist、三人 fanout、真實 PostgreSQL blocked save 時即時 fanout 全通過。限定房間的 adapter 故障共觀測 7 次失敗請求：保存未誤報 written、撤權先在 DO 生效、未撤權兩人仍收發、晚到真實 provider callback 不得 finalize。故障狀態經 DO restart 保留；解除後 revoke 收斂為 enforced，測試工具重新連接兩位有效成員並確認雙向 fanout，舊 operation 仍被 fence，fresh owner save revision 3 為 written，重送相同結果。
+
+正式工具使用 protocol client 主動 reconnect，不會驗證瀏覽器 session 的自動重連；自動恢復／offline scene merge 由上述本機產品測試驗證。原 long-run 1006 與 presign 500 的根因、瀏覽器在該自然故障下的整合恢復、效能門檻與跨日／成本仍未結案。專案要求 computer use 交由 GPT-5.5 Codex；本輪 live model catalog 無該 model，故沒有以其他 model 代做瀏覽器操作，也不宣稱完成正式 UI 驗收。
+
+未保存修改的保留只驗證同一個仍存在的 session 內重連；共編畫布刻意不進個人本機快取，所以不能保證未保存時關閉／重新整理分頁或程序退出後仍找回。已確認寫入的快照恢復與未確認的記憶體修改必須區分，不能宣稱任何情況皆不會遺失資料。
+
+故障測試後先還原正常 Worker，再執行 provider／DB／DO 清理，最後精確還原 version `d2f84e7d-219a-4ea3-a87a-8ad3e89d0372`；正常 module／bindings 與故障入口移除由 runner 驗證。另行唯讀核對 user／room／asset／snapshot／tombstone／registration／creation fence／lifecycle subject 的測試前綴 rows 全零，runtime／journal／lock 與本機檢查日誌已移除。沒有 DB push／migration、方案／region 變更。此 scope 通過，可繼續後續工作，但不足以把整個 P3 或「正常使用沒有 bug」標為通過。
