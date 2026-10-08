@@ -1,5 +1,9 @@
 import { createHash } from "node:crypto";
 import {
+  PERFORMANCE_PROBE_HEADER,
+  readServerTimings,
+} from "@drawstuff/collaboration/performance";
+import {
   env,
   evictDurableObject,
   listDurableObjectIds,
@@ -191,12 +195,20 @@ function adapter(
       );
       expect(init.redirect).toBe("manual");
       if (command.action === "register")
-        return Response.json({
-          roomId: command.roomId,
-          operationId: command.operationId,
-          subject: command.identity.subject,
-          lifecycleVersion: command.identity.lifecycleVersion,
-        });
+        return Response.json(
+          {
+            roomId: command.roomId,
+            operationId: command.operationId,
+            subject: command.identity.subject,
+            lifecycleVersion: command.identity.lifecycleVersion,
+          },
+          {
+            headers:
+              new Headers(init.headers).get(PERFORMANCE_PROBE_HEADER) === "1"
+                ? { "server-timing": "storage;dur=1" }
+                : {},
+          },
+        );
       if (handler) return handler(command, init);
       throw new Error("unexpected-command");
     });
@@ -251,6 +263,66 @@ function gate() {
 }
 
 describe("formal binary snapshot entry", () => {
+  it("keeps binary receipts and quotas intact while exposing numeric spans only to an authorized probe", async () => {
+    const f = fixture();
+    adapter((command, init) => {
+      const measured =
+        new Headers(init.headers).get(PERFORMANCE_PROBE_HEADER) === "1";
+      if (command.action === "write")
+        return Response.json(
+          { status: "written", revision: 1 },
+          {
+            headers: measured
+              ? {
+                  "server-timing":
+                    "storage;dur=2, receiveBody;dur=3, secret;dur=9",
+                }
+              : {},
+          },
+        );
+      if (command.action === "read-snapshot") {
+        const response = snapshot(command);
+        if (measured) response.headers.set("server-timing", "storage;dur=4");
+        return response;
+      }
+      throw new Error("unexpected-command");
+    });
+    await configure(f);
+    const write = request(f, "write", bytes);
+    write.headers.set(PERFORMANCE_PROBE_HEADER, "1");
+    const written = await SELF.fetch(write);
+    expect(await written.json()).toEqual({ status: "written", revision: 1 });
+    const spans = readServerTimings(written.headers.get("server-timing"));
+    expect(spans.registerStorage).toBe(1);
+    expect(spans.writeStorage).toBe(2);
+    expect(spans.adapterReceiveBody).toBe(3);
+    for (const name of [
+      "room",
+      "gatewayService",
+      "acceptContent",
+      "receiveBody",
+      "settleContent",
+    ] as const)
+      expect(typeof spans[name]).toBe("number");
+    expect(written.headers.get("server-timing")).not.toContain("secret");
+    const read = request(f, "read");
+    read.headers.set(PERFORMANCE_PROBE_HEADER, "1");
+    const measured = await SELF.fetch(read);
+    expect(
+      readServerTimings(measured.headers.get("server-timing"))
+        .readSnapshotStorage,
+    ).toBe(4);
+    expect(new Uint8Array(await measured.arrayBuffer())).toEqual(bytes);
+    const normal = await SELF.fetch(request(f, "read"));
+    expect(normal.headers.get("server-timing")).toBeNull();
+    expect(new Uint8Array(await normal.arrayBuffer())).toEqual(bytes);
+    const refused = request(f, "read");
+    refused.headers.set(PERFORMANCE_PROBE_HEADER, "1");
+    refused.headers.set("authorization", "Bearer wrong");
+    const denied = await SELF.fetch(refused);
+    expect(denied.status).toBe(401);
+    expect(denied.headers.get("server-timing")).toBeNull();
+  });
   it("round-trips the maximum legal ciphertext through Gateway, streaming RPC and adapter, retaining metadata only", async () => {
     const f = fixture();
     const maximum = new Uint8Array(MAX_SNAPSHOT_CIPHERTEXT_BYTES).fill(1);

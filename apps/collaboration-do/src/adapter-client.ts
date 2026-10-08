@@ -89,11 +89,7 @@ export class AdapterClient {
               ? "write"
               : undefined;
       if (metric) {
-        this.timings[metric] = performance.now() - started;
-        const storage = readServerTimings(
-          response.headers.get("server-timing"),
-        ).storage;
-        if (storage !== undefined) this.timings[`${metric}Storage`] = storage;
+        this.observe(response, metric, started);
       }
     }
     return value;
@@ -123,6 +119,7 @@ export class AdapterClient {
     if (bytes && bytes.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES)
       throw new Error("payload-too-large");
     signal.throwIfAborted();
+    const started = performance.now();
     const response = await this.fetchImpl(url.href, {
       method: "POST",
       redirect: "manual",
@@ -131,14 +128,17 @@ export class AdapterClient {
         authorization: `Bearer ${secret}`,
         "content-type": bytes ? "application/octet-stream" : "application/json",
         ...(bytes ? { [ADAPTER_METADATA_HEADER]: metadata } : {}),
+        ...(this.timings ? { [PERFORMANCE_PROBE_HEADER]: "1" } : {}),
       },
       body: bytes ?? metadata,
     });
-    return readAdapterJson(
+    const result = await readAdapterJson(
       response,
       (input) => contentResultSchema.parse(input),
       signal,
     );
+    this.observe(response, "write", started);
+    return result;
   }
 
   async readSnapshot(
@@ -147,6 +147,7 @@ export class AdapterClient {
   ) {
     adapterCommandSchema.parse(command);
     const { url, secret } = this.endpoint();
+    const started = performance.now();
     const response = await this.fetchImpl(url.href, {
       method: "POST",
       redirect: "manual",
@@ -154,6 +155,7 @@ export class AdapterClient {
       headers: {
         authorization: `Bearer ${secret}`,
         "content-type": "application/json",
+        ...(this.timings ? { [PERFORMANCE_PROBE_HEADER]: "1" } : {}),
       },
       body: JSON.stringify(command),
     });
@@ -189,7 +191,10 @@ export class AdapterClient {
         receipt.authorityEpoch !== command.authorityEpoch
       )
         throw new Error("adapter-invalid-response");
-      if (!parsed.found) return { ...parsed, bytes: null };
+      if (!parsed.found) {
+        this.observe(response, "readSnapshot", started);
+        return { ...parsed, bytes: null };
+      }
       const snapshotReceipt = parsed.receipt;
       if (snapshotReceipt.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES)
         throw new Error("adapter-invalid-response");
@@ -200,6 +205,7 @@ export class AdapterClient {
       );
       if (bytes.byteLength !== snapshotReceipt.byteLength)
         throw new Error("adapter-invalid-response");
+      this.observe(response, "readSnapshot", started);
       return { ...parsed, bytes };
     } catch (error) {
       if (error instanceof SnapshotTransferError)
@@ -208,6 +214,20 @@ export class AdapterClient {
     } finally {
       await response.body?.cancel();
     }
+  }
+
+  private observe(
+    response: Response,
+    metric: "register" | "readAssets" | "write" | "readSnapshot",
+    started: number,
+  ) {
+    if (!this.timings) return;
+    this.timings[metric] = performance.now() - started;
+    const server = readServerTimings(response.headers.get("server-timing"));
+    if (server.storage !== undefined)
+      this.timings[`${metric}Storage`] = server.storage;
+    if (server.receiveBody !== undefined)
+      this.timings.adapterReceiveBody = server.receiveBody;
   }
 
   private endpoint() {

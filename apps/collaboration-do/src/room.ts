@@ -1,5 +1,8 @@
 import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
-import type { PerformanceTimings } from "@drawstuff/collaboration/performance";
+import {
+  formatServerTimings,
+  type PerformanceTimings,
+} from "@drawstuff/collaboration/performance";
 import { DurableObject } from "cloudflare:workers";
 
 import {
@@ -314,11 +317,19 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     };
   }
 
-  async applySnapshotV1(request: Request): Promise<Response> {
+  async applySnapshotV1(request: Request, measure = false): Promise<Response> {
     this.requireChannelKey();
     if (!this.authority) return closedJsonResponse(503, "unavailable");
     this.snapshotEntry ??= new SnapshotEntry(this.authority, this.env);
-    return this.snapshotEntry.handle(request);
+    const timings: PerformanceTimings | undefined = measure ? {} : undefined;
+    const start = performance.now();
+    const response = await this.snapshotEntry.handle(request, timings);
+    if (timings && response.ok)
+      response.headers.set(
+        "server-timing",
+        formatServerTimings({ ...timings, room: performance.now() - start }),
+      );
+    return response;
   }
 
   async applyAssetsV1(input: unknown, measure = false) {

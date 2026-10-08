@@ -54,11 +54,11 @@ export async function runTypicalHotPerformance(c) {
   const {roomId,runId,web,gateway,cookie,roomKey,snapshotKey,guest,keys,saveJournal,proof,envelope,jsonPost,connect,until,report} = c;
   const samples = c.diagnostic ? 20 : SAMPLES;
   const result={schemaVersion:1,scope:"3A",startedAt:new Date().toISOString(),warmup:WARMUP,requiredSamples:SAMPLES,
-    purpose:c.presignDiagnostic ? "presign-lifecycle-diagnostic" : c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
+    purpose:c.snapshotDiagnostic ? "snapshot-latency-diagnostic" : c.presignDiagnostic ? "presign-lifecycle-diagnostic" : c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
     scenario:"typical-hot-real-upload",snapshotPlaintextBytes:TYPICAL_BYTES,assetPlaintextBytes:null,
     runtime:{client:process.version,protocol:6,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:Boolean(c.toolsUncommitted)},
     measurementBoundary:"verified principals -> Gateway -> DO -> production adapter/Neon and genuine UploadThing callback; join includes baseline, asset download/decode and socket fanout",
-    limitations:[c.serverDiagnostic ? "OAuth, web proof issuance and UI application are excluded; asset presign session and rate-limit spans are measured" : "OAuth, web proof issuance/rate-limit ingress and UI application are excluded", "hot DO maintained by live presence traffic; Vercel/Neon cold starts are not independently classified", c.serverDiagnostic ? "asset path records service and DB transaction spans; snapshot spans, callback dispatch and provider/network attribution remain unclassified" : "client segments are measured; DO->Vercel and adapter->Neon spans require subsequent instrumentation"],
+    limitations:[c.serverDiagnostic ? "OAuth, web proof issuance and UI application are excluded; asset presign session and rate-limit spans are measured" : "OAuth, web proof issuance/rate-limit ingress and UI application are excluded", "hot DO maintained by live presence traffic; Vercel/Neon cold starts are not independently classified", c.snapshotDiagnostic ? "asset and snapshot service/DB spans are measured; snapshot response delivery, callback dispatch, RPC handler-external waiting and provider/network attribution remain unclassified" : c.serverDiagnostic ? "asset path records service and DB transaction spans; snapshot spans, callback dispatch and provider/network attribution remain unclassified" : "client segments are measured; DO->Vercel and adapter->Neon spans require subsequent instrumentation"],
     thresholdsMs:{save:{p95:3000,p99:8000},join:{p95:3000,p99:5000}},
     records:[],warmupRecords:[],failures:0,gatePassed:false,completed:false};
   c.observe(result);
@@ -72,11 +72,15 @@ export async function runTypicalHotPerformance(c) {
       assert(sealed.ok);owner.ws.send(encodeRelayDataFrame("presence",sealed.frame));
     }).catch(()=>{heartbeatError=true;}).finally(()=>{heartbeatRunning=false;});
   },5000);
-  const snapshotRequest=async(request,body,identity)=>fetch(`${gateway}/v1/snapshot`,{
+  const snapshotRequest=async(request,body,identity,timings)=>{
+    const response=await fetch(`${gateway}/v1/snapshot`,{
     method:"POST",headers:{authorization:`Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`,"content-type":"application/octet-stream",
-      [SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(identity),request})},
+      [SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(identity),request}),...(timings ? {[PERFORMANCE_PROBE_HEADER]:"1"} : {})},
     ...(body ? {body} : {}),redirect:"error",signal:AbortSignal.timeout(20000),
-  });
+    });
+    if(timings) Object.assign(timings,readServerTimings(response.headers.get("server-timing")));
+    return response;
+  };
   try {
     for(let index=0;index<WARMUP+samples;index++) {
       assert(!c.interrupted(),"Performance acceptance interrupted");assert(!heartbeatError);assert.equal(owner.ws.readyState,1);
@@ -122,8 +126,11 @@ export async function runTypicalHotPerformance(c) {
       const uploadMs=performance.now()-uploadStart;
       const operation={...envelope(),kind:"snapshot-put",authGeneration:1,authorityEpoch:1,expectedRevision:revision,checksum:sha256(sealed.ciphertext)};
       const saveStart=performance.now();let written;
+      const snapshotWriteTimings=c.snapshotDiagnostic ? {} : undefined;
+      let snapshotAttempts=0;
       await until(async()=>{
-        const response=await snapshotRequest({action:"write",operation},sealed.ciphertext);assert.equal(response.status,200);
+        snapshotAttempts++;
+        const response=await snapshotRequest({action:"write",operation},sealed.ciphertext,undefined,snapshotWriteTimings);assert.equal(response.status,200);
         written=await response.json();if(written.status==="pending")initialPending=true;return written.status==="written";
       },60000);
       assert.equal(written.revision,++revision);
@@ -134,7 +141,8 @@ export async function runTypicalHotPerformance(c) {
         member=await connect(guest);assert.equal(member.joined.role,"editor");
         const joinSocketMs=performance.now()-joinStart;
         const baselineStart=performance.now();
-        const response=await snapshotRequest({...envelope(),action:"read"},undefined,guest);assert.equal(response.status,200);
+        const snapshotReadTimings=c.snapshotDiagnostic ? {} : undefined;
+        const response=await snapshotRequest({...envelope(),action:"read"},undefined,guest,snapshotReadTimings);assert.equal(response.status,200);
         const receipt=JSON.parse(response.headers.get(SNAPSHOT_RECEIPT_HEADER));assert.equal(receipt.revision,revision);
         const ciphertext=new Uint8Array(await response.arrayBuffer());assert.equal(sha256(ciphertext),receipt.checksum);
         const opened=await openCollaborationSnapshot({key:snapshotKey,ciphertext,roomId,authGeneration:1,revision});assert(opened.ok);
@@ -185,17 +193,22 @@ export async function runTypicalHotPerformance(c) {
         }
         const server={};
         if(c.serverDiagnostic) {
+          const snapshots=c.snapshotDiagnostic ? [
+            ["snapshotWrite",snapshotWriteTimings,["gatewayService","room","register","registerStorage","acceptContent","receiveBody","write","writeStorage","adapterReceiveBody","settleContent"]],
+            ["snapshotRead",snapshotReadTimings,["gatewayService","room","register","registerStorage","readSnapshot","readSnapshotStorage"]],
+          ] : [];
           for(const [prefix,timings,required] of [
             ["presignRoute",routeTimings,["routeSession","rateLimit","uploadHandler"]],
             ["presign",measured.presign,["session","identity","gateway","gatewayService","room","register","registerStorage"]],
             ["callback",measured.timings,["callback","identity","gateway","gatewayService","room","register","registerStorage","write","writeStorage"]],
             ["index",indexTimings,["gatewayService","room","register","registerStorage","readAssets","readAssetsStorage"]],
+            ...snapshots,
           ]) {
             for(const metric of required) assert.equal(typeof timings[metric],"number",`Missing ${prefix} ${metric} timing`);
             for(const [metric,value] of Object.entries(timings)) server[`${prefix}_${metric}Ms`]=value;
           }
         }
-        const row={saveMs,joinMs,cryptoMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...repeated,...server};
+        const row={saveMs,joinMs,cryptoMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...(c.snapshotDiagnostic ? {snapshotAttempts} : {}),...repeated,...server};
         (index<WARMUP ? result.warmupRecords : result.records).push(row);
         report("performance-sample",{warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,saveMs:Math.round(saveMs),joinMs:Math.round(joinMs)});
       } finally {member?.ws.terminate();if(member)await until(()=>Promise.resolve(member.ws.readyState===3));}
@@ -208,7 +221,7 @@ export async function runTypicalHotPerformance(c) {
     result.finishedAt=new Date().toISOString();
     const fields=["saveMs","joinMs","cryptoMs","uploadMs","presignMs","presignHeadersMs","presignBodyMs","journalMs","providerPutCallbackMs","providerHeadersMs","providerReceiptBodyMs","assetPendingMs","snapshotMs","joinSocketMs","joinSnapshotMs","joinAssetsMs","assetIndexMs","assetDownloadMs","assetDownloadHeadersMs","assetDownloadBodyMs","assetDecodeMs","fanoutMs"];
     if(c.providerDiagnostic) fields.push("repeatedDownloadMs","repeatedDownloadHeadersMs","repeatedDownloadBodyMs");
-    if(c.serverDiagnostic) fields.push(...new Set(result.records.flatMap(row=>Object.keys(row).filter(field=>/^(?:presignRoute|presign|callback|index)_/.test(field)))));
+    if(c.serverDiagnostic) fields.push(...new Set(result.records.flatMap(row=>Object.keys(row).filter(field=>/^(?:presignRoute|presign|callback|index|snapshotWrite|snapshotRead)_/.test(field)))));
     result.metrics=Object.fromEntries(fields.map(field=>[field,summary(result.records.map(row=>row[field]))]));
     result.pendingRatio=result.records.length ? result.records.filter(row=>row.initialPending).length/result.records.length : null;
     result.failureRatio=result.failures/(result.records.length+result.failures || 1);

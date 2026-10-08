@@ -336,3 +336,13 @@ SDK 剩餘區間從約 713ms 降為 11ms，支持 metadata daemon 已移出 pres
 本輪最慢保存 6,850.22 ms，其中 snapshot 4,190.49 ms，presign 573.72 ms、PUT＋callback 2,083.87 ms；下一輪優先補 snapshot Gateway／DO／adapter 分段，同時區分 RPC handler 外與傳輸等待。原 200 筆 gate 與 3,000 ms p95 門檻不變，`gatePassed=false`；保存／加入仍未達標，不重複以小樣本宣稱 P3 完成。
 
 Provider／DB／DO 清理與正常 Worker 精確還原通過，還原 version `eab0e029-5f65-4027-8860-3635d9ffe060`，正常 Worker hash 與改善前相同。再次唯讀核對測試前綴的帳號、房間、附件、快照、registration、tombstone、creation fence、lifecycle subject 全為零；暫時入口回 404，runtime／journal／lock 全已移除。沒有 DB push／migration、Worker 產品邏輯或免費方案／sea1 設定變更。
+
+### 3A：Snapshot 伺服器分段診斷
+
+`caffeinate -i pnpm collab:assets:remote --performance-snapshot-diagnostic` 固定 20 warmup／20 配對樣本，另存 `docs/performance/collaboration-production-3a-snapshot.json`。沿用改善後的 UploadThing 生命週期與真實上傳／callback／首次下載／解密流程，不覆寫之前的診斷或 200 筆正式 gate。
+
+只有先通過 service bearer 與 identity proof 的 Gateway 診斷請求，才開啟 snapshot 數值 header；一般 snapshot 收據與 binary payload 形狀不變。每筆記錄 Gateway→DO RPC、DO handler、registration adapter／DB、DO acceptContent、DO 接收密文、adapter binary write／DB transaction、adapter 接收密文、DO settleContent，以及 snapshot read adapter／DB。Response 不為量測而額外緩衝；串流仍逐段重驗授權，body quota 仍持有至消費／取消完成。
+
+所有區間都使用各執行環境自己的 elapsed timer，不跨機器相減 timestamp，也不新增 sync／write 或改 output gate。`room`／`gatewayService` 在 Response headers 可回傳時停表，read body 後續傳輸不包含在其中；adapter read 則包含讀完密文，client `joinSnapshotMs` 仍包含完整下載、解密與 decode。Server spans 是巢狀區間；對照時逐筆比較，不相加分位數。`snapshotAttempts` 記錄 write 嘗試數；多次嘗試時 header 只保留各階段最近的觀測值，不能把它當成所有嘗試總和。
+
+缺少必要分段會讓診斷失敗並清理；不移除慢樣本或放寬 P0 門檻。RPC handler 外等待仍混合 dispatch、排程、返回時的持久化屏障與網路，沒有平台 trace 時不宣稱已單獨分類。

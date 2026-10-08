@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import type { PerformanceTimings } from "@drawstuff/collaboration/performance";
 import {
   ADAPTER_METADATA_MAX_BYTES,
   AUTHORITY_LIMITS,
@@ -33,7 +34,7 @@ export class SnapshotEntry {
     private readonly env: Env,
   ) {}
 
-  async handle(http: Request): Promise<Response> {
+  async handle(http: Request, timings?: PerformanceTimings): Promise<Response> {
     const controller = new AbortController();
     const timer = setTimeout(
       () => controller.abort(),
@@ -120,7 +121,7 @@ export class SnapshotEntry {
       if (operation && !writing && !this.authority.queryContent(operation))
         throw new Error("not-found");
       const room = this.authority.state()!;
-      const adapter = new AdapterClient(this.env);
+      const adapter = new AdapterClient(this.env, undefined, timings);
       const registration = await adapter.call(
         {
           v: 1,
@@ -218,13 +219,17 @@ export class SnapshotEntry {
       if (!operation) throw new Error("not-found");
       let result;
       if (writing) {
+        const acceptStart = performance.now();
         result = await this.authority.acceptContent(operation);
+        if (timings) timings.acceptContent = performance.now() - acceptStart;
         authorize();
+        const bodyStart = performance.now();
         const bytes = await readSnapshotBody(
           http.body,
           operation.kind === "snapshot-put" ? MAX_SNAPSHOT_CIPHERTEXT_BYTES : 0,
           controller.signal,
         );
+        if (timings) timings.receiveBody = performance.now() - bodyStart;
         if (
           (operation.kind === "snapshot-put" &&
             !this.validBytes(bytes, operation.checksum)) ||
@@ -257,7 +262,9 @@ export class SnapshotEntry {
             controller.signal,
           );
       }
+      const settleStart = performance.now();
       await this.authority.settleContent(operation.operationId, result);
+      if (timings) timings.settleContent = performance.now() - settleStart;
       // A committed receipt remains recoverable even if access changed during the write.
       authorize();
       return Response.json(result, {

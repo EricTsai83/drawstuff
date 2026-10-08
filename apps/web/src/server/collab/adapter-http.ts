@@ -13,6 +13,7 @@ import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot
 import {
   PERFORMANCE_PROBE_HEADER,
   formatServerTimings,
+  type PerformanceTimings,
 } from "@drawstuff/collaboration/performance";
 import { bearerTokenMatches } from "@/server/bearer-token";
 import type { Database } from "./rooms";
@@ -81,7 +82,10 @@ export async function handleAdapterRequest(
     return jsonResponse({ error: "unauthorized" }, 401);
   if (request.method !== "POST")
     return jsonResponse({ error: "method-not-allowed" }, 405);
-  const measuredJson = async (operation: () => Promise<unknown>) => {
+  const measuredJson = async (
+    operation: () => Promise<unknown>,
+    extra: PerformanceTimings = {},
+  ) => {
     const start = performance.now();
     const value = await operation();
     const duration = performance.now() - start;
@@ -89,7 +93,7 @@ export async function handleAdapterRequest(
     if (request.headers.get(PERFORMANCE_PROBE_HEADER) === "1")
       response.headers.set(
         "server-timing",
-        formatServerTimings({ storage: duration }),
+        formatServerTimings({ ...extra, storage: duration }),
       );
     return response;
   };
@@ -138,11 +142,20 @@ export async function handleAdapterRequest(
           !metadata
         )
           throw new AdapterError("invalid-body");
+        const bodyStart = performance.now();
         const bytes = metadata
           ? await readBoundedAdapterBody(request, MAX_SNAPSHOT_CIPHERTEXT_BYTES)
           : undefined;
-        return await measuredJson(() =>
-          executeStorageOperation(db, command.action, command.operation, bytes),
+        const receiveBody = performance.now() - bodyStart;
+        return await measuredJson(
+          () =>
+            executeStorageOperation(
+              db,
+              command.action,
+              command.operation,
+              bytes,
+            ),
+          metadata ? { receiveBody } : {},
         );
       }
       case "fence":
@@ -158,12 +171,23 @@ export async function handleAdapterRequest(
       case "cleanup":
         return jsonResponse(await cleanupAdapterRoom(db, command));
       case "read-snapshot": {
+        const started = performance.now();
         const { snapshot, revision } = await readAdapterSnapshotState(
           db,
           command,
         );
+        const timingHeaders: Record<string, string> =
+          request.headers.get(PERFORMANCE_PROBE_HEADER) === "1"
+            ? {
+                "server-timing": formatServerTimings({
+                  storage: performance.now() - started,
+                }),
+              }
+            : {};
         if (!snapshot) {
           const response = jsonResponse({ error: "not-found" }, 404);
+          for (const [name, value] of Object.entries(timingHeaders))
+            response.headers.set(name, value);
           response.headers.set(
             SNAPSHOT_RECEIPT_HEADER,
             JSON.stringify({
@@ -179,6 +203,7 @@ export async function handleAdapterRequest(
           headers: {
             "content-type": "application/octet-stream",
             "cache-control": "no-store",
+            ...timingHeaders,
             [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
               roomId: command.roomId,
               authGeneration: command.authGeneration,

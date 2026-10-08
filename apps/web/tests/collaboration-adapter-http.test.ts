@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { eq } from "drizzle-orm";
 vi.mock("server-only", () => ({}));
+import { readServerTimings } from "@drawstuff/collaboration/performance";
 import {
   ADAPTER_METADATA_HEADER,
   ADAPTER_METADATA_MAX_BYTES,
@@ -128,6 +129,7 @@ describe("private binary adapter endpoint", () => {
             operation,
           }),
           "content-type": "application/octet-stream",
+          "x-collab-performance-probe": "1",
         },
         body: new Uint8Array(bytes),
       }),
@@ -135,19 +137,23 @@ describe("private binary adapter endpoint", () => {
       secret,
     );
     expect(response.status).toBe(200);
+    const timings = readServerTimings(response.headers.get("server-timing"));
+    expect(typeof timings.storage).toBe("number");
+    expect(typeof timings.receiveBody).toBe("number");
     expect(await response.json()).toEqual({ status: "written", revision: 1 });
-    const read = await handleAdapterRequest(
-      controlRequest({
-        v: 1,
-        roomId: f.roomId,
-        authorityEpoch: 1,
-        authGeneration: 1,
-        action: "read-snapshot",
-      }),
-      db,
-      secret,
-    );
+    const readRequest = controlRequest({
+      v: 1,
+      roomId: f.roomId,
+      authorityEpoch: 1,
+      authGeneration: 1,
+      action: "read-snapshot",
+    });
+    readRequest.headers.set("x-collab-performance-probe", "1");
+    const read = await handleAdapterRequest(readRequest, db, secret);
     expect(read.headers.get("content-type")).toBe("application/octet-stream");
+    expect(
+      typeof readServerTimings(read.headers.get("server-timing")).storage,
+    ).toBe("number");
     expect(read.headers.get("cache-control")).toBe("no-store");
     expect(
       JSON.parse(read.headers.get("x-drawstuff-snapshot") ?? "null") as unknown,

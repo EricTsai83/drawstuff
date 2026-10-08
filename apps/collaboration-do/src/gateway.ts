@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   PERFORMANCE_PROBE_HEADER,
   formatServerTimings,
+  readServerTimings,
 } from "@drawstuff/collaboration/performance";
 import { timingSafeEqual } from "node:crypto";
 import {
@@ -297,9 +298,25 @@ async function handleSnapshot(request: Request, env: Env): Promise<Response> {
     body,
   });
   try {
-    return await env.COLLABORATION_ROOM.getByName(
+    const measure = request.headers.get(PERFORMANCE_PROBE_HEADER) === "1";
+    const start = performance.now();
+    const response = await env.COLLABORATION_ROOM.getByName(
       intent.roomId,
-    ).applySnapshotV1(internal);
+    ).applySnapshotV1(internal, measure);
+    if (!measure || !response.ok) return response;
+    const headers = new Headers(response.headers);
+    headers.set(
+      "server-timing",
+      formatServerTimings({
+        ...readServerTimings(headers.get("server-timing")),
+        gatewayService: performance.now() - start,
+      }),
+    );
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
   } catch {
     return closedJsonResponse(503, "unavailable");
   }
