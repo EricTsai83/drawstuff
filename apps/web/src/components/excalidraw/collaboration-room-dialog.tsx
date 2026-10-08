@@ -124,6 +124,10 @@ const STATUS_LABEL_KEY: Record<CollaborationRoomStatus, AppTranslationKey> = {
   "missing-room-key": "collaboration.dialogStatus.missingRoomKey",
 };
 
+// Base UI's SelectValue shows the raw value unless the root knows each label.
+const LINK_ROLE_ITEMS: LinkRole[] = ["none", "viewer", "editor"];
+const INVITE_ROLES = ["viewer", "editor"] as const;
+
 type ConfirmAction = "reset-link" | "end-room" | "leave";
 /** What each irreversible footer action does, said before it happens. */
 const CONFIRM_COPY: Record<
@@ -845,7 +849,8 @@ export function CollaborationRoomDialog({
 
         {!isAuthenticationPending && isAuthenticated && roomId && (
           <div className="flex flex-col gap-4">
-            {errorMessage && (
+            {/* A missing key is explained once, by the paste form below. */}
+            {errorMessage && status !== "missing-room-key" && (
               <p className="text-destructive text-sm">{errorMessage}</p>
             )}
             {status === "missing-room-key" && (
@@ -947,26 +952,28 @@ export function CollaborationRoomDialog({
               </Button>
             )}
 
-            <div className="flex flex-col gap-2">
-              <div className={COPY_LINK_ROW_CLASS_NAME}>
-                <div className="grid flex-1 gap-2">
-                  <Label htmlFor="collab-room-link">
-                    {t("collaboration.link.label")}
-                  </Label>
-                  <Input id="collab-room-link" value={roomUrl} readOnly />
+            {/* Without the key there is no link worth sharing; the paste form
+                above recovers it, and the owner can reset the link below. */}
+            {roomKey && (
+              <div className="flex flex-col gap-2">
+                <div className={COPY_LINK_ROW_CLASS_NAME}>
+                  <div className="grid flex-1 gap-2">
+                    <Label htmlFor="collab-room-link">
+                      {t("collaboration.link.label")}
+                    </Label>
+                    <Input id="collab-room-link" value={roomUrl} readOnly />
+                  </div>
+                  <CopyButton textToCopy={roomUrl} />
                 </div>
-                <CopyButton textToCopy={roomUrl} />
+                <p className="text-muted-foreground flex gap-1.5 text-xs">
+                  <LockKeyhole
+                    className="mt-px size-3.5 shrink-0"
+                    aria-hidden="true"
+                  />
+                  {t("collaboration.link.keyPresent")}
+                </p>
               </div>
-              <p className="text-muted-foreground flex gap-1.5 text-xs">
-                <LockKeyhole
-                  className="mt-px size-3.5 shrink-0"
-                  aria-hidden="true"
-                />
-                {roomKey
-                  ? t("collaboration.link.keyPresent")
-                  : t("collaboration.link.keyMissing")}
-              </p>
-            </div>
+            )}
 
             {isOwner && room && (
               <div className="flex flex-col gap-2">
@@ -975,6 +982,10 @@ export function CollaborationRoomDialog({
                 </Label>
                 <Select
                   value={room.linkRole}
+                  items={LINK_ROLE_ITEMS.map((value) => ({
+                    value,
+                    label: t(LINK_ROLE_LABEL_KEY[value]),
+                  }))}
                   disabled={setLinkRole.isPending}
                   onValueChange={(value) =>
                     setLinkRole.mutate({
@@ -988,13 +999,11 @@ export function CollaborationRoomDialog({
                   </SelectTrigger>
                   <SelectContent>
                     <SelectGroup>
-                      {(["none", "viewer", "editor"] as LinkRole[]).map(
-                        (linkRole) => (
-                          <SelectItem key={linkRole} value={linkRole}>
-                            {t(LINK_ROLE_LABEL_KEY[linkRole])}
-                          </SelectItem>
-                        ),
-                      )}
+                      {LINK_ROLE_ITEMS.map((linkRole) => (
+                        <SelectItem key={linkRole} value={linkRole}>
+                          {t(LINK_ROLE_LABEL_KEY[linkRole])}
+                        </SelectItem>
+                      ))}
                     </SelectGroup>
                   </SelectContent>
                 </Select>
@@ -1032,6 +1041,10 @@ export function CollaborationRoomDialog({
                       <div className="flex gap-2">
                         <Select
                           value={allowRole}
+                          items={INVITE_ROLES.map((value) => ({
+                            value,
+                            label: t(ROLE_LABEL_KEY[value]),
+                          }))}
                           onValueChange={(value) => {
                             if (value) setAllowRole(value);
                           }}
@@ -1044,7 +1057,7 @@ export function CollaborationRoomDialog({
                           </SelectTrigger>
                           <SelectContent>
                             <SelectGroup>
-                              {(["viewer", "editor"] as const).map((value) => (
+                              {INVITE_ROLES.map((value) => (
                                 <SelectItem key={value} value={value}>
                                   {t(ROLE_LABEL_KEY[value])}
                                 </SelectItem>
@@ -1333,6 +1346,10 @@ function PersonRow(props: {
       {editableRole ? (
         <Select
           value={editableRole}
+          items={INVITE_ROLES.map((value) => ({
+            value,
+            label: t(ROLE_LABEL_KEY[value]),
+          }))}
           disabled={props.disabled}
           onValueChange={(value) => {
             if (value === "viewer" || value === "editor")
@@ -1347,7 +1364,7 @@ function PersonRow(props: {
           </SelectTrigger>
           <SelectContent>
             <SelectGroup>
-              {(["viewer", "editor"] as const).map((value) => (
+              {INVITE_ROLES.map((value) => (
                 <SelectItem key={value} value={value}>
                   {t(ROLE_LABEL_KEY[value])}
                 </SelectItem>

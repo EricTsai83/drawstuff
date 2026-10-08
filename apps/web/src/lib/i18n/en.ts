@@ -225,7 +225,7 @@ export const en = {
   "collaboration.missingKey.label": "Complete invitation link",
   "collaboration.missingKey.apply": "Use link",
   "collaboration.missingKey.hint":
-    "Paste the complete link including the part after #. It is only used in this tab and is not stored.",
+    "drawstuff does not store room keys. Paste the complete link, including the part after #; it is only used in this tab and is not stored.",
   "collaboration.missingKey.invalid":
     "This link is for a different room or is missing its key.",
   "collaboration.share.title": "Share room",
@@ -250,8 +250,6 @@ export const en = {
   "collaboration.link.label": "Invite link",
   "collaboration.link.keyPresent":
     "The link contains the room key. Share it only with people you trust.",
-  "collaboration.link.keyMissing":
-    "This link is missing its key. Open the room from its complete link, or reset the link.",
   "collaboration.linkPermission": "Who can join with the link",
   "collaboration.allowlist.hint":
     "Use the Google account email the person signs in with.",

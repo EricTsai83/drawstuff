@@ -211,7 +211,7 @@ export const zhTW = {
   "collaboration.missingKey.label": "完整邀請連結",
   "collaboration.missingKey.apply": "使用連結",
   "collaboration.missingKey.hint":
-    "貼上包含 # 之後內容的完整連結。只在此分頁使用，不會被保存。",
+    "drawstuff 不保存房間金鑰。請貼上包含 # 之後內容的完整連結；它只在此分頁使用，不會被保存。",
   "collaboration.missingKey.invalid": "這個連結屬於其他房間，或缺少金鑰。",
   "collaboration.share.title": "分享房間",
   "collaboration.people": "成員",
@@ -234,8 +234,6 @@ export const zhTW = {
   "collaboration.resetLink.confirm": "重設連結",
   "collaboration.link.label": "邀請連結",
   "collaboration.link.keyPresent": "連結含有房間金鑰，只分享給信任的人。",
-  "collaboration.link.keyMissing":
-    "這個連結缺少金鑰。請用完整連結開啟房間，或重設連結。",
   "collaboration.linkPermission": "誰能用連結加入",
   "collaboration.allowlist.hint": "請填對方登入用的 Google 帳號信箱。",
   "collaboration.allowlist.notJoined": "尚未加入",

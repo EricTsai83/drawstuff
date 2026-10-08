@@ -202,6 +202,8 @@ const renderDialog = (params: {
   status?: CollaborationRoomDialogProps["status"];
   sceneId?: string | null;
   onRetryJoin?: () => void;
+  roomKey?: RoomKey | null;
+  errorMessage?: string | null;
   onInitializationChange?: (active: boolean) => void;
   getInitialElements?: CollaborationRoomDialogProps["getInitialElements"];
   getInitialFiles?: CollaborationRoomDialogProps["getInitialFiles"];
@@ -225,12 +227,12 @@ const renderDialog = (params: {
         onInitializationChange={params.onInitializationChange}
         roomId={params.roomId ?? null}
         onRoomIdChange={params.onRoomIdChange ?? (() => undefined)}
-        roomKey={null}
+        roomKey={params.roomKey ?? null}
         onRoomKeyChange={params.onRoomKeyChange ?? (() => undefined)}
         status={params.status ?? "idle"}
         failureReason={params.failureReason ?? null}
         role={null}
-        errorMessage={null}
+        errorMessage={params.errorMessage ?? null}
         onRetryJoin={params.onRetryJoin ?? (() => undefined)}
       />,
     );
@@ -994,5 +996,42 @@ describe("share room dialog", () => {
     });
     await act(async () => buttonWith(container!, "Retry")?.click());
     await vi.waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("shows role and link-access labels, not their raw values", () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
+    });
+    const triggers = Array.from(
+      container!.querySelectorAll('[data-slot="select-value"]'),
+    ).map((value) => value.textContent);
+    expect(triggers).toEqual(
+      expect.arrayContaining(["Invited people only", "View only", "Can edit"]),
+    );
+    expect(triggers).not.toContain("none");
+    expect(triggers).not.toContain("viewer");
+    // With its key, the link can be shared.
+    expect(container!.querySelector("#collab-room-link")).not.toBeNull();
+  });
+
+  it("explains a missing key once and offers no keyless link to copy", () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "missing-room-key",
+      errorMessage: "This collaboration link is missing the encryption key.",
+    });
+    expect(container!.querySelector("#collab-room-full-link")).not.toBeNull();
+    expect(container!.querySelector("#collab-room-link")).toBeNull();
+    expect(container!.textContent).not.toContain(
+      "This collaboration link is missing the encryption key.",
+    );
+    expect(container!.textContent).toContain(
+      "drawstuff does not store room keys.",
+    );
   });
 });
