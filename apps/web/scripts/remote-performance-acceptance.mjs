@@ -116,7 +116,7 @@ export async function runTypicalHotPerformance(c) {
   const jsonPost=(path,body,timings)=>c.jsonPost(path,body,timings,measuredFetch);
   const samples = c.diagnostic ? 20 : SAMPLES;
   const result={schemaVersion:1,scope:"3A",startedAt:new Date().toISOString(),warmup:WARMUP,requiredSamples:SAMPLES,
-    purpose:c.http2 ? "http2-acceptance" : c.snapshotDiagnostic ? "snapshot-latency-diagnostic" : c.presignDiagnostic ? "presign-lifecycle-diagnostic" : c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
+    purpose:c.transportControl ? "default-transport-control" : c.http2 ? "http2-acceptance" : c.snapshotDiagnostic ? "snapshot-latency-diagnostic" : c.presignDiagnostic ? "presign-lifecycle-diagnostic" : c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
     scenario:"typical-hot-real-upload",snapshotPlaintextBytes:TYPICAL_BYTES,assetPlaintextBytes:null,
     runtime:{client:process.version,bundledUndici:process.versions.undici,dispatcherUndici:c.http2 ? undiciPackage.version : null,httpTransport:transport,protocol:6,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:Boolean(c.toolsUncommitted)},
     measurementBoundary:"verified principals -> Gateway -> DO -> production adapter/Neon and genuine UploadThing callback; join includes baseline, asset download/decode and socket fanout",

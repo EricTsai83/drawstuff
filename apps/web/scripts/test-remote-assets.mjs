@@ -37,11 +37,13 @@ const accessMode = process.argv[4] === "--access-recovery";
 const providerDiagnostic = process.argv[4] === "--performance-provider-diagnostic";
 const presignDiagnostic = process.argv[4] === "--performance-presign-diagnostic";
 const http2Performance = process.argv[4] === "--performance-http2";
-const snapshotDiagnostic = process.argv[4] === "--performance-snapshot-diagnostic" || http2Performance;
+const transportControl = process.argv[4] === "--performance-transport-control";
+const fullTransportPerformance = http2Performance || transportControl;
+const snapshotDiagnostic = process.argv[4] === "--performance-snapshot-diagnostic" || fullTransportPerformance;
 const serverDiagnostic = process.argv[4] === "--performance-server-diagnostic" || presignDiagnostic || snapshotDiagnostic;
-const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic || (serverDiagnostic && !http2Performance);
-const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic || http2Performance;
-const reportName = http2Performance ? "collaboration-production-3a-http2" : snapshotDiagnostic ? "collaboration-production-3a-snapshot" : presignDiagnostic ? "collaboration-production-3a-presign" : serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
+const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic || (serverDiagnostic && !fullTransportPerformance);
+const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic || fullTransportPerformance;
+const reportName = transportControl ? "collaboration-production-3a-transport-control" : http2Performance ? "collaboration-production-3a-http2" : snapshotDiagnostic ? "collaboration-production-3a-snapshot" : presignDiagnostic ? "collaboration-production-3a-presign" : serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
 if (performanceMode) await assert.rejects(access(`${rootDir}docs/performance/${reportName}.json`), { code: "ENOENT" }, "Archive the previous report before starting another run");
 assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode || performanceMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
@@ -383,7 +385,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   }
   await writeFile(`${directory}/restore/index.js`, normalRuntime, { mode: 0o600 });
   assert(!interrupted, "Acceptance interrupted");
-  if (http2Performance) workerTail = await startWorkerTail({ workerDir, roomIds, report });
+  if (fullTransportPerformance) workerTail = await startWorkerTail({ workerDir, roomIds, report });
   // Save the identifiers before the first external mutation, for recovery after process interruption.
   await saveJournal();
   await sql.begin(async (tx) => {
@@ -492,7 +494,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
       diagnostic: performanceDiagnostic,
       providerDiagnostic,
-      serverDiagnostic, presignDiagnostic, snapshotDiagnostic, http2: http2Performance, toolsUncommitted,
+      serverDiagnostic, presignDiagnostic, snapshotDiagnostic, http2: http2Performance, transportControl, toolsUncommitted,
       interrupted: () => interrupted || Boolean(workerTail?.failed()), observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
     });
   }
