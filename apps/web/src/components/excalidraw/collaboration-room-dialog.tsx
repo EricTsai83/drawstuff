@@ -694,8 +694,11 @@ export function CollaborationRoomDialog({
                 : t("collaboration.action.start")}
             </Button>
             {hasInitialization && (
+              // Spaced and lighter than the primary action beside it, so a
+              // retry is not mistaken for cancelling the creation.
               <Button
-                variant="outline"
+                variant="ghost"
+                className="mt-3"
                 disabled={isCreatePending}
                 onClick={() => void cancelInitialization()}
               >
