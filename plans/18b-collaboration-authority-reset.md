@@ -630,6 +630,8 @@ HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTT
 
 第三輪加入 live tail，20 warmup＋31 formal 通過，第 32 筆在 snapshot write 失敗；callback `written`、owner socket 1006。量測期間存在另一個 Worker deployment，已標記受部署干擾，資料保存於 `docs/performance/collaboration-production-3a-http2-observability-incomplete.json`，不能當作固定部署的 200 筆驗收。734 個 tail events 中有 2 個未歸屬的 platform exception；退休後 normal／security jobs、pending content 全為 0，仍不是 failure-time occupancy。本輪清理／精確還原通過。已補部署 identity guard、HTTP status 與安全 exception 分類；下一輪工具只先 local commit，完整測量與還原後才 push，先取得穩定部署下的完整資料與失敗分類，再決定產品修正，仍不放寬 SLO。
 
+第四輪在 Worker deployment identity 未變更下完成 20 warmup＋152 formal，第 153 筆 presign HTTP 500，owner socket OPEN；保存／加入 p95 4,966.48／4,818.70 ms，P3 gate 仍 false。資料保存在 `docs/performance/collaboration-production-3a-http2-presign-incomplete.json`。Vercel request log 確認 500，但空 message／無 application logs；Worker tail 未收到 platform exception（非無錯誤證明）。最後完整樣本 snapshot DB register／write 分別 2,243.46／4,176.52 ms，但尚不能連結至下一筆 500 根因。清理與 module／bindings 精確還原通過，測試前綴 DB rows 全零。已補 bounded presign failure response 分類；下一步先定位 web session／identity／Gateway 與相同契約的預設 transport 對照，再修產品／跑完整 gate，仍不得合併 partial samples 或放寬門檻掩蓋失敗。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。

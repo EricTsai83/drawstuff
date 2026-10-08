@@ -427,3 +427,26 @@ Wrangler live tail 收到 734 個事件、51 個本輪 joined 紀錄與 2 個未
 退休前 PostgreSQL 本輪有 53 個附件、1 個快照。Room 退休、proof 過期與清理部署之後、刪除 storage 之前，有 106 個 content receipts、56 個 management receipts，normal／security jobs 與 pending content 均為 0。這是退休後觀測，不是失敗當下的佇列佔用，不能排除瞬時容量問題。本輪 provider／DB／DO 清理及 exact module／bindings 還原通過，正常 version `ef80133d-4b37-416e-884c-c5c9b6abe3e5`；runtime、journal、lock 已移除。
 
 測量工具接著補上 snapshot HTTP status、固定文句的 platform exception 分類與 outcome 計數；部署 guard 比較建立 fixture 前與清理前的 Worker deployment identity，變更或無法核對時 gate 一律 false。它不觀測 web deployment，也不證明 exception 的 fixture 歸屬。既有報告必須先保留到新檔名，工具會在建立 fixture 前拒絕覆寫。重跑時先 local commit 工具，待既有自動部署完成，量測與清理／還原結束後再 push main，避免此次 push 觸發部署干擾；不用改方案、環境或 DB schema。
+
+
+### 穩定 Worker 部署下的 presign 500（2026-10-08）
+
+第四輪工具與證據先 local commit（measurement commit `1c6c12d`），量測／清理／還原結束前不 push。`docs/performance/collaboration-production-3a-http2-presign-incomplete.json` 保存 20 warmup＋152 formal 完整資料：第 153 筆 presign HTTP 500，owner socket 仍為 OPEN。建立 fixture 前與清理前 deployment identity 相同，沒有本輪期間的 Worker 部署變更；web deployment 未獨立觀測，仍不能宣稱整個平台版本固定。此輪 completed／gatePassed 均 false，不合併前幾輪樣本或覆寫原 gate。
+
+| 完成樣本（ms） | p50 | p95 | p99 | max |
+| --- | --- | --- | --- | --- |
+| 保存（附件＋快照） | 3,291.87 | 4,966.48 | 9,318.52 | 9,661.47 |
+| 加入（完整恢復＋fanout） | 3,564.84 | 4,818.70 | 5,230.96 | 8,344.10 |
+| Presign | 527.50 | 1,133.98 | 3,775.89 | 5,359.35 |
+| Snapshot 保存 | 1,151.16 | 1,799.79 | 2,036.65 | 7,643.58 |
+| 首次附件下載 | 1,001.91 | 1,373.31 | 1,398.08 | 1,592.11 |
+
+最後一筆完整保存 9,661.47 ms，snapshot 7,643.58 ms，其中 Gateway→DO 7,333 ms、DO handler 7,008 ms、registration DB 2,243.46 ms、snapshot DB write 4,176.52 ms。這證明該筆延遲有明顯 DB 區段，但不能認定下一筆 presign 500 同樣由 DB 造成，亦不能將時段差異全歸因於 HTTP/2。
+
+Live tail 收到 2,254 個事件，0 platform exception；tail 可能漏送／抽樣，沒有收到 exception 不代表平台沒有錯誤。Vercel 既有 CLI 登入可用；CLI 62.0.0 在 08:00–08:03 UTC 的 bounded query 找到 `/api/uploadthing` HTTP 500，沿同一 request 展開仍是空 message、0 application logs。沒有保存 raw logs 或 request identifier；目前無法從該紀錄定位 DB／授權／provider 的實際錯誤。清理後 UploadThing totalBytes 295,807,706／limitBytes 1,861,758,696，當時儲存未滿；不是 failure-time 用量，也不排除其他 provider 限制。
+
+退休前本輪 173 assets、1 snapshot；退休／proof 過期／清理部署後，346 content receipts、177 management receipts，normal／security jobs 與 pending content 全為 0，不能當作 failure-time queue occupancy。Provider／DB／DO 清理與 module／bindings 精確還原通過，正常 version `3cdd6436-5fed-4292-9558-c3a1b79c6b43`；再次唯讀核對測試前綴帳號、Room、附件、快照、tombstone、registration、creation fence、lifecycle subject 全為 0。暫存 runtime／journal／lock 移除。
+
+工具再補非 200 presign 的 bounded response 分類：最多讀 64 KiB，只保存固定 SDK message 類別、允許的 Vercel error code、UploadThing version 是否吻合與封閉 Server-Timing 欄位，不保存 error message／SQL／URL／response body。依 lockfile 對齊的 UploadThing 7.7.4 source，預設 error formatter 只回 message，不含 code；`Failed to run middleware` 可對應 `middleware-failed`，不能把沒收到 error code 誤當成未知 SDK 版本。此新增分類已通過隱私／大小上限檢查，尚未在正式環境失敗回應驗證。
+
+下一步先取得 presign 500 的安全回應分類與 web session／identity／Gateway 錯誤區段，並以相同測量契約的預設 HTTP transport 作對照，避免先把 HTTP/2 工具的特定行為判成產品根因。確認原因後再做產品修正及完整 200 筆 gate。功能失敗與效能超標仍存在，不能只放寬門檻；跨日／閒置／成本及其他 P3 scope 仍待驗收。本輪沒有 DB push／migration、方案／region 變更。
