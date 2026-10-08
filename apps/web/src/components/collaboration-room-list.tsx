@@ -8,6 +8,17 @@ import { useAppI18n } from "@/hooks/use-app-i18n";
 import { buildRoomInviteUrl } from "@/lib/collab/room-link";
 import { createRoomInitialization } from "@/lib/collab/room-initialization";
 import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
+import type { AppTranslationKey } from "@/lib/i18n";
+import {
+  roomRoleSchema,
+  type RoomRole,
+} from "@drawstuff/collaboration/room-auth";
+
+const ROLE_LABEL_KEY: Record<RoomRole, AppTranslationKey> = {
+  owner: "collaboration.role.owner",
+  editor: "collaboration.role.editor",
+  viewer: "collaboration.role.viewer",
+};
 
 /** A projection is a locator only. Room decides access again in the editor; keys stay in the original invitation. */
 export function CollaborationRoomList() {
@@ -83,9 +94,10 @@ export function CollaborationRoomList() {
       if (mounted.current) setPending(false);
     }
   };
+  const roomList = rooms.data?.rooms;
   return (
     <section
-      className="flex flex-col gap-3"
+      className="flex flex-col gap-3 rounded-lg border p-4"
       aria-label={t("collaboration.rooms.title")}
     >
       <div className="flex items-center justify-between gap-2">
@@ -112,43 +124,80 @@ export function CollaborationRoomList() {
         )}
       </div>
       <p className="text-muted-foreground text-sm">
+        {t("collaboration.rooms.description")}
+      </p>
+      <p className="text-muted-foreground text-sm">
         {t("collaboration.rooms.keyHint")}
       </p>
-      {rooms.error && (
-        <p className="text-destructive">
-          {t("collaboration.error.operationFailed")}
+      {rooms.isPending && (
+        <p className="text-muted-foreground text-sm" role="status">
+          {t("collaboration.rooms.loading")}
+        </p>
+      )}
+      {/* A failed query is never shown as an empty list. */}
+      {rooms.isError && (
+        <div className="flex items-center gap-2" role="alert">
+          <p className="text-destructive text-sm">
+            {t("collaboration.rooms.loadFailed")}
+          </p>
+          <Button variant="outline" onClick={() => void rooms.refetch()}>
+            {t("buttons.retry")}
+          </Button>
+        </div>
+      )}
+      {/* A failed refetch keeps cached data; only a successful query may claim "empty". */}
+      {rooms.isSuccess && roomList?.length === 0 && (
+        <p className="text-muted-foreground text-sm">
+          {t("collaboration.rooms.empty")}
         </p>
       )}
       <ul className="flex flex-col gap-2">
-        {rooms.data?.rooms.map((room) => (
-          <li
-            key={room.roomId}
-            className="flex items-center justify-between gap-2"
-          >
-            <span>
-              {room.label || room.roomId} ·{" "}
-              {t(
-                room.status === "initializing"
-                  ? "collaboration.rooms.initializing"
-                  : "collaboration.rooms.ready",
-              )}
-            </span>
-            <Button
-              variant="secondary"
-              onClick={() =>
-                router.push(
-                  buildRoomInviteUrl({
-                    currentUrl: new URL("/", window.location.origin).href,
-                    roomId: room.roomId,
-                    roomKey: null,
-                  }),
-                )
-              }
+        {roomList?.map((room) => {
+          // The projection stores the role as text; an unknown value gets no badge.
+          const role = roomRoleSchema.safeParse(room.role).data;
+          return (
+            <li
+              key={room.roomId}
+              className="flex items-center justify-between gap-2"
             >
-              {t("collaboration.rooms.open")}
-            </Button>
-          </li>
-        ))}
+              <span className="flex flex-wrap items-center gap-2">
+                <span>{room.label || room.roomId}</span>
+                <span className="text-muted-foreground text-sm">
+                  {t(
+                    room.status === "initializing"
+                      ? "collaboration.rooms.initializing"
+                      : "collaboration.rooms.ready",
+                  )}
+                  {" · "}
+                  {t(
+                    room.sceneId
+                      ? "collaboration.rooms.sceneLinked"
+                      : "collaboration.rooms.standalone",
+                  )}
+                </span>
+                {role && (
+                  <span className="bg-muted rounded px-2 py-0.5 text-xs">
+                    {t(ROLE_LABEL_KEY[role])}
+                  </span>
+                )}
+              </span>
+              <Button
+                variant="secondary"
+                onClick={() =>
+                  router.push(
+                    buildRoomInviteUrl({
+                      currentUrl: new URL("/", window.location.origin).href,
+                      roomId: room.roomId,
+                      roomKey: null,
+                    }),
+                  )
+                }
+              >
+                {t("collaboration.rooms.open")}
+              </Button>
+            </li>
+          );
+        })}
       </ul>
       {(cursor ?? rooms.data?.nextCursor) && (
         <div className="flex gap-2">

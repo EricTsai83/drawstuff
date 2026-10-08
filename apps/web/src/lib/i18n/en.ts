@@ -224,6 +224,14 @@ export const en = {
   "collaboration.rooms.open": "Open room",
   "collaboration.rooms.initializing": "Initializing",
   "collaboration.rooms.ready": "Ready",
+  "collaboration.rooms.description":
+    "End-to-end encrypted collaboration rooms. They are stored separately from your personal cloud scenes below.",
+  "collaboration.rooms.loading": "Loading rooms...",
+  "collaboration.rooms.loadFailed":
+    "Could not load your rooms. This does not mean you have none.",
+  "collaboration.rooms.empty": "You have no collaboration rooms yet.",
+  "collaboration.rooms.standalone": "Independent room",
+  "collaboration.rooms.sceneLinked": "Linked to a personal scene",
   "collaboration.rooms.keyHint":
     "drawstuff does not store room keys, and signing in cannot restore them. Open a room with its complete invitation link.",
   "collaboration.members": "Members",

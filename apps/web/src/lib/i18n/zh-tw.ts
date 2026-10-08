@@ -209,6 +209,13 @@ export const zhTW = {
   "collaboration.rooms.open": "開啟房間",
   "collaboration.rooms.initializing": "初始化中",
   "collaboration.rooms.ready": "就緒",
+  "collaboration.rooms.description":
+    "端對端加密的共編房間，與下方的個人雲端場景分開保存。",
+  "collaboration.rooms.loading": "正在載入房間...",
+  "collaboration.rooms.loadFailed": "無法載入房間列表；這不代表你沒有房間。",
+  "collaboration.rooms.empty": "目前還沒有共編房間。",
+  "collaboration.rooms.standalone": "獨立房間",
+  "collaboration.rooms.sceneLinked": "連結個人場景",
   "collaboration.rooms.keyHint":
     "drawstuff 不保存房間金鑰，登入也無法恢復。請使用完整邀請連結開啟房間。",
   "collaboration.members": "成員",
