@@ -121,6 +121,11 @@ export const en = {
     "Signing out clears the current canvas and its images from this browser. Save your latest changes first if you want to keep them.",
   "auth.signOutConfirm.save": "Save, then sign out",
   "auth.signOutConfirm.discard": "Discard and sign out",
+  "auth.signedOutDraft.title": "Keep the canvas from while you were signed out?",
+  "auth.signedOutDraft.description":
+    "This canvas was edited while you were signed out, so it isn't part of any of your saved scenes. Save it as a new scene, or discard it.",
+  "auth.signedOutDraft.save": "Save as new scene",
+  "auth.signedOutDraft.discard": "Discard",
   "auth.continueWithGoogle": "Continue with Google",
   "auth.connecting": "Connecting...",
   "auth.error.signInFailed":

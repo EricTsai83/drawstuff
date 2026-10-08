@@ -28,6 +28,7 @@ const LOCAL_SCENE_STORAGE_KEYS = [
   STORAGE_KEYS.LOCAL_STORAGE_FILES,
   STORAGE_KEYS.VERSION_DATA_STATE,
   STORAGE_KEYS.VERSION_FILES,
+  STORAGE_KEYS.SIGNED_OUT_DRAFT,
   ...SCENE_SESSION_STORAGE_KEYS,
 ] as const;
 
@@ -318,6 +319,29 @@ export function saveCurrentSceneWorkspaceIdToStorage(id: string): void {
   if (!canUseLocalStorage()) return;
   try {
     localStorage.setItem(STORAGE_KEYS.CURRENT_SCENE_WORKSPACE_ID, id);
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
+// ====== Signed-out draft marker ======
+
+/** Whether the canvas was left detached by a signed-out session. */
+export function hasSignedOutDraftMarker(): boolean {
+  if (!canUseLocalStorage()) return false;
+  try {
+    return localStorage.getItem(STORAGE_KEYS.SIGNED_OUT_DRAFT) === "true";
+  } catch (error: unknown) {
+    console.error(error);
+    return false;
+  }
+}
+
+export function setSignedOutDraftMarker(marked: boolean): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    if (marked) localStorage.setItem(STORAGE_KEYS.SIGNED_OUT_DRAFT, "true");
+    else localStorage.removeItem(STORAGE_KEYS.SIGNED_OUT_DRAFT);
   } catch (error: unknown) {
     console.error(error);
   }

@@ -22,6 +22,8 @@ export const STORAGE_KEYS = {
   /** Room whose scene the on-screen canvas currently is; see canvas-room-marker. */
   PERSONAL_DRAFT_BEFORE_ROOM: "drawstuff-personal-draft-before-room",
   COLLAB_CANVAS_ROOM_ID: "excalidraw-collab-canvas-room-id",
+  /** Set while signed out: the canvas belongs to no cloud scene; see use-signed-out-draft. */
+  SIGNED_OUT_DRAFT: "drawstuff-signed-out-draft",
 } as const;
 
 // storage warning

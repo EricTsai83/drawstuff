@@ -9,6 +9,7 @@ import { OverwriteConfirmDialog } from "@/components/excalidraw/overwrite-confir
 import { SceneChangeConfirmDialog } from "@/components/excalidraw/scene-change-confirm-dialog";
 import { SceneCloudUploadDialog } from "@/components/excalidraw/scene-cloud-upload-dialog";
 import { SceneRemoteConflictDialog } from "@/components/excalidraw/scene-remote-conflict-dialog";
+import { SignedOutDraftDialog } from "@/components/excalidraw/signed-out-draft-dialog";
 
 /**
  * The editor's dialog layer: every dialog the canvas can open, grouped so the
@@ -35,6 +36,7 @@ export function EditorDialogs(props: {
     onOpenChange: (open: boolean) => void;
     onConfirm: ComponentProps<typeof SceneCloudUploadDialog>["onConfirm"];
   };
+  signedOutDraft: ComponentProps<typeof SignedOutDraftDialog>;
 }) {
   return (
     <>
@@ -58,6 +60,7 @@ export function EditorDialogs(props: {
         excalidrawAPI={props.excalidrawAPI}
         onConfirm={props.cloudUpload.onConfirm}
       />
+      <SignedOutDraftDialog {...props.signedOutDraft} />
     </>
   );
 }

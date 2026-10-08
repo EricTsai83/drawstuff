@@ -115,6 +115,11 @@ export const zhTW = {
     "登出會清除這個瀏覽器中的目前畫布與圖片。若要保留最新變更，請先儲存。",
   "auth.signOutConfirm.save": "儲存後登出",
   "auth.signOutConfirm.discard": "捨棄並登出",
+  "auth.signedOutDraft.title": "要保留未登入時的畫布嗎？",
+  "auth.signedOutDraft.description":
+    "這份畫布是在未登入時編輯的，不屬於任何已儲存的場景。請將它存成新場景，或捨棄它。",
+  "auth.signedOutDraft.save": "存成新場景",
+  "auth.signedOutDraft.discard": "捨棄",
   "auth.continueWithGoogle": "使用 Google 繼續",
   "auth.connecting": "連線中…",
   "auth.error.signInFailed": "無法連接 Google，請確認網路後再試一次。",

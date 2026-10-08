@@ -30,6 +30,10 @@ import { useDashboardShortcut } from "@/hooks/use-dashboard-shortcut";
 import { useEditorDialogs } from "@/hooks/excalidraw/use-editor-dialogs";
 import { useSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confirm";
 import { useSceneImportFileGuard } from "@/hooks/excalidraw/use-scene-import-file-guard";
+import {
+  useSignedOutDraft,
+  type AuthState,
+} from "@/hooks/excalidraw/use-signed-out-draft";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import {
   createEmbedUrlValidator,
@@ -57,8 +61,18 @@ export default function ExcalidrawEditor() {
   const { userChosenTheme, setTheme, browserActiveTheme } = useSyncTheme();
   useBeforeUnload(excalidrawAPI);
   const { currentWorkspaceId } = useSceneSession();
-  const { data: session, isPending: isAuthenticationPending } =
-    authClient.useSession();
+  const {
+    data: session,
+    isPending: isAuthenticationPending,
+    error: sessionError,
+  } = authClient.useSession();
+  // A failed session fetch keeps the last known session; only a definitive
+  // answer (no session, or a 401) counts as signed out.
+  const authState: AuthState = session
+    ? "signed-in"
+    : isAuthenticationPending || (sessionError && sessionError.status !== 401)
+      ? "unknown"
+      : "signed-out";
   const libraryIdentity = isAuthenticationPending
     ? "auth-pending"
     : session?.user.id
@@ -177,6 +191,14 @@ export default function ExcalidrawEditor() {
     enabled: !!session,
     onSave: isRoomMode ? requestRoomSave : handleCloudUpload,
   });
+
+  const { needsDecision: hasSignedOutDraft, discardSignedOutDraft } =
+    useSignedOutDraft({
+      excalidrawAPI,
+      authState,
+      isRoomMode,
+      hasCurrentCanvasContent,
+    });
 
   const { initialDataPromise, conflictDialog } = useEditorSceneLoading({
     excalidrawAPI,
@@ -432,6 +454,18 @@ export default function ExcalidrawEditor() {
                 open: isCloudUploadDialogOpen,
                 onOpenChange: setIsCloudUploadDialogOpen,
                 onConfirm: handleCloudUploadConfirm,
+              }}
+              signedOutDraft={{
+                // Hidden while the save it led to is in progress; reappears if
+                // that save is cancelled or fails.
+                open:
+                  hasSignedOutDraft &&
+                  !isCloudUploadDialogOpen &&
+                  uploadStatus !== "uploading",
+                onChoose: (choice) => {
+                  if (choice === "save") openCloudUploadDialog();
+                  else discardSignedOutDraft();
+                },
               }}
             />
           </ExcalidrawCanvas>
