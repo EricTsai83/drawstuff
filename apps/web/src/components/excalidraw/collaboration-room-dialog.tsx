@@ -351,6 +351,8 @@ export function CollaborationRoomDialog({
       initialization.current?.dispose?.();
       initialization.current = null;
       setHasInitialization(false);
+      if (ready.projectionPending)
+        toast.info(t("collaboration.toast.listSyncing"));
       await invalidateRoom();
     } catch (error) {
       if (epoch !== initializationEpoch.current) return;

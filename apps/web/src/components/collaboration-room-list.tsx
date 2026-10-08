@@ -63,6 +63,8 @@ export function CollaborationRoomList() {
       initializer.current.dispose();
       initializer.current = null;
       setRecoverable(false);
+      if (ready.projectionPending)
+        toast.info(t("collaboration.toast.listSyncing"));
       await utils.collaborationRoom.list.invalidate();
       router.push(
         buildRoomInviteUrl({
@@ -128,6 +130,9 @@ export function CollaborationRoomList() {
       </p>
       <p className="text-muted-foreground text-sm">
         {t("collaboration.rooms.keyHint")}
+      </p>
+      <p className="text-muted-foreground text-sm">
+        {t("collaboration.rooms.syncHint")}
       </p>
       {rooms.isPending && (
         <p className="text-muted-foreground text-sm" role="status">

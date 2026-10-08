@@ -197,6 +197,8 @@ export const en = {
   "collaboration.dialogStatus.missingRoomKey": "Link is missing its key",
   "collaboration.toast.enforcementPending":
     "Permissions were updated; disconnection is queued, and connected members may remain online until it is delivered.",
+  "collaboration.toast.listSyncing":
+    "The room is ready. Your room list is still syncing, so it may appear there a little later.",
   "collaboration.toast.keyConflict":
     "This room already has an encryption key. Share the complete link from the device that created it, or reset the room generation.",
   "collaboration.toast.keySetupFailed":
@@ -249,6 +251,8 @@ export const en = {
   "collaboration.rooms.empty": "You have no collaboration rooms yet.",
   "collaboration.rooms.standalone": "Independent room",
   "collaboration.rooms.sceneLinked": "Linked to a personal scene",
+  "collaboration.rooms.syncHint":
+    "This list can lag behind. A room you just created or joined may appear later; that does not mean it failed.",
   "collaboration.rooms.keyHint":
     "drawstuff does not store room keys, and signing in cannot restore them. Open a room with its complete invitation link.",
   "collaboration.members": "Members",

@@ -176,7 +176,7 @@ export function createRoomInitialization(options: {
         manifest: { authGeneration: generation, ...stored, assetIds },
       });
       assertActive();
-      await complete();
+      const { projectionPending } = await complete();
       assertActive();
       const ready = await readAuthorityState(options.authority, roomId);
       assertActive();
@@ -193,7 +193,7 @@ export function createRoomInitialization(options: {
       )
         throw new AuthorityRoomError("generation-mismatch");
       assets?.destroy();
-      return { roomId, roomKey };
+      return { roomId, roomKey, projectionPending };
     } finally {
       active = false;
     }

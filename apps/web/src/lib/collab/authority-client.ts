@@ -96,9 +96,10 @@ export function createAuthorityOperation(
 ) {
   const intent = structuredClone(request);
   let attempted = false;
-  let confirmed = false;
-  return async () => {
-    if (confirmed) return;
+  // The confirmed receipt's projection flag: whether "My rooms" may still lag.
+  let confirmed: { projectionPending: boolean } | undefined;
+  return async (): Promise<{ projectionPending: boolean }> => {
+    if (confirmed) return confirmed;
     let result: unknown;
     if (attempted) {
       try {
@@ -126,6 +127,7 @@ export function createAuthorityOperation(
       throw new Error("authority-operation-mismatch");
     if (receipt.status !== "enforced")
       throw new AuthorityRoomError(receipt.status);
-    confirmed = true;
+    confirmed = { projectionPending: receipt.projectionPending };
+    return confirmed;
   };
 }

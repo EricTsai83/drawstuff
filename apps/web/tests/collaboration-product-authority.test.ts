@@ -172,6 +172,8 @@ describe("product Room authority initialization", () => {
     const result = await initialization.start();
     expect(result.roomId).toBe(roomId);
     expect(result.roomKey).toBeTruthy();
+    // The completion receipt says whether "My rooms" may still lag.
+    expect(result.projectionPending).toBe(true);
     expect(f.state()).toMatchObject({ state: "ready", authGeneration: 2 });
     expect(f.execute.mock.calls.map(([request]) => request.action)).toContain(
       "rotate-generation",
@@ -208,7 +210,9 @@ describe("product Room authority initialization", () => {
     f.execute.mockRejectedValueOnce(new Error("offline"));
     await expect(run()).rejects.toThrow("offline");
     request.keyCheck[0] = 1;
-    await run();
+    await expect(run()).resolves.toEqual({ projectionPending: true });
+    // A confirmed operation answers from its receipt without another request.
+    await expect(run()).resolves.toEqual({ projectionPending: true });
     expect(f.execute.mock.calls.map(([r]) => r.action)).toEqual([
       "set-key-check",
       "query",

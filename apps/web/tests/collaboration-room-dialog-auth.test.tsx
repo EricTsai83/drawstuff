@@ -20,6 +20,7 @@ const {
   roomGetInvalidate,
   roomGetUseQuery,
   toastError,
+  toastInfo,
   toastSuccess,
   binaryApi,
 } = vi.hoisted(() => ({
@@ -28,7 +29,13 @@ const {
     current: undefined as Parameters<typeof RoomInitializer>[0] | undefined,
   },
   cancelCreate: vi.fn<() => Promise<void>>(),
-  createMutate: vi.fn<() => Promise<{ roomId: string; roomKey: RoomKey }>>(),
+  createMutate: vi.fn<
+    () => Promise<{
+      roomId: string;
+      roomKey: RoomKey;
+      projectionPending?: boolean;
+    }>
+  >(),
   endSuccessHandler: {
     current: undefined as
       | ((result: { enforcement: "enforced" | "pending" }) => Promise<void>)
@@ -44,6 +51,7 @@ const {
   roomGetInvalidate: vi.fn(() => Promise.resolve()),
   roomGetUseQuery: vi.fn<(...args: unknown[]) => unknown>(),
   toastError: vi.fn(),
+  toastInfo: vi.fn(),
   toastSuccess: vi.fn(),
   binaryApi: {
     read: vi.fn<SnapshotApi["read"]>(),
@@ -69,7 +77,7 @@ vi.mock("@/lib/collab/room-initialization", () => ({
 vi.mock("sonner", () => ({
   toast: {
     error: toastError,
-    info: vi.fn(),
+    info: toastInfo,
     success: toastSuccess,
     warning: vi.fn(),
   },
@@ -240,6 +248,7 @@ beforeEach(() => {
   roomGetInvalidate.mockClear();
   roomGetUseQuery.mockReset();
   toastError.mockClear();
+  toastInfo.mockClear();
   toastSuccess.mockClear();
   binaryApi.read.mockReset().mockImplementation(async (request) => ({
     found: false,
@@ -637,6 +646,27 @@ describe("collaboration room exit cache cleanup", () => {
     renderDialog({ isAuthenticated: true });
     expect(container?.textContent).toContain(
       "Your existing personal cloud scene stays as it is and is not end-to-end encrypted.",
+    );
+  });
+
+  it("says the room list is still syncing when the projection lags", async () => {
+    createMutate.mockResolvedValueOnce({
+      roomId: "ready-room",
+      roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
+      projectionPending: true,
+    });
+    const roomChange = vi.fn();
+    renderDialog({ isAuthenticated: true, onRoomIdChange: roomChange });
+    await act(async () => {
+      Array.from(container?.querySelectorAll("button") ?? [])
+        .find(
+          (button) => button.textContent === "Start encrypted collaboration",
+        )
+        ?.click();
+      await vi.waitFor(() => expect(roomChange).toHaveBeenCalled());
+    });
+    expect(toastInfo).toHaveBeenCalledWith(
+      "The room is ready. Your room list is still syncing, so it may appear there a little later.",
     );
   });
 });

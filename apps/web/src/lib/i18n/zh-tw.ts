@@ -185,6 +185,8 @@ export const zhTW = {
   "collaboration.dialogStatus.missingRoomKey": "連結缺少金鑰",
   "collaboration.toast.enforcementPending":
     "權限已更新；強制中斷已排入佇列，送達前已連線成員可能仍在線上。",
+  "collaboration.toast.listSyncing":
+    "房間已就緒；「共編房間」列表仍在同步，可能稍後才會出現。",
   "collaboration.toast.keyConflict":
     "這個 room 已有加密金鑰。請從建立 room 的裝置分享完整連結，或重設 room generation。",
   "collaboration.toast.keySetupFailed":
@@ -234,6 +236,8 @@ export const zhTW = {
   "collaboration.rooms.empty": "目前還沒有共編房間。",
   "collaboration.rooms.standalone": "獨立房間",
   "collaboration.rooms.sceneLinked": "連結個人場景",
+  "collaboration.rooms.syncHint":
+    "列表可能稍有延遲；剛建立或加入的房間稍後才出現，不代表失敗。",
   "collaboration.rooms.keyHint":
     "drawstuff 不保存房間金鑰，登入也無法恢復。請使用完整邀請連結開啟房間。",
   "collaboration.members": "成員",
