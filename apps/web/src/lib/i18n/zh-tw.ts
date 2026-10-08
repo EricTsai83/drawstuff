@@ -209,7 +209,8 @@ export const zhTW = {
   "collaboration.rooms.open": "開啟房間",
   "collaboration.rooms.initializing": "初始化中",
   "collaboration.rooms.ready": "就緒",
-  "collaboration.rooms.keyHint": "請使用原始邀請連結取得房間的加密金鑰。",
+  "collaboration.rooms.keyHint":
+    "drawstuff 不保存房間金鑰，登入也無法恢復。請使用完整邀請連結開啟房間。",
   "collaboration.members": "成員",
   "collaboration.member.revoked": "（已移除）",
   "collaboration.member.makeEditor": "改為可編輯",
@@ -253,7 +254,7 @@ export const zhTW = {
     "請立即匯出圖片或儲存場景檔。減少畫布內容可恢復同步；若剛刪除的內容仍計入上限，請重新載入後再加入。",
   "collaboration.failure.invalidLink": "此共編連結格式不正確。",
   "collaboration.failure.missingRoomKey":
-    "此共編連結缺少 # 後的加密金鑰，請向分享者索取完整連結。",
+    "此共編連結缺少 # 後的加密金鑰。drawstuff 不保存房間金鑰，登入也無法恢復。請向分享者索取完整連結；房間已保存的內容不會被變更。",
   "collaboration.failure.cancelled": "已取消加入，原畫布沒有變更。",
   "collaboration.failure.saveBeforeJoin":
     "無法儲存目前場景，因此未加入共編。請再試一次。",

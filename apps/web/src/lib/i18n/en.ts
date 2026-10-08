@@ -225,7 +225,7 @@ export const en = {
   "collaboration.rooms.initializing": "Initializing",
   "collaboration.rooms.ready": "Ready",
   "collaboration.rooms.keyHint":
-    "Open rooms with the original invitation to restore their encryption key.",
+    "drawstuff does not store room keys, and signing in cannot restore them. Open a room with its complete invitation link.",
   "collaboration.members": "Members",
   "collaboration.member.revoked": " (Removed)",
   "collaboration.member.makeEditor": "Allow editing",
@@ -270,7 +270,7 @@ export const en = {
     "Export an image or save the scene to a file now. Reducing the canvas can restore sync; reload before rejoining if recently deleted content still counts toward the limit.",
   "collaboration.failure.invalidLink": "This collaboration link is invalid.",
   "collaboration.failure.missingRoomKey":
-    "This collaboration link is missing the encryption key after #. Ask the sharer for the complete link.",
+    "This collaboration link is missing the encryption key after #. drawstuff does not store room keys, and signing in cannot restore them. Ask the sharer for the complete link; the room's saved content will not be changed.",
   "collaboration.failure.cancelled":
     "Join cancelled. Your original canvas was not changed.",
   "collaboration.failure.saveBeforeJoin":
