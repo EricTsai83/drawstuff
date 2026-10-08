@@ -211,14 +211,14 @@ describe("collaboration room list (18C §2)", () => {
     expect(toast.success).toHaveBeenCalledWith("Room ended.");
   });
 
-  it("lets a member leave, without end or rotate options", async () => {
+  it("lets a member leave, without end or link reset options", async () => {
     render({
       isSuccess: true,
       data: { rooms: [room({ role: "editor" })], nextCursor: null },
     });
     const item = await openMenu(container.querySelector("li")!);
     expect(item("End room")).toBeUndefined();
-    expect(item("Rotate key")).toBeUndefined();
+    expect(item("Reset link")).toBeUndefined();
     await act(async () => item("Leave room")?.click());
     expect(document.body.textContent).toContain("Leave this room?");
     await act(async () => {
@@ -231,13 +231,13 @@ describe("collaboration room list (18C §2)", () => {
     expect(execute.mock.calls[0]?.[0]).toMatchObject({ action: "leave" });
   });
 
-  it("sends rotation to the room, which needs its key", async () => {
+  it("sends link resets to the room, which needs its key", async () => {
     render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
     const item = await openMenu(container.querySelector("li")!);
-    await act(async () => item("Rotate key")?.click());
+    await act(async () => item("Reset link")?.click());
     expect(execute).not.toHaveBeenCalled();
     expect(toast.info).toHaveBeenCalledWith(
-      "Paste the room's complete link, then choose Reset room generation.",
+      "Paste the room's complete link, then choose Reset link.",
     );
     expect(
       new URL(String(push.mock.calls[0]?.[0])).searchParams.get("collab-room"),

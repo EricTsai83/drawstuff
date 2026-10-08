@@ -9,6 +9,7 @@ import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { SnapshotApi } from "@/lib/collab/snapshot-http";
 
 const {
+  executeMutate,
   createMutate,
   findForScene,
   initialCapture,
@@ -24,6 +25,16 @@ const {
   toastSuccess,
   binaryApi,
 } = vi.hoisted(() => ({
+  // Room confirms every management intent at once.
+  executeMutate: vi.fn((input: { operationId: string }) =>
+    Promise.resolve({
+      operationId: input.operationId,
+      status: "enforced",
+      authRevision: 1,
+      authorityEpoch: 1,
+      projectionPending: false,
+    }),
+  ),
   findForScene: vi.fn<() => Promise<{ roomId: string } | null>>(),
   initialCapture: {
     current: undefined as Parameters<typeof RoomInitializer>[0] | undefined,
@@ -128,16 +139,7 @@ vi.mock("@/trpc/react", () => {
           },
           collaborationAuthority: {
             findForScene: { query: findForScene },
-            execute: {
-              mutate: (input: { operationId: string }) =>
-                Promise.resolve({
-                  operationId: input.operationId,
-                  status: "enforced",
-                  authRevision: 1,
-                  authorityEpoch: 1,
-                  projectionPending: false,
-                }),
-            },
+            execute: { mutate: executeMutate },
             identity: { mutate: vi.fn() },
           },
         },
@@ -236,6 +238,7 @@ const renderDialog = (params: {
 };
 
 beforeEach(() => {
+  executeMutate.mockClear();
   findForScene.mockReset().mockResolvedValue(null);
   initialCapture.current = undefined;
   cancelCreate.mockReset().mockResolvedValue(undefined);
@@ -539,14 +542,20 @@ describe("collaboration room exit cache cleanup", () => {
         onRoomIdChange,
         onRoomKeyChange,
       });
+      const label = operation === "ending" ? "End room" : "Leave room";
       await act(async () => {
-        const label =
-          operation === "ending" ? "End collaboration" : "Leave collaboration";
         const button = Array.from(container!.querySelectorAll("button")).find(
-          (button) => button.textContent === label,
+          (button) => button.textContent === `${label}…`,
         );
         expect(button).toBeDefined();
         button?.click();
+      });
+      // Nothing happens until the consequences are confirmed.
+      expect(onRoomIdChange).not.toHaveBeenCalled();
+      await act(async () => {
+        Array.from(document.querySelectorAll('[role="alertdialog"] button'))
+          .find((button) => button.textContent === label)
+          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
       });
 
       expect(onRoomIdChange).toHaveBeenCalledWith(null);
@@ -675,5 +684,315 @@ describe("collaboration room exit cache cleanup", () => {
     expect(toastInfo).toHaveBeenCalledWith(
       "The room is ready. Your room list is still syncing, so it may appear there a little later.",
     );
+  });
+});
+
+describe("share room dialog", () => {
+  const managed = (overrides: Record<string, unknown> = {}) => ({
+    role: "owner",
+    linkRole: "none",
+    sceneId: null,
+    authGeneration: 1,
+    nextCursor: null,
+    nextEmailCursor: null,
+    members: [
+      {
+        userId: "u-owner",
+        name: "owner@example.com",
+        role: "owner",
+        revoked: false,
+        lastJoinedAt: null,
+      },
+      {
+        userId: "u-amy",
+        name: "amy@example.com",
+        role: "editor",
+        revoked: false,
+        lastJoinedAt: 1_700_000_000_000,
+      },
+    ],
+    allowlist: [
+      {
+        email: "amy@example.com",
+        role: "editor",
+        removed: false,
+        lastJoinedAt: 1_700_000_000_000,
+      },
+      {
+        email: "bob@example.com",
+        role: "viewer",
+        removed: false,
+        lastJoinedAt: null,
+      },
+    ],
+    ...overrides,
+  });
+  const people = () =>
+    Array.from(
+      container!.querySelectorAll(
+        '[aria-labelledby="collab-people-heading"] li',
+      ),
+    );
+  const buttonWith = (scope: ParentNode, text: string) =>
+    Array.from(scope.querySelectorAll("button")).find(
+      (button) => button.textContent === text,
+    );
+  const confirm = async (label: string) => {
+    await act(async () => {
+      buttonWith(
+        document.querySelector('[role="alertdialog"]')!,
+        label,
+      )?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+  };
+
+  it("lists each person once, with invitations matched to their members", () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const rows = people();
+    expect(rows).toHaveLength(3);
+    expect(rows[0]?.textContent).toContain("owner@example.com");
+    expect(rows[0]?.textContent).toContain("Owner");
+    expect(
+      rows.filter((row) => row.textContent?.includes("amy@example.com")),
+    ).toHaveLength(1);
+    expect(rows[2]?.textContent).toContain("bob@example.com");
+    expect(rows[2]?.textContent).toContain("Not joined yet");
+  });
+
+  it("removes a member from the room through the membership, not the invitation", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const amy = people().find((row) => row.textContent?.includes("amy@"))!;
+    await act(async () => {
+      amy
+        .querySelector<HTMLButtonElement>(
+          '[aria-label="Actions for amy@example.com"]',
+        )
+        ?.click();
+    });
+    const item = (text: string) =>
+      Array.from(document.querySelectorAll('[role="menuitem"]')).find(
+        (element) => element.textContent === text,
+      ) as HTMLElement | undefined;
+    expect(item("Remove invitation")).toBeDefined();
+    await act(async () => item("Remove from room")?.click());
+    await vi.waitFor(() => expect(executeMutate).toHaveBeenCalled());
+    expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
+      action: "revoke-member",
+      subject: "u-amy",
+    });
+  });
+
+  it("invites by email and clears the field once Room confirms", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const input = container!.querySelector<HTMLInputElement>(
+      "#collab-allow-email",
+    )!;
+    await act(async () => {
+      Reflect.set(
+        HTMLInputElement.prototype,
+        "value",
+        "Carol@Example.com ",
+        input,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    await vi.waitFor(() => expect(input.value).toBe(""));
+    expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
+      action: "allow-email",
+      email: "Carol@Example.com",
+      role: "viewer",
+    });
+  });
+
+  it("resets the link only after its consequences are confirmed", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await act(async () => buttonWith(container!, "Reset link…")?.click());
+    expect(createMutate).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain(
+      "The current link stops working and everyone is disconnected.",
+    );
+    await confirm("Reset link");
+    await vi.waitFor(() => expect(createMutate).toHaveBeenCalledOnce());
+    expect(initialCapture.current?.rotate).toEqual({
+      roomId: "room-a",
+      expectedGeneration: 1,
+    });
+  });
+
+  it("gives other members only the link and leaving", () => {
+    roomGetUseQuery.mockReturnValue(managed({ role: "editor", allowlist: [] }));
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    expect(container!.querySelector("#collab-allow-email")).toBeNull();
+    expect(buttonWith(container!, "Reset link…")).toBeUndefined();
+    expect(buttonWith(container!, "End room…")).toBeUndefined();
+    expect(buttonWith(container!, "Leave room…")).toBeDefined();
+    expect(container!.querySelector('[aria-label^="Actions for"]')).toBeNull();
+  });
+
+  it("restores a removed member's access through their membership", async () => {
+    roomGetUseQuery.mockReturnValue(
+      managed({
+        members: [
+          {
+            userId: "u-dan",
+            name: "dan@example.com",
+            role: "editor",
+            revoked: true,
+            lastJoinedAt: 1,
+          },
+        ],
+        allowlist: [],
+      }),
+    );
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const [dan] = people();
+    expect(dan?.textContent).toContain("Removed");
+    await act(async () => {
+      dan
+        ?.querySelector<HTMLButtonElement>(
+          '[aria-label="Actions for dan@example.com"]',
+        )
+        ?.click();
+    });
+    const restore = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).find((item) => item.textContent === "Restore access") as
+      HTMLElement | undefined;
+    await act(async () => restore?.click());
+    await vi.waitFor(() => expect(executeMutate).toHaveBeenCalled());
+    expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
+      action: "set-member-role",
+      subject: "u-dan",
+      role: "editor",
+    });
+  });
+
+  it("edits an invitation's role only while nobody has joined with it", () => {
+    roomGetUseQuery.mockReturnValue(
+      managed({
+        members: [],
+        allowlist: [
+          // Joined, but the member is on another page of members.
+          {
+            email: "eve@example.com",
+            role: "editor",
+            removed: false,
+            lastJoinedAt: 5,
+          },
+          {
+            email: "fay@example.com",
+            role: "viewer",
+            removed: false,
+            lastJoinedAt: null,
+          },
+        ],
+      }),
+    );
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    expect(
+      container!.querySelector('[aria-label="Role for eve@example.com"]'),
+    ).toBeNull();
+    expect(
+      container!.querySelector('[aria-label="Role for fay@example.com"]'),
+    ).not.toBeNull();
+  });
+
+  it("clears the invite field when a retried invitation is confirmed, not before", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    executeMutate.mockImplementationOnce((input) =>
+      Promise.resolve({
+        operationId: input.operationId,
+        status: "pending",
+        authRevision: 1,
+        authorityEpoch: 1,
+        projectionPending: false,
+      }),
+    );
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const input = container!.querySelector<HTMLInputElement>(
+      "#collab-allow-email",
+    )!;
+    await act(async () => {
+      Reflect.set(
+        HTMLInputElement.prototype,
+        "value",
+        "gil@example.com",
+        input,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    await vi.waitFor(() =>
+      expect(buttonWith(container!, "Retry")).toBeDefined(),
+    );
+    // Pending is not confirmation.
+    expect(input.value).toBe("gil@example.com");
+    await act(async () => buttonWith(container!, "Retry")?.click());
+    await vi.waitFor(() => expect(input.value).toBe(""));
+    expect(executeMutate.mock.calls[1]?.[0]).toMatchObject({ action: "query" });
+  });
+
+  it("keeps the pending invitation's address when another invite is refused", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    executeMutate.mockImplementationOnce((input) =>
+      Promise.resolve({
+        operationId: input.operationId,
+        status: "pending",
+        authRevision: 1,
+        authorityEpoch: 1,
+        projectionPending: false,
+      }),
+    );
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const input = container!.querySelector<HTMLInputElement>(
+      "#collab-allow-email",
+    )!;
+    const submit = async (value: string) => {
+      await act(async () => {
+        Reflect.set(HTMLInputElement.prototype, "value", value, input);
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      await act(async () => {
+        input
+          .closest("form")!
+          .dispatchEvent(
+            new Event("submit", { bubbles: true, cancelable: true }),
+          );
+      });
+    };
+    await submit("ann@example.com");
+    await vi.waitFor(() =>
+      expect(buttonWith(container!, "Retry")).toBeDefined(),
+    );
+    // Refused while Ann's invitation is retained.
+    await submit("ben@example.com");
+    await act(async () => {
+      Reflect.set(
+        HTMLInputElement.prototype,
+        "value",
+        "ann@example.com",
+        input,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => buttonWith(container!, "Retry")?.click());
+    await vi.waitFor(() => expect(input.value).toBe(""));
   });
 });

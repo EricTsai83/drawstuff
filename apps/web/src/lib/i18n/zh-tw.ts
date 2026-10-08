@@ -73,6 +73,7 @@ export const zhTW = {
   "buttons.create": "建立",
   "buttons.confirm": "確認",
   "buttons.close": "關閉",
+  "buttons.done": "完成",
   "buttons.retry": "重試",
   "workspace.navigation": "工作空間導覽",
   "workspace.route.description": "工作空間路由內容",
@@ -169,11 +170,10 @@ export const zhTW = {
   "collaboration.create.noPersonalCopy":
     "內容加密保存在房間裡，不會另存為個人雲端場景。",
   "collaboration.create.sourceCopy": "原本的個人雲端場景維持不變，且未加密。",
-  "collaboration.connectionStatus": "連線狀態",
   "collaboration.role.owner": "擁有者",
   "collaboration.role.editor": "可編輯",
   "collaboration.role.viewer": "僅檢視",
-  "collaboration.linkRole.none": "僅受邀成員",
+  "collaboration.linkRole.none": "只有受邀的人",
   "collaboration.linkRole.viewer": "有連結者可檢視",
   "collaboration.linkRole.editor": "有連結者可編輯",
   "collaboration.dialogStatus.idle": "未連線",
@@ -193,13 +193,13 @@ export const zhTW = {
   "collaboration.toast.listSyncing":
     "房間已就緒；「共編房間」列表仍在同步，可能稍後才會出現。",
   "collaboration.toast.keyConflict":
-    "這個 room 已有加密金鑰。請從建立 room 的裝置分享完整連結，或重設 room generation。",
+    "這個房間已有加密金鑰。請從建立房間的裝置分享完整連結，或重設連結。",
   "collaboration.toast.keySetupFailed":
     "無法完成加密設定，請再按一次「開始加密共編」。",
   "collaboration.toast.rotationSetupFailed":
-    "room generation 已更換，但加密設定未完成。請再重設一次。",
+    "連結已重設，但加密設定未完成。請再重設一次連結。",
   "collaboration.toast.rotationSuccess":
-    "已建立 room generation {generation} 與新金鑰，請重新分享連結。",
+    "新的連結已就緒，請重新分享；舊連結已失效。",
   "collaboration.toast.snapshotReset":
     "已重設雲端畫布，正在以下一位成員的畫布重新加入。",
   "collaboration.recovery.description":
@@ -213,19 +213,32 @@ export const zhTW = {
   "collaboration.missingKey.hint":
     "貼上包含 # 之後內容的完整連結。只在此分頁使用，不會被保存。",
   "collaboration.missingKey.invalid": "這個連結屬於其他房間，或缺少金鑰。",
-  "collaboration.link.label": "共編連結",
-  "collaboration.link.keyPresent":
-    "# 後的金鑰只存在瀏覽器與連結中，不會傳到伺服器。請複製完整連結。",
+  "collaboration.share.title": "分享房間",
+  "collaboration.people": "成員",
+  "collaboration.invite.email": "要邀請的 email",
+  "collaboration.invite.placeholder": "name@gmail.com",
+  "collaboration.invite.role": "邀請的角色",
+  "collaboration.invite.submit": "邀請",
+  "collaboration.person.joined": "已加入",
+  "collaboration.person.joinedAt": "{date} 加入",
+  "collaboration.person.removed": "已移除",
+  "collaboration.person.role": "{name} 的角色",
+  "collaboration.person.actions": "{name} 的操作",
+  "collaboration.person.removeFromRoom": "移出房間",
+  "collaboration.person.restoreAccess": "恢復存取權",
+  "collaboration.person.removeInvite": "移除邀請",
+  "collaboration.person.restoreInvite": "恢復邀請",
+  "collaboration.resetLink.title": "要重設連結嗎？",
+  "collaboration.resetLink.description":
+    "這會產生新的連結並重新加密房間。目前的連結會立即失效，所有人都會被中斷連線；成員仍保有權限，但需要用新連結重新加入。",
+  "collaboration.resetLink.confirm": "重設連結",
+  "collaboration.link.label": "邀請連結",
+  "collaboration.link.keyPresent": "連結含有房間金鑰，只分享給信任的人。",
   "collaboration.link.keyMissing":
-    "此連結缺少金鑰。請從建立 room 的裝置分享完整連結，或重設 room generation。",
-  "collaboration.linkPermission": "連結權限",
+    "這個連結缺少金鑰。請用完整連結開啟房間，或重設連結。",
+  "collaboration.linkPermission": "誰能用連結加入",
   "collaboration.allowlist.hint": "請填對方登入用的 Google 帳號信箱。",
-  "collaboration.allowlist.joined": "已加入",
   "collaboration.allowlist.notJoined": "尚未加入",
-  "collaboration.allowlist.email": "允許的電子郵件",
-  "collaboration.allowlist.role": "權限",
-  "collaboration.allowlist.save": "儲存權限",
-  "collaboration.allowlist.restore": "復原",
   "collaboration.members.first": "第一頁",
   "collaboration.members.next": "下一頁",
   "collaboration.rooms.title": "共編房間",
@@ -240,9 +253,9 @@ export const zhTW = {
   "collaboration.rooms.unfinished": "建立未完成，會自動結束，也可以現在取消。",
   "collaboration.rooms.copyId": "複製房間 ID",
   "collaboration.rooms.idCopied": "已複製房間 ID。",
-  "collaboration.rooms.rotate": "輪替金鑰…",
+  "collaboration.rooms.rotate": "重設連結…",
   "collaboration.rooms.rotateHint":
-    "請貼上房間的完整連結，再選擇「重設房間世代」。",
+    "請貼上房間的完整連結，再選擇「重設連結」。",
   "collaboration.rooms.end": "結束房間…",
   "collaboration.rooms.endTitle": "要結束這個房間嗎？",
   "collaboration.rooms.endDescription":
@@ -259,16 +272,9 @@ export const zhTW = {
   "collaboration.rooms.empty": "目前還沒有共編房間。",
   "collaboration.rooms.standalone": "獨立房間",
   "collaboration.rooms.sceneLinked": "連結個人場景",
-  "collaboration.members": "成員",
-  "collaboration.member.revoked": "（已移除）",
-  "collaboration.member.makeEditor": "改為可編輯",
-  "collaboration.member.makeViewer": "改為僅檢視",
-  "collaboration.member.remove": "移除",
-  "collaboration.action.end": "結束共編",
-  "collaboration.action.rotate": "重設 room generation",
-  "collaboration.action.rotateTitle":
-    "讓既有 join token 失效，並開始新的 room generation",
-  "collaboration.action.leave": "離開共編",
+  "collaboration.action.end": "結束房間…",
+  "collaboration.action.rotate": "重設連結…",
+  "collaboration.action.leave": "離開房間…",
   "collaboration.failure.unauthorized":
     "你已無法存取這個 room，請向擁有者索取新邀請。",
   "collaboration.failure.membershipRevoked": "你的共編權限已被移除。",
@@ -283,13 +289,13 @@ export const zhTW = {
   "collaboration.failure.unsupportedProtocolVersion":
     "此分頁的共編版本已過舊，請重新整理頁面後再加入。",
   "collaboration.failure.cryptoExhausted":
-    "連線已達加密上限，請由擁有者重設 room generation。",
+    "連線已達加密上限，請由房主重設連結。",
   "collaboration.failure.retryLimit":
     "多次重新連線失敗，請確認網路後重新載入。",
   "collaboration.failure.wrongKey":
     "連結的加密金鑰不正確，因此未加入 room，原畫布也未變更。請索取最新的完整連結。",
   "collaboration.failure.missingKeyCheck":
-    "room 的加密設定未完成，請擁有者重新開啟共編或重設 room generation。",
+    "房間的加密設定未完成，請房主重新開啟共編或重設連結。",
   "collaboration.failure.rateLimited":
     "加入次數過多。這不是權限問題；請等待一分鐘後重新開啟連結。",
   "collaboration.warning.unreadableAssets":

@@ -78,6 +78,7 @@ export const en = {
   "buttons.create": "Create",
   "buttons.confirm": "Confirm",
   "buttons.close": "Close",
+  "buttons.done": "Done",
   "buttons.retry": "Retry",
   "workspace.navigation": "Workspace navigation",
   "workspace.route.description": "Workspace route content",
@@ -182,11 +183,10 @@ export const en = {
     "Saved encrypted in the room, not as a personal cloud scene.",
   "collaboration.create.sourceCopy":
     "Your saved personal scene stays as is, unencrypted.",
-  "collaboration.connectionStatus": "Connection",
   "collaboration.role.owner": "Owner",
   "collaboration.role.editor": "Can edit",
   "collaboration.role.viewer": "View only",
-  "collaboration.linkRole.none": "Invited members only",
+  "collaboration.linkRole.none": "Invited people only",
   "collaboration.linkRole.viewer": "Anyone with the link can view",
   "collaboration.linkRole.editor": "Anyone with the link can edit",
   "collaboration.dialogStatus.idle": "Not connected",
@@ -207,13 +207,13 @@ export const en = {
   "collaboration.toast.listSyncing":
     "The room is ready. Your room list is still syncing, so it may appear there a little later.",
   "collaboration.toast.keyConflict":
-    "This room already has an encryption key. Share the complete link from the device that created it, or reset the room generation.",
+    "This room already has an encryption key. Share the complete link from the device that created it, or reset the link.",
   "collaboration.toast.keySetupFailed":
     "Encryption setup failed. Select Start encrypted collaboration again.",
   "collaboration.toast.rotationSetupFailed":
-    "The room generation changed, but encryption setup is incomplete. Reset the room generation again.",
+    "The link was reset, but encryption setup is incomplete. Reset the link again.",
   "collaboration.toast.rotationSuccess":
-    "Room generation {generation} is ready with a new key. Share the new link.",
+    "The new link is ready. Share it again; the old link no longer works.",
   "collaboration.toast.snapshotReset":
     "The cloud canvas was reset. Rejoining with the next member's canvas.",
   "collaboration.recovery.description":
@@ -228,20 +228,34 @@ export const en = {
     "Paste the complete link including the part after #. It is only used in this tab and is not stored.",
   "collaboration.missingKey.invalid":
     "This link is for a different room or is missing its key.",
-  "collaboration.link.label": "Collaboration link",
+  "collaboration.share.title": "Share room",
+  "collaboration.people": "People",
+  "collaboration.invite.email": "Email to invite",
+  "collaboration.invite.placeholder": "name@gmail.com",
+  "collaboration.invite.role": "Role for the invitation",
+  "collaboration.invite.submit": "Invite",
+  "collaboration.person.joined": "Joined",
+  "collaboration.person.joinedAt": "Joined {date}",
+  "collaboration.person.removed": "Removed",
+  "collaboration.person.role": "Role for {name}",
+  "collaboration.person.actions": "Actions for {name}",
+  "collaboration.person.removeFromRoom": "Remove from room",
+  "collaboration.person.restoreAccess": "Restore access",
+  "collaboration.person.removeInvite": "Remove invitation",
+  "collaboration.person.restoreInvite": "Restore invitation",
+  "collaboration.resetLink.title": "Reset the link?",
+  "collaboration.resetLink.description":
+    "This creates a new link and re-encrypts the room. The current link stops working and everyone is disconnected. Members keep their access but need the new link to rejoin.",
+  "collaboration.resetLink.confirm": "Reset link",
+  "collaboration.link.label": "Invite link",
   "collaboration.link.keyPresent":
-    "The key after # stays in the browser and link, never on the server. Copy the complete link.",
+    "The link contains the room key. Share it only with people you trust.",
   "collaboration.link.keyMissing":
-    "This link is missing its key. Share the complete link from the device that created the room, or reset the room generation.",
-  "collaboration.linkPermission": "Link access",
+    "This link is missing its key. Open the room from its complete link, or reset the link.",
+  "collaboration.linkPermission": "Who can join with the link",
   "collaboration.allowlist.hint":
     "Use the Google account email the person signs in with.",
-  "collaboration.allowlist.joined": "Joined",
   "collaboration.allowlist.notJoined": "Not joined yet",
-  "collaboration.allowlist.email": "Allowed email",
-  "collaboration.allowlist.role": "Role",
-  "collaboration.allowlist.save": "Save permission",
-  "collaboration.allowlist.restore": "Restore",
   "collaboration.members.first": "First page",
   "collaboration.members.next": "Next page",
   "collaboration.rooms.title": "Collaboration rooms",
@@ -257,9 +271,9 @@ export const en = {
     "Creation didn't finish. It ends automatically, or cancel it now.",
   "collaboration.rooms.copyId": "Copy room ID",
   "collaboration.rooms.idCopied": "Room ID copied.",
-  "collaboration.rooms.rotate": "Rotate key…",
+  "collaboration.rooms.rotate": "Reset link…",
   "collaboration.rooms.rotateHint":
-    "Paste the room's complete link, then choose Reset room generation.",
+    "Paste the room's complete link, then choose Reset link.",
   "collaboration.rooms.end": "End room…",
   "collaboration.rooms.endTitle": "End this room?",
   "collaboration.rooms.endDescription":
@@ -278,16 +292,9 @@ export const en = {
   "collaboration.rooms.empty": "You have no collaboration rooms yet.",
   "collaboration.rooms.standalone": "Independent room",
   "collaboration.rooms.sceneLinked": "Linked to a personal scene",
-  "collaboration.members": "Members",
-  "collaboration.member.revoked": " (Removed)",
-  "collaboration.member.makeEditor": "Allow editing",
-  "collaboration.member.makeViewer": "Make view only",
-  "collaboration.member.remove": "Remove",
-  "collaboration.action.end": "End collaboration",
-  "collaboration.action.rotate": "Reset room generation",
-  "collaboration.action.rotateTitle":
-    "Invalidate existing join tokens and start a new room generation",
-  "collaboration.action.leave": "Leave collaboration",
+  "collaboration.action.end": "End room…",
+  "collaboration.action.rotate": "Reset link…",
+  "collaboration.action.leave": "Leave room…",
   "collaboration.failure.unauthorized":
     "You no longer have access to this room. Ask the owner for a new invitation.",
   "collaboration.failure.membershipRevoked":
@@ -303,13 +310,13 @@ export const en = {
   "collaboration.failure.unsupportedProtocolVersion":
     "This tab is running an outdated collaboration version. Refresh the page, then join again.",
   "collaboration.failure.cryptoExhausted":
-    "The connection's encryption limit was reached. Ask the owner to reset the room generation.",
+    "The connection's encryption limit was reached. Ask the owner to reset the link.",
   "collaboration.failure.retryLimit":
     "Reconnection failed repeatedly. Check your network and reload.",
   "collaboration.failure.wrongKey":
     "The link has the wrong encryption key, so the room was not joined and your canvas was not changed. Ask for the latest complete link.",
   "collaboration.failure.missingKeyCheck":
-    "This room's encryption setup is incomplete. Ask the owner to reopen collaboration or reset the room generation.",
+    "This room's encryption setup is incomplete. Ask the owner to reopen collaboration or reset the link.",
   "collaboration.failure.rateLimited":
     "Too many join attempts. This is not a permissions issue. Wait a minute, then open the link again.",
   "collaboration.warning.unreadableAssets":

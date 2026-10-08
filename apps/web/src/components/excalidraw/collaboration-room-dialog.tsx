@@ -40,7 +40,24 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Field, FieldGroup, FieldLabel } from "@/components/ui/field";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { Ellipsis, LockKeyhole } from "lucide-react";
+import { cn } from "@/lib/utils";
 import {
   Select,
   SelectContent,
@@ -56,11 +73,10 @@ import type {
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import type { AppTranslationKey } from "@/lib/i18n";
 import { buildRoomInviteUrl, readRoomInviteLink } from "@/lib/collab/room-link";
-import { api } from "@/trpc/react";
+import { api, type RouterOutputs } from "@/trpc/react";
 import {
   WORKFLOW_DIALOG_CONTENT_CLASS_NAME,
   COPY_LINK_ROW_CLASS_NAME,
-  DIALOG_ACTIONS_CLASS_NAME,
 } from "@/components/responsive-dialog-layout";
 
 /**
@@ -106,6 +122,33 @@ const STATUS_LABEL_KEY: Record<CollaborationRoomStatus, AppTranslationKey> = {
   "rate-limited": "collaboration.dialogStatus.rateLimited",
   cancelled: "collaboration.dialogStatus.cancelled",
   "missing-room-key": "collaboration.dialogStatus.missingRoomKey",
+};
+
+type ConfirmAction = "reset-link" | "end-room" | "leave";
+/** What each irreversible footer action does, said before it happens. */
+const CONFIRM_COPY: Record<
+  ConfirmAction,
+  {
+    title: AppTranslationKey;
+    description: AppTranslationKey;
+    confirm: AppTranslationKey;
+  }
+> = {
+  "reset-link": {
+    title: "collaboration.resetLink.title",
+    description: "collaboration.resetLink.description",
+    confirm: "collaboration.resetLink.confirm",
+  },
+  "end-room": {
+    title: "collaboration.rooms.endTitle",
+    description: "collaboration.rooms.endDescription",
+    confirm: "collaboration.rooms.endConfirm",
+  },
+  leave: {
+    title: "collaboration.rooms.leaveTitle",
+    description: "collaboration.rooms.leaveDescription",
+    confirm: "collaboration.rooms.leave",
+  },
 };
 
 export type CollaborationRoomDialogProps = {
@@ -458,7 +501,19 @@ export function CollaborationRoomDialog({
     try {
       await managementIntent.current.run();
       if (epoch !== managementEpoch.current) return;
+      const confirmed = managementIntent.current.request;
       managementIntent.current = null;
+      // Only the confirmed invitation clears the field, and only while it
+      // still holds that address — however the confirmation arrived.
+      if (
+        confirmed.action === "allow-email" &&
+        confirmed.email === submittedInvite.current
+      ) {
+        submittedInvite.current = null;
+        setAllowEmail((current) =>
+          current.trim() === confirmed.email ? "" : current,
+        );
+      }
       setHasManagementIntent(false);
       if (exit) {
         onRoomIdChange(null);
@@ -538,7 +593,54 @@ export function CollaborationRoomDialog({
       }),
   };
   const [allowEmail, setAllowEmail] = useState("");
+  /** The address the invite form sent; cleared from the field once Room confirms it. */
+  const submittedInvite = useRef<string | null>(null);
   const [allowRole, setAllowRole] = useState<"viewer" | "editor">("viewer");
+  const inviteByEmail = async () => {
+    const email = allowEmail.trim();
+    if (!roomId || !email) return;
+    // manage() refuses a different request while another intent is retained;
+    // that refusal must not replace the invitation still awaiting retry.
+    const retained = managementIntent.current?.request;
+    if (
+      !retained ||
+      (retained.action === "allow-email" && retained.email === email)
+    )
+      submittedInvite.current = email;
+    await manage({
+      ...authorityEnvelope(roomIdSchema.parse(roomId)),
+      action: "allow-email",
+      email,
+      role: allowRole,
+    });
+  };
+  const [confirmAction, setConfirmAction] = useState<ConfirmAction | null>(
+    null,
+  );
+  useEffect(() => setConfirmAction(null), [roomId, open]);
+  // Members and email invitations are one list: an invitation whose address
+  // matches a member's account email belongs to that member's row.
+  const people = useMemo((): Person[] => {
+    if (!room) return [];
+    const invites = isOwner ? room.allowlist : [];
+    const byEmail = new Map(
+      invites.map((invite) => [invite.email.toLowerCase(), invite]),
+    );
+    const members = [...room.members]
+      .sort((a, b) => Number(b.role === "owner") - Number(a.role === "owner"))
+      .map((member): Person => {
+        const invite = member.name ? byEmail.get(member.name) : undefined;
+        if (invite) byEmail.delete(invite.email.toLowerCase());
+        return { key: `member:${member.userId}`, member, invite };
+      });
+    return [
+      ...members,
+      ...[...byEmail.values()].map((invite): Person => ({
+        key: `invite:${invite.email}`,
+        invite,
+      })),
+    ];
+  }, [room, isOwner]);
   const rotateGeneration = {
     isPending: isCreatePending,
     mutate: async ({ roomId }: { roomId: string }) => {
@@ -651,9 +753,37 @@ export function CollaborationRoomDialog({
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
-            {t("collaboration.title")}
-          </DialogTitle>
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pr-8">
+            <DialogTitle className="text-xl font-bold">
+              {t(
+                isAuthenticated && roomId
+                  ? "collaboration.share.title"
+                  : "collaboration.title",
+              )}
+            </DialogTitle>
+            {isAuthenticated && roomId && (
+              <span
+                className={cn(
+                  "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs",
+                  status === "connected"
+                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
+                    : "text-muted-foreground",
+                )}
+              >
+                <span
+                  aria-hidden="true"
+                  className={cn(
+                    "size-1.5 rounded-full",
+                    status === "connected"
+                      ? "bg-emerald-500"
+                      : "bg-muted-foreground",
+                  )}
+                />
+                {t(STATUS_LABEL_KEY[status])}
+                {role && ` · ${t(ROLE_LABEL_KEY[role])}`}
+              </span>
+            )}
+          </div>
           <DialogDescription>
             {hasInitialization
               ? t("collaboration.toast.initializationPending")
@@ -715,19 +845,6 @@ export function CollaborationRoomDialog({
 
         {!isAuthenticationPending && isAuthenticated && roomId && (
           <div className="flex flex-col gap-4">
-            <div className="flex items-center gap-2 text-sm">
-              <span className="font-medium">
-                {t("collaboration.connectionStatus")}
-              </span>
-              <span className="text-muted-foreground">
-                {t(STATUS_LABEL_KEY[status])}
-              </span>
-              {role && (
-                <span className="bg-muted rounded px-2 py-0.5 text-xs">
-                  {t(ROLE_LABEL_KEY[role])}
-                </span>
-              )}
-            </div>
             {errorMessage && (
               <p className="text-destructive text-sm">{errorMessage}</p>
             )}
@@ -829,6 +946,7 @@ export function CollaborationRoomDialog({
                 {t("buttons.retry")}
               </Button>
             )}
+
             <div className="flex flex-col gap-2">
               <div className={COPY_LINK_ROW_CLASS_NAME}>
                 <div className="grid flex-1 gap-2">
@@ -839,7 +957,11 @@ export function CollaborationRoomDialog({
                 </div>
                 <CopyButton textToCopy={roomUrl} />
               </div>
-              <p className="text-muted-foreground text-xs">
+              <p className="text-muted-foreground flex gap-1.5 text-xs">
+                <LockKeyhole
+                  className="mt-px size-3.5 shrink-0"
+                  aria-hidden="true"
+                />
                 {roomKey
                   ? t("collaboration.link.keyPresent")
                   : t("collaboration.link.keyMissing")}
@@ -879,203 +1001,170 @@ export function CollaborationRoomDialog({
               </div>
             )}
 
-            {isOwner && room && (
-              <FieldGroup>
-                <Field>
-                  <FieldLabel htmlFor="collab-allow-email">
-                    {t("collaboration.allowlist.email")}
-                  </FieldLabel>
-                  <p className="text-muted-foreground text-sm">
-                    {t("collaboration.allowlist.hint")}
-                  </p>
-                  <Input
-                    id="collab-allow-email"
-                    type="email"
-                    value={allowEmail}
-                    onChange={(event) => setAllowEmail(event.target.value)}
-                  />
-                </Field>
-                <Field>
-                  <FieldLabel htmlFor="collab-allow-role">
-                    {t("collaboration.allowlist.role")}
-                  </FieldLabel>
-                  <Select
-                    value={allowRole}
-                    onValueChange={(value) => {
-                      if (value) setAllowRole(value);
+            {room && (isOwner || room.members.length > 0) && (
+              <section
+                className="border-border flex flex-col gap-3 border-t pt-4"
+                aria-labelledby="collab-people-heading"
+              >
+                <h3 id="collab-people-heading" className="text-sm font-medium">
+                  {t("collaboration.people")}
+                </h3>
+                {isOwner && (
+                  <form
+                    className="flex flex-col gap-1.5"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void inviteByEmail();
                     }}
                   >
-                    <SelectTrigger id="collab-allow-role">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectGroup>
-                        {(["viewer", "editor"] as const).map((value) => (
-                          <SelectItem key={value} value={value}>
-                            {t(ROLE_LABEL_KEY[value])}
-                          </SelectItem>
-                        ))}
-                      </SelectGroup>
-                    </SelectContent>
-                  </Select>
-                </Field>
-                <Button
-                  disabled={managementPending || !allowEmail.trim()}
-                  onClick={() =>
-                    void manage({
-                      ...authorityEnvelope(roomIdSchema.parse(roomId)),
-                      action: "allow-email",
-                      email: allowEmail.trim(),
-                      role: allowRole,
-                    })
-                  }
-                >
-                  {t("collaboration.allowlist.save")}
-                </Button>
-                <ul className="flex flex-col gap-2">
-                  {room.allowlist.map((entry) => (
-                    <li
-                      key={entry.email}
-                      className="flex items-center justify-between gap-2"
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        id="collab-allow-email"
+                        type="email"
+                        className="min-w-0 sm:flex-1"
+                        placeholder={t("collaboration.invite.placeholder")}
+                        aria-label={t("collaboration.invite.email")}
+                        aria-describedby="collab-allow-email-hint"
+                        value={allowEmail}
+                        onChange={(event) => setAllowEmail(event.target.value)}
+                      />
+                      {/* On phones the address takes its own line. */}
+                      <div className="flex gap-2">
+                        <Select
+                          value={allowRole}
+                          onValueChange={(value) => {
+                            if (value) setAllowRole(value);
+                          }}
+                        >
+                          <SelectTrigger
+                            aria-label={t("collaboration.invite.role")}
+                            className="shrink-0"
+                          >
+                            <SelectValue />
+                          </SelectTrigger>
+                          <SelectContent>
+                            <SelectGroup>
+                              {(["viewer", "editor"] as const).map((value) => (
+                                <SelectItem key={value} value={value}>
+                                  {t(ROLE_LABEL_KEY[value])}
+                                </SelectItem>
+                              ))}
+                            </SelectGroup>
+                          </SelectContent>
+                        </Select>
+                        <Button
+                          type="submit"
+                          variant="outline"
+                          className="flex-1 sm:flex-none"
+                          disabled={managementPending || !allowEmail.trim()}
+                        >
+                          {t("collaboration.invite.submit")}
+                        </Button>
+                      </div>
+                    </div>
+                    <p
+                      id="collab-allow-email-hint"
+                      className="text-muted-foreground text-xs"
                     >
-                      <span>
-                        {entry.email} · {t(ROLE_LABEL_KEY[entry.role])}
-                        {entry.removed
-                          ? t("collaboration.member.revoked")
-                          : ""}{" "}
-                        ·{" "}
-                        {entry.lastJoinedAt
-                          ? `${t("collaboration.allowlist.joined")} ${new Date(entry.lastJoinedAt).toLocaleString()}`
-                          : t("collaboration.allowlist.notJoined")}
-                      </span>
-                      <Button
-                        variant="secondary"
-                        disabled={managementPending}
-                        onClick={() =>
+                      {t("collaboration.allowlist.hint")}
+                    </p>
+                  </form>
+                )}
+                <ul className="flex flex-col">
+                  {people.map((person) => (
+                    <PersonRow
+                      key={person.key}
+                      person={person}
+                      canManage={isOwner}
+                      disabled={managementPending}
+                      onRoleChange={(nextRole) => {
+                        if (person.member)
+                          setMemberRole.mutate({
+                            roomId,
+                            userId: person.member.userId,
+                            role: nextRole,
+                          });
+                        else if (person.invite)
                           void manage({
                             ...authorityEnvelope(roomIdSchema.parse(roomId)),
-                            ...(entry.removed
-                              ? {
-                                  action: "allow-email",
-                                  email: entry.email,
-                                  role: entry.role,
-                                }
-                              : { action: "remove-email", email: entry.email }),
-                          })
-                        }
-                      >
-                        {entry.removed
-                          ? t("collaboration.allowlist.restore")
-                          : t("collaboration.member.remove")}
-                      </Button>
-                    </li>
-                  ))}
-                </ul>
-              </FieldGroup>
-            )}
-
-            {isOwner && (emailCursor ?? room?.nextEmailCursor) && (
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setEmailCursor(undefined)}
-                >
-                  {t("collaboration.members.first")}
-                </Button>
-                {room?.nextEmailCursor && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setEmailCursor(room.nextEmailCursor!)}
-                  >
-                    {t("collaboration.members.next")}
-                  </Button>
-                )}
-              </div>
-            )}
-            {room && room.members.length > 0 && (
-              <div className="flex flex-col gap-2">
-                <Label>{t("collaboration.members")}</Label>
-                <ul className="flex flex-col gap-2">
-                  {room.members.map((member) => (
-                    <li
-                      key={member.userId}
-                      className="flex items-center justify-between gap-2 text-sm"
-                    >
-                      <span
-                        className={
-                          member.revoked ? "text-muted-foreground" : undefined
-                        }
-                      >
-                        {member.name ?? member.userId}
-                        {member.revoked && t("collaboration.member.revoked")}
-                      </span>
-                      <span className="flex items-center gap-2">
-                        <span className="text-muted-foreground text-xs">
-                          {t(ROLE_LABEL_KEY[member.role])}
-                        </span>
-                        {isOwner && member.role !== "owner" && (
-                          <>
-                            <Button
-                              size="sm"
-                              variant="secondary"
-                              disabled={setMemberRole.isPending}
-                              onClick={() =>
-                                setMemberRole.mutate({
-                                  roomId,
-                                  userId: member.userId,
-                                  role:
-                                    member.role === "viewer"
-                                      ? "editor"
-                                      : "viewer",
-                                })
+                            action: "allow-email",
+                            email: person.invite.email,
+                            role: nextRole,
+                          });
+                      }}
+                      onRemoveFromRoom={() => {
+                        if (person.member)
+                          removeMember.mutate({
+                            roomId,
+                            userId: person.member.userId,
+                          });
+                      }}
+                      onRestoreAccess={() => {
+                        const member = person.member;
+                        if (member && member.role !== "owner")
+                          setMemberRole.mutate({
+                            roomId,
+                            userId: member.userId,
+                            role: member.role,
+                          });
+                      }}
+                      onToggleInvite={() => {
+                        const invite = person.invite;
+                        if (!invite) return;
+                        void manage({
+                          ...authorityEnvelope(roomIdSchema.parse(roomId)),
+                          ...(invite.removed
+                            ? {
+                                action: "allow-email",
+                                email: invite.email,
+                                role: invite.role,
                               }
-                            >
-                              {member.role === "viewer"
-                                ? t("collaboration.member.makeEditor")
-                                : t("collaboration.member.makeViewer")}
-                            </Button>
-                            {!member.revoked && (
-                              <Button
-                                size="sm"
-                                variant="destructive"
-                                disabled={removeMember.isPending}
-                                onClick={() =>
-                                  removeMember.mutate({
-                                    roomId,
-                                    userId: member.userId,
-                                  })
-                                }
-                              >
-                                {t("collaboration.member.remove")}
-                              </Button>
-                            )}
-                          </>
-                        )}
-                      </span>
-                    </li>
+                            : { action: "remove-email", email: invite.email }),
+                        });
+                      }}
+                    />
                   ))}
                 </ul>
-              </div>
+                {isOwner &&
+                  [
+                    {
+                      key: "members",
+                      cursor: memberCursor,
+                      next: room.nextCursor,
+                      set: setMemberCursor,
+                    },
+                    {
+                      key: "emails",
+                      cursor: emailCursor,
+                      next: room.nextEmailCursor,
+                      set: setEmailCursor,
+                    },
+                  ].map(
+                    (page) =>
+                      (page.cursor ?? page.next) && (
+                        <div key={page.key} className="flex gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => page.set(undefined)}
+                          >
+                            {t("collaboration.members.first")}
+                          </Button>
+                          {page.next && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => page.set(page.next!)}
+                            >
+                              {t("collaboration.members.next")}
+                            </Button>
+                          )}
+                        </div>
+                      ),
+                  )}
+              </section>
             )}
 
-            {isOwner && (memberCursor ?? room?.nextCursor) && (
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setMemberCursor(undefined)}
-                >
-                  {t("collaboration.members.first")}
-                </Button>
-                {room?.nextCursor && (
-                  <Button
-                    variant="outline"
-                    onClick={() => setMemberCursor(room.nextCursor!)}
-                  >
-                    {t("collaboration.members.next")}
-                  </Button>
-                )}
-              </div>
-            )}
             {hasInitialization && roomId && (
               <Button
                 variant="outline"
@@ -1086,44 +1175,234 @@ export function CollaborationRoomDialog({
               </Button>
             )}
 
-            <div className={DIALOG_ACTIONS_CLASS_NAME}>
-              {isOwner ? (
-                <>
+            {/* Phones: Done spans the bottom; the room actions sit above it. */}
+            <div className="border-border flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex flex-wrap justify-center gap-1 sm:justify-start">
+                {isOwner ? (
+                  <>
+                    <Button
+                      variant="ghost"
+                      disabled={rotateGeneration.isPending}
+                      onClick={() => setConfirmAction("reset-link")}
+                    >
+                      {t("collaboration.action.rotate")}
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      className="text-destructive hover:text-destructive"
+                      disabled={endRoom.isPending}
+                      onClick={() => setConfirmAction("end-room")}
+                    >
+                      {t("collaboration.action.end")}
+                    </Button>
+                  </>
+                ) : (
                   <Button
-                    variant="destructive"
-                    disabled={endRoom.isPending}
+                    variant="ghost"
+                    className="text-destructive hover:text-destructive"
+                    disabled={leaveRoom.isPending}
+                    onClick={() => setConfirmAction("leave")}
+                  >
+                    {t("collaboration.action.leave")}
+                  </Button>
+                )}
+              </div>
+              <Button
+                variant="outline"
+                className="w-full sm:w-auto"
+                onClick={() => onOpenChange(false)}
+              >
+                {t("buttons.done")}
+              </Button>
+            </div>
+            <AlertDialog
+              open={confirmAction !== null}
+              onOpenChange={(next) => {
+                if (!next) setConfirmAction(null);
+              }}
+            >
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>
+                    {confirmAction && t(CONFIRM_COPY[confirmAction].title)}
+                  </AlertDialogTitle>
+                  <AlertDialogDescription>
+                    {confirmAction &&
+                      t(CONFIRM_COPY[confirmAction].description)}
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>{t("buttons.cancel")}</AlertDialogCancel>
+                  <AlertDialogAction
+                    className={cn(
+                      confirmAction !== "reset-link" &&
+                        "bg-destructive text-destructive-foreground hover:bg-destructive/90",
+                    )}
                     onClick={() => {
-                      if (confirmRoomExit?.() !== false)
-                        endRoom.mutate({ roomId });
+                      const action = confirmAction;
+                      setConfirmAction(null);
+                      if (action === "reset-link")
+                        void rotateGeneration.mutate({ roomId });
+                      else if (confirmRoomExit?.() !== false) {
+                        if (action === "end-room") endRoom.mutate({ roomId });
+                        else if (action === "leave")
+                          leaveRoom.mutate({ roomId });
+                      }
                     }}
                   >
-                    {t("collaboration.action.end")}
-                  </Button>
-                  <Button
-                    variant="secondary"
-                    disabled={rotateGeneration.isPending}
-                    onClick={() => rotateGeneration.mutate({ roomId })}
-                    title={t("collaboration.action.rotateTitle")}
-                  >
-                    {t("collaboration.action.rotate")}
-                  </Button>
-                </>
-              ) : (
-                <Button
-                  variant="secondary"
-                  disabled={leaveRoom.isPending}
-                  onClick={() => {
-                    if (confirmRoomExit?.() !== false)
-                      leaveRoom.mutate({ roomId });
-                  }}
-                >
-                  {t("collaboration.action.leave")}
-                </Button>
-              )}
-            </div>
+                    {confirmAction && t(CONFIRM_COPY[confirmAction].confirm)}
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         )}
       </DialogContent>
     </Dialog>
+  );
+}
+
+type RoomManagement = RouterOutputs["collaborationRoom"]["get"];
+type Person = {
+  key: string;
+  member?: RoomManagement["members"][number];
+  invite?: RoomManagement["allowlist"][number];
+};
+
+/**
+ * One person in the room or invited to it. A member's role is changed on the
+ * membership; an invitation-only row changes the invitation instead.
+ */
+function PersonRow(props: {
+  person: Person;
+  canManage: boolean;
+  disabled: boolean;
+  onRoleChange: (role: "viewer" | "editor") => void;
+  onRemoveFromRoom: () => void;
+  onRestoreAccess: () => void;
+  onToggleInvite: () => void;
+}) {
+  const { t } = useAppI18n();
+  const { member, invite } = props.person;
+  const label = member ? (member.name ?? member.userId) : invite!.email;
+  const role = member?.role ?? invite!.role;
+  const removed = member ? member.revoked : invite!.removed;
+  const joinedAt = member?.lastJoinedAt ?? invite?.lastJoinedAt ?? null;
+  const status = removed
+    ? t("collaboration.person.removed")
+    : joinedAt
+      ? t("collaboration.person.joinedAt", {
+          date: new Date(joinedAt).toLocaleDateString(),
+        })
+      : member
+        ? t("collaboration.person.joined")
+        : t("collaboration.allowlist.notJoined");
+  // An invitation-only row changes the invitation's role, which is only the
+  // person's role while nobody has joined with it. Someone who joined has a
+  // membership — possibly on another page — whose role the invitation does
+  // not change, so that row's role is shown, not edited.
+  const roleEditable = member
+    ? !member.revoked
+    : !invite!.removed && invite!.lastJoinedAt === null;
+  const editableRole =
+    props.canManage && role !== "owner" && roleEditable ? role : null;
+  const canRemoveFromRoom =
+    props.canManage && !!member && role !== "owner" && !member.revoked;
+  // Setting a role is what lifts a membership's revocation.
+  const canRestoreAccess =
+    props.canManage && !!member && role !== "owner" && member.revoked;
+  const hasActions =
+    props.canManage &&
+    (canRemoveFromRoom || canRestoreAccess || invite !== undefined);
+  return (
+    <li className="flex min-w-0 items-center gap-3 py-2">
+      <span
+        aria-hidden="true"
+        className="bg-primary/15 text-primary grid size-8 shrink-0 place-items-center rounded-full text-xs font-semibold uppercase"
+      >
+        {label.slice(0, 1)}
+      </span>
+      <span className="flex min-w-0 flex-1 flex-col">
+        <span
+          className={cn("truncate text-sm", removed && "text-muted-foreground")}
+        >
+          {label}
+        </span>
+        <span className="text-muted-foreground truncate text-xs">{status}</span>
+      </span>
+      {editableRole ? (
+        <Select
+          value={editableRole}
+          disabled={props.disabled}
+          onValueChange={(value) => {
+            if (value === "viewer" || value === "editor")
+              props.onRoleChange(value);
+          }}
+        >
+          <SelectTrigger
+            size="sm"
+            aria-label={t("collaboration.person.role", { name: label })}
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {(["viewer", "editor"] as const).map((value) => (
+                <SelectItem key={value} value={value}>
+                  {t(ROLE_LABEL_KEY[value])}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      ) : (
+        <span className="text-muted-foreground text-xs">
+          {t(ROLE_LABEL_KEY[role])}
+        </span>
+      )}
+      {hasActions && (
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            render={
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                disabled={props.disabled}
+                aria-label={t("collaboration.person.actions", { name: label })}
+              >
+                <Ellipsis aria-hidden="true" />
+              </Button>
+            }
+          />
+          <DropdownMenuContent align="end" className="w-56">
+            {canRemoveFromRoom && (
+              <DropdownMenuItem
+                variant="destructive"
+                onClick={props.onRemoveFromRoom}
+              >
+                {t("collaboration.person.removeFromRoom")}
+              </DropdownMenuItem>
+            )}
+            {canRestoreAccess && (
+              <DropdownMenuItem onClick={props.onRestoreAccess}>
+                {t("collaboration.person.restoreAccess")}
+              </DropdownMenuItem>
+            )}
+            {invite && (
+              <DropdownMenuItem
+                variant={invite.removed ? "default" : "destructive"}
+                onClick={props.onToggleInvite}
+              >
+                {t(
+                  invite.removed
+                    ? "collaboration.person.restoreInvite"
+                    : "collaboration.person.removeInvite",
+                )}
+              </DropdownMenuItem>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
+    </li>
   );
 }
