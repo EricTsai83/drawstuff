@@ -166,7 +166,8 @@ export const zhTW = {
   "collaboration.create.linkKey": "完整連結含有金鑰，只分享給信任的人。",
   "collaboration.create.keyLoss":
     "金鑰無法找回；連結遺失，房間也就無法再開啟。",
-  "collaboration.create.noPersonalCopy": "不會存到個人雲端。",
+  "collaboration.create.noPersonalCopy":
+    "內容加密保存在房間裡，不會另存為個人雲端場景。",
   "collaboration.create.sourceCopy": "原本的個人雲端場景維持不變，且未加密。",
   "collaboration.connectionStatus": "連線狀態",
   "collaboration.role.owner": "擁有者",

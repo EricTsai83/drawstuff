@@ -626,7 +626,7 @@ describe("collaboration room exit cache cleanup", () => {
       onRoomIdChange: roomChange,
     });
     expect(container?.textContent).toContain(
-      "Not saved to your personal cloud.",
+      "Saved encrypted in the room, not as a personal cloud scene.",
     );
     expect(container?.textContent).not.toContain("saved personal scene");
     await act(async () => {

@@ -178,7 +178,8 @@ export const en = {
     "The full link contains the key. Share it only with people you trust.",
   "collaboration.create.keyLoss":
     "We can't recover the key. If the link is lost, so is the room.",
-  "collaboration.create.noPersonalCopy": "Not saved to your personal cloud.",
+  "collaboration.create.noPersonalCopy":
+    "Saved encrypted in the room, not as a personal cloud scene.",
   "collaboration.create.sourceCopy":
     "Your saved personal scene stays as is, unencrypted.",
   "collaboration.connectionStatus": "Connection",
