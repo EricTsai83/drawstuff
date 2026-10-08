@@ -395,3 +395,24 @@ Neon CLI 已登入；正式專案屬 Vercel 管理的 organization，需以 `pro
 完成樣本的保存 p95 4,787.60 ms、加入 p95 5,174.01 ms；最慢保存的 snapshot client 耗時 7,111.20 ms，Gateway→DO RPC 494 ms、DB write 69.52 ms。HTTP/2 沒有消除 client／Gateway HTTP 路徑的多秒尾端，亦不能從這些區間單獨辨認 edge、傳輸或冷啟動。fanout 逾時時原工具缺少 socket state／close code，根因未確認；已補限定數值的失敗階段、socket state／close code 與已完成 client segments，socket close／error 立即使測試失敗，不增加等待期限、不重送 frame 或略過失敗。
 
 本次 provider／DB／DO 清理通過，正常 Worker 還原 version `c78b70c8-4ece-4539-8af6-6fe68782e9dd`，module hash 與 bindings 精確符合測試前備份；runtime／journal／lock 已移除。先保留失敗報告與補強後工具，再用全新限定資源重跑一次；不把兩輪拼成 200 筆或將失敗輪丟棄。
+
+重跑的[第二份未完成報告](../../performance/collaboration-production-3a-http2-retry-incomplete.json)使用工具 commit `e08b835`、全新房間／帳號／provider 物件，亦完成 20 warmup／156 筆樣本；第 157 筆在 `provider-put` 階段解析 callback `serverData` 時發生 ZodError，owner socket 當時仍為 OPEN。Web／Gateway／provider 連線全為 h2，已完成 snapshot 全部只有一次 write 嘗試、完成樣本 pending 為零；失敗仍有記錄，`completed=false`、`gatePassed=false`。這不是前次 fanout 逾時的重現或修復證明。
+
+| 完成樣本的區間 | p50 ms | p95 ms | p99 ms |
+| --- | ---: | ---: | ---: |
+| 保存 | 2,705.95 | 3,961.53 | 4,560.22 |
+| 加入（持久內容完整恢復） | 3,236.44 | 4,255.83 | 4,537.47 |
+| Presign | 421.55 | 930.04 | 1,906.47 |
+| Provider PUT＋callback receipt | 1,346.38 | 1,774.62 | 2,747.16 |
+| Snapshot 保存 | 760.33 | 1,577.54 | 1,966.67 |
+| Join socket | 662.87 | 1,487.01 | 1,707.43 |
+| 首次附件下載 | 1,541.05 | 1,733.20 | 1,862.98 |
+| Snapshot Gateway→DO RPC | 282.00 | 744.00 | 1,529.00 |
+| Snapshot DO handler | 179.00 | 642.00 | 1,423.00 |
+| Snapshot DB write | 55.86 | 97.03 | 1,197.11 |
+
+最慢保存 8,312.90 ms 主要是 presign 3,377.21 ms、PUT＋receipt 4,066.01 ms，snapshot 僅 868.07 ms；callback RPC 244 ms、DO handler 146 ms、DB write 46.05 ms。逐筆 snapshot client 扣除 RPC 後，剩餘區間 p50 445.47 ms／p95 955.10 ms。不同樣本的瓶頸不同，不能只針對平均 DB 時間或單一協定宣稱根因；亦不能將兩輪差異全歸因於 HTTP/2，沒有同時間窗口的隨機對照。
+
+兩輪都在第 157 筆停止，應追查計數、工作佇列、callback／socket 錯誤與平台日誌，但目前尚未證明固定容量限制。現有 512 附件／generation、4,096 operation result 等上限不能直接解釋這個位置。產品 callback 在 outcome 不明時可回 `unknown`，客戶端保留原 intent 再 query；本輪未保存實際 status，因此不能認定 ZodError 就是 `unknown` 或直接修改恢復邏輯。工具已追加只含允許 status tag 與 Zod issue code 的診斷，不記 provider body、錯誤 message 或私人識別資訊。
+
+第二輪 provider／DB／DO 清理及正常 Worker 精確還原通過，還原 version `d4c2d247-1e58-4602-af7c-c9b2812f2a47`。再次唯讀核對測試前綴的帳號、Room、附件、快照、registration、tombstone、creation fence、lifecycle subject 全為零；runtime／journal／lock 已移除。沒有 DB push／migration、方案或 region 變更。下一步先補失敗 callback／fanout 的可定位證據與平台錯誤分類，確認原因後才修改產品或重跑完整 gate；不以放寬效能門檻掩蓋功能失敗，也不將兩輪合併成 200 筆。

@@ -621,6 +621,13 @@ p50 240 ms、DO handler 201 ms、DB write 74.39 ms；逐筆扣除 RPC 後 client
 下一步先定位 client／edge ingress 與回應傳輸，核對測試與瀏覽器的 HTTP 傳輸契約，並持續分類 RPC handler
 外等待；依證據改善後再按原門檻重測。不能將未分類等待都歸因於 Neon、provider 或冷啟動，也不改方案／region。
 
+HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTTP/2 dispatcher 收集 server spans，
+兩輪 Web／Gateway／provider 連線全為 h2，但兩輪皆僅完成 20 warmup／156 筆正式樣本。
+第一輪第 157 筆 fanout 逾時，第二輪同位置的 callback serverData 未通過 schema，原因尚未確認；
+兩輪均已清理並精確還原，不合併樣本或覆寫舊 gate。第二輪完成樣本保存／加入 p95 為
+3,961.53／4,255.83 ms，仍超過原門檻。下一步優先核對失敗 callback 狀態、socket／平台錯誤及計數限制，
+取得原因後修正並重跑完整 gate；HTTP/2 本身未解決問題，也不能以調整 SLO 消除功能失敗。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。

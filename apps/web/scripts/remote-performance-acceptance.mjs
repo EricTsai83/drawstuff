@@ -142,6 +142,9 @@ export async function runTypicalHotPerformance(c) {
       const providerReceiptStart=performance.now();
       assert.equal(uploaded.status,200);
       const serverData=(await uploaded.json()).serverData;
+      // Only contract status tags, never unknown provider response bodies or error messages.
+      const callbackStatus=serverData?.result?.status ?? serverData?.status;
+      failureContext.callbackStatus=["written","pending","unknown","absent","cancelled","refused","conflict"].includes(callbackStatus) ? callbackStatus : "unexpected";
       const measured=c.serverDiagnostic ? z.strictObject({result:contentResultSchema,presign:performanceTimingsSchema,timings:performanceTimingsSchema}).parse(serverData) : undefined;
       const callback=contentResultSchema.parse(measured ? measured.result : serverData);assert(["written","pending"].includes(callback.status));
       const providerReceiptBodyMs=performance.now()-providerReceiptStart;
@@ -262,7 +265,7 @@ export async function runTypicalHotPerformance(c) {
       if(index%10===9)await pause(1000); // No parallel bursts or extra fixture rooms.
     }
     result.completed=true;
-  } catch(error) {result.failures++;result.failureDiagnostic??={...failureContext,ownerSocketState:owner.ws.readyState,ownerCloseCode:owner.closeCode};throw error;}
+  } catch(error) {result.failures++;result.failureDiagnostic??={...failureContext,ownerSocketState:owner.ws.readyState,ownerCloseCode:owner.closeCode};if(error instanceof z.ZodError)result.failureDiagnostic.schemaIssueCodes=[...new Set(error.issues.map(issue=>issue.code))];throw error;}
   finally {
     clearInterval(heartbeat);owner.ws.terminate();
     if(dispatcher) await dispatcher.destroy();
