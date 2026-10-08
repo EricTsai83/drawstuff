@@ -465,7 +465,7 @@ export function CollaborationRoomList() {
             <AlertDialogCancel>{t("buttons.cancel")}</AlertDialogCancel>
             <AlertDialogAction
               disabled={busyRoomId !== null}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="danger"
               onClick={() => {
                 if (confirmExit)
                   void exitRoom(confirmExit.roomId, confirmExit.action);

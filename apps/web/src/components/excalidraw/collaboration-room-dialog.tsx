@@ -1247,10 +1247,9 @@ export function CollaborationRoomDialog({
                 <AlertDialogFooter>
                   <AlertDialogCancel>{t("buttons.cancel")}</AlertDialogCancel>
                   <AlertDialogAction
-                    className={cn(
-                      confirmAction !== "reset-link" &&
-                        "bg-destructive text-destructive-foreground hover:bg-destructive/90",
-                    )}
+                    variant={
+                      confirmAction === "reset-link" ? "default" : "danger"
+                    }
                     onClick={() => {
                       const action = confirmAction;
                       setConfirmAction(null);

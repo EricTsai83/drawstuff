@@ -287,7 +287,7 @@ export function CategoryManagementDialog({
             </AlertDialogCancel>
             <AlertDialogAction
               disabled={deleteMutation.isPending}
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              variant="danger"
               onClick={() => {
                 if (deleteTarget) {
                   deleteMutation.mutate({ id: deleteTarget.id });

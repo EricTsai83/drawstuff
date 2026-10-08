@@ -580,7 +580,7 @@ export const SceneCard = memo(function SceneCard({
               <AlertDialogAction
                 onClick={handleConfirmDelete}
                 disabled={isDeleting}
-                className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                variant="danger"
               >
                 {isDeleting ? t("buttons.deleting") : t("buttons.delete")}
               </AlertDialogAction>
