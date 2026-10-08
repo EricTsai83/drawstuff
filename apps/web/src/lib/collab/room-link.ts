@@ -1,3 +1,4 @@
+import { roomIdSchema, type RoomId } from "@drawstuff/collaboration/protocol";
 import {
   roomKeySchema,
   type RoomKey,
@@ -61,4 +62,25 @@ export function buildRoomInviteUrl(options: {
   url.hash = "";
   url.searchParams.set(COLLABORATION_ROOM_PARAM, options.roomId);
   return `${url.toString()}${roomKeyHash(options.roomKey)}`;
+}
+
+/**
+ * Reads a pasted invitation link back into its room id and key. Returns `null`
+ * unless both parts are present and valid, so a partial link can never be
+ * mistaken for a usable one. The input is only parsed, never stored or sent.
+ */
+export function readRoomInviteLink(
+  link: string,
+): { roomId: RoomId; roomKey: RoomKey } | null {
+  let url: URL;
+  try {
+    url = new URL(link.trim());
+  } catch {
+    return null;
+  }
+  const roomId = roomIdSchema.safeParse(
+    url.searchParams.get(COLLABORATION_ROOM_PARAM),
+  ).data;
+  const roomKey = readRoomKeyFromHash(url.hash);
+  return roomId && roomKey ? { roomId, roomKey } : null;
 }

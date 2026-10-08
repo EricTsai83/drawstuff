@@ -9,6 +9,7 @@ import {
   buildRoomInviteUrl,
   COLLABORATION_ROOM_KEY_FRAGMENT,
   COLLABORATION_ROOM_PARAM,
+  readRoomInviteLink,
   readRoomKeyFromHash,
   roomKeyHash,
 } from "@/lib/collab/room-link";
@@ -109,5 +110,34 @@ describe("collaboration invitation links", () => {
         `#${COLLABORATION_ROOM_KEY_FRAGMENT}=${ROOM_KEY.slice(0, -1)}+`,
       ),
     ).toBeNull();
+  });
+
+  it("reads a pasted invitation link only when both room id and key are present", () => {
+    const link = buildRoomInviteUrl({
+      currentUrl: BASE_URL,
+      roomId: ROOM_ID,
+      roomKey: ROOM_KEY,
+    });
+    expect(readRoomInviteLink(`  ${link}\n`)).toEqual({
+      roomId: ROOM_ID,
+      roomKey: ROOM_KEY,
+    });
+    expect(readRoomInviteLink(requestVisiblePart(link))).toBeNull();
+    expect(
+      readRoomInviteLink(`https://drawstuff.example/${roomKeyHash(ROOM_KEY)}`),
+    ).toBeNull();
+    expect(readRoomInviteLink(ROOM_KEY)).toBeNull();
+    for (const roomId of [" ", "x".repeat(65), "room/../a"]) {
+      expect(
+        readRoomInviteLink(
+          buildRoomInviteUrl({
+            currentUrl: BASE_URL,
+            roomId,
+            roomKey: ROOM_KEY,
+          }),
+        ),
+      ).toBeNull();
+    }
+    expect(readRoomInviteLink("")).toBeNull();
   });
 });
