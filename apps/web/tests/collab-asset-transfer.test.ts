@@ -26,6 +26,7 @@ import {
   type AssetBackend,
   type AssetTestClient,
 } from "./support/collab-session-harness";
+import { drainAsync } from "./support/async-drain";
 import { requestUrl } from "./support/request-url";
 
 /**
@@ -857,6 +858,69 @@ describe("encrypted collaboration asset transfer", () => {
     await alice.assetStore.request([FILE_A]);
     expect(backend.resolveCalls).toBe(0);
     expect(backend.fetchCalls).toBe(0);
+  });
+
+  it.each([false, true])(
+    "waits for a background upload before independent save verification; missing=%s",
+    async (missing) => {
+      const snapshots = createSnapshotBackend();
+      const alice = await harness.createAssetClient("client-alice", backend, {
+        snapshotStore: snapshots.createStore(),
+      });
+      alice.session.connect();
+      harness.settle();
+      await drainAsync();
+      if (missing) backend.withholdUploads();
+      backend.holdNextUpload();
+      pasteImage(alice, FILE_A);
+      await vi.waitFor(() => expect(backend.uploadCalls).toBe(1));
+      const verify = vi.spyOn(alice.assetStore, "areAvailable");
+      try {
+        alice.session.requestSave();
+        await drainAsync();
+        expect(alice.session.getSaveState().status).toBe("saving");
+        expect(verify).not.toHaveBeenCalled();
+        expect(snapshots.saves).toHaveLength(0);
+        expect(backend.uploadCalls).toBe(1);
+        backend.releaseHeldUpload();
+        await vi.waitFor(() => {
+          expect(alice.session.getSaveState().status).toBe(
+            missing ? "failed" : "saved",
+          );
+        });
+        expect(verify).toHaveBeenCalledTimes(missing ? 1 : 2);
+        expect(snapshots.saves).toHaveLength(missing ? 0 : 1);
+        expect(backend.uploadCalls).toBe(1);
+      } finally {
+        backend.releaseHeldUpload();
+        alice.assetStore.destroy();
+        alice.session.disconnect();
+        alice.session.destroy();
+        await drainAsync();
+      }
+    },
+  );
+
+  it("all concurrent publish callers await the same upload attempt", async () => {
+    const alice = await harness.createAssetClient("client-alice", backend);
+    backend.holdNextUpload();
+    const first = alice.assetStore.publish([imageFile(FILE_A)]);
+    await vi.waitFor(() => expect(backend.uploadCalls).toBe(1));
+    let joined = false;
+    const second = alice.assetStore.publish([imageFile(FILE_A)]).then(() => {
+      joined = true;
+    });
+    try {
+      await drainAsync();
+      expect(joined).toBe(false);
+      expect(backend.uploadCalls).toBe(1);
+    } finally {
+      backend.releaseHeldUpload();
+      await Promise.all([first, second]);
+    }
+    expect(joined).toBe(true);
+    expect(backend.storedIds()).toEqual([FILE_A]);
+    expect(alice.assetTimers.pendingCount).toBe(0);
   });
 
   it("shares one download between concurrent requests for the same asset", async () => {

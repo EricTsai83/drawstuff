@@ -154,3 +154,15 @@ Lookup deduplication, retry budgets, generation validation and unreadable-key
 verdicts still apply across the entire request. This improves partial rendering in
 rooms with several images; it does not reduce a single image's provider latency
 or establish that the production join/save SLO has passed.
+
+
+### Shared upload attempts during save
+
+Concurrent `publish` calls for the same file await its existing upload attempt,
+including when a save overlaps the background scene flush. They do not start a
+second upload or return while that attempt is still pending. Completion is not
+proof of finalized storage: the save independently checks all referenced server
+records after publication, and confirms them again after the snapshot write.
+A deferred or failed upload can still leave records missing, in which case save
+fails and the existing bounded retry policy applies. Shared callers do not consume
+another upload attempt merely by waiting.

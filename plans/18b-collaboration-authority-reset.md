@@ -638,6 +638,8 @@ HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTT
 
 產品加入路徑核對：baseline 已競速，附件 ID 依賴解密元素，registration 不可略過。已改善多圖片 lookup 的整批交付等待，改為最多四張／32 ms 的漸進交付並於 destroy 清除 timer／待交付資料；測試涵蓋慢圖不擋快圖與共享上限。這不解決單張附件完整延遲，未重跑原 200 筆或改 gate；下一 scope 仍是 provider／網路與保存往返最佳化。
 
+已修正保存與背景附件上傳交錯：`publish` 等待相同 per-file attempt 後才進入獨立 records 驗證，避免上傳尚未完成就提前保存失敗；不增加 upload 次數、不省略保存前後驗證。38 個附件測試通過，包括 records 缺失仍不得寫 snapshot。原 200 筆 runner 本來就等待 upload，不把這項產品競態修正當作完整 SLO 通過；provider／網路與保存往返仍待改善。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。

@@ -193,14 +193,14 @@ export const createAssetPublisher = (
     if (isDestroyed()) return;
     const at = now();
     const pending: BinaryFileData[] = [];
+    const shared = new Set<Promise<void>>();
     /** Earliest deadline among files held back only by their own window. */
     let earliestDeferred: number | undefined;
     for (const file of files) {
-      if (
-        available.has(file.id) ||
-        abandoned.has(file.id) ||
-        uploading.has(file.id)
-      ) {
+      if (available.has(file.id) || abandoned.has(file.id)) continue;
+      const inFlight = uploading.get(file.id);
+      if (inFlight) {
+        shared.add(inFlight);
         continue;
       }
       const state = uploadRetrying.get(file.id);
@@ -223,13 +223,15 @@ export const createAssetPublisher = (
     // A round can defer everything it was offered. Those files are still owed a
     // retry, and if the caller stops drawing nothing else will ask for them.
     if (earliestDeferred !== undefined) schedulePublishRetry(earliestDeferred);
-    if (pending.length === 0) return;
 
     // Claimed and released *per file*, not per batch. A batch-wide claim would
     // still be held by a slow sibling when the retry timer for a fast failure
     // fires, and the retry would skip the very file it was scheduled for.
-    await Promise.all(
-      pending.map((file) => {
+    // A save may join the background scene flush's upload. Its publish must
+    // settle after that attempt, before it independently checks server records.
+    await Promise.all([
+      ...shared,
+      ...pending.map((file) => {
         let settle = (): void => undefined;
         const claim = new Promise<void>((resolve) => {
           settle = resolve;
@@ -244,7 +246,7 @@ export const createAssetPublisher = (
             settle();
           });
       }),
-    );
+    ]);
     // The local user's own images can be terminal too — too large to publish, an
     // unsupported type, or an upload budget that ran out — and until now that was
     // as silent as an unopenable download.

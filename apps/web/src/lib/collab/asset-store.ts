@@ -112,6 +112,8 @@ export type CollaborationAssetStore = {
    * Seals and uploads every file the room does not have yet. Idempotent: a file
    * already published, in flight, or known to be in the room is skipped, so the
    * caller may hand over the whole current file set on every scene flush.
+   * Concurrent callers await the shared upload attempt before resolving; this
+   * is not a durability receipt, so saves still verify the server records.
    */
   publish: (files: readonly BinaryFileData[]) => Promise<void>;
   /**

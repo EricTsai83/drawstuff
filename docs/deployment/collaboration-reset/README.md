@@ -490,3 +490,14 @@ Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休�
 此輪改善多圖片的首次可見時間與中間資料保留，不是單張附件的完整 join latency 修復；沒有重跑相同單張圖片的 200 筆或更改舊 gate。此輪未建立 production fixture，亦未改 DB／provider／Worker runtime。P3 效能仍未結案；下一 scope 應針對原完整量測的 provider／網路區段與保存往返做可驗證改善。
 
 本輪完整 `pnpm check` 通過，附件測試 35／35、web 測試 912／912；僅保留現行測試與長期契約文件，暫存檢查日誌已移除。
+
+
+### 保存加入背景附件上傳（2026-10-08）
+
+產品的 scene flush 會背景上傳新圖片；snapshot cadence 在保存前再次 `publish` 同一圖片。原 publisher 對 uploading ID 直接略過，導致第二個呼叫立刻完成，保存接著查索引時上傳尚未 finalized，可能提前失敗並等待後續重試。改為收集並等待既有 per-file upload claims，同時仍可開始本輪其他新圖片的上傳；保留共享四個 transfer slots、每檔重試與去重。
+
+新增現行整合測試：hold 真實加密的背景上傳，保存狀態保持 saving、尚未查附件／寫快照；release 後只上傳一次並由獨立索引驗證確認。另一情境讓上傳結果完成但 records 未出現，必須失敗且沒有 snapshot write；另驗證所有 concurrent publish callers 等待相同 attempt。附件測試 38／38 通過。此修正消除產品端過早判失敗的競態，不略過保存前後的伺服器驗證，也不把 upload attempt completion 當作 durable receipt。
+
+前輪 200 筆 runner 已直接等待 upload，未重現這個產品背景上傳交錯，因此不能用本修正回填或宣稱通過原 SLO。此輪未建立 production fixtures、未改 Worker runtime／provider／DB。P3 仍待原完整保存／加入效能與其餘 L3 驗收；下一 scope 繼續處理實測 provider／網路與保存往返延遲。
+
+本輪完整 `pnpm check` 通過（附件 38／38、web 915／915），暫存測試／檢查日誌已移除，未新增拋棄式測試工具或 legacy 路徑。
