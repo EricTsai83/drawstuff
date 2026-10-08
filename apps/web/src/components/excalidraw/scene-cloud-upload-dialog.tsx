@@ -156,7 +156,7 @@ export function SceneCloudUploadDialog({
           <DialogTitle className="text-xl font-bold">
             {t(isRoom ? "storage.copy" : "storage.savePersonal")}
           </DialogTitle>
-          <DialogDescription className={isRoom ? undefined : "sr-only"}>
+          <DialogDescription>
             {t(isRoom ? "storage.copyNotice" : "scene.save.description")}
           </DialogDescription>
         </DialogHeader>

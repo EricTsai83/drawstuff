@@ -2,12 +2,13 @@ import type { AppDictionary } from "./types";
 
 // 應用層繁體中文字典；satisfies 讓缺 key 或多 key 直接編譯失敗。
 export const zhTW = {
-  "storage.personal": "個人場景",
+  "storage.personal": "個人雲端 · 非端對端加密",
+  "storage.personalUnsaved": "尚未儲存至個人雲端",
   "storage.savePersonal": "儲存至我的場景",
   "storage.room": "加密共編房間 · {roomId}",
   "storage.room.pending": "房間變更尚未保存",
   "storage.room.saving": "房間自動保存中…",
-  "storage.room.saved": "房間已保存",
+  "storage.room.saved": "加密快照已保存",
   "storage.room.failed": "房間保存失敗 · 重試",
   "storage.saveRoom": "保存房間／重試",
   "storage.copy": "另存至我的場景…",
@@ -25,7 +26,8 @@ export const zhTW = {
   "storage.leaveRisk": "房間尚有未確認保存的變更，離開可能遺失。仍要離開嗎？",
 
   "app.export.cloud.title": "上傳雲端",
-  "app.export.cloud.subtitle": "將場景上傳至雲端儲存。",
+  "app.export.cloud.subtitle":
+    "儲存至個人雲端。個人雲端存檔不採端對端加密，不會自動公開。",
   "app.export.cloud.loading": "上傳中...",
   "app.export.link.loading": "匯出中...",
   "app.overwriteConfirm.action.uploadToCloud.button": "上傳雲端",
@@ -55,9 +57,11 @@ export const zhTW = {
 
   // 匯出對話卡片
   "exportDialog.disk_title": "儲存到磁碟",
-  "exportDialog.disk_details": "將目前場景儲存為 .excalidraw 檔。",
+  "exportDialog.disk_details":
+    "將目前場景儲存為 .excalidraw 檔；匯出檔案未加密。",
   "exportDialog.link_title": "建立可分享連結",
-  "exportDialog.link_details": "上傳加密後的場景並取得可分享連結。",
+  "exportDialog.link_details":
+    "上傳加密的分享副本並取得連結；完整連結包含金鑰，持有完整連結者可解密。",
 
   // 歡迎畫面補充
   "welcomeScreen.app.center_heading": "繪製、協作、分享",
@@ -391,11 +395,12 @@ export const zhTW = {
   "category.toast.assignFailed": "更新場景分類失敗，請再試一次。",
   "publish.badge.public": "公開",
   "publish.badge.private": "私人",
-  "publish.menu.publish": "設為公開",
+  "publish.menu.publish": "設為公開（任何人可透過連結檢視）",
   "publish.menu.unpublish": "設為私人",
   "publish.menu.copyLink": "複製公開連結",
   "publish.menu.openLink": "開啟公開連結",
-  "publish.toast.published": "公開連結已建立。",
+  "publish.toast.published":
+    "公開連結已建立；任何取得連結的人都能檢視，公開內容未加密。",
   "publish.toast.unpublished": "此場景已設為私人。",
   "publish.toast.copied": "已複製公開連結。",
   "publish.toast.failed": "更新發布狀態失敗，請再試一次。",
@@ -456,7 +461,8 @@ export const zhTW = {
   "scene.change.save": "儲存後切換",
   "scene.change.discard": "不儲存並切換",
   "scene.save.title": "儲存場景",
-  "scene.save.description": "將場景儲存到雲端。",
+  "scene.save.description":
+    "個人雲端存檔不採端對端加密，不會自動公開。若希望雲端內容維持端對端加密，可只使用加密共編房間，不另存個人雲端副本。",
   "scene.save.cancelLabel": "取消儲存",
   "scene.save.confirmLabel": "確認儲存",
   "scene.new.title": "新增場景",

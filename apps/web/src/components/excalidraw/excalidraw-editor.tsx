@@ -266,6 +266,7 @@ export default function ExcalidrawEditor() {
       onUpdateSource: handleUpdateSource,
       api: excalidrawAPI,
       isAuthenticated: !!session,
+      hasPersonalCloudCopy: !!currentSceneId,
     }),
     [
       isRoomMode,
@@ -277,6 +278,7 @@ export default function ExcalidrawEditor() {
       handleUpdateSource,
       excalidrawAPI,
       session,
+      currentSceneId,
     ],
   );
 

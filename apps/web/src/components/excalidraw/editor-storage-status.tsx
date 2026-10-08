@@ -23,11 +23,21 @@ export function EditorStorageStatus(props: {
   onUpdateSource: (sceneId: string) => Promise<void>;
   api: ExcalidrawImperativeAPI | null;
   isAuthenticated: boolean;
+  /** Whether the personal canvas is a saved personal cloud scene. */
+  hasPersonalCloudCopy: boolean;
   compact?: boolean;
 }) {
   const { t } = useAppI18n();
   if (!props.roomId)
-    return <Badge variant="secondary">{t("storage.personal")}</Badge>;
+    return (
+      <Badge variant="secondary">
+        {t(
+          props.hasPersonalCloudCopy
+            ? "storage.personal"
+            : "storage.personalUnsaved",
+        )}
+      </Badge>
+    );
   const roomLabel = t("storage.room", { roomId: props.roomId.slice(0, 8) });
   const statusLabel = t(`storage.room.${props.state.status}`);
   const content = (

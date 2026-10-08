@@ -1,12 +1,13 @@
 // 應用層英文字典：所有 app 翻譯 key 的唯一來源，AppTranslationKey 由此推導。
 // 僅由 loadAppDictionary() 以 dynamic import 載入，避免兩種語言同時進共用 client chunk。
 export const en = {
-  "storage.personal": "My scenes",
+  "storage.personal": "Personal cloud · not end-to-end encrypted",
+  "storage.personalUnsaved": "Not saved to personal cloud",
   "storage.savePersonal": "Save to my scenes",
   "storage.room": "Encrypted room · {roomId}",
   "storage.room.pending": "Room changes awaiting save",
   "storage.room.saving": "Saving room automatically…",
-  "storage.room.saved": "Room saved",
+  "storage.room.saved": "Encrypted snapshot saved",
   "storage.room.failed": "Room save failed · retry",
   "storage.saveRoom": "Save room / retry",
   "storage.copy": "Save a copy to my scenes…",
@@ -26,7 +27,8 @@ export const en = {
   "storage.leaveRisk": "Unconfirmed room changes may be lost. Leave this room?",
 
   "app.export.cloud.title": "Cloud Upload",
-  "app.export.cloud.subtitle": "Save the scene to cloud storage.",
+  "app.export.cloud.subtitle":
+    "Save to your personal cloud. Personal cloud saves are not end-to-end encrypted and are not automatically public.",
   "app.export.cloud.loading": "Uploading...",
   "app.export.link.loading": "Exporting...",
   "app.overwriteConfirm.action.uploadToCloud.button": "Upload to Cloud",
@@ -60,10 +62,11 @@ export const en = {
 
   // Export dialog cards
   "exportDialog.disk_title": "Save to disk",
-  "exportDialog.disk_details": "Save the current scene as an .excalidraw file.",
+  "exportDialog.disk_details":
+    "Save the current scene as an .excalidraw file. The exported file is not encrypted.",
   "exportDialog.link_title": "Create shareable link",
   "exportDialog.link_details":
-    "Upload encrypted scene and get a shareable link.",
+    "Upload an encrypted share copy and get a link. The complete link contains the key; anyone with it can decrypt the copy.",
 
   // Welcome screen additions
   "welcomeScreen.app.center_heading": "Draw, collaborate, and share",
@@ -424,11 +427,12 @@ export const en = {
     "Failed to update scene categories. Please try again.",
   "publish.badge.public": "Public",
   "publish.badge.private": "Private",
-  "publish.menu.publish": "Set to public",
+  "publish.menu.publish": "Set to public (anyone with the link can view)",
   "publish.menu.unpublish": "Set to private",
   "publish.menu.copyLink": "Copy public link",
   "publish.menu.openLink": "Open public link",
-  "publish.toast.published": "Public link is ready.",
+  "publish.toast.published":
+    "Public link is ready. Anyone with the link can view it; public content is not encrypted.",
   "publish.toast.unpublished": "This scene is now private.",
   "publish.toast.copied": "Public link copied.",
   "publish.toast.failed": "Unable to update publish status. Please try again.",
@@ -491,7 +495,8 @@ export const en = {
   "scene.change.save": "Save, then switch",
   "scene.change.discard": "Switch without saving",
   "scene.save.title": "Save scene",
-  "scene.save.description": "Save the scene to the cloud.",
+  "scene.save.description":
+    "Personal cloud saves are not end-to-end encrypted and are not automatically public. To keep cloud content end-to-end encrypted, use an encrypted collaboration room without saving a personal cloud copy.",
   "scene.save.cancelLabel": "Cancel save",
   "scene.save.confirmLabel": "Confirm save",
   "scene.new.title": "New scene",
