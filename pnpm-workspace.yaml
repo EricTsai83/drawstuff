@@ -43,7 +43,13 @@ overrides:
   effect: 3.20.0
   # Security-only transitive overrides; keep each dependency on its current
   # compatible major while applying the advisory fix.
-  shell-quote: 1.10.0
+  shell-quote: 1.11.0
+  proxy-addr: 2.0.8
+  "undici@7": 7.29.1
+  source-map-js: 1.2.2
+  "sharp@<0.35.5": 0.35.5
+  "fast-uri@3": 3.1.8
+  dompurify: 3.4.16
   "picomatch@2": 2.3.2
   lodash-es: 4.18.1
   defu: 6.1.7
@@ -58,6 +64,12 @@ auditConfig:
   ignoreGhsas:
     # Transitive build-time esbuild advisory through drizzle-kit.
     - GHSA-67mh-4wv8-2f99
+    # braces 3.0.4 is not published yet; reached only at build time through
+    # @excalidraw/excalidraw > sass > chokidar. Drop once 3.0.4 ships.
+    - GHSA-vfj7-8cjw-p6xm
+    # KaTeX fix is 0.18.2, but mermaid (through Excalidraw's mermaid import)
+    # still requires katex ^0.16; requires pre-existing prototype pollution.
+    - GHSA-238p-pmpm-9mq7
     # The four "Next.js-pinned production dependencies" entries that used to sit
     # here were dropped on 2026-08-06: next 16.3.0 ships patched pins, so with
     # this whole list removed only GHSA-67mh-4wv8-2f99 still reports. Keeping
