@@ -634,7 +634,7 @@ HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTT
 
 預設 transport 對照完成 144 formal，第 145 筆 fanout owner 1006，callback written、guest OPEN；Worker identity 與人工 web alias 前後核對未變更，仍不能定位根因。證據保存於 `docs/performance/collaboration-production-3a-transport-control-incomplete.json`，已清理／精確還原。找到 shared client 未送既定 15 秒 keepalive 的缺口並補齊，測量工具同步加入保活計數；ACK 可省略、keepalive 不算活動、不延長 idle。Lifecycle 測試已通過，下一輪維持原 20＋200 與 SLO 驗證，不能先宣稱已修復 1006 或 P3 完成。
 
-保活後 `collaboration-production-3a-transport-control.json` 完成 20＋200，功能失敗 0、118／118 keepalive ACK。保存 p95 4,916.57、加入 p95／p99 4,472.73／5,142.71 ms，原 gate 仍 false。Automated deployment guard 未核對成功，事後刷新 credential 的 Worker history 查詢確認量測時段無新 deployment，保留原 guard null／gate false。Provider／DB／DO 清理及正常 module／bindings 還原通過，測試前綴 DB rows 全零。不能認定先前 1006／500 根因全被修好；下一 scope 核對產品 join 可並行區段與 provider／網路往返，free／sea1 與原 SLO 不變，3B／3C、跨日／閒置／成本仍待驗收。
+保活後 `collaboration-production-3a-transport-control-keepalive.json` 完成 20＋200，功能失敗 0、118／118 keepalive ACK。保存 p95 4,916.57、加入 p95／p99 4,472.73／5,142.71 ms，原 gate 仍 false。Automated deployment guard 未核對成功，事後刷新 credential 的 Worker history 查詢確認量測時段無新 deployment，保留原 guard null／gate false。Provider／DB／DO 清理及正常 module／bindings 還原通過，測試前綴 DB rows 全零。不能認定先前 1006／500 根因全被修好；下一 scope 核對產品 join 可並行區段與 provider／網路往返，free／sea1 與原 SLO 不變，3B／3C、跨日／閒置／成本仍待驗收。
 
 產品加入路徑核對：baseline 已競速，附件 ID 依賴解密元素，registration 不可略過。已改善多圖片 lookup 的整批交付等待，改為最多四張／32 ms 的漸進交付並於 destroy 清除 timer／待交付資料；測試涵蓋慢圖不擋快圖與共享上限。這不解決單張附件完整延遲，未重跑原 200 筆或改 gate；下一 scope 仍是 provider／網路與保存往返最佳化。
 

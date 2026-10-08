@@ -463,7 +463,7 @@ Live tail 收到 2,251 events、0 platform exception；未收到不代表無錯�
 
 ### 保活後的完整 200 筆對照（2026-10-08）
 
-`collaboration-production-3a-transport-control.json`（commit `4f7172b`）在 09:10:30–09:40:16 UTC 完成 20 warmup＋200 formal，功能 failures 0、keepalive sent／ACK 118／118，通過前幾輪第 145／153／157 筆的位置。這證明本輪 Node harness 的保活與完整流程成功，並不證明先前 1006／presign 500 的全部根因，也不包含新版 web UI 實際操作驗收；client lifecycle 由 shared transport 測試驗證。
+`collaboration-production-3a-transport-control-keepalive.json`（commit `4f7172b`）在 09:10:30–09:40:16 UTC 完成 20 warmup＋200 formal，功能 failures 0、keepalive sent／ACK 118／118，通過前幾輪第 145／153／157 筆的位置。這證明本輪 Node harness 的保活與完整流程成功，並不證明先前 1006／presign 500 的全部根因，也不包含新版 web UI 實際操作驗收；client lifecycle 由 shared transport 測試驗證。
 
 | 完整樣本（ms） | p50 | p95 | p99 | max |
 | --- | --- | --- | --- | --- |
