@@ -508,3 +508,10 @@ Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休�
 Identity proof 與 pre-activation registration 原本每次都先 insert lifecycle（on conflict do nothing），再 select for update；既有 account／scene 的 lifecycle 改為直接鎖定，只在缺少時 insert 並重新鎖定。重新讀取才能看到 concurrent initializer／freeze 的已提交狀態，不能採用初始預設值授權。保留帳號、session、scene 的鎖順序與 frozen／retired／version／ownership 檢查，不使用跨交易快取，也不略過 registration 屏障。
 
 15 個 identity／lifecycle 測試通過，SQL 記錄證明重複 source registration 加 identity issuance 只有三個 lifecycle select for update、沒有 lifecycle insert；初次建立與 frozen 拒絕由現行測試覆蓋。此改動每個既有主體少一個 DB query，尚未證明完整保存／加入 p95 降幅；正式 account／scene 退休競態待部署後核對，P3 SLO gate 保持未通過。
+
+
+Lifecycle fast path 的完整 `pnpm check` 通過（web 916／916）。修正 commit `3499dd2` 已部署，production alias 確認 `dpl_Fgxk91Yi9sp8tyehZN2dBWKzvipu` 為 READY 並指向同一 commit 後，依序執行 `pnpm collab:assets:remote --retire-account` 與 `--retire-scene`，直接使用正式 PostgreSQL／Gateway／adapter 及真實附件上傳、callback、下載、解密。
+
+兩輪均確認 concurrent blocked snapshot write 的退休屏障、duplicate retirement operation、frozen create／join 拒絕、socket 在 parent deletion 前關閉、alarm 最終退休、late callback／write／rejoin 拒絕；`testPassed／cleanupPassed／restored` 全 true。這驗證本輪 account／scene 退休交錯，不是所有可能的 first-insert 排程或完整效能 gate 的證明。帳號輪 cleaner 曾短暫回 409／500，既有 bounded retry 後核對成功，未保存原始 provider／DB error 或秘密。
+
+帳號輪正常 Worker 還原 version `94f6a724-1090-45b5-86bb-8fe8729058e7`，scene 輪 `15d1af8b-78a8-4411-8c3e-ddadc37cb078`，兩輪 exact module／bindings 核對通過。Provider／DB／DO 清理成功；另行唯讀核對測試前綴 user、room、asset、snapshot、tombstone、registration、creation fence、lifecycle subject 全零。runtime／journal／lock 與本輪檢查日誌均移除。沒有 production schema migration／DB push、方案／region 變更。P3 完整延遲 gate 尚待原 20＋200 重測，其他 L3 scope 尚未結案。
