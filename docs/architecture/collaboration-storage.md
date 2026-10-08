@@ -46,8 +46,10 @@ open stale canvas from silently overwriting the committed version.
   recovered, and either "no personal cloud copy" or "your existing personal cloud scene stays
   unencrypted". The canvas is paused during initialization; the room is shown ready only after
   `complete-initialization` and the key check succeed. The tab then joins without the
-  save-or-discard prompt (`initialized-room-handoff.ts`, consumed once per room) because the
-  canvas already equals the room baseline; the personal draft is still preserved as for any join.
+  save-or-discard prompt because the canvas already equals the room baseline
+  (`initialized-room-handoff.ts`). The exemption is bound to an element-version fingerprint of the
+  encrypted canvas: a retried join keeps it, an edited or replaced canvas loses it, and a
+  successful handoff clears it. The personal draft is still preserved as for any join.
 - **Room list.** "My rooms" is a locator only: loading, failure (with retry, never shown as
   empty), and empty states are distinct; rows show standalone vs. scene-linked and the projected
   role. When a confirmed initialization reports `projectionPending`, the owner is told the list is

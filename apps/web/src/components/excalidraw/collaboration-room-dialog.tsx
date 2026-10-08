@@ -240,6 +240,8 @@ export function CollaborationRoomDialog({
   const initialization = useRef<ReturnType<
     typeof createRoomInitialization
   > | null>(null);
+  /** The canvas captured for the in-flight creation; the join exemption is bound to it. */
+  const initializationElements = useRef<readonly SyncedElement[]>([]);
   const [isCreatePending, setIsCreatePending] = useState(false);
   const [hasInitialization, setHasInitialization] = useState(false);
   const [isCancellingInitialization, setIsCancellingInitialization] =
@@ -340,12 +342,16 @@ export function CollaborationRoomDialog({
               utils.client.collaborationAsset.resolve.query(input, { signal }),
           }),
         });
+        initializationElements.current = elements;
         setHasInitialization(true);
       }
       const ready = await initialization.current.start();
       if (epoch !== initializationEpoch.current) return;
       enteringRoom = true;
-      markRoomInitializedFromCanvas(ready.roomId);
+      markRoomInitializedFromCanvas(
+        ready.roomId,
+        initializationElements.current,
+      );
       onRoomKeyChange(ready.roomKey);
       onRoomIdChange(ready.roomId);
       initialization.current?.dispose?.();

@@ -8,7 +8,10 @@
  * without a component around it.
  */
 
-import { consumeRoomInitializedFromCanvas } from "@/lib/collab/initialized-room-handoff";
+import {
+  clearRoomInitializedFromCanvas,
+  isCanvasInitializedForRoom,
+} from "@/lib/collab/initialized-room-handoff";
 import { toast } from "sonner";
 import {
   snapshotReadRequest,
@@ -21,6 +24,7 @@ import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
 import type { CanvasHandoffOutcome } from "@/hooks/excalidraw/use-canvas-handoff";
+import { toSyncedElements } from "@/lib/collab/element-bridge";
 import {
   canvasBelongsToRoom,
   claimCanvasForRoom,
@@ -473,7 +477,6 @@ export function createCollaborationRoomController(
       const joined = await joinRoom(room);
       if (!joined || cancelled) return;
       const reloading = readCanvasRoomId() === roomId;
-      const initializedHere = consumeRoomInitializedFromCanvas(roomId);
       const isOpenScene =
         room.sceneId !== null && room.sceneId === deps.getCurrentSceneId();
       deps.onSourceScene?.(
@@ -485,6 +488,12 @@ export function createCollaborationRoomController(
       if (cancelled) return;
       if (stored.receipt.authGeneration !== joined.authGeneration)
         throw new SnapshotHttpError(409, "generation-mismatch");
+      // Checked after every await before the handoff: an edited or replaced
+      // canvas is no longer the one this tab encrypted into the room.
+      const initializedHere = isCanvasInitializedForRoom(
+        roomId,
+        toSyncedElements(excalidrawApi.getSceneElementsIncludingDeleted()),
+      );
       // Only an empty fresh room may be seeded from its owner's source canvas.
       if (
         !(await prepareCanvas(
@@ -496,6 +505,7 @@ export function createCollaborationRoomController(
         ))
       )
         return;
+      clearRoomInitializedFromCanvas(roomId);
       if (cancelled) return;
       // Commit the canvas claim only after join and generation validation
       // succeed. No socket exists yet, so this is still before the first

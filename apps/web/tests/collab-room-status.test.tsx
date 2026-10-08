@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
+import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
 import {
@@ -50,19 +51,26 @@ vi.mock("@/lib/collab/authority-client", async (original) => ({
   }),
 }));
 
+const snapshotReads = vi.hoisted(() => ({ failuresLeft: 0 }));
 vi.mock("@/lib/collab/snapshot-http", async (original) => ({
   ...(await original<typeof SnapshotHttp>()),
   createBinarySnapshotClient: () => ({
-    read: async (request: { roomId: string }) => ({
-      found: false,
-      bytes: null,
-      receipt: {
-        roomId: request.roomId,
-        authGeneration: 1,
-        authorityEpoch: 1,
-        revision: 0,
-      },
-    }),
+    read: async (request: { roomId: string }) => {
+      if (snapshotReads.failuresLeft > 0) {
+        snapshotReads.failuresLeft -= 1;
+        throw new Error("snapshot read failed");
+      }
+      return {
+        found: false,
+        bytes: null,
+        receipt: {
+          roomId: request.roomId,
+          authGeneration: 1,
+          authorityEpoch: 1,
+          revision: 0,
+        },
+      };
+    },
     write: vi.fn(),
     query: vi.fn(),
     cancel: vi.fn(),
@@ -167,7 +175,12 @@ const probe: { result?: UseCollaborationRoomResult } = {};
  */
 const updateScene = vi.fn();
 const clearCurrentScene = vi.fn();
-const EXCALIDRAW_API = { updateScene } as unknown as ExcalidrawImperativeAPI;
+/** The on-screen canvas the post-creation join exemption is matched against. */
+const canvas: { elements: SyncedElement[] } = { elements: [] };
+const EXCALIDRAW_API = {
+  updateScene,
+  getSceneElementsIncludingDeleted: () => canvas.elements,
+} as unknown as ExcalidrawImperativeAPI;
 /**
  * Stands in for `useCanvasHandoff`, performing the same observable canvas
  * writes the real handoff does — so "the canvas was never touched" can still be
@@ -263,6 +276,8 @@ beforeEach(() => {
   clearCurrentScene.mockClear();
   prepareCanvasForRoom.mockClear();
   cancelPendingCanvasDecision.mockClear();
+  snapshotReads.failuresLeft = 0;
+  canvas.elements = [];
   startRoomSession.mockImplementation(() =>
     Promise.resolve({ destroy: () => Promise.resolve() }),
   );
@@ -871,29 +886,60 @@ describe("collaboration button label", () => {
 });
 
 describe("joining a standalone room (18C §4)", () => {
-  const promptOptions = () =>
+  const encrypted: SyncedElement[] = [
+    { id: "source", version: 3, versionNonce: 7, isDeleted: false },
+  ] as SyncedElement[];
+  const skipPrompts = () =>
     (
-      prepareCanvasForRoom.mock.calls[0] as unknown as
-        [{ skipPrompt?: boolean }] | undefined
-    )?.[0];
+      prepareCanvasForRoom.mock.calls as unknown as [{ skipPrompt?: boolean }][]
+    ).map(([options]) => options.skipPrompt);
+  const remount = async () => {
+    unmountRoom();
+    sessionStorage.clear();
+    prepareCanvasForRoom.mockClear();
+    startRoomSession.mockClear();
+    await mountRoom();
+  };
 
-  it("skips the save-or-discard prompt only for the room this tab just initialized", async () => {
+  beforeEach(() => {
     roomGetQuery.mockResolvedValue({
       roomId: ROOM_ID,
       sceneId: null,
       authGeneration: 1,
       keyCheckBase64,
     });
-    markRoomInitializedFromCanvas(ROOM_ID);
-    await mountRoom();
-    expect(promptOptions()?.skipPrompt).toBe(true);
-    unmountRoom();
+    canvas.elements = structuredClone(encrypted);
+  });
 
-    // The mark is consumed: a later visit to the same room prompts as usual.
-    sessionStorage.clear();
-    prepareCanvasForRoom.mockClear();
-    startRoomSession.mockClear();
+  it("skips the save-or-discard prompt for the canvas this tab encrypted, once", async () => {
+    markRoomInitializedFromCanvas(ROOM_ID, encrypted);
     await mountRoom();
-    expect(promptOptions()?.skipPrompt).toBe(false);
+    expect(skipPrompts()).toEqual([true]);
+
+    // A successful handoff clears the exemption; a later visit prompts.
+    await remount();
+    expect(skipPrompts()).toEqual([false]);
+  });
+
+  it("keeps the exemption across a failed join retry while the canvas is unchanged", async () => {
+    markRoomInitializedFromCanvas(ROOM_ID, encrypted);
+    snapshotReads.failuresLeft = 1;
+    await renderProbe();
+    await waitFor(() => probe.result?.status === "join-failed");
+    expect(probe.result?.status).toBe("join-failed");
+    expect(prepareCanvasForRoom).not.toHaveBeenCalled();
+
+    await act(async () => probe.result?.retryJoin());
+    await waitFor(() => startRoomSession.mock.calls.length > 0);
+    expect(skipPrompts()).toEqual([true]);
+  });
+
+  it("prompts again once the canvas differs from the one that was encrypted", async () => {
+    markRoomInitializedFromCanvas(ROOM_ID, encrypted);
+    canvas.elements = [
+      { id: "other-canvas", version: 1, versionNonce: 1, isDeleted: false },
+    ] as SyncedElement[];
+    await mountRoom();
+    expect(skipPrompts()).toEqual([false]);
   });
 });

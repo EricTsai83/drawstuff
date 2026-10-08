@@ -608,13 +608,20 @@ describe("collaboration room exit cache cleanup", () => {
   });
 
   it("starts a standalone room from an unsaved canvas without a scene lookup", async () => {
-    const { consumeRoomInitializedFromCanvas } =
+    const { isCanvasInitializedForRoom } =
       await import("@/lib/collab/initialized-room-handoff");
+    const elements = [
+      { id: "draft", version: 2, versionNonce: 5, isDeleted: false },
+    ] as unknown as ReturnType<
+      CollaborationRoomDialogProps["getInitialElements"]
+    > &
+      object;
     const keyChange = vi.fn();
     const roomChange = vi.fn();
     renderDialog({
       isAuthenticated: true,
       sceneId: null,
+      getInitialElements: () => elements,
       onRoomKeyChange: keyChange,
       onRoomIdChange: roomChange,
     });
@@ -639,7 +646,8 @@ describe("collaboration room exit cache cleanup", () => {
       "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
     );
     // The join that follows must not ask to save this canvas personally.
-    expect(consumeRoomInitializedFromCanvas("ready-room")).toBe(true);
+    expect(isCanvasInitializedForRoom("ready-room", elements)).toBe(true);
+    expect(isCanvasInitializedForRoom("ready-room", [])).toBe(false);
   });
 
   it("tells a saved scene's owner that the personal cloud copy stays unencrypted", () => {
