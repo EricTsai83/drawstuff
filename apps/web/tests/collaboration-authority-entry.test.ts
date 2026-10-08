@@ -20,10 +20,15 @@ import {
   user,
   scene,
 } from "@/server/db/schema";
-import { openTestDatabase } from "./support/pglite-db";
+import { createTestDatabase, registerTestDatabase } from "./support/pglite-db";
 import { adapterFixture } from "./support/authority-adapter-fixtures";
 // PGlite uses the same generated schema and SQL; only its driver's result types differ.
-const db = openTestDatabase() as unknown as Database;
+let captureQueries: string[] | undefined;
+const databaseHandle = createTestDatabase((query) =>
+  captureQueries?.push(query),
+);
+registerTestDatabase(databaseHandle);
+const db = databaseHandle.testDb as unknown as Database;
 const secret = "identity-proof-purpose-only-test-secret";
 async function fixture() {
   const f = await adapterFixture(db);
@@ -58,6 +63,48 @@ async function fixture() {
   return { ...f, sessionId, registration };
 }
 describe("formal identity and pre-activation registration", () => {
+  it("avoids lifecycle inserts on repeated identity and source registration, while retaining row locks", async () => {
+    const f = await fixture();
+    const [source] = await db
+      .insert(scene)
+      .values({ userId: f.owner, name: "source", sceneData: "{}" })
+      .returning();
+    const linked = { ...f.registration, sceneId: source!.id };
+    await registerAuthorityCommand(db, linked);
+    const queries: string[] = [];
+    captureQueries = queries;
+    try {
+      await registerAuthorityCommand(db, linked);
+      await issueAuthorityIdentity(
+        db,
+        { subject: f.owner, sessionId: f.sessionId, roomId: f.roomId },
+        secret,
+      );
+      const lifecycleQueries = queries.filter((statement) =>
+        statement.includes('"drawstuff_collaboration_lifecycle_subject"'),
+      );
+      expect(lifecycleQueries).toHaveLength(3);
+      expect(
+        lifecycleQueries.every(
+          (statement) =>
+            statement.startsWith("select ") && statement.endsWith("for update"),
+        ),
+      ).toBe(true);
+      expect(
+        lifecycleQueries.some((statement) => statement.startsWith("insert ")),
+      ).toBe(false);
+    } finally {
+      captureQueries = undefined;
+    }
+    await db
+      .update(collaborationLifecycleSubject)
+      .set({ frozen: true })
+      .where(eq(collaborationLifecycleSubject.scope, `scene:${source!.id}`));
+    await expect(registerAuthorityCommand(db, linked)).rejects.toThrow(
+      "fence-mismatch",
+    );
+  });
+
   it("replays an existing registration while still enforcing live lifecycle and create intent", async () => {
     const f = await fixture();
     const receipt = await registerAuthorityCommand(db, f.registration);

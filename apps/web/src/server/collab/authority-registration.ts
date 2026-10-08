@@ -8,7 +8,6 @@ import {
 } from "@drawstuff/collaboration/authority";
 import {
   collaborationLifecycleRegistration,
-  collaborationLifecycleSubject,
   collaborationRoom,
   collaborationCreationFence,
   scene,
@@ -16,6 +15,7 @@ import {
 import type { Database, RoomTransaction } from "./rooms";
 import { lockRoom } from "./rooms";
 import { AdapterError } from "./authority-storage";
+import { lockOrCreateLifecycleSubject } from "./authority-lifecycle-lock";
 import { lockActiveAccount } from "./authority-identity";
 
 type Registration = Extract<AdapterCommand, { action: "register" }>;
@@ -26,15 +26,12 @@ async function lockSource(
 ): Promise<void> {
   if (!sceneId) return;
   const scope = `scene:${sceneId}`;
-  await tx
-    .insert(collaborationLifecycleSubject)
-    .values({ scope, kind: "scene", subject, sceneId })
-    .onConflictDoNothing();
-  const [lifecycle] = await tx
-    .select()
-    .from(collaborationLifecycleSubject)
-    .where(eq(collaborationLifecycleSubject.scope, scope))
-    .for("update");
+  const lifecycle = await lockOrCreateLifecycleSubject(tx, {
+    scope,
+    kind: "scene",
+    subject,
+    sceneId,
+  });
   const [source] = await tx
     .select({ userId: scene.userId })
     .from(scene)

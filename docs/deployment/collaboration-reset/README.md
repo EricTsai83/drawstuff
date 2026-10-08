@@ -501,3 +501,10 @@ Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休�
 前輪 200 筆 runner 已直接等待 upload，未重現這個產品背景上傳交錯，因此不能用本修正回填或宣稱通過原 SLO。此輪未建立 production fixtures、未改 Worker runtime／provider／DB。P3 仍待原完整保存／加入效能與其餘 L3 驗收；下一 scope 繼續處理實測 provider／網路與保存往返延遲。
 
 本輪完整 `pnpm check` 通過（附件 38／38、web 915／915），暫存測試／檢查日誌已移除，未新增拋棄式測試工具或 legacy 路徑。
+
+
+### Lifecycle 熱路徑減少 DB 往返（2026-10-08）
+
+Identity proof 與 pre-activation registration 原本每次都先 insert lifecycle（on conflict do nothing），再 select for update；既有 account／scene 的 lifecycle 改為直接鎖定，只在缺少時 insert 並重新鎖定。重新讀取才能看到 concurrent initializer／freeze 的已提交狀態，不能採用初始預設值授權。保留帳號、session、scene 的鎖順序與 frozen／retired／version／ownership 檢查，不使用跨交易快取，也不略過 registration 屏障。
+
+15 個 identity／lifecycle 測試通過，SQL 記錄證明重複 source registration 加 identity issuance 只有三個 lifecycle select for update、沒有 lifecycle insert；初次建立與 frozen 拒絕由現行測試覆蓋。此改動每個既有主體少一個 DB query，尚未證明完整保存／加入 p95 降幅；正式 account／scene 退休競態待部署後核對，P3 SLO gate 保持未通過。

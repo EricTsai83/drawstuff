@@ -11,12 +11,9 @@ import {
 } from "@drawstuff/collaboration/protocol";
 import { DEFAULT_JOIN_TOKEN_TTL_SECONDS } from "@drawstuff/collaboration/room-auth";
 import { signIdentityProof } from "@drawstuff/collaboration/room-token";
-import {
-  collaborationLifecycleSubject,
-  session,
-  user,
-} from "@/server/db/schema";
+import { session, user } from "@/server/db/schema";
 import type { Database, RoomTransaction } from "./rooms";
+import { lockOrCreateLifecycleSubject } from "./authority-lifecycle-lock";
 import { AdapterError } from "./authority-storage";
 
 /** Lock lifecycle before account/session/scene rows. Registration and future freeze use this same order. */
@@ -25,15 +22,11 @@ export async function lockActiveAccount(
   subject: string,
 ): Promise<TrustedIdentity> {
   const scope = `account:${subject}`;
-  await tx
-    .insert(collaborationLifecycleSubject)
-    .values({ scope, kind: "account", subject })
-    .onConflictDoNothing();
-  const [lifecycle] = await tx
-    .select()
-    .from(collaborationLifecycleSubject)
-    .where(eq(collaborationLifecycleSubject.scope, scope))
-    .for("update");
+  const lifecycle = await lockOrCreateLifecycleSubject(tx, {
+    scope,
+    kind: "account",
+    subject,
+  });
   if (!lifecycle || lifecycle.frozen || lifecycle.retired)
     throw new AdapterError("fence-mismatch");
   const [account] = await tx

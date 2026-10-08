@@ -640,6 +640,8 @@ HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTT
 
 已修正保存與背景附件上傳交錯：`publish` 等待相同 per-file attempt 後才進入獨立 records 驗證，避免上傳尚未完成就提前保存失敗；不增加 upload 次數、不省略保存前後驗證。38 個附件測試通過，包括 records 缺失仍不得寫 snapshot。原 200 筆 runner 本來就等待 upload，不把這項產品競態修正當作完整 SLO 通過；provider／網路與保存往返仍待改善。
 
+Lifecycle 熱路徑改為直接 select for update 既有 account／scene row，只有缺少才 insert on conflict 並重新鎖定，保留退休檢查與鎖順序；每個既有主體少一個 DB query。15 個 identity／lifecycle 測試及 query-count 驗證通過；正式 account／scene 退休競態待部署後驗證，不能宣稱完整效能 gate 通過。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。

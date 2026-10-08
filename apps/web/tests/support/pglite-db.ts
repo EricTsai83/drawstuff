@@ -17,9 +17,17 @@ export type TestDatabaseHandle = {
  * Suites that mock `@/server/db/index` build this inside `vi.hoisted` so the
  * mock factory can hand out `testDb`; everything else uses `openTestDatabase`.
  */
-export function createTestDatabase(): TestDatabaseHandle {
+export function createTestDatabase(
+  onQuery?: (query: string) => void,
+): TestDatabaseHandle {
   const pgClient = new PGlite();
-  return { pgClient, testDb: drizzle(pgClient, { schema }) };
+  return {
+    pgClient,
+    testDb: drizzle(pgClient, {
+      schema,
+      logger: onQuery ? { logQuery: onQuery } : undefined,
+    }),
+  };
 }
 
 /** Pushes the drizzle schema before the suite and closes PGlite after it. */

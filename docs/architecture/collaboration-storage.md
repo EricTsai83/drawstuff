@@ -166,3 +166,18 @@ records after publication, and confirms them again after the snapshot write.
 A deferred or failed upload can still leave records missing, in which case save
 fails and the existing bounded retry policy applies. Shared callers do not consume
 another upload attempt merely by waiting.
+
+
+### Lifecycle lock fast path
+
+Identity issuance and pre-activation registration lock each existing lifecycle
+subject directly with `SELECT ... FOR UPDATE`. They do not attempt a redundant
+`INSERT ... ON CONFLICT DO NOTHING` for every request. An absent subject uses the
+conflict-safe insert followed by a new locked read, so a concurrent initializer
+or freeze cannot be mistaken for the proposed default row. Callers still check
+frozen/retired state, identity version, account verification and source ownership,
+and retain the lifecycle-before-account/session/source lock order. No lifecycle
+result is cached between transactions. This reduces the hot path by one DB query
+per existing account or source subject; it does not establish an end-to-end SLO
+improvement. The reasoning follows PostgreSQL's [Read Committed semantics](https://www.postgresql.org/docs/17/transaction-iso.html#XACT-READ-COMMITTED)
+and [row-level locks](https://www.postgresql.org/docs/17/explicit-locking.html#LOCKING-ROWS).
