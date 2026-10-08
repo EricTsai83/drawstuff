@@ -131,3 +131,33 @@ export function createAuthorityOperation(
     return confirmed;
   };
 }
+
+const SETTLE_FIRST_DELAY_MS = 250;
+const SETTLE_MAX_DELAY_MS = 2_000;
+
+/**
+ * Re-run one operation while Room reports it pending, for up to `withinMs`.
+ * Each re-run only queries the retained intent, so nothing is sent twice.
+ */
+export async function settleAuthorityOperation(
+  run: ReturnType<typeof createAuthorityOperation>,
+  withinMs: number,
+): Promise<{ projectionPending: boolean }> {
+  const deadline = Date.now() + withinMs;
+  for (let delay = SETTLE_FIRST_DELAY_MS; ;) {
+    try {
+      return await run();
+    } catch (error) {
+      const remaining = deadline - Date.now();
+      if (
+        !(error instanceof AuthorityRoomError && error.code === "pending") ||
+        remaining <= 0
+      )
+        throw error;
+      await new Promise((resolve) =>
+        setTimeout(resolve, Math.min(delay, remaining)),
+      );
+      delay = Math.min(delay * 2, SETTLE_MAX_DELAY_MS);
+    }
+  }
+}

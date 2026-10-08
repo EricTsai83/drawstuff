@@ -3,14 +3,41 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listQuery, push, refetch } = vi.hoisted(() => ({
-  listQuery: vi.fn<() => unknown>(),
-  push: vi.fn(),
-  refetch: vi.fn(),
-}));
+const { listQuery, push, refetch, execute, invalidate, toast } = vi.hoisted(
+  () => ({
+    listQuery: vi.fn<() => unknown>(),
+    push: vi.fn(),
+    refetch: vi.fn(),
+    // Room confirms every management intent at once in these tests.
+    execute: vi.fn((input: { operationId: string }) =>
+      Promise.resolve({
+        operationId: input.operationId,
+        status: "enforced",
+        authRevision: 2,
+        authorityEpoch: 1,
+        projectionPending: false,
+      }),
+    ),
+    invalidate: vi.fn(() => Promise.resolve()),
+    toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
+  }),
+);
 
+// The in-session creation this list may be retrying.
+const { creation } = vi.hoisted(() => ({
+  creation: {
+    roomId: "87f19732-2ffa-4fbe-8456-7c221487594f",
+    start: vi.fn(),
+    cancel: vi.fn(),
+    dispose: vi.fn(),
+  },
+}));
+vi.mock("@/lib/collab/room-initialization", () => ({
+  INITIALIZATION_SETTLE_MS: 15_000,
+  createRoomInitialization: () => creation,
+}));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
-vi.mock("sonner", () => ({ toast: { info: vi.fn() } }));
+vi.mock("sonner", () => ({ toast }));
 vi.mock("@/hooks/use-app-i18n", async () => {
   const { en } = await import("@/lib/i18n/en");
   const { createAppTranslate } = await import("@/lib/i18n");
@@ -18,7 +45,10 @@ vi.mock("@/hooks/use-app-i18n", async () => {
 });
 vi.mock("@/trpc/react", () => ({
   api: {
-    useUtils: () => ({}),
+    useUtils: () => ({
+      client: { collaborationAuthority: { execute: { mutate: execute } } },
+      collaborationRoom: { list: { invalidate } },
+    }),
     collaborationRoom: { list: { useQuery: listQuery } },
   },
 }));
@@ -44,10 +74,40 @@ const render = (query: Record<string, unknown>) => {
 beforeEach(() => {
   container = document.createElement("div");
   root = createRoot(container);
-  push.mockClear();
-  refetch.mockClear();
+  document.body.appendChild(container);
+  vi.clearAllMocks();
 });
-afterEach(() => act(() => root.unmount()));
+afterEach(() => {
+  act(() => root.unmount());
+  container.remove();
+});
+
+const room = (overrides: Record<string, unknown>) => ({
+  roomId: "87f19732-2ffa-4fbe-8456-7c221487594f",
+  label: "",
+  sceneId: null,
+  status: "ready",
+  role: "owner",
+  listedAt: 1,
+  projectionVersion: 1,
+  ...overrides,
+});
+const buttonIn = (scope: ParentNode, text: string) =>
+  Array.from(scope.querySelectorAll("button")).find(
+    (button) => button.textContent === text,
+  );
+/** Base UI menus open on click and render their items in a portal. */
+const openMenu = async (row: Element) => {
+  await act(async () => {
+    row
+      .querySelector<HTMLButtonElement>('[aria-label="More options"]')
+      ?.click();
+  });
+  return (text: string) =>
+    Array.from(document.querySelectorAll('[role="menuitem"]')).find((item) =>
+      item.textContent?.includes(text),
+    ) as HTMLElement | undefined;
+};
 
 describe("collaboration room list (18C §2)", () => {
   it("reports a failed query with retry instead of an empty list", () => {
@@ -78,43 +138,201 @@ describe("collaboration room list (18C §2)", () => {
     );
   });
 
-  it("shows independent rooms with role and opens them without a key", () => {
+  it("puts unfinished creations under Needs attention, ahead of the rooms", () => {
     render({
+      isSuccess: true,
       data: {
         rooms: [
-          {
-            roomId: "room-a",
-            label: "",
-            sceneId: null,
-            status: "ready",
-            role: "owner",
-            listedAt: 2,
-            projectionVersion: 1,
-          },
-          {
-            roomId: "room-b",
+          room({ roomId: "aa000000-0000-4000-8000-000000000001" }),
+          room({
+            roomId: "bb000000-0000-4000-8000-000000000002",
             label: "Team board",
             sceneId: "scene-1",
             status: "initializing",
             role: "viewer",
-            listedAt: 1,
-            projectionVersion: 1,
-          },
+          }),
         ],
         nextCursor: null,
       },
     });
-    const rows = Array.from(container.querySelectorAll("li"));
-    expect(rows[0]?.textContent).toContain("room-a");
-    expect(rows[0]?.textContent).toContain("Independent room");
-    expect(rows[0]?.textContent).toContain("Owner");
-    expect(rows[1]?.textContent).toContain("Team board");
-    expect(rows[1]?.textContent).toContain("Linked to a personal scene");
-    expect(rows[1]?.textContent).toContain("View only");
+    const groups = Array.from(container.querySelectorAll("ul"));
+    expect(
+      groups.map((group) => group.previousElementSibling?.textContent),
+    ).toEqual(["Needs attention", "Rooms"]);
+    const [unfinished] = Array.from(groups[0]!.querySelectorAll("li"));
+    expect(unfinished?.textContent).toContain("Team board");
+    expect(unfinished?.textContent).toContain(
+      "Linked to a personal scene · View only",
+    );
+    expect(unfinished?.textContent).toContain("Creation didn't finish");
+    // Only the owner can cancel a creation.
+    expect(buttonIn(unfinished!, "Cancel room creation")).toBeUndefined();
 
-    act(() => rows[0]?.querySelector("button")?.click());
-    const target = String(push.mock.calls[0]?.[0]);
-    expect(new URL(target).searchParams.get("collab-room")).toBe("room-a");
-    expect(new URL(target).hash).toBe("");
+    const [ready] = Array.from(groups[1]!.querySelectorAll("li"));
+    expect(ready?.textContent).toContain("aa000000");
+    expect(ready?.textContent).toContain("Independent room · Owner");
+    act(() => buttonIn(ready!, "Open room")?.click());
+    const target = new URL(String(push.mock.calls[0]?.[0]));
+    expect(target.searchParams.get("collab-room")).toBe(
+      "aa000000-0000-4000-8000-000000000001",
+    );
+    expect(target.hash).toBe("");
+  });
+
+  it("cancels an owner's unfinished creation with cancel-initialization, never end-room", async () => {
+    render({
+      isSuccess: true,
+      data: { rooms: [room({ status: "initializing" })], nextCursor: null },
+    });
+    await act(async () => {
+      buttonIn(container, "Cancel room creation")?.click();
+    });
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      action: "cancel-initialization",
+      roomId: "87f19732-2ffa-4fbe-8456-7c221487594f",
+    });
+    expect(toast.success).toHaveBeenCalledWith("Room creation cancelled.");
+  });
+
+  it("ends an owned room only after confirming", async () => {
+    render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
+    const item = await openMenu(container.querySelector("li")!);
+    expect(item("Leave room")).toBeUndefined();
+    await act(async () => item("End room")?.click());
+    expect(execute).not.toHaveBeenCalled();
+    expect(document.body.textContent).toContain("End this room?");
+    await act(async () => {
+      buttonIn(document.body, "End room")?.click();
+    });
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({ action: "end-room" });
+    expect(toast.success).toHaveBeenCalledWith("Room ended.");
+  });
+
+  it("lets a member leave, without end or rotate options", async () => {
+    render({
+      isSuccess: true,
+      data: { rooms: [room({ role: "editor" })], nextCursor: null },
+    });
+    const item = await openMenu(container.querySelector("li")!);
+    expect(item("End room")).toBeUndefined();
+    expect(item("Rotate key")).toBeUndefined();
+    await act(async () => item("Leave room")?.click());
+    expect(document.body.textContent).toContain("Leave this room?");
+    await act(async () => {
+      buttonIn(
+        document.querySelector('[role="alertdialog"]')!,
+        "Leave room",
+      )?.click();
+    });
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({ action: "leave" });
+  });
+
+  it("sends rotation to the room, which needs its key", async () => {
+    render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
+    const item = await openMenu(container.querySelector("li")!);
+    await act(async () => item("Rotate key")?.click());
+    expect(execute).not.toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalledWith(
+      "Paste the room's complete link, then choose Reset room generation.",
+    );
+    expect(
+      new URL(String(push.mock.calls[0]?.[0])).searchParams.get("collab-room"),
+    ).toBe("87f19732-2ffa-4fbe-8456-7c221487594f");
+  });
+
+  it("locks every other room's management while one intent is unsettled", async () => {
+    execute.mockImplementationOnce(() => new Promise(() => undefined));
+    render({
+      isSuccess: true,
+      data: {
+        rooms: [
+          room({ roomId: "aa000000-0000-4000-8000-000000000001" }),
+          room({ roomId: "bb000000-0000-4000-8000-000000000002" }),
+          room({
+            roomId: "cc000000-0000-4000-8000-000000000003",
+            status: "initializing",
+          }),
+        ],
+        nextCursor: null,
+      },
+    });
+    const rows = () => Array.from(container.querySelectorAll("li"));
+    const ready = (id: string) =>
+      rows().find((row) => row.textContent?.includes(id))!;
+    let item = await openMenu(ready("aa000000"));
+    await act(async () => item("End room")?.click());
+    await act(async () => {
+      buttonIn(
+        document.querySelector('[role="alertdialog"]')!,
+        "End room",
+      )?.click();
+    });
+    expect(execute).toHaveBeenCalledOnce();
+    // Nothing else can be confirmed only to be dropped.
+    expect(buttonIn(container, "Cancel room creation")?.disabled).toBe(true);
+    item = await openMenu(ready("bb000000"));
+    expect(item("End room")?.hasAttribute("data-disabled")).toBe(true);
+  });
+
+  it("offers a fresh creation once its unfinished room is cancelled from the list", async () => {
+    const { AuthorityRoomError } =
+      await import("@/lib/collab/authority-client");
+    creation.start.mockRejectedValueOnce(new AuthorityRoomError("pending"));
+    const list = {
+      isSuccess: true,
+      data: {
+        rooms: [room({ roomId: creation.roomId, status: "initializing" })],
+        nextCursor: null,
+      },
+    };
+    render(list);
+    await act(async () => {
+      buttonIn(container, "Create independent room")?.click();
+    });
+    expect(buttonIn(container, "Retry initialization")).toBeDefined();
+    const row = container.querySelector("li")!;
+    await act(async () => {
+      buttonIn(row, "Cancel room creation")?.click();
+    });
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      action: "cancel-initialization",
+    });
+    expect(creation.dispose).toHaveBeenCalled();
+    expect(buttonIn(container, "Retry initialization")).toBeUndefined();
+    expect(buttonIn(container, "Create independent room")).toBeDefined();
+  });
+
+  it("locks the header's retry and cancel while a row cancellation settles", async () => {
+    const { AuthorityRoomError } =
+      await import("@/lib/collab/authority-client");
+    creation.start.mockRejectedValueOnce(new AuthorityRoomError("pending"));
+    execute.mockImplementationOnce(() => new Promise(() => undefined));
+    render({
+      isSuccess: true,
+      data: {
+        rooms: [room({ roomId: creation.roomId, status: "initializing" })],
+        nextCursor: null,
+      },
+    });
+    await act(async () => {
+      buttonIn(container, "Create independent room")?.click();
+    });
+    const header = container.querySelector("section > div")!;
+    await act(async () => {
+      buttonIn(container.querySelector("li")!, "Cancel room creation")?.click();
+    });
+    expect(buttonIn(header, "Retry initialization")?.disabled).toBe(true);
+    expect(buttonIn(header, "Cancel room creation")?.disabled).toBe(true);
+    await act(async () => {
+      buttonIn(header, "Retry initialization")?.click();
+      buttonIn(header, "Cancel room creation")?.click();
+    });
+    expect(creation.start).toHaveBeenCalledOnce();
+    expect(creation.cancel).not.toHaveBeenCalled();
   });
 });

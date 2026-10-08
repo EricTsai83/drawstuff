@@ -248,20 +248,36 @@ export const en = {
   "collaboration.rooms.create": "Create independent room",
   "collaboration.rooms.retry": "Retry initialization",
   "collaboration.rooms.open": "Open room",
-  "collaboration.rooms.initializing": "Initializing",
   "collaboration.rooms.ready": "Ready",
-  "collaboration.rooms.description":
-    "End-to-end encrypted collaboration rooms. They are stored separately from your personal cloud scenes below.",
+  "collaboration.rooms.hint":
+    "End-to-end encrypted. Open a room with its complete link — drawstuff can't recover keys. The list may lag briefly.",
+  "collaboration.rooms.needsAttention": "Needs attention",
+  "collaboration.rooms.listHeading": "Rooms",
+  "collaboration.rooms.unfinished":
+    "Creation didn't finish. It ends automatically, or cancel it now.",
+  "collaboration.rooms.copyId": "Copy room ID",
+  "collaboration.rooms.idCopied": "Room ID copied.",
+  "collaboration.rooms.rotate": "Rotate key…",
+  "collaboration.rooms.rotateHint":
+    "Paste the room's complete link, then choose Reset room generation.",
+  "collaboration.rooms.end": "End room…",
+  "collaboration.rooms.endTitle": "End this room?",
+  "collaboration.rooms.endDescription":
+    "Everyone loses access and the room's encrypted content is deleted. This can't be undone.",
+  "collaboration.rooms.endConfirm": "End room",
+  "collaboration.rooms.creationCancelled": "Room creation cancelled.",
+  "collaboration.rooms.ended": "Room ended.",
+  "collaboration.rooms.leave": "Leave room",
+  "collaboration.rooms.leaveTitle": "Leave this room?",
+  "collaboration.rooms.leaveDescription":
+    "You'll need a new invitation from its owner to return.",
+  "collaboration.rooms.left": "You left the room.",
   "collaboration.rooms.loading": "Loading rooms...",
   "collaboration.rooms.loadFailed":
     "Could not load your rooms. This does not mean you have none.",
   "collaboration.rooms.empty": "You have no collaboration rooms yet.",
   "collaboration.rooms.standalone": "Independent room",
   "collaboration.rooms.sceneLinked": "Linked to a personal scene",
-  "collaboration.rooms.syncHint":
-    "This list can lag behind. A room you just created or joined may appear later; that does not mean it failed.",
-  "collaboration.rooms.keyHint":
-    "drawstuff does not store room keys, and signing in cannot restore them. Open a room with its complete invitation link.",
   "collaboration.members": "Members",
   "collaboration.member.revoked": " (Removed)",
   "collaboration.member.makeEditor": "Allow editing",
@@ -328,6 +344,7 @@ export const en = {
     "Failed to update scene name. Please try again.",
 
   // Dashboard & Search
+  "dashboard.tabs.scenes": "My scenes",
   "dashboard.title": "Dashboard",
   "dashboard.recentlyModified": "Recently modified by you",
   "dashboard.yourScenes": "Your scenes",

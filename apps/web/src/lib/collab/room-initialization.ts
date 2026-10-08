@@ -246,6 +246,7 @@ export function createRoomInitialization(options: {
     }
   };
   return {
+    roomId,
     start,
     dispose() {
       disposed = true;

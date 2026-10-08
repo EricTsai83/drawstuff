@@ -232,19 +232,33 @@ export const zhTW = {
   "collaboration.rooms.create": "建立獨立房間",
   "collaboration.rooms.retry": "重試初始化",
   "collaboration.rooms.open": "開啟房間",
-  "collaboration.rooms.initializing": "初始化中",
   "collaboration.rooms.ready": "就緒",
-  "collaboration.rooms.description":
-    "端對端加密的共編房間，與下方的個人雲端場景分開保存。",
+  "collaboration.rooms.hint":
+    "端對端加密。請用完整連結開啟房間——drawstuff 無法找回金鑰。列表可能稍有延遲。",
+  "collaboration.rooms.needsAttention": "需要處理",
+  "collaboration.rooms.listHeading": "房間",
+  "collaboration.rooms.unfinished": "建立未完成，會自動結束，也可以現在取消。",
+  "collaboration.rooms.copyId": "複製房間 ID",
+  "collaboration.rooms.idCopied": "已複製房間 ID。",
+  "collaboration.rooms.rotate": "輪替金鑰…",
+  "collaboration.rooms.rotateHint":
+    "請貼上房間的完整連結，再選擇「重設房間世代」。",
+  "collaboration.rooms.end": "結束房間…",
+  "collaboration.rooms.endTitle": "要結束這個房間嗎？",
+  "collaboration.rooms.endDescription":
+    "所有人都會失去存取權，房間的加密內容會被刪除，且無法復原。",
+  "collaboration.rooms.endConfirm": "結束房間",
+  "collaboration.rooms.creationCancelled": "已取消建立房間。",
+  "collaboration.rooms.ended": "房間已結束。",
+  "collaboration.rooms.leave": "離開房間",
+  "collaboration.rooms.leaveTitle": "要離開這個房間嗎？",
+  "collaboration.rooms.leaveDescription": "之後需要房主重新邀請才能回來。",
+  "collaboration.rooms.left": "已離開房間。",
   "collaboration.rooms.loading": "正在載入房間...",
   "collaboration.rooms.loadFailed": "無法載入房間列表；這不代表你沒有房間。",
   "collaboration.rooms.empty": "目前還沒有共編房間。",
   "collaboration.rooms.standalone": "獨立房間",
   "collaboration.rooms.sceneLinked": "連結個人場景",
-  "collaboration.rooms.syncHint":
-    "列表可能稍有延遲；剛建立或加入的房間稍後才出現，不代表失敗。",
-  "collaboration.rooms.keyHint":
-    "drawstuff 不保存房間金鑰，登入也無法恢復。請使用完整邀請連結開啟房間。",
   "collaboration.members": "成員",
   "collaboration.member.revoked": "（已移除）",
   "collaboration.member.makeEditor": "改為可編輯",
@@ -306,6 +320,7 @@ export const zhTW = {
   "errors.failedToUpdateSceneName": "更新場景名稱失敗，請再試一次。",
 
   // 儀表板與搜尋
+  "dashboard.tabs.scenes": "我的場景",
   "dashboard.title": "場景列表",
   "dashboard.recentlyModified": "您最近修改的項目",
   "dashboard.yourScenes": "您的場景",
