@@ -628,6 +628,8 @@ HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTT
 3,961.53／4,255.83 ms，仍超過原門檻。下一步優先核對失敗 callback 狀態、socket／平台錯誤及計數限制，
 取得原因後修正並重跑完整 gate；HTTP/2 本身未解決問題，也不能以調整 SLO 消除功能失敗。
 
+第三輪加入 live tail，20 warmup＋31 formal 通過，第 32 筆在 snapshot write 失敗；callback `written`、owner socket 1006。量測期間存在另一個 Worker deployment，已標記受部署干擾，資料保存於 `docs/performance/collaboration-production-3a-http2-observability-incomplete.json`，不能當作固定部署的 200 筆驗收。734 個 tail events 中有 2 個未歸屬的 platform exception；退休後 normal／security jobs、pending content 全為 0，仍不是 failure-time occupancy。本輪清理／精確還原通過。已補部署 identity guard、HTTP status 與安全 exception 分類；下一輪工具只先 local commit，完整測量與還原後才 push，先取得穩定部署下的完整資料與失敗分類，再決定產品修正，仍不放寬 SLO。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。

@@ -416,3 +416,14 @@ Neon CLI 已登入；正式專案屬 Vercel 管理的 organization，需以 `pro
 兩輪都在第 157 筆停止，應追查計數、工作佇列、callback／socket 錯誤與平台日誌，但目前尚未證明固定容量限制。現有 512 附件／generation、4,096 operation result 等上限不能直接解釋這個位置。產品 callback 在 outcome 不明時可回 `unknown`，客戶端保留原 intent 再 query；本輪未保存實際 status，因此不能認定 ZodError 就是 `unknown` 或直接修改恢復邏輯。工具已追加只含允許 status tag 與 Zod issue code 的診斷，不記 provider body、錯誤 message 或私人識別資訊。
 
 第二輪 provider／DB／DO 清理及正常 Worker 精確還原通過，還原 version `d4c2d247-1e58-4602-af7c-c9b2812f2a47`。再次唯讀核對測試前綴的帳號、Room、附件、快照、registration、tombstone、creation fence、lifecycle subject 全為零；runtime／journal／lock 已移除。沒有 DB push／migration、方案或 region 變更。下一步先補失敗 callback／fanout 的可定位證據與平台錯誤分類，確認原因後才修改產品或重跑完整 gate；不以放寬效能門檻掩蓋功能失敗，也不將兩輪合併成 200 筆。
+
+
+### 即時觀測與部署干擾（2026-10-08）
+
+第三輪 HTTP/2 資料保存於 `docs/performance/collaboration-production-3a-http2-observability-incomplete.json`，工具 commit `3720688`。20 筆暖機與 31 筆正式樣本完整通過，第 32 筆 callback 為 `written`，隨後 snapshot write 回應未通過 HTTP 200 檢查，owner socket 已以 1006 關閉。本版尚未保存該 HTTP 狀態與平台 exception 分類，因此不能宣稱特定 HTTP 錯誤或根因。完成樣本 save p95 3,777.69 ms、join p95 4,658.91 ms；不是完整 200 筆 gate。
+
+Wrangler live tail 收到 734 個事件、51 個本輪 joined 紀錄與 2 個未能歸屬本輪的 platform exception。未保留原始訊息、URL、token、room／peer 識別資訊。Cloudflare 歷史 observability query API 回 403；這不是「平台沒有錯誤」的證據。事後 deployments API 確認量測期間 07:25:59.205792 UTC 有另一個 deployment，version `8172e3ac-d20d-4b39-84e3-327345f24a1b`，故此輪標記為受部署干擾。它可能導致 Object／長連線 reset，但未保存 exception 原因，無法證明因果；也不能以此解釋前兩輪第 157 筆失敗。
+
+退休前 PostgreSQL 本輪有 53 個附件、1 個快照。Room 退休、proof 過期與清理部署之後、刪除 storage 之前，有 106 個 content receipts、56 個 management receipts，normal／security jobs 與 pending content 均為 0。這是退休後觀測，不是失敗當下的佇列佔用，不能排除瞬時容量問題。本輪 provider／DB／DO 清理及 exact module／bindings 還原通過，正常 version `ef80133d-4b37-416e-884c-c5c9b6abe3e5`；runtime、journal、lock 已移除。
+
+測量工具接著補上 snapshot HTTP status、固定文句的 platform exception 分類與 outcome 計數；部署 guard 比較建立 fixture 前與清理前的 Worker deployment identity，變更或無法核對時 gate 一律 false。它不觀測 web deployment，也不證明 exception 的 fixture 歸屬。既有報告必須先保留到新檔名，工具會在建立 fixture 前拒絕覆寫。重跑時先 local commit 工具，待既有自動部署完成，量測與清理／還原結束後再 push main，避免此次 push 觸發部署干擾；不用改方案、環境或 DB schema。
