@@ -8,7 +8,7 @@ function Tabs({ className, ...props }: TabsPrimitive.Root.Props) {
   return (
     <TabsPrimitive.Root
       data-slot="tabs"
-      className={cn("flex min-w-0 flex-col gap-6", className)}
+      className={cn("flex min-w-0 flex-col gap-8", className)}
       {...props}
     />
   );
