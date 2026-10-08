@@ -371,3 +371,15 @@ DO acceptContent／settleContent 皆記 0ms，不能解讀為沒有 SQLite 寫�
 下一個範圍優先定位 client／edge ingress 與回應傳輸，核對 headless 量測及瀏覽器 HTTP 傳輸契約，再決定需調整測試工具或產品路徑；RPC handler 外多秒尾端仍須平台證據或重現。保存／加入 p95 超過 3,000ms，`gatePassed=false`，原 200 筆正式 gate 不變，P3 尚未通過。
 
 清理曾回 409，限定 cleaner 等待退休／fence／socket 屏障後成功；未繞過屏障。Provider／DB／DO 清理及正常 Worker 精確還原通過，還原 version `12546067-f5e1-4906-9763-0cc14f764961`，module hash／bindings 符合測試前備份。再次唯讀確認測試前綴帳號、房間、附件、快照、registration、tombstone、creation fence、lifecycle subject 全為零；runtime／journal／lock 全已移除，暫時入口回 404。沒有 DB push／migration、方案或區域變更。
+
+### P3：完整檢查與平台觀測入口核對
+
+2026-10-08 完整 `pnpm check` 通過：format、lint、typecheck、各套件測試及 Knip 全部成功，合計 2,015 個測試通過、1 個跳過；lint 保留 2 個既有 warning。首次檢查發現 `./performance` 已是公開 export，但套件契約測試的明列清單漏更新；補齊後重跑完整檢查成功。這只完成 Scope 5 的 repo 檢查，不能替代 §9 的正式環境回歸。
+
+Neon CLI 已登入；正式專案屬 Vercel 管理的 organization，需以 `projects list --org-id` 查詢，不能以個人 projects 空清單判定無權限。透過 GET `/projects/{project_id}/endpoints` 核對本機正式連線 hostname 與 endpoint 相符；2026-10-08T06:08:04.700Z 觀測到 `current_state=idle`、`suspend_timeout_seconds=0`，region 為 `aws-ap-southeast-1`，最後活動時間為 05:54:24Z。0 表示使用預設 suspend timeout，預設閒置 5 分鐘；[Neon scale-to-zero 契約](https://neon.com/docs/manage/endpoints#scale-to-zero-configuration)說明 idle 狀態與預設窗口。
+
+以上只透過平台 API 查詢，沒有連線查 PostgreSQL、修改 compute 或喚醒資料庫。單次 idle 狀態不是「無使用者、無待辦、授權週期查詢為零」的受控窗口證明，也不是跨日重進證明。GET `/consumption_history/v2/projects` 查詢本專案的 hourly compute／public network transfer 時，平台明確拒絕：`This endpoint is not available. It is included with Launch plans and above.` 因此精確用量仍需其他平台入口或資料來源；不為測試升級方案，也不能將 unavailable 解讀為零成本。
+
+以系統 curl 的 HTTP/2 請求確認 Web session 與 Worker health 公開端點均協商 HTTP/2；這只證明端點支援，不證明 Node headless runner 或真實瀏覽器的 authenticated upload／snapshot 請求使用相同傳輸契約。這部分仍需核對，正式 200 筆效能 gate 尚未重測或通過。
+
+本輪沒有新增 production 測試資源、部署臨時 Worker、DB push／migration 或修改平台設定；本機完整檢查暫存 log 已移除。下一輪仍按 Scope 3A 傳輸契約與尾端定位、3B／3C、Scope 4、Scope 5 的未完成項目執行，不因完整檢查成功而移除 18B plan。

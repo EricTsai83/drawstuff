@@ -24,6 +24,7 @@ describe("@drawstuff/collaboration package contract", () => {
       "./join-barrier",
       "./keycheck",
       "./offline-queue",
+      "./performance",
       "./protocol",
       "./protocol-conformance",
       "./rate-limit",
