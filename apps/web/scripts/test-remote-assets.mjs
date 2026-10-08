@@ -166,7 +166,8 @@ async function until(check, timeout = 20000) {
 async function connect(identity = { subject, email, lifecycleVersion: 1 }) {
   const ws = new WebSocket(`${gateway.replace(/^http/, "ws")}/v1/rooms/${roomId}/socket`, { headers: { Origin: web } });
   sockets.push(ws); ws.on("error", () => {});
-  const closed = new Promise((resolve) => ws.once("close", (code) => resolve(code)));
+  let closeCode;
+  const closed = new Promise((resolve) => ws.once("close", (code) => { closeCode = code; resolve(code); }));
   let joined;
   await new Promise((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error("Join timeout")), 15000);
@@ -176,7 +177,7 @@ async function connect(identity = { subject, email, lifecycleVersion: 1 }) {
     ws.on("message", message); ws.once("error", failed); ws.once("close", failed);
     ws.once("open", () => ws.send(JSON.stringify({ control: "join", protocolVersion: 6, roomId, token: proof(identity) })));
   });
-  return { ws, closed, joined };
+  return { ws, closed, joined, get closeCode() { return closeCode; } };
 }
 async function restoreRuntime() {
   let restoreStage = "deployment";

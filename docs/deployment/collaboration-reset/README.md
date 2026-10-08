@@ -383,3 +383,15 @@ Neon CLI 已登入；正式專案屬 Vercel 管理的 organization，需以 `pro
 以系統 curl 的 HTTP/2 請求確認 Web session 與 Worker health 公開端點均協商 HTTP/2；這只證明端點支援，不證明 Node headless runner 或真實瀏覽器的 authenticated upload／snapshot 請求使用相同傳輸契約。這部分仍需核對，正式 200 筆效能 gate 尚未重測或通過。
 
 本輪沒有新增 production 測試資源、部署臨時 Worker、DB push／migration 或修改平台設定；本機完整檢查暫存 log 已移除。下一輪仍按 Scope 3A 傳輸契約與尾端定位、3B／3C、Scope 4、Scope 5 的未完成項目執行，不因完整檢查成功而移除 18B plan。
+
+### 3A：明確協商 HTTP/2 的完整恢復量測
+
+原 runner 的 Node 24.18.0／bundled Undici 7.28.0，在真實 Web／Gateway 端點實際協商 HTTP/1.1。新增 `--performance-http2`：僅量測請求使用獨立 Undici 7.29.1 dispatcher，透過公開 `allowH2`／connector API 協商，保留 HTTP/1.1 fallback；provider SDK 清理、Cloudflare API、初始化與 WebSocket 不改 transport。只保存 web／gateway／provider 的協商協定與連線／請求數，不保存 host、URL、headers 或 secret。此 dev dependency 不改產品 runtime。
+
+此模式仍要求 20 warmup／200 正式配對樣本及原 p95／p99 門檻，包含全部新附件上傳／receipt、snapshot 保存、持久基線與附件下載／解密、即時 fanout。同步收集 snapshot 與 asset server spans，另存 HTTP/2 報告，不覆寫舊 gate 或診斷。它是持久內容完整恢復量測；產品會在加入後競速 peer／durable baseline 並在背景載入缺失圖片，因此不能把這份數字稱為真實 UI 首次可互動時間。不能為並行讀取而在 socket 訂閱前讀 baseline，否則會引入漏接編輯的窗口。
+
+第一次執行的[未完成報告](../../performance/collaboration-production-3a-http2-incomplete.json)保留工具 commit `4ed68e2`、20 warmup 與 156 筆完成樣本，第 157 筆 fanout 超過 10 秒未收到而停止。Web／Gateway／兩個 provider origin 的量測連線全部協商 h2，沒有 h1 fallback；仍不能以此證明所有瀏覽器的協定。失敗樣本未計入完成樣本的分位數，但失敗率有記錄，`completed=false`、`gatePassed=false`，不能當成 200 筆驗收。
+
+完成樣本的保存 p95 4,787.60 ms、加入 p95 5,174.01 ms；最慢保存的 snapshot client 耗時 7,111.20 ms，Gateway→DO RPC 494 ms、DB write 69.52 ms。HTTP/2 沒有消除 client／Gateway HTTP 路徑的多秒尾端，亦不能從這些區間單獨辨認 edge、傳輸或冷啟動。fanout 逾時時原工具缺少 socket state／close code，根因未確認；已補限定數值的失敗階段、socket state／close code 與已完成 client segments，socket close／error 立即使測試失敗，不增加等待期限、不重送 frame 或略過失敗。
+
+本次 provider／DB／DO 清理通過，正常 Worker 還原 version `c78b70c8-4ece-4539-8af6-6fe68782e9dd`，module hash 與 bindings 精確符合測試前備份；runtime／journal／lock 已移除。先保留失敗報告與補強後工具，再用全新限定資源重跑一次；不把兩輪拼成 200 筆或將失敗輪丟棄。

@@ -106,8 +106,10 @@ export async function runTypicalHotPerformance(c) {
     if(timings) Object.assign(timings,readServerTimings(response.headers.get("server-timing")));
     return response;
   };
+  let failureContext;
   try {
     for(let index=0;index<WARMUP+samples;index++) {
+      failureContext={warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,stage:"prepare"};
       assert(!c.interrupted(),"Performance acceptance interrupted");assert(!heartbeatError);assert.equal(owner.ws.readyState,1);
       const png=pngFixture(), fileId=createHash("sha1").update(png).digest("hex");
       const payload=encodeCollaborationAssetPayload({roomId,excalidrawFileId:fileId,mimeType:"image/png",dataUrl:`data:image/png;base64,${png.toString("base64")}`});assert(payload.ok);
@@ -119,6 +121,7 @@ export async function runTypicalHotPerformance(c) {
       const cryptoMs=performance.now()-started;
       const intent={...envelope(),kind:"asset-finalize",authGeneration:1,authorityEpoch:1,expectedRevision:0,checksum:sha256(asset.ciphertext),excalidrawFileId:fileId,cryptoVersion:1,byteLength:asset.ciphertext.byteLength};
       const uploadStart=performance.now();
+      failureContext.stage="presign";
       const presign=await measuredFetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`,{
         method:"POST",headers:{cookie,"content-type":"application/json","x-uploadthing-version":"7.7.4",...(c.serverDiagnostic ? {[PERFORMANCE_PROBE_HEADER]:issuePerformanceProbe(process.env.COLLAB_AUTHORITY_SECRET)} : {})},
         body:JSON.stringify({input:intent,files:[{name:`${runId}.bin`,type:"application/octet-stream",size:asset.ciphertext.byteLength,lastModified:Date.now()}]}),redirect:"error",signal:AbortSignal.timeout(20000),
@@ -133,6 +136,7 @@ export async function runTypicalHotPerformance(c) {
       const journalMs=performance.now()-journalStart;
       const form=new FormData();form.append("file",new File([asset.ciphertext],`${runId}.bin`,{type:"application/octet-stream"}));
       const providerStart=performance.now();
+      failureContext.stage="provider-put";
       const uploaded=await measuredFetch(signed.url,{method:"PUT",body:form,headers:{Range:"bytes=0-","x-uploadthing-version":"7.7.4"},redirect:"error",signal:AbortSignal.timeout(120000)});
       const providerHeadersMs=performance.now()-providerStart;
       const providerReceiptStart=performance.now();
@@ -150,6 +154,7 @@ export async function runTypicalHotPerformance(c) {
       const assetPendingMs=performance.now()-pendingStart;
       const uploadMs=performance.now()-uploadStart;
       const operation={...envelope(),kind:"snapshot-put",authGeneration:1,authorityEpoch:1,expectedRevision:revision,checksum:sha256(sealed.ciphertext)};
+      failureContext.stage="snapshot-write";
       const saveStart=performance.now();let written;
       const snapshotWriteTimings=c.snapshotDiagnostic ? {} : undefined;
       let snapshotAttempts=0;
@@ -161,12 +166,14 @@ export async function runTypicalHotPerformance(c) {
       assert.equal(written.revision,++revision);
       const snapshotMs=performance.now()-saveStart;
       const saveMs=performance.now()-started;
+      failureContext.stage="join";
       const joinStart=performance.now();let member;
       try {
         member=await connect(guest);assert.equal(member.joined.role,"editor");
         const joinSocketMs=performance.now()-joinStart;
         const baselineStart=performance.now();
         const snapshotReadTimings=c.snapshotDiagnostic ? {} : undefined;
+        failureContext.stage="snapshot-read";
         const response=await snapshotRequest({...envelope(),action:"read"},undefined,guest,snapshotReadTimings);assert.equal(response.status,200);
         const receipt=JSON.parse(response.headers.get(SNAPSHOT_RECEIPT_HEADER));assert.equal(receipt.revision,revision);
         const ciphertext=new Uint8Array(await response.arrayBuffer());assert.equal(sha256(ciphertext),receipt.checksum);
@@ -175,10 +182,12 @@ export async function runTypicalHotPerformance(c) {
         const joinSnapshotMs=performance.now()-baselineStart;
         const assetsStart=performance.now();
         const indexTimings=c.serverDiagnostic ? {} : undefined;
+        failureContext.stage="asset-index";
         const lookup=(await jsonPost("/v1/assets",{proof:proof(guest),request:{...envelope(),action:"read",fileIds:[fileId]}},indexTimings)).result;
         assert.equal(lookup.assets.length,1);assert.equal(lookup.assets[0].excalidrawFileId,fileId);
         const assetIndexMs=performance.now()-assetsStart;
         const downloadStart=performance.now();
+        failureContext.stage="asset-download";
         const download=await measuredFetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});assert.equal(download.status,200);
         const assetDownloadHeadersMs=performance.now()-downloadStart;
         const assetBodyStart=performance.now();
@@ -194,10 +203,19 @@ export async function runTypicalHotPerformance(c) {
         const clearFrame=new TextEncoder().encode(randomUUID());
         const frame=await realtime.seal(clearFrame,"scene");assert(frame.ok);
         const wire=encodeRelayDataFrame("scene",frame.frame), fanoutStart=performance.now();
+        failureContext={...failureContext,stage:"fanout",segments:{saveMs,presignMs,providerPutCallbackMs,snapshotMs,joinSocketMs,joinSnapshotMs,assetIndexMs,assetDownloadMs}};
+        assert.equal(owner.ws.readyState,1);assert.equal(member.ws.readyState,1);
         await new Promise((resolve,reject)=>{
-          const timer=setTimeout(()=>{member.ws.off("message",receive);reject(new Error("fanout-timeout"));},10000);
-          const receive=(data,binary)=>{if(binary && Buffer.from(data).equals(Buffer.from(wire))){clearTimeout(timer);member.ws.off("message",receive);resolve();}};
-          member.ws.on("message",receive);owner.ws.send(wire);
+          const finish=error=>{
+            clearTimeout(timer);member.ws.off("message",receive);
+            for(const socket of [owner.ws,member.ws]) {socket.off("close",failed);socket.off("error",failed);}
+            error ? reject(error) : resolve();
+          };
+          const failed=()=>finish(new Error("fanout-socket-failed"));
+          const timer=setTimeout(()=>finish(new Error("fanout-timeout")),10000);
+          const receive=(data,binary)=>{if(binary && Buffer.from(data).equals(Buffer.from(wire)))finish();};
+          for(const socket of [owner.ws,member.ws]) {socket.once("close",failed);socket.once("error",failed);}
+          member.ws.on("message",receive);owner.ws.send(wire,error=>{if(error)failed();});
         });
         const received=await realtime.open(frame.frame,"scene");assert(received.ok);assert.deepEqual(received.plaintext,clearFrame);
         const fanoutMs=performance.now()-fanoutStart, joinMs=performance.now()-joinStart;
@@ -216,6 +234,7 @@ export async function runTypicalHotPerformance(c) {
           repeated={repeatedDownloadMs:performance.now()-repeatStart,repeatedDownloadHeadersMs,repeatedDownloadBodyMs,
             firstCacheStatus:cacheStatus(download),repeatedCacheStatus:cacheStatus(response)};
         }
+        failureContext.stage="server-timings";
         const server={};
         if(c.serverDiagnostic) {
           const snapshots=c.snapshotDiagnostic ? [
@@ -236,11 +255,14 @@ export async function runTypicalHotPerformance(c) {
         const row={saveMs,joinMs,cryptoMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...(c.snapshotDiagnostic ? {snapshotAttempts} : {}),...repeated,...server};
         (index<WARMUP ? result.warmupRecords : result.records).push(row);
         report("performance-sample",{warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,saveMs:Math.round(saveMs),joinMs:Math.round(joinMs)});
+      } catch(error) {
+        result.failureDiagnostic={...failureContext,ownerSocketState:owner.ws.readyState,guestSocketState:member?.ws.readyState,ownerCloseCode:owner.closeCode,guestCloseCode:member?.closeCode};
+        throw error;
       } finally {member?.ws.terminate();if(member)await until(()=>Promise.resolve(member.ws.readyState===3));}
       if(index%10===9)await pause(1000); // No parallel bursts or extra fixture rooms.
     }
     result.completed=true;
-  } catch(error) {result.failures++;throw error;}
+  } catch(error) {result.failures++;result.failureDiagnostic??={...failureContext,ownerSocketState:owner.ws.readyState,ownerCloseCode:owner.closeCode};throw error;}
   finally {
     clearInterval(heartbeat);owner.ws.terminate();
     if(dispatcher) await dispatcher.destroy();
