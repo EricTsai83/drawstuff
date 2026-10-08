@@ -326,21 +326,57 @@ export function saveCurrentSceneWorkspaceIdToStorage(id: string): void {
 
 // ====== Signed-out draft marker ======
 
-/** Whether the canvas was left detached by a signed-out session. */
-export function hasSignedOutDraftMarker(): boolean {
-  if (!canUseLocalStorage()) return false;
+/**
+ * A canvas left detached by a signed-out session. `detachedFrom` names the
+ * cloud scene it was bound to (null when it never was); `elementIds` are the
+ * elements it held then, identifying the draft independently of its name;
+ * `kept` records that the user chose to keep editing it unsaved after signing
+ * back in.
+ */
+export type SignedOutDraftMarker = {
+  detachedFrom: string | null;
+  kept: boolean;
+  elementIds: string[];
+};
+
+export function readSignedOutDraftMarker(): SignedOutDraftMarker | null {
+  if (!canUseLocalStorage()) return null;
   try {
-    return localStorage.getItem(STORAGE_KEYS.SIGNED_OUT_DRAFT) === "true";
+    const raw = localStorage.getItem(STORAGE_KEYS.SIGNED_OUT_DRAFT);
+    if (raw === null) return null;
+    // Markers written before the scene name was recorded.
+    if (raw === "true")
+      return { detachedFrom: null, kept: false, elementIds: [] };
+    const parsed: unknown = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return null;
+    const { detachedFrom, kept, elementIds } = parsed as Record<
+      string,
+      unknown
+    >;
+    return {
+      detachedFrom:
+        typeof detachedFrom === "string" && detachedFrom ? detachedFrom : null,
+      kept: kept === true,
+      elementIds: Array.isArray(elementIds)
+        ? elementIds.filter((id): id is string => typeof id === "string")
+        : [],
+    };
   } catch (error: unknown) {
     console.error(error);
-    return false;
+    return null;
   }
 }
 
-export function setSignedOutDraftMarker(marked: boolean): void {
+export function writeSignedOutDraftMarker(
+  marker: SignedOutDraftMarker | null,
+): void {
   if (!canUseLocalStorage()) return;
   try {
-    if (marked) localStorage.setItem(STORAGE_KEYS.SIGNED_OUT_DRAFT, "true");
+    if (marker)
+      localStorage.setItem(
+        STORAGE_KEYS.SIGNED_OUT_DRAFT,
+        JSON.stringify(marker),
+      );
     else localStorage.removeItem(STORAGE_KEYS.SIGNED_OUT_DRAFT);
   } catch (error: unknown) {
     console.error(error);

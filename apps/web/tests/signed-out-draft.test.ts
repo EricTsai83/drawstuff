@@ -4,16 +4,20 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { STORAGE_KEYS } from "@/config/app-constants";
 import {
   clearLocalSceneStorage,
-  hasSignedOutDraftMarker,
-  setSignedOutDraftMarker,
+  readSignedOutDraftMarker,
+  writeSignedOutDraftMarker,
 } from "@/data/local-storage";
-import { resolveSignedOutDraftAction } from "@/hooks/excalidraw/use-signed-out-draft";
+import {
+  compareDraftLineage,
+  detachedMarker,
+  resolveSignedOutDraftAction,
+} from "@/hooks/excalidraw/use-signed-out-draft";
 
 afterEach(() => localStorage.clear());
 
 describe("resolveSignedOutDraftAction", () => {
   const base = {
-    hasMarker: true,
+    marker: { detachedFrom: "Roadmap", kept: false, elementIds: ["a"] },
     currentSceneId: undefined,
     hasContent: () => true,
   };
@@ -33,7 +37,7 @@ describe("resolveSignedOutDraftAction", () => {
       resolveSignedOutDraftAction({
         ...base,
         authState: "signed-out",
-        hasMarker: false,
+        marker: null,
         currentSceneId: "scene-x",
       }),
     ).toBe("detach");
@@ -55,12 +59,13 @@ describe("resolveSignedOutDraftAction", () => {
     ).toBe("settle");
   });
 
-  it("settles without asking when the canvas is already bound", () => {
+  it("settles once the canvas is bound to a scene, even a kept draft", () => {
     const hasContent = vi.fn(() => true);
     expect(
       resolveSignedOutDraftAction({
         ...base,
         authState: "signed-in",
+        marker: { detachedFrom: "Roadmap", kept: true, elementIds: ["a"] },
         currentSceneId: "scene-new",
         hasContent,
       }),
@@ -68,30 +73,116 @@ describe("resolveSignedOutDraftAction", () => {
     expect(hasContent).not.toHaveBeenCalled();
   });
 
+  it("does not ask again about a draft the user chose to keep", () => {
+    expect(
+      resolveSignedOutDraftAction({
+        ...base,
+        authState: "signed-in",
+        marker: { detachedFrom: "Roadmap", kept: true, elementIds: ["a"] },
+      }),
+    ).toBe("none");
+  });
+
   it("ignores a signed-in canvas that was never signed out", () => {
     expect(
       resolveSignedOutDraftAction({
         ...base,
         authState: "signed-in",
-        hasMarker: false,
+        marker: null,
       }),
     ).toBe("none");
   });
 });
 
+describe("detachedMarker", () => {
+  it("records the bound scene and its elements, starting a fresh decision", () => {
+    expect(
+      detachedMarker(
+        { detachedFrom: "Old", kept: true, elementIds: ["old"] },
+        { id: "scene-x", name: " Roadmap ", elementIds: ["a", "b"] },
+      ),
+    ).toEqual({ detachedFrom: "Roadmap", kept: false, elementIds: ["a", "b"] });
+  });
+
+  it("keeps an existing marker when no scene is bound", () => {
+    const previous = { detachedFrom: "Roadmap", kept: true, elementIds: ["a"] };
+    expect(
+      detachedMarker(previous, { id: undefined, name: "", elementIds: [] }),
+    ).toBe(previous);
+    expect(
+      detachedMarker(null, { id: undefined, name: "Draft", elementIds: ["z"] }),
+    ).toEqual({ detachedFrom: null, kept: false, elementIds: [] });
+  });
+});
+
+describe("compareDraftLineage", () => {
+  const draft = new Set(["a", "b"]);
+
+  it("is the same draft while any of its elements remain", () => {
+    expect(compareDraftLineage(draft, [{ id: "new" }, { id: "b" }])).toBe(
+      "same",
+    );
+  });
+
+  it("is replaced once a non-empty canvas holds none of them", () => {
+    expect(compareDraftLineage(draft, [{ id: "loaded" }])).toBe("replaced");
+    // Deleted originals do not count as remaining.
+    expect(
+      compareDraftLineage(draft, [
+        { id: "a", isDeleted: true },
+        { id: "loaded" },
+      ]),
+    ).toBe("replaced");
+  });
+
+  it("leaves an empty canvas undecided", () => {
+    expect(compareDraftLineage(draft, [])).toBe("empty");
+    expect(compareDraftLineage(draft, [{ id: "a", isDeleted: true }])).toBe(
+      "empty",
+    );
+  });
+});
+
 describe("signed-out draft marker", () => {
   it("round-trips through localStorage", () => {
-    expect(hasSignedOutDraftMarker()).toBe(false);
-    setSignedOutDraftMarker(true);
-    expect(localStorage.getItem(STORAGE_KEYS.SIGNED_OUT_DRAFT)).toBe("true");
-    expect(hasSignedOutDraftMarker()).toBe(true);
-    setSignedOutDraftMarker(false);
-    expect(hasSignedOutDraftMarker()).toBe(false);
+    expect(readSignedOutDraftMarker()).toBeNull();
+    writeSignedOutDraftMarker({
+      detachedFrom: "Roadmap",
+      kept: true,
+      elementIds: ["a"],
+    });
+    expect(readSignedOutDraftMarker()).toEqual({
+      detachedFrom: "Roadmap",
+      kept: true,
+      elementIds: ["a"],
+    });
+    writeSignedOutDraftMarker(null);
+    expect(localStorage.getItem(STORAGE_KEYS.SIGNED_OUT_DRAFT)).toBeNull();
+  });
+
+  it("reads markers written before the scene name was recorded", () => {
+    localStorage.setItem(STORAGE_KEYS.SIGNED_OUT_DRAFT, "true");
+    expect(readSignedOutDraftMarker()).toEqual({
+      detachedFrom: null,
+      kept: false,
+      elementIds: [],
+    });
+  });
+
+  it("treats a malformed marker as absent", () => {
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+    localStorage.setItem(STORAGE_KEYS.SIGNED_OUT_DRAFT, "{not json");
+    expect(readSignedOutDraftMarker()).toBeNull();
+    vi.restoreAllMocks();
   });
 
   it("is cleared with the rest of the local canvas", () => {
-    setSignedOutDraftMarker(true);
+    writeSignedOutDraftMarker({
+      detachedFrom: "Roadmap",
+      kept: false,
+      elementIds: ["a"],
+    });
     clearLocalSceneStorage();
-    expect(hasSignedOutDraftMarker()).toBe(false);
+    expect(readSignedOutDraftMarker()).toBeNull();
   });
 });

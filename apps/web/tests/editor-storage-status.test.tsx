@@ -35,6 +35,7 @@ const renderStatus = (
         api={null}
         isAuthenticated
         hasPersonalCloudCopy={false}
+        detachedFromSceneName={null}
         {...props}
       />,
     ),
@@ -48,6 +49,19 @@ describe("editor storage status (18C §5)", () => {
     expect(renderStatus({ hasPersonalCloudCopy: true }).textContent).toBe(
       "Personal cloud · not end-to-end encrypted",
     );
+  });
+
+  it("labels only a detached signed-out draft, naming the scene it left", () => {
+    expect(renderStatus({ detachedFromSceneName: "Roadmap" }).textContent).toBe(
+      "Unsaved · not in “Roadmap”",
+    );
+    // A saved scene's own label wins over a stale detached name.
+    expect(
+      renderStatus({
+        hasPersonalCloudCopy: true,
+        detachedFromSceneName: "Roadmap",
+      }).textContent,
+    ).toBe("Personal cloud · not end-to-end encrypted");
   });
 
   it("calls a confirmed room save an encrypted snapshot", () => {

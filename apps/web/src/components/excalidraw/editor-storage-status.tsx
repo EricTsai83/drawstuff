@@ -25,16 +25,24 @@ export function EditorStorageStatus(props: {
   isAuthenticated: boolean;
   /** Whether the personal canvas is a saved personal cloud scene. */
   hasPersonalCloudCopy: boolean;
+  /** Scene an unresolved signed-out draft was detached from, if any. */
+  detachedFromSceneName: string | null;
   compact?: boolean;
 }) {
   const { t } = useAppI18n();
-  if (!props.roomId)
-    // An unsaved canvas is stored nowhere remote, so there is nothing to label.
-    return props.hasPersonalCloudCopy ? (
+  if (!props.roomId) {
+    // An unsaved canvas is stored nowhere remote, so there is nothing to label
+    // — unless it was detached from a scene its edits are no longer in.
+    const label = props.hasPersonalCloudCopy
+      ? t("storage.personal")
+      : props.detachedFromSceneName &&
+        t("storage.detachedDraft", { name: props.detachedFromSceneName });
+    return label ? (
       <Badge variant="secondary" className="h-6 px-2.5 text-sm">
-        {t("storage.personal")}
+        {label}
       </Badge>
     ) : null;
+  }
   const roomLabel = t("storage.room", { roomId: props.roomId.slice(0, 8) });
   const statusLabel = t(`storage.room.${props.state.status}`);
   const content = (

@@ -192,13 +192,25 @@ export default function ExcalidrawEditor() {
     onSave: isRoomMode ? requestRoomSave : handleCloudUpload,
   });
 
-  const { needsDecision: hasSignedOutDraft, discardSignedOutDraft } =
-    useSignedOutDraft({
-      excalidrawAPI,
-      authState,
-      isRoomMode,
-      hasCurrentCanvasContent,
-    });
+  const {
+    needsDecision: hasSignedOutDraft,
+    detachedFromSceneName,
+    observeCanvas: observeSignedOutDraft,
+    keepSignedOutDraft,
+    discardSignedOutDraft,
+  } = useSignedOutDraft({
+    excalidrawAPI,
+    authState,
+    isRoomMode,
+    hasCurrentCanvasContent,
+  });
+  const handleEditorChange = useCallback<typeof handleCanvasChange>(
+    (elements, appState, files) => {
+      handleCanvasChange(elements, appState, files);
+      observeSignedOutDraft(elements);
+    },
+    [handleCanvasChange, observeSignedOutDraft],
+  );
 
   const { initialDataPromise, conflictDialog } = useEditorSceneLoading({
     excalidrawAPI,
@@ -289,6 +301,7 @@ export default function ExcalidrawEditor() {
       api: excalidrawAPI,
       isAuthenticated: !!session,
       hasPersonalCloudCopy: !!currentSceneId,
+      detachedFromSceneName,
     }),
     [
       isRoomMode,
@@ -301,6 +314,7 @@ export default function ExcalidrawEditor() {
       excalidrawAPI,
       session,
       currentSceneId,
+      detachedFromSceneName,
     ],
   );
 
@@ -328,7 +342,7 @@ export default function ExcalidrawEditor() {
           <ExcalidrawCanvas
             excalidrawAPI={excalidrawRefCallback}
             initialData={initialDataPromise}
-            onChange={handleCanvasChange}
+            onChange={handleEditorChange}
             onPointerUpdate={handleCollabPointerUpdate}
             // 跟隨模式:上游負責 UI(點頭像、紫色外框),這裡把自己的視角廣播給
             // 跟隨者;「自己開始/停止跟隨」走 imperative API 訂閱(room-session)。
@@ -462,8 +476,10 @@ export default function ExcalidrawEditor() {
                   hasSignedOutDraft &&
                   !isCloudUploadDialogOpen &&
                   uploadStatus !== "uploading",
+                detachedFromSceneName,
                 onChoose: (choice) => {
                   if (choice === "save") openCloudUploadDialog();
+                  else if (choice === "keep") keepSignedOutDraft();
                   else discardSignedOutDraft();
                 },
               }}

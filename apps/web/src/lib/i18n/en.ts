@@ -2,6 +2,7 @@
 // 僅由 loadAppDictionary() 以 dynamic import 載入，避免兩種語言同時進共用 client chunk。
 export const en = {
   "storage.personal": "Personal cloud · not end-to-end encrypted",
+  "storage.detachedDraft": "Unsaved · not in “{name}”",
   "storage.savePersonal": "Save to my scenes",
   "storage.room": "Encrypted room · {roomId}",
   "storage.room.pending": "Room changes awaiting save",
@@ -121,9 +122,13 @@ export const en = {
     "Signing out clears the current canvas and its images from this browser. Save your latest changes first if you want to keep them.",
   "auth.signOutConfirm.save": "Save, then sign out",
   "auth.signOutConfirm.discard": "Discard and sign out",
-  "auth.signedOutDraft.title": "Keep the canvas from while you were signed out?",
+  "auth.signedOutDraft.title":
+    "Keep the canvas from while you were signed out?",
   "auth.signedOutDraft.description":
-    "This canvas was edited while you were signed out, so it isn't part of any of your saved scenes. Save it as a new scene, or discard it.",
+    "This canvas was edited while you were signed out, so it isn't part of any of your saved scenes. Save it as a new scene, keep editing without saving, or discard it.",
+  "auth.signedOutDraft.descriptionDetached":
+    "You edited this canvas while signed out, so these changes are not in “{name}”. Save them as a new scene, keep editing without saving, or discard them.",
+  "auth.signedOutDraft.keep": "Keep editing without saving",
   "auth.signedOutDraft.save": "Save as new scene",
   "auth.signedOutDraft.discard": "Discard",
   "auth.continueWithGoogle": "Continue with Google",

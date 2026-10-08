@@ -3,6 +3,7 @@ import type { AppDictionary } from "./types";
 // 應用層繁體中文字典；satisfies 讓缺 key 或多 key 直接編譯失敗。
 export const zhTW = {
   "storage.personal": "個人雲端 · 非端對端加密",
+  "storage.detachedDraft": "未儲存 · 不在「{name}」中",
   "storage.savePersonal": "儲存至我的場景",
   "storage.room": "加密共編房間 · {roomId}",
   "storage.room.pending": "房間變更尚未保存",
@@ -117,7 +118,10 @@ export const zhTW = {
   "auth.signOutConfirm.discard": "捨棄並登出",
   "auth.signedOutDraft.title": "要保留未登入時的畫布嗎？",
   "auth.signedOutDraft.description":
-    "這份畫布是在未登入時編輯的，不屬於任何已儲存的場景。請將它存成新場景，或捨棄它。",
+    "這份畫布是在未登入時編輯的，不屬於任何已儲存的場景。你可以存成新場景、繼續編輯（不儲存），或捨棄。",
+  "auth.signedOutDraft.descriptionDetached":
+    "這些變更是在登出期間做的，沒有存進「{name}」。你可以存成新場景、繼續編輯（不儲存），或捨棄。",
+  "auth.signedOutDraft.keep": "繼續編輯，不儲存",
   "auth.signedOutDraft.save": "存成新場景",
   "auth.signedOutDraft.discard": "捨棄",
   "auth.continueWithGoogle": "使用 Google 繼續",
