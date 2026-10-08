@@ -122,7 +122,7 @@ export function RouteOverlay({ children }: { children: React.ReactNode }) {
     <Dialog open onOpenChange={(open) => !open && close()}>
       <DialogContent
         aria-label={t(titleKey)}
-        viewportClassName="fixed inset-0 z-50 overflow-x-hidden overflow-y-auto overscroll-contain"
+        viewportClassName="app-thin-scrollbar fixed inset-0 z-50 overflow-x-hidden overflow-y-auto overscroll-contain"
         className="relative top-auto left-auto mx-auto my-8 flex max-h-none min-h-[calc(100dvh-4rem)] w-4/5 max-w-none translate-x-0 translate-y-0 flex-col gap-0 overflow-visible rounded-none p-0 sm:max-w-none"
       >
         <DialogHeader

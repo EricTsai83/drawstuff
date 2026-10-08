@@ -71,6 +71,7 @@
   --card: #ffffff;
   --card-foreground: #1b1b1f;
   --popover: #ffffff;
+  --app-scroll-shadow: rgb(0 0 0 / 0.12);
   --popover-foreground: #1b1b1f;
   --primary: #6965db;
   --primary-hover: #5753d0;
@@ -120,6 +121,7 @@
   --card: #232329;
   --card-foreground: #e3e3e8;
   --popover: #232329;
+  --app-scroll-shadow: rgb(0 0 0 / 0.5);
   --popover-foreground: #e3e3e8;
   --primary: #a8a5ff;
   --primary-hover: #bbb8ff;
@@ -177,6 +179,45 @@
     padding-top: max(var(--app-safe-area-top), 1rem);
     padding-right: max(var(--app-safe-area-right), var(--app-surface-gutter));
     padding-left: max(var(--app-safe-area-left), var(--app-surface-gutter));
+  }
+
+  /* Scrolling inside a dialog, modal or menu: a thin, quiet scrollbar that
+     firms up on hover instead of the full-width system one. */
+  .app-thin-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: color-mix(in oklab, var(--foreground) 22%, transparent)
+      transparent;
+  }
+  .app-thin-scrollbar::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .app-thin-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .app-thin-scrollbar::-webkit-scrollbar-thumb {
+    border-radius: 9999px;
+    background: color-mix(in oklab, var(--foreground) 22%, transparent);
+  }
+  .app-thin-scrollbar:hover::-webkit-scrollbar-thumb {
+    background: color-mix(in oklab, var(--foreground) 38%, transparent);
+  }
+
+  /* A dialog's own scroll area also shows a soft shadow on any edge that has
+     more content beyond it, so scrolling is discoverable where the system
+     hides scrollbars (trackpads, phones). The covers scroll with the content
+     ("local") and hide each shadow once that edge is reached; pure CSS. */
+  .app-scroll-surface {
+    background:
+      linear-gradient(var(--popover) 30%, transparent) top / 100% 3rem
+        no-repeat local,
+      linear-gradient(transparent, var(--popover) 70%) bottom / 100% 3rem
+        no-repeat local,
+      linear-gradient(var(--app-scroll-shadow), transparent) top / 100%
+        0.75rem no-repeat scroll,
+      linear-gradient(transparent, var(--app-scroll-shadow)) bottom / 100%
+        0.75rem no-repeat scroll,
+      var(--popover);
   }
 
   .app-safe-footer {
