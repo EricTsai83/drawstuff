@@ -25,6 +25,43 @@ const cacheStatus = response => {
   const value=response.headers.get("cf-cache-status");
   return cacheStatuses.has(value) ? value : "unreported";
 };
+const platformErrorCodes = new Set(["FUNCTION_INVOCATION_FAILED", "FUNCTION_INVOCATION_TIMEOUT", "INTERNAL_FUNCTION_INVOCATION_TIMEOUT", "FUNCTION_THROTTLED"]);
+const uploadErrorMessages = new Map([
+  ["Failed to run middleware", "middleware-failed"],
+  ["Invalid input", "invalid-input"],
+  ["Invalid signature", "invalid-signature"],
+  ["Invalid route config", "invalid-route-config"],
+]);
+
+/** Inspect bounded error responses without retaining message text, SQL or provider metadata. */
+export async function capturePresignFailure(response) {
+  const platformCode = response.headers.get("x-vercel-error");
+  const tags = { platformError: platformErrorCodes.has(platformCode) ? platformCode : "unreported",
+    uploadThingResponse: response.headers.get("x-uploadthing-version") === "7.7.4",
+    serverTimings: readServerTimings(response.headers.get("server-timing")), bodyClass: "unclassified" };
+  if (!response.body) return tags;
+  const reader = response.body.getReader();
+  const chunks = []; let bytes = 0;
+  try {
+    while (true) {
+      const part = await reader.read(); if (part.done) break;
+      bytes += part.value.byteLength;
+      if (bytes > 65536) { tags.bodyClass = "size-limit"; await reader.cancel(); return tags; }
+      chunks.push(Buffer.from(part.value));
+    }
+    const text = Buffer.concat(chunks).toString("utf8");
+    if (response.headers.get("content-type")?.includes("application/json")) {
+      try {
+        const body = JSON.parse(text);
+        tags.bodyClass = uploadErrorMessages.get(body?.message) ?? "unclassified-json";
+      } catch { tags.bodyClass = "invalid-json"; }
+    } else {
+      for (const code of platformErrorCodes) if (text.includes(code)) { tags.bodyClass = "platform-error-page"; tags.platformError = code; break; }
+    }
+  } catch { tags.bodyClass = "body-read-failed"; }
+  finally { reader.releaseLock(); }
+  return tags;
+}
 const summary = values => {
   const sorted = values.toSorted((a,b) => a-b);
   const at = p => sorted.length ? Math.round(sorted[Math.ceil(sorted.length*p)-1]*100)/100 : null;
@@ -127,7 +164,9 @@ export async function runTypicalHotPerformance(c) {
       const presign=await measuredFetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`,{
         method:"POST",headers:{cookie,"content-type":"application/json","x-uploadthing-version":"7.7.4",...(c.serverDiagnostic ? {[PERFORMANCE_PROBE_HEADER]:issuePerformanceProbe(process.env.COLLAB_AUTHORITY_SECRET)} : {})},
         body:JSON.stringify({input:intent,files:[{name:`${runId}.bin`,type:"application/octet-stream",size:asset.ciphertext.byteLength,lastModified:Date.now()}]}),redirect:"error",signal:AbortSignal.timeout(20000),
-      });failureContext.httpStatus=presign.status;assert.equal(presign.status,200);
+      });failureContext.httpStatus=presign.status;
+      if (presign.status !== 200) failureContext.presignResponse = await capturePresignFailure(presign);
+      assert.equal(presign.status,200);
       const presignHeadersMs=performance.now()-uploadStart;
       const presignBodyStart=performance.now();
       const [signed]=await presign.json();assert.equal(typeof signed.key,"string");
