@@ -18,7 +18,7 @@ applied, including room-link initialization. All save entrances use the same bou
 | Toolbar, main menu | Save to my scenes; update the open scene or name a new one | Save/retry the room through its elected writer | Current mode's durable store |
 | Copy action, cloud export | Name a personal scene when needed | Save a named personal copy | Personal scene and independently uploaded assets |
 | Ctrl/Cmd+S | Save the personal scene | Request the elected writer to save; viewer cannot write | Current mode's durable store |
-| Persistent editor status | "Not saved to personal cloud" or "Personal cloud · not end-to-end encrypted" | Room identity, pending/saving/"encrypted snapshot saved"/failed, retry | Shared encrypted room snapshot |
+| Persistent editor status | Nothing while unsaved; "Personal cloud · not end-to-end encrypted" once saved | Room identity, pending/saving/"encrypted snapshot saved"/failed, retry | Shared encrypted room snapshot |
 | Local download | Native file export | Download local copy; explain that the file is unencrypted | Downloaded file |
 | Update original | Ordinary personal update | Separate named action for the owner whose source matches | Explicit original scene with expected revision |
 

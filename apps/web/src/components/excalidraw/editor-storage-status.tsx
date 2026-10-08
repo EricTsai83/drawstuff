@@ -29,15 +29,12 @@ export function EditorStorageStatus(props: {
 }) {
   const { t } = useAppI18n();
   if (!props.roomId)
-    return (
-      <Badge variant="secondary">
-        {t(
-          props.hasPersonalCloudCopy
-            ? "storage.personal"
-            : "storage.personalUnsaved",
-        )}
+    // An unsaved canvas is stored nowhere remote, so there is nothing to label.
+    return props.hasPersonalCloudCopy ? (
+      <Badge variant="secondary" className="h-6 px-2.5 text-sm">
+        {t("storage.personal")}
       </Badge>
-    );
+    ) : null;
   const roomLabel = t("storage.room", { roomId: props.roomId.slice(0, 8) });
   const statusLabel = t(`storage.room.${props.state.status}`);
   const content = (

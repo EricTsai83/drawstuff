@@ -44,7 +44,7 @@ const renderStatus = (
 
 describe("editor storage status (18C §5)", () => {
   it("names the storage location and its protection in visible text", () => {
-    expect(renderStatus({}).textContent).toBe("Not saved to personal cloud");
+    expect(renderStatus({}).textContent).toBe("");
     expect(renderStatus({ hasPersonalCloudCopy: true }).textContent).toBe(
       "Personal cloud · not end-to-end encrypted",
     );

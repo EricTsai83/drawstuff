@@ -626,11 +626,9 @@ describe("collaboration room exit cache cleanup", () => {
       onRoomIdChange: roomChange,
     });
     expect(container?.textContent).toContain(
-      "This does not save the canvas as a personal cloud scene.",
+      "Not saved to your personal cloud.",
     );
-    expect(container?.textContent).not.toContain(
-      "existing personal cloud scene",
-    );
+    expect(container?.textContent).not.toContain("saved personal scene");
     await act(async () => {
       Array.from(container?.querySelectorAll("button") ?? [])
         .find(
@@ -653,7 +651,7 @@ describe("collaboration room exit cache cleanup", () => {
   it("tells a saved scene's owner that the personal cloud copy stays unencrypted", () => {
     renderDialog({ isAuthenticated: true });
     expect(container?.textContent).toContain(
-      "Your existing personal cloud scene stays as it is and is not end-to-end encrypted.",
+      "Your saved personal scene stays as is, unencrypted.",
     );
   });
 

@@ -2,7 +2,6 @@
 // 僅由 loadAppDictionary() 以 dynamic import 載入，避免兩種語言同時進共用 client chunk。
 export const en = {
   "storage.personal": "Personal cloud · not end-to-end encrypted",
-  "storage.personalUnsaved": "Not saved to personal cloud",
   "storage.savePersonal": "Save to my scenes",
   "storage.room": "Encrypted room · {roomId}",
   "storage.room.pending": "Room changes awaiting save",
@@ -139,7 +138,7 @@ export const en = {
     "Sign in to create or join a collaboration room.",
   "collaboration.authChecking": "Checking sign-in status...",
   "collaboration.createDescription":
-    "Start an end-to-end encrypted room from this canvas, then share its complete link.",
+    "Start a room from this canvas. Drawings and images are end-to-end encrypted.",
   "collaboration.shareDescription":
     "Share the complete link to invite collaborators.",
   "collaboration.status.idle": "Collaborate",
@@ -165,16 +164,13 @@ export const en = {
     "The collaboration action failed. Please try again.",
   "collaboration.action.creating": "Creating...",
   "collaboration.action.start": "Start encrypted collaboration",
-  "collaboration.create.encryption":
-    "The room's canvas snapshots and images are encrypted in your browser; the server never holds the room key.",
   "collaboration.create.linkKey":
-    "The complete invitation link contains the key. Anyone with the complete link and room access can read the content.",
+    "The full link contains the key. Share it only with people you trust.",
   "collaboration.create.keyLoss":
-    "drawstuff does not store the key. If every copy of the complete link is lost, the room content cannot be opened again.",
-  "collaboration.create.noPersonalCopy":
-    "This does not save the canvas as a personal cloud scene.",
+    "We can't recover the key. If the link is lost, so is the room.",
+  "collaboration.create.noPersonalCopy": "Not saved to your personal cloud.",
   "collaboration.create.sourceCopy":
-    "Your existing personal cloud scene stays as it is and is not end-to-end encrypted.",
+    "Your saved personal scene stays as is, unencrypted.",
   "collaboration.connectionStatus": "Connection",
   "collaboration.role.owner": "Owner",
   "collaboration.role.editor": "Can edit",

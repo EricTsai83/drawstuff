@@ -3,7 +3,6 @@ import type { AppDictionary } from "./types";
 // 應用層繁體中文字典；satisfies 讓缺 key 或多 key 直接編譯失敗。
 export const zhTW = {
   "storage.personal": "個人雲端 · 非端對端加密",
-  "storage.personalUnsaved": "尚未儲存至個人雲端",
   "storage.savePersonal": "儲存至我的場景",
   "storage.room": "加密共編房間 · {roomId}",
   "storage.room.pending": "房間變更尚未保存",
@@ -131,7 +130,7 @@ export const zhTW = {
   "collaboration.authRequired": "請先登入 Drawstuff 才能建立或加入共編。",
   "collaboration.authChecking": "正在確認登入狀態…",
   "collaboration.createDescription":
-    "以目前畫布建立端對端加密的共編房間，再分享完整連結。",
+    "以目前畫布建立共編房間，畫布與圖片皆端對端加密。",
   "collaboration.shareDescription": "分享完整連結，邀請協作者加入。",
   "collaboration.status.idle": "共編",
   "collaboration.status.preparing": "準備畫布中…",
@@ -155,15 +154,11 @@ export const zhTW = {
   "collaboration.error.operationFailed": "即時共編操作失敗，請稍後再試。",
   "collaboration.action.creating": "建立中…",
   "collaboration.action.start": "開始加密共編",
-  "collaboration.create.encryption":
-    "房間的畫布快照與圖片會在瀏覽器加密後保存，服務端不持有房間金鑰。",
-  "collaboration.create.linkKey":
-    "完整邀請連結包含金鑰；持有完整連結並具房間權限者可讀取內容。",
+  "collaboration.create.linkKey": "完整連結含有金鑰，只分享給信任的人。",
   "collaboration.create.keyLoss":
-    "drawstuff 不保存金鑰；完整連結全部遺失後，房間內容將無法再開啟。",
-  "collaboration.create.noPersonalCopy": "不會自動儲存為個人雲端場景。",
-  "collaboration.create.sourceCopy":
-    "原本的個人雲端場景仍會保留，且未採端對端加密。",
+    "金鑰無法找回；連結遺失，房間也就無法再開啟。",
+  "collaboration.create.noPersonalCopy": "不會存到個人雲端。",
+  "collaboration.create.sourceCopy": "原本的個人雲端場景維持不變，且未加密。",
   "collaboration.connectionStatus": "連線狀態",
   "collaboration.role.owner": "擁有者",
   "collaboration.role.editor": "可編輯",

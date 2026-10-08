@@ -669,7 +669,6 @@ export function CollaborationRoomDialog({
           <div className="flex flex-col">
             {/* What starting a room means, shown before anything is created. */}
             <ul className="text-muted-foreground mb-3 list-disc space-y-1 pl-5 text-sm">
-              <li>{t("collaboration.create.encryption")}</li>
               <li>{t("collaboration.create.linkKey")}</li>
               <li>{t("collaboration.create.keyLoss")}</li>
               <li>
