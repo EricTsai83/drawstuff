@@ -2,8 +2,9 @@
 
 Room DO is the deployed authorization authority; PostgreSQL stores encrypted snapshots, asset
 records, fences and display projections. Source scenes are optional. See the
-[current authority contract](collaboration-authority.md); local key retention and remaining
-product flows belong to the [surface plan](../../plans/18c-collaboration-surface.md).
+[current authority contract](collaboration-authority.md). Room keys are never retained in browser
+storage (threat-model invariant 4); the product surface below is implemented, and its production
+acceptance is tracked by the [surface plan](../../plans/18c-collaboration-surface.md).
 Unfinished acceptance is tracked separately, not treated as an undeployed authority reset.
 
 ## Storage modes and destinations
@@ -17,7 +18,7 @@ applied, including room-link initialization. All save entrances use the same bou
 | Toolbar, main menu | Save to my scenes; update the open scene or name a new one | Save/retry the room through its elected writer | Current mode's durable store |
 | Copy action, cloud export | Name a personal scene when needed | Save a named personal copy | Personal scene and independently uploaded assets |
 | Ctrl/Cmd+S | Save the personal scene | Request the elected writer to save; viewer cannot write | Current mode's durable store |
-| Persistent editor status | Personal scene | Room identity, pending/saving/saved/failed, retry | Shared encrypted room snapshot |
+| Persistent editor status | "Not saved to personal cloud" or "Personal cloud · not end-to-end encrypted" | Room identity, pending/saving/"encrypted snapshot saved"/failed, retry | Shared encrypted room snapshot |
 | Local download | Native file export | Download local copy; explain that the file is unencrypted | Downloaded file |
 | Update original | Ordinary personal update | Separate named action for the owner whose source matches | Explicit original scene with expected revision |
 
@@ -36,6 +37,28 @@ it cannot hydrate the remote personal scene into a live room. The user can save 
 leave and reload the original. A successful commit updates the preserved personal canvas/revision. If it completes after
 leaving, the stale shared local canvas cache is invalidated and its old revision still protects the
 open stale canvas from silently overwriting the committed version.
+
+## Room surface
+
+- **Starting a room.** Any signed-in canvas can start an encrypted room; a missing `sceneId`
+  creates a standalone room (`sceneId: null`) and never creates a personal scene. The dialog states
+  the encryption scope, that the complete link carries the key, that a lost link cannot be
+  recovered, and either "no personal cloud copy" or "your existing personal cloud scene stays
+  unencrypted". The canvas is paused during initialization; the room is shown ready only after
+  `complete-initialization` and the key check succeed. The tab then joins without the
+  save-or-discard prompt (`initialized-room-handoff.ts`, consumed once per room) because the
+  canvas already equals the room baseline; the personal draft is still preserved as for any join.
+- **Room list.** "My rooms" is a locator only: loading, failure (with retry, never shown as
+  empty), and empty states are distinct; rows show standalone vs. scene-linked and the projected
+  role. When a confirmed initialization reports `projectionPending`, the owner is told the list is
+  still syncing; the list itself states that a newly created or joined room may appear later.
+- **Missing key.** Opening a room without its key opens the collaboration dialog with a
+  "complete invitation link" field (see threat-model invariant 4); nothing connects until a key
+  is present, so the stored snapshot is never overwritten.
+- **Notices.** Personal cloud save dialogs and export entries say personal cloud saves are not
+  end-to-end encrypted and not automatically public; local export says the file is unencrypted;
+  encrypted share links say the complete link can decrypt; publishing says anyone with the link
+  can view. No notice adds a confirmation step to saving or to Ctrl/Cmd+S.
 
 ## Cross-member durable confirmation
 

@@ -54,6 +54,10 @@ Three invariants follow:
 2. Room and derived keys never enter mutations, logs, metrics, storage metadata, or error payloads.
 3. Authorization comes from the backend; confidentiality comes from the fragment. A valid token
    without a valid room key is a supported and explicitly reported state.
+4. The browser never persists a room key or complete invitation link (no localStorage,
+   sessionStorage, IndexedDB, or cookie). A room opened from "My rooms" or on a new device asks for
+   the complete link; a pasted link is parsed in memory, applied only when its room id matches the
+   open room, and written back solely to the URL fragment. Signing in cannot restore a key.
 
 ## Untrusted-input controls
 
