@@ -20,6 +20,7 @@ import { SNAPSHOT_REQUEST_HEADER } from "@drawstuff/collaboration/authority";
 import { PERFORMANCE_PROBE_HEADER, readServerTimings } from "@drawstuff/collaboration/performance";
 import { runAccessAcceptance, faultRuntimeSource } from "./remote-access-acceptance.mjs";
 import { runTypicalHotPerformance } from "./remote-performance-acceptance.mjs";
+import { startWorkerTail } from "./remote-worker-observability.mjs";
 
 const workerDir = fileURLToPath(new URL("../../collaboration-do/", import.meta.url));
 const rootDir = fileURLToPath(new URL("../../../", import.meta.url));
@@ -99,6 +100,7 @@ let retirementCompleted = false;
 let retirementOperation;
 let faultRuntimeActive = false;
 let performanceReport;
+let workerTail;
 const sockets = [];
 for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => { interrupted = true; report("interrupt-requested-cleanup-will-run"); });
 let cfToken;
@@ -305,8 +307,11 @@ export class CollaborationRoom extends Room {
       const rows = this.ctx.storage.sql.exec<{owner:string;state:string;authority_epoch:number;fenced_epoch:number}>("SELECT owner,state,authority_epoch,fenced_epoch FROM authority_room").toArray();
       if (rows.length && (rows.length !== 1 || rows[0]!.owner !== subject || rows[0]!.state !== "ended" || rows[0]!.fenced_epoch < rows[0]!.authority_epoch)) return Response.json({cleared:false},{status:409});
       if (this.ctx.getWebSockets().length) return Response.json({cleared:false},{status:409});
+      const counts = this.ctx.storage.sql.exec<{normalJobs:number;securityJobs:number;contentReceipts:number;pendingContent:number;managementReceipts:number}>(
+        "SELECT (SELECT count(*) FROM authority_work WHERE security=0) AS normalJobs, (SELECT count(*) FROM authority_work WHERE security=1) AS securityJobs, (SELECT count(*) FROM authority_content) AS contentReceipts, (SELECT count(*) FROM authority_content WHERE terminal_at IS NULL) AS pendingContent, (SELECT count(*) FROM authority_results) AS managementReceipts"
+      ).one();
       await this.ctx.storage.deleteAlarm(); await this.ctx.storage.deleteAll(); await this.ctx.storage.sync();
-      return Response.json({cleared:(await this.ctx.storage.list()).size === 0 && await this.ctx.storage.getAlarm() === null});
+      return Response.json({cleared:(await this.ctx.storage.list()).size === 0 && await this.ctx.storage.getAlarm() === null,counts});
     });
   }
 }
@@ -335,18 +340,24 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   const token = new TextEncoder().encode(request.headers.get("authorization")?.replace(/^Bearer /,"") ?? "");
   if(secret.length < 32 || token.length !== secret.length || !timingSafeEqual(secret,token)) return new Response(null,{status:401});
   if(request.method !== "POST" || new URL(request.url).pathname !== "/internal/asset-test-cleanup") return new Response(null,{status:503});
+  const roomCounts = [];
   for(const name of roomIds){
     const result = await env.COLLABORATION_ROOM.getByName(name).fetch("https://internal.invalid/asset-test-cleanup");
-    if(!result.ok || !(await result.json() as {cleared:boolean}).cleared) return Response.json({cleared:false},{status:409});
+    if(!result.ok) return Response.json({cleared:false},{status:409});
+    const data = await result.json() as {cleared:boolean;counts:Record<string,number>};
+    if(!data.cleared) return Response.json({cleared:false},{status:409});
+    roomCounts.push(data.counts);
   }
   if(lifecycleScope){
     const result = await env.COLLABORATION_LIFECYCLE.getByName(lifecycleScope).fetch("https://internal.invalid/asset-test-cleanup");
     if(!result.ok || !(await result.json() as {cleared:boolean}).cleared) return Response.json({cleared:false},{status:409});
   }
-  return Response.json({cleared:true});
+  return Response.json({cleared:true,roomCounts});
 }} satisfies ExportedHandler<Env>;
 `;
   await writeFile(`${directory}/cleanup.ts`, cleaner, { mode: 0o600 });
+  await writeFile(`${directory}/tsconfig.json`, JSON.stringify({ extends: "../../tsconfig.json", include: ["cleanup.ts", "../../*.ts"], exclude: [] }), { mode: 0o600 });
+  await command(["exec", "tsc", "--noEmit", "--project", `${directory}/tsconfig.json`]);
   if (accessMode) {
     await writeFile(`${directory}/fault.ts`, faultRuntimeSource({ roomId, runId, gateway }), { mode: 0o600 });
     await writeFile(`${directory}/tsconfig.json`, JSON.stringify({ extends: "../../tsconfig.json", include: ["fault.ts", "../../*.ts"], exclude: [] }), { mode: 0o600 });
@@ -364,6 +375,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   const normalRuntime = await deployedRuntime(); normalRuntimeHash = digest(normalRuntime);
   await writeFile(`${directory}/restore/index.js`, normalRuntime, { mode: 0o600 });
   assert(!interrupted, "Acceptance interrupted");
+  if (http2Performance) workerTail = await startWorkerTail({ workerDir, roomIds, report });
   // Save the identifiers before the first external mutation, for recovery after process interruption.
   await saveJournal();
   await sql.begin(async (tx) => {
@@ -388,7 +400,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   let toolsUncommitted = false;
   if (performanceMode) {
     toolsUncommitted = await new Promise((resolve,reject) => {
-      const child=spawn("git",["diff","--quiet","HEAD","--","apps/web/scripts/test-remote-assets.mjs","apps/web/scripts/remote-performance-acceptance.mjs"],{cwd:rootDir,stdio:"ignore"});
+      const child=spawn("git",["diff","--quiet","HEAD","--","apps/web/scripts/test-remote-assets.mjs","apps/web/scripts/remote-performance-acceptance.mjs","apps/web/scripts/remote-worker-observability.mjs"],{cwd:rootDir,stdio:"ignore"});
       child.once("error",reject);child.once("close",code=>code===0 || code===1 ? resolve(code===1) : reject(new Error("tool-status-unavailable")));
     });
     // First DO access must originate from the real web service, as in product initialization.
@@ -467,12 +479,13 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     const toolSha256 = {
       runner: digest(await readFile(fileURLToPath(import.meta.url))),
       measurement: digest(await readFile(new URL("./remote-performance-acceptance.mjs", import.meta.url))),
+      observability: digest(await readFile(new URL("./remote-worker-observability.mjs", import.meta.url))),
     };
     await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
       diagnostic: performanceDiagnostic,
       providerDiagnostic,
       serverDiagnostic, presignDiagnostic, snapshotDiagnostic, http2: http2Performance, toolsUncommitted,
-      interrupted: () => interrupted, observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
+      interrupted: () => interrupted || Boolean(workerTail?.failed()), observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
     });
   }
   testPassed = !performanceMode || (performanceDiagnostic ? performanceReport.completed : performanceReport.gatePassed); report("attachment-initialization-passed");
@@ -483,6 +496,13 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
 } finally {
   let cleanupStage = "retirement";
   try {
+    if (performanceReport) {
+      // Read only owned fixture counts, before terminal retirement changes projection rows.
+      try {
+        const [counts] = await sql`select (select count(*) from drawstuff_collaboration_asset where room_id=${roomId}) as assets, (select count(*) from drawstuff_collaboration_snapshot where room_id=${roomId}) as snapshots`;
+        performanceReport.beforeRetirement = { assets: Number(counts.assets), snapshots: Number(counts.snapshots) };
+      } catch { report("fixture-counts-unavailable-cleanup-will-continue"); }
+    }
     if (faultRuntimeActive) {
       cleanupStage = "fault-runtime-restoring";
       try {
@@ -549,7 +569,14 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       await command(["exec", "wrangler", "deploy", `${directory}/cleanup.ts`, "--config", "wrangler.jsonc", "--keep-vars"]);
       cleanupStage = "durable-storage";
       await until(async () => {
-        try { return (await jsonPost("/internal/asset-test-cleanup", {})).cleared === true; }
+        try {
+          const result = await jsonPost("/internal/asset-test-cleanup", {});
+          if (result.cleared && performanceReport) performanceReport.afterRetirementBeforeStorageDeletion = {
+            roomCounts: result.roomCounts,
+            limitation: "Observed after end-room, expired proofs and cleanup deployment; not failure-time queue occupancy.",
+          };
+          return result.cleared === true;
+        }
         catch { await pause(15000); return false; }
       }, 180000);
     }
@@ -570,6 +597,11 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       try { await restoreRuntime(); } catch { /* Recovery journal is retained below. */ }
     } else restored = true;
     await sql.end();
+    if (workerTail) {
+      const summary = await workerTail.stop();
+      if (performanceReport) performanceReport.workerObservability = summary;
+      report("worker-tail-stopped", { deliveryConfirmed: summary.deliveryConfirmed, unexpectedExit: summary.unexpectedExit, platformEvents: summary.platformEvents });
+    }
     if (cleanupPassed && restored) { await rm(directory, { recursive: true, force: true }); await rm(journal, { force: true }); await rm(lock, { force: true }); }
     else await saveJournal();
   }

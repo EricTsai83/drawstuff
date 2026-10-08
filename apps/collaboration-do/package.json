@@ -17,6 +17,7 @@
     "secret:put": "wrangler secret put COLLAB_JOIN_TOKEN_SECRET",
     "smoke": "node scripts/smoke.mjs",
     "tail": "wrangler tail --format pretty",
+    "tail:json": "wrangler tail --format json",
     "test": "vitest run && pnpm run test:maintenance && pnpm run test:harness",
     "test:harness": "node scripts/harness-smoke.mjs",
     "typecheck": "tsc --noEmit",
