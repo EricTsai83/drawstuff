@@ -775,6 +775,58 @@ describe("encrypted collaboration asset transfer", () => {
     );
   });
 
+  it.each([false, true])(
+    "delivers fast assets ahead of a stalled download; destroy=%s",
+    async (destroy) => {
+      const alice = await harness.createAssetClient("client-alice", backend);
+      await alice.assetStore.publish([imageFile(FILE_A), imageFile(FILE_B)]);
+      let release: (() => void) | undefined;
+      const bob = await harness.createAssetClient("client-bob", backend, {
+        wrapFetch: (inner) => (input, init) => {
+          if (!requestUrl(input).endsWith("object-2"))
+            return inner(input, init);
+          return new Promise<Response>((resolve) => {
+            release = () => resolve(inner(input, init));
+          });
+        },
+      });
+      bob.session.connect();
+      harness.settle();
+      let finished = false;
+      const pending = bob.assetStore.request([FILE_A, FILE_B]).then(() => {
+        finished = true;
+      });
+      try {
+        await vi.waitFor(() => {
+          expect(release).toBeDefined();
+          expect(bob.assetTimers.pendingCount).toBe(1);
+        });
+        expect(finished).toBe(false);
+        if (destroy) bob.assetStore.destroy();
+        bob.assetTimers.advance(31);
+        expect(bob.host.addedFileBatches).toEqual([]);
+        bob.assetTimers.advance(1);
+        if (destroy) {
+          expect(bob.host.addedFileBatches).toEqual([]);
+          expect(bob.assetTimers.pendingCount).toBe(0);
+        } else {
+          await expectRendered(bob, FILE_A, dataUrlFor("w"));
+          expect(bob.host.files[FILE_B]).toBeUndefined();
+          expect(bob.host.addedFileBatches).toEqual([[FILE_A]]);
+          expect(finished).toBe(false);
+        }
+      } finally {
+        release?.();
+        await pending;
+      }
+      if (destroy) expect(bob.host.addedFileBatches).toEqual([]);
+      else {
+        expect(bob.host.files[FILE_B]?.dataURL).toBe(dataUrlFor("w"));
+        expect(bob.assetTimers.pendingCount).toBe(0);
+      }
+    },
+  );
+
   it("never uploads from a viewer session", async () => {
     const viewer = await harness.createAssetClient("client-viewer", backend, {
       role: "viewer",
@@ -883,12 +935,15 @@ describe("encrypted collaboration asset transfer", () => {
 
     const bob = await harness.createAssetClient("client-bob", backend);
     // Two overlapping requests for disjoint assets: a per-request budget would let
-    // each open its own four downloads and hold eight ciphertexts at once.
+    // each open its own budget and exceed four ciphertexts at once.
     await Promise.all([
-      bob.assetStore.request(fileIds.slice(0, 4)),
-      bob.assetStore.request(fileIds.slice(4)),
+      bob.assetStore.request(fileIds.slice(0, 5)),
+      bob.assetStore.request(fileIds.slice(5)),
     ]);
     expect(backend.peakConcurrentTransfers).toBeLessThanOrEqual(4);
+    expect(bob.host.addedFileBatches.every((batch) => batch.length <= 4)).toBe(
+      true,
+    );
     expect(Object.keys(bob.host.files).sort()).toEqual([...fileIds].sort());
   });
 

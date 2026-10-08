@@ -139,3 +139,18 @@ remain `pnpm check`; these tests are local evidence, not production latency meas
 The surface plan extends these rules to rooms without a source: omit the original-update entrance,
 retain copy/download/save semantics, and rerun the same matrix with no scene ID. Its global encryption
 notices must not weaken the cache or copy boundary above.
+
+
+### Progressive client asset delivery
+
+The client keeps a shared limit of four concurrent asset transfers. Authenticated,
+decoded images are delivered to the canvas in groups of at most four, or after a
+32 ms coalescing window. A completed lookup flushes its remaining images before
+its request resolves. A slow asset cannot hold every completed image in the lookup
+until the whole batch finishes, and the delivery queue retains at most three files
+between flushes in addition to the active transfers. Teardown cancels the delivery
+timer and drops those files; late downloads cannot apply to a departed session.
+Lookup deduplication, retry budgets, generation validation and unreadable-key
+verdicts still apply across the entire request. This improves partial rendering in
+rooms with several images; it does not reduce a single image's provider latency
+or establish that the production join/save SLO has passed.

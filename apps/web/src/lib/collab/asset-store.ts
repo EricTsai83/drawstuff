@@ -39,7 +39,8 @@ import {
  *   scene with 40 images asks once.
  * - **In flight.** Downloads and uploads run at a fixed concurrency, so a late
  *   joiner with a full room of images holds a few ciphertexts in memory instead of
- *   all of them.
+ *   all of them. Opened files are delivered in batches of at most four or after
+ *   32 ms, so a slow image does not hold back the rest of a lookup.
  * - **Bodies.** A response is read through a bounded reader against the length the
  *   record declares, so a storage endpoint that streams forever is cut off rather
  *   than buffered.

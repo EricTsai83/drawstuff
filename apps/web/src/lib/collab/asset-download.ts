@@ -43,6 +43,9 @@ import {
  * the id again, and never sooner than the backoff ceiling after the last one.
  */
 const MAX_SCHEDULED_DOWNLOAD_ATTEMPTS = 4;
+/** Coalesce fast completions, but never retain a whole lookup of plaintext. */
+const MAX_DELIVERY_BATCH = 4;
+const DELIVERY_DELAY_MS = 32;
 
 /** Per-id outcome of one transfer attempt. */
 type TransferOutcome =
@@ -118,6 +121,26 @@ export const createAssetDownloader = (
    */
   const downloading = new Map<string, Promise<void>>();
   let cancelRetry: (() => void) | undefined;
+  let cancelDelivery: (() => void) | undefined;
+  let pendingDelivery: BinaryFileData[] = [];
+  const flushDelivery = (): void => {
+    cancelDelivery?.();
+    cancelDelivery = undefined;
+    const files = pendingDelivery;
+    pendingDelivery = [];
+    if (!isDestroyed() && files.length > 0) context.onAssetsResolved(files);
+  };
+  const enqueueDelivery = (file: BinaryFileData): void => {
+    pendingDelivery.push(file);
+    if (pendingDelivery.length >= MAX_DELIVERY_BATCH) {
+      flushDelivery();
+    } else {
+      cancelDelivery ??= context.scheduleTimeout(
+        flushDelivery,
+        DELIVERY_DELAY_MS,
+      );
+    }
+  };
   /**
    * Ids awaiting a scheduled retry. Never outlives `retrying`: an entry evicted
    * there is dropped here too, or it would sit in the queue with no deadline —
@@ -391,7 +414,6 @@ export const createAssetDownloader = (
 
         for (const fileId of lookup.missing) deferRetry(fileId);
 
-        const opened: BinaryFileData[] = [];
         await Promise.all(
           lookup.assets.map((record) =>
             // Every download waits for a slot in the store-wide budget, so a
@@ -403,7 +425,7 @@ export const createAssetDownloader = (
               if (result.outcome === "resolved" && result.file) {
                 resolved.add(record.excalidrawFileId);
                 forget(record.excalidrawFileId);
-                opened.push(result.file);
+                enqueueDelivery(result.file);
                 return;
               }
               if (result.outcome === "retry") {
@@ -422,9 +444,9 @@ export const createAssetDownloader = (
           ),
         );
         if (isDestroyed()) return;
-        // One injection per batch: `addFiles` triggers an engine re-render, and a
-        // late joiner loading ten images must not cause ten of them.
-        if (opened.length > 0) context.onAssetsResolved(opened);
+        // Finish the remainder before settling the request. Earlier completions
+        // already reached the canvas even if another download in this lookup stalled.
+        flushDelivery();
       }
     } finally {
       for (const fileId of wanted) {
@@ -443,6 +465,9 @@ export const createAssetDownloader = (
     dispose() {
       cancelRetry?.();
       cancelRetry = undefined;
+      cancelDelivery?.();
+      cancelDelivery = undefined;
+      pendingDelivery = [];
       retryQueue = new Set();
       downloading.clear();
       retrying.clear();

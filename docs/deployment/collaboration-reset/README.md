@@ -479,3 +479,14 @@ Live tail 收到 2,251 events、0 platform exception；未收到不代表無錯�
 量測結束的 automated deployment guard 查詢失敗，原報告保留 `workerDeploymentUnchanged=null`，不回填或改 gate。清理後刷新 Wrangler credential，再查 deployments history：量測前最後 deployment 09:01:22.002850 UTC、第一個後續 deployment 為 09:41:54.550680 UTC 的本輪 cleaner，時段內無 deployment；補充記錄在 `postRunWorkerDeploymentHistory`。這是事後 Worker 歷史核對，web alias 僅事後觀測，不能證明整個平台持續固定。工具已在長測量後核對部署前重新取得 Wrangler credential，失敗時保留 initial deployment ID 與固定 HTTP status，不記 token／原始錯誤；本輪的 guard 失敗未保存狀態，不能斷言就是 token 過期。
 
 Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休前 221 assets／1 snapshot；退休後 content receipts 442、management receipts 225，normal／security jobs／pending content 全零，不是 failure-time occupancy。Provider／DB／DO 清理與正常 Worker exact module／bindings 還原通過，version `69902896-cc99-4b5c-a8b6-1cfea9f82c8b`。另行唯讀核對測試前綴 user／room／asset／snapshot／tombstone／registration／creation fence／lifecycle subject 全零；runtime／journal／lock 已移除。完整 `pnpm check` 通過；沒有 DB push／migration、方案／region 變更。P3 仍待效能門檻、3B／3C、跨日／閒置／成本及完整回歸結案。
+
+
+### 多圖片加入的漸進載入（2026-10-08）
+
+核對產品加入路徑後，durable／peer baseline 已競速，附件 ID 必須由解密後的元素取得；registration 是退休屏障的一部分，不能為了減少延遲略過它。找到的前端等待是同一 lookup 的所有附件下載完才一次交給畫布，慢圖片拖住已完成圖片，且已解密檔案留到整批結束。
+
+改為 store-wide 的有界交付佇列：最多四張立即交付，否則合併 32 ms；lookup 完成時交付剩餘圖片，destroy 取消 timer 並釋放待交付資料。維持原四個共享 transfer slots、去重、世代檢查、重試與不可讀判定。現有真實 crypto 的附件測試涵蓋慢下載仍 pending 時快圖片先顯示、32 ms 合併窗口、destroy 後不交付，以及重疊 lookup 的共享 transfer／交付上限。
+
+此輪改善多圖片的首次可見時間與中間資料保留，不是單張附件的完整 join latency 修復；沒有重跑相同單張圖片的 200 筆或更改舊 gate。此輪未建立 production fixture，亦未改 DB／provider／Worker runtime。P3 效能仍未結案；下一 scope 應針對原完整量測的 provider／網路區段與保存往返做可驗證改善。
+
+本輪完整 `pnpm check` 通過，附件測試 35／35、web 測試 912／912；僅保留現行測試與長期契約文件，暫存檢查日誌已移除。
