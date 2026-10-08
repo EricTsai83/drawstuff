@@ -9,3 +9,8 @@ updates:
       - /.github/actions/setup
     schedule:
       interval: weekly
+    # Bundle all action bumps into one weekly PR instead of one per action.
+    groups:
+      actions:
+        patterns:
+          - "*"
