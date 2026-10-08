@@ -35,10 +35,11 @@ const retirementMode = process.argv[4] === "--retire-scene" ? "scene" : process.
 const accessMode = process.argv[4] === "--access-recovery";
 const providerDiagnostic = process.argv[4] === "--performance-provider-diagnostic";
 const presignDiagnostic = process.argv[4] === "--performance-presign-diagnostic";
-const snapshotDiagnostic = process.argv[4] === "--performance-snapshot-diagnostic";
+const http2Performance = process.argv[4] === "--performance-http2";
+const snapshotDiagnostic = process.argv[4] === "--performance-snapshot-diagnostic" || http2Performance;
 const serverDiagnostic = process.argv[4] === "--performance-server-diagnostic" || presignDiagnostic || snapshotDiagnostic;
-const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic || serverDiagnostic;
-const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic;
+const performanceDiagnostic = process.argv[4] === "--performance-typical-hot-diagnostic" || providerDiagnostic || (serverDiagnostic && !http2Performance);
+const performanceMode = process.argv[4] === "--performance-typical-hot" || performanceDiagnostic || http2Performance;
 assert(process.argv.length <= 5 && (!process.argv[4] || failureInjection || retirementMode || accessMode || performanceMode), "Unexpected argument");
 assert.equal(gateway, "https://drawstuff-collaboration-do.ericts.workers.dev");
 assert.equal(web, "https://draw.ericts.com");
@@ -132,8 +133,8 @@ const proof = (identity = { subject, email, lifecycleVersion: 1 }, targetRoomId 
   return signIdentityProof({ v: 1, aud: "drawstuff-room-identity", protocolVersion: 6, jti: randomUUID(), iat: now, exp: now + 60, roomId: targetRoomId, identity }, process.env.COLLAB_IDENTITY_SECRET);
 };
 const envelope = (targetRoomId = roomId) => ({ v: 1, roomId: targetRoomId, operationId: randomUUID(), deadline: Date.now() + 60000 });
-async function jsonPost(path, body, timings) {
-  const response = await fetch(`${gateway}${path}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json", ...(timings ? { [PERFORMANCE_PROBE_HEADER]: "1" } : {}), ...(path === "/internal/asset-test-cleanup" ? { connection: "close" } : {}) }, body: JSON.stringify(body) });
+async function jsonPost(path, body, timings, fetchImpl = fetch) {
+  const response = await fetchImpl(`${gateway}${path}`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/json", ...(timings ? { [PERFORMANCE_PROBE_HEADER]: "1" } : {}), ...(path === "/internal/asset-test-cleanup" ? { connection: "close" } : {}) }, body: JSON.stringify(body) });
   if (response.status !== 200) report("gateway-request-refused", { path, http: response.status });
   assert.equal(response.status, 200, `${path}: HTTP ${response.status}`);
   if(timings) Object.assign(timings,readServerTimings(response.headers.get("server-timing")));
@@ -469,7 +470,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
       diagnostic: performanceDiagnostic,
       providerDiagnostic,
-      serverDiagnostic, presignDiagnostic, snapshotDiagnostic, toolsUncommitted,
+      serverDiagnostic, presignDiagnostic, snapshotDiagnostic, http2: http2Performance, toolsUncommitted,
       interrupted: () => interrupted, observe: value => { value.runtime.toolSha256 = toolSha256; performanceReport = value; },
     });
   }
@@ -580,7 +581,7 @@ if (performanceReport) {
     let output="";child.stdout.on("data", chunk=>{output+=chunk.toString();});child.once("error",reject);child.once("close",code=>code===0 ? resolve(output.trim()) : reject(new Error("commit-unavailable")));
   }));
   performanceReport.runtime.normalWorkerSha256 = normalRuntimeHash;
-  const reportName = snapshotDiagnostic ? "collaboration-production-3a-snapshot" : presignDiagnostic ? "collaboration-production-3a-presign" : serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
+  const reportName = http2Performance ? "collaboration-production-3a-http2" : snapshotDiagnostic ? "collaboration-production-3a-snapshot" : presignDiagnostic ? "collaboration-production-3a-presign" : serverDiagnostic ? "collaboration-production-3a-server" : providerDiagnostic ? "collaboration-production-3a-provider" : performanceDiagnostic ? "collaboration-production-3a-diagnostic" : "collaboration-production-3a";
   await writeFile(`${rootDir}docs/performance/${reportName}.json`, JSON.stringify(performanceReport, null, 2)+"\n");
 }
 report("result", { testPassed, cleanupPassed, restored, expectedFailureHandled });

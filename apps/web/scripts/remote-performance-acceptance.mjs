@@ -13,6 +13,8 @@ import { SNAPSHOT_REQUEST_HEADER, SNAPSHOT_RECEIPT_HEADER, contentResultSchema }
 import { createRealtimeCryptoCodec } from "@drawstuff/collaboration/realtime-crypto";
 import { encodeRelayDataFrame } from "@drawstuff/collaboration/relay-protocol";
 import { z } from "zod";
+import { Agent, buildConnector } from "undici";
+import undiciPackage from "undici/package.json" with {type:"json"};
 import { PERFORMANCE_PROBE_HEADER, readServerTimings, performanceTimingsSchema } from "@drawstuff/collaboration/performance";
 import { issuePerformanceProbe } from "../src/server/collab/performance-probe.ts";
 
@@ -51,12 +53,35 @@ function canvas(roomId,fileId,version) {
 }
 
 export async function runTypicalHotPerformance(c) {
-  const {roomId,runId,web,gateway,cookie,roomKey,snapshotKey,guest,keys,saveJournal,proof,envelope,jsonPost,connect,until,report} = c;
+  const {roomId,runId,web,gateway,cookie,roomKey,snapshotKey,guest,keys,saveJournal,proof,envelope,connect,until,report} = c;
+  // A scoped dispatcher changes only measured HTTP requests, never provider cleanup or SDK calls.
+  const transport = {requested:c.http2 ? "h2-with-h1-fallback" : "node-default",connections:{},requests:{}};
+  const category = hostname => hostname === new URL(web).hostname ? "web" : hostname === new URL(gateway).hostname ? "gateway" : "provider";
+  const connector = buildConnector({allowH2:true});
+  const dispatcher = c.http2 ? new Agent({allowH2:true,connect(options,callback) {
+    connector(options,(error,socket)=>{
+      if(!error) {
+        const label=category(options.hostname);
+        const protocol=socket.alpnProtocol === "h2" ? "h2" : socket.alpnProtocol === "http/1.1" ? "http/1.1" : "unreported";
+        const key=`${label}:${protocol}`;
+        transport.connections[key]=(transport.connections[key]??0)+1;
+      }
+      callback(error,socket);
+    });
+  }}) : undefined;
+  const measuredFetch = (url,options) => {
+    if(dispatcher) {
+      const label=category(new URL(url).hostname);
+      transport.requests[label]=(transport.requests[label]??0)+1;
+    }
+    return fetch(url,{...options,...(dispatcher ? {dispatcher} : {})});
+  };
+  const jsonPost=(path,body,timings)=>c.jsonPost(path,body,timings,measuredFetch);
   const samples = c.diagnostic ? 20 : SAMPLES;
   const result={schemaVersion:1,scope:"3A",startedAt:new Date().toISOString(),warmup:WARMUP,requiredSamples:SAMPLES,
-    purpose:c.snapshotDiagnostic ? "snapshot-latency-diagnostic" : c.presignDiagnostic ? "presign-lifecycle-diagnostic" : c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
+    purpose:c.http2 ? "http2-acceptance" : c.snapshotDiagnostic ? "snapshot-latency-diagnostic" : c.presignDiagnostic ? "presign-lifecycle-diagnostic" : c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
     scenario:"typical-hot-real-upload",snapshotPlaintextBytes:TYPICAL_BYTES,assetPlaintextBytes:null,
-    runtime:{client:process.version,protocol:6,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:Boolean(c.toolsUncommitted)},
+    runtime:{client:process.version,bundledUndici:process.versions.undici,dispatcherUndici:c.http2 ? undiciPackage.version : null,httpTransport:transport,protocol:6,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:Boolean(c.toolsUncommitted)},
     measurementBoundary:"verified principals -> Gateway -> DO -> production adapter/Neon and genuine UploadThing callback; join includes baseline, asset download/decode and socket fanout",
     limitations:[c.serverDiagnostic ? "OAuth, web proof issuance and UI application are excluded; asset presign session and rate-limit spans are measured" : "OAuth, web proof issuance/rate-limit ingress and UI application are excluded", "hot DO maintained by live presence traffic; Vercel/Neon cold starts are not independently classified", c.snapshotDiagnostic ? "asset and snapshot service/DB spans are measured; snapshot response delivery, callback dispatch, RPC handler-external waiting and provider/network attribution remain unclassified" : c.serverDiagnostic ? "asset path records service and DB transaction spans; snapshot spans, callback dispatch and provider/network attribution remain unclassified" : "client segments are measured; DO->Vercel and adapter->Neon spans require subsequent instrumentation"],
     thresholdsMs:{save:{p95:3000,p99:8000},join:{p95:3000,p99:5000}},
@@ -73,7 +98,7 @@ export async function runTypicalHotPerformance(c) {
     }).catch(()=>{heartbeatError=true;}).finally(()=>{heartbeatRunning=false;});
   },5000);
   const snapshotRequest=async(request,body,identity,timings)=>{
-    const response=await fetch(`${gateway}/v1/snapshot`,{
+    const response=await measuredFetch(`${gateway}/v1/snapshot`,{
     method:"POST",headers:{authorization:`Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`,"content-type":"application/octet-stream",
       [SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(identity),request}),...(timings ? {[PERFORMANCE_PROBE_HEADER]:"1"} : {})},
     ...(body ? {body} : {}),redirect:"error",signal:AbortSignal.timeout(20000),
@@ -94,7 +119,7 @@ export async function runTypicalHotPerformance(c) {
       const cryptoMs=performance.now()-started;
       const intent={...envelope(),kind:"asset-finalize",authGeneration:1,authorityEpoch:1,expectedRevision:0,checksum:sha256(asset.ciphertext),excalidrawFileId:fileId,cryptoVersion:1,byteLength:asset.ciphertext.byteLength};
       const uploadStart=performance.now();
-      const presign=await fetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`,{
+      const presign=await measuredFetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`,{
         method:"POST",headers:{cookie,"content-type":"application/json","x-uploadthing-version":"7.7.4",...(c.serverDiagnostic ? {[PERFORMANCE_PROBE_HEADER]:issuePerformanceProbe(process.env.COLLAB_AUTHORITY_SECRET)} : {})},
         body:JSON.stringify({input:intent,files:[{name:`${runId}.bin`,type:"application/octet-stream",size:asset.ciphertext.byteLength,lastModified:Date.now()}]}),redirect:"error",signal:AbortSignal.timeout(20000),
       });assert.equal(presign.status,200);
@@ -108,7 +133,7 @@ export async function runTypicalHotPerformance(c) {
       const journalMs=performance.now()-journalStart;
       const form=new FormData();form.append("file",new File([asset.ciphertext],`${runId}.bin`,{type:"application/octet-stream"}));
       const providerStart=performance.now();
-      const uploaded=await fetch(signed.url,{method:"PUT",body:form,headers:{Range:"bytes=0-","x-uploadthing-version":"7.7.4"},redirect:"error",signal:AbortSignal.timeout(120000)});
+      const uploaded=await measuredFetch(signed.url,{method:"PUT",body:form,headers:{Range:"bytes=0-","x-uploadthing-version":"7.7.4"},redirect:"error",signal:AbortSignal.timeout(120000)});
       const providerHeadersMs=performance.now()-providerStart;
       const providerReceiptStart=performance.now();
       assert.equal(uploaded.status,200);
@@ -154,7 +179,7 @@ export async function runTypicalHotPerformance(c) {
         assert.equal(lookup.assets.length,1);assert.equal(lookup.assets[0].excalidrawFileId,fileId);
         const assetIndexMs=performance.now()-assetsStart;
         const downloadStart=performance.now();
-        const download=await fetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});assert.equal(download.status,200);
+        const download=await measuredFetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});assert.equal(download.status,200);
         const assetDownloadHeadersMs=performance.now()-downloadStart;
         const assetBodyStart=performance.now();
         const assetBytes=new Uint8Array(await download.arrayBuffer());
@@ -181,7 +206,7 @@ export async function runTypicalHotPerformance(c) {
           // Auxiliary probe begins after the first full join/fanout timer stopped.
           // No cache headers, URL rewrites or prewarming before the measured read.
           const repeatStart=performance.now();
-          const response=await fetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});
+          const response=await measuredFetch(lookup.assets[0].url,{redirect:"error",signal:AbortSignal.timeout(20000)});
           assert.equal(response.status,200);
           const repeatedDownloadHeadersMs=performance.now()-repeatStart;
           const bodyStart=performance.now();
@@ -218,6 +243,7 @@ export async function runTypicalHotPerformance(c) {
   } catch(error) {result.failures++;throw error;}
   finally {
     clearInterval(heartbeat);owner.ws.terminate();
+    if(dispatcher) await dispatcher.destroy();
     result.finishedAt=new Date().toISOString();
     const fields=["saveMs","joinMs","cryptoMs","uploadMs","presignMs","presignHeadersMs","presignBodyMs","journalMs","providerPutCallbackMs","providerHeadersMs","providerReceiptBodyMs","assetPendingMs","snapshotMs","joinSocketMs","joinSnapshotMs","joinAssetsMs","assetIndexMs","assetDownloadMs","assetDownloadHeadersMs","assetDownloadBodyMs","assetDecodeMs","fanoutMs"];
     if(c.providerDiagnostic) fields.push("repeatedDownloadMs","repeatedDownloadHeadersMs","repeatedDownloadBodyMs");
