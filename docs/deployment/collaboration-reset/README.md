@@ -515,3 +515,20 @@ Lifecycle fast path 的完整 `pnpm check` 通過（web 916／916）。修正 co
 兩輪均確認 concurrent blocked snapshot write 的退休屏障、duplicate retirement operation、frozen create／join 拒絕、socket 在 parent deletion 前關閉、alarm 最終退休、late callback／write／rejoin 拒絕；`testPassed／cleanupPassed／restored` 全 true。這驗證本輪 account／scene 退休交錯，不是所有可能的 first-insert 排程或完整效能 gate 的證明。帳號輪 cleaner 曾短暫回 409／500，既有 bounded retry 後核對成功，未保存原始 provider／DB error 或秘密。
 
 帳號輪正常 Worker 還原 version `94f6a724-1090-45b5-86bb-8fe8729058e7`，scene 輪 `15d1af8b-78a8-4411-8c3e-ddadc37cb078`，兩輪 exact module／bindings 核對通過。Provider／DB／DO 清理成功；另行唯讀核對測試前綴 user、room、asset、snapshot、tombstone、registration、creation fence、lifecycle subject 全零。runtime／journal／lock 與本輪檢查日誌均移除。沒有 production schema migration／DB push、方案／region 變更。P3 完整延遲 gate 尚待原 20＋200 重測，其他 L3 scope 尚未結案。
+
+### Lifecycle 熱路徑改善後原契約重測（2026-10-08）
+
+保留先前完整保活報告 `collaboration-production-3a-transport-control-keepalive.json` 後，以原 20 warmup＋200 formal、相同門檻與預設 Node transport 重測。新版 web alias 在測量前及還原後皆為 READY、deployment `dpl_E14r5R1gMGCAy25vaQPbnKu99P2b`、commit `5595ce3`；這是人工前後觀察，不是連續部署監控。測量工具沒有未提交修改，runtime commit `9542361` 只有報告封存／文件變更。
+
+本輪 10:35:11–10:40:18 UTC 完成 20 warmup＋26 formal，在第 27 筆 fanout 前 owner socket 已關閉（1006），guest OPEN；附件 callback written、下載／解密已完成。Keepalive sent／ACK 19／19，Worker deployment identity 前後相同，automated guard 成功。原驗收未完成、功能 failures 1、gate false；不可把剩餘樣本排除或合併前輪報告。完整失敗證據保存於 `docs/performance/collaboration-production-3a-lifecycle-lock-incomplete.json`。
+
+| 26 筆完整樣本（非 200 筆驗收） | p50 ms | p95 ms | p99 ms |
+| --- | ---: | ---: | ---: |
+| 保存 | 3,309.99 | 4,249.95 | 4,546.85 |
+| 加入含附件／fanout | 3,347.91 | 3,637.80 | 3,656.62 |
+
+兩項 p95 仍超過 3,000 ms，但 partial quantiles 不能證明整體改善幅度或完整 p99 通過。Lifecycle register storage 的 presign／callback／snapshot write p50 為 16.82／17.04／17.06 ms；不能以不同時段、不同樣本數的結果歸因全部延遲差異。失敗時間約五分鐘不是 TTL 根因證明：目前 joined socket 的 idle budget 為 15 分鐘，runner 另送 5 秒 presence；1006 未攜帶可辨識 server verdict。Live tail 收到 306 events、零 exception，但可能抽樣／丟事件，不能證明無平台錯誤或排除網路問題。下個 scope 應補 socket close／error 的安全時間軸與失敗時連線證據，先定位斷線，再重跑完整 gate；不因前輪 200 次成功就宣稱保活已解決所有斷線。
+
+Provider／DB／DO 清理與正常 Worker module／bindings 精確還原全部通過，還原 version `f587674f-6f74-4939-be2e-6934312725d5`。另行唯讀核對八類測試前綴 DB rows 全零，runtime／journal／lock 已移除。沒有 DB push／migration、方案／region 變更，沒有新增拋棄式測試碼。P3 仍未完成。
+
+本輪完整 `pnpm check` 通過；檢查日誌已移除，未遺留測試 runtime／journal／lock。

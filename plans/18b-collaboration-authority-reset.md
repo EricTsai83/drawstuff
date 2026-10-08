@@ -642,6 +642,8 @@ HTTP 傳輸已核對：原 Node runner 實際協商 HTTP/1.1；另以 scoped HTT
 
 Lifecycle 熱路徑改為直接 select for update 既有 account／scene row，只有缺少才 insert on conflict 並重新鎖定，保留退休檢查與鎖順序；每個既有主體少一個 DB query。15 個 identity／lifecycle 測試及 query-count 驗證、完整 `pnpm check` 通過（web 916）。Commit `3499dd2` 部署後，正式 PostgreSQL account／scene blocked-write 退休競態、alarm、late callback／rejoin 全通過；兩輪 provider／DB／DO 清理與 exact module／bindings 還原，另行測試前綴 DB rows 全零。這不是所有 first-insert 排程或完整效能 gate 通過的證明；完整延遲仍需原 20＋200 重測。
 
+Lifecycle 改善後原契約重測完成 20 warmup＋26 formal，第 27 筆 fanout owner 1006、guest OPEN、callback written；keepalive 19／19 ACK、Worker deployment guard 成功。保存／加入 p95 4,249.95／3,637.80 ms，partial report `docs/performance/collaboration-production-3a-lifecycle-lock-incomplete.json` 保留全部樣本與失敗，gate false，不合併前輪。人工 web alias 前後相同但非連續監控；tail 零 exception 不能排除平台／網路問題。清理、精確還原與八類 DB 測試前綴全零已確認，沒有 DB 變更。下一 scope 先補 socket 安全時間軸／close-error 診斷定位斷線，再進行完整 20＋200；3B／3C 與其餘 P3 待驗收。
+
 ## 9. 驗收矩陣
 
 標 `[L3]` 的項目需部署環境，部署後驗收；`[L2″]` 是本機多連線 Postgres 的部署前必要 gate。
