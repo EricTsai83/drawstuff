@@ -332,7 +332,7 @@ describe("authenticated binary snapshot web ingress", () => {
     };
     expect((await POST(http(reset))).status).toBe(200);
     upstream.mockResolvedValueOnce(
-      Response.json({ ok: false, code: "forbidden" }, { status: 403 }),
+      Response.json({ error: "forbidden" }, { status: 403 }),
     );
     const refused = await POST(http(f.request, f.bytes));
     expect(refused.status).toBe(403);
@@ -373,7 +373,7 @@ describe("authenticated binary snapshot web ingress", () => {
   it("preserves reset absence watermarks and forwards pending/query/cancel without spending write budgets", async () => {
     upstream.mockResolvedValue(
       Response.json(
-        { ok: false, code: "not-found" },
+        { error: "not-found" },
         {
           status: 404,
           headers: {
@@ -418,7 +418,7 @@ describe("authenticated binary snapshot web ingress", () => {
         headers: { "content-type": "application/json" },
       }),
       Response.json(
-        { ok: false, code: "forbidden", secret: "private-secret" },
+        { error: "forbidden", secret: "private-secret" },
         { status: 403 },
       ),
       new Response(null, { status: 302 }),

@@ -1,6 +1,7 @@
 import "server-only";
 import { createHash } from "node:crypto";
 import { TRPCError } from "@trpc/server";
+import { z } from "zod";
 import {
   ADAPTER_METADATA_MAX_BYTES,
   AUTHORITY_LIMITS,
@@ -40,6 +41,13 @@ import { AdapterError } from "./authority-storage";
 import { collaborationRoomsDisabled } from "./relay-routing";
 
 const noStore = { "cache-control": "no-store" };
+/**
+ * Room refuses with `{ error }` (collaboration-do `closedJsonResponse`); the
+ * browser-facing `{ ok: false, code }` shape is this route's own.
+ */
+const upstreamSnapshotErrorSchema = z.strictObject({
+  error: snapshotHttpErrorSchema.shape.code,
+});
 const digest = (bytes: Uint8Array) =>
   createHash("sha256").update(bytes).digest("hex");
 
@@ -287,10 +295,10 @@ export async function handleSnapshotHttp(request: Request): Promise<Response> {
         [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify(result.receipt),
       };
       if (!result.found) {
-        const error = snapshotHttpErrorSchema.parse(
+        const error = upstreamSnapshotErrorSchema.parse(
           await readSnapshotHttpJson(upstream, signal),
         );
-        if (error.code !== "not-found") throw new Error("invalid-absence");
+        if (error.error !== "not-found") throw new Error("invalid-absence");
         return Response.json(
           { ok: false, code: "not-found" },
           { status: 404, headers },
@@ -310,11 +318,11 @@ export async function handleSnapshotHttp(request: Request): Promise<Response> {
     if (upstream.status !== 200) {
       const allowed = [400, 401, 403, 404, 409, 413, 429, 503];
       if (!allowed.includes(upstream.status)) throw new Error("invalid-status");
-      const error = snapshotHttpErrorSchema.parse(
+      const error = upstreamSnapshotErrorSchema.parse(
         await readSnapshotHttpJson(upstream, signal),
       );
       // Never forward upstream cookies, capabilities, arbitrary fields or headers.
-      throw new SnapshotHttpError(upstream.status, error.code);
+      throw new SnapshotHttpError(upstream.status, error.error);
     }
     if (input.action === "read") throw new Error("invalid-response");
     const result = contentResultSchema.parse(
