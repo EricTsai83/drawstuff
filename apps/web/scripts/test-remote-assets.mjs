@@ -508,6 +508,10 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   try {
     if (performanceReport) {
       try {
+        // Long runs can outlive the token captured at startup. Ask Wrangler
+        // for its current credential before checking deployment identity.
+        const auth = JSON.parse(await command(["exec", "wrangler", "auth", "token", "--json"]));
+        cfToken = auth.token ?? auth.oauth_token ?? auth.api_token; assert(cfToken);
         const deployments = (await cfGet("/workers/scripts/drawstuff-collaboration-do/deployments")).deployments;
         const unchanged = Array.isArray(deployments) && deployments[0]?.id === initialDeploymentId;
         performanceReport.measurementValidity = {
@@ -516,10 +520,11 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
           limitation: "Compares deployment identity before fixture creation and before cleanup; web deployments are not independently observed.",
         };
         if (!unchanged) { testPassed = false; performanceReport.gatePassed = false; report("performance-worker-deployment-changed"); }
-      } catch {
+      } catch (error) {
         testPassed = false; performanceReport.gatePassed = false;
-        performanceReport.measurementValidity = { workerDeploymentUnchanged: null };
-        report("performance-deployment-unverified");
+        const httpStatus = error instanceof Error ? error.message.match(/^Cloudflare HTTP (\d{3})$/)?.[1] : undefined;
+        performanceReport.measurementValidity = { initialDeploymentId, workerDeploymentUnchanged: null, ...(httpStatus ? {httpStatus:Number(httpStatus)} : {}) };
+        report("performance-deployment-unverified", httpStatus ? {httpStatus:Number(httpStatus)} : {});
       }
       // Read only owned fixture counts, before terminal retirement changes projection rows.
       try {

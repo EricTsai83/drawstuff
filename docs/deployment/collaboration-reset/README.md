@@ -459,3 +459,23 @@ Live tail 收到 2,254 個事件，0 platform exception；tail 可能漏送／�
 Live tail 收到 2,251 events、0 platform exception；未收到不代表無錯誤。退休前 166 assets／1 snapshot，退休後 normal／security jobs 與 pending content 全零；此計數不是 failure-time occupancy。Provider／DB／DO 清理與 exact module／bindings 還原通過，正常 Worker version `1abb2c23-454e-4c5b-9e57-9fb1ef870226`；runtime／journal／lock 已移除。
 
 程式核對發現 shared transport 未送出既定的 15 秒 keepalive，Worker 已設定 byte-exact auto-response。現已補 client 在 joined 後送出 keepalive，disconnect、remote close、protocol failure 與 close 都清除 timer；送出失敗回報 transient，ACK 可省略、不作失敗判定。此訊息不經 crypto、不算 room activity、不延長 idle deadline。測量工具同步加入相同 keepalive 與安全的送出／ACK 計數，仍保留 5 秒 presence 以符合原 hot-DO 情境；不重試失敗樣本或修改 SLO。Transport lifecycle 測試已通過；是否改善正式環境斷線及完整 gate，必須由下一輪實測判定。
+
+
+### 保活後的完整 200 筆對照（2026-10-08）
+
+`collaboration-production-3a-transport-control.json`（commit `4f7172b`）在 09:10:30–09:40:16 UTC 完成 20 warmup＋200 formal，功能 failures 0、keepalive sent／ACK 118／118，通過前幾輪第 145／153／157 筆的位置。這證明本輪 Node harness 的保活與完整流程成功，並不證明先前 1006／presign 500 的全部根因，也不包含新版 web UI 實際操作驗收；client lifecycle 由 shared transport 測試驗證。
+
+| 完整樣本（ms） | p50 | p95 | p99 | max |
+| --- | --- | --- | --- | --- |
+| 保存（附件＋快照） | 3,874.12 | 4,916.57 | 6,048.45 | 7,545.12 |
+| 加入（完整恢復＋fanout） | 3,761.81 | 4,472.73 | 5,142.71 | 9,061.08 |
+| Presign | 459.08 | 759.30 | 1,668.82 | 3,291.07 |
+| PUT＋callback receipt | 2,010.64 | 2,457.43 | 3,069.20 | 3,478.33 |
+| Snapshot 保存 | 1,325.81 | 1,786.90 | 2,163.59 | 3,168.29 |
+| 首次附件下載 | 1,721.46 | 1,979.69 | 3,081.77 | 6,664.37 |
+
+原 save p95 3,000／p99 8,000、join p95 3,000／p99 5,000 ms 門檻保持，`gatePassed=false`：保存 p95、加入 p95／p99 超標。最慢加入第 93 筆的 9,061.08 ms 中，附件下載 6,664.37 ms（headers 5,789.13 ms）；最慢保存第 69 筆 7,545.12 ms，presign 3,291.07 ms、PUT＋receipt 2,914.05 ms、snapshot 1,335.49 ms，web route upload handler 285.66 ms。不能把 presign client 剩餘時間全歸給特定 provider／網路，也不能把不同區段的 p95 相加。下一個效能 scope 優先核對產品 join 的可並行區段與 provider／網路往返，維持 free／sea1，仍不放寬 SLO。
+
+量測結束的 automated deployment guard 查詢失敗，原報告保留 `workerDeploymentUnchanged=null`，不回填或改 gate。清理後刷新 Wrangler credential，再查 deployments history：量測前最後 deployment 09:01:22.002850 UTC、第一個後續 deployment 為 09:41:54.550680 UTC 的本輪 cleaner，時段內無 deployment；補充記錄在 `postRunWorkerDeploymentHistory`。這是事後 Worker 歷史核對，web alias 僅事後觀測，不能證明整個平台持續固定。工具已在長測量後核對部署前重新取得 Wrangler credential，失敗時保留 initial deployment ID 與固定 HTTP status，不記 token／原始錯誤；本輪的 guard 失敗未保存狀態，不能斷言就是 token 過期。
+
+Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休前 221 assets／1 snapshot；退休後 content receipts 442、management receipts 225，normal／security jobs／pending content 全零，不是 failure-time occupancy。Provider／DB／DO 清理與正常 Worker exact module／bindings 還原通過，version `69902896-cc99-4b5c-a8b6-1cfea9f82c8b`。另行唯讀核對測試前綴 user／room／asset／snapshot／tombstone／registration／creation fence／lifecycle subject 全零；runtime／journal／lock 已移除。完整 `pnpm check` 通過；沒有 DB push／migration、方案／region 變更。P3 仍待效能門檻、3B／3C、跨日／閒置／成本及完整回歸結案。
