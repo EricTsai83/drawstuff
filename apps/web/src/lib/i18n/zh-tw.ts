@@ -253,10 +253,10 @@ export const zhTW = {
   "collaboration.rooms.unfinished": "建立未完成，會自動結束，也可以現在取消。",
   "collaboration.rooms.copyId": "複製房間 ID",
   "collaboration.rooms.idCopied": "已複製房間 ID。",
-  "collaboration.rooms.rotate": "重設連結…",
+  "collaboration.rooms.rotate": "重設連結",
   "collaboration.rooms.rotateHint":
     "請貼上房間的完整連結，再選擇「重設連結」。",
-  "collaboration.rooms.end": "結束房間…",
+  "collaboration.rooms.end": "結束房間",
   "collaboration.rooms.endTitle": "要結束這個房間嗎？",
   "collaboration.rooms.endDescription":
     "所有人都會失去存取權，房間的加密內容會被刪除，且無法復原。",
@@ -272,9 +272,9 @@ export const zhTW = {
   "collaboration.rooms.empty": "目前還沒有共編房間。",
   "collaboration.rooms.standalone": "獨立房間",
   "collaboration.rooms.sceneLinked": "連結個人場景",
-  "collaboration.action.end": "結束房間…",
-  "collaboration.action.rotate": "重設連結…",
-  "collaboration.action.leave": "離開房間…",
+  "collaboration.action.end": "結束房間",
+  "collaboration.action.rotate": "重設連結",
+  "collaboration.action.leave": "離開房間",
   "collaboration.failure.unauthorized":
     "你已無法存取這個 room，請向擁有者索取新邀請。",
   "collaboration.failure.membershipRevoked": "你的共編權限已被移除。",

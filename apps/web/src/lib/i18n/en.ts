@@ -271,10 +271,10 @@ export const en = {
     "Creation didn't finish. It ends automatically, or cancel it now.",
   "collaboration.rooms.copyId": "Copy room ID",
   "collaboration.rooms.idCopied": "Room ID copied.",
-  "collaboration.rooms.rotate": "Reset link…",
+  "collaboration.rooms.rotate": "Reset link",
   "collaboration.rooms.rotateHint":
     "Paste the room's complete link, then choose Reset link.",
-  "collaboration.rooms.end": "End room…",
+  "collaboration.rooms.end": "End room",
   "collaboration.rooms.endTitle": "End this room?",
   "collaboration.rooms.endDescription":
     "Everyone loses access and the room's encrypted content is deleted. This can't be undone.",
@@ -292,9 +292,9 @@ export const en = {
   "collaboration.rooms.empty": "You have no collaboration rooms yet.",
   "collaboration.rooms.standalone": "Independent room",
   "collaboration.rooms.sceneLinked": "Linked to a personal scene",
-  "collaboration.action.end": "End room…",
-  "collaboration.action.rotate": "Reset link…",
-  "collaboration.action.leave": "Leave room…",
+  "collaboration.action.end": "End room",
+  "collaboration.action.rotate": "Reset link",
+  "collaboration.action.leave": "Leave room",
   "collaboration.failure.unauthorized":
     "You no longer have access to this room. Ask the owner for a new invitation.",
   "collaboration.failure.membershipRevoked":

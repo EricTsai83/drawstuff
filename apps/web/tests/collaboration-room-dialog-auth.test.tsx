@@ -545,7 +545,7 @@ describe("collaboration room exit cache cleanup", () => {
       const label = operation === "ending" ? "End room" : "Leave room";
       await act(async () => {
         const button = Array.from(container!.querySelectorAll("button")).find(
-          (button) => button.textContent === `${label}…`,
+          (button) => button.textContent === label,
         );
         expect(button).toBeDefined();
         button?.click();
@@ -817,7 +817,7 @@ describe("share room dialog", () => {
   it("resets the link only after its consequences are confirmed", async () => {
     roomGetUseQuery.mockReturnValue(managed());
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    await act(async () => buttonWith(container!, "Reset link…")?.click());
+    await act(async () => buttonWith(container!, "Reset link")?.click());
     expect(createMutate).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(
       "The current link stops working and everyone is disconnected.",
@@ -834,9 +834,9 @@ describe("share room dialog", () => {
     roomGetUseQuery.mockReturnValue(managed({ role: "editor", allowlist: [] }));
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
     expect(container!.querySelector("#collab-allow-email")).toBeNull();
-    expect(buttonWith(container!, "Reset link…")).toBeUndefined();
-    expect(buttonWith(container!, "End room…")).toBeUndefined();
-    expect(buttonWith(container!, "Leave room…")).toBeDefined();
+    expect(buttonWith(container!, "Reset link")).toBeUndefined();
+    expect(buttonWith(container!, "End room")).toBeUndefined();
+    expect(buttonWith(container!, "Leave room")).toBeDefined();
     expect(container!.querySelector('[aria-label^="Actions for"]')).toBeNull();
   });
 
