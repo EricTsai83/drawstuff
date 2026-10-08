@@ -615,8 +615,11 @@ headers 前等待 1,527.67 ms；重讀仍為 1,133.28 ms，且無 CF cache 狀�
 花在下載 body。已用 SDK 公開 handleDaemonPromise 設定接到 Next.js after，並完成 20 組真實配對診斷與
 清理／還原；presign p50 由 1,116.12 降到 474.43 ms，callback receipt 全數完成，沒有把相同等待轉移到 PUT。
 保存／加入 p95 仍為 4,945.67／4,948.49 ms，不能以 20 筆診斷替代正式 gate；本輪最慢保存的 snapshot
-另耗時 4,190.49 ms。下一步補齊 snapshot 伺服器分段，區分 RPC handler 外等待與下載傳輸，依證據改善後
-再按原門檻重測；不能將未分類等待都歸因於 Neon、provider 或冷啟動，也不改付費方案／region。
+另耗時 4,190.49 ms。snapshot 分段亦已完成 20 組診斷與清理／還原：保存 p50 1,052.50 ms，其中 RPC
+p50 240 ms、DO handler 201 ms、DB write 74.39 ms；逐筆扣除 RPC 後 client 剩餘等待 p50 775.14 ms。
+本輪所有 write 僅嘗試一次、無 pending；之前的多秒 RPC 尾端未重現，根因仍未確認。
+下一步先定位 client／edge ingress 與回應傳輸，核對測試與瀏覽器的 HTTP 傳輸契約，並持續分類 RPC handler
+外等待；依證據改善後再按原門檻重測。不能將未分類等待都歸因於 Neon、provider 或冷啟動，也不改方案／region。
 
 ## 9. 驗收矩陣
 

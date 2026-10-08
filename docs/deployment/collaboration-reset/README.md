@@ -346,3 +346,28 @@ Provider／DB／DO 清理與正常 Worker 精確還原通過，還原 version `e
 所有區間都使用各執行環境自己的 elapsed timer，不跨機器相減 timestamp，也不新增 sync／write 或改 output gate。`room`／`gatewayService` 在 Response headers 可回傳時停表，read body 後續傳輸不包含在其中；adapter read 則包含讀完密文，client `joinSnapshotMs` 仍包含完整下載、解密與 decode。Server spans 是巢狀區間；對照時逐筆比較，不相加分位數。`snapshotAttempts` 記錄 write 嘗試數；多次嘗試時 header 只保留各階段最近的觀測值，不能把它當成所有嘗試總和。
 
 缺少必要分段會讓診斷失敗並清理；不移除慢樣本或放寬 P0 門檻。RPC handler 外等待仍混合 dispatch、排程、返回時的持久化屏障與網路，沒有平台 trace 時不宣稱已單獨分類。
+
+2026-10-08 的 [snapshot 配對報告](../../performance/collaboration-production-3a-snapshot.json) 完成 20 warmup／20 診斷樣本，基底與工具 commit `b87a6f4`；Web 部署成功後，使用 Worker version `f94d1e1f-a4bc-4f0d-b326-7f7a6e30e3a9` 開始量測。必要欄位皆存在，失敗、pending 與多次 write 嘗試均為零。
+
+| 分段 | p50 ms | p95 ms |
+| --- | ---: | ---: |
+| 保存／首次加入總耗時 | 3,107.81／3,185.77 | 4,515.52／3,738.21 |
+| client snapshot 保存 | 1,052.50 | 1,337.26 |
+| snapshot Gateway→DO RPC | 240.00 | 441.00 |
+| snapshot DO handler | 201.00 | 277.00 |
+| registration adapter／DB | 56.00／23.04 | 82.00／32.08 |
+| DO 接收密文 | 0.00 | 38.00 |
+| adapter write round trip／DB transaction | 133.00／74.39 | 195.00／106.37 |
+| adapter 接收密文 | 0.68 | 1.62 |
+| read Gateway→DO RPC／DO handler | 169.00／135.00 | 254.00／168.00 |
+| read adapter／DB transaction | 59.00／21.30 | 85.00／27.41 |
+
+按每筆配對相減後再取分位數，client snapshot 耗時扣除 Gateway→DO RPC 的剩餘區間為 p50 775.14 ms／p95 913.02 ms；這仍包含 Gateway HTTP overhead、client／edge ingress、傳輸與回應解析，不能直接稱為純網路 RTT。RPC 扣除 DO handler 為 p50 30 ms／p95 183 ms；adapter write 扣除 DB 與 adapter body receipt 後為 p50 60.97 ms／p95 92.48 ms，亦可能包含 runtime output gate 等待，不單獨歸因於跨雲網路。
+
+DO acceptContent／settleContent 皆記 0ms，不能解讀為沒有 SQLite 寫入、持久化成本或 CPU 耗時。依 [Workers timer 契約](https://developers.cloudflare.com/workers/runtime-apis/performance/)，同步工作與已就緒的 Promise 不一定推進 `performance.now()`；本輪未加 storage sync，因此隱含持久化屏障可能計入後續 outbound I/O 或 RPC 返回。body 0ms 亦只表示這個觀測區間未推進 timer，不表示密文沒有經過網路。
+
+最慢 snapshot 樣本 1,525.92 ms，RPC 671 ms、DO handler 516 ms、registration DB 120.15 ms、write DB 250.95 ms；剩餘 client 區間 854.92 ms。原先 4.19 秒 snapshot 與 6.31 秒 callback RPC 尾端本輪未重現，不能因此宣稱根因已修復。部分樣本的保存與加入共同變快，本輪只新增計時，保留這些波動而不把它們當作產品改善。presign p50 仍為 420.20 ms，前輪背景生命週期改善持續有效。
+
+下一個範圍優先定位 client／edge ingress 與回應傳輸，核對 headless 量測及瀏覽器 HTTP 傳輸契約，再決定需調整測試工具或產品路徑；RPC handler 外多秒尾端仍須平台證據或重現。保存／加入 p95 超過 3,000ms，`gatePassed=false`，原 200 筆正式 gate 不變，P3 尚未通過。
+
+清理曾回 409，限定 cleaner 等待退休／fence／socket 屏障後成功；未繞過屏障。Provider／DB／DO 清理及正常 Worker 精確還原通過，還原 version `12546067-f5e1-4906-9763-0cc14f764961`，module hash／bindings 符合測試前備份。再次唯讀確認測試前綴帳號、房間、附件、快照、registration、tombstone、creation fence、lifecycle subject 全為零；runtime／journal／lock 全已移除，暫時入口回 404。沒有 DB push／migration、方案或區域變更。

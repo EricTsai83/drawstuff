@@ -40,7 +40,7 @@ Superseded 的 [ADR-0002](../docs/adr/0002-collaboration-durable-object-target.m
 - [18b-collaboration-authority-reset.md](18b-collaboration-authority-reset.md) —
   Room DO 成為房間授權的唯一權威、房間永不到期、帳號允許清單、房間不需要 scene、
   儲存屏障與附件授權、帳號／白板退休協定，以及一次破壞性重置。
-  下一步為 **P3：剩餘正式環境驗收**。3A 已完成 200 筆正式量測及清理／還原，但保存與加入 p95 未達門檻。已省略重複註冊的無變更 upsert，並將 UploadThing daemon 接到 Next.js after；20 筆真實診斷確認 presign p50 降至 474.43 ms，receipt 與清理／還原通過。snapshot 慢樣本、RPC handler 外等待與下載傳輸仍待定位，尚不能判定平台原因。維持 UploadThing 免費方案與 sea1，改善後按原門檻重測，再完成 3B／3C、跨日／閒置／成本與回歸結案。三人撤權／故障恢復已驗收。
+  下一步為 **P3：剩餘正式環境驗收**。3A 已完成 200 筆正式量測及清理／還原，但保存與加入 p95 未達門檻。已省略重複註冊的無變更 upsert，並將 UploadThing daemon 接到 Next.js after；20 筆真實診斷確認 presign p50 降至 474.43 ms，receipt 與清理／還原通過。snapshot 分段亦完成：client 等待遠大於 DO handler／DB 區間，接著定位 client／edge 傳輸與 RPC handler 外等待，核對瀏覽器的 HTTP 契約。維持 UploadThing 免費方案與 sea1，改善後按原門檻重測，再完成 3B／3C、跨日／閒置／成本與回歸結案。三人撤權／故障恢復已驗收。
   配套 web／Worker 與新版 schema 已部署；DO 不持久暫存完整畫布，只記小型待辦與操作結果。
   退休以按主體分割的 **Lifecycle DO** 執行（§7.1）；操作與驗收證據見 [P3 runbook](../docs/deployment/collaboration-reset/README.md)
 - [18c-collaboration-surface.md](18c-collaboration-surface.md) —
