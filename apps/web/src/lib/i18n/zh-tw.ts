@@ -126,8 +126,8 @@ export const zhTW = {
   "collaboration.title": "即時共編",
   "collaboration.authRequired": "請先登入 Drawstuff 才能建立或加入共編。",
   "collaboration.authChecking": "正在確認登入狀態…",
-  "collaboration.createDescription": "建立共編 room，再把連結分享給協作者。",
-  "collaboration.saveFirst": "請先把場景儲存到雲端，再開啟共編。",
+  "collaboration.createDescription":
+    "以目前畫布建立端對端加密的共編房間，再分享完整連結。",
   "collaboration.shareDescription": "分享完整連結，邀請協作者加入。",
   "collaboration.status.idle": "共編",
   "collaboration.status.preparing": "準備畫布中…",
@@ -150,7 +150,16 @@ export const zhTW = {
     "部分圖片檔案尚未載入或無法上傳。請重新載入場景，或移除這些圖片後再開始共編。",
   "collaboration.error.operationFailed": "即時共編操作失敗，請稍後再試。",
   "collaboration.action.creating": "建立中…",
-  "collaboration.action.start": "開始共編",
+  "collaboration.action.start": "開始加密共編",
+  "collaboration.create.encryption":
+    "房間的畫布快照與圖片會在瀏覽器加密後保存，服務端不持有房間金鑰。",
+  "collaboration.create.linkKey":
+    "完整邀請連結包含金鑰；持有完整連結並具房間權限者可讀取內容。",
+  "collaboration.create.keyLoss":
+    "drawstuff 不保存金鑰；完整連結全部遺失後，房間內容將無法再開啟。",
+  "collaboration.create.noPersonalCopy": "不會自動儲存為個人雲端場景。",
+  "collaboration.create.sourceCopy":
+    "原本的個人雲端場景仍會保留，且未採端對端加密。",
   "collaboration.connectionStatus": "連線狀態",
   "collaboration.role.owner": "擁有者",
   "collaboration.role.editor": "可編輯",
@@ -175,7 +184,7 @@ export const zhTW = {
   "collaboration.toast.keyConflict":
     "這個 room 已有加密金鑰。請從建立 room 的裝置分享完整連結，或重設 room generation。",
   "collaboration.toast.keySetupFailed":
-    "無法完成加密設定，請再按一次「開始共編」。",
+    "無法完成加密設定，請再按一次「開始加密共編」。",
   "collaboration.toast.rotationSetupFailed":
     "room generation 已更換，但加密設定未完成。請再重設一次。",
   "collaboration.toast.rotationSuccess":

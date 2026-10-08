@@ -189,6 +189,7 @@ const renderDialog = (params: {
   onRoomKeyChange?: CollaborationRoomDialogProps["onRoomKeyChange"];
   failureReason?: CollaborationRoomDialogProps["failureReason"];
   status?: CollaborationRoomDialogProps["status"];
+  sceneId?: string | null;
   onRetryJoin?: () => void;
   onInitializationChange?: (active: boolean) => void;
   getInitialElements?: CollaborationRoomDialogProps["getInitialElements"];
@@ -207,7 +208,7 @@ const renderDialog = (params: {
         onOpenChange={params.onOpenChange ?? (() => undefined)}
         isAuthenticated={params.isAuthenticated}
         isAuthenticationPending={params.isAuthenticationPending ?? false}
-        sceneId="scene-1"
+        sceneId={params.sceneId === undefined ? "scene-1" : params.sceneId}
         getInitialElements={params.getInitialElements ?? (() => [])}
         getInitialFiles={params.getInitialFiles ?? (() => [])}
         onInitializationChange={params.onInitializationChange}
@@ -291,7 +292,9 @@ describe("collaboration room authentication guard", () => {
     });
     await act(async () => {
       Array.from(container?.querySelectorAll("button") ?? [])
-        .find((button) => button.textContent === "Start collaboration")
+        .find(
+          (button) => button.textContent === "Start encrypted collaboration",
+        )
         ?.click();
       await vi.waitFor(() => expect(findForScene).toHaveBeenCalled());
     });
@@ -328,7 +331,9 @@ describe("collaboration room authentication guard", () => {
     });
     await act(async () => {
       Array.from(container?.querySelectorAll("button") ?? [])
-        .find((button) => button.textContent === "Start collaboration")
+        .find(
+          (button) => button.textContent === "Start encrypted collaboration",
+        )
         ?.click();
       await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
     });
@@ -370,7 +375,7 @@ describe("collaboration room authentication guard", () => {
       return result;
     };
     await act(async () => {
-      button("Start collaboration").click();
+      button("Start encrypted collaboration").click();
       await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
     });
     expect(change).toHaveBeenCalledWith(true);
@@ -382,7 +387,7 @@ describe("collaboration room authentication guard", () => {
       await vi.waitFor(() => expect(cancelCreate).toHaveBeenCalledTimes(1));
     });
     expect(change).not.toHaveBeenCalledWith(false);
-    expect(button("Start collaboration").disabled).toBe(true);
+    expect(button("Start encrypted collaboration").disabled).toBe(true);
     await act(async () => {
       button("Cancel room creation").click();
       await vi.waitFor(() => expect(cancelCreate).toHaveBeenCalledTimes(2));
@@ -445,7 +450,9 @@ describe("collaboration room authentication guard", () => {
     );
     expect(container?.textContent).toContain("Continue with Google");
     expect(container?.textContent).not.toContain("不支援匿名加入");
-    expect(container?.textContent).not.toContain("Start collaboration");
+    expect(container?.textContent).not.toContain(
+      "Start encrypted collaboration",
+    );
     expect(createMutate).not.toHaveBeenCalled();
     expect(roomGetUseQuery).toHaveBeenCalledWith(
       { roomId: "room-from-link", includeRevokedMembers: true },
@@ -457,7 +464,7 @@ describe("collaboration room authentication guard", () => {
     renderDialog({ isAuthenticated: true });
     const startButton = Array.from(
       container?.querySelectorAll("button") ?? [],
-    ).find((button) => button.textContent === "Start collaboration");
+    ).find((button) => button.textContent === "Start encrypted collaboration");
 
     expect(startButton).toBeDefined();
     await act(async () => {
@@ -478,7 +485,9 @@ describe("collaboration room authentication guard", () => {
     await act(async () => {
       const start = Array.from(
         container?.querySelectorAll("button") ?? [],
-      ).find((button) => button.textContent === "Start collaboration");
+      ).find(
+        (button) => button.textContent === "Start encrypted collaboration",
+      );
       start?.click();
       await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
     });
@@ -587,5 +596,47 @@ describe("collaboration room exit cache cleanup", () => {
   it("does not offer the pasted-link form while the room has its key", () => {
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
     expect(container?.querySelector("#collab-room-full-link")).toBeNull();
+  });
+
+  it("starts a standalone room from an unsaved canvas without a scene lookup", async () => {
+    const { consumeRoomInitializedFromCanvas } =
+      await import("@/lib/collab/initialized-room-handoff");
+    const keyChange = vi.fn();
+    const roomChange = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      sceneId: null,
+      onRoomKeyChange: keyChange,
+      onRoomIdChange: roomChange,
+    });
+    expect(container?.textContent).toContain(
+      "This does not save the canvas as a personal cloud scene.",
+    );
+    expect(container?.textContent).not.toContain(
+      "existing personal cloud scene",
+    );
+    await act(async () => {
+      Array.from(container?.querySelectorAll("button") ?? [])
+        .find(
+          (button) => button.textContent === "Start encrypted collaboration",
+        )
+        ?.click();
+      await vi.waitFor(() => expect(roomChange).toHaveBeenCalled());
+    });
+    expect(findForScene).not.toHaveBeenCalled();
+    expect(initialCapture.current?.sceneId).toBeNull();
+    expect(roomChange).toHaveBeenCalledWith("ready-room");
+    expect(keyChange).toHaveBeenCalledWith(
+      "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
+    );
+    // The join that follows must not ask to save this canvas personally.
+    expect(consumeRoomInitializedFromCanvas("ready-room")).toBe(true);
+  });
+
+  it("tells a saved scene's owner that the personal cloud copy stays unencrypted", () => {
+    renderDialog({ isAuthenticated: true });
+    expect(container?.textContent).toContain(
+      "Your existing personal cloud scene stays as it is and is not end-to-end encrypted.",
+    );
   });
 });

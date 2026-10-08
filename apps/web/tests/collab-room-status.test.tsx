@@ -123,6 +123,7 @@ import {
 import { MAX_INITIAL_JOIN_ATTEMPTS } from "@/lib/collab/join-failure";
 import type { SceneSyncBlock } from "@/lib/collab/collaboration-session";
 import { readCanvasRoomId } from "@/lib/collab/canvas-room-marker";
+import { markRoomInitializedFromCanvas } from "@/lib/collab/initialized-room-handoff";
 
 const ROOM_ID = "room-oversize";
 const ROOM_KEY = roomKeySchema.parse(
@@ -866,5 +867,33 @@ describe("collaboration button label", () => {
     const rendered = renderButton({ status: "idle", isReadOnly: false });
     expect(rendered.visible).toContain("Collaborate");
     expect(rendered.visible).not.toContain("共編");
+  });
+});
+
+describe("joining a standalone room (18C §4)", () => {
+  const promptOptions = () =>
+    (
+      prepareCanvasForRoom.mock.calls[0] as unknown as
+        [{ skipPrompt?: boolean }] | undefined
+    )?.[0];
+
+  it("skips the save-or-discard prompt only for the room this tab just initialized", async () => {
+    roomGetQuery.mockResolvedValue({
+      roomId: ROOM_ID,
+      sceneId: null,
+      authGeneration: 1,
+      keyCheckBase64,
+    });
+    markRoomInitializedFromCanvas(ROOM_ID);
+    await mountRoom();
+    expect(promptOptions()?.skipPrompt).toBe(true);
+    unmountRoom();
+
+    // The mark is consumed: a later visit to the same room prompts as usual.
+    sessionStorage.clear();
+    prepareCanvasForRoom.mockClear();
+    startRoomSession.mockClear();
+    await mountRoom();
+    expect(promptOptions()?.skipPrompt).toBe(false);
   });
 });

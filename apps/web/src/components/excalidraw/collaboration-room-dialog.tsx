@@ -10,6 +10,7 @@ import {
 import { createAuthorityAssetApi } from "@/lib/collab/asset-upload";
 import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 import { createRoomInitialization } from "@/lib/collab/room-initialization";
+import { markRoomInitializedFromCanvas } from "@/lib/collab/initialized-room-handoff";
 import {
   AuthorityRoomError,
   readAuthorityState,
@@ -111,7 +112,10 @@ export type CollaborationRoomDialogProps = {
   isAuthenticated: boolean;
   authIdentity?: string | null;
   isAuthenticationPending: boolean;
-  /** Cloud scene id; a room can only be started for a saved scene. */
+  /**
+   * Cloud scene id of the open canvas. `null` starts a standalone room from
+   * the canvas as-is, without creating a personal cloud scene.
+   */
   sceneId: string | null;
   getInitialElements: () => readonly SyncedElement[] | null;
   getInitialFiles: () => readonly BinaryFileData[];
@@ -274,7 +278,6 @@ export function CollaborationRoomDialog({
   const startRoom = async () => {
     if (
       !isAuthenticated ||
-      !sceneId ||
       operationInFlight.current ||
       isCancellingInitialization
     )
@@ -301,10 +304,12 @@ export function CollaborationRoomDialog({
         // the request is in flight, and must never initialize this source room.
         const elements = structuredClone(current);
         const files = structuredClone(getInitialFiles());
-        const existing =
-          await utils.client.collaborationAuthority.findForScene.query({
-            sceneId,
-          });
+        // A standalone room has no scene to look up; it always starts fresh.
+        const existing = sceneId
+          ? await utils.client.collaborationAuthority.findForScene.query({
+              sceneId,
+            })
+          : null;
         if (epoch !== initializationEpoch.current) return;
         if (existing) {
           // A display candidate is verified by Room before it is opened.
@@ -340,6 +345,7 @@ export function CollaborationRoomDialog({
       const ready = await initialization.current.start();
       if (epoch !== initializationEpoch.current) return;
       enteringRoom = true;
+      markRoomInitializedFromCanvas(ready.roomId);
       onRoomKeyChange(ready.roomKey);
       onRoomIdChange(ready.roomId);
       initialization.current?.dispose?.();
@@ -623,9 +629,7 @@ export function CollaborationRoomDialog({
       ? authRequiredMessage
       : roomId
         ? t("collaboration.shareDescription")
-        : sceneId
-          ? t("collaboration.createDescription")
-          : t("collaboration.saveFirst");
+        : t("collaboration.createDescription");
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -655,16 +659,26 @@ export function CollaborationRoomDialog({
 
         {!isAuthenticationPending && isAuthenticated && !roomId && (
           <div className="flex flex-col">
+            {/* What starting a room means, shown before anything is created. */}
+            <ul className="text-muted-foreground mb-3 list-disc space-y-1 pl-5 text-sm">
+              <li>{t("collaboration.create.encryption")}</li>
+              <li>{t("collaboration.create.linkKey")}</li>
+              <li>{t("collaboration.create.keyLoss")}</li>
+              <li>
+                {t(
+                  sceneId
+                    ? "collaboration.create.sourceCopy"
+                    : "collaboration.create.noPersonalCopy",
+                )}
+              </li>
+            </ul>
             <Button
-              disabled={
-                !sceneId || isCreatePending || isCancellingInitialization
-              }
+              disabled={isCreatePending || isCancellingInitialization}
               onClick={() => {
                 if (!isAuthenticated) {
                   toast.error(authRequiredMessage);
                   return;
                 }
-                if (!sceneId) return;
                 void startRoom();
               }}
             >

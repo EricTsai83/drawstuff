@@ -8,6 +8,7 @@
  * without a component around it.
  */
 
+import { consumeRoomInitializedFromCanvas } from "@/lib/collab/initialized-room-handoff";
 import { toast } from "sonner";
 import {
   snapshotReadRequest,
@@ -472,6 +473,7 @@ export function createCollaborationRoomController(
       const joined = await joinRoom(room);
       if (!joined || cancelled) return;
       const reloading = readCanvasRoomId() === roomId;
+      const initializedHere = consumeRoomInitializedFromCanvas(roomId);
       const isOpenScene =
         room.sceneId !== null && room.sceneId === deps.getCurrentSceneId();
       deps.onSourceScene?.(
@@ -490,7 +492,7 @@ export function createCollaborationRoomController(
             !reloading &&
             !stored.found &&
             stored.receipt.revision === 0,
-          reloading || isOpenScene,
+          reloading || isOpenScene || initializedHere,
         ))
       )
         return;

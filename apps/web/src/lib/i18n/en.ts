@@ -136,9 +136,7 @@ export const en = {
     "Sign in to create or join a collaboration room.",
   "collaboration.authChecking": "Checking sign-in status...",
   "collaboration.createDescription":
-    "Create a room and share its link with collaborators.",
-  "collaboration.saveFirst":
-    "Save this scene to the cloud before starting collaboration.",
+    "Start an end-to-end encrypted room from this canvas, then share its complete link.",
   "collaboration.shareDescription":
     "Share the complete link to invite collaborators.",
   "collaboration.status.idle": "Collaborate",
@@ -163,7 +161,17 @@ export const en = {
   "collaboration.error.operationFailed":
     "The collaboration action failed. Please try again.",
   "collaboration.action.creating": "Creating...",
-  "collaboration.action.start": "Start collaboration",
+  "collaboration.action.start": "Start encrypted collaboration",
+  "collaboration.create.encryption":
+    "The room's canvas snapshots and images are encrypted in your browser; the server never holds the room key.",
+  "collaboration.create.linkKey":
+    "The complete invitation link contains the key. Anyone with the complete link and room access can read the content.",
+  "collaboration.create.keyLoss":
+    "drawstuff does not store the key. If every copy of the complete link is lost, the room content cannot be opened again.",
+  "collaboration.create.noPersonalCopy":
+    "This does not save the canvas as a personal cloud scene.",
+  "collaboration.create.sourceCopy":
+    "Your existing personal cloud scene stays as it is and is not end-to-end encrypted.",
   "collaboration.connectionStatus": "Connection",
   "collaboration.role.owner": "Owner",
   "collaboration.role.editor": "Can edit",
@@ -189,7 +197,7 @@ export const en = {
   "collaboration.toast.keyConflict":
     "This room already has an encryption key. Share the complete link from the device that created it, or reset the room generation.",
   "collaboration.toast.keySetupFailed":
-    "Encryption setup failed. Select Start collaboration again.",
+    "Encryption setup failed. Select Start encrypted collaboration again.",
   "collaboration.toast.rotationSetupFailed":
     "The room generation changed, but encryption setup is incomplete. Reset the room generation again.",
   "collaboration.toast.rotationSuccess":
