@@ -307,9 +307,7 @@ describe("collaboration room authentication guard", () => {
     });
     await act(async () => {
       Array.from(container?.querySelectorAll("button") ?? [])
-        .find(
-          (button) => button.textContent === "Start encrypted collaboration",
-        )
+        .find((button) => button.textContent === "Start collaboration")
         ?.click();
       await vi.waitFor(() => expect(findForScene).toHaveBeenCalled());
     });
@@ -346,9 +344,7 @@ describe("collaboration room authentication guard", () => {
     });
     await act(async () => {
       Array.from(container?.querySelectorAll("button") ?? [])
-        .find(
-          (button) => button.textContent === "Start encrypted collaboration",
-        )
+        .find((button) => button.textContent === "Start collaboration")
         ?.click();
       await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
     });
@@ -390,7 +386,7 @@ describe("collaboration room authentication guard", () => {
       return result;
     };
     await act(async () => {
-      button("Start encrypted collaboration").click();
+      button("Start collaboration").click();
       await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
     });
     expect(change).toHaveBeenCalledWith(true);
@@ -402,7 +398,7 @@ describe("collaboration room authentication guard", () => {
       await vi.waitFor(() => expect(cancelCreate).toHaveBeenCalledTimes(1));
     });
     expect(change).not.toHaveBeenCalledWith(false);
-    expect(button("Start encrypted collaboration").disabled).toBe(true);
+    expect(button("Start collaboration").disabled).toBe(true);
     await act(async () => {
       button("Cancel room creation").click();
       await vi.waitFor(() => expect(cancelCreate).toHaveBeenCalledTimes(2));
@@ -465,9 +461,7 @@ describe("collaboration room authentication guard", () => {
     );
     expect(container?.textContent).toContain("Continue with Google");
     expect(container?.textContent).not.toContain("不支援匿名加入");
-    expect(container?.textContent).not.toContain(
-      "Start encrypted collaboration",
-    );
+    expect(container?.textContent).not.toContain("Start collaboration");
     expect(createMutate).not.toHaveBeenCalled();
     expect(roomGetUseQuery).toHaveBeenCalledWith(
       { roomId: "room-from-link", includeRevokedMembers: true },
@@ -479,7 +473,7 @@ describe("collaboration room authentication guard", () => {
     renderDialog({ isAuthenticated: true });
     const startButton = Array.from(
       container?.querySelectorAll("button") ?? [],
-    ).find((button) => button.textContent === "Start encrypted collaboration");
+    ).find((button) => button.textContent === "Start collaboration");
 
     expect(startButton).toBeDefined();
     await act(async () => {
@@ -500,9 +494,7 @@ describe("collaboration room authentication guard", () => {
     await act(async () => {
       const start = Array.from(
         container?.querySelectorAll("button") ?? [],
-      ).find(
-        (button) => button.textContent === "Start encrypted collaboration",
-      );
+      ).find((button) => button.textContent === "Start collaboration");
       start?.click();
       await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
     });
@@ -638,14 +630,12 @@ describe("collaboration room exit cache cleanup", () => {
       onRoomIdChange: roomChange,
     });
     expect(container?.textContent).toContain(
-      "Saved encrypted in the room, not as a personal cloud scene.",
+      "Saved in the room, not in My scenes.",
     );
     expect(container?.textContent).not.toContain("saved personal scene");
     await act(async () => {
       Array.from(container?.querySelectorAll("button") ?? [])
-        .find(
-          (button) => button.textContent === "Start encrypted collaboration",
-        )
+        .find((button) => button.textContent === "Start collaboration")
         ?.click();
       await vi.waitFor(() => expect(roomChange).toHaveBeenCalled());
     });
@@ -670,14 +660,12 @@ describe("collaboration room exit cache cleanup", () => {
     renderDialog({ isAuthenticated: true, onRoomIdChange: roomChange });
     await act(async () => {
       Array.from(container?.querySelectorAll("button") ?? [])
-        .find(
-          (button) => button.textContent === "Start encrypted collaboration",
-        )
+        .find((button) => button.textContent === "Start collaboration")
         ?.click();
       await vi.waitFor(() => expect(roomChange).toHaveBeenCalled());
     });
     expect(toastInfo).toHaveBeenCalledWith(
-      "The room is ready. Your room list is still syncing, so it may appear there a little later.",
+      "The room may take a moment to appear in your list.",
     );
   });
 });
@@ -1024,7 +1012,7 @@ describe("share room dialog", () => {
       "This collaboration link is missing the encryption key.",
     );
     expect(container!.textContent).toContain(
-      "This room's key isn't available to you here.",
+      "Paste the complete link, including the part after #.",
     );
   });
 });

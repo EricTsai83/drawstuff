@@ -1,14 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  Copy,
-  Ellipsis,
-  KeyRound,
-  LockKeyhole,
-  LogOut,
-  Trash2,
-} from "lucide-react";
+import { Copy, Ellipsis, KeyRound, LogOut, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { Button } from "@/components/ui/button";
@@ -247,11 +240,8 @@ export function CollaborationRoomList() {
     const busy = busyRoomId === room.roomId;
     // One management intent runs at a time, and never beside a creation.
     const managementLocked = busyRoomId !== null || pending;
-    const kind = t(
-      room.sceneId
-        ? "collaboration.rooms.sceneLinked"
-        : "collaboration.rooms.standalone",
-    );
+    // Most rooms stand alone; only a scene-linked one says so.
+    const kind = room.sceneId ? t("collaboration.rooms.sceneLinked") : null;
     return (
       <li
         key={room.roomId}
@@ -298,9 +288,6 @@ export function CollaborationRoomList() {
           )
         ) : (
           <>
-            <span className="border-border text-muted-foreground hidden rounded-md border px-2 py-0.5 text-xs sm:inline">
-              {t("collaboration.rooms.ready")}
-            </span>
             <Button
               variant="outline"
               size="sm"
@@ -384,8 +371,7 @@ export function CollaborationRoomList() {
       aria-label={t("collaboration.rooms.title")}
     >
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <p className="text-muted-foreground flex gap-2 text-sm">
-          <LockKeyhole className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+        <p className="text-muted-foreground text-sm">
           {t("collaboration.rooms.hint")}
         </p>
         <div className="flex shrink-0 gap-2">
@@ -441,7 +427,14 @@ export function CollaborationRoomList() {
         </RoomGroup>
       )}
       {listed.length > 0 && (
-        <RoomGroup heading={t("collaboration.rooms.listHeading")}>
+        // The heading only matters beside the "needs attention" group.
+        <RoomGroup
+          heading={
+            unfinished.length > 0
+              ? t("collaboration.rooms.listHeading")
+              : undefined
+          }
+        >
           {listed.map(renderRow)}
         </RoomGroup>
       )}
@@ -508,15 +501,17 @@ export function CollaborationRoomList() {
 }
 
 function RoomGroup(props: {
-  heading: string;
+  heading?: string;
   className?: string;
   children: ReactNode;
 }) {
   return (
     <div className="flex min-w-0 flex-col gap-2">
-      <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-        {props.heading}
-      </h3>
+      {props.heading && (
+        <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+          {props.heading}
+        </h3>
+      )}
       <ul
         className={cn(
           "divide-border flex flex-col divide-y overflow-hidden rounded-xl border",

@@ -118,9 +118,7 @@ describe("dashboard tabs", () => {
 
   it("shows only the room list on the rooms tab", () => {
     render("?view=rooms");
-    expect(tab("Collaboration rooms")?.getAttribute("aria-selected")).toBe(
-      "true",
-    );
+    expect(tab("Rooms")?.getAttribute("aria-selected")).toBe("true");
     expect(visible("room-list")).toBe(true);
     // Workspaces, search and filters belong to scenes only.
     expect(visible("workspace-selector")).toBe(false);
@@ -133,7 +131,7 @@ describe("dashboard tabs", () => {
 
   it("keeps the tab in the URL and drops it again for the default", async () => {
     render("");
-    await act(async () => tab("Collaboration rooms")?.click());
+    await act(async () => tab("Rooms")?.click());
     await vi.waitFor(() => expect(onUrlUpdate).toHaveBeenCalled());
     expect(onUrlUpdate.mock.lastCall?.[0].searchParams.get("view")).toBe(
       "rooms",
@@ -153,9 +151,9 @@ describe("dashboard tabs", () => {
     const selector = container.querySelector(
       '[data-testid="workspace-selector"]',
     );
-    await act(async () => tab("Collaboration rooms")?.click());
+    await act(async () => tab("Rooms")?.click());
     await act(async () => tab("My scenes")?.click());
-    await act(async () => tab("Collaboration rooms")?.click());
+    await act(async () => tab("Rooms")?.click());
     expect(container.querySelector('[data-testid="workspace-selector"]')).toBe(
       selector,
     );

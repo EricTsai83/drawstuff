@@ -806,7 +806,12 @@ export function CollaborationRoomDialog({
               </span>
             )}
           </div>
-          <DialogDescription>
+          {/* The share view's controls speak for themselves. */}
+          <DialogDescription
+            className={cn(
+              roomId && !hasInitialization && isAuthenticated && "sr-only",
+            )}
+          >
             {hasInitialization
               ? t("collaboration.toast.initializationPending")
               : dialogDescription}
@@ -826,7 +831,6 @@ export function CollaborationRoomDialog({
           <div className="flex flex-col">
             {/* What starting a room means, shown before anything is created. */}
             <ul className="text-muted-foreground mb-3 list-disc space-y-1 pl-5 text-sm">
-              <li>{t("collaboration.create.linkKey")}</li>
               <li>{t("collaboration.create.keyLoss")}</li>
               <li>
                 {t(
@@ -1055,7 +1059,6 @@ export function CollaborationRoomDialog({
                         className="min-w-0 sm:flex-1"
                         placeholder={t("collaboration.invite.placeholder")}
                         aria-label={t("collaboration.invite.email")}
-                        aria-describedby="collab-allow-email-hint"
                         value={allowEmail}
                         onChange={(event) => setAllowEmail(event.target.value)}
                       />
@@ -1097,12 +1100,6 @@ export function CollaborationRoomDialog({
                         </Button>
                       </div>
                     </div>
-                    <p
-                      id="collab-allow-email-hint"
-                      className="text-muted-foreground text-xs"
-                    >
-                      {t("collaboration.allowlist.hint")}
-                    </p>
                   </form>
                 )}
                 <ul className="flex flex-col">

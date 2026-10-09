@@ -117,7 +117,7 @@ const openMenu = async (row: Element) => {
 describe("collaboration room list (18C §2)", () => {
   it("reports a failed query with retry instead of an empty list", () => {
     render({ isError: true });
-    expect(container.textContent).toContain("Could not load your rooms");
+    expect(container.textContent).toContain("Couldn't load rooms");
     expect(container.textContent).not.toContain("no collaboration rooms yet");
     act(() =>
       Array.from(container.querySelectorAll("button"))
@@ -129,7 +129,7 @@ describe("collaboration room list (18C §2)", () => {
 
   it("never shows cached empty data as empty after a failed refetch", () => {
     render({ isError: true, data: { rooms: [], nextCursor: null } });
-    expect(container.textContent).toContain("Could not load your rooms");
+    expect(container.textContent).toContain("Couldn't load rooms");
     expect(container.textContent).not.toContain("no collaboration rooms yet");
   });
 
@@ -166,16 +166,14 @@ describe("collaboration room list (18C §2)", () => {
     ).toEqual(["Needs attention", "Rooms"]);
     const [unfinished] = Array.from(groups[0]!.querySelectorAll("li"));
     expect(unfinished?.textContent).toContain("Team board");
-    expect(unfinished?.textContent).toContain(
-      "Linked to a personal scene · View only",
-    );
-    expect(unfinished?.textContent).toContain("Creation didn't finish");
+    expect(unfinished?.textContent).toContain("From a scene · View only");
+    expect(unfinished?.textContent).toContain("Setup didn't finish");
     // Only the owner can cancel a creation.
     expect(buttonIn(unfinished!, "Cancel room creation")).toBeUndefined();
 
     const [ready] = Array.from(groups[1]!.querySelectorAll("li"));
     expect(ready?.textContent).toContain("aa000000");
-    expect(ready?.textContent).toContain("Independent room · Owner");
+    expect(ready?.textContent).toContain("Owner");
     await act(async () => {
       buttonIn(ready!, "Open room")?.click();
     });
@@ -300,7 +298,7 @@ describe("collaboration room list (18C §2)", () => {
     };
     render(list);
     await act(async () => {
-      buttonIn(container, "Create independent room")?.click();
+      buttonIn(container, "New room")?.click();
     });
     expect(buttonIn(container, "Retry initialization")).toBeDefined();
     const row = container.querySelector("li")!;
@@ -313,7 +311,7 @@ describe("collaboration room list (18C §2)", () => {
     });
     expect(creation.dispose).toHaveBeenCalled();
     expect(buttonIn(container, "Retry initialization")).toBeUndefined();
-    expect(buttonIn(container, "Create independent room")).toBeDefined();
+    expect(buttonIn(container, "New room")).toBeDefined();
   });
 
   it("locks the header's retry and cancel while a row cancellation settles", async () => {
@@ -329,7 +327,7 @@ describe("collaboration room list (18C §2)", () => {
       },
     });
     await act(async () => {
-      buttonIn(container, "Create independent room")?.click();
+      buttonIn(container, "New room")?.click();
     });
     const header = container.querySelector("section > div")!;
     await act(async () => {

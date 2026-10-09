@@ -316,7 +316,7 @@ describe("room status for an oversize canvas", () => {
 
     expect(probe.result?.status).toBe("sync-blocked");
     expect(probe.result?.errorMessage).toContain("Live sync stopped");
-    expect(probe.result?.errorMessage).toContain("save the scene");
+    expect(probe.result?.errorMessage).toContain("Export a copy");
     // The canvas still belongs to the room, so the editor must keep withholding
     // the actions that would replace it behind the session's back.
     expect(probe.result?.isCollaborating).toBe(true);
@@ -490,7 +490,7 @@ describe("room status for images this link cannot open", () => {
     });
 
     expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.errorMessage).toContain("cannot decrypt the room");
+    expect(probe.result?.errorMessage).toContain("can't open the room");
     expect(probe.result?.errorMessage).not.toContain("still syncing");
   });
 });
@@ -520,8 +520,8 @@ describe("key check before join (Plan 34)", () => {
 
     expect(probe.result?.status).toBe("failed");
     expect(probe.result?.failureReason).toBe("wrong-key-link");
-    expect(probe.result?.errorMessage).toContain("wrong encryption key");
-    expect(probe.result?.errorMessage).toContain("canvas was not changed");
+    expect(probe.result?.errorMessage).toContain("key is wrong");
+    expect(probe.result?.errorMessage).toContain("canvas wasn't changed");
     // Refused before the join: the canvas was not cleared, no claim was
     // taken, no token was minted and no session was started — which is what
     // makes a wrong-key snapshot write impossible (the empty-room cell of
@@ -569,7 +569,7 @@ describe("key check before join (Plan 34)", () => {
 
     expect(probe.result?.status).toBe("failed");
     expect(probe.result?.failureReason).toBe("generation-rotated");
-    expect(probe.result?.errorMessage).toContain("old encryption key");
+    expect(probe.result?.errorMessage).toContain("out of date");
     expect(startRoomSession).not.toHaveBeenCalled();
   });
 
@@ -740,7 +740,7 @@ describe("the first join being rate limited", () => {
       // The whole point: a spent budget is "later", not "you may not".
       expect(probe.result?.status).toBe("rate-limited");
       expect(probe.result?.status).not.toBe("unauthorized");
-      expect(probe.result?.errorMessage).toContain("not a permissions issue");
+      expect(probe.result?.errorMessage).toContain("Too many attempts");
       // `failureReason` belongs to the recovery machine's terminal states, and
       // this never reached a session.
       expect(probe.result?.failureReason).toBeNull();
@@ -816,7 +816,7 @@ describe("bootstrap join failure classification", () => {
 
     expect(probe.result?.status).toBe("join-failed");
     // Translated and generic — the thrown message is not an explanation.
-    expect(probe.result?.errorMessage).toContain("usually temporary");
+    expect(probe.result?.errorMessage).toContain("Check your connection");
     expect(probe.result?.errorMessage).not.toContain("Failed to fetch");
   });
 
