@@ -16,8 +16,9 @@ export type CanvasProductActions = {
     showStatusBadge?: boolean;
     onActivate: () => void;
   } | null;
+  /** Null in a room: a snapshot link there is not an invitation. */
   share: {
     status: ExportStatus;
     onActivate: () => void;
-  };
+  } | null;
 };

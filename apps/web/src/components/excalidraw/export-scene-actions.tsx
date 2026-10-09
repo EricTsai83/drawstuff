@@ -98,6 +98,8 @@ export function ExportSceneActions({
       buttonClassName: "bg-pink-500/90 text-white hover:bg-pink-600",
       iconWrapperClassName: "bg-pink-500/10 border-pink-500/20",
       needLogin: false,
+      // A snapshot link from a room is not an invitation; the room has one.
+      hiddenInRoom: true,
     },
   ];
 
@@ -105,6 +107,7 @@ export function ExportSceneActions({
     <div className="flex w-full max-w-2xl flex-col items-stretch gap-4 sm:flex-row">
       {configs
         .filter((config) => !config.needLogin || !!session)
+        .filter((config) => !(isRoom && config.hiddenInRoom))
         .map((config) => (
           <div
             key={`top-icon-${config.title}`}
@@ -139,6 +142,7 @@ type ExportActionConfig = {
   buttonClassName?: string;
   iconWrapperClassName?: string;
   needLogin: boolean;
+  hiddenInRoom?: boolean;
 };
 
 function ExportAction({ config }: { config: ExportActionConfig }) {

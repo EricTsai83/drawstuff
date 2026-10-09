@@ -60,7 +60,9 @@ export function CanvasShortcutMenu({
     actions.collaboration.isReadOnly,
     t,
   );
-  const share = getShareButtonConfig(actions.share.status, t);
+  const share = actions.share
+    ? getShareButtonConfig(actions.share.status, t)
+    : null;
   const save = actions.cloudSave
     ? getCloudUploadPresentation(actions.cloudSave.status, t)
     : null;
@@ -130,19 +132,21 @@ export function CanvasShortcutMenu({
           label={collaboration.accessibleLabel}
           onClick={actions.collaboration.onActivate}
         />
-        <FloatingShortcutAction
-          aria-busy={share.disabled}
-          disabled={share.disabled}
-          icon={
-            share.disabled ? (
-              <Spinner aria-hidden="true" />
-            ) : (
-              <Link aria-hidden="true" />
-            )
-          }
-          label={share.label}
-          onClick={actions.share.onActivate}
-        />
+        {actions.share && share ? (
+          <FloatingShortcutAction
+            aria-busy={share.disabled}
+            disabled={share.disabled}
+            icon={
+              share.disabled ? (
+                <Spinner aria-hidden="true" />
+              ) : (
+                <Link aria-hidden="true" />
+              )
+            }
+            label={share.label}
+            onClick={actions.share.onActivate}
+          />
+        ) : null}
         {actions.cloudSave && save ? (
           <FloatingShortcutAction
             aria-busy={actions.cloudSave.status === "uploading"}

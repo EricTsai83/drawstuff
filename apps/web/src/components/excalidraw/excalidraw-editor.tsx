@@ -268,10 +268,12 @@ export default function ExcalidrawEditor() {
               : () => void handleCloudUpload(),
           }
         : null,
-      share: {
-        status: exportStatus,
-        onActivate: () => void handleShareLinkClick(),
-      },
+      share: isRoomMode
+        ? null
+        : {
+            status: exportStatus,
+            onActivate: () => void handleShareLinkClick(),
+          },
     }),
     [
       collaborationStatus,

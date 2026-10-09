@@ -58,20 +58,24 @@ export function ProductActionsItems({
           />
         </MainMenu.ItemCustom>
       )}
-      <MainMenu.ItemCustom className="mt-0!">
-        <MenuActionItem
-          icon={<Link aria-hidden="true" />}
-          label={t("canvas.actions.share")}
-          detail={
-            actions.share.status === "exporting"
-              ? t("app.export.link.loading")
-              : undefined
-          }
-          disabled={actions.share.status === "exporting"}
-          busy={actions.share.status === "exporting"}
-          onActivate={() => activate(actions.share.onActivate)}
-        />
-      </MainMenu.ItemCustom>
+      {actions.share && (
+        <MainMenu.ItemCustom className="mt-0!">
+          <MenuActionItem
+            icon={<Link aria-hidden="true" />}
+            label={t("canvas.actions.share")}
+            detail={
+              actions.share.status === "exporting"
+                ? t("app.export.link.loading")
+                : undefined
+            }
+            disabled={actions.share.status === "exporting"}
+            busy={actions.share.status === "exporting"}
+            onActivate={() =>
+              activate(actions.share?.onActivate ?? (() => undefined))
+            }
+          />
+        </MainMenu.ItemCustom>
+      )}
     </>
   );
 }

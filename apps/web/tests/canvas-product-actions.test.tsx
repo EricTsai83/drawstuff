@@ -215,7 +215,7 @@ describe("Canvas product action presentations", () => {
     expect(currentBadgeLabel()).toBe("Failed");
   });
 
-  it("leaves room save status to the room badge", () => {
+  it("leaves room save status to the room badge and offers no snapshot link", () => {
     act(() =>
       root.render(
         withI18n(
@@ -231,7 +231,7 @@ describe("Canvas product action presentations", () => {
                 showStatusBadge: false,
                 onActivate: vi.fn(),
               },
-              share: { status: "idle", onActivate: vi.fn() },
+              share: null,
             }}
             isMobile={false}
             onLibraryActivate={vi.fn()}
@@ -241,6 +241,9 @@ describe("Canvas product action presentations", () => {
     );
     expect(
       container.querySelector('[data-testid="cloud-save-status"]'),
+    ).toBeNull();
+    expect(
+      container.querySelector('[role="menuitem"][aria-label="Share"]'),
     ).toBeNull();
   });
 });
