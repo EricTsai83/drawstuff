@@ -51,9 +51,44 @@ describe("editor storage status (18C §5)", () => {
     );
   });
 
-  it("calls a confirmed room save an encrypted snapshot", () => {
-    expect(renderStatus({ roomId: "room-alpha-1" }).textContent).toContain(
-      "Encrypted snapshot saved",
-    );
+  it("reports a confirmed room save in the panel", () => {
+    const panel = renderStatus({ roomId: "room-alpha-1" });
+    expect(panel.querySelector('[role="status"]')?.textContent).toBe("Saved");
+    expect(panel.textContent).toContain("Save a copy to my scenes");
+  });
+
+  it("shows a confirmed save on the room badge briefly, then hides it", () => {
+    vi.useFakeTimers();
+    try {
+      const container = renderStatus({ roomId: "room-alpha-1", compact: true });
+      const status = () =>
+        container.querySelector("button > span[aria-hidden]")?.className;
+      expect(status()).toContain("opacity-100");
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(status()).toContain("opacity-0");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an unsaved or failed room visible on the badge", () => {
+    vi.useFakeTimers();
+    try {
+      const container = renderStatus({
+        roomId: "room-alpha-1",
+        compact: true,
+        state: { status: "failed", revision: 1, checksum: null },
+      });
+      act(() => {
+        vi.advanceTimersByTime(10_000);
+      });
+      const status = container.querySelector("button > span[aria-hidden]");
+      expect(status?.textContent).toBe("Save failed");
+      expect(status?.className).toContain("opacity-100");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
