@@ -42,9 +42,7 @@ export function SceneRemoteConflictDialog({
         showCloseButton={false}
       >
         <DialogHeader className="pr-8">
-          <DialogTitle className="text-lg font-semibold">
-            {t("scene.conflict.title")}
-          </DialogTitle>
+          <DialogTitle>{t("scene.conflict.title")}</DialogTitle>
           <DialogDescription>
             {isLoading
               ? t("common.processing")

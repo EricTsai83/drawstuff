@@ -131,9 +131,7 @@ export function SceneEditDialog({
         initialFocus={false}
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
-            {t("scene.settings.title")}
-          </DialogTitle>
+          <DialogTitle>{t("scene.settings.title")}</DialogTitle>
           <DialogDescription className="sr-only">
             {t("scene.settings.title")}
           </DialogDescription>

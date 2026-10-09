@@ -31,9 +31,7 @@ export function SceneChangeConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}>
         <DialogHeader>
-          <DialogTitle className="text-lg font-semibold">
-            {t("scene.change.title")}
-          </DialogTitle>
+          <DialogTitle>{t("scene.change.title")}</DialogTitle>
           <DialogDescription>
             {isLoading ? t("common.processing") : t("scene.change.description")}
           </DialogDescription>

@@ -153,7 +153,7 @@ export function SceneCloudUploadDialog({
         data-prevent-outside-click="true"
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
+          <DialogTitle>
             {t(isRoom ? "storage.copy" : "storage.savePersonal")}
           </DialogTitle>
           <DialogDescription>

@@ -40,9 +40,7 @@ export function SignedOutDraftDialog({
         showCloseButton={false}
       >
         <DialogHeader>
-          <DialogTitle className="text-lg font-semibold">
-            {t("auth.signedOutDraft.title")}
-          </DialogTitle>
+          <DialogTitle>{t("auth.signedOutDraft.title")}</DialogTitle>
           <DialogDescription>
             {detachedFromSceneName
               ? t("auth.signedOutDraft.descriptionDetached", {

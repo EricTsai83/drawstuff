@@ -132,7 +132,7 @@ export function OverwriteConfirmDialog({
         aria-label={t("overwriteConfirm.modal.shareableLink.title")}
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
       >
-        <DialogTitle className="text-lg font-semibold">
+        <DialogTitle>
           {t("overwriteConfirm.modal.shareableLink.title")}
         </DialogTitle>
         <DialogDescription className="text-muted-foreground mb-2 text-sm">

@@ -41,9 +41,7 @@ export function SignOutConfirmDialog({
         showCloseButton={false}
       >
         <DialogHeader>
-          <DialogTitle className="text-lg font-semibold">
-            {t("auth.signOutConfirm.title")}
-          </DialogTitle>
+          <DialogTitle>{t("auth.signOutConfirm.title")}</DialogTitle>
           <DialogDescription>
             {isLoading
               ? t("common.processing")

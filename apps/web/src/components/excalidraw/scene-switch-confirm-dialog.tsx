@@ -34,9 +34,7 @@ export function SceneSwitchConfirmDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}>
         <DialogHeader>
-          <DialogTitle className="text-lg font-semibold">
-            {t("scene.switchWorkspace.title")}
-          </DialogTitle>
+          <DialogTitle>{t("scene.switchWorkspace.title")}</DialogTitle>
           <DialogDescription>
             {t("scene.switchWorkspace.description", { from, to })}
           </DialogDescription>

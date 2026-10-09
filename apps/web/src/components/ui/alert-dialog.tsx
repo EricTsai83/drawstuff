@@ -63,7 +63,7 @@ function AlertDialogHeader({
     <div
       data-slot="alert-dialog-header"
       className={cn(
-        "grid grid-rows-[auto_1fr] place-items-center gap-1.5 text-center sm:group-data-[size=default]/alert-dialog-content:place-items-start sm:group-data-[size=default]/alert-dialog-content:text-left",
+        "grid grid-rows-[auto_1fr] place-items-start gap-1.5 text-left",
         className,
       )}
       {...props}
@@ -94,7 +94,7 @@ function AlertDialogTitle({
   return (
     <AlertDialogPrimitive.Title
       data-slot="alert-dialog-title"
-      className={cn("text-base font-medium", className)}
+      className={cn("text-lg leading-tight font-semibold", className)}
       {...props}
     />
   );

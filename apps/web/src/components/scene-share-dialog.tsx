@@ -37,9 +37,7 @@ export function SceneShareDialog({
         className={FORM_DIALOG_CONTENT_CLASS_NAME}
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
-            {t("labels.share")}
-          </DialogTitle>
+          <DialogTitle>{t("labels.share")}</DialogTitle>
           <DialogDescription className="sr-only">
             {t("share.scene.description")}
           </DialogDescription>

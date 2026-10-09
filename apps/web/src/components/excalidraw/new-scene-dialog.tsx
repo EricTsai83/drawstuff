@@ -175,9 +175,7 @@ function NewSceneDialog({
         data-prevent-outside-click="true"
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
-            {t("scene.new.title")}
-          </DialogTitle>
+          <DialogTitle>{t("scene.new.title")}</DialogTitle>
           <DialogDescription className="sr-only">
             {t("scene.new.description")}
           </DialogDescription>

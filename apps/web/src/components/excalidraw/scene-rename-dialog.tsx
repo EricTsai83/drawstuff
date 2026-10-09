@@ -116,9 +116,7 @@ export function SceneRenameDialog({
         data-prevent-outside-click="true"
       >
         <DialogHeader>
-          <DialogTitle className="text-xl font-bold">
-            {t("menu.renameScene")}
-          </DialogTitle>
+          <DialogTitle>{t("menu.renameScene")}</DialogTitle>
           <DialogDescription className="sr-only">
             {t("scene.rename.description")}
           </DialogDescription>
