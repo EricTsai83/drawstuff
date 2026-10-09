@@ -202,6 +202,7 @@ const renderDialog = (
         status={params.status ?? "idle"}
         failureReason={params.failureReason ?? null}
         errorMessage={params.errorMessage ?? null}
+        confirmRoomExit={params.confirmRoomExit}
       />,
     );
   });

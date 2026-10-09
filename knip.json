@@ -19,9 +19,7 @@
         "vitest.config.ts",
         "vitest.p0.config.ts",
         "tests/p0/worker.ts",
-        "tests/support/product-worker.ts",
-        "src/maintenance.ts",
-        "tests/cutover/worker.ts"
+        "tests/support/product-worker.ts"
       ],
       "project": [
         "src/**/*.ts",

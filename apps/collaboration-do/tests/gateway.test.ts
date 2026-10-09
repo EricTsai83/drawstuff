@@ -83,9 +83,10 @@ describe("socket route", () => {
       "not-found",
     ],
     [
+      // Without the upgrade header: workerd delivers an upgrade request as GET.
       "a non-GET method",
       route,
-      { method: "POST", headers: socketHeaders() },
+      { method: "POST", headers: { Origin: ALLOWED_ORIGIN } },
       405,
       "method-not-allowed",
     ],

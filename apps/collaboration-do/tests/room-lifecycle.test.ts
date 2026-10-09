@@ -191,7 +191,7 @@ describe("alarm deadlines", () => {
 
 describe("eviction and recovery", () => {
   it("carries sockets, membership and epoch across an eviction", async () => {
-    const { roomId } = await openRoom("evict", "viewer");
+    const { roomId } = await openRoom("evict", "editor");
     const first = await joinRoom(roomId, newIdentity());
     const second = await joinRoom(roomId, newIdentity());
     await expectPeers(first.connection);
@@ -308,6 +308,12 @@ async function endRoom(roomId: RoomId, owner: TrustedIdentity) {
 async function alarmPasses(roomId: RoomId, passes = 8): Promise<void> {
   for (let pass = 0; pass < passes; pass += 1) {
     if ((await storageFootprint(roomId)).tables.length === 0) return;
+    // Alarms run immediately here, but time does not pass: make retried jobs
+    // (e.g. a cleanup that waited for its fence) due again.
+    await runInDurableObject(roomStub(roomId), (_instance, state) => {
+      if (userTables(state).includes("authority_work"))
+        state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+    });
     await runDurableObjectAlarm(roomStub(roomId));
   }
 }

@@ -524,8 +524,9 @@ describe("Room attachment authority", () => {
             operationId: crypto.randomUUID(),
             deadline: Date.now() + 55_000,
             actor: owner,
-            action: "set-link-role",
-            linkRole: "editor",
+            // Removing an invitation always fences (moves the epoch).
+            action: "remove-email",
+            email: "someone-else@example.com",
           });
           return Response.json({
             assets: [{ ...f.asset, utFileKey: undefined }],

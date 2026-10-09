@@ -296,7 +296,7 @@ export function joinFrame(roomId: RoomId, proof: string): string {
   });
 }
 
-export async function expectJoined(
+async function expectJoined(
   connection: ConformanceConnection,
 ): Promise<RelayJoinedNotice> {
   const event = await connection.next();
@@ -428,6 +428,12 @@ export async function drainAuthorityWork(roomId: RoomId): Promise<void> {
       return !dirty && queued === 0;
     });
     if (idle) return;
+    // Alarms run immediately here, but time does not pass: make retried jobs
+    // (e.g. a cleanup that waited for its fence) due again.
+    await runInDurableObject(stub, (_instance, state) => {
+      if (userTables(state).includes("authority_work"))
+        state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+    });
     await runDurableObjectAlarm(stub);
   }
   throw new Error("Room authority work did not drain");

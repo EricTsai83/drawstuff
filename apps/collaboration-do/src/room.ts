@@ -258,10 +258,7 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     if (!authority) return { ok: false as const, error: "unavailable" };
     const reply = await applyAuthorityEntry(authority, input, this.env);
     this.enforceAuthoritySockets();
-    if (authority.state()) {
-      this.broadcastPeers();
-      await this.scheduleAfterMembershipChange();
-    }
+    if (authority.state()) await this.scheduleAfterMembershipChange();
     return reply;
   }
 
@@ -517,10 +514,7 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     const authority = this.authority;
     if (authority) {
       await authority.expireInitialization();
-      if (authority.state()) {
-        this.enforceAuthoritySockets();
-        this.broadcastPeers();
-      }
+      if (authority.state()) this.enforceAuthoritySockets();
       const delivery = new RoomDelivery(authority, new AdapterClient(this.env));
       await authority.work.drain(
         (job, _timeoutMs, signal) => delivery.deliver(job, signal),
@@ -865,14 +859,29 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     return false;
   }
 
+  /**
+   * Re-checks every socket against current access and closes the ones it no
+   * longer admits. Survivors hear about it only when a member actually left,
+   * so a management command or alarm that changed nothing sends nothing.
+   */
   private enforceAuthoritySockets(): void {
     const room = this.authority?.state();
     if (!room) return;
+    let membersClosed = false;
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = readRoomSocketAttachment(ws);
-      if (attachment?.state === "joined") {
-        this.authorizedSocket(ws, attachment);
-      } else if (!attachment || room.state !== "ready" || room.denied) {
+      if (attachment === undefined) {
+        // Unreadable is this Object's own failure, not an access decision;
+        // it may have been a member, so survivors get a corrected list.
+        if (ws.readyState === SOCKET_OPEN) membersClosed = true;
+        this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
+      } else if (attachment.state === "joined") {
+        if (
+          ws.readyState === SOCKET_OPEN &&
+          !this.authorizedSocket(ws, attachment)
+        )
+          membersClosed = true;
+      } else if (room.state !== "ready" || room.denied) {
         this.closeSocket(
           ws,
           room.state === "ended"
@@ -882,6 +891,7 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
         );
       }
     }
+    if (membersClosed) this.broadcastPeers();
   }
 
   private async handleJoin(

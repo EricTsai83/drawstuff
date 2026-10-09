@@ -333,7 +333,7 @@ describe("Google Docs access on live sockets", () => {
       {
         email: invitee.email,
         role: "editor",
-        lastJoinedAt: expect.any(Number),
+        lastJoinedAt: expect.any(Number) as number,
       },
     ]);
   });

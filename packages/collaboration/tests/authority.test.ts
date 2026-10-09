@@ -136,7 +136,10 @@ describe("authority contracts", () => {
         sceneId: proof.jti,
       }),
     ).toBe(`scene:${proof.jti}`);
-    expect(roomListInputSchema.parse({})).toEqual({ limit: 30 });
+    expect(roomListInputSchema.parse({})).toEqual({
+      section: "mine",
+      limit: 30,
+    });
     expect(roomListInputSchema.safeParse({ limit: 101 }).success).toBe(false);
   });
 

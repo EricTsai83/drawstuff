@@ -47,7 +47,6 @@ import { requestUrl } from "./support/request-url";
 
 const FILE_A = "a".repeat(40);
 const FILE_B = "b".repeat(40);
-const FILE_C = "c".repeat(40);
 
 /** A tiny but real PNG data URL; the payload only has to be a valid data URL. */
 const dataUrlFor = (marker: string): DataURL =>
@@ -145,9 +144,10 @@ describe("collaboration asset transfer", () => {
     pasteImage(alice, FILE_A);
     harness.settle();
     await expectStored(backend, [FILE_A]);
-    // The element always arrives before the bytes — sealing and uploading take as
-    // long as they take — so the receiver's first lookup may legitimately miss and
-    // the image appears on its retry.
+    // The element always arrives before the bytes, so the receiver's first
+    // lookup may legitimately miss and the image appears on its retry. Let any
+    // in-flight lookup settle before deciding which happened.
+    await drainAsync();
     if (bob.host.files[FILE_A] === undefined) await runRetry(bob);
 
     await expectRendered(bob, FILE_A, dataUrlFor("w"));
@@ -691,6 +691,8 @@ describe("collaboration asset transfer", () => {
     harness.settle();
     pasteImage(alice, FILE_A);
     await expectStored(backend, [FILE_A]);
+    // The backend records the bytes before the upload call returns to the store.
+    await drainAsync();
 
     // The canvas already holds these bytes; asking for them would be a download
     // of an image the user is looking at.

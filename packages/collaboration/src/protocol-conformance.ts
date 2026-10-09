@@ -447,7 +447,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "a second joiner appears in both its ack and the peers broadcast",
     async run(harness) {
       const room = await readyRoom(harness, "peers");
-      const { roomId } = room;
       const first = await join(harness, room);
       const second = await join(harness, room, { role: "viewer" });
       assertEqual(second.joined.peers.length, 2, "second ack peers length");
@@ -470,7 +469,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "scene frames fan out to other members verbatim, never back to the sender",
     async run(harness) {
       const room = await readyRoom(harness, "scene");
-      const { roomId } = room;
       const sender = await join(harness, room);
       const receiver = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(sender.connection);
@@ -486,7 +484,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "presence frames fan out on the presence channel",
     async run(harness) {
       const room = await readyRoom(harness, "presence");
-      const { roomId } = room;
       const sender = await join(harness, room, { role: "viewer" });
       const receiver = await join(harness, room);
       await expectPeersNotice(sender.connection);
@@ -501,7 +498,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "a viewer scene publish closes with readOnlyRole",
     async run(harness) {
       const room = await readyRoom(harness, "viewer");
-      const { roomId } = room;
       const viewer = await join(harness, room, { role: "viewer" });
       viewer.connection.send(sceneFrame([1]));
       await expectClose(
@@ -573,7 +569,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "an unknown data channel byte closes with protocolViolation",
     async run(harness) {
       const room = await readyRoom(harness, "channel");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       connection.send(Uint8Array.from([0x7f, 1, 2, 3]));
       await expectClose(
@@ -587,7 +582,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "an oversize presence frame closes with protocolViolation",
     async run(harness) {
       const room = await readyRoom(harness, "oversizep");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       const oversize = new Uint8Array(
         maxRelayDataFrameBytesFor("presence") + 1,
@@ -712,7 +706,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "leave closes normally and shrinks the peers broadcast",
     async run(harness) {
       const room = await readyRoom(harness, "leave");
-      const { roomId } = room;
       const staying = await join(harness, room);
       const leaving = await join(harness, room);
       await expectPeersNotice(staying.connection);
@@ -732,7 +725,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "a disconnect without leave shrinks the peers broadcast",
     async run(harness) {
       const room = await readyRoom(harness, "drop");
-      const { roomId } = room;
       const staying = await join(harness, room);
       const dropping = await join(harness, room);
       await expectPeersNotice(staying.connection);
@@ -764,7 +756,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "a presence flood beyond the published budget closes with rateLimited",
     async run(harness) {
       const room = await readyRoom(harness, "flood");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       // The presence budget admits an 80-frame burst and refills at 40/s.
       // Sized so the verdict cannot depend on scheduling: even if a loaded
@@ -833,7 +824,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "room generation is shared within a cohort and strictly increases across cohorts",
     async run(harness) {
       const room = await readyRoom(harness, "epoch");
-      const { roomId } = room;
       const first = await join(harness, room);
       const second = await join(harness, room);
       assertEqual(
@@ -952,7 +942,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       // still pass the two-joiner case; only the joiner's silence right after
       // its ack pins the exclusion.
       const room = await readyRoom(harness, "noecho");
-      const { roomId } = room;
       const first = await join(harness, room);
       const second = await join(harness, room);
       await second.connection.expectSilence(250);
@@ -980,7 +969,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "fanout preserves order and duplicates — never deduped, reordered or coalesced",
     async run(harness) {
       const room = await readyRoom(harness, "order");
-      const { roomId } = room;
       const sender = await join(harness, room);
       const receiver = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(sender.connection);
@@ -1018,7 +1006,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "a scene flood beyond the published budget closes with rateLimited",
     async run(harness) {
       const room = await readyRoom(harness, "sflood");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       // Same 5x sizing rationale as the presence flood for real-network runs.
       // The local DO host freezes only its rate-limit clock so a constrained
@@ -1039,7 +1026,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "the scene byte budget binds independently of frame count",
     async run(harness) {
       const room = await readyRoom(harness, "sbytes");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       // 12 frames of ~1 MB ≈ 12 MB against the 8 MiB burst + 2 MiB/s refill.
       // Twelve frames are far below the frame-count budget, so only a
@@ -1060,7 +1046,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "presence and scene budgets are charged separately",
     async run(harness) {
       const room = await readyRoom(harness, "buckets");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       // Spend most of each budget without exceeding either. A backend
       // charging both channels against one scene-sized bucket would cross it
@@ -1087,7 +1072,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "an oversize frame is a protocolViolation even when the send budget is spent",
     async run(harness) {
       const room = await readyRoom(harness, "prec");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       // Drain the presence burst completely, so a backend that consulted the
       // rate budget before the size bound would answer rateLimited here.
@@ -1114,7 +1098,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     name: "a refused viewer scene frame is never delivered to the room",
     async run(harness) {
       const room = await readyRoom(harness, "norelay");
-      const { roomId } = room;
       const editor = await join(harness, room);
       const viewer = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(editor.connection);
@@ -1141,7 +1124,6 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       // *cancelled* by a successful join — a backend that kept the timer
       // armed would close this socket when the deadline passes.
       const room = await readyRoom(harness, "alive");
-      const { roomId } = room;
       const { connection } = await join(harness, room);
       await connection.expectSilence(
         (harness.joinTimeoutMs ?? ROOM_JOIN_TIMEOUT_MS) + 2_000,

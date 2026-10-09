@@ -151,6 +151,7 @@ describe("DO structured logger", () => {
       [
         "closeCode",
         "errorName",
+        "jobKind",
         "members",
         "peerId",
         "role",

@@ -60,7 +60,7 @@ function send(a: RoomAuthority, body: CommandBody) {
     deadline: Date.now() + 50_000,
     actor: owner,
     ...body,
-  } as RoomCommand);
+  });
 }
 
 const join = (a: RoomAuthority, actor: TrustedIdentity) =>
@@ -591,6 +591,9 @@ describe("Room access rule", () => {
       await send(a, { action: "set-link-role", linkRole: "editor" });
       expect(a.role(guest)).toBe("editor");
       await join(a, guest);
+      // Widening general access re-projects invitations through repair.
+      await a.repairProjections();
+      await a.repairProjections();
       expect(queuedProjections(state).members.get(guest.subject)).toMatchObject(
         { role: "editor", access: "invited", tombstone: false },
       );
@@ -920,7 +923,7 @@ describe("Room access rule", () => {
           userId: guest.subject,
           email: guest.email,
           role: "editor",
-          lastJoinedAt: expect.any(Number),
+          lastJoinedAt: expect.any(Number) as number,
         },
         {
           userId: owner.subject,
@@ -932,14 +935,14 @@ describe("Room access rule", () => {
           userId: visitor.subject,
           email: visitor.email,
           role: null,
-          lastJoinedAt: expect.any(Number),
+          lastJoinedAt: expect.any(Number) as number,
         },
       ]);
       expect(view.allowlist).toEqual([
         {
           email: guest.email,
           role: "editor",
-          lastJoinedAt: expect.any(Number),
+          lastJoinedAt: expect.any(Number) as number,
         },
       ]);
       expect(view).toMatchObject({ nextCursor: null, nextEmailCursor: null });
@@ -964,7 +967,7 @@ function abandonedKinds(spy: { mock: { calls: unknown[][] } }): unknown[] {
         record !== null &&
         Reflect.get(record, "event") === "authority.work_abandoned",
     )
-    .map((record) => Reflect.get(record, "jobKind"));
+    .map((record): unknown => Reflect.get(record, "jobKind"));
 }
 
 describe("projection backlog and abandoned work", () => {
@@ -1168,7 +1171,7 @@ describe("projection backlog and abandoned work", () => {
       );
       const error = vi.spyOn(console, "error");
       try {
-        await a.work.drain(async () => {});
+        await a.work.drain(() => Promise.resolve());
         expect(abandonedKinds(error)).toEqual(["invite-projection"]);
       } finally {
         error.mockRestore();
@@ -1289,7 +1292,7 @@ describe("Lifecycle durable progress", () => {
           freeze: async () => 2,
           list: async () => ({ version: 2, rooms: [], cursor: null }),
           enforce: async () => "enforced",
-          delete: async () => {},
+          delete: () => Promise.resolve(),
         };
         const completedAt = Date.now();
         for (let pass = 0; pass < 8 && p.work.pending() > 0; pass++) {
