@@ -4,7 +4,7 @@
 - 驗收證據與結案決定：[部署 runbook](../deployment/collaboration-reset/README.md)。
 - 未完成驗收與疑慮：[後續排查 plan](../../plans/18d-collaboration-acceptance-follow-ups.md)。
 
-18B 的授權／資料模型與重置工作已交付。結案接受已記錄的延遲與驗證限制，不代表原 P3 全項通過或產品沒有 bug。後續產品流程由 [18C](../../plans/18c-collaboration-surface.md) 執行，不因效能排查無限延後。
+18B 的授權／資料模型與重置工作已交付。結案接受已記錄的延遲與驗證限制，不代表原 P3 全項通過或產品沒有 bug。後續產品流程由 18C 執行，不因效能排查無限延後。
 
 ## 房間與權限
 
@@ -28,7 +28,7 @@ Snapshot 使用 binary 密文傳輸。寫入／取消／fence 依同房間 Postg
 
 ## 房間金鑰保管
 
-2026-10-09 起依 [plan 19](../../plans/19-server-room-key-custody.md) 擁有者決定，Room DO 保管每個 generation 的房間金鑰；房間內容仍只在瀏覽器以同一格式加解密，但服務端在技術上可解密，產品不再宣稱共編為端對端加密（風險見[威脅模型](collaboration-threat-model.md) T17）。
+2026-10-09 起依 plan 19 擁有者決定，Room DO 保管每個 generation 的房間金鑰；房間內容仍只在瀏覽器以同一格式加解密，但服務端在技術上可解密，產品不再宣稱共編為端對端加密（風險見[威脅模型](collaboration-threat-model.md) T17）。
 
 - **儲存**：DO 表 `authority_room_keys(auth_generation, wrapped, wrap_version, escrowed_at)`，以 `CREATE TABLE IF NOT EXISTS` 加法新增，authority schema version 維持 2。金鑰以 AES-GCM 包裝，KEK 由 Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET` 經 HKDF 依房間與 generation 衍生；AAD 綁定 roomId、generation、wrap version。
 - **上傳 `escrow-room-key`**：建房者在 `set-key-check` 後上傳（best effort，失敗不使建房失敗；初始化中僅 owner 可上傳）；任何以連結成功帶鑰加入後，編輯器再上傳一次以補保管舊房間。DO 只接受能通過已存 key check 的金鑰，每 generation 寫入一次，不同金鑰拒絕。

@@ -1,12 +1,12 @@
 # 瀏覽器端 End-to-End Encryption 與金鑰生命週期
 
 > **現況（2026-10-09）**：drawstuff 共編房間已**不再是端對端加密**。依
-> [plan 19](../../plans/19-server-room-key-custody.md) 擁有者決定，房間金鑰仍在瀏覽器產生、
+> plan 19 擁有者決定，房間金鑰仍在瀏覽器產生、
 > 內容仍只在瀏覽器加解密，但 Room DO 以 Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET` 包裝保存每個
 > 世代的金鑰，並發給 owner、未移除的 allowlist email、owner 授予角色的成員，以及曾以完整連結證明持有金鑰的成員，讓他們從列表或任何裝置重開房間。
 > 因此持有該 secret 與 DO 儲存者在技術上可解密房間內容（[威脅模型](../architecture/collaboration-threat-model.md)
 > T17）。本文以下描述的是 E2EE pattern 本身；本專案與它不同之處標在 §1、§2、Trade-offs 與
-> 「本專案中的實例」。恢復 E2EE 的路線見 [plan 20](../../plans/20-passkey-room-key-vault.md)。
+> 「本專案中的實例」。
 
 > **Pattern 一句話**：把「授權」與「機密性」拆成兩個獨立機制——伺服器決定誰可以進來
 > （token），但讀懂內容的能力只來自一把伺服器從未見過的金鑰（URL fragment 中的 key）；

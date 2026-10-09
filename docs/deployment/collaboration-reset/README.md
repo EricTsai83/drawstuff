@@ -1,6 +1,6 @@
 # 共編重置部署與驗收紀錄
 
-2026-10-08 依擁有者決定收尾 18B。原 P3 的效能與部分 L3 驗收未全部通過，已移交 [18D 後續排查](../../../plans/18d-collaboration-acceptance-follow-ups.md)；[18C](../../../plans/18c-collaboration-surface.md) 可依 [已部署契約](../../architecture/collaboration-authority.md) 繼續。以下按時間保留操作／失敗／清理證據，早期「仍待 18B 結案」的敘述屬當時狀態，未改寫失敗為成功。原破壞性重置步驟不是後續正式資料的例行操作。
+2026-10-08 依擁有者決定收尾 18B。原 P3 的效能與部分 L3 驗收未全部通過，已移交 [18D 後續排查](../../../plans/18d-collaboration-acceptance-follow-ups.md)；18C 可依 [已部署契約](../../architecture/collaboration-authority.md) 繼續。以下按時間保留操作／失敗／清理證據，早期「仍待 18B 結案」的敘述屬當時狀態，未改寫失敗為成功。原破壞性重置步驟不是後續正式資料的例行操作。
 
 2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。2026-10-08 配套 web／Worker 已部署，protocol-6 remote smoke 通過，重置前清單中的舊 DO storage 清理已取得 ACK；完整 L3 驗收仍待完成。
 

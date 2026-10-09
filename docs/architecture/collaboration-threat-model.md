@@ -8,7 +8,7 @@
 This document identifies trust boundaries, data that crosses them, implemented controls, and
 accepted gaps. Scene plaintext exists only in participating browsers.
 
-Since [plan 19](../../plans/19-server-room-key-custody.md) (owner decision, 2026-10-09) the Room
+Since plan 19 (owner decision, 2026-10-09) the Room
 DO also keeps a wrapped custody copy of each generation's room key so members can reopen a room
 from the list or another device. Room content is still encrypted and decrypted only in browsers,
 but the service — anyone holding the Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET` together with Room DO
@@ -161,7 +161,7 @@ Public ACLs do not permit plaintext assets or room keys to be uploaded.
 | T14 | Wrong-key client seeds or overwrites snapshot              | Key check is verified before canvas takeover and join; missing verifier fails closed on both backend and client. A verifier is immutable within a generation, rotation clears/recomputes it, and owner can explicitly reset unreadable snapshot.                                                                                                     |
 | T15 | Relay suppresses frames                                    | Accepted availability limitation. A relay can always drop or refuse traffic, and a quiet room is indistinguishable from suppression without false positives. Metrics expose routing inactivity; confidentiality is unaffected.                                                                                                                       |
 | T16 | Modified application bundle steals the room key            | **Accepted limitation.** The room key is read and written by JavaScript served over B6, so anyone who decides that code's content can read the key: (1) a hosting/deployment operator, (2) a build-time supply-chain compromise in any npm dependency, (3) runtime injection (XSS or any path that executes script in the document), (4) network-level rewriting where TLS is bypassed or a certificate is mis-issued. No cryptography deployed from the same channel can prevent this. Implemented controls raise the bar without removing it — see [Code delivery (B6) controls](#code-delivery-b6-controls).                                              |
-| T17 | Worker secret plus Room DO storage compromise exposes custodied rooms | **Accepted limitation** (plan 19). Anyone with `COLLAB_ROOM_KEY_WRAP_SECRET` and Room DO storage can unwrap every custodied key and decrypt the matching snapshots, assets and frames. Controls: the secret lives only in the Worker secret store; wraps are per room/generation with AAD; keys never appear in logs, metrics or errors; rotation and ending delete custody rows. Leaking or rotating the secret affects every custodied key. Restoring end-to-end encryption is [plan 20](../../plans/20-passkey-room-key-vault.md). |
+| T17 | Worker secret plus Room DO storage compromise exposes custodied rooms | **Accepted limitation** (plan 19). Anyone with `COLLAB_ROOM_KEY_WRAP_SECRET` and Room DO storage can unwrap every custodied key and decrypt the matching snapshots, assets and frames. Controls: the secret lives only in the Worker secret store; wraps are per room/generation with AAD; keys never appear in logs, metrics or errors; rotation and ending delete custody rows. Leaking or rotating the secret affects every custodied key. Restoring end-to-end encryption is plan 20. |
 
 ## Code delivery (B6) controls
 

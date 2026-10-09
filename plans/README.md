@@ -13,14 +13,12 @@ Protocol 6、Room DO 授權權威、Lifecycle 退休及配套 web／Worker／sch
 ## Active plans
 
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) — 長期 logs／metrics、client telemetry、告警與 dashboard；暫緩實現，目的地未定。
-- [18c-collaboration-surface.md](18c-collaboration-surface.md) — 房間列表、缺鑰體驗（原「不保存金鑰」已由 19 改為服務端保管）、未儲存畫布建立獨立房間、全產品加密告知。程式已實作並通過本機驗證；剩餘 §7 `[L3]` production 正式流程驗收。
-- [18d-collaboration-acceptance-follow-ups.md](18d-collaboration-acceptance-follow-ups.md) — 待排程：自然斷線／presign 500、正式瀏覽器恢復與保存狀態、效能 3A／3B／3C、跨日／閒置／autosuspend／成本及剩餘回歸。先定位再重測，一次一個 scope，不阻擋 18C 開發。
-- [19-server-room-key-custody.md](19-server-room-key-custody.md) — 服務端保管房間金鑰，讓成員從列表或任何裝置重新開啟房間；推翻 18C「不保存金鑰」，不再宣稱端對端加密。§2 決定已確認，實作中。
-- [20-passkey-room-key-vault.md](20-passkey-room-key-vault.md) — 以 passkey 保護的使用者金鑰庫，取代服務端可解密的保管並恢復端對端加密；19 之後的最佳化，未排程。
+- [18d-collaboration-acceptance-follow-ups.md](18d-collaboration-acceptance-follow-ups.md) — 待排程：自然斷線／presign 500、正式瀏覽器恢復與保存狀態、效能 3A／3B／3C、跨日／閒置／autosuspend／成本及剩餘回歸。先定位再重測，一次一個 scope，不阻擋 21。
+- [21-plain-rooms-google-docs-access.md](21-plain-rooms-google-docs-access.md) — 共編房間改為不加密（只有分享連結維持端對端加密），存取改為 Google 文件模式（擁有者＋邀請名單＋一般存取權），房間列表分「受邀」與「透過連結開啟過」兩區；清除現有共編資料。取代已刪除的 18C 剩餘驗收、19、20。草案待確認。
 
 ## 執行順序與交接
 
-18C 可依固定後端契約開始，自己的正式使用流程驗收不能省略。18D 暫時保留作後續排查，不因索引更新自動啟動全部長測；重現功能缺陷時優先處理其穩定性 scope，純延遲超標依已接受限制排程。需要持續觀測設施時與 17 協調。
+21 待擁有者確認 §2 後依 §8 分批實作，每批驗證後再進下一批。18D 暫時保留作後續排查，不因索引更新自動啟動全部長測；重現功能缺陷時優先處理其穩定性 scope，純延遲超標依已接受限制排程。需要持續觀測設施時與 17 協調。
 
 驗證分層見 [授權契約](../docs/architecture/collaboration-authority.md#驗證分層與後續使用)：本機產品／Worker 測試不替代真實 PostgreSQL 鎖競態或正式平台驗收。
 

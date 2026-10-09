@@ -64,7 +64,7 @@ token 驗證、從（非機密的）路由資訊導出實例身分、轉發。�
 
 好處是攻擊面與信任等級分層：在金鑰只存在 client 的設計下，gateway 的部署憑證即使外洩，
 也只影響可用性，碰不到內容與持久資料（在別的系統）。本專案自
-[plan 19](../../plans/19-server-room-key-custody.md) 起由 Room DO 保管包裝後的房間金鑰，
+plan 19 起由 Room DO 保管包裝後的房間金鑰，
 gateway 另有專用 `/v1/room-key` 路徑轉送金鑰；因此 Worker 部署憑證或 `COLLAB_ROOM_KEY_WRAP_SECRET`
 外洩已不只是可用性問題，而是可解密已保管房間（見[威脅模型](../architecture/collaboration-threat-model.md) T17）。
 

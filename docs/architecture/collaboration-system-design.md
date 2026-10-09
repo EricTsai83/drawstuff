@@ -3,7 +3,7 @@
 - Status: Current
 - Generalized patterns: [realtime room coordination](../system-design/realtime-room-coordination.md),
   [browser-side encryption and key lifecycle](../system-design/e2ee-key-lifecycle.md) (rooms
-  are no longer end-to-end encrypted since [plan 19](../../plans/19-server-room-key-custody.md)),
+  are no longer end-to-end encrypted since plan 19),
   [transactional outbox](../system-design/transactional-outbox.md),
   [defensive boundaries](../system-design/defensive-boundaries.md)
 - Security model: [collaboration threat model](./collaboration-threat-model.md)
@@ -611,7 +611,7 @@ outcomes use distinct close reasons so clients can distinguish terminal from ret
 ## Browser-side encryption, key custody, and key confirmation
 
 The browser generates a random 32-byte room key and carries it in the URL fragment; the relay never
-receives it. Since [plan 19](../../plans/19-server-room-key-custody.md) (2026-10-09) the browser
+receives it. Since plan 19 (2026-10-09) the browser
 also escrows it to Room DO custody through the dedicated `/v1/room-key` path, where it is stored
 only wrapped under a key derived from `COLLAB_ROOM_KEY_WRAP_SECRET`, and members fetch it from there to
 reopen a room (see [authority contract](./collaboration-authority.md)). HKDF

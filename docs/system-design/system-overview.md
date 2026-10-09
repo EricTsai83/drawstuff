@@ -50,7 +50,7 @@ flowchart LR
 三條關鍵的信任邊界（詳見 [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md)）：
 
 1. **內容機密性**：場景內容只以密文通過 Gateway／Coordinator／DB／Storage；DB 與 Storage
-   沒有金鑰，relay 路徑不使用金鑰。但自 [plan 19](../../plans/19-server-room-key-custody.md)
+   沒有金鑰，relay 路徑不使用金鑰。但自 plan 19
    起 Room Coordinator 以 Worker secret 包裝保管房間金鑰並發給已授權成員，所以這**不是**
    端對端加密：持有該 secret 與 DO 儲存者可解密（見[威脅模型](../architecture/collaboration-threat-model.md) T17）；
 2. **授權**：由 Web App 的 DB 決定、以短效簽章 token 傳遞，Gateway 與 Coordinator

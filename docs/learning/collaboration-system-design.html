@@ -33,7 +33,7 @@
 <tr><td>PostgreSQL／物件儲存</td><td>唯一的持久協作資料來源</td><td>—</td></tr>
 </tbody></table></div>
 <p>值得學的是<strong>這些「不負責」各自靠什麼保證</strong>，因為它們的強度並不相同。</p>
-<p class="note">2026-10-09 更新：依 <a href="../../plans/19-server-room-key-custody.md">plan 19</a>，drawstuff 現在由 Room DO 以 Worker secret 包裝保管房間金鑰並發給已授權成員；relay 路徑仍不使用金鑰，但服務端（持有該 secret 與 DO 儲存者）在技術上可解密，共編不再宣稱端對端加密。下段描述的是 relay 本身的保證。</p>
+<p class="note">2026-10-09 更新：依 plan 19，drawstuff 現在由 Room DO 以 Worker secret 包裝保管房間金鑰並發給已授權成員；relay 路徑仍不使用金鑰，但服務端（持有該 secret 與 DO 儲存者）在技術上可解密，共編不再宣稱端對端加密。下段描述的是 relay 本身的保證。</p>
 <p><strong>relay 讀不懂畫布，靠的是它從不持有金鑰。</strong>房間金鑰在瀏覽器中只存在於 URL fragment 與記憶體，不隨任何 relay 請求送出（plan 19 的保管只走另一條專用路徑），所以 relay 收到的就只是密文——這是威脅模型 T2 的保證，屬於密碼學層級。「只 import server-safe 的協定入口」<strong>不是</strong>這個保證的來源：AES-GCM 是公開演算法，任何人只要拿到金鑰，自己寫一份解密程式就能讀。匯入邊界是另一種東西——架構約束：它讓「不小心在 relay 側解密」在結構上做不到，也讓「relay 到底需不需要金鑰」這個問題在每次 review 都有明確答案。一個防對手，一個防自己人失手，不能互相取代，也不該被寫成同一件事。</p>
 <p>Redis 那一列是第三種保證：它確實收得到使用者與房間識別碼（那是計數器的 key），所以保證來自契約明文列出它<strong>收不到</strong>什麼。把「這個依賴看得到什麼」寫下來，比事後從程式碼推斷可靠得多。</p>
 <p>另外兩條資料分流也是刻意的：presence 與 scene 走不同通道（presence 是易失的，壓力下可以丟；scene 在同一個 socket session 內可靠），而二進位附件 bytes 從不放進 scene 訊息裡。</p>

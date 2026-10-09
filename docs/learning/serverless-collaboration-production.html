@@ -12,7 +12,7 @@
 <p>假設房主 A 與成員 B、C 正在畫圖。現況由 Neon PostgreSQL 保存 C 的權限，再通知 Cloudflare 的房間 DO 停止 C 的 WebSocket 收發。兩個服務之間可能斷線，所以 DB 還保存一份 outbox（持久待辦），每分鐘掃描並重送。這讓漏送可以恢復，卻也讓沒人在使用時仍有 DB 查詢。</p>
 <p><strong>目標方案把房間權限的最終決定權移到 Room DO，讓它同時知道誰有權限、誰正在連線。</strong>Neon 不需要因此退出系統：個人白板、共編密文快照及房間列表仍留在原本適合查詢與儲存的位置。</p>
 <div class="table-wrap" tabindex="0" role="region" aria-label="比較表格，窄螢幕可左右捲動"><table><caption>最終責任分工</caption><thead><tr><th scope="col">位置</th><th scope="col">保存或處理什麼</th><th scope="col">為什麼放這裡</th></tr></thead><tbody>
-<tr><td>瀏覽器</td><td>明文畫布、房間秘密、加解密</td><td>內容只在瀏覽器加解密；2026-10-09 起 Room DO 另保管包裝後的金鑰（<a href="../../plans/19-server-room-key-custody.md">plan 19</a>），不再宣稱端對端加密。</td></tr>
+<tr><td>瀏覽器</td><td>明文畫布、房間秘密、加解密</td><td>內容只在瀏覽器加解密；2026-10-09 起 Room DO 另保管包裝後的金鑰（plan 19），不再宣稱端對端加密。</td></tr>
 <tr><td>Room DO＋SQLite</td><td>房間狀態、owner、成員角色、撤權、連線與待辦、包裝後的房間金鑰保管副本</td><td>同一個房間在同一處判斷與執行授權。</td></tr>
 <tr><td>Neon</td><td>帳號、我的房間列表、個人白板、共編加密快照、生命週期登記</td><td>沿用現有 SQL 查詢與持久儲存。</td></tr>
 <tr><td>UploadThing</td><td>加密圖片與附件</td><td>沿用既有檔案服務，不同時進行儲存遷移。</td></tr>

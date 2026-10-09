@@ -55,7 +55,7 @@ Code-only 自動部署即可，不需先手動部署 Worker。
 | `COLLAB_ADAPTER_SECRET`    | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用其他 secret                               |
 | `COLLAB_IDENTITY_SECRET`   | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 不授予角色                                                     |
 | `COLLAB_AUTHORITY_SECRET`  | 與 web 端同名值相同的 Vercel → Gateway 私有管理入口憑證；與 proof／adapter 憑證分開                                      |
-| `COLLAB_ROOM_KEY_WRAP_SECRET`   | **Worker 專用**（web 端不需要）。≥32 bytes 隨機值；以 HKDF 衍生每房間／世代的 KEK，包裝 Room DO 保管的房間金鑰（[plan 19](../../plans/19-server-room-key-custody.md)） |
+| `COLLAB_ROOM_KEY_WRAP_SECRET`   | **Worker 專用**（web 端不需要）。≥32 bytes 隨機值；以 HKDF 衍生每房間／世代的 KEK，包裝 Room DO 保管的房間金鑰（plan 19） |
 
 **`COLLAB_ROOM_KEY_WRAP_SECRET` 部署順序**：先以
 `pnpm --filter @drawstuff/collaboration-do secret:put:room-key-wrap` 設定（例如 `openssl rand -base64 48`

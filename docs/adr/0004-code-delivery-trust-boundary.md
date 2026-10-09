@@ -129,7 +129,7 @@ Excalidraw 0.18.1 的 twitter/x、reddit 與 gist.github.com embed 走 srcdoc if
 
 ## 後續變更（2026-10-09）
 
-[Plan 19](../../plans/19-server-room-key-custody.md) 依擁有者決定改由 Room DO 以 Worker secret
+Plan 19 依擁有者決定改由 Room DO 以 Worker secret
 `COLLAB_ROOM_KEY_WRAP_SECRET` 包裝保管房間金鑰。上文「room key 永不離開 browser」與對外 E2EE 宣稱的前提
 因此不再成立：產品不再宣稱共編為端對端加密，且 Cloudflare Worker 部署路徑與該 secret 也能取得已保管
 的金鑰（[威脅模型](../architecture/collaboration-threat-model.md) T17）。B6／T16 與 CSP 的結論不變；

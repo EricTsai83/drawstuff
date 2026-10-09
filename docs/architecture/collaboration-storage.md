@@ -3,11 +3,11 @@
 Room DO is the deployed authorization authority; PostgreSQL stores encrypted snapshots, asset
 records, fences and display projections. Source scenes are optional. See the
 [current authority contract](collaboration-authority.md). Room keys are never retained in browser
-storage, Neon, or UploadThing; since [plan 19](../../plans/19-server-room-key-custody.md) the Room
+storage, Neon, or UploadThing; since plan 19 the Room
 DO keeps one wrapped custody copy per generation (threat-model invariants 2–5), so the service can
 technically decrypt room content and rooms are not described as end-to-end encrypted. The product
 surface below is implemented, and its production acceptance is tracked by the
-[surface plan](../../plans/18c-collaboration-surface.md) and plan 19 §7.
+surface plan and plan 19 §7.
 Unfinished acceptance is tracked separately, not treated as an undeployed authority reset.
 
 ## Storage modes and destinations

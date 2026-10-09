@@ -114,7 +114,7 @@ only the server-safe collaboration entries. See the
 Collaboration room content is encrypted in the browser before it reaches the relay, database, or
 object storage. Rooms are not end-to-end encrypted: the room Durable Object keeps a custody copy of
 each room key, wrapped under a Worker secret, and releases it to the owner and members
-([plan 19](./plans/19-server-room-key-custody.md)). The full design and limitations are documented
+(plan 19). The full design and limitations are documented
 in the [collaboration system design](./docs/architecture/collaboration-system-design.md) and
 [threat model](./docs/architecture/collaboration-threat-model.md).
 

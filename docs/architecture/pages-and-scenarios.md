@@ -257,7 +257,7 @@ sequenceDiagram
    [即時協作房間](../system-design/realtime-room-coordination.md) 三張圖。
 3. **金鑰**（fragment、HKDF、key-check fail-closed）：
    [E2EE 金鑰生命週期](../system-design/e2ee-key-lifecycle.md) 三張圖。自
-   [plan 19](../../plans/19-server-room-key-custody.md) 起 Room DO 另以 Worker secret 包裝保管
+   plan 19 起 Room DO 另以 Worker secret 包裝保管
    房間金鑰、發給已授權成員，共編**不再是端對端加密**；見
    [授權契約](./collaboration-authority.md)「房間金鑰保管」。
 4. **撤銷成員的一致性**（同交易寫 outbox、best-effort control、cron 補送）：

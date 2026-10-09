@@ -16,7 +16,7 @@
 <h3>附件索引受控，已知 public 密文 URL 暫不撤回</h3>
 <p>UploadThing 維持 public 密文上傳（2026-10-07 擁有者決定）。DO 撤權限制後續取得附件索引與 URL、上傳授權及確認寫入；已取得或另行獲得的永久 URL，在物件刪除前仍能下載密文。持有對應金鑰的人仍可解密，已下載的內容無法收回。這個限制暫時接受；本次不要求私有上傳、下載代理、付費升級或更換儲存服務，也不宣稱 URL 隨撤權失效。</p>
 </section><section id="e2ee"><h2>列表記住房間，金鑰決定能否解密</h2>
-<p class="note">2026-10-09 更新：依 <a href="../../plans/19-server-room-key-custody.md">plan 19</a> 擁有者決定，drawstuff 現在由 Room DO 以 Worker secret 包裝保管房間金鑰，並發給 owner、未移除的 allowlist email、owner 授予角色的成員，以及曾以完整連結證明持有金鑰的成員，讓他們從列表或任何裝置重開房間；共編不再宣稱端對端加密。本節下方「伺服器不保存 root key」「從列表點入需要完整邀請連結」等描述為當時設計，現況見<a href="../architecture/collaboration-threat-model.md">威脅模型</a>。</p>
+<p class="note">2026-10-09 更新：依 plan 19 擁有者決定，drawstuff 現在由 Room DO 以 Worker secret 包裝保管房間金鑰，並發給 owner、未移除的 allowlist email、owner 授予角色的成員，以及曾以完整連結證明持有金鑰的成員，讓他們從列表或任何裝置重開房間；共編不再宣稱端對端加密。本節下方「伺服器不保存 root key」「從列表點入需要完整邀請連結」等描述為當時設計，現況見<a href="../architecture/collaboration-threat-model.md">威脅模型</a>。</p>
 <p>「我的房間」是 Neon 中按使用者查詢的列表副本。DO 同步建立、加入、角色變更、踢人與關閉的結果；每筆帶版本，晚到事件不能把已移除的房間重新顯示為有效。列表允許短暫落後，實際點入仍由 DO 判斷。</p>
 <p>A 踢掉 C 後，C 的首頁可能暫時仍顯示那張白板，但 DO 已拒絕 C 進入。這是列表的顯示延遲，不是繼續授權。反過來，新加入的人也可能在列表同步完成前，已經能從分享連結進房。</p>
 <p><strong>列表中的 roomId 不是解密金鑰。</strong>房間秘密只留在完整連結的 fragment；Drawstuff 不在瀏覽器儲存空間保存房間金鑰。從列表點入或換裝置時，列表仍存在，但需要提供完整邀請連結；使用者可自行以書籤或密碼管理器保存連結。</p>
