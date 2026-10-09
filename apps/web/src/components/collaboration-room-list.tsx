@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { Copy, Ellipsis, KeyRound, LogOut, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type RouterOutputs } from "@/trpc/react";
+import { Spinner } from "@/components/ui/spinner";
 import { Button } from "@/components/ui/button";
 import {
   AlertDialog,
@@ -76,6 +77,7 @@ export function CollaborationRoomList() {
   // The room whose exit intent is settling; it locks every other action.
   const [busyRoomId, setBusyRoomId] = useState<string | null>(null);
   const [recoverable, setRecoverable] = useState(false);
+  const [creating, setCreating] = useState(false);
   const mounted = useRef(true);
   useEffect(() => {
     mounted.current = true;
@@ -87,6 +89,7 @@ export function CollaborationRoomList() {
   const create = async () => {
     if (pending || busyRoomId) return;
     setPending(true);
+    setCreating(true);
     try {
       initializer.current ??= createRoomInitialization({
         authority: {
@@ -102,7 +105,6 @@ export function CollaborationRoomList() {
         sceneId: null,
         elements: [],
       });
-      setRecoverable(true);
       const ready = await initializer.current.start();
       if (!mounted.current) return;
       initializer.current.dispose();
@@ -118,10 +120,16 @@ export function CollaborationRoomList() {
         }),
       );
     } catch {
-      if (mounted.current)
+      // Only a creation that stopped part-way can be retried or cancelled.
+      if (mounted.current) {
+        setRecoverable(true);
         toast.info(t("collaboration.toast.initializationPending"));
+      }
     } finally {
-      if (mounted.current) setPending(false);
+      if (mounted.current) {
+        setPending(false);
+        setCreating(false);
+      }
     }
   };
   const cancel = async () => {
@@ -375,7 +383,7 @@ export function CollaborationRoomList() {
           {t("collaboration.rooms.hint")}
         </p>
         <div className="flex shrink-0 gap-2">
-          {recoverable && (
+          {recoverable && !pending && (
             <Button
               variant="ghost"
               disabled={pending || busyRoomId !== null}
@@ -386,12 +394,20 @@ export function CollaborationRoomList() {
           )}
           <Button
             disabled={pending || busyRoomId !== null}
+            aria-busy={creating}
             onClick={() => void create()}
           >
-            {t(
-              recoverable
-                ? "collaboration.rooms.retry"
-                : "collaboration.rooms.create",
+            {creating ? (
+              <>
+                <Spinner data-icon="inline-start" aria-hidden="true" />
+                {t("collaboration.action.creating")}
+              </>
+            ) : (
+              t(
+                recoverable
+                  ? "collaboration.rooms.retry"
+                  : "collaboration.rooms.create",
+              )
             )}
           </Button>
         </div>

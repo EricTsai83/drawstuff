@@ -314,6 +314,18 @@ describe("collaboration room list (18C §2)", () => {
     expect(buttonIn(container, "New room")).toBeDefined();
   });
 
+  it("offers retry and cancel only once a creation has stopped, not while it runs", async () => {
+    creation.start.mockImplementationOnce(() => new Promise(() => undefined));
+    render({ isSuccess: true, data: { rooms: [], nextCursor: null } });
+    await act(async () => {
+      buttonIn(container, "New room")?.click();
+    });
+    const header = container.querySelector("section > div")!;
+    expect(buttonIn(header, "Creating room")?.disabled).toBe(true);
+    expect(buttonIn(header, "Retry initialization")).toBeUndefined();
+    expect(buttonIn(header, "Cancel room creation")).toBeUndefined();
+  });
+
   it("locks the header's retry and cancel while a row cancellation settles", async () => {
     const { AuthorityRoomError } =
       await import("@/lib/collab/authority-client");
