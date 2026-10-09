@@ -74,7 +74,7 @@
     "COLLAB_ALLOWED_ORIGINS": "https://draw.ericts.com,http://localhost:3000",
   },
   "secrets": {
-    // Purpose-separated capabilities; provision together in the P3 maintenance window.
+    // Purpose-separated capabilities (docs/operations/collaboration-do-deployment.md).
     "required": [
       "COLLAB_ADAPTER_URL",
       "COLLAB_ADAPTER_SECRET",

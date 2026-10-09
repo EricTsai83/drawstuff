@@ -45,7 +45,7 @@ flowchart LR
     CS x--x EXFIL["任意外部 origin<br/>（秘密的 exfiltration 出口）"]
 ```
 
-然後**排定主從**：如果頁面持有秘密（金鑰、token），`connect-src` 是主控制——
+然後**排定主從**：如果頁面持有秘密（分享連結金鑰、proof），`connect-src` 是主控制——
 它決定秘密「送得出去嗎、送得到哪」；`script-src`／`worker-src` 是次控制——
 決定「惡意程式碼多容易進來」。主從排序決定妥協時犧牲誰：可以容忍
 `script-src 'unsafe-inline'`（framework 的串流 inline script 無法事先 hash），
@@ -88,7 +88,7 @@ flowchart TD
 ### 4. 對「CSP 擋不住什麼」誠實
 
 「能改 bundle 的人拿得到頁面裡的一切」是 code delivery 這條信任邊界的性質，與 CSP
-無關、也無法用 CSP 解決，在 [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md) §6 處理。
+無關、也無法用 CSP 解決，在 [分享連結的 E2EE](./e2ee-key-lifecycle.md) §4 處理。
 這裡只列 CSP **特有**的兩條誠實邊界：
 
 - 它不阻止把秘密送到 allowlist **內**的 origin（包括自家）——`connect-src` 是收斂出口，

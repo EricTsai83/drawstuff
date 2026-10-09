@@ -35,7 +35,7 @@
 </section>
 
 <section id="room"><h2>為什麼所有上限以 room 為界</h2>
-<p>契約 §0 是整份文件的前提：一個 room generation 對應一個 <code>CollaborationRoom</code> Object，fanout 不跨 Object，也沒有外部 pub/sub 依賴。這個模型一成立，好幾件事就自動跟著決定：</p>
+<p>契約 §0 是整份文件的前提：一個 room 對應一個 Room Durable Object，fanout 不跨 Object，也沒有外部 pub/sub 依賴。這個模型一成立，好幾件事就自動跟著決定：</p>
 <ul>
 <li>所有 hard limit 的計算單位是<strong>單一 room</strong>，不是整個服務。要知道服務總量，得另外乘以 room 數並考慮平台配額，這份文件不做這件事。</li>
 <li>「fanout 依賴故障」與「fanout 網路分區」這兩類情境<strong>不適用</strong>——沒有外部 fanout 依賴可以故障。少一個依賴，就少一整類要寫進 runbook 的失效模式。</li>
@@ -47,7 +47,7 @@
 <section id="failopen"><h2>速率限制為什麼 fail open</h2>
 <p>共編的後端速率限制跑在 serverless function 上，process-local 計數器在多個 invocation 之間不成立，所以需要一個共享儲存（本專案用 Upstash Redis）。共享儲存意味著多一個會故障的依賴，於是必須先回答一個問題：<strong>這個依賴掛掉時，請求該放行還是該擋下？</strong></p>
 <p>契約給的答案是 fail open，理由只有一句話：<em>速率限制是額外的濫用與容量保護，不是 authorization boundary</em>。授權邊界故障時必須 fail closed，因為放行等於洩漏；但速率限制放行只是暫時失去一層防濫用，擋下卻會讓正常使用者在依賴故障期間完全無法共編。方向由「這是哪一種邊界」決定，不由直覺決定。</p>
-<p>重點是這個決定被畫得很窄，降級期間仍然 fail closed 的東西包括：登入、room role、generation 是否為當前世代、payload 與 batch 大小，以及 room runtime 本身的 token bucket。降級只影響那一層共享計數器。</p>
+<p>重點是這個決定被畫得很窄，降級期間仍然 fail closed 的東西包括：登入、room role、payload 與 batch 大小，以及 room runtime 本身的 token bucket。降級只影響那一層共享計數器。</p>
 <p>另外兩個值得學的細節：降級事件記成<strong>封閉列舉的結構化事件</strong>（事件名 + operation + cause，不含任何 identifier 或 error payload），所以相同故障可以被聚合告警，而不必逐筆 grep log；而 <code>degraded</code> 明確<strong>不等於 rate limited</strong>，不回 429、不消耗 client 的 retry budget——否則一次依賴故障會被客戶端誤讀成「我被限流了」而進入退避。</p>
 <p>還有一個反模式被明文禁止：任何路徑都不准在降級時切換回 process-local counter。那會產生一個「看起來是全域、實際上每個 instance 各有一份」的限制，比沒有限制更難除錯。</p>
 </section>

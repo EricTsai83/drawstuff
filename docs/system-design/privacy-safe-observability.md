@@ -61,14 +61,14 @@ flowchart LR
 
 ### 3. 遙測只走已驗證的通道，且批次上報
 
-client 端的失敗計數（解密失敗、衝突）要回報時：**不走即時通道**（給 relay 加一條
+client 端的失敗計數（解碼失敗、衝突）要回報時：**不走即時通道**（給 relay 加一條
 client 上報通道 = 新的 untrusted input），走既有的已驗證 API；client 在記憶體累計、
-固定 cadence 批次送——逐筆上報會讓「解密失敗」變成打後端的放大器。
+固定 cadence 批次送——逐筆上報會讓「解碼失敗」變成打後端的放大器。
 
 ```mermaid
 flowchart LR
     subgraph Client["瀏覽器"]
-        F["失敗觀測點<br/>（decrypt fail / conflict）"] --> ACC["記憶體累計<br/>只有計數 + 分母"]
+        F["失敗觀測點<br/>（decode fail / conflict）"] --> ACC["記憶體累計<br/>只有計數 + 分母"]
     end
     RT["即時通道（relay）"]
     API["已驗證後端 API<br/>（同一條授權路徑 + 限流）"]

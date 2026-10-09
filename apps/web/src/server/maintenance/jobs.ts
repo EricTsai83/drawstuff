@@ -444,7 +444,7 @@ export type RoomRetentionOptions = {
 
 /**
  * Reclaims only explicitly ended rooms after the grace period. Active/initializing rooms
- * never expire. Snapshot deletion and encrypted object cleanup enqueue commit together;
+ * never expire. Snapshot deletion and object cleanup enqueue commit together;
  * bounded room/object budgets leave remaining work for the next run.
  */
 export function createRoomRetentionJob(

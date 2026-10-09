@@ -19,71 +19,69 @@ flowchart LR
         C2["Client B"]
         C3["Client C"]
     end
-    subgraph Web["Web 後端（授權權威）"]
+    subgraph Web["Web 後端（身分與持久資料）"]
         API["房間 API"]
-        DB[("關聯式 DB<br/>房間/成員/快照")]
+        DB[("關聯式 DB<br/>列表投影/快照")]
         API --> DB
     end
     subgraph Edge["Realtime 平台"]
-        GW["Thin Gateway<br/>（無狀態：驗 token、路由）"]
-        DO1["Coordinator：room X · gen 1"]
-        DO2["Coordinator：room Y · gen 3"]
+        GW["Thin Gateway<br/>（無狀態：驗 proof、路由）"]
+        DO1["Coordinator：room X"]
+        DO2["Coordinator：room Y"]
     end
-    C1 -->|"1. join 請求"| API
-    API -->|"2. 短效 token + 不透明 relayUrl"| C1
-    C1 <-->|"3. WebSocket（密文 frame）"| GW
+    C1 -->|"1. identity 請求"| API
+    API -->|"2. 短效 identity proof + 不透明 relayUrl"| C1
+    C1 <-->|"3. WebSocket（WSS）"| GW
     C2 <--> GW
     C3 <--> GW
-    GW -->|"roomId+generation → 唯一實例"| DO1
+    GW -->|"roomId → 唯一實例"| DO1
     GW --> DO2
-    API -->|"control（簽章 token）"| GW
-    DO1 -.->|"只存 coordination metadata<br/>（cutoff、期限）"| DO1
+    API -->|"authority 指令（proof + service secret）"| GW
+    DO1 -.->|"存取規則、session epoch、<br/>durable 工作"| DO1
 ```
 
 ## Pattern
 
 ### 1. 一個房間 = 一個 coordination atom
 
-以「房間 + 授權世代」作為實例身分，交給一個 **single-writer coordinator** 承載
+以房間 id 作為實例身分，交給一個 **single-writer coordinator** 承載
 （平台原生的 per-key actor、或帶 sticky routing 的有狀態服務）。平台保證同一身分
 只有一個實例，因此：
 
-- 房間內的成員表、fanout、撤銷 cutoff 天然序列化，不需要分散式鎖；
+- 房間內的存取規則、成員表、fanout、收回權限天然序列化，不需要分散式鎖；
 - 「fanout 狀態被意外分裂到多個 instance」這類威脅**在結構上被消滅**，而不是靠小心維護；
 - 水平擴展的單位是房間——房間之間天然平行，房間之內不需要平行。
 
 反模式：建一個追蹤全站房間／連線的 global singleton。那會把「per-room 序列化」的優點
-變成全站瓶頸。**授權世代輪替 = 新的實例身分**，讓「舊世代的連線」與「新世代的頻道」
-在結構上不可能混在一起。
+變成全站瓶頸。權限可能收窄時，實例在同一交易裡推進 authority epoch（fence）並關閉受影響的
+連線，舊 epoch 的持久寫入會被拒絕；另一個 session epoch（wire 上的 `roomGeneration`）在空房後
+第一個人加入時推進，讓舊 cohort 的訊息無法混進新 cohort。
 
 ### 2. Thin gateway：驗證與路由，不碰狀態
 
 實例前面放一層無狀態 gateway，只負責：公開請求形狀檢查、WebSocket upgrade 檢查、
-token 驗證、從（非機密的）路由資訊導出實例身分、轉發。它不是第二個 backend、
-不持有房間狀態；realtime 路徑上它只轉發密文、不能解密內容。
+proof／service secret 驗證、從（非機密的）路由資訊導出實例身分、轉發。它不是第二個
+backend、不持有房間狀態。
 
-好處是攻擊面與信任等級分層：在金鑰只存在 client 的設計下，gateway 的部署憑證即使外洩，
-也只影響可用性，碰不到內容與持久資料（在別的系統）。本專案自
-plan 19 起由 Room DO 保管包裝後的房間金鑰，
-gateway 另有專用 `/v1/room-key` 路徑轉送金鑰；因此 Worker 部署憑證或 `COLLAB_ROOM_KEY_WRAP_SECRET`
-外洩已不只是可用性問題，而是可解密已保管房間（見[威脅模型](../architecture/collaboration-threat-model.md) T17）。
+房間內容不加密（傳輸靠 WSS），所以 Worker 部署憑證外洩可讀到即時內容，信任等級與 Web 後端
+相同；分層的價值在於 gateway 的公開面固定且最小（見[威脅模型](../architecture/collaboration-threat-model.md)）。
 
 ### 3. 每一層只持久化自己該有的東西
 
 | 層 | 持久化 | 不得持久化 |
 | --- | --- | --- |
-| 房間實例 | 必須跨休眠/重啟存在的 coordination metadata（撤銷 cutoff、期限）；本專案另含 plan 19 包裝後的房間金鑰保管副本 | 場景內容、明文金鑰、事件歷史、第二份權威快照 |
-| 交易性資料庫 | 房間/成員/授權、持久快照 | — |
+| 房間實例 | 存取規則（擁有者、邀請名單、一般存取權）、session epoch、待送達的 durable 工作 | 場景內容、事件歷史、第二份權威快照 |
+| 交易性資料庫 | 房間列表投影（只供顯示）、持久快照、資產索引 | 存取判斷（每次由房間實例即時計算） |
 | Object storage | 大型二進位資產 | — |
 
-「relay 不是資料權威」是關鍵：relay 重啟只是所有人重連，不會丟資料、
-不需要資料修復流程。
+「relay 不是內容權威」是關鍵：relay 重啟只是所有人重連，不會丟資料、
+不需要資料修復流程。房間結束且工作都送達後，實例刪除自己的全部儲存。
 
 ### 4. 身分由伺服器發，不由 client 自選
 
 連線身分（peerId）由 relay 產生；重連就是新 peer。client 不得自選 identifier——
-自選 ID 是把任意字串（可能是誤貼的金鑰）送進伺服器 log 的通道，也是偽裝他人的入口。
-join 訊息只帶「房間 + token」。
+自選 ID 是把任意字串（可能是誤貼的秘密）送進伺服器 log 的通道，也是偽裝他人的入口。
+join 訊息只帶「房間 + identity proof」。
 
 ### 5. 頻道分級：可靠的內容流 vs 可丟棄的 presence 流
 
@@ -110,10 +108,10 @@ sequenceDiagram
     Note over N: 此後所有入站 scene 訊息<br/>進入有界的 join barrier 緩衝
     par 兩個基準來源競速
         N->>P: 請求即時快照（經 DO 轉發）
-        P-->>N: 加密的當前場景
+        P-->>N: 當前場景
     and
         N->>W: 請求持久化快照（有界 timeout）
-        W-->>N: 加密快照 + revision
+        W-->>N: 快照 + revision
     end
     Note over N: 2. 第一個有效基準勝出 → 套用<br/>（輸家降級為普通訊息處理）
     N->>N: 3. 緩衝訊息按序重放
@@ -130,8 +128,9 @@ relay 完全不需要保存或重放歷史——恢復的正確性來自「快�
 成員變動時自然換人。同一條規則也用來選唯一的持久快照 writer，見
 [Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)。
 
-斷線分類成三種結果驅動不同行為：terminal（不重試）、retryable（有界退避重連）、
-generation rotation（換頻道重新加入）。所有關閉都帶明確的 close reason，
+斷線分類成兩種結果驅動不同行為：terminal（失去權限、房間結束、協定錯誤，不重試）與
+retryable（有界退避重連；角色改變 `roleChanged` 也屬此類，重連即拿到新角色）。
+所有關閉都帶明確的 close reason，
 讓 client 能區分而不是猜。恢復本身是一台純 state machine：
 
 ```mermaid
@@ -181,7 +180,7 @@ client 端如何決定「誰寫、多快寫、被 429 後何時再寫、關閉�
 
 - 拓撲、身分、頻道、join barrier、恢復分類：
   [collaboration system design](../architecture/collaboration-system-design.md)。
-  coordinator 是 Cloudflare Durable Object（一個 `(roomId, authGeneration)` 一個 Object，
+  coordinator 是 Cloudflare Durable Object（一個 roomId 一個 `CollaborationRoomV2` Object，
   `apps/collaboration-do`），gateway 是同一個 Worker bundle 裡的無狀態 fetch handler。
 - responder／writer 選舉規則：最小 `peerId` 的 editor／owner
   （`packages/collaboration/src/snapshot.ts` 的 `electSnapshotWriter`）；

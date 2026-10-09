@@ -1,16 +1,17 @@
 # ADR-0004：Code delivery 是 trust boundary，E2EE 宣稱以此為界
 
-- Status: Accepted（2026-08-28，隨 Plan 16 完成寫入）
+- Status: Accepted（2026-08-28，隨 Plan 16 完成寫入）；2026-10-10 依
+  [plan 21](../../plans/21-plain-rooms-google-docs-access.md) 改寫：E2EE 只剩分享連結。
 - 範圍：`apps/web` origin 送出的 HTML/JS（threat model boundary **B6**）、對外 E2EE
   宣稱的措辭界線、security headers／CSP 政策，以及 deployment 與 build-time
   supply-chain 的常態要求。
-- 關聯：[collaboration threat model](../architecture/collaboration-threat-model.md)（B6、T16）、
+- 關聯：[collaboration threat model](../architecture/collaboration-threat-model.md)（B6、T16、T17）、
   [web security headers](../operations/web-security-headers.md)（CSP 走查與部署要求）。
 
 ## 背景
 
-Room key 只存在於 browser 記憶體與 URL fragment（B5），但讀寫它的程式碼是 `apps/web`
-origin 送出的 JavaScript。能決定瀏覽器執行什麼程式碼的人——hosting/deployment operator、
+產品中唯一端對端加密的資料是分享連結（scene export／shared-scene）：金鑰只存在於 browser
+記憶體與 URL fragment，但讀寫它的程式碼是 `apps/web` origin 送出的 JavaScript。能決定瀏覽器執行什麼程式碼的人——hosting/deployment operator、
 build-time supply chain、runtime injection（XSS）、TLS 被繞過的 network 改寫——不需要碰
 relay、資料庫或 object storage 就能取得 key。這是所有瀏覽器端 E2EE 的共同性質（上游
 Excalidraw 亦同），不是本專案的實作缺陷；缺口在於 threat model 過去沒有把它寫成
@@ -18,22 +19,22 @@ boundary 與 accepted limitation。
 
 ## CLAIM-CDB-1 — Code delivery 是 accepted limitation，不存在 prevention
 
-任何能決定 B6 內容的人都能讀取 room key。本專案的控制目標是**收斂 exfiltration 出口、
+任何能決定 B6 內容的人都能讀取分享連結金鑰與畫面上的內容。本專案的控制目標是**收斂 exfiltration 出口、
 縮小可注入面、讓宣稱精確**；任何文件不得把任一控制描述為「防止 operator 讀取內容」。
 也因此不接 CSP `report-uri`/`report-to`：違規報告含 URL，而 fragment 是金鑰載體，
 不為緩解本身新增一條接收 URL 的外部出口。
 
 ## CLAIM-CDB-2 — 不因這個 boundary 改動 crypto 或 protocol
 
-不新增金鑰託管、server-side key escrow、第二套加密層或 key attestation。這個 boundary
-無法用「由同一條 B6 通道送出的更多密碼學」解決——驗證程式的程式碼仍由被懷疑的通道
-交付。任何此類提案只會擴大攻擊面並違反既有 claim（room key 永不離開 browser）。
+不為分享連結新增金鑰託管、server-side key escrow、第二套加密層或 key attestation。這個
+boundary 無法用「由同一條 B6 通道送出的更多密碼學」解決——驗證程式的程式碼仍由被懷疑的
+通道交付。分享連結金鑰永不離開 browser。
 本 ADR 也不宣稱 build attestation 或 reproducible build；若未來要做，需另立 plan 並先
 證明在 Next.js + Vercel 上可驗證。
 
 ## CLAIM-CDB-3 — CSP 是 defense-in-depth，不是授權機制
 
-`connect-src` allowlist 提高「把 key 送出去」的門檻，但不阻止把 key 送到 allowlist 內的
+`connect-src` allowlist 提高「把 key 或內容送出去」的門檻，但不阻止把 key 送到 allowlist 內的
 origin（含自家 origin）。文件必須這樣描述，不得暗示 CSP 使 E2EE 對抗惡意 operator 成立。
 
 已接受的邊界內妥協（原因記錄於此，變更需重新決策）：
@@ -83,8 +84,8 @@ vendor 程式碼殘留的錯誤路徑引用可以接受，條件是（1）正常
 
 Excalidraw 0.18.1 的 twitter/x、reddit 與 gist.github.com embed 走 srcdoc iframe 且
 `allowSameOrigin`：其外部 script（`platform.twitter.com`、`embed.reddit.com`、
-`gist.github.com`）會以與頁面**同源**的權限執行，而 room key 就在這個 origin 的 JS
-記憶體。允許它們等於把第三方 CDN 納入 T16 的信任邊界，因此：
+`gist.github.com`）會以與頁面**同源**的權限執行，而畫布內容、session 與分享連結金鑰
+就在這個 origin 的 JS 記憶體。允許它們等於把第三方 CDN 納入 T16 的信任邊界，因此：
 
 - `apps/web/src/config/embed-allowlist.ts` 的 validator 對這些網域回傳 `false`（優先於
   補充名單），CSP `script-src` 不含任何外部 origin；
@@ -94,19 +95,18 @@ Excalidraw 0.18.1 的 twitter/x、reddit 與 gist.github.com embed 走 srcdoc if
 
 ## 對外宣稱的措辭界線
 
-- ✅ 可宣稱：資料庫外洩、relay 被動窺看、network intermediary、backend/storage operator
-  都無法讀取畫布內容；relay 與後端從未持有金鑰。
+- ✅ 可宣稱（只限分享連結）：資料庫外洩、network intermediary、backend/storage operator
+  都無法讀取分享內容；後端從未持有分享連結金鑰。
+- ✅ 共編房間只能宣稱「與我的場景一樣以登入與權限保護」；不得稱為加密房間或端對端加密
+  （服務端可讀取，見 T17）。
 - ❌ 不可宣稱：「即使伺服器被入侵也讀不到」、「我們在技術上無法讀取你的內容」等把 code
   delivery 一併涵蓋的說法。
-- 2026-08-28 盤點結果：README、share UI（`collaboration.link.keyPresent` 等 i18n 條目）
-  與 docs 的既有宣稱都是金鑰**傳輸**敘述（「不會傳到伺服器」），在允許範圍內，無需改寫；
-  README 與 system design 補上界線說明並 cross-reference T16。
 
 ## Deployment 與 build-time supply chain 的常態要求
 
 兩條部署路徑的威脅等級不同：`apps/web` 的部署路徑決定送往瀏覽器的 bundle，是 T16 的
-直接攻擊面；Cloudflare Worker 的部署路徑接觸不到 room key，其憑證洩漏落在 T15 可用性
-／metadata 面與 T3 enforcement 面。控制強度按此分配：
+直接攻擊面；Cloudflare Worker 的部署路徑改不了 bundle，但能讀取房間內容，其憑證洩漏
+落在 T17 內容面、T15 可用性面與 T3 enforcement 面。控制強度按此分配：
 
 - `apps/web` 維持 Vercel git integration 部署；**明確不採用**「CI 以長期 Vercel token
   執行 `vercel deploy` 推 production」——那會新增一條能替換 bundle 的長期憑證路徑，
@@ -122,15 +122,7 @@ Excalidraw 0.18.1 的 twitter/x、reddit 與 gist.github.com embed 走 srcdoc if
 - 既有投資同時服務 T16：lockfile 政策（CI `--frozen-lockfile --trust-lockfile`）、
   `pnpm audit:ci`、`pnpm-workspace.yaml` 的 `overrides` 與 `allowBuilds`（esbuild、sharp、
   msgpackr-extract、unrs-resolver 的 postinstall 明確禁用）、GitHub Actions 全數釘 SHA、
-  production 依賴零第三方 browser SDK（新增屬需 review 的決策）、crypto 路徑依賴邊界由
+  production 依賴零第三方 browser SDK（新增屬需 review 的決策）、collaboration 套件依賴邊界由
   `packages/collaboration/tests/package-contract.test.ts` 釘住（dependencies 恰為
-  `["zod"]`、`node:crypto` 僅限 server-only token 模組、key material 限定模組集合）。
+  `["zod"]`、`node:crypto` 僅限 server-only identity proof 模組、套件不含房間金鑰）。
 - dev-only 的 unpkg `react-grab` script 只存在於 dev CSP；不得進 production CSP。
-
-## 後續變更（2026-10-09）
-
-Plan 19 依擁有者決定改由 Room DO 以 Worker secret
-`COLLAB_ROOM_KEY_WRAP_SECRET` 包裝保管房間金鑰。上文「room key 永不離開 browser」與對外 E2EE 宣稱的前提
-因此不再成立：產品不再宣稱共編為端對端加密，且 Cloudflare Worker 部署路徑與該 secret 也能取得已保管
-的金鑰（[威脅模型](../architecture/collaboration-threat-model.md) T17）。B6／T16 與 CSP 的結論不變；
-本 ADR 原文保留作為當時決策紀錄。

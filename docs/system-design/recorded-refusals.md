@@ -12,7 +12,7 @@
 - 同一個提案（「加個 IndexedDB 佇列吧」）每季被重新提出、重新辯論一次；
 - 新成員把刻意的省略當成疏漏「順手補上」，引入當初拒絕的複雜度；
 - reviewer 分不清「還沒做」與「決定不做」，對前者放水、對後者過度審查；
-- 安全宣稱在沒有記錄邊界的情況下慢慢膨脹（「我們是 E2EE」→「伺服器被入侵也讀不到」）；
+- 安全宣稱在沒有記錄邊界的情況下慢慢膨脹（「分享連結是 E2EE」→「伺服器被入侵也讀不到」）；
 - 「暫時不做」沒有到期條件，於是永遠不做——或在最不該重開的時刻重開。
 
 ## Pattern
@@ -44,7 +44,7 @@ flowchart LR
   singleton、預建實例、假 portability layer……被取代時就地標注，不刪；
 - **現況文件**記「現在刻意沒有什麼」：沒有 staging、沒有負載測試、沒有事故 runbook、
   沒有隔離的整合測試資料庫……每一條寫成「accepted operating limit」而不是 TODO；
-- **威脅模型**給安全性的拒絕一個編號（例：「被替換的 bundle 可讀金鑰」是 accepted
+- **威脅模型**給安全性的拒絕一個編號（例：「被替換的 bundle 可讀分享連結金鑰」是 accepted
   limitation），所有對外宣稱必須引用它、不得超過它；
 - **程式碼註解**在改動點留一句，讓下一個人在動手前就看到理由
   （見 [演進與清理紀律](./evolution-and-cleanup.md) §4）。
@@ -56,7 +56,7 @@ flowchart LR
 | 接受的殘餘風險     | 「這種情況下就是會丟／會慢，我們接受」 | 瀏覽器 process 被殺時最後一筆寫入丟失                                |
 | 營運上的省略       | 「小型自營服務不建 X，靠 Y 補」        | 無 staging（靠 kill switch + 可逆變更全可 rollback）                 |
 | 否決的架構替代     | 「考慮過 X，因 Y 不採」                | 不預建實例、不做 fallback 路徑、不搬舊 runtime 的 process primitives |
-| 明確不做的安全宣稱 | 「我們**不**宣稱 X」                   | 不宣稱對抗能改 bundle 的操作者；CSP 不是機密性邊界；服務端保管房間金鑰後（plan 19）不宣稱共編端對端加密 |
+| 明確不做的安全宣稱 | 「我們**不**宣稱 X」                   | 不宣稱對抗能改 bundle 的操作者；CSP 不是機密性邊界；共編房間不宣稱加密（plan 21：只有分享連結端對端加密） |
 | 驗證邊界           | 「這件事目前沒有被測試證明」           | 沒有 live 限流 smoke test，直到有可拋棄的資料庫與 test-only 前綴     |
 
 第四類最容易被忽略也最重要：**不宣稱**是一個要主動寫下的決策，否則行銷、README、
@@ -116,4 +116,4 @@ flowchart TD
   [ADR-0003](../adr/0003-collaboration-do-gateway-foundation.md) 的 Alternatives
   considered（「不預建 Object」帶重開條件：「只有量測證明 cold placement 是問題後」）。
 - 不宣稱的安全性：[threat model](../architecture/collaboration-threat-model.md) 的
-  T7、T15、T16 與 [ADR-0004](../adr/0004-code-delivery-trust-boundary.md) CLAIM-CDB-1／2。
+  accepted limitations 與 [ADR-0004](../adr/0004-code-delivery-trust-boundary.md) CLAIM-CDB-1／2。

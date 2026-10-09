@@ -38,7 +38,7 @@ export type DisconnectReason =
   | "unauthorized"
   /** This member's room authorization was revoked while connected. Terminal. */
   | "membership-revoked"
-  /** The room generation was ended or rotated by its owner. Terminal. */
+  /** The room was ended by its owner. Terminal. */
   | "room-ended"
   /**
    * This client broke the wire contract (or the server did). Terminal:

@@ -1,7 +1,8 @@
 # 共編儲存 P0：本機原型與負載驗證
 
 測試 class 只由 `vitest.p0.config.ts` 載入，不在正式 Worker 的入口或部署設定中。
-UploadThing 維持 public 密文上傳；正式 protocol-6 權威與 Neon／Vercel 串接已部署。
+房間內容自 plan 21 起不加密（快照與附件以明文編碼保存，附件為 UploadThing public 物件），
+P0 fixture 已改為明文；下方 2026-10-07 的量測紀錄是加密設計時期的結果，保存與加入當時含瀏覽器加解密。
 本文件保留 P0 測量契約；現況見 [授權契約](../architecture/collaboration-authority.md)，未完成驗收見 [18D](../../plans/18d-collaboration-acceptance-follow-ups.md)。
 
 ## 本機命令
@@ -29,7 +30,7 @@ pnpm check
 | 操作                                   | p95  | p99   | 完成點                                          |
 | -------------------------------------- | ---- | ----- | ----------------------------------------------- |
 | 加入                                   | 3 秒 | 5 秒  | 驗權、載入基線、可共編；不能只計 socket upgrade |
-| 典型畫布保存（256 KiB 明文＋密文封裝） | 3 秒 | 8 秒  | 快照及所有引用附件 finalize 確認                |
+| 典型畫布保存（256 KiB 快照）           | 3 秒 | 8 秒  | 快照及所有引用附件 finalize 確認                |
 | 慢附件（注入 5 秒）                    | 8 秒 | 15 秒 | 所有引用 finalize 後才可保存成功                |
 | 最大合法畫布保存                       | 8 秒 | 15 秒 | 同上；排除超限拒絕樣本並另計拒絕率              |
 | 撤權（DB 可用）                        | 3 秒 | 5 秒  | 本地收發拒絕與 adapter fence 確認               |
@@ -40,19 +41,19 @@ pnpm check
 DB outage 注入 30 秒；只驗證 pending／恢復，**不把故障期撤權納入固定成功延遲承諾**。
 
 報告包含樣本數、p50/p95/p99、失敗與 pending 比例、payload bytes、場景、commit SHA、runtime。
-L3 另記瀏覽器→Gateway、DO→Vercel、adapter→Neon 及端到端耗時，禁止記 room key、完整邀請
-連結、public storage URL 或 payload。`cf:loadtest` 的 WebSocket 數字不能代替持久保存／附件驗收。
+L3 另記瀏覽器→Gateway、DO→Vercel、adapter→Neon 及端到端耗時，禁止記 identity proof、邀請連結、
+public storage URL 或 payload。`cf:loadtest` 的 WebSocket 數字不能代替持久保存／附件驗收。
 
 ## 量測定義與限制
 
-- 典型畫布使用 256 KiB 的合法快照 JSON，最大畫布使用正好 4 MiB，密文另加既有封裝 overhead。每份含一個真實附件 ID 引用及約 64 KiB 的合法 PNG 附件 payload；兩者以既有瀏覽器加密 codec 產生密文。
-- 保存記錄 client 快照／附件加密，加上附件上傳、finalize 與快照 commit 的時間；建房／primer／eviction 準備與初始化 ready 確認分別記錄，不混入保存 SLO。hot 在保存前已呼叫 DO，cold 在保存前 evict，重新載入 SQLite。
-- 加入在保存完成後量測，cold 另做一次 eviction；完成點包含最新本地授權、binary 基線、finalize 索引、client 快照／附件下載、解密與 payload 解碼。身分為固定 fixture，沒有計入正式 OAuth／proof／完整前端呈現。保存的 `ms` 為加密與內容 I/O 兩個區段相加；準備／初始化的 p95 另外列出，不把兩個區段間的建房等候隱藏成端到端 UI 時間。
+- 典型畫布使用 256 KiB 的合法快照，最大畫布使用正好 4 MiB。每份含一個真實附件 ID 引用及約 64 KiB 的合法 PNG 附件 payload，以既有 snapshot／asset payload codec 編碼。
+- 保存記錄附件上傳、finalize 與快照 commit 的時間；建房／primer／eviction 準備與初始化 ready 確認分別記錄，不混入保存 SLO。hot 在保存前已呼叫 DO，cold 在保存前 evict，重新載入 SQLite。
+- 加入在保存完成後量測，cold 另做一次 eviction；完成點包含最新本地授權、binary 基線、finalize 索引、client 快照／附件下載與 payload 解碼。身分為固定 fixture，沒有計入正式 OAuth／proof／完整前端呈現。保存的 `ms` 為內容 I/O 區段；準備／初始化的 p95 另外列出，不把兩個區段間的建房等候隱藏成端到端 UI 時間。
 - 四組保存與加入共用同一批 fixture，各有 20 筆 warmup 和 200 筆正式樣本；一般場景同時最多兩個 room，慢附件／故障恢復最多八個。
 - 保存與撤權競爭固定持有真實 PostgreSQL room lock，等本地拒絕確認後釋放；慢附件固定延遲至少 5 秒，期間測兩個 WebSocket 的 fanout 與本地撤權，owner 在新 epoch 重試並等完整保存。
 - DB 故障使用 host adapter 的不可用開關回傳 503，持續至少 30 秒。所有房間在故障期間回傳 pending，恢復後從 eviction／alarm 查詢與取消無 payload 的保存。恢復延遲由 adapter 可用時計算，不套用正常撤權 SLO。
-- Provider ciphertext 存於測試 host 的 PostgreSQL 表，service binding 代替 DO→Vercel。此結果證明本機原型可行，不證明 UploadThing 生產效能、跨雲 hop、body 平台上限或免費額度尖峰容量。
-- 報告含基底 commit、uncommitted prototype 標記、runtime、bytes、樣本數、p50/p95/p99 與失敗／pending 比例；不含帳號、金鑰、邀請連結、物件 URL 或 payload。每筆樣本完成後清理 fixture 的密文並 evict，維持設定的活動 room 數量。
+- Provider 內容存於測試 host 的 PostgreSQL 表，service binding 代替 DO→Vercel。此結果證明本機原型可行，不證明 UploadThing 生產效能、跨雲 hop、body 平台上限或免費額度尖峰容量。
+- 報告含基底 commit、uncommitted prototype 標記、runtime、bytes、樣本數、p50/p95/p99 與失敗／pending 比例；不含帳號、proof、邀請連結、物件 URL 或 payload。每筆樣本完成後清理 fixture 的內容並 evict，維持設定的活動 room 數量。
 
 ## 驗證紀錄
 

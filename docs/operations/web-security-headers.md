@@ -16,8 +16,8 @@ console 與 Network，確認沒有預期外的 CSP violation（含 `Report Only`
 
 1. 登入：Google OAuth 整段導覽來回。
 2. Google 頭像顯示（`lh3.googleusercontent.com`）。
-3. 建立房間 → 產生分享連結。
-4. 第二個瀏覽器 profile 以完整連結加入，realtime 協作雙向同步。
+3. 建立房間 → 複製邀請連結，一般存取權設為「有連結可編輯」（或邀請第二個帳號的 email）。
+4. 第二個瀏覽器 profile 以另一個帳號開啟邀請連結加入，realtime 協作雙向同步。
 5. Snapshot 存取（離開房間後重進，畫布還原）。
 6. Asset 上傳與顯示（貼圖進房間；確認 ingest region 上傳與 ufs.sh 讀取）。
 7. Canvas 匯出 SVG 與 PNG，內容含手寫字型（Excalifont）與 CJK 文字（Xiaolai subset

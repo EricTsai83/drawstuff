@@ -104,7 +104,7 @@ upstream seam；目前的決策是**不修改 upstream**
 Realtime transport、cursor/presence、room membership 與 volatile event 不寫入 owned
 scene V4。Collaboration scene messages 沿用 native element model，merge 只能透過
 adapter-owned `reconcileElements` boundary。Relay 僅處理 bounded opaque payload，
-durable encrypted collaboration snapshot 與 owned-scene save 是兩個獨立 lifecycle。
+durable collaboration snapshot 與 owned-scene save 是兩個獨立 lifecycle。
 
 Binary assets 不內嵌於 realtime element message。資產身份為 parent scope +
 immutable `excalidraw_file_id`；filename、storage key 或 content hash 都不能取代
@@ -117,10 +117,10 @@ Room asset metadata 使用**獨立 relation `collaboration_asset`**，不在 `fi
 
 | 面向      | `file_record`                     | `collaboration_asset`                  |
 | --------- | --------------------------------- | -------------------------------------- |
-| Parent    | scene／sharedScene                | room + `auth_generation`               |
+| Parent    | scene／sharedScene                | room                                   |
 | Writer    | scene owner                       | room 內任何可編輯成員                  |
-| 內容      | 明文壓縮後存於外部 object storage | room key 封裝後存於外部 object storage |
-| Retention | 跟隨 scene 生命週期               | 跟隨授權世代，寫入時退休更舊世代       |
+| 內容      | 明文壓縮後存於外部 object storage | 明文 asset payload 存於外部 object storage |
+| Retention | 跟隨 scene 生命週期               | 跟隨房間，結束時刪除                   |
 | Cascade   | `scene` / `shared_scene`          | `collaboration_room`                   |
 
 四種 lifecycle 混在同一組 nullable-polymorphic constraint 內無法表達上述差異，因此
@@ -129,29 +129,27 @@ Room asset metadata 使用**獨立 relation `collaboration_asset`**，不在 `fi
 
 ### Asset byte transfer boundary（Plan 17，2026-08-05）
 
-Room asset 的位元組走**與 owned-scene 相同的 object storage**，但內容是 client 封裝
-好的密文；`collaboration_asset` 在身份欄位之外只增加「密文現在在哪」所需的最小集合：
-`crypto_version`、`ut_file_key`、`url`、`byte_length`。三個決策：
+Room asset 的位元組走**與 owned-scene 相同的 object storage**，內容是 client 編碼的
+asset payload（plan 21 起不加密，見 [ADR-0005](0005-public-collaboration-assets.md)）；
+`collaboration_asset` 在身份欄位之外只增加「位元組現在在哪」所需的最小集合：
+`ut_file_key`、`url`、`byte_length`。三個決策：
 
 - **一列存在即代表位元組已上傳。**沒有「已註冊但還沒有 bytes」的中間列。可用性只有
   一種有意義的答案：peer 從 element 的 `fileId` 就知道要哪張圖，需要問的是「在哪、
   到了沒」。因此 Plan 16 的 `collaborationAsset.list`／`register` 由單一
   `resolve`（bounded batch → records + missing）取代並刪除。
-- **MIME type 與 data URL 只存在密文裡。**伺服器不看、也不需要看。把 MIME 複製成欄位
-  只會多出一份伺服器無法驗證、卻可能與密文不一致的斷言。
-- **密文不放進 Postgres。**Snapshot 是每個 room generation 一列、有 4 MiB 上限的
-  `bytea`；asset 是每個 generation 最多 512 個、每個近 3 MiB 的物件，放進 DB 會讓單一
-  room 的資料列成長到 GB 級。Object storage 是這種形狀的正確位置，而 E2EE 讓「storage
-  provider 看得到位元組」不再是機密性問題。
+- **MIME type 與 data URL 只存在 payload 裡。**伺服器不看、也不需要看。把 MIME 複製成
+  欄位只會多出一份伺服器無法驗證、卻可能與 payload 不一致的斷言。
+- **Asset 位元組不放進 Postgres。**Snapshot 是每個 room 一列、有 4 MiB 上限的
+  `bytea`；asset 是每個 room 最多 512 個、每個近 3 MiB 的物件，放進 DB 會讓單一
+  room 的資料列成長到 GB 級。Object storage 是這種形狀的正確位置。
 
-授權保護的是**發現能力**：`resolve` 回傳的 URL 是取得密文的 capability，任何拿到它的
-人都能下載，機密性不依賴這一點——位元組由 room key 衍生的 asset key 封裝，後端與
-storage 都沒有金鑰。因此成員失去存取權後失去的是「找到新 URL 的能力」。這與
-readonly-share 資產的既有模型一致。
+授權保護的是**發現能力**：`resolve` 回傳的 URL 是 public capability，任何拿到它的人
+都能下載。因此成員失去存取權後失去的是「找到新 URL 的能力」，暴露程度與 owned-scene
+圖片相同（[ADR-0005](0005-public-collaboration-assets.md)）。
 
-Retention 與 Plan 15 的 snapshot 同源：世代轉動後舊世代密文在密碼學上不可讀，所以
-新世代寫入成功的那一刻退休舊世代的列，並在**同一個 transaction** 內把它們的
-`ut_file_key` 寫進 `deferred_file_cleanup`。刪列才是讓物件變成孤兒的動作，object
+Retention 跟隨房間：房間結束的 cleanup（或保留期回收）刪除 asset 列，並在**同一個
+transaction** 內把它們的 `ut_file_key` 寫進 `deferred_file_cleanup`。刪列才是讓物件變成孤兒的動作，object
 storage 無法參與 transaction，佇列因此是唯一能讓兩者不脫勾的機制。
 
 `file_record` 保留 `content_hash` 作為 storage 層 lookup／dedup 提示（可為 null、
@@ -168,9 +166,9 @@ Excalidraw file id 是**內容摘要，但由 client 計算**（`generateIdFromF
 的 SHA-1，digest 失敗時 fallback 為 `nanoid(40)`），並寫進元素的 `fileId`。伺服器
 無法把它變成可驗證的斷言：
 
-- **加密路徑（readonly-share、未來的 room asset）原理上不可能**：payload 由 client
-  以伺服器沒有的金鑰封裝（share link 的 key 在 URL fragment、room 用 room key）。
-- **未加密路徑（owned-scene）技術上可行但不採用**：伺服器得在 upload webhook 內解壓
+- **加密路徑（readonly-share）原理上不可能**：payload 由 client 以伺服器沒有的金鑰
+  封裝（key 在 URL fragment）。
+- **未加密路徑（owned-scene、room asset）技術上可行但不採用**：伺服器得在 upload webhook 內解壓
   最多 `FILE_UPLOAD_MAX_BYTES` 並重算 SHA-1，代價是 webhook 延遲、伺服器必須理解
   asset payload 格式（目前上傳路徑對 payload 完全不透明，這正是它能同時服務加密與
   未加密的原因），且同一條身份規則會在兩條路徑上有兩種強度。
@@ -255,16 +253,14 @@ chunk，卻宣稱 bundle 改善。
 - 後續 plans 不再討論是否完整重寫 Excalidraw；任何新能力先服從 adapter boundary。
 - App UI 可獨立演進，但 native canvas semantics 與 upstream upgrade evidence 集中在
   adapter。
-- Collaboration 可以擁有 transport、權限、加密與 lifecycle，而不分叉 element、
+- Collaboration 可以擁有 transport、權限與 lifecycle，而不分叉 element、
   history 或 reconciliation。
 - V4 reader/writer 與真實舊資料 reader 是受測 contract；新功能不能以 legacy
   fallback 規避正式 cutover。
 - 每個後續 PR 必須以相同 fixtures 比較效能，超過 budget 時先縮減設計或取得明確
   architecture decision，不能把 regression 改寫成新 baseline。
 
-## 後續變更（2026-10-09）
+## 後續變更（2026-10-10）
 
-Plan 19 依擁有者決定由 Room DO 以 Worker secret 包裝保管
-房間金鑰。上文對 room 資產「E2EE」「後端與 storage 都沒有金鑰」「以伺服器沒有的金鑰封裝」的描述，對
-共編房間已不再完整成立：Neon 與 UploadThing 仍沒有金鑰，但服務端（持有該 secret 與 DO 儲存者）可解密；
-share link 的描述不受影響。本 ADR 原文保留作為當時決策紀錄。
+[Plan 21](../../plans/21-plain-rooms-google-docs-access.md) 起共編房間不再加密，也不再有授權世代；
+上文 room asset 段落已改寫為現況。Share link 的端對端加密不受影響。

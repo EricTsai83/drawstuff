@@ -1,6 +1,6 @@
 # 版本與相容性：每種格式一個版本號，skew 規則明文化
 
-> **Pattern 一句話**：傳輸協定、持久文件、加密封裝、內部 RPC、資料庫 schema——
+> **Pattern 一句話**：傳輸協定、持久文件、資產封裝、內部 RPC、資料庫 schema——
 > 每一種格式有**自己的**版本號，彼此永不互為相容性閘門；每一條邊界明文寫下
 > 「新舊版本相遇時誰讓誰」，且「儲存的版本比程式碼新」一律 fail closed。
 
@@ -15,10 +15,9 @@
 
 ### 1. 版本號 per format，明文禁止互相閘門
 
-為每種格式獨立編號並寫下理由。最重要的一條推論是加密系統的：
-**傳輸版本只放進傳輸訊息的 AAD；持久密文的 AAD 只綁自己的格式版本**——
-否則升級一次協定，所有存檔密文變成不可解。格式版本以 AAD 綁定而不是
-進入金鑰衍生，這樣格式修訂不會把活躍資源的金鑰整個換掉。
+為每種格式獨立編號並寫下理由。最重要的一條推論：**持久資料只綁自己的格式版本，
+不綁傳輸版本**——否則升級一次協定，所有存檔都要遷移或變成不可讀。若持久資料有加密，
+同一條規則落在 AAD 上：傳輸版本只放進傳輸訊息的 AAD，持久密文的 AAD 只綁自己的格式版本。
 
 一個典型系統的格式登錄表長這樣（名稱與版號只是示意）：
 
@@ -26,8 +25,8 @@
 flowchart TD
     subgraph Formats["同一系統內並存的格式（各自編號，互不閘門）"]
         F1["wire protocol vA"]
-        F2["auth token vB"]
-        F3["即時訊息加密封裝 vC"]
+        F2["auth／identity proof vB"]
+        F3["資產 payload vC"]
         F4["持久文件／快照 vD"]
         F5["儲存 schema vE"]
         F6["內部 RPC handler vF"]
@@ -90,15 +89,15 @@ flowchart TD
 
 ## 本專案中的實例
 
-- 本專案的格式登錄表：wire protocol v4、join/control token v1、realtime envelope v3、
-  snapshot v1、keycheck、Durable Object SQLite schema v2、內部 RPC `applyControlV1`；
-  decoupling 理由在 `packages/collaboration/src/messages.ts`、`realtime-crypto.ts`
-  與 [collaboration system design](../architecture/collaboration-system-design.md)
-  的 E2EE 章節（「snapshot／asset 的 AAD 不含 transport version」）。
+- 本專案的格式登錄表：wire protocol v7（`COLLABORATION_PROTOCOL_VERSION`，identity proof 的
+  `protocolVersion` 跟著它）、identity proof `v: 1`、authority contract v1、snapshot v1、
+  asset payload v1、Room Durable Object SQLite schema v4、內部 RPC `applyAuthorityV1`／
+  `applySnapshotV1`／`applyAssetsV1`；版本歷史與理由在 `packages/collaboration/src/messages.ts`
+  與 [collaboration system design](../architecture/collaboration-system-design.md)。
 - 寬鬆版本探測（過舊 client → close code「請重整」）：`src/relay-protocol.ts`。
-- 內部 RPC 的 V1/V2 規則：`apps/collaboration-do/src/control.ts` docstring。
-- 「儲存 schema 比程式碼新 → throw」與冪等遷移：`apps/collaboration-do/src/room.ts`
-  的 `ensureSchema`。
+- 內部 RPC 的 `V1` 命名：`apps/collaboration-do/src/room.ts`、`gateway.ts`。
+- 「儲存 schema 與程式碼不符 → throw」：`apps/collaboration-do/src/room.ts` 的 `ensureSchema`。
+  plan 21 改用新 class `CollaborationRoomV2` 並 tombstone 舊 class，舊儲存整批刪除，所以沒有遷移路徑。
 - 退役格式的明確拒絕（帶錯誤碼，不 fall through）：
   `packages/excalidraw-adapter/src/document-v4.ts` 的 `ParseDrawstuffDocumentResult`。
 - 禁 silent fallback／shim 的契約：[ADR 0001](../adr/0001-excalidraw-persistence-boundary.md)、

@@ -1,7 +1,7 @@
 # 分層授權：每層一種機制、每跳重新驗證
 
 > **Pattern 一句話**：授權不是一個 middleware，而是一疊各司其職的層——入口層驗身分、
-> service 層在交易內驗資源所有權、跨服務用短效簽章 token、特權操作用 DB-backed grant
+> service 層在交易內驗資源所有權、跨服務用短效簽章 proof、特權操作用 DB-backed grant
 > 加先寫意圖的稽核；client 端的 UI 狀態永遠不是授權控制。
 
 ## 問題
@@ -25,13 +25,13 @@ sequenceDiagram
 
     B->>API: 請求（procedure 種類決定入口檢查）
     API->>API: 第 1 層：身分驗證（protected / admin）
-    API->>DB: 第 2 層：交易 + 行鎖內驗資源所有權／角色
-    API->>API: 簽短效 action-scoped token（不含秘密）
-    API-->>B: token
-    B->>G: 帶 token 連線
-    G->>G: 第 3 層：驗簽章、從非機密路由導出實例
+    API->>DB: 第 2 層：交易 + 鎖內確認帳號／session 仍有效
+    API->>API: 簽短效 identity proof（只證明身分，不含角色或秘密）
+    API-->>B: proof
+    B->>G: 帶 proof 連線
+    G->>G: 第 3 層：驗請求形狀、從非機密路由導出實例
     G->>DO: 轉發（內部 header 剝除再設定）
-    DO->>DO: 第 4 層：重新驗 token、<br/>比對 claims 導出的身分 == 自己的身分、<br/>查撤銷 cutoff
+    DO->>DO: 第 4 層：重新驗 proof、<br/>比對 claims 的 roomId == 自己的身分、<br/>依存取規則即時計算角色
     B->>DO: 之後的每一筆訊息
     DO->>DO: 第 5 層：逐訊息角色能力檢查
 ```
@@ -52,31 +52,32 @@ API 層只提供幾種**具名的 procedure 建構器**：`public`、`protected`
 - 行鎖消滅「檢查與寫入之間權限被改掉」的競態——授權變更與強制動作在同一交易
   serialize（見 [transactional outbox](./transactional-outbox.md) 的房間例子）。
 
-角色解析收斂到**一個函式**（單一決策點），token 簽發只吃它的輸出。
+角色解析收斂到**一個函式**（單一決策點），每次檢查都即時呼叫它，不把角色凍結在加入時的
+紀錄或 token 裡——凍結的角色正是「收回權限擋不住已加入者」這類 bug 的根源。
 
-### 3. 跨服務：短效簽章 token，每跳重新驗證
+### 3. 跨服務：短效簽章 proof，每跳重新驗證
 
-服務 A 授權完成後，發一個短效（秒級 TTL）、action-scoped 的 HMAC token 給
+服務 A 驗完身分後，發一個短效（秒級 TTL）、綁定單一資源的 HMAC proof 給
 呼叫方轉交服務 B。原則：
 
-- token 綁定資源、主體、角色、授權世代／revision、audience；**永不內含金鑰或秘密**；
-- claims 的鍵名清單被測試釘住，秘密無法被走私進 token；
+- proof 綁定資源、主體、帳號 lifecycle 版本、協定版本、audience；**永不內含角色、金鑰或秘密**
+  ——角色由持有存取規則的服務 B 自己算；
+- claims 的鍵名清單被測試釘住，秘密無法被走私進 proof；
 - 簽章驗證先於 payload parse，比較用 timing-safe；
-- **不儲存已簽的 token**——每次投遞現簽一個新的短效 token（儲存的 token 是
-  躺在資料庫裡的憑證）；
-- 撤銷用單調遞增的 revision cutoff（在行鎖下推進），不用牆鐘。
+- **不儲存已簽的 proof**——每次投遞現簽一個新的（儲存的 proof 是躺在資料庫裡的憑證）；
+- 收回權限時推進單調遞增的 epoch 並關閉受影響的連線，不用牆鐘；舊 epoch 的持久寫入被 fence 擋下。
 
 ### 4. 每一跳重新導出，轉發的 metadata 只是待驗證的提示
 
 多跳架構（gateway → 有狀態實例）中，每一跳都用同一套文法重新 parse 身分，
 並將**已驗證 claims** 導出的身分與自己被定址的身分比對——「拿別的資源的有效
-token 打到這個路由」是授權失敗，不是路由巧合。gateway 轉發前剝除再設定內部
+proof 打到這個路由」是授權失敗，不是路由巧合。gateway 轉發前剝除再設定內部
 header；下游把它當提示重新驗證，永不當權威。授權的最終權威永遠是驗證後的
 claims，不是請求路徑。
 
 ### 5. 逐請求之外，逐「訊息」也要重驗
 
-長連線建立時驗過 token 不夠：角色隨 token 進來後，**每一筆入站訊息**再檢查
+長連線建立時驗過 proof 不夠：角色在加入時算出後，**每一筆入站訊息**再檢查
 一次角色能力（viewer 直接驅動原始 transport 也改不了資料）。UI 的唯讀狀態
 只是第二道防線。
 
@@ -97,18 +98,20 @@ claims，不是請求路徑。
 
 - 每層都驗有重複成本（同一請求可能驗兩三次）；用「入口驗身分、service 驗資源」
   的分工把重複控制在便宜的層面。
-- 短效 token 要求簽發方與驗證方時鐘大致同步（留 skew 容忍）。
+- 短效 proof 要求簽發方與驗證方時鐘大致同步（留 skew 容忍）。
 
 ## 本專案中的實例
 
 - procedure 種類與 admin grant：`apps/web/src/server/api/trpc.ts`、
   `src/server/admin/`；管理頁 not-found 不可區分：`src/server/admin/page-access.ts`。
-- 交易內授權 + 行鎖：`withLockedRoom`／`resolveRoomAccess`
-  （`src/server/collab/rooms.ts`）、`saveOwnedScene`。
-- token 設計（claims 釘住、timing-safe、revision cutoff、不存 token）：
-  `packages/collaboration/src/room-token.ts`、
-  [collaboration system design](../architecture/collaboration-system-design.md)。
-- 每跳重驗與 channel-key 比對：`apps/collaboration-do/src/gateway.ts`、
+- 交易內身分確認 + 鎖：`lockActiveAccount`／`issueAuthorityIdentity`
+  （`src/server/collab/authority-identity.ts`）、`saveOwnedScene`。
+- 房間存取規則的單一決策點：`apps/collaboration-do/src/room-authority.ts` 的 `access`
+  （擁有者 → 邀請名單取較高者 → 一般存取權），見
+  [collaboration authority](../architecture/collaboration-authority.md)。
+- proof 設計（claims 釘住、timing-safe、不存 proof）：
+  `packages/collaboration/src/room-token.ts`、`authority.ts`。
+- 每跳重驗與 roomId 比對：`apps/collaboration-do/src/gateway.ts`、
   `src/internal.ts`、`src/room.ts`。
 - 逐訊息角色檢查：DO 的 per-frame `roomRoleCanEditScene`。
 - 稽核與 bootstrap：[data lifecycle](../architecture/data-lifecycle.md) 的

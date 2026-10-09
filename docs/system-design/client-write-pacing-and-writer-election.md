@@ -14,7 +14,7 @@
   形成永遠不會成功的 round trip；
 - 「使用者關閉分頁」是最容易丟資料的時刻——teardown 在同一個 tick 關閉一切，而此刻
   可能是房間裡最後一個人，儲存的基準是場景僅存的副本；
-- 一個讀不到基準的 client（拿錯金鑰、快照 fetch 失敗）若照樣寫入，會用一張空白畫布
+- 一個讀不到基準的 client（快照 fetch 或解碼失敗）若照樣寫入，會用一張空白畫布
   覆蓋房間的歷史。
 
 ## Pattern
@@ -75,7 +75,7 @@ cadence，store 只回報 deadline）。
 | session 已 destroy                        | 不寫                     | 仍寫（teardown 與 flush 在同一個 tick）                         |
 | 有 in-flight 寫入                         | 跳過這個 tick            | **排隊等它**（它載的是使用者最後編輯**之前**的場景）            |
 | 衝突                                      | 記下贏家，下個 tick 重試 | **載入贏家、合併、重試一次**（沒有下個 tick）                   |
-| 授權、角色、世代、基準已知、條件 revision | 全部適用                 | **全部適用**——繞過選舉不等於繞過授權                            |
+| 授權、角色、epoch、基準已知、條件 revision | 全部適用                 | **全部適用**——繞過選舉不等於繞過授權                            |
 
 ```mermaid
 sequenceDiagram

@@ -6,15 +6,16 @@
 - Persistence boundary: [ADR 0001](../adr/0001-excalidraw-persistence-boundary.md)
 - Operational conventions: [engineering conventions](../operations/engineering-conventions.md)
 
-This document defines how user-scoped Library data, owned-scene assets, and room-scoped encrypted
-data are retained and retired. Database rows and object-storage bytes are separate resources;
+This document defines how user-scoped Library data, owned-scene assets, and room-scoped
+collaboration data are retained and retired. Database rows and object-storage bytes are separate resources;
 deletion must preserve their transaction boundary through the durable cleanup outbox.
 
-The deployed protocol-6 schema includes nullable source scenes, initializing/ready/ended room metadata, immutable operation
-results, pre-activation subject registration, and persistent lifecycle/projection tombstones in
-PostgreSQL. Source retention now reclaims only explicitly ended rooms after grace;
-ready/initializing rooms never expire. Linked-room FKs still cascade, while NULL-source rooms
-are independent. Lifecycle terminal records survive account/scene deletion. All account/scene deletion callers use confirmed Lifecycle retirement before parent cascade. See the [authority contract](collaboration-authority.md).
+The collaboration schema includes nullable source scenes, initializing/ready/ended room metadata,
+immutable operation results, pre-activation subject registration, lifecycle records, account- and
+email-keyed list projections, and projection tombstones in PostgreSQL. Room content is stored in
+plaintext ([plan 21](../../plans/21-plain-rooms-google-docs-access.md)). Retention reclaims only
+explicitly ended rooms; ready/initializing rooms never expire. Linked-room FKs still cascade, while
+NULL-source rooms are independent. Lifecycle terminal records survive account/scene deletion. All account/scene deletion callers use confirmed Lifecycle retirement before parent cascade. See the [authority contract](collaboration-authority.md).
 
 ## Lifecycle matrix
 
@@ -23,9 +24,9 @@ are independent. Lifecycle terminal records survive account/scene deletion. All 
 | Personal Library       | user id                                          | One optimistic-revision snapshot per user  | Account deletion cascades the PostgreSQL row                                |
 | Owned-scene document   | scene id + document revision                     | Until owner deletion                       | Owner/admin scene deletion; relational cascade plus deferred object cleanup |
 | Owned-scene asset      | scene id + `excalidraw_file_id`                  | While the committed document references it | Unreferenced-asset GC deletes the row and enqueues its storage key          |
-| Collaboration snapshot | room id + auth generation                        | One optimistic-revision row per generation | Old generation retirement, room retention, or owner reset                   |
-| Collaboration asset    | room id + auth generation + `excalidraw_file_id` | At most 512 per generation                 | Old generation or room retention deletes rows and enqueues storage keys     |
-| Room metadata          | room id                                          | Active, ended, or within retention grace   | Active rooms never expire; explicitly ended rooms are reclaimed after grace     |
+| Collaboration snapshot | room id                                          | One optimistic-revision row per room       | Room-end cleanup, ended-room retention backstop, or owner reset             |
+| Collaboration asset    | room id + `excalidraw_file_id`                   | At most 512 per room                       | Room-end cleanup or retention backstop deletes rows and enqueues storage keys |
+| Room metadata          | room id                                          | While active; an ended room keeps only its row (empty label) and creation fence | Active rooms never expire; per-person rows of ended rooms are purged; the row and fence stay to refuse roomId reuse |
 | Shared scene (link)    | shared scene id (nanoid)                         | 30 days from creation                      | Bounded maintenance job deletes rows after handling their storage objects   |
 | Published render artifacts | scene id + variant (light/dark); content-hashed immutable object | While the scene is published; the pair is replaced on every save of the scene | Unpublish and scene/workspace/account deletion enqueue both keys; an uploaded pair nobody claims expires from its reservation into the same queue |
 
@@ -159,54 +160,60 @@ Room content is never automatically written into the personal scene localStorage
 owners or guests, including after a copy upload. Before entry, only the prior personal canvas and
 its identity/revision are preserved in per-tab sessionStorage. Leave restores that personal canvas
 before enabling cache writers; sign-out clears the backup. A room reload uses an authorized
-encrypted baseline and cannot use personal cache as the room baseline. Unconfirmed room edits have
+room baseline and cannot use personal cache as the room baseline. Unconfirmed room edits have
 no offline/reload recovery guarantee.
 
 An explicit personal copy captures the current canvas and uploads referenced files into the normal
-personal asset lifecycle. It neither references room ciphertext objects nor creates a source-room
+personal asset lifecycle. It neither references room asset objects nor creates a source-room
 cascade relation; deleting the room cannot reclaim the copy's attachments. Explicit original
 updates use the preserved expected revision and update its separate backup only after success.
 Destinations and confirmation semantics are defined in
 [collaboration storage](./collaboration-storage.md).
 
-## Collaboration generation retirement
+## Collaboration snapshots
 
-Snapshots and collaboration assets are scoped to an authorization generation. A successful write in
-a newer generation removes older snapshot/asset rows. Asset storage keys enter the deferred-cleanup
-outbox in the same transaction. Old-generation ciphertext is not kept as a fallback because the old
-key represents revoked cryptographic authority.
+Each room has one snapshot row of plaintext `encodeCollaborationSnapshot` bytes with a checksum.
+Writes use optimistic revision checks, the current authority epoch and room-row locks. The owner's
+manual reset deletes only the current snapshot and keeps the revision watermark; it does not
+silently delete assets or room metadata.
 
-Current-generation snapshot writes use optimistic revision checks and room-row authorization locks.
-The snapshot row is deleted directly because its ciphertext is stored in PostgreSQL. The owner's
-manual reset deletes only the current snapshot; it does not silently delete assets or room metadata.
+## Ended room retention
 
-## Ended and expired room retention
+When a room ends, the Room DO's cleanup deletes its snapshot and asset rows (asset storage keys enter
+the deferred-cleanup outbox in the same transaction) and purges per-person data: member and invite
+projections, projection tombstones, operation receipts and lifecycle registrations; the room label
+is cleared. Only the room row (`status='ended'`) and `collaboration_creation_fence` remain, so a
+roomId can never be reused. Projection self-cleaning and the retention backstop apply the same purge
+regardless of arrival order. Registration, parent creation, storage fences, cleanup and purges
+serialize on a per-roomId advisory lock (order: account/scene → roomId lock → room row).
 
-Routine retention uses a seven-day grace period:
+The routine `collab-room-retention` job is the backstop for anything the cleanup did not reach:
 
-- ended rooms count from `coalesce(ended_at, updated_at)`;
-- active expired rooms count from `expires_at` and are changed to `ended` under the room lock before
-  data removal, preventing a later create call from reviving an empty room;
-- eligibility is rechecked after locking so a concurrent refresh cannot race with reclamation.
+- a room qualifies when `status` or `storage_state` is ended, seven days after `coalesce(ended_at,
+  updated_at)`, and only while it still holds data or a label;
+- eligibility is rechecked after locking so a concurrent write cannot race with reclamation.
 
 Each run is bounded by room count and asset-object count. A single schema-bounded room may consume
-the first asset budget so it cannot starve forever; later rooms defer to another run. Snapshot rows
-are deleted, asset rows are deleted and enqueued, and subsequent runs are idempotent. Live rooms and
-rooms still inside the grace period are never reclaimed.
+the first asset budget so it cannot starve forever; later rooms defer to another run. Subsequent
+runs are idempotent. Live rooms and rooms still inside the grace period are never reclaimed.
 
 The routine maintenance queue drain is sized to cover the bounded producers in the same run and is
 also constrained by wall-clock deadline. If the platform stops the process, the durable outbox keeps
 remaining object work for the next run.
 
+The Room DO itself deletes all of its storage once an ended room's fence and cleanup are delivered
+(or abandoned after 24 hours) and no connection remains; completed Lifecycle retirement objects
+release their storage one hour after completion.
+
 ## Operator retirement
 
 Cross-user scene, room, and account retirement uses the same lifecycle services as owner-scoped
 deletion. Scene retirement deletes the scene row and enqueues every owned storage key in one
-transaction; room termination advances authorization and pushes relay shutdown. Account retirement
-collects every user-owned storage key, enqueues it, and cascade-deletes the Better Auth user row in
-a single transaction — no per-scene or per-object round trips, so a large account cannot time out
-half-retired — then pushes best-effort relay `end-room` control for rooms that were still active
-(the deleted room row already guarantees no new join token can be signed). Direct SQL deletion is
+transaction; room termination goes through the Lifecycle gateway `end-room`, which ends the Room DO
+and closes its sockets. Account and scene retirement first complete durable Lifecycle retirement
+(freeze, end or revoke affected rooms, confirm storage fences), then collect every owned storage
+key, enqueue it, and cascade-delete the parent row in a single transaction — no per-scene or
+per-object round trips, so a large account cannot time out half-retired. Direct SQL deletion is
 not an acceptable substitute because it bypasses those guarantees.
 
 Administrative authorization is DB-backed. Better Auth authenticates the caller, then

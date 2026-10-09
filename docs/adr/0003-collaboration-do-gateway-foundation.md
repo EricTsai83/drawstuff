@@ -6,6 +6,10 @@
   「現況仍是 Node relay」與「流量鎖」章節描述的是 ADR 撰寫當時，僅存歷史脈絡。
 - Update（2026-08-28，Plan 15）：Node relay infrastructure（`apps/collaboration-relay`）
   已退役刪除；本文所有 relay 敘述自此皆為歷史。
+- Update（2026-10-10，[Plan 21](../../plans/21-plain-rooms-google-docs-access.md)）：control
+  token、`/v1/control` 與以授權世代區分的 Object identity 已移除；CLAIM-MIG-1／2／3／5 已依
+  現況改寫。Room class 改名 `CollaborationRoomV2`，舊 `CollaborationRoom` 在 `exports` 以
+  `state: "deleted"` tombstone 刪除（CLAIM-MIG-4 的 lifecycle change）。
 - 範圍：`apps/collaboration-do` 的 Worker/DO 權責、deployment lifecycle 與
   environment isolation。**現況仍是 Node relay**（`collaborationRoom.join` 只回
   Node relay URL，production DO traffic 0%）；本文把 Plan 09 的 Architecture
@@ -17,21 +21,22 @@
 Durable Object 不接受 Internet request。Browser WebSocket 與 Vercel control 必須
 經過持有 binding 的薄 gateway Worker；Next.js、Better Auth、PostgreSQL、snapshot
 與 assets 留在 Vercel／既有 storage。Gateway 只驗證 public request shape、解析
-routing identity、驗證 control token，再以 binding 呼叫一個 Object。固定 public
-surface 只有 `/healthz`、`/v1/rooms/:roomId/generations/:authGeneration/socket`
-（Upgrade only）與 `/v1/control`（Vercel only）；不接受任意 proxy target、Object
-name、location hint、debug dump 或 storage query。
+routing identity、驗證 identity proof 或 server-to-server capability，再以 binding
+呼叫一個 Object。固定 surface 只有 `/healthz`、`/v1/rooms/:roomId/socket`（Upgrade
+only），以及 Vercel 專用的 `/v1/authority`、`/v1/snapshot`、`/v1/assets`、
+`/v1/lifecycle`；不接受任意 proxy target、Object name、location hint、debug dump
+或 storage query。
 
-## CLAIM-MIG-2 — 一個 `RoomChannelKey` 對應一個 Object
+## CLAIM-MIG-2 — 一個 roomId 對應一個 Object
 
-以 `getByName(roomChannelKey(roomId, authGeneration))` 取得 Object；Object 端把
-派生 key 與 `ctx.id.name` 比對，缺名或不符即 fail closed。禁止 global rooms
-singleton、per-user Object、跨 Object pub/sub 或把同一 generation 分片。
+以 `getByName(roomId)` 取得 Object；Object 端把 canonical roomId 與 `ctx.id.name`
+比對，缺名或不符即 fail closed。禁止 global rooms singleton、per-user Object、
+跨 Object pub/sub 或把同一房間分片。
 `idFromString()`／`newUniqueId()` 不得用於 room routing。
 
 ## CLAIM-MIG-3 — Gateway 與 Object 同一個 Worker bundle
 
-薄 gateway 與 `CollaborationRoom` 同屬 `apps/collaboration-do` 一個 deployment，
+薄 gateway 與 `CollaborationRoomV2`、`CollaborationLifecycle` 同屬 `apps/collaboration-do` 一個 deployment，
 不新增 service binding 或第二份部署設定。只有量測證明兩者需要獨立 release
 cadence 時才能拆分。
 
@@ -50,16 +55,15 @@ rollout，用完整 `wrangler deploy` 發布（可由 main 自動部署）。Lif
 ## CLAIM-MIG-5 — 不 pre-create Object
 
 Object 由第一個 production request 決定位置，不 cron prewarm、不列舉、不預建
-rooms；`/healthz` 永不呼叫或建立 DO。若 control request 先於第一個 browser 到達
-而必須建立 Object 以持久化 revocation cutoff，必須量測其比例與延遲，
-沒有證據前不得引入 location registry；location hint 只能由實測決定且視為
+rooms；`/healthz` 永不呼叫或建立 DO。Authority 指令（例如建房）可能先於第一個
+browser 建立 Object；沒有量測證據前不得引入 location registry；location hint 只能由實測決定且視為
 best-effort。
 
 ## CLAIM-MIG-6 — Node process primitives 不建立假 portability layer
 
 `setInterval` heartbeat、process-wide room Map、RSS watchdog、PM2 drain、
 Prometheus scrape endpoint 與 global connection/room caps 是 Node deployment
-behavior，不抽成兩個 host 共用的介面。共用範圍只有 protocol、crypto、token、
+behavior，不抽成兩個 host 共用的介面。共用範圍只有 protocol、identity proof、
 limits 的語意與 black-box conformance fixtures（`@drawstuff/collaboration`）；
 DO 版本按 Hibernation、attachments、Alarms 與 Cloudflare observability 重新實作
 （Plans 10–12）。

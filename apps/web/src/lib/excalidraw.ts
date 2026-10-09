@@ -44,8 +44,8 @@ import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
 // excalidraw 初始化的數據要求是 Promise，所以需要這個函數來創建
 export async function createInitialDataPromise(): Promise<ExcalidrawInitialDataState | null> {
   try {
-    // A room link always reloads from an authorized encrypted baseline. The
-    // personal cache remains untouched, including when the key is missing.
+    // A room link always reloads from the room's authorized baseline. The
+    // personal cache remains untouched.
     if (
       new URL(window.location.href).searchParams.has(COLLABORATION_ROOM_PARAM)
     ) {

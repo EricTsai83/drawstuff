@@ -20,8 +20,8 @@ encrypted sharing, real-time collaboration, and public read-only pages.
 
 - Import, export, autosave, thumbnails, and attached binary assets
 - Workspaces with scene search, filters, and categories
-- Client-side compressed and AES-GCM-encrypted private share links
-- Encrypted real-time collaboration through a Cloudflare Durable Object gateway; invited members reopen rooms from any device
+- Client-side compressed and AES-GCM end-to-end encrypted read-only share links
+- Real-time collaboration rooms through a Cloudflare Durable Object gateway, with Google Docs-style access (owner, invitation list, general link access) and a room list on every device
 - Public read-only pages at `/p/[slug]`
 - English and Traditional Chinese UI
 
@@ -87,12 +87,11 @@ is [apps/web/src/env.ts](./apps/web/src/env.ts).
 
 Optional collaboration settings:
 
-- `COLLAB_ROOMS_DISABLED=true` prevents new room creation and joins during an incident.
+- `COLLAB_ROOMS_DISABLED=true` stops issuing identity proofs and refuses room commands, snapshots and assets during an incident; open sockets are not closed.
 
 The three collaboration secrets must each be at least 32 characters and hold the same values as
-the Worker secrets of the same name. The Worker also keeps secrets the web app never sees, such as
-`COLLAB_ROOM_KEY_WRAP_SECRET`; the [Worker deployment runbook](./docs/operations/collaboration-do-deployment.md#2-secrets)
-lists every secret and the order to set them in.
+the Worker secrets of the same name. The Worker additionally needs `COLLAB_ADAPTER_URL`; the
+[Worker deployment runbook](./docs/operations/collaboration-do-deployment.md#2-secrets) lists every secret.
 `BETTER_AUTH_URL` and `NEXT_PUBLIC_BASE_URL` must be the same origin. For Google OAuth, register
 `<origin>/api/auth/callback/google` as an authorized redirect URI.
 
@@ -101,20 +100,20 @@ lists every secret and the order to set them in.
 ```text
 apps/
   web/                   # Next.js UI, tRPC API, and persistence
-  collaboration-do/      # Cloudflare Worker and CollaborationRoom Durable Object
+  collaboration-do/      # Cloudflare Worker and room/lifecycle Durable Objects
 packages/
   excalidraw-adapter/    # The only package allowed to import Excalidraw
-  collaboration/         # Transport-neutral protocol, crypto, and recovery
+  collaboration/         # Transport-neutral protocol, authority contracts, codecs, and recovery
 ```
 
 Dependencies flow one way: the web app consumes both shared packages, while the Worker consumes
 only the server-safe collaboration entries. See the
 [architecture contract](./docs/architecture/architecture-contract.md) for ownership rules.
 
-Collaboration room content is encrypted in the browser before it reaches the relay, database, or
-object storage. Rooms are not end-to-end encrypted: the room Durable Object keeps a custody copy of
-each room key, wrapped under a Worker secret, and releases it to the owner and members
-(plan 19). The full design and limitations are documented
+Collaboration rooms are not encrypted: like owned scenes, they are protected by sign-in and access
+rules that the room Durable Object evaluates on every check. Realtime traffic is protected by TLS;
+snapshots live in Neon and room images are public UploadThing URLs, the same exposure as scene
+images. Only share links are end-to-end encrypted. The full design and limitations are documented
 in the [collaboration system design](./docs/architecture/collaboration-system-design.md) and
 [threat model](./docs/architecture/collaboration-threat-model.md).
 

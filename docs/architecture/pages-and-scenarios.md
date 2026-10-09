@@ -16,15 +16,15 @@
 flowchart LR
     subgraph Repo["pnpm workspace（Turborepo）"]
         WEB["apps/web<br/>Next.js 16 · React 19 · tRPC v11<br/>產品 UI + 後端 API + server actions"]
-        DO["apps/collaboration-do<br/>Cloudflare Worker gateway<br/>+ CollaborationRoom Durable Object（SQLite）"]
+        DO["apps/collaboration-do<br/>Cloudflare Worker gateway<br/>+ CollaborationRoomV2／CollaborationLifecycle<br/>Durable Objects（SQLite）"]
         ADP["packages/excalidraw-adapter<br/>Excalidraw 唯一整合邊界<br/>document v4 codec、SVG export、reconcile"]
-        COL["packages/collaboration<br/>協定、房間內容 crypto、金鑰保管協定、<br/>offline queue、recovery、room token／limits"]
+        COL["packages/collaboration<br/>協定、房間權限契約、snapshot／asset codec、<br/>offline queue、recovery、identity proof／limits"]
         UP["@excalidraw/excalidraw（npm）"]
     end
 
     subgraph Infra["外部服務"]
         VER["Vercel<br/>（web 部署 + 每週 cron）"]
-        CF["Cloudflare Workers<br/>（DO 部署 + 每分鐘 cron）"]
+        CF["Cloudflare Workers<br/>（DO 部署）"]
         PG[("Neon PostgreSQL<br/>Drizzle ORM")]
         UT[("UploadThing<br/>資產／縮圖／SVG 成品")]
         RD[("Upstash Redis<br/>限流計數器")]
@@ -79,7 +79,7 @@ flowchart TD
     API --> AUTHR["/api/auth/[...all]<br/>Better Auth handler"]
     API --> UTR["/api/uploadthing<br/>sceneAsset／sceneThumbnail／sharedSceneFile／<br/>publishedArtifact／room asset uploader"]
     API --> CRON1["/api/maintenance/cleanup<br/>Vercel 每週 cron（Bearer CRON_SECRET）"]
-    API --> CRON2["/api/collaboration/control-outbox<br/>Cloudflare 每分鐘 cron（Bearer COLLAB_OUTBOX_CRON_SECRET）"]
+    API --> COLLABAPI["/api/collaboration/snapshot<br/>/api/internal/collaboration/adapter（Worker → web，COLLAB_ADAPTER_SECRET）"]
 ```
 
 同一份 `DashboardContent` 會被 canonical page 與 intercepted page 各包一次殼；
@@ -98,7 +98,7 @@ flowchart TD
 flowchart TD
     MOUNT["Excalidraw mount<br/>initialDataPromise"] --> Q{"URL / 狀態判斷"}
     Q -->|"hash #json=id,key"| SHARE["分享連結<br/>public tRPC 取密文 → 瀏覽器解密<br/>（§5）"]
-    Q -->|"?collab-room=id（+ hash #collab-key=…，缺鑰時向 Room 保管取得）"| ROOM["協作房間<br/>key-check → join token → WebSocket<br/>（§7）"]
+    Q -->|"?collab-room=id"| ROOM["協作房間<br/>identity proof → WebSocket<br/>Room 依權限計算角色（§7）"]
     Q -->|"無 hash"| LOCAL["localStorage 快取<br/>+ SceneSession 記住的 currentSceneId"]
     DASH["Dashboard 雙擊場景卡"] -->|"事件驅動，不改 URL hash"| CONFIRM{"目前畫布 dirty？"}
     CONFIRM -->|是| DLG["SceneChangeConfirm dialog"] --> LOAD
@@ -210,9 +210,8 @@ sequenceDiagram
     V->>UT: 下載每個密文資產 → 解密 → 注入 files
 ```
 
-與協作房間金鑰的差異：分享連結是**一次性快照**、單一金鑰；協作房間是 root key 經 HKDF
-衍生出 realtime／snapshot／asset／keycheck 四把 purpose-scoped 鍵，見
-[瀏覽器端 E2EE 與金鑰生命週期](../system-design/e2ee-key-lifecycle.md)。
+分享連結是產品中唯一端對端加密的資料；協作房間不加密，與「我的場景」一樣以登入與權限保護。
+金鑰生命週期見 [瀏覽器端 E2EE 與金鑰生命週期](../system-design/e2ee-key-lifecycle.md)。
 
 ## 6. 場景：發布為公開頁 `/p/[slug]`
 
@@ -253,20 +252,17 @@ sequenceDiagram
 
 1. **整體時序**（加入 → 協作 → 快照 → 撤銷）：
    [系統總覽](../system-design/system-overview.md) 的 sequenceDiagram。
-2. **拓撲與狀態機**（gateway、DO、hibernation、generation）：
+2. **拓撲與狀態機**（gateway、DO、hibernation、session epoch）：
    [即時協作房間](../system-design/realtime-room-coordination.md) 三張圖。
-3. **金鑰**（fragment、HKDF、key-check fail-closed）：
-   [E2EE 金鑰生命週期](../system-design/e2ee-key-lifecycle.md) 三張圖。自
-   plan 19 起 Room DO 另以 Worker secret 包裝保管
-   房間金鑰、發給已授權成員，共編**不再是端對端加密**；見
-   [授權契約](./collaboration-authority.md)「房間金鑰保管」。
-4. **撤銷成員的一致性**（同交易寫 outbox、best-effort control、cron 補送）：
-   [Transactional Outbox](../system-design/transactional-outbox.md)。
-5. **誰負責寫快照、多久寫一次**：
+3. **存取模型**（擁有者＋邀請名單＋一般存取權，角色每次即時計算；撤權 fence；列表兩區）：
+   [授權契約](./collaboration-authority.md)。房間不做端對端加密，風險見
+   [威脅模型](./collaboration-threat-model.md)。
+4. **誰負責寫快照、多久寫一次**：
    [Client 寫入節奏與 writer 選舉](../system-design/client-write-pacing-and-writer-election.md)。
 
-口頭一句話：**Durable Object 只做 coordination，不存明文內容也不存權威畫布，但保管包裝後的房間金鑰**；授權在
-PostgreSQL 決定、以短效 token 帶到 Worker、每一跳重新驗證。
+口頭一句話：**Room Durable Object 是房間權限的唯一權威，也負責即時轉發；權威畫布存在
+PostgreSQL 快照**。登入服務只簽發「身分」證明，角色由 Room 依擁有者、邀請名單與一般存取權
+每次即時計算。
 
 ## 8. 場景：登入、授權與後台入口
 
@@ -278,22 +274,22 @@ flowchart LR
         U["一般使用者"]
         AN["匿名訪客"]
         ADMIN["管理者"]
-        MACH["機器（cron）"]
+        MACH["機器（cron／Worker）"]
     end
 
     U -->|"Google OAuth → Better Auth session cookie"| PROT["protectedProcedure<br/>scene／workspace／category／personalLibrary"]
     U -->|"未登入按 Dashboard"| LOGINM["@auth (.)login modal<br/>登入後回到原畫布"]
     AN -->|"連結即 capability + IP 限流"| PUB["publicProcedure<br/>sharedScene.* · scene.getPublishedSceneBySlug"]
-    AN -->|"join token（短效簽章）"| DOJ["Worker gateway → DO<br/>逐跳重新驗證"]
+    U -->|"identity proof（短效簽章，只含身分）"| DOJ["Worker gateway → Room DO<br/>每次即時計算角色"]
     ADMIN -->|"session + admin_grant row"| ADM["/admin 頁 · adminRouter<br/>每個動作寫 admin_audit_event"]
     MACH -->|"Bearer CRON_SECRET"| M1["/api/maintenance/cleanup<br/>GET 只能跑例行工作；POST 才能觸發 user purge"]
-    MACH -->|"Bearer COLLAB_OUTBOX_CRON_SECRET"| M2["/api/collaboration/control-outbox<br/>冪等 drain，secret 洩漏最多只能觸發 drain"]
+    MACH -->|"COLLAB_ADAPTER_SECRET"| M2["/api/internal/collaboration/adapter<br/>Room DO → Neon 的儲存／投影指令"]
 ```
 
 設計原則見 [分層授權](../system-design/layered-authorization.md)；限流為何 fail-open 而
 授權為何 fail-closed，見 [防禦性邊界](../system-design/defensive-boundaries.md)。
 
-## 9. 幕後：兩個時鐘與資料生命週期
+## 9. 幕後：清理排程與資料生命週期
 
 ```mermaid
 flowchart TD
@@ -305,12 +301,11 @@ flowchart TD
     CLEAN --> J4["最後：deferred_file_cleanup 佇列 drain<br/>（舊縮圖、舊 SVG 成品、失敗上傳；有絕對 deadline）"]
     J1 & J2 & J3 & J4 --> UT[("UploadThing 刪檔")]
 
-    CC["Cloudflare cron<br/>每分鐘"] --> OUT["/api/collaboration/control-outbox<br/>FOR UPDATE SKIP LOCKED + lease"]
-    OUT --> DOC["Worker control API<br/>推進 revocation cutoff"]
+    DOA["Room／Lifecycle DO alarm"] --> DW["durable 工作送達 adapter<br/>（投影、fence、cleanup；房間工作 24 小時未送達即放棄）"]
 ```
 
-兩個 cron 刻意分開：一個是儲存清理（慢、每週、可以晚），一個是授權撤銷的修復路徑
-（快、每分鐘、不能被清理工作拖住）。保留矩陣與 GC 的有界設計見
+儲存清理是每週 cron（慢、可以晚）；權限變更與房間結束的後續工作由 DO 自己的 alarm 重試，
+不依賴 cron。保留矩陣與 GC 的有界設計見
 [資料生命週期](../system-design/data-lifecycle-and-gc.md) 與
 [data lifecycle 契約](./data-lifecycle.md)。
 
@@ -321,5 +316,5 @@ flowchart TD
 | 身分 | `user`、`session`、`account`、`verification`、`admin_grant`、`admin_audit_event` |
 | 組織 | `workspace`、`user_default_workspace`、`user_last_active_workspace`、`category`、`scene_category` |
 | 內容 | `scene`（含 revision、slug、成品指標）、`personal_library`、`shared_scene`、`file_record` |
-| 協作 | `collaboration_room`、`collaboration_room_member`、`collaboration_snapshot`、`collaboration_asset`、`collaboration_control_outbox` |
+| 協作 | `collaboration_room`、`collaboration_room_member`、`collaboration_room_invite`、`collaboration_snapshot`、`collaboration_asset`、`collaboration_creation_fence`、`collaboration_operation`、`collaboration_lifecycle_subject`、`collaboration_lifecycle_registration`、`collaboration_projection_tombstone` |
 | 維護 | `deferred_file_cleanup` |

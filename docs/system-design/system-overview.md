@@ -11,54 +11,50 @@ flowchart LR
     subgraph Browser["瀏覽器（不可信環境）"]
         UI["產品 UI"]
         Adapter["引擎 Adapter<br/>（Excalidraw 唯一邊界）"]
-        Session["協作 Session<br/>（瀏覽器端加解密、佇列、恢復）"]
-        Key["房間金鑰<br/>（瀏覽器內只在 URL fragment 與記憶體）"]
+        Session["協作 Session<br/>（佇列、恢復、寫入節奏）"]
     end
 
     subgraph WebPlatform["Web 平台（Vercel）"]
-        Web["Web App<br/>SSR + API（tRPC / server actions）"]
+        Web["Web App<br/>SSR + API（tRPC / server actions）<br/>＋共編 adapter（Neon 投影與內容）"]
         Auth["身分驗證<br/>（Better Auth）"]
     end
 
     subgraph DataLayer["資料層"]
-        PG[("關聯式 DB（PostgreSQL）<br/>權威資料 + 兩個 outbox")]
-        OS[("Object Storage（UploadThing）<br/>大型二進位／密文資產")]
+        PG[("關聯式 DB（PostgreSQL）<br/>場景、房間列表投影、房間快照")]
+        OS[("Object Storage（UploadThing）<br/>場景與房間圖片（public URL）")]
         Redis[("共享計數器（Upstash Redis）<br/>只存限流視窗")]
     end
 
     subgraph EdgePlatform["Edge 平台（Cloudflare）"]
-        GW["Thin Gateway Worker<br/>驗 token、路由，無狀態"]
-        DO["Room Coordinator<br/>（Durable Object，一房一實例）<br/>coordination metadata<br/>＋包裝後的房間金鑰保管副本"]
-        Cron["分鐘級 Cron trigger"]
+        GW["Thin Gateway Worker<br/>驗 proof／service secret、路由，無狀態"]
+        DO["Room Coordinator<br/>（Durable Object，一房一實例）<br/>存取規則權威＋durable 工作佇列"]
     end
 
     UI --> Adapter
     UI -->|"HTTPS：登入、房間 API、<br/>快照、資產 metadata"| Web
     Web --> Auth
-    Web -->|"交易 + 行鎖 + outbox"| PG
-    Web -->|"presign 上傳／下載 URL"| OS
+    Web -->|"交易 + advisory lock"| PG
+    Web -->|"presign 上傳 URL"| OS
     Web -->|"限流決策（單次呼叫）"| Redis
-    Session <-->|"WebSocket：密文 frame<br/>（relay 路徑不持有金鑰）"| GW
-    GW -->|"依 roomId+generation<br/>導出唯一實例"| DO
-    Web -->|"HTTPS control：<br/>短效簽章 token"| GW
-    Cron -->|"drain ping（不帶資料）"| Web
-    Browser -->|"密文資產直傳"| OS
-
-    Key -. "不送 relay；另經 /v1/room-key 交 DO 保管" .-> Session
+    Session <-->|"WebSocket（WSS）：明文 frame"| GW
+    GW -->|"依 roomId 導出唯一實例"| DO
+    Web -->|"HTTPS：identity proof<br/>＋service secret"| GW
+    DO -->|"durable job：投影、fence、cleanup<br/>（adapter secret）"| Web
+    Browser -->|"圖片直傳"| OS
 ```
 
-三條關鍵的信任邊界（詳見 [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md)）：
+三條關鍵的信任邊界：
 
-1. **內容機密性**：場景內容只以密文通過 Gateway／Coordinator／DB／Storage；DB 與 Storage
-   沒有金鑰，relay 路徑不使用金鑰。但自 plan 19
-   起 Room Coordinator 以 Worker secret 包裝保管房間金鑰並發給已授權成員，所以這**不是**
-   端對端加密：持有該 secret 與 DO 儲存者可解密（見[威脅模型](../architecture/collaboration-threat-model.md) T17）；
-2. **授權**：由 Web App 的 DB 決定、以短效簽章 token 傳遞，Gateway 與 Coordinator
-   逐跳重新驗證（見 [分層授權](./layered-authorization.md)）；
+1. **存取**：共編房間不加密，與「我的場景」一樣以登入＋存取規則保護。Web App 只證明
+   「你是誰」（短效 identity proof），角色由 Room Coordinator 依擁有者、邀請名單與一般存取權
+   每次即時計算，Gateway 與 Coordinator 逐跳重新驗證（見 [分層授權](./layered-authorization.md)）；
+2. **內容機密性**：只有分享連結是端對端加密（見 [分享連結的 E2EE](./e2ee-key-lifecycle.md)）；
+   房間內容在傳輸中靠 TLS，在 Neon 與 UploadThing 為明文，房間圖片與個人場景圖片同樣是
+   public URL（[ADR-0005](../adr/0005-public-collaboration-assets.md)）；
 3. **Code delivery**：瀏覽器執行的程式碼本身是一條被明文接受的信任邊界
    （見 [CSP 與 code delivery](./csp-and-code-delivery.md)）。
 
-## 端到端 Data Flow：加入房間 → 即時協作 → 快照 → 撤銷
+## 端到端 Data Flow：加入房間 → 即時協作 → 快照 → 收回權限
 
 ```mermaid
 sequenceDiagram
@@ -70,30 +66,29 @@ sequenceDiagram
     participant DO as Room Coordinator
     participant R as 共享計數器
 
-    Note over B: 從 URL fragment 取得房間金鑰<br/>（缺鑰時改向 Room 保管取得，plan 19）
-    B->>W: 取房間 metadata + key-check 值
-    B->>B: 用金鑰驗證 key-check（錯鑰在此止步）
-    B->>W: join（請求加入）
+    B->>W: identity（請求加入 ?collab-room=<id>）
     W->>R: 限流決策（fail open）
-    W->>DB: 行鎖下解析角色、簽短效 join token
-    W-->>B: token + 不透明 relayUrl
-    B->>G: WebSocket upgrade（URL 只帶非機密路由資訊）
-    G->>DO: 依 roomId+generation 導出唯一實例
-    B->>DO: 第一個 control frame 送 join token
-    DO->>DO: 驗 token、比對實例身分、查撤銷 cutoff
-    DO-->>B: joined（伺服器發的 peerId）
+    W->>DB: 確認帳號狀態與 session
+    W-->>B: 短效 identity proof + 不透明 relayUrl
+    B->>G: WebSocket upgrade /v1/rooms/:roomId/socket
+    G->>DO: 依 roomId 導出唯一實例
+    B->>DO: 第一個 control frame 送 identity proof
+    DO->>DO: 驗 proof、即時計算角色（無權限→拒絕）
+    DO-->>B: joined（伺服器發的 peerId、roomGeneration）
 
-    Note over B,DO: 即時協作（內容都是密文）
-    B->>DO: 密文 scene frame（角色/大小/速率逐 frame 檢查）
+    Note over B,DO: 即時協作
+    B->>DO: scene frame（角色/大小/速率逐 frame 檢查）
     DO-->>B: O(members) fanout 給其他成員
-    B->>W: 週期性寫入加密快照（optimistic revision）
-    W->>DB: 條件寫入（revision 不符→ conflict）
+    B->>W: 週期性寫入快照（optimistic revision）
+    W->>G: 帶 proof 轉給 Room 授權
+    DO->>W: 經 adapter 條件寫入 Neon（revision 不符→ conflict）
 
-    Note over W,DO: 撤銷成員（transactional outbox）
-    W->>DB: 同一交易：改授權 + 插入 enforcement 意圖
-    W-)G: best-effort control（短效 control token）
-    G->>DO: 推進 revocation cutoff → 關閉該成員 socket
-    Note over DB,DO: 若失敗：cron 驅動的 drain 依 lease/backoff 重送（冪等）
+    Note over W,DO: 收回權限（DO 內 transactional outbox）
+    B->>W: 擁有者移除邀請／收窄一般存取權
+    W->>G: authority 指令
+    DO->>DO: 同一交易：改存取規則 + fence（推進 epoch）+ 排入 durable job
+    DO-->>B: 失去權限的連線以 membershipRevoked 關閉，角色改變以 roleChanged 關閉
+    DO-)W: durable job 依 alarm／backoff 投影到 Neon（冪等）
 ```
 
 ## 元件 × Pattern 對照
@@ -105,6 +100,7 @@ sequenceDiagram
 | 關聯式 DB | [Transactional outbox](./transactional-outbox.md)、[資料生命週期與 GC](./data-lifecycle-and-gc.md)、[版本與相容性](./versioning-and-compatibility.md) |
 | 共享計數器 | [防禦性邊界](./defensive-boundaries.md) §5、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md) §3 |
 | Gateway + Coordinator | [即時協作房間](./realtime-room-coordination.md)、[成本感知的有狀態服務](./cost-aware-stateful-services.md)、[上限是防護不是容量](./limits-as-protection-not-capacity.md)、[隱私安全 observability](./privacy-safe-observability.md) |
-| 協作 Session（client） | [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md)、[即時協作房間](./realtime-room-coordination.md) §6、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)、[遠端狀態回灌的重入抑制](./reentrancy-suppression-for-echoed-remote-state.md) |
+| 協作 Session（client） | [即時協作房間](./realtime-room-coordination.md) §6、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)、[遠端狀態回灌的重入抑制](./reentrancy-suppression-for-echoed-remote-state.md) |
+| 分享連結 | [分享連結的 E2EE](./e2ee-key-lifecycle.md)、[以引擎的靜態匯出當唯讀 Viewer](./static-export-as-read-only-viewer.md) |
 | 瀏覽器 UI 殼 | [持久工作區與 overlay routing](./persistent-shell-overlay-routing.md)、[Server 端解析狀態的 hydration 邊界](./hydration-boundary-for-server-resolved-state.md) |
 | Headers／部署／CI | [CSP 與 code delivery](./csp-and-code-delivery.md)、[Config 與部署是受測工件](./config-and-deployment-as-artifacts.md)、[測試作為契約](./testing-as-contracts.md)、[演進與清理紀律](./evolution-and-cleanup.md)、[記錄下來的拒絕](./recorded-refusals.md) |

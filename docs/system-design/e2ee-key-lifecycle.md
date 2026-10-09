@@ -1,25 +1,20 @@
-# 瀏覽器端 End-to-End Encryption 與金鑰生命週期
+# 瀏覽器端 End-to-End Encryption：分享連結
 
-> **現況（2026-10-09）**：drawstuff 共編房間已**不再是端對端加密**。依
-> plan 19 擁有者決定，房間金鑰仍在瀏覽器產生、
-> 內容仍只在瀏覽器加解密，但 Room DO 以 Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET` 包裝保存每個
-> 世代的金鑰，並發給 owner、未移除的 allowlist email、owner 授予角色的成員，以及曾以完整連結證明持有金鑰的成員，讓他們從列表或任何裝置重開房間。
-> 因此持有該 secret 與 DO 儲存者在技術上可解密房間內容（[威脅模型](../architecture/collaboration-threat-model.md)
-> T17）。本文以下描述的是 E2EE pattern 本身；本專案與它不同之處標在 §1、§2、Trade-offs 與
-> 「本專案中的實例」。
+> **範圍**：drawstuff 只有**分享連結**（給沒有帳號的人看的唯讀快照，`use-scene-export` 與
+> `sharedScene` router）是端對端加密。共編房間不加密，與「我的場景」一樣以登入＋存取規則保護
+> （見 [plan 21](../../plans/21-plain-rooms-google-docs-access.md)、
+> [collaboration authority](../architecture/collaboration-authority.md)）。
 
-> **Pattern 一句話**：把「授權」與「機密性」拆成兩個獨立機制——伺服器決定誰可以進來
-> （token），但讀懂內容的能力只來自一把伺服器從未見過的金鑰（URL fragment 中的 key）；
-> 並誠實劃出這個保證的邊界：它擋不住能決定瀏覽器執行什麼程式碼的人。
+> **Pattern 一句話**：讀懂內容的能力只來自一把伺服器從未見過的金鑰（URL fragment 中的 key），
+> 伺服器只轉存密文；並誠實劃出這個保證的邊界：它擋不住能決定瀏覽器執行什麼程式碼的人。
 
-延伸閱讀：[以 Excalidraw 理解共享金鑰架構（HTML）](../learning/browser-e2ee-excalidraw.html)，
-包含上游程式碼對照、架構與加入流程圖，並區分 Excalidraw 的最小模型與本專案的產品化機制。
+延伸閱讀：[以 Excalidraw 理解共享金鑰架構（HTML）](../learning/browser-e2ee-excalidraw.html)。
 
 ## 問題
 
-想讓伺服器「轉發、儲存使用者內容，但讀不懂內容」——常見於共編工具、分享連結、
-私密筆記。天真的做法（伺服器持有金鑰、或金鑰跟著登入身分走）會讓資料庫外洩、
-營運者窺看、中間人攔截全部變成內容外洩。
+想讓伺服器「儲存並提供使用者內容，但讀不懂內容」——分享連結的對象沒有帳號，沒有登入身分
+可以授權，連結本身就是 capability。天真的做法（伺服器持有金鑰、或明文公開存放）會讓資料庫
+外洩、營運者窺看、物件 URL 外流全部變成內容外洩。
 
 ## Pattern
 
@@ -28,115 +23,47 @@
 ```mermaid
 flowchart LR
     subgraph B["瀏覽器（唯一的明文域）"]
-        K["房間金鑰<br/>（URL fragment）"]
-        P["明文內容"]
+        K["分享金鑰<br/>（URL fragment）"]
+        P["明文場景與圖片"]
         K --> P
     end
-    subgraph S["伺服器側（全部只見密文）"]
-        API["後端 API<br/>（授權、token、metadata）"]
-        RL["Relay / Worker<br/>（轉發密文 frame）"]
-        DB[("資料庫<br/>密文快照 + key-check")]
-        OS[("Object storage<br/>密文資產")]
+    subgraph S["伺服器側（只見密文）"]
+        API["後端 API<br/>（建立分享、public 讀取＋限流）"]
+        DB[("Neon<br/>壓縮後的密文場景")]
+        OS[("UploadThing<br/>密文圖片")]
     end
-    P -->|"AES-GCM 密文（realtime）"| RL
-    P -->|"密文快照"| API --> DB
-    P -->|"密文資產"| OS
-    B -->|"token 請求（不含金鑰）"| API
+    P -->|"密文場景"| API --> DB
+    P -->|"密文圖片"| OS
     K -.->|"永不送出"| S
 ```
 
-### 1. 金鑰放在 URL fragment（pattern：永不離開 client；drawstuff 自 plan 19 起已偏離）
+### 1. 金鑰放在 URL fragment，永不離開 client
 
-`https://app.example/room#<random-32-byte-key>`。fragment 不會被瀏覽器送到伺服器，
-所以「拿到完整連結」等於「拿到金鑰」，而伺服器、relay、storage 從頭到尾沒有金鑰。
-這同時定義了它的弱點：**完整連結是 bearer secret**，貼到聊天室就等於把金鑰交出去。
-這要作為明文接受的限制寫進威脅模型，而不是假裝不存在。
+匯出時瀏覽器產生一把 AES-GCM 金鑰（`apps/web/src/lib/encryption.ts`），場景先壓縮再加密存進
+Neon `sharedScene`，圖片逐檔加密後上傳 UploadThing。分享連結是
+`https://<app>/#json=<sharedSceneId>,<key>`：fragment 不會被瀏覽器送到伺服器，所以伺服器、
+資料庫與 object storage 從頭到尾沒有金鑰。
 
-**drawstuff 的偏離（plan 19）**：完整連結仍可用，但金鑰不再只在 client——瀏覽器會把它上傳到
-Room DO 保管（只接受能通過 key check 的金鑰、每世代寫一次），已授權成員也能從服務端取回。
-relay、資料庫（Neon）與 object storage（UploadThing）仍沒有金鑰；Room DO 只存包裝後的副本。
+這同時定義了它的弱點：**完整連結是 bearer secret**，貼到聊天室就等於把金鑰交出去。這要作為
+明文接受的限制寫進威脅模型，而不是假裝不存在。配套是縮小 URL 外洩面：`Referrer-Policy`
+取最嚴格值（[web security headers](../operations/web-security-headers.md)）、登入回呼網址不帶
+fragment、個人 library catalog 不接收 fragment key。
 
-### 2. 授權與機密性是兩條獨立軌道
+### 2. 授權與機密性分開
 
-- **授權**（誰能連線、誰能寫）：伺服器發短效 token，綁定資源、主體、角色、有效期、
-  授權世代。撤銷成員 = 推進世代 cutoff + 斷開現有連線。
-- **機密性**（誰能讀懂）：只來自金鑰。持有有效 token 但金鑰錯誤，是一個**受支援且
-  明確回報的狀態**，不是異常。
+分享連結沒有授權軌道：讀取端點是 public procedure，只依 IP 限流
+（`apps/web/src/server/rate-limit/shared-scene.ts`），回傳密文與圖片 URL。能讀懂內容只取決於
+是否持有 fragment 中的金鑰。建立分享（與上傳失敗時的回滾）則走登入身分。
 
-在 drawstuff（plan 19 之後）兩條軌道在金鑰發放處交會：Room DO 依授權（owner、未移除的
-allowlist email、owner 授予角色或已證明持有金鑰的成員；單憑連結加入不發）決定誰能取回保管的金鑰。撤權後無法再取得金鑰，
-但已取得的金鑰仍無法收回，所以下段的密碼學撤銷結論不變；輪替時保管列一併刪除。
+推論：連結沒有個別撤銷機制，只有到期——maintenance 的 `expired-shared-scenes` 工作在 30 天後刪除
+分享與其圖片；帳號刪除時也一併刪除。金鑰無法輪替（換金鑰等於產生新的連結），已下載並解密的內容也無法收回。
 
-兩者分開的重要推論：**授權撤銷 ≠ 密碼學撤銷**。把成員移出名單能擋住未來的連線，
-但無法從他腦中抹掉已經學到的金鑰。真正的密碼學撤銷是**世代輪替（generation rotation）**：
-換一把新的獨立金鑰、換 salt、換頻道識別，只把新金鑰交給保留的成員，讓舊成員無法
-解開新世代的密文。舊金鑰仍可解開舊密文，已下載的內容無法收回；只換公開 salt 或世代
-而沿用已知的 root key，並不能達成密碼學撤銷。保留既有資料還需要明確的重新加密／遷移策略。
+### 3. 每份分享一把獨立金鑰
 
-### 3. 用 HKDF 衍生 purpose-scoped 金鑰
+每次匯出都產生新金鑰，金鑰只綁定這一份唯讀快照。一份連結外流不影響其他分享，也不影響
+「我的場景」或共編房間（它們本來就不加密，靠帳號權限保護）。
 
-一把 root key 不直接用，而是以 HKDF 按用途衍生：`realtime`、`snapshot`、`asset`、
-`keycheck` 各一把，salt 綁定資源與世代：
-
-```mermaid
-flowchart TD
-    RK["Root key（fragment 中的 32 bytes）"]
-    RK -->|"HKDF(salt = 資源 id + 世代)"| D
-    subgraph D["Purpose-scoped 衍生鍵"]
-        K1["realtime 鍵<br/>AAD 含傳輸版本"]
-        K2["snapshot 鍵<br/>AAD 只綁快照格式版本"]
-        K3["asset 鍵<br/>AAD 只綁資產格式版本"]
-        K4["keycheck 鍵<br/>AAD 綁資源與世代"]
-    end
-    K1 --> U1["即時訊息密文"]
-    K2 --> U2["持久快照密文"]
-    K3 --> U3["資產密文"]
-    K4 --> U4["伺服器存的 key-check 值"]
-```
-
-好處：
-
-- 一種用途的格式演進不會波及其他用途的既有密文；
-- 每種密文格式有自己的版本號與 authenticated data（AAD）標籤。**傳輸層的版本只放進
-  傳輸訊息的 AAD，不放進持久資料的 AAD**——否則一次協定升級會讓所有存檔變成不可解。
-
-### 4. Key check：在動手之前驗證金鑰正確
-
-伺服器存一個固定大小的加密「key-check 值」（用 keycheck 衍生鍵封裝、AAD 綁資源與世代）。
-client 在接管畫面、清空本地內容、或請求 token **之前**先驗證手上的金鑰能否解開它。
-沒有 key check 或驗證失敗一律 fail closed。這防止的是很具體的災難：拿錯金鑰的 client
-以為房間是空的，把垃圾覆寫到正確的存檔上。
-
-配套規則：**驗證值在同一世代內不可變**；輪替時清除並由知道新金鑰的人重算。
-
-```mermaid
-sequenceDiagram
-    autonumber
-    participant B as 瀏覽器（持金鑰）
-    participant API as 後端 API
-    participant DB as 資料庫
-
-    B->>API: 取資源 metadata + key-check 值
-    API->>DB: 讀 key-check（密文，伺服器解不開）
-    API-->>B: key-check + 目前世代
-    B->>B: 用 keycheck 衍生鍵嘗試解開
-    alt 解開成功
-        B->>API: 請求 join token（授權軌道）
-        API-->>B: 短效 token
-        Note over B: 才允許接管畫面／清空本地內容
-    else 解不開或缺失
-        Note over B,API: 雙邊都 fail closed：<br/>client 不動畫面、server 拒發 token
-    end
-```
-
-### 5. 錯誤分級：單筆損壞 vs 系統性錯鑰
-
-單筆解不開的訊息或資產：靜默丟棄、標記不可用，session 繼續——一筆損壞不該終結整個
-session。但「金鑰整個錯了」的表現正是「每一筆都解不開」，若只做單筆丟棄，使用者會
-看到一個永遠安靜的空房間。解法是**聚合判定**：連續 N 次失敗且零成功 → 判定為不可讀；
-一次成功 → 永久解除該判定。這是「區分雜訊與系統性故障」的通用手法。
-
-### 6. 誠實劃界：code delivery 是信任邊界
+### 4. 誠實劃界：code delivery 是信任邊界
 
 瀏覽器端 E2EE 有一條無法用密碼學跨越的邊界：**金鑰被誰讀寫？被伺服器送來的 JavaScript。**
 所以任何能決定這段程式碼內容的人——部署平台的操作者、build 期的 supply chain、
@@ -146,33 +73,31 @@ runtime injection（XSS）——都能拿到金鑰。從同一條通道送出更
 正確的做法不是修復（修不了），而是：
 
 1. 在威脅模型中把它寫成明確的 boundary 與 accepted limitation；
-2. 對外宣稱時嚴守措辭：「資料庫外洩／被動窺看讀不到內容」可以說，
+2. 對外宣稱時嚴守措辭：「資料庫外洩／被動窺看讀不到分享內容」可以說，
    「即使伺服器被入侵我們也讀不到」不可以說；
 3. 用 defense-in-depth 縮小攻擊面（CSP 收斂外送出口、鎖 lockfile、部署路徑最小化），
    但文件不得把這些描述成「防止」。
 
 ## 評估
 
-- 「授權 / 機密性分離」讓伺服器端可以正常做權限、限流、生命週期管理，完全不需要碰內容——
-  伺服器程式碼的攻擊價值大幅下降。
-- 世代輪替是少數真正可執行的「撤銷」語意，值得作為預設設計而不是事後補丁。
-- 誠實劃界本身就是 pattern：一個寫清楚「這裡擋不住」的威脅模型，比一個處處宣稱安全的
-  文件更能防止未來的錯誤決策。
+- 對「沒有帳號的讀者」這個情境，fragment 金鑰是最簡單且足夠的設計：伺服器不需要知道讀者是誰，
+  也讀不懂內容。
+- 範圍刻意只到分享連結。需要持續編輯、換裝置重開、多人權限管理的內容（共編房間）若也用
+  fragment 金鑰，分享體驗與安全會綁死（遺失連結即遺失內容、撤權無法收回金鑰），所以改以帳號權限
+  保護。
+- 誠實劃界本身就是 pattern：一個寫清楚「這裡擋不住」的威脅模型，比一個處處宣稱安全的文件更能
+  防止未來的錯誤決策。
 
 ## Trade-offs
 
-- 伺服器讀不懂內容 = 伺服器無法做內容檢索、伺服器端渲染預覽、內容審查；
-  這些功能需求會直接與 E2EE 衝突，要在產品層面先做取捨。
-- 金鑰只在連結裡 = 分享體驗與安全綁死；換金鑰必須換連結，遺失連結即遺失房間。drawstuff
-  因此在 plan 19 改為服務端保管金鑰：換得從列表／任何裝置重開，代價是放棄 E2EE 宣稱。
-- 多一整層格式版本、AAD、key check 的複雜度；小專案要衡量是否值得。
+- 伺服器讀不懂分享內容 = 無法做伺服器端預覽、內容檢索或審查。
+- 金鑰只在連結裡 = 換金鑰必須換連結；到期前無法對已拿到連結的人撤銷。
+- 連結是 bearer secret，安全性取決於使用者如何轉貼。
 
 ## 本專案中的實例
 
-- 金鑰／衍生／key check／聚合錯鑰判定：
-  [collaboration system design](../architecture/collaboration-system-design.md)。
-- 服務端金鑰保管（plan 19）：[collaboration authority](../architecture/collaboration-authority.md)
-  「房間金鑰保管」。
-- 邊界與威脅編號（B5 fragment、B6 code delivery、B7 key custody、T16／T17 accepted limitation）：
-  [collaboration threat model](../architecture/collaboration-threat-model.md)、
-  [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)。
+- 匯出與連結：`apps/web/src/hooks/use-scene-export.ts`、`apps/web/src/lib/export-scene-to-backend.ts`；
+  讀取：`apps/web/src/server/api/routers/shared-scene.ts`、`apps/web/src/lib/import-data-from-db.ts`。
+- 唯讀呈現：[以引擎的靜態匯出當唯讀 Viewer](./static-export-as-read-only-viewer.md)。
+- Code delivery 邊界：[ADR-0004](../adr/0004-code-delivery-trust-boundary.md)、
+  [CSP 與程式碼交付](./csp-and-code-delivery.md)。

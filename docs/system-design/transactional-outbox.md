@@ -57,7 +57,10 @@ flowchart TD
    接收端要區分「確定性的拒絕」（同一筆意圖再送幾次都只會被拒）與「暫時不可用」：前者
    用獨立的狀態碼與 body 契約回覆，排程器收到就直接標 poison，不消耗重試預算；後者才
    走 backoff。把兩者混成同一種 5xx，poison 就只能靠次數上限被動觸發。
-5. **pending 永不過期清除**。還沒執行的意圖是「欠著的債」，清掉它等於默默放棄一致性。
+5. **pending 不默默過期清除**。還沒執行的意圖是「欠著的債」，清掉它等於默默放棄一致性。
+   若成本要求設上限（例如外部端永遠拒收時不能無限喚醒排程器），放棄必須是明確決策：
+   記一筆可查詢的 log、把本地紀錄收成終態、不聲稱遠端已完成；必須完成的工作（例如資料刪除）
+   不適用上限。
 
 ## 評估：為什麼這個 pattern 值得學
 
@@ -83,11 +86,12 @@ Drawstuff 用同一個 outbox 形狀承載兩種完全不同的外部系統：
 - `deferred_file_cleanup`：任何讓 object storage 物件變成孤兒的刪除（場景、房間、帳號、
   縮圖替換），都在同一交易內把 storage key 寫進佇列，由 bounded 排程 job 執行實際刪除。
   見 [data lifecycle](../architecture/data-lifecycle.md)。
-- `collaboration_control_outbox`：協作房間的授權變更（踢人、關房、世代輪替）在同一交易內
-  寫入 enforcement 意圖，由每分鐘的排程 drain 到 Durable Object；投遞以 revision-max 冪等，
-  回應區分 `enforced` 與 `pending`；成功列保留 7 天、poison 列保留 30 天。見
-  [collaboration system design](../architecture/collaboration-system-design.md) 與
-  [data lifecycle](../architecture/data-lifecycle.md)。
+- Durable Object 內的 `authority_work`（`apps/collaboration-do/src/durable-work.ts`）：房間的
+  存取規則變更、fence、列表投影、cleanup 與帳號／場景退場，和 Object 的 SQLite 狀態在同一交易
+  寫入 durable job，由 Object 自己的 alarm 以 backoff 送到 web adapter；投遞以 version 冪等。
+  房間 Object 的工作從第一次排程起 24 小時仍未送達就放棄（`authority.work_abandoned`），
+  `CollaborationLifecycle` 的退場工作不放棄。見
+  [collaboration authority](../architecture/collaboration-authority.md)。
 
-「誰來當時鐘」的實例：web 平台（Vercel Hobby）的 cron 只有每日精度，因此分鐘級 drain
-由 Cloudflare Worker 的 cron trigger 代打，而每週的清理仍留在 web 平台的 cron。
+「誰來當時鐘」的實例：房間的投遞由 Durable Object alarm 驅動，不需要外部 cron；web 平台
+（Vercel Hobby）的 cron 只有每日精度，只用來跑每週的清理（`/api/maintenance/cleanup`）。

@@ -6,77 +6,64 @@
 - Capacity and limits: [collaboration SLO](../performance/collaboration-slo-capacity.md)
 
 This document identifies trust boundaries, data that crosses them, implemented controls, and
-accepted gaps. Scene plaintext exists only in participating browsers.
+accepted gaps.
 
-Since plan 19 (owner decision, 2026-10-09) the Room
-DO also keeps a wrapped custody copy of each generation's room key so members can reopen a room
-from the list or another device. Room content is still encrypted and decrypted only in browsers,
-but the service — anyone holding the Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET` together with Room DO
-storage — can technically decrypt it. Collaboration rooms are therefore **not** described as
-end-to-end encrypted.
+Collaboration rooms are **not** end-to-end encrypted ([plan 21](../../plans/21-plain-rooms-google-docs-access.md),
+owner decision 2026-10-10). Realtime frames, Neon snapshots and UploadThing room assets are
+plaintext at rest and in the relay; WSS/HTTPS protects them in transit. Rooms are protected the same
+way as "my scenes": sign-in plus the Room DO's access rules. There are no room keys. Only share links
+(scene export / shared-scene) remain end-to-end encrypted; they are outside this document's
+collaboration scope.
 
-The deployed protocol-6 implementation uses identity-only proofs, Room SQLite authority and allowlists, plus Lifecycle retirement and storage fences. The Room DO is the authorization authority, with Lifecycle retirement and PostgreSQL fences; current boundaries are defined by the [authority contract](collaboration-authority.md). Allowlist email addresses (including addresses without
-registered accounts), normalized comparison keys, creator, and timestamps are visible server
-metadata. They must not be logged or included in analytics/error reports. Normalization trims
-outer whitespace and lowercases only; it preserves dots and plus addressing. Removed-address and
-member revocation decisions persist across crypto generation changes. Identity proofs do not grant
-a room role; protocol-6 entries validate proof signatures, current lifecycle registration, and local authority
-on every entry. A SQLite primitive accepting a typed identity is not a public authentication boundary.
+The Room DO is the authorization authority, with Lifecycle retirement and PostgreSQL storage fences;
+current boundaries are defined by the [authority contract](collaboration-authority.md). Invitation
+email addresses (including addresses without registered accounts), normalized comparison keys,
+creator, and timestamps are visible server metadata. They must not be logged or included in
+analytics/error reports. Normalization trims outer whitespace and lowercases only; it preserves dots
+and plus addressing. Identity proofs do not grant a room role; every entry validates the proof
+signature, current lifecycle registration, and local authority, and the role is recomputed from the
+owner, invitation list and general access on every check. A SQLite primitive accepting a typed
+identity is not a public authentication boundary.
 
 ## Trust boundaries
 
 | Boundary | Sides                                | Reachability                                                                              |
 | -------- | ------------------------------------ | ----------------------------------------------------------------------------------------- |
-| B1       | Browser ↔ relay WebSocket            | Logged-in users holding a valid short-lived join token                                    |
+| B1       | Browser ↔ Room DO WebSocket (`GET /v1/rooms/:roomId/socket`) | Logged-in users whose short-lived identity proof is accepted and whose computed room role is not none |
 | B2       | Browser ↔ collaboration tRPC backend | Logged-in users; every procedure resolves room access                                     |
-| B3       | Browser ↔ object-storage upload      | Room owner/editor with current generation                                                 |
-| B4       | Web backend → relay control endpoint | A backend holding a signed, action-scoped control token                                   |
-| B5       | URL fragment                         | Browser memory and user clipboard only; anyone with the complete link learns the room key |
+| B3       | Browser ↔ object-storage upload      | Room owner/editor at the current authority epoch                                          |
+| B4       | Web backend → Gateway authority/snapshot/asset/lifecycle routes, and Worker → web adapter (`/api/internal/collaboration/adapter`) | Server-to-server: the Gateway accepts only `COLLAB_AUTHORITY_SECRET`; the web adapter accepts only `COLLAB_ADAPTER_SECRET` (opposite direction, purpose-separated); browser identity or roles are never sufficient |
 | B6       | Browser ↔ application-code delivery (HTML/JS served by the `apps/web` origin) | All users; content is decided by anyone able to change the deployment or its build inputs |
-| B7       | Web backend ↔ Gateway `/v1/room-key` → Room DO key custody | Logged-in users via `collaborationAuthority.roomKey`/`escrowRoomKey`; release only to the owner, non-removed allowlisted emails, members the owner granted a role, and members who proved key possession by escrowing a key that matches the key check |
 
-Actors are room owner, editor, viewer, logged-in non-member, unauthenticated caller, relay operator,
-backend/storage operator, network intermediary, **hosting/deployment operator** (anyone able to
-change what the `apps/web` origin serves: Vercel account holders, CI with deploy rights, the
-platform itself), **key-custody operator** (anyone holding `COLLAB_ROOM_KEY_WRAP_SECRET` and able to
-read Room DO storage), and **build-time dependency** (any npm package, including transitives, whose
-code runs during build or ships in the bundle). Browser-side encryption constrains what relay,
-Neon and UploadThing operators can read; it does not constrain the key-custody operator (T17) or
-whoever controls the code that holds the key (T16).
+Actors are room owner, editor, viewer, logged-in user without access, unauthenticated caller, relay
+operator, backend/storage operator, network intermediary, **hosting/deployment operator** (anyone
+able to change what the `apps/web` origin serves: Vercel account holders, CI with deploy rights, the
+platform itself), and **build-time dependency** (any npm package, including transitives, whose code
+runs during build or ships in the bundle). Relay, Neon and UploadThing operators can read room
+content (T17); the controls below constrain who can reach it through the product.
 
 ## Cross-boundary data
 
 | Data                      | Boundary | Form                                                                            | Readable by                                  |
 | ------------------------- | -------- | ------------------------------------------------------------------------------- | -------------------------------------------- |
-| Scene and presence frames | B1       | AES-GCM ciphertext with one-byte channel prefix                                 | Room-key holders only                        |
-| Join token                | B1       | HMAC claims for room, generation, subject, role, revision, expiry, and audience | Relay verifier; contains no key material     |
-| Durable snapshot          | B2       | Ciphertext, ciphertext checksum, byte length, and optimistic revision           | Room-key holders; backend sees metadata only |
-| Asset bytes               | B3       | Versioned sealed binary envelope                                                | Room-key holders only                        |
-| Asset metadata            | B2       | File ID, crypto version, byte length, and storage URL                           | Backend                                      |
-| Room lifecycle            | B2       | Membership, roles, generation/revision, expiry, status, and link role           | Backend                                      |
-| Control token             | B4       | HMAC claims scoped to one room action                                           | Relay verifier                               |
-| Room key                  | B5, B6, B7 | Random 32-byte value; at B6 it is plaintext in the memory of the running JS the origin served; at B7 it transits the web backend and Gateway in a dedicated request/response | Complete-link holders; D2 key holders; whoever controls B6 content; key-custody operator |
-| Custodied room key        | Room DO storage | `authority_room_keys` row per generation: AES-GCM wrap under an HKDF key derived from `COLLAB_ROOM_KEY_WRAP_SECRET` per room and generation; AAD binds roomId, generation, wrap version | Key-custody operator only |
+| Scene and presence frames | B1       | Plaintext encoded message with one-byte channel prefix, inside WSS              | Room participants; Room DO (routes without decoding); Cloudflare |
+| Identity proof            | B1, B4   | HMAC claims for room, subject, verified email, lifecycle version, protocol version, expiry, audience; no role | Gateway/Room verifier                        |
+| Durable snapshot          | B2       | Plaintext `encodeCollaborationSnapshot` bytes, checksum, byte length, revision  | Room participants; web backend; Neon         |
+| Asset bytes               | B3       | Plaintext `encodeCollaborationAssetPayload` bytes on a public UploadThing URL   | Anyone holding the URL (ADR-0005)            |
+| Asset metadata            | B2       | File ID, byte length, and storage URL                                           | Backend                                      |
+| Room lifecycle            | B2, B4   | Owner, invitation list, opened records, link role, revision/epoch, status       | Backend                                      |
 
-Five invariants follow:
+Three invariants follow:
 
-1. Relay, Neon and UploadThing are not scene readers; the relay never holds a key.
-2. Room and derived keys never enter logs, metrics, error payloads, Neon, UploadThing, storage
-   metadata, or generic authority requests/results (`/v1/authority`). The only server-side copy
-   is the wrapped row in the Room DO custody table; plaintext keys cross the server only on the
-   dedicated `/v1/room-key` path and the `roomKey`/`escrowRoomKey` tRPC mutations (no client cache).
-3. Authorization comes from the Room DO; key release follows owner decision D2: owner, non-revoked
-   members, and non-removed allowlisted emails. A link role alone releases nothing, and an
-   initializing room releases nothing. A valid token without a valid room key is a supported and
-   explicitly reported state.
-4. Custody accepts only a key that verifies against the stored key check, write-once per
-   generation; a different key is refused. Rotation, ending a room, and cancelled initialization
-   delete custody rows.
-5. The browser never persists a room key or complete invitation link (no localStorage,
-   sessionStorage, IndexedDB, or cookie). A room opened from "My rooms" or a keyless
-   `?collab-room=` URL first asks custody; only if that fails does it ask for the complete link,
-   which is parsed in memory, applied only when its room id matches the open room, and written
-   back solely to the URL fragment.
+1. Room content never enters logs, metrics, error payloads, or analytics; logs carry only the
+   closed field set in the observability contract.
+2. Authorization comes from the Room DO on every check: an ended room grants nothing; the owner is
+   `owner`; an invited email gets the higher of invitation and general-access role; otherwise
+   general access decides. Join records never store a role, so closing general access or removing
+   an invitation takes effect for people who already joined.
+3. Ending a room, removing an invitation, narrowing general access, downgrading an editor
+   invitation and leaving fence storage writes (epoch bump) and close affected live sockets
+   (`membershipRevoked`, or `roleChanged` when access remains with a different role).
 
 ## Untrusted-input controls
 
@@ -85,9 +72,8 @@ Five invariants follow:
 | Input/resource    | Control                                                                                                   |
 | ----------------- | --------------------------------------------------------------------------------------------------------- |
 | Control frame     | Measure UTF-8 bytes before JSON parse; max 65,536 bytes                                                   |
-| Data frame        | WebSocket `maxPayload` plus channel-specific sealed size (scene 1 MiB, presence 16 KiB plaintext budgets) |
-| Control HTTP body | 4,096-byte streaming bound before decode                                                                  |
-| Join token        | HMAC, audience, room, generation, TTL (60s default/300s max), room expiry, revision cutoff                |
+| Data frame        | Channel-specific byte bound before any copy or decode (scene 1 MiB, presence 16 KiB)                   |
+| Identity proof    | HMAC, audience, room, protocol version, short TTL, current lifecycle registration; role computed by Room |
 | Connections       | Per-room Durable Object caps: 32 joined members + 32 pending, 64 sockets hard cap per Object; per-Object isolation replaces the retired Node process-wide caps; explicit close codes and bounded close handshake |
 | Lifecycle         | 10s join timeout, 15s heartbeat, 15m idle timeout, deterministic socket/room cleanup                      |
 | Backpressure      | 4 MiB outbound cutoff; presence drops above 256 KiB                                                       |
@@ -102,10 +88,10 @@ metrics. This prevents the limiter itself from becoming an unbounded memory sink
 
 | Input              | Implemented control                                                                                                                                                                                         | Current gap |
 | ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------- |
-| Room procedures    | Protected procedure, centralized access resolution, room-row lock for lifecycle writes, 12h default/24h max TTL, 20 joins/user/minute                                                                       | —           |
-| Snapshot put       | Decode/size bound before transaction, ciphertext checksum, current generation, row lock, optimistic revision, 6 writes/room/minute; after an explicit refusal, leave-only reserve 2 writes/user/room/minute | —           |
+| Room procedures    | Protected procedure, access resolved by Room authority, room-row and roomId locks for lifecycle writes, no room lifetime (rooms end explicitly), 20 joins/user/minute                                                                       | —           |
+| Snapshot put       | Decode/size bound before transaction, checksum, current authority epoch, row lock, optimistic revision, 6 writes/room/minute; after an explicit refusal, leave-only reserve 2 writes/user/room/minute | —           |
 | Asset resolve      | Access check, max 64 IDs per batch, 120 lookups/user/minute                                                                                                                                                 | —           |
-| Asset upload       | One object/request, ciphertext size bound, owner/editor role, current generation, max 512 assets/generation, 60 presigns/user/minute                                                                        | —           |
+| Asset upload       | One object/request, size bound, owner/editor role, current authority epoch, max 512 assets/room, 60 presigns/user/minute                                                                                     | —           |
 | Ended/expired data | Seven-day grace, bounded idempotent maintenance job, transactional deferred object cleanup                                                                                                                  | —           |
 
 The four entry-point limits and the snapshot leave-only reserve are shared counters in Upstash Redis
@@ -118,8 +104,8 @@ part of the current [collaboration system design](./collaboration-system-design.
 A rate limit is capacity and abuse protection, not an authorization boundary, so Redis failure
 fails **open**: a 750 ms timeout or an SDK exception is reported as `degraded`, the request
 proceeds, and a structured event is emitted. Every control in the table above other than the rate
-limit stays fail-closed while that is happening — including authentication, room role, generation
-currency, payload and batch bounds, and the 512-assets-per-generation cap. `degraded` never becomes
+limit stays fail-closed while that is happening — including authentication, room role, authority epoch,
+payload and batch bounds, and the 512-assets-per-room cap. `degraded` never becomes
 a 429, so it cannot consume a client's retry budget. Each limiter decision makes exactly one Redis
 call and is never retried. Ordinary requests make one decision; only a leave snapshot explicitly
 refused by the room budget checks the separate two-token finalization reserve, for at most two calls.
@@ -129,44 +115,43 @@ as a global one.
 ### Client
 
 The join buffer (256 messages/8 MiB), offline queue (2,048 elements/512 KiB/5 minutes), outbound
-buffer (4 MiB), inbound pending queue (2 MiB), replay cache (4,096 entries/60 seconds), transfer
-concurrency, retry attempts, and nonce budgets are all bounded. Destroy/switch/leave aborts in-flight
+buffer (4 MiB), inbound pending queue (2 MiB), transfer concurrency and retry attempts are all
+bounded. Destroy/switch/leave aborts in-flight
 work and releases timers, object URLs, sockets, and caches.
 
 ## Threats and current disposition
 
-Room assets remain public UploadThing ciphertext objects. Asset resolution and upload/finalize
-require current room authorization, but the provider does not recheck membership on direct URL
-downloads. A removed member or anyone else who retains or obtains the permanent URL can still
-download that ciphertext while the object exists and decrypt it if they possess the matching key.
-This is an explicitly accepted temporary limitation (owner decision, 2026-10-07); enforcement
-claims cover controlled application/relay entrances, not invalidation of public object URLs.
-Public ACLs do not permit plaintext assets or room keys to be uploaded.
+Room assets are public UploadThing plaintext objects, the same exposure as owned-scene images
+([ADR-0005](../adr/0005-public-collaboration-assets.md), plan 21 D6). Asset resolution and
+upload/finalize require current room authorization, but the provider does not recheck access on
+direct URL downloads. A removed member or anyone else who retains or obtains the permanent URL can
+still download that image while the object exists. Enforcement claims cover controlled
+application/relay entrances, not invalidation of public object URLs.
 
 | ID  | Threat                                                     | Control or accepted limitation                                                                                                                                                                                                                                                                                                                       |
 | --- | ---------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T1  | Non-member reads room content                              | Every join requires an authorized short-lived token; custody releases keys only to D2 roles; generation rotation isolates old tokens and keys and deletes custody rows.                                                                                                                                                                                                                                               |
-| T2  | Passive relay/Neon/UploadThing operator or network intermediary reads scene | All scene, presence, snapshot, and asset content is encrypted in the browser; relay has no crypto key or persistence dependency, and Neon/UploadThing hold no key. This holds only against actors who observe traffic or stored data without the custody secret and without changing the application code the browser runs; the key-custody operator is T17 and an actor who can modify the served bundle is T16.                                       |
-| T3  | Removed member remains online                              | Relay control disconnects live sockets and authorization-revision cutoff rejects earlier tokens. If control delivery fails, UI reports enforcement failure rather than claiming success.                                                                                                                                                             |
+| T1  | Account without access reads room content | Every socket join and every frame recompute the role from the Room DO; snapshot/asset routes require the same authority; initializing rooms admit only the owner; ended rooms admit nobody. |
+| T2  | Passive network intermediary reads scene | WSS/HTTPS protect transport. Stored and relayed content is plaintext to the service (T17). |
+| T3  | Removed member remains online | The Room DO recomputes access on every frame and closes affected sockets after a management change (`membershipRevoked`; `roleChanged` when the role differs); storage writes are fenced by authority epoch. If the storage fence is not yet confirmed, the result is reported as pending rather than enforced. |
 | T4  | Viewer mutates scene                                       | Relay rejects scene frames from viewer sessions; UI read-only state is secondary defense.                                                                                                                                                                                                                                                            |
 | T5  | Oversize/buffer abuse                                      | Raw-byte bounds precede decode; connection, room, buffer, queue, replay, asset, and snapshot limits are explicit.                                                                                                                                                                                                                                    |
 | T6  | Authorized caller amplifies load                           | Relay traffic/churn limits are implemented. Backend join, snapshot-write, asset-upload and asset-resolve rates are bounded by shared Redis counters that hold across serverless invocations; a real refusal is a 429 with a machine-readable reset, and Redis failure fails open as observable degradation while every hard guard stays fail-closed. |
-| T7  | Room key leaks from shared link                            | Accepted limitation: the fragment reveals the cryptographic key. Restricted-mode Room authorization additionally requires a verified allowlisted account or active explicit member; link possession alone does not grant access. Public link modes still grant their configured role to eligible signed-in accounts. Already-known public ciphertext URLs remain accessible. Generation rotation changes the key. Custody does not widen this: the `roomId` (visible in `?collab-room=` URLs and room lists) leaks more easily than the fragment, so custody never releases a key on the link role alone (D2). Joining needs no key, so a link-admitted member qualifies only after proving key possession (escrowing a key that verifies against the key check); a reset link clears that proof, so people who held only a leaked link need the new link.                                                                                                                                                                                          |
-| T8  | Telemetry leaks content or identity                        | Relay logger is the only sink, fields are a closed type plus runtime allowlist, metrics have bounded label sets, pre-verification failures log only enums, and integration tests scan complete logs/metrics for prohibited values. Subject IDs use per-process HMAC pseudonyms.                                                                      |
-| T9  | Ended room retains ciphertext forever                      | Seven-day-grace retention deletes snapshot rows and transactionally enqueues asset objects for cleanup; expired active rooms become ended under lock.                                                                                                                                                                                                |
-| T10 | One format-version change destroys unrelated durable data  | HKDF is purpose-scoped and version-neutral. Realtime AAD binds transport version; snapshot and asset payload/AAD bind only their own versions. Aggregate open-failure detection prevents silent wrong-key sessions while isolated corruption remains non-terminal.                                                                                   |
+| T7  | Room link leaks | Accepted: an invitation link is only `?collab-room=<id>` and grants nothing by itself. With general access "only invited people", a leaked link admits nobody new. With a link role, it grants that role to any signed-in account; the owner can narrow general access, which closes link-only sessions immediately. Already-known public asset URLs remain accessible (ADR-0005). |
+| T8  | Telemetry leaks content or identity                        | The Durable Object logger (`apps/collaboration-do/src/logger.ts`) is the only sink; fields are a closed type plus a runtime allowlist, pre-verification failures log only enums, and tests pin the field set. Subject IDs, emails, proofs and payloads are never logged.                                                                      |
+| T9  | Ended room retains content or personal data forever | Room cleanup deletes snapshots and assets when the room ends; a seven-day-grace maintenance job is the backstop. Neon keeps only the room row (ended, empty label) and creation fence; member/invite projections, tombstones, operation receipts and lifecycle registrations are purged. The Room DO deletes all of its storage once settled. |
+| T10 | One format-version change destroys unrelated durable data | Transport, snapshot and asset payload formats are versioned independently; isolated corruption remains non-terminal. |
 | T11 | Oversize local change silently stops sync                  | Client exposes a clearable blocked state and stops claiming synchronization until content is reduced.                                                                                                                                                                                                                                                |
-| T12 | Fanout state is accidentally split across instances        | Structurally eliminated by the Durable Object architecture: each `(roomId, authGeneration)` maps to exactly one `CollaborationRoom` Object whose single-instance placement is platform-guaranteed; no process-wide room map exists.                                                                                                                                                                                                     |
-| T13 | Client-selected identifier smuggles key material into logs | Eliminated at the source: there is no `clientId`; join carries room and token, peer identity is relay-created `peerId`. Before token verification even `roomId` is not logged.                                                                                                                                                                       |
-| T14 | Wrong-key client seeds or overwrites snapshot              | Key check is verified before canvas takeover and join; missing verifier fails closed on both backend and client. A verifier is immutable within a generation, rotation clears/recomputes it, and owner can explicitly reset unreadable snapshot.                                                                                                     |
+| T12 | Fanout state is accidentally split across instances | Structurally eliminated by the Durable Object architecture: each `roomId` maps to exactly one `CollaborationRoomV2` Object (`getByName(roomId)`) whose single-instance placement is platform-guaranteed; no process-wide room map exists. |
+| T13 | Client-selected identifier pollutes logs | Eliminated at the source: there is no `clientId`; join carries room and identity proof, peer identity is the Object-created `peerId`. Before proof verification even `roomId` is not logged. |
+| T14 | Stale or unauthorized client seeds or overwrites snapshot | Only the owner completes initialization; writes require owner/editor role, the current authority epoch and `expectedRevision`; a missing or unreadable baseline is never treated as an empty room. |
 | T15 | Relay suppresses frames                                    | Accepted availability limitation. A relay can always drop or refuse traffic, and a quiet room is indistinguishable from suppression without false positives. Metrics expose routing inactivity; confidentiality is unaffected.                                                                                                                       |
-| T16 | Modified application bundle steals the room key            | **Accepted limitation.** The room key is read and written by JavaScript served over B6, so anyone who decides that code's content can read the key: (1) a hosting/deployment operator, (2) a build-time supply-chain compromise in any npm dependency, (3) runtime injection (XSS or any path that executes script in the document), (4) network-level rewriting where TLS is bypassed or a certificate is mis-issued. No cryptography deployed from the same channel can prevent this. Implemented controls raise the bar without removing it — see [Code delivery (B6) controls](#code-delivery-b6-controls).                                              |
-| T17 | Worker secret plus Room DO storage compromise exposes custodied rooms | **Accepted limitation** (plan 19). Anyone with `COLLAB_ROOM_KEY_WRAP_SECRET` and Room DO storage can unwrap every custodied key and decrypt the matching snapshots, assets and frames. Controls: the secret lives only in the Worker secret store; wraps are per room/generation with AAD; keys never appear in logs, metrics or errors; rotation and ending delete custody rows. Leaking or rotating the secret affects every custodied key. Restoring end-to-end encryption is plan 20. |
+| T16 | Modified application bundle exfiltrates data | **Accepted limitation.** JavaScript served over B6 reads room content and share-link keys, so anyone who decides that code's content can read them: (1) a hosting/deployment operator, (2) a build-time supply-chain compromise in any npm dependency, (3) runtime injection (XSS or any path that executes script in the document), (4) network-level rewriting where TLS is bypassed or a certificate is mis-issued. Implemented controls raise the bar without removing it — see [Code delivery (B6) controls](#code-delivery-b6-controls). |
+| T17 | Service operator reads room content | **Accepted by design** (plan 21 D1). Room DO, Neon and UploadThing operators — and anyone who compromises those stores or the Worker — can read room content, as with "my scenes". Controls: sign-in and Room DO access rules on every entrance, server-to-server secrets in the Worker secret store, no content in logs, metrics or errors, and deletion after a room ends. |
 
 ## Code delivery (B6) controls
 
 None of these controls prevents an operator who can change the served bundle from reading room
-keys (CLAIM-CDB-1 in [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)); they narrow
+content or share-link keys (CLAIM-CDB-1 in [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)); they narrow
 exfiltration outlets, shrink the injectable surface, and keep the deployed code auditable. The
 rollout checklist and standing requirements live in
 [CSP verification and deployment](../operations/web-security-headers.md).
@@ -175,7 +160,7 @@ rollout checklist and standing requirements live in
   connections only to the app origin, the relay origin, UploadThing's ingest/file hosts, and the
   official Excalidraw library host. `apps/web/src/config/security-headers.ts` is the single
   source; `apps/web/tests/security-headers.test.ts` pins the allowlist, rejects wildcard
-  origins, and keeps dev relaxations out of production. CSP does not stop key exfiltration to an
+  origins, and keeps dev relaxations out of production. CSP does not stop exfiltration to an
   allowlisted origin, including our own.
 - **Asset self-hosting**: `window.EXCALIDRAW_ASSET_PATH` points canvas fonts and CJK subset
   assets at the app origin (`scripts/sync-excalidraw-assets.mjs`), so esm.sh is never
@@ -193,29 +178,28 @@ rollout checklist and standing requirements live in
   include no third-party analytics or monitoring browser SDK; adding any third-party browser
   script is a reviewed decision. The dev-only unpkg `react-grab` script never enters the
   production CSP.
-- **Crypto-path dependency boundary**: `packages/collaboration/tests/package-contract.test.ts`
+- **Collaboration package dependency boundary**: `packages/collaboration/tests/package-contract.test.ts`
   pins the collaboration package's runtime dependencies to exactly `["zod"]`, restricts
-  `node:crypto` to the server-only token module, and pins the module set allowed to hold key
-  material.
+  `node:crypto` to the server-only identity-proof module, and asserts the package carries no room
+  key material.
 - **Deployment path**: `apps/web` deploys only through the Vercel git integration from reviewed
   commits on a protected branch; no long-lived deploy token can replace the bundle from CI. The
-  Cloudflare Worker deploy path cannot change the browser bundle (not T16), but since plan 19 it
-  can reach custodied room keys through `COLLAB_ROOM_KEY_WRAP_SECRET` and Room DO storage, so its
-  compromise is T17 as well as T15/T3 surface. See [CSP verification and deployment](../operations/web-security-headers.md) for the standing
+  Cloudflare Worker deploy path cannot change the browser bundle (not T16), but it can read room
+  content in transit and in Room DO storage, so its compromise is T17 as well as T15/T3 surface. See [CSP verification and deployment](../operations/web-security-headers.md) for the standing
   requirements.
 
 ## Observability data classification
 
-Allowed fields are opaque `roomId` after verification, `authGeneration`, relay-created `peerId`,
-byte counts, frame counts, channel enum, close/disconnect enums, aggregate decrypt/conflict counts,
+Allowed fields are opaque `roomId` after verification, Object-created `peerId`, role,
+byte counts, frame counts, channel enum, close/disconnect enums, aggregate conflict counts,
 snapshot revision, latency, event-loop lag, and memory. The backend rate limiter's degradation event
 adds two closed enums — the operation and the cause (`timeout` or `exception`) — and nothing else:
 it carries no identifier, no Redis endpoint, and no error payload, because an Upstash SDK error
 message embeds the REST URL and the token it was called with.
 
-Forbidden fields are email, display name/presence username, message content, ciphertext/base64
-fragments, payload-derived error details, room/derived keys, token or token fragments, snapshot
-ciphertext, and raw subject ID.
+Forbidden fields are email, display name/presence username, message content, payload bytes or
+base64 fragments, payload-derived error details, share-link keys, token or token fragments,
+snapshot bytes, and raw subject ID.
 
 Metrics intentionally omit room and peer identifiers to prevent enumeration and cardinality growth.
 Logs may use verified room/peer IDs, but token failure before verification records only a closed enum.
@@ -224,7 +208,7 @@ relay restarts.
 
 ## Accepted monitoring limitations
 
-Relay metrics and structured logs are implemented. Session-success, browser decrypt-failure, and
+Relay metrics and structured logs are implemented. Session-success, browser decode-failure, and
 snapshot-conflict SLOs currently have a defined privacy-safe carrier contract but no implementation,
 so those three SLO thresholds cannot drive alerts. Telemetry, if added, must use authenticated,
 bounded backend aggregation rather than a new untrusted relay channel.
@@ -242,7 +226,7 @@ destroy user data or terminate live collaboration sessions.
   endpoint.
 - Account retirement cannot target the active administrator and requires the target ID twice.
 - Every accepted operation persists audit intent before execution and records success/failure in
-  `admin_audit_event`, without scene plaintext or room key material. Audit rows survive target
+  `admin_audit_event`, without scene content. Audit rows survive target
   account deletion.
-- In protocol-6 source, every scene/account cascade follows durable Lifecycle freeze and all Room storage-fence acknowledgments. Account freeze revokes sessions; local Room tombstones close sockets and refuse delayed activation. Pending leaves deletion unfinished. Workspace deletion rechecks that every source scene has retired before cascade. Better Auth self-delete is explicitly disabled.
-- Storage deletion failures enter `deferred_file_cleanup`. Capability separation prevents identity proofs from invoking Lifecycle or the storage adapter. Management exposes bounded allowlist/member pages to owners only, with identical add-email behavior for registered and unregistered addresses. No production controls changed during P2.
+- Every scene/account cascade follows durable Lifecycle freeze and all Room storage-fence acknowledgments. Account freeze revokes sessions; local Room tombstones close sockets and refuse delayed activation. Pending leaves deletion unfinished. Workspace deletion rechecks that every source scene has retired before cascade. Better Auth self-delete is explicitly disabled.
+- Storage deletion failures enter `deferred_file_cleanup`. Capability separation prevents identity proofs from invoking Lifecycle or the storage adapter. Management exposes bounded invitation/member pages to owners only, with identical add-email behavior for registered and unregistered addresses. No production controls changed during P2.
