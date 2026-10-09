@@ -42,6 +42,10 @@
       "types": "./src/keycheck.ts",
       "default": "./src/keycheck.ts"
     },
+    "./key-custody": {
+      "types": "./src/key-custody.ts",
+      "default": "./src/key-custody.ts"
+    },
     "./join-barrier": {
       "types": "./src/join-barrier.ts",
       "default": "./src/join-barrier.ts"

@@ -22,6 +22,7 @@ describe("@drawstuff/collaboration package contract", () => {
       "./base64",
       "./client-pacing",
       "./join-barrier",
+      "./key-custody",
       "./keycheck",
       "./offline-queue",
       "./performance",
@@ -71,6 +72,7 @@ describe("@drawstuff/collaboration package contract", () => {
       "@drawstuff/collaboration/authority": "authority.ts",
       "@drawstuff/collaboration/base64": "base64.ts",
       "@drawstuff/collaboration/join-barrier": "join-barrier.ts",
+      "@drawstuff/collaboration/key-custody": "key-custody.ts",
       "@drawstuff/collaboration/keycheck": "keycheck.ts",
       "@drawstuff/collaboration/offline-queue": "offline-queue.ts",
       "@drawstuff/collaboration/protocol": "protocol.ts",
@@ -120,6 +122,10 @@ describe("@drawstuff/collaboration package contract", () => {
     // snapshots, binary assets and the room's key-check value under further
     // purpose-bound keys they derive through it.
     //
+    // `key-custody.ts` also qualifies (plan 19): it is the one wire schema
+    // that carries a room key, between a browser and Room's server custody,
+    // and it is kept off every other request, result and frame schema.
+    //
     // One test-only module also qualifies: `protocol-conformance.ts` acts as
     // a synthetic *client* pair in its E2EE passthrough case — it generates a
     // room key that never leaves the test process and proves the backend
@@ -136,6 +142,7 @@ describe("@drawstuff/collaboration package contract", () => {
       .sort();
     expect(withKeyMaterial).toEqual([
       "asset-crypto.ts",
+      "key-custody.ts",
       "keycheck.ts",
       "protocol-conformance.ts",
       "realtime-crypto.ts",
