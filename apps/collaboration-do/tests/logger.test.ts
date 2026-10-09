@@ -26,7 +26,6 @@ describe("DO structured logger", () => {
     const log = createDoLogger({ id: "v-123", tag: "canary" }, capture.sink);
     log.info("room.session_joined", {
       roomId: "room-a",
-      authGeneration: 1,
       peerId: "peer-1",
       role: "editor",
       members: 2,
@@ -39,7 +38,6 @@ describe("DO structured logger", () => {
       versionId: "v-123",
       versionTag: "canary",
       roomId: "room-a",
-      authGeneration: 1,
       peerId: "peer-1",
       role: "editor",
       members: 2,
@@ -56,7 +54,7 @@ describe("DO structured logger", () => {
       token: "secret-token-material",
       message: "free-form text",
     };
-    log.warn("gateway.control_token_rejected", smuggled);
+    log.warn("gateway.room_fetch_failed", smuggled);
     const { record } = capture.records[0]!;
     expect(record.roomId).toBe("room-a");
     expect(record).not.toHaveProperty("token");
@@ -67,10 +65,10 @@ describe("DO structured logger", () => {
   it("omits undefined fields, empty version tags and absent versions", () => {
     const capture = createCapture();
     const log = createDoLogger({ id: "v-123", tag: "" }, capture.sink);
-    log.error("room.secret_not_ready", { peerId: undefined });
+    log.error("room.invalid_object_identity", { peerId: undefined });
     const { record } = capture.records[0]!;
     expect(record).toEqual({
-      event: "room.secret_not_ready",
+      event: "room.invalid_object_identity",
       versionId: "v-123",
     });
     expect(Object.keys(record)).not.toContain("peerId");
@@ -151,11 +149,7 @@ describe("DO structured logger", () => {
     ]);
     expect([...DO_LOGGABLE_FIELD_NAMES].sort()).toEqual(
       [
-        "authGeneration",
         "closeCode",
-        "closedSessions",
-        "controlAction",
-        "controlRejection",
         "errorName",
         "members",
         "peerId",
@@ -163,7 +157,6 @@ describe("DO structured logger", () => {
         "roomId",
         "socketState",
         "status",
-        "tokenFailure",
       ].sort(),
     );
   });

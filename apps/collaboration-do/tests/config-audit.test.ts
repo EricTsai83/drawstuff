@@ -34,7 +34,7 @@ describe("deployment config", () => {
       },
       {
         name: "COLLABORATION_ROOM",
-        className: "CollaborationRoom",
+        className: "CollaborationRoomV2",
         // Same-bundle gateway + object (CLAIM-MIG-3): never a service/script
         // indirection.
         scriptName: null,
@@ -44,14 +44,13 @@ describe("deployment config", () => {
     // impossible to slip into an auto-deploy: it cannot merge without also
     // editing this test, which is the deliberate-review signal CLAIM-MIG-4
     // requires. Lifecycle deploys themselves stay manual.
-    expect(audit.exports).toMatchObject({
+    expect(audit.exports).toEqual({
       CollaborationLifecycle: { type: "durable-object", storage: "sqlite" },
-      CollaborationRoom: { type: "durable-object", storage: "sqlite" },
+      // Plan 21: the encrypted-room class is deleted (with its storage) in
+      // the same deploy that introduces plain rooms.
+      CollaborationRoom: { type: "durable-object", state: "deleted" },
+      CollaborationRoomV2: { type: "durable-object", storage: "sqlite" },
     });
-    expect(Object.keys(audit.exports).sort()).toEqual([
-      "CollaborationLifecycle",
-      "CollaborationRoom",
-    ]);
     // Legacy migrations would reintroduce gradual-rollout semantics the
     // claims forbid.
     expect(audit.legacyMigrations).toEqual([]);
@@ -59,12 +58,10 @@ describe("deployment config", () => {
 
   it("keeps secrets out of vars and declares the required secrets", () => {
     expect(audit.requiredSecrets).toEqual([
-      "COLLAB_JOIN_TOKEN_SECRET",
       "COLLAB_ADAPTER_URL",
       "COLLAB_ADAPTER_SECRET",
       "COLLAB_IDENTITY_SECRET",
       "COLLAB_AUTHORITY_SECRET",
-      "COLLAB_ROOM_KEY_WRAP_SECRET",
     ]);
     expect(audit.varKeys).toEqual(["COLLAB_ALLOWED_ORIGINS"]);
   });

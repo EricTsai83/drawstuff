@@ -5,8 +5,9 @@
  *
  * Single environment by design: this is a solo, self-hosted project, matching
  * how apps/web deploys (main → the one deployment). The Origin allowlist
- * admits the production web app and localhost development; join tokens remain
- * the authorization boundary for every room connection.
+ * admits the production web app and localhost development; identity proofs
+ * and Room authority remain the authorization boundary for every room
+ * connection.
  *
  * Lifecycle rules (CLAIM-MIG-4):
  * - `exports` is the declarative Durable Object lifecycle. Any change to it
@@ -26,7 +27,7 @@
   "name": "drawstuff-collaboration-do",
   "main": "src/index.ts",
   // Pinned to the same date packages/collaboration verified the room-token
-  // vectors under (vitest.workerd.config.ts); upgrades are explicit events.
+  // signing under (vitest.workerd.config.ts); upgrades are explicit events.
   "compatibility_date": "2026-08-01",
   // `nodejs_compat` lets the Plan-08-verified `room-token` entry run as-is
   // (node:crypto HMAC, CLAIM-DO-6).
@@ -44,7 +45,10 @@
   // with legacy `migrations` — do not add that key back for gradual rollouts).
   "exports": {
     "CollaborationLifecycle": { "type": "durable-object", "storage": "sqlite" },
-    "CollaborationRoom": {
+    // Plan 21: plain rooms live in a new class. The tombstone deletes the old
+    // class and every encrypted room's storage in the same deploy (§7).
+    "CollaborationRoom": { "type": "durable-object", "state": "deleted" },
+    "CollaborationRoomV2": {
       "type": "durable-object",
       "storage": "sqlite",
     },
@@ -57,7 +61,7 @@
       },
       {
         "name": "COLLABORATION_ROOM",
-        "class_name": "CollaborationRoom",
+        "class_name": "CollaborationRoomV2",
       },
     ],
   },
@@ -65,20 +69,17 @@
     "binding": "VERSION_METADATA",
   },
   "vars": {
-    // Origin is defense-in-depth only (join tokens authorize). Keep entries
+    // Origin is defense-in-depth only (identity proofs authorize). Keep entries
     // exact and comma-separated; do not use wildcard origins.
     "COLLAB_ALLOWED_ORIGINS": "https://draw.ericts.com,http://localhost:3000",
   },
   "secrets": {
     // Purpose-separated capabilities; provision together in the P3 maintenance window.
     "required": [
-      "COLLAB_JOIN_TOKEN_SECRET",
       "COLLAB_ADAPTER_URL",
       "COLLAB_ADAPTER_SECRET",
       "COLLAB_IDENTITY_SECRET",
       "COLLAB_AUTHORITY_SECRET",
-      // Wraps Room's custody copy of each room key (plan 19).
-      "COLLAB_ROOM_KEY_WRAP_SECRET",
     ],
   },
 }

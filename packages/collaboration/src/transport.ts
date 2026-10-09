@@ -31,8 +31,8 @@ export type DisconnectReason =
    */
   | "transient"
   /**
-   * The join token was refused. A fresh token may be accepted (short-lived
-   * tokens expire), so this is retryable — but only through the app backend,
+   * The identity proof was refused. A fresh proof may be accepted (short-lived
+   * proofs expire), so this is retryable — but only through the app backend,
    * which is also where a genuinely removed member is refused.
    */
   | "unauthorized"
@@ -81,7 +81,7 @@ export type RoomPeer = {
 
 /**
  * What a receiver can know about an inbound message without inspecting it.
- * `byteLength` is the decoded plaintext size, which is what a bounded receive
+ * `byteLength` is the encoded message size, which is what a bounded receive
  * buffer has to charge: the message object's own retained size is proportional
  * to it, and a count-only bound would let a few maximum-size scene messages hold
  * hundreds of megabytes.
@@ -96,39 +96,6 @@ export interface TransportSubscriber {
   onMessage?(message: CollaborationMessage, meta: InboundMessageMeta): void;
   /** Current room membership including this transport's own peer. */
   onRoomPeersChange?(peers: readonly RoomPeer[]): void;
-  /**
-   * The transport dropped inbound scene traffic before it could be delivered
-   * (for example because its bounded inbound queue was full), so the receiver
-   * may now be behind without ever observing a sequence gap.
-   *
-   * This exists because a silent scene drop is not self-healing: gap detection
-   * only fires when a *later* message arrives, and if the lost frame was the
-   * sender's last edit, nothing else would trigger a repair. Implementations
-   * should re-broadcast their own `scene-init` snapshot, which draws the peer's
-   * snapshot reply and restores convergence. Presence loss never reports here —
-   * it is volatile by design.
-   */
-  onSceneSyncRequired?(): void;
-  /**
-   * Realtime frames reached this transport and *none* of them could ever be
-   * opened, so the evidence says the key cannot open this room rather than that
-   * one frame was bad.
-   *
-   * This exists because the per-frame policy above it is deliberately silent: a
-   * wrong key, tampered ciphertext and a replayed nonce are indistinguishable at
-   * one frame, and dropping the frame is the right answer for the latter two. But
-   * silence per frame becomes silence per *session* when every frame fails, and
-   * the user then sees a connected, permanently blank canvas with no message —
-   * which until now was only caught by reading the durable snapshot, an oracle a
-   * room without a stored snapshot does not have.
-   *
-   * Reported at most once per transport, and never after any frame has opened: a
-   * single successful open proves the key is right, which makes every later
-   * failure corruption or replay rather than a key mismatch. A session that
-   * receives no frames at all reports nothing — "nobody is drawing" is not
-   * evidence of anything.
-   */
-  onRoomUnreadable?(): void;
 }
 
 export type SendError =
@@ -147,15 +114,6 @@ export type SendError =
        * off; queues never grow without limit.
        */
       code: "queue-overflow";
-    }
-  | {
-      /**
-       * The session's end-to-end nonce budget is spent. Sending again would
-       * require reusing a nonce under the same derived key, so the transport
-       * refuses instead: the session must reconnect (fresh nonce prefix) or
-       * the room generation must be rotated (fresh derived key).
-       */
-      code: "crypto-exhausted";
     }
   | CollaborationProtocolError;
 
@@ -176,20 +134,17 @@ export type SendResult = { ok: true } | { ok: false; error: SendError };
  * Implementations must validate and size-limit every message via the protocol
  * codec, and must release all listeners, timers, and queues on `close()`.
  *
- * Every connection is authorized: `connect` requires a short-lived room join
- * token issued by the app backend, and the granted role arrives back in the
- * connected state.
- *
- * Authorization is not confidentiality. Implementations that carry messages
- * over a shared server must seal every payload end-to-end before it leaves the
- * client (`./realtime-crypto.ts`), so the server routes ciphertext it cannot
- * read; the join token deliberately carries no key material.
+ * Every connection is authorized: `connect` requires a short-lived identity
+ * proof issued by the app backend, and the role the room computed for it
+ * arrives back in the connected state. Rooms are protected by sign-in plus
+ * the room's access rules, like owned scenes; payloads travel over WSS and are
+ * not end-to-end encrypted.
  */
 export interface CollaborationTransport {
   getConnectionState(): ConnectionState;
   connect(session: {
     roomId: RoomId;
-    /** Short-lived join token from the app backend, verified by the relay. */
+    /** Short-lived identity proof from the app backend, verified by the room. */
     joinToken: string;
   }): void;
   /** Leave the room but keep the transport reusable for a later connect. */

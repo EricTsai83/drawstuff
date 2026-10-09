@@ -1,7 +1,7 @@
 import type { RoomId, SyncedElement } from "@drawstuff/collaboration/protocol";
 import { encodeCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 
-// Valid canvas JSON, including the actual encrypted attachment reference.
+// Valid canvas JSON, including an actual attachment reference.
 // ASCII text padding makes both the typical and exact maximum size reproducible.
 export function canvasFixture(
   roomId: RoomId,

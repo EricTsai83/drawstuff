@@ -2,13 +2,12 @@ import { z } from "zod";
 
 /**
  * Asset identity primitives, shared by the payload codec
- * (`./asset-payload.ts`), the sealed envelope (`./asset-crypto.ts`) and the
- * record/lookup contracts (`./asset.ts`).
+ * (`./asset-payload.ts`) and the record/lookup contracts (`./asset.ts`).
  *
  * Internal module: consumers import these through the `./asset` entry. It
- * exists as its own file only so the three asset modules form an acyclic
- * graph — the payload and crypto layers need the identity schemas, and the
- * record schemas in `./asset.ts` need the crypto layer's size bounds.
+ * exists as its own file only so the asset modules form an acyclic graph —
+ * the payload codec needs the identity schemas, and the record schemas in
+ * `./asset.ts` need the payload's size bounds.
  */
 
 /**
@@ -30,7 +29,7 @@ export type ExcalidrawAssetId = z.infer<typeof excalidrawFileIdSchema>;
  * The engine's own image set (upstream `IMAGE_MIME_TYPES`), and nothing else:
  * `BinaryFileData.mimeType` also admits `application/octet-stream`, but a room
  * asset is an image an element renders, and arbitrary file sharing is explicitly
- * out of scope. Validated on both sides of the transfer — the sealing client
+ * out of scope. Validated on both sides of the transfer — the uploading client
  * refuses to encode an unsupported type, and the receiving client refuses to
  * decode one — so a peer cannot use the asset channel to hand another peer an
  * arbitrary payload to render.

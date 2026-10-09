@@ -46,7 +46,7 @@ export class StorageBarrierPrototype extends DurableObject<P0Env> {
       "CREATE TABLE IF NOT EXISTS management (id TEXT PRIMARY KEY, metadata TEXT NOT NULL, epoch INTEGER NOT NULL, status TEXT NOT NULL)",
     );
     this.ctx.storage.sql.exec(
-      "CREATE TABLE IF NOT EXISTS initialization (id INTEGER PRIMARY KEY CHECK(id=1), create_id TEXT NOT NULL, checksum TEXT NOT NULL, assets TEXT NOT NULL, key_check TEXT NOT NULL, deadline INTEGER NOT NULL, status TEXT NOT NULL)",
+      "CREATE TABLE IF NOT EXISTS initialization (id INTEGER PRIMARY KEY CHECK(id=1), create_id TEXT NOT NULL, checksum TEXT NOT NULL, assets TEXT NOT NULL, deadline INTEGER NOT NULL, status TEXT NOT NULL)",
     );
     this.work = new WorkBudget(ctx.storage);
     this.ctx.storage.sql.exec(
@@ -218,7 +218,6 @@ export class StorageBarrierPrototype extends DurableObject<P0Env> {
         create_id: string;
         checksum: string;
         assets: string;
-        key_check: string;
         deadline: number;
         status: string;
       }>("SELECT * FROM initialization")
@@ -340,16 +339,12 @@ export class StorageBarrierPrototype extends DurableObject<P0Env> {
     if (path === "/create") {
       if (operation.actor !== "owner")
         return new Response(null, { status: 403 });
-      const keyCheck = request.headers.get("x-p0-key-check") ?? "";
-      if (!/^[a-f0-9]{64}$/.test(keyCheck))
-        return new Response(null, { status: 400 });
       if (init)
         return new Response(null, {
           status:
             init.create_id === operation.operationId &&
             init.checksum === operation.checksum &&
-            init.assets === JSON.stringify(operation.assetIds ?? []) &&
-            init.key_check === keyCheck
+            init.assets === JSON.stringify(operation.assetIds ?? [])
               ? 200
               : 409,
         });
@@ -363,11 +358,10 @@ export class StorageBarrierPrototype extends DurableObject<P0Env> {
       await this.work.commit(() => {
         const deadline = Date.now() + INITIALIZATION_TTL_MS;
         this.ctx.storage.sql.exec(
-          "INSERT INTO initialization VALUES (1,?,?,?,?,?,'initializing')",
+          "INSERT INTO initialization VALUES (1,?,?,?,?,'initializing')",
           operation.operationId,
           operation.checksum,
           JSON.stringify(operation.assetIds ?? []),
-          keyCheck,
           deadline,
         );
         this.work.add("initialization", deadline);
@@ -387,8 +381,7 @@ export class StorageBarrierPrototype extends DurableObject<P0Env> {
         operation.actor !== "owner" ||
         init?.status !== "initializing" ||
         init.checksum !== operation.checksum ||
-        init.assets !== JSON.stringify(operation.assetIds ?? []) ||
-        init.key_check !== request.headers.get("x-p0-key-check")
+        init.assets !== JSON.stringify(operation.assetIds ?? [])
       )
         return new Response(null, { status: 409 });
       const result = await this.settle(operation, "/status");

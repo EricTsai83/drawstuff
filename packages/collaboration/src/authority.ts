@@ -1,20 +1,33 @@
 import { z } from "zod";
 
 import { COLLABORATION_PROTOCOL_VERSION, roomIdSchema } from "./messages.ts";
-import { roomAuthGenerationSchema, roomRoleSchema } from "./room-auth.ts";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "./keycheck.ts";
+import { roomRoleSchema } from "./room-auth.ts";
 import {
   collaborationAssetRecordSchema,
-  MAX_ROOM_ASSETS_PER_GENERATION,
+  MAX_ROOM_ASSETS,
   MAX_ASSET_LOOKUP_BATCH,
-  ASSET_CRYPTO_VERSION,
-  MIN_ASSET_CIPHERTEXT_BYTES,
-  MAX_ASSET_CIPHERTEXT_BYTES,
+  MIN_ASSET_BYTES,
+  MAX_ASSET_BYTES,
   excalidrawFileIdSchema,
   collaborationAssetLookupSchema,
 } from "./asset.ts";
 
-/** Metadata only. Neither proofs nor durable jobs carry plaintext or room keys. */
+/**
+ * Room authority contract. Metadata only: neither proofs nor durable jobs carry
+ * scene content.
+ *
+ * Access follows the Google Docs model. A role is never stored; Room computes
+ * it on every check from three inputs:
+ *
+ * 1. an ended room grants nothing;
+ * 2. the owner is `owner`;
+ * 3. an invited email gets the higher of its invitation role and the general
+ *    access role;
+ * 4. otherwise general access (`linkRole`) grants `viewer`/`editor`, or nothing.
+ *
+ * Opening a room records only who opened it and when; that record feeds the
+ * room list and the "joined" hint, never a permission decision.
+ */
 /** An address an owner may invite; the dialog checks it with this same rule. */
 export const inviteEmailSchema = z.string().trim().pipe(z.email().max(254));
 
@@ -31,7 +44,7 @@ export const AUTHORITY_LIMITS = {
   alarmBatch: 16,
   alarmBudgetMs: 5_000,
   allowlistEntries: 200,
-  initializationAssets: MAX_ROOM_ASSETS_PER_GENERATION,
+  initializationAssets: MAX_ROOM_ASSETS,
   jobBytes: 65_536,
 } as const;
 
@@ -69,6 +82,9 @@ export type IdentityProofClaims = z.infer<typeof identityProofClaimsSchema>;
 export const roomStateSchema = z.enum(["initializing", "ready", "ended"]);
 export const linkRoleSchema = z.enum(["none", "viewer", "editor"]);
 const memberRoleSchema = z.enum(["viewer", "editor"]);
+/** Why a room appears in someone's list. */
+export const roomAccessSchema = z.enum(["owned", "invited", "link"]);
+export type RoomAccess = z.infer<typeof roomAccessSchema>;
 const envelope = {
   v: z.literal(AUTHORITY_CONTRACT_VERSION),
   operationId: operationIdSchema,
@@ -77,7 +93,6 @@ const envelope = {
   deadline: z.int().positive(),
 };
 export const initializationManifestSchema = z.strictObject({
-  authGeneration: roomAuthGenerationSchema,
   revision: z.int().positive(),
   checksum: checksumSchema,
   assetIds: z
@@ -105,18 +120,6 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
   }),
   z.strictObject({
     ...envelope,
-    action: z.literal("set-member-role"),
-    subject: subjectSchema,
-    role: memberRoleSchema,
-    registrationVersion: authorityVersionSchema,
-  }),
-  z.strictObject({
-    ...envelope,
-    action: z.literal("revoke-member"),
-    subject: subjectSchema,
-  }),
-  z.strictObject({
-    ...envelope,
     action: z.literal("allow-email"),
     email: inviteEmailSchema,
     role: memberRoleSchema,
@@ -128,52 +131,42 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
   }),
   z.strictObject({
     ...envelope,
-    action: z.literal("rotate-generation"),
-    expectedGeneration: roomAuthGenerationSchema,
-  }),
-  z.strictObject({
-    ...envelope,
-    action: z.literal("set-key-check"),
-    expectedGeneration: roomAuthGenerationSchema,
-    keyCheck: z
-      .instanceof(Uint8Array)
-      .refine((value) => value.byteLength === KEYCHECK_CIPHERTEXT_BYTES),
-  }),
-  z.strictObject({
-    ...envelope,
     action: z.literal("complete-initialization"),
     manifest: initializationManifestSchema,
   }),
   z.strictObject({ ...envelope, action: z.literal("cancel-initialization") }),
   z.strictObject({ ...envelope, action: z.literal("end-room") }),
+  /**
+   * The actor removes themselves: their invitation (if any) and their opened
+   * record go away. General access still admits them by link, so this is also
+   * how a link visitor drops a room from their list.
+   */
   z.strictObject({ ...envelope, action: z.literal("leave") }),
 ]);
 export type RoomCommand = z.infer<typeof roomCommandSchema>;
 
+const [
+  createCommand,
+  joinCommand,
+  setLinkRoleCommand,
+  allowEmailCommand,
+  removeEmailCommand,
+  completeInitializationCommand,
+  cancelInitializationCommand,
+  endRoomCommand,
+  leaveCommand,
+] = roomCommandSchema.options;
 /** Authenticated entry input: actor and lifecycle versions are supplied only by trusted services. */
 export const authorityRequestSchema = z.discriminatedUnion("action", [
-  roomCommandSchema.options[0].omit({ actor: true }),
-  roomCommandSchema.options[1].omit({ actor: true, registrationVersion: true }),
-  roomCommandSchema.options[2].omit({ actor: true }),
-  roomCommandSchema.options[3].omit({ actor: true, registrationVersion: true }),
-  roomCommandSchema.options[4].omit({ actor: true }),
-  roomCommandSchema.options[5].omit({ actor: true }),
-  roomCommandSchema.options[6].omit({ actor: true }),
-  roomCommandSchema.options[7].omit({ actor: true }),
-  z
-    .strictObject({
-      ...envelope,
-      action: z.literal("set-key-check"),
-      expectedGeneration: roomAuthGenerationSchema,
-      keyCheck: z
-        .array(z.int().min(0).max(255))
-        .length(KEYCHECK_CIPHERTEXT_BYTES),
-    })
-    .omit({ actor: true }),
-  roomCommandSchema.options[9].omit({ actor: true }),
-  roomCommandSchema.options[10].omit({ actor: true }),
-  roomCommandSchema.options[11].omit({ actor: true }),
-  roomCommandSchema.options[12].omit({ actor: true }),
+  createCommand.omit({ actor: true }),
+  joinCommand.omit({ actor: true, registrationVersion: true }),
+  setLinkRoleCommand.omit({ actor: true }),
+  allowEmailCommand.omit({ actor: true }),
+  removeEmailCommand.omit({ actor: true }),
+  completeInitializationCommand.omit({ actor: true }),
+  cancelInitializationCommand.omit({ actor: true }),
+  endRoomCommand.omit({ actor: true }),
+  leaveCommand.omit({ actor: true }),
   z
     .strictObject({
       ...envelope,
@@ -204,36 +197,31 @@ export const authorityStateSchema = z.strictObject({
   sceneId: z.uuid().nullable(),
   label: z.string().max(120),
   linkRole: linkRoleSchema,
-  authGeneration: roomAuthGenerationSchema,
   authRevision: authorityVersionSchema,
   authorityEpoch: authorityVersionSchema,
   initializationDeadline: z.int().positive(),
-  keyCheck: z
-    .array(z.int().min(0).max(255))
-    .length(KEYCHECK_CIPHERTEXT_BYTES)
-    .nullable(),
 });
 export const authorityManagementSchema = authorityStateSchema.extend({
+  /** Everyone who has opened the room, with the role they have right now (`null`: none). */
   members: z
     .array(
       z.strictObject({
         userId: subjectSchema,
-        name: emailKeySchema.nullable(),
-        role: roomRoleSchema,
-        revoked: z.boolean(),
-        lastJoinedAt: z.int().nonnegative().nullable().default(null),
+        email: emailKeySchema,
+        role: roomRoleSchema.nullable(),
+        lastJoinedAt: z.int().nonnegative().nullable(),
       }),
     )
     .max(50),
   nextCursor: subjectSchema.nullable(),
-  nextEmailCursor: emailKeySchema.nullable().default(null),
+  nextEmailCursor: emailKeySchema.nullable(),
+  /** The invitation list. Removing an invitation deletes its row. */
   allowlist: z
     .array(
       z.strictObject({
         email: z.string().trim().pipe(z.email().max(254)),
         role: memberRoleSchema,
-        removed: z.boolean(),
-        lastJoinedAt: z.int().nonnegative().nullable().default(null),
+        lastJoinedAt: z.int().nonnegative().nullable(),
       }),
     )
     .max(50),
@@ -247,15 +235,12 @@ export const registrationCommandSchema = z.strictObject({
   ownerId: subjectSchema,
   sceneId: z.uuid().nullable(),
   create: z.boolean(),
-  targetSubject: subjectSchema.optional(),
 });
 export const registrationReceiptSchema = z.strictObject({
   roomId: roomIdSchema,
   operationId: operationIdSchema,
   subject: subjectSchema,
   lifecycleVersion: authorityVersionSchema,
-  targetSubject: subjectSchema.optional(),
-  targetVersion: authorityVersionSchema.optional(),
 });
 export const createParentCommandSchema = z.strictObject({
   v: z.literal(AUTHORITY_CONTRACT_VERSION),
@@ -277,7 +262,6 @@ export const contentOperationSchema = z
   .strictObject({
     ...envelope,
     kind: z.enum(["snapshot-put", "snapshot-reset", "asset-finalize"]),
-    authGeneration: roomAuthGenerationSchema,
     authorityEpoch: authorityVersionSchema,
     expectedRevision: z.int().nonnegative(),
     checksum: checksumSchema,
@@ -353,11 +337,7 @@ export const assetUploadIntentSchema = z.strictObject({
   kind: z.literal("asset-finalize"),
   expectedRevision: z.literal(0),
   excalidrawFileId: excalidrawFileIdSchema,
-  cryptoVersion: z.literal(ASSET_CRYPTO_VERSION),
-  byteLength: z
-    .int()
-    .min(MIN_ASSET_CIPHERTEXT_BYTES)
-    .max(MAX_ASSET_CIPHERTEXT_BYTES),
+  byteLength: z.int().min(MIN_ASSET_BYTES).max(MAX_ASSET_BYTES),
 });
 export type AssetUploadIntent = z.infer<typeof assetUploadIntentSchema>;
 export const assetClientRequestSchema = z.discriminatedUnion("action", [
@@ -393,7 +373,6 @@ export const assetGatewayResultSchema = z.union([
   collaborationAssetLookupSchema,
   z.strictObject({
     status: z.literal("authorized"),
-    authGeneration: roomAuthGenerationSchema,
     authorityEpoch: authorityVersionSchema,
   }),
   z.strictObject({ status: z.literal("absent"), expired: z.boolean() }),
@@ -409,7 +388,7 @@ export const authorityErrorSchema = z.enum([
   "operation-mismatch",
   "expired-operation",
   "capacity",
-  "generation-mismatch",
+  "epoch-mismatch",
   "initialization-incomplete",
 ]);
 export const managementResultSchema = z.strictObject({
@@ -431,20 +410,53 @@ export const authorityGatewayResponseSchema = z.strictObject({
   ]),
 });
 
-export const projectionEventSchema = z.strictObject({
+const projectionRoomFields = {
   v: z.literal(AUTHORITY_CONTRACT_VERSION),
   roomId: roomIdSchema,
-  subject: subjectSchema,
   version: authorityVersionSchema,
   status: roomStateSchema,
-  role: roomRoleSchema,
   tombstone: z.boolean(),
   label: z.string().max(120),
   sceneId: z.uuid().nullable(),
   // Stable sort key: changes to drawings do not update it.
   listedAt: z.int().nonnegative(),
-});
+};
+/**
+ * One account's room-list row, keyed by subject: the owner and everyone who
+ * has opened the room. Tombstoned when the room ends, the account loses access
+ * or leaves; `role`/`access` are present exactly when it is not a tombstone.
+ */
+export const projectionEventSchema = z
+  .strictObject({
+    ...projectionRoomFields,
+    subject: subjectSchema,
+    role: roomRoleSchema.nullable(),
+    access: roomAccessSchema.nullable(),
+  })
+  .refine(
+    (event) =>
+      event.tombstone === (event.role === null) &&
+      event.tombstone === (event.access === null),
+    "role and access are present exactly on live rows",
+  );
 export type ProjectionEvent = z.infer<typeof projectionEventSchema>;
+/**
+ * One invitation's room-list row, keyed by normalized email, so a room shows
+ * up in "owned and invited" before the invitee has ever opened it. `role` is
+ * the role the invitation grants right now (the higher of invitation and
+ * general access); tombstoned when the invitation is removed or the room ends.
+ */
+export const inviteProjectionEventSchema = z
+  .strictObject({
+    ...projectionRoomFields,
+    email: emailKeySchema,
+    role: roomRoleSchema.nullable(),
+  })
+  .refine(
+    (event) => event.tombstone === (event.role === null),
+    "role is present exactly on live rows",
+  );
+export type InviteProjectionEvent = z.infer<typeof inviteProjectionEventSchema>;
 export const lifecycleTargetSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("account"), subject: subjectSchema }),
   z.strictObject({
@@ -510,7 +522,6 @@ export const lifecycleResultSchema = z.strictObject({
 /** Server-to-server adapter commands. Browser identity/roles are never sufficient to call these. */
 const storageContext = {
   roomId: roomIdSchema,
-  authGeneration: roomAuthGenerationSchema,
   authorityEpoch: authorityVersionSchema,
 };
 export const adapterCommandSchema = z.discriminatedUnion("action", [
@@ -559,6 +570,11 @@ export const adapterCommandSchema = z.discriminatedUnion("action", [
     action: z.literal("project"),
     event: projectionEventSchema,
   }),
+  z.strictObject({
+    v: z.literal(AUTHORITY_CONTRACT_VERSION),
+    action: z.literal("project-invite"),
+    event: inviteProjectionEventSchema,
+  }),
 ]);
 export type AdapterCommand = z.infer<typeof adapterCommandSchema>;
 export const ADAPTER_METADATA_HEADER = "x-drawstuff-adapter-command";
@@ -566,7 +582,6 @@ export const ADAPTER_METADATA_MAX_BYTES = 8_192;
 export const snapshotReceiptSchema = z.strictObject({
   ...storageContext,
   revision: z.int().positive(),
-  cryptoVersion: z.literal(1),
   byteLength: z.int().positive(),
   checksum: checksumSchema,
 });
@@ -590,6 +605,10 @@ export const durableJobSchema = z.discriminatedUnion("kind", [
   z.strictObject({
     kind: z.literal("projection"),
     event: projectionEventSchema,
+  }),
+  z.strictObject({
+    kind: z.literal("invite-projection"),
+    event: inviteProjectionEventSchema,
   }),
   z.strictObject({
     kind: z.literal("fence"),

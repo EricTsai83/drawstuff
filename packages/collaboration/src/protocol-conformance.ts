@@ -1,3 +1,4 @@
+import type { TrustedIdentity } from "./authority.ts";
 import { decodeBase64Url, encodeBase64Url } from "./base64.ts";
 import {
   COLLABORATION_PROTOCOL_VERSION,
@@ -6,11 +7,6 @@ import {
 } from "./messages.ts";
 import { DEFAULT_RELAY_RATE_LIMITS } from "./rate-limit.ts";
 import {
-  createRealtimeCryptoCodec,
-  generateRoomKey,
-} from "./realtime-crypto.ts";
-import {
-  decodeRelayDataFrame,
   encodeRelayControl,
   encodeRelayDataFrame,
   maxRelayDataFrameBytesFor,
@@ -23,22 +19,14 @@ import {
   type RelayPeersNotice,
 } from "./relay-protocol.ts";
 import {
-  DEFAULT_CONTROL_TOKEN_TTL_SECONDS,
+  DEFAULT_IDENTITY_PROOF_TTL_SECONDS,
   MAX_ROOM_TOKEN_BYTES,
-  ROOM_TOKEN_AUDIENCES,
-  ROOM_TOKEN_VERSION,
-  type RoomControlAction,
-  type RoomRole,
 } from "./room-auth.ts";
 import {
   MAX_CONNECTIONS_PER_ROOM,
   ROOM_JOIN_TIMEOUT_MS,
 } from "./room-limits.ts";
-import {
-  createRoomTokenId,
-  signJoinToken,
-  signRoomControlToken,
-} from "./room-token.ts";
+import { signIdentityProof } from "./room-token.ts";
 
 /**
  * Black-box wire-protocol conformance for the collaboration room runtime.
@@ -49,12 +37,15 @@ import {
  * factory. It was written when two backends (the retired Node relay and the
  * Durable Object) had to prove the *same* contract; the Durable Object is now
  * the only backend, and runs the cases twice: inside workerd against the real
- * gateway + Object, and over the network against the deployed Worker
- * (`conformance-remote`). A contract break fails here before it can become a
+ * gateway + Object. A contract break fails here before it can become a
  * client-visible difference.
  *
+ * Every join presents a real identity proof, and every role comes from the
+ * room's own access rules: the harness creates a ready room and invites each
+ * joiner's email with the role the case needs.
+ *
  * Test-only module: imported exclusively from test files (it signs real
- * tokens via the server-only `./room-token.ts`), never from runtime code.
+ * proofs via the server-only `./room-token.ts`), never from runtime code.
  *
  * Cases use plain thrown `Error`s instead of a test framework so the module
  * stays runnable under both vitest environments (Node and workerd) without
@@ -66,8 +57,7 @@ import {
  * deadline: the published 10 s unless the harness states a shorter one),
  * `unauthorized`, `readOnlyRole`, `roomEnded`, `rateLimited`,
  * `unsupportedProtocolVersion` (both an older and a newer declared version),
- * `membershipRevoked` (through the harness's
- * control capability, now that both backends dispatch control actions), plus
+ * `membershipRevoked` (through the harness's invitation management), plus
  * the normal `1000` leave. Three codes are deliberately *not* black-box cases
  * and stay covered by each backend's own deterministic tests asserting these
  * same shared constants:
@@ -105,35 +95,29 @@ export type ConformanceConnection = {
   expectSilence: (windowMs: number) => Promise<void>;
 };
 
-/**
- * Outcome of one control-token delivery. The harness adapter owns the HTTP
- * response surface and hands the cases only what the wire contract shares.
- */
-export type ConformanceControlResult = {
-  /** True when the backend verified the token and applied the action. */
-  accepted: boolean;
-  /** Sockets the backend reports closed; 0 when the token was refused. */
-  closed: number;
-};
+/** A ready room, and the account that owns it. */
+export type ConformanceRoom = { roomId: RoomId; owner: TrustedIdentity };
 
 export type ConformanceHarness = {
-  /** Secret the backend verifies join tokens with. */
-  readonly secret: string;
+  /** Secret the backend verifies identity proofs with. */
+  readonly identitySecret: string;
   /**
-   * One raw client socket, already open, addressed to the room. The relay
-   * ignores the addressing (its routing comes from the token alone); the
-   * Durable Object gateway routes on it.
+   * Creates a ready room nobody but its owner may enter: general access is
+   * "only invited people", so every other role comes from `invite`.
    */
-  connect(
-    roomId: RoomId,
-    authGeneration?: number,
-  ): Promise<ConformanceConnection>;
-  /**
-   * Delivers one signed control token to the backend's control endpoint.
-   * Returns `accepted: false` only for an authorization refusal (the
-   * backend's 401); any transport or unexpected-status failure must throw.
-   */
-  control(token: string): Promise<ConformanceControlResult>;
+  createRoom(roomId: RoomId): Promise<ConformanceRoom>;
+  /** Adds or updates `email`'s invitation, through the room's owner. */
+  invite(
+    room: ConformanceRoom,
+    email: string,
+    role: "viewer" | "editor",
+  ): Promise<void>;
+  /** Removes `email`'s invitation, through the room's owner. */
+  removeInvite(room: ConformanceRoom, email: string): Promise<void>;
+  /** Ends the room, through its owner. */
+  endRoom(room: ConformanceRoom): Promise<void>;
+  /** One raw client socket, already open, addressed to the room. */
+  connect(roomId: RoomId): Promise<ConformanceConnection>;
   /**
    * The join deadline the backend under test actually enforces. Defaults to
    * the published `ROOM_JOIN_TIMEOUT_MS`; a hermetic backend started with a
@@ -244,14 +228,29 @@ function uniqueRoomId(label: string): RoomId {
   return roomIdSchema.parse(`conf-${label}-${suffix}`);
 }
 
-function issueToken(
+/** A fresh ready room per case. */
+function readyRoom(
+  harness: ConformanceHarness,
+  label: string,
+): Promise<ConformanceRoom> {
+  return harness.createRoom(uniqueRoomId(label));
+}
+
+/** A fresh account; unique so no case shares a member record with another. */
+function newIdentity(): TrustedIdentity {
+  const id = crypto.randomUUID().replaceAll("-", "").slice(0, 16);
+  return {
+    subject: `conf-${id}`,
+    email: `conf-${id}@example.com`,
+    lifecycleVersion: 1,
+  };
+}
+
+function issueProof(
   harness: ConformanceHarness,
   roomId: RoomId,
+  identity: TrustedIdentity,
   overrides?: {
-    role?: RoomRole;
-    subject?: string;
-    authGeneration?: number;
-    authRevision?: number;
     expired?: boolean;
     secret?: string;
     /** Room id the claims carry, when it must differ from the join's. */
@@ -260,62 +259,18 @@ function issueToken(
 ): string {
   const now =
     Math.floor(Date.now() / 1000) - (overrides?.expired === true ? 3_600 : 0);
-  return signJoinToken(
+  return signIdentityProof(
     {
-      v: ROOM_TOKEN_VERSION,
-      jti: createRoomTokenId(),
+      v: 1,
+      aud: "drawstuff-room-identity",
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+      jti: crypto.randomUUID(),
       iat: now,
-      exp: now + 60,
-      aud: ROOM_TOKEN_AUDIENCES.join,
-      rid: overrides?.claimedRoomId ?? roomId,
-      gen: overrides?.authGeneration ?? 1,
-      // Unique by default: the relay budgets join attempts per subject
-      // across the whole process, so a shared default subject would trip
-      // that (relay-specific) limiter from inside a suite about the shared
-      // wire contract.
-      sub: overrides?.subject ?? `conf-${crypto.randomUUID().slice(0, 13)}`,
-      role: overrides?.role ?? "editor",
-      arev: overrides?.authRevision ?? 1,
+      exp: now + DEFAULT_IDENTITY_PROOF_TTL_SECONDS,
+      roomId: overrides?.claimedRoomId ?? roomId,
+      identity,
     },
-    overrides?.secret ?? harness.secret,
-  );
-}
-
-function issueControlToken(
-  harness: ConformanceHarness,
-  roomId: RoomId,
-  options: {
-    action: RoomControlAction;
-    /** Member being revoked; required for `revoke-member`. */
-    subject?: string;
-    authGeneration?: number;
-    /** Revision the change produced; defaults to 2 (one past a fresh room). */
-    authRevision?: number;
-    expired?: boolean;
-    secret?: string;
-  },
-): string {
-  const now =
-    Math.floor(Date.now() / 1000) - (options.expired === true ? 3_600 : 0);
-  const common = {
-    v: ROOM_TOKEN_VERSION,
-    jti: createRoomTokenId(),
-    iat: now,
-    exp: now + DEFAULT_CONTROL_TOKEN_TTL_SECONDS,
-    aud: ROOM_TOKEN_AUDIENCES.control,
-    rid: roomId,
-    gen: options.authGeneration ?? 1,
-    arev: options.authRevision ?? 2,
-  } as const;
-  return signRoomControlToken(
-    options.action === "end-room"
-      ? { ...common, action: "end-room" }
-      : {
-          ...common,
-          action: "revoke-member",
-          sub: options.subject ?? fail("revoke-member requires a subject"),
-        },
-    options.secret ?? harness.secret,
+    overrides?.secret ?? harness.identitySecret,
   );
 }
 
@@ -377,18 +332,30 @@ async function expectClose(
   fail(`${label}: no close event arrived`);
 }
 
+/**
+ * Joins `room` as a fresh invitee with `role` (default editor), or as the
+ * given identity — the owner, or an account a case already invited.
+ */
 async function join(
   harness: ConformanceHarness,
-  roomId: RoomId,
-  overrides?: Parameters<typeof issueToken>[2],
-): Promise<{ connection: ConformanceConnection; joined: RelayJoinedNotice }> {
-  const connection = await harness.connect(
-    roomId,
-    overrides?.authGeneration ?? 1,
+  room: ConformanceRoom,
+  options?: { role?: "viewer" | "editor"; identity?: TrustedIdentity },
+): Promise<{
+  connection: ConformanceConnection;
+  joined: RelayJoinedNotice;
+  identity: TrustedIdentity;
+}> {
+  let identity = options?.identity;
+  if (!identity) {
+    identity = newIdentity();
+    await harness.invite(room, identity.email, options?.role ?? "editor");
+  }
+  const connection = await harness.connect(room.roomId);
+  connection.send(
+    joinFrame(room.roomId, issueProof(harness, room.roomId, identity)),
   );
-  connection.send(joinFrame(roomId, issueToken(harness, roomId, overrides)));
   const joined = await expectJoined(connection);
-  return { connection, joined };
+  return { connection, joined, identity };
 }
 
 async function expectBinary(
@@ -457,8 +424,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "join acknowledges with server-assigned identity, echoed role and self in peers",
     async run(harness) {
-      const roomId = uniqueRoomId("ack");
-      const { connection, joined } = await join(harness, roomId, {
+      const room = await readyRoom(harness, "ack");
+      const { roomId } = room;
+      const { connection, joined } = await join(harness, room, {
         role: "viewer",
       });
       assertEqual(joined.roomId, roomId, "roomId");
@@ -478,9 +446,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a second joiner appears in both its ack and the peers broadcast",
     async run(harness) {
-      const roomId = uniqueRoomId("peers");
-      const first = await join(harness, roomId);
-      const second = await join(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "peers");
+      const { roomId } = room;
+      const first = await join(harness, room);
+      const second = await join(harness, room, { role: "viewer" });
       assertEqual(second.joined.peers.length, 2, "second ack peers length");
       const notice = await expectPeersNotice(first.connection);
       assertEqual(notice.peers.length, 2, "broadcast peers length");
@@ -500,9 +469,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "scene frames fan out to other members verbatim, never back to the sender",
     async run(harness) {
-      const roomId = uniqueRoomId("scene");
-      const sender = await join(harness, roomId);
-      const receiver = await join(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "scene");
+      const { roomId } = room;
+      const sender = await join(harness, room);
+      const receiver = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(sender.connection);
       const frame = sceneFrame([7, 8, 9, 10]);
       sender.connection.send(frame);
@@ -515,9 +485,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "presence frames fan out on the presence channel",
     async run(harness) {
-      const roomId = uniqueRoomId("presence");
-      const sender = await join(harness, roomId, { role: "viewer" });
-      const receiver = await join(harness, roomId);
+      const room = await readyRoom(harness, "presence");
+      const { roomId } = room;
+      const sender = await join(harness, room, { role: "viewer" });
+      const receiver = await join(harness, room);
       await expectPeersNotice(sender.connection);
       const frame = presenceFrame([1, 2, 3]);
       sender.connection.send(frame);
@@ -529,8 +500,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a viewer scene publish closes with readOnlyRole",
     async run(harness) {
-      const roomId = uniqueRoomId("viewer");
-      const viewer = await join(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "viewer");
+      const { roomId } = room;
+      const viewer = await join(harness, room, { role: "viewer" });
       viewer.connection.send(sceneFrame([1]));
       await expectClose(
         viewer.connection,
@@ -542,7 +514,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a malformed control frame closes with protocolViolation",
     async run(harness) {
-      const connection = await harness.connect(uniqueRoomId("malformed"));
+      const connection = await harness.connect(
+        (await readyRoom(harness, "malformed")).roomId,
+      );
       connection.send("this is not a control frame");
       await expectClose(
         connection,
@@ -554,7 +528,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a binary frame before join closes with protocolViolation",
     async run(harness) {
-      const connection = await harness.connect(uniqueRoomId("early"));
+      const connection = await harness.connect(
+        (await readyRoom(harness, "early")).roomId,
+      );
       connection.send(presenceFrame([1, 2]));
       await expectClose(
         connection,
@@ -566,9 +542,12 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a second join closes with protocolViolation",
     async run(harness) {
-      const roomId = uniqueRoomId("rejoin");
-      const { connection } = await join(harness, roomId);
-      connection.send(joinFrame(roomId, issueToken(harness, roomId)));
+      const room = await readyRoom(harness, "rejoin");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
+      connection.send(
+        joinFrame(roomId, issueProof(harness, roomId, room.owner)),
+      );
       await expectClose(
         connection,
         RELAY_CLOSE_CODES.protocolViolation,
@@ -579,7 +558,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "an oversize control frame closes with protocolViolation",
     async run(harness) {
-      const connection = await harness.connect(uniqueRoomId("oversizec"));
+      const connection = await harness.connect(
+        (await readyRoom(harness, "oversizec")).roomId,
+      );
       connection.send("x".repeat(MAX_RELAY_CONTROL_FRAME_BYTES + 1));
       await expectClose(
         connection,
@@ -591,8 +572,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "an unknown data channel byte closes with protocolViolation",
     async run(harness) {
-      const roomId = uniqueRoomId("channel");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "channel");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       connection.send(Uint8Array.from([0x7f, 1, 2, 3]));
       await expectClose(
         connection,
@@ -604,8 +586,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "an oversize presence frame closes with protocolViolation",
     async run(harness) {
-      const roomId = uniqueRoomId("oversizep");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "oversizep");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       const oversize = new Uint8Array(
         maxRelayDataFrameBytesFor("presence") + 1,
       );
@@ -621,12 +604,13 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a token signed with another secret closes with unauthorized",
     async run(harness) {
-      const roomId = uniqueRoomId("forged");
+      const room = await readyRoom(harness, "forged");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(
         joinFrame(
           roomId,
-          issueToken(harness, roomId, {
+          issueProof(harness, roomId, room.owner, {
             secret: "conformance-forged-secret-0123456789abcdef",
           }),
         ),
@@ -641,10 +625,14 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "an expired token closes with unauthorized",
     async run(harness) {
-      const roomId = uniqueRoomId("expired");
+      const room = await readyRoom(harness, "expired");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(
-        joinFrame(roomId, issueToken(harness, roomId, { expired: true })),
+        joinFrame(
+          roomId,
+          issueProof(harness, roomId, room.owner, { expired: true }),
+        ),
       );
       await expectClose(
         connection,
@@ -656,12 +644,13 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a token bound to another room closes with unauthorized",
     async run(harness) {
-      const roomId = uniqueRoomId("wrongroom");
+      const room = await readyRoom(harness, "wrongroom");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(
         joinFrame(
           roomId,
-          issueToken(harness, roomId, {
+          issueProof(harness, roomId, room.owner, {
             claimedRoomId: uniqueRoomId("other"),
           }),
         ),
@@ -676,14 +665,15 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a join from an older protocol version closes with unsupportedProtocolVersion",
     async run(harness) {
-      const roomId = uniqueRoomId("stale");
+      const room = await readyRoom(harness, "stale");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(
         JSON.stringify({
           control: "join",
           protocolVersion: COLLABORATION_PROTOCOL_VERSION - 1,
           roomId,
-          token: issueToken(harness, roomId),
+          token: issueProof(harness, roomId, room.owner),
         }),
       );
       await expectClose(
@@ -700,14 +690,15 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     // retries until the relay catches up.
     name: "a join from a newer protocol version closes with unsupportedProtocolVersion",
     async run(harness) {
-      const roomId = uniqueRoomId("ahead");
+      const room = await readyRoom(harness, "ahead");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(
         JSON.stringify({
           control: "join",
           protocolVersion: COLLABORATION_PROTOCOL_VERSION + 1,
           roomId,
-          token: issueToken(harness, roomId),
+          token: issueProof(harness, roomId, room.owner),
         }),
       );
       await expectClose(
@@ -720,9 +711,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "leave closes normally and shrinks the peers broadcast",
     async run(harness) {
-      const roomId = uniqueRoomId("leave");
-      const staying = await join(harness, roomId);
-      const leaving = await join(harness, roomId);
+      const room = await readyRoom(harness, "leave");
+      const { roomId } = room;
+      const staying = await join(harness, room);
+      const leaving = await join(harness, room);
       await expectPeersNotice(staying.connection);
       leaving.connection.send(encodeRelayControl({ control: "leave" }));
       await expectClose(leaving.connection, 1000, "leave");
@@ -739,9 +731,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a disconnect without leave shrinks the peers broadcast",
     async run(harness) {
-      const roomId = uniqueRoomId("drop");
-      const staying = await join(harness, roomId);
-      const dropping = await join(harness, roomId);
+      const room = await readyRoom(harness, "drop");
+      const { roomId } = room;
+      const staying = await join(harness, room);
+      const dropping = await join(harness, room);
       await expectPeersNotice(staying.connection);
       dropping.connection.close();
       const notice = await expectPeersNotice(staying.connection);
@@ -752,11 +745,14 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "the keepalive frame is tolerated before and after join",
     async run(harness) {
-      const roomId = uniqueRoomId("keepalive");
+      const room = await readyRoom(harness, "keepalive");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(RELAY_KEEPALIVE_REQUEST);
       await connection.expectSilence(200);
-      connection.send(joinFrame(roomId, issueToken(harness, roomId)));
+      connection.send(
+        joinFrame(roomId, issueProof(harness, roomId, room.owner)),
+      );
       await expectJoined(connection);
       connection.send(RELAY_KEEPALIVE_REQUEST);
       await connection.expectSilence(200);
@@ -767,8 +763,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a presence flood beyond the published budget closes with rateLimited",
     async run(harness) {
-      const roomId = uniqueRoomId("flood");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "flood");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       // The presence budget admits an 80-frame burst and refills at 40/s.
       // Sized so the verdict cannot depend on scheduling: even if a loaded
       // test host smears these sends across several seconds of server-side
@@ -787,13 +784,14 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a join beyond the room member cap closes with roomAtCapacity",
     async run(harness) {
-      const roomId = uniqueRoomId("cap");
+      const room = await readyRoom(harness, "cap");
+      const { roomId } = room;
       const members: Awaited<ReturnType<typeof join>>[] = [];
       for (let index = 0; index < MAX_CONNECTIONS_PER_ROOM; index += 1) {
-        members.push(await join(harness, roomId));
+        members.push(await join(harness, room));
       }
       const refused = await harness.connect(roomId);
-      refused.send(joinFrame(roomId, issueToken(harness, roomId)));
+      refused.send(joinFrame(roomId, issueProof(harness, roomId, room.owner)));
       // Membership notices from the join storm may be queued ahead of the
       // refusal on this socket too; expectClose tolerates them.
       await expectClose(
@@ -807,7 +805,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a socket that never joins is closed at the join deadline with joinTimeout",
     async run(harness) {
-      const connection = await harness.connect(uniqueRoomId("jointo"));
+      const connection = await harness.connect(
+        (await readyRoom(harness, "jointo")).roomId,
+      );
       // A real wait against the published deadline, so a backend that quietly
       // *dropped* the join timeout fails here. The slack is wide on purpose:
       // the Durable Object reaps this socket from an alarm, and local
@@ -832,9 +832,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "room generation is shared within a cohort and strictly increases across cohorts",
     async run(harness) {
-      const roomId = uniqueRoomId("epoch");
-      const first = await join(harness, roomId);
-      const second = await join(harness, roomId);
+      const room = await readyRoom(harness, "epoch");
+      const { roomId } = room;
+      const first = await join(harness, room);
+      const second = await join(harness, room);
       assertEqual(
         second.joined.roomGeneration,
         first.joined.roomGeneration,
@@ -847,7 +848,7 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       // Both backends settle membership on the close event; give the server
       // side a beat so the rejoin below starts a genuinely new cohort.
       await sleep(150);
-      const rejoined = await join(harness, roomId);
+      const rejoined = await join(harness, room);
       if (rejoined.joined.roomGeneration <= first.joined.roomGeneration) {
         fail(
           `rejoin generation ${rejoined.joined.roomGeneration} must exceed ${first.joined.roomGeneration}`,
@@ -862,7 +863,8 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       // The missing field fails the control-frame schema before any token
       // verification runs; a backend that answered `unauthorized` here would
       // be reporting an authorization verdict it never reached.
-      const roomId = uniqueRoomId("notoken");
+      const room = await readyRoom(harness, "notoken");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(
         JSON.stringify({
@@ -879,25 +881,26 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "a token with a tampered payload closes with unauthorized",
+    name: "a proof with a tampered payload closes with unauthorized",
     async run(harness) {
-      const roomId = uniqueRoomId("tamper");
-      const token = issueToken(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "tamper");
+      const { roomId } = room;
+      const token = issueProof(harness, roomId, newIdentity());
       const [payload, signature] = token.split(".");
       if (payload === undefined || signature === undefined) {
-        fail("a signed token must have a payload and a signature segment");
+        fail("a signed proof must have a payload and a signature segment");
       }
       const decoded = decodeBase64Url(payload, {
         maxBytes: MAX_ROOM_TOKEN_BYTES,
       });
-      if (!decoded.ok) fail("token payload must decode");
-      const claims = JSON.parse(
-        new TextDecoder().decode(decoded.bytes),
-      ) as Record<string, unknown>;
-      // Privilege escalation attempt: rewrite the signed role, keep the
+      if (!decoded.ok) fail("proof payload must decode");
+      const claims = JSON.parse(new TextDecoder().decode(decoded.bytes)) as {
+        identity: TrustedIdentity;
+      };
+      // Privilege escalation attempt: claim the owner's identity, keep the
       // signature. Verification must fail on the signature, never trust the
       // rewritten claims.
-      claims.role = "editor";
+      claims.identity = room.owner;
       const tampered = `${encodeBase64Url(
         new TextEncoder().encode(JSON.stringify(claims)),
       )}.${signature}`;
@@ -906,14 +909,15 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       await expectClose(
         connection,
         RELAY_CLOSE_CODES.unauthorized,
-        "tampered token payload",
+        "tampered proof payload",
       );
     },
   },
   {
     name: "a syntactically valid join carrying a non-token string closes with unauthorized",
     async run(harness) {
-      const roomId = uniqueRoomId("garbage");
+      const room = await readyRoom(harness, "garbage");
+      const { roomId } = room;
       const connection = await harness.connect(roomId);
       connection.send(joinFrame(roomId, "garbage"));
       await expectClose(
@@ -924,26 +928,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "crypto rotation closes the old cohort within one stable room authority",
-    async run(harness) {
-      const roomId = uniqueRoomId("gens");
-      const genOne = await join(harness, roomId);
-      const genTwo = await join(harness, roomId, { authGeneration: 2 });
-      assertEqual(genTwo.joined.peers.length, 1, "gen-2 membership");
-      await expectClose(
-        genOne.connection,
-        RELAY_CLOSE_CODES.roomEnded,
-        "rotated cohort",
-      );
-      await genTwo.connection.expectSilence(250);
-      genTwo.connection.close();
-    },
-  },
-  {
     name: "frames never cross rooms",
     async run(harness) {
-      const roomA = uniqueRoomId("isoa");
-      const roomB = uniqueRoomId("isob");
+      const roomA = await readyRoom(harness, "isoa");
+      const roomB = await readyRoom(harness, "isob");
       const sender = await join(harness, roomA);
       const receiver = await join(harness, roomA, { role: "viewer" });
       const bystander = await join(harness, roomB);
@@ -963,9 +951,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       // A backend that broadcast the peers notice to *all* members would
       // still pass the two-joiner case; only the joiner's silence right after
       // its ack pins the exclusion.
-      const roomId = uniqueRoomId("noecho");
-      const first = await join(harness, roomId);
-      const second = await join(harness, roomId);
+      const room = await readyRoom(harness, "noecho");
+      const { roomId } = room;
+      const first = await join(harness, room);
+      const second = await join(harness, room);
       await second.connection.expectSilence(250);
       const notice = await expectPeersNotice(first.connection);
       assertEqual(notice.peers.length, 2, "broadcast to existing members");
@@ -974,14 +963,13 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "a rejoining subject is assigned a fresh peerId",
+    name: "a rejoining account is assigned a fresh peerId",
     async run(harness) {
-      const roomId = uniqueRoomId("fresh");
-      const subject = `conf-${crypto.randomUUID().slice(0, 13)}`;
-      const first = await join(harness, roomId, { subject });
+      const room = await readyRoom(harness, "fresh");
+      const first = await join(harness, room);
       first.connection.send(encodeRelayControl({ control: "leave" }));
       await expectClose(first.connection, 1000, "leave before rejoin");
-      const second = await join(harness, roomId, { subject });
+      const second = await join(harness, room, { identity: first.identity });
       if (second.joined.peerId === first.joined.peerId) {
         fail("a new session of the same subject must get a new peerId");
       }
@@ -991,9 +979,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "fanout preserves order and duplicates — never deduped, reordered or coalesced",
     async run(harness) {
-      const roomId = uniqueRoomId("order");
-      const sender = await join(harness, roomId);
-      const receiver = await join(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "order");
+      const { roomId } = room;
+      const sender = await join(harness, room);
+      const receiver = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(sender.connection);
       const first = sceneFrame([1]);
       const second = sceneFrame([2]);
@@ -1008,43 +997,19 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "E2EE-sealed frames pass through byte-identical and still authenticate",
+    name: "data frames pass through byte-identical",
     async run(harness) {
-      const roomId = uniqueRoomId("e2ee");
-      const sender = await join(harness, roomId);
-      const receiver = await join(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "verbatim");
+      const sender = await join(harness, room);
+      const receiver = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(sender.connection);
-      // The room key exists only in this test process — the backend must
-      // route the sealed bytes verbatim without being able to read them.
-      const roomKey = generateRoomKey();
-      const sealer = await createRealtimeCryptoCodec({
-        roomKey,
-        roomId,
-        authGeneration: 1,
-      });
-      const opener = await createRealtimeCryptoCodec({
-        roomKey,
-        roomId,
-        authGeneration: 1,
-      });
-      const plaintext = new TextEncoder().encode("conformance-e2ee");
-      const sealed = await sealer.seal(plaintext, "scene");
-      if (!sealed.ok) fail(`seal failed: ${sealed.error.code}`);
-      const frame = encodeRelayDataFrame("scene", sealed.frame);
-      sender.connection.send(frame);
-      // Byte-identical transit: expectBinary compares every byte.
-      await expectBinary(receiver.connection, frame, "sealed frame bytes");
-      const decoded = decodeRelayDataFrame(frame);
-      if (!decoded) fail("sealed frame must decode as a data frame");
-      const openedFrame = await opener.open(decoded.payload, "scene");
-      if (!openedFrame.ok) {
-        fail(`sealed frame did not authenticate: ${openedFrame.error.code}`);
-      }
-      assertEqual(
-        new TextDecoder().decode(openedFrame.plaintext),
-        "conformance-e2ee",
-        "opened plaintext",
+      const frame = encodeRelayDataFrame(
+        "scene",
+        new TextEncoder().encode("conformance-verbatim"),
       );
+      sender.connection.send(frame);
+      // expectBinary compares every byte.
+      await expectBinary(receiver.connection, frame, "frame bytes");
       sender.connection.close();
       receiver.connection.close();
     },
@@ -1052,8 +1017,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a scene flood beyond the published budget closes with rateLimited",
     async run(harness) {
-      const roomId = uniqueRoomId("sflood");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "sflood");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       // Same 5x sizing rationale as the presence flood for real-network runs.
       // The local DO host freezes only its rate-limit clock so a constrained
       // workerd CI process cannot turn queued delivery time into token refill.
@@ -1072,8 +1038,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "the scene byte budget binds independently of frame count",
     async run(harness) {
-      const roomId = uniqueRoomId("sbytes");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "sbytes");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       // 12 frames of ~1 MB ≈ 12 MB against the 8 MiB burst + 2 MiB/s refill.
       // Twelve frames are far below the frame-count budget, so only a
       // byte-charged bucket can produce this close.
@@ -1092,8 +1059,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "presence and scene budgets are charged separately",
     async run(harness) {
-      const roomId = uniqueRoomId("buckets");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "buckets");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       // Spend most of each budget without exceeding either. A backend
       // charging both channels against one scene-sized bucket would cross it
       // (470 + 75 > 480) and close rateLimited instead of honouring the
@@ -1118,8 +1086,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "an oversize frame is a protocolViolation even when the send budget is spent",
     async run(harness) {
-      const roomId = uniqueRoomId("prec");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "prec");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       // Drain the presence burst completely, so a backend that consulted the
       // rate budget before the size bound would answer rateLimited here.
       for (
@@ -1144,9 +1113,10 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
   {
     name: "a refused viewer scene frame is never delivered to the room",
     async run(harness) {
-      const roomId = uniqueRoomId("norelay");
-      const editor = await join(harness, roomId);
-      const viewer = await join(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "norelay");
+      const { roomId } = room;
+      const editor = await join(harness, room);
+      const viewer = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(editor.connection);
       viewer.connection.send(sceneFrame([5]));
       await expectClose(
@@ -1170,8 +1140,9 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
       // The deadline case proves the timer fires; this proves it is
       // *cancelled* by a successful join — a backend that kept the timer
       // armed would close this socket when the deadline passes.
-      const roomId = uniqueRoomId("alive");
-      const { connection } = await join(harness, roomId);
+      const room = await readyRoom(harness, "alive");
+      const { roomId } = room;
+      const { connection } = await join(harness, room);
       await connection.expectSilence(
         (harness.joinTimeoutMs ?? ROOM_JOIN_TIMEOUT_MS) + 2_000,
       );
@@ -1180,30 +1151,20 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "revoke-member closes exactly that member with membershipRevoked",
+    name: "removing an invitation closes exactly that member with membershipRevoked",
     async run(harness) {
-      const roomId = uniqueRoomId("revoke");
-      const revokedSubject = `conf-${crypto.randomUUID().slice(0, 13)}`;
-      const staying = await join(harness, roomId);
-      const revoked = await join(harness, roomId, {
-        subject: revokedSubject,
-      });
+      const room = await readyRoom(harness, "revoke");
+      const staying = await join(harness, room);
+      const revoked = await join(harness, room);
       await expectPeersNotice(staying.connection);
-      const result = await harness.control(
-        issueControlToken(harness, roomId, {
-          action: "revoke-member",
-          subject: revokedSubject,
-        }),
-      );
-      assertEqual(result.accepted, true, "revocation accepted");
-      assertEqual(result.closed, 1, "revocation closed sessions");
+      await harness.removeInvite(room, revoked.identity.email);
       await expectClose(
         revoked.connection,
         RELAY_CLOSE_CODES.membershipRevoked,
-        "revoked member",
+        "removed invitee",
       );
       const notice = await expectPeersNotice(staying.connection);
-      assertEqual(notice.peers.length, 1, "peers after revocation");
+      assertEqual(notice.peers.length, 1, "peers after removal");
       assertEqual(
         notice.peers[0]?.peerId,
         staying.joined.peerId,
@@ -1213,22 +1174,14 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "end-room closes every session in the generation with roomEnded",
+    name: "end-room closes every session with roomEnded",
     async run(harness) {
-      const roomId = uniqueRoomId("end");
-      const first = await join(harness, roomId);
-      const second = await join(harness, roomId, { role: "viewer" });
+      const room = await readyRoom(harness, "end");
+      const first = await join(harness, room, { identity: room.owner });
+      const second = await join(harness, room, { role: "viewer" });
       await expectPeersNotice(first.connection);
-      const result = await harness.control(
-        issueControlToken(harness, roomId, { action: "end-room" }),
-      );
-      assertEqual(result.accepted, true, "end-room accepted");
-      assertEqual(result.closed, 2, "end-room closed sessions");
-      await expectClose(
-        first.connection,
-        RELAY_CLOSE_CODES.roomEnded,
-        "first member",
-      );
+      await harness.endRoom(room);
+      await expectClose(first.connection, RELAY_CLOSE_CODES.roomEnded, "owner");
       await expectClose(
         second.connection,
         RELAY_CLOSE_CODES.roomEnded,
@@ -1237,111 +1190,44 @@ export const relayProtocolConformanceCases: readonly ConformanceCase[] = [
     },
   },
   {
-    name: "a rejoin replaying a pre-revocation token is refused with membershipRevoked",
+    name: "a removed invitee's unexpired proof cannot rejoin",
     async run(harness) {
-      const roomId = uniqueRoomId("replay");
-      const subject = `conf-${crypto.randomUUID().slice(0, 13)}`;
-      const token = issueToken(harness, roomId, { subject });
-      const first = await harness.connect(roomId);
-      first.send(joinFrame(roomId, token));
-      await expectJoined(first);
-      const result = await harness.control(
-        issueControlToken(harness, roomId, {
-          action: "revoke-member",
-          subject,
-        }),
-      );
-      assertEqual(result.accepted, true, "revocation accepted");
+      const room = await readyRoom(harness, "replay");
+      const { roomId } = room;
+      const first = await join(harness, room);
+      const proof = issueProof(harness, roomId, first.identity);
+      await harness.removeInvite(room, first.identity.email);
       await expectClose(
-        first,
+        first.connection,
         RELAY_CLOSE_CODES.membershipRevoked,
         "live session",
       );
-      // The token is still unexpired; only the durable cutoff can refuse it.
+      // The proof is still validly signed and unexpired; only the room's
+      // current access rules can refuse it.
       const replay = await harness.connect(roomId);
-      replay.send(joinFrame(roomId, token));
+      replay.send(joinFrame(roomId, proof));
       await expectClose(
         replay,
         RELAY_CLOSE_CODES.membershipRevoked,
-        "replayed pre-revocation token",
+        "replayed proof after removal",
       );
     },
   },
   {
-    name: "a re-granted member joins past the cutoff and a replayed revocation is a no-op",
+    name: "re-inviting a removed member lets them join again",
     async run(harness) {
-      const roomId = uniqueRoomId("regrant");
-      const subject = `conf-${crypto.randomUUID().slice(0, 13)}`;
-      const revocation = issueControlToken(harness, roomId, {
-        action: "revoke-member",
-        subject,
-        authRevision: 2,
-      });
-      // Control-first: the revocation lands before any session exists.
-      const first = await harness.control(revocation);
-      assertEqual(first.accepted, true, "control against an empty room");
-      assertEqual(first.closed, 0, "nothing to close yet");
-      const regranted = await join(harness, roomId, {
-        subject,
-        authRevision: 3,
-      });
-      // Replaying the identical older control must not reach the session a
-      // newer revision authorized.
-      const replay = await harness.control(revocation);
-      assertEqual(replay.accepted, true, "replay accepted idempotently");
-      assertEqual(replay.closed, 0, "replay closed nothing");
-      regranted.connection.send(encodeRelayControl({ control: "leave" }));
-      await expectClose(regranted.connection, 1000, "re-granted member stays");
-    },
-  },
-  {
-    name: "stale generation controls cannot end a rotated room",
-    async run(harness) {
-      const roomId = uniqueRoomId("genscope");
-      const genOne = await join(harness, roomId);
-      const genTwo = await join(harness, roomId, { authGeneration: 2 });
-      const result = await harness.control(
-        issueControlToken(harness, roomId, {
-          action: "end-room",
-          authGeneration: 1,
-        }),
-      );
-      assertEqual(result.accepted, false, "stale generation control refused");
+      const room = await readyRoom(harness, "regrant");
+      const first = await join(harness, room);
+      await harness.removeInvite(room, first.identity.email);
       await expectClose(
-        genOne.connection,
-        RELAY_CLOSE_CODES.roomEnded,
-        "gen-1 member",
+        first.connection,
+        RELAY_CLOSE_CODES.membershipRevoked,
+        "removed member",
       );
-      await genTwo.connection.expectSilence(250);
-      genTwo.connection.send(encodeRelayControl({ control: "leave" }));
-      await expectClose(genTwo.connection, 1000, "gen-2 member unaffected");
-    },
-  },
-  {
-    name: "an invalid control token is refused and touches no session",
-    async run(harness) {
-      const roomId = uniqueRoomId("badctl");
-      const member = await join(harness, roomId);
-      const forged = await harness.control(
-        issueControlToken(harness, roomId, {
-          action: "end-room",
-          secret: "conformance-forged-secret-0123456789abcdef",
-        }),
-      );
-      assertEqual(forged.accepted, false, "forged control token");
-      assertEqual(forged.closed, 0, "forged token closed nothing");
-      const expired = await harness.control(
-        issueControlToken(harness, roomId, {
-          action: "end-room",
-          expired: true,
-        }),
-      );
-      assertEqual(expired.accepted, false, "expired control token");
-      // A join token on the control endpoint is a wrong-audience refusal.
-      const joinAudience = await harness.control(issueToken(harness, roomId));
-      assertEqual(joinAudience.accepted, false, "join token on control");
-      member.connection.send(encodeRelayControl({ control: "leave" }));
-      await expectClose(member.connection, 1000, "member untouched");
+      await harness.invite(room, first.identity.email, "editor");
+      const again = await join(harness, room, { identity: first.identity });
+      again.connection.send(encodeRelayControl({ control: "leave" }));
+      await expectClose(again.connection, 1000, "re-invited member stays");
     },
   },
 ];

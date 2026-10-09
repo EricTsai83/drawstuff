@@ -71,10 +71,10 @@ export interface FakeCollaborationNetworkOptions {
 export interface FakeCollaborationNetwork {
   /**
    * The fake network models delivery semantics, not authorization: `connect`
-   * still requires a non-empty join token (so a caller cannot skip the
+   * still requires a non-empty identity proof (so a caller cannot skip the
    * authorized path), but the granted role is fixed here instead of being
-   * derived from a signed token. Token verification itself is covered by the
-   * room-token and relay tests.
+   * computed by Room authority. Proof verification and access rules are
+   * covered by the room-token and Durable Object tests.
    */
   createTransport(options?: { role?: RoomRole }): CollaborationTransport;
   /**
@@ -146,13 +146,6 @@ interface QueuedMessage {
  * receiver decodes its own copy, so cross-client object mutation cannot leak.
  * Peer ids (`peer-1`, `peer-2`, …) and room generations are assigned from
  * counters, never from clocks or randomness.
- *
- * Deliberately not encrypted. Payloads never leave the process here — there is
- * no socket, no relay, and no third party to keep them from — so sealing them
- * would only make delivery asynchronous and every ordering assertion racy.
- * End-to-end encryption is a property of the wire, and it is enforced where the
- * wire is: `createRelayWebSocketTransport` requires a `RealtimeCryptoCodec`,
- * and the relay integration tests assert that nothing readable is routed.
  */
 const DEFAULT_MAX_QUEUED_MESSAGES = 256;
 
@@ -299,7 +292,7 @@ export function createFakeCollaborationNetwork(
             throw new Error("Transport is already connected");
           }
           if (joinToken.length === 0) {
-            throw new Error("A room join token is required to connect");
+            throw new Error("A room identity proof is required to connect");
           }
 
           let room = rooms.get(roomId);

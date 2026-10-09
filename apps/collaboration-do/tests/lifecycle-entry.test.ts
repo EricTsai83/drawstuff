@@ -12,6 +12,7 @@ import {
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { RoomAuthority } from "../src/room-authority.ts";
+import { storageFootprint, userTables } from "./support/room-socket.ts";
 const service = "test-authority-secret-purpose-only-0001";
 afterEach(() => vi.restoreAllMocks());
 describe("private Lifecycle entry and real Room retirement RPC", () => {
@@ -143,50 +144,35 @@ describe("private Lifecycle entry and real Room retirement RPC", () => {
         room: { roomId, action: "end-room" },
       }),
     ).toBe("enforced");
-    expect(
-      await runInDurableObject(
-        room,
-        (_instance, state) =>
-          new RoomAuthority(state.storage, roomId).state()!.authority_epoch,
-      ),
-    ).toBe(epoch);
+    // A settled ended room may already have released its storage; if it is
+    // still there, the repeated enforcement must not have fenced again.
+    const after = await runInDurableObject(room, (_instance, state) =>
+      userTables(state).includes("authority_room")
+        ? new RoomAuthority(state.storage, roomId).state()?.authority_epoch
+        : undefined,
+    );
+    if (after !== undefined) expect(after).toBe(epoch);
     expect((await post(service)).status).toBe(200);
     expect(deleted).toBe(1);
   });
-  it("writes a durable subject tombstone even when preregistration has no Room parent", async () => {
+  it("enforces retirement for a room that was never created without leaving storage behind", async () => {
     const subject = `missing-${crypto.randomUUID()}`,
       roomId = roomIdSchema.parse(`missing-${crypto.randomUUID()}`);
-    const stub = env.COLLABORATION_ROOM.getByName(roomId);
     const command: LifecycleCommand = {
       v: 1,
       operationId: crypto.randomUUID(),
       actor: subject,
       target: { kind: "account", subject },
     };
+    // The web side refuses a delayed creation for a retired account; the
+    // Object keeps nothing for a room that does not exist.
     expect(
-      await stub.enforceRetirementV1({
+      await env.COLLABORATION_ROOM.getByName(roomId).enforceRetirementV1({
         command,
         version: 2,
         room: { roomId, action: "end-room" },
       }),
     ).toBe("enforced");
-    await evictDurableObject(stub);
-    await runInDurableObject(stub, async (_instance, state) => {
-      const authority = new RoomAuthority(state.storage, roomId);
-      await expect(
-        authority.apply({
-          v: 1,
-          action: "create",
-          roomId,
-          operationId: crypto.randomUUID(),
-          deadline: Date.now() + 55_000,
-          actor: { subject, email: "owner@example.com", lifecycleVersion: 1 },
-          sceneId: null,
-          label: "Late",
-          linkRole: "none",
-        }),
-      ).rejects.toThrow();
-      expect(authority.state()).toBeUndefined();
-    });
+    expect(await storageFootprint(roomId)).toEqual({ tables: [], alarm: null });
   });
 });

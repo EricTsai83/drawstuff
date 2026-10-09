@@ -12,18 +12,25 @@ import {
   AUTHORITY_LIMITS,
   adapterCommandSchema,
 } from "@drawstuff/collaboration/authority";
-import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  roomIdSchema,
+} from "@drawstuff/collaboration/protocol";
 import { signIdentityProof } from "@drawstuff/collaboration/room-token";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 import { RoomAuthority } from "../src/room-authority.ts";
 import { applyAuthorityEntry } from "../src/authority-entry.ts";
 import { RoomDelivery } from "../src/room-delivery.ts";
 import { AdapterClient } from "../src/adapter-client.ts";
-const IDENTITY_SECRET = "test-identity-secret-purpose-only-0001";
+import { TEST_IDENTITY_SECRET } from "./support/audit.ts";
+import {
+  defaultAdapterReply,
+  TEST_ADAPTER_URL,
+} from "./support/room-socket.ts";
+const IDENTITY_SECRET = TEST_IDENTITY_SECRET;
 const SERVICE_SECRET = "test-authority-secret-purpose-only-0001";
 const config: Env = {
   ...env,
-  COLLAB_ADAPTER_URL: "https://adapter.test/api/internal/collaboration/adapter",
+  COLLAB_ADAPTER_URL: TEST_ADAPTER_URL,
 };
 const owner: TrustedIdentity = {
   subject: "owner",
@@ -61,7 +68,7 @@ function proof(
     {
       v: 1,
       aud: "drawstuff-room-identity",
-      protocolVersion: 6,
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
       roomId: request.roomId,
       identity,
       jti: crypto.randomUUID(),
@@ -77,28 +84,9 @@ function mockAdapter() {
     .mockImplementation(async (_url, init) => {
       if (typeof init?.body !== "string")
         throw new Error("expected-json-command");
-      const command = adapterCommandSchema.parse(
-        JSON.parse(init.body) as unknown,
+      return defaultAdapterReply(
+        adapterCommandSchema.parse(JSON.parse(init.body) as unknown),
       );
-      if (command.action === "register")
-        return Response.json({
-          roomId: command.roomId,
-          operationId: command.operationId,
-          subject: command.identity.subject,
-          lifecycleVersion: command.identity.lifecycleVersion,
-          ...(command.targetSubject
-            ? { targetSubject: command.targetSubject, targetVersion: 2 }
-            : {}),
-        });
-      if (command.action === "create-parent")
-        return Response.json({
-          roomId: command.roomId,
-          createOperationId: command.createOperationId,
-        });
-      if (command.action === "project") return Response.json({ applied: true });
-      if (command.action === "fence")
-        return Response.json({ authorityEpoch: command.authorityEpoch });
-      throw new Error("unexpected-command");
     });
 }
 function post(body: unknown, secret = SERVICE_SECRET) {
@@ -112,9 +100,11 @@ function post(body: unknown, secret = SERVICE_SECRET) {
   });
 }
 describe("formal authority Gateway", () => {
-  it("persists owner revocation during adapter failure without granting offline access", async () => {
+  it("persists invitation removal during adapter failure without granting offline access", async () => {
     const f = fixture();
     const fetchSpy = mockAdapter();
+    const allowlist = (state: DurableObjectState) =>
+      state.storage.sql.exec("SELECT * FROM authority_allowlist").toArray();
     try {
       await runInDurableObject(f.stub, async (_instance, state) => {
         const a = new RoomAuthority(state.storage, f.roomId);
@@ -123,45 +113,42 @@ describe("formal authority Gateway", () => {
           { proof: proof(f.create), request: f.create },
           config,
         );
-        const grant: AuthorityRequest = {
+        const invite: AuthorityRequest = {
           v: 1,
           roomId: f.roomId,
           operationId: crypto.randomUUID(),
           deadline: Date.now() + 55_000,
-          action: "set-member-role",
-          subject: guest.subject,
+          action: "allow-email",
+          email: guest.email,
           role: "editor",
         };
         expect(
           await applyAuthorityEntry(
             a,
-            { proof: proof(grant), request: grant },
+            { proof: proof(invite), request: invite },
             config,
           ),
         ).toMatchObject({ ok: true });
         fetchSpy.mockRejectedValue(new Error("adapter-offline"));
         fetchSpy.mockClear();
-        const revoke: AuthorityRequest = {
+        const remove: AuthorityRequest = {
           v: 1,
           roomId: f.roomId,
           operationId: crypto.randomUUID(),
           deadline: Date.now() + 55_000,
-          action: "revoke-member",
-          subject: guest.subject,
+          action: "remove-email",
+          email: guest.email,
         };
         expect(
           await applyAuthorityEntry(
             a,
-            {
-              proof: proof(revoke, { ...guest, lifecycleVersion: 2 }),
-              request: revoke,
-            },
+            { proof: proof(remove, guest), request: remove },
             config,
           ),
         ).toMatchObject({ ok: false, error: "forbidden" });
         const result = await applyAuthorityEntry(
           a,
-          { proof: proof(revoke), request: revoke },
+          { proof: proof(remove), request: remove },
           config,
         );
         expect(result).toMatchObject({
@@ -171,35 +158,24 @@ describe("formal authority Gateway", () => {
         expect(
           await applyAuthorityEntry(
             a,
-            { proof: proof(revoke), request: revoke },
+            { proof: proof(remove), request: remove },
             config,
           ),
         ).toEqual(result);
-        expect(
-          state.storage.sql
-            .exec<{ revoked: number }>(
-              "SELECT revoked FROM authority_members WHERE subject='guest'",
-            )
-            .one().revoked,
-        ).toBe(1);
+        expect(allowlist(state)).toEqual([]);
+        // Removal skips registration entirely: it must work while the web adapter is down.
         expect(fetchSpy).not.toHaveBeenCalled();
         expect(
           await applyAuthorityEntry(
             a,
             {
-              proof: proof(grant),
-              request: { ...grant, operationId: crypto.randomUUID() },
+              proof: proof(invite),
+              request: { ...invite, operationId: crypto.randomUUID() },
             },
             config,
           ),
         ).toMatchObject({ ok: false, error: "unavailable" });
-        expect(
-          state.storage.sql
-            .exec<{ revoked: number }>(
-              "SELECT revoked FROM authority_members WHERE subject='guest'",
-            )
-            .one().revoked,
-        ).toBe(1);
+        expect(allowlist(state)).toEqual([]);
       });
     } finally {
       fetchSpy.mockRestore();
@@ -345,7 +321,6 @@ describe("registered Room authority entry", () => {
             headers: {
               Upgrade: "websocket",
               "x-drawstuff-internal-room-id": f.roomId,
-              "x-drawstuff-internal-auth-generation": "1",
             },
           }),
         );
@@ -409,9 +384,18 @@ describe("registered Room authority entry", () => {
       expect(a.state()).toBeUndefined();
     });
   });
-  it("refuses non-owner commands before target registration and uses the target's trusted version", async () => {
+  it("refuses non-owner commands before registration and binds result queries to their actor", async () => {
     const f = fixture();
     const fetchSpy = mockAdapter();
+    const request = <T extends { action: AuthorityRequest["action"] }>(
+      body: T,
+    ) => ({
+      v: 1 as const,
+      roomId: f.roomId,
+      operationId: crypto.randomUUID(),
+      deadline: Date.now() + 55_000,
+      ...body,
+    });
     try {
       await runInDurableObject(f.stub, async (_instance, state) => {
         const a = new RoomAuthority(state.storage, f.roomId);
@@ -420,47 +404,33 @@ describe("registered Room authority entry", () => {
           { proof: proof(f.create), request: f.create },
           config,
         );
-        const grant: AuthorityRequest = {
-          v: 1,
-          roomId: f.roomId,
-          operationId: crypto.randomUUID(),
-          deadline: Date.now() + 55_000,
-          action: "set-member-role",
-          subject: "guest",
-          role: "editor",
-        };
+        const invite: AuthorityRequest = request({
+          action: "allow-email" as const,
+          email: guest.email,
+          role: "editor" as const,
+        });
         const before = fetchSpy.mock.calls.length;
-        expect(
-          await applyAuthorityEntry(
-            a,
-            { proof: proof(grant, guest), request: grant },
-            config,
-          ),
-        ).toMatchObject({ ok: false, error: "forbidden" });
+        for (const forbidden of [
+          invite,
+          request({
+            action: "set-link-role" as const,
+            linkRole: "editor" as const,
+          }),
+          request({ action: "end-room" as const }),
+          // Only the owner may look at a room that is still initializing.
+          request({ action: "get-state" as const }),
+        ])
+          expect(
+            await applyAuthorityEntry(
+              a,
+              { proof: proof(forbidden, guest), request: forbidden },
+              config,
+            ),
+          ).toMatchObject({ ok: false, error: "forbidden" });
         expect(fetchSpy.mock.calls.length).toBe(before);
-        const keyCheck: AuthorityRequest = {
-          v: 1,
-          roomId: f.roomId,
-          operationId: crypto.randomUUID(),
-          deadline: Date.now() + 55_000,
-          action: "set-key-check",
-          expectedGeneration: 1,
-          keyCheck: Array.from({ length: KEYCHECK_CIPHERTEXT_BYTES }, () => 0),
-        };
-        expect(
-          await applyAuthorityEntry(
-            a,
-            { proof: proof(keyCheck), request: keyCheck },
-            config,
-          ),
-        ).toMatchObject({ ok: true });
-        const stateRequest: AuthorityRequest = {
-          v: 1,
-          roomId: f.roomId,
-          operationId: crypto.randomUUID(),
-          deadline: Date.now() + 55_000,
-          action: "get-state",
-        };
+        const stateRequest: AuthorityRequest = request({
+          action: "get-state" as const,
+        });
         expect(
           await applyAuthorityEntry(
             a,
@@ -469,50 +439,29 @@ describe("registered Room authority entry", () => {
           ),
         ).toMatchObject({
           ok: true,
-          result: {
-            state: "initializing",
-            authGeneration: 1,
-            keyCheck: keyCheck.keyCheck,
-          },
+          result: { state: "initializing", role: "owner", linkRole: "none" },
         });
-        const keyQuery: AuthorityRequest = {
-          v: 1,
-          roomId: f.roomId,
-          operationId: keyCheck.operationId,
-          deadline: Date.now() + 55_000,
-          action: "query",
+        expect(
+          await applyAuthorityEntry(
+            a,
+            { proof: proof(invite), request: invite },
+            config,
+          ),
+        ).toMatchObject({ ok: true, result: { status: "enforced" } });
+        const query: AuthorityRequest = {
+          ...request({ action: "query" as const }),
+          operationId: invite.operationId,
         };
         expect(
           await applyAuthorityEntry(
             a,
-            { proof: proof(keyQuery), request: keyQuery },
+            { proof: proof(query), request: query },
             config,
           ),
         ).toMatchObject({
           ok: true,
-          result: { operationId: keyCheck.operationId },
+          result: { operationId: invite.operationId, status: "enforced" },
         });
-        expect(
-          await applyAuthorityEntry(
-            a,
-            { proof: proof(grant), request: grant },
-            config,
-          ),
-        ).toMatchObject({ ok: true, result: { status: "pending" } });
-        expect(
-          state.storage.sql
-            .exec<{ lifecycle_version: number }>(
-              "SELECT lifecycle_version FROM authority_members WHERE subject='guest'",
-            )
-            .one().lifecycle_version,
-        ).toBe(2);
-        const query: AuthorityRequest = {
-          v: 1,
-          roomId: f.roomId,
-          operationId: grant.operationId,
-          deadline: Date.now() + 55_000,
-          action: "query",
-        };
         expect(
           await applyAuthorityEntry(
             a,
@@ -520,6 +469,12 @@ describe("registered Room authority entry", () => {
             config,
           ),
         ).toMatchObject({ ok: false });
+        // Inviting records no member row; only opening the room does.
+        expect(
+          state.storage.sql
+            .exec("SELECT * FROM authority_members WHERE subject='guest'")
+            .toArray(),
+        ).toEqual([]);
       });
     } finally {
       fetchSpy.mockRestore();

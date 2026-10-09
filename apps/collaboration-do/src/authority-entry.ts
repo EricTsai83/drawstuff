@@ -45,7 +45,7 @@ export async function applyAuthorityEntry(
     authority.authorizeRequest(identity, request);
     // Revocation only removes access. Persist it and its fence locally even when
     // registration/storage is unavailable; delivery keeps the result pending.
-    if (request.action === "revoke-member")
+    if (request.action === "remove-email")
       return {
         ok: true as const,
         result: await authority.apply({ ...request, actor: identity }),
@@ -62,9 +62,6 @@ export async function applyAuthorityEntry(
         ownerId: creating ? identity.subject : room!.owner,
         sceneId: creating ? request.sceneId : room!.scene_id,
         create: creating,
-        ...(request.action === "set-member-role"
-          ? { targetSubject: request.subject }
-          : {}),
       },
       registrationReceiptSchema,
       controller.signal,
@@ -73,13 +70,7 @@ export async function applyAuthorityEntry(
       registration.roomId !== authority.roomId ||
       registration.operationId !== request.operationId ||
       registration.subject !== identity.subject ||
-      registration.lifecycleVersion !== identity.lifecycleVersion ||
-      (request.action === "set-member-role" &&
-        (registration.targetSubject !== request.subject ||
-          !registration.targetVersion)) ||
-      (request.action !== "set-member-role" &&
-        (registration.targetSubject !== undefined ||
-          registration.targetVersion !== undefined))
+      registration.lifecycleVersion !== identity.lifecycleVersion
     )
       throw new Error("stale-proof");
     controller.signal.throwIfAborted();
@@ -114,13 +105,9 @@ export async function applyAuthorityEntry(
           sceneId: current.scene_id,
           label: current.label,
           linkRole: current.link_role,
-          authGeneration: current.auth_generation,
           authRevision: current.auth_revision,
           authorityEpoch: current.authority_epoch,
           initializationDeadline: current.initialization_deadline,
-          keyCheck: current.key_check
-            ? (JSON.parse(current.key_check) as unknown)
-            : null,
         }),
       };
     }
@@ -129,12 +116,6 @@ export async function applyAuthorityEntry(
       actor: identity,
       ...(request.action === "join"
         ? { registrationVersion: registration.lifecycleVersion }
-        : {}),
-      ...(request.action === "set-member-role"
-        ? { registrationVersion: registration.targetVersion }
-        : {}),
-      ...(request.action === "set-key-check"
-        ? { keyCheck: new Uint8Array(request.keyCheck) }
         : {}),
     });
     return { ok: true as const, result: await authority.apply(command) };

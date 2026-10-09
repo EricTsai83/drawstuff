@@ -1,6 +1,6 @@
 /** Hermetic CLI fixture only. Production entrypoint never imports this module. */
 import worker, {
-  CollaborationRoom,
+  CollaborationRoomV2,
   CollaborationLifecycle,
 } from "../../src/index.ts";
 import {
@@ -11,7 +11,6 @@ import {
 
 const originalFetch = globalThis.fetch;
 type StoredRoom = {
-  generation: number;
   epoch: number;
   state: string;
   revision: number;
@@ -21,7 +20,6 @@ type StoredRoom = {
     string,
     {
       excalidrawFileId: string;
-      cryptoVersion: number;
       byteLength: number;
       url: string;
     }
@@ -42,28 +40,19 @@ globalThis.fetch = async (input, init) => {
   const json = (value: unknown) => Response.json(value);
   if (command.action === "register") {
     if (freezes.has(command.identity.subject)) return json({ error: "frozen" });
-    const subjects = [
-      command.identity.subject,
-      ...(command.targetSubject ? [command.targetSubject] : []),
-    ];
-    for (const subject of subjects) {
-      const registered = registrations.get(subject) ?? new Set<string>();
-      registered.add(command.roomId);
-      registrations.set(subject, registered);
-    }
+    const registered =
+      registrations.get(command.identity.subject) ?? new Set<string>();
+    registered.add(command.roomId);
+    registrations.set(command.identity.subject, registered);
     return json({
       roomId: command.roomId,
       operationId: command.operationId,
       subject: command.identity.subject,
       lifecycleVersion: command.identity.lifecycleVersion,
-      ...(command.targetSubject
-        ? { targetSubject: command.targetSubject, targetVersion: 1 }
-        : {}),
     });
   }
   if (command.action === "create-parent") {
     rooms.set(command.roomId, {
-      generation: 1,
       epoch: 1,
       state: "initializing",
       revision: 0,
@@ -74,7 +63,8 @@ globalThis.fetch = async (input, init) => {
       createOperationId: command.createOperationId,
     });
   }
-  if (command.action === "project") return json({ applied: true });
+  if (command.action === "project" || command.action === "project-invite")
+    return json({ applied: true });
   if (command.action === "lifecycle-freeze") {
     freezes.set(command.command.target.subject, 2);
     return json({ version: 2 });
@@ -103,11 +93,7 @@ globalThis.fetch = async (input, init) => {
       return json(receipt);
     }
     const room = rooms.get(operation.roomId);
-    if (
-      room?.epoch !== operation.authorityEpoch ||
-      room.generation !== operation.authGeneration ||
-      room.state === "ended"
-    )
+    if (room?.epoch !== operation.authorityEpoch || room.state === "ended")
       return json({ status: "refused" });
     if (operation.asset) {
       const { utFileKey, ...asset } = operation.asset;
@@ -134,19 +120,12 @@ globalThis.fetch = async (input, init) => {
   if (command.action === "fence") {
     if (!room)
       rooms.set(command.roomId, {
-        generation: command.authGeneration,
         epoch: command.authorityEpoch,
         state: command.state,
         revision: 0,
         assets: new Map(),
       });
     else {
-      if (command.authGeneration > room.generation) {
-        room.assets.clear();
-        room.snapshot = undefined;
-        room.revision++;
-      }
-      room.generation = command.authGeneration;
       room.epoch = command.authorityEpoch;
       room.state = command.state;
     }
@@ -166,7 +145,6 @@ globalThis.fetch = async (input, init) => {
           ? [
               {
                 excalidrawFileId: asset.excalidrawFileId,
-                cryptoVersion: asset.cryptoVersion,
                 byteLength: asset.byteLength,
                 url: asset.url,
               },
@@ -186,7 +164,6 @@ globalThis.fetch = async (input, init) => {
   }
   const context = {
     roomId: command.roomId,
-    authGeneration: room.generation,
     authorityEpoch: room.epoch,
     revision: room.revision,
   };
@@ -200,7 +177,6 @@ globalThis.fetch = async (input, init) => {
       "content-type": "application/octet-stream",
       [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
         ...context,
-        cryptoVersion: 1,
         byteLength: room.snapshot.byteLength,
         checksum: room.checksum,
       }),
@@ -208,7 +184,7 @@ globalThis.fetch = async (input, init) => {
   });
 };
 
-class FixtureRoom extends CollaborationRoom {
+class FixtureRoom extends CollaborationRoomV2 {
   async advanceFixtureV1() {
     await this.alarm();
   }
@@ -219,7 +195,7 @@ class FixtureLifecycle extends CollaborationLifecycle {
   }
 }
 export {
-  FixtureRoom as CollaborationRoom,
+  FixtureRoom as CollaborationRoomV2,
   FixtureLifecycle as CollaborationLifecycle,
 };
 export default {

@@ -21,23 +21,29 @@ import {
   type TrustedIdentity,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  type SyncedElement,
+} from "@drawstuff/collaboration/protocol";
 import { signIdentityProof } from "@drawstuff/collaboration/room-token";
 import {
-  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  MIN_SNAPSHOT_SEALED_BYTES,
+  decodeCollaborationSnapshot,
+  encodeCollaborationSnapshot,
+  MAX_SNAPSHOT_BYTES,
 } from "@drawstuff/collaboration/snapshot";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 import {
   encodeRelayDataFrame,
-  parseRelayServerControl,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
 import {
-  openSocket,
+  envelope,
   expectClose,
+  joinRoom,
+  manage,
   settleRoomEvents,
   type OpenSocket,
 } from "./support/room-socket.ts";
+import { canvasFixture } from "./p0/canvas-fixture.ts";
 import { RoomAuthority } from "../src/room-authority.ts";
 import { SnapshotEntry } from "../src/snapshot-entry.ts";
 import { AdapterClient } from "../src/adapter-client.ts";
@@ -58,7 +64,19 @@ const config: Env = {
   ...env,
   COLLAB_ADAPTER_URL: "https://adapter.test/api/internal/collaboration/adapter",
 };
-const bytes = new Uint8Array(MIN_SNAPSHOT_SEALED_BYTES).fill(1);
+const elements: SyncedElement[] = [
+  {
+    id: "rectangle",
+    version: 1,
+    versionNonce: 1,
+    isDeleted: false,
+    type: "rectangle",
+    x: 0,
+    y: 0,
+    width: 10,
+    height: 10,
+  },
+];
 const digest = (body: Uint8Array) =>
   createHash("sha256").update(body).digest("hex");
 const restore: (() => Promise<void>)[] = [];
@@ -71,6 +89,10 @@ afterEach(async () => {
 });
 function fixture() {
   const roomId = roomIdSchema.parse(`snapshot-${crypto.randomUUID()}`);
+  const encoded = encodeCollaborationSnapshot({ roomId, elements });
+  if (!encoded.ok) throw new Error(encoded.error.code);
+  // The server stores the encoded snapshot as is; no envelope around it.
+  const bytes = encoded.bytes;
   const stub = env.COLLABORATION_ROOM.getByName(roomId);
   const command = {
     v: 1 as const,
@@ -84,11 +106,10 @@ function fixture() {
     operationId: crypto.randomUUID(),
     kind: "snapshot-put",
     authorityEpoch: 1,
-    authGeneration: 1,
     expectedRevision: 0,
     checksum: digest(bytes),
   };
-  return { roomId, stub, command, operation };
+  return { roomId, stub, command, operation, bytes };
 }
 function request(
   f: ReturnType<typeof fixture>,
@@ -102,7 +123,7 @@ function request(
     {
       v: 1,
       aud: "drawstuff-room-identity",
-      protocolVersion: 6,
+      protocolVersion: COLLABORATION_PROTOCOL_VERSION,
       roomId: f.roomId,
       identity,
       jti: crypto.randomUUID(),
@@ -148,19 +169,7 @@ async function create(
   });
   await a.confirmParent(f.command.operationId);
   if (ready) {
-    await a.apply({
-      ...f.command,
-      operationId: crypto.randomUUID(),
-      action: "set-key-check",
-      expectedGeneration: 1,
-      keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
-    });
-    const manifest = {
-      authGeneration: 1,
-      revision: 1,
-      checksum: digest(bytes),
-      assetIds: [],
-    };
+    const manifest = { revision: 1, checksum: digest(f.bytes), assetIds: [] };
     const complete = {
       ...f.command,
       operationId: crypto.randomUUID(),
@@ -218,17 +227,15 @@ function snapshot(
     ReturnType<typeof adapterCommandSchema.parse>,
     { action: "read-snapshot" }
   >,
-  body = bytes,
+  body: Uint8Array,
 ) {
   return new Response(body, {
     headers: {
       "content-type": "application/octet-stream",
       [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
         roomId: command.roomId,
-        authGeneration: command.authGeneration,
         authorityEpoch: command.authorityEpoch,
         revision: 1,
-        cryptoVersion: 1,
         byteLength: body.byteLength,
         checksum: digest(body),
       }),
@@ -262,7 +269,18 @@ function gate() {
   return { promise, release };
 }
 
-describe("formal binary snapshot entry", () => {
+/** The guest is admitted only by general access, so closing it revokes them. */
+function closeLink(a: RoomAuthority, f: ReturnType<typeof fixture>) {
+  return a.apply({
+    ...f.command,
+    operationId: crypto.randomUUID(),
+    deadline: Date.now() + 55_000,
+    action: "set-link-role",
+    linkRole: "none",
+  });
+}
+
+describe("plain snapshot entry", () => {
   it("keeps binary receipts and quotas intact while exposing numeric spans only to an authorized probe", async () => {
     const f = fixture();
     adapter((command, init) => {
@@ -281,14 +299,14 @@ describe("formal binary snapshot entry", () => {
           },
         );
       if (command.action === "read-snapshot") {
-        const response = snapshot(command);
+        const response = snapshot(command, f.bytes);
         if (measured) response.headers.set("server-timing", "storage;dur=4");
         return response;
       }
       throw new Error("unexpected-command");
     });
     await configure(f);
-    const write = request(f, "write", bytes);
+    const write = request(f, "write", f.bytes);
     write.headers.set(PERFORMANCE_PROBE_HEADER, "1");
     const written = await SELF.fetch(write);
     expect(await written.json()).toEqual({ status: "written", revision: 1 });
@@ -312,10 +330,10 @@ describe("formal binary snapshot entry", () => {
       readServerTimings(measured.headers.get("server-timing"))
         .readSnapshotStorage,
     ).toBe(4);
-    expect(new Uint8Array(await measured.arrayBuffer())).toEqual(bytes);
+    expect(new Uint8Array(await measured.arrayBuffer())).toEqual(f.bytes);
     const normal = await SELF.fetch(request(f, "read"));
     expect(normal.headers.get("server-timing")).toBeNull();
-    expect(new Uint8Array(await normal.arrayBuffer())).toEqual(bytes);
+    expect(new Uint8Array(await normal.arrayBuffer())).toEqual(f.bytes);
     const refused = request(f, "read");
     refused.headers.set(PERFORMANCE_PROBE_HEADER, "1");
     refused.headers.set("authorization", "Bearer wrong");
@@ -323,9 +341,43 @@ describe("formal binary snapshot entry", () => {
     expect(denied.status).toBe(401);
     expect(denied.headers.get("server-timing")).toBeNull();
   });
-  it("round-trips the maximum legal ciphertext through Gateway, streaming RPC and adapter, retaining metadata only", async () => {
+  it("stores and returns the exact encoded snapshot bytes", async () => {
     const f = fixture();
-    const maximum = new Uint8Array(MAX_SNAPSHOT_CIPHERTEXT_BYTES).fill(1);
+    let stored: Uint8Array | undefined;
+    adapter((command, init) => {
+      if (command.action === "write") {
+        stored = new Uint8Array(init.body as Uint8Array);
+        return Response.json({ status: "written", revision: 1 });
+      }
+      if (command.action === "read-snapshot") {
+        if (!stored) throw new Error("nothing-stored");
+        return snapshot(command, stored);
+      }
+      throw new Error("unexpected-command");
+    });
+    await configure(f);
+    const written = await SELF.fetch(request(f, "write", f.bytes));
+    expect(await written.json()).toEqual({ status: "written", revision: 1 });
+    expect(stored).toEqual(f.bytes);
+    const read = await SELF.fetch(request(f, "read"));
+    expect(read.status).toBe(200);
+    expect(
+      JSON.parse(read.headers.get(SNAPSHOT_RECEIPT_HEADER)!) as unknown,
+    ).toEqual({
+      roomId: f.roomId,
+      authorityEpoch: 1,
+      revision: 1,
+      byteLength: f.bytes.byteLength,
+      checksum: digest(f.bytes),
+    });
+    const body = new Uint8Array(await read.arrayBuffer());
+    expect(body).toEqual(f.bytes);
+    const decoded = decodeCollaborationSnapshot(body, { roomId: f.roomId });
+    expect(decoded.ok && decoded.snapshot.elements).toEqual(elements);
+  });
+  it("round-trips the maximum legal snapshot through Gateway, streaming RPC and adapter, retaining metadata only", async () => {
+    const f = fixture();
+    const maximum = canvasFixture(f.roomId, MAX_SNAPSHOT_BYTES);
     f.operation.checksum = digest(maximum);
     let writes = 0;
     adapter((command, init) => {
@@ -356,7 +408,7 @@ describe("formal binary snapshot entry", () => {
     const oversize = request(
       f,
       "write",
-      new Uint8Array(MAX_SNAPSHOT_CIPHERTEXT_BYTES + 1),
+      new Uint8Array(MAX_SNAPSHOT_BYTES + 1),
     );
     oversize.headers.set("content-length", "1");
     expect((await SELF.fetch(oversize)).status).toBe(413);
@@ -376,13 +428,41 @@ describe("formal binary snapshot entry", () => {
       expect(rows[0]!.request).not.toContain("proof");
     });
   });
+  it("refuses an empty or checksum-mismatched body as invalid-body without writing", async () => {
+    const f = fixture();
+    let writes = 0;
+    adapter(() => {
+      writes++;
+      return Response.json({ status: "written", revision: 1 });
+    });
+    await runInDurableObject(f.stub, async (_instance, state) => {
+      const a = new RoomAuthority(state.storage, f.roomId);
+      await create(a, f);
+      const entry = new SnapshotEntry(a, config);
+      const other = encodeCollaborationSnapshot({
+        roomId: f.roomId,
+        elements: [],
+      });
+      if (!other.ok) throw new Error(other.error.code);
+      // A valid snapshot is still refused when it is not the checksummed one.
+      for (const body of [undefined, new Uint8Array(), other.bytes]) {
+        const refused = await entry.handle(request(f, "write", body));
+        expect(refused.status).toBe(400);
+        expect(await refused.json()).toEqual({ error: "invalid-body" });
+      }
+      expect(writes).toBe(0);
+      expect(a.contentResult(f.operation.operationId)).toEqual({
+        status: "pending",
+      });
+    });
+  });
   it("rejects service/identity forgeries and oversized metadata before routing", async () => {
     const f = fixture();
     const before = (await listDurableObjectIds(env.COLLABORATION_ROOM)).length;
-    const bad = request(f, "write", bytes);
+    const bad = request(f, "write", f.bytes);
     bad.headers.set("authorization", "Bearer wrong");
     expect((await SELF.fetch(bad)).status).toBe(401);
-    const forged = request(f, "write", bytes);
+    const forged = request(f, "write", f.bytes);
     const input = JSON.parse(forged.headers.get(SNAPSHOT_REQUEST_HEADER)!) as {
       proof: string;
       request: { operation: { roomId: string } };
@@ -390,7 +470,7 @@ describe("formal binary snapshot entry", () => {
     input.request.operation.roomId = "another-room";
     forged.headers.set(SNAPSHOT_REQUEST_HEADER, JSON.stringify(input));
     expect((await SELF.fetch(forged)).status).toBe(401);
-    const actor = request(f, "write", bytes);
+    const actor = request(f, "write", f.bytes);
     const json = JSON.parse(actor.headers.get(SNAPSHOT_REQUEST_HEADER)!) as {
       request: { operation: Record<string, unknown> };
     };
@@ -416,13 +496,15 @@ describe("formal binary snapshot entry", () => {
         const oversize = request(
           f,
           "write",
-          new Uint8Array(MAX_SNAPSHOT_CIPHERTEXT_BYTES + 1),
+          new Uint8Array(MAX_SNAPSHOT_BYTES + 1),
         );
         oversize.headers.set("content-length", "1");
         expect((await entry.handle(oversize)).status).toBe(413);
       }
       expect(writes).toBe(0);
-      expect((await entry.handle(request(f, "write", bytes))).status).toBe(200);
+      expect((await entry.handle(request(f, "write", f.bytes))).status).toBe(
+        200,
+      );
     });
   });
   it("leaves a lost write reply pending, then recovers the original receipt after eviction without rewriting", async () => {
@@ -442,8 +524,11 @@ describe("formal binary snapshot entry", () => {
       const a = new RoomAuthority(state.storage, f.roomId);
       await create(a, f);
       expect(
-        (await new SnapshotEntry(a, config).handle(request(f, "write", bytes)))
-          .status,
+        (
+          await new SnapshotEntry(a, config).handle(
+            request(f, "write", f.bytes),
+          )
+        ).status,
       ).toBe(503);
       expect(a.queryContent(f.operation)).toEqual({ status: "pending" });
       expect(await state.storage.getAlarm()).not.toBeNull();
@@ -490,7 +575,7 @@ describe("formal binary snapshot entry", () => {
         status: "cancelled",
       });
       expect(
-        await (await entry.handle(request(f, "write", bytes))).json(),
+        await (await entry.handle(request(f, "write", f.bytes))).json(),
       ).toEqual({ status: "cancelled" });
     });
   });
@@ -502,14 +587,16 @@ describe("formal binary snapshot entry", () => {
       await create(a, f);
       const entry = new SnapshotEntry(a, config);
       expect(
-        (await entry.handle(request(f, "write", bytes, guest))).status,
+        (await entry.handle(request(f, "write", f.bytes, guest))).status,
       ).toBe(403);
       await a.apply({
         ...f.command,
         operationId: crypto.randomUUID(),
         action: "cancel-initialization",
       });
-      expect((await entry.handle(request(f, "write", bytes))).status).toBe(403);
+      expect((await entry.handle(request(f, "write", f.bytes))).status).toBe(
+        403,
+      );
     });
     const ready = fixture();
     await runInDurableObject(ready.stub, async (_instance, state) => {
@@ -533,7 +620,8 @@ describe("formal binary snapshot entry", () => {
         linkRole: "viewer",
       });
       expect(
-        (await entry.handle(request(ready, "write", bytes, guest))).status,
+        (await entry.handle(request(ready, "write", ready.bytes, guest)))
+          .status,
       ).toBe(403);
       vi.mocked(globalThis.fetch).mockResolvedValueOnce(
         Response.json({
@@ -543,9 +631,9 @@ describe("formal binary snapshot entry", () => {
           lifecycleVersion: 2,
         }),
       );
-      expect((await entry.handle(request(ready, "write", bytes))).status).toBe(
-        409,
-      );
+      expect(
+        (await entry.handle(request(ready, "write", ready.bytes))).status,
+      ).toBe(409);
       expect(a.queryContent(ready.operation)).toBeUndefined();
     });
   });
@@ -558,7 +646,7 @@ describe("formal binary snapshot entry", () => {
       if (command.action === "read-snapshot") {
         if (++arrivals === 2) entered.release();
         await unblock.promise;
-        return snapshot(command);
+        return snapshot(command, f.bytes);
       }
       if (command.action === "query")
         return Response.json({ status: "pending" });
@@ -576,12 +664,7 @@ describe("formal binary snapshot entry", () => {
       expect(await (await entry.handle(request(f, "query"))).json()).toEqual({
         status: "pending",
       });
-      await a.apply({
-        ...f.command,
-        operationId: crypto.randomUUID(),
-        action: "revoke-member",
-        subject: guest.subject,
-      });
+      await closeLink(a, f);
       unblock.release();
       expect((await first).status).toBe(403);
       expect((await second).status).toBe(403);
@@ -592,7 +675,7 @@ describe("formal binary snapshot entry", () => {
   });
   it("holds read quota until cancellation and rechecks revocation before later response chunks", async () => {
     const f = fixture();
-    const payload = new Uint8Array(200_000).fill(1);
+    const payload = canvasFixture(f.roomId, 200_000);
     adapter((command) => {
       if (command.action === "read-snapshot") return snapshot(command, payload);
       throw new Error("unexpected-command");
@@ -609,12 +692,7 @@ describe("formal binary snapshot entry", () => {
         first.body!.getReader() as ReadableStreamDefaultReader<Uint8Array>;
       let delivered = (await reader.read()).value!.byteLength;
       expect(delivered).toBeGreaterThan(0);
-      await a.apply({
-        ...f.command,
-        operationId: crypto.randomUUID(),
-        action: "revoke-member",
-        subject: guest.subject,
-      });
+      await closeLink(a, f);
       // Bytes already enqueued before revocation cannot be recalled.
       let failure: unknown;
       try {
@@ -634,7 +712,37 @@ describe("formal binary snapshot entry", () => {
       await next.body!.cancel();
     });
   });
-  it("keeps initialization blocked until an acknowledged binary snapshot and verified manifest become ready", async () => {
+  it("refuses a read whose authority epoch moved while the adapter answered", async () => {
+    const f = fixture();
+    let move: (() => Promise<unknown>) | undefined;
+    adapter(async (command) => {
+      if (command.action !== "read-snapshot")
+        throw new Error("unexpected-command");
+      await move?.();
+      return snapshot(command, f.bytes);
+    });
+    await runInDurableObject(f.stub, async (_instance, state) => {
+      const a = new RoomAuthority(state.storage, f.roomId);
+      await create(a, f, true);
+      const entry = new SnapshotEntry(a, config);
+      const epoch = a.state()!.authority_epoch;
+      // The owner keeps access; only the fence advances.
+      move = () =>
+        a.apply({
+          ...f.command,
+          operationId: crypto.randomUUID(),
+          deadline: Date.now() + 55_000,
+          action: "set-link-role",
+          linkRole: "viewer",
+        });
+      const read = await entry.handle(request(f, "read"));
+      expect(a.state()!.authority_epoch).toBe(epoch + 1);
+      expect(read.status).toBe(409);
+      expect(await read.json()).toEqual({ error: "epoch-mismatch" });
+      expect(read.headers.has(SNAPSHOT_RECEIPT_HEADER)).toBe(false);
+    });
+  });
+  it("keeps initialization blocked until an acknowledged snapshot and verified manifest become ready", async () => {
     const f = fixture();
     adapter((command) => {
       if (command.action === "write")
@@ -653,20 +761,12 @@ describe("formal binary snapshot entry", () => {
         (await entry.handle(request(f, "read", undefined, guest))).status,
       ).toBe(403);
       expect(
-        await (await entry.handle(request(f, "write", bytes))).json(),
+        await (await entry.handle(request(f, "write", f.bytes))).json(),
       ).toEqual({ status: "written", revision: 1 });
-      await a.apply({
-        ...f.command,
-        operationId: crypto.randomUUID(),
-        action: "set-key-check",
-        expectedGeneration: 1,
-        keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
-      });
       const operationId = crypto.randomUUID();
       const manifest = {
-        authGeneration: 1,
         revision: 1,
-        checksum: digest(bytes),
+        checksum: digest(f.bytes),
         assetIds: [],
       };
       await a.apply({
@@ -689,7 +789,7 @@ describe("formal binary snapshot entry", () => {
       expect(a.role(guest)).toBe("editor");
     });
   });
-  it("keeps actual WebSocket fanout and management live while a binary adapter read stalls", async () => {
+  it("keeps actual WebSocket fanout and management live while an adapter read stalls", async () => {
     const f = fixture();
     let entered = false;
     let unblocked = false;
@@ -698,38 +798,19 @@ describe("formal binary snapshot entry", () => {
         entered = true;
         while (!unblocked)
           await new Promise((resolve) => setTimeout(resolve, 10));
-        return snapshot(command);
+        return snapshot(command, f.bytes);
       }
-      if (command.action === "project") return Response.json({ applied: true });
+      if (command.action === "project" || command.action === "project-invite")
+        return Response.json({ applied: true });
       if (command.action === "fence")
         return Response.json({ authorityEpoch: command.authorityEpoch });
       throw new Error("unexpected-command");
     });
     await configure(f, true);
-    const connect = async (identity: TrustedIdentity) => {
-      const socket = await openSocket(f.roomId, 1, true);
-      sockets.push(socket);
-      const envelope = JSON.parse(
-        request(f, "read", undefined, identity).headers.get(
-          SNAPSHOT_REQUEST_HEADER,
-        )!,
-      ) as { proof: string };
-      socket.connection.send(
-        JSON.stringify({
-          control: "join",
-          protocolVersion: 6,
-          roomId: f.roomId,
-          token: envelope.proof,
-        }),
-      );
-      const notice = await socket.connection.next();
-      expect(notice.kind).toBe("text");
-      if (notice.kind === "text")
-        expect(parseRelayServerControl(notice.text)?.control).toBe("joined");
-      return socket;
-    };
-    const sender = await connect(owner);
-    const receiver = await connect(guest);
+    const sender = await joinRoom(f.roomId, owner);
+    sockets.push(sender);
+    const receiver = await joinRoom(f.roomId, guest);
+    sockets.push(receiver);
     const slow = SELF.fetch(request(f, "read", undefined, guest));
     try {
       const deadline = Date.now() + 5_000;
@@ -750,28 +831,10 @@ describe("formal binary snapshot entry", () => {
         if (event.kind === "close") throw new Error("unexpected-close");
       }
       expect(delivered).toBe(true);
-      const proof = (
-        JSON.parse(
-          request(f, "read").headers.get(SNAPSHOT_REQUEST_HEADER)!,
-        ) as { proof: string }
-      ).proof;
-      const revoke = await SELF.fetch("https://gateway.test/v1/authority", {
-        method: "POST",
-        headers: {
-          authorization: `Bearer ${config.COLLAB_AUTHORITY_SECRET}`,
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          proof,
-          request: {
-            v: 1,
-            roomId: f.roomId,
-            operationId: crypto.randomUUID(),
-            deadline: Date.now() + 55_000,
-            action: "revoke-member",
-            subject: guest.subject,
-          },
-        }),
+      const revoke = await manage(f.roomId, owner, {
+        ...envelope(f.roomId),
+        action: "set-link-role",
+        linkRole: "none",
       });
       expect(revoke.status).toBe(200);
       await expectClose(
@@ -808,13 +871,8 @@ describe("formal binary snapshot entry", () => {
         request(f, "write", stream, guest),
       );
       await entered.promise;
-      await a.apply({
-        ...f.command,
-        operationId: crypto.randomUUID(),
-        action: "revoke-member",
-        subject: guest.subject,
-      });
-      bodyController.enqueue(bytes.slice());
+      await closeLink(a, f);
+      bodyController.enqueue(f.bytes.slice());
       bodyController.close();
       expect((await response).status).toBe(403);
       expect(writes).toBe(0);
@@ -826,9 +884,9 @@ describe("formal binary snapshot entry", () => {
     adapter((command) => {
       if (command.action !== "read-snapshot")
         throw new Error("unexpected-command");
-      const response = snapshot(command);
+      const response = snapshot(command, f.bytes);
       if (mode === "checksum")
-        return new Response(new Uint8Array(bytes.length).fill(2), {
+        return new Response(new Uint8Array(f.bytes.length).fill(2), {
           headers: response.headers,
         });
       if (mode === "identity") {
@@ -839,7 +897,7 @@ describe("formal binary snapshot entry", () => {
         response.headers.set(SNAPSHOT_RECEIPT_HEADER, JSON.stringify(receipt));
         return response;
       }
-      return new Response(new Uint8Array(MAX_SNAPSHOT_CIPHERTEXT_BYTES + 1), {
+      return new Response(new Uint8Array(MAX_SNAPSHOT_BYTES + 1), {
         headers: response.headers,
       });
     });
@@ -874,7 +932,9 @@ describe("formal binary snapshot entry", () => {
       expect((await entry.handle(request(f, "read"))).status).toBe(409);
       expect(calls).not.toHaveBeenCalled();
       await a.confirmParent(f.command.operationId);
-      expect((await entry.handle(request(f, "write", bytes))).status).toBe(503);
+      expect((await entry.handle(request(f, "write", f.bytes))).status).toBe(
+        503,
+      );
       expect(a.contentResult(f.operation.operationId)).toEqual({
         status: "pending",
       });
@@ -899,7 +959,6 @@ describe("formal binary snapshot entry", () => {
           headers: {
             [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
               roomId: f.roomId,
-              authGeneration: command.authGeneration,
               authorityEpoch: command.authorityEpoch,
               revision: 2,
             }),
@@ -917,12 +976,7 @@ describe("formal binary snapshot entry", () => {
         JSON.parse(missing.headers.get(SNAPSHOT_RECEIPT_HEADER)!) as unknown,
       ).toMatchObject({ revision: 2 });
       revoke = async () => {
-        await a.apply({
-          ...f.command,
-          operationId: crypto.randomUUID(),
-          action: "revoke-member",
-          subject: guest.subject,
-        });
+        await closeLink(a, f);
       };
       const late = await entry.handle(request(f, "read", undefined, guest));
       expect(late.status).toBe(403);

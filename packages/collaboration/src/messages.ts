@@ -5,7 +5,7 @@ import { z } from "zod";
  * from the Drawstuff scene document version (currently V4): documents version
  * persisted payloads, this versions transport messages. Durable formats
  * (snapshots, assets) are decoupled from it, so bumping it never
- * affects stored ciphertext.
+ * affects stored data.
  *
  * v2: removed `senderClientId` — collaboration identity is the
  * relay-assigned `peerId` only.
@@ -20,7 +20,9 @@ import { z } from "zod";
  */
 // v5 adds encrypted persistence requests and advisory durable receipts.
 // v6 separates stable room authority identity from crypto generation and removes room expiry.
-export const COLLABORATION_PROTOCOL_VERSION = 6;
+// v7 drops end-to-end encryption: data frames carry encoded messages, and
+// durable receipts no longer name a crypto generation.
+export const COLLABORATION_PROTOCOL_VERSION = 7;
 
 /**
  * Hard cap applied to raw encoded bytes before any JSON parsing. Messages
@@ -42,8 +44,8 @@ export const MAX_PRESENCE_MESSAGE_BYTES = 16_384;
 export type MessageChannel = "scene" | "presence";
 
 /**
- * The single channel → plaintext-byte-budget mapping. Every other budget in
- * the protocol (encode/decode caps, sealed-frame ceilings, relay frame caps)
+ * The single channel → byte-budget mapping. Every other budget in the
+ * protocol (encode/decode caps, relay frame caps)
  * derives from this one, so a budget change cannot leave a stale copy behind.
  */
 export function maxMessageBytesFor(channel: MessageChannel): number {
@@ -201,7 +203,6 @@ const snapshotControlMessageSchema = z.strictObject({
     z.strictObject({
       kind: z.literal("persisted"),
       captureId: z.string().regex(ID_PATTERN),
-      authGeneration: z.int().positive(),
       revision: z.int().positive(),
       checksum: z.string().regex(/^[0-9a-f]{64}$/),
     }),

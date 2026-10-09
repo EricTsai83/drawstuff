@@ -6,12 +6,9 @@ import {
 import { describe, expect, it } from "vitest";
 import { canvasFixture } from "./canvas-fixture.ts";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
-  deriveSnapshotKey,
-  MAX_SNAPSHOT_PLAINTEXT_BYTES,
-  openCollaborationSnapshot,
-  sealCollaborationSnapshot,
+  decodeCollaborationSnapshot,
+  MAX_SNAPSHOT_BYTES,
 } from "@drawstuff/collaboration/snapshot";
 import { checksum, MAX_BINARY_BYTES, NORMAL_QUEUE_LIMIT } from "./contracts.ts";
 
@@ -193,40 +190,20 @@ describe("P0 real PostgreSQL ordering through workerd", () => {
     });
   });
 
-  it("the maximum sealed binary snapshot round-trips and decrypts without DO payload storage", async () => {
+  it("the maximum plain snapshot round-trips byte for byte without DO payload storage", async () => {
     const roomId = roomIdSchema.parse(`p0-${crypto.randomUUID()}`);
-    const key = await deriveSnapshotKey({
-      roomKey: generateRoomKey(),
-      roomId,
-      authGeneration: 1,
-    });
-    const plaintext = canvasFixture(roomId, MAX_SNAPSHOT_PLAINTEXT_BYTES);
-    const sealed = await sealCollaborationSnapshot({
-      key,
-      plaintext,
-      roomId,
-      authGeneration: 1,
-      revision: 1,
-    });
-    if (!sealed.ok) throw new Error("fixture encryption failed");
-    expect(sealed.ciphertext.length).toBe(MAX_BINARY_BYTES);
-    const operation = await fresh({ roomId }, sealed.ciphertext);
-    expect(await result(call("/write", operation, sealed.ciphertext))).toEqual({
+    const bytes = canvasFixture(roomId, MAX_SNAPSHOT_BYTES);
+    expect(bytes.length).toBe(MAX_BINARY_BYTES);
+    const operation = await fresh({ roomId }, bytes);
+    expect(await result(call("/write", operation, bytes))).toEqual({
       status: "written",
       revision: 1,
     });
     const response = await call("/read", operation);
-    const ciphertext = new Uint8Array(await response.arrayBuffer());
-    expect(await checksum(ciphertext)).toBe(operation.checksum);
-    const opened = await openCollaborationSnapshot({
-      key,
-      ciphertext,
-      roomId,
-      authGeneration: 1,
-      revision: 1,
-    });
-    if (!opened.ok) throw new Error("fixture decryption failed");
-    expect(await checksum(opened.plaintext)).toBe(await checksum(plaintext));
+    const stored = new Uint8Array(await response.arrayBuffer());
+    expect(await checksum(stored)).toBe(operation.checksum);
+    expect(stored).toEqual(bytes);
+    expect(decodeCollaborationSnapshot(stored, { roomId }).ok).toBe(true);
     const rows = await runInDurableObject(
       bindings.P0_ROOM.getByName(roomId),
       (_instance, state) =>

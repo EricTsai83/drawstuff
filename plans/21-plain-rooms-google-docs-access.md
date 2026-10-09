@@ -1,6 +1,6 @@
 # 21 — 共編房間改為不加密，存取改為 Google 文件模式
 
-- 狀態：§2 全部確認（2026-10-10），尚未開始實作；於 `plan-21` 分支開發，完成後一次合併（見 §8）。
+- 狀態：§2 全部確認（2026-10-10）；第 1 批（套件與 DO）實作中，於 `plan-21` 分支開發，完成後一次合併（見 §8）。批次之間依擁有者指示先不跑檢查，最後一批一次驗證。
 - 執行方式：擁有者決定以 `claude-implement-with-gpt61-sol-review` 流程實作，至少第 1 批（存取規則）必須經獨立審查；在新的對話從 §8 第 1 批開始。
 - 取代：18C 剩餘驗收、19（服務端保管金鑰）、20（passkey 恢復端對端加密）。三份 plan 已於 2026-10-10 刪除（見 git history）；18C、19 已上線的程式與文件由本 plan 改寫。
 - 前置：[授權契約](../docs/architecture/collaboration-authority.md)、[共編儲存契約](../docs/architecture/collaboration-storage.md)、[威脅模型](../docs/architecture/collaboration-threat-model.md)、[ADR-0005](../docs/adr/0005-public-collaboration-assets.md)。
@@ -108,6 +108,24 @@ web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批�
 3. **Web 前端**：拿掉金鑰流程與畫面、分享對話框與列表兩區、沒有權限畫面、文案。
 4. **資料清除與部署**（§7）。
 5. **文件**（§10），改寫文件中 18C／19 的現況描述。
+
+### 第 1 批實作決定（2026-10-10）
+
+- **舊 join-token 路徑整條移除**（擁有者決定「一次改到位」）：join／control token、`gen` claim、`/generations/` 路由、v2/v3 attachment、`applyControlV1`、`revocation_cutoffs`、P3 切換用的 maintenance worker 與腳本都拿掉；`protocol-conformance` 改成走 identity proof＋authority 房間（harness：建房、邀請、移除邀請、結束房間）。
+- **DO class**：新 class `CollaborationRoomV2`，舊 `CollaborationRoom` 在 `exports` 以 `state: "deleted"` tombstone 刪除；`CollaborationLifecycle` 不動（帳號退場的 `revoke-member` lifecycle 動作照舊，與已刪除的房間指令無關）。
+- **協定版本 7**：資料框是明文編碼訊息；identity proof 的 `protocolVersion` 也是 7。
+- **角色改變**：仍有存取權但計算出的角色不同時，連線以新的關閉碼 `roleChanged`（4015，client 視為暫時性、會重連拿新角色）關閉；失去存取權才用 `membershipRevoked`。
+- **fence**：只在可能收回權限時 fence——一般存取權收窄、編輯邀請降為檢視、移除邀請、離開、結束房間。
+- **離開房間（`leave`）**：刪除自己的邀請列與開啟紀錄；若一般存取權仍開放，之後仍可用連結進入。同一個指令也用來實作 D8（「透過連結開啟過的」手動移除）。
+- **列表投影**：以帳號為鍵的 `projection` 事件加上 `access`（`owned`／`invited`／`link`），失去存取權、離開、房間結束時為 tombstone；新增以正規化 email 為鍵的 `invite-projection` 事件（adapter 指令 `project-invite`），讓尚未開啟過的受邀房間也能出現在列表。第 2 批在 Neon 建對應的 email 投影表，列表查詢合併兩者並以 roomId 去重。
+- **移除邀請不需 adapter 註冊**：與舊 `revoke-member` 相同，web 暫時不可用時仍能收回權限。
+- **不留下計費殘留**（擁有者 2026-10-10 追加）：
+  - 房間 DO 的 durable 工作從第一次排程起 24 小時仍未送達就放棄（log `authority.work_abandoned`），不再無限每分鐘 alarm。`CollaborationLifecycle` 的退場工作不放棄、持續重試：帳號／場景退場必須完成資料刪除（Codex review pass 2）。
+  - 房間結束且投影、fence、cleanup 都已送達（或放棄）、沒有連線時，DO `deleteAll()` 並清掉 alarm（log `room.storage_released`）；從未建立成功的房間（建房註冊失敗、對不存在房間的請求）也不留 schema。
+  - 放棄工作時把本地紀錄收成終態（內容收據標 `refused`、等 fence 的管理結果補 `terminal_at`），不聲稱遠端已完成；釋放儲存前等進行中的 RPC 結束；佇列滿時被刪鍵的 tombstone 記在 backlog 表由 repair 補送（Codex review pass 1）。
+  - 釋放後遲到的 socket close 事件若重建 schema，排程結束時會再釋放（Codex review pass 2）。
+  - 因此 DO 不再保留「已結束」墓碑：**第 2 批必須確認 web 建房時拒絕已存在（含已結束）的 roomId**，防止同一 roomId 被重建。
+  - **待第 2 批處理**：`CollaborationLifecycle` 完成的退場紀錄目前永久保留；需與 web 端查詢方式一起改為完成後一段時間釋放。Neon／UploadThing 的房間資料在房間結束 cleanup 時刪除，第 2 批確認刪得乾淨。
 
 ## 9. 驗收矩陣
 

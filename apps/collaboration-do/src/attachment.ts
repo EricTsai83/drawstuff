@@ -2,11 +2,7 @@ import { z } from "zod";
 import { trustedIdentitySchema } from "@drawstuff/collaboration/authority";
 
 import { peerIdSchema, roomIdSchema } from "@drawstuff/collaboration/protocol";
-import {
-  roomAuthGenerationSchema,
-  roomAuthRevisionSchema,
-  roomRoleSchema,
-} from "@drawstuff/collaboration/room-auth";
+import { roomRoleSchema } from "@drawstuff/collaboration/room-auth";
 
 /**
  * Versioned per-socket attachment: the only connection state that survives
@@ -15,40 +11,46 @@ import {
  * this value; any in-memory map is a per-event cache, never authority.
  *
  * Deliberately excluded, and pinned by `roomSocketAttachmentKeys` below: the
- * join token, room keys, ciphertext, presence profiles and scene data. The
- * attachment is duplicated into every socket's V8-serialized storage, so it
- * must carry authorization *results*, never secrets or payloads.
+ * identity proof, presence profiles and scene data. The attachment is
+ * duplicated into every socket's V8-serialized storage, so it must carry
+ * authorization *results*, never secrets or payloads.
  *
  * Size contract: `serializeAttachment()` persists the whole value on every
  * write and the platform caps it at 2 KiB. `tests/attachment.test.ts` proves
  * every variant serialized with maximum-size field values stays far below
  * that cap, so the limit can never surface as a runtime error.
+ *
+ * Attachments are versioned as a whole (`v`), and an unknown version fails
+ * closed: after a code rollback or a corrupted write the socket is closed
+ * with `internalError` rather than interpreted by guesswork.
  */
 
 const epochMillisSchema = z.int().nonnegative();
 
 /** Accepted socket that has not presented a valid join control yet. */
 const pendingAttachmentSchema = z.strictObject({
-  v: z.literal(2),
+  v: z.literal(4),
   state: z.literal("pending"),
   acceptedAt: epochMillisSchema,
   roomId: roomIdSchema,
-  authGeneration: roomAuthGenerationSchema,
 });
 
 /** Authorized member; the fields the room runtime needs per socket. */
 const joinedAttachmentSchema = z.strictObject({
-  v: z.literal(2),
+  v: z.literal(4),
   state: z.literal("joined"),
   peerId: peerIdSchema,
-  /** Authenticated account subject from the verified join token or identity proof. */
-  subject: z.string().min(1).max(128),
+  /** Authenticated account identity from the verified identity proof. */
+  subject: trustedIdentitySchema.shape.subject,
+  email: trustedIdentitySchema.shape.email,
+  lifecycleVersion: trustedIdentitySchema.shape.lifecycleVersion,
+  /**
+   * Role authority computed at join. Never authoritative on its own: every
+   * check recomputes the role and closes the socket when they differ.
+   */
   role: roomRoleSchema,
-  /** Authorization revision (`arev`) of the join token presented. */
-  tokenRevision: roomAuthRevisionSchema,
   /** Session epoch this cohort shares; `roomGeneration` on the wire. */
   roomEpoch: z.int().positive(),
-  authGeneration: roomAuthGenerationSchema,
   joinedAt: epochMillisSchema,
   /**
    * Last accepted data frame, epoch milliseconds — persisted lazily. The live
@@ -59,50 +61,31 @@ const joinedAttachmentSchema = z.strictObject({
   lastFrameAt: epochMillisSchema,
 });
 
-/**
- * Attachments are versioned as a whole (`v`), and an unknown version fails
- * closed: after a code rollback or a corrupted write the socket is closed
- * with `internalError` rather than interpreted by guesswork.
- */
-const authorityPendingSchema = pendingAttachmentSchema.extend({
-  v: z.literal(3),
-});
-const authorityJoinedSchema = joinedAttachmentSchema.extend({
-  v: z.literal(3),
-  email: trustedIdentitySchema.shape.email,
-  lifecycleVersion: trustedIdentitySchema.shape.lifecycleVersion,
-});
-export const roomSocketAttachmentSchema = z.union([
+export const roomSocketAttachmentSchema = z.discriminatedUnion("state", [
   pendingAttachmentSchema,
   joinedAttachmentSchema,
-  authorityPendingSchema,
-  authorityJoinedSchema,
 ]);
 
-export type PendingSocketAttachment =
-  | z.infer<typeof pendingAttachmentSchema>
-  | z.infer<typeof authorityPendingSchema>;
-export type JoinedSocketAttachment =
-  | z.infer<typeof joinedAttachmentSchema>
-  | z.infer<typeof authorityJoinedSchema>;
+export type PendingSocketAttachment = z.infer<typeof pendingAttachmentSchema>;
+export type JoinedSocketAttachment = z.infer<typeof joinedAttachmentSchema>;
 export type RoomSocketAttachment = z.infer<typeof roomSocketAttachmentSchema>;
 
 /**
  * The exact keys each variant persists. Tests assert against these so no
- * future change can smuggle a token, key or payload field into the attachment
- * unnoticed — the same pinning pattern as `roomTokenClaimKeys`.
+ * future change can smuggle a token or payload field into the attachment
+ * unnoticed.
  */
 export const roomSocketAttachmentKeys = {
-  pending: ["v", "state", "acceptedAt", "roomId", "authGeneration"],
+  pending: ["v", "state", "acceptedAt", "roomId"],
   joined: [
     "v",
     "state",
     "peerId",
     "subject",
+    "email",
+    "lifecycleVersion",
     "role",
-    "tokenRevision",
     "roomEpoch",
-    "authGeneration",
     "joinedAt",
     "lastFrameAt",
   ],

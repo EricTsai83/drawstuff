@@ -4,13 +4,11 @@ import {
   excalidrawFileIdSchema,
   type ExcalidrawAssetId,
 } from "./asset-identity.ts";
-import { MAX_ASSET_CIPHERTEXT_BYTES } from "./asset-crypto.ts";
+import { MAX_ASSET_BYTES, MIN_ASSET_BYTES } from "./asset-payload.ts";
 import { roomIdSchema } from "./messages.ts";
-import { roomAuthGenerationSchema } from "./room-auth.ts";
 
 /**
- * Collaboration asset identity and encrypted transfer — the `./asset` public
- * entry.
+ * Collaboration asset identity and transfer — the `./asset` public entry.
  *
  * An asset is a binary file an image element points at. Its identity is the
  * pair *parent scope + Excalidraw file id*, and nothing else:
@@ -20,7 +18,7 @@ import { roomAuthGenerationSchema } from "./room-auth.ts";
  *   `nanoid(40)` only when the digest itself fails, and is written into
  *   `element.fileId`. It is immutable and it is the only value a peer can use
  *   to say "the image this element renders".
- * - The **parent scope** is the room generation (here) or the scene
+ * - The **parent scope** is the room (here) or the scene
  *   (`file_record`), which is what keeps one room's assets from resolving
  *   inside another.
  *
@@ -28,20 +26,17 @@ import { roomAuthGenerationSchema } from "./room-auth.ts";
  *
  * - **A filename.** Two different images can share one; the same image can
  *   arrive under several. It carries no guarantee at all.
- * - **A content hash of the stored payload.** Storage payloads are compressed
- *   and sealed with per-write metadata, so the same image hashes differently
- *   every time it is stored — treating that as identity silently duplicates
- *   assets instead of deduplicating them.
+ * - **A content hash of the stored payload.** Storage payloads carry per-room
+ *   metadata, so the same image hashes differently in every room — treating
+ *   that as identity silently duplicates assets instead of deduplicating them.
  * - **A storage object key or URL.** Those identify where bytes happen to live
  *   now, not which image an element references; re-uploading the same image
  *   yields a new key.
  *
- * The byte-transfer contract is split across two sibling modules, re-exported
- * here so the public entry is unchanged:
- *
- * - `./asset-payload.ts` — the plaintext framing: the engine's data URL plus
- *   the metadata needed to hand it back and cross-check it.
- * - `./asset-crypto.ts` — the sealed envelope storage holds.
+ * The byte framing lives in `./asset-payload.ts` (the engine's data URL plus
+ * the metadata needed to hand it back and cross-check it), re-exported here.
+ * Storage holds exactly those bytes at a public object-store URL, the same
+ * exposure as owned-scene images (ADR-0005).
  *
  * The realtime channel never carries asset bytes: `syncedElementSchema` refuses
  * embedded binary data (`FORBIDDEN_BINARY_ELEMENT_KEYS`), so what travels is the
@@ -58,17 +53,16 @@ export {
   type ExcalidrawAssetId,
 } from "./asset-identity.ts";
 export * from "./asset-payload.ts";
-export * from "./asset-crypto.ts";
 
 /**
- * Ceiling on how many distinct assets one room generation may claim. The room's
+ * Ceiling on how many distinct assets one room may claim. The room's
  * asset set is written by authorized members, so it needs a bound for the same
  * reason a snapshot's byte length does: an authorized member must not be able to
  * grow the database — or the object store — without limit. Well above what a
  * real scene references, and low enough that the whole set is one small round
  * trip.
  */
-export const MAX_ROOM_ASSETS_PER_GENERATION = 512;
+export const MAX_ROOM_ASSETS = 512;
 
 /**
  * Ceiling per lookup call. A client asks for the assets the elements it just
@@ -86,19 +80,16 @@ export const MAX_ASSET_LOOKUP_BATCH = 64;
 export const MAX_ASSET_URL_LENGTH = 512;
 
 /**
- * What a client learns about one available asset. `url` is where the ciphertext
- * currently lives, which is deliberately not identity: it changes on re-upload
+ * What a client learns about one available asset. `url` is where the bytes
+ * currently live, which is deliberately not identity: it changes on re-upload
  * and it is only ever resolved *from* the identity pair.
  */
 export const collaborationAssetRecordSchema = z.strictObject({
   excalidrawFileId: excalidrawFileIdSchema,
-  cryptoVersion: z.int().positive(),
-  byteLength: z.int().positive().max(MAX_ASSET_CIPHERTEXT_BYTES),
+  byteLength: z.int().min(MIN_ASSET_BYTES).max(MAX_ASSET_BYTES),
   /**
-   * HTTPS only. The ciphertext is unreadable without the room key, so the
-   * transport does not protect confidentiality — but it does protect the URL
-   * itself, which is the capability that locates the bytes, and a plain-HTTP
-   * fetch would leak it to the network and break under mixed-content rules.
+   * HTTPS only: a plain-HTTP fetch would leak the URL and the bytes to the
+   * network and break under mixed-content rules.
    */
   url: z
     .string()
@@ -115,22 +106,14 @@ export type CollaborationAssetRecord = z.infer<
 /**
  * Answer to "where are the bytes for these file ids".
  *
- * `authGeneration` is part of the answer rather than an input echo: a client
- * that rotated generations mid-flight can tell that the records it just read
- * belong to the generation its asset key is derived for, instead of trying to
- * open ciphertext sealed under a key it no longer has.
- *
  * `missing` is a first-class outcome, not an error. A peer broadcasts an image
- * element the moment it is added and the ciphertext lands a beat later, so "not
+ * element the moment it is added and the bytes land a beat later, so "not
  * yet" is the normal state for a fresh image and the caller's job is to retry —
  * whereas an asset the room never had is one it must stop asking for.
  */
 export const collaborationAssetLookupSchema = z.strictObject({
   roomId: roomIdSchema,
-  authGeneration: roomAuthGenerationSchema,
-  assets: z
-    .array(collaborationAssetRecordSchema)
-    .max(MAX_ROOM_ASSETS_PER_GENERATION),
+  assets: z.array(collaborationAssetRecordSchema).max(MAX_ROOM_ASSETS),
   missing: z.array(excalidrawFileIdSchema).max(MAX_ASSET_LOOKUP_BATCH),
 });
 /**

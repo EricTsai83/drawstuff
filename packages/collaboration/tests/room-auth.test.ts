@@ -1,51 +1,48 @@
 import { describe, expect, it } from "vitest";
 
+import type { IdentityProofClaims } from "../src/authority.ts";
+import { COLLABORATION_PROTOCOL_VERSION } from "../src/messages.ts";
 import {
-  DEFAULT_JOIN_TOKEN_TTL_SECONDS,
-  MAX_JOIN_TOKEN_TTL_SECONDS,
+  DEFAULT_IDENTITY_PROOF_TTL_SECONDS,
+  MAX_IDENTITY_PROOF_TTL_SECONDS,
   MAX_ROOM_TOKEN_BYTES,
-  roomChannelKey,
   roomRoleCanEditScene,
-  roomTokenClaimKeys,
   ROOM_ROLES,
-  ROOM_TOKEN_AUDIENCES,
   ROOM_TOKEN_CLOCK_SKEW_SECONDS,
-  ROOM_TOKEN_VERSION,
-  type JoinTokenClaims,
   type RoomRole,
 } from "../src/room-auth.ts";
 import {
-  createRoomTokenId,
   MIN_ROOM_TOKEN_SECRET_BYTES,
-  signJoinToken,
-  signRoomControlToken,
-  verifyJoinToken,
-  verifyRoomControlToken,
+  signIdentityProof,
+  verifyIdentityProof,
 } from "../src/room-token.ts";
 import { ROOM_ID } from "./helpers.ts";
 import { roomIdSchema } from "../src/protocol.ts";
 
-const SECRET = "join-token-secret-for-unit-tests-0123456789";
-const OTHER_SECRET = "another-join-token-secret-for-tests-0123456";
+const SECRET = "identity-proof-secret-for-unit-tests-012345";
+const OTHER_SECRET = "another-identity-proof-secret-for-tests-0123";
 const NOW_SECONDS = 1_800_000_000;
 
-const claims = (overrides: Partial<JoinTokenClaims> = {}): JoinTokenClaims => ({
-  v: ROOM_TOKEN_VERSION,
-  jti: createRoomTokenId(),
+const claims = (
+  overrides: Partial<IdentityProofClaims> = {},
+): IdentityProofClaims => ({
+  v: 1,
+  aud: "drawstuff-room-identity",
+  protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+  jti: crypto.randomUUID(),
   iat: NOW_SECONDS,
-  exp: NOW_SECONDS + DEFAULT_JOIN_TOKEN_TTL_SECONDS,
-  aud: ROOM_TOKEN_AUDIENCES.join,
-  rid: ROOM_ID,
-  gen: 1,
-  sub: "user-1",
-  role: "editor",
-  arev: 1,
-
+  exp: NOW_SECONDS + DEFAULT_IDENTITY_PROOF_TTL_SECONDS,
+  roomId: ROOM_ID,
+  identity: {
+    subject: "user-1",
+    email: "user-1@example.com",
+    lifecycleVersion: 1,
+  },
   ...overrides,
 });
 
 const verify = (token: string, nowSeconds = NOW_SECONDS) =>
-  verifyJoinToken({
+  verifyIdentityProof({
     token,
     secret: SECRET,
     nowSeconds,
@@ -57,7 +54,8 @@ const payloadOf = (token: string): Record<string, unknown> =>
     Buffer.from(token.split(".")[0] ?? "", "base64url").toString("utf8"),
   ) as Record<string, unknown>;
 
-const resign = (
+/** Edits the payload but keeps the original signature. */
+const tamper = (
   token: string,
   mutate: (payload: Record<string, unknown>) => void,
 ): string => {
@@ -78,45 +76,22 @@ describe("room roles", () => {
   });
 });
 
-describe("roomChannelKey", () => {
-  it("keeps authority identity stable across generations", () => {
-    expect(roomChannelKey(ROOM_ID, 1)).toBe(ROOM_ID);
-    expect(roomChannelKey(ROOM_ID, 2)).toBe(roomChannelKey(ROOM_ID, 1));
-    expect(roomChannelKey(roomIdSchema.parse("other"), 1)).not.toBe(
-      roomChannelKey(ROOM_ID, 1),
-    );
-  });
-
-  it("rejects a non-positive generation", () => {
-    expect(() => roomChannelKey(ROOM_ID, 0)).toThrow();
-    expect(() => roomChannelKey(ROOM_ID, -1)).toThrow();
-  });
-});
-
-describe("join tokens", () => {
-  it("round-trips a signed token and reports the granted role", () => {
-    const result = verify(signJoinToken(claims({ role: "viewer" }), SECRET));
-    if (!result.ok) throw new Error(`expected a valid token: ${result.reason}`);
-    expect(result.claims.role).toBe("viewer");
-    expect(result.claims.rid).toBe(ROOM_ID);
-    expect(result.claims.gen).toBe(1);
-  });
-
-  it("carries no key material: the claim set is pinned", () => {
-    const payload = payloadOf(signJoinToken(claims(), SECRET));
-    expect(Object.keys(payload).sort()).toEqual(
-      [...roomTokenClaimKeys.join].sort(),
-    );
-    // Nothing that could be mistaken for encryption key material.
-    expect(JSON.stringify(payload)).not.toMatch(/key|secret|password/i);
+describe("identity proofs", () => {
+  it("round-trips a signed proof that carries identity and no role", () => {
+    const signed = claims();
+    const result = verify(signIdentityProof(signed, SECRET));
+    expect(result).toEqual({ ok: true, claims: signed });
+    expect(
+      Object.keys(payloadOf(signIdentityProof(signed, SECRET))),
+    ).not.toContain("role");
   });
 
   it("refuses to sign or verify with a weak secret", () => {
     const weak = "x".repeat(MIN_ROOM_TOKEN_SECRET_BYTES - 1);
-    expect(() => signJoinToken(claims(), weak)).toThrow(/at least/i);
+    expect(() => signIdentityProof(claims(), weak)).toThrow(/at least/i);
     expect(() =>
-      verifyJoinToken({
-        token: signJoinToken(claims(), SECRET),
+      verifyIdentityProof({
+        token: signIdentityProof(claims(), SECRET),
         secret: weak,
         nowSeconds: NOW_SECONDS,
         expectedRoomId: ROOM_ID,
@@ -124,20 +99,27 @@ describe("join tokens", () => {
     ).toThrow(/at least/i);
   });
 
-  it("rejects a token signed with a different secret", () => {
-    const token = signJoinToken(claims(), OTHER_SECRET);
+  it("rejects a proof signed with a different secret", () => {
+    const token = signIdentityProof(claims(), OTHER_SECRET);
     expect(verify(token)).toEqual({ ok: false, reason: "bad-signature" });
   });
 
   it("rejects a payload edited after signing", () => {
-    const token = signJoinToken(claims({ role: "viewer" }), SECRET);
-    const escalated = resign(token, (payload) => {
-      payload.role = "editor";
+    const token = signIdentityProof(claims(), SECRET);
+    const impersonated = tamper(token, (payload) => {
+      payload.identity = {
+        subject: "user-2",
+        email: "user-2@example.com",
+        lifecycleVersion: 1,
+      };
     });
-    expect(verify(escalated)).toEqual({ ok: false, reason: "bad-signature" });
+    expect(verify(impersonated)).toEqual({
+      ok: false,
+      reason: "bad-signature",
+    });
   });
 
-  it("rejects malformed and oversize tokens without parsing them", () => {
+  it("rejects malformed and oversize proofs without parsing them", () => {
     expect(verify("garbage")).toEqual({ ok: false, reason: "malformed" });
     expect(verify("a.b.c")).toEqual({ ok: false, reason: "malformed" });
     expect(verify(".signature")).toEqual({ ok: false, reason: "malformed" });
@@ -145,18 +127,18 @@ describe("join tokens", () => {
       ok: false,
       reason: "oversize",
     });
-    // Valid signature over a body that is not a token payload at all.
+    // Valid signature segment over a body it was not computed for.
     const notJson = Buffer.from("nonsense", "utf8").toString("base64url");
     expect(
       verify(
-        `${notJson}.${signJoinToken(claims(), SECRET).split(".")[1] ?? ""}`,
+        `${notJson}.${signIdentityProof(claims(), SECRET).split(".")[1] ?? ""}`,
       ),
     ).toEqual({ ok: false, reason: "bad-signature" });
   });
 
-  it("enforces the token lifetime including a bounded clock skew", () => {
-    const token = signJoinToken(claims(), SECRET);
-    const expiry = NOW_SECONDS + DEFAULT_JOIN_TOKEN_TTL_SECONDS;
+  it("enforces the proof lifetime including a bounded clock skew", () => {
+    const token = signIdentityProof(claims(), SECRET);
+    const expiry = NOW_SECONDS + DEFAULT_IDENTITY_PROOF_TTL_SECONDS;
     expect(verify(token, expiry - 1).ok).toBe(true);
     // Still inside the skew allowance.
     expect(verify(token, expiry + ROOM_TOKEN_CLOCK_SKEW_SECONDS - 1).ok).toBe(
@@ -171,133 +153,46 @@ describe("join tokens", () => {
     ).toEqual({ ok: false, reason: "not-yet-valid" });
   });
 
-  it("refuses a token whose issuer asked for too long a lifetime", () => {
-    const token = signJoinToken(
-      claims({ exp: NOW_SECONDS + MAX_JOIN_TOKEN_TTL_SECONDS + 1 }),
+  it("refuses a proof whose issuer asked for too long a lifetime", () => {
+    const atLimit = signIdentityProof(
+      claims({ exp: NOW_SECONDS + MAX_IDENTITY_PROOF_TTL_SECONDS }),
       SECRET,
     );
-    expect(verify(token)).toEqual({ ok: false, reason: "invalid-claims" });
+    expect(verify(atLimit).ok).toBe(true);
+    const tooLong = signIdentityProof(
+      claims({ exp: NOW_SECONDS + MAX_IDENTITY_PROOF_TTL_SECONDS + 1 }),
+      SECRET,
+    );
+    expect(verify(tooLong)).toEqual({ ok: false, reason: "invalid-claims" });
   });
 
-  it("binds the token to one room", () => {
-    const otherRoom = signJoinToken(
-      claims({ rid: roomIdSchema.parse("room-beta") }),
+  it("binds the proof to one room", () => {
+    const otherRoom = signIdentityProof(
+      claims({ roomId: roomIdSchema.parse("room-beta") }),
       SECRET,
     );
     expect(verify(otherRoom)).toEqual({ ok: false, reason: "wrong-room" });
   });
 
-  it("rejects a control token presented as a join token", () => {
-    const control = signRoomControlToken(
-      {
-        v: ROOM_TOKEN_VERSION,
-        jti: createRoomTokenId(),
-        iat: NOW_SECONDS,
-        exp: NOW_SECONDS + 30,
-        aud: ROOM_TOKEN_AUDIENCES.control,
-        rid: ROOM_ID,
-        gen: 1,
-        arev: 2,
-        action: "end-room",
-      },
-      SECRET,
-    );
-    expect(verify(control)).toEqual({ ok: false, reason: "wrong-audience" });
-  });
-
-  it("refuses to issue a token for an unsupported version", () => {
-    // Only the current format version can be signed, and a version edited
-    // after signing fails the signature check, so the verifier never has to
+  it("refuses to issue a proof with an unsupported claim set", () => {
+    // Only the current contract can be signed, and a version edited after
+    // signing fails the signature check, so the verifier never has to
     // interpret an unknown claim set.
     expect(() =>
-      signJoinToken(
-        { ...claims(), v: ROOM_TOKEN_VERSION + 1 } as JoinTokenClaims,
+      signIdentityProof(
+        { ...claims(), v: 2 } as unknown as IdentityProofClaims,
         SECRET,
       ),
     ).toThrow();
-    const bumped = resign(signJoinToken(claims(), SECRET), (payload) => {
-      payload.v = ROOM_TOKEN_VERSION + 1;
+    expect(() =>
+      signIdentityProof(
+        { ...claims(), role: "owner" } as IdentityProofClaims,
+        SECRET,
+      ),
+    ).toThrow();
+    const bumped = tamper(signIdentityProof(claims(), SECRET), (payload) => {
+      payload.v = 2;
     });
     expect(verify(bumped)).toEqual({ ok: false, reason: "bad-signature" });
-  });
-});
-
-describe("room control tokens", () => {
-  const controlToken = (
-    overrides: Record<string, unknown> = {},
-    secret = SECRET,
-  ): string =>
-    signRoomControlToken(
-      {
-        v: ROOM_TOKEN_VERSION,
-        jti: createRoomTokenId(),
-        iat: NOW_SECONDS,
-        exp: NOW_SECONDS + 30,
-        aud: ROOM_TOKEN_AUDIENCES.control,
-        rid: ROOM_ID,
-        gen: 2,
-        arev: 3,
-        action: "revoke-member",
-        sub: "user-removed",
-        ...overrides,
-      } as unknown as Parameters<typeof signRoomControlToken>[0],
-      secret,
-    );
-
-  const verifyControl = (token: string, nowSeconds = NOW_SECONDS) =>
-    verifyRoomControlToken({ token, secret: SECRET, nowSeconds });
-
-  it("authorizes one action against one room generation", () => {
-    const result = verifyControl(controlToken());
-    if (!result.ok) throw new Error(`expected valid token: ${result.reason}`);
-    expect(result.claims).toMatchObject({
-      action: "revoke-member",
-      rid: ROOM_ID,
-      gen: 2,
-      arev: 3,
-    });
-    expect(Object.keys(result.claims).sort()).toEqual(
-      [...roomTokenClaimKeys.control["revoke-member"]].sort(),
-    );
-  });
-
-  it("requires a subject for a member revocation", () => {
-    expect(() =>
-      signRoomControlToken(
-        {
-          v: ROOM_TOKEN_VERSION,
-          jti: createRoomTokenId(),
-          iat: NOW_SECONDS,
-          exp: NOW_SECONDS + 30,
-          aud: ROOM_TOKEN_AUDIENCES.control,
-          rid: ROOM_ID,
-          gen: 1,
-          arev: 2,
-          action: "revoke-member",
-        } as unknown as Parameters<typeof signRoomControlToken>[0],
-        SECRET,
-      ),
-    ).toThrow();
-  });
-
-  it("rejects forged, expired, and wrong-audience control tokens", () => {
-    expect(verifyControl(controlToken({}, OTHER_SECRET))).toEqual({
-      ok: false,
-      reason: "bad-signature",
-    });
-    expect(verifyControl(controlToken(), NOW_SECONDS + 3_600)).toEqual({
-      ok: false,
-      reason: "expired",
-    });
-    expect(verifyControl(signJoinToken(claims(), SECRET))).toEqual({
-      ok: false,
-      reason: "wrong-audience",
-    });
-  });
-
-  it("issues unique token ids", () => {
-    const ids = new Set(Array.from({ length: 64 }, () => createRoomTokenId()));
-    expect(ids.size).toBe(64);
-    for (const id of ids) expect(id).toMatch(/^[A-Za-z0-9_-]{8,64}$/);
   });
 });

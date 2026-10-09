@@ -6,8 +6,8 @@ import { unstable_readConfig } from "wrangler";
 import { z } from "zod";
 
 import {
+  TEST_IDENTITY_SECRET,
   TEST_ROOM_JOIN_TIMEOUT_MS,
-  TEST_ROOM_TOKEN_SECRET,
   WRANGLER_AUDIT_BINDING,
   type JsonValue,
   type WranglerConfigAudit,
@@ -106,11 +106,8 @@ export default defineConfig({
       wrangler: { configPath: "./wrangler.jsonc" },
       miniflare: {
         bindings: {
-          COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
-          COLLAB_IDENTITY_SECRET: "test-identity-secret-purpose-only-0001",
+          COLLAB_IDENTITY_SECRET: TEST_IDENTITY_SECRET,
           COLLAB_AUTHORITY_SECRET: "test-authority-secret-purpose-only-0001",
-          COLLAB_ROOM_KEY_WRAP_SECRET:
-            "test-key-wrap-secret-purpose-only-000001",
           COLLAB_ADAPTER_SECRET: "test-adapter-secret-purpose-only-0001",
           COLLAB_ADAPTER_URL: "",
           // Freeze only the rate-limit elapsed-time source. workerd can process
@@ -130,6 +127,6 @@ export default defineConfig({
   test: {
     name: "collaboration-do",
     include: ["tests/**/*.test.ts"],
-    exclude: ["tests/p0/**", "tests/cutover/**"],
+    exclude: ["tests/p0/**"],
   },
 });

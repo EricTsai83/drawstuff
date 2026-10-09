@@ -31,44 +31,32 @@ const MAX_ID = "A".repeat(64);
 const MAX_EPOCH_MS = 9_999_999_999_999;
 
 const maxPending: PendingSocketAttachment = {
-  v: 2,
+  v: 4,
   state: "pending",
   acceptedAt: MAX_EPOCH_MS,
   roomId: roomIdSchema.parse(MAX_ID),
-  authGeneration: 2_147_483_647,
 };
 
 const maxJoined: JoinedSocketAttachment = {
-  v: 2,
+  v: 4,
   state: "joined",
   peerId: peerIdSchema.parse(MAX_ID),
-  // Longest subject the token contract admits.
+  // Longest subject the identity contract admits.
   subject: "界".repeat(128),
-  role: "viewer",
-  tokenRevision: 2_147_483_647,
-  roomEpoch: 2_147_483_647,
-  authGeneration: 2_147_483_647,
-  joinedAt: MAX_EPOCH_MS,
-  lastFrameAt: MAX_EPOCH_MS,
-};
-const maxAuthorityPending: PendingSocketAttachment = { ...maxPending, v: 3 };
-const maxAuthorityJoined: JoinedSocketAttachment = {
-  ...maxJoined,
-  v: 3,
+  // Longest account email the identity contract admits.
   email: `${"e".repeat(64)}@${"d".repeat(63)}.${"d".repeat(63)}.${"d".repeat(57)}.com`,
   lifecycleVersion: 2_147_483_647,
+  role: "viewer",
+  roomEpoch: 2_147_483_647,
+  joinedAt: MAX_EPOCH_MS,
+  lastFrameAt: MAX_EPOCH_MS,
 };
 
 const encoder = new TextEncoder();
 
 describe("room socket attachment", () => {
   it("keeps every maximal variant well under the 2 KiB platform cap", () => {
-    for (const attachment of [
-      maxPending,
-      maxJoined,
-      maxAuthorityPending,
-      maxAuthorityJoined,
-    ]) {
+    for (const attachment of [maxPending, maxJoined]) {
       const bytes = encoder.encode(JSON.stringify(attachment)).byteLength;
       expect(bytes).toBeLessThanOrEqual(ATTACHMENT_BUDGET_BYTES);
     }
@@ -77,12 +65,6 @@ describe("room socket attachment", () => {
   it("round-trips both variants through the schema", () => {
     expect(roomSocketAttachmentSchema.parse(maxPending)).toEqual(maxPending);
     expect(roomSocketAttachmentSchema.parse(maxJoined)).toEqual(maxJoined);
-    expect(roomSocketAttachmentSchema.parse(maxAuthorityPending)).toEqual(
-      maxAuthorityPending,
-    );
-    expect(roomSocketAttachmentSchema.parse(maxAuthorityJoined)).toEqual(
-      maxAuthorityJoined,
-    );
   });
 
   it("pins the exact persisted keys so no secret field can ride in unnoticed", () => {
@@ -92,28 +74,29 @@ describe("room socket attachment", () => {
     expect(Object.keys(maxJoined)).toEqual([
       ...roomSocketAttachmentKeys.joined,
     ]);
-    expect(Object.keys(maxAuthorityPending)).toEqual([
-      ...roomSocketAttachmentKeys.pending,
-    ]);
-    expect(Object.keys(maxAuthorityJoined)).toEqual([
-      ...roomSocketAttachmentKeys.joined,
-      "email",
-      "lifecycleVersion",
-    ]);
     for (const keys of Object.values(roomSocketAttachmentKeys)) {
-      for (const forbidden of ["token", "roomKey", "ciphertext", "presence"]) {
+      for (const forbidden of [
+        "token",
+        "proof",
+        "roomKey",
+        "ciphertext",
+        "presence",
+        "authGeneration",
+      ]) {
         expect(keys).not.toContain(forbidden);
       }
     }
   });
 
-  it("fails closed on an unknown attachment version", () => {
-    expect(
-      roomSocketAttachmentSchema.safeParse({ ...maxJoined, v: 1 }).success,
-    ).toBe(false);
-    expect(
-      roomSocketAttachmentSchema.safeParse({ ...maxPending, v: 0 }).success,
-    ).toBe(false);
+  it("fails closed on an unknown or retired attachment version", () => {
+    for (const v of [0, 1, 2, 3, 5]) {
+      expect(
+        roomSocketAttachmentSchema.safeParse({ ...maxJoined, v }).success,
+      ).toBe(false);
+      expect(
+        roomSocketAttachmentSchema.safeParse({ ...maxPending, v }).success,
+      ).toBe(false);
+    }
   });
 
   it("rejects unknown extra fields instead of persisting them", () => {
@@ -122,10 +105,12 @@ describe("room socket attachment", () => {
         .success,
     ).toBe(false);
     expect(
-      roomSocketAttachmentSchema.safeParse({
-        ...maxAuthorityJoined,
-        proof: "secret",
-      }).success,
+      roomSocketAttachmentSchema.safeParse({ ...maxJoined, proof: "secret" })
+        .success,
+    ).toBe(false);
+    expect(
+      roomSocketAttachmentSchema.safeParse({ ...maxPending, authGeneration: 1 })
+        .success,
     ).toBe(false);
   });
 });

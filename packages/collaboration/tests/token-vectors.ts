@@ -1,50 +1,39 @@
-import { roomIdSchema } from "../src/messages.ts";
-import type { JoinTokenClaims, RoomControlClaims } from "../src/room-auth.ts";
+import type { IdentityProofClaims } from "../src/authority.ts";
+import {
+  COLLABORATION_PROTOCOL_VERSION,
+  roomIdSchema,
+} from "../src/messages.ts";
 
 /**
- * Fixed join/control token vectors, generated with the pre-Plan-08
- * `Buffer`-based implementation. Signing the same claims with the same secret
- * must reproduce these strings character-for-character on every host (Node,
- * workerd) — that is the codec-migration compatibility contract, and it is
- * what makes a Node-issued token verifiable by a future Durable Object relay.
+ * Fixed identity-proof vector. Signing the same claims with the same secret
+ * must reproduce this string character-for-character on every host (Node,
+ * workerd): that is what makes a proof issued by the app verifiable by the
+ * room runtime. The claims embed the protocol version, so a protocol bump
+ * regenerates the vector (HMAC-SHA256 over the base64url claims JSON).
  */
 
 export const TOKEN_VECTOR_SECRET =
-  "drawstuff-plan08-fixed-token-vector-secret-0001";
+  "drawstuff-plan21-fixed-proof-vector-secret-0001";
 
-/** In-lifetime instant for both vectors below. */
+/** In-lifetime instant for the vector below. */
 export const TOKEN_VECTOR_NOW_SECONDS = 1_755_900_010;
 
-export const TOKEN_VECTOR_ROOM_ID = roomIdSchema.parse("plan08-room-vector");
+export const TOKEN_VECTOR_ROOM_ID = roomIdSchema.parse("plan21-room-vector");
 
-export const JOIN_TOKEN_VECTOR_CLAIMS: JoinTokenClaims = {
+export const IDENTITY_PROOF_VECTOR_CLAIMS: IdentityProofClaims = {
   v: 1,
-  jti: "plan08joinvector0000000000000001",
+  aud: "drawstuff-room-identity",
+  protocolVersion: COLLABORATION_PROTOCOL_VERSION,
+  jti: "6f1c2b0e-8d4a-4c3b-9e2f-0a1b2c3d4e5f",
   iat: 1_755_900_000,
   exp: 1_755_900_060,
-  aud: "drawstuff-relay-join",
-  rid: TOKEN_VECTOR_ROOM_ID,
-  gen: 3,
-  sub: "user_plan08_vector",
-  role: "editor",
-  arev: 7,
+  roomId: TOKEN_VECTOR_ROOM_ID,
+  identity: {
+    subject: "user_plan21_vector",
+    email: "vector@example.com",
+    lifecycleVersion: 3,
+  },
 };
 
-export const JOIN_TOKEN_VECTOR =
-  "eyJ2IjoxLCJqdGkiOiJwbGFuMDhqb2ludmVjdG9yMDAwMDAwMDAwMDAwMDAwMSIsImlhdCI6MTc1NTkwMDAwMCwiZXhwIjoxNzU1OTAwMDYwLCJhdWQiOiJkcmF3c3R1ZmYtcmVsYXktam9pbiIsInJpZCI6InBsYW4wOC1yb29tLXZlY3RvciIsImdlbiI6Mywic3ViIjoidXNlcl9wbGFuMDhfdmVjdG9yIiwicm9sZSI6ImVkaXRvciIsImFyZXYiOjd9.AD5kNmoOQt3hbnaImSeifzI6qVNZhs7pzJ7-qd7HCro";
-
-export const CONTROL_TOKEN_VECTOR_CLAIMS: RoomControlClaims = {
-  v: 1,
-  jti: "plan08ctrlvector0000000000000001",
-  iat: 1_755_900_000,
-  exp: 1_755_900_030,
-  aud: "drawstuff-relay-control",
-  rid: TOKEN_VECTOR_ROOM_ID,
-  gen: 3,
-  arev: 8,
-  action: "revoke-member",
-  sub: "user_plan08_vector",
-};
-
-export const CONTROL_TOKEN_VECTOR =
-  "eyJ2IjoxLCJqdGkiOiJwbGFuMDhjdHJsdmVjdG9yMDAwMDAwMDAwMDAwMDAwMSIsImlhdCI6MTc1NTkwMDAwMCwiZXhwIjoxNzU1OTAwMDMwLCJhdWQiOiJkcmF3c3R1ZmYtcmVsYXktY29udHJvbCIsInJpZCI6InBsYW4wOC1yb29tLXZlY3RvciIsImdlbiI6MywiYXJldiI6OCwiYWN0aW9uIjoicmV2b2tlLW1lbWJlciIsInN1YiI6InVzZXJfcGxhbjA4X3ZlY3RvciJ9.Lvyq9N5qcOqY2WCGt90oj27nGjc2m1jhwB0T4MUdywc";
+export const IDENTITY_PROOF_VECTOR =
+  "eyJ2IjoxLCJhdWQiOiJkcmF3c3R1ZmYtcm9vbS1pZGVudGl0eSIsInByb3RvY29sVmVyc2lvbiI6NywianRpIjoiNmYxYzJiMGUtOGQ0YS00YzNiLTllMmYtMGExYjJjM2Q0ZTVmIiwiaWF0IjoxNzU1OTAwMDAwLCJleHAiOjE3NTU5MDAwNjAsInJvb21JZCI6InBsYW4yMS1yb29tLXZlY3RvciIsImlkZW50aXR5Ijp7InN1YmplY3QiOiJ1c2VyX3BsYW4yMV92ZWN0b3IiLCJlbWFpbCI6InZlY3RvckBleGFtcGxlLmNvbSIsImxpZmVjeWNsZVZlcnNpb24iOjN9fQ.I3BSxh8CEqYgdA63vIvW9VL3QgTfQSqBuEamxqLQSdk";

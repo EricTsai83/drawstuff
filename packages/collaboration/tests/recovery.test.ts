@@ -260,11 +260,11 @@ describe("createRecoveryMachine", () => {
   it("keeps the first failure reason, because the rest are consequences", () => {
     const machine = machineWith();
     reachLive(machine);
-    machine.fail("unreadable-room");
+    machine.fail("unauthorized");
     machine.fail("retry-limit");
     expect(machine.state()).toEqual({
       phase: "failed",
-      reason: "unreadable-room",
+      reason: "unauthorized",
     });
   });
 

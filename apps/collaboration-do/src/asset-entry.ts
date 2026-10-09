@@ -17,7 +17,7 @@ import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 import type { RoomAuthority } from "./room-authority.ts";
 import { AdapterClient } from "./adapter-client.ts";
 
-/** Metadata only: UploadThing receives ciphertext; Room authorizes discovery and finalization. */
+/** Metadata only: UploadThing receives the asset bytes directly; Room authorizes discovery and finalization. */
 export async function applyAssetEntry(
   authority: RoomAuthority,
   input: unknown,
@@ -82,9 +82,7 @@ export async function applyAssetEntry(
       registration.roomId !== intent.roomId ||
       registration.operationId !== intent.operationId ||
       registration.subject !== identity.subject ||
-      registration.lifecycleVersion !== identity.lifecycleVersion ||
-      registration.targetSubject !== undefined ||
-      registration.targetVersion !== undefined
+      registration.lifecycleVersion !== identity.lifecycleVersion
     )
       throw new Error("stale-proof");
     authorize();
@@ -104,7 +102,6 @@ export async function applyAssetEntry(
           v: 1,
           action: "read-assets",
           roomId: intent.roomId,
-          authGeneration: current.auth_generation,
           authorityEpoch: current.authority_epoch,
           assetIds,
         },
@@ -115,12 +112,8 @@ export async function applyAssetEntry(
       );
       authorize();
       validateDeadline();
-      const latest = authority.state()!;
-      if (
-        latest.auth_generation !== current.auth_generation ||
-        latest.authority_epoch !== current.authority_epoch
-      )
-        throw new Error("generation-mismatch");
+      if (authority.state()!.authority_epoch !== current.authority_epoch)
+        throw new Error("epoch-mismatch");
       const present = new Set(assets.map((asset) => asset.excalidrawFileId));
       if (
         present.size !== assets.length ||
@@ -131,7 +124,6 @@ export async function applyAssetEntry(
         ok: true,
         result: {
           roomId: authority.roomId,
-          authGeneration: current.auth_generation,
           assets,
           missing: assetIds.filter((id) => !present.has(id)),
         },
@@ -144,16 +136,12 @@ export async function applyAssetEntry(
       )
         throw new Error("expired-operation");
       const current = authority.state()!;
-      if (
-        request.intent.authGeneration !== current.auth_generation ||
-        request.intent.authorityEpoch !== current.authority_epoch
-      )
-        throw new Error("generation-mismatch");
+      if (request.intent.authorityEpoch !== current.authority_epoch)
+        throw new Error("epoch-mismatch");
       return {
         ok: true,
         result: {
           status: "authorized",
-          authGeneration: current.auth_generation,
           authorityEpoch: current.authority_epoch,
         },
       };
@@ -163,14 +151,11 @@ export async function applyAssetEntry(
     if (request.action === "finalize") {
       if (
         request.asset.excalidrawFileId !== request.intent.excalidrawFileId ||
-        request.asset.cryptoVersion !== request.intent.cryptoVersion ||
         request.asset.byteLength !== request.intent.byteLength
       )
         throw new Error("operation-mismatch");
-      const { excalidrawFileId, cryptoVersion, byteLength, ...base } =
-        request.intent;
+      const { excalidrawFileId, byteLength, ...base } = request.intent;
       void excalidrawFileId;
-      void cryptoVersion;
       void byteLength;
       operation = contentOperationSchema.parse({
         ...base,

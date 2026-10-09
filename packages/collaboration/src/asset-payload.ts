@@ -8,27 +8,25 @@ import {
   type ExcalidrawAssetId,
 } from "./asset-identity.ts";
 import { roomIdSchema, type RoomId } from "./messages.ts";
-import { utf8Encoder } from "./sealed-envelope.ts";
 
 /**
- * Binary plaintext framing for one collaboration asset — the payload the
- * sealed envelope (`./asset-crypto.ts`) carries.
+ * Binary framing for one collaboration asset — exactly the bytes storage
+ * holds. Room assets are not encrypted; like owned-scene images they live at a
+ * public object-store URL (ADR-0005).
  *
- * The **payload** is the plaintext an asset consists of: the engine's data URL
- * plus the metadata needed to hand it back to the engine (`mimeType`) and to
+ * The **payload** is what an asset consists of: the engine's data URL plus the
+ * metadata needed to hand it back to the engine (`mimeType`) and to
  * cross-check it against the record it was fetched under (`roomId`, `fileId`).
- * It is versioned independently of the sealed envelope because the two evolve
- * on their own schedules.
  */
 
-/** Asset payload version; bumped only on a breaking plaintext layout change. */
+/** Asset payload version; bumped only on a breaking layout change. */
 export const ASSET_PAYLOAD_VERSION = 1;
 
 const VERSION_BYTES = 1;
 const METADATA_LENGTH_BYTES = 2;
 
 /**
- * Plaintext layout — a fixed header, a bounded JSON metadata chunk, then the
+ * Layout — a fixed header, a bounded JSON metadata chunk, then the
  * data URL bytes verbatim:
  *
  * ```
@@ -60,25 +58,23 @@ export const MAX_ASSET_METADATA_BYTES = 512;
  */
 export const MAX_ASSET_DATA_URL_BYTES = 3 * 1_048_576;
 
-export const MAX_ASSET_PLAINTEXT_BYTES =
+/** Byte bounds of one encoded payload, on the wire and in storage. */
+export const MIN_ASSET_BYTES = ASSET_PAYLOAD_HEADER_BYTES + 1;
+export const MAX_ASSET_BYTES =
   ASSET_PAYLOAD_HEADER_BYTES +
   MAX_ASSET_METADATA_BYTES +
   MAX_ASSET_DATA_URL_BYTES;
 
-const encoder = utf8Encoder;
+const encoder = new TextEncoder();
 // Fatal so malformed UTF-8 is refused rather than repaired into a different
 // (possibly valid) payload via U+FFFD replacement.
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 /**
- * Metadata travelling inside the sealed payload.
+ * Metadata travelling inside the payload.
  *
- * `roomId` and `excalidrawFileId` are also bound into the seal, so they cannot
- * be swapped by anybody without the room key. They are still carried and still
- * checked, because the read-side cross-check is what catches the one failure the
- * seal cannot: a storage object filed under the wrong record. That check is the
- * accepted substitute for server-side identity verification (ADR 0001) — the
- * server cannot verify a file id it has no key to compute.
+ * `roomId` and `excalidrawFileId` are carried and checked on read, which is
+ * what catches a storage object filed under the wrong record.
  */
 const assetPayloadMetadataSchema = z.strictObject({
   payloadVersion: z.literal(ASSET_PAYLOAD_VERSION),
@@ -134,7 +130,7 @@ export type DecodeAssetResult =
   { ok: true; payload: AssetPayload } | { ok: false; error: AssetPayloadError };
 
 /**
- * Builds the plaintext for one asset.
+ * Builds the payload bytes for one asset.
  *
  * The size check is on the data URL rather than on the finished buffer, so the
  * limit a user could hit ("this image is too large for a room") is expressed in
@@ -212,26 +208,25 @@ export function encodeCollaborationAssetPayload(input: {
 }
 
 /**
- * Reads a plaintext asset back, and refuses anything that is not exactly the
+ * Reads an asset payload back, and refuses anything that is not exactly the
  * asset the caller asked for.
  *
  * `expected` is the record the bytes were fetched under. Comparing it with the
  * embedded identity is what stops a wrong object served under a right record from
- * rendering one image where another belongs — the failure the seal cannot catch,
- * because sealing happens before storage chooses a key.
+ * rendering one image where another belongs.
  */
 export function decodeCollaborationAssetPayload(
   bytes: Uint8Array,
   expected: { roomId: RoomId; excalidrawFileId: string },
 ): DecodeAssetResult {
   // Bounded before parsing: oversize input is never decoded, whatever it holds.
-  if (bytes.byteLength > MAX_ASSET_PLAINTEXT_BYTES) {
+  if (bytes.byteLength > MAX_ASSET_BYTES) {
     return {
       ok: false,
       error: {
         code: "oversize-asset",
         byteLength: bytes.byteLength,
-        maxByteLength: MAX_ASSET_PLAINTEXT_BYTES,
+        maxByteLength: MAX_ASSET_BYTES,
       },
     };
   }

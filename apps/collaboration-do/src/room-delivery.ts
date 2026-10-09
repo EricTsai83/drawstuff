@@ -48,11 +48,14 @@ export class RoomDelivery {
         return true;
       }
       case "projection":
+      case "invite-projection":
         if (job.event.roomId !== this.authority.roomId)
           throw new Error("wrong-room");
         // applied=false is a durable obsolete/negative decision, not a delivery failure.
         await this.adapter.call(
-          { v: 1, action: "project", event: job.event },
+          job.kind === "projection"
+            ? { v: 1, action: "project", event: job.event }
+            : { v: 1, action: "project-invite", event: job.event },
           projectionResponse,
           signal,
         );
@@ -69,7 +72,6 @@ export class RoomDelivery {
             action: "fence",
             roomId: job.roomId,
             authorityEpoch: room.authority_epoch,
-            authGeneration: room.auth_generation,
             state: room.state,
             initializationDeadline: room.initialization_deadline,
           },
@@ -118,7 +120,6 @@ export class RoomDelivery {
           v: 1 as const,
           roomId: job.roomId,
           authorityEpoch: result.authorityEpoch,
-          authGeneration: job.manifest.authGeneration,
         };
         const verified = await this.adapter.call(
           {
@@ -160,7 +161,6 @@ export class RoomDelivery {
             action: "cleanup",
             roomId: job.roomId,
             authorityEpoch: room.authority_epoch,
-            authGeneration: room.auth_generation,
           },
           cleanupResponse,
           signal,

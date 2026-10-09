@@ -1,21 +1,22 @@
-/** Protocol-6 product path. Requires real verified principals when used remotely. */
+/** Protocol-7 product path (plain rooms). Requires real verified principals when used remotely. */
 import assert from "node:assert/strict";
 import {setTimeout as pause} from "node:timers/promises";
 import {WebSocket} from "ws";
 import {signIdentityProof} from "@drawstuff/collaboration/room-token";
-import {sealRoomKeyCheck,KEYCHECK_CIPHERTEXT_BYTES} from "@drawstuff/collaboration/keycheck";
-import {generateRoomKey} from "@drawstuff/collaboration/realtime-crypto";
-import {deriveSnapshotKey,sealCollaborationSnapshot,openCollaborationSnapshot,MAX_SNAPSHOT_PLAINTEXT_BYTES} from "@drawstuff/collaboration/snapshot";
+import {COLLABORATION_PROTOCOL_VERSION} from "@drawstuff/collaboration/protocol";
+import {encodeCollaborationSnapshot,decodeCollaborationSnapshot,MAX_SNAPSHOT_BYTES} from "@drawstuff/collaboration/snapshot";
 import {SNAPSHOT_REQUEST_HEADER,SNAPSHOT_RECEIPT_HEADER} from "@drawstuff/collaboration/authority";
 
 export async function runProductHarness({base,owner,guest,identitySecret,serviceSecret,origin="http://localhost:3000",advance,retire=false,samples=1}) {
-  const roomId=`harness-${crypto.randomUUID()}`,roomKey=generateRoomKey();
-  const key=await deriveSnapshotKey({roomKey,roomId,authGeneration:1});
-  const plaintext=new Uint8Array(MAX_SNAPSHOT_PLAINTEXT_BYTES).fill(37);
-  const sealed=await sealCollaborationSnapshot({key,plaintext,roomId,authGeneration:1,revision:1});assert.equal(sealed.ok,true);
-  const bytes=sealed.ciphertext,checksum=Buffer.from(await crypto.subtle.digest("SHA-256",bytes)).toString("hex");
+  const roomId=`harness-${crypto.randomUUID()}`;
+  // A maximum-size plain snapshot: one text element padded to exactly MAX_SNAPSHOT_BYTES.
+  const text={id:"text",version:1,versionNonce:1,isDeleted:false,type:"text",text:""};
+  const unpadded=encodeCollaborationSnapshot({roomId,elements:[text]});assert.equal(unpadded.ok,true);
+  text.text="x".repeat(MAX_SNAPSHOT_BYTES-unpadded.bytes.byteLength);
+  const encoded=encodeCollaborationSnapshot({roomId,elements:[text]});assert.equal(encoded.ok,true);assert.equal(encoded.bytes.byteLength,MAX_SNAPSHOT_BYTES);
+  const bytes=encoded.bytes,checksum=Buffer.from(await crypto.subtle.digest("SHA-256",bytes)).toString("hex");
   const envelope=()=>({v:1,roomId,operationId:crypto.randomUUID(),deadline:Date.now()+60_000});
-  const proof=(identity=owner)=>{const now=Math.floor(Date.now()/1000);return signIdentityProof({v:1,aud:"drawstuff-room-identity",protocolVersion:6,jti:crypto.randomUUID(),iat:now,exp:now+60,roomId,identity},identitySecret);};
+  const proof=(identity=owner)=>{const now=Math.floor(Date.now()/1000);return signIdentityProof({v:1,aud:"drawstuff-room-identity",protocolVersion:COLLABORATION_PROTOCOL_VERSION,jti:crypto.randomUUID(),iat:now,exp:now+60,roomId,identity},identitySecret);};
   const post=async(path,body)=>{const response=await fetch(`${base}${path}`,{method:"POST",redirect:"error",signal:AbortSignal.timeout(20_000),headers:{"content-type":"application/json",authorization:`Bearer ${serviceSecret}`},body:JSON.stringify(body)});assert.equal(response.status,200,`${path} status=${response.status}`);return response.json();};
   const settle=async(request)=>{
     let result=(await post("/v1/authority",{proof:proof(),request})).result;
@@ -28,31 +29,29 @@ export async function runProductHarness({base,owner,guest,identitySecret,service
   let socket;
   try{
     await settle({...envelope(),action:"create",sceneId:null,label:"Harness",linkRole:"editor"});
-    const check=Buffer.from(await sealRoomKeyCheck({roomKey,roomId,authGeneration:1}),"base64");
-    assert.equal(check.byteLength,KEYCHECK_CIPHERTEXT_BYTES);
-    await settle({...envelope(),action:"set-key-check",expectedGeneration:1,keyCheck:[...check]});
-    const operation={...envelope(),kind:"snapshot-put",authGeneration:1,authorityEpoch:1,expectedRevision:0,checksum};
+    const operation={...envelope(),kind:"snapshot-put",authorityEpoch:1,expectedRevision:0,checksum};
     const snapshot=await fetch(`${base}/v1/snapshot`,{method:"POST",signal:AbortSignal.timeout(20_000),headers:{authorization:`Bearer ${serviceSecret}`,"content-type":"application/octet-stream",[SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(),request:{action:"write",operation}})},body:bytes});assert.equal(snapshot.status,200);assert.equal((await snapshot.json()).status,"written");
     const timings=[];
     for(let sample=0;sample<samples;sample++){
       const started=performance.now();
       const response=await fetch(`${base}/v1/snapshot`,{method:"POST",signal:AbortSignal.timeout(20_000),headers:{authorization:`Bearer ${serviceSecret}`,"content-type":"application/octet-stream",[SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(),request:{...envelope(),action:"read"}})}});
       assert.equal(response.status,200);assert.ok(response.headers.get(SNAPSHOT_RECEIPT_HEADER));
-      const ciphertext=new Uint8Array(await response.arrayBuffer());
-      const opened=await openCollaborationSnapshot({key,ciphertext,roomId,authGeneration:1,revision:1});assert.equal(opened.ok,true);assert.deepEqual(opened.plaintext,plaintext);
+      const stored=new Uint8Array(await response.arrayBuffer());
+      assert.deepEqual(stored,bytes);const decoded=decodeCollaborationSnapshot(stored,{roomId});assert.equal(decoded.ok,true);assert.equal(decoded.snapshot.elements[0].text,text.text);
       timings.push(performance.now()-started);
     }
-    const intent={...envelope(),kind:"asset-finalize",authGeneration:1,authorityEpoch:1,expectedRevision:0,checksum,excalidrawFileId:"fixture-image",cryptoVersion:1,byteLength:128};
+    const intent={...envelope(),kind:"asset-finalize",authorityEpoch:1,expectedRevision:0,checksum,excalidrawFileId:"fixture-image",byteLength:128};
     // Provider callback tests cover UploadThing signatures. This fixture exercises only private descriptor binding.
     if(advance){
       assert.equal((await post("/v1/assets",{proof:proof(),request:{action:"prepare",intent}})).result.status,"authorized");
-      assert.equal((await post("/v1/assets",{proof:proof(),request:{action:"finalize",intent,asset:{excalidrawFileId:intent.excalidrawFileId,cryptoVersion:1,byteLength:128,url:"https://provider.test/sealed-image",utFileKey:"sealed-key"}}})).result.status,"written");
+      assert.equal((await post("/v1/assets",{proof:proof(),request:{action:"finalize",intent,asset:{excalidrawFileId:intent.excalidrawFileId,byteLength:128,url:"https://provider.test/image",utFileKey:"image-key"}}})).result.status,"written");
     }
-    await settle({...envelope(),action:"complete-initialization",manifest:{authGeneration:1,revision:1,checksum,assetIds:advance?[intent.excalidrawFileId]:[]}});
+    await settle({...envelope(),action:"complete-initialization",manifest:{revision:1,checksum,assetIds:advance?[intent.excalidrawFileId]:[]}});
     socket=new WebSocket(`${base.replace(/^http/,"ws")}/v1/rooms/${roomId}/socket`,{headers:{Origin:origin}});
     const event=(name)=>new Promise((resolve,reject)=>{const timer=setTimeout(()=>reject(new Error(`${name}-timeout`)),10_000);socket.once(name,value=>{clearTimeout(timer);resolve(value);});socket.once("error",error=>{clearTimeout(timer);reject(error);});if(name!=="close")socket.once("close",code=>{clearTimeout(timer);reject(new Error(`closed-${code}`));});});
-    await event("open");const joined=event("message");socket.send(JSON.stringify({control:"join",protocolVersion:6,roomId,token:proof(guest)}));assert.equal(JSON.parse((await joined).toString()).role,"editor");
-    const closed=event("close");await settle({...envelope(),action:"revoke-member",subject:guest.subject});await closed;
+    await event("open");const joined=event("message");socket.send(JSON.stringify({control:"join",protocolVersion:COLLABORATION_PROTOCOL_VERSION,roomId,token:proof(guest)}));assert.equal(JSON.parse((await joined).toString()).role,"editor");
+    const closed=event("close");await settle({...envelope(),action:"set-link-role",linkRole:"none"});await closed;
+    // The guest held only general access, so closing it revoked them. Legacy generation routes stay gone.
     assert.equal((await fetch(`${base}/v1/rooms/${roomId}/generations/1/socket`,{signal:AbortSignal.timeout(10_000)})).status,404);
     if(retire){
       const command={v:1,operationId:crypto.randomUUID(),actor:owner.subject,target:{kind:"account",subject:owner.subject}};
@@ -61,7 +60,7 @@ export async function runProductHarness({base,owner,guest,identitySecret,service
       assert.equal(result.phase,"completed");
     }else await settle({...envelope(),action:"end-room"});
     const sorted=timings.toSorted((a,b)=>a-b),percentile=p=>Math.round(sorted[Math.min(sorted.length-1,Math.ceil(sorted.length*p)-1)]);
-    console.log(`protocol-6 product harness OK: max encrypted snapshot round-trip; ready; WebSocket; revoke; ${retire?"Lifecycle retirement":"end"}; read samples=${samples} p95=${percentile(.95)}ms p99=${percentile(.99)}ms`);
+    console.log(`protocol-7 product harness OK: max plain snapshot round-trip; ready; WebSocket; link access closed; ${retire?"Lifecycle retirement":"end"}; read samples=${samples} p95=${percentile(.95)}ms p99=${percentile(.99)}ms`);
   }finally{socket?.terminate();}
 }
 export async function runRemoteProductHarness(samples=1){

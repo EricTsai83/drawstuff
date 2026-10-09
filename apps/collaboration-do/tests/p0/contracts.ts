@@ -1,8 +1,8 @@
 import { z } from "zod";
-import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 
 // Test-only prototype. Production integration remains 18B P1/P2.
-export const MAX_BINARY_BYTES = MAX_SNAPSHOT_CIPHERTEXT_BYTES;
+export const MAX_BINARY_BYTES = MAX_SNAPSHOT_BYTES;
 export const OPERATION_TTL_MS = 60_000;
 export const NORMAL_QUEUE_LIMIT = 128;
 export const SECURITY_QUEUE_LIMIT = 64;
@@ -18,7 +18,6 @@ export const operationSchema = z.strictObject({
   operationId: z.string().uuid(),
   actor: z.enum(["owner", "writer"]),
   epoch: z.int().positive(),
-  authGeneration: z.literal(1),
   expectedRevision: z.int().nonnegative(),
   checksum: z.string().regex(/^[a-f0-9]{64}$/),
   deadline: z.int().positive(),

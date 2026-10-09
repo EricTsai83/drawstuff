@@ -1,55 +1,41 @@
 import { env } from "cloudflare:test";
-import { roomChannelKey } from "@drawstuff/collaboration/room-auth";
-import { verifyRoomControlToken } from "@drawstuff/collaboration/room-token";
-import { roomControlCommandFromClaims } from "../src/control.ts";
-async function privateLegacyControl(
-  _url: string,
-  init?: RequestInit,
-): Promise<Response> {
-  const body = JSON.parse(
-    typeof init?.body === "string" ? init.body : "{}",
-  ) as { token?: string };
-  const verified = verifyRoomControlToken({
-    token: body.token ?? "",
-    secret: TEST_ROOM_TOKEN_SECRET,
-    nowSeconds: Math.floor(Date.now() / 1000),
-  });
-  if (!verified.ok)
-    return Response.json({ error: "unauthorized" }, { status: 401 });
-  const claims = verified.claims;
-  const stub = env.COLLABORATION_ROOM.getByName(
-    roomChannelKey(claims.rid, claims.gen),
-  );
-  try {
-    return Response.json(
-      await stub.applyControlV1(roomControlCommandFromClaims(claims)),
-    );
-  } catch {
-    return Response.json({ error: "rejected" }, { status: 422 });
-  }
-}
-import { afterEach, describe, it } from "vitest";
+import { afterEach, beforeEach, describe, it, vi } from "vitest";
 
+import type { AuthorityRequest } from "@drawstuff/collaboration/authority";
 import {
   relayProtocolConformanceCases,
   type ConformanceHarness,
+  type ConformanceRoom,
 } from "@drawstuff/collaboration/protocol-conformance";
-import {
-  DO_GATEWAY_CONTROL_PATH,
-  doGatewayControlResponseSchema,
-} from "@drawstuff/collaboration/relay-control";
 
+import { TEST_ROOM_JOIN_TIMEOUT_MS } from "./support/audit.ts";
 import {
-  TEST_ROOM_JOIN_TIMEOUT_MS,
-  TEST_ROOM_TOKEN_SECRET,
-} from "./support/audit.ts";
-import {
-  GATEWAY_BASE,
+  envelope,
+  installAdapterMock,
+  manage,
+  newIdentity,
   openSocket,
+  readyRoom,
   settleRoomEvents,
 } from "./support/room-socket.ts";
 
-afterEach(settleRoomEvents);
+beforeEach(() => {
+  installAdapterMock();
+});
+afterEach(async () => {
+  await settleRoomEvents();
+  vi.restoreAllMocks();
+});
+
+/** Sends one owner command through the public gateway; anything but 200 fails the case. */
+async function ownerCommand(
+  room: ConformanceRoom,
+  request: AuthorityRequest,
+): Promise<void> {
+  const response = await manage(room.roomId, room.owner, request);
+  if (response.status !== 200)
+    throw new Error(`${request.action} answered ${response.status}`);
+}
 
 /**
  * The shared black-box wire-contract suite, driven end to end through the
@@ -59,28 +45,30 @@ afterEach(settleRoomEvents);
  * before it can become a client-visible difference.
  */
 const harness: ConformanceHarness = {
-  secret: TEST_ROOM_TOKEN_SECRET,
+  identitySecret: env.COLLAB_IDENTITY_SECRET,
   joinTimeoutMs: TEST_ROOM_JOIN_TIMEOUT_MS,
-  async connect(roomId, authGeneration = 1) {
-    const { connection } = await openSocket(roomId, authGeneration);
-    return connection;
+  async createRoom(roomId) {
+    const owner = newIdentity("owner");
+    await readyRoom(roomId, owner, "none");
+    return { roomId, owner };
   },
-  async control(token) {
-    const response = await privateLegacyControl(
-      `${GATEWAY_BASE}${DO_GATEWAY_CONTROL_PATH}`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token }),
-      },
-    );
-    if (response.status === 401 || response.status === 422)
-      return { accepted: false, closed: 0 };
-    if (response.status !== 200) {
-      throw new Error(`control endpoint answered ${response.status}`);
-    }
-    const parsed = doGatewayControlResponseSchema.parse(await response.json());
-    return { accepted: true, closed: parsed.closed };
+  invite: (room, email, role) =>
+    ownerCommand(room, {
+      ...envelope(room.roomId),
+      action: "allow-email",
+      email,
+      role,
+    }),
+  removeInvite: (room, email) =>
+    ownerCommand(room, {
+      ...envelope(room.roomId),
+      action: "remove-email",
+      email,
+    }),
+  endRoom: (room) =>
+    ownerCommand(room, { ...envelope(room.roomId), action: "end-room" }),
+  async connect(roomId) {
+    return (await openSocket(roomId)).connection;
   },
 };
 

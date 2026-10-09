@@ -12,11 +12,7 @@ import {
   authorityErrorSchema,
   type TrustedIdentity,
 } from "@drawstuff/collaboration/authority";
-import {
-  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  MIN_SNAPSHOT_SEALED_BYTES,
-  SNAPSHOT_CRYPTO_VERSION,
-} from "@drawstuff/collaboration/snapshot";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 import type { RoomAuthority } from "./room-authority.ts";
 import { AdapterClient } from "./adapter-client.ts";
@@ -140,9 +136,7 @@ export class SnapshotEntry {
         registration.roomId !== intent.roomId ||
         registration.operationId !== intent.operationId ||
         registration.subject !== identity.subject ||
-        registration.lifecycleVersion !== identity.lifecycleVersion ||
-        registration.targetSubject !== undefined ||
-        registration.targetVersion !== undefined
+        registration.lifecycleVersion !== identity.lifecycleVersion
       )
         throw new Error("stale-proof");
       authorize();
@@ -153,18 +147,15 @@ export class SnapshotEntry {
           v: 1 as const,
           action: "read-snapshot" as const,
           roomId: intent.roomId,
-          authGeneration: current.auth_generation,
           authorityEpoch: current.authority_epoch,
         };
         const snapshot = await adapter.readSnapshot(context, controller.signal);
         const authorizeRead = () => {
           authorize();
-          const latest = this.authority.state()!;
           if (
-            latest.auth_generation !== context.authGeneration ||
-            latest.authority_epoch !== context.authorityEpoch
+            this.authority.state()!.authority_epoch !== context.authorityEpoch
           )
-            throw new Error("generation-mismatch");
+            throw new Error("epoch-mismatch");
         };
         authorizeRead();
         if (!snapshot.found)
@@ -226,7 +217,7 @@ export class SnapshotEntry {
         const bodyStart = performance.now();
         const bytes = await readSnapshotBody(
           http.body,
-          operation.kind === "snapshot-put" ? MAX_SNAPSHOT_CIPHERTEXT_BYTES : 0,
+          operation.kind === "snapshot-put" ? MAX_SNAPSHOT_BYTES : 0,
           controller.signal,
         );
         if (timings) timings.receiveBody = performance.now() - bodyStart;
@@ -241,11 +232,9 @@ export class SnapshotEntry {
         if (result.status === "pending") {
           // State may change while receiving bytes. The adapter also checks the persisted epoch under its lock.
           if (
-            operation.authorityEpoch !==
-              this.authority.state()!.authority_epoch ||
-            operation.authGeneration !== this.authority.state()!.auth_generation
+            operation.authorityEpoch !== this.authority.state()!.authority_epoch
           )
-            throw new Error("generation-mismatch");
+            throw new Error("epoch-mismatch");
           result = await adapter.writeSnapshot(
             operation,
             operation.kind === "snapshot-put" ? bytes : undefined,
@@ -318,8 +307,8 @@ export class SnapshotEntry {
   }
   private validBytes(bytes: Uint8Array, checksum: string) {
     return (
-      bytes.byteLength >= MIN_SNAPSHOT_SEALED_BYTES &&
-      bytes[0] === SNAPSHOT_CRYPTO_VERSION &&
+      bytes.byteLength > 0 &&
+      bytes.byteLength <= MAX_SNAPSHOT_BYTES &&
       digest(bytes) === checksum
     );
   }

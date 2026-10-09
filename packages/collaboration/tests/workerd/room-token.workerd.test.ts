@@ -1,74 +1,51 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  signJoinToken,
-  signRoomControlToken,
-  verifyJoinToken,
-  verifyRoomControlToken,
+  signIdentityProof,
+  verifyIdentityProof,
 } from "../../src/room-token.ts";
 import {
-  CONTROL_TOKEN_VECTOR,
-  CONTROL_TOKEN_VECTOR_CLAIMS,
-  JOIN_TOKEN_VECTOR,
-  JOIN_TOKEN_VECTOR_CLAIMS,
+  IDENTITY_PROOF_VECTOR,
+  IDENTITY_PROOF_VECTOR_CLAIMS,
   TOKEN_VECTOR_NOW_SECONDS,
   TOKEN_VECTOR_ROOM_ID,
   TOKEN_VECTOR_SECRET,
 } from "../token-vectors.ts";
 
 /**
- * `./room-token` is the one server-only entry a future Durable Object relay
- * imports directly, so it must actually import and execute in workerd (via
+ * `./room-token` is the one server-only entry the Durable Object imports
+ * directly, so it must actually import and execute in workerd (via
  * `nodejs_compat` `node:crypto`), not merely pass a bundler. Signing and
- * verifying the fixed vectors here, character-identical to Node, is the
- * cross-host token contract (CLAIM-DO-6).
+ * verifying the fixed vector here, character-identical to Node, is the
+ * cross-host proof contract (CLAIM-DO-6).
  */
 
-describe("room token vectors in workerd", () => {
-  it("signs the join vector claims to the exact Node-issued token", () => {
-    expect(signJoinToken(JOIN_TOKEN_VECTOR_CLAIMS, TOKEN_VECTOR_SECRET)).toBe(
-      JOIN_TOKEN_VECTOR,
-    );
+const verify = (token: string) =>
+  verifyIdentityProof({
+    token,
+    secret: TOKEN_VECTOR_SECRET,
+    nowSeconds: TOKEN_VECTOR_NOW_SECONDS,
+    expectedRoomId: TOKEN_VECTOR_ROOM_ID,
   });
 
-  it("signs the control vector claims to the exact Node-issued token", () => {
+describe("identity proof vector in workerd", () => {
+  it("signs the vector claims to the exact Node-issued proof", () => {
     expect(
-      signRoomControlToken(CONTROL_TOKEN_VECTOR_CLAIMS, TOKEN_VECTOR_SECRET),
-    ).toBe(CONTROL_TOKEN_VECTOR);
+      signIdentityProof(IDENTITY_PROOF_VECTOR_CLAIMS, TOKEN_VECTOR_SECRET),
+    ).toBe(IDENTITY_PROOF_VECTOR);
   });
 
-  it("verifies the Node-issued join token", () => {
-    expect(
-      verifyJoinToken({
-        token: JOIN_TOKEN_VECTOR,
-        secret: TOKEN_VECTOR_SECRET,
-        nowSeconds: TOKEN_VECTOR_NOW_SECONDS,
-        expectedRoomId: TOKEN_VECTOR_ROOM_ID,
-      }),
-    ).toEqual({ ok: true, claims: JOIN_TOKEN_VECTOR_CLAIMS });
-  });
-
-  it("verifies the Node-issued control token", () => {
-    expect(
-      verifyRoomControlToken({
-        token: CONTROL_TOKEN_VECTOR,
-        secret: TOKEN_VECTOR_SECRET,
-        nowSeconds: TOKEN_VECTOR_NOW_SECONDS,
-      }),
-    ).toEqual({ ok: true, claims: CONTROL_TOKEN_VECTOR_CLAIMS });
+  it("verifies the Node-issued proof", () => {
+    expect(verify(IDENTITY_PROOF_VECTOR)).toEqual({
+      ok: true,
+      claims: IDENTITY_PROOF_VECTOR_CLAIMS,
+    });
   });
 
   it("rejects a tampered signature", () => {
-    const tampered = JOIN_TOKEN_VECTOR.slice(0, -1).concat(
-      JOIN_TOKEN_VECTOR.endsWith("A") ? "B" : "A",
+    const tampered = IDENTITY_PROOF_VECTOR.slice(0, -1).concat(
+      IDENTITY_PROOF_VECTOR.endsWith("A") ? "B" : "A",
     );
-    expect(
-      verifyJoinToken({
-        token: tampered,
-        secret: TOKEN_VECTOR_SECRET,
-        nowSeconds: TOKEN_VECTOR_NOW_SECONDS,
-        expectedRoomId: TOKEN_VECTOR_ROOM_ID,
-      }),
-    ).toEqual({ ok: false, reason: "bad-signature" });
+    expect(verify(tampered)).toEqual({ ok: false, reason: "bad-signature" });
   });
 });

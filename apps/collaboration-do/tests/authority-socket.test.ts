@@ -1,206 +1,121 @@
-import {
-  env,
-  evictDurableObject,
-  runInDurableObject,
-  SELF,
-} from "cloudflare:test";
+import { evictDurableObject, runInDurableObject, SELF } from "cloudflare:test";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  adapterCommandSchema,
+  authorityManagementSchema,
+  type AdapterCommand,
   type AuthorityRequest,
   type TrustedIdentity,
 } from "@drawstuff/collaboration/authority";
-import { signIdentityProof } from "@drawstuff/collaboration/room-token";
+import type { RoomId } from "@drawstuff/collaboration/protocol";
 import {
   encodeRelayDataFrame,
-  parseRelayServerControl,
   RELAY_CLOSE_CODES,
 } from "@drawstuff/collaboration/relay-protocol";
 import { RoomAuthority } from "../src/room-authority.ts";
 import { readRoomSocketAttachment } from "../src/attachment.ts";
 import {
+  defaultAdapterReply,
+  drainAuthorityWork,
+  envelope,
   expectClose,
   expectPeers,
-  issueJoinToken,
+  GATEWAY_BASE,
+  identityProof,
+  installAdapterMock,
+  invite,
+  joinFrame,
+  joinRoom,
+  latestProjections,
+  manage,
+  newIdentity,
+  openRoom,
   openSocket,
   roomStub,
   settleRoomEvents,
   uniqueRoomId,
+  useTestAdapter,
   type OpenSocket,
 } from "./support/room-socket.ts";
 
-const owner: TrustedIdentity = {
-  subject: "socket-owner",
-  email: "owner@example.com",
-  lifecycleVersion: 1,
-};
-const guest: TrustedIdentity = {
-  subject: "socket-guest",
-  email: "guest@example.com",
-  lifecycleVersion: 1,
-};
 const sockets: OpenSocket[] = [];
-const restore: (() => Promise<void>)[] = [];
-const platformFetch = globalThis.fetch;
-let registrationReply: typeof adapterReply | undefined;
-function parseAdapterCommand(init?: RequestInit) {
-  if (typeof init?.body !== "string") throw new Error("expected-json-command");
-  return adapterCommandSchema.parse(JSON.parse(init.body) as unknown);
-}
-const adapterReply = async (
-  _url: string | URL | Request,
-  init?: RequestInit,
-): Promise<Response> => {
-  const command = parseAdapterCommand(init);
-  switch (command.action) {
-    case "register":
-      return Response.json({
-        roomId: command.roomId,
-        operationId: command.operationId,
-        subject: command.identity.subject,
-        lifecycleVersion: command.identity.lifecycleVersion,
-        ...(command.targetSubject
-          ? { targetSubject: command.targetSubject, targetVersion: 1 }
-          : {}),
-      });
-    case "create-parent":
-      return Response.json({
-        roomId: command.roomId,
-        createOperationId: command.createOperationId,
-      });
-    case "project":
-      return Response.json({ applied: true });
-    case "fence":
-      return Response.json({ authorityEpoch: command.authorityEpoch });
-    case "cleanup":
-      return Response.json({ cleaned: true });
-    default:
-      throw new Error("unexpected-adapter-command");
-  }
-};
+let seen: AdapterCommand[] = [];
+/** One-shot override for the next registration the Object sends. */
+let registrationReply:
+  ((command: AdapterCommand) => Promise<Response>) | undefined;
+
 beforeEach(() => {
   registrationReply = undefined;
-  vi.spyOn(globalThis, "fetch").mockImplementation(async (url, init) => {
-    const target = new URL(url instanceof Request ? url.url : String(url));
-    if (target.hostname !== "adapter.test") return platformFetch(url, init);
-    const command = parseAdapterCommand(init);
-    if (command.action === "register" && registrationReply) {
-      const reply = registrationReply;
-      registrationReply = undefined;
-      return reply(url, init);
-    }
-    return adapterReply(url, init);
+  seen = installAdapterMock((command) => {
+    const override = registrationReply;
+    if (command.action !== "register" || !override)
+      return defaultAdapterReply(command);
+    registrationReply = undefined;
+    return override(command);
   });
 });
 afterEach(async () => {
   for (const socket of sockets.splice(0)) socket.connection.close();
   await settleRoomEvents();
-  for (const reset of restore.splice(0)) await reset();
   vi.restoreAllMocks();
 });
-async function fixture(linkRole: "none" | "viewer" | "editor" = "editor") {
-  const roomId = uniqueRoomId("authority-socket");
-  const stub = roomStub(roomId);
-  let original = "";
-  let authorityForRace: RoomAuthority | undefined;
-  await runInDurableObject(stub, async (instance, state) => {
-    const bindings: unknown = Reflect.get(instance, "env");
-    if (
-      !bindings ||
-      typeof bindings !== "object" ||
-      !("COLLAB_ADAPTER_URL" in bindings)
-    )
-      throw new Error("missing-bindings");
-    original = String(bindings.COLLAB_ADAPTER_URL);
-    Object.assign(bindings, {
-      COLLAB_ADAPTER_URL:
-        "https://adapter.test/api/internal/collaboration/adapter",
-    });
-    const authority = new RoomAuthority(state.storage, roomId);
-    authorityForRace = authority;
-    const create = {
-      v: 1 as const,
-      action: "create" as const,
-      operationId: crypto.randomUUID(),
-      roomId,
-      actor: owner,
-      deadline: Date.now() + 55_000,
-      sceneId: null,
-      label: "Socket fixture",
-      linkRole,
-    };
-    await authority.apply(create);
-    await authority.confirmParent(create.operationId);
-    // Seed only readiness: product snapshot/asset initialization belongs to the next entry unit.
-    state.storage.sql.exec("UPDATE authority_room SET state='ready'");
-  });
-  restore.push(() =>
-    runInDurableObject(stub, (instance) => {
-      const bindings: unknown = Reflect.get(instance, "env");
-      if (bindings && typeof bindings === "object")
-        Object.assign(bindings, { COLLAB_ADAPTER_URL: original });
-    }),
-  );
-  const base = () => ({
-    v: 1 as const,
-    roomId,
-    operationId: crypto.randomUUID(),
-    deadline: Date.now() + 55_000,
-  });
-  const retire = async (subject: string, version: number) => {
-    if (!authorityForRace) throw new Error("missing-authority");
-    await authorityForRace.retireSubject(subject, version);
-  };
-  return { roomId, stub, base, retire };
-}
-type Fixture = Awaited<ReturnType<typeof fixture>>;
-function proof(f: Fixture, identity = owner, skew = 0) {
-  const now = Math.floor(Date.now() / 1000) + skew;
-  return signIdentityProof(
-    {
-      v: 1,
-      aud: "drawstuff-room-identity",
-      protocolVersion: 6,
-      roomId: f.roomId,
-      identity,
-      jti: crypto.randomUUID(),
-      iat: now,
-      exp: now + 60,
-    },
-    env.COLLAB_IDENTITY_SECRET,
-  );
-}
-async function connect(f: Fixture, token = proof(f)) {
-  const socket = await openSocket(f.roomId, 1, true);
+
+async function join(roomId: RoomId, identity: TrustedIdentity) {
+  const socket = await joinRoom(roomId, identity);
   sockets.push(socket);
-  socket.connection.send(
-    JSON.stringify({
-      control: "join",
-      protocolVersion: 6,
-      roomId: f.roomId,
-      token,
-    }),
-  );
   return socket;
 }
-async function joined(socket: OpenSocket) {
-  const event = await socket.connection.next();
-  if (event.kind !== "text")
-    throw new Error(`expected join, got ${event.kind}`);
-  const control = parseRelayServerControl(event.text);
-  if (control?.control !== "joined") throw new Error("expected-joined");
-  return control;
+
+/** Opens a socket and sends a join frame carrying `proof`. */
+async function connect(roomId: RoomId, proof: string) {
+  const socket = await openSocket(roomId);
+  sockets.push(socket);
+  socket.connection.send(joinFrame(roomId, proof));
+  return socket;
 }
-async function manage(f: Fixture, request: AuthorityRequest) {
-  return SELF.fetch("https://gateway.test/v1/authority", {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${env.COLLAB_AUTHORITY_SECRET}`,
-    },
-    body: JSON.stringify({ proof: proof(f), request }),
+
+async function expectRefused(
+  roomId: RoomId,
+  identity: TrustedIdentity,
+  code: number = RELAY_CLOSE_CODES.membershipRevoked,
+) {
+  const socket = await connect(roomId, identityProof(roomId, identity));
+  await expectClose(socket.connection, code);
+}
+
+/** Sends one authority request through the gateway and expects it to succeed. */
+async function command(
+  roomId: RoomId,
+  actor: TrustedIdentity,
+  request: AuthorityRequest,
+) {
+  const response = await manage(roomId, actor, request);
+  expect(response.status).toBe(200);
+  return response.json();
+}
+
+const setLinkRole = (
+  roomId: RoomId,
+  owner: TrustedIdentity,
+  linkRole: "none" | "viewer" | "editor",
+) =>
+  command(roomId, owner, {
+    ...envelope(roomId),
+    action: "set-link-role",
+    linkRole,
   });
+
+const removeInvite = (roomId: RoomId, owner: TrustedIdentity, email: string) =>
+  command(roomId, owner, {
+    ...envelope(roomId),
+    action: "remove-email",
+    email,
+  });
+
+async function projections(roomId: RoomId) {
+  await drainAuthorityWork(roomId);
+  return latestProjections(seen);
 }
+
 const sceneFrame = encodeRelayDataFrame("scene", new Uint8Array([5, 6, 7]));
 async function binary(socket: OpenSocket) {
   for (let n = 0; n < 128; n++) {
@@ -211,137 +126,102 @@ async function binary(socket: OpenSocket) {
   }
   throw new Error("missing-binary-frame");
 }
+
 describe("formal Room WebSocket authority", () => {
-  it("admits registered identities, assigns Room roles and preserves opaque fanout across eviction", async () => {
-    const f = await fixture();
-    const first = await connect(f);
-    expect((await joined(first)).role).toBe("owner");
-    const second = await connect(f, proof(f, guest));
-    expect((await joined(second)).role).toBe("editor");
+  it("admits identities with computed roles and preserves opaque fanout across eviction", async () => {
+    const { roomId, owner } = await openRoom("socket-fanout");
+    const guest = newIdentity("guest");
+    const first = await join(roomId, owner);
+    expect(first.joined.role).toBe("owner");
+    const second = await join(roomId, guest);
+    expect(second.joined.role).toBe("editor");
     await expectPeers(first.connection);
-    await evictDurableObject(f.stub);
-    await runInDurableObject(f.stub, (_instance, state) => {
+    const stub = roomStub(roomId);
+    await evictDurableObject(stub);
+    await runInDurableObject(stub, (_instance, state) => {
       const attached = state.getWebSockets().map(readRoomSocketAttachment);
+      expect(attached).toHaveLength(2);
       expect(
         attached.every(
-          (a) => a?.v === 3 && a.state === "joined" && a.lifecycleVersion === 1,
+          (a) => a?.v === 4 && a.state === "joined" && a.lifecycleVersion === 1,
         ),
       ).toBe(true);
-      expect(attached).toHaveLength(2);
+      expect(
+        attached.map((a) => (a?.state === "joined" ? a.email : null)).sort(),
+      ).toEqual([guest.email, owner.email].sort());
       expect(JSON.stringify(attached)).not.toContain("proof");
     });
     first.connection.send(sceneFrame);
     expect(await binary(second)).toEqual(sceneFrame);
   });
-  it("refuses legacy tokens, expired/wrong-room proofs, and forged routing headers", async () => {
-    const f = await fixture();
-    for (const token of [
-      issueJoinToken({ roomId: f.roomId }),
-      proof(f, guest, -3_600),
-      proof({ ...f, roomId: uniqueRoomId("wrong") }),
+
+  it("refuses expired, wrong-room and wrongly signed proofs, and untrusted origins", async () => {
+    const { roomId } = await openRoom("socket-proofs");
+    const guest = newIdentity("guest");
+    for (const proof of [
+      identityProof(roomId, guest, { skewSeconds: -3_600 }),
+      identityProof(roomId, guest, { claimedRoomId: uniqueRoomId("wrong") }),
+      identityProof(roomId, guest, {
+        secret: "another-identity-secret-purpose-only-01",
+      }),
     ]) {
       await expectClose(
-        (await connect(f, token)).connection,
+        (await connect(roomId, proof)).connection,
         RELAY_CLOSE_CODES.unauthorized,
       );
     }
-    const legacy = await SELF.fetch(
-      `https://gateway.test/v1/rooms/${f.roomId}/generations/1/socket`,
-      {
-        headers: {
-          Upgrade: "websocket",
-          Origin: "http://localhost:3000",
-          "x-drawstuff-internal-authority-socket": "1",
-        },
-      },
-    );
-    expect(legacy.status).toBe(404);
-    const missing = await SELF.fetch(
-      `https://gateway.test/v1/rooms/${uniqueRoomId("missing")}/socket`,
-      {
-        headers: { Upgrade: "websocket", Origin: "http://localhost:3000" },
-      },
-    );
-    expect(missing.status).toBe(503);
     expect(
       (
-        await SELF.fetch(`https://gateway.test/v1/rooms/${f.roomId}/socket`, {
+        await SELF.fetch(`${GATEWAY_BASE}/v1/rooms/${roomId}/socket`, {
           headers: { Upgrade: "websocket", Origin: "https://untrusted.test" },
         })
       ).status,
     ).toBe(403);
   });
-  it("closes revoked members promptly and does not disconnect unaffected members on ordinary management", async () => {
-    const f = await fixture();
-    const first = await connect(f);
-    await joined(first);
-    const second = await connect(f, proof(f, guest));
-    await joined(second);
+
+  it("rechecks access on every frame after a missed close, and enforces read-only roles", async () => {
+    const { roomId, owner } = await openRoom("socket-recheck", "none");
+    const guest = newIdentity("guest");
+    await invite(roomId, owner, guest.email, "editor");
+    const first = await join(roomId, owner);
+    const second = await join(roomId, guest);
     await expectPeers(first.connection);
-    const response = await manage(f, {
-      ...f.base(),
-      action: "revoke-member",
-      subject: guest.subject,
-    });
-    expect(response.status).toBe(200);
-    expect(await response.json()).toMatchObject({
-      result: { status: "pending" },
-    });
-    await expectClose(second.connection, RELAY_CLOSE_CODES.membershipRevoked);
-    const newcomer = {
-      ...guest,
-      subject: "another",
-      email: "another@example.com",
-    };
-    const third = await connect(f, proof(f, newcomer));
-    await joined(third);
-    first.connection.send(sceneFrame);
-    expect(await binary(third)).toEqual(sceneFrame);
-    await expectClose(
-      (await connect(f, proof(f, guest))).connection,
-      RELAY_CLOSE_CODES.membershipRevoked,
-    );
-  });
-  it("rechecks receiving access after a missed close and checks sending roles after a downgrade", async () => {
-    const f = await fixture();
-    const first = await connect(f);
-    await joined(first);
-    const second = await connect(f, proof(f, guest));
-    await joined(second);
-    await expectPeers(first.connection);
-    // Simulate durable mutation + crash before RPC socket cleanup.
-    await runInDurableObject(f.stub, async (_instance, state) => {
-      await new RoomAuthority(state.storage, f.roomId).apply({
-        ...f.base(),
+    const stub = roomStub(roomId);
+    // Durable mutation, then a crash before any socket enforcement ran.
+    await runInDurableObject(stub, async (_instance, state) => {
+      await new RoomAuthority(state.storage, roomId).apply({
+        ...envelope(roomId),
         actor: owner,
-        action: "revoke-member",
-        subject: guest.subject,
+        action: "remove-email",
+        email: guest.email,
       });
     });
-    await evictDurableObject(f.stub);
+    await evictDurableObject(stub);
+    await useTestAdapter(roomId);
     first.connection.send(sceneFrame);
     await expectClose(second.connection, RELAY_CLOSE_CODES.membershipRevoked);
-    await manage(f, {
-      ...f.base(),
-      action: "set-member-role",
-      subject: guest.subject,
-      role: "viewer",
-    });
-    const viewer = await connect(f, proof(f, guest));
-    expect((await joined(viewer)).role).toBe("viewer");
+    await invite(roomId, owner, guest.email, "viewer");
+    const viewer = await join(roomId, guest);
+    expect(viewer.joined.role).toBe("viewer");
     viewer.connection.send(sceneFrame);
     await expectClose(viewer.connection, RELAY_CLOSE_CODES.readOnlyRole);
   });
+
   it("refuses a registration response that returns after local retirement", async () => {
-    const f = await fixture();
-    registrationReply = async (url, init) => {
-      // Runs inside this same Room's outbound call, before the registration receipt returns.
-      await f.retire(guest.subject, 2);
-      return adapterReply(url, init);
+    const { roomId } = await openRoom("socket-retire");
+    const guest = newIdentity("guest");
+    const stub = roomStub(roomId);
+    let authority: RoomAuthority | undefined;
+    await runInDurableObject(stub, (_instance, state) => {
+      authority = new RoomAuthority(state.storage, roomId);
+    });
+    registrationReply = async (registration) => {
+      // Runs inside this same Room's outbound call, before the receipt returns.
+      await authority!.retireSubject(guest.subject, 2);
+      return defaultAdapterReply(registration);
     };
-    const socket = await connect(f, proof(f, guest));
-    await expectClose(socket.connection, RELAY_CLOSE_CODES.membershipRevoked);
-    await runInDurableObject(f.stub, (_instance, state) => {
+    await expectRefused(roomId, guest);
+    await runInDurableObject(stub, (_instance, state) => {
       expect(
         state
           .getWebSockets()
@@ -350,82 +230,257 @@ describe("formal Room WebSocket authority", () => {
       ).toBe(false);
     });
   });
+
   it("fails closed on adapter failure or mismatched registration, without acknowledging a join", async () => {
-    const f = await fixture();
+    const { roomId } = await openRoom("socket-register");
+    const guest = newIdentity("guest");
     registrationReply = async () => new Response(null, { status: 503 });
-    await expectClose(
-      (await connect(f, proof(f, guest))).connection,
-      RELAY_CLOSE_CODES.internalError,
-    );
+    await expectRefused(roomId, guest, RELAY_CLOSE_CODES.internalError);
     registrationReply = async () =>
       Response.json({
-        roomId: f.roomId,
+        roomId,
         operationId: crypto.randomUUID(),
         subject: guest.subject,
         lifecycleVersion: 1,
       });
-    await expectClose(
-      (await connect(f, proof(f, guest))).connection,
-      RELAY_CLOSE_CODES.membershipRevoked,
-    );
+    await expectRefused(roomId, guest);
   });
-  it("does not activate membership when the proof expires during registration", async () => {
-    const f = await fixture();
+
+  it("does not record an opener when the proof expires during registration", async () => {
+    const { roomId } = await openRoom("socket-expiry");
+    const guest = newIdentity("guest");
     const now = Date.now();
     const clock = vi.spyOn(Date, "now");
-    registrationReply = async (url, init) => {
+    registrationReply = async (registration) => {
       clock.mockReturnValue(now + 61_000);
-      return adapterReply(url, init);
+      return defaultAdapterReply(registration);
     };
     try {
-      await expectClose(
-        (await connect(f, proof(f, guest))).connection,
-        RELAY_CLOSE_CODES.membershipRevoked,
-      );
-      await runInDurableObject(f.stub, (_instance, state) => {
-        expect(
-          state.storage.sql
-            .exec(
-              "SELECT subject FROM authority_members WHERE subject=?",
-              guest.subject,
-            )
-            .toArray(),
-        ).toHaveLength(0);
-      });
+      await expectRefused(roomId, guest);
     } finally {
       clock.mockRestore();
     }
+    await runInDurableObject(roomStub(roomId), (_instance, state) => {
+      expect(
+        state.storage.sql
+          .exec(
+            "SELECT subject FROM authority_members WHERE subject=?",
+            guest.subject,
+          )
+          .toArray(),
+      ).toHaveLength(0);
+    });
   });
-  it("closes generation cohorts and keeps the same Room authority on the generation-free route", async () => {
-    const f = await fixture();
-    const first = await connect(f);
-    const initial = await joined(first);
-    await manage(f, {
-      ...f.base(),
-      action: "rotate-generation",
-      expectedGeneration: 1,
+});
+
+/** Plan 21 §9's access matrix, as far as the room Object can show it. */
+describe("Google Docs access on live sockets", () => {
+  it("with general access off, refuses uninvited accounts and admits invitees with their role", async () => {
+    const { roomId, owner } = await openRoom("access-none", "none");
+    const stranger = newIdentity("stranger");
+    const viewer = newIdentity("viewer");
+    const editor = newIdentity("editor");
+    await expectRefused(roomId, stranger);
+    await invite(roomId, owner, viewer.email, "viewer");
+    await invite(roomId, owner, editor.email, "editor");
+    expect((await join(roomId, viewer)).joined.role).toBe("viewer");
+    expect((await join(roomId, editor)).joined.role).toBe("editor");
+    const { members } = await projections(roomId);
+    expect(members.get(viewer.subject)).toMatchObject({
+      role: "viewer",
+      access: "invited",
     });
-    await expectClose(first.connection, RELAY_CLOSE_CODES.membershipRevoked);
-    await expect(openSocket(f.roomId, 1, true)).rejects.toThrow("status 503");
-    await runInDurableObject(f.stub, (_instance, state) =>
-      state.storage.sql.exec("UPDATE authority_room SET state='ready'"),
+    expect(members.has(stranger.subject)).toBe(false);
+  });
+
+  it("admits link visitors with the link role and closes them as soon as general access closes", async () => {
+    const { roomId, owner } = await openRoom("access-link", "viewer");
+    const visitor = newIdentity("visitor");
+    const invitee = newIdentity("invitee");
+    await invite(roomId, owner, invitee.email, "editor");
+    const ownerSocket = await join(roomId, owner);
+    const invited = await join(roomId, invitee);
+    const linked = await join(roomId, visitor);
+    expect(linked.joined.role).toBe("viewer");
+    expect((await projections(roomId)).members.get(visitor.subject)).toEqual(
+      expect.objectContaining({ role: "viewer", access: "link" }),
     );
-    const second = await connect(f);
-    expect((await joined(second)).roomGeneration).toBeGreaterThan(
-      initial.roomGeneration,
-    );
-    await runInDurableObject(f.stub, (_instance, state) => {
-      expect(
-        new RoomAuthority(state.storage, f.roomId).state()?.auth_generation,
-      ).toBe(2);
-      expect(
-        state
-          .getWebSockets()
-          .map(readRoomSocketAttachment)
-          .some((a) => a?.state === "joined" && a.authGeneration === 2),
-      ).toBe(true);
+
+    expect(await setLinkRole(roomId, owner, "none")).toMatchObject({
+      result: { status: "pending" },
     });
-    await manage(f, { ...f.base(), action: "end-room" });
-    await expectClose(second.connection, RELAY_CLOSE_CODES.roomEnded);
+    await expectClose(linked.connection, RELAY_CLOSE_CODES.membershipRevoked);
+    await expectRefused(roomId, visitor);
+    // Owner and invitee keep their sessions.
+    ownerSocket.connection.send(sceneFrame);
+    expect(await binary(invited)).toEqual(sceneFrame);
+
+    expect((await projections(roomId)).members.get(visitor.subject)).toEqual(
+      expect.objectContaining({ role: null, access: null, tombstone: true }),
+    );
+    const view = authorityManagementSchema.parse(
+      (
+        (await command(roomId, owner, {
+          ...envelope(roomId),
+          action: "get-management",
+        })) as { result: unknown }
+      ).result,
+    );
+    expect(view.members.find((m) => m.userId === visitor.subject)).toEqual(
+      expect.objectContaining({ role: null }),
+    );
+    expect(view.allowlist).toEqual([
+      {
+        email: invitee.email,
+        role: "editor",
+        lastJoinedAt: expect.any(Number),
+      },
+    ]);
+  });
+
+  it("widening general access changes a link visitor's role and closes the stale session", async () => {
+    const { roomId, owner } = await openRoom("access-widen", "viewer");
+    const visitor = newIdentity("visitor");
+    const linked = await join(roomId, visitor);
+    expect(await setLinkRole(roomId, owner, "editor")).toMatchObject({
+      result: { status: "enforced" },
+    });
+    await expectClose(linked.connection, RELAY_CLOSE_CODES.roleChanged);
+    expect((await join(roomId, visitor)).joined.role).toBe("editor");
+  });
+
+  it("removing an invitation closes the socket at once and falls back to general access; re-inviting restores it", async () => {
+    const { roomId, owner } = await openRoom("access-remove", "none");
+    const guest = newIdentity("guest");
+    await invite(roomId, owner, guest.email, "editor");
+    const invited = await join(roomId, guest);
+    await removeInvite(roomId, owner, guest.email);
+    await expectClose(invited.connection, RELAY_CLOSE_CODES.membershipRevoked);
+    await expectRefused(roomId, guest);
+    let latest = await projections(roomId);
+    expect(latest.invites.get(guest.email)).toEqual(
+      expect.objectContaining({ role: null, tombstone: true }),
+    );
+    expect(latest.members.get(guest.subject)).toEqual(
+      expect.objectContaining({ tombstone: true }),
+    );
+
+    await setLinkRole(roomId, owner, "viewer");
+    const linked = await join(roomId, guest);
+    expect(linked.joined.role).toBe("viewer");
+    latest = await projections(roomId);
+    expect(latest.members.get(guest.subject)).toEqual(
+      expect.objectContaining({ role: "viewer", access: "link" }),
+    );
+
+    await invite(roomId, owner, guest.email, "editor");
+    await expectClose(linked.connection, RELAY_CLOSE_CODES.roleChanged);
+    expect((await join(roomId, guest)).joined.role).toBe("editor");
+    latest = await projections(roomId);
+    expect(latest.members.get(guest.subject)).toEqual(
+      expect.objectContaining({ role: "editor", access: "invited" }),
+    );
+    expect(latest.invites.get(guest.email)).toEqual(
+      expect.objectContaining({ role: "editor", tombstone: false }),
+    );
+  });
+
+  it("removing an invited editor while general access admits viewers changes the role instead of revoking", async () => {
+    const { roomId, owner } = await openRoom("access-fallback", "viewer");
+    const guest = newIdentity("guest");
+    await invite(roomId, owner, guest.email, "editor");
+    const invited = await join(roomId, guest);
+    expect(invited.joined.role).toBe("editor");
+    await removeInvite(roomId, owner, guest.email);
+    await expectClose(invited.connection, RELAY_CLOSE_CODES.roleChanged);
+    expect((await join(roomId, guest)).joined.role).toBe("viewer");
+  });
+
+  it("takes the higher of invitation and general access (D7)", async () => {
+    const { roomId, owner } = await openRoom("access-d7", "viewer");
+    const invitedEditor = newIdentity("editor");
+    await invite(roomId, owner, invitedEditor.email, "editor");
+    expect((await join(roomId, invitedEditor)).joined.role).toBe("editor");
+
+    const other = await openRoom("access-d7-editor", "editor");
+    const invitedViewer = newIdentity("viewer");
+    await invite(other.roomId, other.owner, invitedViewer.email, "viewer");
+    expect((await join(other.roomId, invitedViewer)).joined.role).toBe(
+      "editor",
+    );
+  });
+
+  it("never freezes a role at join: changing the invitation changes the computed role", async () => {
+    const { roomId, owner } = await openRoom("access-upgrade", "none");
+    const guest = newIdentity("guest");
+    await invite(roomId, owner, guest.email, "viewer");
+    const viewer = await join(roomId, guest);
+    expect(viewer.joined.role).toBe("viewer");
+    await invite(roomId, owner, guest.email, "editor");
+    await expectClose(viewer.connection, RELAY_CLOSE_CODES.roleChanged);
+    const editor = await join(roomId, guest);
+    expect(editor.joined.role).toBe("editor");
+    // A downgrade closes the editor session the same way.
+    await invite(roomId, owner, guest.email, "viewer");
+    await expectClose(editor.connection, RELAY_CLOSE_CODES.roleChanged);
+    expect((await join(roomId, guest)).joined.role).toBe("viewer");
+  });
+
+  it("leave removes the invitation and opened record; the owner cannot leave", async () => {
+    const { roomId, owner } = await openRoom("access-leave", "none");
+    const guest = newIdentity("guest");
+    await invite(roomId, owner, guest.email, "editor");
+    const invited = await join(roomId, guest);
+    expect(
+      (await manage(roomId, owner, { ...envelope(roomId), action: "leave" }))
+        .status,
+    ).toBe(403);
+    await command(roomId, guest, { ...envelope(roomId), action: "leave" });
+    await expectClose(invited.connection, RELAY_CLOSE_CODES.membershipRevoked);
+    await expectRefused(roomId, guest);
+    const latest = await projections(roomId);
+    expect(latest.members.get(guest.subject)).toEqual(
+      expect.objectContaining({ tombstone: true }),
+    );
+    expect(latest.invites.get(guest.email)).toEqual(
+      expect.objectContaining({ tombstone: true }),
+    );
+    await runInDurableObject(roomStub(roomId), (_instance, state) => {
+      expect(
+        state.storage.sql
+          .exec(
+            "SELECT * FROM authority_members WHERE subject=?",
+            guest.subject,
+          )
+          .toArray(),
+      ).toEqual([]);
+    });
+  });
+
+  it("end-room closes every socket with roomEnded and tombstones every list row", async () => {
+    const { roomId, owner } = await openRoom("access-end", "viewer");
+    const invitee = newIdentity("invitee");
+    const pending = "never-opened@example.com";
+    await invite(roomId, owner, invitee.email, "editor");
+    await invite(roomId, owner, pending, "viewer");
+    const visitor = newIdentity("visitor");
+    const opened = [
+      await join(roomId, owner),
+      await join(roomId, invitee),
+      await join(roomId, visitor),
+    ];
+    await command(roomId, owner, { ...envelope(roomId), action: "end-room" });
+    for (const socket of opened)
+      await expectClose(socket.connection, RELAY_CLOSE_CODES.roomEnded);
+    await expect(openSocket(roomId)).rejects.toThrow("status 503");
+    const { members, invites } = await projections(roomId);
+    for (const identity of [owner, invitee, visitor])
+      expect(members.get(identity.subject)).toEqual(
+        expect.objectContaining({ status: "ended", tombstone: true }),
+      );
+    for (const email of [invitee.email, pending])
+      expect(invites.get(email)).toEqual(
+        expect.objectContaining({ status: "ended", tombstone: true }),
+      );
   });
 });
