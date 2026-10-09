@@ -337,18 +337,63 @@ describe("monotonic room projections", () => {
       invited,
       opened,
     ]);
-    // A tombstoned member row no longer hides a live invitation.
+    // A leave newer than the still-live invitation hides the room.
     await applyRoomProjection(
       db,
       f.projection({ roomId: opened, version: 3, tombstone: true }),
     );
-    expect((await listGuest(f, {}, email)).rooms).toContainEqual(
-      expect.objectContaining({
-        roomId: opened,
-        access: "invited",
-        listedAt: 50,
-      }),
+    expect(
+      (await listGuest(f, {}, email)).rooms.map((row) => row.roomId),
+    ).not.toContain(opened);
+  });
+  it("lets the newer of the account's row and its invitation decide the listing", async () => {
+    const f = await adapterFixture(db);
+    const email = guestEmail(f);
+    const listed = async (section: "mine" | "link") =>
+      (await listGuest(f, { section }, email)).rooms;
+    // A re-invitation newer than a leave lists the room again.
+    const rejoined = await addRoom(f, "newer-reinvite");
+    await applyRoomProjection(db, f.projection({ roomId: rejoined }));
+    await applyRoomProjection(
+      db,
+      f.projection({ roomId: rejoined, version: 3, tombstone: true }),
     );
+    await applyInviteProjection(
+      db,
+      f.invite({ roomId: rejoined, version: 4, role: "viewer", listedAt: 400 }),
+    );
+    // A newer invitation moves a link-opened room from link to mine.
+    const promoted = await addRoom(f, "newer-invite-over-link");
+    await applyRoomProjection(
+      db,
+      f.projection({ roomId: promoted, access: "link", listedAt: 300 }),
+    );
+    await applyInviteProjection(
+      db,
+      f.invite({ roomId: promoted, version: 3, listedAt: 300 }),
+    );
+    // A newer invitation removal hides an older invited member row.
+    const uninvited = await addRoom(f, "newer-uninvite");
+    await applyRoomProjection(db, f.projection({ roomId: uninvited }));
+    await applyInviteProjection(db, f.invite({ roomId: uninvited }));
+    await applyInviteProjection(
+      db,
+      f.invite({ roomId: uninvited, version: 3, tombstone: true }),
+    );
+    expect(await listed("mine")).toEqual([
+      expect.objectContaining({
+        roomId: rejoined,
+        role: "viewer",
+        access: "invited",
+        listedAt: 400,
+      }),
+      expect.objectContaining({
+        roomId: promoted,
+        role: "editor",
+        access: "invited",
+      }),
+    ]);
+    expect(await listed("link")).toEqual([]);
   });
   it("pages mine across member and invitation rows with one keyset", async () => {
     const f = await adapterFixture(db);

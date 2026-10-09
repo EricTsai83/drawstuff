@@ -52,6 +52,8 @@ vi.mock("@/server/db/index", () => ({ db: testDb }));
 import { eq } from "drizzle-orm";
 
 import * as schema from "@/server/db/schema";
+import { applyStorageFence } from "@/server/collab/authority-storage";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { registerTestDatabase } from "./support/pglite-db";
 import {
   createExpiredSharedScenesJob,
@@ -596,7 +598,7 @@ describe("collab room retention", () => {
   async function insertRoom(params: {
     roomId: string;
     status: "ready" | "ended";
-    storageState?: "ended";
+    storageState?: "ready" | "ended";
     endedAt?: Date;
   }) {
     const sceneId = await insertScene(null);
@@ -698,6 +700,59 @@ describe("collab room retention", () => {
     // Idempotent: the swept room no longer holds data, so a rerun finds nothing.
     const second = await createRoomRetentionJob().run(deps);
     expect(second).toMatchObject({ roomsReclaimed: 0, enqueuedObjects: 0 });
+  });
+
+  it("reclaims a room once either its projection or its storage fence has ended", async () => {
+    const endedAt = new Date(Date.now() - 8 * DAY_MS);
+    // Room may abandon an undelivered terminal fence, so status alone is final.
+    await insertRoom({
+      roomId: "room-status-ended",
+      status: "ended",
+      storageState: "ready",
+      endedAt,
+    });
+    await insertRoom({
+      roomId: "room-storage-ended",
+      status: "ready",
+      storageState: "ended",
+      endedAt,
+    });
+    for (const roomId of ["room-status-ended", "room-storage-ended"]) {
+      await insertSnapshot(roomId);
+      await insertAsset(roomId, FILE_A, `${roomId}-key`);
+    }
+
+    const { deps } = makeDeps();
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 2,
+      enqueuedObjects: 2,
+    });
+    for (const roomId of ["room-status-ended", "room-storage-ended"]) {
+      expect(await snapshotCount(roomId)).toBe(0);
+      expect(await assetCount(roomId)).toBe(0);
+    }
+  });
+
+  it("measures the grace period from a terminal fence, not from an old update", async () => {
+    await insertRoom({ roomId: "room-fenced-now", status: "ready" });
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ updatedAt: new Date(0) })
+      .where(eq(schema.collaborationRoom.roomId, "room-fenced-now"));
+    await insertSnapshot("room-fenced-now");
+    await applyStorageFence(testDb as unknown as Database, {
+      v: 1,
+      action: "fence",
+      roomId: roomIdSchema.parse("room-fenced-now"),
+      authorityEpoch: 2,
+      state: "ended",
+    });
+
+    const { deps } = makeDeps();
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 0,
+    });
+    expect(await snapshotCount("room-fenced-now")).toBe(1);
   });
 
   it("reports a dry run without ending or reclaiming anything", async () => {

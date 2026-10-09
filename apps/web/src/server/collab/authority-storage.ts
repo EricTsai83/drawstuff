@@ -357,7 +357,15 @@ export async function applyStorageFence(
         : command.state;
     await tx
       .update(collaborationRoom)
-      .set({ authorityEpoch: command.authorityEpoch, storageState: state })
+      .set({
+        authorityEpoch: command.authorityEpoch,
+        storageState: state,
+        // Retention measures its grace period from the first terminal
+        // signal, whichever of fence and ended projection arrives first.
+        ...(state === "ended" && room.storageState !== "ended"
+          ? { endedAt: room.endedAt ?? new Date(), updatedAt: new Date() }
+          : {}),
+      })
       .where(eq(collaborationRoom.roomId, command.roomId));
     return { authorityEpoch: command.authorityEpoch };
   });

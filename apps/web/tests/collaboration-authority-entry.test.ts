@@ -360,6 +360,23 @@ describe("formal identity and pre-activation registration", () => {
       "fence-mismatch",
     );
   });
+  it.each([
+    { status: "ended", storageState: "ready" },
+    { status: "ready", storageState: "ended" },
+  ] as const)(
+    "refuses even its own create retry once the room is ended (%o)",
+    async (ended) => {
+      const f = await fixture();
+      await registerAuthorityCommand(db, f.registration);
+      await db
+        .update(collaborationRoom)
+        .set(ended)
+        .where(eq(collaborationRoom.roomId, f.roomId));
+      await expect(
+        registerAuthorityCommand(db, f.registration),
+      ).rejects.toThrow("fence-mismatch");
+    },
+  );
   it("refuses a create that reuses a roomId, but accepts a retry of the same create", async () => {
     const f = await fixture();
     const fresh = (roomId: string) => ({

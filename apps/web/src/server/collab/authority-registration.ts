@@ -114,15 +114,24 @@ async function refuseUsedRoomId(
     .from(collaborationCreationFence)
     .where(eq(collaborationCreationFence.roomId, command.roomId));
   const [room] = await tx
-    .select({ createOperationId: collaborationRoom.createOperationId })
+    .select({
+      createOperationId: collaborationRoom.createOperationId,
+      status: collaborationRoom.status,
+      storageState: collaborationRoom.storageState,
+    })
     .from(collaborationRoom)
     .where(eq(collaborationRoom.roomId, command.roomId));
   // The fence and the room row are inserted together, so a fence without a
   // room means the room was deleted (scene or account cascade): still used.
+  // An ended room is final even for its own create retry: its terminal fence
+  // may never have reached storage before Room released its authority.
   if (
     fence?.ended ||
     (fence && !room) ||
-    (room && room.createOperationId !== command.operationId)
+    (room &&
+      (room.createOperationId !== command.operationId ||
+        room.status === "ended" ||
+        room.storageState === "ended"))
   )
     throw new AdapterError("fence-mismatch");
   const [claimed] = await tx

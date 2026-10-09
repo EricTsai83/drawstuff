@@ -111,23 +111,30 @@ export class LifecycleProgress {
     if (lifecycleObjectName(command.target) !== this.objectName)
       throw new Error("wrong-subject");
     const request = JSON.stringify(command);
-    await this.work.commit(() => {
-      const row = this.storage.sql
-        .exec<LifecycleRow>("SELECT * FROM lifecycle_progress")
-        .toArray()[0];
-      if (row) {
-        if (row.operation_id !== command.operationId || row.command !== request)
-          throw new Error("operation-mismatch");
-        return;
-      }
-      this.storage.sql.exec(
-        "INSERT INTO lifecycle_progress(operation_id,command,phase,version,cursor) VALUES (?,?,'freezing',NULL,NULL)",
-        command.operationId,
-        request,
-      );
-      if (!this.work.enqueue("retirement", { kind: "retire", command }, true))
-        throw new Error("capacity");
-    });
+    await this.work.commit(
+      () => {
+        const row = this.storage.sql
+          .exec<LifecycleRow>("SELECT * FROM lifecycle_progress")
+          .toArray()[0];
+        if (row) {
+          if (
+            row.operation_id !== command.operationId ||
+            row.command !== request
+          )
+            throw new Error("operation-mismatch");
+          return;
+        }
+        this.storage.sql.exec(
+          "INSERT INTO lifecycle_progress(operation_id,command,phase,version,cursor) VALUES (?,?,'freezing',NULL,NULL)",
+          command.operationId,
+          request,
+        );
+        if (!this.work.enqueue("retirement", { kind: "retire", command }, true))
+          throw new Error("capacity");
+        // A late duplicate after completion must keep the release alarm armed.
+      },
+      () => this.releaseAt(),
+    );
     return this.query(command.operationId);
   }
 

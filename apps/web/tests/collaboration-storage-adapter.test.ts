@@ -402,6 +402,19 @@ describe("PostgreSQL storage adapter", () => {
       }),
     ).toMatchObject({ storageState: "ready" });
   });
+  it("stamps endedAt on the first terminal fence and keeps it on later ones", async () => {
+    const f = await adapterFixture(db);
+    const room = async () =>
+      testDb.query.collaborationRoom.findFirst({
+        where: eq(schema.collaborationRoom.roomId, f.roomId),
+      });
+    expect((await room())?.endedAt).toBeNull();
+    await applyStorageFence(db, f.fence(2, { state: "ended" }));
+    const endedAt = (await room())?.endedAt;
+    expect(endedAt).toBeInstanceOf(Date);
+    await applyStorageFence(db, f.fence(3, { state: "ended" }));
+    expect((await room())?.endedAt).toEqual(endedAt);
+  });
   it("advances the epoch without rotating storage: snapshot and assets survive, ready never reopens, ended stays ended", async () => {
     const f = await adapterFixture(db);
     const old = f.operation();

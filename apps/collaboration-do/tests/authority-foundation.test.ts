@@ -1315,6 +1315,14 @@ describe("Lifecycle durable progress", () => {
       },
     );
 
+    // A late duplicate begin answers from the record and keeps the release alarm.
+    expect(await stub.begin(command)).toMatchObject({ phase: "completed" });
+    await runInDurableObject(stub, async (_instance, state) => {
+      const alarm = await state.storage.getAlarm();
+      expect(alarm).not.toBeNull();
+      expect(alarm!).toBeLessThanOrEqual(releaseAt);
+    });
+
     // An alarm before the release time keeps everything and stays armed.
     await runInDurableObject(stub, (_instance, state) =>
       state.storage.setAlarm(Date.now() + 60_000),

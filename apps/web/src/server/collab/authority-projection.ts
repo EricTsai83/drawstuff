@@ -275,6 +275,16 @@ export async function listProjectedRooms(
           ),
         )
       : undefined;
+  const email = account.email ? emailKeySchema.safeParse(account.email) : null;
+  const emailKey = email?.success ? email.data : null;
+  // A room has two list rows for an invited account: its own (subject) row
+  // and the email-keyed invitation row. They arrive independently, so the
+  // newer one decides whether and where the room is listed; on a tie (one
+  // command projected both) the account's own row wins.
+  const memberIsCurrent = emailKey
+    ? sql`not exists (select 1 from ${collaborationRoomInvite} where ${collaborationRoomInvite.roomId} = ${collaborationRoomMember.roomId} and ${collaborationRoomInvite.emailKey} = ${emailKey} and ${collaborationRoomInvite.projectionVersion} > ${collaborationRoomMember.projectionVersion})`
+    : undefined;
+  const inviteIsCurrent = sql`not exists (select 1 from ${collaborationRoomMember} where ${collaborationRoomMember.roomId} = ${collaborationRoomInvite.roomId} and ${collaborationRoomMember.userId} = ${account.subject} and ${collaborationRoomMember.projectionVersion} >= ${collaborationRoomInvite.projectionVersion})`;
   const members = await db
     .select({
       roomId: collaborationRoom.roomId,
@@ -318,6 +328,7 @@ export async function listProjectedRooms(
             collaborationRoomMember.projectionVersion,
           ),
         ),
+        memberIsCurrent,
         liveRoom,
         after(collaborationRoomMember.listedAt),
       ),
@@ -327,9 +338,8 @@ export async function listProjectedRooms(
       desc(collaborationRoom.roomId),
     )
     .limit(limit + 1);
-  const email = account.email ? emailKeySchema.safeParse(account.email) : null;
   const invites =
-    section === "mine" && email?.success
+    section === "mine" && emailKey
       ? await db
           .select({
             roomId: collaborationRoom.roomId,
@@ -346,10 +356,9 @@ export async function listProjectedRooms(
           )
           .where(
             and(
-              eq(collaborationRoomInvite.emailKey, email.data),
+              eq(collaborationRoomInvite.emailKey, emailKey),
               isNull(collaborationRoomInvite.revokedAt),
-              // An opened invitation is listed once, from the account's own row.
-              sql`not exists (select 1 from ${collaborationRoomMember} where ${collaborationRoomMember.roomId} = ${collaborationRoomInvite.roomId} and ${collaborationRoomMember.userId} = ${account.subject} and ${collaborationRoomMember.revokedAt} is null)`,
+              inviteIsCurrent,
               liveRoom,
               after(collaborationRoomInvite.listedAt),
             ),

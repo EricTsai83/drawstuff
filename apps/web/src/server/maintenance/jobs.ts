@@ -458,8 +458,10 @@ export function createRoomRetentionJob(
       // fragment has no column mapping, and the postgres-js driver refuses to
       // serialize it (PGlite in tests happens to accept it).
       const endedPastGrace = and(
-        eq(collaborationRoom.status, "ended"),
-        eq(collaborationRoom.storageState, "ended"),
+        or(
+          eq(collaborationRoom.status, "ended"),
+          eq(collaborationRoom.storageState, "ended"),
+        ),
         or(
           lt(collaborationRoom.endedAt, graceCutoff),
           and(
@@ -523,9 +525,10 @@ export function createRoomRetentionJob(
                     .where(eq(collaborationRoom.roomId, candidate.roomId))
                 )[0]
               : await lockRoom(tx, candidate.roomId);
+            // Either signal is final: Room may abandon an undelivered
+            // terminal fence, leaving storageState behind its ended projection.
             const eligible =
-              room?.status === "ended" &&
-              room.storageState === "ended" &&
+              (room?.status === "ended" || room?.storageState === "ended") &&
               (room.endedAt ?? room.updatedAt) < graceCutoff;
             if (!eligible) return null;
 

@@ -135,7 +135,9 @@ web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批�
 - **storage fence**：不再有世代輪替；fence 只推進 epoch 與狀態。
 - **房間金鑰 API**：`collaborationAuthority.roomKey`／`escrowRoomKey` 移除。
 - **`CollaborationLifecycle` 釋放**：退場完成後保留 24 小時再 `deleteAll()`（web 端在帳號／場景刪除後只查 Neon，不再詢問 DO）。既有、已完成且沒有 alarm 的舊退場物件不會自動釋放；數量極少，留待 §7 清除時一併確認。
-- **後備清除**：`maintenance` 的「回收已結束房間」工作仍會刪掉 cleanup 沒處理到的快照與圖片。
+- **後備清除**：`maintenance` 的「回收已結束房間」工作仍會刪掉 cleanup 沒處理到的快照與圖片；`status` 或 `storageState` 任一為 ended 即符合（結束 fence 可能被放棄），寬限期從第一個結束訊號起算（storage fence 轉為 ended 時寫入 `endedAt`）。
+- **列表的兩種投影**：同一房間的帳號列與邀請列各自送達，以 `projectionVersion` 較新者決定是否列出、列在哪一區（同版本以帳號列為準），避免舊邀請讓已離開的房間復活、或連結列擋住新邀請（Codex review）。
+- **已結束房間不可用原 operationId 重建**：房間 `status` 或 `storageState` 為 ended 時，連同一建立操作的重試也拒絕（Codex review）。
 
 ## 9. 驗收矩陣
 
