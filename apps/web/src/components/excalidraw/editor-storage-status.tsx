@@ -172,8 +172,8 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
 
 /**
  * The badge's status lives in its fixed-size leading icon, so a save never
- * changes the badge's width: outstanding work replaces the lock, and a
- * confirmed save shows a check for a moment before the lock returns. The words
+ * changes the badge's width: a save in progress or a failure replaces the
+ * lock, and a confirmed save shows a check for a moment before it returns. The words
  * stay in the panel, the tooltip and the live region.
  */
 function BadgeStatusIcon(props: { state: RoomSaveState }) {
@@ -188,11 +188,10 @@ function BadgeStatusIcon(props: { state: RoomSaveState }) {
     );
     return () => window.clearTimeout(timer);
   }, [savedKey]);
-  // Before the room's snapshot is first confirmed nothing is known to be
-  // unsaved, so a join shows the lock rather than a pending dot.
+  // Edits waiting for the next automatic save are routine, so they keep the
+  // lock; the panel still says so.
   const settled =
-    (savedKey !== null && settledKey === savedKey) ||
-    (status === "pending" && revision === null);
+    status === "pending" || (savedKey !== null && settledKey === savedKey);
   return (
     <span
       className="flex size-3 shrink-0 items-center justify-center"

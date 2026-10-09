@@ -77,11 +77,11 @@ describe("editor storage status (18C §5)", () => {
     }
   });
 
-  it("shows the lock, not a pending dot, before a joined room is confirmed", () => {
+  it("keeps the lock while edits wait for the next save", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",
       compact: true,
-      state: { status: "pending", revision: null, checksum: null },
+      state: { status: "pending", revision: 3, checksum: null },
     });
     expect(
       container.querySelector("[data-status]")?.getAttribute("data-status"),

@@ -21,7 +21,7 @@ applied, including room-link initialization. All save entrances use the same bou
 | Toolbar, main menu | Save to my scenes; update the open scene or name a new one | Save/retry the room through its elected writer | Current mode's durable store |
 | Copy action, cloud export | Name a personal scene when needed | Save a named personal copy | Personal scene and independently uploaded assets |
 | Ctrl/Cmd+S | Save the personal scene | Request the elected writer to save; viewer cannot write | Current mode's durable store |
-| Persistent editor status | Nothing (the default needs no label); "Unsaved · not in “scene”" for a detached signed-out draft | Room identity; status as the badge's fixed-size icon (no width change), a confirmed save checks briefly then returns to the lock; words in the panel; retry | Shared encrypted room snapshot |
+| Persistent editor status | Nothing (the default needs no label); "Unsaved · not in “scene”" for a detached signed-out draft | Room identity; status as the badge's fixed-size icon (no width change): saving spins, failure turns red, a confirmed save checks briefly, pending edits keep the lock; words in the panel; retry | Shared encrypted room snapshot |
 | Local download | Native file export | Download local copy; explain that the file is unencrypted | Downloaded file |
 | Update original | Ordinary personal update | Separate named action for the owner whose source matches | Explicit original scene with expected revision |
 
