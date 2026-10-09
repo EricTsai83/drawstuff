@@ -9,7 +9,7 @@ import {
   SNAPSHOT_RECEIPT_HEADER,
   type AdapterCommand,
 } from "@drawstuff/collaboration/authority";
-import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 import {
   PERFORMANCE_PROBE_HEADER,
   formatServerTimings,
@@ -31,7 +31,10 @@ import {
   createAuthorityParent,
 } from "./authority-registration";
 import { applyLifecycleAdapter } from "./authority-lifecycle";
-import { applyRoomProjection } from "./authority-projection";
+import {
+  applyInviteProjection,
+  applyRoomProjection,
+} from "./authority-projection";
 
 /** Enforce actual streamed bytes, regardless of Content-Length. Never hold a DB lock while reading a body. */
 async function readBoundedAdapterBody(
@@ -72,7 +75,7 @@ function decodeCommandBody(bytes: Uint8Array): string {
   }
 }
 
-/** Private service endpoint only. A login session, join token, or identity proof never authenticates it. */
+/** Private service endpoint only. A login session or identity proof never authenticates it. */
 export async function handleAdapterRequest(
   request: Request,
   db: Database,
@@ -144,7 +147,7 @@ export async function handleAdapterRequest(
           throw new AdapterError("invalid-body");
         const bodyStart = performance.now();
         const bytes = metadata
-          ? await readBoundedAdapterBody(request, MAX_SNAPSHOT_CIPHERTEXT_BYTES)
+          ? await readBoundedAdapterBody(request, MAX_SNAPSHOT_BYTES)
           : undefined;
         const receiveBody = performance.now() - bodyStart;
         return await measuredJson(
@@ -162,6 +165,8 @@ export async function handleAdapterRequest(
         return jsonResponse(await applyStorageFence(db, command));
       case "project":
         return jsonResponse(await applyRoomProjection(db, command.event));
+      case "project-invite":
+        return jsonResponse(await applyInviteProjection(db, command.event));
       case "read-assets":
         return await measuredJson(async () => ({
           assets: await readAdapterAssets(db, command, command.assetIds),
@@ -192,24 +197,21 @@ export async function handleAdapterRequest(
             SNAPSHOT_RECEIPT_HEADER,
             JSON.stringify({
               roomId: command.roomId,
-              authGeneration: command.authGeneration,
               authorityEpoch: command.authorityEpoch,
               revision,
             }),
           );
           return response;
         }
-        return new Response(new Uint8Array(snapshot.ciphertext), {
+        return new Response(new Uint8Array(snapshot.data), {
           headers: {
             "content-type": "application/octet-stream",
             "cache-control": "no-store",
             ...timingHeaders,
             [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
               roomId: command.roomId,
-              authGeneration: command.authGeneration,
               authorityEpoch: command.authorityEpoch,
               revision: snapshot.revision,
-              cryptoVersion: snapshot.cryptoVersion,
               byteLength: snapshot.byteLength,
               checksum: snapshot.checksum,
             }),

@@ -43,8 +43,8 @@ import * as legacy from "../support/legacy-collaboration-schema";
 import { lockRoom } from "@/server/collab/rooms";
 import {
   adapterFixture,
-  testCiphertext,
-  ciphertextChecksum,
+  testSnapshotBytes,
+  bytesChecksum,
 } from "../support/authority-adapter-fixtures";
 
 const url = process.env.COLLAB_ADAPTER_DATABASE_URL;
@@ -103,6 +103,16 @@ async function holdRoom(roomId: string) {
   return { release: unblock.release, finished };
 }
 
+/** Makes the fixture's parent row the product of a new create, so a retry of that create is not a reused roomId. */
+async function ownCreate(roomId: string) {
+  const operationId = crypto.randomUUID();
+  await db
+    .update(schema.collaborationRoom)
+    .set({ createOperationId: operationId })
+    .where(eq(schema.collaborationRoom.roomId, roomId));
+  return operationId;
+}
+
 describe("actual PostgreSQL adapter lock races", () => {
   it("waits for accepted writes before confirming a fence and refuses every late old-epoch write", async () => {
     const f = await adapterFixture(db);
@@ -112,7 +122,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       db,
       "write",
       operation,
-      testCiphertext(),
+      testSnapshotBytes(),
     );
     await waitForBlocked(1);
     let fenceFinished = false;
@@ -138,7 +148,7 @@ describe("actual PostgreSQL adapter lock races", () => {
         db,
         "write",
         f.operation(),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
     ).toEqual({ status: "refused" });
     expect(await executeStorageOperation(db, "query", operation)).toEqual(
@@ -155,7 +165,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       db,
       "write",
       operation,
-      testCiphertext(),
+      testSnapshotBytes(),
     );
     try {
       await waitForBlocked(2);
@@ -166,7 +176,12 @@ describe("actual PostgreSQL adapter lock races", () => {
     const [cancelled, written] = await Promise.all([cancel, write]);
     expect(cancelled).toEqual(written);
     expect(
-      await executeStorageOperation(db, "write", operation, testCiphertext()),
+      await executeStorageOperation(
+        db,
+        "write",
+        operation,
+        testSnapshotBytes(),
+      ),
     ).toEqual(cancelled);
     if (cancelled.status === "cancelled")
       expect(await readAdapterSnapshot(db, operation)).toBeNull();
@@ -177,8 +192,8 @@ describe("actual PostgreSQL adapter lock races", () => {
     const first = f.operation();
     const second = f.operation();
     const results = await Promise.all([
-      executeStorageOperation(db, "write", first, testCiphertext()),
-      executeStorageOperation(db, "write", second, testCiphertext()),
+      executeStorageOperation(db, "write", first, testSnapshotBytes()),
+      executeStorageOperation(db, "write", second, testSnapshotBytes()),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual([
       "conflict",
@@ -189,21 +204,26 @@ describe("actual PostgreSQL adapter lock races", () => {
       db,
       "write",
       f.operation({ expectedRevision: 1 }),
-      testCiphertext(),
+      testSnapshotBytes(),
     );
     expect(
-      await executeStorageOperation(db, "write", winner, testCiphertext()),
+      await executeStorageOperation(db, "write", winner, testSnapshotBytes()),
     ).toEqual({ status: "written", revision: 1 });
     expect((await readAdapterSnapshot(db, winner))?.revision).toBe(2);
   });
   it("orders an absent-snapshot read after reset under the room lock and preserves its revision", async () => {
     const f = await adapterFixture(db);
-    await executeStorageOperation(db, "write", f.operation(), testCiphertext());
+    await executeStorageOperation(
+      db,
+      "write",
+      f.operation(),
+      testSnapshotBytes(),
+    );
     const held = await holdRoom(f.roomId);
     const reset = f.operation({
       kind: "snapshot-reset",
       expectedRevision: 1,
-      checksum: ciphertextChecksum(new Uint8Array()),
+      checksum: bytesChecksum(new Uint8Array()),
     });
     const resetting = executeStorageOperation(db, "write", reset);
     let reading: ReturnType<typeof readAdapterSnapshotState> | undefined;
@@ -223,7 +243,7 @@ describe("actual PostgreSQL adapter lock races", () => {
         db,
         "write",
         f.operation({ expectedRevision: state.revision }),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
     ).toEqual({ status: "written", revision: 3 });
   });
@@ -236,13 +256,13 @@ describe("actual PostgreSQL adapter lock races", () => {
         db,
         "write",
         a.operation({ operationId }),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
       executeStorageOperation(
         db,
         "write",
         b.operation({ operationId }),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
     ]);
     expect(
@@ -264,9 +284,8 @@ describe("actual PostgreSQL adapter lock races", () => {
     const asset = {
       excalidrawFileId: "callback-orphan",
       utFileKey: `orphan-${crypto.randomUUID()}`,
-      cryptoVersion: 1,
       byteLength: 32,
-      url: "https://storage.test/ciphertext",
+      url: "https://storage.test/asset",
     };
     const held = await holdRoom(f.roomId);
     const write = executeStorageOperation(
@@ -301,9 +320,8 @@ describe("actual PostgreSQL adapter lock races", () => {
     const asset = {
       excalidrawFileId: "callback-committed",
       utFileKey: `committed-${crypto.randomUUID()}`,
-      cryptoVersion: 1,
       byteLength: 32,
-      url: "https://storage.test/ciphertext",
+      url: "https://storage.test/asset",
     };
     const reached = gate(),
       unblock = gate();
@@ -350,7 +368,6 @@ describe("actual PostgreSQL adapter lock races", () => {
     const b = await adapterFixture(db);
     const asset = {
       excalidrawFileId: "file-shared-key",
-      cryptoVersion: 1,
       byteLength: 32,
       url: "https://files.example/key",
       utFileKey: `shared-${crypto.randomUUID()}`,
@@ -391,7 +408,9 @@ describe("actual PostgreSQL adapter lock races", () => {
       applyRoomProjection(db, f.projection({ version: 4, tombstone: true })),
       applyRoomProjection(db, f.projection({ version: 3, role: "viewer" })),
     ]);
-    expect((await listProjectedRooms(db, f.guest)).rooms).toEqual([]);
+    expect(
+      (await listProjectedRooms(db, { subject: f.guest, email: null })).rooms,
+    ).toEqual([]);
     expect(await applyRoomProjection(db, f.projection({ version: 3 }))).toEqual(
       { applied: false },
     );
@@ -399,7 +418,9 @@ describe("actual PostgreSQL adapter lock races", () => {
       applyRoomProjection(db, f.projection({ version: 5 })),
       db.delete(schema.user).where(eq(schema.user.id, f.guest)),
     ]);
-    expect((await listProjectedRooms(db, f.guest)).rooms).toEqual([]);
+    expect(
+      (await listProjectedRooms(db, { subject: f.guest, email: null })).rooms,
+    ).toEqual([]);
     expect(await applyRoomProjection(db, f.projection({ version: 6 }))).toEqual(
       { applied: false },
     );
@@ -414,6 +435,7 @@ describe("actual PostgreSQL adapter lock races", () => {
     await db
       .insert(schema.collaborationLifecycleSubject)
       .values({ scope, subject: f.owner, kind: "account" });
+    const operationId = await ownCreate(f.roomId);
     const reached = gate();
     const unblock = gate();
     const freezing = db.transaction(async (tx) => {
@@ -434,7 +456,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       v: 1,
       action: "register",
       roomId: f.roomId,
-      operationId: crypto.randomUUID(),
+      operationId,
       identity: f.operation().actor,
       ownerId: f.owner,
       sceneId: null,
@@ -519,7 +541,6 @@ describe("actual PostgreSQL adapter lock races", () => {
       action: "fence",
       roomId: f.roomId,
       authorityEpoch: 2,
-      authGeneration: 1,
       state: "ended",
     });
     try {
@@ -573,6 +594,7 @@ describe("actual PostgreSQL adapter lock races", () => {
         subject: f.owner,
       })
       .onConflictDoNothing();
+    const operationId = await ownCreate(f.roomId);
     const reached = gate(),
       unblock = gate();
     const held = db.transaction(async (tx) => {
@@ -597,7 +619,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       v: 1,
       action: "register",
       roomId: f.roomId,
-      operationId: crypto.randomUUID(),
+      operationId,
       identity: f.operation().actor,
       ownerId: f.owner,
       sceneId: source!.id,

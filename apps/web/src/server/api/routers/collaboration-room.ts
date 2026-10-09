@@ -22,7 +22,6 @@ export const collaborationRoomRouter = createTRPCRouter({
         roomId: roomIdSchema,
         cursor: z.string().min(1).max(128).optional(),
         emailCursor: emailKeySchema.optional(),
-        includeRevokedMembers: z.boolean().optional(),
       }),
     )
     .query(async ({ ctx, input }) => {
@@ -57,9 +56,17 @@ export const collaborationRoomRouter = createTRPCRouter({
         ),
       );
     }),
-  list: protectedProcedure
-    .input(roomListInputSchema)
-    .query(({ ctx, input }) =>
-      listProjectedRooms(ctx.db, ctx.auth.user.id, input),
+  list: protectedProcedure.input(roomListInputSchema).query(({ ctx, input }) =>
+    listProjectedRooms(
+      ctx.db,
+      {
+        subject: ctx.auth.user.id,
+        // Invitations match the verified address only, like Room authority.
+        email: ctx.auth.user.emailVerified
+          ? ctx.auth.user.email.trim().toLowerCase()
+          : null,
+      },
+      input,
     ),
+  ),
 });

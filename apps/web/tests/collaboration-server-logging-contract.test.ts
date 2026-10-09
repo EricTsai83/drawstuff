@@ -13,10 +13,10 @@ import { describe, expect, it } from "vitest";
  * contain no logging at all.
  *
  * An accident is not an invariant. These paths take caller-supplied identifiers
- * — `roomId`, asset file ids — as given, and `ID_PATTERN` accepts a
- * 43-character room key verbatim, so the day someone adds a
+ * — `roomId`, asset file ids — as given, and `ID_PATTERN` accepts any
+ * token-shaped string verbatim, so the day someone adds a
  * `console.log({ input })` to one of these files — the most ordinary debugging
- * move there is — a pasted room key becomes loggable through a *valid* request.
+ * move there is — a pasted secret becomes loggable through a *valid* request.
  * This test is what turns "happens to be true" into "stays true", and it fails
  * on exactly that edit.
  *

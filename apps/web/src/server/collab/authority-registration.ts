@@ -1,5 +1,5 @@
 import "server-only";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import {
   registrationCommandSchema,
   createParentCommandSchema,
@@ -99,6 +99,46 @@ async function registerSubject(
     });
 }
 
+/**
+ * A create may only claim a roomId nobody has used. Room authority deletes its
+ * storage once a room ended and settled, so it cannot tell a fresh id from a
+ * finished one; this database keeps the ended room row and the creation fence
+ * for exactly that. A retry of the same create (same operation) still passes.
+ */
+async function refuseUsedRoomId(
+  tx: RoomTransaction,
+  command: Registration,
+): Promise<void> {
+  const [fence] = await tx
+    .select({ ended: collaborationCreationFence.ended })
+    .from(collaborationCreationFence)
+    .where(eq(collaborationCreationFence.roomId, command.roomId));
+  const [room] = await tx
+    .select({ createOperationId: collaborationRoom.createOperationId })
+    .from(collaborationRoom)
+    .where(eq(collaborationRoom.roomId, command.roomId));
+  // The fence and the room row are inserted together, so a fence without a
+  // room means the room was deleted (scene or account cascade): still used.
+  if (
+    fence?.ended ||
+    (fence && !room) ||
+    (room && room.createOperationId !== command.operationId)
+  )
+    throw new AdapterError("fence-mismatch");
+  const [claimed] = await tx
+    .select({ operationId: collaborationLifecycleRegistration.operationId })
+    .from(collaborationLifecycleRegistration)
+    .where(
+      and(
+        eq(collaborationLifecycleRegistration.roomId, command.roomId),
+        eq(collaborationLifecycleRegistration.owner, true),
+        ne(collaborationLifecycleRegistration.operationId, command.operationId),
+      ),
+    )
+    .limit(1);
+  if (claimed) throw new AdapterError("fence-mismatch");
+}
+
 /** Conservative registration may contain extra rows, but can never miss a pre-activation subject. */
 export async function registerAuthorityCommand(
   db: Database,
@@ -108,11 +148,7 @@ export async function registerAuthorityCommand(
   return db.transaction(async (tx) => {
     const identities = new Map<string, TrustedIdentity>();
     for (const subject of [
-      ...new Set([
-        command.identity.subject,
-        command.ownerId,
-        ...(command.targetSubject ? [command.targetSubject] : []),
-      ]),
+      ...new Set([command.identity.subject, command.ownerId]),
     ].sort())
       identities.set(subject, await lockActiveAccount(tx, subject));
     const identity = identities.get(command.identity.subject)!;
@@ -120,25 +156,13 @@ export async function registerAuthorityCommand(
     if (command.create && command.ownerId !== identity.subject)
       throw new AdapterError("fence-mismatch");
     await lockSource(tx, command.ownerId, command.sceneId);
+    if (command.create) await refuseUsedRoomId(tx, command);
     await registerSubject(tx, command, identity);
-    if (command.targetSubject)
-      await registerSubject(
-        tx,
-        command,
-        identities.get(command.targetSubject)!,
-      );
     return {
       roomId: command.roomId,
       operationId: command.operationId,
       subject: identity.subject,
       lifecycleVersion: identity.lifecycleVersion,
-      ...(command.targetSubject
-        ? {
-            targetSubject: command.targetSubject,
-            targetVersion: identities.get(command.targetSubject)!
-              .lifecycleVersion,
-          }
-        : {}),
     };
   });
 }

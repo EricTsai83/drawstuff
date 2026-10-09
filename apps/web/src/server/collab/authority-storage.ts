@@ -11,12 +11,8 @@ import {
   type ContentOperation,
   type ContentResult,
 } from "@drawstuff/collaboration/authority";
-import {
-  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  MIN_SNAPSHOT_SEALED_BYTES,
-  SNAPSHOT_CRYPTO_VERSION,
-} from "@drawstuff/collaboration/snapshot";
-import { MAX_ROOM_ASSETS_PER_GENERATION } from "@drawstuff/collaboration/asset";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { MAX_ROOM_ASSETS } from "@drawstuff/collaboration/asset";
 import {
   collaborationAsset,
   collaborationOperation,
@@ -31,7 +27,6 @@ type OperationRow = typeof collaborationOperation.$inferSelect;
 type RoomRow = typeof collaborationRoom.$inferSelect;
 type StorageContext = {
   roomId: string;
-  authGeneration: number;
   authorityEpoch: number;
 };
 export class AdapterError extends Error {
@@ -53,15 +48,9 @@ const digest = (bytes: Uint8Array | string): string =>
 const fingerprint = (operation: ContentOperation): string =>
   digest(JSON.stringify(contentOperationSchema.parse(operation)));
 const snapshotWhere = (context: StorageContext) =>
-  and(
-    eq(collaborationSnapshot.roomId, context.roomId),
-    eq(collaborationSnapshot.authGeneration, context.authGeneration),
-  );
+  eq(collaborationSnapshot.roomId, context.roomId);
 const assetWhere = (context: StorageContext) =>
-  and(
-    eq(collaborationAsset.roomId, context.roomId),
-    eq(collaborationAsset.authGeneration, context.authGeneration),
-  );
+  eq(collaborationAsset.roomId, context.roomId);
 
 function replay(row: OperationRow, operation: ContentOperation): ContentResult {
   if (row.requestFingerprint !== fingerprint(operation))
@@ -74,8 +63,7 @@ function replay(row: OperationRow, operation: ContentOperation): ContentResult {
 function matches(room: RoomRow, context: StorageContext): boolean {
   return (
     room.storageState !== "ended" &&
-    room.authorityEpoch === context.authorityEpoch &&
-    room.storageGeneration === context.authGeneration
+    room.authorityEpoch === context.authorityEpoch
   );
 }
 
@@ -89,13 +77,8 @@ export async function executeStorageOperation(
   const operation = contentOperationSchema.parse(input);
   if (action === "write") {
     if (operation.kind === "snapshot-put") {
-      if (
-        !bytes ||
-        bytes.byteLength < MIN_SNAPSHOT_SEALED_BYTES ||
-        bytes[0] !== SNAPSHOT_CRYPTO_VERSION
-      )
-        throw new AdapterError("invalid-body");
-      if (bytes.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES)
+      if (!bytes?.byteLength) throw new AdapterError("invalid-body");
+      if (bytes.byteLength > MAX_SNAPSHOT_BYTES)
         throw new AdapterError("body-too-large");
       if (digest(bytes) !== operation.checksum)
         throw new AdapterError("invalid-body");
@@ -150,7 +133,6 @@ export async function executeStorageOperation(
             actor: operation.actor.subject,
             kind: operation.kind,
             authorityEpoch: operation.authorityEpoch,
-            authGeneration: operation.authGeneration,
             expectedRevision: operation.expectedRevision,
             checksum: operation.checksum,
             requestFingerprint: fingerprint(operation),
@@ -203,10 +185,8 @@ export async function executeStorageOperation(
           if (!bytes) throw new AdapterError("invalid-body");
           const values = {
             roomId: operation.roomId,
-            authGeneration: operation.authGeneration,
             revision,
-            cryptoVersion: SNAPSHOT_CRYPTO_VERSION,
-            ciphertext: bytes,
+            data: bytes,
             byteLength: bytes.byteLength,
             checksum: operation.checksum,
             updatedBy: operation.actor.subject,
@@ -216,10 +196,7 @@ export async function executeStorageOperation(
             .insert(collaborationSnapshot)
             .values(values)
             .onConflictDoUpdate({
-              target: [
-                collaborationSnapshot.roomId,
-                collaborationSnapshot.authGeneration,
-              ],
+              target: collaborationSnapshot.roomId,
               set: values,
             });
         }
@@ -273,16 +250,11 @@ async function finalizeAsset(
       await queueOrphan(tx, asset.utFileKey, operation.roomId);
       return { status: "written", revision: 1 };
     }
-    if (
-      old.url !== asset.url ||
-      old.cryptoVersion !== asset.cryptoVersion ||
-      old.byteLength !== asset.byteLength
-    )
+    if (old.url !== asset.url || old.byteLength !== asset.byteLength)
       throw new AdapterError("operation-mismatch");
     return { status: "written", revision: 1 };
   }
-  if (rows.length >= MAX_ROOM_ASSETS_PER_GENERATION)
-    return { status: "refused" };
+  if (rows.length >= MAX_ROOM_ASSETS) return { status: "refused" };
   const [referenced] = await tx
     .select({ key: collaborationAsset.utFileKey })
     .from(collaborationAsset)
@@ -298,7 +270,6 @@ async function finalizeAsset(
   if (cleanup) return { status: "refused" };
   await tx.insert(collaborationAsset).values({
     roomId: operation.roomId,
-    authGeneration: operation.authGeneration,
     ...asset,
     registeredBy: operation.actor.subject,
   });
@@ -365,21 +336,7 @@ export async function applyStorageFence(
     }
     if (command.authorityEpoch < room.authorityEpoch)
       return { authorityEpoch: room.authorityEpoch };
-    if (
-      command.authGeneration < room.storageGeneration ||
-      (command.authorityEpoch === room.authorityEpoch &&
-        command.authGeneration !== room.storageGeneration) ||
-      (room.storageState === "ended" && command.state !== "ended")
-    )
-      throw new AdapterError("fence-mismatch");
-    const rotated = command.authGeneration > room.storageGeneration;
-    if (rotated && command.state === "ready")
-      throw new AdapterError("initialization-incomplete");
-    if (
-      rotated &&
-      command.state === "initializing" &&
-      !command.initializationDeadline
-    )
+    if (room.storageState === "ended" && command.state !== "ended")
       throw new AdapterError("fence-mismatch");
     if (room.storageState === "initializing" && command.state === "ready") {
       const [snapshot] = await tx
@@ -393,56 +350,15 @@ export async function applyStorageFence(
       )
         throw new AdapterError("initialization-incomplete");
     }
+    // A fence never moves a ready room back to initializing.
     const state =
-      !rotated &&
-      room.storageState === "ready" &&
-      command.state === "initializing"
+      room.storageState === "ready" && command.state === "initializing"
         ? "ready"
         : command.state;
     await tx
       .update(collaborationRoom)
-      .set({
-        authorityEpoch: command.authorityEpoch,
-        storageGeneration: command.authGeneration,
-        storageState: state,
-        ...(rotated
-          ? {
-              snapshotRevision: 0,
-              initializationRevision: null,
-              initializationChecksum: null,
-              initializationAssetIds: [],
-              ...(command.initializationDeadline
-                ? {
-                    initializationDeadline: new Date(
-                      command.initializationDeadline,
-                    ),
-                  }
-                : {}),
-            }
-          : {}),
-      })
+      .set({ authorityEpoch: command.authorityEpoch, storageState: state })
       .where(eq(collaborationRoom.roomId, command.roomId));
-    if (rotated) {
-      await tx
-        .delete(collaborationSnapshot)
-        .where(
-          and(
-            eq(collaborationSnapshot.roomId, command.roomId),
-            lt(collaborationSnapshot.authGeneration, command.authGeneration),
-          ),
-        );
-      const retired = await tx
-        .delete(collaborationAsset)
-        .where(
-          and(
-            eq(collaborationAsset.roomId, command.roomId),
-            lt(collaborationAsset.authGeneration, command.authGeneration),
-          ),
-        )
-        .returning({ key: collaborationAsset.utFileKey });
-      for (const asset of retired.sort((a, b) => a.key.localeCompare(b.key)))
-        await queueOrphan(tx, asset.key, command.roomId);
-    }
     return { authorityEpoch: command.authorityEpoch };
   });
 }
@@ -485,7 +401,6 @@ export async function readAdapterAssets(
     return tx
       .select({
         excalidrawFileId: collaborationAsset.excalidrawFileId,
-        cryptoVersion: collaborationAsset.cryptoVersion,
         byteLength: collaborationAsset.byteLength,
         url: collaborationAsset.url,
       })
@@ -509,8 +424,7 @@ export async function verifyAdapterInitialization(
       !room ||
       !matches(room, command) ||
       room.storageState !== "initializing" ||
-      room.initializationDeadline.getTime() <= Date.now() ||
-      command.manifest.authGeneration !== command.authGeneration
+      room.initializationDeadline.getTime() <= Date.now()
     )
       throw new AdapterError("initialization-incomplete");
     const [snapshot] = await tx
@@ -551,8 +465,7 @@ export async function cleanupAdapterRoom(
     if (!room) return { cleaned: true };
     if (
       room.storageState !== "ended" ||
-      room.authorityEpoch < command.authorityEpoch ||
-      room.storageGeneration !== command.authGeneration
+      room.authorityEpoch < command.authorityEpoch
     )
       throw new AdapterError("fence-mismatch");
     const assets = await tx

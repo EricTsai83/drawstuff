@@ -14,6 +14,15 @@ import { z } from "zod";
 import { AdapterClient } from "./adapter-client.ts";
 import { DurableWork } from "./durable-work.ts";
 
+/**
+ * How long a completed retirement record outlives completion before the
+ * Object deletes its storage. Once the web side has deleted the account or
+ * scene and marked it retired in its own database, it answers status from
+ * there and never asks this Object again; the window only covers a retry that
+ * was already in flight.
+ */
+const COMPLETED_RETENTION_MS = 24 * 60 * 60_000;
+
 type LifecycleRow = {
   operation_id: string;
   command: string;
@@ -65,8 +74,20 @@ export class LifecycleProgress {
     ); CREATE TABLE IF NOT EXISTS lifecycle_rooms (
       room_id TEXT PRIMARY KEY, action TEXT NOT NULL CHECK(action IN ('end-room','revoke-member')),
       enforced INTEGER NOT NULL DEFAULT 0 CHECK(enforced IN (0,1))
-    );`);
+    ); CREATE TABLE IF NOT EXISTS lifecycle_release (at INTEGER NOT NULL);`);
     this.work = new DurableWork(storage);
+  }
+
+  /** When this Object may delete all of its storage, once retirement completed. */
+  releaseAt(): number | undefined {
+    return this.storage.sql
+      .exec<{ at: number }>("SELECT at FROM lifecycle_release")
+      .toArray()[0]?.at;
+  }
+
+  releasable(now = Date.now()): boolean {
+    const at = this.releaseAt();
+    return at !== undefined && at <= now && this.work.pending() === 0;
   }
 
   query(operationId: string) {
@@ -219,12 +240,16 @@ export class LifecycleProgress {
       case "deleting":
         if (row.version === null) throw new Error("missing-freeze");
         await adapter.delete(command, row.version);
-        await this.transition(row, () =>
+        await this.transition(row, () => {
           this.storage.sql.exec(
             "UPDATE lifecycle_progress SET phase='completed' WHERE operation_id=? AND phase='deleting'",
             command.operationId,
-          ),
-        );
+          );
+          this.storage.sql.exec(
+            "INSERT INTO lifecycle_release SELECT ? WHERE NOT EXISTS (SELECT 1 FROM lifecycle_release)",
+            Date.now() + COMPLETED_RETENTION_MS,
+          );
+        });
         return true;
       case "completed":
         return true;
@@ -248,6 +273,11 @@ export class CollaborationLifecycle extends DurableObject<Env> {
     return this.progress.query(operationId);
   }
   override async alarm(): Promise<void> {
+    if (this.progress.releasable()) {
+      await this.ctx.storage.deleteAlarm();
+      await this.ctx.storage.deleteAll();
+      return;
+    }
     await this.progress.work.drain(
       async (job: DurableJob, _timeoutMs: number, signal: AbortSignal) => {
         if (job.kind !== "retire") throw new Error("wrong-job");
@@ -288,6 +318,8 @@ export class CollaborationLifecycle extends DurableObject<Env> {
         };
         return this.progress.advance(command, adapter);
       },
+      // Keeps one alarm for the storage release after completion.
+      () => this.progress.releaseAt(),
     );
   }
 }

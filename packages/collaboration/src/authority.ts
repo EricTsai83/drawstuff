@@ -591,6 +591,11 @@ export const snapshotAbsenceReceiptSchema = z.strictObject({
   revision: z.int().nonnegative(),
 });
 export const roomListInputSchema = z.strictObject({
+  /**
+   * `mine`: rooms the account owns or is invited to (including invitations it
+   * has not opened yet). `link`: rooms it opened through general access only.
+   */
+  section: z.enum(["mine", "link"]).default("mine"),
   limit: z.int().min(1).max(100).default(30),
   cursor: z
     .strictObject({ listedAt: z.int().nonnegative(), roomId: roomIdSchema })

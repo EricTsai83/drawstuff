@@ -533,7 +533,7 @@ export function createRoomRetentionJob(
             // "candidates still hold data" idempotency — so the budget check
             // happens before touching anything. The run's first room may
             // exceed the budget on its own (per-room rows are bounded by the
-            // schema's per-generation asset cap); refusing it would starve it
+            // per-room asset cap); refusing it would starve it
             // forever.
             const [assetTally] = await tx
               .select({ count: sql<number>`count(*)::int` })
@@ -579,19 +579,13 @@ export function createRoomRetentionJob(
             const assets = await tx
               .delete(collaborationAsset)
               .where(eq(collaborationAsset.roomId, room.roomId))
-              .returning({
-                utFileKey: collaborationAsset.utFileKey,
-                authGeneration: collaborationAsset.authGeneration,
-              });
+              .returning({ utFileKey: collaborationAsset.utFileKey });
             if (assets.length > 0) {
               await tx.insert(deferredFileCleanup).values(
                 assets.map((asset) => ({
                   utFileKey: asset.utFileKey,
                   reason: ROOM_RETENTION_CLEANUP_REASON,
-                  context: JSON.stringify({
-                    roomId: room.roomId,
-                    authGeneration: asset.authGeneration,
-                  }),
+                  context: JSON.stringify({ roomId: room.roomId }),
                   attempts: 0,
                   nextAttemptAt: now,
                   status: "pending" as const,

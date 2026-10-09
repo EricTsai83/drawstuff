@@ -16,11 +16,17 @@ import {
 import { sql } from "drizzle-orm";
 import { user, scene } from "@/server/db/schema";
 import {
-  MAX_ASSET_CIPHERTEXT_BYTES,
+  MAX_ASSET_BYTES,
   MAX_ASSET_URL_LENGTH,
 } from "@drawstuff/collaboration/asset";
-import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
+// Frozen protocol-5 sealing constants: a 29-byte envelope (version, IV, tag)
+// around the plaintext bounds, and a sealed fixed 24-byte key-check string.
+const SEALED_OVERHEAD_BYTES = 29;
+const MAX_ASSET_CIPHERTEXT_BYTES = MAX_ASSET_BYTES + SEALED_OVERHEAD_BYTES;
+const MAX_SNAPSHOT_CIPHERTEXT_BYTES =
+  MAX_SNAPSHOT_BYTES + SEALED_OVERHEAD_BYTES;
+const KEYCHECK_CIPHERTEXT_BYTES = 24 + SEALED_OVERHEAD_BYTES;
 const createTable = pgTableCreator((name) => `drawstuff_${name}`);
 const bytea = customType<{ data: Uint8Array; driverData: Buffer }>({
   dataType() {

@@ -17,6 +17,7 @@ import {
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { RoomAuthority } from "../src/room-authority.ts";
 import { LifecycleProgress, type LifecycleAdapter } from "../src/lifecycle.ts";
+import { userTables } from "./support/room-socket.ts";
 
 const owner: TrustedIdentity = {
   subject: "owner",
@@ -1269,6 +1270,105 @@ describe("Lifecycle durable progress", () => {
       expect(deleted).toBe(1);
     });
   });
+  it("releases a completed retirement's storage 24 h after completion, and not before", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    const releaseAt = await runInDurableObject(
+      stub,
+      async (_instance, state) => {
+        const p = new LifecycleProgress(state.storage, name);
+        const adapter: LifecycleAdapter = {
+          freeze: async () => 2,
+          list: async () => ({ version: 2, rooms: [], cursor: null }),
+          enforce: async () => "enforced",
+          delete: async () => {},
+        };
+        const completedAt = Date.now();
+        for (let pass = 0; pass < 8 && p.work.pending() > 0; pass++) {
+          state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+          await p.work.drain(
+            async (job) => {
+              if (job.kind !== "retire") throw new Error("wrong-job");
+              return p.advance(job.command, adapter);
+            },
+            () => p.releaseAt(),
+          );
+        }
+        expect(p.query(command.operationId)?.phase).toBe("completed");
+        expect(p.work.pending()).toBe(0);
+        const at = p.releaseAt();
+        expect(at).toBeGreaterThanOrEqual(completedAt + 24 * 60 * 60_000);
+        expect(at).toBeLessThanOrEqual(Date.now() + 24 * 60 * 60_000);
+        expect(p.releasable()).toBe(false);
+        const alarm = await state.storage.getAlarm();
+        expect(alarm).not.toBeNull();
+        expect(alarm!).toBeLessThanOrEqual(at!);
+        return at!;
+      },
+    );
+
+    // An alarm before the release time keeps everything and stays armed.
+    await runInDurableObject(stub, (_instance, state) =>
+      state.storage.setAlarm(Date.now() + 60_000),
+    );
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(userTables(state)).toContain("lifecycle_release");
+      expect(new LifecycleProgress(state.storage, name).releaseAt()).toBe(
+        releaseAt,
+      );
+      expect(await state.storage.getAlarm()).not.toBeNull();
+    });
+    expect(await stub.query(command.operationId)).toMatchObject({
+      phase: "completed",
+    });
+
+    // Once the release time has passed, one alarm deletes all storage.
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec(
+        "UPDATE lifecycle_release SET at=?",
+        Date.now() - 1,
+      );
+    });
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(userTables(state)).toEqual([]);
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+
+  it("never releases a retirement that has not completed", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    await stub.begin({
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    });
+    // Delivery is unconfigured, so the retirement cannot progress.
+    expect(await runDurableObjectAlarm(stub)).toBe(true);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const p = new LifecycleProgress(state.storage, name);
+      expect(p.releaseAt()).toBeUndefined();
+      expect(p.releasable(Date.now() + 365 * 24 * 60 * 60_000)).toBe(false);
+      expect(userTables(state)).toEqual(
+        expect.arrayContaining(["authority_work", "lifecycle_release"]),
+      );
+      expect(p.work.pending()).toBe(1);
+      expect(await state.storage.getAlarm()).not.toBeNull();
+    });
+  });
+
   it("never abandons lifecycle work, however old", async () => {
     const subject = `user-${crypto.randomUUID()}`;
     const stub = env.COLLABORATION_LIFECYCLE.getByName(`account:${subject}`);

@@ -4,7 +4,7 @@ import type { PerformanceTimings } from "@drawstuff/collaboration/performance";
 import { performanceProbeAuthorized } from "@/server/collab/performance-probe";
 import {
   excalidrawFileIdSchema,
-  MAX_ASSET_CIPHERTEXT_BYTES,
+  MAX_ASSET_BYTES,
 } from "@drawstuff/collaboration/asset";
 import {
   FILE_UPLOAD_MAX_BYTES,
@@ -255,10 +255,10 @@ export const uploadRouter = {
       };
     }),
 
-  /** Ciphertext goes to the provider; live Room authority controls presign and the verified callback. */
+  /** The encoded asset payload goes to the provider; live Room authority controls presign and the verified callback. */
   collaborationAssetUploader: f({
     blob: {
-      maxFileSize: getMaxFileSizeString(MAX_ASSET_CIPHERTEXT_BYTES),
+      maxFileSize: getMaxFileSizeString(MAX_ASSET_BYTES),
       maxFileCount: 1,
     },
   })

@@ -614,10 +614,8 @@ describe("collab room retention", () => {
   const insertSnapshot = (roomId: string, byteLength = 8) =>
     testDb.insert(schema.collaborationSnapshot).values({
       roomId,
-      authGeneration: 1,
       revision: 1,
-      cryptoVersion: 1,
-      ciphertext: new Uint8Array(byteLength),
+      data: new Uint8Array(byteLength),
       byteLength,
       checksum: "c".repeat(64),
     });
@@ -625,9 +623,7 @@ describe("collab room retention", () => {
   const insertAsset = (roomId: string, fileId: string, utFileKey: string) =>
     testDb.insert(schema.collaborationAsset).values({
       roomId,
-      authGeneration: 1,
       excalidrawFileId: fileId,
-      cryptoVersion: 1,
       utFileKey,
       url: `https://files.example/${utFileKey}`,
       byteLength: 16,
@@ -942,9 +938,7 @@ describe("user purge", () => {
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-intruder",
-      authGeneration: 1,
       excalidrawFileId: FILE_B,
-      cryptoVersion: 1,
       utFileKey: "room-key-x",
       url: "https://files.example/room-key-x",
       byteLength: 16,

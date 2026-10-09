@@ -1,19 +1,17 @@
-/** Scope-2 protocol-6 acceptance. No fault controller ships in the normal Worker. */
+/** Scope-2 protocol-7 acceptance. No fault controller ships in the normal Worker. */
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { setTimeout as pause } from "node:timers/promises";
-import { createRealtimeCryptoCodec } from "@drawstuff/collaboration/realtime-crypto";
 import { encodeRelayDataFrame } from "@drawstuff/collaboration/relay-protocol";
-import { sealCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 import { SNAPSHOT_REQUEST_HEADER } from "@drawstuff/collaboration/authority";
 
 export function faultRuntimeSource({ roomId, runId, gateway }) {
   return `import { timingSafeEqual } from "node:crypto";
-import { CollaborationRoom as Room } from "../../src/room.ts";
+import { CollaborationRoomV2 as Room } from "../../src/room.ts";
 import { handleGatewayRequest } from "../../src/gateway.ts";
 export { CollaborationLifecycle } from "../../src/lifecycle.ts";
 const roomId=${JSON.stringify(roomId)}, prefix=${JSON.stringify(`/internal/access-test/${runId}/`)}, adapter=${JSON.stringify(`${gateway}/api/internal/collaboration/adapter`)};
-export class CollaborationRoom extends Room {
+export class CollaborationRoomV2 extends Room {
   private readonly originalAdapter:string;
   constructor(ctx:DurableObjectState,env:Env){
     super(ctx,{...env}); this.originalAdapter=env.COLLAB_ADAPTER_URL;
@@ -39,7 +37,7 @@ export class CollaborationRoom extends Room {
     return {constructedAt:this.constructedAt,...this.ctx.storage.sql.exec<{enabled:number;failures:number}>("SELECT enabled,failures FROM acceptance_fault").one()};
   }
 }
-type AccessEnv=Omit<Env,"COLLABORATION_ROOM"> & {COLLABORATION_ROOM:DurableObjectNamespace<CollaborationRoom>};
+type AccessEnv=Omit<Env,"COLLABORATION_ROOM"> & {COLLABORATION_ROOM:DurableObjectNamespace<CollaborationRoomV2>};
 function authorized(request:Request,secret:string){
  const expected=new TextEncoder().encode(secret??""), token=new TextEncoder().encode(request.headers.get("authorization")?.replace(/^Bearer /,"")??"");
  return expected.length>=32 && expected.length===token.length && timingSafeEqual(expected,token);
@@ -64,7 +62,7 @@ export default {async fetch(request:Request,env:AccessEnv):Promise<Response>{
 }
 
 export async function runAccessAcceptance(c) {
-  const { roomId, runId, gateway, web, guest, peer, peerCookie, roomKey, snapshotKey, fileId, bytes, sql, keys, saveJournal, proof, envelope, jsonPost, settle, connect, until, report } = c;
+  const { roomId, runId, gateway, web, guest, peer, peerCookie, sceneBytes, fileId, bytes, sql, keys, saveJournal, proof, envelope, jsonPost, settle, connect, until, report } = c;
   let refusedProbeReported = false;
   const control = async (action) => {
     const response = await fetch(`${gateway}/internal/access-test/${runId}/${action}`, { method: "POST", headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, connection: "close" }, signal: AbortSignal.timeout(20000) });
@@ -75,12 +73,12 @@ export async function runAccessAcceptance(c) {
   report("scoped-fault-runtime-deploying"); await c.deployFault();
   await until(async () => { try { return (await control("probe")).enabled === 0; } catch { await pause(15000); return false; } },180000);
   report("scoped-fault-runtime-ready");
-  const codec = await createRealtimeCryptoCodec({ roomKey, roomId, authGeneration:1 });
+  // Rooms are plain (plan 21): the relay forwards scene payloads without decoding them.
+  const sceneFrame = (payload) => encodeRelayDataFrame("scene", payload);
   const received = new WeakMap();
   const watch = (socket) => { const messages=[]; received.set(socket.ws,messages); socket.ws.on("message",(data,binary)=>{if(binary)messages.push(new Uint8Array(data));}); return socket; };
   const fanout = async (sender,targets,excluded=[]) => {
-    const sealed=await codec.seal(new TextEncoder().encode(crypto.randomUUID()),"scene"); assert(sealed.ok);
-    const frame=encodeRelayDataFrame("scene",sealed.frame);
+    const frame=sceneFrame(new TextEncoder().encode(crypto.randomUUID()));
     const counts=targets.map(s=>received.get(s.ws).length), absent=excluded.map(s=>received.get(s.ws).length);
     sender.ws.send(frame);
     await until(()=>Promise.resolve(targets.every((s,i)=>received.get(s.ws).length>counts[i])));
@@ -92,32 +90,30 @@ export async function runAccessAcceptance(c) {
   let a=watch(await connect());
   await settle({...envelope(),action:"set-link-role",linkRole:"viewer"});
   let d=watch(await connect(peer)); assert.equal(d.joined.role,"viewer");
+  const beforeA=received.get(a.ws).length;
+  d.ws.send(sceneFrame(new Uint8Array([1,2,3]))); await until(()=>Promise.resolve(d.ws.readyState===3)); await pause(200);
+  assert.equal(received.get(a.ws).length,beforeA);
+  report("viewer-scene-write-rejected");
   await settle({...envelope(),action:"set-link-role",linkRole:"none"});
-  await assert.rejects(()=>connect(guest));
+  await assert.rejects(()=>connect(guest)); await assert.rejects(()=>connect(peer));
   await settle({...envelope(),action:"allow-email",email:guest.email,role:"editor"});
   let b=watch(await connect(guest)); assert.equal(b.joined.role,"editor");
-  const viewerSealed=await codec.seal(new Uint8Array([1,2,3]),"scene");assert(viewerSealed.ok);
-  const viewerFrame=encodeRelayDataFrame("scene",viewerSealed.frame);
-  const beforeA=received.get(a.ws).length, beforeB=received.get(b.ws).length;
-  d.ws.send(viewerFrame); await until(()=>Promise.resolve(d.ws.readyState===3)); await pause(200);
-  assert.equal(received.get(a.ws).length,beforeA); assert.equal(received.get(b.ws).length,beforeB);
-  report("viewer-scene-write-rejected");
-  await settle({...envelope(),action:"set-member-role",subject:peer.subject,role:"editor"});
+  await settle({...envelope(),action:"allow-email",email:peer.email,role:"editor"});
   d=watch(await connect(peer)); assert.equal(d.joined.role,"editor");
   report("three-party-sockets-joined");
   await fanout(a,[b,d]); await fanout(d,[a,b]);
-  report("three-party-encrypted-fanout-passed");
+  report("three-party-fanout-passed");
   await settle({...envelope(),action:"remove-email",email:guest.email});
   await until(()=>Promise.resolve(b.ws.readyState===3));await assert.rejects(()=>connect(guest));
-  await settle({...envelope(),action:"set-member-role",subject:guest.subject,role:"editor"});
+  await settle({...envelope(),action:"allow-email",email:guest.email,role:"editor"});
   b=watch(await connect(guest));assert.equal(b.joined.role,"editor");
   report("three-party-roles-and-allowlist-passed");
 
   const state=(await jsonPost("/v1/authority",{proof:proof(),request:{...envelope(),action:"get-state"}})).result;
-  let snapshot=await sealCollaborationSnapshot({key:snapshotKey,plaintext:new TextEncoder().encode('{"elements":[],"appState":{}}'),roomId,authGeneration:1,revision:2});assert(snapshot.ok);
-  let operation={...envelope(),kind:"snapshot-put",authGeneration:1,authorityEpoch:state.authorityEpoch,expectedRevision:1,checksum:createHash("sha256").update(snapshot.ciphertext).digest("hex")};
+  const snapshot=sceneBytes({elements:[],appState:{}});
+  let operation={...envelope(),kind:"snapshot-put",authorityEpoch:state.authorityEpoch,expectedRevision:1,checksum:createHash("sha256").update(snapshot).digest("hex")};
   const write=async()=>{
-    const response=await fetch(`${gateway}/v1/snapshot`,{method:"POST",headers:{authorization:`Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`,"content-type":"application/octet-stream",[SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(),request:{action:"write",operation}})},body:snapshot.ciphertext,redirect:"error",signal:AbortSignal.timeout(20000)});
+    const response=await fetch(`${gateway}/v1/snapshot`,{method:"POST",headers:{authorization:`Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`,"content-type":"application/octet-stream",[SNAPSHOT_REQUEST_HEADER]:JSON.stringify({proof:proof(),request:{action:"write",operation}})},body:snapshot,redirect:"error",signal:AbortSignal.timeout(20000)});
     if(response.status===200)return response.json();await response.body?.cancel();return {status:"http-error"};
   };
   const ready=Promise.withResolvers(), release=Promise.withResolvers();
@@ -132,15 +128,15 @@ export async function runAccessAcceptance(c) {
   assert(["written","pending"].includes(blockedResult.status));
   await until(async()=> (await write()).status==="written",60000);
   report("real-postgres-blocked-save-and-live-fanout-passed");
-  snapshot=await sealCollaborationSnapshot({key:snapshotKey,plaintext:new TextEncoder().encode('{"elements":[],"appState":{}}'),roomId,authGeneration:1,revision:3});assert(snapshot.ok);
-  operation={...envelope(),kind:"snapshot-put",authGeneration:1,authorityEpoch:state.authorityEpoch,expectedRevision:2,checksum:createHash("sha256").update(snapshot.ciphertext).digest("hex")};
-  const intent={...envelope(),kind:"asset-finalize",authGeneration:1,authorityEpoch:state.authorityEpoch,expectedRevision:0,checksum:createHash("sha256").update(bytes).digest("hex"),excalidrawFileId:fileId,cryptoVersion:1,byteLength:bytes.byteLength};
+  operation={...operation,...envelope(),expectedRevision:2};
+  const intent={...envelope(),kind:"asset-finalize",authorityEpoch:state.authorityEpoch,expectedRevision:0,checksum:createHash("sha256").update(bytes).digest("hex"),excalidrawFileId:fileId,byteLength:bytes.byteLength};
   const presign=await fetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`,{method:"POST",headers:{cookie:peerCookie,"content-type":"application/json","x-uploadthing-version":"7.7.4"},body:JSON.stringify({input:intent,files:[{name:`${runId}.bin`,type:"application/octet-stream",size:bytes.byteLength,lastModified:Date.now()}]}),redirect:"error",signal:AbortSignal.timeout(20000)});
   assert.equal(presign.status,200); const [signed]=await presign.json(); assert.equal(typeof signed.key,"string"); keys.add(signed.key); await saveJournal();
   await control("fault-on");
   report("scoped-adapter-failure-enabled");
   const failed=await write(); assert.notEqual(failed.status,"written");
-  const revoke={...envelope(),action:"revoke-member",subject:peer.subject};
+  // Removing the only grant (link access is off) revokes the peer; enforcement waits on the failing adapter fence.
+  const revoke={...envelope(),action:"remove-email",email:peer.email};
   const denied=(await jsonPost("/v1/authority",{proof:proof(),request:revoke})).result; assert.equal(denied.status,"pending");
   await until(()=>Promise.resolve(d.ws.readyState===3));
   await fanout(a,[b],[d]); await fanout(b,[a],[d]);
@@ -151,7 +147,7 @@ export async function runAccessAcceptance(c) {
   };
   assert.equal((await assetRequest({...envelope(),action:"read",fileIds:[fileId]})).status,"refused");
   assert.equal((await assetRequest({action:"prepare",intent})).status,"refused");
-  assert.equal((await assetRequest({action:"finalize",intent,asset:{excalidrawFileId:fileId,cryptoVersion:1,byteLength:bytes.byteLength,url:"https://untrusted.invalid/refused",utFileKey:signed.key}})).status,"refused");
+  assert.equal((await assetRequest({action:"finalize",intent,asset:{excalidrawFileId:fileId,byteLength:bytes.byteLength,url:"https://untrusted.invalid/refused",utFileKey:signed.key}})).status,"refused");
   assert(Date.now()<intent.deadline,"Late callback must use an unexpired presign");
   const form=new FormData();form.append("file",new File([bytes],`${runId}.bin`,{type:"application/octet-stream"}));
   const upload=await fetch(signed.url,{method:"PUT",headers:{Range:"bytes=0-","x-uploadthing-version":"7.7.4"},body:form,redirect:"error",signal:AbortSignal.timeout(120000)});

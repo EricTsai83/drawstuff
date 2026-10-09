@@ -127,6 +127,16 @@ web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批�
   - 因此 DO 不再保留「已結束」墓碑：**第 2 批必須確認 web 建房時拒絕已存在（含已結束）的 roomId**，防止同一 roomId 被重建。
   - **待第 2 批處理**：`CollaborationLifecycle` 完成的退場紀錄目前永久保留；需與 web 端查詢方式一起改為完成後一段時間釋放。Neon／UploadThing 的房間資料在房間結束 cleanup 時刪除，第 2 批確認刪得乾淨。
 
+### 第 2 批實作決定（2026-10-10）
+
+- **Neon schema**：`collaboration_room` 拿掉 `auth_generation`、`key_check`、`storage_generation`；`collaboration_snapshot` 每個房間一列，存明文 `data`；`collaboration_asset` 以 (room, file id) 為鍵；`collaboration_operation` 拿掉世代。`collaboration_room_member` 加 `access`，tombstone 時 `role`／`access` 為 null；新增 `collaboration_room_invite`（以正規化 email 為鍵的邀請投影）。
+- **列表**：`collaborationRoom.list` 加 `section`（`mine`／`link`）。`mine` 合併帳號自己的 owned／invited 列與尚未開啟過的邀請（以已驗證 email 比對，已有自己的列就不重複）；`link` 是只靠連結開啟過的房間。
+- **拒絕重用 roomId**：建房註冊時若 creation fence 已結束、房間列屬於其他建立操作、或已有其他 owner 註冊，一律拒絕；同一建立操作重試可通過。房間結束後 Neon 保留房間列與 creation fence 作為墓碑（DO 不再保留）。
+- **storage fence**：不再有世代輪替；fence 只推進 epoch 與狀態。
+- **房間金鑰 API**：`collaborationAuthority.roomKey`／`escrowRoomKey` 移除。
+- **`CollaborationLifecycle` 釋放**：退場完成後保留 24 小時再 `deleteAll()`（web 端在帳號／場景刪除後只查 Neon，不再詢問 DO）。既有、已完成且沒有 alarm 的舊退場物件不會自動釋放；數量極少，留待 §7 清除時一併確認。
+- **後備清除**：`maintenance` 的「回收已結束房間」工作仍會刪掉 cleanup 沒處理到的快照與圖片。
+
 ## 9. 驗收矩陣
 
 | 情境 | 必須證明的結果 |

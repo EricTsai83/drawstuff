@@ -1,4 +1,4 @@
-/** Real protocol-6 provider acceptance; temporary fixtures and cleanup runtime are removed on success. */
+/** Real protocol-7 provider acceptance; temporary fixtures and cleanup runtime are removed on success. */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
@@ -12,10 +12,8 @@ import * as schema from "../src/server/db/schema.ts";
 import { UTApi } from "uploadthing/server";
 import { makeSignature } from "better-auth/crypto";
 import { signIdentityProof } from "@drawstuff/collaboration/room-token";
-import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
-import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
-import { createAssetCryptoCodec, encodeCollaborationAssetPayload, decodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset";
-import { deriveSnapshotKey, sealCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
+import { COLLABORATION_PROTOCOL_VERSION } from "@drawstuff/collaboration/protocol";
+import { encodeCollaborationAssetPayload, decodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset";
 import { SNAPSHOT_REQUEST_HEADER } from "@drawstuff/collaboration/authority";
 import { PERFORMANCE_PROBE_HEADER, readServerTimings } from "@drawstuff/collaboration/performance";
 import { runAccessAcceptance, faultRuntimeSource } from "./remote-access-acceptance.mjs";
@@ -65,6 +63,7 @@ async function command(args) {
 }
 const report = (phase, fields = {}) => console.log(JSON.stringify({ phase, ...fields }));
 const digest = (bytes) => createHash("sha256").update(bytes).digest("hex");
+const sceneBytes = (scene) => new TextEncoder().encode(JSON.stringify(scene));
 const runId = randomUUID();
 const subject = `asset-test-${runId}`;
 const roomId = `asset-test-${runId}`;
@@ -137,7 +136,7 @@ async function providerFiles() {
 const proof = (identity = { subject, email, lifecycleVersion: 1 }, targetRoomId = roomId) => {
   const now = Math.floor(Date.now() / 1000);
   lastProofExpires = now * 1000 + 60000;
-  return signIdentityProof({ v: 1, aud: "drawstuff-room-identity", protocolVersion: 6, jti: randomUUID(), iat: now, exp: now + 60, roomId: targetRoomId, identity }, process.env.COLLAB_IDENTITY_SECRET);
+  return signIdentityProof({ v: 1, aud: "drawstuff-room-identity", protocolVersion: COLLABORATION_PROTOCOL_VERSION, jti: randomUUID(), iat: now, exp: now + 60, roomId: targetRoomId, identity }, process.env.COLLAB_IDENTITY_SECRET);
 };
 const envelope = (targetRoomId = roomId) => ({ v: 1, roomId: targetRoomId, operationId: randomUUID(), deadline: Date.now() + 60000 });
 async function jsonPost(path, body, timings, fetchImpl = fetch) {
@@ -182,7 +181,7 @@ async function connect(identity = { subject, email, lifecycleVersion: 1 }) {
     const failed = () => done(new Error("Socket refused"));
     const message = (data, binary) => { if (!binary) { const notice = JSON.parse(data.toString()); if (notice.control === "joined") { joined = notice; done(); } } };
     ws.on("message", message); ws.once("error", failed); ws.once("close", failed);
-    ws.once("open", () => ws.send(JSON.stringify({ control: "join", protocolVersion: 6, roomId, token: proof(identity) })));
+    ws.once("open", () => ws.send(JSON.stringify({ control: "join", protocolVersion: COLLABORATION_PROTOCOL_VERSION, roomId, token: proof(identity) })));
   });
   return { ws, closed, joined, get closeCode() { return closeCode; } };
 }
@@ -223,7 +222,7 @@ async function awaitRetirement() {
   }, 90000);
   retirementCompleted = true;
 }
-async function verifyRetirement(snapshotKey, cookie, fileId, assetBytes) {
+async function verifyRetirement(cookie, fileId, assetBytes) {
   const ownerSocket = await connect(); const guestSocket = await connect(guest);
   const state = (await jsonPost("/v1/authority", { proof: proof(), request: { ...envelope(), action: "get-state" } })).result;
   await until(async () => {
@@ -231,12 +230,12 @@ async function verifyRetirement(snapshotKey, cookie, fileId, assetBytes) {
     return row?.projection_version >= state.authRevision;
   });
   // Presign while authorized; the actual provider callback will arrive after retirement.
-  const lateIntent = { ...envelope(), kind: "asset-finalize", authGeneration: 1, authorityEpoch: state.authorityEpoch, expectedRevision: 0, checksum: digest(assetBytes), excalidrawFileId: fileId, cryptoVersion: 1, byteLength: assetBytes.byteLength };
+  const lateIntent = { ...envelope(), kind: "asset-finalize", authorityEpoch: state.authorityEpoch, expectedRevision: 0, checksum: digest(assetBytes), excalidrawFileId: fileId, byteLength: assetBytes.byteLength };
   const presign = await fetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { cookie, "content-type": "application/json", "x-uploadthing-version": "7.7.4" }, body: JSON.stringify({ input: lateIntent, files: [{ name: `${runId}.bin`, type: "application/octet-stream", size: assetBytes.byteLength, lastModified: Date.now() }] }) });
   assert.equal(presign.status, 200); const [lateSigned] = await presign.json(); assert.equal(typeof lateSigned.key, "string"); keys.add(lateSigned.key); await saveJournal();
-  const sealed = await sealCollaborationSnapshot({ key: snapshotKey, plaintext: new TextEncoder().encode('{"elements":[],"appState":{}}'), roomId, authGeneration: 1, revision: 2 }); assert(sealed.ok);
-  const operation = { ...envelope(), kind: "snapshot-put", authGeneration: 1, authorityEpoch: state.authorityEpoch, expectedRevision: 1, checksum: digest(sealed.ciphertext) };
-  const write = () => fetch(`${gateway}/v1/snapshot`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/octet-stream", [SNAPSHOT_REQUEST_HEADER]: JSON.stringify({ proof: proof(), request: { action: "write", operation } }) }, body: sealed.ciphertext });
+  const snapshot = sceneBytes({ elements: [], appState: {} });
+  const operation = { ...envelope(), kind: "snapshot-put", authorityEpoch: state.authorityEpoch, expectedRevision: 1, checksum: digest(snapshot) };
+  const write = () => fetch(`${gateway}/v1/snapshot`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/octet-stream", [SNAPSHOT_REQUEST_HEADER]: JSON.stringify({ proof: proof(), request: { action: "write", operation } }) }, body: snapshot });
   let unlock;
   const ready = Promise.withResolvers();
   const release = new Promise((resolve) => { unlock = resolve; });
@@ -297,10 +296,10 @@ try {
   await mkdir(directory, { recursive: true });
   // Only this run's name can be cleared, and only after terminal authority/fence ACK.
   const cleaner = `import { timingSafeEqual } from "node:crypto";
-import { CollaborationRoom as Room } from "../../src/room.ts";
+import { CollaborationRoomV2 as Room } from "../../src/room.ts";
 import { CollaborationLifecycle as Lifecycle } from "../../src/lifecycle.ts";
 const roomIds = ${JSON.stringify(roomIds)}, subject = ${JSON.stringify(subject)}, lifecycleScope = ${JSON.stringify(lifecycleScope)};
-export class CollaborationRoom extends Room {
+export class CollaborationRoomV2 extends Room {
   override async alarm():Promise<void> {
     if(roomIds.includes(this.ctx.id.name ?? "")) await this.ctx.storage.deleteAlarm();
     else await super.alarm();
@@ -375,7 +374,9 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   const cfAuth = JSON.parse(await command(["exec", "wrangler", "auth", "token", "--json"]));
   cfToken = cfAuth.token ?? cfAuth.oauth_token ?? cfAuth.api_token; assert(cfToken);
   initialBindings = sortedBindings(await cfGet(settingsPath));
-  assert.equal(initialBindings.find((b) => b.name === "COLLABORATION_ROOM")?.namespace_id, "5f0f6fe2322c4f20b23c08018c9f9c08");
+  // Plan 21 moved rooms to a new class (and namespace); pin the class, not a namespace id.
+  const roomBinding = initialBindings.find((b) => b.name === "COLLABORATION_ROOM");
+  assert.equal(roomBinding?.class_name, "CollaborationRoomV2"); assert.equal(typeof roomBinding.namespace_id, "string");
   assert.equal(initialBindings.find((b) => b.name === "COLLABORATION_LIFECYCLE")?.namespace_id, "789308f282c349b58578e29496dfa502");
   const normalRuntime = await deployedRuntime(); normalRuntimeHash = digest(normalRuntime);
   if (performanceMode) {
@@ -424,17 +425,11 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
     report("production-web-created-fixture-room");
   }
   await settle(create);
-  const roomKey = generateRoomKey();
-  await settle({ ...envelope(), action: "set-key-check", expectedGeneration: 1, keyCheck: [...Buffer.from(await sealRoomKeyCheck({ roomKey, roomId, authGeneration: 1 }), "base64")] });
-  const codec = await createAssetCryptoCodec({ roomKey, roomId, authGeneration: 1 });
   const png = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=";
   const fileId = createHash("sha1").update(Buffer.from(png, "base64")).digest("hex");
   const payload = encodeCollaborationAssetPayload({ roomId, excalidrawFileId: fileId, mimeType: "image/png", dataUrl: `data:image/png;base64,${png}` }); assert(payload.ok);
-  const plaintext = payload.bytes;
-  const sealed = await codec.seal({ excalidrawFileId: fileId, plaintext });
-  assert(sealed.ok);
-  const bytes = sealed.ciphertext;
-  const intent = { ...envelope(), kind: "asset-finalize", authGeneration: 1, authorityEpoch: 1, expectedRevision: 0, checksum: digest(bytes), excalidrawFileId: fileId, cryptoVersion: 1, byteLength: bytes.byteLength };
+  const bytes = payload.bytes;
+  const intent = { ...envelope(), kind: "asset-finalize", authorityEpoch: 1, expectedRevision: 0, checksum: digest(bytes), excalidrawFileId: fileId, byteLength: bytes.byteLength };
   assert(!interrupted, "Acceptance interrupted");
   const presign = await fetch(`${web}/api/uploadthing?slug=collaborationAssetUploader&actionType=upload`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(30000), headers: { cookie, "content-type": "application/json", "x-uploadthing-version": "7.7.4", "x-uploadthing-package": "drawstuff-acceptance" }, body: JSON.stringify({ input: intent, files: [{ name: `${runId}.bin`, type: "application/octet-stream", size: bytes.byteLength, lastModified: Date.now() }] }) });
   assert.equal(presign.status, 200, `presign HTTP ${presign.status}`);
@@ -457,23 +452,21 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   }
   assert(asset, "Callback asset was not committed"); assert.equal(asset.ut_file_key, signed[0].key); assert.equal(asset.byte_length, bytes.byteLength);
   const downloaded = await fetch(asset.url, { redirect: "error", signal: AbortSignal.timeout(20000) }); assert.equal(downloaded.status, 200);
-  const ciphertext = new Uint8Array(await downloaded.arrayBuffer()); assert.deepEqual(ciphertext, bytes);
-  const opened = await codec.open({ excalidrawFileId: fileId, ciphertext }); assert(opened.ok); assert.deepEqual(opened.plaintext, plaintext);
-  assert(decodeCollaborationAssetPayload(opened.plaintext, { roomId, excalidrawFileId: fileId }).ok);
-  report("real-callback-download-decryption-passed");
+  const stored = new Uint8Array(await downloaded.arrayBuffer()); assert.deepEqual(stored, bytes);
+  assert(decodeCollaborationAssetPayload(stored, { roomId, excalidrawFileId: fileId }).ok);
+  report("real-callback-download-decode-passed");
   if (failureInjection) { injectedFailure = true; report("intentional-failure-after-real-upload"); throw new Error("acceptance failure injection"); }
   assert(!interrupted, "Acceptance interrupted");
-  const snapshotKey = await deriveSnapshotKey({ roomKey, roomId, authGeneration: 1 });
-  const snapshot = await sealCollaborationSnapshot({ key: snapshotKey, plaintext: new TextEncoder().encode(JSON.stringify({ elements: [{ type: "image", fileId }], appState: {} })), roomId, authGeneration: 1, revision: 1 }); assert(snapshot.ok);
-  const checksum = digest(snapshot.ciphertext);
-  const operation = { ...envelope(), kind: "snapshot-put", authGeneration: 1, authorityEpoch: 1, expectedRevision: 0, checksum };
-  const saved = await fetch(`${gateway}/v1/snapshot`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/octet-stream", [SNAPSHOT_REQUEST_HEADER]: JSON.stringify({ proof: proof(), request: { action: "write", operation } }) }, body: snapshot.ciphertext });
+  const snapshot = sceneBytes({ elements: [{ type: "image", fileId }], appState: {} });
+  const checksum = digest(snapshot);
+  const operation = { ...envelope(), kind: "snapshot-put", authorityEpoch: 1, expectedRevision: 0, checksum };
+  const saved = await fetch(`${gateway}/v1/snapshot`, { method: "POST", redirect: "error", signal: AbortSignal.timeout(20000), headers: { authorization: `Bearer ${process.env.COLLAB_AUTHORITY_SECRET}`, "content-type": "application/octet-stream", [SNAPSHOT_REQUEST_HEADER]: JSON.stringify({ proof: proof(), request: { action: "write", operation } }) }, body: snapshot });
   assert.equal(saved.status, 200); assert.equal((await saved.json()).status, "written");
-  await settle({ ...envelope(), action: "complete-initialization", manifest: { authGeneration: 1, revision: 1, checksum, assetIds: [fileId] } });
-  if (retirementMode) await verifyRetirement(snapshotKey, cookie, fileId, bytes);
+  await settle({ ...envelope(), action: "complete-initialization", manifest: { revision: 1, checksum, assetIds: [fileId] } });
+  if (retirementMode) await verifyRetirement(cookie, fileId, bytes);
   if (accessMode) {
     const peerCookie = `__Secure-better-auth.session_token=${encodeURIComponent(`${peerSessionToken}.${await makeSignature(peerSessionToken, process.env.BETTER_AUTH_SECRET)}`)}`;
-    await runAccessAcceptance({ roomId, runId, web, gateway, guest, peer, peerCookie, roomKey, snapshotKey, fileId, bytes, sql, keys, saveJournal, proof, envelope, jsonPost, settle, connect, until, report,
+    await runAccessAcceptance({ roomId, runId, web, gateway, guest, peer, peerCookie, sceneBytes, fileId, bytes, sql, keys, saveJournal, proof, envelope, jsonPost, settle, connect, until, report,
       deployFault: async () => {
         maintenanceAttempted = true; faultRuntimeActive = true; restored = false; await saveJournal();
         await command(["exec", "wrangler", "deploy", `${directory}/fault.ts`, "--config", "wrangler.jsonc", "--keep-vars"]);
@@ -491,7 +484,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
       measurement: digest(await readFile(new URL("./remote-performance-acceptance.mjs", import.meta.url))),
       observability: digest(await readFile(new URL("./remote-worker-observability.mjs", import.meta.url))),
     };
-    await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, roomKey, snapshotKey, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
+    await runTypicalHotPerformance({ roomId, runId, web, gateway, cookie, sceneBytes, guest, keys, saveJournal, proof, envelope, jsonPost, connect, until, report,
       diagnostic: performanceDiagnostic,
       providerDiagnostic,
       serverDiagnostic, presignDiagnostic, snapshotDiagnostic, http2: http2Performance, transportControl, toolsUncommitted,
@@ -500,7 +493,7 @@ export default {async fetch(request:Request,env:Env):Promise<Response>{
   }
   testPassed = !performanceMode || (performanceDiagnostic ? performanceReport.completed : performanceReport.gatePassed); report("attachment-initialization-passed");
 } catch (error) {
-  // Do not log SQL, signed URLs, cookie, provider response, keys or encrypted payload.
+  // Do not log SQL, signed URLs, cookie, provider response, keys or payload bytes.
   const locations = error instanceof Error ? error.stack?.match(/(?:remote-access-acceptance|remote-performance-acceptance|test-remote-assets)\.mjs:\d+:\d+/g)?.slice(0, 4) : undefined;
   report("test-failed", { errorName: error instanceof Error ? error.name : "unknown", locations });
 } finally {

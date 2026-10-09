@@ -6,12 +6,6 @@ import {
   authorityGatewayResponseSchema,
   type AuthorityRequest,
 } from "@drawstuff/collaboration/authority";
-import {
-  ROOM_KEY_GATEWAY_PATH,
-  roomKeyGatewayResponseSchema,
-  type RoomKeyRequest,
-  type RoomKeyResult,
-} from "@drawstuff/collaboration/key-custody";
 
 /**
  * Posts one bounded JSON request to a Room Gateway path and returns its parsed
@@ -130,32 +124,6 @@ export async function callAuthorityGateway(
           result.operationId !== request.operationId
     )
       throw new Error("invalid-response");
-    return result;
-  } catch (error) {
-    unconfirmed(error);
-  }
-}
-
-/**
- * Room key custody (plan 19). Kept apart from `callAuthorityGateway` so no
- * generic authority result can ever carry a key.
- */
-export async function callRoomKeyGateway(
-  config: { url: string; secret: string },
-  proof: string,
-  request: RoomKeyRequest,
-  fetchImpl: typeof fetch = fetch,
-): Promise<RoomKeyResult> {
-  try {
-    const result = roomKeyGatewayResponseSchema.parse(
-      await postToGateway(
-        config,
-        ROOM_KEY_GATEWAY_PATH,
-        { proof, request },
-        fetchImpl,
-      ),
-    ).result;
-    if (result.roomId !== request.roomId) throw new Error("invalid-response");
     return result;
   } catch (error) {
     unconfirmed(error);

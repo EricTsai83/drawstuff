@@ -9,7 +9,7 @@ import {
   snapshotAbsenceReceiptSchema,
   type AdapterCommand,
 } from "@drawstuff/collaboration/authority";
-import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 import * as schema from "@/server/db/schema";
 import type { Database } from "@/server/collab/rooms";
 import { executeStorageOperation } from "@/server/collab/authority-storage";
@@ -17,8 +17,8 @@ import { handleAdapterRequest } from "@/server/collab/adapter-http";
 import { openTestDatabase } from "./support/pglite-db";
 import {
   adapterFixture,
-  ciphertextChecksum,
-  testCiphertext,
+  bytesChecksum,
+  testSnapshotBytes,
 } from "./support/authority-adapter-fixtures";
 const testDb = openTestDatabase();
 const db = testDb as unknown as Database;
@@ -39,7 +39,6 @@ describe("private binary adapter endpoint", () => {
       v: 1,
       action: "read-assets",
       roomId: f.roomId,
-      authGeneration: 1,
       authorityEpoch: 1,
       assetIds: [],
     };
@@ -79,6 +78,30 @@ describe("private binary adapter endpoint", () => {
       expect(await response.json()).toEqual({ error: "adapter-unavailable" });
     },
   );
+  it("routes member and invitation projections to their own tables", async () => {
+    const f = await adapterFixture(db);
+    for (const command of [
+      { v: 1, action: "project", event: f.projection() },
+      { v: 1, action: "project-invite", event: f.invite() },
+    ] satisfies AdapterCommand[]) {
+      const response = await handleAdapterRequest(
+        controlRequest(command),
+        db,
+        secret,
+      );
+      expect(await response.json()).toEqual({ applied: true });
+    }
+    expect(
+      await testDb.query.collaborationRoomInvite.findFirst({
+        where: eq(schema.collaborationRoomInvite.roomId, f.roomId),
+      }),
+    ).toMatchObject({ emailKey: `${f.guest}@example.com`, role: "editor" });
+    expect(
+      await testDb.query.collaborationRoomMember.findFirst({
+        where: eq(schema.collaborationRoomMember.roomId, f.roomId),
+      }),
+    ).toMatchObject({ userId: f.guest, access: "invited" });
+  });
   it("rejects malformed UTF-8 as a command error before accessing storage", async () => {
     const request = new Request("https://adapter.invalid", {
       method: "POST",
@@ -116,7 +139,7 @@ describe("private binary adapter endpoint", () => {
   });
   it("round trips the maximum binary snapshot without base64 and reports its immutable receipt", async () => {
     const f = await adapterFixture(db);
-    const bytes = testCiphertext(MAX_SNAPSHOT_CIPHERTEXT_BYTES);
+    const bytes = testSnapshotBytes(MAX_SNAPSHOT_BYTES);
     const operation = f.operation({}, bytes);
     const response = await handleAdapterRequest(
       new Request("https://adapter.invalid", {
@@ -145,7 +168,6 @@ describe("private binary adapter endpoint", () => {
       v: 1,
       roomId: f.roomId,
       authorityEpoch: 1,
-      authGeneration: 1,
       action: "read-snapshot",
     });
     readRequest.headers.set("x-collab-performance-probe", "1");
@@ -160,11 +182,11 @@ describe("private binary adapter endpoint", () => {
     ).toMatchObject({
       revision: 1,
       checksum: operation.checksum,
-      byteLength: MAX_SNAPSHOT_CIPHERTEXT_BYTES,
+      byteLength: MAX_SNAPSHOT_BYTES,
     });
     const returned = new Uint8Array(await read.arrayBuffer());
-    expect(returned.byteLength).toBe(MAX_SNAPSHOT_CIPHERTEXT_BYTES);
-    expect(ciphertextChecksum(returned)).toBe(operation.checksum);
+    expect(returned.byteLength).toBe(MAX_SNAPSHOT_BYTES);
+    expect(bytesChecksum(returned)).toBe(operation.checksum);
     expect(
       await (
         await handleAdapterRequest(
@@ -177,11 +199,16 @@ describe("private binary adapter endpoint", () => {
   });
   it("returns the locked revision on an absent snapshot after reset, allowing the next conditional write", async () => {
     const f = await adapterFixture(db);
-    await executeStorageOperation(db, "write", f.operation(), testCiphertext());
+    await executeStorageOperation(
+      db,
+      "write",
+      f.operation(),
+      testSnapshotBytes(),
+    );
     const reset = f.operation({
       kind: "snapshot-reset",
       expectedRevision: 1,
-      checksum: ciphertextChecksum(new Uint8Array()),
+      checksum: bytesChecksum(new Uint8Array()),
     });
     expect(
       await (
@@ -197,7 +224,6 @@ describe("private binary adapter endpoint", () => {
         v: 1,
         action: "read-snapshot",
         roomId: f.roomId,
-        authGeneration: 1,
         authorityEpoch: 1,
       }),
       db,
@@ -209,7 +235,6 @@ describe("private binary adapter endpoint", () => {
     );
     expect(receipt).toEqual({
       roomId: f.roomId,
-      authGeneration: 1,
       authorityEpoch: 1,
       revision: 2,
     });
@@ -218,7 +243,7 @@ describe("private binary adapter endpoint", () => {
         db,
         "write",
         f.operation({ expectedRevision: receipt.revision }),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
     ).toEqual({ status: "written", revision: 3 });
   });
@@ -227,7 +252,7 @@ describe("private binary adapter endpoint", () => {
     let cancelled = false;
     const body = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(testCiphertext(MAX_SNAPSHOT_CIPHERTEXT_BYTES));
+        controller.enqueue(testSnapshotBytes(MAX_SNAPSHOT_BYTES));
         controller.enqueue(new Uint8Array([1]));
       },
       cancel() {

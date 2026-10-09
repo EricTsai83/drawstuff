@@ -20,11 +20,11 @@ import { relations, sql } from "drizzle-orm";
 import { customType } from "drizzle-orm/pg-core";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import {
-  MAX_ASSET_CIPHERTEXT_BYTES,
+  MAX_ASSET_BYTES,
   MAX_ASSET_URL_LENGTH,
+  MIN_ASSET_BYTES,
 } from "@drawstuff/collaboration/asset";
-import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { AUTHORITY_LIMITS } from "@drawstuff/collaboration/authority";
 import {
   PERSONAL_LIBRARY_FORMAT_VERSION,
@@ -407,13 +407,12 @@ export const sceneCategory = createTable(
 );
 
 /**
- * 共編 room。一個 room 綁定一個 scene，room 的授權由這裡決定，relay
- * 只驗證由本表簽出的短效 join token。
+ * 共編 room 的 web 端紀錄：storage fence、初始化 manifest 與列表顯示用的副本。
+ * 存取權由 Durable Object 的 Room authority 決定，這張表不授予任何權限。
  *
- * `authGeneration` 是「授權世代」，與 relay 在記憶體中發放的 session epoch
- * （`roomGeneration`）不同：授權世代寫在 DB、只在需要讓既有 token 全部失效時
- * 遞增；room key 也綁在同一個世代上。移除成員只會阻止新連線
- * 與新訊息；要做密碼學撤銷必須遞增世代。
+ * 房間結束後這一列保留（`status='ended'`）：DO 在房間結束並處理完後會刪掉
+ * 自己的儲存，這一列和 `collaboration_creation_fence` 是「這個 roomId 用過」的
+ * 唯一紀錄，建房註冊靠它拒絕重用 roomId。
  */
 export const collaborationRoom = createTable(
   "collaboration_room",
@@ -426,7 +425,6 @@ export const collaborationRoom = createTable(
     ownerId: text("owner_id")
       .notNull()
       .references(() => user.id, { onDelete: "cascade" }),
-    authGeneration: integer("auth_generation").default(1).notNull(),
     /**
      * 單調遞增的授權版本：每次成員／生命週期變更都在 row lock 下 +1。cutoff 用
      * 版本而不是時間排序，等鎖的請求才不會發出比自己還舊的 cutoff，重新授權後
@@ -434,23 +432,13 @@ export const collaborationRoom = createTable(
      */
     authRevision: integer("auth_revision").default(1).notNull(),
     /**
-     * 拿到連結但沒有 member row 的已登入使用者取得的角色；預設 `none`
-     * （invite-only）。匿名加入一律不支援：所有 room API 都要求登入 session。
+     * 建房時的一般存取權（`none` 只有受邀的人、`viewer`／`editor` 有連結的人）。
+     * 之後的變更只存在 Room authority；這裡是建立當下的副本。
      */
     linkRole: varchar("link_role", { length: 16 }).default("none").notNull(),
-    /**
-     * 金鑰檢查值：room 建立與 generation rotate 後，由 owner 的
-     * client 用 purpose `keycheck` 的推導金鑰封裝一段固定明文寫入。client 在
-     * join 之前驗證，開不了即視同錯誤連結，因此錯誤金鑰不可能建立或覆寫
-     * snapshot。伺服器只保存密文，沒有金鑰也沒有驗證路徑；AAD 綁 room id 與
-     * authGeneration，跨 room／跨世代搬運無效。null 代表 owner 尚未（或未能）
-     * 寫入——client 端視為無法驗證而拒絕加入；rotate 會先清空再由 owner 重算。
-     */
-    keyCheck: bytea("key_check"),
     status: varchar("status", { length: 16 }).default("initializing").notNull(),
     authorityEpoch: integer("authority_epoch").default(1).notNull(),
     /** Adapter fence is independent of the display projection and DB role copies. */
-    storageGeneration: integer("storage_generation").default(1).notNull(),
     storageState: varchar("storage_state", { length: 16 })
       .default("initializing")
       .notNull(),
@@ -490,7 +478,7 @@ export const collaborationRoom = createTable(
     ),
     check(
       "collaboration_room_storage_fence",
-      sql`${table.storageGeneration}>0 and ${table.snapshotRevision}>=0 and ${table.storageState} in ('initializing','ready','ended')`,
+      sql`${table.snapshotRevision}>=0 and ${table.storageState} in ('initializing','ready','ended')`,
     ),
     check(
       "collaboration_room_projection_version_positive",
@@ -514,10 +502,6 @@ export const collaborationRoom = createTable(
       .on(table.sceneId)
       .where(sql`status in ('initializing', 'ready')`),
     check(
-      "collaboration_room_auth_generation_positive",
-      sql`${table.authGeneration} >= 1`,
-    ),
-    check(
       "collaboration_room_auth_revision_positive",
       sql`${table.authRevision} >= 1`,
     ),
@@ -529,19 +513,15 @@ export const collaborationRoom = createTable(
       "collaboration_room_link_role_supported",
       sql`${table.linkRole} in ('none', 'viewer', 'editor')`,
     ),
-    // 檢查值是固定明文的密封結果，長度是常數：其他長度一律不是合法 envelope。
-    check(
-      "collaboration_room_key_check_length",
-      sql`${table.keyCheck} is null or octet_length(${table.keyCheck}) = ${sql.raw(
-        String(KEYCHECK_CIPHERTEXT_BYTES),
-      )}`,
-    ),
   ],
 );
 
 /**
- * 明確授權的 room 成員。`revokedAt` 不為 null 代表已被移除：保留 row 才能區分
- * 「被移除」與「從未加入」——被移除的人即使有 room 連結也不能重新取得 token。
+ * 以帳號為鍵的房間列表副本（Room authority 的 `projection` 事件）：擁有者與
+ * 開啟過房間的人。只供列表顯示，絕不用來授權。`access` 決定它出現在哪一區
+ * （`owned`／`invited` → 我擁有的與受邀的，`link` → 透過連結開啟過的）；
+ * `revokedAt` 不為 null 代表 tombstone（失去存取權、離開、房間結束），此時
+ * `role`／`access` 為 null。
  */
 export const collaborationRoomMember = createTable(
   "collaboration_room_member",
@@ -551,7 +531,8 @@ export const collaborationRoomMember = createTable(
       .$defaultFn(() => crypto.randomUUID()),
     roomId: varchar("room_id", { length: 64 }).notNull(),
     userId: text("user_id").notNull(),
-    role: varchar("role", { length: 16 }).notNull(),
+    role: varchar("role", { length: 16 }),
+    access: varchar("access", { length: 16 }),
     revokedAt: timestamp("revoked_at"),
     projectionVersion: integer("projection_version").default(1).notNull(),
     listedAt: timestamp("listed_at").defaultNow().notNull(),
@@ -589,7 +570,60 @@ export const collaborationRoomMember = createTable(
     ),
     check(
       "collaboration_room_member_role_supported",
-      sql`${table.role} in ('owner', 'editor', 'viewer')`,
+      sql`${table.role} is null or ${table.role} in ('owner', 'editor', 'viewer')`,
+    ),
+    check(
+      "collaboration_room_member_access_supported",
+      sql`${table.access} is null or ${table.access} in ('owned', 'invited', 'link')`,
+    ),
+    check(
+      "collaboration_room_member_live_shape",
+      sql`(${table.revokedAt} is null) = (${table.role} is not null and ${table.access} is not null)`,
+    ),
+  ],
+);
+
+/**
+ * 以正規化 email 為鍵的邀請列表副本（Room authority 的 `invite-projection`
+ * 事件），讓受邀但還沒開啟過的房間也能出現在「我擁有的與受邀的」。只供列表
+ * 顯示，絕不用來授權。`role` 是邀請目前給的角色（邀請與一般存取權取較高者）；
+ * 邀請被移除或房間結束時 `revokedAt` 不為 null、`role` 為 null。
+ */
+export const collaborationRoomInvite = createTable(
+  "collaboration_room_invite",
+  {
+    roomId: varchar("room_id", { length: 64 }).notNull(),
+    emailKey: varchar("email_key", { length: 254 }).notNull(),
+    role: varchar("role", { length: 16 }),
+    revokedAt: timestamp("revoked_at"),
+    projectionVersion: integer("projection_version").notNull(),
+    listedAt: timestamp("listed_at").notNull(),
+    updatedAt: timestamp("updated_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    foreignKey({
+      name: "collab_invite_room_fk",
+      columns: [table.roomId],
+      foreignColumns: [collaborationRoom.roomId],
+    }).onDelete("cascade"),
+    primaryKey({
+      name: "collaboration_room_invite_pk",
+      columns: [table.roomId, table.emailKey],
+    }),
+    index("collaboration_room_invite_email_listed_idx").on(
+      table.emailKey,
+      table.listedAt.desc(),
+      table.roomId.desc(),
+    ),
+    check(
+      "collaboration_room_invite_projection_version_positive",
+      sql`${table.projectionVersion} >= 1`,
+    ),
+    check(
+      "collaboration_room_invite_role_shape",
+      sql`(${table.revokedAt} is null) = (${table.role} is not null) and (${table.role} is null or ${table.role} in ('owner', 'editor', 'viewer'))`,
     ),
   ],
 );
@@ -598,14 +632,9 @@ export const collaborationRoomMember = createTable(
  * 共編 room 的持久化 snapshot。room 的所有 client 離線或 relay restart
  * 之後，後來加入的人就是從這裡取得 baseline。
  *
- * 這一列只存密文：`ciphertext` 是 client 用 room key（purpose `snapshot`）封裝的
- * bytes，伺服器沒有金鑰也沒有解密路徑。伺服器看得到的 metadata 一律與場景內容
- * 無關——crypto 版本、revision、位元長度，以及**密文**的 checksum（對密文取
- * hash，才不會變成驗證猜測明文的工具）。
- *
- * 主鍵是 (room_id, auth_generation)：generation 轉動之後舊密文在密碼學上已經不可
- * 讀，所以新 generation 從「沒有 snapshot」開始才是正確狀態，而不是留著一份永遠
- * 打不開的資料。寫入時會刪掉更舊 generation 的列，保留策略因此有界。
+ * `data` 是 `encodeCollaborationSnapshot` 的明文 bytes：房間不做端對端加密，
+ * 與「我的場景」一樣靠登入與存取規則保護（plan 21）。每個 room 一列，
+ * `revision` 擋掉舊 snapshot 覆寫新 snapshot。
  *
  * 這和 owned-scene V4 save 是兩個互不覆寫的 lifecycle（ADR 0001）：那一份由場景
  * 擁有者按下儲存時寫入 `scene.scene_data`，這一份由 room 內被選出的參與者定期
@@ -614,16 +643,13 @@ export const collaborationRoomMember = createTable(
 export const collaborationSnapshot = createTable(
   "collaboration_snapshot",
   {
-    roomId: varchar("room_id", { length: 64 }).notNull(),
-    authGeneration: integer("auth_generation").notNull(),
+    roomId: varchar("room_id", { length: 64 }).primaryKey(),
     /** 每次成功寫入 +1；conditional write 用它擋掉舊 snapshot 覆寫新 snapshot。 */
     revision: integer("revision").notNull(),
-    /** Sealed envelope 版本，對應 `SNAPSHOT_CRYPTO_VERSION`。 */
-    cryptoVersion: integer("crypto_version").notNull(),
-    ciphertext: bytea("ciphertext").notNull(),
-    /** 密文長度；和 `octet_length` 的 check 一起把單列大小限制住。 */
+    data: bytea("data").notNull(),
+    /** 位元長度；和 `octet_length` 的 check 一起把單列大小限制住。 */
     byteLength: integer("byte_length").notNull(),
-    /** 密文的 SHA-256 hex：偵測儲存層損壞，不洩漏明文資訊。 */
+    /** `data` 的 SHA-256 hex：偵測傳輸或儲存層損壞。 */
     checksum: varchar("checksum", { length: 64 }).notNull(),
     /** 最後一次成功寫入的成員；成員被刪除時保留 snapshot。 */
     updatedBy: text("updated_by"),
@@ -645,86 +671,56 @@ export const collaborationSnapshot = createTable(
       columns: [table.updatedBy],
       foreignColumns: [user.id],
     }).onDelete("set null"),
-    primaryKey({
-      name: "collaboration_snapshot_room_generation_pk",
-      columns: [table.roomId, table.authGeneration],
-    }),
     check(
       "collaboration_snapshot_revision_positive",
       sql`${table.revision} >= 1`,
     ),
-    check(
-      "collaboration_snapshot_auth_generation_positive",
-      sql`${table.authGeneration} >= 1`,
-    ),
-    check(
-      "collaboration_snapshot_crypto_version_positive",
-      sql`${table.cryptoVersion} >= 1`,
-    ),
-    // 位元長度必須與密文一致，且不得超過 `MAX_SNAPSHOT_CIPHERTEXT_BYTES`：
+    // 位元長度必須與資料一致，且不得超過 `MAX_SNAPSHOT_BYTES`：
     // 授權成員也不能靠 snapshot 無界地長大資料庫。
     check(
       "collaboration_snapshot_byte_length_matches",
-      sql`${table.byteLength} = octet_length(${table.ciphertext})`,
+      sql`${table.byteLength} = octet_length(${table.data})`,
     ),
     check(
       "collaboration_snapshot_byte_length_bounded",
       sql`${table.byteLength} between 1 and ${sql.raw(
-        String(MAX_SNAPSHOT_CIPHERTEXT_BYTES),
+        String(MAX_SNAPSHOT_BYTES),
       )}`,
     ),
   ],
 );
 
 /**
- * 共編 room 的 binary asset：身份與密文所在位置。
+ * 共編 room 的 binary asset：身份與 bytes 所在位置。
  *
- * 一列代表「這個 room 的這個授權世代有這個 Excalidraw file id 的密文，存在這個
- * storage object」。身份是 (room, generation, `excalidraw_file_id`)，
- * `ut_file_key`／`url` 只是「現在存在哪裡」——重新上傳會得到新 key，所以它不是身份，
- * 只能由身份反查出來。
+ * 一列代表「這個 room 有這個 Excalidraw file id 的圖片，存在這個 storage
+ * object」。身份是 (room, `excalidraw_file_id`)，`ut_file_key`／`url` 只是
+ * 「現在存在哪裡」——重新上傳會得到新 key，所以它不是身份，只能由身份反查出來。
  *
- * 這張表**沒有純身份的列**：一列存在就代表位元組已經上傳完成。原因是可用性只有一種
- * 有意義的答案——peer 從 element 的 `fileId` 知道要哪張圖，需要問的是「位元組在哪、
- * 到了沒」。先寫一列「已註冊但還沒有 bytes」只會讓讀取端無法區分這兩件事。
+ * 這張表**沒有純身份的列**：一列存在就代表位元組已經上傳完成，讀取端才能區分
+ * 「還沒上傳」與「不存在」。
  *
- * 也刻意沒有 MIME type 與 content hash：兩者都在密文裡（payload metadata），伺服器
- * 看不到也不需要看到。把 MIME 複製到欄位上只會產生一份伺服器無法驗證、卻可能與
- * 密文不一致的斷言。
+ * 內容是 `encodeCollaborationAssetPayload` 的明文 bytes，放在 UploadThing 的
+ * public URL，暴露程度與個人場景圖片相同（ADR-0005、plan 21 D6）。
  *
- * 為什麼不放進 `file_record`：那張表的 parent 是 scene／sharedScene、內容是明文
- * 壓縮後上傳到 UploadThing、retention 跟著 scene 走。Room asset 的 parent 是 room、
- * 內容將由 room key 加密、retention 跟著授權世代走，而 writer 可能是非 scene
- * owner 的 editor。在 `file_record` 加第三個 nullable parent 只會讓
- * nullable-polymorphic table 繼續擴張，四種 lifecycle 混在同一組 constraint 裡
- * （見 ADR 0001 的 asset relation boundary）。
- *
- * 主鍵是 (room_id, auth_generation, excalidraw_file_id)：與
- * `collaboration_snapshot` 同一套 retention 語意——世代轉動後舊世代的密文在密碼學
- * 上已不可讀，所以新世代從空 manifest 開始才是正確狀態；註冊時會清掉更舊世代的
- * 列，保留量因此有界。前綴 (room_id, auth_generation) 直接服務「列出這個世代的
- * manifest」，不需要額外索引。
- *
- * 這裡刻意沒有 content hash：Excalidraw file id 本身就是明文位元組的摘要，再存一份
- * 內容雜湊不會增加 lookup 能力，只會給伺服器一個確認猜測明文的 oracle。
+ * 為什麼不放進 `file_record`：那張表的 parent 是 scene／sharedScene、retention
+ * 跟著 scene 走。Room asset 的 parent 是 room、retention 跟著 room 走，而 writer
+ * 可能是非 scene owner 的 editor（見 ADR 0001 的 asset relation boundary）。
  */
 export const collaborationAsset = createTable(
   "collaboration_asset",
   {
     roomId: varchar("room_id", { length: 64 }).notNull(),
-    authGeneration: integer("auth_generation").notNull(),
-    /** 不可變的 Excalidraw file id；在 (room, generation) 內唯一。 */
+    /** 不可變的 Excalidraw file id；在 room 內唯一。 */
     excalidrawFileId: varchar("excalidraw_file_id", { length: 64 }).notNull(),
-    /** Sealed envelope 版本，對應 `ASSET_CRYPTO_VERSION`。 */
-    cryptoVersion: integer("crypto_version").notNull(),
-    /** 密文的 storage object 身份；清理與去重都用它。 */
+    /** Storage object 身份；清理與去重都用它。 */
     utFileKey: varchar("ut_file_key", { length: 256 }).notNull(),
     /**
-     * 密文目前的下載位置；不是身份，重新上傳會變。長度與
+     * 目前的下載位置；不是身份，重新上傳會變。長度與
      * `MAX_ASSET_URL_LENGTH` 同步：transfer contract 拒收的 URL 這裡也存不下。
      */
     url: varchar("url", { length: MAX_ASSET_URL_LENGTH }).notNull(),
-    /** 密文長度；下載前的上界檢查，且與 `MAX_ASSET_CIPHERTEXT_BYTES` 一起設限。 */
+    /** Payload 長度；下載前的上界檢查，與 `MAX_ASSET_BYTES` 一起設限。 */
     byteLength: integer("byte_length").notNull(),
     /** 上傳者；成員被刪除時保留資產（身份與上傳者無關）。 */
     registeredBy: text("registered_by"),
@@ -744,26 +740,18 @@ export const collaborationAsset = createTable(
       foreignColumns: [user.id],
     }).onDelete("set null"),
     primaryKey({
-      name: "collaboration_asset_room_generation_file_pk",
-      columns: [table.roomId, table.authGeneration, table.excalidrawFileId],
+      name: "collaboration_asset_room_file_pk",
+      columns: [table.roomId, table.excalidrawFileId],
     }),
-    check(
-      "collaboration_asset_auth_generation_positive",
-      sql`${table.authGeneration} >= 1`,
-    ),
     check(
       "collaboration_asset_excalidraw_file_id_shape",
       sql`${table.excalidrawFileId} ~ '^[A-Za-z0-9_-]{1,64}$'`,
     ),
-    check(
-      "collaboration_asset_crypto_version_positive",
-      sql`${table.cryptoVersion} >= 1`,
-    ),
-    // 授權成員也不能靠 asset 無界地長大 storage：單一資產的密文長度有上界。
+    // 授權成員也不能靠 asset 無界地長大 storage：單一資產的長度有上界。
     check(
       "collaboration_asset_byte_length_bounded",
-      sql`${table.byteLength} between 1 and ${sql.raw(
-        String(MAX_ASSET_CIPHERTEXT_BYTES),
+      sql`${table.byteLength} between ${sql.raw(String(MIN_ASSET_BYTES))} and ${sql.raw(
+        String(MAX_ASSET_BYTES),
       )}`,
     ),
   ],
@@ -778,7 +766,7 @@ export const collaborationCreationFence = createTable(
   },
 );
 
-/** Adapter result and snapshot commit share the room's FOR UPDATE fence. No ciphertext payload here. */
+/** Adapter result and snapshot commit share the room's FOR UPDATE fence. No payload here. */
 export const collaborationOperation = createTable(
   "collaboration_operation",
   {
@@ -789,7 +777,6 @@ export const collaborationOperation = createTable(
     actor: text("actor").notNull(),
     kind: varchar("kind", { length: 32 }).notNull(),
     authorityEpoch: integer("authority_epoch").notNull(),
-    authGeneration: integer("auth_generation").notNull(),
     expectedRevision: integer("expected_revision").notNull(),
     checksum: varchar("checksum", { length: 64 }).notNull(),
     /** Digest of the complete canonical intent, including immutable asset metadata and deadline. */
@@ -815,7 +802,7 @@ export const collaborationOperation = createTable(
     ),
     check(
       "collaboration_operation_versions",
-      sql`${table.authorityEpoch}>0 and ${table.authGeneration}>0 and ${table.expectedRevision}>=0`,
+      sql`${table.authorityEpoch}>0 and ${table.expectedRevision}>=0`,
     ),
     check(
       "collaboration_operation_checksum",

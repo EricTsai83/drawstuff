@@ -12,11 +12,7 @@ import {
   contentResultSchema,
   snapshotRequestSchema,
 } from "@drawstuff/collaboration/authority";
-import {
-  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  MIN_SNAPSHOT_SEALED_BYTES,
-  SNAPSHOT_CRYPTO_VERSION,
-} from "@drawstuff/collaboration/snapshot";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { env } from "@/env";
 import { auth } from "@/lib/auth";
 import {
@@ -251,15 +247,13 @@ export async function handleSnapshotHttp(request: Request): Promise<Response> {
     }
     const bytes = await readSnapshotHttpBody(
       request.body,
-      put ? MAX_SNAPSHOT_CIPHERTEXT_BYTES : 0,
+      put ? MAX_SNAPSHOT_BYTES : 0,
       signal,
     );
     if (
       input.action === "write" &&
       (digest(bytes) !== input.operation.checksum ||
-        (put &&
-          (bytes.byteLength < MIN_SNAPSHOT_SEALED_BYTES ||
-            bytes[0] !== SNAPSHOT_CRYPTO_VERSION)))
+        (put && bytes.byteLength === 0))
     )
       throw new SnapshotHttpError(400, "invalid-body");
     const trustedMetadata = JSON.stringify({ proof, request: input });
