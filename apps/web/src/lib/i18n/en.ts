@@ -209,7 +209,8 @@ export const en = {
   "collaboration.recovery.confirmReset": "Delete cloud canvas",
   "collaboration.recovery.cancel": "Cancel",
   "collaboration.missingKey.title": "Complete link needed",
-  "collaboration.missingKey.description": "This device doesn't have the key for this room.",
+  "collaboration.missingKey.description":
+    "This device doesn't have the key for this room.",
   "collaboration.missingKey.label": "Complete invitation link",
   "collaboration.missingKey.apply": "Use link",
   "collaboration.missingKey.hint":
