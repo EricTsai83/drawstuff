@@ -21,7 +21,7 @@ encrypted sharing, real-time collaboration, and public read-only pages.
 - Import, export, autosave, thumbnails, and attached binary assets
 - Workspaces with scene search, filters, and categories
 - Client-side compressed and AES-GCM-encrypted private share links
-- Encrypted real-time collaboration through a Cloudflare Durable Object gateway; members reopen rooms from any device
+- Encrypted real-time collaboration through a Cloudflare Durable Object gateway; invited members reopen rooms from any device
 - Public read-only pages at `/p/[slug]`
 - English and Traditional Chinese UI
 
@@ -75,20 +75,24 @@ deployment workflow.
 The complete template is [apps/web/.env.example](./apps/web/.env.example), and the validation schema
 is [apps/web/src/env.ts](./apps/web/src/env.ts).
 
-| Purpose        | Variables                                                                                              |
-| -------------- | ------------------------------------------------------------------------------------------------------ |
-| Database       | `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`                                                             |
-| Authentication | `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                    |
-| Storage        | `UPLOADTHING_TOKEN`                                                                                    |
-| Public origin  | `NEXT_PUBLIC_BASE_URL`                                                                                 |
-| Collaboration  | `COLLAB_IDENTITY_SECRET`, `COLLAB_AUTHORITY_SECRET`, `COLLAB_ADAPTER_SECRET`, `COLLAB_CONTROL_URL`, `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN` |
-| Maintenance    | `CRON_SECRET`, `CLEANUP_OWNER_EMAIL`                                                                   |
+| Purpose        | Variables                                                                                          |
+| -------------- | -------------------------------------------------------------------------------------------------- |
+| Database       | `POSTGRES_URL`, `POSTGRES_URL_NON_POOLING`                                                         |
+| Authentication | `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`                |
+| Storage        | `UPLOADTHING_TOKEN`                                                                                |
+| Public origin  | `NEXT_PUBLIC_BASE_URL`                                                                             |
+| Collaboration  | `COLLAB_IDENTITY_SECRET`, `COLLAB_AUTHORITY_SECRET`, `COLLAB_ADAPTER_SECRET`, `COLLAB_CONTROL_URL` |
+| Rate limiting  | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`                                               |
+| Maintenance    | `CRON_SECRET`, `CLEANUP_OWNER_EMAIL`                                                               |
 
 Optional collaboration settings:
 
 - `COLLAB_ROOMS_DISABLED=true` prevents new room creation and joins during an incident.
 
-The three collaboration secrets must each be at least 32 characters and match the corresponding Worker capabilities. The coordinated schema reset and deployment are described in the [P3 runbook](./docs/deployment/collaboration-reset/README.md).
+The three collaboration secrets must each be at least 32 characters and hold the same values as
+the Worker secrets of the same name. The Worker also keeps secrets the web app never sees, such as
+`COLLAB_ROOM_KEY_WRAP_SECRET`; the [Worker deployment runbook](./docs/operations/collaboration-do-deployment.md#2-secrets)
+lists every secret and the order to set them in.
 `BETTER_AUTH_URL` and `NEXT_PUBLIC_BASE_URL` must be the same origin. For Google OAuth, register
 `<origin>/api/auth/callback/google` as an authorized redirect URI.
 
