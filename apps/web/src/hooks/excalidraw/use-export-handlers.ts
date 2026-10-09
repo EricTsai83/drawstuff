@@ -53,19 +53,13 @@ export function useExportHandlers({
   );
 
   const handleCloudUpload = useCallback(async (): Promise<void> => {
+    // uploadSceneToCloud reports success and failure itself.
     try {
-      const ok = await uploadSceneToCloud();
-      if (ok) {
-        toast.success(t("toast.cloud.uploaded"));
-      } else {
-        // 交由上層（Editor）統一處理錯誤 toast 與狀態重置
-      }
+      await uploadSceneToCloud();
     } catch (err: unknown) {
-      const errorObj = err instanceof Error ? err : new Error(String(err));
-      console.error(errorObj);
-      // 交由上層（Editor）統一處理錯誤 toast 與狀態重置
+      console.error(err instanceof Error ? err : new Error(String(err)));
     }
-  }, [uploadSceneToCloud, t]);
+  }, [uploadSceneToCloud]);
 
   const handleExportLink = useCallback(async (): Promise<void> => {
     if (isExporting || isUploading) return;

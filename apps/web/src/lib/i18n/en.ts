@@ -40,19 +40,16 @@ export const en = {
   "app.cloudUpload.tooltip.success": "Synced to cloud",
   "app.cloudUpload.tooltip.error": "Upload failed, click to retry",
   "app.cloudUpload.tooltip.offline": "Currently offline",
-  "app.cloudUpload.toast.success": "Scene successfully uploaded to cloud!",
+  "app.cloudUpload.toast.success": "Saved to my scenes.",
   "app.cloudUpload.toast.error.sceneData":
     "Unable to get current scene data, please try again.",
   "app.cloudUpload.toast.error.noSceneToUpdate":
     "This scene has not been saved yet.",
-  "app.cloudUpload.toast.error.upload":
-    "Error occurred while uploading scene to cloud, please try again.",
+  "app.cloudUpload.toast.error.upload": "Couldn't save. Try again.",
   "app.cloudUpload.toast.error.publishedArtifactsRender":
     "Saved, but the public version could not be rendered. Save again to retry.",
   "app.cloudUpload.toast.error.publishedArtifactsUpload":
     "Saved, but the public version could not be uploaded ({size}). Save again to retry.",
-  "app.cloudUpload.toast.error.unknown":
-    "Unknown error occurred while uploading scene to cloud, please try again.",
 
   // Missing keys used across the app that may not exist in Excalidraw
   // Overwrite confirm dialog
@@ -94,7 +91,6 @@ export const en = {
   "canvas.actions.quick": "Quick actions",
   "canvas.actions.closeQuick": "Close quick actions",
   "canvas.actions.library": "Library",
-  "canvas.actions.save": "Save to cloud",
   "canvas.actions.saveShortcut": "Shortcut: Cmd/Ctrl+S",
   "canvas.actions.share": "Create shareable link",
   "canvas.saveStatus.idle": "Ready",
@@ -109,8 +105,6 @@ export const en = {
   "stats.total": "Total",
 
   // Alerts
-  "alerts.uploadedSecurly":
-    "Uploaded securely. Only people with the link can access.",
 
   // Menu & Auth
   "menu.renameScene": "Rename scene",
@@ -209,12 +203,6 @@ export const en = {
     "The room is ready. Your room list is still syncing, so it may appear there a little later.",
   "collaboration.toast.keyConflict":
     "This room already has an encryption key. Share the complete link from the device that created it, or reset the link.",
-  "collaboration.toast.keySetupFailed":
-    "Encryption setup failed. Select Start encrypted collaboration again.",
-  "collaboration.toast.rotationSetupFailed":
-    "The link was reset, but encryption setup is incomplete. Reset the link again.",
-  "collaboration.toast.rotationSuccess":
-    "The new link is ready. Share it again; the old link no longer works.",
   "collaboration.toast.snapshotReset":
     "The cloud canvas was reset. Rejoining with the next member's canvas.",
   "collaboration.recovery.description":
@@ -519,7 +507,7 @@ export const en = {
   "validation.descriptionTooLong": "Description is too long",
   "share.scene.description": "Anyone with this link can view this scene.",
   "share.scene.link": "Link",
-  "share.scene.lock": "Private link",
+  "share.scene.linkAccess": "Anyone with the link can view.",
   "menu.moreOptions": "More options",
   "workspace.current": "Current workspace: {name}",
   "workspace.none": "None",
@@ -528,7 +516,6 @@ export const en = {
   "scene.change.description": "Save the current scene before switching?",
   "scene.change.save": "Save, then switch",
   "scene.change.discard": "Switch without saving",
-  "scene.save.title": "Save scene",
   "scene.save.description":
     "Personal cloud saves are not end-to-end encrypted and are not automatically public.",
   "scene.save.cancelLabel": "Cancel save",
@@ -592,8 +579,6 @@ export const en = {
   "toast.export.fileSaved": "File saved to disk.",
   "toast.export.fileSaveFailed": "Failed to save the file. Try again.",
   "toast.export.imageFailed": "Failed to export the image. Try again.",
-  "toast.cloud.uploaded": "Uploaded to the cloud.",
-  "toast.cloud.uploadFailed": "Failed to upload to the cloud. Try again.",
   "errors.failedToExportScene": "Failed to export scene. Try again.",
   "errors.exportInProgress": "An export is already in progress.",
   "errors.emptyCanvas": "An empty canvas cannot be exported.",

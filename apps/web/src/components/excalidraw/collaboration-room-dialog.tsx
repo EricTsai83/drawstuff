@@ -419,9 +419,10 @@ export function CollaborationRoomDialog({
       await invalidateRoom();
     } catch (error) {
       if (epoch !== initializationEpoch.current) return;
+      // A pending creation is explained by the dialog's own description.
       if (error instanceof AuthorityRoomError && error.code === "pending")
-        toast.info(t("collaboration.toast.initializationPending"));
-      else if (
+        return;
+      if (
         error instanceof AuthorityRoomError &&
         error.code === "attachments-required"
       )
@@ -750,6 +751,16 @@ export function CollaborationRoomDialog({
     });
   }, [roomId, roomKey]);
 
+  // A failure is explained by the error paragraph; the header pill then names
+  // only the role instead of repeating it.
+  const showsError = !!errorMessage && status !== "missing-room-key";
+  const statusPill = [
+    showsError ? null : t(STATUS_LABEL_KEY[status]),
+    role ? t(ROLE_LABEL_KEY[role]) : null,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
   const dialogDescription = isAuthenticationPending
     ? t("collaboration.authChecking")
     : !isAuthenticated
@@ -773,7 +784,7 @@ export function CollaborationRoomDialog({
                   : "collaboration.title",
               )}
             </DialogTitle>
-            {isAuthenticated && roomId && (
+            {isAuthenticated && roomId && statusPill && (
               <span
                 className={cn(
                   "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs",
@@ -791,8 +802,7 @@ export function CollaborationRoomDialog({
                       : "bg-muted-foreground",
                   )}
                 />
-                {t(STATUS_LABEL_KEY[status])}
-                {role && ` · ${t(ROLE_LABEL_KEY[role])}`}
+                {statusPill}
               </span>
             )}
           </div>
@@ -864,7 +874,7 @@ export function CollaborationRoomDialog({
         {!isAuthenticationPending && isAuthenticated && roomId && (
           <div className="flex flex-col gap-4">
             {/* A missing key is explained once, by the paste form below. */}
-            {errorMessage && status !== "missing-room-key" && (
+            {showsError && (
               <p className="text-destructive text-sm">{errorMessage}</p>
             )}
             {status === "missing-room-key" && (

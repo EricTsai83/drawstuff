@@ -7,6 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { LockKeyhole } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { CopyButton } from "@/components/copy-button";
@@ -52,16 +53,10 @@ export function SceneShareDialog({
           </Field>
           <CopyButton textToCopy={sceneUrl} />
         </div>
-        <div className="mt-2 flex items-center gap-2 text-xs">
-          <span
-            role="img"
-            aria-label={t("share.scene.lock")}
-            className="text-yellow-400"
-          >
-            🔒
-          </span>
-          {t("alerts.uploadedSecurly")}
-        </div>
+        <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-xs">
+          <LockKeyhole className="size-3.5 shrink-0" aria-hidden="true" />
+          {t("share.scene.linkAccess")}
+        </p>
       </DialogContent>
     </Dialog>
   );

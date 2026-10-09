@@ -120,21 +120,15 @@ export function useOverwriteConfirm(
   }, [excalidrawAPI, handleClose, t]);
 
   const handleUploadToCloud = useCallback(async () => {
+    // uploadSceneToCloud reports success and failure itself.
     try {
-      const ok = await cloudUpload.uploadSceneToCloud();
-      if (ok) {
-        toast.success(t("toast.cloud.uploaded"));
-      } else {
-        toast.error(t("toast.cloud.uploadFailed"));
-      }
+      await cloudUpload.uploadSceneToCloud();
     } catch (err: unknown) {
-      const errorObj = err instanceof Error ? err : new Error(String(err));
-      console.error("Cloud upload error:", errorObj);
-      toast.error(t("toast.cloud.uploadFailed"));
+      console.error("Cloud upload error:", err);
     } finally {
       handleClose();
     }
-  }, [cloudUpload, handleClose, t]);
+  }, [cloudUpload, handleClose]);
 
   return {
     open: isOpen,

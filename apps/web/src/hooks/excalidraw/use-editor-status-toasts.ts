@@ -12,9 +12,9 @@ const STATUS_RESET_DELAY_MS = 1_500;
 
 /**
  * The editor's two settle-and-reset status effects, deduplicated: a successful
- * upload/export shows its state briefly and returns to idle; a failed one
- * additionally announces the error as a toast, since the button state alone
- * does not say what went wrong.
+ * upload/export shows its state briefly and returns to idle. A failed export
+ * also announces the error as a toast, since the button state alone does not
+ * say what went wrong; a failed upload's own step already did.
  */
 export function useEditorStatusToasts(options: {
   uploadStatus: UploadStatus;
@@ -41,14 +41,14 @@ export function useEditorStatusToasts(options: {
       return () => clearTimeout(timer);
     }
     if (uploadStatus === "error") {
-      toast.error(t("toast.cloud.uploadFailed"));
+      // The failing upload step already said why; only reset the status here.
       const timer = setTimeout(() => {
         resetUploadStatus();
       }, STATUS_RESET_DELAY_MS);
       return () => clearTimeout(timer);
     }
     return;
-  }, [uploadStatus, resetUploadStatus, t]);
+  }, [uploadStatus, resetUploadStatus]);
 
   useEffect(() => {
     if (exportStatus === "success") {

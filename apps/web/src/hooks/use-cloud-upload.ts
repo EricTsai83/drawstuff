@@ -609,7 +609,7 @@ export function useCloudUpload(
       } catch (err) {
         console.error("Unexpected error during cloud upload:", err);
         setStatus("error");
-        toast.error(t("app.cloudUpload.toast.error.unknown"));
+        toast.error(t("app.cloudUpload.toast.error.upload"));
         return false;
       } finally {
         uploadInFlightRef.current = false;

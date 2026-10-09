@@ -51,17 +51,10 @@ export function CanvasShortcutMenu({
   actions,
   onLibraryActivate,
 }: CanvasShortcutMenuProps) {
-  const { t, langCode } = useAppI18n();
-  const isTraditionalChinese = langCode === "zh-TW";
-  const quickLabel =
-    t("canvas.actions.quick") ||
-    (isTraditionalChinese ? "快捷功能" : "Quick actions");
-  const closeQuickLabel =
-    t("canvas.actions.closeQuick") ||
-    (isTraditionalChinese ? "關閉快捷功能" : "Close quick actions");
-  const libraryLabel =
-    t("canvas.actions.library") ||
-    (isTraditionalChinese ? "素材庫" : "Library");
+  const { t } = useAppI18n();
+  const quickLabel = t("canvas.actions.quick");
+  const closeQuickLabel = t("canvas.actions.closeQuick");
+  const libraryLabel = t("canvas.actions.library");
   const collaboration = getCollaborationPresentation(
     actions.collaboration.status,
     actions.collaboration.isReadOnly,

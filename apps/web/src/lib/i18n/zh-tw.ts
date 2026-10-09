@@ -38,16 +38,14 @@ export const zhTW = {
   "app.cloudUpload.tooltip.success": "已同步到雲端",
   "app.cloudUpload.tooltip.error": "上傳失敗，點擊重試",
   "app.cloudUpload.tooltip.offline": "目前離線",
-  "app.cloudUpload.toast.success": "場景已成功上傳至雲端！",
+  "app.cloudUpload.toast.success": "已儲存至我的場景。",
   "app.cloudUpload.toast.error.sceneData": "無法取得當前場景資料，請重試。",
   "app.cloudUpload.toast.error.noSceneToUpdate": "此場景尚未儲存。",
-  "app.cloudUpload.toast.error.upload": "上傳場景至雲端時發生錯誤，請重試。",
+  "app.cloudUpload.toast.error.upload": "儲存失敗，請再試一次。",
   "app.cloudUpload.toast.error.publishedArtifactsRender":
     "已儲存，但無法產生公開版本；再儲存一次即可重試。",
   "app.cloudUpload.toast.error.publishedArtifactsUpload":
     "已儲存，但公開版本上傳失敗（{size}）；再儲存一次即可重試。",
-  "app.cloudUpload.toast.error.unknown":
-    "上傳場景至雲端時發生未知錯誤，請重試。",
 
   // 覆寫/補齊：覆寫確認對話框
   "overwriteConfirm.modal.shareableLink.title": "開啟分享的場景？",
@@ -88,7 +86,6 @@ export const zhTW = {
   "canvas.actions.quick": "快捷功能",
   "canvas.actions.closeQuick": "關閉快捷功能",
   "canvas.actions.library": "素材庫",
-  "canvas.actions.save": "儲存至雲端",
   "canvas.actions.saveShortcut": "快捷鍵：Cmd/Ctrl+S",
   "canvas.actions.share": "建立分享連結",
   "canvas.saveStatus.idle": "可儲存",
@@ -103,7 +100,6 @@ export const zhTW = {
   "stats.total": "總計",
 
   // 警示
-  "alerts.uploadedSecurly": "已安全地上傳，只有持有連結的人可存取。",
 
   // 選單與登入
   "menu.renameScene": "重新命名場景",
@@ -128,7 +124,7 @@ export const zhTW = {
   "auth.continueWithGoogle": "使用 Google 繼續",
   "auth.connecting": "連線中…",
   "auth.error.signInFailed": "無法連接 Google，請確認網路後再試一次。",
-  "auth.welcome": "歡迎使用 Excalidraw X Ericts",
+  "auth.welcome": "歡迎使用 drawstuff",
   "auth.required.title": "需要登入",
   "auth.required.description": "請先登入以使用此功能。",
   "auth.agreement.click": "繼續即表示你同意我們的",
@@ -194,12 +190,6 @@ export const zhTW = {
     "房間已就緒；「共編房間」列表仍在同步，可能稍後才會出現。",
   "collaboration.toast.keyConflict":
     "這個房間已有加密金鑰。請從建立房間的裝置分享完整連結，或重設連結。",
-  "collaboration.toast.keySetupFailed":
-    "無法完成加密設定，請再按一次「開始加密共編」。",
-  "collaboration.toast.rotationSetupFailed":
-    "連結已重設，但加密設定未完成。請再重設一次連結。",
-  "collaboration.toast.rotationSuccess":
-    "新的連結已就緒，請重新分享；舊連結已失效。",
   "collaboration.toast.snapshotReset":
     "已重設雲端畫布，正在以下一位成員的畫布重新加入。",
   "collaboration.recovery.description":
@@ -274,14 +264,14 @@ export const zhTW = {
   "collaboration.action.rotate": "重設連結",
   "collaboration.action.leave": "離開房間",
   "collaboration.failure.unauthorized":
-    "你已無法存取這個 room，請向擁有者索取新邀請。",
+    "你已無法存取這個房間，請向擁有者索取新邀請。",
   "collaboration.failure.membershipRevoked": "你的共編權限已被移除。",
   "collaboration.failure.roomEnded":
-    "這個 room 已結束或重設，請向分享者索取新連結。",
+    "這個房間 已結束或重設，請向分享者索取新連結。",
   "collaboration.failure.generationRotated":
     "此連結使用舊金鑰，請向分享者索取最新的完整連結。",
   "collaboration.failure.unreadableRoom":
-    "此連結無法解密 room，請向分享者索取最新的完整連結。",
+    "此連結無法解密房間，請向分享者索取最新的完整連結。",
   "collaboration.failure.protocolViolation":
     "連線因通訊協定錯誤而停止。請重新載入；若持續發生請回報。",
   "collaboration.failure.unsupportedProtocolVersion":
@@ -291,7 +281,7 @@ export const zhTW = {
   "collaboration.failure.retryLimit":
     "多次重新連線失敗，請確認網路後重新載入。",
   "collaboration.failure.wrongKey":
-    "連結的加密金鑰不正確，因此未加入 room，原畫布也未變更。請索取最新的完整連結。",
+    "連結的加密金鑰不正確，因此未加入房間，原畫布也未變更。請索取最新的完整連結。",
   "collaboration.failure.missingKeyCheck":
     "房間的加密設定未完成，請房主重新開啟共編或重設連結。",
   "collaboration.failure.rateLimited":
@@ -301,7 +291,7 @@ export const zhTW = {
   "collaboration.warning.realtimeTooLarge":
     "即時同步已停止：畫布 {size} 超過傳送上限 {limit}，其他成員不會收到新變更。",
   "collaboration.warning.backupTooLarge":
-    "雲端備份已停止：畫布 {size} 超過 room 上限 {limit}，重新載入或稍後加入只會看到舊版本。",
+    "雲端備份已停止：畫布 {size} 超過房間上限 {limit}，重新載入或稍後加入只會看到舊版本。",
   "collaboration.warning.tooLargeAdvice":
     "請立即匯出圖片或儲存場景檔。減少畫布內容可恢復同步；若剛刪除的內容仍計入上限，請重新載入後再加入。",
   "collaboration.failure.invalidLink": "此共編連結格式不正確。",
@@ -311,7 +301,7 @@ export const zhTW = {
   "collaboration.failure.saveBeforeJoin":
     "無法儲存目前場景，因此未加入共編。請再試一次。",
   "collaboration.failure.joinFailed":
-    "暫時無法加入共編 room，通常是網路或伺服器問題，請稍後重新開啟連結。",
+    "暫時無法加入共編房間，通常是網路或伺服器問題，請稍後重新開啟連結。",
   "import.error.fileTooLarge": "匯入失敗：{name}（{size}）超過上限 {limit}。",
   "labels.openDashboard": "開啟場景列表",
 
@@ -388,7 +378,7 @@ export const zhTW = {
   "workspace.settings.currentCanvasWarningBody":
     "刪除後也會清除目前場景、本機草稿與復原紀錄。",
   "workspace.settings.collaborationBlocked":
-    "請先離開共編 room，再刪除此工作空間。",
+    "請先離開共編房間，再刪除此工作空間。",
   "search.placeholder": "以名稱、描述、分類或專案名稱搜尋場景...",
   "search.resultsCount": '已載入 {count} 筆結果，關鍵字："{query}"',
   "menu.importScene": "匯入場景",
@@ -479,7 +469,7 @@ export const zhTW = {
   "validation.descriptionTooLong": "描述過長",
   "share.scene.description": "任何持有此連結的人都能查看場景。",
   "share.scene.link": "連結",
-  "share.scene.lock": "私人連結",
+  "share.scene.linkAccess": "持有連結的人都可以檢視。",
   "menu.moreOptions": "更多選項",
   "workspace.current": "目前工作空間：{name}",
   "workspace.none": "無",
@@ -488,7 +478,6 @@ export const zhTW = {
   "scene.change.description": "切換前要先儲存目前場景嗎？",
   "scene.change.save": "儲存後切換",
   "scene.change.discard": "不儲存並切換",
-  "scene.save.title": "儲存場景",
   "scene.save.description": "個人雲端存檔不採端對端加密，不會自動公開。",
   "scene.save.cancelLabel": "取消儲存",
   "scene.save.confirmLabel": "確認儲存",
@@ -545,8 +534,6 @@ export const zhTW = {
   "toast.export.fileSaved": "檔案已儲存到磁碟。",
   "toast.export.fileSaveFailed": "儲存檔案失敗，請再試一次。",
   "toast.export.imageFailed": "匯出圖片失敗，請再試一次。",
-  "toast.cloud.uploaded": "已上傳到雲端。",
-  "toast.cloud.uploadFailed": "上傳雲端失敗，請再試一次。",
   "errors.failedToExportScene": "匯出場景失敗，請再試一次。",
   "errors.exportInProgress": "已有匯出作業正在進行。",
   "errors.emptyCanvas": "空白畫布無法匯出。",
