@@ -264,6 +264,8 @@ export function CollaborationRoomDialog({
     setPastedLink("");
     setPastedLinkInvalid(false);
     onRoomKeyChange(invite.roomKey);
+    // The way in was the only reason the dialog was open.
+    onOpenChange(false);
   };
   const [emailCursor, setEmailCursor] = useState<string | undefined>();
   const [memberCursor, setMemberCursor] = useState<string | undefined>();
@@ -797,8 +799,17 @@ export function CollaborationRoomDialog({
         : t("collaboration.createDescription");
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      // A keyless room has nothing behind the dialog to return to, so it
+      // closes only through its two ways out: the link, or back to the canvas.
+      onOpenChange={(next) => {
+        if (!next && needsKey) return;
+        onOpenChange(next);
+      }}
+    >
       <DialogContent
+        showCloseButton={!needsKey}
         initialFocus={false}
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
       >

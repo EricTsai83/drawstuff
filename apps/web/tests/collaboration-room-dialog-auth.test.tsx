@@ -95,11 +95,33 @@ vi.mock("sonner", () => ({
   },
 }));
 
+const dialogShell = vi.hoisted(() => ({
+  requestOpenChange: undefined as ((open: boolean) => void) | undefined,
+  showCloseButton: true,
+}));
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: { children: ReactNode }) => children,
-  DialogContent: ({ children }: { children: ReactNode }) => (
-    <div>{children}</div>
-  ),
+  // Records what the dialog hands its shell: Esc, an outside click and the
+  // close button all arrive through onOpenChange(false).
+  Dialog: ({
+    children,
+    onOpenChange,
+  }: {
+    children: ReactNode;
+    onOpenChange?: (open: boolean) => void;
+  }) => {
+    dialogShell.requestOpenChange = onOpenChange;
+    return children;
+  },
+  DialogContent: ({
+    children,
+    showCloseButton = true,
+  }: {
+    children: ReactNode;
+    showCloseButton?: boolean;
+  }) => {
+    dialogShell.showCloseButton = showCloseButton;
+    return <div>{children}</div>;
+  },
   DialogDescription: ({ children }: { children: ReactNode }) => (
     <p>{children}</p>
   ),
@@ -1062,12 +1084,18 @@ describe("share room dialog", () => {
   it("offers only the way in or back while the key is missing, even to the owner", async () => {
     roomGetUseQuery.mockReturnValue(managed());
     const onRoomIdChange = vi.fn();
+    const onOpenChange = vi.fn();
     renderDialog({
       isAuthenticated: true,
       roomId: "room-a",
       status: "missing-room-key",
       onRoomIdChange,
+      onOpenChange,
     });
+    // Closing would leave a room that cannot open behind it.
+    expect(dialogShell.showCloseButton).toBe(false);
+    act(() => dialogShell.requestOpenChange?.(false));
+    expect(onOpenChange).not.toHaveBeenCalled();
     expect(container!.querySelector("#collab-allow-email")).toBeNull();
     expect(buttonWith(container!, "Reset link")).toBeUndefined();
     expect(buttonWith(container!, "End room")).toBeUndefined();
