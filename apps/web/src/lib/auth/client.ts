@@ -22,6 +22,17 @@ class GoogleSignInError extends Error {
   }
 }
 
+/**
+ * Where Google sign-in lands: back on the page that asked, so a room link
+ * opened signed out returns to its room. The fragment is left behind on
+ * purpose — it may hold a room key, and the callback URL is sent to the
+ * server; Room's custody copy (plan 19) supplies the key after sign-in.
+ */
+function signInReturnPath(): string {
+  const { pathname, search } = window.location;
+  return pathname === "/login" ? "/" : `${pathname}${search}`;
+}
+
 export const signInWithGoogle = async (): Promise<void> => {
   const abortController = new AbortController();
   const timeoutId = window.setTimeout(
@@ -33,7 +44,7 @@ export const signInWithGoogle = async (): Promise<void> => {
     const result = await authClient.signIn.social(
       {
         provider: "google",
-        callbackURL: "/",
+        callbackURL: signInReturnPath(),
       },
       { signal: abortController.signal },
     );

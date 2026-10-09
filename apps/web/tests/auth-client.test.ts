@@ -35,6 +35,24 @@ describe("signInWithGoogle", () => {
     );
   });
 
+  it("returns to the page that asked, without its fragment", async () => {
+    socialSignIn.mockResolvedValue({ data: { redirect: true }, error: null });
+    window.history.replaceState(null, "", "/?collab-room=room-a#collab-key=k");
+    await signInWithGoogle();
+    expect(socialSignIn).toHaveBeenLastCalledWith(
+      { provider: "google", callbackURL: "/?collab-room=room-a" },
+      { signal: expect.any(AbortSignal) as AbortSignal },
+    );
+    // The login page itself is not somewhere to come back to.
+    window.history.replaceState(null, "", "/login");
+    await signInWithGoogle();
+    expect(socialSignIn).toHaveBeenLastCalledWith(
+      { provider: "google", callbackURL: "/" },
+      { signal: expect.any(AbortSignal) as AbortSignal },
+    );
+    window.history.replaceState(null, "", "/");
+  });
+
   it("turns Better Auth error results into a typed failure", async () => {
     const providerError = { message: "Invalid callback URL", status: 403 };
     socialSignIn.mockResolvedValue({ data: null, error: providerError });
