@@ -461,27 +461,6 @@ describe("authenticated binary snapshot web ingress", () => {
 });
 
 describe("binary snapshot browser transport", () => {
-  it("lets a small save outlive a closing page, but not one over the keepalive limit", async () => {
-    const keepalive: (boolean | undefined)[] = [];
-    const client = createBinarySnapshotClient((_url, init) => {
-      keepalive.push(init?.keepalive);
-      return new Promise<Response>(() => undefined);
-    });
-    for (const size of [64, MAX_SNAPSHOT_CIPHERTEXT_BYTES]) {
-      const f = await write(new Uint8Array(size));
-      const abort = new AbortController();
-      const pending = client
-        .write(f.request.operation, f.bytes, "cadence", abort.signal)
-        .catch(() => undefined);
-      await vi.waitFor(() =>
-        expect(keepalive).toHaveLength(size === 64 ? 1 : 2),
-      );
-      abort.abort();
-      await pending;
-    }
-    expect(keepalive).toEqual([true, false]);
-  });
-
   it("round-trips the maximum legal ciphertext through the real web handler without Base64", async () => {
     const key = await deriveSnapshotKey({
       roomKey: roomKeySchema.parse(

@@ -306,9 +306,9 @@ export async function startCollaborationRoomSession(options: {
       if (idleTimerId !== undefined) clearTimeout(idleTimerId);
       idleTimerId = undefined;
       session.setIdleState("away");
-      // Hidden is the last event a reload or a closed tab reliably fires, and
-      // React cleanup (the leave flush) never runs on either. Save now instead
-      // of at the next tick; an unchanged room writes nothing.
+      // Switching away saves now instead of at the next tick; an unchanged
+      // room writes nothing. A reload or a closed tab cannot finish the async
+      // seal in time, so the beforeunload prompt still guards those.
       session.requestSave();
       return;
     }
