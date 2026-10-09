@@ -9,7 +9,8 @@ export type CanvasProductActions = {
     onActivate: () => void;
   };
   cloudSave: {
-    label?: string;
+    /** Where Save writes, for its tooltip; the button itself is always "Save". */
+    destination: string;
     statusLabel?: string;
     status: UploadStatus;
     /** False when another surface already shows this status (a room's badge). */

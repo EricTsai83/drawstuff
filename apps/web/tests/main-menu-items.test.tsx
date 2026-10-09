@@ -136,7 +136,11 @@ describe("ProductActionsItems", () => {
             isReadOnly: false,
             onActivate: vi.fn(),
           },
-          cloudSave: { status: "idle", onActivate: vi.fn() },
+          cloudSave: {
+            status: "idle",
+            destination: "Save to my scenes",
+            onActivate: vi.fn(),
+          },
           share: { status: "idle", onActivate: vi.fn() },
         }}
         onDismiss={vi.fn()}

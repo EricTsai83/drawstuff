@@ -45,7 +45,7 @@ export function ProductActionsItems({
         <MainMenu.ItemCustom className="mt-0!">
           <MenuActionItem
             icon={<CloudUpload aria-hidden="true" />}
-            label={actions.cloudSave.label ?? t("storage.savePersonal")}
+            label={t("storage.save")}
             detail={
               actions.cloudSave.statusLabel ??
               t(`canvas.saveStatus.${actions.cloudSave.status}`)

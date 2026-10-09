@@ -80,7 +80,11 @@ describe("Canvas product action presentations", () => {
                 isReadOnly: false,
                 onActivate: collaborate,
               },
-              cloudSave: { status: "idle", onActivate: save },
+              cloudSave: {
+                status: "idle",
+                destination: "Save to my scenes",
+                onActivate: save,
+              },
               share: { status: "idle", onActivate: share },
             }}
             isMobile={false}
@@ -148,7 +152,7 @@ describe("Canvas product action presentations", () => {
       "Library",
       "Collaborate",
       "Share",
-      "Save to my scenes",
+      "Save",
     ]);
     expect(
       Array.from(
@@ -157,7 +161,7 @@ describe("Canvas product action presentations", () => {
         ),
         (label) => label.textContent,
       ),
-    ).toEqual(["Library", "Collaborate", "Share", "Save to my scenes"]);
+    ).toEqual(["Library", "Collaborate", "Share", "Save"]);
 
     act(() => items[3]?.click());
     expect(save).toHaveBeenCalledOnce();
@@ -182,7 +186,11 @@ describe("Canvas product action presentations", () => {
                 isReadOnly: false,
                 onActivate: vi.fn(),
               },
-              cloudSave: { status, onActivate: vi.fn() },
+              cloudSave: {
+                status,
+                destination: "Save to my scenes",
+                onActivate: vi.fn(),
+              },
               share: { status: "idle", onActivate: vi.fn() },
             }}
             isMobile={false}
@@ -204,7 +212,7 @@ describe("Canvas product action presentations", () => {
     expect(currentBadgeLabel()).toBe("Saving");
     expect(
       container.querySelector<HTMLButtonElement>(
-        '[role="menuitem"][aria-label="Save to my scenes"]',
+        '[role="menuitem"][aria-label="Save"]',
       )?.disabled,
     ).toBe(true);
 
@@ -228,6 +236,7 @@ describe("Canvas product action presentations", () => {
               },
               cloudSave: {
                 status: "success",
+                destination: "Save the room",
                 showStatusBadge: false,
                 onActivate: vi.fn(),
               },

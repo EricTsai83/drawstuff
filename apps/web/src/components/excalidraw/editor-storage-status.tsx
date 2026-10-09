@@ -11,11 +11,9 @@ import {
   LockKeyhole,
   LogOut,
   RefreshCw,
-  RotateCw,
   type LucideIcon,
 } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -38,7 +36,6 @@ export function EditorStorageStatus(props: {
   roomId: string | null;
   state: RoomSaveState;
   sourceSceneId: string | null;
-  onRetry: () => void;
   onCopy: () => void;
   onUpdateSource: (sceneId: string) => Promise<void>;
   /** Leaves the room for the personal canvas; the room itself stays. */
@@ -90,17 +87,6 @@ export function EditorStorageStatus(props: {
           </span>
         </div>
       </div>
-      {(status === "failed" || status === "pending") && (
-        <Button
-          size="sm"
-          variant="outline"
-          className="mb-3"
-          onClick={props.onRetry}
-        >
-          <RotateCw data-icon="inline-start" aria-hidden="true" />
-          {t("storage.saveRoom")}
-        </Button>
-      )}
       <div className="flex flex-col border-t pt-2">
         {props.isAuthenticated && (
           <PanelAction icon={FilePlus2} onClick={props.onCopy}>

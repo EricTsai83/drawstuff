@@ -10,7 +10,8 @@ export const en = {
   "storage.room.autosave":
     "Saves automatically every {seconds} seconds and when you leave.",
   "storage.room.failed": "Save failed",
-  "storage.saveRoom": "Save now",
+  "storage.save": "Save",
+  "storage.saveRoom": "Save the room",
   "storage.copy": "Save a copy to my scenes",
   "storage.updateSource": "Update my original scene “{name}”",
   "storage.download": "Download a local copy",

@@ -158,8 +158,8 @@ export function CanvasShortcutMenu({
                 <save.icon aria-hidden="true" />
               )
             }
-            label={actions.cloudSave.label ?? t("storage.savePersonal")}
-            title={`${save.tooltip} · ${t("canvas.actions.saveShortcut")}`}
+            label={t("storage.save")}
+            title={`${actions.cloudSave.destination} · ${t("canvas.actions.saveShortcut")}`}
             onClick={actions.cloudSave.onActivate}
           />
         ) : null}

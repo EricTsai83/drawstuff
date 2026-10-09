@@ -29,7 +29,6 @@ const renderStatus = (
         roomId={null}
         state={{ status: "saved", revision: 1, checksum: null }}
         sourceSceneId={null}
-        onRetry={() => undefined}
         onCopy={() => undefined}
         onUpdateSource={() => Promise.resolve()}
         onExit={() => undefined}

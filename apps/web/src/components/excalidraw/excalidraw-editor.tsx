@@ -250,7 +250,9 @@ export default function ExcalidrawEditor() {
             statusLabel: isRoomMode
               ? t(`storage.room.${roomSaveState.status}`)
               : undefined,
-            label: t(isRoomMode ? "storage.saveRoom" : "storage.savePersonal"),
+            destination: t(
+              isRoomMode ? "storage.saveRoom" : "storage.savePersonal",
+            ),
             status: isRoomMode
               ? roomSaveState.status === "saving"
                 ? "uploading"
@@ -309,7 +311,6 @@ export default function ExcalidrawEditor() {
       roomId: isRoomMode ? collaborationRoomId : null,
       state: roomSaveState,
       sourceSceneId,
-      onRetry: requestRoomSave,
       onCopy: openCloudUploadDialog,
       onUpdateSource: handleUpdateSource,
       onExit: () => {
@@ -326,7 +327,6 @@ export default function ExcalidrawEditor() {
       collaborationRoomId,
       roomSaveState,
       sourceSceneId,
-      requestRoomSave,
       openCloudUploadDialog,
       handleUpdateSource,
       confirmRoomExit,
