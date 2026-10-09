@@ -88,6 +88,10 @@ export class RoomAuthority {
       email_key TEXT PRIMARY KEY, display_email TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('editor','viewer')),
       created_by TEXT NOT NULL, created_at INTEGER NOT NULL, removed INTEGER NOT NULL DEFAULT 0 CHECK(removed IN (0,1))
     ); CREATE TABLE IF NOT EXISTS authority_retired_subjects(subject TEXT PRIMARY KEY, version INTEGER NOT NULL CHECK(version>0));
+    CREATE TABLE IF NOT EXISTS authority_room_keys (
+      auth_generation INTEGER PRIMARY KEY CHECK(auth_generation>0), wrapped TEXT NOT NULL,
+      wrap_version INTEGER NOT NULL CHECK(wrap_version>0), escrowed_at INTEGER NOT NULL
+    );
     CREATE TABLE IF NOT EXISTS authority_content (
       id TEXT PRIMARY KEY, request TEXT NOT NULL, result TEXT NOT NULL, deadline INTEGER NOT NULL,
       terminal_at INTEGER
@@ -102,6 +106,17 @@ export class RoomAuthority {
     )
       storage.sql.exec(
         "ALTER TABLE authority_members ADD COLUMN last_joined_at INTEGER",
+      );
+    // Custody release (plan 19): 0 none, 1 proved key possession, 2 granted by
+    // the owner. A link join alone earns nothing.
+    if (
+      !storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(authority_members)")
+        .toArray()
+        .some((column) => column.name === "key_eligible")
+    )
+      storage.sql.exec(
+        "ALTER TABLE authority_members ADD COLUMN key_eligible INTEGER NOT NULL DEFAULT 0",
       );
     this.work = new DurableWork(storage);
   }
@@ -361,6 +376,11 @@ export class RoomAuthority {
                   command.role,
                   command.registrationVersion,
                 );
+                // The owner chose this person; they may reopen from their list.
+                this.storage.sql.exec(
+                  "UPDATE authority_members SET key_eligible=2 WHERE subject=?",
+                  command.subject,
+                );
                 needsFence = true;
                 break;
               case "revoke-member":
@@ -418,6 +438,13 @@ export class RoomAuthority {
                   Date.now() + AUTHORITY_LIMITS.initializationTtlMs,
                 );
                 this.storage.sql.exec("DELETE FROM authority_initial_assets");
+                // The old generation's key must not be released again, and a
+                // reset link exists to cut off the old one: people who earned
+                // custody only by holding it need the new link.
+                this.storage.sql.exec("DELETE FROM authority_room_keys");
+                this.storage.sql.exec(
+                  "UPDATE authority_members SET key_eligible=0 WHERE key_eligible=1",
+                );
                 needsFence = true;
                 break;
               case "set-key-check":
@@ -503,6 +530,116 @@ export class RoomAuthority {
   }
 
   /** Preflight locally before any external registration. Identity alone grants no owner capability. */
+  /**
+   * Who may receive the custodied room key (plan 19, decision D2): the owner,
+   * an allowlisted email, a member the owner granted a role, or a member who
+   * proved they hold the key by handing over one that matches the key check.
+   * The room's link role grants nothing, and neither does joining with it:
+   * a join needs no key, so knowing a room ID must not be enough to read it.
+   */
+  keyReleaseRole(identity: TrustedIdentity): RoomRole | undefined {
+    const holder = this.keyHolder(identity, false);
+    if (!holder) return undefined;
+    if (holder.via !== "member" || holder.keyEligible) return holder.role;
+    return undefined;
+  }
+
+  /**
+   * Who may hand Room the key: anyone the room admits — key possession is
+   * proven by the key check itself — and the owner while initializing.
+   */
+  keyEscrowRole(identity: TrustedIdentity): RoomRole | undefined {
+    return this.keyHolder(identity, true)?.role;
+  }
+
+  /** Records that this member proved key possession (custody level 1). */
+  markKeyProven(subject: string): void {
+    this.storage.sql.exec(
+      "UPDATE authority_members SET key_eligible=1 WHERE subject=? AND key_eligible=0",
+      subject,
+    );
+  }
+
+  private keyHolder(
+    identity: TrustedIdentity,
+    initializingOwner: boolean,
+  ):
+    | {
+        role: RoomRole;
+        via: "owner" | "member" | "allowlist";
+        keyEligible: boolean;
+      }
+    | undefined {
+    this.checkIdentity(identity);
+    const room = this.requireRoom();
+    if (room.denied || room.state === "ended") return undefined;
+    if (room.owner === identity.subject)
+      return room.state === "ready" || initializingOwner
+        ? { role: "owner", via: "owner", keyEligible: true }
+        : undefined;
+    if (room.state !== "ready") return undefined;
+    const allowed = this.storage.sql
+      .exec<{ role: RoomRole; removed: number }>(
+        "SELECT role,removed FROM authority_allowlist WHERE email_key=?",
+        identity.email,
+      )
+      .toArray()[0];
+    const member = this.storage.sql
+      .exec<{ role: string; revoked: number; key_eligible: number }>(
+        "SELECT role,revoked,key_eligible FROM authority_members WHERE subject=?",
+        identity.subject,
+      )
+      .toArray()[0];
+    if (member) {
+      if (member.revoked) return undefined;
+      // An invitation the owner made still counts for a member who joined.
+      if (allowed && !allowed.removed)
+        return {
+          role: roomRoleSchema.parse(member.role),
+          via: "allowlist",
+          keyEligible: true,
+        };
+      return {
+        role: roomRoleSchema.parse(member.role),
+        via: "member",
+        keyEligible: member.key_eligible > 0,
+      };
+    }
+    return allowed && !allowed.removed
+      ? {
+          role: roomRoleSchema.parse(allowed.role),
+          via: "allowlist",
+          keyEligible: true,
+        }
+      : undefined;
+  }
+
+  custodiedKey(
+    authGeneration: number,
+  ): { wrapped: string; wrap_version: number } | undefined {
+    return this.storage.sql
+      .exec<{ wrapped: string; wrap_version: number }>(
+        "SELECT wrapped,wrap_version FROM authority_room_keys WHERE auth_generation=?",
+        authGeneration,
+      )
+      .toArray()[0];
+  }
+
+  /** Write-once per generation; the caller has verified the key and any existing copy. */
+  custodyKey(
+    authGeneration: number,
+    wrapped: string,
+    wrapVersion: number,
+  ): void {
+    this.storage.sql.exec(
+      "INSERT OR IGNORE INTO authority_room_keys VALUES (?,?,?,?)",
+      authGeneration,
+      wrapped,
+      wrapVersion,
+      Date.now(),
+    );
+  }
+
   authorizeRequest(identity: TrustedIdentity, request: AuthorityRequest): void {
     this.checkIdentity(identity);
     const room = this.state();
@@ -649,6 +786,8 @@ export class RoomAuthority {
 
   private cancelInitializationWork(room: RoomRow): void {
     this.cancelCompletionWork();
+    // An ended room releases no key again; its content is being cleaned up.
+    this.storage.sql.exec("DELETE FROM authority_room_keys");
     const created = this.query(room.create_operation);
     if (created?.status === "pending") {
       const request = this.storage.sql

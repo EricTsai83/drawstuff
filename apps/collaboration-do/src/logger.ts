@@ -23,6 +23,7 @@ import type { ControlRejectionCode } from "./control.ts";
 type DoLogEvent =
   | "gateway.unhandled_failure"
   | "authority.entry_failed"
+  | "room_key.entry_failed"
   | "adapter.delivery_failed"
   /** COLLAB_ALLOWED_ORIGINS failed to parse; socket upgrades answer 503. */
   | "gateway.config_invalid"

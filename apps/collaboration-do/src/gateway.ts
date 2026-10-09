@@ -20,6 +20,10 @@ import {
   ASSET_GATEWAY_PATH,
   assetGatewayRequestSchema,
 } from "@drawstuff/collaboration/authority";
+import {
+  ROOM_KEY_GATEWAY_PATH,
+  roomKeyGatewayRequestSchema,
+} from "@drawstuff/collaboration/key-custody";
 import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 
@@ -97,7 +101,9 @@ export async function handleGatewayRequest(
     if (url.pathname === SNAPSHOT_GATEWAY_PATH)
       return await handleSnapshot(request, env);
     if (url.pathname === ASSET_GATEWAY_PATH)
-      return await handleAuthority(request, env, true);
+      return await handleAuthority(request, env, "assets");
+    if (url.pathname === ROOM_KEY_GATEWAY_PATH)
+      return await handleAuthority(request, env, "room-key");
     const authoritySocket = AUTHORITY_SOCKET_ROUTE_PATTERN.exec(url.pathname);
     if (authoritySocket)
       return await handleSocket(request, env, log, authoritySocket[1]!);
@@ -325,7 +331,7 @@ async function handleSnapshot(request: Request, env: Env): Promise<Response> {
 async function handleAuthority(
   request: Request,
   env: Env,
-  assets = false,
+  kind: "authority" | "assets" | "room-key" = "authority",
 ): Promise<Response> {
   if (!serviceAuthorized(request, env))
     return closedJsonResponse(401, "unauthorized");
@@ -349,9 +355,12 @@ async function handleAuthority(
   } catch {
     return closedJsonResponse(400, "malformed");
   }
-  const parsed = assets
-    ? assetGatewayRequestSchema.safeParse(body)
-    : authorityGatewayRequestSchema.safeParse(body);
+  const parsed =
+    kind === "assets"
+      ? assetGatewayRequestSchema.safeParse(body)
+      : kind === "room-key"
+        ? roomKeyGatewayRequestSchema.safeParse(body)
+        : authorityGatewayRequestSchema.safeParse(body);
   if (!parsed.success) return closedJsonResponse(400, "malformed");
   if (!roomTokenSecretReady(env.COLLAB_IDENTITY_SECRET))
     return closedJsonResponse(503, "not-ready");
@@ -369,12 +378,15 @@ async function handleAuthority(
   try {
     const stub = env.COLLABORATION_ROOM.getByName(roomId);
     const dispatchStart = performance.now();
-    const result = assets
-      ? await stub.applyAssetsV1(
-          parsed.data,
-          request.headers.get(PERFORMANCE_PROBE_HEADER) === "1",
-        )
-      : await stub.applyAuthorityV1(parsed.data);
+    const result =
+      kind === "assets"
+        ? await stub.applyAssetsV1(
+            parsed.data,
+            request.headers.get(PERFORMANCE_PROBE_HEADER) === "1",
+          )
+        : kind === "room-key"
+          ? await stub.applyRoomKeyV1(parsed.data)
+          : await stub.applyAuthorityV1(parsed.data);
     if (!result.ok)
       return closedJsonResponse(
         result.error === "unavailable"

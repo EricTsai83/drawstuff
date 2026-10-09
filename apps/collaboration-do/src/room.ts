@@ -80,6 +80,7 @@ import {
 import { RoomAuthority } from "./room-authority.ts";
 import { AdapterClient } from "./adapter-client.ts";
 import { applyAuthorityEntry } from "./authority-entry.ts";
+import { applyRoomKeyEntry } from "./room-key-entry.ts";
 import { RoomDelivery } from "./room-delivery.ts";
 import { SnapshotEntry } from "./snapshot-entry.ts";
 import { applyAssetEntry } from "./asset-entry.ts";
@@ -239,6 +240,13 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       await this.scheduleAfterMembershipChange();
     }
     return reply;
+  }
+
+  /** Room key custody (plan 19); reads or writes no membership, so nothing to fence. */
+  async applyRoomKeyV1(input: unknown) {
+    this.requireChannelKey();
+    if (!this.authority) return { ok: false as const, error: "unavailable" };
+    return applyRoomKeyEntry(this.authority, input, this.env);
   }
 
   async enforceRetirementV1(input: {

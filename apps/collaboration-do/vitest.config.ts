@@ -109,6 +109,8 @@ export default defineConfig({
           COLLAB_JOIN_TOKEN_SECRET: TEST_ROOM_TOKEN_SECRET,
           COLLAB_IDENTITY_SECRET: "test-identity-secret-purpose-only-0001",
           COLLAB_AUTHORITY_SECRET: "test-authority-secret-purpose-only-0001",
+          COLLAB_ROOM_KEY_WRAP_SECRET:
+            "test-key-wrap-secret-purpose-only-000001",
           COLLAB_ADAPTER_SECRET: "test-adapter-secret-purpose-only-0001",
           COLLAB_ADAPTER_URL: "",
           // Freeze only the rate-limit elapsed-time source. workerd can process

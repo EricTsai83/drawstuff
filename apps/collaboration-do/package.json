@@ -24,6 +24,7 @@
     "verify": "pnpm run lint && pnpm run typecheck && pnpm run test && pnpm -w knip --workspace apps/collaboration-do",
     "secret:put:identity": "wrangler secret put COLLAB_IDENTITY_SECRET",
     "secret:put:authority": "wrangler secret put COLLAB_AUTHORITY_SECRET",
+    "secret:put:room-key-wrap": "wrangler secret put COLLAB_ROOM_KEY_WRAP_SECRET",
     "secret:put:adapter": "wrangler secret put COLLAB_ADAPTER_SECRET",
     "secret:put:adapter-url": "wrangler secret put COLLAB_ADAPTER_URL",
     "test:maintenance": "vitest run --config vitest.maintenance.config.ts",

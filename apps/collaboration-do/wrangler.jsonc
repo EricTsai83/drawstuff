@@ -77,6 +77,8 @@
       "COLLAB_ADAPTER_SECRET",
       "COLLAB_IDENTITY_SECRET",
       "COLLAB_AUTHORITY_SECRET",
+      // Wraps Room's custody copy of each room key (plan 19).
+      "COLLAB_ROOM_KEY_WRAP_SECRET",
     ],
   },
 }

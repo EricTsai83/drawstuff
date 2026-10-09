@@ -61,6 +61,8 @@ export default defineConfig({
       miniflare: {
         bindings: {
           COLLAB_AUTHORITY_SECRET: "test-authority-secret-purpose-only-0001",
+          COLLAB_ROOM_KEY_WRAP_SECRET:
+            "test-key-wrap-secret-purpose-only-000001",
         },
       },
       wrangler: { configPath: "./wrangler.bootstrap.jsonc" },

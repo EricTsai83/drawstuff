@@ -9,6 +9,7 @@ interface __BaseEnv_Env {
 	COLLAB_ADAPTER_SECRET: string;
 	COLLAB_IDENTITY_SECRET: string;
 	COLLAB_AUTHORITY_SECRET: string;
+	COLLAB_ROOM_KEY_WRAP_SECRET: string;
 	COLLABORATION_LIFECYCLE: DurableObjectNamespace<import("./src/index").CollaborationLifecycle>;
 	COLLABORATION_ROOM: DurableObjectNamespace<import("./src/index").CollaborationRoom>;
 }
@@ -24,7 +25,7 @@ type StringifyValues<EnvType extends Record<string, unknown>> = {
 	[Binding in keyof EnvType]: EnvType[Binding] extends string ? EnvType[Binding] : string;
 };
 declare namespace NodeJS {
-	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "COLLAB_ALLOWED_ORIGINS" | "COLLAB_JOIN_TOKEN_SECRET" | "COLLAB_ADAPTER_URL" | "COLLAB_ADAPTER_SECRET" | "COLLAB_IDENTITY_SECRET" | "COLLAB_AUTHORITY_SECRET">> {}
+	interface ProcessEnv extends StringifyValues<Pick<Cloudflare.Env, "COLLAB_ALLOWED_ORIGINS" | "COLLAB_JOIN_TOKEN_SECRET" | "COLLAB_ADAPTER_URL" | "COLLAB_ADAPTER_SECRET" | "COLLAB_IDENTITY_SECRET" | "COLLAB_AUTHORITY_SECRET" | "COLLAB_ROOM_KEY_WRAP_SECRET">> {}
 }
 
 // Begin runtime types
