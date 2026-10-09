@@ -273,9 +273,9 @@ export function CollaborationRoomDialog({
       cursor: memberCursor,
       emailCursor,
     },
-    {
-      enabled: open && !isAuthenticationPending && isAuthenticated && !!roomId,
-    },
+    // Fetched from entering the room, not from opening the dialog: the link
+    // access control and People appear with the dialog instead of growing it.
+    { enabled: !isAuthenticationPending && isAuthenticated && !!roomId },
   );
   const room = roomQuery.data ?? null;
   const isOwner = room?.role === "owner";
