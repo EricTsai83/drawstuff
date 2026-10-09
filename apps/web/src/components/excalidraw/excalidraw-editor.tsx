@@ -34,6 +34,7 @@ import {
   useSignedOutDraft,
   type AuthState,
 } from "@/hooks/excalidraw/use-signed-out-draft";
+import { useSignedOutRoomPrompt } from "@/hooks/excalidraw/use-signed-out-room-prompt";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import {
   createEmbedUrlValidator,
@@ -188,6 +189,11 @@ export default function ExcalidrawEditor() {
     if (collaborationStatus === "missing-room-key" && isRoomKeyLookupSettled)
       openCollaborationDialog();
   }, [collaborationStatus, isRoomKeyLookupSettled, openCollaborationDialog]);
+  useSignedOutRoomPrompt({
+    authState,
+    roomId: collaborationRoomId,
+    openDialog: openCollaborationDialog,
+  });
 
   const isRoomMode = !!collaborationRoomId || isCanvasOwnedByRoom;
   useSaveShortcut({
