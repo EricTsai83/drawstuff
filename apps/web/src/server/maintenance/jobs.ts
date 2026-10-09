@@ -5,7 +5,12 @@ import { and, eq, exists, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import {
   collaborationAsset,
+  collaborationLifecycleRegistration,
+  collaborationOperation,
+  collaborationProjectionTombstone,
   collaborationRoom,
+  collaborationRoomInvite,
+  collaborationRoomMember,
   collaborationSnapshot,
   deferredFileCleanup,
   fileRecord,
@@ -15,7 +20,8 @@ import {
 } from "@/server/db/schema";
 import { QUERIES } from "@/server/db/queries";
 import { retireAccount } from "@/server/admin/retirement";
-import { lockRoom } from "@/server/collab/rooms";
+import { lockRoom, lockRoomId } from "@/server/collab/rooms";
+import { purgeEndedRoomRecords } from "@/server/collab/authority-projection";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 import {
   collectUserStorageKeys,
@@ -483,6 +489,52 @@ export function createRoomRetentionJob(
             .from(collaborationAsset)
             .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
         ),
+        // Per-person list rows and the room name the cleanup did not reach.
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationRoomMember)
+            .where(
+              eq(collaborationRoomMember.roomId, collaborationRoom.roomId),
+            ),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationRoomInvite)
+            .where(
+              eq(collaborationRoomInvite.roomId, collaborationRoom.roomId),
+            ),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationProjectionTombstone)
+            .where(
+              eq(
+                collaborationProjectionTombstone.roomId,
+                collaborationRoom.roomId,
+              ),
+            ),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationOperation)
+            .where(eq(collaborationOperation.roomId, collaborationRoom.roomId)),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationLifecycleRegistration)
+            .where(
+              eq(
+                collaborationLifecycleRegistration.roomId,
+                collaborationRoom.roomId,
+              ),
+            ),
+        ),
+        ne(collaborationRoom.label, ""),
       );
       // Ended rooms qualify only while they still hold data; reruns are idempotent.
       const candidates = await db
@@ -502,6 +554,8 @@ export function createRoomRetentionJob(
       type ReclaimOutcome =
         | {
             kind: "reclaimed";
+            /** List rows of an ended room; its name is cleared too. */
+            records: number;
             snapshots: number;
             snapshotBytes: number;
             assets: number;
@@ -517,6 +571,8 @@ export function createRoomRetentionJob(
         const now = deps.now();
         const outcome = await db.transaction(
           async (tx): Promise<ReclaimOutcome | null> => {
+            // Shared order: the roomId lock before the room row.
+            if (!dryRun) await lockRoomId(tx, candidate.roomId);
             const room = dryRun
               ? (
                   await tx
@@ -560,6 +616,20 @@ export function createRoomRetentionJob(
                 .where(eq(collaborationSnapshot.roomId, room.roomId));
               const snapshotCount = snapshotTally?.count ?? 0;
               const snapshotBytes = snapshotTally?.bytes ?? 0;
+              const [tally] = await tx
+                .select({
+                  count: sql<number>`(
+                    (select count(*) from ${collaborationRoomMember} where ${collaborationRoomMember.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationRoomInvite} where ${collaborationRoomInvite.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationProjectionTombstone} where ${collaborationProjectionTombstone.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationOperation} where ${collaborationOperation.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationLifecycleRegistration} where ${collaborationLifecycleRegistration.roomId} = ${room.roomId})
+                  )::int`,
+                })
+                .from(collaborationRoom)
+                .where(eq(collaborationRoom.roomId, room.roomId));
+              // A leftover name alone still makes the room reclaimable.
+              const records = (tally?.count ?? 0) + (room.label === "" ? 0 : 1);
               rooms.push({
                 roomId: room.roomId,
                 status: room.status,
@@ -569,6 +639,7 @@ export function createRoomRetentionJob(
               });
               return {
                 kind: "reclaimed",
+                records,
                 snapshots: snapshotCount,
                 snapshotBytes,
                 assets: assetCount,
@@ -595,8 +666,12 @@ export function createRoomRetentionJob(
                 })),
               );
             }
+            const records =
+              (await purgeEndedRoomRecords(tx, room.roomId)) +
+              (room.label === "" ? 0 : 1);
             return {
               kind: "reclaimed",
+              records,
               snapshots: snapshots.length,
               snapshotBytes: snapshots.reduce(
                 (total, row) => total + row.byteLength,
@@ -613,7 +688,8 @@ export function createRoomRetentionJob(
         }
 
         // Count only rooms with reclaimed data.
-        if (outcome.snapshots > 0 || outcome.assets > 0) roomsReclaimed += 1;
+        if (outcome.snapshots > 0 || outcome.assets > 0 || outcome.records > 0)
+          roomsReclaimed += 1;
         deletedSnapshots += outcome.snapshots;
         deletedSnapshotBytes += outcome.snapshotBytes;
         enqueuedObjects += outcome.assets;

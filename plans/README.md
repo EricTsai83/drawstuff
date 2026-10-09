@@ -15,6 +15,7 @@ Protocol 6、Room DO 授權權威、Lifecycle 退休及配套 web／Worker／sch
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) — 長期 logs／metrics、client telemetry、告警與 dashboard；暫緩實現，目的地未定。
 - [18d-collaboration-acceptance-follow-ups.md](18d-collaboration-acceptance-follow-ups.md) — 待排程：自然斷線／presign 500、正式瀏覽器恢復與保存狀態、效能 3A／3B／3C、跨日／閒置／autosuspend／成本及剩餘回歸。先定位再重測，一次一個 scope，不阻擋 21。
 - [21-plain-rooms-google-docs-access.md](21-plain-rooms-google-docs-access.md) — 共編房間改為不加密（只有分享連結維持端對端加密），存取改為 Google 文件模式（擁有者＋邀請名單＋一般存取權），房間列表分「受邀」與「透過連結開啟過」兩區；清除現有共編資料。取代已刪除的 18C 剩餘驗收、19、20。§2 已確認，於 `plan-21` 分支實作中。
+- [22-admin-anomalies-and-account-removal-cleanup.md](22-admin-anomalies-and-account-removal-cleanup.md) — admin dashboard 異常檢視（退場卡住、storage 未關閉、清理失敗等）、退場卡住告警與退避、帳號移除的完整清除盤點與邀請名單移除。需求草案，21 合併後排程。
 
 ## 執行順序與交接
 

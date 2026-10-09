@@ -13,7 +13,9 @@ import {
 } from "@drawstuff/collaboration/authority";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import {
+  collaborationLifecycleRegistration,
   collaborationLifecycleSubject,
+  collaborationOperation,
   collaborationProjectionTombstone,
   collaborationRoom,
   collaborationRoomInvite,
@@ -22,10 +24,22 @@ import {
 } from "@/server/db/schema";
 import {
   lockRoom,
+  lockRoomId,
   type Database,
   type RoomRecord,
   type RoomTransaction,
 } from "./rooms";
+
+/**
+ * An ended room is never listed, so its list rows only hold personal data
+ * (who was in it, invited emails, its name). Every path that sees the room
+ * end removes them: projections here, the adapter's cleanup, and the
+ * retention backstop (`purgeEndedRoomRecords`).
+ */
+const endedLabel = "";
+/** Either signal is final; the terminal fence may arrive before the ended projection. */
+const roomEnded = (room: RoomRecord) =>
+  room.status === "ended" || room.storageState === "ended";
 
 /** Both projection kinds carry the room's display fields; the newest version wins. */
 async function syncRoomDisplay(
@@ -40,7 +54,7 @@ async function syncRoomDisplay(
     .set({
       projectionVersion: event.version,
       authRevision: Math.max(room.authRevision, event.version),
-      label: event.label,
+      label: event.status === "ended" ? endedLabel : event.label,
       status: event.status,
       endedAt: event.status === "ended" ? (room.endedAt ?? now) : null,
       updatedAt: now,
@@ -75,6 +89,27 @@ export async function applyRoomProjection(
         eq(collaborationLifecycleSubject.scope, `account:${event.subject}`),
       );
     const room = await lockRoom(tx, event.roomId);
+    // A deleted room (owner or scene removed) takes its rows with it; nothing
+    // to record for a delayed event.
+    if (!room) return { applied: false };
+    const whereMember = and(
+      eq(collaborationRoomMember.roomId, event.roomId),
+      eq(collaborationRoomMember.userId, event.subject),
+    );
+    if (roomEnded(room) || event.status === "ended") {
+      await tx.delete(collaborationRoomMember).where(whereMember);
+      await tx
+        .delete(collaborationProjectionTombstone)
+        .where(
+          and(
+            eq(collaborationProjectionTombstone.roomId, event.roomId),
+            eq(collaborationProjectionTombstone.subject, event.subject),
+          ),
+        );
+      if (roomEnded(room)) return { applied: false };
+      await syncRoomDisplay(tx, room, event, new Date());
+      return { applied: true };
+    }
     const [negative] = await tx
       .select()
       .from(collaborationProjectionTombstone)
@@ -86,9 +121,8 @@ export async function applyRoomProjection(
       );
     if (negative && negative.version >= event.version)
       return { applied: false };
-    const negativeEvent = event.tombstone || event.status === "ended";
+    const negativeEvent = event.tombstone;
     if (
-      !room ||
       !account ||
       ((lifecycle?.frozen || lifecycle?.retired) && !negativeEvent)
     ) {
@@ -110,18 +144,11 @@ export async function applyRoomProjection(
         });
       return { applied: false };
     }
-    const whereMember = and(
-      eq(collaborationRoomMember.roomId, event.roomId),
-      eq(collaborationRoomMember.userId, event.subject),
-    );
     const [member] = await tx
       .select()
       .from(collaborationRoomMember)
       .where(whereMember);
-    if (
-      (member && member.projectionVersion >= event.version) ||
-      (room.status === "ended" && event.status !== "ended")
-    )
+    if (member && member.projectionVersion >= event.version)
       return { applied: false };
     const now = new Date();
     if (negativeEvent)
@@ -167,8 +194,8 @@ export async function applyRoomProjection(
 
 /**
  * Email-keyed invitation rows, so an invitation shows up before it is opened.
- * Display copies only. A missing room drops the event: rooms are never deleted
- * while live, and an ended room keeps its row.
+ * Display copies only. A missing room drops the event, and an ended room
+ * keeps no invitation rows.
  */
 export async function applyInviteProjection(
   db: Database,
@@ -178,25 +205,26 @@ export async function applyInviteProjection(
   return db.transaction(async (tx) => {
     const room = await lockRoom(tx, event.roomId);
     if (!room) return { applied: false };
+    const whereInvite = and(
+      eq(collaborationRoomInvite.roomId, event.roomId),
+      eq(collaborationRoomInvite.emailKey, event.email),
+    );
+    if (roomEnded(room) || event.status === "ended") {
+      await tx.delete(collaborationRoomInvite).where(whereInvite);
+      if (roomEnded(room)) return { applied: false };
+      await syncRoomDisplay(tx, room, event, new Date());
+      return { applied: true };
+    }
     const [existing] = await tx
       .select({ version: collaborationRoomInvite.projectionVersion })
       .from(collaborationRoomInvite)
-      .where(
-        and(
-          eq(collaborationRoomInvite.roomId, event.roomId),
-          eq(collaborationRoomInvite.emailKey, event.email),
-        ),
-      );
-    if (
-      (existing && existing.version >= event.version) ||
-      (room.status === "ended" && event.status !== "ended")
-    )
+      .where(whereInvite);
+    if (existing && existing.version >= event.version)
       return { applied: false };
     const now = new Date();
-    const negative = event.tombstone || event.status === "ended";
     const live = {
-      role: negative ? null : event.role,
-      revokedAt: negative ? now : null,
+      role: event.tombstone ? null : event.role,
+      revokedAt: event.tombstone ? now : null,
       projectionVersion: event.version,
       updatedAt: now,
     };
@@ -396,4 +424,48 @@ export async function listProjectedRooms(
         ? { listedAt: last.listedAt, roomId: last.roomId }
         : null,
   };
+}
+
+/**
+ * Removes every per-person record of an ended room — list rows, projection
+ * tombstones, content receipts, lifecycle registrations — and its name. Only
+ * the room row (status `ended`) and its creation fence remain, which is what
+ * refuses the roomId's reuse. Returns how many records were removed.
+ */
+export async function purgeEndedRoomRecords(
+  tx: RoomTransaction,
+  roomId: string,
+): Promise<number> {
+  // Room locks before deleting children, in the shared order, so concurrent
+  // projections and registrations wait instead of deadlocking.
+  await lockRoomId(tx, roomId);
+  await lockRoom(tx, roomId);
+  // Sequential: one transaction connection.
+  const removed = [
+    await tx
+      .delete(collaborationRoomMember)
+      .where(eq(collaborationRoomMember.roomId, roomId))
+      .returning({ id: collaborationRoomMember.id }),
+    await tx
+      .delete(collaborationRoomInvite)
+      .where(eq(collaborationRoomInvite.roomId, roomId))
+      .returning({ id: collaborationRoomInvite.emailKey }),
+    await tx
+      .delete(collaborationProjectionTombstone)
+      .where(eq(collaborationProjectionTombstone.roomId, roomId))
+      .returning({ id: collaborationProjectionTombstone.subject }),
+    await tx
+      .delete(collaborationOperation)
+      .where(eq(collaborationOperation.roomId, roomId))
+      .returning({ id: collaborationOperation.operationId }),
+    await tx
+      .delete(collaborationLifecycleRegistration)
+      .where(eq(collaborationLifecycleRegistration.roomId, roomId))
+      .returning({ id: collaborationLifecycleRegistration.subject }),
+  ];
+  await tx
+    .update(collaborationRoom)
+    .set({ label: endedLabel })
+    .where(eq(collaborationRoom.roomId, roomId));
+  return removed.reduce((total, rows) => total + rows.length, 0);
 }

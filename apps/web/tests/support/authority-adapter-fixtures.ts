@@ -6,13 +6,47 @@ import type {
   AdapterCommand,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { collaborationRoom, user } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
+import {
+  collaborationLifecycleRegistration,
+  collaborationOperation,
+  collaborationProjectionTombstone,
+  collaborationRoom,
+  collaborationRoomInvite,
+  collaborationRoomMember,
+  user,
+} from "@/server/db/schema";
 import type { Database } from "@/server/collab/rooms";
 
 export const testSnapshotBytes = (length = 32): Uint8Array =>
   new Uint8Array(length).fill(7);
 export const bytesChecksum = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
+/** Per-person and per-operation rows an ended room must not keep. */
+export async function endedRoomRecords(db: Database, roomId: string) {
+  const count = async (
+    table:
+      | typeof collaborationRoomMember
+      | typeof collaborationRoomInvite
+      | typeof collaborationProjectionTombstone
+      | typeof collaborationOperation
+      | typeof collaborationLifecycleRegistration,
+  ) => (await db.select().from(table).where(eq(table.roomId, roomId))).length;
+  return {
+    members: await count(collaborationRoomMember),
+    invites: await count(collaborationRoomInvite),
+    tombstones: await count(collaborationProjectionTombstone),
+    operations: await count(collaborationOperation),
+    registrations: await count(collaborationLifecycleRegistration),
+  };
+}
+export const NO_ROOM_RECORDS = {
+  members: 0,
+  invites: 0,
+  tombstones: 0,
+  operations: 0,
+  registrations: 0,
+};
 export async function adapterFixture(db: Database) {
   const owner = `adapter-${crypto.randomUUID()}`;
   const guest = `guest-${crypto.randomUUID()}`;

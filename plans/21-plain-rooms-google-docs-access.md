@@ -137,6 +137,8 @@ web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批�
 - **`CollaborationLifecycle` 釋放**：退場完成後保留 24 小時再 `deleteAll()`（web 端在帳號／場景刪除後只查 Neon，不再詢問 DO）。既有、已完成且沒有 alarm 的舊退場物件不會自動釋放；數量極少，留待 §7 清除時一併確認。
 - **後備清除**：`maintenance` 的「回收已結束房間」工作仍會刪掉 cleanup 沒處理到的快照與圖片；`status` 或 `storageState` 任一為 ended 即符合（結束 fence 可能被放棄），寬限期從第一個結束訊號起算（storage fence 轉為 ended 時寫入 `endedAt`）。
 - **列表的兩種投影**：同一房間的帳號列與邀請列各自送達，以 `projectionVersion` 較新者決定是否列出、列在哪一區（同版本以帳號列為準），避免舊邀請讓已離開的房間復活、或連結列擋住新邀請（Codex review）。
+- **已結束房間不留個人資料**（擁有者 2026-10-10）：房間結束後，Neon 刪除該房間的成員投影、邀請投影、投影墓碑、內容操作紀錄與退場登記，並清空房間名稱；只保留房間列（`status='ended'`）與 creation fence，用來拒絕 roomId 重用。投影自我清理（結束事件與結束後才到的事件改為刪除該列）、adapter cleanup 與維護回收三處都會執行，不受到達順序影響。storage fence 第一次轉為 ended 時也把房間標成 ended 並清空名稱；結束房間的內容寫入與註冊一律拒絕且不留紀錄；帳號／場景刪除前先清掉即將 cascade 的房間沒有外鍵的紀錄；房間在建出父紀錄前就結束時，cleanup 也會清掉它的註冊。註冊、建立父紀錄、storage fence、cleanup、維護回收與退場刪除都先取得以 roomId 為鍵的 advisory lock（順序：帳號／場景 → roomId lock → 房間列），彼此序列化（Codex review 兩輪）。
+- **退場時移除邀請名單上的 email**、admin 異常檢視、退場卡住告警與退避：移到 [plan 22](22-admin-anomalies-and-account-removal-cleanup.md)。
 - **已結束房間不可用原 operationId 重建**：房間 `status` 或 `storageState` 為 ended 時，連同一建立操作的重試也拒絕（Codex review）。
 
 ## 9. 驗收矩陣

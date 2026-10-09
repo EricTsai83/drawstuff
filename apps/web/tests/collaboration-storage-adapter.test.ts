@@ -15,10 +15,17 @@ import {
   contentOperationSchema,
 } from "@drawstuff/collaboration/authority";
 import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
+import {
+  applyInviteProjection,
+  applyRoomProjection,
+} from "@/server/collab/authority-projection";
+import { registerAuthorityCommand } from "@/server/collab/authority-registration";
 import { openTestDatabase } from "./support/pglite-db";
 import {
+  NO_ROOM_RECORDS,
   adapterFixture,
   bytesChecksum,
+  endedRoomRecords,
   testSnapshotBytes,
 } from "./support/authority-adapter-fixtures";
 
@@ -253,6 +260,7 @@ describe("PostgreSQL storage adapter", () => {
       .from(schema.deferredFileCleanup)
       .where(eq(schema.deferredFileCleanup.utFileKey, asset.utFileKey));
     expect(cleaned).toHaveLength(1);
+    // Cleanup of an ended room also drops its operation receipts.
     expect(
       await testDb.query.collaborationOperation.findFirst({
         where: eq(
@@ -260,7 +268,130 @@ describe("PostgreSQL storage adapter", () => {
           operation.operationId,
         ),
       }),
-    ).toBeDefined();
+    ).toBeUndefined();
+  });
+  it("ends the room on its first terminal fence even if the ended projection never arrives", async () => {
+    const f = await adapterFixture(db);
+    const [source] = await testDb
+      .insert(schema.scene)
+      .values({ userId: f.owner, name: "Source" })
+      .returning();
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ sceneId: source!.id, label: "Secret plans" })
+      .where(eq(schema.collaborationRoom.roomId, f.roomId));
+    await applyStorageFence(db, f.fence(2, { state: "ended" }));
+    const room = await testDb.query.collaborationRoom.findFirst({
+      where: eq(schema.collaborationRoom.roomId, f.roomId),
+    });
+    expect(room).toMatchObject({
+      status: "ended",
+      storageState: "ended",
+      label: "",
+    });
+    expect(room?.endedAt).toBeInstanceOf(Date);
+    // The scene's single active room slot is free again.
+    await testDb.insert(schema.collaborationRoom).values({
+      roomId: `${f.roomId}-next`,
+      ownerId: f.owner,
+      sceneId: source!.id,
+      status: "ready",
+    });
+  });
+  it.each([
+    { status: "ended", storageState: "ready" },
+    { status: "ready", storageState: "ended" },
+  ] as const)(
+    "refuses a new write to an ended room without recording a receipt (%o)",
+    async (ended) => {
+      const f = await adapterFixture(db);
+      await testDb
+        .update(schema.collaborationRoom)
+        .set(ended)
+        .where(eq(schema.collaborationRoom.roomId, f.roomId));
+      const late = f.operation();
+      expect(
+        await executeStorageOperation(db, "write", late, testSnapshotBytes()),
+      ).toEqual({ status: "refused" });
+      expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
+    },
+  );
+  it("purges an ended room's per-person records on cleanup, keeping the room row and creation fence", async () => {
+    const f = await adapterFixture(db);
+    await testDb
+      .update(schema.user)
+      .set({ emailVerified: true })
+      .where(eq(schema.user.id, f.owner));
+    await applyRoomProjection(db, f.projection({ label: "Secret plans" }));
+    await applyRoomProjection(
+      db,
+      f.projection({ version: 3, tombstone: true }),
+    );
+    await applyInviteProjection(db, f.invite());
+    await executeStorageOperation(
+      db,
+      "write",
+      f.operation(),
+      testSnapshotBytes(),
+    );
+    await testDb.insert(schema.collaborationLifecycleRegistration).values({
+      subject: f.owner,
+      roomId: f.roomId,
+      owner: true,
+      lifecycleVersion: 1,
+      operationId: crypto.randomUUID(),
+    });
+    expect(await endedRoomRecords(db, f.roomId)).toEqual({
+      members: 1,
+      invites: 1,
+      tombstones: 1,
+      operations: 1,
+      registrations: 1,
+    });
+    await applyStorageFence(db, f.fence(2, { state: "ended" }));
+    expect(
+      await cleanupAdapterRoom(db, { ...f.fence(2), action: "cleanup" }),
+    ).toEqual({ cleaned: true });
+    expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
+    expect(
+      await testDb
+        .select()
+        .from(schema.collaborationSnapshot)
+        .where(eq(schema.collaborationSnapshot.roomId, f.roomId)),
+    ).toEqual([]);
+    expect(
+      await testDb.query.collaborationRoom.findFirst({
+        where: eq(schema.collaborationRoom.roomId, f.roomId),
+      }),
+    ).toMatchObject({ storageState: "ended", label: "" });
+    expect(
+      await testDb.query.collaborationCreationFence.findFirst({
+        where: eq(schema.collaborationCreationFence.roomId, f.roomId),
+      }),
+    ).toMatchObject({ ended: true });
+    // A late write after the purge is refused and leaves no receipt.
+    expect(
+      await executeStorageOperation(
+        db,
+        "write",
+        f.operation({ authorityEpoch: 2, expectedRevision: 1 }),
+        testSnapshotBytes(),
+      ),
+    ).toEqual({ status: "refused" });
+    expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
+    // With every registration gone, the kept rows still refuse the roomId.
+    await expect(
+      registerAuthorityCommand(db, {
+        v: 1,
+        action: "register",
+        operationId: crypto.randomUUID(),
+        roomId: f.roomId,
+        identity: f.operation().actor,
+        ownerId: f.owner,
+        sceneId: null,
+        create: true,
+      }),
+    ).rejects.toThrow("fence-mismatch");
   });
   it("verifies the latest declared snapshot and every finalized asset, rejects late completion after fencing", async () => {
     const f = await adapterFixture(db);

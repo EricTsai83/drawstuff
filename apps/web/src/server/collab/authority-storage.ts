@@ -21,7 +21,13 @@ import {
   collaborationSnapshot,
   deferredFileCleanup,
 } from "@/server/db/schema";
-import { lockRoom, type Database, type RoomTransaction } from "./rooms";
+import {
+  lockRoom,
+  lockRoomId,
+  type Database,
+  type RoomTransaction,
+} from "./rooms";
+import { purgeEndedRoomRecords } from "./authority-projection";
 
 type OperationRow = typeof collaborationOperation.$inferSelect;
 type RoomRow = typeof collaborationRoom.$inferSelect;
@@ -101,6 +107,10 @@ export async function executeStorageOperation(
     }
     if (!room) return { status: "refused" };
     if (action === "query") return { status: "pending" };
+    // An ended room keeps no receipts (`purgeEndedRoomRecords`); a late intent
+    // must not write a new one.
+    if (room.storageState === "ended" || room.status === "ended")
+      return { status: "refused" };
     // Only terminal receipts are eligible for bounded retention. Missing bytes never create a pending DB receipt.
     const expired = await tx
       .select({ id: collaborationOperation.operationId })
@@ -318,6 +328,7 @@ export async function applyStorageFence(
   const command = adapterCommandSchema.parse(input);
   if (command.action !== "fence") throw new AdapterError("invalid-body");
   return db.transaction(async (tx) => {
+    await lockRoomId(tx, command.roomId);
     if (command.state === "ended") {
       // Serialize against parent creation even when no FK parent exists yet.
       await tx
@@ -362,8 +373,16 @@ export async function applyStorageFence(
         storageState: state,
         // Retention measures its grace period from the first terminal
         // signal, whichever of fence and ended projection arrives first.
+        // The fence is final, so it also finalizes the display state: the
+        // ended projection may never arrive, and a live status would keep
+        // the scene's single-active-room slot occupied.
         ...(state === "ended" && room.storageState !== "ended"
-          ? { endedAt: room.endedAt ?? new Date(), updatedAt: new Date() }
+          ? {
+              status: "ended",
+              label: "",
+              endedAt: room.endedAt ?? new Date(),
+              updatedAt: new Date(),
+            }
           : {}),
       })
       .where(eq(collaborationRoom.roomId, command.roomId));
@@ -469,8 +488,17 @@ export async function cleanupAdapterRoom(
   command: Extract<AdapterCommand, { action: "cleanup" }>,
 ) {
   return db.transaction(async (tx) => {
+    await lockRoomId(tx, command.roomId);
     const room = await lockRoom(tx, command.roomId);
-    if (!room) return { cleaned: true };
+    if (!room) {
+      // Ended before its parent existed: registrations (no room FK) remain.
+      const [fence] = await tx
+        .select({ ended: collaborationCreationFence.ended })
+        .from(collaborationCreationFence)
+        .where(eq(collaborationCreationFence.roomId, command.roomId));
+      if (fence?.ended) await purgeEndedRoomRecords(tx, command.roomId);
+      return { cleaned: true };
+    }
     if (
       room.storageState !== "ended" ||
       room.authorityEpoch < command.authorityEpoch
@@ -485,6 +513,7 @@ export async function cleanupAdapterRoom(
     await tx
       .delete(collaborationSnapshot)
       .where(eq(collaborationSnapshot.roomId, command.roomId));
+    await purgeEndedRoomRecords(tx, command.roomId);
     return { cleaned: true };
   });
 }

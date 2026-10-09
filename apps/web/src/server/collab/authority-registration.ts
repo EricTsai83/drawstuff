@@ -13,7 +13,7 @@ import {
   scene,
 } from "@/server/db/schema";
 import type { Database, RoomTransaction } from "./rooms";
-import { lockRoom } from "./rooms";
+import { lockRoom, lockRoomId } from "./rooms";
 import { AdapterError } from "./authority-storage";
 import { lockOrCreateLifecycleSubject } from "./authority-lifecycle-lock";
 import { lockActiveAccount } from "./authority-identity";
@@ -165,7 +165,25 @@ export async function registerAuthorityCommand(
     if (command.create && command.ownerId !== identity.subject)
       throw new AdapterError("fence-mismatch");
     await lockSource(tx, command.ownerId, command.sceneId);
+    // Serialized with fences and cleanup, so no registration lands after an
+    // ended room was purged.
+    await lockRoomId(tx, command.roomId);
     if (command.create) await refuseUsedRoomId(tx, command);
+    else {
+      // An ended room keeps no registrations; a late join or upload must not
+      // write one back. A missing row is a room still awaiting its parent,
+      // unless a terminal fence already ended it.
+      const [fence] = await tx
+        .select({ ended: collaborationCreationFence.ended })
+        .from(collaborationCreationFence)
+        .where(eq(collaborationCreationFence.roomId, command.roomId));
+      const room = await lockRoom(tx, command.roomId);
+      if (
+        fence?.ended ||
+        (room && (room.status === "ended" || room.storageState === "ended"))
+      )
+        throw new AdapterError("fence-mismatch");
+    }
     await registerSubject(tx, command, identity);
     return {
       roomId: command.roomId,
@@ -186,6 +204,7 @@ export async function createAuthorityParent(
     const owner = await lockActiveAccount(tx, command.owner.subject);
     checkIdentity(owner, command.owner);
     await lockSource(tx, owner.subject, command.sceneId);
+    await lockRoomId(tx, command.roomId);
     const [registered] = await tx
       .select()
       .from(collaborationLifecycleRegistration)

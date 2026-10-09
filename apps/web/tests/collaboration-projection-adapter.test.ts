@@ -9,9 +9,16 @@ import {
   applyRoomProjection,
   listProjectedRooms,
 } from "@/server/collab/authority-projection";
-import { applyStorageFence } from "@/server/collab/authority-storage";
+import {
+  applyStorageFence,
+  cleanupAdapterRoom,
+} from "@/server/collab/authority-storage";
 import { openTestDatabase } from "./support/pglite-db";
-import { adapterFixture } from "./support/authority-adapter-fixtures";
+import {
+  NO_ROOM_RECORDS,
+  adapterFixture,
+  endedRoomRecords,
+} from "./support/authority-adapter-fixtures";
 const testDb = openTestDatabase();
 const db = testDb as unknown as Database;
 type Fixture = Awaited<ReturnType<typeof adapterFixture>>;
@@ -229,25 +236,87 @@ describe("monotonic room projections", () => {
       }),
     ).toBeUndefined();
   });
-  it("keeps an ended room's invitations ended", async () => {
+  it("deletes an ended room's per-person rows and name when its projections end it, and drops late events", async () => {
     const f = await adapterFixture(db);
-    await applyInviteProjection(db, f.invite());
-    await applyInviteProjection(
+    await applyRoomProjection(db, f.projection({ label: "Secret plans" }));
+    await applyRoomProjection(
       db,
-      f.invite({ version: 3, status: "ended", tombstone: true }),
+      f.projection({ version: 3, tombstone: true }),
     );
+    await applyRoomProjection(
+      db,
+      f.projection({ subject: f.owner, role: "owner", access: "owned" }),
+    );
+    await applyInviteProjection(db, f.invite());
+    expect(await endedRoomRecords(db, f.roomId)).toMatchObject({
+      members: 2,
+      invites: 1,
+      tombstones: 1,
+    });
+    const ended = { version: 4, status: "ended", tombstone: true } as const;
+    expect(await applyRoomProjection(db, f.projection(ended))).toEqual({
+      applied: true,
+    });
     expect(
       await testDb.query.collaborationRoom.findFirst({
         where: eq(schema.collaborationRoom.roomId, f.roomId),
       }),
-    ).toMatchObject({ status: "ended" });
-    expect(await applyInviteProjection(db, f.invite({ version: 4 }))).toEqual({
+    ).toMatchObject({ status: "ended", label: "" });
+    // The room has ended: the remaining rows are deleted, not tombstoned.
+    expect(
+      await applyRoomProjection(
+        db,
+        f.projection({ ...ended, subject: f.owner }),
+      ),
+    ).toEqual({ applied: false });
+    expect(await applyInviteProjection(db, f.invite(ended))).toEqual({
       applied: false,
     });
-    expect(await inviteRow(f)).toMatchObject({
-      role: null,
-      projectionVersion: 3,
+    expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
+    // Late live events never bring rows back.
+    expect(await applyRoomProjection(db, f.projection({ version: 5 }))).toEqual(
+      { applied: false },
+    );
+    expect(await applyInviteProjection(db, f.invite({ version: 5 }))).toEqual({
+      applied: false,
     });
+    expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
+  });
+  it("keeps nothing when storage cleanup runs before the room's projections arrive", async () => {
+    const f = await adapterFixture(db);
+    await applyRoomProjection(db, f.projection({ label: "Secret plans" }));
+    await applyInviteProjection(db, f.invite());
+    await applyStorageFence(db, f.fence(2, { state: "ended" }));
+    await cleanupAdapterRoom(db, { ...f.fence(2), action: "cleanup" });
+    expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
+    for (const event of [
+      f.projection({ version: 3, listedAt: 300 }),
+      f.projection({ version: 4, status: "ended", tombstone: true }),
+    ])
+      expect(await applyRoomProjection(db, event)).toEqual({ applied: false });
+    for (const event of [
+      f.invite({ version: 3 }),
+      f.invite({ version: 4, status: "ended", tombstone: true }),
+    ])
+      expect(await applyInviteProjection(db, event)).toEqual({
+        applied: false,
+      });
+    expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
+    expect(
+      await testDb.query.collaborationRoom.findFirst({
+        where: eq(schema.collaborationRoom.roomId, f.roomId),
+      }),
+    ).toMatchObject({ storageState: "ended", label: "" });
+  });
+  it("drops events for a missing room without recording anything", async () => {
+    const f = await adapterFixture(db);
+    await testDb
+      .delete(schema.collaborationRoom)
+      .where(eq(schema.collaborationRoom.roomId, f.roomId));
+    expect(await applyRoomProjection(db, f.projection())).toEqual({
+      applied: false,
+    });
+    expect(await endedRoomRecords(db, f.roomId)).toEqual(NO_ROOM_RECORDS);
   });
   it("lists owned, invited and unopened invitations under mine, and link rooms separately", async () => {
     const f = await adapterFixture(db);

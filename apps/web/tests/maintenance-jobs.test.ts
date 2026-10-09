@@ -54,6 +54,10 @@ import { eq } from "drizzle-orm";
 import * as schema from "@/server/db/schema";
 import { applyStorageFence } from "@/server/collab/authority-storage";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import {
+  NO_ROOM_RECORDS,
+  endedRoomRecords,
+} from "./support/authority-adapter-fixtures";
 import { registerTestDatabase } from "./support/pglite-db";
 import {
   createExpiredSharedScenesJob,
@@ -753,6 +757,99 @@ describe("collab room retention", () => {
       roomsReclaimed: 0,
     });
     expect(await snapshotCount("room-fenced-now")).toBe(1);
+  });
+
+  it("purges an ended room that holds only per-person records and a name", async () => {
+    await insertRoom({
+      roomId: "room-records-only",
+      status: "ended",
+      endedAt: new Date(Date.now() - 8 * DAY_MS),
+    });
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ label: "Secret plans" })
+      .where(eq(schema.collaborationRoom.roomId, "room-records-only"));
+    await testDb.insert(schema.collaborationRoomMember).values({
+      roomId: "room-records-only",
+      userId: OWNER,
+      role: "owner",
+      access: "owned",
+    });
+    await testDb.insert(schema.collaborationRoomInvite).values({
+      roomId: "room-records-only",
+      emailKey: "invitee@example.com",
+      role: "editor",
+      projectionVersion: 2,
+      listedAt: new Date(),
+    });
+
+    const { deps } = makeDeps();
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 1,
+      deletedSnapshots: 0,
+      enqueuedObjects: 0,
+    });
+    expect(
+      await endedRoomRecords(
+        testDb as unknown as Database,
+        "room-records-only",
+      ),
+    ).toEqual(NO_ROOM_RECORDS);
+    expect(await roomRow("room-records-only")).toMatchObject({
+      status: "ended",
+      label: "",
+    });
+    // Idempotent: nothing is left to purge.
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 0,
+    });
+  });
+
+  it("purges an ended room holding only tombstones, receipts and registrations", async () => {
+    const roomId = "room-receipts-only";
+    await insertRoom({
+      roomId,
+      status: "ended",
+      endedAt: new Date(Date.now() - 8 * DAY_MS),
+    });
+    await testDb
+      .insert(schema.collaborationProjectionTombstone)
+      .values({ roomId, subject: "someone-gone", version: 3 });
+    await testDb.insert(schema.collaborationOperation).values({
+      operationId: crypto.randomUUID(),
+      roomId,
+      actor: OWNER,
+      kind: "snapshot-put",
+      authorityEpoch: 1,
+      expectedRevision: 0,
+      checksum: "a".repeat(64),
+      requestFingerprint: "b".repeat(64),
+      deadline: new Date(),
+      status: "written",
+      revision: 1,
+      terminalAt: new Date(),
+    });
+    await testDb.insert(schema.collaborationLifecycleRegistration).values({
+      subject: OWNER,
+      roomId,
+      owner: true,
+      lifecycleVersion: 1,
+      operationId: crypto.randomUUID(),
+    });
+
+    const { deps } = makeDeps();
+    expect(
+      await createRoomRetentionJob({ dryRun: true }).run(deps),
+    ).toMatchObject({ roomsReclaimable: 1 });
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 1,
+    });
+    expect(
+      await endedRoomRecords(testDb as unknown as Database, roomId),
+    ).toEqual(NO_ROOM_RECORDS);
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 0,
+    });
   });
 
   it("reports a dry run without ending or reclaiming anything", async () => {
