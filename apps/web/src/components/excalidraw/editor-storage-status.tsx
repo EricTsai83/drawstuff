@@ -188,7 +188,11 @@ function BadgeStatusIcon(props: { state: RoomSaveState }) {
     );
     return () => window.clearTimeout(timer);
   }, [savedKey]);
-  const settled = savedKey !== null && settledKey === savedKey;
+  // Before the room's snapshot is first confirmed nothing is known to be
+  // unsaved, so a join shows the lock rather than a pending dot.
+  const settled =
+    (savedKey !== null && settledKey === savedKey) ||
+    (status === "pending" && revision === null);
   return (
     <span
       className="flex size-3 shrink-0 items-center justify-center"

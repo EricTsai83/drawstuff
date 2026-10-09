@@ -77,6 +77,17 @@ describe("editor storage status (18C §5)", () => {
     }
   });
 
+  it("shows the lock, not a pending dot, before a joined room is confirmed", () => {
+    const container = renderStatus({
+      roomId: "room-alpha-1",
+      compact: true,
+      state: { status: "pending", revision: null, checksum: null },
+    });
+    expect(
+      container.querySelector("[data-status]")?.getAttribute("data-status"),
+    ).toBe("settled");
+  });
+
   it("keeps a failed save on the badge until it resolves", () => {
     vi.useFakeTimers();
     try {

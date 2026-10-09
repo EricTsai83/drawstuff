@@ -72,7 +72,9 @@ export function CanvasShortcutMenu({
     ? getCloudUploadPresentation(actions.cloudSave.status, t)
     : null;
   const saveBadgeStatus =
-    actions.cloudSave && actions.cloudSave.status !== "idle"
+    actions.cloudSave &&
+    actions.cloudSave.showStatusBadge !== false &&
+    actions.cloudSave.status !== "idle"
       ? saveBadgeStatuses[actions.cloudSave.status]
       : null;
   const collaborationBusy =

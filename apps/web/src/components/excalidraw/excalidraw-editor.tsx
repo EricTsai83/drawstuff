@@ -260,6 +260,9 @@ export default function ExcalidrawEditor() {
                     ? "error"
                     : "idle"
               : uploadStatus,
+            // The room badge owns room save status; a second pill would
+            // repeat it and, unlike a personal save, never reset.
+            showStatusBadge: !isRoomMode,
             onActivate: isRoomMode
               ? requestRoomSave
               : () => void handleCloudUpload(),

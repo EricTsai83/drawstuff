@@ -12,6 +12,8 @@ export type CanvasProductActions = {
     label?: string;
     statusLabel?: string;
     status: UploadStatus;
+    /** False when another surface already shows this status (a room's badge). */
+    showStatusBadge?: boolean;
     onActivate: () => void;
   } | null;
   share: {

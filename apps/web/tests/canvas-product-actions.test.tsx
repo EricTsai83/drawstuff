@@ -214,4 +214,33 @@ describe("Canvas product action presentations", () => {
     act(() => renderControls("error"));
     expect(currentBadgeLabel()).toBe("Failed");
   });
+
+  it("leaves room save status to the room badge", () => {
+    act(() =>
+      root.render(
+        withI18n(
+          <TopRightControls
+            actions={{
+              collaboration: {
+                status: "connected",
+                isReadOnly: false,
+                onActivate: vi.fn(),
+              },
+              cloudSave: {
+                status: "success",
+                showStatusBadge: false,
+                onActivate: vi.fn(),
+              },
+              share: { status: "idle", onActivate: vi.fn() },
+            }}
+            isMobile={false}
+            onLibraryActivate={vi.fn()}
+          />,
+        ),
+      ),
+    );
+    expect(
+      container.querySelector('[data-testid="cloud-save-status"]'),
+    ).toBeNull();
+  });
 });
