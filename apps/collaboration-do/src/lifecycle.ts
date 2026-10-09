@@ -87,6 +87,31 @@ export class LifecycleProgress {
       .toArray()[0]?.at;
   }
 
+  /**
+   * A retirement that completed before release times existed gets one now, so
+   * waking an old Object (any `begin`/`query`) schedules its release too.
+   */
+  scheduleReleaseIfCompleted(now = Date.now()): number | undefined {
+    if (
+      this.storage.sql
+        .exec("SELECT 1 FROM lifecycle_progress WHERE phase='completed'")
+        .toArray().length > 0
+    )
+      this.storage.sql.exec(
+        "INSERT INTO lifecycle_release SELECT ? WHERE NOT EXISTS (SELECT 1 FROM lifecycle_release)",
+        now + COMPLETED_RETENTION_MS,
+      );
+    return this.releaseAt();
+  }
+
+  /** Never begun, or already released and only touched again by a lookup. */
+  empty(): boolean {
+    return (
+      this.storage.sql.exec("SELECT 1 FROM lifecycle_progress").toArray()
+        .length === 0 && this.work.pending() === 0
+    );
+  }
+
   releasable(now = Date.now()): boolean {
     const at = this.releaseAt();
     return at !== undefined && at <= now && this.work.pending() === 0;
@@ -267,24 +292,52 @@ export class LifecycleProgress {
 }
 
 export class CollaborationLifecycle extends DurableObject<Env> {
-  private readonly progress: LifecycleProgress;
+  private progressCache: LifecycleProgress | undefined;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     if (!ctx.id.name) throw new Error("missing-subject");
-    this.progress = new LifecycleProgress(ctx.storage, ctx.id.name);
+  }
+
+  /** Built on use, so released storage is recreated only by another request. */
+  private get progress(): LifecycleProgress {
+    this.progressCache ??= new LifecycleProgress(
+      this.ctx.storage,
+      this.ctx.id.name!,
+    );
+    return this.progressCache;
   }
 
   // Private binding RPC; Gateway authenticates the service capability.
-  begin(command: LifecycleCommand) {
-    return this.progress.begin(command);
+  async begin(command: LifecycleCommand) {
+    const result = await this.progress.begin(command);
+    await this.armRelease();
+    return result;
   }
-  query(operationId: string) {
-    return this.progress.query(operationId);
+  async query(operationId: string) {
+    const result = this.progress.query(operationId);
+    // A lookup must not leave a schema behind on an empty Object.
+    if (this.progress.empty()) await this.release();
+    else await this.armRelease();
+    return result;
   }
+
+  private async armRelease(): Promise<void> {
+    const at = this.progress.scheduleReleaseIfCompleted();
+    if (at === undefined) return;
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at)
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000, at));
+  }
+
+  private async release(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.progressCache = undefined;
+  }
+
   override async alarm(): Promise<void> {
     if (this.progress.releasable()) {
-      await this.ctx.storage.deleteAlarm();
-      await this.ctx.storage.deleteAll();
+      await this.release();
       return;
     }
     await this.progress.work.drain(

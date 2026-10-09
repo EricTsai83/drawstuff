@@ -99,6 +99,12 @@ Plan 19 讓服務端保管房間金鑰後，房間已不是端對端加密：真
 
 不受影響：我的場景、分享連結、發布、Library、個人圖片、帳號與 workspace。
 
+### §7 補充（2026-10-10，擁有者確認）
+
+- **清除範圍**只限房間相關的表；保留 `drawstuff_collaboration_lifecycle_subject`（帳號／場景退場紀錄，不含房間資料、schema 未變，與不清除的 `CollaborationLifecycle` DO 成對）。完整程序見 [部署 runbook §6](../docs/operations/collaboration-do-deployment.md)。
+- **舊退場 Object**：plan 21 之前完成的退場沒有釋放時間；`CollaborationLifecycle` 被喚醒時會補排 1 小時後釋放，部署時用 `collaboration:wake-retirements` 一次喚醒全部。
+- **18B 重置工具**（`collaboration-reset-*` 腳本、協定 5 schema 副本、整合測試的重置排練）已移除；`docs/deployment/collaboration-reset/` 保留為歷史紀錄。
+
 ## 8. 實作順序
 
 web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批上線會讓正式環境的共編在批次之間失效。因此在 `plan-21` 分支開發：每批 commit、`pnpm check` 並 push 分支（不觸發正式部署）；全部完成後依 §7 清除資料，再一次合併到 main 部署。

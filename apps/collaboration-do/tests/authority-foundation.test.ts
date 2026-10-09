@@ -1437,3 +1437,67 @@ describe("Lifecycle durable progress", () => {
     });
   });
 });
+
+describe("Lifecycle wake-time release", () => {
+  async function completeRetirement(name: string, command: LifecycleCommand) {
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const p = new LifecycleProgress(state.storage, name);
+      const adapter: LifecycleAdapter = {
+        freeze: async () => 2,
+        list: async () => ({ version: 2, rooms: [], cursor: null }),
+        enforce: async () => "enforced",
+        delete: () => Promise.resolve(),
+      };
+      for (let pass = 0; pass < 8 && p.work.pending() > 0; pass++) {
+        state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+        await p.work.drain(async (job) => {
+          if (job.kind !== "retire") throw new Error("wrong-job");
+          return p.advance(job.command, adapter);
+        });
+      }
+      expect(p.query(command.operationId)?.phase).toBe("completed");
+    });
+    return stub;
+  }
+
+  it("schedules a release when an old completed retirement is woken by a lookup", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    const stub = await completeRetirement(name, command);
+    // Shape of a retirement that completed before release times existed.
+    await runInDurableObject(stub, async (_instance, state) => {
+      state.storage.sql.exec("DELETE FROM lifecycle_release");
+      await state.storage.deleteAlarm();
+    });
+
+    const wokenAt = Date.now();
+    expect(await stub.query(command.operationId)).toMatchObject({
+      phase: "completed",
+    });
+    await runInDurableObject(stub, async (_instance, state) => {
+      const at = new LifecycleProgress(state.storage, name).releaseAt();
+      expect(at).toBeGreaterThanOrEqual(wokenAt + 60 * 60_000);
+      const alarm = await state.storage.getAlarm();
+      expect(alarm).not.toBeNull();
+      expect(alarm!).toBeLessThanOrEqual(at!);
+    });
+  });
+
+  it("leaves no storage behind when a lookup reaches an empty Object", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(`account:${subject}`);
+    expect(await stub.query(crypto.randomUUID())).toBeUndefined();
+    await runInDurableObject(stub, async (_instance, state) => {
+      expect(userTables(state)).toEqual([]);
+      expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+});

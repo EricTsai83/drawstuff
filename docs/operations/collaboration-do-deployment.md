@@ -116,12 +116,16 @@ workspace。
    任何資料庫紀錄，這份清單抓不到：刪除後在 UploadThing 後台（或 `UTApi.listFiles`）比對步驟 1
    之前上傳、且不在個人檔案／縮圖／發布成品清單中的物件，確認沒有遺漏後才算完成。已排入
    `drawstuff_deferred_file_cleanup` 的房間物件照常由維護排程刪除，不需手動處理。
-3. **Neon**：清空所有 `drawstuff_collaboration_*` 表，再從 `plan-21` 分支執行
+3. **Neon**：清空房間相關的表——`drawstuff_collaboration_room`、`_room_member`、`_room_invite`
+   （新表，部署前不存在可略過）、`_snapshot`、`_asset`、`_operation`、`_creation_fence`、
+   `_lifecycle_registration`、`_projection_tombstone`。**保留 `drawstuff_collaboration_lifecycle_subject`**：
+   它是帳號／場景的退場紀錄與 lifecycle 版本，不含房間資料、schema 未變，且與不清除的
+   `CollaborationLifecycle` DO 成對；清掉反而讓兩邊對不上。再從 `plan-21` 分支執行
    `pnpm db:push` 套用新 schema（plan 21 是「不要求 DB push」的例外）。新 schema：
    `collaboration_room` 無 auth_generation／key_check／storage_generation；`collaboration_snapshot`
    以 room_id 為鍵存明文 `data`；`collaboration_asset` 以 (room_id, excalidraw_file_id) 為鍵；
    member 投影加 `access`；新增 `collaboration_room_invite`。18B 的 `upgrade.sql`／`rollback.sql`
-   與 `collaboration:reset-check` 以舊 schema 為基準，不適用這次清除。
+   以舊 schema 為基準，不適用這次清除（18B 的重置工具已移除）。
 4. **Durable Object**：從 `plan-21` 分支 `pnpm cf:deploy`（手動，class lifecycle 變更）。
    同一次部署新增 `CollaborationRoomV2` 並以 tombstone 刪除 `CollaborationRoom` 及所有舊房間
    儲存；這是 CLAIM-MIG-4「lifecycle 變更單獨部署」的刻意例外，因為新 runtime 只認新 class。
@@ -131,11 +135,14 @@ workspace。
    重新部署同一份 Worker）。`COLLAB_ROOMS_DISABLED=1` 保持不動。
 6. **驗證**：確認 web 與 Worker 都是 protocol 7，再依 §3 驗證（kill switch 只擋瀏覽器入口，
    不擋 Worker 呼叫的 adapter，所以 harness 可在此時執行）。失敗則停在這裡，共編仍是關閉狀態。
-7. **Worker secrets**：`wrangler secret delete` 刪除 `COLLAB_ROOM_KEY_WRAP_SECRET`、
+7. **喚醒已完成的退場**：`pnpm --filter @drawstuff/web collaboration:wake-retirements` 先乾跑列出
+   數量，再加 `--apply`。plan 21 之前就完成的退場，其 `CollaborationLifecycle` Object 沒有釋放時間
+   也沒有 alarm；被喚醒時會補排 1 小時後釋放儲存。需要 `COLLAB_WAKE_DATABASE_URL`（唯讀即可）、
+   `COLLAB_CONTROL_URL`、`COLLAB_AUTHORITY_SECRET`。
+8. **Worker secrets**：`wrangler secret delete` 刪除 `COLLAB_ROOM_KEY_WRAP_SECRET`、
    `COLLAB_CRON_SECRET`、`COLLAB_OUTBOX_DRAIN_URL`，以及仍存在的 `COLLAB_JOIN_TOKEN_SECRET`；
    `pnpm cf:secrets` 應只剩 §2 的四個。
-8. **開放**：移除 `COLLAB_ROOMS_DISABLED` 並重新部署 web。
-9. **驗收**：依 plan 21 §9——擁有者建房並從列表重開、一般存取權三種設定、邀請／移除／重新邀請、
+9. **開放**：移除 `COLLAB_ROOMS_DISABLED` 並重新部署 web。
+10. **驗收**：依 plan 21 §9——擁有者建房並從列表重開、一般存取權三種設定、邀請／移除／重新邀請、
    結束房間、快照與圖片重新整理後正確、分享連結仍可開啟。舊房間網址不能再進房。
-   `CollaborationLifecycle` 中已完成但沒有 alarm 的舊退場物件不會自動釋放（數量極少），在此
-   一併確認。
+   步驟 7 喚醒的舊退場 Object 應在 1 小時後釋放儲存。

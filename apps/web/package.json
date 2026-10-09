@@ -22,8 +22,7 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "collaboration:reset-plan": "node scripts/collaboration-reset-plan.mjs",
-    "collaboration:reset-check": "node scripts/collaboration-reset-check.mjs"
+    "collaboration:wake-retirements": "node scripts/wake-completed-retirements.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

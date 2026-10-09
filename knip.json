@@ -9,8 +9,7 @@
     "apps/web": {
       "entry": [
         "vitest.adapters.config.ts",
-        "tests/postgres/*.integration.ts",
-        "scripts/collaboration-reset-inspect.ts"
+        "tests/postgres/*.integration.ts"
       ]
     },
     "apps/collaboration-do": {
