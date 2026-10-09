@@ -65,7 +65,6 @@ describe("editor storage status (18C §5)", () => {
       expect(icon()?.getAttribute("data-status")).toBe("settled");
       // Only the fixed-size icon changes; the label text never does.
       expect(badge()?.textContent).toBe(text);
-      expect(badge()?.getAttribute("title")).toBe("Saved");
     } finally {
       vi.useRealTimers();
     }

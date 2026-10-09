@@ -26,6 +26,11 @@ import { getCurrentSceneSnapshot, saveSceneJsonToDisk } from "@/lib/excalidraw";
 import { preservedSourceScene } from "@/lib/collab/personal-draft";
 import { toast } from "sonner";
 import { SNAPSHOT_INTERVAL_MS } from "@/lib/collab/collaboration-session";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export function EditorStorageStatus(props: {
@@ -80,11 +85,6 @@ export function EditorStorageStatus(props: {
             <SaveStatusIcon status={status} />
             {statusLabel}
           </span>
-          <span className="text-muted-foreground text-xs">
-            {t("storage.room.autosave", {
-              seconds: String(SNAPSHOT_INTERVAL_MS / 1000),
-            })}
-          </span>
         </div>
       </div>
       {(status === "failed" || status === "pending") && (
@@ -136,20 +136,37 @@ export function EditorStorageStatus(props: {
     </div>
   );
   if (!props.compact) return panel;
+  const autosave = t("storage.room.autosave", {
+    seconds: String(SNAPSHOT_INTERVAL_MS / 1000),
+  });
   return (
     <Popover>
-      <PopoverTrigger
-        render={<Badge variant="secondary" render={<button type="button" />} />}
-        className={cn(
-          "h-6 cursor-pointer gap-1.5 px-2.5 text-sm",
-          status === "failed" && "bg-destructive/10 text-destructive",
-        )}
-        title={statusLabel}
-        aria-label={`${roomLabel} · ${statusLabel}`}
-      >
-        <BadgeStatusIcon state={props.state} />
-        {roomLabel}
-      </PopoverTrigger>
+      <Tooltip delay={300}>
+        <TooltipTrigger
+          render={
+            <PopoverTrigger
+              render={
+                <Badge variant="secondary" render={<button type="button" />} />
+              }
+            />
+          }
+          className={cn(
+            "h-6 cursor-pointer gap-1.5 px-2.5 text-sm",
+            status === "failed" && "bg-destructive/10 text-destructive",
+          )}
+          aria-label={`${roomLabel} · ${statusLabel}`}
+        >
+          <BadgeStatusIcon state={props.state} />
+          {roomLabel}
+        </TooltipTrigger>
+        {/* How saving works, on demand rather than in the panel. */}
+        <TooltipContent side="bottom" align="end" variant="default">
+          <span className="flex flex-col gap-0.5">
+            <span className="font-medium">{statusLabel}</span>
+            <span className="text-muted-foreground">{autosave}</span>
+          </span>
+        </TooltipContent>
+      </Tooltip>
       <PopoverContent align="end" className="w-auto p-3">
         {panel}
       </PopoverContent>
