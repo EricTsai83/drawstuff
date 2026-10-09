@@ -15,6 +15,9 @@ import {
 } from "./asset.ts";
 
 /** Metadata only. Neither proofs nor durable jobs carry plaintext or room keys. */
+/** An address an owner may invite; the dialog checks it with this same rule. */
+export const inviteEmailSchema = z.string().trim().pipe(z.email().max(254));
+
 export const AUTHORITY_CONTRACT_VERSION = 1;
 export const AUTHORITY_LIMITS = {
   externalTimeoutMs: 15_000,
@@ -115,7 +118,7 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
   z.strictObject({
     ...envelope,
     action: z.literal("allow-email"),
-    email: z.string().trim().pipe(z.email().max(254)),
+    email: inviteEmailSchema,
     role: memberRoleSchema,
   }),
   z.strictObject({

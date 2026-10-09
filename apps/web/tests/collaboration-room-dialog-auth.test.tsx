@@ -796,6 +796,30 @@ describe("share room dialog", () => {
     });
   });
 
+  it("keeps Backspace in the invite field and refuses a malformed address", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const input = container!.querySelector<HTMLInputElement>(
+      "#collab-allow-email",
+    )!;
+    // Excalidraw lets keys through only to text, number and password inputs.
+    expect(input.type).toBe("text");
+    expect(input.inputMode).toBe("email");
+    await act(async () => {
+      Reflect.set(HTMLInputElement.prototype, "value", "carol@", input);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    expect(executeMutate).not.toHaveBeenCalled();
+    expect(input.getAttribute("aria-invalid")).toBe("true");
+  });
+
   it("resets the link only after its consequences are confirmed", async () => {
     roomGetUseQuery.mockReturnValue(managed());
     renderDialog({ isAuthenticated: true, roomId: "room-a" });

@@ -218,6 +218,7 @@ export const en = {
   "collaboration.share.title": "Share room",
   "collaboration.people": "People",
   "collaboration.invite.email": "Email to invite",
+  "collaboration.invite.invalid": "Enter a valid email address.",
   "collaboration.invite.placeholder": "Google account email",
   "collaboration.invite.role": "Role for the invitation",
   "collaboration.invite.submit": "Invite",

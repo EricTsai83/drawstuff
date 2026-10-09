@@ -23,7 +23,10 @@ import {
 import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import { createSnapshotReset } from "@/lib/collab/snapshot-reset";
 
-import type { AuthorityRequest } from "@drawstuff/collaboration/authority";
+import {
+  inviteEmailSchema,
+  type AuthorityRequest,
+} from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { type RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
@@ -613,12 +616,17 @@ export function CollaborationRoomDialog({
       }),
   };
   const [allowEmail, setAllowEmail] = useState("");
+  const [allowEmailInvalid, setAllowEmailInvalid] = useState(false);
   /** The address the invite form sent; cleared from the field once Room confirms it. */
   const submittedInvite = useRef<string | null>(null);
   const [allowRole, setAllowRole] = useState<"viewer" | "editor">("viewer");
   const inviteByEmail = async () => {
     const email = allowEmail.trim();
     if (!roomId || !email) return;
+    if (!inviteEmailSchema.safeParse(email).success) {
+      setAllowEmailInvalid(true);
+      return;
+    }
     // manage() refuses a different request while another intent is retained;
     // that refusal must not replace the invitation still awaiting retry.
     const retained = managementIntent.current?.request;
@@ -1028,14 +1036,29 @@ export function CollaborationRoomDialog({
                     }}
                   >
                     <div className="flex flex-col gap-2 sm:flex-row">
+                      {/* type="text": Excalidraw's shortcuts claim keys such as
+                          Backspace from every input but text, number and
+                          password ones. inputMode keeps the email keyboard. */}
                       <Input
                         id="collab-allow-email"
-                        type="email"
+                        type="text"
+                        inputMode="email"
+                        autoComplete="email"
+                        spellCheck={false}
                         className="min-w-0 sm:flex-1"
                         placeholder={t("collaboration.invite.placeholder")}
                         aria-label={t("collaboration.invite.email")}
+                        aria-invalid={allowEmailInvalid}
+                        aria-describedby={
+                          allowEmailInvalid
+                            ? "collab-allow-email-error"
+                            : undefined
+                        }
                         value={allowEmail}
-                        onChange={(event) => setAllowEmail(event.target.value)}
+                        onChange={(event) => {
+                          setAllowEmail(event.target.value);
+                          setAllowEmailInvalid(false);
+                        }}
                       />
                       {/* On phones the address takes its own line. */}
                       <div className="flex gap-2">
@@ -1075,6 +1098,14 @@ export function CollaborationRoomDialog({
                         </Button>
                       </div>
                     </div>
+                    {allowEmailInvalid && (
+                      <p
+                        id="collab-allow-email-error"
+                        className="text-destructive text-xs"
+                      >
+                        {t("collaboration.invite.invalid")}
+                      </p>
+                    )}
                   </form>
                 )}
                 <ul className="flex flex-col">

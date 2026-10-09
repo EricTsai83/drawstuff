@@ -204,6 +204,7 @@ export const zhTW = {
   "collaboration.share.title": "分享房間",
   "collaboration.people": "成員",
   "collaboration.invite.email": "要邀請的 email",
+  "collaboration.invite.invalid": "請輸入有效的電子郵件地址。",
   "collaboration.invite.placeholder": "Google 帳號信箱",
   "collaboration.invite.role": "邀請的角色",
   "collaboration.invite.submit": "邀請",
