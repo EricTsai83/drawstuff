@@ -235,7 +235,6 @@ export const en = {
     "The current link stops working and everyone is disconnected. Invited people keep access; others need the new link.",
   "collaboration.resetLink.confirm": "Reset link",
   "collaboration.link.label": "Invite link",
-  "collaboration.link.keyPresent": "Share only with people you trust.",
   "collaboration.linkPermission": "Who can join with the link",
   "collaboration.allowlist.notJoined": "Not joined yet",
   "collaboration.members.first": "First page",

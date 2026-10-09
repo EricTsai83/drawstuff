@@ -57,7 +57,13 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Ellipsis, LockKeyhole } from "lucide-react";
+import {
+  Ellipsis,
+  Eye,
+  LockKeyhole,
+  Pencil,
+  type LucideIcon,
+} from "lucide-react";
 import { cn } from "@/lib/utils";
 import {
   Select,
@@ -127,6 +133,11 @@ const STATUS_LABEL_KEY: Record<CollaborationRoomStatus, AppTranslationKey> = {
 
 // Base UI's SelectValue shows the raw value unless the root knows each label.
 const LINK_ROLE_ITEMS: LinkRole[] = ["none", "viewer", "editor"];
+const LINK_ROLE_ICON: Record<LinkRole, LucideIcon> = {
+  none: LockKeyhole,
+  viewer: Eye,
+  editor: Pencil,
+};
 const INVITE_ROLES = ["viewer", "editor"] as const;
 
 type ConfirmAction = "reset-link" | "end-room" | "leave";
@@ -181,7 +192,6 @@ export type CollaborationRoomDialogProps = {
   status: CollaborationRoomStatus;
   /** Why a failed session failed; drives the owner's recovery entry point. */
   failureReason: CollaborationFailureReason | null;
-  role: RoomRole | null;
   errorMessage: string | null;
   /** Re-runs the join after a repair (e.g. the owner reset the snapshot). */
   onRetryJoin: () => void;
@@ -204,7 +214,6 @@ export function CollaborationRoomDialog({
   onRoomKeyChange,
   status,
   failureReason,
-  role,
   errorMessage,
   onRetryJoin,
 }: CollaborationRoomDialogProps) {
@@ -755,16 +764,17 @@ export function CollaborationRoomDialog({
   // dropped and the session disconnects until the new one lands. That is the
   // reset working, not a creation awaiting a decision or a failed join.
   const isRotating = !!roomId && hasInitialization && isCreatePending;
-  // A failure is explained by the error paragraph; the header pill then names
-  // only the role instead of repeating it.
   const showsError =
     !!errorMessage && status !== "missing-room-key" && !isRotating;
-  const statusPill = [
-    showsError || isRotating ? null : t(STATUS_LABEL_KEY[status]),
-    role ? t(ROLE_LABEL_KEY[role]) : null,
-  ]
-    .filter(Boolean)
-    .join(" · ");
+  // Connected is the expected state and says nothing; only a session that is
+  // not live yet (or any more) is named, under the title. The role is in People.
+  const statusNote =
+    status === "connected" ||
+    status === "missing-room-key" ||
+    showsError ||
+    isRotating
+      ? null
+      : t(STATUS_LABEL_KEY[status]);
 
   const dialogDescription = isAuthenticationPending
     ? t("collaboration.authChecking")
@@ -781,36 +791,26 @@ export function CollaborationRoomDialog({
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
       >
         <DialogHeader>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 pr-8">
-            <DialogTitle className="text-xl font-bold">
-              {t(
-                isAuthenticated && roomId
-                  ? "collaboration.share.title"
-                  : "collaboration.title",
-              )}
-            </DialogTitle>
-            {isAuthenticated && roomId && statusPill && (
-              <span
-                className={cn(
-                  "inline-flex items-center gap-1.5 rounded-full border px-2 py-0.5 text-xs",
-                  status === "connected"
-                    ? "border-emerald-500/40 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300"
-                    : "text-muted-foreground",
-                )}
-              >
-                <span
-                  aria-hidden="true"
-                  className={cn(
-                    "size-1.5 rounded-full",
-                    status === "connected"
-                      ? "bg-emerald-500"
-                      : "bg-muted-foreground",
-                  )}
-                />
-                {statusPill}
-              </span>
+          <DialogTitle className="pr-8 text-xl font-bold">
+            {t(
+              isAuthenticated && roomId
+                ? "collaboration.share.title"
+                : "collaboration.title",
             )}
-          </div>
+          </DialogTitle>
+          {isAuthenticated && roomId && statusNote && (
+            <p
+              role="status"
+              className="text-muted-foreground flex items-center gap-1.5 text-sm"
+            >
+              {(status === "preparing" ||
+                status === "joining" ||
+                status === "reconnecting") && (
+                <Spinner className="size-3.5" aria-hidden="true" />
+              )}
+              {statusNote}
+            </p>
+          )}
           {/* The share view's controls speak for themselves. */}
           <DialogDescription
             className={cn(
@@ -998,48 +998,16 @@ export function CollaborationRoomDialog({
                   <Input id="collab-room-link" value={roomUrl} readOnly />
                   <CopyButton textToCopy={roomUrl} />
                 </div>
-                <p className="text-muted-foreground flex gap-1.5 text-xs">
-                  <LockKeyhole
-                    className="mt-px size-3.5 shrink-0"
-                    aria-hidden="true"
+                {/* Who the link admits, set right where the link is. */}
+                {isOwner && room && (
+                  <LinkAccessSelect
+                    value={room.linkRole}
+                    disabled={setLinkRole.isPending}
+                    onChange={(linkRole) =>
+                      setLinkRole.mutate({ roomId, linkRole })
+                    }
                   />
-                  {t("collaboration.link.keyPresent")}
-                </p>
-              </div>
-            )}
-
-            {isOwner && room && (
-              <div className="flex flex-col gap-2">
-                <Label htmlFor="collab-link-role">
-                  {t("collaboration.linkPermission")}
-                </Label>
-                <Select
-                  value={room.linkRole}
-                  items={LINK_ROLE_ITEMS.map((value) => ({
-                    value,
-                    label: t(LINK_ROLE_LABEL_KEY[value]),
-                  }))}
-                  disabled={setLinkRole.isPending}
-                  onValueChange={(value) =>
-                    setLinkRole.mutate({
-                      roomId,
-                      linkRole: value!,
-                    })
-                  }
-                >
-                  <SelectTrigger id="collab-link-role" className="w-full">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectGroup>
-                      {LINK_ROLE_ITEMS.map((linkRole) => (
-                        <SelectItem key={linkRole} value={linkRole}>
-                          {t(LINK_ROLE_LABEL_KEY[linkRole])}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  </SelectContent>
-                </Select>
+                )}
               </div>
             )}
 
@@ -1446,5 +1414,46 @@ function PersonRow(props: {
         </DropdownMenu>
       )}
     </li>
+  );
+}
+
+function LinkAccessSelect(props: {
+  value: LinkRole;
+  disabled: boolean;
+  onChange: (linkRole: LinkRole) => void;
+}) {
+  const { t } = useAppI18n();
+  const Icon = LINK_ROLE_ICON[props.value];
+  return (
+    <Select
+      value={props.value}
+      items={LINK_ROLE_ITEMS.map((value) => ({
+        value,
+        label: t(LINK_ROLE_LABEL_KEY[value]),
+      }))}
+      disabled={props.disabled}
+      onValueChange={(value) => {
+        if (value) props.onChange(value);
+      }}
+    >
+      <SelectTrigger
+        id="collab-link-role"
+        size="sm"
+        aria-label={t("collaboration.linkPermission")}
+        className="text-muted-foreground hover:text-foreground hover:bg-muted -ml-2 border-transparent dark:bg-transparent"
+      >
+        <Icon aria-hidden="true" />
+        <SelectValue />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectGroup>
+          {LINK_ROLE_ITEMS.map((linkRole) => (
+            <SelectItem key={linkRole} value={linkRole}>
+              {t(LINK_ROLE_LABEL_KEY[linkRole])}
+            </SelectItem>
+          ))}
+        </SelectGroup>
+      </SelectContent>
+    </Select>
   );
 }

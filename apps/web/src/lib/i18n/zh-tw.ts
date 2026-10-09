@@ -221,7 +221,6 @@ export const zhTW = {
     "目前的連結會失效，所有人會被中斷連線。受邀成員保有權限，其他人需要新連結。",
   "collaboration.resetLink.confirm": "重設連結",
   "collaboration.link.label": "邀請連結",
-  "collaboration.link.keyPresent": "只分享給你信任的人。",
   "collaboration.linkPermission": "誰能用連結加入",
   "collaboration.allowlist.notJoined": "尚未加入",
   "collaboration.members.first": "第一頁",

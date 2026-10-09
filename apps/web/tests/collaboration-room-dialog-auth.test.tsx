@@ -231,7 +231,6 @@ const renderDialog = (params: {
         onRoomKeyChange={params.onRoomKeyChange ?? (() => undefined)}
         status={params.status ?? "idle"}
         failureReason={params.failureReason ?? null}
-        role={null}
         errorMessage={params.errorMessage ?? null}
         onRetryJoin={params.onRetryJoin ?? (() => undefined)}
       />,
