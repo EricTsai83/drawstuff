@@ -777,7 +777,17 @@ export function CollaborationRoomDialog({
   // dropped and the session disconnects until the new one lands. That is the
   // reset working, not a creation awaiting a decision or a failed join.
   const isRotating = !!roomId && hasInitialization && isCreatePending;
-  const needsKey = status === "missing-room-key" && !isRotating;
+  const needsKey = !!roomId && status === "missing-room-key" && !isRotating;
+  // Opened only because the room lacked its key: once the room is gone (Back,
+  // or any navigation off it) there is nothing left for it to ask.
+  const openedForKey = useRef(false);
+  useEffect(() => {
+    if (needsKey) openedForKey.current = true;
+    else if (openedForKey.current) {
+      openedForKey.current = false;
+      if (!roomId) onOpenChange(false);
+    }
+  }, [needsKey, roomId, onOpenChange]);
   const showsError =
     !!errorMessage && status !== "missing-room-key" && !isRotating;
   // Connected is the expected state and says nothing; only a session that is

@@ -1102,4 +1102,25 @@ describe("share room dialog", () => {
     await act(async () => buttonWith(container!, "Back to my canvas")?.click());
     expect(onRoomIdChange).toHaveBeenCalledWith(null);
   });
+
+  it("closes the missing-key dialog when the room is navigated away from", () => {
+    const onOpenChange = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "missing-room-key",
+      onOpenChange,
+    });
+    // Back drops the room from the URL before the session reports a status.
+    renderDialog({
+      isAuthenticated: true,
+      roomId: null,
+      status: "missing-room-key",
+      onOpenChange,
+    });
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+    expect(container!.textContent).not.toContain(
+      "This device doesn't have the key for this room.",
+    );
+  });
 });
