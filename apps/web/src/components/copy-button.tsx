@@ -24,7 +24,6 @@ export function CopyButton({ textToCopy }: CopyButtonProps) {
     <Button
       type="button"
       onClick={handleCopy}
-      size="sm"
       className="relative overflow-hidden"
     >
       <span

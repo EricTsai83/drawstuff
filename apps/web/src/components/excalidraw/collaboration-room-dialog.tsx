@@ -970,13 +970,11 @@ export function CollaborationRoomDialog({
                 above recovers it, and the owner can reset the link below. */}
             {roomKey && (
               <div className="flex flex-col gap-2">
+                <Label htmlFor="collab-room-link">
+                  {t("collaboration.link.label")}
+                </Label>
                 <div className={COPY_LINK_ROW_CLASS_NAME}>
-                  <div className="grid flex-1 gap-2">
-                    <Label htmlFor="collab-room-link">
-                      {t("collaboration.link.label")}
-                    </Label>
-                    <Input id="collab-room-link" value={roomUrl} readOnly />
-                  </div>
+                  <Input id="collab-room-link" value={roomUrl} readOnly />
                   <CopyButton textToCopy={roomUrl} />
                 </div>
                 <p className="text-muted-foreground flex gap-1.5 text-xs">
