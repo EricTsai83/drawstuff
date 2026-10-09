@@ -134,12 +134,15 @@ export function EditorStorageStatus(props: {
     <Popover>
       <PopoverTrigger
         render={<Badge variant="secondary" render={<button type="button" />} />}
-        className="h-6 cursor-pointer gap-1.5 px-2.5 text-sm"
+        className={cn(
+          "h-6 cursor-pointer gap-1.5 px-2.5 text-sm",
+          status === "failed" && "bg-destructive/10 text-destructive",
+        )}
+        title={statusLabel}
         aria-label={`${roomLabel} · ${statusLabel}`}
       >
-        <LockKeyhole aria-hidden="true" />
+        <BadgeStatusIcon state={props.state} />
         {roomLabel}
-        <TransientStatus state={props.state} label={statusLabel} />
       </PopoverTrigger>
       <PopoverContent align="end" className="w-auto p-3">
         {panel}
@@ -168,34 +171,35 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
 }
 
 /**
- * The trigger's status: always shown while work is outstanding, and for a
- * moment after a save confirms, then out of the way. The full status stays in
- * the panel and in the live region.
+ * The badge's status lives in its fixed-size leading icon, so a save never
+ * changes the badge's width: outstanding work replaces the lock, and a
+ * confirmed save shows a check for a moment before the lock returns. The words
+ * stay in the panel, the tooltip and the live region.
  */
-function TransientStatus(props: { state: RoomSaveState; label: string }) {
+function BadgeStatusIcon(props: { state: RoomSaveState }) {
   const { status, revision } = props.state;
   const savedKey = status === "saved" ? `saved:${revision ?? "none"}` : null;
-  const [hiddenKey, setHiddenKey] = useState<string | null>(null);
+  const [settledKey, setSettledKey] = useState<string | null>(null);
   useEffect(() => {
     if (!savedKey) return;
     const timer = window.setTimeout(
-      () => setHiddenKey(savedKey),
+      () => setSettledKey(savedKey),
       SAVED_VISIBLE_MS,
     );
     return () => window.clearTimeout(timer);
   }, [savedKey]);
-  const visible = savedKey === null || hiddenKey !== savedKey;
+  const settled = savedKey !== null && settledKey === savedKey;
   return (
     <span
-      className={cn(
-        "flex items-center gap-1 overflow-hidden text-xs font-normal transition-[opacity,max-width] duration-300",
-        visible ? "max-w-40 opacity-100" : "max-w-0 opacity-0",
-        status === "failed" ? "text-destructive" : "text-muted-foreground",
-      )}
+      className="flex size-3 shrink-0 items-center justify-center"
+      data-status={settled ? "settled" : status}
       aria-hidden="true"
     >
-      <SaveStatusIcon status={status} />
-      {props.label}
+      {settled ? (
+        <LockKeyhole className="size-3" />
+      ) : (
+        <SaveStatusIcon status={status} />
+      )}
     </span>
   );
 }

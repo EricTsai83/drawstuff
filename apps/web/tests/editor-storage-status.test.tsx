@@ -57,23 +57,27 @@ describe("editor storage status (18C §5)", () => {
     expect(panel.textContent).toContain("Save a copy to my scenes");
   });
 
-  it("shows a confirmed save on the room badge briefly, then hides it", () => {
+  it("marks a confirmed save on the badge briefly, without changing its width", () => {
     vi.useFakeTimers();
     try {
       const container = renderStatus({ roomId: "room-alpha-1", compact: true });
-      const status = () =>
-        container.querySelector("button > span[aria-hidden]")?.className;
-      expect(status()).toContain("opacity-100");
+      const badge = () => container.querySelector("button");
+      const icon = () => badge()?.querySelector("[data-status]");
+      const text = badge()?.textContent;
+      expect(icon()?.getAttribute("data-status")).toBe("saved");
       act(() => {
         vi.advanceTimersByTime(3000);
       });
-      expect(status()).toContain("opacity-0");
+      expect(icon()?.getAttribute("data-status")).toBe("settled");
+      // Only the fixed-size icon changes; the label text never does.
+      expect(badge()?.textContent).toBe(text);
+      expect(badge()?.getAttribute("title")).toBe("Saved");
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("keeps an unsaved or failed room visible on the badge", () => {
+  it("keeps a failed save on the badge until it resolves", () => {
     vi.useFakeTimers();
     try {
       const container = renderStatus({
@@ -84,9 +88,11 @@ describe("editor storage status (18C §5)", () => {
       act(() => {
         vi.advanceTimersByTime(10_000);
       });
-      const status = container.querySelector("button > span[aria-hidden]");
-      expect(status?.textContent).toBe("Save failed");
-      expect(status?.className).toContain("opacity-100");
+      const badge = container.querySelector("button");
+      expect(
+        badge?.querySelector("[data-status]")?.getAttribute("data-status"),
+      ).toBe("failed");
+      expect(badge?.getAttribute("aria-label")).toContain("Save failed");
     } finally {
       vi.useRealTimers();
     }
