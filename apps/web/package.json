@@ -22,7 +22,8 @@
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit",
-    "collaboration:wake-retirements": "node scripts/wake-completed-retirements.mjs"
+    "collaboration:wake-retirements": "node scripts/wake-completed-retirements.mjs",
+    "plan21:wipe": "node --import tsx scripts/plan21-wipe.ts"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",

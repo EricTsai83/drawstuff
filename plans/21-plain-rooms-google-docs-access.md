@@ -103,6 +103,7 @@ Plan 19 讓服務端保管房間金鑰後，房間已不是端對端加密：真
 
 - **清除範圍**只限房間相關的表；保留 `drawstuff_collaboration_lifecycle_subject`（帳號／場景退場紀錄，不含房間資料、schema 未變，與不清除的 `CollaborationLifecycle` DO 成對）。完整程序見 [部署 runbook §6](../docs/operations/collaboration-do-deployment.md)。
 - **舊退場 Object**：plan 21 之前完成的退場沒有釋放時間；`CollaborationLifecycle` 被喚醒時會補排 1 小時後釋放，部署時用 `collaboration:wake-retirements` 一次喚醒全部。
+- **清除腳本** `pnpm --filter @drawstuff/web plan21:wipe uploads|tables|schema [--apply]`：每個子指令預設乾跑並把清單寫入 `.local/plan21/`；schema 以 DROP＋CREATE 房間表取代 `db:push`（只碰房間表），房間表有資料時拒絕。已在拋棄式 PostgreSQL 上以舊版樣貌驗證 tables／schema（UploadThing 子指令需正式 token，未在本機驗證）。schema `--apply` 在 transaction 內鎖表並重新確認為空；uploads 也刪除 `failed` 的房間延遲刪除（維護排程不重試），只把 `pending` 視為已排入。runbook 改成先部署 DO（tombstone 移除舊房間的寫入者）再清 UploadThing 與 Neon。
 - **18B 重置工具**（`collaboration-reset-*` 腳本、協定 5 schema 副本、整合測試的重置排練）已移除；`docs/deployment/collaboration-reset/` 保留為歷史紀錄。
 
 ## 8. 實作順序

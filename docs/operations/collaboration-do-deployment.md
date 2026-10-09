@@ -107,30 +107,31 @@ workspace。
 1. **停止共編寫入**：在 Vercel production 設定 `COLLAB_ROOMS_DISABLED=1` 並重新部署 web，
    等待已簽出的 proof 過期（≥5 分鐘）。確認沒有進行中的帳號／場景退場
    （[admin data retirement](./admin-data-retirement.md)），且直到步驟 6 驗證通過前都不要發起
-   退場：步驟 3～5 之間 Neon 已是新 schema，web 與 Worker 卻還沒都換成 protocol 7。
-2. **匯出並刪除房間圖片（UploadThing）**：唯讀匯出 `drawstuff_collaboration_asset.ut_file_key`
-   （已登錄的房間圖片）與 `drawstuff_collaboration_operation.ut_file_key`（已送出 finalize 的上傳
-   收據）的聯集，排除仍被 `drawstuff_file_record`、場景縮圖或發布成品引用的 key（同 18B
-   [manifest.sql](../deployment/collaboration-reset/manifest.sql) 的排除條件）。保存清單，以
-   UploadThing `UTApi.deleteFiles` 分批刪除並核對結果。預簽後從未送出 finalize 的上傳不會留下
-   任何資料庫紀錄，這份清單抓不到：刪除後在 UploadThing 後台（或 `UTApi.listFiles`）比對步驟 1
-   之前上傳、且不在個人檔案／縮圖／發布成品清單中的物件，確認沒有遺漏後才算完成。已排入
-   `drawstuff_deferred_file_cleanup` 的房間物件照常由維護排程刪除，不需手動處理。
-3. **Neon**：清空房間相關的表——`drawstuff_collaboration_room`、`_room_member`、`_room_invite`
-   （新表，部署前不存在可略過）、`_snapshot`、`_asset`、`_operation`、`_creation_fence`、
-   `_lifecycle_registration`、`_projection_tombstone`。**保留 `drawstuff_collaboration_lifecycle_subject`**：
-   它是帳號／場景的退場紀錄與 lifecycle 版本，不含房間資料、schema 未變，且與不清除的
-   `CollaborationLifecycle` DO 成對；清掉反而讓兩邊對不上。再從 `plan-21` 分支執行
-   `pnpm db:push` 套用新 schema（plan 21 是「不要求 DB push」的例外）。新 schema：
-   `collaboration_room` 無 auth_generation／key_check／storage_generation；`collaboration_snapshot`
-   以 room_id 為鍵存明文 `data`；`collaboration_asset` 以 (room_id, excalidraw_file_id) 為鍵；
-   member 投影加 `access`；新增 `collaboration_room_invite`。18B 的 `upgrade.sql`／`rollback.sql`
-   以舊 schema 為基準，不適用這次清除（18B 的重置工具已移除）。
-4. **Durable Object**：從 `plan-21` 分支 `pnpm cf:deploy`（手動，class lifecycle 變更）。
+   退場：步驟 4～5 之間 Neon 已是新 schema，web 與 Worker 卻還沒都換成 protocol 7。
+2. **Durable Object**：從 `plan-21` 分支 `pnpm cf:deploy`（手動，class lifecycle 變更）。
    同一次部署新增 `CollaborationRoomV2` 並以 tombstone 刪除 `CollaborationRoom` 及所有舊房間
    儲存；這是 CLAIM-MIG-4「lifecycle 變更單獨部署」的刻意例外，因為新 runtime 只認新 class。
-   此時正式 web 仍是 protocol 6 的 adapter（要求 `authGeneration`），與新 Worker 不相容；
-   kill switch 仍開著，所以瀏覽器不會觸發，**先不要跑 §3 驗證**。
+   **必須在清除之前**：kill switch 只擋瀏覽器入口，舊房間 Object 的 alarm 仍可能經 adapter 寫入
+   Neon 或 UploadThing；tombstone 之後就沒有舊的寫入者。此時正式 web 仍是 protocol 6 的 adapter
+   （要求 `authGeneration`），與新 Worker 不相容；kill switch 仍開著，所以瀏覽器不會觸發，
+   **先不要跑 §3 驗證**。
+3. **刪除房間圖片（UploadThing）**：`PLAN21_DATABASE_URL=… UPLOADTHING_TOKEN=… pnpm --filter
+   @drawstuff/web plan21:wipe uploads` 先乾跑：列出 UploadThing 物件總數、要刪除的房間物件
+   （`collaboration_asset`、已送出 finalize 的 `collaboration_operation` key，以及 `failed` 的房間
+   `deferred_file_cleanup`——維護排程不會重試它們；排除仍被個人檔案、場景縮圖、發布成品引用或
+   仍為 `pending` 的 key），以及**沒有任何已知引用**的物件；清單寫入 `.local/plan21/`。確認後加
+   `--apply` 分批刪除並核對每批結果。沒有已知引用的物件（例如預簽後從未 finalize 的房間上傳）
+   不會自動刪除，逐一人工確認。`pending` 的物件照常由維護排程刪除。**必須在步驟 4 之前**：清表後
+   就找不到房間的 key。
+4. **Neon**：`plan21:wipe tables` 乾跑列出各房間表的列數，`--apply` 以單一 `TRUNCATE`（不加
+   CASCADE）清空：`drawstuff_collaboration_room`、`_room_member`、`_room_invite`（部署前不存在則略過）、
+   `_snapshot`、`_asset`、`_operation`、`_creation_fence`、`_lifecycle_registration`、
+   `_projection_tombstone`。**保留 `drawstuff_collaboration_lifecycle_subject`**：它是帳號／場景的退場
+   紀錄與 lifecycle 版本，不含房間資料、schema 未變，且與不清除的 `CollaborationLifecycle` DO 成對。
+   接著 `plan21:wipe schema` 乾跑列出 DDL（只有上述房間表的 DROP 與依目前 schema 的 CREATE；
+   任一房間表仍有資料就拒絕），確認後 `--apply` 在單一 transaction 內鎖住房間表、重新確認為空再執行。
+   不用 `db:push`：它比對整個 `drawstuff_*` schema，且 drizzle-kit 的 `pushSchema` 對複合主鍵有參數
+   bug。18B 的 `upgrade.sql`／`rollback.sql` 以舊 schema 為基準，不適用（18B 的重置工具已移除）。
 5. **合併與 web 部署**：合併 `plan-21` 到 `main`（Vercel 部署 web 與 adapter；Workers Builds
    重新部署同一份 Worker）。`COLLAB_ROOMS_DISABLED=1` 保持不動。
 6. **驗證**：確認 web 與 Worker 都是 protocol 7，再依 §3 驗證（kill switch 只擋瀏覽器入口，
