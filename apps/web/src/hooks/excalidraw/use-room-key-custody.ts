@@ -40,14 +40,17 @@ export function useRoomKeyCustody(options: {
     void utils.client.collaborationAuthority.roomKey
       .mutate({ roomId: roomIdSchema.parse(roomId) })
       .then((found) => {
-        if (!current || !found) return;
+        if (!current || !found) return false;
         custodied.current.add(`${roomId}:${found.roomKey}`);
         onRoomKeyChange(found.roomKey);
+        return true;
       })
-      .catch(() => undefined)
-      .finally(() => {
+      .catch(() => false)
+      .then((found) => {
         finished = true;
-        if (current) setSettledFor(roomId);
+        // A found key settles nothing: the room still reads as keyless until
+        // it rejoins, and settling then would flash the paste-link dialog.
+        if (current && !found) setSettledFor(roomId);
       });
     return () => {
       current = false;

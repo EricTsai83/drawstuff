@@ -81,6 +81,9 @@ describe("room key custody in the editor (plan 19)", () => {
     await render(null, "missing-room-key");
     expect(roomKeyMutate).toHaveBeenCalledOnce();
     expect(onRoomKeyChange).toHaveBeenCalledWith(KEY);
+    // Until the room rejoins with that key it still reads as keyless; the
+    // paste-link dialog must not open in that gap.
+    expect(probe.settled).toBe(false);
     // A key that came from custody is not handed back.
     await render(KEY, "connected");
     expect(escrowMutate).not.toHaveBeenCalled();
