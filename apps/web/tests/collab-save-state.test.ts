@@ -90,7 +90,6 @@ describe("durable room save coverage", () => {
       payload: {
         kind: "persisted",
         captureId: "invented",
-        authGeneration: 1,
         revision: 99,
         checksum: "0".repeat(64),
       },

@@ -18,7 +18,7 @@ export const en = {
   "storage.exit": "Back to my canvas",
   "storage.exitNotice": "The room stays open.",
   "storage.copyNotice":
-    "The room remains encrypted. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
+    "The room is unchanged. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
   "storage.downloadNotice": "The downloaded file is not encrypted.",
   "storage.personalCopySaved":
     "Saved to my scenes. The room save status is unchanged.",
@@ -147,7 +147,7 @@ export const en = {
   "collaboration.authChecking": "Checking sign-in status",
   "collaboration.createDescription": "Start a room from this canvas.",
   "collaboration.shareDescription":
-    "Share the complete link to invite collaborators.",
+    "Share the link and choose who can open the room.",
   "collaboration.status.idle": "Collaborate",
   "collaboration.status.preparing": "Preparing canvas",
   "collaboration.status.joining": "Joining",
@@ -159,22 +159,20 @@ export const en = {
   "collaboration.status.joinFailed": "Join failed",
   "collaboration.status.rateLimited": "Try again later",
   "collaboration.status.cancelled": "Cancelled",
-  "collaboration.status.missingRoomKey": "Incomplete link",
   "collaboration.status.readOnly": "View only",
   "collaboration.status.readOnlyWithStatus": "{status} (View only)",
   "collaboration.toast.initializationPending":
     "Room creation is not confirmed yet. The canvas is paused; retry or cancel this creation.",
   "collaboration.action.cancelInitialization": "Cancel room creation",
-  "collaboration.rotating": "Resetting link",
   "collaboration.toast.initializationAttachments":
     "Some image files are missing or unsupported. Reload the scene or remove those images before starting collaboration.",
   "collaboration.error.operationFailed":
     "The collaboration action failed. Please try again.",
   "collaboration.action.creating": "Creating room",
   "collaboration.action.start": "Start collaboration",
-  "collaboration.create.keyLoss":
-    "drawstuff keeps a copy of the room key (not end-to-end encrypted), so members can reopen the room on any device.",
   "collaboration.create.noPersonalCopy": "Saved in the room, not in My scenes.",
+  "collaboration.create.protection":
+    "Like your scenes, the room is protected by sign-in: only people you invite, or anyone with the link if you allow it, can open it.",
   "collaboration.create.sourceCopy": "Your original scene isn't changed.",
   "collaboration.role.owner": "Owner",
   "collaboration.role.editor": "Can edit",
@@ -193,31 +191,16 @@ export const en = {
   "collaboration.dialogStatus.joinFailed": "Join failed. Try again.",
   "collaboration.dialogStatus.rateLimited": "Too many attempts. Try later.",
   "collaboration.dialogStatus.cancelled": "Join cancelled",
-  "collaboration.dialogStatus.missingRoomKey": "Link is missing its key",
   "collaboration.toast.enforcementPending":
     "Permissions updated. They may take a moment to apply.",
   "collaboration.toast.listSyncing":
     "The room may take a moment to appear in your list.",
-  "collaboration.toast.keyConflict":
-    "This room already has an encryption key. Share the complete link from the device that created it, or reset the link.",
-  "collaboration.toast.snapshotReset":
-    "The cloud canvas was reset. Rejoining with the next member's canvas.",
-  "collaboration.recovery.description":
-    "This canvas can't be decrypted. Resetting deletes it and restarts from the next member's canvas.",
-  "collaboration.recovery.reset": "Reset canvas",
-  "collaboration.recovery.resetting": "Resetting",
-  "collaboration.recovery.confirmReset": "Delete cloud canvas",
-  "collaboration.recovery.cancel": "Cancel",
-  "collaboration.missingKey.title": "Complete link needed",
-  "collaboration.missingKey.description":
-    "This device doesn't have the key for this room.",
-  "collaboration.missingKey.label": "Complete invitation link",
-  "collaboration.missingKey.apply": "Use link",
-  "collaboration.missingKey.hint":
-    "Paste the complete link, including the part after #.",
-  "collaboration.missingKey.invalid":
-    "This link is for a different room or is missing its key.",
+  "collaboration.toast.existingRoom":
+    "This scene already has a room. Opened it.",
   "collaboration.share.title": "Share room",
+  "collaboration.noAccess.title": "You don't have access to this room",
+  "collaboration.noAccess.description":
+    "Ask the owner for an invitation, or make sure you're signed in with the invited account.",
   "collaboration.manage": "Manage room",
   "collaboration.people": "People",
   "collaboration.invite.email": "Email to invite",
@@ -227,17 +210,10 @@ export const en = {
   "collaboration.invite.submit": "Invite",
   "collaboration.person.joined": "Joined",
   "collaboration.person.joinedAt": "Joined {date}",
-  "collaboration.person.removed": "Removed",
+  "collaboration.person.viaLink": "Joined with the link",
   "collaboration.person.role": "Role for {name}",
   "collaboration.person.actions": "Actions for {name}",
-  "collaboration.person.removeFromRoom": "Remove from room",
-  "collaboration.person.restoreAccess": "Restore access",
   "collaboration.person.removeInvite": "Remove invitation",
-  "collaboration.person.restoreInvite": "Restore invitation",
-  "collaboration.resetLink.title": "Reset the link?",
-  "collaboration.resetLink.description":
-    "The current link stops working and everyone is disconnected. Invited people keep access; others need the new link.",
-  "collaboration.resetLink.confirm": "Reset link",
   "collaboration.link.label": "Invite link",
   "collaboration.linkPermission": "Who can join with the link",
   "collaboration.allowlist.notJoined": "Not joined yet",
@@ -247,15 +223,11 @@ export const en = {
   "collaboration.rooms.create": "New room",
   "collaboration.rooms.retry": "Retry initialization",
   "collaboration.rooms.open": "Open room",
-  "collaboration.rooms.hint": "Rooms you own or have joined.",
-  "collaboration.rooms.needsAttention": "Needs attention",
-  "collaboration.rooms.listHeading": "Rooms",
+  "collaboration.rooms.hint":
+    "Rooms you own, were invited to, or opened with a link.",
   "collaboration.rooms.unfinished": "Setup didn't finish.",
   "collaboration.rooms.copyId": "Copy room ID",
   "collaboration.rooms.idCopied": "Room ID copied.",
-  "collaboration.rooms.rotate": "Reset link",
-  "collaboration.rooms.rotateHint":
-    "In the room, open Share room and choose Reset link.",
   "collaboration.rooms.end": "End room",
   "collaboration.rooms.endTitle": "End this room?",
   "collaboration.rooms.endDescription":
@@ -266,41 +238,37 @@ export const en = {
   "collaboration.rooms.leave": "Leave room",
   "collaboration.rooms.leaveTitle": "Leave this room?",
   "collaboration.rooms.leaveDescription":
-    "You'll need a new invitation from its owner to return.",
+    "The room leaves your list. To return you'll need an invitation, unless anyone with the link can open it.",
   "collaboration.rooms.left": "You left the room.",
   "collaboration.rooms.loading": "Loading rooms",
   "collaboration.rooms.loadFailed": "Couldn't load rooms.",
-  "collaboration.rooms.empty": "You have no collaboration rooms yet.",
   "collaboration.rooms.sceneLinked": "From a scene",
+  "collaboration.rooms.mineHeading": "Owned and invited",
+  "collaboration.rooms.mineEmpty": "No rooms you own or were invited to yet.",
+  "collaboration.rooms.linkHeading": "Opened via link",
+  "collaboration.rooms.linkEmpty": "No rooms opened via a link yet.",
+  "collaboration.rooms.invited": "Invited",
+  "collaboration.rooms.removeFromList": "Remove from list",
+  "collaboration.rooms.removed":
+    "Removed from the list. Opening its link again brings it back.",
   "collaboration.action.end": "End room",
-  "collaboration.action.rotate": "Reset link",
   "collaboration.action.leave": "Leave room",
   "collaboration.failure.unauthorized":
     "You no longer have access to this room. Ask the owner for a new invitation.",
-  "collaboration.failure.membershipRevoked":
-    "Your collaboration access was removed.",
+  "collaboration.failure.noAccess":
+    "You don't have access to this room. Ask the owner for an invitation, or make sure you're signed in with the invited account.",
   "collaboration.failure.roomEnded":
-    "This room was ended or reset. Ask the sharer for a new link.",
-  "collaboration.failure.generationRotated":
-    "This link is out of date. Ask for the latest link.",
-  "collaboration.failure.unreadableRoom":
-    "This link can't open the room. Ask for the latest link.",
+    "This room has ended. Ask the sharer for a new link.",
   "collaboration.failure.protocolViolation":
     "The connection stopped because of a protocol error. Reload and report it if the problem continues.",
   "collaboration.failure.unsupportedProtocolVersion":
     "This tab is running an outdated collaboration version. Refresh the page, then join again.",
-  "collaboration.failure.cryptoExhausted":
-    "The connection's encryption limit was reached. Ask the owner to reset the link.",
   "collaboration.failure.retryLimit":
     "Reconnection failed repeatedly. Check your network and reload.",
-  "collaboration.failure.wrongKey":
-    "This link's key is wrong; your canvas wasn't changed. Ask for the latest link.",
-  "collaboration.failure.missingKeyCheck":
-    "This room's encryption setup is incomplete. Ask the owner to reopen collaboration or reset the link.",
   "collaboration.failure.rateLimited":
     "Too many attempts. Try again in a minute.",
   "collaboration.warning.unreadableAssets":
-    "Some images cannot be opened with this link. Other canvas content is still syncing; ask for the latest complete link to view them.",
+    "Some images cannot be opened right now. Other canvas content is still syncing; reload to try again.",
   "collaboration.warning.realtimeTooLarge":
     "Live sync stopped: the {size} canvas exceeds the {limit} send limit, so other members will not receive new changes.",
   "collaboration.warning.backupTooLarge":
@@ -308,8 +276,6 @@ export const en = {
   "collaboration.warning.tooLargeAdvice":
     "Export a copy, then reduce the canvas to resume sync.",
   "collaboration.failure.invalidLink": "This collaboration link is invalid.",
-  "collaboration.failure.missingRoomKey":
-    "You don't have this room's key. Ask the owner to invite you, or paste the complete link.",
   "collaboration.failure.cancelled":
     "Join cancelled. Your original canvas was not changed.",
   "collaboration.failure.saveBeforeJoin":

@@ -5,10 +5,6 @@ import { describe, expect, it, vi } from "vitest";
 import { TRPCClientError } from "@trpc/client";
 
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import {
-  generateRoomKey,
-  type RoomKey,
-} from "@drawstuff/collaboration/realtime-crypto";
 import { SNAPSHOT_NO_REVISION } from "@drawstuff/collaboration/snapshot";
 import type {
   BinaryFileData,
@@ -17,7 +13,10 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 
 import { drainAsync } from "./support/async-drain";
+import { AuthorityRoomError } from "@/lib/collab/authority-client";
 import { classifyJoinFailure } from "@/lib/collab/join-failure";
+import { toCollaborationFailureReason } from "@/lib/collab/room-state-reducer";
+import { SnapshotHttpError } from "@/lib/collab/snapshot-http";
 import {
   createCollaborationAssetStore,
   type AssetApi,
@@ -57,7 +56,6 @@ import {
  */
 
 const ROOM_ID = roomIdSchema.parse("room-rate-limit");
-const AUTH_GENERATION = 1;
 const FILE_A = "a".repeat(40);
 
 /** The tRPC refusal, exactly as `errorFormatter` shapes it on the wire. */
@@ -150,13 +148,36 @@ describe("join", () => {
   });
 });
 
+describe("no-access classification", () => {
+  it("reads every refusal of this account as no access, and only those", () => {
+    const refused = { ok: false, retry: false, failure: "membership-revoked" };
+    expect(
+      classifyJoinFailure(new SnapshotHttpError(403, "forbidden")),
+    ).toEqual(refused);
+    expect(toCollaborationFailureReason("membership-revoked")).toBe(
+      "no-access",
+    );
+    // A signed-out session and an ended room keep their own reasons.
+    expect(
+      classifyJoinFailure(new SnapshotHttpError(401, "unauthorized")),
+    ).toEqual({ ok: false, retry: false, failure: "unauthorized" });
+    expect(classifyJoinFailure(new AuthorityRoomError("ended"))).toEqual({
+      ok: false,
+      retry: false,
+      failure: "room-ended",
+    });
+    // A room still initializing is not a refusal.
+    expect(classifyJoinFailure(new AuthorityRoomError("initializing"))).toEqual(
+      { ok: false, retry: true },
+    );
+  });
+});
+
 describe("snapshot writes", () => {
-  const storeWith = async (write: SnapshotApi["write"], roomKey: RoomKey) => {
-    const store = await createCollaborationSnapshotStore({
-      api: emptySnapshotApi(ROOM_ID, AUTH_GENERATION, write),
+  const storeWith = async (write: SnapshotApi["write"]) => {
+    const store = createCollaborationSnapshotStore({
+      api: emptySnapshotApi(ROOM_ID, write),
       roomId: ROOM_ID,
-      roomKey,
-      authGeneration: AUTH_GENERATION,
     });
     await store.load();
     return store;
@@ -165,9 +186,8 @@ describe("snapshot writes", () => {
   it("reports a rate limit as its own outcome, with the wait", async () => {
     // Folded into `failed` this would be retried on the caller's own 30 s
     // cadence, straight back into a window that has not reset.
-    const store = await storeWith(
-      () => Promise.reject(trpcRateLimitError(40_000)),
-      generateRoomKey(),
+    const store = await storeWith(() =>
+      Promise.reject(trpcRateLimitError(40_000)),
     );
     await expect(
       store.save({ elements: [], expectedRevision: SNAPSHOT_NO_REVISION }),
@@ -175,10 +195,7 @@ describe("snapshot writes", () => {
   });
 
   it("still reports an ordinary transport failure as failed", async () => {
-    const store = await storeWith(
-      () => Promise.reject(new Error("offline")),
-      generateRoomKey(),
-    );
+    const store = await storeWith(() => Promise.reject(new Error("offline")));
     await expect(
       store.save({ elements: [], expectedRevision: SNAPSHOT_NO_REVISION }),
     ).resolves.toEqual({ status: "failed" });
@@ -188,7 +205,7 @@ describe("snapshot writes", () => {
     const put = vi.fn<SnapshotApi["write"]>(() =>
       Promise.resolve({ status: "written", revision: 1 }),
     );
-    const store = await storeWith(put, generateRoomKey());
+    const store = await storeWith(put);
 
     await store.save({
       elements: [],
@@ -217,8 +234,6 @@ describe("asset lookups", () => {
     createCollaborationAssetStore({
       api,
       roomId: ROOM_ID,
-      roomKey: generateRoomKey(),
-      authGeneration: AUTH_GENERATION,
       onAssetsResolved: () => undefined,
       scheduleTimeout: (run, delayMs) => timers.schedule(run, delayMs),
       now: () => timers.now,
@@ -451,17 +466,10 @@ describe("asset uploads", () => {
   }) =>
     createCollaborationAssetStore({
       api: {
-        resolve: () =>
-          Promise.resolve({
-            authGeneration: AUTH_GENERATION,
-            assets: [],
-            missing: [],
-          }),
+        resolve: () => Promise.resolve({ assets: [], missing: [] }),
         upload: (input) => options.upload(input.excalidrawFileId),
       },
       roomId: ROOM_ID,
-      roomKey: generateRoomKey(),
-      authGeneration: AUTH_GENERATION,
       onAssetsResolved: () => undefined,
       onAssetsUnavailable: options.onAssetsUnavailable,
       onPublishRetryDue: options.onPublishRetryDue,

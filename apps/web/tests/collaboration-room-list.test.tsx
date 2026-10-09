@@ -3,9 +3,9 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listQuery, push, refetch, execute, invalidate, toast, roomKeyMutate } =
-  vi.hoisted(() => ({
-    listQuery: vi.fn<() => unknown>(),
+const { listQuery, push, refetch, execute, invalidate, toast } = vi.hoisted(
+  () => ({
+    listQuery: vi.fn<(input: { section: "mine" | "link" }) => unknown>(),
     push: vi.fn(),
     refetch: vi.fn(),
     // Room confirms every management intent at once in these tests.
@@ -19,9 +19,9 @@ const { listQuery, push, refetch, execute, invalidate, toast, roomKeyMutate } =
       }),
     ),
     invalidate: vi.fn(() => Promise.resolve()),
-    roomKeyMutate: vi.fn(() => Promise.resolve(null)),
     toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
-  }));
+  }),
+);
 
 // The in-session creation this list may be retrying.
 const { creation } = vi.hoisted(() => ({
@@ -49,7 +49,6 @@ vi.mock("@/trpc/react", () => ({
       client: {
         collaborationAuthority: {
           execute: { mutate: execute },
-          roomKey: { mutate: roomKeyMutate },
         },
       },
       collaborationRoom: { list: { invalidate } },
@@ -66,15 +65,20 @@ import { CollaborationRoomList } from "@/components/collaboration-room-list";
 
 let container: HTMLDivElement;
 let root: Root;
-const render = (query: Record<string, unknown>) => {
-  listQuery.mockReturnValue({
+type Query = Record<string, unknown>;
+const empty = { isSuccess: true, data: { rooms: [], nextCursor: null } };
+/** Each section has its own query; `link` defaults to an empty section. */
+const render = (mine: Query, link: Query = empty) => {
+  listQuery.mockImplementation(({ section }) => ({
     isPending: false,
     isError: false,
     refetch,
-    ...query,
-  });
+    ...(section === "mine" ? mine : link),
+  }));
   act(() => root.render(<CollaborationRoomList />));
 };
+const section = (name: "mine" | "link") =>
+  container.querySelector(`[data-room-section="${name}"]`)!;
 
 beforeEach(() => {
   container = document.createElement("div");
@@ -93,8 +97,8 @@ const room = (overrides: Record<string, unknown>) => ({
   sceneId: null,
   status: "ready",
   role: "owner",
+  access: "owned",
   listedAt: 1,
-  projectionVersion: 1,
   ...overrides,
 });
 const buttonIn = (scope: ParentNode, text: string) =>
@@ -114,36 +118,92 @@ const openMenu = async (row: Element) => {
     ) as HTMLElement | undefined;
 };
 
-describe("collaboration room list (18C §2)", () => {
+const MINE_EMPTY = "No rooms you own or were invited to yet.";
+const LINK_EMPTY = "No rooms opened via a link yet.";
+
+describe("collaboration room list (plan 21 §5)", () => {
+  it("queries and renders the two sections separately", () => {
+    render(
+      {
+        isSuccess: true,
+        data: {
+          rooms: [room({ roomId: "aa000000-0000-4000-8000-000000000001" })],
+          nextCursor: null,
+        },
+      },
+      {
+        isSuccess: true,
+        data: {
+          rooms: [
+            room({
+              roomId: "bb000000-0000-4000-8000-000000000002",
+              role: "viewer",
+              access: "link",
+            }),
+          ],
+          nextCursor: null,
+        },
+      },
+    );
+    expect(listQuery.mock.calls.map(([input]) => input.section)).toEqual(
+      expect.arrayContaining(["mine", "link"]),
+    );
+    expect(section("mine").querySelector("h3")?.textContent).toBe(
+      "Owned and invited",
+    );
+    expect(section("link").querySelector("h3")?.textContent).toBe(
+      "Opened via link",
+    );
+    expect(section("mine").textContent).toContain("aa000000");
+    expect(section("mine").textContent).not.toContain("bb000000");
+    expect(section("link").textContent).toContain("bb000000");
+    expect(section("link").textContent).toContain("View only");
+  });
+
+  it("shows an empty state per section", () => {
+    render(empty);
+    expect(section("mine").textContent).toContain(MINE_EMPTY);
+    expect(section("link").textContent).toContain(LINK_EMPTY);
+    render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
+    expect(section("mine").textContent).not.toContain(MINE_EMPTY);
+    expect(section("link").textContent).toContain(LINK_EMPTY);
+  });
+
   it("reports a failed query with retry instead of an empty list", () => {
     render({ isError: true });
-    expect(container.textContent).toContain("Couldn't load rooms");
-    expect(container.textContent).not.toContain("no collaboration rooms yet");
-    act(() =>
-      Array.from(container.querySelectorAll("button"))
-        .find((button) => button.textContent === "Retry")
-        ?.click(),
-    );
+    expect(section("mine").textContent).toContain("Couldn't load rooms");
+    expect(section("mine").textContent).not.toContain(MINE_EMPTY);
+    act(() => buttonIn(section("mine"), "Retry")?.click());
     expect(refetch).toHaveBeenCalledOnce();
   });
 
   it("never shows cached empty data as empty after a failed refetch", () => {
     render({ isError: true, data: { rooms: [], nextCursor: null } });
-    expect(container.textContent).toContain("Couldn't load rooms");
-    expect(container.textContent).not.toContain("no collaboration rooms yet");
+    expect(section("mine").textContent).toContain("Couldn't load rooms");
+    expect(section("mine").textContent).not.toContain(MINE_EMPTY);
   });
 
   it("distinguishes loading from an empty result", () => {
-    render({ isPending: true });
+    render({ isPending: true }, { isPending: true });
     expect(container.textContent).toContain("Loading rooms");
-    expect(container.textContent).not.toContain("no collaboration rooms yet");
-    render({ isSuccess: true, data: { rooms: [], nextCursor: null } });
-    expect(container.textContent).toContain(
-      "You have no collaboration rooms yet.",
-    );
+    expect(container.textContent).not.toContain(MINE_EMPTY);
+    expect(container.textContent).not.toContain(LINK_EMPTY);
   });
 
-  it("puts unfinished creations under Needs attention, ahead of the rooms", async () => {
+  it("lists invitations not opened yet as invited rooms in the first section", () => {
+    render({
+      isSuccess: true,
+      data: {
+        rooms: [room({ role: "editor", access: "invited" })],
+        nextCursor: null,
+      },
+    });
+    const row = section("mine").querySelector("li")!;
+    expect(row.textContent).toContain("Invited · Can edit");
+    expect(buttonIn(row, "Open room")).toBeDefined();
+  });
+
+  it("puts unfinished creations first and opens rooms with a plain link", async () => {
     render({
       isSuccess: true,
       data: {
@@ -155,34 +215,88 @@ describe("collaboration room list (18C §2)", () => {
             sceneId: "scene-1",
             status: "initializing",
             role: "viewer",
+            access: "invited",
           }),
         ],
         nextCursor: null,
       },
     });
-    const groups = Array.from(container.querySelectorAll("ul"));
-    expect(
-      groups.map((group) => group.previousElementSibling?.textContent),
-    ).toEqual(["Needs attention", "Rooms"]);
-    const [unfinished] = Array.from(groups[0]!.querySelectorAll("li"));
+    const [unfinished, ready] = Array.from(
+      section("mine").querySelectorAll("li"),
+    );
     expect(unfinished?.textContent).toContain("Team board");
-    expect(unfinished?.textContent).toContain("From a scene · View only");
+    expect(unfinished?.textContent).toContain("From a scene");
     expect(unfinished?.textContent).toContain("Setup didn't finish");
     // Only the owner can cancel a creation.
     expect(buttonIn(unfinished!, "Cancel room creation")).toBeUndefined();
 
-    const [ready] = Array.from(groups[1]!.querySelectorAll("li"));
     expect(ready?.textContent).toContain("aa000000");
     expect(ready?.textContent).toContain("Owner");
-    await act(async () => {
-      buttonIn(ready!, "Open room")?.click();
-    });
-    await vi.waitFor(() => expect(push).toHaveBeenCalled());
+    act(() => buttonIn(ready!, "Open room")?.click());
+    expect(push).toHaveBeenCalledOnce();
     const target = new URL(String(push.mock.calls[0]?.[0]));
     expect(target.searchParams.get("collab-room")).toBe(
       "aa000000-0000-4000-8000-000000000001",
     );
     expect(target.hash).toBe("");
+    expect(target.href).not.toContain("collab-key");
+  });
+
+  it("removes a link-opened room from the list with leave, without confirming", async () => {
+    render(empty, {
+      isSuccess: true,
+      data: {
+        rooms: [room({ role: "editor", access: "link" })],
+        nextCursor: null,
+      },
+    });
+    const item = await openMenu(section("link").querySelector("li")!);
+    expect(item("Leave room")).toBeUndefined();
+    expect(item("End room")).toBeUndefined();
+    await act(async () => item("Remove from list")?.click());
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(execute).toHaveBeenCalledOnce();
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      v: 1,
+      action: "leave",
+      roomId: "87f19732-2ffa-4fbe-8456-7c221487594f",
+    });
+    expect(toast.success).toHaveBeenCalledWith(
+      "Removed from the list. Opening its link again brings it back.",
+    );
+  });
+
+  it("reports a failed removal like other room actions", async () => {
+    execute.mockRejectedValueOnce(new Error("offline"));
+    render(empty, {
+      isSuccess: true,
+      data: { rooms: [room({ access: "link" })], nextCursor: null },
+    });
+    const item = await openMenu(section("link").querySelector("li")!);
+    await act(async () => item("Remove from list")?.click());
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    expect(invalidate).not.toHaveBeenCalled();
+  });
+
+  it("paginates each section on its own", async () => {
+    const nextCursor = {
+      listedAt: 1,
+      roomId: "87f19732-2ffa-4fbe-8456-7c221487594f",
+    };
+    render(empty, {
+      isSuccess: true,
+      data: { rooms: [room({ access: "link" })], nextCursor },
+    });
+    expect(buttonIn(section("mine"), "Next page")).toBeUndefined();
+    listQuery.mockClear();
+    act(() => buttonIn(section("link"), "Next page")?.click());
+    const inputs = listQuery.mock.calls.map(([input]) => input);
+    expect(inputs).toContainEqual(
+      expect.objectContaining({ section: "link", cursor: nextCursor }),
+    );
+    expect(inputs).toContainEqual(
+      expect.objectContaining({ section: "mine", cursor: undefined }),
+    );
   });
 
   it("cancels an owner's unfinished creation with cancel-initialization, never end-room", async () => {
@@ -206,6 +320,7 @@ describe("collaboration room list (18C §2)", () => {
     render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
     const item = await openMenu(container.querySelector("li")!);
     expect(item("Leave room")).toBeUndefined();
+    expect(item("Reset link")).toBeUndefined();
     await act(async () => item("End room")?.click());
     expect(execute).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain("End this room?");
@@ -217,14 +332,17 @@ describe("collaboration room list (18C §2)", () => {
     expect(toast.success).toHaveBeenCalledWith("Room ended.");
   });
 
-  it("lets a member leave, without end or link reset options", async () => {
+  it("lets an invited member leave after confirming, without end", async () => {
     render({
       isSuccess: true,
-      data: { rooms: [room({ role: "editor" })], nextCursor: null },
+      data: {
+        rooms: [room({ role: "editor", access: "invited" })],
+        nextCursor: null,
+      },
     });
     const item = await openMenu(container.querySelector("li")!);
     expect(item("End room")).toBeUndefined();
-    expect(item("Reset link")).toBeUndefined();
+    expect(item("Remove from list")).toBeUndefined();
     await act(async () => item("Leave room")?.click());
     expect(document.body.textContent).toContain("Leave this room?");
     await act(async () => {
@@ -237,39 +355,40 @@ describe("collaboration room list (18C §2)", () => {
     expect(execute.mock.calls[0]?.[0]).toMatchObject({ action: "leave" });
   });
 
-  it("sends link resets to the room, which needs its key", async () => {
-    render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
-    const item = await openMenu(container.querySelector("li")!);
-    await act(async () => item("Reset link")?.click());
-    expect(execute).not.toHaveBeenCalled();
-    expect(toast.info).toHaveBeenCalledWith(
-      "In the room, open Share room and choose Reset link.",
-    );
-    await vi.waitFor(() => expect(push).toHaveBeenCalled());
-    expect(
-      new URL(String(push.mock.calls[0]?.[0])).searchParams.get("collab-room"),
-    ).toBe("87f19732-2ffa-4fbe-8456-7c221487594f");
-  });
-
   it("locks every other room's management while one intent is unsettled", async () => {
     execute.mockImplementationOnce(() => new Promise(() => undefined));
-    render({
-      isSuccess: true,
-      data: {
-        rooms: [
-          room({ roomId: "aa000000-0000-4000-8000-000000000001" }),
-          room({ roomId: "bb000000-0000-4000-8000-000000000002" }),
-          room({
-            roomId: "cc000000-0000-4000-8000-000000000003",
-            status: "initializing",
-          }),
-        ],
-        nextCursor: null,
+    render(
+      {
+        isSuccess: true,
+        data: {
+          rooms: [
+            room({ roomId: "aa000000-0000-4000-8000-000000000001" }),
+            room({
+              roomId: "cc000000-0000-4000-8000-000000000003",
+              status: "initializing",
+            }),
+          ],
+          nextCursor: null,
+        },
       },
-    });
-    const rows = () => Array.from(container.querySelectorAll("li"));
+      {
+        isSuccess: true,
+        data: {
+          rooms: [
+            room({
+              roomId: "bb000000-0000-4000-8000-000000000002",
+              access: "link",
+              role: "viewer",
+            }),
+          ],
+          nextCursor: null,
+        },
+      },
+    );
     const ready = (id: string) =>
-      rows().find((row) => row.textContent?.includes(id))!;
+      Array.from(container.querySelectorAll("li")).find((row) =>
+        row.textContent?.includes(id),
+      )!;
     let item = await openMenu(ready("aa000000"));
     await act(async () => item("End room")?.click());
     await act(async () => {
@@ -282,21 +401,20 @@ describe("collaboration room list (18C §2)", () => {
     // Nothing else can be confirmed only to be dropped.
     expect(buttonIn(container, "Cancel room creation")?.disabled).toBe(true);
     item = await openMenu(ready("bb000000"));
-    expect(item("End room")?.hasAttribute("data-disabled")).toBe(true);
+    expect(item("Remove from list")?.hasAttribute("data-disabled")).toBe(true);
   });
 
   it("offers a fresh creation once its unfinished room is cancelled from the list", async () => {
     const { AuthorityRoomError } =
       await import("@/lib/collab/authority-client");
     creation.start.mockRejectedValueOnce(new AuthorityRoomError("pending"));
-    const list = {
+    render({
       isSuccess: true,
       data: {
         rooms: [room({ roomId: creation.roomId, status: "initializing" })],
         nextCursor: null,
       },
-    };
-    render(list);
+    });
     await act(async () => {
       buttonIn(container, "New room")?.click();
     });
@@ -314,9 +432,24 @@ describe("collaboration room list (18C §2)", () => {
     expect(buttonIn(container, "New room")).toBeDefined();
   });
 
+  it("opens a newly created room with a plain link", async () => {
+    creation.start.mockResolvedValueOnce({
+      roomId: creation.roomId,
+      projectionPending: false,
+    });
+    render(empty);
+    await act(async () => {
+      buttonIn(container, "New room")?.click();
+    });
+    await vi.waitFor(() => expect(push).toHaveBeenCalled());
+    const target = new URL(String(push.mock.calls[0]?.[0]));
+    expect(target.searchParams.get("collab-room")).toBe(creation.roomId);
+    expect(target.hash).toBe("");
+  });
+
   it("offers retry and cancel only once a creation has stopped, not while it runs", async () => {
     creation.start.mockImplementationOnce(() => new Promise(() => undefined));
-    render({ isSuccess: true, data: { rooms: [], nextCursor: null } });
+    render(empty);
     await act(async () => {
       buttonIn(container, "New room")?.click();
     });
@@ -353,23 +486,5 @@ describe("collaboration room list (18C §2)", () => {
     });
     expect(creation.start).toHaveBeenCalledOnce();
     expect(creation.cancel).not.toHaveBeenCalled();
-  });
-
-  it("opens a room with Room's custody copy of its key", async () => {
-    roomKeyMutate.mockResolvedValueOnce({
-      roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
-      authGeneration: 1,
-    } as never);
-    render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
-    await act(async () => {
-      buttonIn(container, "Open room")?.click();
-    });
-    await vi.waitFor(() => expect(push).toHaveBeenCalled());
-    const target = new URL(String(push.mock.calls[0]?.[0]));
-    expect(target.hash).toBe(
-      "#collab-key=T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
-    );
-    // The key stays in the fragment, never in what the server receives.
-    expect(target.search).not.toContain("T0PSTFR2");
   });
 });

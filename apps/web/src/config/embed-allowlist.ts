@@ -14,7 +14,7 @@ export const EXTRA_EMBED_DOMAINS: readonly string[] = [
 // T16（threat model B6）的 embed 決策：upstream 內建白名單中，twitter/x、
 // reddit 與 gist.github.com 走 srcdoc iframe 且 `allowSameOrigin`，其外部
 // script（platform.twitter.com、embed.reddit.com、gist.github.com）會以與
-// 頁面同源的權限執行——room key 就存在於這個 origin 的 JS 記憶體。允許它們
+// 頁面同源的權限執行——分享連結的金鑰就存在於這個 origin 的 JS 記憶體。允許它們
 // 等於把第三方 CDN 納入信任邊界，因此在 validator 層明確封鎖，CSP 的
 // `script-src` 也不放行任何外部 script origin。比對規則與 upstream 一致：
 // hostname 去掉單一前導 `www.` 後精確比對。

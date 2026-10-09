@@ -9,10 +9,6 @@ import {
 } from "@drawstuff/collaboration/protocol";
 import type { JoinBarrierOptions } from "@drawstuff/collaboration/join-barrier";
 import type { OfflineChangeQueueOptions } from "@drawstuff/collaboration/offline-queue";
-import {
-  roomKeySchema,
-  type RoomKey,
-} from "@drawstuff/collaboration/realtime-crypto";
 import type {
   RecoveryPolicyOptions,
   RecoveryState,
@@ -59,12 +55,6 @@ import { requestUrl } from "./request-url";
 export const ROOM_ID = roomIdSchema.parse("room-poc");
 /** The fake network models delivery, not token verification. */
 export const JOIN_TOKEN = "test-join-token";
-/** Authorization generation every client in these tests joined under. */
-export const AUTH_GENERATION = 1;
-/** Shared room key: asset sealing is real, so the key has to be a real one. */
-export const ROOM_KEY = roomKeySchema.parse(
-  "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
-);
 
 export type SceneHost = {
   api: CollaborationSceneApi;
@@ -222,11 +212,10 @@ export function createManualTimers() {
 /**
  * In-memory stand-in for the durable snapshot backend.
  *
- * Deliberately not encrypted: sealing is the collaboration package's contract
- * and is covered there against real Web Crypto in Chromium and WebKit. What these
- * tests need is the *store's* behaviour — revisions, conflicts, and the failure
- * outcomes a client has to survive — and an unencrypted backend keeps every
- * assertion synchronous and readable.
+ * Deliberately not the byte codec: encoding is covered by the store's own
+ * tests. What these tests need is the *store's* behaviour — revisions,
+ * conflicts, and the failure outcomes a client has to survive — and an
+ * in-memory backend keeps every assertion synchronous and readable.
  */
 export function createSnapshotBackend() {
   let revision = SNAPSHOT_NO_REVISION;
@@ -270,14 +259,14 @@ export function createSnapshotBackend() {
     /**
      * A client's view of the backend.
      *
-     * `outcome` forces the failure paths a real client has to handle: a link with
-     * the wrong key, and a fetch that fails. `deferLoad` holds the fetch open
+     * `outcome` forces the failure paths a real client has to handle: a damaged
+     * stored snapshot, and a fetch that fails. `deferLoad` holds the fetch open
      * until `resolveDeferredLoads()`, which is how a test puts a joiner in the
      * state the barrier exists for — subscribed, holding, no baseline yet.
      */
     createStore(
       options: {
-        outcome?: "wrong-key" | "unavailable";
+        outcome?: "malformed" | "unavailable";
         deferLoad?: boolean;
       } = {},
     ): CollaborationSnapshotStore {
@@ -327,13 +316,13 @@ export function createSnapshotBackend() {
 
 /**
  * In-memory stand-in for the asset backend: the room's asset records plus the
- * object store the ciphertext lands in.
+ * object store the payload lands in.
  *
- * Deliberately *not* a stand-in for the sealing. Unlike the snapshot backend
- * above, what these tests need to establish is the whole round trip — a client
- * seals, another client fetches and opens — so the bytes stored here are real
- * ciphertext produced by the real codec against the room key, and `corrupt()`
- * makes a real authentication failure rather than a simulated one.
+ * Deliberately *not* a stand-in for the payload codec. Unlike the snapshot
+ * backend above, what these tests need to establish is the whole round trip — a
+ * client encodes, another client fetches and decodes — so the bytes stored here
+ * are real payloads produced by the real codec, and `corrupt()` makes a real
+ * decode failure rather than a simulated one.
  *
  * `withholdUploads` models the window that actually exists in production: a peer
  * has broadcast an image element and its upload has not landed yet, which is
@@ -342,7 +331,6 @@ export function createSnapshotBackend() {
 export function createAssetBackend() {
   type StoredRecord = {
     excalidrawFileId: string;
-    cryptoVersion: number;
     byteLength: number;
     url: string;
   };
@@ -391,12 +379,12 @@ export function createAssetBackend() {
     get fetchCalls() {
       return fetchCalls;
     },
-    /** Ids the room currently has ciphertext for. */
+    /** Ids the room currently has a stored payload for. */
     storedIds(): string[] {
       return [...records.keys()].sort();
     },
-    /** Ciphertext as stored, for assertions about what the server can see. */
-    ciphertextFor(fileId: string): Uint8Array | undefined {
+    /** Payload as stored, for assertions about what storage holds. */
+    payloadFor(fileId: string): Uint8Array | undefined {
       const record = records.get(fileId);
       if (!record) return undefined;
       const key = keyFromUrl(record.url);
@@ -445,22 +433,11 @@ export function createAssetBackend() {
     get resolveAborted() {
       return resolveAborted;
     },
-    /**
-     * Rewrites a stored record's envelope version, as an `ASSET_CRYPTO_VERSION`
-     * bump does to every asset already in a room: the ciphertext is untouched and
-     * a reader on the new version can never open it.
-     */
-    setStoredCryptoVersion(fileId: string, cryptoVersion: number): void {
-      const record = records.get(fileId);
-      if (!record) throw new Error(`no stored asset for ${fileId}`);
-      records.set(fileId, { ...record, cryptoVersion });
-    },
-    /** Flips a ciphertext byte in storage: tampering the reader must refuse. */
+    /** Damages the stored payload's version byte: the reader must refuse it. */
     corrupt(fileId: string): void {
-      const stored = this.ciphertextFor(fileId);
+      const stored = this.payloadFor(fileId);
       if (!stored) throw new Error(`no stored asset for ${fileId}`);
-      const last = stored.byteLength - 1;
-      stored[last] = (stored[last] ?? 0) ^ 0xff;
+      stored[0] = (stored[0] ?? 0) ^ 0xff;
     },
 
     createApi(): AssetApi {
@@ -485,12 +462,11 @@ export function createAssetBackend() {
             assets.map((asset) => asset.excalidrawFileId),
           );
           return Promise.resolve({
-            authGeneration: AUTH_GENERATION,
             assets,
             missing: fileIds.filter((fileId) => !available.has(fileId)),
           });
         },
-        upload: ({ excalidrawFileId, cryptoVersion, ciphertext }) =>
+        upload: ({ excalidrawFileId, payload }) =>
           trackTransfer(async () => {
             uploadCalls += 1;
             if (failUploads > 0) {
@@ -505,11 +481,10 @@ export function createAssetBackend() {
             }
             nextKey += 1;
             const key = `object-${nextKey}`;
-            objects.set(key, Uint8Array.from(ciphertext));
+            objects.set(key, Uint8Array.from(payload));
             const record: StoredRecord = {
               excalidrawFileId,
-              cryptoVersion,
-              byteLength: ciphertext.byteLength,
+              byteLength: payload.byteLength,
               url: urlFor(key),
             };
             if (withholdUploads) {
@@ -526,7 +501,7 @@ export function createAssetBackend() {
     },
 
     /**
-     * `fetch` over the object store; the store reads ciphertext through this.
+     * `fetch` over the object store; the store reads payloads through this.
      *
      * Deliberately takes a macrotask to answer, so overlapping downloads really do
      * overlap and `peakConcurrentTransfers` measures something.
@@ -620,15 +595,10 @@ export function createHarness(
       transport,
       roomId: ROOM_ID,
       joinToken: JOIN_TOKEN,
-      authGeneration: AUTH_GENERATION,
       refreshJoinToken: async () => {
         tokenRefreshCount += 1;
         if (options.refreshJoinToken) return options.refreshJoinToken();
-        return {
-          ok: true,
-          token: `${JOIN_TOKEN}-${tokenRefreshCount}`,
-          authGeneration: AUTH_GENERATION,
-        };
+        return { ok: true, token: `${JOIN_TOKEN}-${tokenRefreshCount}` };
       },
       username: name,
       sceneApi: host.api,
@@ -689,7 +659,7 @@ export function createHarness(
   /**
    * A client with a real asset store attached to a fake backend.
    *
-   * The store hands opened assets to the session and the session asks the store
+   * The store hands decoded assets to the session and the session asks the store
    * for them, so the wiring is the same late binding production uses
    * (`room-session.ts`): the callback is installed the moment the session exists.
    * Retry backoff runs on the returned manual timers, so no assertion waits.
@@ -698,12 +668,6 @@ export function createHarness(
     name: string,
     backend: AssetBackend,
     options: Omit<CreateClientOptions, "assetStore"> & {
-      /**
-       * Room key for this client's asset codec. Defaults to the shared one; a
-       * different key is how a test models a link that cannot open the room's
-       * images, without stubbing the crypto.
-       */
-      roomKey?: RoomKey;
       /**
        * Wraps the backend's `fetch`. Lets a test hold one download open, which is
        * the only way to order two concurrent lookups deterministically.
@@ -715,11 +679,9 @@ export function createHarness(
     const unreadableAssetReports = { count: 0 };
     /** Filled once the session exists; the store's callbacks settle after that. */
     const target: { session?: CollaborationSession } = {};
-    const assetStore = await createCollaborationAssetStore({
+    const assetStore = createCollaborationAssetStore({
       api: backend.createApi(),
       roomId: ROOM_ID,
-      roomKey: options.roomKey ?? ROOM_KEY,
-      authGeneration: AUTH_GENERATION,
       onAssetsResolved: (files) => {
         target.session?.applyRemoteAssets(files);
       },

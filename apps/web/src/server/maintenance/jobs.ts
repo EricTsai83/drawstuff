@@ -423,7 +423,7 @@ export function createUnreferencedAssetGcJob(
 export const ROOM_RETENTION_CLEANUP_REASON = "collab-room-retention";
 
 export type RoomRetentionOptions = {
-  /** Grace period after an explicit end, before reclaiming encrypted room data. */
+  /** Grace period after an explicit end, before reclaiming room data. */
   graceMs?: number;
   /** Rooms reclaimed per run. */
   maxRooms?: number;

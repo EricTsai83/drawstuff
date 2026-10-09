@@ -4,9 +4,6 @@ import { createRoot, type Root } from "react-dom/client";
 import { TRPCClientError } from "@trpc/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { createRoomInitialization as RoomInitializer } from "@/lib/collab/room-initialization";
-import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
-import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
-import type { SnapshotApi } from "@/lib/collab/snapshot-http";
 
 const {
   executeMutate,
@@ -14,16 +11,11 @@ const {
   findForScene,
   initialCapture,
   cancelCreate,
-  endSuccessHandler,
-  getActiveForSceneInvalidate,
-  idleMutate,
-  leaveSuccessHandler,
+  listInvalidate,
   roomGetInvalidate,
   roomGetUseQuery,
   toastError,
   toastInfo,
-  toastSuccess,
-  binaryApi,
 } = vi.hoisted(() => ({
   // Room confirms every management intent at once.
   executeMutate: vi.fn((input: { operationId: string }) =>
@@ -40,40 +32,13 @@ const {
     current: undefined as Parameters<typeof RoomInitializer>[0] | undefined,
   },
   cancelCreate: vi.fn<() => Promise<void>>(),
-  createMutate: vi.fn<
-    () => Promise<{
-      roomId: string;
-      roomKey: RoomKey;
-      projectionPending?: boolean;
-    }>
-  >(),
-  endSuccessHandler: {
-    current: undefined as
-      | ((result: { enforcement: "enforced" | "pending" }) => Promise<void>)
-      | undefined,
-  },
-  getActiveForSceneInvalidate: vi.fn(() => Promise.resolve()),
-  idleMutate: vi.fn(),
-  leaveSuccessHandler: {
-    current: undefined as
-      | ((result: { enforcement: "enforced" | "pending" }) => Promise<void>)
-      | undefined,
-  },
+  createMutate:
+    vi.fn<() => Promise<{ roomId: string; projectionPending?: boolean }>>(),
+  listInvalidate: vi.fn(() => Promise.resolve()),
   roomGetInvalidate: vi.fn(() => Promise.resolve()),
   roomGetUseQuery: vi.fn<(...args: unknown[]) => unknown>(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
-  toastSuccess: vi.fn(),
-  binaryApi: {
-    read: vi.fn<SnapshotApi["read"]>(),
-    write: vi.fn<SnapshotApi["write"]>(),
-    query: vi.fn<SnapshotApi["query"]>(),
-    cancel: vi.fn<SnapshotApi["cancel"]>(),
-  },
-}));
-vi.mock("@/lib/collab/snapshot-http", async (original) => ({
-  ...(await original<typeof SnapshotHttp>()),
-  createBinarySnapshotClient: () => binaryApi,
 }));
 
 vi.mock("@/lib/collab/room-initialization", () => ({
@@ -90,38 +55,16 @@ vi.mock("sonner", () => ({
   toast: {
     error: toastError,
     info: toastInfo,
-    success: toastSuccess,
+    success: vi.fn(),
     warning: vi.fn(),
   },
 }));
 
-const dialogShell = vi.hoisted(() => ({
-  requestOpenChange: undefined as ((open: boolean) => void) | undefined,
-  showCloseButton: true,
-}));
 vi.mock("@/components/ui/dialog", () => ({
-  // Records what the dialog hands its shell: Esc, an outside click and the
-  // close button all arrive through onOpenChange(false).
-  Dialog: ({
-    children,
-    onOpenChange,
-  }: {
-    children: ReactNode;
-    onOpenChange?: (open: boolean) => void;
-  }) => {
-    dialogShell.requestOpenChange = onOpenChange;
-    return children;
-  },
-  DialogContent: ({
-    children,
-    showCloseButton = true,
-  }: {
-    children: ReactNode;
-    showCloseButton?: boolean;
-  }) => {
-    dialogShell.showCloseButton = showCloseButton;
-    return <div>{children}</div>;
-  },
+  Dialog: ({ children }: { children: ReactNode }) => children,
+  DialogContent: ({ children }: { children: ReactNode }) => (
+    <div>{children}</div>
+  ),
   DialogDescription: ({ children }: { children: ReactNode }) => (
     <p>{children}</p>
   ),
@@ -130,6 +73,57 @@ vi.mock("@/components/ui/dialog", () => ({
   ),
   DialogTitle: ({ children }: { children: ReactNode }) => <h2>{children}</h2>,
 }));
+
+// A native <select> stands in for Base UI's popup so a test can pick a value.
+vi.mock("@/components/ui/select", async () => {
+  const { createContext, useContext } = await import("react");
+  type Item = { value: string; label: string };
+  type Context = {
+    value: string;
+    items: Item[];
+    disabled?: boolean;
+    onValueChange: (value: string) => void;
+  };
+  const SelectContext = createContext<Context | null>(null);
+  return {
+    Select: ({ children, ...context }: Context & { children: ReactNode }) => (
+      <SelectContext.Provider value={context}>
+        {children}
+      </SelectContext.Provider>
+    ),
+    SelectTrigger: (props: { children: ReactNode; "aria-label"?: string }) => {
+      const context = useContext(SelectContext)!;
+      return (
+        <div>
+          <select
+            aria-label={props["aria-label"]}
+            value={context.value}
+            disabled={context.disabled}
+            onChange={(event) => context.onValueChange(event.target.value)}
+          >
+            {context.items.map((item) => (
+              <option key={item.value} value={item.value}>
+                {item.label}
+              </option>
+            ))}
+          </select>
+          {props.children}
+        </div>
+      );
+    },
+    SelectValue: () => {
+      const context = useContext(SelectContext)!;
+      return (
+        <span data-slot="select-value">
+          {context.items.find((item) => item.value === context.value)?.label}
+        </span>
+      );
+    },
+    SelectContent: () => null,
+    SelectGroup: () => null,
+    SelectItem: () => null,
+  };
+});
 
 vi.mock("@/components/google-sign-in-button", () => ({
   GoogleSignInButton: ({ label }: { label?: string }) => (
@@ -146,60 +140,30 @@ vi.mock("@/hooks/use-app-i18n", async () => {
   };
 });
 
-vi.mock("@/trpc/react", () => {
-  const idleMutation = { isPending: false, mutate: idleMutate };
-  return {
-    api: {
-      useUtils: () => ({
-        collaborationRoom: {
-          get: { invalidate: roomGetInvalidate },
-          list: { invalidate: getActiveForSceneInvalidate },
-        },
-        client: {
-          collaborationRoom: {
-            setKeyCheck: { mutate: vi.fn() },
-          },
-          collaborationAuthority: {
-            findForScene: { query: findForScene },
-            execute: { mutate: executeMutate },
-            identity: { mutate: vi.fn() },
-          },
-        },
-      }),
+vi.mock("@/trpc/react", () => ({
+  api: {
+    useUtils: () => ({
       collaborationRoom: {
-        get: {
-          useQuery: (...args: unknown[]) => {
-            return { data: roomGetUseQuery(...args) ?? null };
-          },
+        get: { invalidate: roomGetInvalidate },
+        list: { invalidate: listInvalidate },
+      },
+      client: {
+        collaborationAuthority: {
+          findForScene: { query: findForScene },
+          execute: { mutate: executeMutate },
+          identity: { mutate: vi.fn() },
         },
-        end: {
-          useMutation: (options: {
-            onSuccess?: (result: {
-              enforcement: "enforced" | "pending";
-            }) => Promise<void>;
-          }) => {
-            endSuccessHandler.current = options.onSuccess;
-            return idleMutation;
-          },
-        },
-        leave: {
-          useMutation: (options: {
-            onSuccess?: (result: {
-              enforcement: "enforced" | "pending";
-            }) => Promise<void>;
-          }) => {
-            leaveSuccessHandler.current = options.onSuccess;
-            return idleMutation;
-          },
-        },
-        removeMember: { useMutation: () => idleMutation },
-        setMemberRole: { useMutation: () => idleMutation },
-        setLinkRole: { useMutation: () => idleMutation },
-        rotateGeneration: { useMutation: () => idleMutation },
+      },
+    }),
+    collaborationRoom: {
+      get: {
+        useQuery: (...args: unknown[]) => ({
+          data: roomGetUseQuery(...args) ?? null,
+        }),
       },
     },
-  };
-});
+  },
+}));
 
 import {
   CollaborationRoomDialog,
@@ -213,23 +177,9 @@ import {
 let container: HTMLDivElement | undefined;
 let root: Root | undefined;
 
-const renderDialog = (params: {
-  isAuthenticated: boolean;
-  isAuthenticationPending?: boolean;
-  roomId?: string | null;
-  onOpenChange?: (open: boolean) => void;
-  onRoomIdChange?: (roomId: string | null) => void;
-  onRoomKeyChange?: CollaborationRoomDialogProps["onRoomKeyChange"];
-  failureReason?: CollaborationRoomDialogProps["failureReason"];
-  status?: CollaborationRoomDialogProps["status"];
-  sceneId?: string | null;
-  onRetryJoin?: () => void;
-  roomKey?: RoomKey | null;
-  errorMessage?: string | null;
-  onInitializationChange?: (active: boolean) => void;
-  getInitialElements?: CollaborationRoomDialogProps["getInitialElements"];
-  getInitialFiles?: CollaborationRoomDialogProps["getInitialFiles"];
-}): void => {
+const renderDialog = (
+  params: Partial<CollaborationRoomDialogProps> & { isAuthenticated: boolean },
+): void => {
   if (!root) {
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -249,15 +199,22 @@ const renderDialog = (params: {
         onInitializationChange={params.onInitializationChange}
         roomId={params.roomId ?? null}
         onRoomIdChange={params.onRoomIdChange ?? (() => undefined)}
-        roomKey={params.roomKey ?? null}
-        onRoomKeyChange={params.onRoomKeyChange ?? (() => undefined)}
         status={params.status ?? "idle"}
         failureReason={params.failureReason ?? null}
         errorMessage={params.errorMessage ?? null}
-        onRetryJoin={params.onRetryJoin ?? (() => undefined)}
       />,
     );
   });
+};
+
+const buttonWith = (scope: ParentNode, text: string) =>
+  Array.from(scope.querySelectorAll("button")).find(
+    (button) => button.textContent === text,
+  );
+const button = (text: string) => {
+  const result = buttonWith(container!, text);
+  if (!result) throw new Error(`missing-button:${text}`);
+  return result;
 };
 
 beforeEach(() => {
@@ -265,31 +222,12 @@ beforeEach(() => {
   findForScene.mockReset().mockResolvedValue(null);
   initialCapture.current = undefined;
   cancelCreate.mockReset().mockResolvedValue(undefined);
-  endSuccessHandler.current = undefined;
-  leaveSuccessHandler.current = undefined;
-  createMutate.mockReset().mockResolvedValue({
-    roomId: "ready-room",
-    roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
-  });
-  getActiveForSceneInvalidate.mockClear();
+  createMutate.mockReset().mockResolvedValue({ roomId: "ready-room" });
+  listInvalidate.mockClear();
   roomGetInvalidate.mockClear();
   roomGetUseQuery.mockReset();
   toastError.mockClear();
   toastInfo.mockClear();
-  toastSuccess.mockClear();
-  binaryApi.read.mockReset().mockImplementation(async (request) => ({
-    found: false,
-    bytes: null,
-    receipt: {
-      roomId: request.roomId,
-      authGeneration: 1,
-      authorityEpoch: 1,
-      revision: 4,
-    },
-  }));
-  binaryApi.write.mockReset().mockResolvedValue({ status: "pending" });
-  binaryApi.query.mockReset().mockResolvedValue({ status: "pending" });
-  binaryApi.cancel.mockReset().mockResolvedValue({ status: "cancelled" });
 });
 
 afterEach(() => {
@@ -299,7 +237,7 @@ afterEach(() => {
   container = undefined;
 });
 
-describe("collaboration room authentication guard", () => {
+describe("collaboration room creation", () => {
   it("captures and pauses the source canvas before scene lookup can yield to a different canvas", async () => {
     let finish: ((candidate: null) => void) | undefined;
     findForScene.mockImplementationOnce(
@@ -327,9 +265,7 @@ describe("collaboration room authentication guard", () => {
       onInitializationChange: change,
     });
     await act(async () => {
-      Array.from(container?.querySelectorAll("button") ?? [])
-        .find((button) => button.textContent === "Start collaboration")
-        ?.click();
+      button("Start collaboration").click();
       await vi.waitFor(() => expect(findForScene).toHaveBeenCalled());
     });
     expect(change).toHaveBeenCalledWith(true);
@@ -345,74 +281,61 @@ describe("collaboration room authentication guard", () => {
       "data:image/png;base64,AAAA",
     );
   });
+
+  it("explains the room's protection without key or encryption wording", () => {
+    renderDialog({ isAuthenticated: true });
+    const text = container!.textContent ?? "";
+    expect(text).toContain("protected by sign-in");
+    expect(text).not.toMatch(/\bkey\b|encrypt|complete link/i);
+  });
+
   it("ignores a late initialization success after sign-out and releases the paused personal canvas", async () => {
-    let finish:
-      ((ready: { roomId: string; roomKey: RoomKey }) => void) | undefined;
+    let finish: ((ready: { roomId: string }) => void) | undefined;
     createMutate.mockImplementationOnce(
       () =>
         new Promise((resolve) => {
           finish = resolve;
         }),
     );
-    const keyChange = vi.fn();
     const roomChange = vi.fn();
     const change = vi.fn();
     renderDialog({
       isAuthenticated: true,
-      onRoomKeyChange: keyChange,
       onRoomIdChange: roomChange,
       onInitializationChange: change,
     });
     await act(async () => {
-      Array.from(container?.querySelectorAll("button") ?? [])
-        .find((button) => button.textContent === "Start collaboration")
-        ?.click();
+      button("Start collaboration").click();
       await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
     });
     renderDialog({
       isAuthenticated: false,
-      onRoomKeyChange: keyChange,
       onRoomIdChange: roomChange,
       onInitializationChange: change,
     });
-    await act(async () => {
-      finish?.({
-        roomId: "late-room",
-        roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
-      });
-    });
-    expect(keyChange).not.toHaveBeenCalled();
+    await act(async () => finish?.({ roomId: "late-room" }));
     expect(roomChange).not.toHaveBeenCalled();
     expect(change).toHaveBeenLastCalledWith(false);
   });
-  it("keeps the captured canvas paused and never exposes a key for pending initialization; confirmed cancellation releases it", async () => {
+
+  it("keeps the captured canvas paused for pending initialization; confirmed cancellation releases it", async () => {
     const { AuthorityRoomError } =
       await import("@/lib/collab/authority-client");
     createMutate.mockRejectedValueOnce(new AuthorityRoomError("pending"));
     cancelCreate.mockRejectedValueOnce(new AuthorityRoomError("pending"));
     const change = vi.fn();
-    const keyChange = vi.fn();
     const roomChange = vi.fn();
     renderDialog({
       isAuthenticated: true,
       onInitializationChange: change,
-      onRoomKeyChange: keyChange,
       onRoomIdChange: roomChange,
     });
-    const button = (text: string) => {
-      const result = Array.from(
-        container?.querySelectorAll("button") ?? [],
-      ).find((button) => button.textContent === text);
-      if (!result) throw new Error(`missing-button:${text}`);
-      return result;
-    };
     await act(async () => {
       button("Start collaboration").click();
       await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
     });
     expect(change).toHaveBeenCalledWith(true);
     expect(change).not.toHaveBeenCalledWith(false);
-    expect(keyChange).not.toHaveBeenCalled();
     expect(roomChange).not.toHaveBeenCalled();
     await act(async () => {
       button("Cancel room creation").click();
@@ -425,54 +348,9 @@ describe("collaboration room authentication guard", () => {
       await vi.waitFor(() => expect(cancelCreate).toHaveBeenCalledTimes(2));
     });
     expect(change).toHaveBeenLastCalledWith(false);
-    expect(keyChange).not.toHaveBeenCalled();
     expect(roomChange).not.toHaveBeenCalled();
   });
 
-  it("shows no reset success or join retry for pending, then recovers the same operation on a confirmed button retry", async () => {
-    roomGetUseQuery.mockReturnValue({
-      allowlist: [],
-      role: "owner",
-      members: [],
-      linkRole: "none",
-      authGeneration: 1,
-    });
-    const retryJoin = vi.fn();
-    renderDialog({
-      isAuthenticated: true,
-      roomId: "reset-room",
-      failureReason: "unreadable-room",
-      onRetryJoin: retryJoin,
-    });
-    const button = (text: string) => {
-      const result = Array.from(
-        container?.querySelectorAll("button") ?? [],
-      ).find((el) => el.textContent === text);
-      if (!result) throw new Error(`missing-button:${text}`);
-      return result;
-    };
-    act(() => button("Reset canvas").click());
-    await act(async () => {
-      button("Delete cloud canvas").click();
-      await vi.waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));
-    });
-    expect(toastSuccess).not.toHaveBeenCalled();
-    expect(retryJoin).not.toHaveBeenCalled();
-    const operation = binaryApi.write.mock.calls[0]![0];
-    expect(operation).toMatchObject({
-      kind: "snapshot-reset",
-      expectedRevision: 4,
-    });
-    expect(binaryApi.write.mock.calls[0]![1].byteLength).toBe(0);
-    binaryApi.query.mockResolvedValueOnce({ status: "written", revision: 5 });
-    await act(async () => {
-      button("Delete cloud canvas").click();
-      await vi.waitFor(() => expect(retryJoin).toHaveBeenCalledTimes(1));
-    });
-    expect(binaryApi.query).toHaveBeenCalledWith(operation);
-    expect(binaryApi.write).toHaveBeenCalledTimes(1);
-    expect(toastSuccess).toHaveBeenCalledTimes(1);
-  });
   it("shows sign-in UI and disables the room query for signed-out users", () => {
     renderDialog({ isAuthenticated: false, roomId: "room-from-link" });
 
@@ -481,27 +359,23 @@ describe("collaboration room authentication guard", () => {
       "Sign in to create or join a collaboration room.",
     );
     expect(container?.textContent).toContain("Continue with Google");
-    expect(container?.textContent).not.toContain("不支援匿名加入");
     expect(container?.textContent).not.toContain("Start collaboration");
     expect(createMutate).not.toHaveBeenCalled();
     expect(roomGetUseQuery).toHaveBeenCalledWith(
-      { roomId: "room-from-link", includeRevokedMembers: true },
+      { roomId: "room-from-link" },
       { enabled: false },
     );
   });
 
   it("opens a room only after initialization confirms readiness", async () => {
-    renderDialog({ isAuthenticated: true });
-    const startButton = Array.from(
-      container?.querySelectorAll("button") ?? [],
-    ).find((button) => button.textContent === "Start collaboration");
-
-    expect(startButton).toBeDefined();
+    const roomChange = vi.fn();
+    renderDialog({ isAuthenticated: true, onRoomIdChange: roomChange });
     await act(async () => {
-      startButton?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      await vi.waitFor(() => expect(createMutate).toHaveBeenCalledTimes(1));
+      button("Start collaboration").click();
+      await vi.waitFor(() => expect(roomChange).toHaveBeenCalled());
     });
-    expect(createMutate).toHaveBeenCalledWith();
+    expect(createMutate).toHaveBeenCalledExactlyOnceWith();
+    expect(roomChange).toHaveBeenCalledWith("ready-room");
   });
 
   it("turns a late unauthorized response into a useful message", async () => {
@@ -513,123 +387,13 @@ describe("collaboration room authentication guard", () => {
     createMutate.mockRejectedValueOnce(error);
     renderDialog({ isAuthenticated: true });
     await act(async () => {
-      const start = Array.from(
-        container?.querySelectorAll("button") ?? [],
-      ).find((button) => button.textContent === "Start collaboration");
-      start?.click();
+      button("Start collaboration").click();
       await vi.waitFor(() => expect(toastError).toHaveBeenCalled());
     });
 
     expect(toastError).toHaveBeenCalledWith(
       "Sign in to create or join a collaboration room.",
     );
-  });
-});
-
-describe("collaboration room exit cache cleanup", () => {
-  it.each([
-    ["ending", endSuccessHandler],
-    ["leaving", leaveSuccessHandler],
-  ] as const)(
-    "marks the inaccessible room stale without refetching after %s",
-    async (operation, _successHandler) => {
-      const onOpenChange = vi.fn();
-      const onRoomIdChange = vi.fn();
-      const onRoomKeyChange = vi.fn();
-      renderDialog({
-        isAuthenticated: true,
-        roomId: "room-exited",
-        onOpenChange,
-        onRoomIdChange,
-        onRoomKeyChange,
-      });
-
-      roomGetUseQuery.mockReturnValue({
-        role: operation === "ending" ? "owner" : "viewer",
-        members: [],
-        allowlist: [],
-        linkRole: "none",
-      });
-      renderDialog({
-        isAuthenticated: true,
-        roomId: "room-exited",
-        onOpenChange,
-        onRoomIdChange,
-        onRoomKeyChange,
-      });
-      const label = operation === "ending" ? "End room" : "Leave room";
-      await act(async () => {
-        const button = Array.from(container!.querySelectorAll("button")).find(
-          (button) => button.textContent === label,
-        );
-        expect(button).toBeDefined();
-        button?.click();
-      });
-      // Nothing happens until the consequences are confirmed.
-      expect(onRoomIdChange).not.toHaveBeenCalled();
-      await act(async () => {
-        Array.from(document.querySelectorAll('[role="alertdialog"] button'))
-          .find((button) => button.textContent === label)
-          ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-      });
-
-      expect(onRoomIdChange).toHaveBeenCalledWith(null);
-      expect(onRoomKeyChange).toHaveBeenCalledWith(null);
-      expect(roomGetInvalidate).toHaveBeenCalledWith(undefined, {
-        refetchType: "none",
-      });
-      expect(getActiveForSceneInvalidate).toHaveBeenCalledOnce();
-      expect(onOpenChange).toHaveBeenCalledWith(false);
-    },
-  );
-
-  it("applies a pasted complete link for the same room and rejects other rooms or partial links", async () => {
-    const { buildRoomInviteUrl } = await import("@/lib/collab/room-link");
-    const roomKey = "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey;
-    const keyChange = vi.fn();
-    renderDialog({
-      isAuthenticated: true,
-      roomId: "room-a",
-      status: "missing-room-key",
-      onRoomKeyChange: keyChange,
-    });
-    const input = container?.querySelector<HTMLInputElement>(
-      "#collab-room-full-link",
-    );
-    const form = input?.closest("form");
-    if (!input || !form) throw new Error("missing-key form not rendered");
-    const submit = (value: string) =>
-      act(() => {
-        // React tracks the last value it rendered; going through the
-        // prototype setter makes the change visible to its onChange.
-        Reflect.set(HTMLInputElement.prototype, "value", value, input);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-        form.dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-      });
-    const link = (roomId: string, key: RoomKey | null) =>
-      buildRoomInviteUrl({
-        currentUrl: "https://drawstuff.example/",
-        roomId,
-        roomKey: key,
-      });
-
-    submit(link("room-b", roomKey));
-    submit(link("room-a", null));
-    expect(keyChange).not.toHaveBeenCalled();
-    expect(container?.textContent).toContain(
-      "This link is for a different room or is missing its key.",
-    );
-
-    submit(link("room-a", roomKey));
-    expect(keyChange).toHaveBeenCalledExactlyOnceWith(roomKey);
-    expect(input.value).toBe("");
-  });
-
-  it("does not offer the pasted-link form while the room has its key", () => {
-    renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    expect(container?.querySelector("#collab-room-full-link")).toBeNull();
   });
 
   it("starts a standalone room from an unsaved canvas without a scene lookup", async () => {
@@ -641,31 +405,23 @@ describe("collaboration room exit cache cleanup", () => {
       CollaborationRoomDialogProps["getInitialElements"]
     > &
       object;
-    const keyChange = vi.fn();
     const roomChange = vi.fn();
     renderDialog({
       isAuthenticated: true,
       sceneId: null,
       getInitialElements: () => elements,
-      onRoomKeyChange: keyChange,
       onRoomIdChange: roomChange,
     });
     expect(container?.textContent).toContain(
       "Saved in the room, not in My scenes.",
     );
-    expect(container?.textContent).not.toContain("saved personal scene");
     await act(async () => {
-      Array.from(container?.querySelectorAll("button") ?? [])
-        .find((button) => button.textContent === "Start collaboration")
-        ?.click();
+      button("Start collaboration").click();
       await vi.waitFor(() => expect(roomChange).toHaveBeenCalled());
     });
     expect(findForScene).not.toHaveBeenCalled();
     expect(initialCapture.current?.sceneId).toBeNull();
     expect(roomChange).toHaveBeenCalledWith("ready-room");
-    expect(keyChange).toHaveBeenCalledWith(
-      "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
-    );
     // The join that follows must not ask to save this canvas personally.
     expect(isCanvasInitializedForRoom("ready-room", elements)).toBe(true);
     expect(isCanvasInitializedForRoom("ready-room", [])).toBe(false);
@@ -674,15 +430,12 @@ describe("collaboration room exit cache cleanup", () => {
   it("says the room list is still syncing when the projection lags", async () => {
     createMutate.mockResolvedValueOnce({
       roomId: "ready-room",
-      roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
       projectionPending: true,
     });
     const roomChange = vi.fn();
     renderDialog({ isAuthenticated: true, onRoomIdChange: roomChange });
     await act(async () => {
-      Array.from(container?.querySelectorAll("button") ?? [])
-        .find((button) => button.textContent === "Start collaboration")
-        ?.click();
+      button("Start collaboration").click();
       await vi.waitFor(() => expect(roomChange).toHaveBeenCalled());
     });
     expect(toastInfo).toHaveBeenCalledWith(
@@ -693,41 +446,48 @@ describe("collaboration room exit cache cleanup", () => {
 
 describe("share room dialog", () => {
   const managed = (overrides: Record<string, unknown> = {}) => ({
+    roomId: "room-a",
+    state: "ready",
     role: "owner",
     linkRole: "none",
     sceneId: null,
-    authGeneration: 1,
+    label: "",
     nextCursor: null,
     nextEmailCursor: null,
     members: [
       {
         userId: "u-owner",
-        name: "owner@example.com",
+        email: "owner@example.com",
         role: "owner",
-        revoked: false,
-        lastJoinedAt: null,
+        lastJoinedAt: 1,
       },
       {
         userId: "u-amy",
-        name: "amy@example.com",
+        email: "amy@example.com",
         role: "editor",
-        revoked: false,
         lastJoinedAt: 1_700_000_000_000,
+      },
+      {
+        userId: "u-lin",
+        email: "lin@example.com",
+        role: "viewer",
+        lastJoinedAt: 1_700_000_000_000,
+      },
+      // Opened the room once, has no access now: not listed.
+      {
+        userId: "u-old",
+        email: "old@example.com",
+        role: null,
+        lastJoinedAt: 1,
       },
     ],
     allowlist: [
       {
-        email: "amy@example.com",
+        email: "Amy@example.com",
         role: "editor",
-        removed: false,
         lastJoinedAt: 1_700_000_000_000,
       },
-      {
-        email: "bob@example.com",
-        role: "viewer",
-        removed: false,
-        lastJoinedAt: null,
-      },
+      { email: "bob@example.com", role: "viewer", lastJoinedAt: null },
     ],
     ...overrides,
   });
@@ -737,10 +497,29 @@ describe("share room dialog", () => {
         '[aria-labelledby="collab-people-heading"] li',
       ),
     );
-  const buttonWith = (scope: ParentNode, text: string) =>
-    Array.from(scope.querySelectorAll("button")).find(
-      (button) => button.textContent === text,
+  const choose = async (label: string, value: string) => {
+    const select = container!.querySelector<HTMLSelectElement>(
+      `select[aria-label="${label}"]`,
     );
+    if (!select) throw new Error(`missing-select:${label}`);
+    await act(async () => {
+      Reflect.set(HTMLSelectElement.prototype, "value", value, select);
+      select.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+  };
+  const menuItem = async (trigger: string, text: string) => {
+    await act(async () => {
+      container!
+        .querySelector<HTMLButtonElement>(`[aria-label="${trigger}"]`)
+        ?.click();
+    });
+    const item = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).find((element) => element.textContent === text) as
+      HTMLElement | undefined;
+    if (!item) throw new Error(`missing-menuitem:${text}`);
+    await act(async () => item.click());
+  };
   const confirm = async (label: string) => {
     await act(async () => {
       buttonWith(
@@ -749,211 +528,118 @@ describe("share room dialog", () => {
       )?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
   };
+  const typeInvite = async (value: string) => {
+    const input = container!.querySelector<HTMLInputElement>(
+      "#collab-allow-email",
+    )!;
+    await act(async () => {
+      Reflect.set(HTMLInputElement.prototype, "value", value, input);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    return input;
+  };
+  const submitInvite = async (value: string) => {
+    const input = await typeInvite(value);
+    await act(async () => {
+      input
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    return input;
+  };
 
-  it("lists each person once, with invitations matched to their members", () => {
+  it("shares a plain link with no fragment", () => {
     roomGetUseQuery.mockReturnValue(managed());
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    const rows = people();
-    expect(rows).toHaveLength(3);
-    expect(rows[0]?.textContent).toContain("owner@example.com");
-    expect(rows[0]?.textContent).toContain("Owner");
-    expect(
-      rows.filter((row) => row.textContent?.includes("amy@example.com")),
-    ).toHaveLength(1);
-    expect(rows[2]?.textContent).toContain("bob@example.com");
-    expect(rows[2]?.textContent).toContain("Not joined yet");
+    const link =
+      container!.querySelector<HTMLInputElement>("#collab-room-link")!.value;
+    expect(new URL(link).searchParams.get("collab-room")).toBe("room-a");
+    expect(link).not.toContain("#");
+    expect(container!.textContent).not.toMatch(/\bkey\b|complete link/i);
   });
 
-  it("removes a member from the room through the membership, not the invitation", async () => {
+  it("changes general access with set-link-role", async () => {
     roomGetUseQuery.mockReturnValue(managed());
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    const amy = people().find((row) => row.textContent?.includes("amy@"))!;
-    await act(async () => {
-      amy
-        .querySelector<HTMLButtonElement>(
-          '[aria-label="Actions for amy@example.com"]',
-        )
-        ?.click();
-    });
-    const item = (text: string) =>
-      Array.from(document.querySelectorAll('[role="menuitem"]')).find(
-        (element) => element.textContent === text,
-      ) as HTMLElement | undefined;
-    expect(item("Remove invitation")).toBeDefined();
-    await act(async () => item("Remove from room")?.click());
+    await choose("Who can join with the link", "editor");
     await vi.waitFor(() => expect(executeMutate).toHaveBeenCalled());
     expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
-      action: "revoke-member",
-      subject: "u-amy",
+      action: "set-link-role",
+      roomId: "room-a",
+      linkRole: "editor",
+    });
+  });
+
+  it("lists the owner, the invitation list, then people who joined with the link", () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const rows = people().map((row) => row.textContent ?? "");
+    expect(rows).toHaveLength(4);
+    expect(rows[0]).toContain("owner@example.com");
+    expect(rows[0]).toContain("Owner");
+    expect(rows[1]).toContain("Amy@example.com");
+    expect(rows[1]).toContain("Joined");
+    expect(rows[2]).toContain("bob@example.com");
+    expect(rows[2]).toContain("Not joined yet");
+    expect(rows[3]).toContain("lin@example.com");
+    expect(rows[3]).toContain("Joined with the link");
+    expect(rows.join()).not.toContain("old@example.com");
+    // Only invitations are managed here.
+    expect(
+      container!.querySelector('[aria-label="Actions for lin@example.com"]'),
+    ).toBeNull();
+    expect(
+      container!.querySelector('select[aria-label="Role for lin@example.com"]'),
+    ).toBeNull();
+  });
+
+  it("changes an invitation's role with allow-email", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await choose("Role for bob@example.com", "editor");
+    await vi.waitFor(() => expect(executeMutate).toHaveBeenCalled());
+    expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
+      action: "allow-email",
+      email: "bob@example.com",
+      role: "editor",
+    });
+  });
+
+  it("removes an invitation with remove-email", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await menuItem("Actions for bob@example.com", "Remove invitation");
+    await vi.waitFor(() => expect(executeMutate).toHaveBeenCalled());
+    expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
+      action: "remove-email",
+      email: "bob@example.com",
     });
   });
 
   it("invites by email and clears the field once Room confirms", async () => {
     roomGetUseQuery.mockReturnValue(managed());
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    const input = container!.querySelector<HTMLInputElement>(
-      "#collab-allow-email",
-    )!;
-    await act(async () => {
-      Reflect.set(
-        HTMLInputElement.prototype,
-        "value",
-        "Carol@Example.com ",
-        input,
-      );
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      input
-        .closest("form")!
-        .dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-    });
+    await choose("Role for the invitation", "editor");
+    const input = await submitInvite("Carol@Example.com ");
     await vi.waitFor(() => expect(input.value).toBe(""));
     expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
       action: "allow-email",
       email: "Carol@Example.com",
-      role: "viewer",
+      role: "editor",
     });
   });
 
   it("keeps Backspace in the invite field and refuses a malformed address", async () => {
     roomGetUseQuery.mockReturnValue(managed());
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    const input = container!.querySelector<HTMLInputElement>(
-      "#collab-allow-email",
-    )!;
+    const input = await submitInvite("carol@");
     // Excalidraw lets keys through only to text, number and password inputs.
     expect(input.type).toBe("text");
     expect(input.inputMode).toBe("email");
-    await act(async () => {
-      Reflect.set(HTMLInputElement.prototype, "value", "carol@", input);
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      input
-        .closest("form")!
-        .dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-    });
     expect(executeMutate).not.toHaveBeenCalled();
     expect(input.getAttribute("aria-invalid")).toBe("true");
-  });
-
-  it("resets the link only after its consequences are confirmed", async () => {
-    roomGetUseQuery.mockReturnValue(managed());
-    renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    await act(async () => buttonWith(container!, "Reset link")?.click());
-    expect(createMutate).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain(
-      "The current link stops working and everyone is disconnected",
-    );
-    await confirm("Reset link");
-    await vi.waitFor(() => expect(createMutate).toHaveBeenCalledOnce());
-    expect(initialCapture.current?.rotate).toEqual({
-      roomId: "room-a",
-      expectedGeneration: 1,
-    });
-  });
-
-  it("shows a reset in progress as a reset, not as an unconfirmed creation or a failed join", async () => {
-    roomGetUseQuery.mockReturnValue(managed());
-    createMutate.mockReturnValueOnce(new Promise(() => undefined));
-    renderDialog({
-      isAuthenticated: true,
-      roomId: "room-a",
-      // The session drops while the old key is withdrawn.
-      status: "failed",
-      errorMessage: "Couldn't join. Check your connection and try again.",
-    });
-    await act(async () => buttonWith(container!, "Reset link")?.click());
-    await confirm("Reset link");
-    await vi.waitFor(() => expect(createMutate).toHaveBeenCalledOnce());
-    const text = document.body.textContent;
-    expect(text).toContain("Resetting link");
-    expect(text).not.toContain("Room creation is not confirmed");
-    expect(text).not.toContain("Couldn't join");
-    expect(buttonWith(container!, "Cancel room creation")).toBeUndefined();
-  });
-
-  it("gives other members only the link and leaving", () => {
-    roomGetUseQuery.mockReturnValue(managed({ role: "editor", allowlist: [] }));
-    renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    expect(container!.querySelector("#collab-allow-email")).toBeNull();
-    expect(buttonWith(container!, "Reset link")).toBeUndefined();
-    expect(buttonWith(container!, "End room")).toBeUndefined();
-    expect(buttonWith(container!, "Leave room")).toBeDefined();
-    expect(container!.querySelector('[aria-label^="Actions for"]')).toBeNull();
-  });
-
-  it("restores a removed member's access through their membership", async () => {
-    roomGetUseQuery.mockReturnValue(
-      managed({
-        members: [
-          {
-            userId: "u-dan",
-            name: "dan@example.com",
-            role: "editor",
-            revoked: true,
-            lastJoinedAt: 1,
-          },
-        ],
-        allowlist: [],
-      }),
-    );
-    renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    const [dan] = people();
-    expect(dan?.textContent).toContain("Removed");
-    await act(async () => {
-      dan
-        ?.querySelector<HTMLButtonElement>(
-          '[aria-label="Actions for dan@example.com"]',
-        )
-        ?.click();
-    });
-    const restore = Array.from(
-      document.querySelectorAll('[role="menuitem"]'),
-    ).find((item) => item.textContent === "Restore access") as
-      HTMLElement | undefined;
-    await act(async () => restore?.click());
-    await vi.waitFor(() => expect(executeMutate).toHaveBeenCalled());
-    expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
-      action: "set-member-role",
-      subject: "u-dan",
-      role: "editor",
-    });
-  });
-
-  it("edits an invitation's role only while nobody has joined with it", () => {
-    roomGetUseQuery.mockReturnValue(
-      managed({
-        members: [],
-        allowlist: [
-          // Joined, but the member is on another page of members.
-          {
-            email: "eve@example.com",
-            role: "editor",
-            removed: false,
-            lastJoinedAt: 5,
-          },
-          {
-            email: "fay@example.com",
-            role: "viewer",
-            removed: false,
-            lastJoinedAt: null,
-          },
-        ],
-      }),
-    );
-    renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    expect(
-      container!.querySelector('[aria-label="Role for eve@example.com"]'),
-    ).toBeNull();
-    expect(
-      container!.querySelector('[aria-label="Role for fay@example.com"]'),
-    ).not.toBeNull();
   });
 
   it("clears the invite field when a retried invitation is confirmed, not before", async () => {
@@ -968,31 +654,13 @@ describe("share room dialog", () => {
       }),
     );
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    const input = container!.querySelector<HTMLInputElement>(
-      "#collab-allow-email",
-    )!;
-    await act(async () => {
-      Reflect.set(
-        HTMLInputElement.prototype,
-        "value",
-        "gil@example.com",
-        input,
-      );
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => {
-      input
-        .closest("form")!
-        .dispatchEvent(
-          new Event("submit", { bubbles: true, cancelable: true }),
-        );
-    });
+    const input = await submitInvite("gil@example.com");
     await vi.waitFor(() =>
       expect(buttonWith(container!, "Retry")).toBeDefined(),
     );
     // Pending is not confirmation.
     expect(input.value).toBe("gil@example.com");
-    await act(async () => buttonWith(container!, "Retry")?.click());
+    await act(async () => button("Retry").click());
     await vi.waitFor(() => expect(input.value).toBe(""));
     expect(executeMutate.mock.calls[1]?.[0]).toMatchObject({ action: "query" });
   });
@@ -1009,118 +677,158 @@ describe("share room dialog", () => {
       }),
     );
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
-    const input = container!.querySelector<HTMLInputElement>(
-      "#collab-allow-email",
-    )!;
-    const submit = async (value: string) => {
-      await act(async () => {
-        Reflect.set(HTMLInputElement.prototype, "value", value, input);
-        input.dispatchEvent(new Event("input", { bubbles: true }));
-      });
-      await act(async () => {
-        input
-          .closest("form")!
-          .dispatchEvent(
-            new Event("submit", { bubbles: true, cancelable: true }),
-          );
-      });
-    };
-    await submit("ann@example.com");
+    await submitInvite("ann@example.com");
     await vi.waitFor(() =>
       expect(buttonWith(container!, "Retry")).toBeDefined(),
     );
     // Refused while Ann's invitation is retained.
-    await submit("ben@example.com");
-    await act(async () => {
-      Reflect.set(
-        HTMLInputElement.prototype,
-        "value",
-        "ann@example.com",
-        input,
-      );
-      input.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    await act(async () => buttonWith(container!, "Retry")?.click());
+    await submitInvite("ben@example.com");
+    const input = await typeInvite("ann@example.com");
+    await act(async () => button("Retry").click());
     await vi.waitFor(() => expect(input.value).toBe(""));
   });
 
   it("shows role and link-access labels, not their raw values", () => {
     roomGetUseQuery.mockReturnValue(managed());
-    renderDialog({
-      isAuthenticated: true,
-      roomId: "room-a",
-      roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA" as RoomKey,
-    });
-    const triggers = Array.from(
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    const values = Array.from(
       container!.querySelectorAll('[data-slot="select-value"]'),
     ).map((value) => value.textContent);
-    expect(triggers).toEqual(
+    expect(values).toEqual(
       expect.arrayContaining(["Invited people only", "View only", "Can edit"]),
     );
-    expect(triggers).not.toContain("none");
-    expect(triggers).not.toContain("viewer");
-    // With its key, the link can be shared.
-    expect(container!.querySelector("#collab-room-link")).not.toBeNull();
+    expect(values).not.toContain("none");
+    expect(values).not.toContain("viewer");
   });
 
-  it("explains a missing key once and offers no keyless link to copy", () => {
+  it("gives the owner only End room under Manage room, and no reset, paste or key UI", () => {
     roomGetUseQuery.mockReturnValue(managed());
-    renderDialog({
-      isAuthenticated: true,
-      roomId: "room-a",
-      status: "missing-room-key",
-      errorMessage: "This collaboration link is missing the encryption key.",
-    });
-    expect(container!.querySelector("#collab-room-full-link")).not.toBeNull();
-    expect(container!.querySelector("#collab-room-link")).toBeNull();
-    expect(container!.textContent).not.toContain(
-      "This collaboration link is missing the encryption key.",
-    );
-    expect(container!.textContent).toContain(
-      "Paste the complete link, including the part after #.",
-    );
-  });
-
-  it("offers only the way in or back while the key is missing, even to the owner", async () => {
-    roomGetUseQuery.mockReturnValue(managed());
-    const onRoomIdChange = vi.fn();
-    const onOpenChange = vi.fn();
-    renderDialog({
-      isAuthenticated: true,
-      roomId: "room-a",
-      status: "missing-room-key",
-      onRoomIdChange,
-      onOpenChange,
-    });
-    // Closing would leave a room that cannot open behind it.
-    expect(dialogShell.showCloseButton).toBe(false);
-    act(() => dialogShell.requestOpenChange?.(false));
-    expect(onOpenChange).not.toHaveBeenCalled();
-    expect(container!.querySelector("#collab-allow-email")).toBeNull();
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    expect(buttonWith(container!, "End room")).toBeDefined();
+    expect(buttonWith(container!, "Leave room")).toBeUndefined();
     expect(buttonWith(container!, "Reset link")).toBeUndefined();
-    expect(buttonWith(container!, "End room")).toBeUndefined();
-    await act(async () => buttonWith(container!, "Back to my canvas")?.click());
-    expect(onRoomIdChange).toHaveBeenCalledWith(null);
+    expect(buttonWith(container!, "Reset canvas")).toBeUndefined();
+    expect(container!.querySelector("#collab-room-full-link")).toBeNull();
+    expect(container!.textContent).not.toContain("Restore");
   });
 
-  it("closes the missing-key dialog when the room is navigated away from", () => {
+  it("gives other members only the link and leaving", () => {
+    roomGetUseQuery.mockReturnValue(
+      managed({ role: "editor", members: [], allowlist: [] }),
+    );
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    expect(container!.querySelector("#collab-room-link")).not.toBeNull();
+    expect(container!.querySelector("#collab-allow-email")).toBeNull();
+    expect(container!.querySelector("#collab-link-role")).toBeNull();
+    expect(buttonWith(container!, "End room")).toBeUndefined();
+    expect(buttonWith(container!, "Leave room")).toBeDefined();
+  });
+
+  it.each([
+    ["owner", "End room", "end-room"],
+    ["viewer", "Leave room", "leave"],
+  ] as const)(
+    "as %s, confirms %s and leaves without refetching the inaccessible room",
+    async (role, label, action) => {
+      roomGetUseQuery.mockReturnValue(managed({ role }));
+      const onOpenChange = vi.fn();
+      const onRoomIdChange = vi.fn();
+      renderDialog({
+        isAuthenticated: true,
+        roomId: "room-a",
+        onOpenChange,
+        onRoomIdChange,
+      });
+      await act(async () => button(label).click());
+      // Nothing happens until the consequences are confirmed.
+      expect(executeMutate).not.toHaveBeenCalled();
+      await confirm(label);
+      await vi.waitFor(() => expect(onRoomIdChange).toHaveBeenCalledWith(null));
+      expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
+        action,
+        roomId: "room-a",
+      });
+      expect(roomGetInvalidate).toHaveBeenCalledWith(undefined, {
+        refetchType: "none",
+      });
+      expect(listInvalidate).toHaveBeenCalledOnce();
+      expect(onOpenChange).toHaveBeenCalledWith(false);
+    },
+  );
+
+  it("says the leave may be undone by the link when general access allows it", async () => {
+    roomGetUseQuery.mockReturnValue(managed({ role: "viewer" }));
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await act(async () => button("Leave room").click());
+    expect(document.body.textContent).toContain(
+      "unless anyone with the link can open it",
+    );
+  });
+});
+
+describe("no-access screen", () => {
+  it("says the account has no access and offers only the way back", async () => {
+    roomGetUseQuery.mockReturnValue(null);
     const onOpenChange = vi.fn();
+    const onRoomIdChange = vi.fn();
     renderDialog({
       isAuthenticated: true,
       roomId: "room-a",
-      status: "missing-room-key",
+      status: "failed",
+      failureReason: "no-access",
+      errorMessage: "You don't have access to this room.",
       onOpenChange,
+      onRoomIdChange,
     });
-    // Back drops the room from the URL before the session reports a status.
+    const text = container!.textContent ?? "";
+    expect(text).toContain("You don't have access to this room");
+    expect(text).toContain("Ask the owner for an invitation");
+    // The room's management data is not requested for a refused account.
+    expect(roomGetUseQuery).toHaveBeenLastCalledWith(
+      { roomId: "room-a" },
+      { enabled: false },
+    );
+    expect(container!.querySelector("input")).toBeNull();
+    expect(container!.querySelector("form")).toBeNull();
+    expect(buttonWith(container!, "Leave room")).toBeUndefined();
+    await act(async () => button("Back to my canvas").click());
+    expect(onRoomIdChange).toHaveBeenCalledWith(null);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
+  it("keeps the room when leaving would discard unsaved edits and the user cancels", async () => {
+    roomGetUseQuery.mockReturnValue(null);
+    const onOpenChange = vi.fn();
+    const onRoomIdChange = vi.fn();
+    const confirmRoomExit = vi.fn(() => false);
     renderDialog({
       isAuthenticated: true,
-      roomId: null,
-      status: "missing-room-key",
+      roomId: "room-a",
+      status: "failed",
+      failureReason: "no-access",
+      errorMessage: "You don't have access to this room.",
       onOpenChange,
+      onRoomIdChange,
+      confirmRoomExit,
     });
-    expect(onOpenChange).toHaveBeenCalledWith(false);
+    await act(async () => button("Back to my canvas").click());
+    expect(confirmRoomExit).toHaveBeenCalledOnce();
+    expect(onRoomIdChange).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("keeps the share view for other failures", () => {
+    roomGetUseQuery.mockReturnValue(null);
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "failed",
+      failureReason: "room-ended",
+      errorMessage: "This room has ended.",
+    });
+    expect(container!.textContent).toContain("This room has ended.");
     expect(container!.textContent).not.toContain(
-      "This device doesn't have the key for this room.",
+      "You don't have access to this room",
     );
   });
 });

@@ -18,7 +18,7 @@ export const zhTW = {
   "storage.exit": "回到我的畫布",
   "storage.exitNotice": "房間會保留。",
   "storage.copyNotice":
-    "共編房間仍維持加密；個人雲端副本不採端對端加密，不會自動公開。",
+    "共編房間不受影響；個人雲端副本不採端對端加密，不會自動公開。",
   "storage.downloadNotice": "下載的本機檔案未加密。",
   "storage.personalCopySaved": "已儲存至我的場景；房間保存狀態另行確認。",
   "storage.keepRoom": "繼續編輯此房間",
@@ -138,7 +138,7 @@ export const zhTW = {
   "collaboration.authRequired": "請先登入 Drawstuff 才能建立或加入共編。",
   "collaboration.authChecking": "正在確認登入狀態",
   "collaboration.createDescription": "以目前的畫布建立共編房間。",
-  "collaboration.shareDescription": "分享完整連結，邀請協作者加入。",
+  "collaboration.shareDescription": "分享連結，並設定誰能開啟房間。",
   "collaboration.status.idle": "共編",
   "collaboration.status.preparing": "準備畫布中",
   "collaboration.status.joining": "加入中",
@@ -150,28 +150,26 @@ export const zhTW = {
   "collaboration.status.joinFailed": "加入失敗",
   "collaboration.status.rateLimited": "請稍後再試",
   "collaboration.status.cancelled": "已取消",
-  "collaboration.status.missingRoomKey": "連結不完整",
   "collaboration.status.readOnly": "僅檢視",
   "collaboration.status.readOnlyWithStatus": "{status}（僅檢視）",
   "collaboration.toast.initializationPending":
     "建立房間尚未確認，畫布暫停編輯；請重試或取消這次建立。",
   "collaboration.action.cancelInitialization": "取消建立房間",
-  "collaboration.rotating": "正在重設連結",
   "collaboration.toast.initializationAttachments":
     "部分圖片檔案尚未載入或無法上傳。請重新載入場景，或移除這些圖片後再開始共編。",
   "collaboration.error.operationFailed": "即時共編操作失敗，請稍後再試。",
   "collaboration.action.creating": "正在建立房間",
   "collaboration.action.start": "開始共編",
-  "collaboration.create.keyLoss":
-    "drawstuff 會保管房間金鑰（非端對端加密），成員可在任何裝置重新開啟房間。",
   "collaboration.create.noPersonalCopy": "內容存在房間中，不會存入我的場景。",
+  "collaboration.create.protection":
+    "與你的場景一樣以登入保護：只有你邀請的人，或在你開放時有連結的人，才能開啟房間。",
   "collaboration.create.sourceCopy": "原本的場景不會變動。",
   "collaboration.role.owner": "擁有者",
   "collaboration.role.editor": "可編輯",
   "collaboration.role.viewer": "僅檢視",
   "collaboration.linkRole.none": "只有受邀的人",
-  "collaboration.linkRole.viewer": "有連結者可檢視",
-  "collaboration.linkRole.editor": "有連結者可編輯",
+  "collaboration.linkRole.viewer": "有連結的人可檢視",
+  "collaboration.linkRole.editor": "有連結的人可編輯",
   "collaboration.dialogStatus.idle": "未連線",
   "collaboration.dialogStatus.preparing": "準備畫布中",
   "collaboration.dialogStatus.joining": "加入中",
@@ -183,26 +181,13 @@ export const zhTW = {
   "collaboration.dialogStatus.joinFailed": "加入失敗，請再試一次",
   "collaboration.dialogStatus.rateLimited": "嘗試次數過多，請稍後再試",
   "collaboration.dialogStatus.cancelled": "已取消加入",
-  "collaboration.dialogStatus.missingRoomKey": "連結缺少金鑰",
   "collaboration.toast.enforcementPending": "權限已更新，可能稍後才會生效。",
   "collaboration.toast.listSyncing": "房間可能稍後才會出現在列表中。",
-  "collaboration.toast.keyConflict":
-    "這個房間已有加密金鑰。請從建立房間的裝置分享完整連結，或重設連結。",
-  "collaboration.toast.snapshotReset":
-    "已重設雲端畫布，正在以下一位成員的畫布重新加入。",
-  "collaboration.recovery.description":
-    "這份畫布無法解密。重設會刪除它，並改用下一位成員的畫布。",
-  "collaboration.recovery.reset": "重設畫布",
-  "collaboration.recovery.resetting": "重設中",
-  "collaboration.recovery.confirmReset": "刪除雲端畫布",
-  "collaboration.recovery.cancel": "取消",
-  "collaboration.missingKey.title": "需要完整的邀請連結",
-  "collaboration.missingKey.description": "這台裝置沒有這個房間的金鑰。",
-  "collaboration.missingKey.label": "完整邀請連結",
-  "collaboration.missingKey.apply": "使用連結",
-  "collaboration.missingKey.hint": "請貼上完整連結，包含 # 之後的部分。",
-  "collaboration.missingKey.invalid": "這個連結屬於其他房間，或缺少金鑰。",
+  "collaboration.toast.existingRoom": "這個場景已經有房間，已為你開啟。",
   "collaboration.share.title": "分享房間",
+  "collaboration.noAccess.title": "你沒有這個房間的存取權",
+  "collaboration.noAccess.description":
+    "請向房主索取邀請，或確認已用受邀的帳號登入。",
   "collaboration.manage": "管理房間",
   "collaboration.people": "成員",
   "collaboration.invite.email": "要邀請的 email",
@@ -212,17 +197,10 @@ export const zhTW = {
   "collaboration.invite.submit": "邀請",
   "collaboration.person.joined": "已加入",
   "collaboration.person.joinedAt": "{date} 加入",
-  "collaboration.person.removed": "已移除",
+  "collaboration.person.viaLink": "透過連結加入",
   "collaboration.person.role": "{name} 的角色",
   "collaboration.person.actions": "{name} 的操作",
-  "collaboration.person.removeFromRoom": "移出房間",
-  "collaboration.person.restoreAccess": "恢復存取權",
   "collaboration.person.removeInvite": "移除邀請",
-  "collaboration.person.restoreInvite": "恢復邀請",
-  "collaboration.resetLink.title": "要重設連結嗎？",
-  "collaboration.resetLink.description":
-    "目前的連結會失效，所有人會被中斷連線。受邀成員保有權限，其他人需要新連結。",
-  "collaboration.resetLink.confirm": "重設連結",
   "collaboration.link.label": "邀請連結",
   "collaboration.linkPermission": "誰能用連結加入",
   "collaboration.allowlist.notJoined": "尚未加入",
@@ -232,15 +210,10 @@ export const zhTW = {
   "collaboration.rooms.create": "新增房間",
   "collaboration.rooms.retry": "重試初始化",
   "collaboration.rooms.open": "開啟房間",
-  "collaboration.rooms.hint": "你擁有或加入的房間。",
-  "collaboration.rooms.needsAttention": "需要處理",
-  "collaboration.rooms.listHeading": "房間",
+  "collaboration.rooms.hint": "你擁有、受邀或透過連結開啟過的房間。",
   "collaboration.rooms.unfinished": "建立未完成。",
   "collaboration.rooms.copyId": "複製房間 ID",
   "collaboration.rooms.idCopied": "已複製房間 ID。",
-  "collaboration.rooms.rotate": "重設連結",
-  "collaboration.rooms.rotateHint":
-    "請進入房間，打開「分享房間」後選擇「重設連結」。",
   "collaboration.rooms.end": "結束房間",
   "collaboration.rooms.endTitle": "要結束這個房間嗎？",
   "collaboration.rooms.endDescription":
@@ -250,38 +223,35 @@ export const zhTW = {
   "collaboration.rooms.ended": "房間已結束。",
   "collaboration.rooms.leave": "離開房間",
   "collaboration.rooms.leaveTitle": "要離開這個房間嗎？",
-  "collaboration.rooms.leaveDescription": "之後需要房主重新邀請才能回來。",
+  "collaboration.rooms.leaveDescription":
+    "房間會從你的列表移除。之後需要重新受邀才能回來，除非房間開放有連結的人進入。",
   "collaboration.rooms.left": "已離開房間。",
   "collaboration.rooms.loading": "正在載入房間",
   "collaboration.rooms.loadFailed": "無法載入房間。",
-  "collaboration.rooms.empty": "目前還沒有共編房間。",
   "collaboration.rooms.sceneLinked": "來自場景",
+  "collaboration.rooms.mineHeading": "我擁有的與受邀的",
+  "collaboration.rooms.mineEmpty": "目前沒有你擁有或受邀的房間。",
+  "collaboration.rooms.linkHeading": "透過連結開啟過的",
+  "collaboration.rooms.linkEmpty": "目前沒有透過連結開啟過的房間。",
+  "collaboration.rooms.invited": "受邀",
+  "collaboration.rooms.removeFromList": "從列表移除",
+  "collaboration.rooms.removed": "已從列表移除。再次開啟連結就會回到列表。",
   "collaboration.action.end": "結束房間",
-  "collaboration.action.rotate": "重設連結",
   "collaboration.action.leave": "離開房間",
   "collaboration.failure.unauthorized":
     "你已無法存取這個房間，請向擁有者索取新邀請。",
-  "collaboration.failure.membershipRevoked": "你的共編權限已被移除。",
-  "collaboration.failure.roomEnded":
-    "這個房間 已結束或重設，請向分享者索取新連結。",
-  "collaboration.failure.generationRotated": "此連結已過期，請索取最新連結。",
-  "collaboration.failure.unreadableRoom":
-    "此連結無法開啟房間，請索取最新連結。",
+  "collaboration.failure.noAccess":
+    "你沒有這個房間的存取權。請向房主索取邀請，或確認已用受邀的帳號登入。",
+  "collaboration.failure.roomEnded": "這個房間已結束，請向分享者索取新連結。",
   "collaboration.failure.protocolViolation":
     "連線因通訊協定錯誤而停止。請重新載入；若持續發生請回報。",
   "collaboration.failure.unsupportedProtocolVersion":
     "此分頁的共編版本已過舊，請重新整理頁面後再加入。",
-  "collaboration.failure.cryptoExhausted":
-    "連線已達加密上限，請由房主重設連結。",
   "collaboration.failure.retryLimit":
     "多次重新連線失敗，請確認網路後重新載入。",
-  "collaboration.failure.wrongKey":
-    "此連結的金鑰不正確，你的畫布未被變更。請索取最新連結。",
-  "collaboration.failure.missingKeyCheck":
-    "房間的加密設定未完成，請房主重新開啟共編或重設連結。",
   "collaboration.failure.rateLimited": "嘗試次數過多，請一分鐘後再試。",
   "collaboration.warning.unreadableAssets":
-    "部分圖片無法用此連結開啟。其他畫布內容仍在同步；請索取最新完整連結以查看圖片。",
+    "部分圖片目前無法開啟。其他畫布內容仍在同步；請重新載入再試一次。",
   "collaboration.warning.realtimeTooLarge":
     "即時同步已停止：畫布 {size} 超過傳送上限 {limit}，其他成員不會收到新變更。",
   "collaboration.warning.backupTooLarge":
@@ -289,8 +259,6 @@ export const zhTW = {
   "collaboration.warning.tooLargeAdvice":
     "請先匯出副本，再縮減畫布內容以恢復同步。",
   "collaboration.failure.invalidLink": "此共編連結格式不正確。",
-  "collaboration.failure.missingRoomKey":
-    "你沒有這個房間的金鑰。請房主邀請你，或貼上完整連結。",
   "collaboration.failure.cancelled": "已取消加入，原畫布沒有變更。",
   "collaboration.failure.saveBeforeJoin":
     "無法儲存目前場景，因此未加入共編。請再試一次。",

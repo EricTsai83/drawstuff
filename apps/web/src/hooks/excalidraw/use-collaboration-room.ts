@@ -10,7 +10,6 @@ import {
 } from "react";
 
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
   roomRoleCanEditScene,
   type RoomRole,
@@ -75,23 +74,20 @@ export type {
  *
  * A dropped socket reconnects on its own, with backoff and a freshly minted join
  * token, and the status says so. What it must never do is retry indefinitely
- * without saying anything: a revoked membership, an ended room and a rotated
- * generation all end a session for good, and each of them looks exactly like a
+ * without saying anything: lost access and an ended room both end a session for
+ * good, and each of them looks exactly like a
  * network blip until the reason is reported. So the user-facing status follows the
  * session's *recovery* state rather than its socket state — `reconnecting` and
  * `failed` are both a closed socket, and only one of them is worth waiting for.
  *
- * Authorization and confidentiality arrive from opposite directions. The join
- * token comes from the backend; the room key comes from the URL fragment and is
- * never sent anywhere. A link without a usable key therefore cannot open a
- * session at all — reporting `missing-room-key` is the only option, because a
- * session without the key could neither read nor write the room.
+ * An account the room refuses ends in `failed` with reason `no-access`, both
+ * on the first join and when access is withdrawn mid-session.
  *
  * ## Canvas ownership
- * Authorization and key verification precede the handoff. The personal draft
+ * Authorization precedes the handoff. The personal draft
  * and its identity/revision are preserved per tab; all local canvas writers
  * pause synchronously before room state can be applied. Room links reload from
- * the encrypted baseline, and teardown restores the personal draft before
+ * the stored baseline, and teardown restores the personal draft before
  * releasing the persistence hold. Personal copies never attach to room edits.
  */
 import type { RoomSaveState } from "@/lib/collab/session/save-state";
@@ -117,9 +113,8 @@ export type UseCollaborationRoomResult = {
   ownsCanvas: boolean;
   /**
    * Tears the current attempt down and joins again with the same link. Exists
-   * for the states an action can genuinely repair — the owner resetting an
-   * unreadable snapshot being the one that motivated it — where "reload the
-   * page" was previously the only way to re-run the join.
+   * for the states an action can genuinely repair, where "reload the page"
+   * was previously the only way to re-run the join.
    */
   retryJoin: () => void;
   onPointerUpdate: (payload: ExcalidrawPointerUpdatePayload) => void;
@@ -137,11 +132,6 @@ export function useCollaborationRoom(options: {
   excalidrawAPI: ExcalidrawImperativeAPI | null;
   /** Room id from the shareable link; `null` disables collaboration. */
   roomId: string | null;
-  /**
-   * End-to-end room key from the URL fragment. `null` while a room id is set
-   * means the link is incomplete, which is a hard stop rather than a downgrade.
-   */
-  roomKey: RoomKey | null;
   /** Cloud scene id currently open in the editor, if any. */
   currentSceneId: string | null;
   /** Display name for presence; falls back to a per-client guest label. */
@@ -167,7 +157,7 @@ export function useCollaborationRoom(options: {
    */
   cancelPendingCanvasDecision: () => void;
 }): UseCollaborationRoomResult {
-  const { excalidrawAPI, roomId, roomKey, username, isAuthenticated } = options;
+  const { excalidrawAPI, roomId, username, isAuthenticated } = options;
   const { t } = useAppI18n();
   const tRef = useRef(t);
   const { suppressDirtyTracking, resumeDirtyTracking, reloadSceneSession } =
@@ -256,17 +246,6 @@ export function useCollaborationRoom(options: {
       });
       return;
     }
-    // Checked before any token is requested: without the key there is nothing a
-    // session could do, and asking the backend for a token would only advertise
-    // an attempt. The message never echoes the fragment.
-    if (!roomKey) {
-      dispatch({
-        type: "join-blocked",
-        status: "missing-room-key",
-        errorMessage: tRef.current("collaboration.failure.missingRoomKey"),
-      });
-      return;
-    }
 
     // The sequence itself lives in `collaboration-room-controller.ts`; this
     // effect only binds it to React: refs are read through getters so their
@@ -281,14 +260,13 @@ export function useCollaborationRoom(options: {
     const controller = createCollaborationRoomController({
       excalidrawApi: excalidrawAPI,
       roomId: parsedRoomId.data,
-      roomKey,
       backend: {
         ...createAuthorityRoomBackend(authority),
         // The store's binary transport retains opaque original operations.
         snapshotApi: createBinarySnapshotClient(),
         // Same shape, and for the same reason: the store needs two plain async
-        // functions, one to find out where a room's ciphertext lives and one to
-        // put ciphertext there. Neither can read what it carries.
+        // functions, one to find out where a room's asset lives and one to put
+        // it there.
         assetApi: createAuthorityAssetApi({
           authority,
           execute: (input, signal) =>
@@ -338,7 +316,6 @@ export function useCollaborationRoom(options: {
   }, [
     excalidrawAPI,
     roomId,
-    roomKey,
     isAuthenticated,
     joinAttempt,
     reloadSceneSession,
@@ -432,8 +409,7 @@ export function useCollaborationRoom(options: {
     confirmExit,
     status: visibleStatus,
     // Reported only while the status actually is a failure: the reason is a
-    // property of the failed state, not a sticky flag, and a stale one would
-    // keep the owner's destructive reset entry visible after a rejoin.
+    // property of the failed state, not a sticky flag.
     failureReason: status === "failed" ? state.failureReason : null,
     role: state.role,
     // Still a collaboration session, and the canvas still belongs to the room: the

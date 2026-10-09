@@ -1,6 +1,6 @@
 # 21 — 共編房間改為不加密，存取改為 Google 文件模式
 
-- 狀態：§2 全部確認（2026-10-10）；第 1 批（套件與 DO）實作中，於 `plan-21` 分支開發，完成後一次合併（見 §8）。批次之間依擁有者指示先不跑檢查，最後一批一次驗證。
+- 狀態：§2 全部確認（2026-10-10）；第 1～3 批（套件與 DO、web 伺服器與 DB、web 前端）已在 `plan-21` 分支完成，下一步第 4 批（資料清除與部署）。批次之間依擁有者指示先不跑檢查，最後一批一次驗證；每批都經 Codex review。
 - 執行方式：擁有者決定以 `claude-implement-with-gpt61-sol-review` 流程實作，至少第 1 批（存取規則）必須經獨立審查；在新的對話從 §8 第 1 批開始。
 - 取代：18C 剩餘驗收、19（服務端保管金鑰）、20（passkey 恢復端對端加密）。三份 plan 已於 2026-10-10 刪除（見 git history）；18C、19 已上線的程式與文件由本 plan 改寫。
 - 前置：[授權契約](../docs/architecture/collaboration-authority.md)、[共編儲存契約](../docs/architecture/collaboration-storage.md)、[威脅模型](../docs/architecture/collaboration-threat-model.md)、[ADR-0005](../docs/adr/0005-public-collaboration-assets.md)。
@@ -140,6 +140,14 @@ web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批�
 - **已結束房間不留個人資料**（擁有者 2026-10-10）：房間結束後，Neon 刪除該房間的成員投影、邀請投影、投影墓碑、內容操作紀錄與退場登記，並清空房間名稱；只保留房間列（`status='ended'`）與 creation fence，用來拒絕 roomId 重用。投影自我清理（結束事件與結束後才到的事件改為刪除該列）、adapter cleanup 與維護回收三處都會執行，不受到達順序影響。storage fence 第一次轉為 ended 時也把房間標成 ended 並清空名稱；結束房間的內容寫入與註冊一律拒絕且不留紀錄；帳號／場景刪除前先清掉即將 cascade 的房間沒有外鍵的紀錄；房間在建出父紀錄前就結束時，cleanup 也會清掉它的註冊。註冊、建立父紀錄、storage fence、cleanup、維護回收與退場刪除都先取得以 roomId 為鍵的 advisory lock（順序：帳號／場景 → roomId lock → 房間列），彼此序列化（Codex review 兩輪）。
 - **退場時移除邀請名單上的 email**、admin 異常檢視、退場卡住告警與退避：移到 [plan 22](22-admin-anomalies-and-account-removal-cleanup.md)。
 - **已結束房間不可用原 operationId 重建**：房間 `status` 或 `storageState` 為 ended 時，連同一建立操作的重試也拒絕（Codex review）。
+
+### 第 3 批實作決定（2026-10-10）
+
+- **邀請連結**只剩 `?collab-room=<id>`；舊連結的 `#collab-key=…` 片段會被忽略並從網址列移除。
+- **失敗狀態**：拿掉所有金鑰相關狀態；Room 拒絕這個帳號（FORBIDDEN／403，第一次加入或重連時）時為 `failed` + `no-access`，畫面顯示「你沒有這個房間的存取權」與「回到我的畫布」（離開前沿用未儲存變更的確認，Codex review）。伺服器在帳號凍結、email 未驗證或 session 失效時也回 FORBIDDEN，所以文案不斷言原因。`roleChanged` 關閉視為暫時性、直接重連。
+- **分享對話框**：邀請連結＋一般存取權（擁有者可改）；擁有者看得到邀請名單（改角色、移除、是否已加入）與透過連結加入的人；擁有者只剩「結束房間」，其他人只剩「離開房間」。
+- **房間列表**兩區；連結區每列有「從列表移除」（送 `leave`，不影響權限）。
+- **圖片無法讀取**的警告只在下載或解碼失敗時出現（每個 session 一次）。
 
 ## 9. 驗收矩陣
 

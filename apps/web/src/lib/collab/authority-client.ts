@@ -5,18 +5,10 @@ import {
   managementResultSchema,
   type AuthorityRequest,
 } from "@drawstuff/collaboration/authority";
-import { encodeBase64 } from "@drawstuff/collaboration/base64";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
-import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 
 export type AuthorityApi = {
   execute: (request: AuthorityRequest) => Promise<unknown>;
-  /** Room key custody (plan 19); absent where custody is not wired. */
-  escrowRoomKey?: (input: {
-    roomId: RoomId;
-    authGeneration?: number;
-    roomKey: RoomKey;
-  }) => Promise<unknown>;
   identity: (input: { roomId: RoomId }) => Promise<{
     proof: string;
     expiresAt: number;
@@ -31,8 +23,7 @@ export class AuthorityRoomError extends Error {
       | "pending"
       | "cancelled"
       | "expired-operation"
-      | "attachments-required"
-      | "generation-mismatch",
+      | "attachments-required",
   ) {
     super(`Collaboration operation is not complete: ${code}`);
   }
@@ -60,30 +51,16 @@ export function createAuthorityRoomBackend(api: AuthorityApi) {
   const getRoom = async ({ roomId }: { roomId: RoomId }) => {
     const state = await readAuthorityState(api, roomId);
     if (state.state !== "ready") throw new AuthorityRoomError(state.state);
-    return {
-      roomId,
-      sceneId: state.sceneId,
-      authGeneration: state.authGeneration,
-      role: state.role,
-      keyCheckBase64: state.keyCheck
-        ? encodeBase64(new Uint8Array(state.keyCheck))
-        : null,
-    };
+    return { roomId, sceneId: state.sceneId, role: state.role };
   };
   return {
     getRoom,
-    async joinRoom(input: { roomId: RoomId; authGeneration?: number }) {
+    async joinRoom(input: { roomId: RoomId }) {
       const state = await readAuthorityState(api, input.roomId);
-      if (
-        input.authGeneration !== undefined &&
-        state.authGeneration !== input.authGeneration
-      )
-        throw new AuthorityRoomError("generation-mismatch");
       if (state.state !== "ready") throw new AuthorityRoomError(state.state);
       const room = {
         roomId: state.roomId,
         sceneId: state.sceneId,
-        authGeneration: state.authGeneration,
         role: state.role,
       };
       const identity = await api.identity({ roomId: input.roomId });

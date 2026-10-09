@@ -45,8 +45,8 @@ export type SnapshotCadence = SnapshotBaselineSink & {
  * It also owns what the join's baseline load learns (`SnapshotBaselineSink`),
  * because the revision and the "may this client replace the baseline" verdict
  * are one piece of state: only a client that knows the baseline may replace it.
- * Without that, a session that could not read the stored snapshot — a link
- * carrying the wrong key, or a failed fetch in an empty room — would see an
+ * Without that, a session that could not read the stored snapshot — a damaged
+ * snapshot, or a failed fetch in an empty room — would see an
  * empty canvas, learn the real revision from its first conflict, and then
  * overwrite the room's history with that empty canvas. Refusing to write is the
  * safe direction: the room keeps a baseline this client cannot read, which is
@@ -132,7 +132,7 @@ export const createSnapshotCadence = (options: {
     }
   };
   // Coalesced API verification: peer receipts are hints, never proof. A read
-  // independently opens server ciphertext and its revision/checksum seal.
+  // independently reads the stored bytes and checks their revision/checksum.
   const verifyPersisted = async (): Promise<void> => {
     if (
       !snapshotStore ||

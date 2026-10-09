@@ -4,7 +4,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 
 import { MAX_SCENE_MESSAGE_BYTES } from "@drawstuff/collaboration/protocol";
 import {
-  MAX_SNAPSHOT_PLAINTEXT_BYTES,
+  MAX_SNAPSHOT_BYTES,
   SNAPSHOT_NO_REVISION,
 } from "@drawstuff/collaboration/snapshot";
 import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
@@ -15,10 +15,8 @@ import {
   editedElement,
 } from "./support/collab-scene-fixtures";
 import {
-  AUTH_GENERATION,
   createHarness,
   ROOM_ID,
-  ROOM_KEY,
   type TestClient,
 } from "./support/collab-session-harness";
 import { SNAPSHOT_INTERVAL_MS } from "@/lib/collab/collaboration-session";
@@ -151,7 +149,7 @@ describe("oversize scenes on the durable path", () => {
   /**
    * A snapshot store whose write outcome the test controls. The real store's own
    * oversize classification is covered separately below; what this drives is the
-   * session's reaction to it, which needs no encryption to be true.
+   * session's reaction to it.
    */
   function createControlledStore(): {
     store: CollaborationSnapshotStore;
@@ -160,8 +158,8 @@ describe("oversize scenes on the durable path", () => {
   } {
     let result: SaveSnapshotResult = {
       status: "oversize",
-      byteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES + 4_096,
-      maxByteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES,
+      byteLength: MAX_SNAPSHOT_BYTES + 4_096,
+      maxByteLength: MAX_SNAPSHOT_BYTES,
     };
     let saveCount = 0;
     return {
@@ -198,8 +196,8 @@ describe("oversize scenes on the durable path", () => {
     expect(controlled.saveCount).toBe(1);
     expect(alice.sceneSyncBlocks).toHaveLength(1);
     expect(alice.sceneSyncBlocks[0]?.durable).toEqual({
-      byteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES + 4_096,
-      maxByteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES,
+      byteLength: MAX_SNAPSHOT_BYTES + 4_096,
+      maxByteLength: MAX_SNAPSHOT_BYTES,
     });
     // Realtime is unaffected: the scene fits the smaller per-message budget.
     expect(alice.sceneSyncBlocks[0]?.realtime).toBeNull();
@@ -245,8 +243,8 @@ describe("oversize scenes on the durable path", () => {
     // An oversize edit blocks the durable path.
     controlled.setResult({
       status: "oversize",
-      byteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES + 4_096,
-      maxByteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES,
+      byteLength: MAX_SNAPSHOT_BYTES + 4_096,
+      maxByteLength: MAX_SNAPSHOT_BYTES,
     });
     alice.edit((elements) => [...elements, collabRectangle({ id: "huge" })]);
     alice.timers.advance(SNAPSHOT_INTERVAL_MS);
@@ -290,11 +288,9 @@ describe("snapshot store size classification", () => {
   const buildStore = async (
     write?: SnapshotApi["write"],
   ): Promise<CollaborationSnapshotStore> => {
-    const store = await createCollaborationSnapshotStore({
-      api: emptySnapshotApi(ROOM_ID, AUTH_GENERATION, write),
+    const store = createCollaborationSnapshotStore({
+      api: emptySnapshotApi(ROOM_ID, write),
       roomId: ROOM_ID,
-      roomKey: ROOM_KEY,
-      authGeneration: AUTH_GENERATION,
     });
     await store.load();
     return store;
@@ -303,14 +299,14 @@ describe("snapshot store size classification", () => {
   it("distinguishes an oversize scene from a failed write", async () => {
     const store = await buildStore();
     const oversize = await store.save({
-      elements: [oversizeElement("big", MAX_SNAPSHOT_PLAINTEXT_BYTES + 128)],
+      elements: [oversizeElement("big", MAX_SNAPSHOT_BYTES + 128)],
       expectedRevision: SNAPSHOT_NO_REVISION,
     });
 
     expect(oversize.status).toBe("oversize");
     if (oversize.status !== "oversize") throw new Error("expected oversize");
-    expect(oversize.maxByteLength).toBe(MAX_SNAPSHOT_PLAINTEXT_BYTES);
-    expect(oversize.byteLength).toBeGreaterThan(MAX_SNAPSHOT_PLAINTEXT_BYTES);
+    expect(oversize.maxByteLength).toBe(MAX_SNAPSHOT_BYTES);
+    expect(oversize.byteLength).toBeGreaterThan(MAX_SNAPSHOT_BYTES);
   });
 
   it("still reports a transport failure as failed", async () => {

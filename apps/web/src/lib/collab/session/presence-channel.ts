@@ -3,7 +3,6 @@ import type {
   PresenceMessage,
 } from "@drawstuff/collaboration/protocol";
 import type { CollaborationTransport } from "@drawstuff/collaboration/transport";
-import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import { EXCALIDRAW_USER_IDLE_STATE } from "@drawstuff/excalidraw-adapter/client";
 import type {
   AppState,
@@ -128,8 +127,6 @@ export const createPresenceChannel = (options: {
   wrapPresenceApply(apply: () => void): void;
   /** The session's coalescing scheduler (animation frame + backstop). */
   scheduleSceneFlush(flush: () => void): () => void;
-  /** A spent nonce budget is terminal for the whole session. */
-  failRecovery(reason: UnrecoverableReason): void;
   /** Absent means follow mode is inert: presence still carries viewport and
    *  follow state, but nothing moves the local viewport (headless tests). */
   follow?: FollowHost;
@@ -232,17 +229,10 @@ export const createPresenceChannel = (options: {
         follow: selfFollow,
       },
     };
-    const result = transport.sendPresenceMessage(message);
-    if (result.ok) {
+    // Presence loss is free: the next pointer sample repairs it.
+    if (transport.sendPresenceMessage(message).ok) {
       presenceSequence += 1;
       lastPresenceSentAt = context.now();
-      return;
-    }
-    // Presence loss is free — the next pointer sample repairs it — with one
-    // exception: a spent nonce budget is terminal for the whole session, and
-    // presence is the channel most likely to reach it first.
-    if (result.error.code === "crypto-exhausted") {
-      options.failRecovery("crypto-exhausted");
     }
   };
 

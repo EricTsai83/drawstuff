@@ -1,9 +1,10 @@
 import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
-  MIN_ASSET_CIPHERTEXT_BYTES,
-  ASSET_CRYPTO_VERSION,
+  decodeCollaborationAssetPayload,
+  MIN_ASSET_BYTES,
 } from "@drawstuff/collaboration/asset";
+import { snapshotChecksum } from "@drawstuff/collaboration/snapshot";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
   createAuthorityAssetApi,
@@ -25,11 +26,9 @@ function fixture() {
     sceneId: null,
     label: "",
     linkRole: "none",
-    authGeneration: 1,
     authRevision: 1,
     authorityEpoch: 3,
     initializationDeadline: Date.now() + 900_000,
-    keyCheck: null,
   };
   const authority: AuthorityApi = {
     execute: vi.fn(async () => state),
@@ -49,34 +48,33 @@ function fixture() {
   const api = createAuthorityAssetApi({ authority, execute, upload, resolve });
   const input: Parameters<AssetApi["upload"]>[0] = {
     roomId,
-    authGeneration: 1,
     excalidrawFileId: "a".repeat(40),
-    cryptoVersion: ASSET_CRYPTO_VERSION,
-    ciphertext: new Uint8Array(MIN_ASSET_CIPHERTEXT_BYTES).fill(1),
+    payload: new Uint8Array(MIN_ASSET_BYTES).fill(1),
     signal: new AbortController().signal,
   };
   return { state, authority, execute, upload, api, input };
 }
 afterEach(() => vi.restoreAllMocks());
 describe("immutable browser attachment uploads", () => {
-  it("binds opaque length/checksum to the Room epoch and requires a written callback receipt", async () => {
+  it("binds length/checksum to the Room epoch and requires a written callback receipt", async () => {
     const f = fixture();
     await f.api.upload(f.input);
     expect(f.upload).toHaveBeenCalledTimes(1);
     const intent = f.upload.mock.calls[0]![0];
+    expect(f.upload.mock.calls[0]![1]).toEqual(f.input.payload);
+    expect(intent.checksum).toBe(await snapshotChecksum(f.input.payload));
     expect(intent).toMatchObject({
-      authGeneration: 1,
       authorityEpoch: 3,
       expectedRevision: 0,
       kind: "asset-finalize",
       excalidrawFileId: f.input.excalidrawFileId,
-      byteLength: f.input.ciphertext.byteLength,
+      byteLength: f.input.payload.byteLength,
     });
     expect(intent.checksum).toMatch(/^[a-f0-9]{64}$/);
     expect(intent).not.toHaveProperty("actor");
     expect(intent).not.toHaveProperty("asset");
   });
-  it("recovers lost callback responses without reuploading changed ciphertext", async () => {
+  it("recovers lost callback responses without reuploading changed bytes", async () => {
     const f = fixture();
     f.upload.mockRejectedValue(new Error("lost"));
     await expect(f.api.upload(f.input)).rejects.toBeInstanceOf(
@@ -85,7 +83,7 @@ describe("immutable browser attachment uploads", () => {
     f.execute.mockResolvedValue({ status: "written", revision: 1 });
     await f.api.upload({
       ...f.input,
-      ciphertext: new Uint8Array(f.input.ciphertext.length).fill(2),
+      payload: new Uint8Array(f.input.payload.length).fill(2),
     });
     expect(f.upload).toHaveBeenCalledTimes(1);
     expect(f.execute.mock.calls[0]![0]).toEqual({
@@ -123,11 +121,7 @@ describe("immutable browser attachment uploads", () => {
     await expect(f.api.upload(f.input)).rejects.toBeInstanceOf(
       AssetUploadPendingError,
     );
-    f.execute.mockResolvedValue({
-      status: "authorized",
-      authGeneration: 1,
-      authorityEpoch: 3,
-    });
+    f.execute.mockResolvedValue({ status: "authorized", authorityEpoch: 3 });
     await expect(f.api.upload(f.input)).rejects.toBeInstanceOf(
       AssetUploadPendingError,
     );
@@ -247,17 +241,13 @@ describe("immutable browser attachment uploads", () => {
   it("keeps a publisher retrying pending receipts without declaring its image unavailable", async () => {
     const { createCollaborationAssetStore } =
       await import("@/lib/collab/asset-store");
-    const { generateRoomKey } =
-      await import("@drawstuff/collaboration/realtime-crypto");
     const f = fixture();
     f.upload.mockRejectedValue(new Error("lost"));
     let at = 0;
     const unavailable = vi.fn();
-    const store = await createCollaborationAssetStore({
+    const store = createCollaborationAssetStore({
       api: f.api,
       roomId,
-      roomKey: generateRoomKey(),
-      authGeneration: 1,
       now: () => at,
       onAssetsResolved: vi.fn(),
       onAssetsUnavailable: unavailable,
@@ -277,11 +267,45 @@ describe("immutable browser attachment uploads", () => {
     expect(unavailable).not.toHaveBeenCalled();
     store.destroy();
   });
-  it("rejects a changed generation and an aborted transfer before presign", async () => {
+  it("uploads the plain asset payload the store encoded", async () => {
+    const { createCollaborationAssetStore } =
+      await import("@/lib/collab/asset-store");
     const f = fixture();
-    f.state.authGeneration = 2;
+    const store = createCollaborationAssetStore({
+      api: f.api,
+      roomId,
+      onAssetsResolved: vi.fn(),
+    });
+    const dataURL = "data:image/png;base64,AAECAwQFBg==";
+    await store.publish([
+      {
+        id: f.input.excalidrawFileId,
+        dataURL,
+        mimeType: "image/png",
+        created: 1,
+      } as BinaryFileData,
+    ]);
+    const bytes = f.upload.mock.calls[0]![1];
+    expect(
+      decodeCollaborationAssetPayload(bytes, {
+        roomId,
+        excalidrawFileId: f.input.excalidrawFileId,
+      }),
+    ).toEqual({
+      ok: true,
+      payload: {
+        excalidrawFileId: f.input.excalidrawFileId,
+        mimeType: "image/png",
+        dataUrl: dataURL,
+      },
+    });
+    store.destroy();
+  });
+  it("rejects an ended room and an aborted transfer before presign", async () => {
+    const f = fixture();
+    f.state.state = "ended";
     await expect(f.api.upload(f.input)).rejects.toMatchObject({
-      code: "generation-mismatch",
+      code: "ended",
     });
     await expect(
       f.api.upload({ ...f.input, signal: AbortSignal.abort() }),

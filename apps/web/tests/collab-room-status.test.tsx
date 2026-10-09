@@ -3,15 +3,7 @@ import type * as SnapshotHttp from "@/lib/collab/snapshot-http";
 import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 import { act, useEffect } from "react";
 import { createRoot } from "react-dom/client";
-import {
-  afterEach,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 /**
  * The room status surface: what a session that is connected but not entirely
@@ -19,7 +11,7 @@ import {
  *
  * Two conditions live here, and they are deliberately different in severity — an
  * oversize canvas that has stopped publishing (Plan 19 step 7) and a room holding
- * images this link cannot open (Plan 30). Neither ends the session, so neither
+ * images that will not load (Plan 30). Neither ends the session, so neither
  * appears in the recovery state, and both would otherwise be invisible.
  *
  * Everything below the hook is mocked, because what is under test is the hook's
@@ -35,7 +27,7 @@ const { toastWarning, startRoomSession, joinMutate, roomGetQuery } = vi.hoisted(
   () => ({
     toastWarning: vi.fn(),
     startRoomSession:
-      vi.fn<(options: unknown) => Promise<{ destroy: () => Promise<void> }>>(),
+      vi.fn<(options: unknown) => { destroy: () => Promise<void> }>(),
     joinMutate: vi.fn(),
     roomGetQuery: vi.fn(),
   }),
@@ -63,12 +55,7 @@ vi.mock("@/lib/collab/snapshot-http", async (original) => ({
       return {
         found: false,
         bytes: null,
-        receipt: {
-          roomId: request.roomId,
-          authGeneration: 1,
-          authorityEpoch: 1,
-          revision: 0,
-        },
+        receipt: { roomId: request.roomId, authorityEpoch: 1, revision: 0 },
       };
     },
     write: vi.fn(),
@@ -110,12 +97,6 @@ vi.mock("@/hooks/use-app-i18n", async () => {
 
 import { TRPCClientError } from "@trpc/client";
 
-import { sealRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
-import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import {
-  generateRoomKey,
-  roomKeySchema,
-} from "@drawstuff/collaboration/realtime-crypto";
 import type { RecoveryState } from "@drawstuff/collaboration/recovery";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
@@ -134,20 +115,6 @@ import { readCanvasRoomId } from "@/lib/collab/canvas-room-marker";
 import { markRoomInitializedFromCanvas } from "@/lib/collab/initialized-room-handoff";
 
 const ROOM_ID = "room-oversize";
-const ROOM_KEY = roomKeySchema.parse(
-  "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
-);
-
-/** The room's stored key-check value, sealed for `ROOM_KEY` (Plan 34). */
-let keyCheckBase64: string;
-
-beforeAll(async () => {
-  keyCheckBase64 = await sealRoomKeyCheck({
-    roomKey: ROOM_KEY,
-    roomId: roomIdSchema.parse(ROOM_ID),
-    authGeneration: 1,
-  });
-});
 
 const OVERSIZE_REALTIME: SceneSyncBlock = {
   realtime: { byteLength: 2_200_000, maxByteLength: 1_048_576 },
@@ -197,7 +164,6 @@ function Probe() {
   const result = useCollaborationRoom({
     excalidrawAPI: EXCALIDRAW_API,
     roomId: ROOM_ID,
-    roomKey: ROOM_KEY,
     currentSceneId: "scene-1",
     username: "tester",
     isAuthenticated: true,
@@ -222,9 +188,8 @@ let root: ReturnType<typeof createRoot> | undefined;
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 /**
- * The join now includes real Web Crypto work (the pre-join key check), whose
- * completion is a task, not a microtask — so a single `act` pass no longer
- * drains the whole join chain. Ticks the clock until the condition holds.
+ * The join is a chain of awaited mocks; ticks the clock until the condition
+ * holds rather than assuming one `act` pass drains it.
  */
 const waitFor = async (predicate: () => boolean): Promise<void> => {
   for (let attempt = 0; attempt < 50 && !predicate(); attempt += 1) {
@@ -278,19 +243,13 @@ beforeEach(() => {
   cancelPendingCanvasDecision.mockClear();
   snapshotReads.failuresLeft = 0;
   canvas.elements = [];
-  startRoomSession.mockImplementation(() =>
-    Promise.resolve({ destroy: () => Promise.resolve() }),
-  );
-  roomGetQuery.mockResolvedValue({
-    roomId: ROOM_ID,
-    sceneId: "scene-1",
-    authGeneration: 1,
-    keyCheckBase64,
-  });
+  startRoomSession.mockImplementation(() => ({
+    destroy: () => Promise.resolve(),
+  }));
+  roomGetQuery.mockResolvedValue({ roomId: ROOM_ID, sceneId: "scene-1" });
   joinMutate.mockResolvedValue({
     roomId: ROOM_ID,
     token: "join-token",
-    authGeneration: 1,
     relayUrl: "ws://127.0.0.1:3105",
   });
   probe.result = undefined;
@@ -385,7 +344,7 @@ describe("room status for an oversize canvas", () => {
     });
 
     expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.errorMessage).toContain("ended or reset");
+    expect(probe.result?.errorMessage).toContain("This room has ended");
     expect(probe.result?.errorMessage).not.toContain("Live sync stopped");
   });
 
@@ -436,7 +395,7 @@ describe("room status for an oversize canvas", () => {
   });
 });
 
-describe("room status for images this link cannot open", () => {
+describe("room status for images that will not load", () => {
   it("says so without downgrading a session that is still syncing", async () => {
     const session = await mountRoom();
     await act(async () => {
@@ -485,47 +444,33 @@ describe("room status for images this link cannot open", () => {
       session.onAssetsUnreadable();
       session.onRecoveryStateChange({
         phase: "failed",
-        reason: "unreadable-room",
+        reason: "membership-revoked",
       });
     });
 
     expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.errorMessage).toContain("can't open the room");
+    expect(probe.result?.failureReason).toBe("no-access");
+    expect(probe.result?.errorMessage).toContain(
+      "You don't have access to this room",
+    );
     expect(probe.result?.errorMessage).not.toContain("still syncing");
   });
 });
 
-describe("key check before join (Plan 34)", () => {
-  /** Mounts the hook and waits for the join attempt to be refused. */
-  const mountBlocked = async (): Promise<void> => {
+describe("joining a room", () => {
+  it("refuses an account without access before the canvas is touched", async () => {
+    // Room answers `get-state` with `forbidden`, which the gateway reports as
+    // FORBIDDEN. Another scene, so a join that got past it would have replaced
+    // the canvas — the assertions below are that it never got the chance.
+    const forbidden = new TRPCClientError<never>("FORBIDDEN");
+    Object.assign(forbidden, { data: { code: "FORBIDDEN" } });
+    roomGetQuery.mockRejectedValue(forbidden);
+
     await renderProbe();
     await waitFor(() => probe.result?.status === "failed");
-  };
-
-  it("refuses a wrong-key link before the canvas is touched", async () => {
-    roomGetQuery.mockResolvedValue({
-      roomId: ROOM_ID,
-      // Another scene, so a join that got past the check would have replaced
-      // the canvas — the assertions below are that it never got the chance.
-      sceneId: "scene-room",
-      authGeneration: 1,
-      keyCheckBase64: await sealRoomKeyCheck({
-        roomKey: generateRoomKey(),
-        roomId: roomIdSchema.parse(ROOM_ID),
-        authGeneration: 1,
-      }),
-    });
-
-    await mountBlocked();
 
     expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.failureReason).toBe("wrong-key-link");
-    expect(probe.result?.errorMessage).toContain("key is wrong");
-    expect(probe.result?.errorMessage).toContain("canvas wasn't changed");
-    // Refused before the join: the canvas was not cleared, no claim was
-    // taken, no token was minted and no session was started — which is what
-    // makes a wrong-key snapshot write impossible (the empty-room cell of
-    // Plan 30's table).
+    expect(probe.result?.failureReason).toBe("no-access");
     expect(clearCurrentScene).not.toHaveBeenCalled();
     expect(updateScene).not.toHaveBeenCalled();
     expect(joinMutate).not.toHaveBeenCalled();
@@ -533,52 +478,18 @@ describe("key check before join (Plan 34)", () => {
     expect(probe.result?.ownsCanvas).toBe(false);
   });
 
-  it("treats a room with no check value as unverifiable, not as trusted", async () => {
-    roomGetQuery.mockResolvedValue({
-      roomId: ROOM_ID,
-      sceneId: "scene-room",
-      authGeneration: 1,
-      keyCheckBase64: null,
+  it("reports an ended room as ended, not as lost access", async () => {
+    const session = await mountRoom();
+    await act(async () => {
+      session.onRecoveryStateChange({ phase: "failed", reason: "room-ended" });
     });
-
-    await mountBlocked();
-
-    expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.failureReason).toBe("missing-key-check");
-    expect(probe.result?.errorMessage).toContain(
-      "encryption setup is incomplete",
-    );
-    expect(joinMutate).not.toHaveBeenCalled();
-    expect(startRoomSession).not.toHaveBeenCalled();
+    expect(probe.result?.failureReason).toBe("room-ended");
   });
 
-  it("refuses a join that lands on a generation other than the verified one", async () => {
-    // The rotate-while-in-the-prompt race: the check value was verified for
-    // generation 1, but by the time the token is minted the room is at 2 —
-    // this key was never verified for the generation the session would run
-    // under, so the session must not start.
-    joinMutate.mockResolvedValue({
-      roomId: ROOM_ID,
-      token: "join-token",
-      authGeneration: 2,
-      relayUrl: "ws://127.0.0.1:3105",
-    });
-
-    await renderProbe();
-    await waitFor(() => probe.result?.status === "failed");
-
-    expect(probe.result?.status).toBe("failed");
-    expect(probe.result?.failureReason).toBe("generation-rotated");
-    expect(probe.result?.errorMessage).toContain("out of date");
-    expect(startRoomSession).not.toHaveBeenCalled();
-  });
-
-  it("lets the matching key through to the join", async () => {
-    // The default mock stores a value sealed for ROOM_KEY: mountRoom itself
-    // asserts the session started, so this pins that the gate passes the very
-    // key it exists to verify.
+  it("joins with only the room id: no key step", async () => {
     await mountRoom();
-    expect(joinMutate).toHaveBeenCalledTimes(1);
+    expect(roomGetQuery).toHaveBeenCalledWith({ roomId: ROOM_ID });
+    expect(joinMutate).toHaveBeenCalledWith({ roomId: ROOM_ID });
     expect(startRoomSession).toHaveBeenCalledTimes(1);
     expect(probe.result?.failureReason).toBeNull();
   });
@@ -587,7 +498,7 @@ describe("key check before join (Plan 34)", () => {
     startRoomSession.mockImplementationOnce(() => {
       expect(joinMutate).toHaveBeenCalledTimes(1);
       expect(readCanvasRoomId()).toBe(ROOM_ID);
-      return Promise.resolve({ destroy: () => Promise.resolve() });
+      return { destroy: () => Promise.resolve() };
     });
 
     await mountRoom();
@@ -595,7 +506,9 @@ describe("key check before join (Plan 34)", () => {
   });
 
   it("releases the new claim when session construction fails", async () => {
-    startRoomSession.mockRejectedValueOnce(new Error("session failed"));
+    startRoomSession.mockImplementationOnce(() => {
+      throw new Error("session failed");
+    });
     await renderProbe();
     // A construction failure is retryable, not an authorization verdict.
     await waitFor(() => probe.result?.status === "join-failed");
@@ -605,10 +518,9 @@ describe("key check before join (Plan 34)", () => {
     expect(readCanvasRoomId()).toBeNull();
   });
 
-  it("re-runs the whole join, gate included, on retryJoin", async () => {
-    // The owner's snapshot reset calls this instead of asking for a page
-    // reload: the failed attempt is torn down through the effect's cleanup and
-    // the join — key check and all — runs again.
+  it("re-runs the whole join on retryJoin", async () => {
+    // The failed attempt is torn down through the effect's cleanup and the
+    // join — room lookup and all — runs again.
     await mountRoom();
     expect(startRoomSession).toHaveBeenCalledTimes(1);
 
@@ -658,12 +570,9 @@ describe("the first join being rate limited", () => {
   };
 
   /**
-   * Lets the real Web Crypto key check finish before fake timers take over.
+   * Lets the room lookup finish before fake timers take over.
    *
-   * Crypto completion is an event-loop task rather than a timer or microtask,
-   * so advancing a fake clock an arbitrary number of zero-length ticks can
-   * still leave the hook before its first join on a busy CI runner. Holding the
-   * first mutation open gives us a deterministic handoff: once it is called,
+   * Holding the first mutation open gives us a deterministic handoff: once it is called,
    * install the fake clock, reject it, and let the hook schedule the retry on
    * that clock.
    */
@@ -771,16 +680,16 @@ describe("the first join being rate limited", () => {
     }
   });
 
-  it("still reports a genuine refusal as unauthorized, with no retry", async () => {
+  it("still reports a genuine refusal as no access, with no retry", async () => {
     // The guard on the whole change: only a machine-readable rate limit is
     // retried. An authorization failure must not become a loop, and must not be
     // softened into "try later".
     joinMutate.mockRejectedValue(withCode("FORBIDDEN"));
     await renderProbe();
-    await waitFor(() => probe.result?.status === "unauthorized");
+    await waitFor(() => probe.result?.status === "failed");
 
     expect(joinMutate).toHaveBeenCalledTimes(1);
-    expect(probe.result?.status).toBe("unauthorized");
+    expect(probe.result?.failureReason).toBe("no-access");
     expect(startRoomSession).not.toHaveBeenCalled();
     expect(probe.result?.ownsCanvas).toBe(false);
     expect(readCanvasRoomId()).toBeNull();
@@ -799,7 +708,7 @@ describe("the first join being rate limited", () => {
 describe("bootstrap join failure classification", () => {
   /**
    * The catch-all around `start()` used to report *every* throw — an offline
-   * fetch, a 5xx, a crypto failure — as `unauthorized`, with the raw
+   * fetch, a 5xx — as `unauthorized`, with the raw
    * `error.message` as the user-facing text. Only a stated authorization
    * verdict may read as one; everything else is retryable and says so.
    */
@@ -823,12 +732,23 @@ describe("bootstrap join failure classification", () => {
   it("keeps a stated authorization refusal terminal, with its own message", async () => {
     joinMutate.mockRejectedValue(withCode("FORBIDDEN"));
     await renderProbe();
+    await waitFor(() => probe.result?.status === "failed");
+
+    expect(probe.result?.failureReason).toBe("no-access");
+    // The classified message, not the raw error text.
+    expect(probe.result?.errorMessage).toContain(
+      "You don't have access to this room",
+    );
+    expect(probe.result?.errorMessage).not.toBe("FORBIDDEN");
+  });
+
+  it("reports a refused sign-in as unauthorized", async () => {
+    joinMutate.mockRejectedValue(withCode("UNAUTHORIZED"));
+    await renderProbe();
     await waitFor(() => probe.result?.status === "unauthorized");
 
     expect(probe.result?.status).toBe("unauthorized");
-    // The classified message, not the raw error text.
-    expect(probe.result?.errorMessage).toContain("access was removed");
-    expect(probe.result?.errorMessage).not.toBe("FORBIDDEN");
+    expect(probe.result?.failureReason).toBeNull();
   });
 
   it("reports an ended room as the room ending, not as this account's fault", async () => {
@@ -838,7 +758,7 @@ describe("bootstrap join failure classification", () => {
 
     expect(probe.result?.status).toBe("failed");
     expect(probe.result?.failureReason).toBe("room-ended");
-    expect(probe.result?.errorMessage).toContain("ended or reset");
+    expect(probe.result?.errorMessage).toContain("This room has ended");
   });
 });
 
@@ -886,7 +806,7 @@ describe("collaboration button label", () => {
 });
 
 describe("joining a standalone room (18C §4)", () => {
-  const encrypted: SyncedElement[] = [
+  const initialized: SyncedElement[] = [
     { id: "source", version: 3, versionNonce: 7, isDeleted: false },
   ] as SyncedElement[];
   const skipPrompts = () =>
@@ -902,17 +822,12 @@ describe("joining a standalone room (18C §4)", () => {
   };
 
   beforeEach(() => {
-    roomGetQuery.mockResolvedValue({
-      roomId: ROOM_ID,
-      sceneId: null,
-      authGeneration: 1,
-      keyCheckBase64,
-    });
-    canvas.elements = structuredClone(encrypted);
+    roomGetQuery.mockResolvedValue({ roomId: ROOM_ID, sceneId: null });
+    canvas.elements = structuredClone(initialized);
   });
 
-  it("skips the save-or-discard prompt for the canvas this tab encrypted, once", async () => {
-    markRoomInitializedFromCanvas(ROOM_ID, encrypted);
+  it("skips the save-or-discard prompt for the canvas this tab stored, once", async () => {
+    markRoomInitializedFromCanvas(ROOM_ID, initialized);
     await mountRoom();
     expect(skipPrompts()).toEqual([true]);
 
@@ -922,7 +837,7 @@ describe("joining a standalone room (18C §4)", () => {
   });
 
   it("keeps the exemption across a failed join retry while the canvas is unchanged", async () => {
-    markRoomInitializedFromCanvas(ROOM_ID, encrypted);
+    markRoomInitializedFromCanvas(ROOM_ID, initialized);
     snapshotReads.failuresLeft = 1;
     await renderProbe();
     await waitFor(() => probe.result?.status === "join-failed");
@@ -934,8 +849,8 @@ describe("joining a standalone room (18C §4)", () => {
     expect(skipPrompts()).toEqual([true]);
   });
 
-  it("prompts again once the canvas differs from the one that was encrypted", async () => {
-    markRoomInitializedFromCanvas(ROOM_ID, encrypted);
+  it("prompts again once the canvas differs from the one that was stored", async () => {
+    markRoomInitializedFromCanvas(ROOM_ID, initialized);
     canvas.elements = [
       { id: "other-canvas", version: 1, versionNonce: 1, isDeleted: false },
     ] as SyncedElement[];

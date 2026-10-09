@@ -157,16 +157,12 @@ export default function ExcalidrawEditor() {
     confirmRoomExit,
     collaborationRoomId,
     setCollaborationRoomId,
-    collaborationRoomKey,
-    setCollaborationRoomKey,
-    isRoomKeyLookupSettled,
     collaborationStatus,
     collaborationFailureReason,
     isCollaborationReadOnly,
     isCollaborating,
     collaborationErrorMessage,
     isCanvasOwnedByRoom,
-    retryCollaborationJoin,
     handleCollabPointerUpdate,
     handleCollabScrollChange,
     handleCanvasChange,
@@ -181,13 +177,18 @@ export default function ExcalidrawEditor() {
     cancelPendingSceneSave,
   });
 
-  // A link without its key cannot join. Room's custody copy is asked for
-  // first (plan 19); only when it has none does the dialog open so the person
-  // can paste the complete invitation link.
+  // Room refused this account: the dialog says so and offers the way back.
   useEffect(() => {
-    if (collaborationStatus === "missing-room-key" && isRoomKeyLookupSettled)
+    if (
+      collaborationStatus === "failed" &&
+      collaborationFailureReason === "no-access"
+    )
       openCollaborationDialog();
-  }, [collaborationStatus, isRoomKeyLookupSettled, openCollaborationDialog]);
+  }, [
+    collaborationStatus,
+    collaborationFailureReason,
+    openCollaborationDialog,
+  ]);
   useSignedOutRoomPrompt({
     authState,
     roomId: collaborationRoomId,
@@ -315,7 +316,6 @@ export default function ExcalidrawEditor() {
       onExit: () => {
         if (!confirmRoomExit()) return;
         void setCollaborationRoomId(null);
-        setCollaborationRoomKey(null);
       },
       api: excalidrawAPI,
       isAuthenticated: !!session,
@@ -330,7 +330,6 @@ export default function ExcalidrawEditor() {
       handleUpdateSource,
       confirmRoomExit,
       setCollaborationRoomId,
-      setCollaborationRoomKey,
       excalidrawAPI,
       session,
       detachedFromSceneName,
@@ -473,12 +472,9 @@ export default function ExcalidrawEditor() {
                 onRoomIdChange: (nextRoomId) => {
                   void setCollaborationRoomId(nextRoomId);
                 },
-                roomKey: collaborationRoomKey,
-                onRoomKeyChange: setCollaborationRoomKey,
                 status: collaborationStatus,
                 failureReason: collaborationFailureReason,
                 errorMessage: collaborationErrorMessage,
-                onRetryJoin: retryCollaborationJoin,
                 confirmRoomExit,
               }}
               cloudUpload={{

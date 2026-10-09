@@ -4,11 +4,11 @@ import type { SyncedElement } from "@drawstuff/collaboration/protocol";
  * Rooms this tab just initialized from the canvas on screen.
  *
  * The join that follows a successful initialization replaces the canvas with
- * the room's baseline — the same content the owner just encrypted. Asking that
+ * the room's baseline — the same content the owner just stored. Asking that
  * owner to "save or discard" the canvas first would offer a personal cloud save
  * the standalone flow promised not to make.
  *
- * The exemption is bound to the exact canvas that was encrypted: it applies only
+ * The exemption is bound to the exact canvas that was stored: it applies only
  * while the on-screen elements still match, so a retried join keeps it and an
  * edited or replaced canvas loses it. Only the room id and an element-version
  * fingerprint are held, in memory for this tab.

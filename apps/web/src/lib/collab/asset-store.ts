@@ -1,33 +1,27 @@
 import {
-  createAssetCryptoCodec,
-  MAX_ROOM_ASSETS_PER_GENERATION,
+  MAX_ROOM_ASSETS,
   MAX_ASSET_LOOKUP_BATCH,
-  type ASSET_CRYPTO_VERSION,
   type CollaborationAssetRecord,
 } from "@drawstuff/collaboration/asset";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
-import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 
 import { withCollaborationRequestDeadline } from "@/lib/collab/request-deadline";
 import { createAssetDownloader } from "@/lib/collab/asset-download";
 import { createAssetPublisher } from "@/lib/collab/asset-publish";
-import { createUnreadableAssetVerdict } from "@/lib/collab/asset-unreadable-verdict";
 import {
   createBoundedIdSet,
   createTransferGate,
 } from "@/lib/collab/bounded-containers";
 
 /**
- * Client half of encrypted asset transfer: the only place an asset is sealed or
- * opened.
+ * Client half of room asset transfer: the only place an asset payload is
+ * encoded or decoded.
  *
  * The split mirrors the snapshot store's. Authorization comes from the backend
- * (the room API decides who may discover an asset URL and who may upload one);
- * confidentiality comes from the URL fragment (the room key, which never leaves
- * the browser). So this module needs both, and everything below it handles
- * ciphertext only — there is no code path that could upload a readable image,
- * because `publish` seals before it calls the API and `request` opens after.
+ * (the room API decides who may discover an asset URL and who may upload one),
+ * and the stored bytes are the plain asset payload at a public object URL, the
+ * same exposure as owned-scene images (ADR-0005).
  *
  * ## What is bounded, and where
  *
@@ -38,8 +32,8 @@ import {
  *   element: a scene with 40 copies of one image asks about one file id, and a
  *   scene with 40 images asks once.
  * - **In flight.** Downloads and uploads run at a fixed concurrency, so a late
- *   joiner with a full room of images holds a few ciphertexts in memory instead of
- *   all of them. Opened files are delivered in batches of at most four or after
+ *   joiner with a full room of images holds a few payloads in memory instead of
+ *   all of them. Decoded files are delivered in batches of at most four or after
  *   32 ms, so a slow image does not hold back the rest of a lookup.
  * - **Bodies.** A response is read through a bounded reader against the length the
  *   record declares, so a storage endpoint that streams forever is cut off rather
@@ -49,8 +43,8 @@ import {
  *   it would let a long session grow without limit.
  * - **Retries.** Bounded and only for the failures a retry can fix.
  *
- * There is deliberately no decrypted-bytes cache and no object URL. The engine's
- * file store *is* the cache: an opened asset is handed to `addFiles` and this
+ * There is deliberately no decoded-bytes cache and no object URL. The engine's
+ * file store *is* the cache: a decoded asset is handed to `addFiles` and this
  * module keeps only its id. So teardown has nothing to release beyond in-flight
  * requests and one timer.
  *
@@ -58,16 +52,10 @@ import {
  *
  * A peer broadcasts an image element the instant it is added and its upload lands
  * a beat later, so the first lookup for a fresh image legitimately finds nothing.
- * That is retried with backoff. A payload that fails to open or decode is the
- * opposite case — retrying cannot change it — so it is abandoned, and the scene
- * keeps syncing without the image rather than stalling on it.
- *
- * Abandoning is not the same as saying nothing, though, and the two used to be.
- * "Not uploaded yet" and "this link will never open it" both showed the user the
- * same blank space, so a room whose images are all sealed under a key this link
- * does not have looked exactly like a room whose peers are merely slow. The
- * per-asset handling is unchanged — see `onAssetsUnreadable` for the aggregate
- * that makes the second case visible without making the first one noisy.
+ * That is retried with backoff. A payload that arrives damaged or fails to
+ * decode is the opposite case — retrying cannot change it — so it is abandoned,
+ * and the scene keeps syncing without the image rather than stalling on it.
+ * Abandoning is not the same as saying nothing: see `onAssetsUnreadable`.
  *
  * ## How the module is split
  *
@@ -75,9 +63,8 @@ import {
  * (`resolved`/`abandoned`/`available`), the transfer budget, the retry pacing
  * policy, the batched "given up" report, and teardown. The transfer halves live
  * in `asset-download.ts` and `asset-publish.ts` and receive that shared state as
- * an explicit context; the room-level unreadable verdict is its own small
- * machine in `asset-unreadable-verdict.ts`, and the generic bounded containers
- * are in `bounded-containers.ts`.
+ * an explicit context; the generic bounded containers are in
+ * `bounded-containers.ts`.
  */
 
 /** The backend surface this store needs; the tRPC client and the uploader satisfy it. */
@@ -91,25 +78,21 @@ export type AssetApi = {
     input: { roomId: string; fileIds: string[] },
     signal: AbortSignal,
   ) => Promise<{
-    authGeneration: number;
     assets: CollaborationAssetRecord[];
     missing: string[];
   }>;
-  /** Resolves when the ciphertext is stored and recorded; throws otherwise. */
+  /** Resolves when the payload is stored and recorded; throws otherwise. */
   upload: (input: {
     roomId: string;
-    /** Generation the ciphertext was sealed for; the server refuses a mismatch. */
-    authGeneration: number;
     excalidrawFileId: string;
-    cryptoVersion: typeof ASSET_CRYPTO_VERSION;
-    ciphertext: Uint8Array;
+    payload: Uint8Array;
     signal: AbortSignal;
   }) => Promise<void>;
 };
 
 export type CollaborationAssetStore = {
   /**
-   * Seals and uploads every file the room does not have yet. Idempotent: a file
+   * Encodes and uploads every file the room does not have yet. Idempotent: a file
    * already published, in flight, or known to be in the room is skipped, so the
    * caller may hand over the whole current file set on every scene flush.
    * Concurrent callers await the shared upload attempt before resolving; this
@@ -117,14 +100,14 @@ export type CollaborationAssetStore = {
    */
   publish: (files: readonly BinaryFileData[]) => Promise<void>;
   /**
-   * Fetches and opens the assets for ids the canvas is missing, handing the
+   * Fetches and decodes the assets for ids the canvas is missing, handing the
    * results to `onAssetsResolved`. Concurrent calls for one id share a single
    * download.
    */
   request: (fileIds: readonly string[]) => Promise<void>;
   /** Aborts in-flight transfers, cancels the retry timer, and drops all state. */
   destroy: () => void;
-  /** Server records prove all referenced ciphertext objects were finalized. */
+  /** Server records prove all referenced asset objects were finalized. */
   areAvailable?: (fileIds: readonly string[]) => Promise<boolean>;
 };
 
@@ -137,14 +120,14 @@ const MAX_RETRY_DELAY_MS = 30_000;
 /**
  * Simultaneous transfers **for the whole store**, uploads and downloads together.
  * Four is the same order as a browser's per-host connection budget, and it caps
- * peak memory at four ciphertexts plus their plaintexts rather than a whole
+ * peak memory at four payloads plus their decoded images rather than a whole
  * room's worth. Per-call limiting would not do that: two overlapping scene
  * messages would each open their own budget.
  */
 const MAX_CONCURRENT_TRANSFERS = 4;
 
 /** Every id set and id map is capped at the room's own budget. */
-const MAX_TRACKED_IDS = MAX_ROOM_ASSETS_PER_GENERATION;
+const MAX_TRACKED_IDS = MAX_ROOM_ASSETS;
 
 const defaultScheduleTimeout = (
   run: () => void,
@@ -160,37 +143,27 @@ const retryDelayMs = (attempts: number): number =>
     MAX_RETRY_DELAY_MS,
   ) + Math.floor(Math.random() * RETRY_JITTER_MS);
 
-export async function createCollaborationAssetStore(options: {
+export function createCollaborationAssetStore(options: {
   api: AssetApi;
   roomId: RoomId;
-  /** End-to-end room key from the URL fragment; never from the backend. */
-  roomKey: RoomKey;
-  /** Authorization generation the session joined under. */
-  authGeneration: number;
-  /** Called with every batch of opened assets, for injection into the canvas. */
+  /** Called with every batch of decoded assets, for injection into the canvas. */
   onAssetsResolved: (files: readonly BinaryFileData[]) => void;
   /**
-   * The room has images this session cannot open, and it has never opened one.
-   *
-   * Called at most once, and only under that second condition, which is what
-   * separates the two failures a user cannot otherwise tell apart. "Not uploaded
-   * yet" is retried and never reports here; "will not open" is final, and until
-   * now looked identical — a canvas quietly short an image, with no message. One
-   * successful open means the link does read this room, so a later failure is a
-   * damaged or tampered asset and stays silent, exactly as a single bad realtime
-   * frame does.
+   * The room has an image whose stored bytes arrived damaged or would not
+   * decode. Called at most once per store: "not uploaded yet" is retried and
+   * never reports here, while a damaged image is final and would otherwise be
+   * a canvas quietly short an image, with no message.
    */
   onAssetsUnreadable?: () => void;
   /**
    * Ids this client has given up on, batched. Retrying cannot produce these
-   * images — the ciphertext will not open, the body disagrees with its record,
-   * the local file is too large to publish, or the upload budget is spent — so
-   * the canvas can say so instead of showing them as still loading.
+   * images — the body disagrees with its record or will not decode, the local
+   * file is too large to publish, or the upload budget is spent — so the canvas
+   * can say so instead of showing them as still loading.
    *
-   * Separate from `onAssetsUnreadable`, which is one room-level statement about
-   * the *link*. This is per image and carries no claim about the key: it is the
-   * union of every terminal reason, which is exactly what "this picture is not
-   * coming" means to the person looking at the canvas.
+   * Separate from `onAssetsUnreadable`, which is one room-level statement that
+   * stored images are damaged; this is per image and is the union of every
+   * terminal reason.
    */
   onAssetsUnavailable?: (fileIds: readonly string[]) => void;
   /**
@@ -206,11 +179,10 @@ export async function createCollaborationAssetStore(options: {
   now?: () => number;
   /** Injected by tests; production uses the global. */
   fetchImpl?: typeof fetch;
-}): Promise<CollaborationAssetStore> {
+}): CollaborationAssetStore {
   const {
     api,
     roomId,
-    authGeneration,
     onAssetsResolved,
     onAssetsUnreadable,
     onAssetsUnavailable,
@@ -221,21 +193,13 @@ export async function createCollaborationAssetStore(options: {
       fetch(input, init),
   } = options;
 
-  // Derived once per session: the key is bound to (room, generation, purpose),
-  // and it is non-extractable, so it cannot end up in a log or an error payload.
-  const codec = await createAssetCryptoCodec({
-    roomKey: options.roomKey,
-    roomId,
-    authGeneration,
-  });
-
   const controller = new AbortController();
   let destroyed = false;
   const isDestroyed = (): boolean => destroyed;
 
   /** Ids already handed to the canvas; never downloaded twice. */
   const resolved = createBoundedIdSet(MAX_TRACKED_IDS);
-  /** Ids no retry can help: unopenable, undecodable, or out of attempts. */
+  /** Ids no retry can help: damaged, undecodable, or out of attempts. */
   const abandoned = createBoundedIdSet(MAX_TRACKED_IDS);
   /** Ids this client has uploaded or seen in the room. */
   const available = createBoundedIdSet(MAX_TRACKED_IDS);
@@ -245,15 +209,14 @@ export async function createCollaborationAssetStore(options: {
    * Ids given up on since the last report, awaiting one batched notification.
    *
    * Batched rather than reported per id because the caller turns this into a
-   * scene write, and a late joiner with ten unopenable images must produce one
+   * scene write, and a late joiner with ten damaged images must produce one
    * canvas update, not ten.
    */
   let unavailableIds: string[] = [];
 
   /**
    * The single place an id is given up on. Centralised so a terminal failure
-   * cannot be added to `abandoned` without the canvas being told — the silent
-   * variant of exactly this is what aggregate unreadable-room detection removes.
+   * cannot be added to `abandoned` without the canvas being told.
    */
   const abandon = (fileId: string): void => {
     if (abandoned.has(fileId)) return;
@@ -268,16 +231,16 @@ export async function createCollaborationAssetStore(options: {
     onAssetsUnavailable?.(reported);
   };
 
-  const verdict = createUnreadableAssetVerdict({
-    onAssetsUnreadable,
-    isDestroyed,
-  });
+  let reportedUnreadable = false;
+  const noteUnreadableAsset = (): void => {
+    if (destroyed || reportedUnreadable) return;
+    reportedUnreadable = true;
+    onAssetsUnreadable?.();
+  };
 
   const downloader = createAssetDownloader({
     resolve: api.resolve,
     roomId,
-    authGeneration,
-    codec,
     fetchImpl,
     signal: controller.signal,
     isDestroyed,
@@ -291,15 +254,13 @@ export async function createCollaborationAssetStore(options: {
     available,
     abandon,
     flushUnavailable,
-    verdict,
+    noteUnreadableAsset,
     onAssetsResolved,
   });
 
   const publisher = createAssetPublisher({
     upload: api.upload,
     roomId,
-    authGeneration,
-    codec,
     signal: controller.signal,
     isDestroyed,
     now,
@@ -334,11 +295,7 @@ export async function createCollaborationAssetStore(options: {
           const present = new Set(
             result.assets.map((asset) => asset.excalidrawFileId),
           );
-          if (
-            result.authGeneration !== authGeneration ||
-            batch.some((id) => !present.has(id))
-          )
-            return false;
+          if (batch.some((id) => !present.has(id))) return false;
         }
         return !destroyed;
       } catch {

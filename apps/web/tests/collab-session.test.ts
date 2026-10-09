@@ -12,7 +12,6 @@ import {
   sortSceneById,
 } from "./support/collab-scene-fixtures";
 import {
-  AUTH_GENERATION,
   createHarness,
   createManualScheduler,
   createRawSender,
@@ -598,13 +597,7 @@ describe("collaboration session over the fake network", () => {
       transport: tinyHarness.createTransport(),
       roomId: ROOM_ID,
       joinToken: JOIN_TOKEN,
-      authGeneration: AUTH_GENERATION,
-      refreshJoinToken: () =>
-        Promise.resolve({
-          ok: true,
-          token: JOIN_TOKEN,
-          authGeneration: AUTH_GENERATION,
-        }),
+      refreshJoinToken: () => Promise.resolve({ ok: true, token: JOIN_TOKEN }),
       username: "tiny",
       sceneApi: host.api,
       scheduleSceneFlush: scheduler.schedule,
@@ -616,13 +609,7 @@ describe("collaboration session over the fake network", () => {
       transport: tinyHarness.createTransport(),
       roomId: ROOM_ID,
       joinToken: JOIN_TOKEN,
-      authGeneration: AUTH_GENERATION,
-      refreshJoinToken: () =>
-        Promise.resolve({
-          ok: true,
-          token: JOIN_TOKEN,
-          authGeneration: AUTH_GENERATION,
-        }),
+      refreshJoinToken: () => Promise.resolve({ ok: true, token: JOIN_TOKEN }),
       username: "rx",
       sceneApi: receiver.api,
       scheduleSceneFlush: receiverScheduler.schedule,
@@ -802,13 +789,7 @@ describe("scene attachment guard", () => {
       transport: network.createTransport(),
       roomId: ROOM_ID,
       joinToken: JOIN_TOKEN,
-      authGeneration: AUTH_GENERATION,
-      refreshJoinToken: () =>
-        Promise.resolve({
-          ok: true,
-          token: JOIN_TOKEN,
-          authGeneration: AUTH_GENERATION,
-        }),
+      refreshJoinToken: () => Promise.resolve({ ok: true, token: JOIN_TOKEN }),
       username: "attached",
       sceneApi: host.api,
       scheduleSceneFlush: scheduler.schedule,

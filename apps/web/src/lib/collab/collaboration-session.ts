@@ -108,7 +108,7 @@ export const FULL_SCENE_SYNC_INTERVAL_MS = 20_000;
  * How often the elected writer publishes the durable snapshot. Much slower than
  * the realtime cadence on purpose: the snapshot is what a *later* joiner needs,
  * not what live peers need, and every write is a database round-trip plus a
- * full-scene seal.
+ * full-scene encode.
  */
 export const SNAPSHOT_INTERVAL_MS = 30_000;
 
@@ -137,12 +137,6 @@ export type CollaborationSessionOptions = {
    * back in the connected state.
    */
   joinToken: string;
-  /**
-   * The room's durable authorization generation this session's keys are derived
-   * from. Compared against every refreshed token so a rotation is detected as a
-   * rotation instead of as a stream of undecryptable frames.
-   */
-  authGeneration: number;
   /** Mints credentials for a reconnect attempt; see `connection-lifecycle.ts`. */
   refreshJoinToken: () => Promise<JoinCredentialsResult>;
   /**
@@ -154,12 +148,12 @@ export type CollaborationSessionOptions = {
   username: string;
   sceneApi: CollaborationSceneApi;
   /**
-   * Durable baseline for this room generation. Absent means the session runs on
+   * Durable baseline for this room. Absent means the session runs on
    * live peers alone — used by tests that exercise peer sync in isolation.
    */
   snapshotStore?: CollaborationSnapshotStore;
   /**
-   * Encrypted transfer for the binary assets the scene's image elements
+   * Transfer for the binary assets the scene's image elements
    * reference. Absent means images are not exchanged — used by tests that
    * exercise element sync in isolation, which is also the honest description of
    * what a session without it does.
@@ -342,7 +336,6 @@ export function createCollaborationSession(
     transport,
     roomId,
     joinToken,
-    authGeneration,
     refreshJoinToken,
     username,
     sceneApi,
@@ -467,7 +460,6 @@ export function createCollaborationSession(
     publishLocalAssets: () => bridge.publishLocalAssets(),
     armSceneRepair: () => repair.arm(),
     reporter,
-    failRecovery: (reason) => lifecycle.failRecovery(reason),
   });
 
   const cadence: SnapshotCadence = createSnapshotCadence({
@@ -484,11 +476,7 @@ export function createCollaborationSession(
       });
     },
     onSnapshotWritten: (receipt) =>
-      publisher.sendSnapshotControl({
-        kind: "persisted",
-        authGeneration,
-        ...receipt,
-      }),
+      publisher.sendSnapshotControl({ kind: "persisted", ...receipt }),
     getJoinEpoch: () => joinEpoch,
     isDestroyed: () => destroyed,
     isTerminated: () => terminated,
@@ -517,7 +505,6 @@ export function createCollaborationSession(
     armSceneRepair: () => repair.arm(),
     publishLocalAssets: () => bridge.publishLocalAssets(),
     snapshotBaseline: cadence,
-    failRecovery: (reason) => lifecycle.failRecovery(reason),
   });
 
   const presence = createPresenceChannel({
@@ -528,7 +515,6 @@ export function createCollaborationSession(
     presenceThrottleMs,
     wrapPresenceApply,
     scheduleSceneFlush,
-    failRecovery: (reason) => lifecycle.failRecovery(reason),
     follow: options.followHost,
   });
 
@@ -541,7 +527,7 @@ export function createCollaborationSession(
     onSceneApplied: () => cadence.onSceneChange(),
     receiveSnapshotControl: (message) => {
       if (message.payload.kind === "request") cadence.requestSave(true);
-      else if (message.payload.authGeneration === authGeneration)
+      else
         cadence.receivePersisted(
           message.payload.revision,
           message.payload.checksum,
@@ -558,7 +544,6 @@ export function createCollaborationSession(
   const lifecycle = createConnectionLifecycle({
     transport,
     roomId,
-    authGeneration,
     initialToken: joinToken,
     refreshJoinToken,
     recovery,
@@ -684,20 +669,6 @@ export function createCollaborationSession(
     onMessage: (message, meta) =>
       remoteApplier.handleRemoteMessage(message, meta),
     onRoomPeersChange: handleRoomPeersChange,
-    // The transport dropped inbound scene traffic, so this side may be behind
-    // with no sequence gap to detect. Our snapshot draws the sender's
-    // `scene-init` reply (see `remote-apply.ts`), which carries whatever we
-    // lost — the same repair path a detected gap uses.
-    onSceneSyncRequired: () => publisher.sendFullScene(),
-    // Frames arrived and none of them ever opened, which is the same verdict the
-    // durable snapshot gives when it will not open — so it takes the same
-    // terminal reason. This is the detector for the room the snapshot oracle
-    // cannot cover: one with nothing stored yet, where the session would
-    // otherwise stay connected, blank and silent forever.
-    onRoomUnreadable: () => {
-      if (context.isStopped()) return;
-      lifecycle.failRecovery("unreadable-room");
-    },
   };
   unsubscribeTransport = transport.subscribe(subscriber);
 

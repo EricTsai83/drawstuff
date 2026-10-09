@@ -1,7 +1,7 @@
 "use client";
 
 import { QueryClientProvider, type QueryClient } from "@tanstack/react-query";
-import { httpBatchStreamLink, loggerLink, splitLink } from "@trpc/client";
+import { httpBatchStreamLink, loggerLink } from "@trpc/client";
 import { createTRPCReact } from "@trpc/react-query";
 import type { inferRouterInputs, inferRouterOutputs } from "@trpc/server";
 import { useState } from "react";
@@ -10,11 +10,6 @@ import SuperJSON from "superjson";
 import { type AppRouter } from "./types";
 import { createQueryClient } from "./query-client";
 import { getBaseUrl } from "@/lib/base-url";
-
-const KEY_CUSTODY_PATHS = new Set([
-  "collaborationAuthority.roomKey",
-  "collaborationAuthority.escrowRoomKey",
-]);
 
 const transport = () =>
   httpBatchStreamLink({
@@ -57,21 +52,12 @@ export function TRPCReactProvider(props: { children: React.ReactNode }) {
   const [trpcClient] = useState(() =>
     api.createClient({
       links: [
-        // Room key custody carries plaintext keys in its input and result
-        // (plan 19), so it bypasses the logger entirely, in development and
-        // after errors alike.
-        splitLink({
-          condition: (op) => KEY_CUSTODY_PATHS.has(op.path),
-          true: transport(),
-          false: [
-            loggerLink({
-              enabled: (op) =>
-                process.env.NODE_ENV === "development" ||
-                (op.direction === "down" && op.result instanceof Error),
-            }),
-            transport(),
-          ],
+        loggerLink({
+          enabled: (op) =>
+            process.env.NODE_ENV === "development" ||
+            (op.direction === "down" && op.result instanceof Error),
         }),
+        transport(),
       ],
     }),
   );
