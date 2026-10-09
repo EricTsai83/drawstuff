@@ -161,7 +161,7 @@ export const zhTW = {
   "collaboration.toast.initializationAttachments":
     "部分圖片檔案尚未載入或無法上傳。請重新載入場景，或移除這些圖片後再開始共編。",
   "collaboration.error.operationFailed": "即時共編操作失敗，請稍後再試。",
-  "collaboration.action.creating": "建立中…",
+  "collaboration.action.creating": "正在建立房間",
   "collaboration.action.start": "開始加密共編",
   "collaboration.create.linkKey": "完整連結含有金鑰，只分享給信任的人。",
   "collaboration.create.keyLoss":

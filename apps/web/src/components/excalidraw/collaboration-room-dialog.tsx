@@ -31,6 +31,7 @@ import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 import { CopyButton } from "@/components/copy-button";
 import { GoogleSignInButton } from "@/components/google-sign-in-button";
 import { Button } from "@/components/ui/button";
+import { Spinner } from "@/components/ui/spinner";
 import {
   Dialog,
   DialogContent,
@@ -827,6 +828,7 @@ export function CollaborationRoomDialog({
             </ul>
             <Button
               disabled={isCreatePending || isCancellingInitialization}
+              aria-busy={isCreatePending}
               onClick={() => {
                 if (!isAuthenticated) {
                   toast.error(authRequiredMessage);
@@ -835,9 +837,14 @@ export function CollaborationRoomDialog({
                 void startRoom();
               }}
             >
-              {isCreatePending
-                ? t("collaboration.action.creating")
-                : t("collaboration.action.start")}
+              {isCreatePending ? (
+                <>
+                  <Spinner data-icon="inline-start" aria-hidden="true" />
+                  {t("collaboration.action.creating")}
+                </>
+              ) : (
+                t("collaboration.action.start")
+              )}
             </Button>
             {hasInitialization && (
               // Spaced and lighter than the primary action beside it, so a

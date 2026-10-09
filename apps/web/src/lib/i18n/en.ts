@@ -172,7 +172,7 @@ export const en = {
     "Some image files are missing or unsupported. Reload the scene or remove those images before starting collaboration.",
   "collaboration.error.operationFailed":
     "The collaboration action failed. Please try again.",
-  "collaboration.action.creating": "Creating...",
+  "collaboration.action.creating": "Creating room",
   "collaboration.action.start": "Start encrypted collaboration",
   "collaboration.create.linkKey":
     "The full link contains the key. Share it only with people you trust.",
