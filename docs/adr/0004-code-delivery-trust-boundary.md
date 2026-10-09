@@ -126,3 +126,11 @@ Excalidraw 0.18.1 的 twitter/x、reddit 與 gist.github.com embed 走 srcdoc if
   `packages/collaboration/tests/package-contract.test.ts` 釘住（dependencies 恰為
   `["zod"]`、`node:crypto` 僅限 server-only token 模組、key material 限定模組集合）。
 - dev-only 的 unpkg `react-grab` script 只存在於 dev CSP；不得進 production CSP。
+
+## 後續變更（2026-10-09）
+
+[Plan 19](../../plans/19-server-room-key-custody.md) 依擁有者決定改由 Room DO 以 Worker secret
+`COLLAB_ROOM_KEY_WRAP_SECRET` 包裝保管房間金鑰。上文「room key 永不離開 browser」與對外 E2EE 宣稱的前提
+因此不再成立：產品不再宣稱共編為端對端加密，且 Cloudflare Worker 部署路徑與該 secret 也能取得已保管
+的金鑰（[威脅模型](../architecture/collaboration-threat-model.md) T17）。B6／T16 與 CSP 的結論不變；
+本 ADR 原文保留作為當時決策紀錄。

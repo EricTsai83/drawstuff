@@ -13,7 +13,7 @@ Protocol 6、Room DO 授權權威、Lifecycle 退休及配套 web／Worker／sch
 ## Active plans
 
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) — 長期 logs／metrics、client telemetry、告警與 dashboard；暫緩實現，目的地未定。
-- [18c-collaboration-surface.md](18c-collaboration-surface.md) — 房間列表、缺鑰體驗（不保存金鑰）、未儲存畫布建立獨立房間、全產品加密告知。程式已實作並通過本機驗證；剩餘 §7 `[L3]` production 正式流程驗收。
+- [18c-collaboration-surface.md](18c-collaboration-surface.md) — 房間列表、缺鑰體驗（原「不保存金鑰」已由 19 改為服務端保管）、未儲存畫布建立獨立房間、全產品加密告知。程式已實作並通過本機驗證；剩餘 §7 `[L3]` production 正式流程驗收。
 - [18d-collaboration-acceptance-follow-ups.md](18d-collaboration-acceptance-follow-ups.md) — 待排程：自然斷線／presign 500、正式瀏覽器恢復與保存狀態、效能 3A／3B／3C、跨日／閒置／autosuspend／成本及剩餘回歸。先定位再重測，一次一個 scope，不阻擋 18C 開發。
 - [19-server-room-key-custody.md](19-server-room-key-custody.md) — 服務端保管房間金鑰，讓成員從列表或任何裝置重新開啟房間；推翻 18C「不保存金鑰」，不再宣稱端對端加密。§2 決定已確認，實作中。
 - [20-passkey-room-key-vault.md](20-passkey-room-key-vault.md) — 以 passkey 保護的使用者金鑰庫，取代服務端可解密的保管並恢復端對端加密；19 之後的最佳化，未排程。

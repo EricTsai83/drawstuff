@@ -16,3 +16,9 @@ UploadThing 維持現有 public 上傳。附件由瀏覽器加密，服務端不
 
 目前行為與威脅範圍見 [共編儲存契約](../architecture/collaboration-storage.md) 與
 [威脅模型](../architecture/collaboration-threat-model.md)。
+
+## 後續變更（2026-10-09）
+
+[Plan 19](../../plans/19-server-room-key-custody.md) 依擁有者決定由 Room DO 包裝保管房間金鑰，
+上文「服務端不接收房間秘密」與「房間 E2EE」已不再成立：附件仍只在瀏覽器加密、UploadThing 仍不持有金鑰，
+但服務端可經保管副本解密；撤權後成員無法再向保管取得金鑰。本 ADR 對 public 物件 URL 的接受範圍不變。

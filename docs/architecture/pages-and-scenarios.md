@@ -18,7 +18,7 @@ flowchart LR
         WEB["apps/web<br/>Next.js 16 · React 19 · tRPC v11<br/>產品 UI + 後端 API + server actions"]
         DO["apps/collaboration-do<br/>Cloudflare Worker gateway<br/>+ CollaborationRoom Durable Object（SQLite）"]
         ADP["packages/excalidraw-adapter<br/>Excalidraw 唯一整合邊界<br/>document v4 codec、SVG export、reconcile"]
-        COL["packages/collaboration<br/>協定、E2EE crypto、offline queue、<br/>recovery、room token／limits"]
+        COL["packages/collaboration<br/>協定、房間內容 crypto、金鑰保管協定、<br/>offline queue、recovery、room token／limits"]
         UP["@excalidraw/excalidraw（npm）"]
     end
 
@@ -98,7 +98,7 @@ flowchart TD
 flowchart TD
     MOUNT["Excalidraw mount<br/>initialDataPromise"] --> Q{"URL / 狀態判斷"}
     Q -->|"hash #json=id,key"| SHARE["分享連結<br/>public tRPC 取密文 → 瀏覽器解密<br/>（§5）"]
-    Q -->|"?collab-room=id + hash #collab-key=…"| ROOM["協作房間<br/>key-check → join token → WebSocket<br/>（§7）"]
+    Q -->|"?collab-room=id（+ hash #collab-key=…，缺鑰時向 Room 保管取得）"| ROOM["協作房間<br/>key-check → join token → WebSocket<br/>（§7）"]
     Q -->|"無 hash"| LOCAL["localStorage 快取<br/>+ SceneSession 記住的 currentSceneId"]
     DASH["Dashboard 雙擊場景卡"] -->|"事件驅動，不改 URL hash"| CONFIRM{"目前畫布 dirty？"}
     CONFIRM -->|是| DLG["SceneChangeConfirm dialog"] --> LOAD
@@ -256,13 +256,16 @@ sequenceDiagram
 2. **拓撲與狀態機**（gateway、DO、hibernation、generation）：
    [即時協作房間](../system-design/realtime-room-coordination.md) 三張圖。
 3. **金鑰**（fragment、HKDF、key-check fail-closed）：
-   [E2EE 金鑰生命週期](../system-design/e2ee-key-lifecycle.md) 三張圖。
+   [E2EE 金鑰生命週期](../system-design/e2ee-key-lifecycle.md) 三張圖。自
+   [plan 19](../../plans/19-server-room-key-custody.md) 起 Room DO 另以 Worker secret 包裝保管
+   房間金鑰、發給已授權成員，共編**不再是端對端加密**；見
+   [授權契約](./collaboration-authority.md)「房間金鑰保管」。
 4. **撤銷成員的一致性**（同交易寫 outbox、best-effort control、cron 補送）：
    [Transactional Outbox](../system-design/transactional-outbox.md)。
 5. **誰負責寫快照、多久寫一次**：
    [Client 寫入節奏與 writer 選舉](../system-design/client-write-pacing-and-writer-election.md)。
 
-口頭一句話：**Durable Object 只做 coordination，不存明文也不存權威畫布**；授權在
+口頭一句話：**Durable Object 只做 coordination，不存明文內容也不存權威畫布，但保管包裝後的房間金鑰**；授權在
 PostgreSQL 決定、以短效 token 帶到 Worker、每一跳重新驗證。
 
 ## 8. 場景：登入、授權與後台入口

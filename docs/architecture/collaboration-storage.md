@@ -3,8 +3,11 @@
 Room DO is the deployed authorization authority; PostgreSQL stores encrypted snapshots, asset
 records, fences and display projections. Source scenes are optional. See the
 [current authority contract](collaboration-authority.md). Room keys are never retained in browser
-storage (threat-model invariant 4); the product surface below is implemented, and its production
-acceptance is tracked by the [surface plan](../../plans/18c-collaboration-surface.md).
+storage, Neon, or UploadThing; since [plan 19](../../plans/19-server-room-key-custody.md) the Room
+DO keeps one wrapped custody copy per generation (threat-model invariants 2–5), so the service can
+technically decrypt room content and rooms are not described as end-to-end encrypted. The product
+surface below is implemented, and its production acceptance is tracked by the
+[surface plan](../../plans/18c-collaboration-surface.md) and plan 19 §7.
 Unfinished acceptance is tracked separately, not treated as an undeployed authority reset.
 
 ## Storage modes and destinations
@@ -42,10 +45,11 @@ open stale canvas from silently overwriting the committed version.
 
 - **Starting a room.** Any signed-in canvas can start an encrypted room; a missing `sceneId`
   creates a standalone room (`sceneId: null`) and never creates a personal scene. The dialog states
-  the encryption scope, that the complete link carries the key, that a lost link cannot be
-  recovered, and either "no personal cloud copy" or "your existing personal cloud scene stays
-  unencrypted". The canvas is paused during initialization; the room is shown ready only after
-  `complete-initialization` and the key check succeed. The tab then joins without the
+  that drawings and images are stored and sent encrypted, that drawstuff keeps the room key so
+  members can reopen the room from their room list on any device, and either "no personal cloud
+  copy" or "your existing personal cloud scene stays unencrypted". Right after `set-key-check` the
+  creator escrows the key (best effort; creation does not fail if custody fails). The canvas is paused during initialization; the room is
+  shown ready only after `complete-initialization` and the key check succeed. The tab then joins without the
   save-or-discard prompt because the canvas already equals the room baseline
   (`initialized-room-handoff.ts`). The exemption is bound to an element-version fingerprint of the
   encrypted canvas: a retried join keeps it, an edited or replaced canvas loses it, and a
@@ -54,9 +58,13 @@ open stale canvas from silently overwriting the committed version.
   empty), and empty states are distinct; rows show standalone vs. scene-linked and the projected
   role. When a confirmed initialization reports `projectionPending`, the owner is told the list is
   still syncing; the list itself states that a newly created or joined room may appear later.
-- **Missing key.** Opening a room without its key opens the collaboration dialog with a
-  "complete invitation link" field (see threat-model invariant 4); nothing connects until a key
-  is present, so the stored snapshot is never overwritten.
+  Opening a row fetches the custody key first, so a lost link no longer means a lost room for
+  the owner, members, and allowlisted emails.
+- **Missing key.** A keyless `?collab-room=` URL first asks custody; only when no key is released
+  (not a D2 key holder, or the room has no custody copy yet) does the collaboration dialog show a
+  "complete invitation link" field (see threat-model invariant 5). Nothing connects until a key is
+  present, so the stored snapshot is never overwritten. After any successful keyed join from a
+  link the editor escrows the key again, which backfills rooms created before custody.
 - **Notices.** Personal cloud save dialogs and export entries say personal cloud saves are not
   end-to-end encrypted and not automatically public; local export says the file is unencrypted;
   encrypted share links say the complete link can decrypt; publishing says anyone with the link

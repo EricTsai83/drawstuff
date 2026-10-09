@@ -43,27 +43,29 @@ Code-only 自動部署即可，不需先手動部署 Worker。
 
 ## 2. Secrets
 
-現有 production 使用下面三個 secret。18B source 的 `secrets.required` 另新增四個
-adapter／identity／Gateway binding，P2 完整串接與 P3 重置部署時才配置；目前沒有設定它們：
+`wrangler.jsonc` 的 `secrets.required` 目前列出六個 secret（2026-10-08 已配置前五個；
+`COLLAB_ROOM_KEY_WRAP_SECRET` 為 plan 19 新增）。缺任何一個，wrangler 會拒絕部署。舊部署的
+`COLLAB_CRON_SECRET`、`COLLAB_OUTBOX_DRAIN_URL` 已隨 cron／outbox drain 移除（`triggers.crons` 為空），
+不再需要。
 
-| 18B 新增 binding          | 值／用途                                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `COLLAB_ADAPTER_URL`      | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect |
-| `COLLAB_ADAPTER_SECRET`   | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用 join／cron secret                         |
-| `COLLAB_IDENTITY_SECRET`  | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 不授予角色，與舊 join secret 分開                              |
-| `COLLAB_AUTHORITY_SECRET` | 與 web 端同名值相同的 Vercel → Gateway 私有管理入口憑證；與 proof／adapter 憑證分開                                      |
+| Secret                     | 值／用途                                                                                                                 |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| `COLLAB_JOIN_TOKEN_SECRET` | 私有 legacy regression 路徑的 join/control token 憑證（≥32 bytes）；protocol-6 公開入口不接受其角色 token                |
+| `COLLAB_ADAPTER_URL`       | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect |
+| `COLLAB_ADAPTER_SECRET`    | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用其他 secret                               |
+| `COLLAB_IDENTITY_SECRET`   | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 不授予角色                                                     |
+| `COLLAB_AUTHORITY_SECRET`  | 與 web 端同名值相同的 Vercel → Gateway 私有管理入口憑證；與 proof／adapter 憑證分開                                      |
+| `COLLAB_ROOM_KEY_WRAP_SECRET`   | **Worker 專用**（web 端不需要）。≥32 bytes 隨機值；以 HKDF 衍生每房間／世代的 KEK，包裝 Room DO 保管的房間金鑰（[plan 19](../../plans/19-server-room-key-custody.md)） |
 
-source 的七個 required secret 缺一會拒絕正式部署。P2 移除舊 cron／授權路徑時還須刪除對應舊 binding。
-下面仍是舊部署的三個 binding：
-
-| Secret                     | 耦合對象                                                                                                                                            |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `COLLAB_JOIN_TOKEN_SECRET` | web 端簽 join/control token 用的同一值（≥32 bytes）                                                                                                 |
-| `COLLAB_CRON_SECRET`       | **必須等於 web 端 `COLLAB_OUTBOX_CRON_SECRET`**；輪替必須同步，錯配症狀是 drain route 回 401                                                        |
-| `COLLAB_OUTBOX_DRAIN_URL`  | `https://<web origin>/api/collaboration/control-outbox`；設錯的症狀是 cron 每分鐘記 `cron.outbox_drain_failed`（例如 404），outbox 修復路徑靜默死亡 |
+**`COLLAB_ROOM_KEY_WRAP_SECRET` 部署順序**：先以
+`pnpm --filter @drawstuff/collaboration-do secret:put:room-key-wrap` 設定（例如 `openssl rand -base64 48`
+產生），**再**部署 DO，最後部署 web；未設定時 `secrets.required` 會擋下 DO 部署。這個值等同所有已保管
+房間金鑰的總鑰：外洩代表持有者配合 DO 儲存即可解密每個已保管房間（[威脅模型](../architecture/collaboration-threat-model.md)
+T17）。任意替換或輪替會影響每個已保管金鑰：既有保管列無法解開，取得與補上傳都會失敗（目前
+`wrap_version` 只有 1，沒有重新包裝程序），成員只能用完整連結開房，直到 owner「重設連結」產生新世代並
+重新保管。不得寫入 `vars`、git、日誌或聊天紀錄。
 
 Secret 變更會產生新的 Worker version（Dashboard 顯示為 Secret Change deployment）。
-變更後用 `wrangler tail` 跨一個 cron tick 驗證沒有 `cron.outbox_drain_failed`。
 
 ## 3. 部署後驗證
 

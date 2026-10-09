@@ -261,3 +261,10 @@ chunk，卻宣稱 bundle 改善。
   fallback 規避正式 cutover。
 - 每個後續 PR 必須以相同 fixtures 比較效能，超過 budget 時先縮減設計或取得明確
   architecture decision，不能把 regression 改寫成新 baseline。
+
+## 後續變更（2026-10-09）
+
+[Plan 19](../../plans/19-server-room-key-custody.md) 依擁有者決定由 Room DO 以 Worker secret 包裝保管
+房間金鑰。上文對 room 資產「E2EE」「後端與 storage 都沒有金鑰」「以伺服器沒有的金鑰封裝」的描述，對
+共編房間已不再完整成立：Neon 與 UploadThing 仍沒有金鑰，但服務端（持有該 secret 與 DO 儲存者）可解密；
+share link 的描述不受影響。本 ADR 原文保留作為當時決策紀錄。

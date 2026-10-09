@@ -28,12 +28,13 @@
 <tr><td>瀏覽器</td><td>明文畫布、加解密、官方語意的 reconcile</td><td>—</td></tr>
 <tr><td><code>@drawstuff/collaboration</code></td><td>與傳輸無關的訊息定義、驗證、密碼學、排序、join barrier、離線佇列與 recovery policy</td><td>不知道自己跑在哪一種傳輸或哪一個 app</td></tr>
 <tr><td><code>apps/web</code></td><td>把上述契約綁到已驗證身分的 room API 與編輯器</td><td>—</td></tr>
-<tr><td>relay（Worker ＋ Durable Object）</td><td>驗 token、路由、有界 fanout</td><td><strong>從不持有房間金鑰，因此無法解密</strong>；也不持久化內容（只 import server-safe 的協定入口）</td></tr>
+<tr><td>relay（Worker ＋ Durable Object）</td><td>驗 token、路由、有界 fanout</td><td><strong>relay 路徑從不使用房間金鑰，因此轉發時無法解密</strong>；也不持久化內容（只 import server-safe 的協定入口）。但自 plan 19 起 Room DO 另保管包裝後的房間金鑰</td></tr>
 <tr><td>Upstash Redis</td><td>只存會過期的限流視窗狀態</td><td>不接觸房間金鑰、明文、密文快照、附件 bytes 或儲存 capability</td></tr>
 <tr><td>PostgreSQL／物件儲存</td><td>唯一的持久協作資料來源</td><td>—</td></tr>
 </tbody></table></div>
 <p>值得學的是<strong>這些「不負責」各自靠什麼保證</strong>，因為它們的強度並不相同。</p>
-<p><strong>relay 讀不懂畫布，靠的是它從不持有金鑰。</strong>房間金鑰只存在於 URL fragment 與瀏覽器記憶體，不隨任何請求送出，所以 relay 收到的就只是密文——這是威脅模型 T2 的保證，屬於密碼學層級。「只 import server-safe 的協定入口」<strong>不是</strong>這個保證的來源：AES-GCM 是公開演算法，任何人只要拿到金鑰，自己寫一份解密程式就能讀。匯入邊界是另一種東西——架構約束：它讓「不小心在 relay 側解密」在結構上做不到，也讓「relay 到底需不需要金鑰」這個問題在每次 review 都有明確答案。一個防對手，一個防自己人失手，不能互相取代，也不該被寫成同一件事。</p>
+<p class="note">2026-10-09 更新：依 <a href="../../plans/19-server-room-key-custody.md">plan 19</a>，drawstuff 現在由 Room DO 以 Worker secret 包裝保管房間金鑰並發給已授權成員；relay 路徑仍不使用金鑰，但服務端（持有該 secret 與 DO 儲存者）在技術上可解密，共編不再宣稱端對端加密。下段描述的是 relay 本身的保證。</p>
+<p><strong>relay 讀不懂畫布，靠的是它從不持有金鑰。</strong>房間金鑰在瀏覽器中只存在於 URL fragment 與記憶體，不隨任何 relay 請求送出（plan 19 的保管只走另一條專用路徑），所以 relay 收到的就只是密文——這是威脅模型 T2 的保證，屬於密碼學層級。「只 import server-safe 的協定入口」<strong>不是</strong>這個保證的來源：AES-GCM 是公開演算法，任何人只要拿到金鑰，自己寫一份解密程式就能讀。匯入邊界是另一種東西——架構約束：它讓「不小心在 relay 側解密」在結構上做不到，也讓「relay 到底需不需要金鑰」這個問題在每次 review 都有明確答案。一個防對手，一個防自己人失手，不能互相取代，也不該被寫成同一件事。</p>
 <p>Redis 那一列是第三種保證：它確實收得到使用者與房間識別碼（那是計數器的 key），所以保證來自契約明文列出它<strong>收不到</strong>什麼。把「這個依賴看得到什麼」寫下來，比事後從程式碼推斷可靠得多。</p>
 <p>另外兩條資料分流也是刻意的：presence 與 scene 走不同通道（presence 是易失的，壓力下可以丟；scene 在同一個 socket session 內可靠），而二進位附件 bytes 從不放進 scene 訊息裡。</p>
 </section>
@@ -90,7 +91,7 @@
 
 <section class="sources" id="sources"><h2>延伸閱讀</h2><ul>
 <li><a href="../architecture/collaboration-system-design.md">Collaboration system design</a>：本文導讀的權威契約。</li>
-<li><a href="../architecture/collaboration-threat-model.md">協作威脅模型</a>：E2EE 保證的邊界 B6 與可接受限制 T16 的定義處。</li>
+<li><a href="../architecture/collaboration-threat-model.md">協作威脅模型</a>：瀏覽器端加密的邊界 B6、可接受限制 T16，以及服務端金鑰保管風險 T17 的定義處。</li>
 <li><a href="../architecture/data-lifecycle.md">資料生命週期</a>：房間與個人存檔的保留行為。</li>
 <li><a href="../system-design/realtime-room-coordination.md">Realtime room coordination</a>：從本專案萃取的可轉移 pattern。</li>
 <li><a href="../system-design/transactional-outbox.md">Transactional outbox</a>：授權變更與強制執行不可分割的一般化寫法。</li>

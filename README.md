@@ -21,7 +21,7 @@ encrypted sharing, real-time collaboration, and public read-only pages.
 - Import, export, autosave, thumbnails, and attached binary assets
 - Workspaces with scene search, filters, and categories
 - Client-side compressed and AES-GCM-encrypted private share links
-- End-to-end encrypted collaboration through a Cloudflare Durable Object gateway
+- Encrypted real-time collaboration through a Cloudflare Durable Object gateway; members reopen rooms from any device
 - Public read-only pages at `/p/[slug]`
 - English and Traditional Chinese UI
 
@@ -107,8 +107,10 @@ Dependencies flow one way: the web app consumes both shared packages, while the 
 only the server-safe collaboration entries. See the
 [architecture contract](./docs/architecture/architecture-contract.md) for ownership rules.
 
-Collaboration room keys stay in the browser URL fragment. Frames and assets are encrypted before
-they reach the relay, database, or object storage. The full design and limitations are documented
+Collaboration room content is encrypted in the browser before it reaches the relay, database, or
+object storage. Rooms are not end-to-end encrypted: the room Durable Object keeps a custody copy of
+each room key, wrapped under a Worker secret, and releases it to the owner and members
+([plan 19](./plans/19-server-room-key-custody.md)). The full design and limitations are documented
 in the [collaboration system design](./docs/architecture/collaboration-system-design.md) and
 [threat model](./docs/architecture/collaboration-threat-model.md).
 

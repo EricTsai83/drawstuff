@@ -1,5 +1,13 @@
 # 瀏覽器端 End-to-End Encryption 與金鑰生命週期
 
+> **現況（2026-10-09）**：drawstuff 共編房間已**不再是端對端加密**。依
+> [plan 19](../../plans/19-server-room-key-custody.md) 擁有者決定，房間金鑰仍在瀏覽器產生、
+> 內容仍只在瀏覽器加解密，但 Room DO 以 Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET` 包裝保存每個
+> 世代的金鑰，並發給 owner、未移除的 allowlist email、owner 授予角色的成員，以及曾以完整連結證明持有金鑰的成員，讓他們從列表或任何裝置重開房間。
+> 因此持有該 secret 與 DO 儲存者在技術上可解密房間內容（[威脅模型](../architecture/collaboration-threat-model.md)
+> T17）。本文以下描述的是 E2EE pattern 本身；本專案與它不同之處標在 §1、§2、Trade-offs 與
+> 「本專案中的實例」。恢復 E2EE 的路線見 [plan 20](../../plans/20-passkey-room-key-vault.md)。
+
 > **Pattern 一句話**：把「授權」與「機密性」拆成兩個獨立機制——伺服器決定誰可以進來
 > （token），但讀懂內容的能力只來自一把伺服器從未見過的金鑰（URL fragment 中的 key）；
 > 並誠實劃出這個保證的邊界：它擋不住能決定瀏覽器執行什麼程式碼的人。
@@ -37,12 +45,16 @@ flowchart LR
     K -.->|"永不送出"| S
 ```
 
-### 1. 金鑰放在 URL fragment，永不離開 client
+### 1. 金鑰放在 URL fragment（pattern：永不離開 client；drawstuff 自 plan 19 起已偏離）
 
 `https://app.example/room#<random-32-byte-key>`。fragment 不會被瀏覽器送到伺服器，
 所以「拿到完整連結」等於「拿到金鑰」，而伺服器、relay、storage 從頭到尾沒有金鑰。
 這同時定義了它的弱點：**完整連結是 bearer secret**，貼到聊天室就等於把金鑰交出去。
 這要作為明文接受的限制寫進威脅模型，而不是假裝不存在。
+
+**drawstuff 的偏離（plan 19）**：完整連結仍可用，但金鑰不再只在 client——瀏覽器會把它上傳到
+Room DO 保管（只接受能通過 key check 的金鑰、每世代寫一次），已授權成員也能從服務端取回。
+relay、資料庫（Neon）與 object storage（UploadThing）仍沒有金鑰；Room DO 只存包裝後的副本。
 
 ### 2. 授權與機密性是兩條獨立軌道
 
@@ -50,6 +62,10 @@ flowchart LR
   授權世代。撤銷成員 = 推進世代 cutoff + 斷開現有連線。
 - **機密性**（誰能讀懂）：只來自金鑰。持有有效 token 但金鑰錯誤，是一個**受支援且
   明確回報的狀態**，不是異常。
+
+在 drawstuff（plan 19 之後）兩條軌道在金鑰發放處交會：Room DO 依授權（owner、未移除的
+allowlist email、owner 授予角色或已證明持有金鑰的成員；單憑連結加入不發）決定誰能取回保管的金鑰。撤權後無法再取得金鑰，
+但已取得的金鑰仍無法收回，所以下段的密碼學撤銷結論不變；輪替時保管列一併刪除。
 
 兩者分開的重要推論：**授權撤銷 ≠ 密碼學撤銷**。把成員移出名單能擋住未來的連線，
 但無法從他腦中抹掉已經學到的金鑰。真正的密碼學撤銷是**世代輪替（generation rotation）**：
@@ -147,13 +163,16 @@ runtime injection（XSS）——都能拿到金鑰。從同一條通道送出更
 
 - 伺服器讀不懂內容 = 伺服器無法做內容檢索、伺服器端渲染預覽、內容審查；
   這些功能需求會直接與 E2EE 衝突，要在產品層面先做取捨。
-- 金鑰在連結裡 = 分享體驗與安全綁死；換金鑰必須換連結。
+- 金鑰只在連結裡 = 分享體驗與安全綁死；換金鑰必須換連結，遺失連結即遺失房間。drawstuff
+  因此在 plan 19 改為服務端保管金鑰：換得從列表／任何裝置重開，代價是放棄 E2EE 宣稱。
 - 多一整層格式版本、AAD、key check 的複雜度；小專案要衡量是否值得。
 
 ## 本專案中的實例
 
 - 金鑰／衍生／key check／聚合錯鑰判定：
   [collaboration system design](../architecture/collaboration-system-design.md)。
-- 邊界與威脅編號（B5 fragment、B6 code delivery、T16 accepted limitation）：
+- 服務端金鑰保管（plan 19）：[collaboration authority](../architecture/collaboration-authority.md)
+  「房間金鑰保管」。
+- 邊界與威脅編號（B5 fragment、B6 code delivery、B7 key custody、T16／T17 accepted limitation）：
   [collaboration threat model](../architecture/collaboration-threat-model.md)、
   [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)。

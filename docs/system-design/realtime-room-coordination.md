@@ -60,16 +60,19 @@ flowchart LR
 
 實例前面放一層無狀態 gateway，只負責：公開請求形狀檢查、WebSocket upgrade 檢查、
 token 驗證、從（非機密的）路由資訊導出實例身分、轉發。它不是第二個 backend、
-不持有房間狀態、不能解密內容。
+不持有房間狀態；realtime 路徑上它只轉發密文、不能解密內容。
 
-好處是攻擊面與信任等級分層：gateway 的部署憑證即使外洩，也只影響可用性，
-碰不到內容（內容是 E2EE 密文）與持久資料（在別的系統）。
+好處是攻擊面與信任等級分層：在金鑰只存在 client 的設計下，gateway 的部署憑證即使外洩，
+也只影響可用性，碰不到內容與持久資料（在別的系統）。本專案自
+[plan 19](../../plans/19-server-room-key-custody.md) 起由 Room DO 保管包裝後的房間金鑰，
+gateway 另有專用 `/v1/room-key` 路徑轉送金鑰；因此 Worker 部署憑證或 `COLLAB_ROOM_KEY_WRAP_SECRET`
+外洩已不只是可用性問題，而是可解密已保管房間（見[威脅模型](../architecture/collaboration-threat-model.md) T17）。
 
 ### 3. 每一層只持久化自己該有的東西
 
 | 層 | 持久化 | 不得持久化 |
 | --- | --- | --- |
-| 房間實例 | 必須跨休眠/重啟存在的 coordination metadata（撤銷 cutoff、期限） | 場景內容、金鑰、事件歷史、第二份權威快照 |
+| 房間實例 | 必須跨休眠/重啟存在的 coordination metadata（撤銷 cutoff、期限）；本專案另含 plan 19 包裝後的房間金鑰保管副本 | 場景內容、明文金鑰、事件歷史、第二份權威快照 |
 | 交易性資料庫 | 房間/成員/授權、持久快照 | — |
 | Object storage | 大型二進位資產 | — |
 

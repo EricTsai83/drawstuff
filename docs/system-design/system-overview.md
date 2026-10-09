@@ -11,8 +11,8 @@ flowchart LR
     subgraph Browser["瀏覽器（不可信環境）"]
         UI["產品 UI"]
         Adapter["引擎 Adapter<br/>（Excalidraw 唯一邊界）"]
-        Session["協作 Session<br/>（E2EE 加解密、佇列、恢復）"]
-        Key["房間金鑰<br/>（只存在 URL fragment 與記憶體）"]
+        Session["協作 Session<br/>（瀏覽器端加解密、佇列、恢復）"]
+        Key["房間金鑰<br/>（瀏覽器內只在 URL fragment 與記憶體）"]
     end
 
     subgraph WebPlatform["Web 平台（Vercel）"]
@@ -28,7 +28,7 @@ flowchart LR
 
     subgraph EdgePlatform["Edge 平台（Cloudflare）"]
         GW["Thin Gateway Worker<br/>驗 token、路由，無狀態"]
-        DO["Room Coordinator<br/>（Durable Object，一房一實例）<br/>只存 coordination metadata"]
+        DO["Room Coordinator<br/>（Durable Object，一房一實例）<br/>coordination metadata<br/>＋包裝後的房間金鑰保管副本"]
         Cron["分鐘級 Cron trigger"]
     end
 
@@ -38,19 +38,21 @@ flowchart LR
     Web -->|"交易 + 行鎖 + outbox"| PG
     Web -->|"presign 上傳／下載 URL"| OS
     Web -->|"限流決策（單次呼叫）"| Redis
-    Session <-->|"WebSocket：E2EE 密文 frame<br/>（gateway 與 DO 都解不開）"| GW
+    Session <-->|"WebSocket：密文 frame<br/>（relay 路徑不持有金鑰）"| GW
     GW -->|"依 roomId+generation<br/>導出唯一實例"| DO
     Web -->|"HTTPS control：<br/>短效簽章 token"| GW
     Cron -->|"drain ping（不帶資料）"| Web
     Browser -->|"密文資產直傳"| OS
 
-    Key -. "永不離開瀏覽器" .-> Session
+    Key -. "不送 relay；另經 /v1/room-key 交 DO 保管" .-> Session
 ```
 
 三條關鍵的信任邊界（詳見 [E2EE 金鑰生命週期](./e2ee-key-lifecycle.md)）：
 
-1. **內容機密性**：場景內容只以密文通過 Gateway／Coordinator／DB／Storage，
-   這四者都沒有金鑰；
+1. **內容機密性**：場景內容只以密文通過 Gateway／Coordinator／DB／Storage；DB 與 Storage
+   沒有金鑰，relay 路徑不使用金鑰。但自 [plan 19](../../plans/19-server-room-key-custody.md)
+   起 Room Coordinator 以 Worker secret 包裝保管房間金鑰並發給已授權成員，所以這**不是**
+   端對端加密：持有該 secret 與 DO 儲存者可解密（見[威脅模型](../architecture/collaboration-threat-model.md) T17）；
 2. **授權**：由 Web App 的 DB 決定、以短效簽章 token 傳遞，Gateway 與 Coordinator
    逐跳重新驗證（見 [分層授權](./layered-authorization.md)）；
 3. **Code delivery**：瀏覽器執行的程式碼本身是一條被明文接受的信任邊界
@@ -68,7 +70,7 @@ sequenceDiagram
     participant DO as Room Coordinator
     participant R as 共享計數器
 
-    Note over B: 從 URL fragment 取得房間金鑰（不送出）
+    Note over B: 從 URL fragment 取得房間金鑰<br/>（缺鑰時改向 Room 保管取得，plan 19）
     B->>W: 取房間 metadata + key-check 值
     B->>B: 用金鑰驗證 key-check（錯鑰在此止步）
     B->>W: join（請求加入）

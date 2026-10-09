@@ -26,6 +26,16 @@ Snapshot 使用 binary 密文傳輸。寫入／取消／fence 依同房間 Postg
 
 附件維持 public 密文物件；撤權拒絕新的索引／上傳／finalize，無法收回已知 URL、金鑰或下載副本。接受範圍見 [ADR-0005](../adr/0005-public-collaboration-assets.md)。維持 UploadThing 免費方案／sea1，未授權升級或搬移。
 
+## 房間金鑰保管
+
+2026-10-09 起依 [plan 19](../../plans/19-server-room-key-custody.md) 擁有者決定，Room DO 保管每個 generation 的房間金鑰；房間內容仍只在瀏覽器以同一格式加解密，但服務端在技術上可解密，產品不再宣稱共編為端對端加密（風險見[威脅模型](collaboration-threat-model.md) T17）。
+
+- **儲存**：DO 表 `authority_room_keys(auth_generation, wrapped, wrap_version, escrowed_at)`，以 `CREATE TABLE IF NOT EXISTS` 加法新增，authority schema version 維持 2。金鑰以 AES-GCM 包裝，KEK 由 Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET` 經 HKDF 依房間與 generation 衍生；AAD 綁定 roomId、generation、wrap version。
+- **上傳 `escrow-room-key`**：建房者在 `set-key-check` 後上傳（best effort，失敗不使建房失敗；初始化中僅 owner 可上傳）；任何以連結成功帶鑰加入後，編輯器再上傳一次以補保管舊房間。DO 只接受能通過已存 key check 的金鑰，每 generation 寫入一次，不同金鑰拒絕。
+- **發放 `get-room-key`**（決定 D2）：只發給 owner、未移除的 allowlist email、owner 以 `set-member-role` 授予角色的成員（`key_eligible=2`），以及曾上傳通過 key check 的金鑰、證明持有金鑰的成員（`key_eligible=1`）。`join` 不需要金鑰，所以單憑連結角色加入的成員不發；以完整連結進房後前端自動上傳即取得資格。重設連結（rotate）清除 `key_eligible=1`，保留 owner 授予；initializing 房間不發。上傳 `escrow-room-key` 開放給所有房間允許的身分，因為 key check 本身就是持有證明。既有成員在加入此欄位時一律為 0：歷史上 owner 授予與連結加入的成員資料無法區分，不能整批升級；owner 在 Share room 的 People 名單重新設定該成員角色即授予 level 2，成員以完整連結進房則取得 level 1。
+- **刪除**：`rotate-generation`（重設連結）、結束房間與取消初始化都刪除所有保管列。
+- **路徑隔離**：Gateway 專用路徑 `/v1/room-key` 與套件模組 `@drawstuff/collaboration/key-custody`；一般 authority 路徑／execute route 從不攜帶金鑰。Web 以 tRPC mutation `collaborationAuthority.roomKey`／`escrowRoomKey` 轉發，不進 client cache；金鑰不進 logs、metrics、錯誤 payload。
+
 ## 帳號與 scene 退休
 
 Lifecycle DO 按主體協調退休，先凍結登記與授權、確認撤權／儲存屏障，再允許 parent deletion／cascade。本人、管理員與 scene 刪除入口走同一協定，沒有直接 cascade 旁路。缺少 source scene 的房間也必須登記並可退休。

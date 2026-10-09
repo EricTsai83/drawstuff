@@ -1,9 +1,23 @@
 # 19 — 伺服器保管房間金鑰，讓房間可從列表重新開啟
 
-- 狀態：實作中；2026-10-09 擁有者決定改由服務端保管房間金鑰，接受產品不再宣稱共編為端對端加密，並確認 §2 D1–D5 依建議執行。
+- 狀態：實作中（程式已完成，待部署與 §7 驗收，見「實作現況」）；2026-10-09 擁有者決定改由服務端保管房間金鑰，接受產品不再宣稱共編為端對端加密，並確認 §2 D1–D5 依建議執行。
 - 前置：[已部署授權契約](../docs/architecture/collaboration-authority.md)、[共編儲存契約](../docs/architecture/collaboration-storage.md)、[威脅模型](../docs/architecture/collaboration-threat-model.md)、[E2EE 金鑰生命週期](../docs/system-design/e2ee-key-lifecycle.md)。
 - 目的：成員登入後可從「共編房間」列表或任何裝置重新開啟房間，不必保存完整邀請連結；不改變房間內容的加密格式、授權權威與既有房間。
 - 後續最佳化：以使用者持有的 passkey 包裝金鑰、恢復端對端加密的路線見 [20](20-passkey-room-key-vault.md)；本 plan 的資料結構需讓 20 可以逐房間關閉服務端保管。
+
+## 實作現況（2026-10-09）
+
+程式已實作並通過本機驗證，尚未部署；§7 正式驗收待完成。
+
+- DO：`authority_room_keys` 加法表（schema version 維持 2）；`COLLAB_ROOM_KEY_WRAP_SECRET` 經 HKDF 依房間＋世代衍生 AES-GCM KEK，AAD 綁定 roomId、世代、wrap version（`room-key-custody.ts`）。
+- 動作（`room-key-entry.ts`）：`escrow-room-key` 只接受通過已存 key check 的金鑰，每世代寫入一次，不同金鑰拒絕；初始化中僅 owner 可上傳。`get-room-key` 只發給 owner、未移除的 allowlist email、owner 授予角色的成員，以及曾上傳通過 key check 的金鑰而證明持有金鑰的成員（D2；`authority_members.key_eligible`，重設連結清除後者）；單憑連結加入不發（review 發現 `join` 不需金鑰），初始化中的房間不發。
+- 刪除：`rotate-generation`（重設連結）刪除所有保管列；結束房間與取消初始化同樣刪除。
+- 路徑隔離：Gateway 專用 `/v1/room-key`、套件模組 `@drawstuff/collaboration/key-custody`（package contract test 將 `key-custody.ts` 列入可攜帶金鑰的模組）；一般 authority 路徑與 execute route 不攜帶金鑰。Web tRPC mutation `collaborationAuthority.roomKey`／`escrowRoomKey`（無 client cache；名稱與 §3 原寫的 `collaborationRoom.key` 不同）。
+- 前端：建房者在 `set-key-check` 後上傳（best effort，失敗不使建房失敗）；任何以連結成功帶鑰加入後再上傳一次以補保管舊房間；列表開房先取保管金鑰；無鑰 `?collab-room=` 網址先問保管再顯示貼上表單；完整連結仍可用。
+- 文案與文件：產品不再宣稱共編端對端加密或「不保存金鑰」；威脅模型（B7、invariant 2–5、T17）、儲存／授權契約、系統設計、ADR 附註、README、learning 與部署 runbook 已更新。D5 隱私政策頁尚未實作（登入頁隱私連結仍為佔位）。
+- 部署順序：先設定 `COLLAB_ROOM_KEY_WRAP_SECRET`（`pnpm --filter @drawstuff/collaboration-do secret:put:room-key-wrap`），再部署 DO（`secrets.required` 缺它會擋下部署），最後部署 web。
+
+- 已知限制（review）：既有成員的 `key_eligible` 遷移為 0。歷史上 owner 授予（`set-member-role`）與單憑連結加入的成員紀錄相同，無法驗證，整批升級會重開連結繞過；受影響成員由 owner 在 People 名單重新設定角色（level 2），或以完整連結進房自動證明持有（level 1）。
 
 ## 0. 為什麼要改、改了什麼
 
@@ -37,7 +51,7 @@
 | # | 決定 | 建議 | 理由 |
 | --- | --- | --- | --- |
 | D1 | 金鑰存在哪裡 | Room DO 新表，Worker secret 包裝 | 與成員授權在同一個權威；不需 Neon migration；Neon 故障不影響開房 |
-| D2 | 誰能取得金鑰 | owner、未撤權成員、allowlist 中未移除的 email；**僅有連結權限、尚未成為成員者不發** | 連結權限房間若對任何登入者發鑰，只知道 roomId（在 query 與列表中，比 fragment 容易外洩）就能讀內容；首次仍需完整連結，加入後成為成員即可重開 |
+| D2 | 誰能取得金鑰 | owner、allowlist 中未移除的 email、owner 授予角色的成員、證明持有金鑰的成員；**單憑連結權限加入者不發** | 連結權限房間若對任何登入者發鑰，只知道 roomId（在 query 與列表中，比 fragment 容易外洩）就能讀內容；`join` 不需金鑰，首次仍需完整連結，進房後自動上傳證明持有即可重開 |
 | D3 | 新文案方向 | 「已加密保存與傳輸；drawstuff 保管房間金鑰，讓你能從任何裝置重新開啟」 | 不再宣稱端對端加密，也不暗示服務端無法存取 |
 | D4 | 既有房間 | 下次有人用有效金鑰成功開房時補上傳；之前仍需完整連結 | 服務端從未持有舊金鑰，無法回溯 |
 | D5 | 隱私說明 | 補上隱私政策頁（目前只有 `href="#"` 佔位）並揭露金鑰保管 | 保管金鑰是資料處理方式的實質改變 |
@@ -46,8 +60,8 @@ D2 若改為「連結權限也發鑰」，需在 §7 增加對應的威脅條目
 
 ## 3. 資料與授權設計
 
-- **儲存**：`apps/collaboration-do/src/room-authority.ts` 新增 `authority_room_keys(auth_generation PRIMARY KEY, wrapped BLOB, wrap_version INTEGER, escrowed_at INTEGER)`；schema version 2→3 並附遷移（[現況](../apps/collaboration-do/src/room-authority.ts) 固定為 2）。
-- **包裝**：新 Worker secret `COLLAB_KEY_WRAP_SECRET`（≥32 bytes）；以 HKDF 自 secret 衍生每房間的 AES-GCM KEK，AAD 綁定 `roomId`、`auth_generation`、`wrap_version`。secret 輪替以 `wrap_version` 區分，舊版本只讀不寫。
+- **儲存**：`apps/collaboration-do/src/room-authority.ts` 新增 `authority_room_keys(auth_generation PRIMARY KEY, wrapped, wrap_version INTEGER, escrowed_at INTEGER)`；以 `CREATE TABLE IF NOT EXISTS` 加法新增，authority schema version 維持 2，不需遷移（原寫「2→3 並附遷移」，實作時改為加法表）。
+- **包裝**：新 Worker secret `COLLAB_ROOM_KEY_WRAP_SECRET`（≥32 bytes）；以 HKDF 自 secret 衍生每房間的 AES-GCM KEK，AAD 綁定 `roomId`、`auth_generation`、`wrap_version`。secret 輪替以 `wrap_version` 區分，舊版本只讀不寫。
 - **上傳**：新 authority 動作 `escrow-key`（generation-bound）。DO 解出金鑰後以既有 `verifyRoomKeyCheck` 對照 `key_check`，不符即拒絕；同 generation 已有相同金鑰為冪等成功，不同金鑰拒絕。建房／重設連結由 owner 在 `set-key-check` 之後上傳；補上傳允許任何 §2 D2 授權角色在成功開房後進行。
 - **取得**：新 authority 動作 `get-room-key`，回應只含 `{ roomId, authGeneration, roomKey }`，不放進 `get-state`／`get-management`；`Cache-Control: no-store`；web 以 tRPC `collaborationRoom.key` 轉發，沿用 `issueAuthorityIdentity` 與 `callAuthorityGateway`。
 - **生命週期**：`rotate-generation` 讓舊 generation 金鑰不再發放；`end-room`、退休、清理刪除整張表；成員撤權後立即無法再取得。
@@ -70,10 +84,10 @@ D2 若改為「連結權限也發鑰」，需在 §7 增加對應的威脅條目
 ## 6. 實作順序
 
 1. 擁有者確認 §2；修正 18C §1／§3／§5.1 與威脅模型 invariant 2–4 的現況描述（標明為擁有者決定）。
-2. DO：schema 3 遷移、`escrow-key`、`get-room-key`、刪除路徑與 Worker 測試；新增 secret 到 wrangler `secrets.required`、typings、config audit、`secret:put` script、runbook。
+2. DO：`authority_room_keys` 加法表（schema version 維持 2）、`escrow-room-key`、`get-room-key`、刪除路徑與 Worker 測試；新增 secret 到 wrangler `secrets.required`、typings、config audit、`secret:put` script、runbook。
 3. Web：tRPC `collaborationRoom.key`、列表開房與缺鑰自動取得、建房／重設連結／補上傳。
 4. 文案：所有宣稱端對端加密或「不保存金鑰」的字串（`collaboration.create.*`、`missingKey.hint`、`rooms.hint`、`failure.missingRoomKey`、`storage.copyNotice`、`scene.save.description`、`app.export.cloud.subtitle` 等）與文件（§8）。
-5. 部署：先設定 `COLLAB_KEY_WRAP_SECRET` 並部署 DO，再部署 web；正式驗收。
+5. 部署：先設定 `COLLAB_ROOM_KEY_WRAP_SECRET` 並部署 DO，再部署 web；正式驗收。
 
 ## 7. 驗收矩陣
 
@@ -87,7 +101,7 @@ D2 若改為「連結權限也發鑰」，需在 §7 增加對應的威脅條目
 | 重設連結 `[L3]` | 新金鑰保管；舊 generation 不再發放；成員從列表可用新金鑰重開 |
 | 既有房間補保管 `[L3]` | 用完整連結成功開房後，其他裝置可從列表開啟 |
 | 服務端日誌與錯誤 | 搜尋不到金鑰或包裝結果；回應 no-store |
-| DO 遷移 | 既有房間升級後狀態、成員、key check 不變 |
+| DO 加法表 | 既有房間部署後狀態、成員、key check 不變（schema version 維持 2） |
 | 文案與文件 | 不再出現端對端加密或「不保存金鑰」的宣稱；隱私說明揭露保管 |
 
 ## 8. 完成定義與文件更新

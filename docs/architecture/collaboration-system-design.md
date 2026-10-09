@@ -2,7 +2,8 @@
 
 - Status: Current
 - Generalized patterns: [realtime room coordination](../system-design/realtime-room-coordination.md),
-  [E2EE key lifecycle](../system-design/e2ee-key-lifecycle.md),
+  [browser-side encryption and key lifecycle](../system-design/e2ee-key-lifecycle.md) (rooms
+  are no longer end-to-end encrypted since [plan 19](../../plans/19-server-room-key-custody.md)),
   [transactional outbox](../system-design/transactional-outbox.md),
   [defensive boundaries](../system-design/defensive-boundaries.md)
 - Security model: [collaboration threat model](./collaboration-threat-model.md)
@@ -397,12 +398,14 @@ this artifact cannot be deployed independently or pushed to the automatic deploy
   original operation with a fresh query deadline; only an explicitly absent, unexpired intent is
   replayed. Unknown results and pending receipts never allocate another room or publish a link.
   Snapshot retries retain the original sealed bytes through the binary store. No key or plaintext
-  travels in authority commands; the manifest carries only generation, revision, ciphertext checksum
+  travels in generic authority commands (plan 19 key custody uses the separate `/v1/room-key`
+  path); the manifest carries only generation, revision, ciphertext checksum
   and declared asset IDs.
 - Create must confirm the parent job before content starts. The browser seals the generation-one
   key-check, explicitly stores a legal encrypted snapshot even for an empty canvas, and completes
   only with its confirmed snapshot receipt. It waits for the completion receipt and rechecks live
-  ready/generation/key-check before exposing the fragment key. Lagging display projection does not
+  ready/generation/key-check before exposing the fragment key. Right after `set-key-check` the
+  creator escrows the key to Room custody (best effort; creation does not fail if it fails). Lagging display projection does not
   block readiness. Inputs are validated before creating a Room.
 - The editor captures and pauses the source before the scene lookup yields, so a newly loaded
   canvas cannot seed an unrelated source room. It keeps editing paused while initialization is
@@ -605,15 +608,21 @@ All socket buffers, inbound queues, replay caches, offline queues, timers, and r
 have explicit limits. Oversize, capacity, slow-consumer, authorization, rate, idle, and restart
 outcomes use distinct close reasons so clients can distinguish terminal from retryable failures.
 
-## End-to-end encryption and key confirmation
+## Browser-side encryption, key custody, and key confirmation
 
-The URL fragment holds a random 32-byte room key; it is never sent to the backend or relay. HKDF
+The browser generates a random 32-byte room key and carries it in the URL fragment; the relay never
+receives it. Since [plan 19](../../plans/19-server-room-key-custody.md) (2026-10-09) the browser
+also escrows it to Room DO custody through the dedicated `/v1/room-key` path, where it is stored
+only wrapped under a key derived from `COLLAB_ROOM_KEY_WRAP_SECRET`, and members fetch it from there to
+reopen a room (see [authority contract](./collaboration-authority.md)). HKDF
 derives purpose-scoped keys for `realtime`, `snapshot`, `asset`, and `keycheck`, salted by room and
 authorization generation. Each format has its own version and authenticated-data label.
 
-Scope of the guarantee: E2EE holds against passive relay/backend/storage operators, a database
-leak, and network intermediaries — none of them ever holds a key. It does not hold against whoever
-controls the application code the browser runs, because the key lives in that code's memory. That
+Scope of the guarantee: browser-side encryption holds against passive relay operators, Neon and
+UploadThing operators or leaks, and network intermediaries — none of them holds a key. It is not
+end-to-end encryption: whoever holds `COLLAB_ROOM_KEY_WRAP_SECRET` and Room DO storage can unwrap the
+custody copy (T17). It also does not hold against whoever controls the application code the
+browser runs, because the key lives in that code's memory. That
 boundary (B6) and its accepted limitation (T16) are defined in the
 [threat model](./collaboration-threat-model.md); no claim in this document extends to a modified
 application bundle.
@@ -687,8 +696,10 @@ local edit would never mark the scene dirty.
 Joining a room claims the tab's canvas independently of cloud scene ownership; a guest never saves
 over the owner's scene. The claim is committed in this order:
 
-1. Fetch room metadata and verify the fragment-held key against the generation's key check. A bad
-   or incomplete link stops before changing the canvas or minting a token.
+1. Obtain the key from the fragment or, when it is absent, from Room custody; fetch room metadata
+   and verify the key against the generation's key check. A bad or unavailable key stops before
+   changing the canvas or minting a token. After a successful keyed join from a link the editor
+   escrows the key again (backfill).
 2. Mint the join token through the bounded rate-limit-aware join call and verify that its generation
    is still the one whose key check passed. Read the snapshot locator before the handoff.
 3. Resolve local work through save/discard/cancel where needed, preserve the personal draft and
