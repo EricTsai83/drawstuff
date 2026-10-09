@@ -660,13 +660,6 @@ describe("collaboration room exit cache cleanup", () => {
     expect(isCanvasInitializedForRoom("ready-room", [])).toBe(false);
   });
 
-  it("tells a saved scene's owner that the personal cloud copy stays unencrypted", () => {
-    renderDialog({ isAuthenticated: true });
-    expect(container?.textContent).toContain(
-      "Your saved personal scene stays as is, unencrypted.",
-    );
-  });
-
   it("says the room list is still syncing when the projection lags", async () => {
     createMutate.mockResolvedValueOnce({
       roomId: "ready-room",

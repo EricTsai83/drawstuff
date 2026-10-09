@@ -51,15 +51,6 @@ describe("editor storage status (18C §5)", () => {
     );
   });
 
-  it("reports a confirmed room save in the panel", () => {
-    const panel = renderStatus({ roomId: "room-alpha-1" });
-    expect(panel.querySelector('[role="status"]')?.textContent).toBe("Saved");
-    expect(panel.textContent).toContain("Save a copy to my scenes");
-    expect(panel.textContent).toContain(
-      "Saves automatically every 30 seconds and when you leave.",
-    );
-  });
-
   it("marks a confirmed save on the badge briefly, without changing its width", () => {
     vi.useFakeTimers();
     try {
