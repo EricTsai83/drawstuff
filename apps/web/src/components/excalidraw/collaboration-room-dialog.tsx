@@ -775,6 +775,7 @@ export function CollaborationRoomDialog({
   // dropped and the session disconnects until the new one lands. That is the
   // reset working, not a creation awaiting a decision or a failed join.
   const isRotating = !!roomId && hasInitialization && isCreatePending;
+  const needsKey = status === "missing-room-key" && !isRotating;
   const showsError =
     !!errorMessage && status !== "missing-room-key" && !isRotating;
   // Connected is the expected state and says nothing; only a session that is
@@ -805,7 +806,9 @@ export function CollaborationRoomDialog({
           <DialogTitle className="pr-8">
             {t(
               isAuthenticated && roomId
-                ? "collaboration.share.title"
+                ? needsKey
+                  ? "collaboration.missingKey.title"
+                  : "collaboration.share.title"
                 : "collaboration.title",
             )}
           </DialogTitle>
@@ -825,14 +828,20 @@ export function CollaborationRoomDialog({
           {/* The share view's controls speak for themselves. */}
           <DialogDescription
             className={cn(
-              roomId && !hasInitialization && isAuthenticated && "sr-only",
+              roomId &&
+                !hasInitialization &&
+                !needsKey &&
+                isAuthenticated &&
+                "sr-only",
             )}
           >
             {isRotating
               ? t("collaboration.rotating")
-              : hasInitialization
-                ? t("collaboration.toast.initializationPending")
-                : dialogDescription}
+              : needsKey
+                ? t("collaboration.missingKey.description")
+                : hasInitialization
+                  ? t("collaboration.toast.initializationPending")
+                  : dialogDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -893,56 +902,71 @@ export function CollaborationRoomDialog({
           </div>
         )}
 
-        {!isAuthenticationPending && isAuthenticated && roomId && (
+        {/* Without the key the room cannot be opened, so nothing else in it
+            applies: only the way in, or the way back. */}
+        {!isAuthenticationPending && isAuthenticated && roomId && needsKey && (
           <div className="flex flex-col gap-4">
-            {/* A missing key is explained once, by the paste form below. */}
+            <form
+              className="flex flex-col gap-2"
+              onSubmit={(event) => {
+                event.preventDefault();
+                applyPastedLink();
+              }}
+            >
+              <Label htmlFor="collab-room-full-link">
+                {t("collaboration.missingKey.label")}
+              </Label>
+              <div className="flex gap-2">
+                <Input
+                  id="collab-room-full-link"
+                  value={pastedLink}
+                  autoComplete="off"
+                  spellCheck={false}
+                  aria-invalid={pastedLinkInvalid}
+                  aria-describedby="collab-room-full-link-hint"
+                  onChange={(event) => {
+                    setPastedLink(event.target.value);
+                    setPastedLinkInvalid(false);
+                  }}
+                />
+                <Button type="submit" disabled={!pastedLink.trim()}>
+                  {t("collaboration.missingKey.apply")}
+                </Button>
+              </div>
+              <p
+                id="collab-room-full-link-hint"
+                role={pastedLinkInvalid ? "alert" : undefined}
+                className={
+                  pastedLinkInvalid
+                    ? "text-destructive text-xs"
+                    : "text-muted-foreground text-xs"
+                }
+              >
+                {t(
+                  pastedLinkInvalid
+                    ? "collaboration.missingKey.invalid"
+                    : "collaboration.missingKey.hint",
+                )}
+              </p>
+            </form>
+            <Button
+              variant="ghost"
+              className="self-start"
+              onClick={() => {
+                onRoomIdChange(null);
+                onRoomKeyChange(null);
+                onOpenChange(false);
+              }}
+            >
+              {t("storage.exit")}
+            </Button>
+          </div>
+        )}
+
+        {!isAuthenticationPending && isAuthenticated && roomId && !needsKey && (
+          <div className="flex flex-col gap-4">
             {showsError && (
               <p className="text-destructive text-sm">{errorMessage}</p>
-            )}
-            {status === "missing-room-key" && !isRotating && (
-              <form
-                className="flex flex-col gap-2 rounded border p-3"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  applyPastedLink();
-                }}
-              >
-                <Label htmlFor="collab-room-full-link">
-                  {t("collaboration.missingKey.label")}
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    id="collab-room-full-link"
-                    value={pastedLink}
-                    autoComplete="off"
-                    spellCheck={false}
-                    aria-invalid={pastedLinkInvalid}
-                    aria-describedby="collab-room-full-link-hint"
-                    onChange={(event) => {
-                      setPastedLink(event.target.value);
-                      setPastedLinkInvalid(false);
-                    }}
-                  />
-                  <Button type="submit" disabled={!pastedLink.trim()}>
-                    {t("collaboration.missingKey.apply")}
-                  </Button>
-                </div>
-                <p
-                  id="collab-room-full-link-hint"
-                  role={pastedLinkInvalid ? "alert" : undefined}
-                  className={
-                    pastedLinkInvalid
-                      ? "text-destructive text-xs"
-                      : "text-muted-foreground text-xs"
-                  }
-                >
-                  {t(
-                    pastedLinkInvalid
-                      ? "collaboration.missingKey.invalid"
-                      : "collaboration.missingKey.hint",
-                  )}
-                </p>
-              </form>
             )}
 
             {/* The owner's recovery path for a snapshot nobody's link can

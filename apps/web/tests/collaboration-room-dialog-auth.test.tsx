@@ -1058,4 +1058,20 @@ describe("share room dialog", () => {
       "Paste the complete link, including the part after #.",
     );
   });
+
+  it("offers only the way in or back while the key is missing, even to the owner", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    const onRoomIdChange = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "missing-room-key",
+      onRoomIdChange,
+    });
+    expect(container!.querySelector("#collab-allow-email")).toBeNull();
+    expect(buttonWith(container!, "Reset link")).toBeUndefined();
+    expect(buttonWith(container!, "End room")).toBeUndefined();
+    await act(async () => buttonWith(container!, "Back to my canvas")?.click());
+    expect(onRoomIdChange).toHaveBeenCalledWith(null);
+  });
 });

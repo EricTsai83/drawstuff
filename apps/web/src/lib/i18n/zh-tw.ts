@@ -196,6 +196,8 @@ export const zhTW = {
   "collaboration.recovery.resetting": "重設中",
   "collaboration.recovery.confirmReset": "刪除雲端畫布",
   "collaboration.recovery.cancel": "取消",
+  "collaboration.missingKey.title": "需要完整的邀請連結",
+  "collaboration.missingKey.description": "這台裝置沒有這個房間的金鑰。",
   "collaboration.missingKey.label": "完整邀請連結",
   "collaboration.missingKey.apply": "使用連結",
   "collaboration.missingKey.hint": "請貼上完整連結，包含 # 之後的部分。",
