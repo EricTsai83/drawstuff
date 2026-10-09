@@ -4,7 +4,7 @@ import type { AppDictionary } from "./types";
 export const zhTW = {
   "storage.detachedDraft": "未儲存 · 不在「{name}」中",
   "storage.savePersonal": "儲存至我的場景",
-  "storage.room": "加密共編房間 · {roomId}",
+  "storage.room": "房間 · {roomId}",
   "storage.room.pending": "變更尚未儲存",
   "storage.room.saving": "儲存中",
   "storage.room.saved": "已儲存",

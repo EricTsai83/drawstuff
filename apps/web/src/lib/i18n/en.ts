@@ -3,7 +3,7 @@
 export const en = {
   "storage.detachedDraft": "Unsaved · not in “{name}”",
   "storage.savePersonal": "Save to my scenes",
-  "storage.room": "Encrypted room · {roomId}",
+  "storage.room": "Room · {roomId}",
   "storage.room.pending": "Changes not saved yet",
   "storage.room.saving": "Saving",
   "storage.room.saved": "Saved",
