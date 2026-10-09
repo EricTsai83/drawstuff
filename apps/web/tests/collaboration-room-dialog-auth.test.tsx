@@ -822,7 +822,7 @@ describe("share room dialog", () => {
     await act(async () => buttonWith(container!, "Reset link")?.click());
     expect(createMutate).not.toHaveBeenCalled();
     expect(document.body.textContent).toContain(
-      "The current link stops working and everyone is disconnected.",
+      "The current link stops working and everyone is disconnected",
     );
     await confirm("Reset link");
     await vi.waitFor(() => expect(createMutate).toHaveBeenCalledOnce());
@@ -1031,7 +1031,7 @@ describe("share room dialog", () => {
       "This collaboration link is missing the encryption key.",
     );
     expect(container!.textContent).toContain(
-      "drawstuff does not store room keys.",
+      "This room's key isn't available to you here.",
     );
   });
 });

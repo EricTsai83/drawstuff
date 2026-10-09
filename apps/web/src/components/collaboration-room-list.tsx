@@ -44,6 +44,7 @@ import {
 import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
 import type { AppTranslationKey } from "@/lib/i18n";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
   roomRoleSchema,
   type RoomRole,
@@ -100,6 +101,8 @@ export function CollaborationRoomList() {
             utils.client.collaborationAuthority.execute.mutate(input),
           identity: (input) =>
             utils.client.collaborationAuthority.identity.mutate(input),
+          escrowRoomKey: (input) =>
+            utils.client.collaborationAuthority.escrowRoomKey.mutate(input),
         },
         snapshots: createBinarySnapshotClient(),
         settleWithinMs: INITIALIZATION_SETTLE_MS,
@@ -203,14 +206,33 @@ export function CollaborationRoomList() {
     }
   };
 
-  const openRoom = (roomId: string) =>
+  const [openingRoomId, setOpeningRoomId] = useState<string | null>(null);
+  /**
+   * Opens with Room's custody copy of the key when it has one (plan 19);
+   * otherwise the room asks for the complete link, as before.
+   */
+  const openRoom = async (roomId: string) => {
+    setOpeningRoomId(roomId);
+    let roomKey: RoomKey | null = null;
+    try {
+      const custodied =
+        await utils.client.collaborationAuthority.roomKey.mutate({
+          roomId: roomIdSchema.parse(roomId),
+        });
+      roomKey = custodied?.roomKey ?? null;
+    } catch {
+      // Opening without the key still works through the complete link.
+    }
+    if (!mounted.current) return;
+    setOpeningRoomId(null);
     router.push(
       buildRoomInviteUrl({
         currentUrl: new URL("/", window.location.origin).href,
         roomId,
-        roomKey: null,
+        roomKey,
       }),
     );
+  };
 
   const roomList = rooms.data?.rooms ?? [];
   // Unfinished creations need a decision; they lead the list.
@@ -282,8 +304,8 @@ export function CollaborationRoomList() {
             <Button
               variant="outline"
               size="sm"
-              disabled={busy}
-              onClick={() => openRoom(room.roomId)}
+              disabled={busy || openingRoomId !== null}
+              onClick={() => void openRoom(room.roomId)}
             >
               {t("collaboration.rooms.open")}
             </Button>
@@ -319,7 +341,7 @@ export function CollaborationRoomList() {
                       // Rotation re-encrypts the content, so it needs the
                       // room opened with its key; the room asks for the link.
                       toast.info(t("collaboration.rooms.rotateHint"));
-                      openRoom(room.roomId);
+                      void openRoom(room.roomId);
                     }}
                   >
                     <KeyRound aria-hidden="true" />

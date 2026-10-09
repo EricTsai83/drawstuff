@@ -3,8 +3,8 @@ import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const { listQuery, push, refetch, execute, invalidate, toast } = vi.hoisted(
-  () => ({
+const { listQuery, push, refetch, execute, invalidate, toast, roomKeyMutate } =
+  vi.hoisted(() => ({
     listQuery: vi.fn<() => unknown>(),
     push: vi.fn(),
     refetch: vi.fn(),
@@ -19,9 +19,9 @@ const { listQuery, push, refetch, execute, invalidate, toast } = vi.hoisted(
       }),
     ),
     invalidate: vi.fn(() => Promise.resolve()),
+    roomKeyMutate: vi.fn(() => Promise.resolve(null)),
     toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
-  }),
-);
+  }));
 
 // The in-session creation this list may be retrying.
 const { creation } = vi.hoisted(() => ({
@@ -46,7 +46,12 @@ vi.mock("@/hooks/use-app-i18n", async () => {
 vi.mock("@/trpc/react", () => ({
   api: {
     useUtils: () => ({
-      client: { collaborationAuthority: { execute: { mutate: execute } } },
+      client: {
+        collaborationAuthority: {
+          execute: { mutate: execute },
+          roomKey: { mutate: roomKeyMutate },
+        },
+      },
       collaborationRoom: { list: { invalidate } },
     }),
     collaborationRoom: { list: { useQuery: listQuery } },
@@ -138,7 +143,7 @@ describe("collaboration room list (18C §2)", () => {
     );
   });
 
-  it("puts unfinished creations under Needs attention, ahead of the rooms", () => {
+  it("puts unfinished creations under Needs attention, ahead of the rooms", async () => {
     render({
       isSuccess: true,
       data: {
@@ -171,7 +176,10 @@ describe("collaboration room list (18C §2)", () => {
     const [ready] = Array.from(groups[1]!.querySelectorAll("li"));
     expect(ready?.textContent).toContain("aa000000");
     expect(ready?.textContent).toContain("Independent room · Owner");
-    act(() => buttonIn(ready!, "Open room")?.click());
+    await act(async () => {
+      buttonIn(ready!, "Open room")?.click();
+    });
+    await vi.waitFor(() => expect(push).toHaveBeenCalled());
     const target = new URL(String(push.mock.calls[0]?.[0]));
     expect(target.searchParams.get("collab-room")).toBe(
       "aa000000-0000-4000-8000-000000000001",
@@ -237,8 +245,9 @@ describe("collaboration room list (18C §2)", () => {
     await act(async () => item("Reset link")?.click());
     expect(execute).not.toHaveBeenCalled();
     expect(toast.info).toHaveBeenCalledWith(
-      "Paste the room's complete link, then choose Reset link.",
+      "In the room, open Share room and choose Reset link.",
     );
+    await vi.waitFor(() => expect(push).toHaveBeenCalled());
     expect(
       new URL(String(push.mock.calls[0]?.[0])).searchParams.get("collab-room"),
     ).toBe("87f19732-2ffa-4fbe-8456-7c221487594f");
@@ -334,5 +343,23 @@ describe("collaboration room list (18C §2)", () => {
     });
     expect(creation.start).toHaveBeenCalledOnce();
     expect(creation.cancel).not.toHaveBeenCalled();
+  });
+
+  it("opens a room with Room's custody copy of its key", async () => {
+    roomKeyMutate.mockResolvedValueOnce({
+      roomKey: "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
+      authGeneration: 1,
+    } as never);
+    render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
+    await act(async () => {
+      buttonIn(container, "Open room")?.click();
+    });
+    await vi.waitFor(() => expect(push).toHaveBeenCalled());
+    const target = new URL(String(push.mock.calls[0]?.[0]));
+    expect(target.hash).toBe(
+      "#collab-key=T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
+    );
+    // The key stays in the fragment, never in what the server receives.
+    expect(target.search).not.toContain("T0PSTFR2");
   });
 });

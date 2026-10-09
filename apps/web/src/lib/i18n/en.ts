@@ -149,7 +149,7 @@ export const en = {
     "Sign in to create or join a collaboration room.",
   "collaboration.authChecking": "Checking sign-in status...",
   "collaboration.createDescription":
-    "Start a room from this canvas. Drawings and images are end-to-end encrypted.",
+    "Start a room from this canvas. Drawings and images are stored and sent encrypted.",
   "collaboration.shareDescription":
     "Share the complete link to invite collaborators.",
   "collaboration.status.idle": "Collaborate",
@@ -178,7 +178,7 @@ export const en = {
   "collaboration.create.linkKey":
     "The full link contains the key. Share it only with people you trust.",
   "collaboration.create.keyLoss":
-    "We can't recover the key. If the link is lost, so is the room.",
+    "drawstuff keeps the room key, so members can reopen the room from their room list on any device.",
   "collaboration.create.noPersonalCopy":
     "Saved encrypted in the room, not as a personal cloud scene.",
   "collaboration.create.sourceCopy":
@@ -225,7 +225,7 @@ export const en = {
   "collaboration.missingKey.label": "Complete invitation link",
   "collaboration.missingKey.apply": "Use link",
   "collaboration.missingKey.hint":
-    "drawstuff does not store room keys. Paste the complete link, including the part after #; it is only used in this tab and is not stored.",
+    "This room's key isn't available to you here. Paste its complete link, including the part after #; it is only used in this tab.",
   "collaboration.missingKey.invalid":
     "This link is for a different room or is missing its key.",
   "collaboration.share.title": "Share room",
@@ -245,7 +245,7 @@ export const en = {
   "collaboration.person.restoreInvite": "Restore invitation",
   "collaboration.resetLink.title": "Reset the link?",
   "collaboration.resetLink.description":
-    "This creates a new link and re-encrypts the room. The current link stops working and everyone is disconnected. Members keep their access but need the new link to rejoin.",
+    "This creates a new key and re-encrypts the room. The current link stops working and everyone is disconnected. People you invited keep access and reopen it from their room list; anyone who joined only by the link needs the new link.",
   "collaboration.resetLink.confirm": "Reset link",
   "collaboration.link.label": "Invite link",
   "collaboration.link.keyPresent":
@@ -262,7 +262,7 @@ export const en = {
   "collaboration.rooms.open": "Open room",
   "collaboration.rooms.ready": "Ready",
   "collaboration.rooms.hint":
-    "End-to-end encrypted. Open a room with its complete link — drawstuff can't recover keys. The list may lag briefly.",
+    "Encrypted rooms you own or joined. Open them from here on any device; the list may lag briefly.",
   "collaboration.rooms.needsAttention": "Needs attention",
   "collaboration.rooms.listHeading": "Rooms",
   "collaboration.rooms.unfinished":
@@ -271,7 +271,7 @@ export const en = {
   "collaboration.rooms.idCopied": "Room ID copied.",
   "collaboration.rooms.rotate": "Reset link",
   "collaboration.rooms.rotateHint":
-    "Paste the room's complete link, then choose Reset link.",
+    "In the room, open Share room and choose Reset link.",
   "collaboration.rooms.end": "End room",
   "collaboration.rooms.endTitle": "End this room?",
   "collaboration.rooms.endDescription":
@@ -327,7 +327,7 @@ export const en = {
     "Export an image or save the scene to a file now. Reducing the canvas can restore sync; reload before rejoining if recently deleted content still counts toward the limit.",
   "collaboration.failure.invalidLink": "This collaboration link is invalid.",
   "collaboration.failure.missingRoomKey":
-    "This collaboration link is missing the encryption key after #. drawstuff does not store room keys, and signing in cannot restore them. Ask the sharer for the complete link; the room's saved content will not be changed.",
+    "This room's encryption key isn't available to your account. Ask the owner to invite you, or paste the complete link; the room's saved content will not be changed.",
   "collaboration.failure.cancelled":
     "Join cancelled. Your original canvas was not changed.",
   "collaboration.failure.saveBeforeJoin":
@@ -529,7 +529,7 @@ export const en = {
   "scene.change.discard": "Switch without saving",
   "scene.save.title": "Save scene",
   "scene.save.description":
-    "Personal cloud saves are not end-to-end encrypted and are not automatically public. To keep cloud content end-to-end encrypted, use an encrypted collaboration room without saving a personal cloud copy.",
+    "Personal cloud saves are not end-to-end encrypted and are not automatically public.",
   "scene.save.cancelLabel": "Cancel save",
   "scene.save.confirmLabel": "Confirm save",
   "scene.new.title": "New scene",

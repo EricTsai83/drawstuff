@@ -140,7 +140,7 @@ export const zhTW = {
   "collaboration.authRequired": "請先登入 Drawstuff 才能建立或加入共編。",
   "collaboration.authChecking": "正在確認登入狀態…",
   "collaboration.createDescription":
-    "以目前畫布建立共編房間，畫布與圖片皆端對端加密。",
+    "以目前畫布建立共編房間，畫布與圖片皆加密保存與傳輸。",
   "collaboration.shareDescription": "分享完整連結，邀請協作者加入。",
   "collaboration.status.idle": "共編",
   "collaboration.status.preparing": "準備畫布中…",
@@ -166,7 +166,7 @@ export const zhTW = {
   "collaboration.action.start": "開始加密共編",
   "collaboration.create.linkKey": "完整連結含有金鑰，只分享給信任的人。",
   "collaboration.create.keyLoss":
-    "金鑰無法找回；連結遺失，房間也就無法再開啟。",
+    "drawstuff 會保管房間金鑰，成員可在任何裝置從房間列表重新開啟。",
   "collaboration.create.noPersonalCopy":
     "內容加密保存在房間裡，不會另存為個人雲端場景。",
   "collaboration.create.sourceCopy": "原本的個人雲端場景維持不變，且未加密。",
@@ -211,7 +211,7 @@ export const zhTW = {
   "collaboration.missingKey.label": "完整邀請連結",
   "collaboration.missingKey.apply": "使用連結",
   "collaboration.missingKey.hint":
-    "drawstuff 不保存房間金鑰。請貼上包含 # 之後內容的完整連結；它只在此分頁使用，不會被保存。",
+    "你在這裡無法取得此房間的金鑰。請貼上包含 # 之後內容的完整連結；它只在此分頁使用。",
   "collaboration.missingKey.invalid": "這個連結屬於其他房間，或缺少金鑰。",
   "collaboration.share.title": "分享房間",
   "collaboration.people": "成員",
@@ -230,7 +230,7 @@ export const zhTW = {
   "collaboration.person.restoreInvite": "恢復邀請",
   "collaboration.resetLink.title": "要重設連結嗎？",
   "collaboration.resetLink.description":
-    "這會產生新的連結並重新加密房間。目前的連結會立即失效，所有人都會被中斷連線；成員仍保有權限，但需要用新連結重新加入。",
+    "這會產生新的金鑰並重新加密房間。目前的連結會立即失效，所有人都會被中斷連線。你邀請的成員仍保有權限，可從房間列表重新開啟；只靠連結加入的人需要新的連結。",
   "collaboration.resetLink.confirm": "重設連結",
   "collaboration.link.label": "邀請連結",
   "collaboration.link.keyPresent": "連結含有房間金鑰，只分享給信任的人。",
@@ -245,7 +245,7 @@ export const zhTW = {
   "collaboration.rooms.open": "開啟房間",
   "collaboration.rooms.ready": "就緒",
   "collaboration.rooms.hint":
-    "端對端加密。請用完整連結開啟房間——drawstuff 無法找回金鑰。列表可能稍有延遲。",
+    "你擁有或加入的加密房間，可在任何裝置從這裡開啟；列表可能稍有延遲。",
   "collaboration.rooms.needsAttention": "需要處理",
   "collaboration.rooms.listHeading": "房間",
   "collaboration.rooms.unfinished": "建立未完成，會自動結束，也可以現在取消。",
@@ -253,7 +253,7 @@ export const zhTW = {
   "collaboration.rooms.idCopied": "已複製房間 ID。",
   "collaboration.rooms.rotate": "重設連結",
   "collaboration.rooms.rotateHint":
-    "請貼上房間的完整連結，再選擇「重設連結」。",
+    "請進入房間，打開「分享房間」後選擇「重設連結」。",
   "collaboration.rooms.end": "結束房間",
   "collaboration.rooms.endTitle": "要結束這個房間嗎？",
   "collaboration.rooms.endDescription":
@@ -306,7 +306,7 @@ export const zhTW = {
     "請立即匯出圖片或儲存場景檔。減少畫布內容可恢復同步；若剛刪除的內容仍計入上限，請重新載入後再加入。",
   "collaboration.failure.invalidLink": "此共編連結格式不正確。",
   "collaboration.failure.missingRoomKey":
-    "此共編連結缺少 # 後的加密金鑰。drawstuff 不保存房間金鑰，登入也無法恢復。請向分享者索取完整連結；房間已保存的內容不會被變更。",
+    "你的帳號無法取得此房間的加密金鑰。請房主邀請你，或貼上完整連結；房間已保存的內容不會被變更。",
   "collaboration.failure.cancelled": "已取消加入，原畫布沒有變更。",
   "collaboration.failure.saveBeforeJoin":
     "無法儲存目前場景，因此未加入共編。請再試一次。",
@@ -489,8 +489,7 @@ export const zhTW = {
   "scene.change.save": "儲存後切換",
   "scene.change.discard": "不儲存並切換",
   "scene.save.title": "儲存場景",
-  "scene.save.description":
-    "個人雲端存檔不採端對端加密，不會自動公開。若希望雲端內容維持端對端加密，可只使用加密共編房間，不另存個人雲端副本。",
+  "scene.save.description": "個人雲端存檔不採端對端加密，不會自動公開。",
   "scene.save.cancelLabel": "取消儲存",
   "scene.save.confirmLabel": "確認儲存",
   "scene.new.title": "新增場景",

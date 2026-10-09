@@ -7,9 +7,16 @@ import {
 } from "@drawstuff/collaboration/authority";
 import { encodeBase64 } from "@drawstuff/collaboration/base64";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
+import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 
 export type AuthorityApi = {
   execute: (request: AuthorityRequest) => Promise<unknown>;
+  /** Room key custody (plan 19); absent where custody is not wired. */
+  escrowRoomKey?: (input: {
+    roomId: RoomId;
+    authGeneration?: number;
+    roomKey: RoomKey;
+  }) => Promise<unknown>;
   identity: (input: { roomId: RoomId }) => Promise<{
     proof: string;
     expiresAt: number;

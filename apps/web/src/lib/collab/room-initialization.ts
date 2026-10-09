@@ -108,6 +108,7 @@ export function createRoomInitialization(options: {
   let assets: CollaborationAssetStore | undefined;
   let expectedRevision: number | undefined;
   let stored: { revision: number; checksum: string } | undefined;
+  let escrowed = false;
   let disposed = false;
   const assertActive = () => {
     if (disposed) throw new AuthorityRoomError("cancelled");
@@ -149,6 +150,18 @@ export function createRoomInitialization(options: {
       assertActive();
       await setCheck();
       assertActive();
+      // Room keeps a custody copy so members can reopen the room without its
+      // link (plan 19). Best effort: a failure leaves the room openable by
+      // link, and the next keyed join hands the key over again.
+      if (!escrowed && options.authority.escrowRoomKey) {
+        escrowed = await options.authority
+          .escrowRoomKey({ roomId, authGeneration: generation, roomKey })
+          .then(
+            () => true,
+            () => false,
+          );
+        assertActive();
+      }
       if (assetIds.length) {
         assets ??= await createCollaborationAssetStore({
           api: options.assets!,

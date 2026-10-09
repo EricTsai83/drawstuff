@@ -346,6 +346,11 @@ export function CollaborationRoomDialog({
       ) => utils.client.collaborationAuthority.execute.mutate(input),
       identity: (input: { roomId: ReturnType<typeof roomIdSchema.parse> }) =>
         utils.client.collaborationAuthority.identity.mutate(input),
+      escrowRoomKey: (
+        input: Parameters<
+          typeof utils.client.collaborationAuthority.escrowRoomKey.mutate
+        >[0],
+      ) => utils.client.collaborationAuthority.escrowRoomKey.mutate(input),
     };
     try {
       if (!initialization.current) {
@@ -658,6 +663,8 @@ export function CollaborationRoomDialog({
               utils.client.collaborationAuthority.execute.mutate(input),
             identity: (input) =>
               utils.client.collaborationAuthority.identity.mutate(input),
+            escrowRoomKey: (input) =>
+              utils.client.collaborationAuthority.escrowRoomKey.mutate(input),
           },
           snapshots: createBinarySnapshotClient(),
           settleWithinMs: INITIALIZATION_SETTLE_MS,

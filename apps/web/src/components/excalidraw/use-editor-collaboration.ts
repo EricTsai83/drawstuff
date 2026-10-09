@@ -14,6 +14,7 @@ import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/type
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { useCanvasHandoff } from "@/hooks/excalidraw/use-canvas-handoff";
 import { useCollaborationRoom } from "@/hooks/excalidraw/use-collaboration-room";
+import { useRoomKeyCustody } from "@/hooks/excalidraw/use-room-key-custody";
 import { useCollaborationRoomKey } from "@/hooks/excalidraw/use-collaboration-room-key";
 import type { UseSceneChangeConfirm } from "@/hooks/excalidraw/use-scene-change-confirm";
 import type { UseScenePersistenceResult } from "@/hooks/excalidraw/use-scene-persistence";
@@ -106,6 +107,14 @@ export function useEditorCollaboration(options: {
     cancelPendingCanvasDecision,
   });
 
+  const { lookupSettled: isRoomKeyLookupSettled } = useRoomKeyCustody({
+    roomId: collaborationRoomId,
+    roomKey: collaborationRoomKey,
+    status: collaborationStatus,
+    isAuthenticated: !!session,
+    onRoomKeyChange: setCollaborationRoomKey,
+  });
+
   useEffect(
     () =>
       registerCanvasLifecycle({
@@ -146,6 +155,7 @@ export function useEditorCollaboration(options: {
     setCollaborationRoomId,
     collaborationRoomKey,
     setCollaborationRoomKey,
+    isRoomKeyLookupSettled,
     collaborationStatus,
     collaborationFailureReason,
     collaborationRole,

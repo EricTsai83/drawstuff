@@ -396,6 +396,29 @@ describe("product Room authority initialization", () => {
     await expect(init.cancel()).rejects.toMatchObject({ code: "pending" });
     await expect(started).rejects.toMatchObject({ code: "pending" });
   });
+  it("hands Room a custody copy of the new key, and still creates the room when that fails", async () => {
+    for (const outcome of ["accepted", "refused"] as const) {
+      const f = fixture();
+      const escrowRoomKey = vi.fn(() =>
+        outcome === "accepted"
+          ? Promise.resolve({ escrowed: true })
+          : Promise.reject(new Error("custody-unavailable")),
+      );
+      const init = createRoomInitialization({
+        authority: { ...f.authority, escrowRoomKey },
+        snapshots: f.snapshots,
+        sceneId,
+        elements: [],
+      });
+      const ready = await init.start();
+      expect(escrowRoomKey).toHaveBeenCalledOnce();
+      expect(escrowRoomKey).toHaveBeenCalledWith({
+        roomId: ready.roomId,
+        authGeneration: 1,
+        roomKey: ready.roomKey,
+      });
+    }
+  });
   it("does not share or mint identity credentials until the completion receipt is confirmed", async () => {
     const f = fixture();
     const commit = f.commit;

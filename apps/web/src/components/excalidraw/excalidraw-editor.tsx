@@ -158,6 +158,7 @@ export default function ExcalidrawEditor() {
     setCollaborationRoomId,
     collaborationRoomKey,
     setCollaborationRoomKey,
+    isRoomKeyLookupSettled,
     collaborationStatus,
     collaborationFailureReason,
     collaborationRole,
@@ -180,11 +181,13 @@ export default function ExcalidrawEditor() {
     cancelPendingSceneSave,
   });
 
-  // A link without its key (e.g. opened from the room list) cannot join; open
-  // the dialog so the person can paste the complete invitation link.
+  // A link without its key cannot join. Room's custody copy is asked for
+  // first (plan 19); only when it has none does the dialog open so the person
+  // can paste the complete invitation link.
   useEffect(() => {
-    if (collaborationStatus === "missing-room-key") openCollaborationDialog();
-  }, [collaborationStatus, openCollaborationDialog]);
+    if (collaborationStatus === "missing-room-key" && isRoomKeyLookupSettled)
+      openCollaborationDialog();
+  }, [collaborationStatus, isRoomKeyLookupSettled, openCollaborationDialog]);
 
   const isRoomMode = !!collaborationRoomId || isCanvasOwnedByRoom;
   useSaveShortcut({
