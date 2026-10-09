@@ -32,6 +32,7 @@ const renderStatus = (
         onRetry={() => undefined}
         onCopy={() => undefined}
         onUpdateSource={() => Promise.resolve()}
+        onExit={() => undefined}
         api={null}
         isAuthenticated
         detachedFromSceneName={null}
@@ -68,6 +69,16 @@ describe("editor storage status (18C §5)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("offers a way back to the personal canvas from the room panel", () => {
+    const onExit = vi.fn();
+    const container = renderStatus({ roomId: "room-alpha-1", onExit });
+    const exit = [...container.querySelectorAll("button")].find((button) =>
+      button.textContent?.startsWith("Back to my canvas"),
+    );
+    act(() => exit?.click());
+    expect(onExit).toHaveBeenCalledOnce();
   });
 
   it("keeps the lock while edits wait for the next save", () => {

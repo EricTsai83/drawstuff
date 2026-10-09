@@ -310,6 +310,11 @@ export default function ExcalidrawEditor() {
       onRetry: requestRoomSave,
       onCopy: openCloudUploadDialog,
       onUpdateSource: handleUpdateSource,
+      onExit: () => {
+        if (!confirmRoomExit()) return;
+        void setCollaborationRoomId(null);
+        setCollaborationRoomKey(null);
+      },
       api: excalidrawAPI,
       isAuthenticated: !!session,
       detachedFromSceneName,
@@ -322,6 +327,9 @@ export default function ExcalidrawEditor() {
       requestRoomSave,
       openCloudUploadDialog,
       handleUpdateSource,
+      confirmRoomExit,
+      setCollaborationRoomId,
+      setCollaborationRoomKey,
       excalidrawAPI,
       session,
       detachedFromSceneName,

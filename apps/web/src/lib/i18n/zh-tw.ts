@@ -14,6 +14,8 @@ export const zhTW = {
   "storage.copy": "另存至我的場景",
   "storage.updateSource": "更新我的原場景「{name}」",
   "storage.download": "下載本機副本",
+  "storage.exit": "回到我的畫布",
+  "storage.exitNotice": "房間會保留。",
   "storage.copyNotice":
     "共編房間仍維持加密；個人雲端副本不採端對端加密，不會自動公開。",
   "storage.downloadNotice": "下載的本機檔案未加密。",

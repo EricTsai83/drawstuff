@@ -9,6 +9,7 @@ import {
   FilePlus2,
   LoaderCircle,
   LockKeyhole,
+  LogOut,
   RefreshCw,
   RotateCw,
   type LucideIcon,
@@ -40,6 +41,8 @@ export function EditorStorageStatus(props: {
   onRetry: () => void;
   onCopy: () => void;
   onUpdateSource: (sceneId: string) => Promise<void>;
+  /** Leaves the room for the personal canvas; the room itself stays. */
+  onExit: () => void;
   api: ExcalidrawImperativeAPI | null;
   isAuthenticated: boolean;
   /** Scene an unresolved signed-out draft was detached from, if any. */
@@ -131,6 +134,15 @@ export function EditorStorageStatus(props: {
           }}
         >
           {t("storage.download")}
+        </PanelAction>
+      </div>
+      <div className="mt-2 flex flex-col border-t pt-2">
+        <PanelAction
+          icon={LogOut}
+          hint={t("storage.exitNotice")}
+          onClick={props.onExit}
+        >
+          {t("storage.exit")}
         </PanelAction>
       </div>
     </div>

@@ -14,6 +14,8 @@ export const en = {
   "storage.copy": "Save a copy to my scenes",
   "storage.updateSource": "Update my original scene “{name}”",
   "storage.download": "Download a local copy",
+  "storage.exit": "Back to my canvas",
+  "storage.exitNotice": "The room stays open.",
   "storage.copyNotice":
     "The room remains encrypted. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
   "storage.downloadNotice": "The downloaded file is not encrypted.",
