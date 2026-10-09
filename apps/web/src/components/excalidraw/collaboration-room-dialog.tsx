@@ -64,7 +64,10 @@ import {
   Ellipsis,
   Eye,
   LockKeyhole,
+  LogOut,
   Pencil,
+  Power,
+  RotateCw,
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -799,7 +802,7 @@ export function CollaborationRoomDialog({
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
       >
         <DialogHeader>
-          <DialogTitle className="pr-8 text-xl font-bold">
+          <DialogTitle className="pr-8">
             {t(
               isAuthenticated && roomId
                 ? "collaboration.share.title"
@@ -1213,46 +1216,46 @@ export function CollaborationRoomDialog({
               </Button>
             )}
 
-            {/* Phones: Done spans the bottom; the room actions sit above it. */}
-            <div className="border-border flex flex-col gap-2 border-t pt-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex flex-wrap justify-center gap-1 sm:justify-start">
+            {/* Room-wide actions, each a confirmed step of its own. */}
+            <section
+              className="border-border flex flex-col gap-3 border-t pt-4"
+              aria-labelledby="collab-manage-heading"
+            >
+              <h3 id="collab-manage-heading" className="text-sm font-medium">
+                {t("collaboration.manage")}
+              </h3>
+              <div className="flex flex-col gap-2 sm:flex-row">
                 {isOwner ? (
                   <>
                     <Button
-                      variant="ghost"
+                      variant="outline"
                       disabled={rotateGeneration.isPending}
                       onClick={() => setConfirmAction("reset-link")}
                     >
+                      <RotateCw data-icon="inline-start" aria-hidden="true" />
                       {t("collaboration.action.rotate")}
                     </Button>
                     <Button
-                      variant="ghost"
-                      className="text-destructive hover:text-destructive"
+                      variant="destructive"
                       disabled={endRoom.isPending}
                       onClick={() => setConfirmAction("end-room")}
                     >
+                      <Power data-icon="inline-start" aria-hidden="true" />
                       {t("collaboration.action.end")}
                     </Button>
                   </>
                 ) : (
                   <Button
-                    variant="ghost"
-                    className="text-destructive hover:text-destructive"
+                    variant="destructive"
                     disabled={leaveRoom.isPending}
                     onClick={() => setConfirmAction("leave")}
                   >
+                    <LogOut data-icon="inline-start" aria-hidden="true" />
                     {t("collaboration.action.leave")}
                   </Button>
                 )}
               </div>
-              <Button
-                variant="outline"
-                className="w-full sm:w-auto"
-                onClick={() => onOpenChange(false)}
-              >
-                {t("buttons.done")}
-              </Button>
-            </div>
+            </section>
             <AlertDialog
               open={confirmAction !== null}
               onOpenChange={(next) => {

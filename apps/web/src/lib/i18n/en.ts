@@ -79,7 +79,6 @@ export const en = {
   "buttons.create": "Create",
   "buttons.confirm": "Confirm",
   "buttons.close": "Close",
-  "buttons.done": "Done",
   "buttons.retry": "Retry",
   "workspace.navigation": "Workspace navigation",
   "workspace.route.description": "Workspace route content",
@@ -216,6 +215,7 @@ export const en = {
   "collaboration.missingKey.invalid":
     "This link is for a different room or is missing its key.",
   "collaboration.share.title": "Share room",
+  "collaboration.manage": "Manage room",
   "collaboration.people": "People",
   "collaboration.invite.email": "Email to invite",
   "collaboration.invite.invalid": "Enter a valid email address.",
