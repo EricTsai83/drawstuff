@@ -18,10 +18,12 @@ import { DurableWork } from "./durable-work.ts";
  * How long a completed retirement record outlives completion before the
  * Object deletes its storage. Once the web side has deleted the account or
  * scene and marked it retired in its own database, it answers status from
- * there and never asks this Object again; the window only covers a retry that
- * was already in flight.
+ * there and never asks this Object again. Not a safety bound: a `begin` that
+ * was already in flight and arrives after release re-runs idempotently (the
+ * subject is frozen and retired, its registrations are gone) and completes.
+ * The window only lets such a duplicate see the existing completed record.
  */
-const COMPLETED_RETENTION_MS = 24 * 60 * 60_000;
+const COMPLETED_RETENTION_MS = 60 * 60_000;
 
 type LifecycleRow = {
   operation_id: string;

@@ -1270,7 +1270,7 @@ describe("Lifecycle durable progress", () => {
       expect(deleted).toBe(1);
     });
   });
-  it("releases a completed retirement's storage 24 h after completion, and not before", async () => {
+  it("releases a completed retirement's storage 1 h after completion, and not before", async () => {
     const subject = `user-${crypto.randomUUID()}`;
     const name = `account:${subject}`;
     const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
@@ -1305,8 +1305,8 @@ describe("Lifecycle durable progress", () => {
         expect(p.query(command.operationId)?.phase).toBe("completed");
         expect(p.work.pending()).toBe(0);
         const at = p.releaseAt();
-        expect(at).toBeGreaterThanOrEqual(completedAt + 24 * 60 * 60_000);
-        expect(at).toBeLessThanOrEqual(Date.now() + 24 * 60 * 60_000);
+        expect(at).toBeGreaterThanOrEqual(completedAt + 60 * 60_000);
+        expect(at).toBeLessThanOrEqual(Date.now() + 60 * 60_000);
         expect(p.releasable()).toBe(false);
         const alarm = await state.storage.getAlarm();
         expect(alarm).not.toBeNull();

@@ -21,7 +21,7 @@ admin dashboard 已有使用者列表、退場帳號、退場場景、結束房�
 | 退場卡住 | lifecycle 紀錄已凍結、超過門檻仍未 retired | 帳號／場景資料尚未刪完 | 連到使用者；重新觸發同一退場 |
 | 房間結束但 storage 未關閉 | `status=ended`、`storage_state≠ended` 超過門檻 | 結束 fence 未送達或被放棄 | 重送結束 |
 | 房間卡在建立中 | 超過初始化期限仍 `initializing` | 建房中斷 | 結束房間 |
-| 檔案清理失敗 | `deferred_file_cleanup` 的 `status=failed`，或 pending 但 `attempts` 過多 | UploadThing 殘留 | 重試（見 1.5） |
+| 檔案清理失敗 | `deferred_file_cleanup` 的 `status=failed`，或 pending 但 `attempts` 過多 | UploadThing 殘留 | 重試（見 1.4） |
 | 已結束房間仍有資料 | 已結束但仍有快照、圖片或投影列 | cleanup 與維護回收都沒處理到 | 執行回收 |
 
 每項顯示數量、明細與最後發生時間；門檻與動作待確認。
@@ -37,11 +37,7 @@ admin dashboard 已有使用者列表、退場帳號、退場場景、結束房�
 - **邀請名單**（擁有者決定，2026-10-10）：退場時把該帳號的 email 從所有進行中房間的邀請名單移除，同 email 的新帳號不繼承任何邀請。需要退場流程依 email 找出房間（Neon 邀請投影）並對各房間 DO 執行移除。
 - 退場後只保留不含使用者內容的最小紀錄（lifecycle 紀錄、creation fence、登記與投影墓碑），並在文件列出。
 
-### 1.4 退場完成後的 DO 保留時間
-
-21 目前是完成後 24 小時釋放。完成後的重複 `begin` 是冪等重跑，不影響正確性；保留時間只是省掉重跑。待擁有者決定是否縮短為 1 小時。
-
-### 1.5 檔案清理失敗的退避與重試
+### 1.4 檔案清理失敗的退避與重試
 
 - **現況**：drain 只撈 `status=pending`，`failed` 列之後永遠不再處理，物件留在 UploadThing；目前 admin 的 Pending cleanup 也不計入 `failed`。失敗資料都保留在列上（`lastError`、`attempts`、`reason`、`context`、`updatedAt`），但單筆失敗不寫 log，只能直接查 DB。
 - **退避太短**：`rescheduleDeferredCleanup` 為 1s 起跳指數退避、上限 60s，5 次重試約 31 秒就用完，而單次 drain 預算 60 秒，同一輪內會反覆撈到同一筆。UploadThing 短暫故障半分鐘就可能把一批檔案永久標成 `failed`。改為分鐘起跳、上限數小時（數值待確認），讓暫時性故障跨多次維護執行重試。
@@ -53,5 +49,4 @@ admin dashboard 已有使用者列表、退場帳號、退場場景、結束房�
 
 - 各異常的門檻與 dashboard 上的動作。
 - 「重新觸發」類動作是否需要稽核與二次確認。
-- 1.4 的保留時間。
-- 1.5 的退避起點、上限與重試次數。
+- 1.4 的退避起點、上限與重試次數。
