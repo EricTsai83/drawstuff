@@ -157,6 +157,7 @@ export const zhTW = {
   "collaboration.toast.initializationPending":
     "建立房間尚未確認，畫布暫停編輯；請重試或取消這次建立。",
   "collaboration.action.cancelInitialization": "取消建立房間",
+  "collaboration.rotating": "正在重設連結",
   "collaboration.toast.initializationAttachments":
     "部分圖片檔案尚未載入或無法上傳。請重新載入場景，或移除這些圖片後再開始共編。",
   "collaboration.error.operationFailed": "即時共編操作失敗，請稍後再試。",

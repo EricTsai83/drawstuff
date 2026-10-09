@@ -751,11 +751,16 @@ export function CollaborationRoomDialog({
     });
   }, [roomId, roomKey]);
 
+  // Resetting the link re-runs initialization on this room: the old key is
+  // dropped and the session disconnects until the new one lands. That is the
+  // reset working, not a creation awaiting a decision or a failed join.
+  const isRotating = !!roomId && hasInitialization && isCreatePending;
   // A failure is explained by the error paragraph; the header pill then names
   // only the role instead of repeating it.
-  const showsError = !!errorMessage && status !== "missing-room-key";
+  const showsError =
+    !!errorMessage && status !== "missing-room-key" && !isRotating;
   const statusPill = [
-    showsError ? null : t(STATUS_LABEL_KEY[status]),
+    showsError || isRotating ? null : t(STATUS_LABEL_KEY[status]),
     role ? t(ROLE_LABEL_KEY[role]) : null,
   ]
     .filter(Boolean)
@@ -812,9 +817,11 @@ export function CollaborationRoomDialog({
               roomId && !hasInitialization && isAuthenticated && "sr-only",
             )}
           >
-            {hasInitialization
-              ? t("collaboration.toast.initializationPending")
-              : dialogDescription}
+            {isRotating
+              ? t("collaboration.rotating")
+              : hasInitialization
+                ? t("collaboration.toast.initializationPending")
+                : dialogDescription}
           </DialogDescription>
         </DialogHeader>
 
@@ -881,7 +888,7 @@ export function CollaborationRoomDialog({
             {showsError && (
               <p className="text-destructive text-sm">{errorMessage}</p>
             )}
-            {status === "missing-room-key" && (
+            {status === "missing-room-key" && !isRotating && (
               <form
                 className="flex flex-col gap-2 rounded border p-3"
                 onSubmit={(event) => {
@@ -1197,7 +1204,7 @@ export function CollaborationRoomDialog({
               </section>
             )}
 
-            {hasInitialization && roomId && (
+            {hasInitialization && roomId && !isRotating && (
               <Button
                 variant="outline"
                 disabled={isCreatePending}

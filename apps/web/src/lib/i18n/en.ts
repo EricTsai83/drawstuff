@@ -166,6 +166,7 @@ export const en = {
   "collaboration.toast.initializationPending":
     "Room creation is not confirmed yet. The canvas is paused; retry or cancel this creation.",
   "collaboration.action.cancelInitialization": "Cancel room creation",
+  "collaboration.rotating": "Resetting link",
   "collaboration.toast.initializationAttachments":
     "Some image files are missing or unsupported. Reload the scene or remove those images before starting collaboration.",
   "collaboration.error.operationFailed":

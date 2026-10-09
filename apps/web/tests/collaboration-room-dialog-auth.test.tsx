@@ -813,6 +813,26 @@ describe("share room dialog", () => {
     });
   });
 
+  it("shows a reset in progress as a reset, not as an unconfirmed creation or a failed join", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    createMutate.mockReturnValueOnce(new Promise(() => undefined));
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      // The session drops while the old key is withdrawn.
+      status: "failed",
+      errorMessage: "Couldn't join. Check your connection and try again.",
+    });
+    await act(async () => buttonWith(container!, "Reset link")?.click());
+    await confirm("Reset link");
+    await vi.waitFor(() => expect(createMutate).toHaveBeenCalledOnce());
+    const text = document.body.textContent;
+    expect(text).toContain("Resetting link");
+    expect(text).not.toContain("Room creation is not confirmed");
+    expect(text).not.toContain("Couldn't join");
+    expect(buttonWith(container!, "Cancel room creation")).toBeUndefined();
+  });
+
   it("gives other members only the link and leaving", () => {
     roomGetUseQuery.mockReturnValue(managed({ role: "editor", allowlist: [] }));
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
