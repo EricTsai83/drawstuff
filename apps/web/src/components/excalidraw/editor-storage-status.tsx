@@ -25,6 +25,7 @@ import type { RoomSaveState } from "@/lib/collab/session/save-state";
 import { getCurrentSceneSnapshot, saveSceneJsonToDisk } from "@/lib/excalidraw";
 import { preservedSourceScene } from "@/lib/collab/personal-draft";
 import { toast } from "sonner";
+import { SNAPSHOT_INTERVAL_MS } from "@/lib/collab/collaboration-session";
 import { cn } from "@/lib/utils";
 
 export function EditorStorageStatus(props: {
@@ -78,6 +79,11 @@ export function EditorStorageStatus(props: {
           >
             <SaveStatusIcon status={status} />
             {statusLabel}
+          </span>
+          <span className="text-muted-foreground text-xs">
+            {t("storage.room.autosave", {
+              seconds: String(SNAPSHOT_INTERVAL_MS / 1000),
+            })}
           </span>
         </div>
       </div>

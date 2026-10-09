@@ -8,6 +8,7 @@ export const zhTW = {
   "storage.room.pending": "變更尚未儲存",
   "storage.room.saving": "儲存中",
   "storage.room.saved": "已儲存",
+  "storage.room.autosave": "每 {seconds} 秒自動儲存，離開房間時也會儲存。",
   "storage.room.failed": "儲存失敗",
   "storage.saveRoom": "立即儲存",
   "storage.copy": "另存至我的場景",

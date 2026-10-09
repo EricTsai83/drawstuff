@@ -7,6 +7,8 @@ export const en = {
   "storage.room.pending": "Changes not saved yet",
   "storage.room.saving": "Saving",
   "storage.room.saved": "Saved",
+  "storage.room.autosave":
+    "Saves automatically every {seconds} seconds and when you leave.",
   "storage.room.failed": "Save failed",
   "storage.saveRoom": "Save now",
   "storage.copy": "Save a copy to my scenes",
