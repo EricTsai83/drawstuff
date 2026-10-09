@@ -434,7 +434,7 @@ describe("collaboration room authentication guard", () => {
       if (!result) throw new Error(`missing-button:${text}`);
       return result;
     };
-    act(() => button("Reset cloud canvas...").click());
+    act(() => button("Reset canvas").click());
     await act(async () => {
       button("Delete cloud canvas").click();
       await vi.waitFor(() => expect(toastError).toHaveBeenCalledTimes(1));

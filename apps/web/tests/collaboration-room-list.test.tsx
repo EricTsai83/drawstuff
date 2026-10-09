@@ -135,7 +135,7 @@ describe("collaboration room list (18C §2)", () => {
 
   it("distinguishes loading from an empty result", () => {
     render({ isPending: true });
-    expect(container.textContent).toContain("Loading rooms...");
+    expect(container.textContent).toContain("Loading rooms");
     expect(container.textContent).not.toContain("no collaboration rooms yet");
     render({ isSuccess: true, data: { rooms: [], nextCursor: null } });
     expect(container.textContent).toContain(

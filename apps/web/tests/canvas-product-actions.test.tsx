@@ -201,7 +201,7 @@ describe("Canvas product action presentations", () => {
         ?.querySelector('[data-slot="spinner"]')
         ?.classList.contains("animate-spin"),
     ).toBe(true);
-    expect(currentBadgeLabel()).toBe("Saving…");
+    expect(currentBadgeLabel()).toBe("Saving");
     expect(
       container.querySelector<HTMLButtonElement>(
         '[role="menuitem"][aria-label="Save to my scenes"]',
