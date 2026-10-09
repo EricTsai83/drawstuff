@@ -19,6 +19,7 @@ import {
 import { withCollaborationRequestDeadline } from "./request-deadline";
 
 const SNAPSHOT_HTTP_PATH = "/api/collaboration/snapshot";
+const SNAPSHOT_KEEPALIVE_MAX_BYTES = 60_000;
 export const SNAPSHOT_INTENT_HEADER = "x-drawstuff-snapshot-intent";
 type SnapshotRequest = z.infer<typeof snapshotRequestSchema>;
 export type SnapshotOperation = Exclude<
@@ -215,6 +216,10 @@ export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
           [SNAPSHOT_INTENT_HEADER]: intent,
         },
         body: bytes.slice().buffer,
+        // Lets a save started as the page is hidden outlive a reload or a
+        // closed tab. Browsers refuse keepalive bodies over 64 KiB.
+        keepalive:
+          bytes.byteLength + metadata.length <= SNAPSHOT_KEEPALIVE_MAX_BYTES,
         signal,
       }),
       signal,
