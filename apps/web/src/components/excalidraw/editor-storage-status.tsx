@@ -23,23 +23,17 @@ export function EditorStorageStatus(props: {
   onUpdateSource: (sceneId: string) => Promise<void>;
   api: ExcalidrawImperativeAPI | null;
   isAuthenticated: boolean;
-  /** Whether the personal canvas is a saved personal cloud scene. */
-  hasPersonalCloudCopy: boolean;
   /** Scene an unresolved signed-out draft was detached from, if any. */
   detachedFromSceneName: string | null;
   compact?: boolean;
 }) {
   const { t } = useAppI18n();
   if (!props.roomId) {
-    // An unsaved canvas is stored nowhere remote, so there is nothing to label
-    // — unless it was detached from a scene its edits are no longer in.
-    const label = props.hasPersonalCloudCopy
-      ? t("storage.personal")
-      : props.detachedFromSceneName &&
-        t("storage.detachedDraft", { name: props.detachedFromSceneName });
-    return label ? (
+    // A personal canvas is the default and needs no label — unless it was
+    // detached from a scene its edits are no longer in.
+    return props.detachedFromSceneName ? (
       <Badge variant="secondary" className="h-6 px-2.5 text-sm">
-        {label}
+        {t("storage.detachedDraft", { name: props.detachedFromSceneName })}
       </Badge>
     ) : null;
   }

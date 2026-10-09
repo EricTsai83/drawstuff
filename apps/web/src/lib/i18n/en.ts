@@ -1,7 +1,6 @@
 // 應用層英文字典：所有 app 翻譯 key 的唯一來源，AppTranslationKey 由此推導。
 // 僅由 loadAppDictionary() 以 dynamic import 載入，避免兩種語言同時進共用 client chunk。
 export const en = {
-  "storage.personal": "Personal cloud · not end-to-end encrypted",
   "storage.detachedDraft": "Unsaved · not in “{name}”",
   "storage.savePersonal": "Save to my scenes",
   "storage.room": "Encrypted room · {roomId}",

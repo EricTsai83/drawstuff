@@ -303,7 +303,6 @@ export default function ExcalidrawEditor() {
       onUpdateSource: handleUpdateSource,
       api: excalidrawAPI,
       isAuthenticated: !!session,
-      hasPersonalCloudCopy: !!currentSceneId,
       detachedFromSceneName,
     }),
     [
@@ -316,7 +315,6 @@ export default function ExcalidrawEditor() {
       handleUpdateSource,
       excalidrawAPI,
       session,
-      currentSceneId,
       detachedFromSceneName,
     ],
   );
