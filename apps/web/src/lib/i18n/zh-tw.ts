@@ -19,7 +19,7 @@ export const zhTW = {
   "storage.exitNotice": "房間會保留。",
   "storage.copyNotice":
     "共編房間不受影響；個人雲端副本不採端對端加密，不會自動公開。",
-  "storage.downloadNotice": "下載的本機檔案未加密。",
+  "storage.downloadNotice": "將 .excalidraw 檔存到這台裝置。",
   "storage.personalCopySaved": "已儲存至我的場景；房間保存狀態另行確認。",
   "storage.keepRoom": "繼續編輯此房間",
   "storage.keepRoomNotice": "保留房間內容，稍後再處理原場景的版本衝突。",
@@ -182,12 +182,19 @@ export const zhTW = {
   "collaboration.dialogStatus.rateLimited": "嘗試次數過多，請稍後再試",
   "collaboration.dialogStatus.cancelled": "已取消加入",
   "collaboration.toast.enforcementPending": "權限已更新，可能稍後才會生效。",
+  "collaboration.toast.retryPrevious": "上一個變更尚未確認，請先重試。",
+  "collaboration.management.unconfirmed": "上一個變更尚未確認。",
   "collaboration.toast.listSyncing": "房間可能稍後才會出現在列表中。",
   "collaboration.toast.existingRoom": "這個場景已經有房間，已為你開啟。",
   "collaboration.share.title": "分享房間",
   "collaboration.noAccess.title": "你沒有這個房間的存取權",
   "collaboration.noAccess.description":
-    "請向房主索取邀請，或確認已用受邀的帳號登入。",
+    "請向擁有者索取邀請，或確認已用受邀的帳號登入。",
+  "collaboration.accessRemoved.title": "你對這個房間的存取權已被移除",
+  "collaboration.accessRemoved.description":
+    "如需回到房間，請擁有者重新邀請你。",
+  "collaboration.roomEnded.title": "這個房間已結束或不存在",
+  "collaboration.roomEnded.description": "請確認連結，或詢問分享連結給你的人。",
   "collaboration.manage": "管理房間",
   "collaboration.people": "成員",
   "collaboration.invite.email": "要邀請的 email",
@@ -220,7 +227,7 @@ export const zhTW = {
     "所有人將失去存取權，內容會被刪除，且無法復原。",
   "collaboration.rooms.endConfirm": "結束房間",
   "collaboration.rooms.creationCancelled": "已取消建立房間。",
-  "collaboration.rooms.ended": "房間已結束。",
+  "collaboration.rooms.ended": "你已結束這個房間，內容已刪除。",
   "collaboration.rooms.leave": "離開房間",
   "collaboration.rooms.leaveTitle": "要離開這個房間嗎？",
   "collaboration.rooms.leaveDescription":
@@ -241,8 +248,8 @@ export const zhTW = {
   "collaboration.failure.unauthorized":
     "你已無法存取這個房間，請向擁有者索取新邀請。",
   "collaboration.failure.noAccess":
-    "你沒有這個房間的存取權。請向房主索取邀請，或確認已用受邀的帳號登入。",
-  "collaboration.failure.roomEnded": "這個房間已結束，請向分享者索取新連結。",
+    "你沒有這個房間的存取權。請向擁有者索取邀請，或確認已用受邀的帳號登入。",
+  "collaboration.failure.roomEnded": "這個房間已結束或不存在。",
   "collaboration.failure.protocolViolation":
     "連線因通訊協定錯誤而停止。請重新載入；若持續發生請回報。",
   "collaboration.failure.unsupportedProtocolVersion":
@@ -264,7 +271,7 @@ export const zhTW = {
     "無法儲存目前場景，因此未加入共編。請再試一次。",
   "collaboration.failure.joinFailed": "無法加入，請確認網路連線後再試一次。",
   "import.error.fileTooLarge": "匯入失敗：{name}（{size}）超過上限 {limit}。",
-  "labels.openDashboard": "開啟場景列表",
+  "labels.openDashboard": "開啟儀表板",
 
   // 提示與錯誤
   "toasts.newScene.localOnly": "已建立新場景（僅本機）。登入即可同步到雲端。",
@@ -276,10 +283,9 @@ export const zhTW = {
 
   // 儀表板與搜尋
   "dashboard.tabs.scenes": "我的場景",
-  "dashboard.title": "場景列表",
+  "dashboard.title": "儀表板",
   "dashboard.recentlyModified": "您最近修改的項目",
   "dashboard.yourScenes": "您的場景",
-  "dashboard.descriptionPlaceholder": "沒有專案描述",
   "dashboard.loading": "載入中",
   "dashboard.noRecentlyModifiedScenes": "沒有最近修改的場景",
   "dashboard.reachedEnd": "已到清單底部。",
@@ -305,7 +311,7 @@ export const zhTW = {
   "dashboard.workspace.create": "建立工作空間",
   "dashboard.workspace.manage": "工作空間設定",
   "dashboard.workspace.createDialog.description":
-    "直接從場景列表建立新的工作空間。",
+    "直接從儀表板建立新的工作空間。",
   "dashboard.workspace.namePlaceholder": "輸入工作空間名稱",
   "dashboard.workspace.creating": "建立中",
   "dashboard.workspace.created": "已建立工作空間「{name}」",
@@ -325,7 +331,7 @@ export const zhTW = {
   "workspace.settings.toast.updateFailed": "更新工作空間失敗",
   "workspace.settings.toast.deleted": "已刪除工作空間",
   "workspace.settings.toast.deleteFailed": "刪除工作空間失敗",
-  "workspace.settings.toast.missing": "此工作空間已不存在，正在返回場景列表。",
+  "workspace.settings.toast.missing": "此工作空間已不存在，正在返回儀表板。",
   "workspace.settings.nameLabel": "工作空間名稱",
   "workspace.settings.save": "儲存",
   "workspace.settings.saving": "儲存中",
@@ -480,7 +486,7 @@ export const zhTW = {
   "navigation.backToCanvas": "返回畫布",
   "notFound.title": "這個繪圖空間不存在。",
   "notFound.description":
-    "頁面可能已移動、刪除，或連結有誤。請返回畫布或開啟場景列表。",
+    "頁面可能已移動、刪除，或連結有誤。請返回畫布或開啟儀表板。",
   "toast.scene.remoteLoaded": "已載入最新遠端場景。",
   "toast.scene.remoteLoadFailed": "載入遠端場景失敗，請再試一次。",
   "toast.scene.localCopySaved": "已將本機變更另存為新場景。",

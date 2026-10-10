@@ -7,7 +7,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { LockKeyhole } from "lucide-react";
+import { Eye } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { CopyButton } from "@/components/copy-button";
@@ -52,7 +52,8 @@ export function SceneShareDialog({
           <CopyButton textToCopy={sceneUrl} />
         </div>
         <p className="text-muted-foreground mt-2 flex items-center gap-1.5 text-xs">
-          <LockKeyhole className="size-3.5 shrink-0" aria-hidden="true" />
+          {/* Same icon the room dialog uses for "anyone with the link can view". */}
+          <Eye className="size-3.5 shrink-0" aria-hidden="true" />
           {t("share.scene.linkAccess")}
         </p>
       </DialogContent>

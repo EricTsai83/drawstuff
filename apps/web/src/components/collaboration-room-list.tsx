@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Ellipsis, ListX, LogOut, Trash2 } from "lucide-react";
+import { Copy, Ellipsis, ListX, LogOut, Trash2, Users } from "lucide-react";
 import { toast } from "sonner";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { Spinner } from "@/components/ui/spinner";
@@ -257,9 +257,10 @@ export function CollaborationRoomList() {
       >
         <span
           aria-hidden="true"
-          className="bg-primary/15 text-primary grid size-9 shrink-0 place-items-center rounded-lg font-mono text-xs font-semibold uppercase"
+          className="bg-primary/15 text-primary grid size-9 shrink-0 place-items-center rounded-lg"
         >
-          {room.roomId.slice(0, 2)}
+          {/* The id's first characters already lead the name beside it. */}
+          <Users className="size-4" />
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate font-mono text-sm" title={room.roomId}>

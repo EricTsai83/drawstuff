@@ -16,6 +16,7 @@ const {
   roomGetUseQuery,
   toastError,
   toastInfo,
+  toastSuccess,
 } = vi.hoisted(() => ({
   // Room confirms every management intent at once.
   executeMutate: vi.fn((input: { operationId: string }) =>
@@ -39,6 +40,7 @@ const {
   roomGetUseQuery: vi.fn<(...args: unknown[]) => unknown>(),
   toastError: vi.fn(),
   toastInfo: vi.fn(),
+  toastSuccess: vi.fn(),
 }));
 
 vi.mock("@/lib/collab/room-initialization", () => ({
@@ -55,13 +57,28 @@ vi.mock("sonner", () => ({
   toast: {
     error: toastError,
     info: toastInfo,
-    success: vi.fn(),
+    success: toastSuccess,
     warning: vi.fn(),
   },
 }));
 
 vi.mock("@/components/ui/dialog", () => ({
-  Dialog: ({ children }: { children: ReactNode }) => children,
+  // The close control stands in for the X and Escape, which both report
+  // onOpenChange(false).
+  Dialog: ({
+    children,
+    onOpenChange,
+  }: {
+    children: ReactNode;
+    onOpenChange?: (open: boolean) => void;
+  }) => (
+    <>
+      {children}
+      <button type="button" onClick={() => onOpenChange?.(false)}>
+        Close dialog
+      </button>
+    </>
+  ),
   DialogContent: ({ children }: { children: ReactNode }) => (
     <div>{children}</div>
   ),
@@ -229,6 +246,7 @@ beforeEach(() => {
   roomGetUseQuery.mockReset();
   toastError.mockClear();
   toastInfo.mockClear();
+  toastSuccess.mockClear();
 });
 
 afterEach(() => {
@@ -645,22 +663,20 @@ describe("share room dialog", () => {
 
   it("clears the invite field when a retried invitation is confirmed, not before", async () => {
     roomGetUseQuery.mockReturnValue(managed());
-    executeMutate.mockImplementationOnce((input) =>
-      Promise.resolve({
-        operationId: input.operationId,
-        status: "pending",
-        authRevision: 1,
-        authorityEpoch: 1,
-        projectionPending: false,
-      }),
+    // The reply is lost: the outcome is unknown, so the intent is retained.
+    executeMutate.mockImplementationOnce(() =>
+      Promise.reject(new Error("network")),
     );
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
     const input = await submitInvite("gil@example.com");
     await vi.waitFor(() =>
       expect(buttonWith(container!, "Retry")).toBeDefined(),
     );
-    // Pending is not confirmation.
+    // An unknown outcome is not confirmation, and it is explained.
     expect(input.value).toBe("gil@example.com");
+    expect(container!.textContent).toContain(
+      "Your last change wasn't confirmed.",
+    );
     await act(async () => button("Retry").click());
     await vi.waitFor(() => expect(input.value).toBe(""));
     expect(executeMutate.mock.calls[1]?.[0]).toMatchObject({ action: "query" });
@@ -668,14 +684,9 @@ describe("share room dialog", () => {
 
   it("keeps the pending invitation's address when another invite is refused", async () => {
     roomGetUseQuery.mockReturnValue(managed());
-    executeMutate.mockImplementationOnce((input) =>
-      Promise.resolve({
-        operationId: input.operationId,
-        status: "pending",
-        authRevision: 1,
-        authorityEpoch: 1,
-        projectionPending: false,
-      }),
+    // The reply is lost: the outcome is unknown, so the intent is retained.
+    executeMutate.mockImplementationOnce(() =>
+      Promise.reject(new Error("network")),
     );
     renderDialog({ isAuthenticated: true, roomId: "room-a" });
     await submitInvite("ann@example.com");
@@ -687,6 +698,137 @@ describe("share room dialog", () => {
     const input = await typeInvite("ann@example.com");
     await act(async () => button("Retry").click());
     await vi.waitFor(() => expect(input.value).toBe(""));
+  });
+
+  const pendingReceipt = (input: { operationId: string }) =>
+    Promise.resolve({
+      operationId: input.operationId,
+      status: "pending",
+      authRevision: 1,
+      authorityEpoch: 1,
+      projectionPending: false,
+    });
+
+  it("treats a pending removal as done once Room enforces it, with no retry", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    // Room stores the removal and cuts the person off from its alarm.
+    executeMutate.mockImplementationOnce(pendingReceipt);
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await menuItem("Actions for bob@example.com", "Remove invitation");
+    await vi.waitFor(() => expect(roomGetInvalidate).toHaveBeenCalled());
+    expect(executeMutate.mock.calls[1]?.[0]).toMatchObject({ action: "query" });
+    expect(buttonWith(container!, "Retry")).toBeUndefined();
+    expect(toastInfo).not.toHaveBeenCalled();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("accepts a removal Room is still enforcing and refreshes the panel", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      roomGetUseQuery.mockReturnValue(managed());
+      executeMutate.mockImplementation(pendingReceipt);
+      renderDialog({ isAuthenticated: true, roomId: "room-a" });
+      await menuItem("Actions for bob@example.com", "Remove invitation");
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(6_000);
+      });
+      await vi.waitFor(() => expect(roomGetInvalidate).toHaveBeenCalled());
+      expect(buttonWith(container!, "Retry")).toBeUndefined();
+      expect(toastInfo).toHaveBeenCalledWith(
+        "Permissions updated. They may take a moment to apply.",
+      );
+    } finally {
+      executeMutate.mockImplementation((input: { operationId: string }) =>
+        Promise.resolve({
+          operationId: input.operationId,
+          status: "enforced",
+          authRevision: 1,
+          authorityEpoch: 1,
+          projectionPending: false,
+        }),
+      );
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps an accepted removal accepted when the follow-up check fails", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    executeMutate
+      .mockImplementationOnce(pendingReceipt)
+      .mockImplementationOnce(() => Promise.reject(new Error("network")));
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await menuItem("Actions for bob@example.com", "Remove invitation");
+    await vi.waitFor(() => expect(roomGetInvalidate).toHaveBeenCalled());
+    expect(buttonWith(container!, "Retry")).toBeUndefined();
+    expect(toastError).not.toHaveBeenCalled();
+  });
+
+  it("shows a terminal room after an earlier exit from another room", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    const onRoomIdChange = vi.fn();
+    // The cleared room id commits while the exit is still refreshing, as the
+    // URL state does in the editor.
+    let releaseRefresh: (() => void) | undefined;
+    roomGetInvalidate.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          releaseRefresh = resolve;
+        }),
+    );
+    renderDialog({ isAuthenticated: true, roomId: "room-a", onRoomIdChange });
+    await act(async () => button("End room").click());
+    await confirm("End room");
+    await vi.waitFor(() => expect(onRoomIdChange).toHaveBeenCalledWith(null));
+    renderDialog({ isAuthenticated: true, roomId: null });
+    await act(async () => releaseRefresh?.());
+    roomGetUseQuery.mockReturnValue(null);
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-b",
+      status: "failed",
+      failureReason: "room-ended",
+    });
+    expect(container!.textContent).toContain(
+      "This room has ended or doesn't exist",
+    );
+  });
+
+  it("shows the general access being applied until Room answers", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    let release: (() => void) | undefined;
+    executeMutate.mockImplementationOnce(
+      (input) =>
+        new Promise((resolve) => {
+          release = () =>
+            resolve({
+              operationId: input.operationId,
+              status: "enforced",
+              authRevision: 1,
+              authorityEpoch: 1,
+              projectionPending: false,
+            });
+        }),
+    );
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await choose("Who can join with the link", "viewer");
+    const select = container!.querySelector<HTMLSelectElement>(
+      'select[aria-label="Who can join with the link"]',
+    )!;
+    expect(select.value).toBe("viewer");
+    await act(async () => release?.());
+    await vi.waitFor(() => expect(roomGetInvalidate).toHaveBeenCalled());
+  });
+
+  it("says the room was ended and deleted after the owner ends it", async () => {
+    roomGetUseQuery.mockReturnValue(managed());
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    await act(async () => button("End room").click());
+    await confirm("End room");
+    await vi.waitFor(() =>
+      expect(toastSuccess).toHaveBeenCalledWith(
+        "You ended this room. Its content was deleted.",
+      ),
+    );
   });
 
   it("shows role and link-access labels, not their raw values", () => {
@@ -818,18 +960,74 @@ describe("no-access screen", () => {
     expect(onOpenChange).not.toHaveBeenCalled();
   });
 
+  it("says a missing or ended room is gone and offers only the way back", async () => {
+    roomGetUseQuery.mockReturnValue(null);
+    const onRoomIdChange = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "failed",
+      failureReason: "room-ended",
+      errorMessage: "This room has ended or doesn't exist.",
+      onRoomIdChange,
+    });
+    const text = container!.textContent ?? "";
+    expect(text).toContain("This room has ended or doesn't exist");
+    expect(text).toContain("Check the link, or ask the person who shared it.");
+    expect(text).not.toContain("Ask the sharer");
+    expect(container!.querySelector("#collab-room-link")).toBeNull();
+    expect(buttonWith(container!, "End room")).toBeUndefined();
+    expect(buttonWith(container!, "Retry")).toBeUndefined();
+    await act(async () => button("Back to my canvas").click());
+    expect(onRoomIdChange).toHaveBeenCalledWith(null);
+  });
+
+  it("says access was removed when the session had been in the room", () => {
+    roomGetUseQuery.mockReturnValue(null);
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "connected",
+    });
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "failed",
+      failureReason: "no-access",
+      errorMessage: "You don't have access to this room.",
+    });
+    const text = container!.textContent ?? "";
+    expect(text).toContain("Your access to this room was removed");
+    expect(text).toContain("ask the owner to invite you again");
+  });
+
+  it("leaves the room when a terminal dialog is closed", async () => {
+    roomGetUseQuery.mockReturnValue(null);
+    const onOpenChange = vi.fn();
+    const onRoomIdChange = vi.fn();
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      status: "failed",
+      failureReason: "no-access",
+      onOpenChange,
+      onRoomIdChange,
+    });
+    await act(async () => button("Close dialog").click());
+    expect(onRoomIdChange).toHaveBeenCalledWith(null);
+    expect(onOpenChange).toHaveBeenCalledWith(false);
+  });
+
   it("keeps the share view for other failures", () => {
     roomGetUseQuery.mockReturnValue(null);
     renderDialog({
       isAuthenticated: true,
       roomId: "room-a",
       status: "failed",
-      failureReason: "room-ended",
-      errorMessage: "This room has ended.",
+      failureReason: "protocol-violation",
+      errorMessage: "The connection stopped because of a protocol error.",
     });
-    expect(container!.textContent).toContain("This room has ended.");
-    expect(container!.textContent).not.toContain(
-      "You don't have access to this room",
-    );
+    expect(container!.textContent).toContain("protocol error");
+    expect(container!.querySelector("#collab-room-link")).not.toBeNull();
   });
 });

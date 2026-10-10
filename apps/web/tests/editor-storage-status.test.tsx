@@ -35,6 +35,7 @@ const renderStatus = (
         api={null}
         isAuthenticated
         detachedFromSceneName={null}
+        showSaveStatus
         {...props}
       />,
     ),
@@ -68,6 +69,37 @@ describe("editor storage status (18C §5)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("says nothing about saving before anything has changed", () => {
+    const container = renderStatus({
+      roomId: "room-alpha-1",
+      state: { status: "idle", revision: null, checksum: null },
+    });
+    expect(container.textContent).not.toContain("not saved");
+    expect(container.querySelector('[role="status"]')?.textContent).toBe("");
+  });
+
+  it("names unsaved changes once there are some", () => {
+    const container = renderStatus({
+      roomId: "room-alpha-1",
+      state: { status: "pending", revision: null, checksum: null },
+    });
+    expect(container.textContent).toContain("Changes not saved yet");
+  });
+
+  it("never shows a viewer a save status", () => {
+    const container = renderStatus({
+      roomId: "room-alpha-1",
+      state: { status: "pending", revision: null, checksum: null },
+      showSaveStatus: false,
+      compact: true,
+    });
+    const badge = container.querySelector("button");
+    expect(badge?.getAttribute("aria-label")).toBe("Room · room-alp");
+    expect(
+      badge?.querySelector("[data-status]")?.getAttribute("data-status"),
+    ).toBe("settled");
   });
 
   it("offers a way back to the personal canvas from the room panel", () => {

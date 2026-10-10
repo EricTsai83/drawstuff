@@ -42,6 +42,7 @@ import {
 } from "@/config/embed-allowlist";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useSaveShortcut } from "@/hooks/excalidraw/use-save-shortcut";
+import { isTerminalCollaborationFailure } from "@/lib/collab/room-state-reducer";
 import { EditorStorageStatus } from "./editor-storage-status";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
@@ -159,6 +160,7 @@ export default function ExcalidrawEditor() {
     setCollaborationRoomId,
     collaborationStatus,
     collaborationFailureReason,
+    collaborationRole,
     isCollaborationReadOnly,
     isCollaborating,
     collaborationErrorMessage,
@@ -177,18 +179,15 @@ export default function ExcalidrawEditor() {
     cancelPendingSceneSave,
   });
 
-  // Room refused this account: the dialog says so and offers the way back.
-  useEffect(() => {
-    if (
-      collaborationStatus === "failed" &&
-      collaborationFailureReason === "no-access"
-    )
-      openCollaborationDialog();
-  }, [
+  // Room refused this account, or the room is gone: nothing in it applies any
+  // more, so the dialog says why and offers only the way back.
+  const isRoomTerminal = isTerminalCollaborationFailure(
     collaborationStatus,
     collaborationFailureReason,
-    openCollaborationDialog,
-  ]);
+  );
+  useEffect(() => {
+    if (isRoomTerminal) openCollaborationDialog();
+  }, [isRoomTerminal, openCollaborationDialog]);
   useSignedOutRoomPrompt({
     authState,
     roomId: collaborationRoomId,
@@ -245,31 +244,35 @@ export default function ExcalidrawEditor() {
         isReadOnly: isCollaborationReadOnly || isRoomInitializing,
         onActivate: openCollaborationDialog,
       },
-      cloudSave: session
-        ? {
-            statusLabel: isRoomMode
-              ? t(`storage.room.${roomSaveState.status}`)
-              : undefined,
-            destination: t(
-              isRoomMode ? "storage.saveRoom" : "storage.savePersonal",
-            ),
-            status: isRoomMode
-              ? roomSaveState.status === "saving"
-                ? "uploading"
-                : roomSaveState.status === "saved"
-                  ? "success"
-                  : roomSaveState.status === "failed"
-                    ? "error"
-                    : "idle"
-              : uploadStatus,
-            // The room badge owns room save status; a second pill would
-            // repeat it and, unlike a personal save, never reset.
-            showStatusBadge: !isRoomMode,
-            onActivate: isRoomMode
-              ? requestRoomSave
-              : () => void handleCloudUpload(),
-          }
-        : null,
+      // A viewer has nothing of theirs to save in a room; a copy to their own
+      // scenes stays in the room badge's panel.
+      cloudSave:
+        session && !(isRoomMode && collaborationRole === "viewer")
+          ? {
+              statusLabel:
+                isRoomMode && roomSaveState.status !== "idle"
+                  ? t(`storage.room.${roomSaveState.status}`)
+                  : undefined,
+              destination: t(
+                isRoomMode ? "storage.saveRoom" : "storage.savePersonal",
+              ),
+              status: isRoomMode
+                ? roomSaveState.status === "saving"
+                  ? "uploading"
+                  : roomSaveState.status === "saved"
+                    ? "success"
+                    : roomSaveState.status === "failed"
+                      ? "error"
+                      : "idle"
+                : uploadStatus,
+              // The room badge owns room save status; a second pill would
+              // repeat it and, unlike a personal save, never reset.
+              showStatusBadge: !isRoomMode,
+              onActivate: isRoomMode
+                ? requestRoomSave
+                : () => void handleCloudUpload(),
+            }
+          : null,
       share: isRoomMode
         ? null
         : {
@@ -279,6 +282,7 @@ export default function ExcalidrawEditor() {
     }),
     [
       collaborationStatus,
+      collaborationRole,
       isRoomMode,
       roomSaveState.status,
       requestRoomSave,
@@ -308,8 +312,10 @@ export default function ExcalidrawEditor() {
 
   const storageStatusProps = useMemo(
     () => ({
-      roomId: isRoomMode ? collaborationRoomId : null,
+      // A terminal room has nothing to save or copy from; the dialog explains.
+      roomId: isRoomMode && !isRoomTerminal ? collaborationRoomId : null,
       state: roomSaveState,
+      showSaveStatus: collaborationRole !== "viewer",
       sourceSceneId,
       onCopy: openCloudUploadDialog,
       onUpdateSource: handleUpdateSource,
@@ -323,8 +329,10 @@ export default function ExcalidrawEditor() {
     }),
     [
       isRoomMode,
+      isRoomTerminal,
       collaborationRoomId,
       roomSaveState,
+      collaborationRole,
       sourceSceneId,
       openCloudUploadDialog,
       handleUpdateSource,

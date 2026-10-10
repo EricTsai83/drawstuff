@@ -19,6 +19,7 @@ import {
   readAuthorityState,
   authorityEnvelope,
   createAuthorityOperation,
+  settleAuthorityOperation,
 } from "@/lib/collab/authority-client";
 import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 
@@ -68,6 +69,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isTerminalCollaborationFailure } from "@/lib/collab/room-state-reducer";
 import {
   Select,
   SelectContent,
@@ -135,6 +137,8 @@ const LINK_ROLE_ICON: Record<LinkRole, LucideIcon> = {
   editor: Pencil,
 };
 const INVITE_ROLES = ["viewer", "editor"] as const;
+/** How long a management change may wait for Room to cut off affected sessions. */
+const MANAGEMENT_SETTLE_MS = 5_000;
 
 type ConfirmAction = "end-room" | "leave";
 /** What each irreversible footer action does, said before it happens. */
@@ -216,9 +220,39 @@ export function CollaborationRoomDialog({
 
     toast.error(t("collaboration.error.operationFailed"));
   };
-  // Room refused this account: nothing in the room applies, only the way back.
-  const noAccess =
-    !!roomId && status === "failed" && failureReason === "no-access";
+  /** This session reached the room at least once; a later refusal is a removal. */
+  const [hadAccess, setHadAccess] = useState(false);
+  useEffect(() => setHadAccess(false), [roomId]);
+  useEffect(() => {
+    if (status === "connected") setHadAccess(true);
+  }, [status]);
+  /** The owner's own End room / Leave is in flight; its exit is the answer. */
+  const [exitPending, setExitPending] = useState(false);
+  // Room refused this account, or the room is gone: nothing in the room
+  // applies, only the way back. The owner ending it from here is not shown
+  // this — their own exit closes the dialog instead.
+  const terminal =
+    !!roomId &&
+    !exitPending &&
+    isTerminalCollaborationFailure(status, failureReason);
+  const terminalCopy: {
+    title: AppTranslationKey;
+    description: AppTranslationKey;
+  } =
+    failureReason === "room-ended"
+      ? {
+          title: "collaboration.roomEnded.title",
+          description: "collaboration.roomEnded.description",
+        }
+      : hadAccess
+        ? {
+            title: "collaboration.accessRemoved.title",
+            description: "collaboration.accessRemoved.description",
+          }
+        : {
+            title: "collaboration.noAccess.title",
+            description: "collaboration.noAccess.description",
+          };
   const [emailCursor, setEmailCursor] = useState<string | undefined>();
   const [memberCursor, setMemberCursor] = useState<string | undefined>();
   useEffect(() => {
@@ -231,7 +265,7 @@ export function CollaborationRoomDialog({
     // access control and People appear with the dialog instead of growing it.
     {
       enabled:
-        !isAuthenticationPending && isAuthenticated && !!roomId && !noAccess,
+        !isAuthenticationPending && isAuthenticated && !!roomId && !terminal,
     },
   );
   const room = roomQuery.data ?? null;
@@ -422,6 +456,11 @@ export function CollaborationRoomDialog({
   };
   const managementEpoch = useRef(0);
   const [managementPending, setManagementPending] = useState(false);
+  /** The general access being applied, shown until Room's answer arrives. */
+  const [requestedLinkRole, setRequestedLinkRole] = useState<LinkRole | null>(
+    null,
+  );
+  /** A retained intent whose outcome is unknown; shown with its retry. */
   const [hasManagementIntent, setHasManagementIntent] = useState(false);
   const managementIntent = useRef<{
     key: string;
@@ -434,6 +473,10 @@ export function CollaborationRoomDialog({
     managementIntent.current = null;
     setHasManagementIntent(false);
     setManagementPending(false);
+    // A finished exit changes the room, so its own cleanup is skipped by the
+    // epoch check; clear exit-scoped state here or it outlives the room.
+    setExitPending(false);
+    setRequestedLinkRole(null);
   }, [roomId, isAuthenticated, authIdentity]);
   type Mutation = Exclude<
     AuthorityRequest,
@@ -447,7 +490,8 @@ export function CollaborationRoomDialog({
       deadline: undefined,
     });
     if (managementIntent.current && managementIntent.current.key !== key) {
-      toast.warning(t("collaboration.toast.enforcementPending"));
+      toast.warning(t("collaboration.toast.retryPrevious"));
+      setRequestedLinkRole(null);
       return;
     }
     managementIntent.current ??= {
@@ -462,11 +506,35 @@ export function CollaborationRoomDialog({
         request,
       ),
     };
-    setHasManagementIntent(true);
     const epoch = managementEpoch.current;
     setManagementPending(true);
+    setExitPending(managementIntent.current.exit);
     try {
-      await managementIntent.current.run();
+      // Removing someone or narrowing access returns "pending": Room has
+      // stored the change and cuts off affected sessions from its alarm a
+      // moment later. Wait briefly for that; if it is still running, the
+      // change is accepted all the same and the panel must show it.
+      let enforcementPending = false;
+      // Once Room has answered "pending" the change is known to be accepted;
+      // a later failed re-check does not make its outcome unknown again.
+      let accepted = false;
+      const run = managementIntent.current.run;
+      try {
+        await settleAuthorityOperation(async () => {
+          try {
+            return await run();
+          } catch (error) {
+            if (error instanceof AuthorityRoomError && error.code === "pending")
+              accepted = true;
+            throw error;
+          }
+        }, MANAGEMENT_SETTLE_MS);
+      } catch (error) {
+        const pending =
+          error instanceof AuthorityRoomError && error.code === "pending";
+        if (!pending && !accepted) throw error;
+        enforcementPending = true;
+      }
       if (epoch !== managementEpoch.current) return;
       const confirmed = managementIntent.current.request;
       managementIntent.current = null;
@@ -485,8 +553,14 @@ export function CollaborationRoomDialog({
       if (exit) {
         onRoomIdChange(null);
         onOpenChange(false);
+        if (confirmed.action === "end-room")
+          toast.success(t("collaboration.rooms.ended"));
+        else if (confirmed.action === "leave")
+          toast.success(t("collaboration.rooms.left"));
       }
       await invalidateRoom({ refetchPanel: !exit });
+      if (enforcementPending)
+        toast.info(t("collaboration.toast.enforcementPending"));
     } catch (error) {
       if (epoch !== managementEpoch.current) return;
       if (
@@ -495,12 +569,16 @@ export function CollaborationRoomDialog({
       ) {
         managementIntent.current = null;
         setHasManagementIntent(false);
+      } else {
+        setHasManagementIntent(true);
       }
-      if (error instanceof AuthorityRoomError && error.code === "pending")
-        toast.warning(t("collaboration.toast.enforcementPending"));
-      else reportRoomError(error);
+      reportRoomError(error);
     } finally {
-      if (epoch === managementEpoch.current) setManagementPending(false);
+      if (epoch === managementEpoch.current) {
+        setManagementPending(false);
+        setExitPending(false);
+        setRequestedLinkRole(null);
+      }
     }
   };
   const command = (roomId: string) =>
@@ -562,11 +640,11 @@ export function CollaborationRoomDialog({
     return buildRoomInviteUrl({ currentUrl: window.location.href, roomId });
   }, [roomId]);
 
-  const showsError = !!errorMessage && !noAccess;
+  const showsError = !!errorMessage && !terminal;
   // Connected is the expected state and says nothing; only a session that is
   // not live yet (or any more) is named, under the title. The role is in People.
   const statusNote =
-    status === "connected" || showsError || noAccess
+    status === "connected" || showsError || terminal
       ? null
       : t(STATUS_LABEL_KEY[status]);
 
@@ -574,16 +652,32 @@ export function CollaborationRoomDialog({
     ? t("collaboration.authChecking")
     : !isAuthenticated
       ? authRequiredMessage
-      : noAccess
-        ? t("collaboration.noAccess.description")
+      : terminal
+        ? t(terminalCopy.description)
         : hasInitialization
           ? t("collaboration.toast.initializationPending")
           : roomId
             ? t("collaboration.shareDescription")
             : t("collaboration.createDescription");
 
+  const leaveTerminalRoom = () => {
+    // Edits made while disconnected may still be unsaved; the same guard as
+    // every other way out of a room.
+    if (confirmRoomExit?.() === false) return;
+    onRoomIdChange(null);
+    onOpenChange(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        // Closing a terminal room would leave an unusable canvas behind it;
+        // closing is the way back.
+        if (!nextOpen && terminal) leaveTerminalRoom();
+        else onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent
         initialFocus={false}
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
@@ -592,8 +686,8 @@ export function CollaborationRoomDialog({
           <DialogTitle className="pr-8">
             {t(
               isAuthenticated && roomId
-                ? noAccess
-                  ? "collaboration.noAccess.title"
+                ? terminal
+                  ? terminalCopy.title
                   : "collaboration.share.title"
                 : "collaboration.title",
             )}
@@ -616,7 +710,7 @@ export function CollaborationRoomDialog({
             className={cn(
               roomId &&
                 !hasInitialization &&
-                !noAccess &&
+                !terminal &&
                 isAuthenticated &&
                 "sr-only",
             )}
@@ -682,38 +776,39 @@ export function CollaborationRoomDialog({
           </div>
         )}
 
-        {/* Room refused this account (plan 21 §6): only the way back. */}
-        {!isAuthenticationPending && isAuthenticated && noAccess && (
-          <Button
-            className="self-start"
-            onClick={() => {
-              // Edits made while disconnected may still be unsaved; the same
-              // guard as every other way out of a room.
-              if (confirmRoomExit?.() === false) return;
-              onRoomIdChange(null);
-              onOpenChange(false);
-            }}
-          >
+        {/* No access or no room (plan 21 §6): only the way back. */}
+        {!isAuthenticationPending && isAuthenticated && terminal && (
+          <Button className="self-start" onClick={leaveTerminalRoom}>
             {t("storage.exit")}
           </Button>
         )}
 
-        {!isAuthenticationPending && isAuthenticated && roomId && !noAccess && (
+        {!isAuthenticationPending && isAuthenticated && roomId && !terminal && (
           <div className="flex flex-col gap-4">
             {showsError && (
               <p className="text-destructive text-sm">{errorMessage}</p>
             )}
 
             {hasManagementIntent && (
-              <Button
-                disabled={managementPending}
-                onClick={() => {
-                  const pending = managementIntent.current;
-                  if (pending) void manage(pending.request, pending.exit);
-                }}
+              // Only an unknown outcome (network, timeout) is retained; say so
+              // beside the action that re-checks the same operation.
+              <div
+                role="alert"
+                className="bg-muted flex items-center justify-between gap-3 rounded-md px-3 py-2 text-sm"
               >
-                {t("buttons.retry")}
-              </Button>
+                <span>{t("collaboration.management.unconfirmed")}</span>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  disabled={managementPending}
+                  onClick={() => {
+                    const pending = managementIntent.current;
+                    if (pending) void manage(pending.request, pending.exit);
+                  }}
+                >
+                  {t("buttons.retry")}
+                </Button>
+              </div>
             )}
 
             <div className="flex flex-col gap-2">
@@ -727,15 +822,21 @@ export function CollaborationRoomDialog({
               {/* Who the link admits, set right where the link is. */}
               {isOwner && room && (
                 <LinkAccessSelect
-                  value={room.linkRole}
+                  value={
+                    managementPending
+                      ? (requestedLinkRole ?? room.linkRole)
+                      : room.linkRole
+                  }
                   disabled={managementPending}
-                  onChange={(linkRole) =>
+                  onChange={(linkRole) => {
+                    if (managementPending) return;
+                    setRequestedLinkRole(linkRole);
                     void manage({
                       ...command(roomId),
                       action: "set-link-role",
                       linkRole,
-                    })
-                  }
+                    });
+                  }}
                 />
               )}
             </div>

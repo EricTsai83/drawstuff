@@ -19,7 +19,7 @@ export const en = {
   "storage.exitNotice": "The room stays open.",
   "storage.copyNotice":
     "The room is unchanged. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
-  "storage.downloadNotice": "The downloaded file is not encrypted.",
+  "storage.downloadNotice": "Saves a .excalidraw file to this device.",
   "storage.personalCopySaved":
     "Saved to my scenes. The room save status is unchanged.",
   "storage.keepRoom": "Keep editing this room",
@@ -193,6 +193,9 @@ export const en = {
   "collaboration.dialogStatus.cancelled": "Join cancelled",
   "collaboration.toast.enforcementPending":
     "Permissions updated. They may take a moment to apply.",
+  "collaboration.toast.retryPrevious":
+    "Your last change isn't confirmed yet. Retry it first.",
+  "collaboration.management.unconfirmed": "Your last change wasn't confirmed.",
   "collaboration.toast.listSyncing":
     "The room may take a moment to appear in your list.",
   "collaboration.toast.existingRoom":
@@ -201,6 +204,12 @@ export const en = {
   "collaboration.noAccess.title": "You don't have access to this room",
   "collaboration.noAccess.description":
     "Ask the owner for an invitation, or make sure you're signed in with the invited account.",
+  "collaboration.accessRemoved.title": "Your access to this room was removed",
+  "collaboration.accessRemoved.description":
+    "To come back, ask the owner to invite you again.",
+  "collaboration.roomEnded.title": "This room has ended or doesn't exist",
+  "collaboration.roomEnded.description":
+    "Check the link, or ask the person who shared it.",
   "collaboration.manage": "Manage room",
   "collaboration.people": "People",
   "collaboration.invite.email": "Email to invite",
@@ -234,7 +243,7 @@ export const en = {
     "Everyone loses access and the content is deleted. This can't be undone.",
   "collaboration.rooms.endConfirm": "End room",
   "collaboration.rooms.creationCancelled": "Room creation cancelled.",
-  "collaboration.rooms.ended": "Room ended.",
+  "collaboration.rooms.ended": "You ended this room. Its content was deleted.",
   "collaboration.rooms.leave": "Leave room",
   "collaboration.rooms.leaveTitle": "Leave this room?",
   "collaboration.rooms.leaveDescription":
@@ -257,8 +266,7 @@ export const en = {
     "You no longer have access to this room. Ask the owner for a new invitation.",
   "collaboration.failure.noAccess":
     "You don't have access to this room. Ask the owner for an invitation, or make sure you're signed in with the invited account.",
-  "collaboration.failure.roomEnded":
-    "This room has ended. Ask the sharer for a new link.",
+  "collaboration.failure.roomEnded": "This room has ended or doesn't exist.",
   "collaboration.failure.protocolViolation":
     "The connection stopped because of a protocol error. Reload and report it if the problem continues.",
   "collaboration.failure.unsupportedProtocolVersion":
@@ -301,7 +309,6 @@ export const en = {
   "dashboard.title": "Dashboard",
   "dashboard.recentlyModified": "Recently modified by you",
   "dashboard.yourScenes": "Your scenes",
-  "dashboard.descriptionPlaceholder": "No description.",
   "dashboard.loading": "Loading",
   "dashboard.noRecentlyModifiedScenes": "No recently modified scenes",
   "dashboard.reachedEnd": "You have reached the end.",

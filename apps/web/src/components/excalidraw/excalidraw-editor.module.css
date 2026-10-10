@@ -4,3 +4,19 @@
 :global(.excalidraw-modal-container.excalidraw .HelpDialog__header) {
   display: none;
 }
+
+/* Upstream sizes the top row 1fr 2fr 1fr, and an fr track never shrinks below
+   its content: the right side (room badge, collaborator avatars) widens its
+   track, pushes the tools off-centre, and near the desktop breakpoint widens
+   the row past the viewport. Equal side tracks keep the tools centred while
+   there is room; the right track never drops below its content, so when space
+   runs out the tools give way instead of being covered. */
+:global(.excalidraw.excalidraw .App-menu_top) {
+  grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr);
+}
+
+/* In view mode upstream omits the tools, leaving two children; pin the right
+   controls to the last track so they stay at the edge instead of the centre. */
+:global(.excalidraw.excalidraw .App-menu_top > .layer-ui__wrapper__top-right) {
+  grid-column: 3;
+}

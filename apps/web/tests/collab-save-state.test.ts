@@ -49,6 +49,20 @@ describe("durable room save coverage", () => {
     state.confirm(3, current);
     state.confirm(2, saved);
     expect(state.state()).toMatchObject({ status: "saved", revision: 3 });
+    // A reconnect does not make unsaved edits saved.
+    state.reset();
+    expect(state.state().status).toBe("pending");
+  });
+
+  it("starts with nothing unsaved and is pending only after a change", () => {
+    const state = createRoomSaveState({ currentElements: () => [] });
+    expect(state.state().status).toBe("idle");
+    // A reconnect before any change leaves nothing unsaved.
+    state.reset();
+    expect(state.state().status).toBe("idle");
+    state.changed();
+    expect(state.state().status).toBe("pending");
+    // Edits made before a reconnect are still unsaved after it.
     state.reset();
     expect(state.state().status).toBe("pending");
   });

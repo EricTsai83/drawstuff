@@ -113,10 +113,7 @@ export function SceneCardMenu({
         </DropdownMenuItem>
         {showMoveSubmenu && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger
-              onClick={(e) => e.stopPropagation()}
-              className="gap-0"
-            >
+            <DropdownMenuSubTrigger onClick={(e) => e.stopPropagation()}>
               <ArrowRightLeft aria-hidden="true" />
               {t("menu.moveToWorkspace")}
             </DropdownMenuSubTrigger>
@@ -137,10 +134,7 @@ export function SceneCardMenu({
         )}
         {showCategorySubmenu && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger
-              onClick={(e) => e.stopPropagation()}
-              className="gap-0"
-            >
+            <DropdownMenuSubTrigger onClick={(e) => e.stopPropagation()}>
               <Tag aria-hidden="true" />
               {t("menu.categories")}
             </DropdownMenuSubTrigger>
