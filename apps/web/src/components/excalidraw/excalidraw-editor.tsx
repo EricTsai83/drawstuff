@@ -262,6 +262,7 @@ export default function ExcalidrawEditor() {
   const roomJustSaved = useTransientKey(
     savedFlashKey(collaborationRoomId, roomSaveState),
     SAVED_VISIBLE_MS,
+    collaborationRoomId,
   );
   const productActions = useMemo<CanvasProductActions>(
     () => ({
@@ -275,8 +276,11 @@ export default function ExcalidrawEditor() {
       cloudSave:
         session && !(isRoomMode && collaborationRole === "viewer")
           ? {
+              // Same rule as the room badge: "Saved" only right after a save.
               statusLabel:
-                isRoomMode && roomSaveState.status !== "idle"
+                isRoomMode &&
+                roomSaveState.status !== "idle" &&
+                (roomSaveState.status !== "saved" || roomJustSaved)
                   ? t(`storage.room.${roomSaveState.status}`)
                   : undefined,
               destination: t(
@@ -466,7 +470,7 @@ export default function ExcalidrawEditor() {
                       : 2
                 }
               >
-                <EditorStorageStatus {...storageStatusProps} compact />
+                <EditorStorageStatus {...storageStatusProps} compact edge />
               </MobileRoomBadge>
             )}
 

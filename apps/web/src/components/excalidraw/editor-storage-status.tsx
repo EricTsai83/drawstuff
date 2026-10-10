@@ -50,8 +50,17 @@ export function EditorStorageStatus(props: {
   /** False for a viewer: nothing they see is theirs to save. */
   showSaveStatus: boolean;
   compact?: boolean;
+  /** Mobile: an edge-attached square matching upstream's tools column. */
+  edge?: boolean;
 }) {
   const { t } = useAppI18n();
+  // "Saved" is news only right after a save made during this visit; the saved
+  // state found on arrival says nothing.
+  const justSaved = useTransientKey(
+    savedFlashKey(props.roomId, props.state),
+    SAVED_VISIBLE_MS,
+    props.roomId,
+  );
   if (!props.roomId) {
     // A personal canvas is the default and needs no label — unless it was
     // detached from a scene its edits are no longer in.
@@ -70,9 +79,12 @@ export function EditorStorageStatus(props: {
   const { status } = props.state;
   // Never a raw scene id: without a known name, the action says what it is.
   const sourceName = preservedSourceScene()?.name;
-  // Nothing changed yet (or a viewer, who cannot change anything): no status.
+  // Nothing changed yet, a save that is no longer news, or a viewer (who
+  // cannot change anything): no status.
   const statusLabel =
-    props.showSaveStatus && status !== "idle"
+    props.showSaveStatus &&
+    status !== "idle" &&
+    (status !== "saved" || justSaved)
       ? t(`storage.room.${status}`)
       : null;
   const panel = (
@@ -165,6 +177,10 @@ export function EditorStorageStatus(props: {
             // Below lg the top row has room for the icon only; the name moves
             // to the tooltip and the accessible label.
             "h-6 cursor-pointer gap-1.5 px-2.5 text-sm max-lg:px-1.5",
+            // Mobile: the same square, edge-attached island as upstream's
+            // tools column above it, not a floating pill.
+            props.edge &&
+              "border-border bg-popover size-8 justify-center rounded-none rounded-l-lg border border-r-0 px-0 max-lg:px-0",
             statusLabel &&
               status === "failed" &&
               "bg-destructive/10 text-destructive",
@@ -172,12 +188,14 @@ export function EditorStorageStatus(props: {
           aria-label={statusLabel ? `${roomLabel} · ${statusLabel}` : roomLabel}
         >
           <BadgeStatusIcon
-            roomId={props.roomId}
+            justSaved={justSaved}
             state={props.state}
             showSaveStatus={props.showSaveStatus}
           />
           {/* A long room name must not widen the top row. */}
-          <span className="max-w-48 truncate max-lg:hidden">{roomLabel}</span>
+          {!props.edge && (
+            <span className="max-w-48 truncate max-lg:hidden">{roomLabel}</span>
+          )}
         </TooltipTrigger>
         <TooltipContent side="bottom" align="end" variant="default">
           <span className="flex flex-col gap-0.5">
@@ -236,22 +254,18 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
  * stay in the panel, the tooltip and the live region.
  */
 function BadgeStatusIcon(props: {
-  roomId: string;
+  justSaved: boolean;
   state: RoomSaveState;
   showSaveStatus: boolean;
 }) {
   const { status } = props.state;
-  const justSaved = useTransientKey(
-    savedFlashKey(props.roomId, props.state),
-    SAVED_VISIBLE_MS,
-  );
   // Edits waiting for the next automatic save are routine, so they keep the
   // lock; the panel still says so.
   const settled =
     !props.showSaveStatus ||
     status === "idle" ||
     status === "pending" ||
-    (status === "saved" && !justSaved);
+    (status === "saved" && !props.justSaved);
   return (
     <span
       className="flex size-3 shrink-0 items-center justify-center"

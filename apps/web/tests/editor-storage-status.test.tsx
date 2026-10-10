@@ -52,13 +52,42 @@ describe("editor storage status (18C §5)", () => {
     );
   });
 
-  it("marks a confirmed save on the badge briefly, without changing its width", () => {
+  const rerender = (roomId: string, revision: number) =>
+    act(() =>
+      root?.render(
+        <EditorStorageStatus
+          roomId={roomId}
+          state={{ status: "saved", revision, checksum: null }}
+          sourceSceneId={null}
+          onCopy={() => undefined}
+          onUpdateSource={() => Promise.resolve()}
+          onExit={() => undefined}
+          api={null}
+          isAuthenticated
+          detachedFromSceneName={null}
+          showSaveStatus
+          compact
+        />,
+      ),
+    );
+
+  it("says nothing about the save already there when entering a room", () => {
+    const container = renderStatus({ roomId: "room-alpha-1", compact: true });
+    const badge = container.querySelector("button");
+    expect(
+      badge?.querySelector("[data-status]")?.getAttribute("data-status"),
+    ).toBe("settled");
+    expect(badge?.getAttribute("aria-label")).not.toContain("Saved");
+  });
+
+  it("marks a save made during the visit briefly, without changing its width", () => {
     vi.useFakeTimers();
     try {
       const container = renderStatus({ roomId: "room-alpha-1", compact: true });
       const badge = () => container.querySelector("button");
       const icon = () => badge()?.querySelector("[data-status]");
       const text = badge()?.textContent;
+      rerender("room-alpha-1", 2);
       expect(icon()?.getAttribute("data-status")).toBe("saved");
       act(() => {
         vi.advanceTimersByTime(3000);
@@ -71,44 +100,21 @@ describe("editor storage status (18C §5)", () => {
     }
   });
 
-  it("flashes a save in another room even at the same revision", () => {
-    vi.useFakeTimers();
-    try {
-      const saved = { status: "saved", revision: 2, checksum: null } as const;
-      const icon = (container: HTMLElement) =>
-        container
-          .querySelector("button [data-status]")
-          ?.getAttribute("data-status");
-      const first = renderStatus({
-        roomId: "room-a",
-        state: saved,
-        compact: true,
-      });
-      act(() => {
-        vi.advanceTimersByTime(3000);
-      });
-      expect(icon(first)).toBe("settled");
-      act(() =>
-        root?.render(
-          <EditorStorageStatus
-            roomId="room-b"
-            state={saved}
-            sourceSceneId={null}
-            onCopy={() => undefined}
-            onUpdateSource={() => Promise.resolve()}
-            onExit={() => undefined}
-            api={null}
-            isAuthenticated
-            detachedFromSceneName={null}
-            showSaveStatus
-            compact
-          />,
-        ),
-      );
-      expect(icon(first)).toBe("saved");
-    } finally {
-      vi.useRealTimers();
-    }
+  it("does not carry one room's revisions into another", () => {
+    const container = renderStatus({
+      roomId: "room-a",
+      state: { status: "saved", revision: 2, checksum: null },
+      compact: true,
+    });
+    const icon = () =>
+      container
+        .querySelector("button [data-status]")
+        ?.getAttribute("data-status");
+    rerender("room-b", 2);
+    // Room B's first state is its arrival: not news.
+    expect(icon()).toBe("settled");
+    rerender("room-b", 3);
+    expect(icon()).toBe("saved");
   });
 
   it("says nothing about saving before anything has changed", () => {

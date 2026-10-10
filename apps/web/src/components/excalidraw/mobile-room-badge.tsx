@@ -42,7 +42,8 @@ export function MobileRoomBadge(props: {
   return (
     <div
       // Below upstream's sidebar and dialogs (z-index 5) when they open.
-      className="fixed right-[calc(var(--app-safe-area-right)+0.25rem)] z-[4]"
+      // Flush with the right edge, like the tools column it continues.
+      className="fixed right-0 z-[4]"
       style={{ top }}
     >
       {props.children}
