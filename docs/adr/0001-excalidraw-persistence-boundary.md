@@ -262,5 +262,5 @@ chunk，卻宣稱 bundle 改善。
 
 ## 後續變更（2026-10-10）
 
-[Plan 21](../../plans/21-plain-rooms-google-docs-access.md) 起共編房間不再加密，也不再有授權世代；
+Plan 21 起共編房間不再加密，也不再有授權世代；
 上文 room asset 段落已改寫為現況。Share link 的端對端加密不受影響。

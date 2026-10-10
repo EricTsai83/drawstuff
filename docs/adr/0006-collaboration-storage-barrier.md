@@ -93,6 +93,6 @@ SQLite 的 SQL 與 alarm 使用同一個非同步 storage transaction，僅包�
 外部 adapter I/O 在 transaction 之外。相關平台契約見
 [Cloudflare SQLite storage transactions](https://developers.cloudflare.com/durable-objects/api/sqlite-storage-api/#transaction)。
 
-目前 transport protocol 為 7（[plan 21](../../plans/21-plain-rooms-google-docs-access.md)：明文房間、
+目前 transport protocol 為 7（plan 21：明文房間、
 Google 文件式存取、`roleChanged` 關閉碼）。上述 epoch 屏障、操作去重與初始化契約不變。
 具體底座與邊界見 [system design](../architecture/collaboration-system-design.md)。

@@ -1,7 +1,7 @@
 # ADR-0004：Code delivery 是 trust boundary，E2EE 宣稱以此為界
 
 - Status: Accepted（2026-08-28，隨 Plan 16 完成寫入）；2026-10-10 依
-  [plan 21](../../plans/21-plain-rooms-google-docs-access.md) 改寫：E2EE 只剩分享連結。
+  plan 21 改寫：E2EE 只剩分享連結。
 - 範圍：`apps/web` origin 送出的 HTML/JS（threat model boundary **B6**）、對外 E2EE
   宣稱的措辭界線、security headers／CSP 政策，以及 deployment 與 build-time
   supply-chain 的常態要求。

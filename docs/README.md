@@ -28,7 +28,7 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 [持久待辦與 alarm](learning/durable-outbox-and-alarms.html)、
 [儲存與成本](learning/serverless-storage-and-cost.html)、
 [授權與金鑰](learning/collaboration-authorization-and-keys.html)；這四篇保留設計解說視角，其中房間加密與金鑰的
-部分已由 [plan 21](../plans/21-plain-rooms-google-docs-access.md) 取代（房間不加密，只有分享連結端對端加密）。
+部分已由 plan 21（2026-10-10 部署，已完成）取代（房間不加密，只有分享連結端對端加密）。
 現況以架構契約為準（見 [授權契約](architecture/collaboration-authority.md)），部署程序見
 [DO 部署 runbook](operations/collaboration-do-deployment.md)；18B 的歷史驗收證據見
 [重置紀錄](deployment/collaboration-reset/README.md)。

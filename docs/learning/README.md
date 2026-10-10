@@ -15,7 +15,7 @@
 ## 協作架構學習系列（設計解說，保留歷史視角）
 
 建議按下列順序閱讀；每篇也提供背景，可單獨閱讀。文章保留 2026-09-22 的設計解說，舊「現況／目標」比較不是目前部署狀態。
-房間端對端加密與金鑰的設計已由 [plan 21](../../plans/21-plain-rooms-google-docs-access.md) 取代：協作房間改以登入加上類似
+房間端對端加密與金鑰的設計已由 plan 21（2026-10-10 部署）取代：協作房間改以登入加上類似
 Google 文件的存取權保護，只有分享連結仍是端對端加密；以此為主題的頁面頂端標有「歷史設計」。現況以
 [授權契約](../architecture/collaboration-authority.md) 為準，部署步驟見 [部署 runbook](../operations/collaboration-do-deployment.md)。
 

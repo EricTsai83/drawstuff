@@ -1,14 +1,14 @@
 # 共編 Durable Object 部署與 rollback runbook
 
 - Status: **Current**（plan 21：共編房間不加密、Google 文件式存取、protocol 7、Room class
-  `CollaborationRoomV2`。§6 的 plan 21 部署尚未執行）
+  `CollaborationRoomV2`。§6 的 plan 21 部署已於 2026-10-10 執行）
 - 指令與環境事實的唯一來源：[`apps/collaboration-do/README.md`](../../apps/collaboration-do/README.md)
   （本文件收斂程序與決策，不複製指令細節）
 - 相關文件：[SLO 與 capacity](../performance/collaboration-slo-capacity.md)、
   [DO observability 契約](../observability/collaboration-do-observability.md)、
-  [plan 21](../../plans/21-plain-rooms-google-docs-access.md)
+  [共編授權契約](../architecture/collaboration-authority.md)
 - 歷史：18B 的加密房間重置紀錄見 [collaboration reset](../deployment/collaboration-reset/README.md)，
-  已被 plan 21 §7 取代。
+  已被本文 §6（plan 21 資料清除）取代。
 
 ## 1. 部署模型
 
@@ -97,12 +97,12 @@ Origin allowlist 是一般 var `COLLAB_ALLOWED_ORIGINS`（只做 defense-in-dept
 backoff 重連），不需要人工介入。容量與 close code 語意見
 [SLO 文件](../performance/collaboration-slo-capacity.md)。
 
-## 6. Plan 21 部署與資料清除（尚未執行）
+## 6. Plan 21 部署與資料清除（2026-10-10 已執行）
 
 plan 21 拿掉房間加密並改變協定、Neon schema 與 DO class，舊房間資料無法沿用（擁有者決定 D5：
-全部清除）。`plan-21` 分支推送不會觸發正式部署；以下步驟完成後才合併到 `main`。**執行前再向
-擁有者確認一次指令與範圍。** 不受影響：我的場景、分享連結、發布、Library、個人圖片、帳號與
-workspace。
+全部清除）。程式在 `plan-21` 分支完成，推送不觸發正式部署；當時依以下步驟清除資料後才合併到
+`main`（PR #19）。以下程序保留為執行紀錄；這是一次性清除，之後不得再對真實房間內容套用。
+不受影響：我的場景、分享連結、發布、Library、個人圖片、帳號與 workspace。
 
 1. **停止共編寫入**：在 Vercel production 設定 `COLLAB_ROOMS_DISABLED=1` 並重新部署 web，
    等待已簽出的 proof 過期（≥5 分鐘）。確認沒有進行中的帳號／場景退場
@@ -150,3 +150,26 @@ workspace。
 10. **驗收**：依 plan 21 §9——擁有者建房並從列表重開、一般存取權三種設定、邀請／移除／重新邀請、
    結束房間、快照與圖片重新整理後正確、分享連結仍可開啟。舊房間網址不能再進房。
    步驟 7 喚醒的舊退場 Object 應在 1 小時後釋放儲存。
+
+### 執行紀錄（2026-10-10）
+
+- 步驟 1：Vercel 從未設定 `COLLAB_ROOMS_DISABLED`，kill switch 實際上被略過，共編入口全程開放；
+  步驟 9 因此為 no-op。
+- 步驟 2：DO 部署 `CollaborationRoomV2` 與 `CollaborationRoom` tombstone（version `02caadfe`）。
+- 步驟 3：刪除 UploadThing 房間物件 4 個。
+- 步驟 4：`plan21:wipe` 清空 Neon 房間表並重建 schema。
+- 步驟 5：合併 PR #19；Worker version `245e126c-3177-436e-988d-2297c2a882e1`，healthz ok。
+- 步驟 6：`pnpm cf:smoke` 對 production 通過（protocol 7 harness：最大明文快照往返、ready、WebSocket、
+  link access 關閉、end）。
+- 步驟 7：`collaboration:wake-retirements --apply` 喚醒 1 個已完成的退場（13:11 UTC）。
+- 步驟 8：Worker secrets 只剩 §2 的四個（`COLLAB_ADAPTER_SECRET`、`COLLAB_ADAPTER_URL`、
+  `COLLAB_AUTHORITY_SECRET`、`COLLAB_IDENTITY_SECRET`）。
+- 步驟 10：以 Codex computer use 分兩輪做正式驗收，期間修正於 PR #20～#23。修正後通過：擁有者建房、
+  重新整理並從列表重開（不需金鑰）；僅限受邀者擋下未受邀帳號；連結檢視者為唯讀並列在「透過連結開啟過」；
+  縮小存取權即斷線並移除列表項目；邀請／移除／重新邀請立即生效；受邀編輯者經檢視連結進入仍為編輯者；
+  結束房間讓所有人斷線並從兩個列表移除；不存在或舊房間網址顯示「房間已結束或不存在」終止對話框；
+  分享連結仍可開啟（E2EE 不變）；個人場景、發布與 Library 不受影響；房間 UI 無房間金鑰／加密房間字樣。
+  一度懷疑的「重新整理後第一個矩形遺失」在乾淨的單一分頁條件下無法重現，歸因於 computer use 多螢幕
+  輸入失誤。
+- 後續（不屬 plan 21）：窄螢幕（<730px）版面曾隱藏房間 badge，另案處理；長時間與效能項目仍在
+  [18D](../../plans/18d-collaboration-acceptance-follow-ups.md)。

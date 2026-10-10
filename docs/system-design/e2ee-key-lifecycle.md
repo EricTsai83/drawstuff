@@ -2,7 +2,7 @@
 
 > **範圍**：drawstuff 只有**分享連結**（給沒有帳號的人看的唯讀快照，`use-scene-export` 與
 > `sharedScene` router）是端對端加密。共編房間不加密，與「我的場景」一樣以登入＋存取規則保護
-> （見 [plan 21](../../plans/21-plain-rooms-google-docs-access.md)、
+> （見
 > [collaboration authority](../architecture/collaboration-authority.md)）。
 
 > **Pattern 一句話**：讀懂內容的能力只來自一把伺服器從未見過的金鑰（URL fragment 中的 key），

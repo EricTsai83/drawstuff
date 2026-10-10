@@ -6,7 +6,7 @@
   「現況仍是 Node relay」與「流量鎖」章節描述的是 ADR 撰寫當時，僅存歷史脈絡。
 - Update（2026-08-28，Plan 15）：Node relay infrastructure（`apps/collaboration-relay`）
   已退役刪除；本文所有 relay 敘述自此皆為歷史。
-- Update（2026-10-10，[Plan 21](../../plans/21-plain-rooms-google-docs-access.md)）：control
+- Update（2026-10-10，Plan 21）：control
   token、`/v1/control` 與以授權世代區分的 Object identity 已移除；CLAIM-MIG-1／2／3／5 已依
   現況改寫。Room class 改名 `CollaborationRoomV2`，舊 `CollaborationRoom` 在 `exports` 以
   `state: "deleted"` tombstone 刪除（CLAIM-MIG-4 的 lifecycle change）。

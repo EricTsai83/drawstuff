@@ -7,7 +7,7 @@
 <h1>瀏覽器端 E2EE：以 Excalidraw 理解共享金鑰架構</h1>
 <p class="deck">讓伺服器負責路由、轉發與儲存，讓參與者的瀏覽器持有解密能力。本文從共享白板出發，說明這個 pattern 的成立條件、Excalidraw 的實作，以及把它搬進有帳號與權限的產品時需要補上的設計。</p>
 <p class="note">學習文章・可轉移 pattern 解說，非本專案現況清單。資料查核基準：2026-09-22（上游連結已釘選 commit）。本專案現況契約見文末<a href="#existing">既有文件與圖</a>。</p>
-<p class="note">2026-10-10 更新：依 <a href="../../plans/21-plain-rooms-google-docs-access.md">plan 21</a>，drawstuff 協作房間不再端對端加密，改以登入加上類似 Google 文件的存取權保護（見<a href="../architecture/collaboration-authority.md">現行授權契約</a>）。本專案只有分享連結仍採用本文的 capability link E2EE；文中提到 Drawstuff 協作房間金鑰之處為歷史設計。</p>
+<p class="note">2026-10-10 更新：依 plan 21，drawstuff 協作房間不再端對端加密，改以登入加上類似 Google 文件的存取權保護（見<a href="../architecture/collaboration-authority.md">現行授權契約</a>）。本專案只有分享連結仍採用本文的 capability link E2EE；文中提到 Drawstuff 協作房間金鑰之處為歷史設計。</p>
 <nav aria-label="文章導覽"><a href="#model">架構模型</a><a href="#implementation">上游實作</a><a href="#production">產品化</a><a href="#existing">既有文件與圖</a></nav>
 <h2>先確定你要保護什麼</h2>
 <p>Alice 想把一張白板分享給 Bob，兩人會同時修改，也希望重新開啟連結時找回內容。服務必須傳遞更新、保存場景與圖片，但產品要求資料庫或 relay 的被動觀察者不能讀懂畫布。這是本文的運作條件；如果產品原本就必須在伺服器處理明文，應先重新確認需求。</p>

@@ -1,6 +1,6 @@
 # 共編授權、儲存與退休契約
 
-- 狀態：protocol 7；存取模型與明文房間依 [plan 21](../../plans/21-plain-rooms-google-docs-access.md)（2026-10-10）。18B 已於 2026-10-08 依擁有者決定收尾。
+- 狀態：protocol 7；存取模型與明文房間依 plan 21，2026-10-10 部署並完成正式驗收（plan 已完成，見 git history；部署與驗收紀錄見 [DO 部署 runbook §6](../operations/collaboration-do-deployment.md)）。18B 已於 2026-10-08 依擁有者決定收尾。
 - 驗收證據與結案決定：[部署 runbook](../deployment/collaboration-reset/README.md)。
 - 未完成驗收與疑慮：[後續排查 plan](../../plans/18d-collaboration-acceptance-follow-ups.md)。
 
