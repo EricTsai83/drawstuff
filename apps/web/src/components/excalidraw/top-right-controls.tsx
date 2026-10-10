@@ -10,8 +10,6 @@ type TopRightControlsProps = {
   onLibraryActivate: () => void;
   onSlotChange?: (isMobile: boolean) => void;
   storageStatus?: ReactNode;
-  /** The room badge for the mobile toolbar row; absent outside a room. */
-  mobileStorageStatus?: ReactNode;
 };
 
 export function TopRightControls({
@@ -20,16 +18,15 @@ export function TopRightControls({
   onLibraryActivate,
   onSlotChange,
   storageStatus,
-  mobileStorageStatus,
 }: TopRightControlsProps) {
   useEffect(() => {
     onSlotChange?.(isMobile);
   }, [isMobile, onSlotChange]);
 
-  // The mobile toolbar row has room for the room badge (icon only) and
-  // nothing else; quick actions live in the main menu there.
+  // The mobile toolbar row has no room to spare; the room badge is placed by
+  // MobileRoomBadge and quick actions live in the main menu.
   if (isMobile) {
-    return mobileStorageStatus ?? null;
+    return null;
   }
 
   return (

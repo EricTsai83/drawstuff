@@ -64,36 +64,20 @@ describe("Canvas product action presentations", () => {
     ).toBe(tooltip);
   });
 
-  it("shows only the room badge on mobile, and nothing outside a room", () => {
-    const actions = {
-      collaboration: {
-        status: "idle" as const,
-        isReadOnly: false,
-        onActivate: vi.fn(),
-      },
-      cloudSave: null,
-      share: null,
-    };
+  it("leaves the cramped mobile toolbar row empty", () => {
     act(() =>
       root.render(
         withI18n(
           <TopRightControls
-            actions={actions}
-            isMobile
-            onLibraryActivate={vi.fn()}
-            storageStatus={<span>desktop status</span>}
-            mobileStorageStatus={<span>room badge</span>}
-          />,
-        ),
-      ),
-    );
-    expect(container.textContent).toBe("room badge");
-    expect(container.querySelector('[aria-label="Quick actions"]')).toBeNull();
-    act(() =>
-      root.render(
-        withI18n(
-          <TopRightControls
-            actions={actions}
+            actions={{
+              collaboration: {
+                status: "idle",
+                isReadOnly: false,
+                onActivate: vi.fn(),
+              },
+              cloudSave: null,
+              share: null,
+            }}
             isMobile
             onLibraryActivate={vi.fn()}
             storageStatus={<span>desktop status</span>}
