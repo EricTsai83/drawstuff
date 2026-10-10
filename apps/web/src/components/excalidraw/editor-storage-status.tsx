@@ -172,6 +172,7 @@ export function EditorStorageStatus(props: {
           aria-label={statusLabel ? `${roomLabel} · ${statusLabel}` : roomLabel}
         >
           <BadgeStatusIcon
+            roomId={props.roomId}
             state={props.state}
             showSaveStatus={props.showSaveStatus}
           />
@@ -196,9 +197,17 @@ export function EditorStorageStatus(props: {
 /** How long a confirmed save shows its check before settling; shared with Save. */
 export const SAVED_VISIBLE_MS = 3000;
 
-/** Changes with each confirmed revision, so every new save flashes once. */
-export function savedFlashKey(state: RoomSaveState): string | null {
-  return state.status === "saved" ? `saved:${state.revision ?? "none"}` : null;
+/**
+ * Changes with each confirmed revision, so every new save flashes once. Scoped
+ * to the room: another room's revision numbers must not count as already seen.
+ */
+export function savedFlashKey(
+  roomId: string | null,
+  state: RoomSaveState,
+): string | null {
+  return roomId && state.status === "saved"
+    ? `${roomId}:${state.revision ?? "none"}`
+    : null;
 }
 
 function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
@@ -225,12 +234,13 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
  * stay in the panel, the tooltip and the live region.
  */
 function BadgeStatusIcon(props: {
+  roomId: string;
   state: RoomSaveState;
   showSaveStatus: boolean;
 }) {
   const { status } = props.state;
   const justSaved = useTransientKey(
-    savedFlashKey(props.state),
+    savedFlashKey(props.roomId, props.state),
     SAVED_VISIBLE_MS,
   );
   // Edits waiting for the next automatic save are routine, so they keep the

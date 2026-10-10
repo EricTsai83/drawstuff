@@ -245,7 +245,7 @@ export default function ExcalidrawEditor() {
   // A room stays "saved" until the next change; Save shows its check only for
   // a moment after each new confirmed save, then returns to the cloud.
   const roomJustSaved = useTransientKey(
-    savedFlashKey(roomSaveState),
+    savedFlashKey(collaborationRoomId, roomSaveState),
     SAVED_VISIBLE_MS,
   );
   const productActions = useMemo<CanvasProductActions>(
