@@ -1,10 +1,8 @@
 export const FORM_DIALOG_CONTENT_CLASS_NAME =
   "max-h-(--app-dialog-max-height) max-sm:h-[calc(100dvh-2rem)] max-sm:w-[calc(100%-2rem)] sm:max-w-lg";
 
-// Pinned to a fixed top from sm up: a vertically centred dialog moves its top
-// edge whenever its content grows or shrinks (a row added, a notice shown).
 export const WORKFLOW_DIALOG_CONTENT_CLASS_NAME =
-  "max-h-(--app-dialog-max-height) max-sm:h-[calc(100dvh-2rem)] max-sm:w-[calc(100%-2rem)] sm:top-[10dvh] sm:max-h-[80dvh] sm:max-w-2xl sm:translate-y-0";
+  "max-h-(--app-dialog-max-height) max-sm:h-[calc(100dvh-2rem)] max-sm:w-[calc(100%-2rem)] sm:max-w-2xl";
 
 export const CONFIRM_DIALOG_CONTENT_CLASS_NAME =
   "max-h-(--app-dialog-max-height) max-sm:w-[calc(100%-2rem)] sm:max-w-lg";

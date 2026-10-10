@@ -696,17 +696,23 @@ export function CollaborationRoomDialog({
     >
       <DialogContent
         initialFocus={false}
-        className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
+        className={cn(
+          WORKFLOW_DIALOG_CONTENT_CLASS_NAME,
+          // Centred, and with a fixed height while managing a room: rows and
+          // notices come and go there, and a centred dialog that resized
+          // would move its top edge. Content scrolls inside.
+          isAuthenticated && roomId && !terminal && "sm:h-[min(40rem,85dvh)]",
+        )}
         showCloseButton={!terminal}
       >
         <DialogHeader>
           <DialogTitle className="pr-8">
             {t(
-              isAuthenticated && roomId
-                ? terminal
+              !roomId
+                ? "collaboration.create.title"
+                : isAuthenticated && terminal
                   ? terminalCopy.title
-                  : "collaboration.share.title"
-                : "collaboration.title",
+                  : "collaboration.share.title",
             )}
           </DialogTitle>
           {isAuthenticated && roomId && statusNote && (

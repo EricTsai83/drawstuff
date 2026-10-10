@@ -184,7 +184,7 @@ describe("collaboration room list", () => {
 
   it("shows one empty state for the tab when both sections are empty", () => {
     render(empty);
-    const tab = document.querySelector('[aria-label="Rooms"]');
+    const tab = document.querySelector('[aria-label="Collaboration rooms"]');
     expect(tab?.textContent).toContain("No rooms yet");
     expect(tab?.querySelectorAll("h3")).toHaveLength(0);
     expect(buttonIn(tab as HTMLElement, "New room")).toBeDefined();

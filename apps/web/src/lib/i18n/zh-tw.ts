@@ -186,7 +186,8 @@ export const zhTW = {
   "collaboration.room.name": "房間名稱",
   "collaboration.room.untitled": "未命名房間",
   "collaboration.room.nameHint": "受邀的人會在房間列表看到這個名稱。",
-  "collaboration.share.title": "分享房間",
+  "collaboration.share.title": "共編房間",
+  "collaboration.create.title": "建立共編房間",
   "collaboration.noAccess.title": "你沒有這個房間的存取權",
   "collaboration.noAccess.description":
     "請向擁有者索取邀請，或確認已用受邀的帳號登入。",

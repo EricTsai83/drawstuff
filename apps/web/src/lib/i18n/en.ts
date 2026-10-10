@@ -196,7 +196,8 @@ export const en = {
     "The room may take a moment to appear in your list.",
   "collaboration.toast.existingRoom":
     "This scene already has a room. Opened it.",
-  "collaboration.share.title": "Share room",
+  "collaboration.share.title": "Collaboration room",
+  "collaboration.create.title": "New collaboration room",
   "collaboration.room.name": "Room name",
   "collaboration.room.untitled": "Untitled room",
   "collaboration.room.nameHint":
@@ -228,7 +229,7 @@ export const en = {
   "collaboration.allowlist.notJoined": "Not joined yet",
   "collaboration.members.first": "First page",
   "collaboration.members.next": "Next page",
-  "collaboration.rooms.title": "Rooms",
+  "collaboration.rooms.title": "Collaboration rooms",
   "collaboration.rooms.create": "New room",
   "collaboration.rooms.retry": "Try creating again",
   "collaboration.rooms.open": "Open room",

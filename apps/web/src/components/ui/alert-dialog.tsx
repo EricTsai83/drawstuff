@@ -22,7 +22,7 @@ function AlertDialogOverlay({
 }: AlertDialogPrimitive.Backdrop.Props) {
   return (
     <AlertDialogPrimitive.Backdrop
-      // A confirmation opened from another dialog (End room from Share room)
+      // A confirmation opened from another dialog (End room from the room dialog)
       // is nested, and Base UI skips nested backdrops by default; without one
       // the dialog behind stays undimmed and reads as still active.
       forceRender
