@@ -4,7 +4,7 @@
 
 ## 目前前提（2026-10-10）
 
-plan 21 已於 2026-10-10 合併部署並完成正式驗收：protocol 7、共編房間不加密（只有分享連結維持端對端加密）、Google 文件式存取（擁有者＋邀請名單＋一般存取權），房間列表分「擁有與受邀」與「透過連結開啟過」兩區。一次性的共編資料清除已完成，程序與執行紀錄見 [共編 DO 部署 runbook §6](../docs/operations/collaboration-do-deployment.md)；契約見 [共編授權](../docs/architecture/collaboration-authority.md)。18B 的證據與結案決定見 [18B 重置紀錄](../docs/deployment/collaboration-reset/README.md)（歷史）。
+plan 21 已於 2026-10-10 合併部署並完成正式驗收：protocol 7、共編房間不加密（只有分享連結維持端對端加密）、Google 文件式存取（擁有者＋邀請名單＋一般存取權），房間列表分「我擁有的與受邀的」與「透過連結開啟過」兩區。一次性的共編資料清除已完成，程序與執行紀錄見 [共編 DO 部署 runbook §6](../docs/operations/collaboration-do-deployment.md)；契約見 [共編授權](../docs/architecture/collaboration-authority.md)。18B 的證據與結案決定見 [18B 重置紀錄](../docs/deployment/collaboration-reset/README.md)（歷史）。
 
 同一正式環境供開發與驗收使用，只建立限定 fixture，保留個人場景、分享、發布、Library 與附件。plan 21 的共編資料清除是擁有者決定（D5）的一次性例外，已執行完畢；之後不得將「可整批重置」的前提套用到真實內容。測試前準備清理方案，完成後清理 provider／DB／DO 並精確還原設定；本輪不要求 DB push／migration。
 
