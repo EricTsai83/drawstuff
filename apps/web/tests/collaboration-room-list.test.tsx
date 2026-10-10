@@ -168,6 +168,15 @@ describe("collaboration room list", () => {
     expect(buttonIn(tab as HTMLElement, "New room")).toBeDefined();
   });
 
+  it("refetches both sections when the window regains focus", () => {
+    render(empty);
+    refetch.mockClear();
+    act(() => {
+      window.dispatchEvent(new Event("focus"));
+    });
+    expect(refetch).toHaveBeenCalledTimes(2);
+  });
+
   it("hints inside an empty section when the other has rooms", () => {
     render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
     expect(section("mine").textContent).not.toContain(MINE_EMPTY);

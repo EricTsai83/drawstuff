@@ -65,7 +65,7 @@ const EXIT_DONE_KEY: Record<RoomExit, AppTranslationKey> = {
 /**
  * Other people change this list (an invitation, a removal, an ended room), and
  * nothing pushes those changes here. Refetch whenever the user comes back to the
- * tab or the network returns — free, and it covers switching back from the
+ * tab or window (see the focus listener below) or the network returns — free, and it covers switching back from the
  * invite email. No polling: a visible dashboard would keep Neon from
  * autosuspending (plans/18d §4).
  */
@@ -111,6 +111,19 @@ export function CollaborationRoomList() {
     { section: "link", limit: 30, cursor: linkCursor },
     LIST_FRESHNESS,
   );
+  // React Query's focus refetch listens to visibilitychange only, which never
+  // fires when the user switches between two visible windows (the invite email
+  // beside the dashboard). Refetch on window focus as well.
+  const refetchMine = mine.refetch;
+  const refetchLink = link.refetch;
+  useEffect(() => {
+    const onFocus = () => {
+      void refetchMine();
+      void refetchLink();
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [refetchMine, refetchLink]);
   const initializer = useRef<ReturnType<
     typeof createRoomInitialization
   > | null>(null);
