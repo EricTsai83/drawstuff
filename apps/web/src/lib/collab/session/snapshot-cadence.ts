@@ -25,6 +25,10 @@ import {
 } from "@/lib/collab/session/save-state";
 import type { CollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
 
+/** Sum of element versions: grows whenever any element changes. */
+const sceneVersionOf = (elements: readonly { version: number }[]): number =>
+  elements.reduce((sum, element) => sum + element.version, 0);
+
 export type SnapshotCadence = SnapshotBaselineSink & {
   /** Publishes the durable snapshot; `force` marks the leave flush. */
   writeSnapshot(params?: { force?: boolean }): Promise<void>;
@@ -98,6 +102,9 @@ export const createSnapshotCadence = (options: {
     onChange: options.onSaveStateChange,
   });
   let lastObservedElements = sceneApi.getSceneElementsIncludingDeleted();
+  /** The canvas this session started on is the reference, not an edit. */
+  let lastSceneVersion: number | undefined =
+    sceneVersionOf(lastObservedElements);
   let confirming = false;
   let cancelRequestDeadline: (() => void) | undefined;
   let lastVerificationAt = Number.NEGATIVE_INFINITY;
@@ -475,13 +482,23 @@ export const createSnapshotCadence = (options: {
       const elements = sceneApi.getSceneElementsIncludingDeleted();
       if (elements === lastObservedElements) return;
       lastObservedElements = elements;
+      lastSceneVersion = sceneVersionOf(elements);
       saveState.changed();
     },
     onLocalSceneChange() {
-      // No identity shortcut here: Excalidraw mutates elements in place while
-      // dragging, so the array can stay the same across a real local edit.
-      lastObservedElements = sceneApi.getSceneElementsIncludingDeleted();
-      saveState.localChanged();
+      // Keyed to element versions, not the array: Excalidraw mutates elements
+      // in place while dragging (same array, real edit), and it also calls
+      // onChange for appState alone (scroll, selection: new call, no edit).
+      // Versions only grow, so their sum moves exactly when an element does.
+      const elements = sceneApi.getSceneElementsIncludingDeleted();
+      const version = sceneVersionOf(elements);
+      if (version === lastSceneVersion) return;
+      const first = lastSceneVersion === undefined;
+      lastObservedElements = elements;
+      lastSceneVersion = version;
+      // The canvas as found when the session starts is not an edit of ours.
+      if (first) saveState.changed();
+      else saveState.localChanged();
     },
     getSaveState: () => saveState.state(),
     receivePersisted(revision, _checksum) {
