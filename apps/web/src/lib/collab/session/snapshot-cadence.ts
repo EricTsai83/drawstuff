@@ -31,6 +31,8 @@ export type SnapshotCadence = SnapshotBaselineSink & {
   start(epoch: number): void;
   requestSave(fromPeer?: boolean): void;
   onSceneChange(): void;
+  /** A change made on this client; counts toward its own confirmed saves. */
+  onLocalSceneChange(): void;
   getSaveState(): RoomSaveState;
   receivePersisted(revision: number, checksum: string): void;
   stop(): void;
@@ -474,6 +476,12 @@ export const createSnapshotCadence = (options: {
       if (elements === lastObservedElements) return;
       lastObservedElements = elements;
       saveState.changed();
+    },
+    onLocalSceneChange() {
+      const elements = sceneApi.getSceneElementsIncludingDeleted();
+      if (elements === lastObservedElements) return;
+      lastObservedElements = elements;
+      saveState.localChanged();
     },
     getSaveState: () => saveState.state(),
     receivePersisted(revision, _checksum) {

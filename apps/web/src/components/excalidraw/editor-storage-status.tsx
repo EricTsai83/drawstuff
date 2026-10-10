@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 
-import { useTransientKey } from "@/hooks/use-transient-key";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import {
   Check,
@@ -50,8 +49,16 @@ export function EditorStorageStatus(props: {
   /** False for a viewer: nothing they see is theirs to save. */
   showSaveStatus: boolean;
   compact?: boolean;
+  /** Mobile: an edge-attached square matching upstream's tools column. */
+  edge?: boolean;
+  /**
+   * This client's own edits were just confirmed saved (see `savedFlashKey`);
+   * computed once by the editor so every surface agrees.
+   */
+  justSaved: boolean;
 }) {
   const { t } = useAppI18n();
+  const justSaved = props.justSaved;
   if (!props.roomId) {
     // A personal canvas is the default and needs no label — unless it was
     // detached from a scene its edits are no longer in.
@@ -70,9 +77,12 @@ export function EditorStorageStatus(props: {
   const { status } = props.state;
   // Never a raw scene id: without a known name, the action says what it is.
   const sourceName = preservedSourceScene()?.name;
-  // Nothing changed yet (or a viewer, who cannot change anything): no status.
+  // Nothing changed yet, a save that is no longer news, or a viewer (who
+  // cannot change anything): no status.
   const statusLabel =
-    props.showSaveStatus && status !== "idle"
+    props.showSaveStatus &&
+    status !== "idle" &&
+    (status !== "saved" || justSaved)
       ? t(`storage.room.${status}`)
       : null;
   const panel = (
@@ -165,6 +175,10 @@ export function EditorStorageStatus(props: {
             // Below lg the top row has room for the icon only; the name moves
             // to the tooltip and the accessible label.
             "h-6 cursor-pointer gap-1.5 px-2.5 text-sm max-lg:px-1.5",
+            // Mobile: the same square, edge-attached island as upstream's
+            // tools column above it, not a floating pill.
+            props.edge &&
+              "border-border bg-popover size-8 justify-center rounded-none rounded-l-lg border border-r-0 px-0 max-lg:px-0",
             statusLabel &&
               status === "failed" &&
               "bg-destructive/10 text-destructive",
@@ -172,12 +186,14 @@ export function EditorStorageStatus(props: {
           aria-label={statusLabel ? `${roomLabel} · ${statusLabel}` : roomLabel}
         >
           <BadgeStatusIcon
-            roomId={props.roomId}
+            justSaved={justSaved}
             state={props.state}
             showSaveStatus={props.showSaveStatus}
           />
           {/* A long room name must not widen the top row. */}
-          <span className="max-w-48 truncate max-lg:hidden">{roomLabel}</span>
+          {!props.edge && (
+            <span className="max-w-48 truncate max-lg:hidden">{roomLabel}</span>
+          )}
         </TooltipTrigger>
         <TooltipContent side="bottom" align="end" variant="default">
           <span className="flex flex-col gap-0.5">
@@ -200,15 +216,16 @@ export function EditorStorageStatus(props: {
 export const SAVED_VISIBLE_MS = 3000;
 
 /**
- * Changes with each confirmed revision, so every new save flashes once. Scoped
- * to the room: another room's revision numbers must not count as already seen.
+ * Changes with each confirmed save of this client's own edits, so each flashes
+ * once; a baseline loaded on arrival or reconnect never does. Scoped to the
+ * room so another room's count is not mistaken for one already shown.
  */
 export function savedFlashKey(
   roomId: string | null,
   state: RoomSaveState,
 ): string | null {
-  return roomId && state.status === "saved"
-    ? `${roomId}:${state.revision ?? "none"}`
+  return roomId && state.status === "saved" && state.localSaves > 0
+    ? `${roomId}:${state.localSaves}`
     : null;
 }
 
@@ -236,22 +253,18 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
  * stay in the panel, the tooltip and the live region.
  */
 function BadgeStatusIcon(props: {
-  roomId: string;
+  justSaved: boolean;
   state: RoomSaveState;
   showSaveStatus: boolean;
 }) {
   const { status } = props.state;
-  const justSaved = useTransientKey(
-    savedFlashKey(props.roomId, props.state),
-    SAVED_VISIBLE_MS,
-  );
   // Edits waiting for the next automatic save are routine, so they keep the
   // lock; the panel still says so.
   const settled =
     !props.showSaveStatus ||
     status === "idle" ||
     status === "pending" ||
-    (status === "saved" && !justSaved);
+    (status === "saved" && !props.justSaved);
   return (
     <span
       className="flex size-3 shrink-0 items-center justify-center"

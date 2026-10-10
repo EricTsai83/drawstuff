@@ -27,7 +27,7 @@ const renderStatus = (
     root?.render(
       <EditorStorageStatus
         roomId={null}
-        state={{ status: "saved", revision: 1, checksum: null }}
+        state={{ status: "saved", revision: 1, checksum: null, localSaves: 0 }}
         sourceSceneId={null}
         onCopy={() => undefined}
         onUpdateSource={() => Promise.resolve()}
@@ -36,6 +36,7 @@ const renderStatus = (
         isAuthenticated
         detachedFromSceneName={null}
         showSaveStatus
+        justSaved={false}
         {...props}
       />,
     ),
@@ -52,69 +53,32 @@ describe("editor storage status (18C §5)", () => {
     );
   });
 
-  it("marks a confirmed save on the badge briefly, without changing its width", () => {
-    vi.useFakeTimers();
-    try {
-      const container = renderStatus({ roomId: "room-alpha-1", compact: true });
-      const badge = () => container.querySelector("button");
-      const icon = () => badge()?.querySelector("[data-status]");
-      const text = badge()?.textContent;
-      expect(icon()?.getAttribute("data-status")).toBe("saved");
-      act(() => {
-        vi.advanceTimersByTime(3000);
-      });
-      expect(icon()?.getAttribute("data-status")).toBe("settled");
-      // Only the fixed-size icon changes; the label text never does.
-      expect(badge()?.textContent).toBe(text);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("says nothing about the save already there when entering a room", () => {
+    const container = renderStatus({ roomId: "room-alpha-1", compact: true });
+    const badge = container.querySelector("button");
+    expect(
+      badge?.querySelector("[data-status]")?.getAttribute("data-status"),
+    ).toBe("settled");
+    expect(badge?.getAttribute("aria-label")).not.toContain("Saved");
   });
 
-  it("flashes a save in another room even at the same revision", () => {
-    vi.useFakeTimers();
-    try {
-      const saved = { status: "saved", revision: 2, checksum: null } as const;
-      const icon = (container: HTMLElement) =>
-        container
-          .querySelector("button [data-status]")
-          ?.getAttribute("data-status");
-      const first = renderStatus({
-        roomId: "room-a",
-        state: saved,
-        compact: true,
-      });
-      act(() => {
-        vi.advanceTimersByTime(3000);
-      });
-      expect(icon(first)).toBe("settled");
-      act(() =>
-        root?.render(
-          <EditorStorageStatus
-            roomId="room-b"
-            state={saved}
-            sourceSceneId={null}
-            onCopy={() => undefined}
-            onUpdateSource={() => Promise.resolve()}
-            onExit={() => undefined}
-            api={null}
-            isAuthenticated
-            detachedFromSceneName={null}
-            showSaveStatus
-            compact
-          />,
-        ),
-      );
-      expect(icon(first)).toBe("saved");
-    } finally {
-      vi.useRealTimers();
-    }
+  it("marks this client's own save briefly, without changing its width", () => {
+    const container = renderStatus({
+      roomId: "room-alpha-1",
+      compact: true,
+      justSaved: true,
+    });
+    const badge = container.querySelector("button");
+    expect(
+      badge?.querySelector("[data-status]")?.getAttribute("data-status"),
+    ).toBe("saved");
+    expect(badge?.getAttribute("aria-label")).toContain("Saved");
   });
 
   it("says nothing about saving before anything has changed", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",
-      state: { status: "idle", revision: null, checksum: null },
+      state: { status: "idle", revision: null, checksum: null, localSaves: 0 },
     });
     expect(container.textContent).not.toContain("not saved");
     expect(container.querySelector('[role="status"]')?.textContent).toBe("");
@@ -123,7 +87,12 @@ describe("editor storage status (18C §5)", () => {
   it("names unsaved changes once there are some", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",
-      state: { status: "pending", revision: null, checksum: null },
+      state: {
+        status: "pending",
+        revision: null,
+        checksum: null,
+        localSaves: 0,
+      },
     });
     expect(container.textContent).toContain("Changes not saved yet");
   });
@@ -131,7 +100,12 @@ describe("editor storage status (18C §5)", () => {
   it("never shows a viewer a save status", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",
-      state: { status: "pending", revision: null, checksum: null },
+      state: {
+        status: "pending",
+        revision: null,
+        checksum: null,
+        localSaves: 0,
+      },
       showSaveStatus: false,
       compact: true,
     });
@@ -156,7 +130,7 @@ describe("editor storage status (18C §5)", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",
       compact: true,
-      state: { status: "pending", revision: 3, checksum: null },
+      state: { status: "pending", revision: 3, checksum: null, localSaves: 0 },
     });
     expect(
       container.querySelector("[data-status]")?.getAttribute("data-status"),
@@ -169,7 +143,7 @@ describe("editor storage status (18C §5)", () => {
       const container = renderStatus({
         roomId: "room-alpha-1",
         compact: true,
-        state: { status: "failed", revision: 1, checksum: null },
+        state: { status: "failed", revision: 1, checksum: null, localSaves: 0 },
       });
       act(() => {
         vi.advanceTimersByTime(10_000);
