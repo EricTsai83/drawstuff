@@ -191,6 +191,26 @@ describe("durable room save coverage", () => {
     a.session.destroy();
   });
 
+  it("does not take appState-only changes or the starting canvas for edits", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    await settle(h);
+    a.edit(() => [collabRectangle({ id: "r" })]);
+    a.timers.advance(31_000);
+    await settle(h);
+    const saved = a.session.getSaveState().localSaves;
+    // Scroll/selection: onChange with the same elements and versions.
+    a.edit((elements) => elements);
+    a.edit((elements) => [...elements]);
+    expect(a.session.getSaveState().status).toBe("saved");
+    a.timers.advance(31_000);
+    await settle(h);
+    expect(a.session.getSaveState().localSaves).toBe(saved);
+    a.session.destroy();
+  });
+
   it("a peer's invented receipt triggers an independent read and cannot mark edits saved", async () => {
     const h = createHarness();
     const backend = createSnapshotBackend();
