@@ -12,6 +12,7 @@ import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 import {
   createRoomInitialization,
   INITIALIZATION_SETTLE_MS,
+  ROOM_LABEL_MAX_LENGTH,
 } from "@/lib/collab/room-initialization";
 import { markRoomInitializedFromCanvas } from "@/lib/collab/initialized-room-handoff";
 import {
@@ -164,6 +165,8 @@ const CONFIRM_COPY: Record<
 
 export type CollaborationRoomDialogProps = {
   open: boolean;
+  /** Prefills the new room's name: the open scene's name. */
+  defaultRoomName?: string;
   onOpenChange: (open: boolean) => void;
   /** Auth is resolved by the editor so unauthenticated dialogs make no API calls. */
   isAuthenticated: boolean;
@@ -189,6 +192,7 @@ export type CollaborationRoomDialogProps = {
 
 export function CollaborationRoomDialog({
   open,
+  defaultRoomName = "",
   onOpenChange,
   isAuthenticated,
   authIdentity,
@@ -294,6 +298,11 @@ export function CollaborationRoomDialog({
   /** The canvas captured for the in-flight creation; the join exemption is bound to it. */
   const initializationElements = useRef<readonly SyncedElement[]>([]);
   const [isCreatePending, setIsCreatePending] = useState(false);
+  /** The name the owner gives the room before starting it. */
+  const [roomName, setRoomName] = useState(defaultRoomName);
+  useEffect(() => {
+    if (open && !roomId) setRoomName(defaultRoomName);
+  }, [open, roomId, defaultRoomName]);
   const [hasInitialization, setHasInitialization] = useState(false);
   const [isCancellingInitialization, setIsCancellingInitialization] =
     useState(false);
@@ -383,6 +392,7 @@ export function CollaborationRoomDialog({
           snapshots: createBinarySnapshotClient(),
           settleWithinMs: INITIALIZATION_SETTLE_MS,
           sceneId,
+          label: roomName.trim() || t("collaboration.room.untitled"),
           elements,
           files,
           assets: createAuthorityAssetApi({
@@ -743,6 +753,25 @@ export function CollaborationRoomDialog({
                 )}
               </li>
             </ul>
+            <div className="mb-3 flex flex-col gap-1.5">
+              <Label htmlFor="collab-room-name">
+                {t("collaboration.room.name")}
+              </Label>
+              {/* type="text": Excalidraw claims keys from other input types. */}
+              <Input
+                id="collab-room-name"
+                type="text"
+                value={roomName}
+                maxLength={ROOM_LABEL_MAX_LENGTH}
+                placeholder={t("collaboration.room.untitled")}
+                disabled={isCreatePending || hasInitialization}
+                onChange={(event) => setRoomName(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" && !isCreatePending)
+                    void startRoom();
+                }}
+              />
+            </div>
             <Button
               disabled={isCreatePending || isCancellingInitialization}
               aria-busy={isCreatePending}

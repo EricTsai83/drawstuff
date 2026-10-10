@@ -187,6 +187,9 @@ export const zhTW = {
   "collaboration.management.unconfirmed": "上一個變更尚未確認。",
   "collaboration.toast.listSyncing": "房間可能稍後才會出現在列表中。",
   "collaboration.toast.existingRoom": "這個場景已經有房間，已為你開啟。",
+  "collaboration.room.name": "房間名稱",
+  "collaboration.room.untitled": "未命名房間",
+  "collaboration.room.nameHint": "受邀的人會在房間列表看到這個名稱。",
   "collaboration.share.title": "分享房間",
   "collaboration.noAccess.title": "你沒有這個房間的存取權",
   "collaboration.noAccess.description":

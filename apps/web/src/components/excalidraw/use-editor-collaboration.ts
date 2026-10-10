@@ -85,6 +85,7 @@ export function useEditorCollaboration(options: {
   const {
     saveState: roomSaveState,
     sourceSceneId,
+    roomLabel: collaborationRoomLabel,
     requestSave: requestRoomSave,
     confirmExit: confirmRoomExit,
     status: collaborationStatus,
@@ -141,6 +142,7 @@ export function useEditorCollaboration(options: {
   return {
     roomSaveState,
     sourceSceneId,
+    collaborationRoomLabel,
     requestRoomSave,
     confirmRoomExit,
     collaborationRoomId,

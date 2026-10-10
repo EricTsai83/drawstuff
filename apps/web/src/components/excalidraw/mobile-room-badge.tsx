@@ -18,10 +18,12 @@ export function MobileRoomBadge(props: {
 }) {
   const device = useExcalidrawDevice();
   if (!device.editor.isMobile) return null;
+  // Left edge: upstream's mobile tools column (library, lock, hand) owns the
+  // right edge just below the tools row.
   return (
     <div
       className={cn(
-        "fixed right-[calc(var(--app-safe-area-right)+0.75rem)] z-10",
+        "fixed left-[calc(var(--app-safe-area-left)+0.75rem)] z-10",
         props.belowToolbar
           ? "top-[calc(var(--app-safe-area-top)+4.25rem)]"
           : "top-[calc(var(--app-safe-area-top)+0.75rem)]",

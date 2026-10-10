@@ -98,6 +98,8 @@ import {
 export type UseCollaborationRoomResult = {
   saveState: RoomSaveState;
   sourceSceneId: string | null;
+  /** The room's name, once looked up; "" when the owner left it unnamed. */
+  roomLabel: string | null;
   requestSave: () => void;
   confirmExit: () => boolean;
   status: CollaborationRoomStatus;
@@ -179,6 +181,7 @@ export function useCollaborationRoom(options: {
     checksum: null,
   });
   const [sourceSceneId, setSourceSceneId] = useState<string | null>(null);
+  const [roomLabel, setRoomLabel] = useState<string | null>(null);
   const [joinAttempt, setJoinAttempt] = useState(0);
   const [state, dispatch] = useReducer(roomStateReducer, initialRoomState);
   const { status, syncBlock, assetsUnreadable, ownsCanvas } = state;
@@ -285,6 +288,7 @@ export function useCollaborationRoom(options: {
       dispatch,
       onSaveStateChange: setSaveState,
       onSourceScene: setSourceSceneId,
+      onRoomLabel: setRoomLabel,
       getTranslate: () => tRef.current,
       getUsername: () => usernameRef.current,
       getCurrentSceneId: () => canvasRef.current.currentSceneId,
@@ -310,6 +314,7 @@ export function useCollaborationRoom(options: {
         handleRef.current = handle;
         if (!handle) {
           setSourceSceneId(null);
+          setRoomLabel(null);
           setSaveState({ status: "idle", revision: null, checksum: null });
         }
       },
@@ -420,6 +425,7 @@ export function useCollaborationRoom(options: {
   return {
     saveState,
     sourceSceneId,
+    roomLabel,
     requestSave,
     confirmExit,
     status: visibleStatus,

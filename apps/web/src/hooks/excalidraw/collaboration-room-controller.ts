@@ -97,6 +97,8 @@ export type CollaborationRoomControllerDeps = {
   cancelPendingCanvasDecision: () => void;
   onSaveStateChange?: RoomSessionOptions["onSaveStateChange"];
   onSourceScene?: (sceneId: string | null) => void;
+  /** The room's name as its owner set it ("" when unnamed). */
+  onRoomLabel?: (label: string) => void;
   restorePersonalCanvas?: () => void;
   wrapRemoteApply: (apply: () => void) => void;
   wrapPresenceApply: (apply: () => void) => void;
@@ -400,6 +402,7 @@ export function createCollaborationRoomController(
     try {
       const room = await lookUpRoom();
       if (!room) return;
+      deps.onRoomLabel?.(room.label);
       const joined = await joinRoom();
       if (!joined || cancelled) return;
       const reloading = readCanvasRoomId() === roomId;

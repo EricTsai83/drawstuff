@@ -202,6 +202,10 @@ export const en = {
   "collaboration.toast.existingRoom":
     "This scene already has a room. Opened it.",
   "collaboration.share.title": "Share room",
+  "collaboration.room.name": "Room name",
+  "collaboration.room.untitled": "Untitled room",
+  "collaboration.room.nameHint":
+    "Everyone you invite sees this name in their room list.",
   "collaboration.noAccess.title": "You don't have access to this room",
   "collaboration.noAccess.description":
     "Ask the owner for an invitation, or make sure you're signed in with the invited account.",

@@ -36,6 +36,8 @@ import { cn } from "@/lib/utils";
 
 export function EditorStorageStatus(props: {
   roomId: string | null;
+  /** The room's name; "" or null falls back to its short id. */
+  roomLabel?: string | null;
   state: RoomSaveState;
   sourceSceneId: string | null;
   onCopy: () => void;
@@ -60,7 +62,12 @@ export function EditorStorageStatus(props: {
       </Badge>
     ) : null;
   }
-  const roomLabel = t("storage.room", { roomId: props.roomId.slice(0, 8) });
+  // An unnamed room ("" from older rooms) falls back to its short id.
+  const roomName = props.roomLabel?.trim() ?? "";
+  const roomLabel =
+    roomName !== ""
+      ? roomName
+      : t("storage.room", { roomId: props.roomId.slice(0, 8) });
   const { status } = props.state;
   // Nothing changed yet (or a viewer, who cannot change anything): no status.
   const statusLabel =
@@ -176,7 +183,8 @@ export function EditorStorageStatus(props: {
             state={props.state}
             showSaveStatus={props.showSaveStatus}
           />
-          <span className="max-lg:hidden">{roomLabel}</span>
+          {/* A long room name must not widen the top row. */}
+          <span className="max-w-48 truncate max-lg:hidden">{roomLabel}</span>
         </TooltipTrigger>
         {/* How saving works, on demand rather than in the panel. */}
         <TooltipContent side="bottom" align="end" variant="default">

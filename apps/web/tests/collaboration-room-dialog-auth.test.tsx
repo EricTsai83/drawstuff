@@ -45,6 +45,7 @@ const {
 
 vi.mock("@/lib/collab/room-initialization", () => ({
   INITIALIZATION_SETTLE_MS: 15_000,
+  ROOM_LABEL_MAX_LENGTH: 120,
   createRoomInitialization: (
     options: Parameters<typeof RoomInitializer>[0],
   ) => {
@@ -212,6 +213,7 @@ const renderDialog = (
         isAuthenticationPending={params.isAuthenticationPending ?? false}
         sceneId={params.sceneId === undefined ? "scene-1" : params.sceneId}
         getInitialElements={params.getInitialElements ?? (() => [])}
+        defaultRoomName={params.defaultRoomName}
         getInitialFiles={params.getInitialFiles ?? (() => [])}
         onInitializationChange={params.onInitializationChange}
         roomId={params.roomId ?? null}
@@ -299,6 +301,40 @@ describe("collaboration room creation", () => {
     expect(initialCapture.current?.files?.[0]?.dataURL).toBe(
       "data:image/png;base64,AAAA",
     );
+  });
+
+  it("names the room after the scene by default and sends the typed name", async () => {
+    renderDialog({
+      isAuthenticated: true,
+      sceneId: null,
+      defaultRoomName: "Roadmap",
+    });
+    const input =
+      container!.querySelector<HTMLInputElement>("#collab-room-name")!;
+    expect(input.value).toBe("Roadmap");
+    await act(async () => {
+      Reflect.set(
+        HTMLInputElement.prototype,
+        "value",
+        " Design review ",
+        input,
+      );
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      button("Start collaboration").click();
+      await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
+    });
+    expect(initialCapture.current?.label).toBe("Design review");
+  });
+
+  it("names an unnamed room 'Untitled room' rather than leaving its id", async () => {
+    renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "" });
+    await act(async () => {
+      button("Start collaboration").click();
+      await vi.waitFor(() => expect(createMutate).toHaveBeenCalled());
+    });
+    expect(initialCapture.current?.label).toBe("Untitled room");
   });
 
   it("explains the room's protection without key or encryption wording", () => {
