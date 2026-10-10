@@ -98,7 +98,7 @@ import {
  * Everything shown here is a reflection of a server decision — the owner-only
  * actions are enforced by the API, and the read-only badge mirrors the role the
  * relay granted. Anonymous access is not offered anywhere: general access only
- * ever widens access for signed-in Drawstuff users (plan 21 §3).
+ * ever widens access for signed-in Drawstuff users (docs/architecture/collaboration-authority.md).
  */
 
 type LinkRole = "none" | "viewer" | "editor";
@@ -614,7 +614,7 @@ export function CollaborationRoomDialog({
     null,
   );
   useEffect(() => setConfirmAction(null), [roomId, open]);
-  // The invitation list decides access (plan 21 §3); people who opened the room
+  // The invitation list decides access (docs/architecture/collaboration-authority.md); people who opened the room
   // through general access are shown after it, read-only.
   const people = useMemo((): Person[] => {
     if (!room || !isOwner) return [];
@@ -778,7 +778,7 @@ export function CollaborationRoomDialog({
           </div>
         )}
 
-        {/* No access or no room (plan 21 §6): only the way back. */}
+        {/* No access or no room: only the way back. */}
         {!isAuthenticationPending && isAuthenticated && terminal && (
           <Button className="self-start" onClick={leaveTerminalRoom}>
             {t("storage.exit")}

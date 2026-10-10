@@ -262,7 +262,7 @@ const newestFirst = (a: ListedRoom, b: ListedRoom) =>
   b.listedAt - a.listedAt || (a.roomId < b.roomId ? 1 : -1);
 
 /**
- * One section of the room list (plan 21 §5), as a stable descending
+ * One section of the room list (docs/architecture/collaboration-authority.md), as a stable descending
  * (listedAt, roomId) keyset. `mine` merges the account's owned/invited rows
  * with invitations to its email it has not opened yet; `link` holds rooms
  * opened through general access only. Display copies, never authorization.

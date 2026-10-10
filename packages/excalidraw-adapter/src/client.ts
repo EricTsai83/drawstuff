@@ -20,6 +20,7 @@ import {
   restoreLibraryItems,
   Stats,
   THEME,
+  useDevice,
   useI18n,
   useHandleLibrary,
   UserIdleState,
@@ -269,6 +270,7 @@ export {
   Stats as ExcalidrawStats,
   THEME as EXCALIDRAW_THEME,
   useI18n as useExcalidrawI18n,
+  useDevice as useExcalidrawDevice,
   UserIdleState as EXCALIDRAW_USER_IDLE_STATE,
   WelcomeScreen as ExcalidrawWelcomeScreen,
 };

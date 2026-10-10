@@ -23,6 +23,8 @@ export function TopRightControls({
     onSlotChange?.(isMobile);
   }, [isMobile, onSlotChange]);
 
+  // The mobile toolbar row has no room to spare; the room badge is placed by
+  // MobileRoomBadge and quick actions live in the main menu.
   if (isMobile) {
     return null;
   }

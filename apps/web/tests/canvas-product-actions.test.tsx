@@ -64,6 +64,30 @@ describe("Canvas product action presentations", () => {
     ).toBe(tooltip);
   });
 
+  it("leaves the cramped mobile toolbar row empty", () => {
+    act(() =>
+      root.render(
+        withI18n(
+          <TopRightControls
+            actions={{
+              collaboration: {
+                status: "idle",
+                isReadOnly: false,
+                onActivate: vi.fn(),
+              },
+              cloudSave: null,
+              share: null,
+            }}
+            isMobile
+            onLibraryActivate={vi.fn()}
+            storageStatus={<span>desktop status</span>}
+          />,
+        ),
+      ),
+    );
+    expect(container.textContent).toBe("");
+  });
+
   it("groups save with the compact shortcut actions", async () => {
     const save = vi.fn();
     const collaborate = vi.fn();

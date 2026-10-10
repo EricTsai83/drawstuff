@@ -701,7 +701,7 @@ export const collaborationSnapshot = createTable(
  * 「還沒上傳」與「不存在」。
  *
  * 內容是 `encodeCollaborationAssetPayload` 的明文 bytes，放在 UploadThing 的
- * public URL，暴露程度與個人場景圖片相同（ADR-0005、plan 21 D6）。
+ * public URL，暴露程度與個人場景圖片相同（ADR-0005）。
  *
  * 為什麼不放進 `file_record`：那張表的 parent 是 scene／sharedScene、retention
  * 跟著 scene 走。Room asset 的 parent 是 room、retention 跟著 room 走，而 writer

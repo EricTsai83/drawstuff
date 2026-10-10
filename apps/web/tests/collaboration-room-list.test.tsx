@@ -121,7 +121,7 @@ const openMenu = async (row: Element) => {
 const MINE_EMPTY = "Rooms you create or are invited to appear here.";
 const LINK_EMPTY = "Rooms you open from a shared link appear here.";
 
-describe("collaboration room list (plan 21 §5)", () => {
+describe("collaboration room list", () => {
   it("queries and renders the two sections separately", () => {
     render(
       {

@@ -49,6 +49,7 @@ import {
   savedFlashKey,
 } from "./editor-storage-status";
 import { useTransientKey } from "@/hooks/use-transient-key";
+import { MobileRoomBadge } from "./mobile-room-badge";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
 import type { CanvasProductActions } from "./canvas-product-actions";
@@ -431,6 +432,14 @@ export default function ExcalidrawEditor() {
               compactPresentation={isMobileCanvasSlot !== false}
               storageStatus={<EditorStorageStatus {...storageStatusProps} />}
             />
+
+            {storageStatusProps.roomId && (
+              <MobileRoomBadge
+                belowToolbar={!(isCollaborationReadOnly || isRoomInitializing)}
+              >
+                <EditorStorageStatus {...storageStatusProps} compact />
+              </MobileRoomBadge>
+            )}
 
             <SceneRenameDialog
               excalidrawAPI={excalidrawAPI}
