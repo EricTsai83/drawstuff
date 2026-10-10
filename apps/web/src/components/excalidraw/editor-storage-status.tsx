@@ -51,14 +51,8 @@ export function EditorStorageStatus(props: {
   compact?: boolean;
   /** Mobile: an edge-attached square matching upstream's tools column. */
   edge?: boolean;
-  /**
-   * This client's own edits were just confirmed saved (see `savedFlashKey`);
-   * computed once by the editor so every surface agrees.
-   */
-  justSaved: boolean;
 }) {
   const { t } = useAppI18n();
-  const justSaved = props.justSaved;
   if (!props.roomId) {
     // A personal canvas is the default and needs no label — unless it was
     // detached from a scene its edits are no longer in.
@@ -84,7 +78,7 @@ export function EditorStorageStatus(props: {
   const statusLabel =
     props.showSaveStatus &&
     status !== "idle" &&
-    (status !== "saved" || justSaved || props.state.localSaves > 0)
+    (status !== "saved" || props.state.localSaves > 0)
       ? t(`storage.room.${status}`)
       : null;
   const panel = (
@@ -108,8 +102,9 @@ export function EditorStorageStatus(props: {
             role="status"
             aria-live="polite"
             className={cn(
-              // Reserves its line so the first change does not grow the panel.
-              "flex min-h-4 items-center gap-1 text-xs",
+              // Takes no space while empty, so the name sits centred beside
+              // the icon until there is a status to show.
+              "flex items-center gap-1 text-xs empty:hidden",
               status === "failed"
                 ? "text-destructive"
                 : "text-muted-foreground",
@@ -186,18 +181,15 @@ export function EditorStorageStatus(props: {
             // Upstream's own island tokens, so it reads as the next button of
             // the tools column rather than a separate control.
             props.edge &&
-              "h-8 w-[calc(2rem+1px)] justify-center gap-0 rounded-none rounded-l-[var(--border-radius-lg)] border border-r-0 border-[var(--sidebar-border-color)] bg-[var(--island-bg-color)] px-0 text-[var(--icon-fill-color)] hover:bg-[var(--button-hover-bg)] max-lg:px-0",
-            statusLabel &&
-              status === "failed" &&
-              "bg-destructive/10 text-destructive",
+              "h-9 w-[calc(2.25rem+1px)] justify-center gap-0 rounded-none rounded-l-[var(--border-radius-lg)] border border-r-0 border-[var(--sidebar-border-color)] bg-[var(--island-bg-color)] px-0 text-[var(--icon-fill-color)] hover:bg-[var(--button-hover-bg)] max-lg:px-0",
           )}
-          aria-label={statusLabel ? `${roomLabel} · ${statusLabel}` : roomLabel}
+          aria-label={roomLabel}
         >
-          <BadgeStatusIcon
-            large={props.edge}
-            justSaved={justSaved}
-            state={props.state}
-            showSaveStatus={props.showSaveStatus}
+          {/* The canvas button only names the room; save status lives in
+              the panel it opens. */}
+          <Users
+            className={cn("shrink-0", props.edge ? "size-4" : "size-3")}
+            aria-hidden="true"
           />
           {/* A long room name must not widen the top row. */}
           {!props.edge && (
@@ -205,13 +197,8 @@ export function EditorStorageStatus(props: {
           )}
         </TooltipTrigger>
         <TooltipContent side="bottom" align="end" variant="default">
-          <span className="flex flex-col gap-0.5">
-            {/* Never empty: the room's (possibly truncated) name, then status. */}
-            <span className="font-medium">{roomLabel}</span>
-            {statusLabel && (
-              <span className="text-muted-foreground">{statusLabel}</span>
-            )}
-          </span>
+          {/* The room's (possibly truncated) name; status is in the panel. */}
+          <span className="font-medium">{roomLabel}</span>
         </TooltipContent>
       </Tooltip>
       <PopoverContent align="end" className="w-auto p-3">
@@ -252,46 +239,6 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
     );
   return (
     <span className="size-1.5 rounded-full bg-amber-500" aria-hidden="true" />
-  );
-}
-
-/**
- * The badge's status lives in its fixed-size leading icon, so a save never
- * changes the badge's width: a save in progress or a failure replaces the
- * room icon (people, not a lock: a lock reads as "canvas locked"), and a
- * confirmed save shows a check for a moment before it returns. The words stay
- * in the panel, the tooltip and the live region.
- */
-function BadgeStatusIcon(props: {
-  /** Tool-sized (1rem) for the mobile edge button. */
-  large?: boolean;
-  justSaved: boolean;
-  state: RoomSaveState;
-  showSaveStatus: boolean;
-}) {
-  const { status } = props.state;
-  // Edits waiting for the next automatic save are routine, so they keep the
-  // lock; the panel still says so.
-  const settled =
-    !props.showSaveStatus ||
-    status === "idle" ||
-    status === "pending" ||
-    (status === "saved" && !props.justSaved);
-  return (
-    <span
-      className={cn(
-        "flex shrink-0 items-center justify-center",
-        props.large ? "size-4 [&_svg]:size-4" : "size-3",
-      )}
-      data-status={settled ? "settled" : status}
-      aria-hidden="true"
-    >
-      {settled ? (
-        <Users className={props.large ? "size-4" : "size-3"} />
-      ) : (
-        <SaveStatusIcon status={status} />
-      )}
-    </span>
   );
 }
 

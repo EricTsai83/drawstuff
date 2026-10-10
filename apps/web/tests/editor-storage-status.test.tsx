@@ -36,7 +36,6 @@ const renderStatus = (
         isAuthenticated
         detachedFromSceneName={null}
         showSaveStatus
-        justSaved={false}
         {...props}
       />,
     ),
@@ -53,28 +52,6 @@ describe("editor storage status (18C §5)", () => {
     );
   });
 
-  it("says nothing about the save already there when entering a room", () => {
-    const container = renderStatus({ roomId: "room-alpha-1", compact: true });
-    const badge = container.querySelector("button");
-    expect(
-      badge?.querySelector("[data-status]")?.getAttribute("data-status"),
-    ).toBe("settled");
-    expect(badge?.getAttribute("aria-label")).not.toContain("Saved");
-  });
-
-  it("marks this client's own save briefly, without changing its width", () => {
-    const container = renderStatus({
-      roomId: "room-alpha-1",
-      compact: true,
-      justSaved: true,
-    });
-    const badge = container.querySelector("button");
-    expect(
-      badge?.querySelector("[data-status]")?.getAttribute("data-status"),
-    ).toBe("saved");
-    expect(badge?.getAttribute("aria-label")).toContain("Saved");
-  });
-
   it("keeps saying Saved once this client has saved during the visit", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",
@@ -83,6 +60,21 @@ describe("editor storage status (18C §5)", () => {
     expect(container.querySelector('[role="status"]')?.textContent).toBe(
       "Saved",
     );
+  });
+
+  it("keeps save status off the canvas button; only the panel shows it", () => {
+    for (const status of ["pending", "saving", "saved", "failed"] as const) {
+      const container = renderStatus({
+        roomId: "room-alpha-1",
+        roomLabel: "Roadmap",
+        compact: true,
+        state: { status, revision: 1, checksum: null, localSaves: 1 },
+      });
+      const badge = container.querySelector("button");
+      expect(badge?.getAttribute("aria-label")).toBe("Roadmap");
+      expect(badge?.querySelector("svg.animate-spin")).toBeNull();
+      act(() => root?.unmount());
+    }
   });
 
   it("says nothing about saving before anything has changed", () => {
@@ -107,25 +99,6 @@ describe("editor storage status (18C §5)", () => {
     expect(container.textContent).toContain("Changes not saved yet");
   });
 
-  it("never shows a viewer a save status", () => {
-    const container = renderStatus({
-      roomId: "room-alpha-1",
-      state: {
-        status: "pending",
-        revision: null,
-        checksum: null,
-        localSaves: 0,
-      },
-      showSaveStatus: false,
-      compact: true,
-    });
-    const badge = container.querySelector("button");
-    expect(badge?.getAttribute("aria-label")).toBe("Room · room-alp");
-    expect(
-      badge?.querySelector("[data-status]")?.getAttribute("data-status"),
-    ).toBe("settled");
-  });
-
   it("offers a way back to the personal canvas from the room panel", () => {
     const onExit = vi.fn();
     const container = renderStatus({ roomId: "room-alpha-1", onExit });
@@ -134,37 +107,5 @@ describe("editor storage status (18C §5)", () => {
     );
     act(() => exit?.click());
     expect(onExit).toHaveBeenCalledOnce();
-  });
-
-  it("keeps the lock while edits wait for the next save", () => {
-    const container = renderStatus({
-      roomId: "room-alpha-1",
-      compact: true,
-      state: { status: "pending", revision: 3, checksum: null, localSaves: 0 },
-    });
-    expect(
-      container.querySelector("[data-status]")?.getAttribute("data-status"),
-    ).toBe("settled");
-  });
-
-  it("keeps a failed save on the badge until it resolves", () => {
-    vi.useFakeTimers();
-    try {
-      const container = renderStatus({
-        roomId: "room-alpha-1",
-        compact: true,
-        state: { status: "failed", revision: 1, checksum: null, localSaves: 0 },
-      });
-      act(() => {
-        vi.advanceTimersByTime(10_000);
-      });
-      const badge = container.querySelector("button");
-      expect(
-        badge?.querySelector("[data-status]")?.getAttribute("data-status"),
-      ).toBe("failed");
-      expect(badge?.getAttribute("aria-label")).toContain("Save failed");
-    } finally {
-      vi.useRealTimers();
-    }
   });
 });
