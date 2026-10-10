@@ -6,17 +6,17 @@
 }
 
 /* Upstream sizes the top row 1fr 2fr 1fr, and an fr track never shrinks below
-   its content: a wider right side (room badge, collaborator avatars) pushes
-   the tools off-centre, and near the desktop breakpoint widens the row past
-   the viewport. Equal side tracks that may shrink keep the tools centred and
-   the row inside the canvas whatever appears beside them. */
+   its content: the right side (room badge, collaborator avatars) widens its
+   track, pushes the tools off-centre, and near the desktop breakpoint widens
+   the row past the viewport. Equal side tracks keep the tools centred while
+   there is room; the right track never drops below its content, so when space
+   runs out the tools give way instead of being covered. */
 :global(.excalidraw.excalidraw .App-menu_top) {
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(min-content, 1fr);
 }
 
-/* When the right side is wider than its track, overflow toward the tools
-   (into the 2rem track gap) instead of past the viewport's right edge. */
-:global(.excalidraw.excalidraw .App-menu_top > *:last-child) {
-  min-width: 0;
-  justify-self: unsafe end;
+/* In view mode upstream omits the tools, leaving two children; pin the right
+   controls to the last track so they stay at the edge instead of the centre. */
+:global(.excalidraw.excalidraw .App-menu_top > .layer-ui__wrapper__top-right) {
+  grid-column: 3;
 }
