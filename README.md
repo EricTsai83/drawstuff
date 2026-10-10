@@ -13,17 +13,20 @@
 
 ## Overview
 
-drawstuff combines a full-screen Excalidraw editor with cloud persistence, workspace organization,
-encrypted sharing, real-time collaboration, and public read-only pages.
+drawstuff is Excalidraw with an account: draw instantly without signing in, then keep your scenes
+in the cloud, organize them, share them, and edit them together in real time.
 
 ### Features
 
-- Import, export, autosave, thumbnails, and attached binary assets
-- Workspaces with scene search, filters, and categories
-- Client-side compressed and AES-GCM end-to-end encrypted read-only share links
-- Real-time collaboration rooms through a Cloudflare Durable Object gateway, with Google Docs-style access (owner, invitation list, general link access) and a room list on every device
-- Public read-only pages at `/p/[slug]`
-- English and Traditional Chinese UI
+- **Draw first, sign in later** – the editor works signed out; after signing in you can save the draft as a new scene
+- **Cloud scenes** – autosave, thumbnails, images, import/export, and a personal library synced across devices
+- **Organize** – workspaces, categories, search, filters, and archive
+- **Share two ways** – end-to-end encrypted read-only links, or public pages at `/p/[slug]` with link previews
+- **Real-time collaboration** – rooms with owner, invite list, and link access, like Google Docs
+- **English and Traditional Chinese**, light and dark themes
+
+> Only share links are end-to-end encrypted. Collaboration rooms are protected by sign-in and
+> access rules; see the [threat model](./docs/architecture/collaboration-threat-model.md).
 
 ## Tech Stack
 
@@ -85,14 +88,9 @@ is [apps/web/src/env.ts](./apps/web/src/env.ts).
 | Rate limiting  | `UPSTASH_REDIS_REST_URL`, `UPSTASH_REDIS_REST_TOKEN`                                               |
 | Maintenance    | `CRON_SECRET`, `CLEANUP_OWNER_EMAIL`                                                               |
 
-Optional collaboration settings:
-
-- `COLLAB_ROOMS_DISABLED=true` stops issuing identity proofs and refuses room commands, snapshots and assets during an incident; open sockets are not closed.
-
-The three collaboration secrets must each be at least 32 characters and hold the same values as
-the Worker secrets of the same name. The Worker additionally needs `COLLAB_ADAPTER_URL`; the
-[Worker deployment runbook](./docs/operations/collaboration-do-deployment.md#2-secrets) lists every secret.
-`BETTER_AUTH_URL` and `NEXT_PUBLIC_BASE_URL` must be the same origin. For Google OAuth, register
+The three collaboration secrets must each be at least 32 characters and match the Worker secrets of
+the same name ([full list](./docs/operations/collaboration-do-deployment.md#2-secrets)).
+`BETTER_AUTH_URL` and `NEXT_PUBLIC_BASE_URL` must be the same origin, and Google OAuth needs
 `<origin>/api/auth/callback/google` as an authorized redirect URI.
 
 ## Architecture
@@ -109,13 +107,6 @@ packages/
 Dependencies flow one way: the web app consumes both shared packages, while the Worker consumes
 only the server-safe collaboration entries. See the
 [architecture contract](./docs/architecture/architecture-contract.md) for ownership rules.
-
-Collaboration rooms are not encrypted: like owned scenes, they are protected by sign-in and access
-rules that the room Durable Object evaluates on every check. Realtime traffic is protected by TLS;
-snapshots live in Neon and room images are public UploadThing URLs, the same exposure as scene
-images. Only share links are end-to-end encrypted. The full design and limitations are documented
-in the [collaboration system design](./docs/architecture/collaboration-system-design.md) and
-[threat model](./docs/architecture/collaboration-threat-model.md).
 
 ## Useful Scripts
 
@@ -134,23 +125,14 @@ in the [collaboration system design](./docs/architecture/collaboration-system-de
 Cloudflare commands such as `pnpm cf:preflight`, `pnpm cf:deploy`, and `pnpm cf:smoke` are described
 in the [Worker README](./apps/collaboration-do/README.md).
 
-## Administration and Operations
+## Operations
 
-After the first production deployment, sign in once with the intended operator account, then run:
-
-```bash
-pnpm admin:bootstrap --email operator@example.com
-```
-
-Use `/admin` for later access changes and retirement operations. Production schema changes,
-bootstrap safety, and recovery procedures are covered by the
-[administrative runbook](./docs/operations/admin-data-retirement.md). Collaboration deployment and
-rollback procedures live in the
-[Worker deployment runbook](./docs/operations/collaboration-do-deployment.md).
-
-The scheduled cleanup endpoint is `POST /api/maintenance/cleanup`, authenticated with
-`Authorization: Bearer <CRON_SECRET>`. Review its retention behavior before enabling the default
-Vercel schedule (`30 3 * * 1`).
+- **First operator** – sign in once, then run `pnpm admin:bootstrap --email <you>`; use `/admin` afterwards
+  ([admin runbook](./docs/operations/admin-data-retirement.md)).
+- **Collaboration Worker** – deploy, rollback, and the `COLLAB_ROOMS_DISABLED` kill switch are in the
+  [Worker deployment runbook](./docs/operations/collaboration-do-deployment.md).
+- **Cleanup cron** – `POST /api/maintenance/cleanup` with `Authorization: Bearer <CRON_SECRET>`; review
+  its retention behavior before enabling the default Vercel schedule (`30 3 * * 1`).
 
 ## Documentation
 
