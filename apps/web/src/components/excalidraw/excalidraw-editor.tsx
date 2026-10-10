@@ -434,13 +434,17 @@ export default function ExcalidrawEditor() {
               cancelPendingSceneSave={cancelPendingSceneSave}
               productActions={productActions}
               compactPresentation={isMobileCanvasSlot !== false}
-              storageStatus={<EditorStorageStatus {...storageStatusProps} />}
+              // In a room the room button on the canvas carries this; the
+              // menu keeps only the personal canvas's detached-draft note.
+              storageStatus={
+                isRoomMode ? undefined : (
+                  <EditorStorageStatus {...storageStatusProps} />
+                )
+              }
             />
 
             {storageStatusProps.roomId && (
-              <MobileRoomBadge
-                belowToolbar={!(isCollaborationReadOnly || isRoomInitializing)}
-              >
+              <MobileRoomBadge>
                 <EditorStorageStatus {...storageStatusProps} compact />
               </MobileRoomBadge>
             )}

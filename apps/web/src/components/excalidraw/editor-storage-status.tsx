@@ -10,7 +10,7 @@ import {
   Download,
   FilePlus2,
   LoaderCircle,
-  LockKeyhole,
+  Users,
   LogOut,
   RefreshCw,
   type LucideIcon,
@@ -88,7 +88,7 @@ export function EditorStorageStatus(props: {
     >
       <div className="flex items-start gap-2.5 px-1 pb-3">
         <span className="bg-primary/10 text-primary mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md">
-          <LockKeyhole className="size-3.5" aria-hidden="true" />
+          <Users className="size-3.5" aria-hidden="true" />
         </span>
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="truncate text-sm font-medium" title={props.roomId}>
@@ -246,7 +246,7 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
 /**
  * The badge's status lives in its fixed-size leading icon, so a save never
  * changes the badge's width: a save in progress or a failure replaces the
- * lock, and a confirmed save shows a check for a moment before it returns. The words
+ * room icon (people, not a lock: a lock reads as "canvas locked"), and a confirmed save shows a check for a moment before it returns. The words
  * stay in the panel, the tooltip and the live region.
  */
 function BadgeStatusIcon(props: {
@@ -273,7 +273,7 @@ function BadgeStatusIcon(props: {
       aria-hidden="true"
     >
       {settled ? (
-        <LockKeyhole className="size-3" />
+        <Users className="size-3" />
       ) : (
         <SaveStatusIcon status={status} />
       )}
