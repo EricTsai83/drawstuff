@@ -35,7 +35,15 @@ export function createArtifactSceneSource(
 
   return {
     key: location.url,
-    load: async (signal: AbortSignal) =>
-      parsePublishedSvgArtifact(await fetchText(signal)),
+    load: async (signal: AbortSignal) => {
+      try {
+        return parsePublishedSvgArtifact(await fetchText(signal));
+      } catch (error) {
+        // Only text that parsed stays cached: a Retry after an invalid
+        // response must download again, not re-parse the same bad text.
+        text = undefined;
+        throw error;
+      }
+    },
   };
 }

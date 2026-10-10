@@ -23,7 +23,7 @@ import {
 
 import { applyArtifactTheme } from "@/lib/svg-theme-variants";
 import { DrawstuffLogo } from "@/components/icons";
-import { buttonVariants } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
@@ -138,6 +138,8 @@ export function PublishedSceneViewer({
   const [sceneSvg, setSceneSvg] = useState<SVGSVGElement | null>(null);
   const [fontsReady, setFontsReady] = useState(false);
   const [loadError, setLoadError] = useState(false);
+  /** Bumped by Retry to run the artifact load again. */
+  const [loadAttempt, setLoadAttempt] = useState(0);
   const [isFetchingScene, setIsFetchingScene] = useState(true);
   const [uiVisible, setUiVisible] = useState(true);
   const [controlsMenuOpen, setControlsMenuOpen] = useState(false);
@@ -223,7 +225,7 @@ export function PublishedSceneViewer({
       isActive = false;
       controller.abort();
     };
-  }, [source]);
+  }, [source, loadAttempt]);
 
   // fonts.css declares the canvas faces with `font-display: block`, so text is
   // invisible until its faces arrive. Ask for exactly the faces the exported
@@ -389,10 +391,11 @@ export function PublishedSceneViewer({
     setTheme(browserActiveTheme === "light" ? "dark" : "light");
   };
 
+  // The toggle is named for what pressing it does: switch to the other theme.
   const themeLabel =
     browserActiveTheme === "light"
-      ? t("public.theme.light")
-      : t("public.theme.dark");
+      ? t("public.theme.dark")
+      : t("public.theme.light");
 
   const sceneVisible = hasFitted && fontsReady;
   const isLoading = !sceneVisible && !loadError;
@@ -693,10 +696,28 @@ export function PublishedSceneViewer({
         </div>
 
         {loadError && (
-          <div className="bg-background absolute inset-0 flex items-center justify-center">
+          // Never a dead end: retry the load, or leave for the app.
+          <div className="bg-background absolute inset-0 flex flex-col items-center justify-center gap-4">
             <p className="text-muted-foreground text-sm">
               {t("public.viewer.loadError")}
             </p>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => setLoadAttempt((attempt) => attempt + 1)}
+              >
+                {t("buttons.retry")}
+              </Button>
+              <Button
+                variant="ghost"
+                // A full document load: leaving /p's tighter CSP (see header).
+                // eslint-disable-next-line @next/next/no-html-link-for-pages -- crossing the /p CSP boundary must load a new document
+                render={<a href="/" />}
+                nativeButton={false}
+              >
+                {t("public.viewer.goHome")}
+              </Button>
+            </div>
           </div>
         )}
 

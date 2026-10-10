@@ -50,6 +50,7 @@ import {
 } from "./editor-storage-status";
 import { useTransientKey } from "@/hooks/use-transient-key";
 import { MobileRoomBadge } from "./mobile-room-badge";
+import { meaningfulSceneName } from "@/lib/scene-name";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
 import type { CanvasProductActions } from "./canvas-product-actions";
@@ -160,6 +161,7 @@ export default function ExcalidrawEditor() {
   const {
     roomSaveState,
     sourceSceneId,
+    collaborationRoomLabel,
     requestRoomSave,
     confirmRoomExit,
     collaborationRoomId,
@@ -327,6 +329,7 @@ export default function ExcalidrawEditor() {
     () => ({
       // A terminal room has nothing to save or copy from; the dialog explains.
       roomId: isRoomMode && !isRoomTerminal ? collaborationRoomId : null,
+      roomLabel: collaborationRoomLabel,
       state: roomSaveState,
       showSaveStatus: collaborationRole !== "viewer",
       sourceSceneId,
@@ -344,6 +347,7 @@ export default function ExcalidrawEditor() {
       isRoomMode,
       isRoomTerminal,
       collaborationRoomId,
+      collaborationRoomLabel,
       roomSaveState,
       collaborationRole,
       sourceSceneId,
@@ -441,16 +445,18 @@ export default function ExcalidrawEditor() {
               </MobileRoomBadge>
             )}
 
-            <SceneRenameDialog
-              excalidrawAPI={excalidrawAPI}
-              trigger={
-                <SceneNameTrigger
-                  sceneName={sceneName}
-                  isMobileSlot={isMobileCanvasSlot !== false}
-                />
-              }
-              onConfirmName={handleSceneRename}
-            />
+            {!isRoomMode && (
+              <SceneRenameDialog
+                excalidrawAPI={excalidrawAPI}
+                trigger={
+                  <SceneNameTrigger
+                    sceneName={sceneName}
+                    isMobileSlot={isMobileCanvasSlot !== false}
+                  />
+                }
+                onConfirmName={handleSceneRename}
+              />
+            )}
 
             <Footer>
               <EditorFooter
@@ -483,6 +489,7 @@ export default function ExcalidrawEditor() {
               }
               collaboration={{
                 open: isCollaborationDialogOpen,
+                defaultRoomName: meaningfulSceneName(sceneName),
                 onOpenChange: setIsCollaborationDialogOpen,
                 isAuthenticated: !!session,
                 authIdentity: session?.user.id ?? null,

@@ -36,6 +36,8 @@ import { cn } from "@/lib/utils";
 
 export function EditorStorageStatus(props: {
   roomId: string | null;
+  /** The room's name; "" or null falls back to its short id. */
+  roomLabel?: string | null;
   state: RoomSaveState;
   sourceSceneId: string | null;
   onCopy: () => void;
@@ -60,13 +62,25 @@ export function EditorStorageStatus(props: {
       </Badge>
     ) : null;
   }
-  const roomLabel = t("storage.room", { roomId: props.roomId.slice(0, 8) });
+  // An unnamed room ("" from older rooms) falls back to its short id.
+  const roomName = props.roomLabel?.trim() ?? "";
+  const roomLabel =
+    roomName !== ""
+      ? roomName
+      : t("storage.room", { roomId: props.roomId.slice(0, 8) });
   const { status } = props.state;
+  // Never a raw scene id: without a known name, the action says what it is.
+  const sourceName = preservedSourceScene()?.name;
   // Nothing changed yet (or a viewer, who cannot change anything): no status.
   const statusLabel =
     props.showSaveStatus && status !== "idle"
       ? t(`storage.room.${status}`)
       : null;
+  // How saving works lives in the panel, not only a hover tooltip, so touch
+  // users see it too.
+  const autosave = t("storage.room.autosave", {
+    seconds: String(SNAPSHOT_INTERVAL_MS / 1000),
+  });
   const panel = (
     <div
       className="flex w-64 max-w-full flex-col"
@@ -98,6 +112,9 @@ export function EditorStorageStatus(props: {
               </>
             )}
           </span>
+          {props.showSaveStatus && (
+            <span className="text-muted-foreground text-xs">{autosave}</span>
+          )}
         </div>
       </div>
       <div className="flex flex-col border-t pt-2">
@@ -114,9 +131,9 @@ export function EditorStorageStatus(props: {
               void props.onUpdateSource(props.sourceSceneId)
             }
           >
-            {t("storage.updateSource", {
-              name: preservedSourceScene()?.name ?? props.sourceSceneId,
-            })}
+            {sourceName
+              ? t("storage.updateSource", { name: sourceName })
+              : t("storage.updateSourceUnnamed")}
           </PanelAction>
         )}
         <PanelAction
@@ -147,9 +164,6 @@ export function EditorStorageStatus(props: {
     </div>
   );
   if (!props.compact) return panel;
-  const autosave = t("storage.room.autosave", {
-    seconds: String(SNAPSHOT_INTERVAL_MS / 1000),
-  });
   return (
     <Popover>
       <Tooltip delay={300}>
@@ -176,14 +190,16 @@ export function EditorStorageStatus(props: {
             state={props.state}
             showSaveStatus={props.showSaveStatus}
           />
-          <span className="max-lg:hidden">{roomLabel}</span>
+          {/* A long room name must not widen the top row. */}
+          <span className="max-w-48 truncate max-lg:hidden">{roomLabel}</span>
         </TooltipTrigger>
-        {/* How saving works, on demand rather than in the panel. */}
         <TooltipContent side="bottom" align="end" variant="default">
           <span className="flex flex-col gap-0.5">
-            <span className="font-medium lg:hidden">{roomLabel}</span>
-            {statusLabel && <span className="font-medium">{statusLabel}</span>}
-            <span className="text-muted-foreground">{autosave}</span>
+            {/* Never empty: the room's (possibly truncated) name, then status. */}
+            <span className="font-medium">{roomLabel}</span>
+            {statusLabel && (
+              <span className="text-muted-foreground">{statusLabel}</span>
+            )}
           </span>
         </TooltipContent>
       </Tooltip>

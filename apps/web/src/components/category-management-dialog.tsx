@@ -229,9 +229,12 @@ export function CategoryManagementDialog({
                         {categoryItem.name}
                       </span>
                       <Badge variant="secondary" className="shrink-0 text-xs">
-                        {t("category.manage.sceneCount", {
-                          count: categoryItem.sceneCount,
-                        })}
+                        {t(
+                          categoryItem.sceneCount === 1
+                            ? "category.manage.sceneCountOne"
+                            : "category.manage.sceneCount",
+                          { count: categoryItem.sceneCount },
+                        )}
                       </Badge>
                       <Button
                         type="button"
@@ -275,10 +278,15 @@ export function CategoryManagementDialog({
           <AlertDialogHeader>
             <AlertDialogTitle>{t("category.manage.delete")}</AlertDialogTitle>
             <AlertDialogDescription>
-              {t("category.manage.deleteConfirm.description", {
-                name: deleteTarget?.name ?? "",
-                count: deleteTarget?.sceneCount ?? 0,
-              })}
+              {t(
+                deleteTarget?.sceneCount === 1
+                  ? "category.manage.deleteConfirm.descriptionOne"
+                  : "category.manage.deleteConfirm.description",
+                {
+                  name: deleteTarget?.name ?? "",
+                  count: deleteTarget?.sceneCount ?? 0,
+                },
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

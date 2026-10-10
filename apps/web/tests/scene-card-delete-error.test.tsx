@@ -3,9 +3,10 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-const { toastError, deleteMutate } = vi.hoisted(() => ({
+const { toastError, deleteMutate, routerBack } = vi.hoisted(() => ({
   toastError: vi.fn(),
   deleteMutate: vi.fn(),
+  routerBack: vi.fn(),
 }));
 
 vi.mock("sonner", () => ({
@@ -23,7 +24,7 @@ vi.mock("next/image", () => ({
 }));
 
 vi.mock("next/navigation", () => ({
-  useRouter: () => ({ back: vi.fn() }),
+  useRouter: () => ({ back: routerBack }),
 }));
 
 vi.mock("@/hooks/use-app-i18n", async () => {
@@ -269,5 +270,38 @@ describe("SceneCard delete failure", () => {
     // 失敗後 dialog 必須能實際關閉（onOpenChange 路徑）
     click(document.querySelector('[data-testid="dialog-close"]'));
     expect(document.querySelector('[data-testid="delete-dialog"]')).toBeNull();
+  });
+});
+
+describe("SceneCard opening", () => {
+  const renderCard = () => {
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+    act(() => {
+      root?.render(
+        <SceneCard item={item} workspaces={[]} categories={undefined} />,
+      );
+    });
+    return container.querySelector<HTMLElement>('[role="link"]')!;
+  };
+
+  it("opens the scene on a single click and on Enter", () => {
+    const card = renderCard();
+    expect(card.getAttribute("aria-label")).toBe("Open My scene in the editor");
+    click(card.querySelector("img"));
+    expect(routerBack).toHaveBeenCalledTimes(1);
+    act(() => {
+      card.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    expect(routerBack).toHaveBeenCalledTimes(2);
+  });
+
+  it("leaves clicks on the card's own controls to them", () => {
+    renderCard();
+    click(document.querySelector('[data-testid="menu-delete"]'));
+    expect(routerBack).not.toHaveBeenCalled();
   });
 });

@@ -14,6 +14,7 @@ export const en = {
   "storage.saveRoom": "Save the room",
   "storage.copy": "Save a copy to my scenes",
   "storage.updateSource": "Update my original scene “{name}”",
+  "storage.updateSourceUnnamed": "Update my original scene",
   "storage.download": "Download a local copy",
   "storage.exit": "Back to my canvas",
   "storage.exitNotice": "The room stays open.",
@@ -21,7 +22,7 @@ export const en = {
     "The room is unchanged. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
   "storage.downloadNotice": "Saves a .excalidraw file to this device.",
   "storage.personalCopySaved":
-    "Saved to my scenes. The room save status is unchanged.",
+    "Saved a copy to my scenes. The room itself saves separately.",
   "storage.keepRoom": "Keep editing this room",
   "storage.keepRoomNotice":
     "Keep the room intact and resolve the original scene later.",
@@ -90,6 +91,8 @@ export const en = {
   "labels.fileTitle": "File title",
   "labels.description": "Description",
   "labels.copy": "Copy",
+  "labels.copied": "Copied",
+  "labels.copyFailed": "Couldn't copy. Select the text and copy it manually.",
   "labels.share": "Share",
   "canvas.actions.quick": "Quick actions",
   "canvas.actions.closeQuick": "Close quick actions",
@@ -192,6 +195,10 @@ export const en = {
   "collaboration.dialogStatus.joinFailed": "Join failed. Try again.",
   "collaboration.dialogStatus.rateLimited": "Too many attempts. Try later.",
   "collaboration.dialogStatus.cancelled": "Join cancelled",
+  "collaboration.toast.stillConfirming":
+    "Still confirming. Check again in a moment.",
+  "collaboration.toast.creationStopped":
+    "The room wasn't finished. Try creating it again, or cancel it.",
   "collaboration.toast.enforcementPending":
     "Permissions updated. They may take a moment to apply.",
   "collaboration.toast.retryPrevious":
@@ -202,6 +209,10 @@ export const en = {
   "collaboration.toast.existingRoom":
     "This scene already has a room. Opened it.",
   "collaboration.share.title": "Share room",
+  "collaboration.room.name": "Room name",
+  "collaboration.room.untitled": "Untitled room",
+  "collaboration.room.nameHint":
+    "Everyone you invite sees this name in their room list.",
   "collaboration.noAccess.title": "You don't have access to this room",
   "collaboration.noAccess.description":
     "Ask the owner for an invitation, or make sure you're signed in with the invited account.",
@@ -231,13 +242,14 @@ export const en = {
   "collaboration.members.next": "Next page",
   "collaboration.rooms.title": "Rooms",
   "collaboration.rooms.create": "New room",
-  "collaboration.rooms.retry": "Retry initialization",
+  "collaboration.rooms.retry": "Try creating again",
   "collaboration.rooms.open": "Open room",
   "collaboration.rooms.hint":
     "Rooms you own, were invited to, or opened with a link.",
   "collaboration.rooms.unfinished": "Setup didn't finish.",
-  "collaboration.rooms.copyId": "Copy room ID",
-  "collaboration.rooms.idCopied": "Room ID copied.",
+  "collaboration.rooms.copyLink": "Copy link",
+  "collaboration.rooms.linkCopied": "Link copied.",
+  "collaboration.rooms.copyFailed": "Couldn't copy the link.",
   "collaboration.rooms.end": "End room",
   "collaboration.rooms.endTitle": "End this room?",
   "collaboration.rooms.endDescription":
@@ -274,9 +286,9 @@ export const en = {
     "You don't have access to this room. Ask the owner for an invitation, or make sure you're signed in with the invited account.",
   "collaboration.failure.roomEnded": "This room has ended or doesn't exist.",
   "collaboration.failure.protocolViolation":
-    "The connection stopped because of a protocol error. Reload and report it if the problem continues.",
+    "The connection stopped unexpectedly. Reload the page; if it keeps happening, let us know.",
   "collaboration.failure.unsupportedProtocolVersion":
-    "This tab is running an outdated collaboration version. Refresh the page, then join again.",
+    "This tab is out of date. Refresh the page, then join again.",
   "collaboration.failure.retryLimit":
     "Reconnection failed repeatedly. Check your network and reload.",
   "collaboration.failure.rateLimited":
@@ -316,7 +328,11 @@ export const en = {
   "dashboard.recentlyModified": "Recently modified by you",
   "dashboard.yourScenes": "Your scenes",
   "dashboard.loading": "Loading",
-  "dashboard.noRecentlyModifiedScenes": "No recently modified scenes",
+  "dashboard.results": "Results",
+  "dashboard.noScenesYet": "No scenes yet",
+  "dashboard.noScenesYet.hint":
+    "Draw something in the editor and save it to your scenes; it will show up here.",
+  "dashboard.openEditor": "Open the editor",
   "dashboard.reachedEnd": "You have reached the end.",
   "dashboard.noScenesFound": "No scenes found",
   "dashboard.noScenesFound.hint":
@@ -355,7 +371,7 @@ export const en = {
   "workspace.settings.description":
     "Edit workspace information and manage dangerous actions.",
   "workspace.settings.defaultCannotDelete":
-    "The default workspace cannot be deleted. Please select a different workspace.",
+    "The default workspace can't be deleted.",
   "workspace.settings.deleteWarningBody":
     "This action is permanent. All scenes in this workspace will be lost.",
   "workspace.settings.typeToConfirm": 'Type "{name}" to confirm deletion:',
@@ -367,10 +383,10 @@ export const en = {
   "workspace.settings.toast.deleteFailed": "Failed to delete workspace",
   "workspace.settings.toast.missing":
     "This workspace no longer exists. Returning to the dashboard.",
-  "workspace.settings.nameLabel": "Workspace Name",
+  "workspace.settings.nameLabel": "Workspace name",
   "workspace.settings.save": "Save",
   "workspace.settings.saving": "Saving",
-  "workspace.settings.dangerZone": "Danger Zone",
+  "workspace.settings.dangerZone": "Danger zone",
   "workspace.settings.dangerDescription":
     "Deleting a workspace will permanently remove all its scenes.",
   "workspace.settings.deleteThisWorkspace": "Delete this workspace",
@@ -384,7 +400,8 @@ export const en = {
     "Leave the collaboration room before deleting this workspace.",
   "search.placeholder": "Search scenes",
   "search.resultsCount": 'Loaded {count} results for "{query}"',
-  "menu.importScene": "Import scene",
+  "menu.importScene": "Open in editor",
+  "menu.openScene.named": "Open {name} in the editor",
   "menu.sceneSettings": "Scene settings",
   "menu.moveToWorkspace": "Move to workspace",
   "menu.moveToWorkspace.success": 'Moved to "{name}"',
@@ -407,10 +424,13 @@ export const en = {
   "category.manage.namePlaceholder": "Enter a category name",
   "category.manage.nameInvalid": "Please enter a valid category name",
   "category.manage.sceneCount": "{count} scenes",
+  "category.manage.sceneCountOne": "1 scene",
   "category.manage.rename": "Rename category",
   "category.manage.delete": "Delete category",
   "category.manage.deleteConfirm.description":
     'Are you sure you want to delete the category "{name}"? It will be removed from {count} scenes. The scenes themselves are not affected.',
+  "category.manage.deleteConfirm.descriptionOne":
+    'Are you sure you want to delete the category "{name}"? It will be removed from 1 scene. The scene itself is not affected.',
   "category.toast.created": 'Category "{name}" created',
   "category.toast.renamed": 'Category renamed to "{name}"',
   "category.toast.deleted": "Category deleted",
@@ -432,9 +452,10 @@ export const en = {
   "publish.toast.preparing": "Rendering the public version",
   "publish.toast.renderFailed":
     "Unable to render the public version of this scene. Please try again.",
-  "public.theme.light": "Use light theme",
-  "public.theme.dark": "Use dark theme",
+  "public.theme.light": "Switch to light theme",
+  "public.theme.dark": "Switch to dark theme",
   "public.viewer.loading": "Loading scene",
+  "public.viewer.goHome": "Go to drawstuff",
   "public.viewer.loadError": "Failed to load this published scene.",
   "public.viewer.zoomIn": "Zoom in",
   "public.viewer.zoomOut": "Zoom out",
@@ -449,7 +470,7 @@ export const en = {
   "labels.updatedTimeAgo": "Updated {time}",
 
   // Storage / Stats
-  "stats.usedStorage": "Used Storage: {percent}% ({capacity})",
+  "stats.usedStorage": "Browser storage: {percent}% of {capacity}",
 
   // Images alt
   "images.bun.crying": "Crying bun",
@@ -478,7 +499,8 @@ export const en = {
   "validation.descriptionTooLong": "Description is too long",
   "share.scene.description": "Anyone with this link can view this scene.",
   "share.scene.link": "Link",
-  "share.scene.linkAccess": "Anyone with the link can view.",
+  "share.scene.linkAccess":
+    "Anyone with the link can view this version. Later edits won't appear.",
   "menu.moreOptions": "More options",
   "workspace.current": "Current workspace: {name}",
   "workspace.none": "None",
@@ -537,6 +559,7 @@ export const en = {
   "toast.scene.remoteLoaded": "Loaded the latest remote scene.",
   "toast.scene.remoteLoadFailed": "Failed to load the remote scene. Try again.",
   "toast.scene.localCopySaved": "Saved local changes as a new scene.",
+  "toast.scene.deleted": "Deleted “{name}”.",
   "toast.scene.localCopyFailed": "Failed to save local changes as a new scene.",
   "toast.scene.loaded": "Scene loaded.",
   "toast.scene.loadFailed": "Failed to load scene.",

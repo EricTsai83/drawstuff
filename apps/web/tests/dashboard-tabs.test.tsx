@@ -160,3 +160,22 @@ describe("dashboard tabs", () => {
     expect(roomListMounts).toHaveBeenCalledOnce();
   });
 });
+
+describe("dashboard scenes empty state", () => {
+  it("welcomes a new account with a way to the editor", () => {
+    render("");
+    expect(container.textContent).toContain("No scenes yet");
+    expect(container.textContent).not.toContain("No scenes found");
+    expect(container.textContent).not.toContain("Recently modified by you");
+    const link = Array.from(container.querySelectorAll("a")).find(
+      (element) => element.textContent === "Open the editor",
+    );
+    expect(link?.getAttribute("href")).toBe("/");
+  });
+
+  it("says a search matched nothing, without the onboarding action", () => {
+    render("?search=zzz");
+    expect(container.textContent).toContain("No scenes found");
+    expect(container.textContent).not.toContain("Open the editor");
+  });
+});

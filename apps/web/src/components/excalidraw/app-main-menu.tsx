@@ -254,10 +254,16 @@ function AppMainMenu({
     <>
       <MainMenu>
         <div ref={menuRef} className="max-w-full overflow-x-hidden">
-          <SceneTitle
-            sceneName={sceneName}
-            className={!compactPresentation ? "min-[1080px]:hidden" : undefined}
-          />
+          {/* In a room the room badge names the canvas, and a scene rename
+              would reach nobody else; neither title nor rename applies. */}
+          {!isCollaborating && (
+            <SceneTitle
+              sceneName={sceneName}
+              className={
+                !compactPresentation ? "min-[1080px]:hidden" : undefined
+              }
+            />
+          )}
           {session && (
             <WorkspaceSwitcherItem
               workspaces={workspaces}
@@ -279,12 +285,14 @@ function AppMainMenu({
               workspaceId={currentWorkspaceId ?? lastActiveWorkspaceId}
             />
           )}
-          <RenameSceneItem
-            onActivate={handleOpenRename}
-            className={
-              !compactPresentation ? "min-[1080px]:hidden!" : undefined
-            }
-          />
+          {!isCollaborating && (
+            <RenameSceneItem
+              onActivate={handleOpenRename}
+              className={
+                !compactPresentation ? "min-[1080px]:hidden!" : undefined
+              }
+            />
+          )}
           {session && !isCollaborating && (
             <NewSceneItem onActivate={handleOpenNewSceneDialog} />
           )}

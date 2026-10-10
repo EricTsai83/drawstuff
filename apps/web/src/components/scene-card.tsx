@@ -111,6 +111,7 @@ export const SceneCard = memo(function SceneCard({
       if (currentSceneId === item.id) {
         clearCurrentScene();
       }
+      toast.success(t("toast.scene.deleted", { name: item.name }));
       await invalidateSceneQueries();
     },
     onError: (error) => {
@@ -407,7 +408,20 @@ export const SceneCard = memo(function SceneCard({
     [item.id, assignCategoryMutation, unassignCategoryMutation, utils, t],
   );
 
-  const handleDoubleClickCard = loadScene;
+  /**
+   * One click or tap opens the scene (double-click zooms on phones and has no
+   * keyboard equivalent). Clicks on the card's own controls, and on popups
+   * portalled out of it (menus, dialogs), are theirs, not the card's.
+   */
+  const handleCardClick = useCallback(
+    (e: React.MouseEvent<HTMLElement>) => {
+      const target = e.target as HTMLElement;
+      if (!e.currentTarget.contains(target)) return;
+      if (target.closest("button, a, input, [role='menuitem']")) return;
+      loadScene();
+    },
+    [loadScene],
+  );
 
   const handleMenuAction = useCallback(
     (action: SceneCardMenuAction, e: React.MouseEvent) => {
@@ -456,8 +470,14 @@ export const SceneCard = memo(function SceneCard({
   return (
     <>
       <Card
-        className="cursor-pointer gap-3 overflow-hidden pt-0 transition-shadow duration-200 hover:shadow-lg"
-        onDoubleClick={handleDoubleClickCard}
+        className="focus-visible:ring-ring cursor-pointer gap-3 overflow-hidden pt-0 transition-shadow duration-200 outline-none hover:shadow-lg focus-visible:ring-2"
+        role="link"
+        tabIndex={0}
+        aria-label={t("menu.openScene.named", { name: item.name })}
+        onClick={handleCardClick}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && e.target === e.currentTarget) loadScene();
+        }}
       >
         <CardHeader className="p-0">
           <div className="relative aspect-video min-h-32 overflow-hidden">

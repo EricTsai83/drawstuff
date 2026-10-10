@@ -32,6 +32,8 @@ import type { SnapshotApi } from "./snapshot-http";
  * its background registration, typically within a few seconds.
  */
 export const INITIALIZATION_SETTLE_MS = 15_000;
+/** Room's own cap on a room name (authority schema `label: max(120)`). */
+export const ROOM_LABEL_MAX_LENGTH = 120;
 const SETTLE_FIRST_DELAY_MS = 250;
 const SETTLE_MAX_DELAY_MS = 2_000;
 
@@ -40,6 +42,8 @@ export function createRoomInitialization(options: {
   authority: AuthorityApi;
   snapshots: SnapshotApi;
   sceneId: string | null;
+  /** The room's name as the owner typed it; trimmed and capped at 120. */
+  label?: string;
   elements: readonly SyncedElement[];
   files?: readonly BinaryFileData[];
   assets?: AssetApi;
@@ -81,7 +85,7 @@ export function createRoomInitialization(options: {
     ...authorityEnvelope(roomId),
     action: "create" as const,
     sceneId: options.sceneId,
-    label: "",
+    label: (options.label ?? "").trim().slice(0, ROOM_LABEL_MAX_LENGTH),
     linkRole: "none" as const,
   };
   const create = createAuthorityOperation(options.authority, creation);

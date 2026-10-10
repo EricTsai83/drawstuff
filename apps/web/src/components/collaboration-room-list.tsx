@@ -34,7 +34,18 @@ import {
 import {
   createRoomInitialization,
   INITIALIZATION_SETTLE_MS,
+  ROOM_LABEL_MAX_LENGTH,
 } from "@/lib/collab/room-initialization";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
 import type { AppTranslationKey } from "@/lib/i18n";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
@@ -140,8 +151,11 @@ export function CollaborationRoomList() {
       initializer.current?.dispose();
     };
   }, []);
-  const create = async () => {
+  /** Naming step before a new room is created; null while closed. */
+  const [newRoomName, setNewRoomName] = useState<string | null>(null);
+  const create = async (label?: string) => {
     if (pending || busyRoomId) return;
+    setNewRoomName(null);
     setPending(true);
     setCreating(true);
     try {
@@ -155,6 +169,8 @@ export function CollaborationRoomList() {
         snapshots: createBinarySnapshotClient(),
         settleWithinMs: INITIALIZATION_SETTLE_MS,
         sceneId: null,
+        // An empty name is no name: the room gets the untitled default.
+        label: label?.trim() ? label.trim() : t("collaboration.room.untitled"),
         elements: [],
       });
       const ready = await initializer.current.start();
@@ -170,7 +186,8 @@ export function CollaborationRoomList() {
       // Only a creation that stopped part-way can be retried or cancelled.
       if (mounted.current) {
         setRecoverable(true);
-        toast.info(t("collaboration.toast.initializationPending"));
+        // No canvas here: the dashboard's own wording, with what to do next.
+        toast.info(t("collaboration.toast.creationStopped"));
       }
     } finally {
       if (mounted.current) {
@@ -192,8 +209,7 @@ export function CollaborationRoomList() {
       setRecoverable(false);
       await utils.collaborationRoom.list.invalidate();
     } catch {
-      if (mounted.current)
-        toast.info(t("collaboration.toast.enforcementPending"));
+      if (mounted.current) toast.info(t("collaboration.toast.stillConfirming"));
     } finally {
       if (mounted.current) setPending(false);
     }
@@ -251,7 +267,7 @@ export function CollaborationRoomList() {
       if (expired) exits.current.delete(key);
       if (!mounted.current) return;
       if (error instanceof AuthorityRoomError && error.code === "pending")
-        toast.info(t("collaboration.toast.enforcementPending"));
+        toast.info(t("collaboration.toast.stillConfirming"));
       else toast.error(t("collaboration.error.operationFailed"));
     } finally {
       if (mounted.current) setBusyRoomId(null);
@@ -287,7 +303,11 @@ export function CollaborationRoomList() {
           <Users className="size-4" />
         </span>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate font-mono text-sm" title={room.roomId}>
+          {/* A name reads as text; only an unnamed room shows its short id. */}
+          <span
+            className={cn("truncate text-sm", !room.label && "font-mono")}
+            title={room.label || room.roomId}
+          >
             {room.label || room.roomId.slice(0, 8)}
           </span>
           <span className="text-muted-foreground truncate text-xs">
@@ -332,6 +352,8 @@ export function CollaborationRoomList() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    // Touch needs a larger target than the compact row allows.
+                    className="pointer-coarse:size-10"
                     disabled={busy}
                     aria-label={t("menu.moreOptions")}
                   >
@@ -342,15 +364,18 @@ export function CollaborationRoomList() {
               <DropdownMenuContent align="end" className="w-60">
                 <DropdownMenuItem
                   onClick={() =>
+                    // The link is what anyone can use; a bare id is not.
                     void navigator.clipboard
-                      .writeText(room.roomId)
-                      .then(() =>
-                        toast.success(t("collaboration.rooms.idCopied")),
+                      .writeText(roomUrl(room.roomId))
+                      .then(
+                        () =>
+                          toast.success(t("collaboration.rooms.linkCopied")),
+                        () => toast.error(t("collaboration.rooms.copyFailed")),
                       )
                   }
                 >
                   <Copy aria-hidden="true" />
-                  {t("collaboration.rooms.copyId")}
+                  {t("collaboration.rooms.copyLink")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {viaLink ? (
@@ -462,7 +487,8 @@ export function CollaborationRoomList() {
     <Button
       disabled={pending || busyRoomId !== null}
       aria-busy={creating}
-      onClick={() => void create()}
+      // A retry resumes the creation already named; a new room is named first.
+      onClick={() => (recoverable ? void create() : setNewRoomName(""))}
     >
       {creating ? (
         <>
@@ -533,6 +559,55 @@ export function CollaborationRoomList() {
           {renderSection("link", link, linkCursor, setLinkCursor)}
         </>
       )}
+      <Dialog
+        open={newRoomName !== null}
+        onOpenChange={(open) => {
+          if (!open) setNewRoomName(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void create(newRoomName ?? "");
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("collaboration.rooms.create")}</DialogTitle>
+              <DialogDescription>
+                {t("collaboration.room.nameHint")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="new-room-name">
+                {t("collaboration.room.name")}
+              </Label>
+              <Input
+                id="new-room-name"
+                type="text"
+                autoFocus
+                value={newRoomName ?? ""}
+                maxLength={ROOM_LABEL_MAX_LENGTH}
+                placeholder={t("collaboration.room.untitled")}
+                onChange={(event) => setNewRoomName(event.target.value)}
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setNewRoomName(null)}
+              >
+                {t("buttons.cancel")}
+              </Button>
+              <Button type="submit" disabled={pending}>
+                {t("collaboration.action.start")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={confirmExit !== null}
         onOpenChange={(open) => {

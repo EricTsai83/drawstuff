@@ -33,6 +33,20 @@ describe("createArtifactSceneSource", () => {
     expect(second.getAttribute("data-scene")).toBe("s");
   });
 
+  it("downloads again after an invalid artifact instead of re-parsing it", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("not svg", { status: 200 }))
+      .mockResolvedValueOnce(new Response(SVG, { status: 200 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const source = createArtifactSceneSource(urls);
+    await expect(source.load(new AbortController().signal)).rejects.toThrow();
+    const retried = await source.load(new AbortController().signal);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(retried.getAttribute("data-scene")).toBe("s");
+  });
+
   it("rejects a failed download and retries it on the next load", async () => {
     const fetchMock = vi
       .fn()

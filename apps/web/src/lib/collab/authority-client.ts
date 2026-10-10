@@ -51,7 +51,12 @@ export function createAuthorityRoomBackend(api: AuthorityApi) {
   const getRoom = async ({ roomId }: { roomId: RoomId }) => {
     const state = await readAuthorityState(api, roomId);
     if (state.state !== "ready") throw new AuthorityRoomError(state.state);
-    return { roomId, sceneId: state.sceneId, role: state.role };
+    return {
+      roomId,
+      sceneId: state.sceneId,
+      role: state.role,
+      label: state.label,
+    };
   };
   return {
     getRoom,

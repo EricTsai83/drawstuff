@@ -30,11 +30,16 @@ const { creation } = vi.hoisted(() => ({
     start: vi.fn(),
     cancel: vi.fn(),
     dispose: vi.fn(),
+    options: undefined as { label?: string } | undefined,
   },
 }));
 vi.mock("@/lib/collab/room-initialization", () => ({
   INITIALIZATION_SETTLE_MS: 15_000,
-  createRoomInitialization: () => creation,
+  ROOM_LABEL_MAX_LENGTH: 120,
+  createRoomInitialization: (options: { label?: string }) => {
+    creation.options = options;
+    return creation;
+  },
 }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push }) }));
 vi.mock("sonner", () => ({ toast }));
@@ -76,6 +81,23 @@ const render = (mine: Query, link: Query = empty) => {
     ...(section === "mine" ? mine : link),
   }));
   act(() => root.render(<CollaborationRoomList />));
+};
+/** New room asks for a name first; submits it like the user would. */
+const createNamedRoom = async (name = "Design review") => {
+  await act(async () => {
+    buttonIn(container, "New room")?.click();
+  });
+  const input = document.querySelector<HTMLInputElement>("#new-room-name");
+  if (!input) throw new Error("missing-room-name");
+  await act(async () => {
+    Reflect.set(HTMLInputElement.prototype, "value", name, input);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await act(async () => {
+    input
+      .closest("form")!
+      .dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+  });
 };
 const section = (name: "mine" | "link") =>
   container.querySelector(`[data-room-section="${name}"]`)!;
@@ -431,10 +453,8 @@ describe("collaboration room list", () => {
         nextCursor: null,
       },
     });
-    await act(async () => {
-      buttonIn(container, "New room")?.click();
-    });
-    expect(buttonIn(container, "Retry initialization")).toBeDefined();
+    await createNamedRoom();
+    expect(buttonIn(container, "Try creating again")).toBeDefined();
     const row = container.querySelector("li")!;
     await act(async () => {
       buttonIn(row, "Cancel room creation")?.click();
@@ -444,7 +464,7 @@ describe("collaboration room list", () => {
       action: "cancel-initialization",
     });
     expect(creation.dispose).toHaveBeenCalled();
-    expect(buttonIn(container, "Retry initialization")).toBeUndefined();
+    expect(buttonIn(container, "Try creating again")).toBeUndefined();
     expect(buttonIn(container, "New room")).toBeDefined();
   });
 
@@ -454,10 +474,9 @@ describe("collaboration room list", () => {
       projectionPending: false,
     });
     render(empty);
-    await act(async () => {
-      buttonIn(container, "New room")?.click();
-    });
+    await createNamedRoom();
     await vi.waitFor(() => expect(push).toHaveBeenCalled());
+    expect(creation.options?.label).toBe("Design review");
     const target = new URL(String(push.mock.calls[0]?.[0]));
     expect(target.searchParams.get("collab-room")).toBe(creation.roomId);
     expect(target.hash).toBe("");
@@ -466,12 +485,10 @@ describe("collaboration room list", () => {
   it("offers retry and cancel only once a creation has stopped, not while it runs", async () => {
     creation.start.mockImplementationOnce(() => new Promise(() => undefined));
     render(empty);
-    await act(async () => {
-      buttonIn(container, "New room")?.click();
-    });
+    await createNamedRoom();
     const header = container.querySelector("section > div")!;
     expect(buttonIn(header, "Creating room")?.disabled).toBe(true);
-    expect(buttonIn(header, "Retry initialization")).toBeUndefined();
+    expect(buttonIn(header, "Try creating again")).toBeUndefined();
     expect(buttonIn(header, "Cancel room creation")).toBeUndefined();
   });
 
@@ -487,17 +504,15 @@ describe("collaboration room list", () => {
         nextCursor: null,
       },
     });
-    await act(async () => {
-      buttonIn(container, "New room")?.click();
-    });
+    await createNamedRoom();
     const header = container.querySelector("section > div")!;
     await act(async () => {
       buttonIn(container.querySelector("li")!, "Cancel room creation")?.click();
     });
-    expect(buttonIn(header, "Retry initialization")?.disabled).toBe(true);
+    expect(buttonIn(header, "Try creating again")?.disabled).toBe(true);
     expect(buttonIn(header, "Cancel room creation")?.disabled).toBe(true);
     await act(async () => {
-      buttonIn(header, "Retry initialization")?.click();
+      buttonIn(header, "Try creating again")?.click();
       buttonIn(header, "Cancel room creation")?.click();
     });
     expect(creation.start).toHaveBeenCalledOnce();

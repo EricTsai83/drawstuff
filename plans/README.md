@@ -15,6 +15,7 @@ plan 21 已於 2026-10-10 合併部署並完成正式驗收：protocol 7、共�
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) — 長期 logs／metrics、client telemetry、告警與 dashboard；暫緩實現，目的地未定。
 - [18d-collaboration-acceptance-follow-ups.md](18d-collaboration-acceptance-follow-ups.md) — 待排程：自然斷線／presign 500、正式瀏覽器恢復與保存狀態、效能 3A／3B／3C、跨日／閒置／autosuspend／成本及剩餘回歸。先定位再重測，一次一個 scope；重測以 protocol 7 的明文房間為準。
 - [22-admin-anomalies-and-account-removal-cleanup.md](22-admin-anomalies-and-account-removal-cleanup.md) — admin dashboard 異常檢視（退場卡住、storage 未關閉、清理失敗等）、退場卡住告警與退避、帳號移除的完整清除盤點與邀請名單移除。需求草案，前置 21 已完成，可排程。
+- [23-room-rename-and-context.md](23-room-rename-and-context.md) — 房間改名（新 authority 指令與 DO／投影同步）、房間列表顯示擁有者／來源場景／時間、成員顯示名字。需求草案，待排程。
 
 ## 執行順序與交接
 

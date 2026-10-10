@@ -14,7 +14,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   Ellipsis,
-  Download,
+  PenLine,
   Edit,
   Trash2,
   Globe,
@@ -104,7 +104,7 @@ export function SceneCardMenu({
         className="w-56 max-w-[calc(100vw-2rem)] [&_[data-slot=dropdown-menu-item]]:min-h-11 [&_[data-slot=dropdown-menu-sub-trigger]]:min-h-11"
       >
         <DropdownMenuItem onClick={(e) => onAction("import", e)}>
-          <Download aria-hidden="true" />
+          <PenLine aria-hidden="true" />
           {t("menu.importScene")}
         </DropdownMenuItem>
         <DropdownMenuItem onClick={(e) => onAction("edit", e)}>

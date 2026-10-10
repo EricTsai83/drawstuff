@@ -239,6 +239,12 @@ export function SceneSearchList({
     return () => observer.disconnect();
   }, [hasNextPage, isFetchingNextPage, fetchNextPage]);
 
+  // A search, category, publish or archive filter turns the page into results.
+  const isFiltering =
+    !!searchQuery ||
+    !!activeCategoryId ||
+    activePublishFilter !== "all" ||
+    activeArchiveFilter === "archived";
   // Split items into "Recently modified by you" and "Your scenes" sections
   const recentlyModifiedItems = allItems.slice(0, 5);
   const yourSceneItems = allItems.slice(5);
@@ -365,83 +371,91 @@ export function SceneSearchList({
             </div>
           ) : (
             <>
-              {/* Recently modified by you Section */}
-              <section className="flex flex-col gap-4">
-                <div className="border-border border-t pt-4">
-                  <h2 className="text-lg font-medium">
-                    {t("dashboard.recentlyModified")}
-                  </h2>
-                </div>
-                {isLoading ? (
+              {isLoading ? (
+                <section className="flex flex-col gap-4 border-t pt-4">
                   <SceneGridSkeleton count={5} />
-                ) : recentlyModifiedItems.length > 0 ? (
-                  <SceneGrid
-                    items={recentlyModifiedItems}
-                    workspaces={workspaces}
-                    categories={categories}
-                  />
-                ) : (
-                  <div className="py-8 text-center">
-                    <div className="text-muted-foreground text-lg">
-                      {t("dashboard.noRecentlyModifiedScenes")}
-                    </div>
+                </section>
+              ) : allItems.length === 0 ? (
+                // One empty state that says why: a filter matched nothing,
+                // nothing is archived, or this is a new account.
+                <div className="border-border border-t py-12 text-center">
+                  <div className="text-muted-foreground text-lg">
+                    {t(
+                      isFiltering
+                        ? activeArchiveFilter === "archived"
+                          ? "dashboard.noArchivedScenes"
+                          : "dashboard.noScenesFound"
+                        : "dashboard.noScenesYet",
+                    )}
                   </div>
-                )}
-              </section>
-
-              {/* Your scenes Section */}
-              <section className="flex flex-col gap-4">
-                <div className="border-border border-t pt-4">
-                  <h2 className="text-lg font-medium">
-                    {t("dashboard.yourScenes")}
-                  </h2>
+                  <div className="text-muted-foreground mt-2 text-sm">
+                    {t(
+                      isFiltering
+                        ? activeArchiveFilter === "archived"
+                          ? "dashboard.noArchivedScenes.hint"
+                          : "dashboard.noScenesFound.hint"
+                        : "dashboard.noScenesYet.hint",
+                    )}
+                  </div>
+                  {!isFiltering && (
+                    <Button
+                      className="mt-5"
+                      render={<Link href={routes.canvas} />}
+                      nativeButton={false}
+                    >
+                      {t("dashboard.openEditor")}
+                    </Button>
+                  )}
                 </div>
-                {isLoading ? (
-                  <SceneGridSkeleton count={5} />
-                ) : yourSceneItems.length > 0 ? (
-                  <>
+              ) : (
+                <>
+                  {/* While searching or filtering, one list of results; the
+                      "recent" split only describes the unfiltered library. */}
+                  <section className="flex flex-col gap-4">
+                    <div className="border-border border-t pt-4">
+                      <h2 className="text-lg font-medium">
+                        {t(
+                          isFiltering
+                            ? "dashboard.results"
+                            : "dashboard.recentlyModified",
+                        )}
+                      </h2>
+                    </div>
                     <SceneGrid
-                      items={yourSceneItems}
+                      items={isFiltering ? allItems : recentlyModifiedItems}
                       workspaces={workspaces}
                       categories={categories}
                     />
-                    <div ref={sentinelRef} />
-                    {isFetchingNextPage && <SceneGridSkeleton count={5} />}
-                    {!hasNextPage && !isFetchingNextPage && (
+                  </section>
+
+                  {!isFiltering &&
+                    (yourSceneItems.length > 0 || hasNextPage) && (
+                      <section className="flex flex-col gap-4">
+                        <div className="border-border border-t pt-4">
+                          <h2 className="text-lg font-medium">
+                            {t("dashboard.yourScenes")}
+                          </h2>
+                        </div>
+                        <SceneGrid
+                          items={yourSceneItems}
+                          workspaces={workspaces}
+                          categories={categories}
+                        />
+                      </section>
+                    )}
+                  {/* One sentinel for both layouts: the observer is attached
+                      once, so a swapped node would stop infinite scroll. */}
+                  <div ref={sentinelRef} />
+                  {isFetchingNextPage && <SceneGridSkeleton count={5} />}
+                  {!hasNextPage &&
+                    !isFetchingNextPage &&
+                    (isFiltering || yourSceneItems.length > 0) && (
                       <div className="text-muted-foreground py-6 text-center text-sm">
                         {t("dashboard.reachedEnd")}
                       </div>
                     )}
-                  </>
-                ) : hasNextPage ? (
-                  <div className="py-8 text-center">
-                    <div className="text-muted-foreground text-lg">
-                      {t("dashboard.loading")}
-                    </div>
-                  </div>
-                ) : allItems.length > 0 ? (
-                  <div className="text-muted-foreground py-6 text-center text-sm">
-                    {t("dashboard.reachedEnd")}
-                  </div>
-                ) : (
-                  <div className="py-8 text-center">
-                    <div className="text-muted-foreground text-lg">
-                      {t(
-                        activeArchiveFilter === "archived"
-                          ? "dashboard.noArchivedScenes"
-                          : "dashboard.noScenesFound",
-                      )}
-                    </div>
-                    <div className="text-muted-foreground mt-2 text-sm">
-                      {t(
-                        activeArchiveFilter === "archived"
-                          ? "dashboard.noArchivedScenes.hint"
-                          : "dashboard.noScenesFound.hint",
-                      )}
-                    </div>
-                  </div>
-                )}
-              </section>
+                </>
+              )}
 
               {/* Show results count if searching */}
               {searchQuery && (
