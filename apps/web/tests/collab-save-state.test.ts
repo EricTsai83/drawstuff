@@ -80,6 +80,20 @@ describe("durable room save coverage", () => {
     expect(state.state().localSaves).toBe(1);
   });
 
+  it("does not count a local edit that a newer remote version replaced", () => {
+    let current: readonly SyncedElement[] = [collabRectangle({ id: "a" })];
+    const state = createRoomSaveState({ currentElements: () => current });
+    state.changed();
+    state.confirm(1, current);
+    // Our edit (version 2), then a remote version 3 wins before any save.
+    current = [collabRectangle({ id: "a", version: 2, versionNonce: 20 })];
+    state.localChanged();
+    current = [collabRectangle({ id: "a", version: 3, versionNonce: 30 })];
+    state.changed();
+    state.confirm(2, current);
+    expect(state.state()).toMatchObject({ status: "saved", localSaves: 0 });
+  });
+
   it("warns on leaving only an editor with unconfirmed changes", () => {
     expect(roomExitLosesNothing({ canEdit: true, status: "pending" })).toBe(
       false,

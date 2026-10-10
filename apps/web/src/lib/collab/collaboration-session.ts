@@ -446,6 +446,8 @@ export function createCollaborationSession(
     assetStore,
     isDestroyed: () => destroyed,
     wrapRemoteApply,
+    // Read at call time: the cadence is created below.
+    onSceneApplied: () => cadence.onSceneChange(),
   });
 
   const publisher = createScenePublisher({

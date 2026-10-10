@@ -35,6 +35,11 @@ export const createAssetBridge = (options: {
    */
   isDestroyed: () => boolean;
   wrapRemoteApply: (apply: () => void) => void;
+  /**
+   * Records a scene change that came from the room, not from this client, so
+   * the engine's later onChange for it is not mistaken for a local edit.
+   */
+  onSceneApplied?: () => void;
 }): AssetBridge => {
   const { context, assetStore, isDestroyed, wrapRemoteApply } = options;
   const { sceneApi } = context;
@@ -166,6 +171,7 @@ export const createAssetBridge = (options: {
           elements: marked,
           captureUpdate: EXCALIDRAW_CAPTURE_UPDATE_ACTION.NEVER,
         });
+        options.onSceneApplied?.();
       });
     },
   };
