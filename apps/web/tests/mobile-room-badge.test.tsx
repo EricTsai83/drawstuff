@@ -15,64 +15,44 @@ const { MobileRoomBadge } =
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
-let host: HTMLDivElement;
 let container: HTMLDivElement;
 let root: Root;
 beforeEach(() => {
-  vi.stubGlobal(
-    "ResizeObserver",
-    class {
-      observe = vi.fn();
-      disconnect = vi.fn();
-    },
-  );
-  host = document.createElement("div");
-  host.className = "excalidraw";
-  document.body.appendChild(host);
   container = document.createElement("div");
   root = createRoot(container);
 });
-afterEach(() => {
-  act(() => root.unmount());
-  host.remove();
-  vi.unstubAllGlobals();
-});
+afterEach(() => act(() => root.unmount()));
 
-const render = () =>
+const render = (toolsColumnButtons: number | null) =>
   act(() =>
     root.render(
-      <MobileRoomBadge>
+      <MobileRoomBadge toolsColumnButtons={toolsColumnButtons}>
         <span>room</span>
       </MobileRoomBadge>,
     ),
   );
-const position = () => (container.firstElementChild as HTMLElement).style;
+const top = () => (container.firstElementChild as HTMLElement).style.top;
 
 /** The room button stays reachable in Excalidraw's mobile layout only. */
 describe("MobileRoomBadge", () => {
-  it("sits right under upstream's mobile tools column", () => {
+  it("sits right under upstream's tools column, lower when it grows", () => {
     device.editor.isMobile = true;
-    const column = document.createElement("div");
-    column.className = "mobile-misc-tools-container";
-    column.getBoundingClientRect = () =>
-      ({ bottom: 200, right: window.innerWidth }) as DOMRect;
-    host.appendChild(column);
-    render();
+    render(3);
     expect(container.textContent).toBe("room");
-    expect(position().top).toBe("208px");
-    expect(position().right).toBe("8px");
+    expect(top()).toContain("11.5rem");
+    render(4);
+    expect(top()).toContain("13.5rem");
   });
 
   it("takes the top-right corner when there is no tools column", () => {
     device.editor.isMobile = true;
-    render();
-    expect(position().top).toContain("0.75rem");
-    expect(position().right).toContain("0.75rem");
+    render(null);
+    expect(top()).toContain("0.75rem");
   });
 
   it("renders nothing in the desktop layout", () => {
     device.editor.isMobile = false;
-    render();
+    render(3);
     expect(container.textContent).toBe("");
   });
 });

@@ -106,6 +106,8 @@ export default function ExcalidrawEditor() {
     openCloudUploadDialog,
   } = useEditorDialogs();
   const [isRoomInitializing, setIsRoomInitializing] = useState(false);
+  /** Upstream shows a pen-mode button (one more mobile tool) once a pen is used. */
+  const [penDetected, setPenDetected] = useState(false);
   const [isMobileCanvasSlot, setIsMobileCanvasSlot] = useState<boolean | null>(
     null,
   );
@@ -362,9 +364,11 @@ export default function ExcalidrawEditor() {
   );
 
   const renderTopRightUI = useCallback(
-    (isMobile: boolean, _appState: UIAppState) => {
+    (isMobile: boolean, appState: UIAppState) => {
       return (
         <TopRightControls
+          penDetected={appState.penDetected}
+          onPenDetectedChange={setPenDetected}
           actions={productActions}
           storageStatus={
             <EditorStorageStatus {...storageStatusProps} compact />
@@ -444,7 +448,16 @@ export default function ExcalidrawEditor() {
             />
 
             {storageStatusProps.roomId && (
-              <MobileRoomBadge>
+              <MobileRoomBadge
+                // Library, (pen), lock, hand; view mode shows no column.
+                toolsColumnButtons={
+                  isCollaborationReadOnly || isRoomInitializing
+                    ? null
+                    : penDetected
+                      ? 4
+                      : 3
+                }
+              >
                 <EditorStorageStatus {...storageStatusProps} compact />
               </MobileRoomBadge>
             )}

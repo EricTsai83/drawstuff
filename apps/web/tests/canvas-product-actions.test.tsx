@@ -280,3 +280,34 @@ describe("Canvas product action presentations", () => {
     ).toBeNull();
   });
 });
+
+describe("TopRightControls pen detection", () => {
+  it("reports whether upstream shows its pen-mode tool", () => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    const onPenDetectedChange = vi.fn();
+    act(() =>
+      root.render(
+        withI18n(
+          <TopRightControls
+            actions={{
+              collaboration: {
+                status: "idle",
+                isReadOnly: false,
+                onActivate: vi.fn(),
+              },
+              cloudSave: null,
+              share: null,
+            }}
+            isMobile
+            onLibraryActivate={vi.fn()}
+            penDetected
+            onPenDetectedChange={onPenDetectedChange}
+          />,
+        ),
+      ),
+    );
+    expect(onPenDetectedChange).toHaveBeenLastCalledWith(true);
+    act(() => root.unmount());
+  });
+});
