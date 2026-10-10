@@ -313,6 +313,9 @@ async function alarmPasses(roomId: RoomId, passes = 8): Promise<void> {
     await runInDurableObject(roomStub(roomId), (_instance, state) => {
       if (userTables(state).includes("authority_work"))
         state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+      // ...and the ended room's receipt grace already over.
+      if (userTables(state).includes("room_release"))
+        state.storage.sql.exec("UPDATE room_release SET settled_at=0");
     });
     await runDurableObjectAlarm(roomStub(roomId));
   }
@@ -422,6 +425,36 @@ describe("storage release", () => {
     expect(logged(error, "authority.work_abandoned")).toEqual([
       expect.objectContaining({ jobKind: "cleanup" }),
     ]);
+    await alarmPasses(roomId);
+    expect(await storageFootprint(roomId)).toEqual(RELEASED);
+  });
+
+  it("keeps a settled ended room's receipts queryable for the grace period, then releases", async () => {
+    const { roomId, owner } = await openRoom("release-grace");
+    const end = { ...envelope(roomId), action: "end-room" as const };
+    expect((await manage(roomId, owner, end)).status).toBe(200);
+    // Deliver every job without moving the clock past the grace.
+    for (let pass = 0; pass < 8; pass += 1) {
+      if ((await queuedWork(roomId)).length === 0) break;
+      await runInDurableObject(roomStub(roomId), (_instance, state) => {
+        state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+      });
+      await runDurableObjectAlarm(roomStub(roomId));
+    }
+    expect(await queuedWork(roomId)).toEqual([]);
+    await runDurableObjectAlarm(roomStub(roomId));
+    // A client still settling end-room finds its receipt, not `not-found`.
+    const query = await manage(roomId, owner, {
+      ...envelope(roomId),
+      action: "query",
+      operationId: end.operationId,
+    });
+    expect(query.status).toBe(200);
+    expect(await query.json()).toMatchObject({
+      result: { operationId: end.operationId, status: "enforced" },
+    });
+    expect(await runDurableObjectAlarm(roomStub(roomId))).toBe(true);
+    await alarmPasses(roomId);
     expect(await storageFootprint(roomId)).toEqual(RELEASED);
   });
 

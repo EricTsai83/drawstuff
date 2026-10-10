@@ -128,7 +128,7 @@ web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批�
 - **移除邀請不需 adapter 註冊**：與舊 `revoke-member` 相同，web 暫時不可用時仍能收回權限。
 - **不留下計費殘留**（擁有者 2026-10-10 追加）：
   - 房間 DO 的 durable 工作從第一次排程起 24 小時仍未送達就放棄（log `authority.work_abandoned`），不再無限每分鐘 alarm。`CollaborationLifecycle` 的退場工作不放棄、持續重試：帳號／場景退場必須完成資料刪除（Codex review pass 2）。
-  - 房間結束且投影、fence、cleanup 都已送達（或放棄）、沒有連線時，DO `deleteAll()` 並清掉 alarm（log `room.storage_released`）；從未建立成功的房間（建房註冊失敗、對不存在房間的請求）也不留 schema。
+  - 房間結束且投影、fence、cleanup 都已送達（或放棄）、沒有連線，並再保留 5 分鐘讓仍在確認的客戶端查得到回執後，DO `deleteAll()` 並清掉 alarm（log `room.storage_released`）；從未建立成功的房間（建房註冊失敗、對不存在房間的請求）也不留 schema。
   - 放棄工作時把本地紀錄收成終態（內容收據標 `refused`、等 fence 的管理結果補 `terminal_at`），不聲稱遠端已完成；釋放儲存前等進行中的 RPC 結束；佇列滿時被刪鍵的 tombstone 記在 backlog 表由 repair 補送（Codex review pass 1）。
   - 釋放後遲到的 socket close 事件若重建 schema，排程結束時會再釋放（Codex review pass 2）。
   - 因此 DO 不再保留「已結束」墓碑：**第 2 批必須確認 web 建房時拒絕已存在（含已結束）的 roomId**，防止同一 roomId 被重建。

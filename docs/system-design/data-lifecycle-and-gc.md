@@ -132,8 +132,8 @@ flowchart TD
 
 - 完整矩陣、刪除形狀、鎖設計、有界 job、復活競態、管理員稽核：
   [data lifecycle](../architecture/data-lifecycle.md)。
-- 自我回收：房間快照每房一列（`collaboration_snapshot`）；結束且工作都已送達的房間 Durable
-  Object `deleteAll()`（`room.storage_released`）；結束後 Neon 只留房間列與
+- 自我回收：房間快照每房一列（`collaboration_snapshot`）；結束且工作都已送達的房間保留 5 分鐘
+  回執寬限後 Durable Object `deleteAll()`（`room.storage_released`）；結束後 Neon 只留房間列與
   `collaboration_creation_fence` 以拒絕 roomId 重用。見
   [collaboration storage](../architecture/collaboration-storage.md)、
   [data lifecycle](../architecture/data-lifecycle.md)。
