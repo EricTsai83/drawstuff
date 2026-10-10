@@ -89,10 +89,6 @@ export function EditorStorageStatus(props: {
       {/* One fixed-height row: the status appears at the end of the same line,
           so it never pushes the name around. */}
       <div className="flex h-9 items-center gap-2 px-2 pb-2">
-        <Users
-          className="text-muted-foreground size-4 shrink-0"
-          aria-hidden="true"
-        />
         <span
           className="min-w-0 flex-1 truncate text-base font-semibold"
           title={roomLabel}
@@ -185,10 +181,12 @@ export function EditorStorageStatus(props: {
               the panel it opens. */}
           {/* Upstream's tool icons are thin-stroked 20px drawings; a lucide
               icon needs a little more size and less stroke to match them. */}
+          {/* Where the name shows (desktop, lg up) it is the label on its own;
+              the icon stands in only where there is no room for the name. */}
           <Users
             className={cn(
               "shrink-0",
-              props.edge ? "size-[1.125rem]" : "size-3",
+              props.edge ? "size-[1.125rem]" : "size-3 lg:hidden",
             )}
             strokeWidth={props.edge ? 1.75 : 2}
             aria-hidden="true"
