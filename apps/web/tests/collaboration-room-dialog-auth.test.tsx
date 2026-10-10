@@ -1001,7 +1001,7 @@ describe("no-access screen", () => {
     expect(text).toContain("ask the owner to invite you again");
   });
 
-  it("leaves the room when a terminal dialog is closed", async () => {
+  it("keeps a terminal dialog open until its button is pressed", async () => {
     roomGetUseQuery.mockReturnValue(null);
     const onOpenChange = vi.fn();
     const onRoomIdChange = vi.fn();
@@ -1013,9 +1013,12 @@ describe("no-access screen", () => {
       onOpenChange,
       onRoomIdChange,
     });
+    // X, outside click and Escape all report onOpenChange(false); none closes it.
     await act(async () => button("Close dialog").click());
+    expect(onRoomIdChange).not.toHaveBeenCalled();
+    expect(onOpenChange).not.toHaveBeenCalled();
+    await act(async () => button("Back to my canvas").click());
     expect(onRoomIdChange).toHaveBeenCalledWith(null);
-    expect(onOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("keeps the share view for other failures", () => {

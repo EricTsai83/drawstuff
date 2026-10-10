@@ -32,6 +32,7 @@ export function SceneRemoteConflictDialog({
   return (
     <Dialog
       open={open}
+      disablePointerDismissal
       onOpenChange={(next) => {
         if (!next && isLoading) return;
         onOpenChange(next);

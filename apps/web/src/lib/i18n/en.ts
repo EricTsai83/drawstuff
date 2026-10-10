@@ -58,6 +58,7 @@ export const en = {
   // Overwrite confirm dialog
   "overwriteConfirm.modal.shareableLink.title": "Open shared scene?",
   "overwriteConfirm.modal.shareableLink.button": "Replace current scene",
+  "overwriteConfirm.modal.shareableLink.keep": "Keep current scene",
   "overwriteConfirm.action.exportToImage.button": "Export to image",
   "overwriteConfirm.action.saveToDisk.button": "Save to disk",
 
@@ -253,9 +254,14 @@ export const en = {
   "collaboration.rooms.loadFailed": "Couldn't load rooms.",
   "collaboration.rooms.sceneLinked": "From a scene",
   "collaboration.rooms.mineHeading": "Owned and invited",
-  "collaboration.rooms.mineEmpty": "No rooms you own or were invited to yet.",
+  "collaboration.rooms.emptyTitle": "No rooms yet",
+  "collaboration.rooms.emptyHint":
+    "Create a room here or from the editor's collaboration button, or open an invite link. It will show up here.",
+  "collaboration.rooms.mineEmpty":
+    "Rooms you create or are invited to appear here.",
   "collaboration.rooms.linkHeading": "Opened via link",
-  "collaboration.rooms.linkEmpty": "No rooms opened via a link yet.",
+  "collaboration.rooms.linkEmpty":
+    "Rooms you open from a shared link appear here.",
   "collaboration.rooms.invited": "Invited",
   "collaboration.rooms.removeFromList": "Remove from list",
   "collaboration.rooms.removed":

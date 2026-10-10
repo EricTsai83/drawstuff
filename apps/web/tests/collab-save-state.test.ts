@@ -1,7 +1,10 @@
 // @vitest-environment jsdom
 import { describe, expect, it } from "vitest";
 import type { SyncedElement } from "@drawstuff/collaboration/protocol";
-import { createRoomSaveState } from "@/lib/collab/session/save-state";
+import {
+  createRoomSaveState,
+  roomExitLosesNothing,
+} from "@/lib/collab/session/save-state";
 import {
   createHarness,
   createSnapshotBackend,
@@ -52,6 +55,21 @@ describe("durable room save coverage", () => {
     // A reconnect does not make unsaved edits saved.
     state.reset();
     expect(state.state().status).toBe("pending");
+  });
+
+  it("warns on leaving only an editor with unconfirmed changes", () => {
+    expect(roomExitLosesNothing({ canEdit: true, status: "pending" })).toBe(
+      false,
+    );
+    expect(roomExitLosesNothing({ canEdit: true, status: "failed" })).toBe(
+      false,
+    );
+    expect(roomExitLosesNothing({ canEdit: true, status: "idle" })).toBe(true);
+    expect(roomExitLosesNothing({ canEdit: true, status: "saved" })).toBe(true);
+    // A viewer's (or withdrawn editor's) edits are never published.
+    expect(roomExitLosesNothing({ canEdit: false, status: "pending" })).toBe(
+      true,
+    );
   });
 
   it("starts with nothing unsaved and is pending only after a change", () => {

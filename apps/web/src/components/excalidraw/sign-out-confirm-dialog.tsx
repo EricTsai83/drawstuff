@@ -32,6 +32,7 @@ export function SignOutConfirmDialog({
   return (
     <Dialog
       open={open}
+      disablePointerDismissal
       onOpenChange={(nextOpen) => {
         if (!isLoading) onOpenChange(nextOpen);
       }}

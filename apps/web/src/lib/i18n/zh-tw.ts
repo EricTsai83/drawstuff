@@ -53,6 +53,7 @@ export const zhTW = {
   // 覆寫/補齊：覆寫確認對話框
   "overwriteConfirm.modal.shareableLink.title": "開啟分享的場景？",
   "overwriteConfirm.modal.shareableLink.button": "取代目前場景",
+  "overwriteConfirm.modal.shareableLink.keep": "保留目前場景",
   "overwriteConfirm.action.exportToImage.button": "匯出為圖片",
   "overwriteConfirm.action.saveToDisk.button": "儲存到磁碟",
 
@@ -237,9 +238,12 @@ export const zhTW = {
   "collaboration.rooms.loadFailed": "無法載入房間。",
   "collaboration.rooms.sceneLinked": "來自場景",
   "collaboration.rooms.mineHeading": "我擁有的與受邀的",
-  "collaboration.rooms.mineEmpty": "目前沒有你擁有或受邀的房間。",
+  "collaboration.rooms.emptyTitle": "還沒有房間",
+  "collaboration.rooms.emptyHint":
+    "在這裡或從編輯器的共編按鈕新增房間，或開啟受邀連結，房間就會出現在這裡。",
+  "collaboration.rooms.mineEmpty": "你建立或受邀的房間會顯示在這裡。",
   "collaboration.rooms.linkHeading": "透過連結開啟過的",
-  "collaboration.rooms.linkEmpty": "目前沒有透過連結開啟過的房間。",
+  "collaboration.rooms.linkEmpty": "透過分享連結開啟的房間會顯示在這裡。",
   "collaboration.rooms.invited": "受邀",
   "collaboration.rooms.removeFromList": "從列表移除",
   "collaboration.rooms.removed": "已從列表移除。再次開啟連結就會回到列表。",

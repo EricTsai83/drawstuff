@@ -71,6 +71,46 @@ describe("editor storage status (18C §5)", () => {
     }
   });
 
+  it("flashes a save in another room even at the same revision", () => {
+    vi.useFakeTimers();
+    try {
+      const saved = { status: "saved", revision: 2, checksum: null } as const;
+      const icon = (container: HTMLElement) =>
+        container
+          .querySelector("button [data-status]")
+          ?.getAttribute("data-status");
+      const first = renderStatus({
+        roomId: "room-a",
+        state: saved,
+        compact: true,
+      });
+      act(() => {
+        vi.advanceTimersByTime(3000);
+      });
+      expect(icon(first)).toBe("settled");
+      act(() =>
+        root?.render(
+          <EditorStorageStatus
+            roomId="room-b"
+            state={saved}
+            sourceSceneId={null}
+            onCopy={() => undefined}
+            onUpdateSource={() => Promise.resolve()}
+            onExit={() => undefined}
+            api={null}
+            isAuthenticated
+            detachedFromSceneName={null}
+            showSaveStatus
+            compact
+          />,
+        ),
+      );
+      expect(icon(first)).toBe("saved");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("says nothing about saving before anything has changed", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",

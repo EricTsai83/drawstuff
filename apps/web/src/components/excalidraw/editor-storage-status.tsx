@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import type { ReactNode } from "react";
+
+import { useTransientKey } from "@/hooks/use-transient-key";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import {
   Check,
@@ -170,6 +172,7 @@ export function EditorStorageStatus(props: {
           aria-label={statusLabel ? `${roomLabel} · ${statusLabel}` : roomLabel}
         >
           <BadgeStatusIcon
+            roomId={props.roomId}
             state={props.state}
             showSaveStatus={props.showSaveStatus}
           />
@@ -191,7 +194,21 @@ export function EditorStorageStatus(props: {
   );
 }
 
-const SAVED_VISIBLE_MS = 3000;
+/** How long a confirmed save shows its check before settling; shared with Save. */
+export const SAVED_VISIBLE_MS = 3000;
+
+/**
+ * Changes with each confirmed revision, so every new save flashes once. Scoped
+ * to the room: another room's revision numbers must not count as already seen.
+ */
+export function savedFlashKey(
+  roomId: string | null,
+  state: RoomSaveState,
+): string | null {
+  return roomId && state.status === "saved"
+    ? `${roomId}:${state.revision ?? "none"}`
+    : null;
+}
 
 function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
   if (status === "saving")
@@ -217,27 +234,22 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
  * stay in the panel, the tooltip and the live region.
  */
 function BadgeStatusIcon(props: {
+  roomId: string;
   state: RoomSaveState;
   showSaveStatus: boolean;
 }) {
-  const { status, revision } = props.state;
-  const savedKey = status === "saved" ? `saved:${revision ?? "none"}` : null;
-  const [settledKey, setSettledKey] = useState<string | null>(null);
-  useEffect(() => {
-    if (!savedKey) return;
-    const timer = window.setTimeout(
-      () => setSettledKey(savedKey),
-      SAVED_VISIBLE_MS,
-    );
-    return () => window.clearTimeout(timer);
-  }, [savedKey]);
+  const { status } = props.state;
+  const justSaved = useTransientKey(
+    savedFlashKey(props.roomId, props.state),
+    SAVED_VISIBLE_MS,
+  );
   // Edits waiting for the next automatic save are routine, so they keep the
   // lock; the panel still says so.
   const settled =
     !props.showSaveStatus ||
     status === "idle" ||
     status === "pending" ||
-    (savedKey !== null && settledKey === savedKey);
+    (status === "saved" && !justSaved);
   return (
     <span
       className="flex size-3 shrink-0 items-center justify-center"

@@ -28,8 +28,13 @@ export function SceneChangeConfirmDialog({
   const { t } = useAppI18n();
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}>
+    // A decision about unsaved work: answered with a button (Escape = Cancel),
+    // never by an outside click or an X that hides which choice was made.
+    <Dialog open={open} onOpenChange={onOpenChange} disablePointerDismissal>
+      <DialogContent
+        className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}
+        showCloseButton={false}
+      >
         <DialogHeader>
           <DialogTitle>{t("scene.change.title")}</DialogTitle>
           <DialogDescription>

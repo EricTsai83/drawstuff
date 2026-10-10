@@ -8,6 +8,20 @@ export type RoomSaveState = {
   checksum: string | null;
 };
 
+/**
+ * Whether leaving a room loses nothing: nothing changed since the session
+ * began, everything is confirmed, or this account cannot publish edits (a
+ * viewer, or access withdrawn) — warning them would only block the way out.
+ */
+export function roomExitLosesNothing(options: {
+  canEdit: boolean;
+  status: RoomSaveStatus;
+}): boolean {
+  return (
+    !options.canEdit || options.status === "saved" || options.status === "idle"
+  );
+}
+
 /** Same identity contract as snapshotDigest, synchronous for leave guards. */
 function snapshotCoverage(elements: readonly SyncedElement[]): string {
   return elements

@@ -1,4 +1,4 @@
-import { CloudOff, CloudUpload, CheckCircle2, AlertCircle } from "lucide-react";
+import { CloudOff, CloudUpload, CheckCircle2 } from "lucide-react";
 import type { AppTranslate } from "@/lib/i18n";
 
 export type UploadStatus =
@@ -28,9 +28,10 @@ export function getCloudUploadPresentation(
         tooltip: t("app.cloudUpload.tooltip.success"),
         variant: "canvas" as const,
       };
+    // Save keeps its cloud; the destructive variant and tooltip carry the error.
     case "error":
       return {
-        icon: AlertCircle,
+        icon: CloudUpload,
         tooltip: errorMessage ?? t("app.cloudUpload.tooltip.error"),
         variant: "destructive" as const,
       };

@@ -127,10 +127,17 @@ export function OverwriteConfirmDialog({
   }, [excalidrawAPI, clearCurrentSceneId]);
 
   return (
-    <Dialog open={open} onOpenChange={handleDialogOpenChange}>
+    // Replacing the canvas is answered with a button; the explicit keep action
+    // (or Escape) is the "no", never an outside click.
+    <Dialog
+      open={open}
+      onOpenChange={handleDialogOpenChange}
+      disablePointerDismissal
+    >
       <DialogContent
         aria-label={t("overwriteConfirm.modal.shareableLink.title")}
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
+        showCloseButton={false}
       >
         <DialogTitle>
           {t("overwriteConfirm.modal.shareableLink.title")}
@@ -145,6 +152,9 @@ export function OverwriteConfirmDialog({
           onClick={handlePrimaryConfirm}
         >
           {t("overwriteConfirm.modal.shareableLink.button")}
+        </Button>
+        <Button variant="ghost" onClick={() => handleDialogOpenChange(false)}>
+          {t("overwriteConfirm.modal.shareableLink.keep")}
         </Button>
 
         <DialogFooter className="w-full sm:flex sm:justify-between">
