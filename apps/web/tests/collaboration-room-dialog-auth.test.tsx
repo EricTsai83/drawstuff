@@ -328,6 +328,36 @@ describe("collaboration room creation", () => {
     expect(initialCapture.current?.label).toBe("Design review");
   });
 
+  it("does not start the room on an Enter that confirms an IME composition", async () => {
+    renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "" });
+    const input = container!.querySelector<HTMLInputElement>(
+      "#collab-room-name",
+    )!;
+    await act(async () => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Enter",
+          isComposing: true,
+          bubbles: true,
+        }),
+      );
+    });
+    expect(createMutate).not.toHaveBeenCalled();
+  });
+
+  it("keeps the typed name when the scene name changes while open", async () => {
+    renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "A" });
+    const input = container!.querySelector<HTMLInputElement>(
+      "#collab-room-name",
+    )!;
+    await act(async () => {
+      Reflect.set(HTMLInputElement.prototype, "value", "Mine", input);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "B" });
+    expect(input.value).toBe("Mine");
+  });
+
   it("names an unnamed room 'Untitled room' rather than leaving its id", async () => {
     renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "" });
     await act(async () => {

@@ -11,6 +11,9 @@ describe("meaningfulSceneName", () => {
   it("keeps a name the user chose", () => {
     expect(meaningfulSceneName(" Roadmap ")).toBe("Roadmap");
     expect(meaningfulSceneName("Sprint 2026-10")).toBe("Sprint 2026-10");
+    expect(meaningfulSceneName("Release-2026-10-11-0130")).toBe(
+      "Release-2026-10-11-0130",
+    );
     expect(meaningfulSceneName(undefined)).toBe("");
   });
 });

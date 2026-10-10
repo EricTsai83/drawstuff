@@ -445,16 +445,18 @@ export default function ExcalidrawEditor() {
               </MobileRoomBadge>
             )}
 
-            <SceneRenameDialog
-              excalidrawAPI={excalidrawAPI}
-              trigger={
-                <SceneNameTrigger
-                  sceneName={sceneName}
-                  isMobileSlot={isMobileCanvasSlot !== false}
-                />
-              }
-              onConfirmName={handleSceneRename}
-            />
+            {!isRoomMode && (
+              <SceneRenameDialog
+                excalidrawAPI={excalidrawAPI}
+                trigger={
+                  <SceneNameTrigger
+                    sceneName={sceneName}
+                    isMobileSlot={isMobileCanvasSlot !== false}
+                  />
+                }
+                onConfirmName={handleSceneRename}
+              />
+            )}
 
             <Footer>
               <EditorFooter

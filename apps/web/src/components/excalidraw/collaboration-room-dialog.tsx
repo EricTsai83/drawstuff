@@ -300,8 +300,13 @@ export function CollaborationRoomDialog({
   const [isCreatePending, setIsCreatePending] = useState(false);
   /** The name the owner gives the room before starting it. */
   const [roomName, setRoomName] = useState(defaultRoomName);
+  // Prefilled only when the dialog opens for a fresh creation: never over the
+  // user's typing, and never over the name an unfinished creation retains.
+  const wasOpen = useRef(false);
   useEffect(() => {
-    if (open && !roomId) setRoomName(defaultRoomName);
+    if (open && !wasOpen.current && !roomId && !initialization.current)
+      setRoomName(defaultRoomName);
+    wasOpen.current = open;
   }, [open, roomId, defaultRoomName]);
   const [hasInitialization, setHasInitialization] = useState(false);
   const [isCancellingInitialization, setIsCancellingInitialization] =
@@ -767,6 +772,10 @@ export function CollaborationRoomDialog({
                 disabled={isCreatePending || hasInitialization}
                 onChange={(event) => setRoomName(event.target.value)}
                 onKeyDown={(event) => {
+                  // Enter that confirms an IME composition (注音, 倉頡) is
+                  // not a submit.
+                  if (event.nativeEvent.isComposing || event.keyCode === 229)
+                    return;
                   if (event.key === "Enter" && !isCreatePending)
                     void startRoom();
                 }}
