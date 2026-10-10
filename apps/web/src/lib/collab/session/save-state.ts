@@ -1,6 +1,7 @@
 import type { SyncedElement } from "@drawstuff/collaboration/protocol";
 
-type RoomSaveStatus = "pending" | "saving" | "saved" | "failed";
+/** `idle`: nothing has changed since the session began, so nothing is unsaved. */
+type RoomSaveStatus = "idle" | "pending" | "saving" | "saved" | "failed";
 export type RoomSaveState = {
   status: RoomSaveStatus;
   revision: number | null;
@@ -29,7 +30,7 @@ export function createRoomSaveState(options: {
   let confirmedCoverage: string | undefined;
   let revision: number | null = null;
   let checksum: string | null = null;
-  let activity: "pending" | "saving" | "failed" = "pending";
+  let activity: "idle" | "pending" | "saving" | "failed" = "idle";
   let lastState: RoomSaveState | undefined;
   const state = (): RoomSaveState => ({
     status:
@@ -80,7 +81,8 @@ export function createRoomSaveState(options: {
       confirmedCoverage = undefined;
       revision = null;
       checksum = null;
-      activity = "pending";
+      // Called on every reconnect: edits not yet saved are still unsaved.
+      if (activity !== "idle") activity = "pending";
       notify();
     },
   };

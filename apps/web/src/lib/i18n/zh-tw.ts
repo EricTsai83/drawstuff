@@ -182,12 +182,19 @@ export const zhTW = {
   "collaboration.dialogStatus.rateLimited": "嘗試次數過多，請稍後再試",
   "collaboration.dialogStatus.cancelled": "已取消加入",
   "collaboration.toast.enforcementPending": "權限已更新，可能稍後才會生效。",
+  "collaboration.toast.retryPrevious": "上一個變更尚未確認，請先重試。",
+  "collaboration.management.unconfirmed": "上一個變更尚未確認。",
   "collaboration.toast.listSyncing": "房間可能稍後才會出現在列表中。",
   "collaboration.toast.existingRoom": "這個場景已經有房間，已為你開啟。",
   "collaboration.share.title": "分享房間",
   "collaboration.noAccess.title": "你沒有這個房間的存取權",
   "collaboration.noAccess.description":
-    "請向房主索取邀請，或確認已用受邀的帳號登入。",
+    "請向擁有者索取邀請，或確認已用受邀的帳號登入。",
+  "collaboration.accessRemoved.title": "你對這個房間的存取權已被移除",
+  "collaboration.accessRemoved.description":
+    "如需回到房間，請擁有者重新邀請你。",
+  "collaboration.roomEnded.title": "這個房間已結束或不存在",
+  "collaboration.roomEnded.description": "請確認連結，或詢問分享連結給你的人。",
   "collaboration.manage": "管理房間",
   "collaboration.people": "成員",
   "collaboration.invite.email": "要邀請的 email",
@@ -220,7 +227,7 @@ export const zhTW = {
     "所有人將失去存取權，內容會被刪除，且無法復原。",
   "collaboration.rooms.endConfirm": "結束房間",
   "collaboration.rooms.creationCancelled": "已取消建立房間。",
-  "collaboration.rooms.ended": "房間已結束。",
+  "collaboration.rooms.ended": "你已結束這個房間，內容已刪除。",
   "collaboration.rooms.leave": "離開房間",
   "collaboration.rooms.leaveTitle": "要離開這個房間嗎？",
   "collaboration.rooms.leaveDescription":
@@ -241,8 +248,8 @@ export const zhTW = {
   "collaboration.failure.unauthorized":
     "你已無法存取這個房間，請向擁有者索取新邀請。",
   "collaboration.failure.noAccess":
-    "你沒有這個房間的存取權。請向房主索取邀請，或確認已用受邀的帳號登入。",
-  "collaboration.failure.roomEnded": "這個房間已結束，請向分享者索取新連結。",
+    "你沒有這個房間的存取權。請向擁有者索取邀請，或確認已用受邀的帳號登入。",
+  "collaboration.failure.roomEnded": "這個房間已結束或不存在。",
   "collaboration.failure.protocolViolation":
     "連線因通訊協定錯誤而停止。請重新載入；若持續發生請回報。",
   "collaboration.failure.unsupportedProtocolVersion":

@@ -109,7 +109,14 @@ export function useCanvasHandoff(options: {
           current.cancelPendingSceneSave,
           getCurrentSceneIdentity(),
         );
-        if (!params.keepCanvas) current.excalidrawAPI.resetScene();
+        if (!params.keepCanvas) {
+          // resetScene() restores Excalidraw's default (editable) view mode,
+          // and Excalidraw only re-applies the viewModeEnabled prop when it
+          // changes, so a viewer whose prop stays true would become editable.
+          const { viewModeEnabled } = current.excalidrawAPI.getAppState();
+          current.excalidrawAPI.resetScene();
+          current.excalidrawAPI.updateScene({ appState: { viewModeEnabled } });
+        }
       } finally {
         requestAnimationFrame(() => {
           resumeDirtyTracking();

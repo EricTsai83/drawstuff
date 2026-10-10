@@ -171,7 +171,7 @@ export function useCollaborationRoom(options: {
    * the failed attempt down through the normal cleanup and starts over.
    */
   const [saveState, setSaveState] = useState<RoomSaveState>({
-    status: "pending",
+    status: "idle",
     revision: null,
     checksum: null,
   });
@@ -307,7 +307,7 @@ export function useCollaborationRoom(options: {
         handleRef.current = handle;
         if (!handle) {
           setSourceSceneId(null);
-          setSaveState({ status: "pending", revision: null, checksum: null });
+          setSaveState({ status: "idle", revision: null, checksum: null });
         }
       },
     });

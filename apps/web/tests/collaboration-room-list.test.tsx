@@ -329,7 +329,9 @@ describe("collaboration room list (plan 21 §5)", () => {
     });
     await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
     expect(execute.mock.calls[0]?.[0]).toMatchObject({ action: "end-room" });
-    expect(toast.success).toHaveBeenCalledWith("Room ended.");
+    expect(toast.success).toHaveBeenCalledWith(
+      "You ended this room. Its content was deleted.",
+    );
   });
 
   it("lets an invited member leave after confirming, without end", async () => {

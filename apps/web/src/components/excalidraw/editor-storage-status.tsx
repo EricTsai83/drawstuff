@@ -44,6 +44,8 @@ export function EditorStorageStatus(props: {
   isAuthenticated: boolean;
   /** Scene an unresolved signed-out draft was detached from, if any. */
   detachedFromSceneName: string | null;
+  /** False for a viewer: nothing they see is theirs to save. */
+  showSaveStatus: boolean;
   compact?: boolean;
 }) {
   const { t } = useAppI18n();
@@ -58,7 +60,11 @@ export function EditorStorageStatus(props: {
   }
   const roomLabel = t("storage.room", { roomId: props.roomId.slice(0, 8) });
   const { status } = props.state;
-  const statusLabel = t(`storage.room.${status}`);
+  // Nothing changed yet (or a viewer, who cannot change anything): no status.
+  const statusLabel =
+    props.showSaveStatus && status !== "idle"
+      ? t(`storage.room.${status}`)
+      : null;
   const panel = (
     <div
       className="flex w-64 max-w-full flex-col"
@@ -76,14 +82,19 @@ export function EditorStorageStatus(props: {
             role="status"
             aria-live="polite"
             className={cn(
-              "flex items-center gap-1 text-xs",
+              // Reserves its line so the first change does not grow the panel.
+              "flex min-h-4 items-center gap-1 text-xs",
               status === "failed"
                 ? "text-destructive"
                 : "text-muted-foreground",
             )}
           >
-            <SaveStatusIcon status={status} />
-            {statusLabel}
+            {statusLabel && (
+              <>
+                <SaveStatusIcon status={status} />
+                {statusLabel}
+              </>
+            )}
           </span>
         </div>
       </div>
@@ -150,17 +161,22 @@ export function EditorStorageStatus(props: {
           }
           className={cn(
             "h-6 cursor-pointer gap-1.5 px-2.5 text-sm",
-            status === "failed" && "bg-destructive/10 text-destructive",
+            statusLabel &&
+              status === "failed" &&
+              "bg-destructive/10 text-destructive",
           )}
-          aria-label={`${roomLabel} · ${statusLabel}`}
+          aria-label={statusLabel ? `${roomLabel} · ${statusLabel}` : roomLabel}
         >
-          <BadgeStatusIcon state={props.state} />
+          <BadgeStatusIcon
+            state={props.state}
+            showSaveStatus={props.showSaveStatus}
+          />
           {roomLabel}
         </TooltipTrigger>
         {/* How saving works, on demand rather than in the panel. */}
         <TooltipContent side="bottom" align="end" variant="default">
           <span className="flex flex-col gap-0.5">
-            <span className="font-medium">{statusLabel}</span>
+            {statusLabel && <span className="font-medium">{statusLabel}</span>}
             <span className="text-muted-foreground">{autosave}</span>
           </span>
         </TooltipContent>
@@ -197,7 +213,10 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
  * lock, and a confirmed save shows a check for a moment before it returns. The words
  * stay in the panel, the tooltip and the live region.
  */
-function BadgeStatusIcon(props: { state: RoomSaveState }) {
+function BadgeStatusIcon(props: {
+  state: RoomSaveState;
+  showSaveStatus: boolean;
+}) {
   const { status, revision } = props.state;
   const savedKey = status === "saved" ? `saved:${revision ?? "none"}` : null;
   const [settledKey, setSettledKey] = useState<string | null>(null);
@@ -212,7 +231,10 @@ function BadgeStatusIcon(props: { state: RoomSaveState }) {
   // Edits waiting for the next automatic save are routine, so they keep the
   // lock; the panel still says so.
   const settled =
-    status === "pending" || (savedKey !== null && settledKey === savedKey);
+    !props.showSaveStatus ||
+    status === "idle" ||
+    status === "pending" ||
+    (savedKey !== null && settledKey === savedKey);
   return (
     <span
       className="flex size-3 shrink-0 items-center justify-center"

@@ -68,6 +68,16 @@ export type CollaborationRoomStatus =
 export type CollaborationFailureReason =
   Exclude<UnrecoverableReason, "membership-revoked"> | "no-access";
 
+/**
+ * A failure after which nothing in the room applies: this account has no access,
+ * or the room has ended (or never existed). The UI offers only the way back.
+ */
+export const isTerminalCollaborationFailure = (
+  status: CollaborationRoomStatus,
+  reason: CollaborationFailureReason | null,
+): boolean =>
+  status === "failed" && (reason === "no-access" || reason === "room-ended");
+
 export const toCollaborationFailureReason = (
   reason: UnrecoverableReason,
 ): CollaborationFailureReason =>
