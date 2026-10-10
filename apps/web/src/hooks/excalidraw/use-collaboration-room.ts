@@ -90,7 +90,10 @@ export type {
  * the stored baseline, and teardown restores the personal draft before
  * releasing the persistence hold. Personal copies never attach to room edits.
  */
-import type { RoomSaveState } from "@/lib/collab/session/save-state";
+import {
+  roomExitLosesNothing,
+  type RoomSaveState,
+} from "@/lib/collab/session/save-state";
 
 export type UseCollaborationRoomResult = {
   saveState: RoomSaveState;
@@ -351,28 +354,40 @@ export function useCollaborationRoom(options: {
   );
 
   const requestSave = useCallback(() => handleRef.current?.requestSave(), []);
+  // Whether this session may still publish edits; read at call time by the
+  // leave guards below.
+  const canEditRef = useRef(false);
+  useEffect(() => {
+    canEditRef.current =
+      !state.roleWithdrawn &&
+      state.role !== null &&
+      roomRoleCanEditScene(state.role);
+  }, [state.role, state.roleWithdrawn]);
+  const nothingToLose = useCallback(() => {
+    const handle = handleRef.current;
+    return (
+      !handle ||
+      roomExitLosesNothing({
+        canEdit: canEditRef.current,
+        status: handle.getSaveState().status,
+      })
+    );
+  }, []);
   const confirmExit = useCallback(
-    () =>
-      !handleRef.current ||
-      handleRef.current.getSaveState().status === "saved" ||
-      window.confirm(tRef.current("storage.leaveRisk")),
-    [],
+    () => nothingToLose() || window.confirm(tRef.current("storage.leaveRisk")),
+    [nothingToLose],
   );
   // Consult the live session for a change in the same tick as beforeunload.
   useEffect(() => {
     if (!roomId) return;
     const guard = (event: BeforeUnloadEvent) => {
-      if (
-        !handleRef.current ||
-        handleRef.current.getSaveState().status === "saved"
-      )
-        return;
+      if (nothingToLose()) return;
       event.preventDefault();
       Reflect.set(event, "returnValue", "");
     };
     window.addEventListener("beforeunload", guard);
     return () => window.removeEventListener("beforeunload", guard);
-  }, [roomId]);
+  }, [roomId, nothingToLose]);
 
   const onScrollChange = useCallback(() => {
     handleRef.current?.handleScrollChange();

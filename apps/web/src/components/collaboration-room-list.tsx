@@ -62,6 +62,19 @@ const EXIT_DONE_KEY: Record<RoomExit, AppTranslationKey> = {
   leave: "collaboration.rooms.left",
 };
 
+/**
+ * Other people change this list (an invitation, a removal, an ended room), and
+ * nothing pushes those changes here. Refetch whenever the user comes back to the
+ * tab or the network returns — free, and it covers switching back from the
+ * invite email. No polling: a visible dashboard would keep Neon from
+ * autosuspending (plans/18d §4).
+ */
+const LIST_FRESHNESS = {
+  staleTime: 0,
+  refetchOnWindowFocus: true,
+  refetchOnReconnect: true,
+} as const;
+
 const SECTION_KEYS: Record<
   RoomListSection,
   { heading: AppTranslationKey; empty: AppTranslationKey }
@@ -90,16 +103,14 @@ export function CollaborationRoomList() {
   const router = useRouter();
   const [mineCursor, setMineCursor] = useState<ListCursor | undefined>();
   const [linkCursor, setLinkCursor] = useState<ListCursor | undefined>();
-  const mine = api.collaborationRoom.list.useQuery({
-    section: "mine",
-    limit: 30,
-    cursor: mineCursor,
-  });
-  const link = api.collaborationRoom.list.useQuery({
-    section: "link",
-    limit: 30,
-    cursor: linkCursor,
-  });
+  const mine = api.collaborationRoom.list.useQuery(
+    { section: "mine", limit: 30, cursor: mineCursor },
+    LIST_FRESHNESS,
+  );
+  const link = api.collaborationRoom.list.useQuery(
+    { section: "link", limit: 30, cursor: linkCursor },
+    LIST_FRESHNESS,
+  );
   const initializer = useRef<ReturnType<
     typeof createRoomInitialization
   > | null>(null);
@@ -409,7 +420,7 @@ export function CollaborationRoomList() {
         )}
         {/* A failed refetch keeps cached data; only a successful query may claim "empty". */}
         {query.isSuccess && rooms.length === 0 && (
-          <p className="text-muted-foreground text-sm">
+          <p className="text-muted-foreground text-xs">
             {t(SECTION_KEYS[section].empty)}
           </p>
         )}
@@ -434,47 +445,81 @@ export function CollaborationRoomList() {
     );
   };
 
+  const createButton = (
+    <Button
+      disabled={pending || busyRoomId !== null}
+      aria-busy={creating}
+      onClick={() => void create()}
+    >
+      {creating ? (
+        <>
+          <Spinner data-icon="inline-start" aria-hidden="true" />
+          {t("collaboration.action.creating")}
+        </>
+      ) : (
+        t(
+          recoverable
+            ? "collaboration.rooms.retry"
+            : "collaboration.rooms.create",
+        )
+      )}
+    </Button>
+  );
+  // Both sections confirmed empty on their first page: one empty state for the
+  // tab, not two headings repeating "nothing here".
+  const allEmpty =
+    mine.isSuccess &&
+    link.isSuccess &&
+    mine.data.rooms.length === 0 &&
+    link.data.rooms.length === 0 &&
+    !mineCursor &&
+    !linkCursor &&
+    !recoverable;
+
   return (
     <section
       className="flex min-w-0 flex-col gap-5"
       aria-label={t("collaboration.rooms.title")}
     >
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <p className="text-muted-foreground text-sm">
-          {t("collaboration.rooms.hint")}
-        </p>
-        <div className="flex shrink-0 gap-2">
-          {recoverable && !pending && (
-            <Button
-              variant="ghost"
-              disabled={pending || busyRoomId !== null}
-              onClick={() => void cancel()}
-            >
-              {t("collaboration.action.cancelInitialization")}
-            </Button>
-          )}
-          <Button
-            disabled={pending || busyRoomId !== null}
-            aria-busy={creating}
-            onClick={() => void create()}
+      {allEmpty ? (
+        <div className="flex flex-col items-center py-8 text-center">
+          <span
+            aria-hidden="true"
+            className="bg-primary/10 text-primary mb-4 grid size-12 place-items-center rounded-xl"
           >
-            {creating ? (
-              <>
-                <Spinner data-icon="inline-start" aria-hidden="true" />
-                {t("collaboration.action.creating")}
-              </>
-            ) : (
-              t(
-                recoverable
-                  ? "collaboration.rooms.retry"
-                  : "collaboration.rooms.create",
-              )
-            )}
-          </Button>
+            <Users className="size-6" />
+          </span>
+          <div className="text-muted-foreground text-lg">
+            {t("collaboration.rooms.emptyTitle")}
+          </div>
+          <div className="text-muted-foreground mt-2 max-w-sm text-sm">
+            {t("collaboration.rooms.emptyHint")}
+          </div>
+          <div className="mt-5">{createButton}</div>
         </div>
-      </div>
-      {renderSection("mine", mine, mineCursor, setMineCursor)}
-      {renderSection("link", link, linkCursor, setLinkCursor)}
+      ) : (
+        <>
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <p className="text-muted-foreground text-sm">
+              {t("collaboration.rooms.hint")}
+            </p>
+            <div className="flex shrink-0 gap-2">
+              {recoverable && !pending && (
+                <Button
+                  variant="ghost"
+                  disabled={pending || busyRoomId !== null}
+                  onClick={() => void cancel()}
+                >
+                  {t("collaboration.action.cancelInitialization")}
+                </Button>
+              )}
+              {createButton}
+            </div>
+          </div>
+          {renderSection("mine", mine, mineCursor, setMineCursor)}
+          {renderSection("link", link, linkCursor, setLinkCursor)}
+        </>
+      )}
       <AlertDialog
         open={confirmExit !== null}
         onOpenChange={(open) => {

@@ -31,8 +31,12 @@ export function SceneSwitchConfirmDialog({
   const to = toWorkspaceName ?? t("scene.switchWorkspace.selected");
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}>
+    // Answered with a button; Escape and Cancel keep the current workspace.
+    <Dialog open={open} onOpenChange={onOpenChange} disablePointerDismissal>
+      <DialogContent
+        className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}
+        showCloseButton={false}
+      >
         <DialogHeader>
           <DialogTitle>{t("scene.switchWorkspace.title")}</DialogTitle>
           <DialogDescription>
@@ -54,6 +58,9 @@ export function SceneSwitchConfirmDialog({
             aria-label={t("scene.switchWorkspace.createEmpty")}
           >
             {t("scene.switchWorkspace.createEmpty")}
+          </Button>
+          <Button variant="ghost" onClick={() => onOpenChange(false)}>
+            {t("buttons.cancel")}
           </Button>
         </div>
       </DialogContent>

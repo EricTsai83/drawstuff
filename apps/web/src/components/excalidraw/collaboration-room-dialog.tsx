@@ -671,16 +671,18 @@ export function CollaborationRoomDialog({
   return (
     <Dialog
       open={open}
+      // A terminal room is a notice the user must read: no X, no outside
+      // click, no Escape — "Back to my canvas" is the only way out.
+      disablePointerDismissal={terminal}
       onOpenChange={(nextOpen) => {
-        // Closing a terminal room would leave an unusable canvas behind it;
-        // closing is the way back.
-        if (!nextOpen && terminal) leaveTerminalRoom();
-        else onOpenChange(nextOpen);
+        if (!nextOpen && terminal) return;
+        onOpenChange(nextOpen);
       }}
     >
       <DialogContent
         initialFocus={false}
         className={WORKFLOW_DIALOG_CONTENT_CLASS_NAME}
+        showCloseButton={!terminal}
       >
         <DialogHeader>
           <DialogTitle className="pr-8">
@@ -1168,7 +1170,9 @@ function RoleSelect(props: {
       >
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      {/* Opens below its trigger instead of over it, so the row it changes
+          stays visible. */}
+      <SelectContent alignItemWithTrigger={false}>
         <SelectGroup>
           {INVITE_ROLES.map((value) => (
             <SelectItem key={value} value={value}>
@@ -1209,7 +1213,9 @@ function LinkAccessSelect(props: {
         <Icon aria-hidden="true" />
         <SelectValue />
       </SelectTrigger>
-      <SelectContent>
+      {/* Opens below its trigger instead of over it, so the row it changes
+          stays visible. */}
+      <SelectContent alignItemWithTrigger={false}>
         <SelectGroup>
           {LINK_ROLE_ITEMS.map((linkRole) => (
             <SelectItem key={linkRole} value={linkRole}>

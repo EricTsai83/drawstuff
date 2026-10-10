@@ -43,7 +43,12 @@ import {
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { useSaveShortcut } from "@/hooks/excalidraw/use-save-shortcut";
 import { isTerminalCollaborationFailure } from "@/lib/collab/room-state-reducer";
-import { EditorStorageStatus } from "./editor-storage-status";
+import {
+  EditorStorageStatus,
+  SAVED_VISIBLE_MS,
+  savedFlashKey,
+} from "./editor-storage-status";
+import { useTransientKey } from "@/hooks/use-transient-key";
 import { PersonalLibraryController } from "@/components/excalidraw/personal-library-controller";
 import { getCanonicalLibraryReturnUrl } from "@/lib/personal-library";
 import type { CanvasProductActions } from "./canvas-product-actions";
@@ -237,6 +242,12 @@ export default function ExcalidrawEditor() {
     return <CustomStats />;
   }, []);
 
+  // A room stays "saved" until the next change; Save shows its check only for
+  // a moment after each new confirmed save, then returns to the cloud.
+  const roomJustSaved = useTransientKey(
+    savedFlashKey(roomSaveState),
+    SAVED_VISIBLE_MS,
+  );
   const productActions = useMemo<CanvasProductActions>(
     () => ({
       collaboration: {
@@ -259,7 +270,7 @@ export default function ExcalidrawEditor() {
               status: isRoomMode
                 ? roomSaveState.status === "saving"
                   ? "uploading"
-                  : roomSaveState.status === "saved"
+                  : roomSaveState.status === "saved" && roomJustSaved
                     ? "success"
                     : roomSaveState.status === "failed"
                       ? "error"
@@ -285,6 +296,7 @@ export default function ExcalidrawEditor() {
       collaborationRole,
       isRoomMode,
       roomSaveState.status,
+      roomJustSaved,
       requestRoomSave,
       t,
       exportStatus,

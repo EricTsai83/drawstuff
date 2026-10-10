@@ -34,7 +34,7 @@ export function SignedOutDraftDialog({
   const { t } = useAppI18n();
 
   return (
-    <Dialog open={open}>
+    <Dialog open={open} disablePointerDismissal>
       <DialogContent
         className={CONFIRM_DIALOG_CONTENT_CLASS_NAME}
         showCloseButton={false}

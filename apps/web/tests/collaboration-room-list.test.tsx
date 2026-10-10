@@ -118,8 +118,8 @@ const openMenu = async (row: Element) => {
     ) as HTMLElement | undefined;
 };
 
-const MINE_EMPTY = "No rooms you own or were invited to yet.";
-const LINK_EMPTY = "No rooms opened via a link yet.";
+const MINE_EMPTY = "Rooms you create or are invited to appear here.";
+const LINK_EMPTY = "Rooms you open from a shared link appear here.";
 
 describe("collaboration room list (plan 21 §5)", () => {
   it("queries and renders the two sections separately", () => {
@@ -160,10 +160,15 @@ describe("collaboration room list (plan 21 §5)", () => {
     expect(section("link").textContent).toContain("View only");
   });
 
-  it("shows an empty state per section", () => {
+  it("shows one empty state for the tab when both sections are empty", () => {
     render(empty);
-    expect(section("mine").textContent).toContain(MINE_EMPTY);
-    expect(section("link").textContent).toContain(LINK_EMPTY);
+    const tab = document.querySelector('[aria-label="Rooms"]');
+    expect(tab?.textContent).toContain("No rooms yet");
+    expect(tab?.querySelectorAll("h3")).toHaveLength(0);
+    expect(buttonIn(tab as HTMLElement, "New room")).toBeDefined();
+  });
+
+  it("hints inside an empty section when the other has rooms", () => {
     render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
     expect(section("mine").textContent).not.toContain(MINE_EMPTY);
     expect(section("link").textContent).toContain(LINK_EMPTY);
