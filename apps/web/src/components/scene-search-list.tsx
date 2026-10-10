@@ -426,12 +426,6 @@ export function SceneSearchList({
                       workspaces={workspaces}
                       categories={categories}
                     />
-                    {isFiltering && (
-                      <>
-                        <div ref={sentinelRef} />
-                        {isFetchingNextPage && <SceneGridSkeleton count={5} />}
-                      </>
-                    )}
                   </section>
 
                   {!isFiltering &&
@@ -447,14 +441,18 @@ export function SceneSearchList({
                           workspaces={workspaces}
                           categories={categories}
                         />
-                        <div ref={sentinelRef} />
-                        {isFetchingNextPage && <SceneGridSkeleton count={5} />}
-                        {!hasNextPage && !isFetchingNextPage && (
-                          <div className="text-muted-foreground py-6 text-center text-sm">
-                            {t("dashboard.reachedEnd")}
-                          </div>
-                        )}
                       </section>
+                    )}
+                  {/* One sentinel for both layouts: the observer is attached
+                      once, so a swapped node would stop infinite scroll. */}
+                  <div ref={sentinelRef} />
+                  {isFetchingNextPage && <SceneGridSkeleton count={5} />}
+                  {!hasNextPage &&
+                    !isFetchingNextPage &&
+                    (isFiltering || yourSceneItems.length > 0) && (
+                      <div className="text-muted-foreground py-6 text-center text-sm">
+                        {t("dashboard.reachedEnd")}
+                      </div>
                     )}
                 </>
               )}
