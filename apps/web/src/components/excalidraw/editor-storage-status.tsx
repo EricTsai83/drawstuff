@@ -86,38 +86,34 @@ export function EditorStorageStatus(props: {
       className="flex w-64 max-w-full flex-col"
       data-testid="editor-room-storage"
     >
-      {/* Icon and name share one centre line; the status sits under the name. */}
-      <div className="flex items-center gap-3 px-1 pb-3">
-        <span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-lg">
-          <Users className="size-5" aria-hidden="true" />
+      {/* One fixed-height row: the status appears at the end of the same line,
+          so it never pushes the name around. */}
+      <div className="flex h-9 items-center gap-2 px-2 pb-2">
+        <Users
+          className="text-muted-foreground size-4 shrink-0"
+          aria-hidden="true"
+        />
+        <span
+          className="min-w-0 flex-1 truncate text-base font-semibold"
+          title={roomLabel}
+        >
+          {roomLabel}
         </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-          <span
-            className="truncate text-base leading-snug font-semibold"
-            title={roomLabel}
-          >
-            {roomLabel}
-          </span>
-          <span
-            role="status"
-            aria-live="polite"
-            className={cn(
-              // Takes no space while empty, so the name sits centred beside
-              // the icon until there is a status to show.
-              "flex items-center gap-1 text-xs empty:hidden",
-              status === "failed"
-                ? "text-destructive"
-                : "text-muted-foreground",
-            )}
-          >
-            {statusLabel && (
-              <>
-                <SaveStatusIcon status={status} />
-                {statusLabel}
-              </>
-            )}
-          </span>
-        </div>
+        <span
+          role="status"
+          aria-live="polite"
+          className={cn(
+            "flex shrink-0 items-center gap-1 text-xs",
+            status === "failed" ? "text-destructive" : "text-muted-foreground",
+          )}
+        >
+          {statusLabel && (
+            <>
+              <SaveStatusIcon status={status} />
+              {statusLabel}
+            </>
+          )}
+        </span>
       </div>
       <div className="flex flex-col border-t pt-2">
         {props.isAuthenticated && (
@@ -187,8 +183,14 @@ export function EditorStorageStatus(props: {
         >
           {/* The canvas button only names the room; save status lives in
               the panel it opens. */}
+          {/* Upstream's tool icons are thin-stroked 20px drawings; a lucide
+              icon needs a little more size and less stroke to match them. */}
           <Users
-            className={cn("shrink-0", props.edge ? "size-4" : "size-3")}
+            className={cn(
+              "shrink-0",
+              props.edge ? "size-[1.125rem]" : "size-3",
+            )}
+            strokeWidth={props.edge ? 1.75 : 2}
             aria-hidden="true"
           />
           {/* A long room name must not widen the top row. */}
