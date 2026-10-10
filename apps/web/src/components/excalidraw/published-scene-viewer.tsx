@@ -391,10 +391,11 @@ export function PublishedSceneViewer({
     setTheme(browserActiveTheme === "light" ? "dark" : "light");
   };
 
+  // The toggle is named for what pressing it does: switch to the other theme.
   const themeLabel =
     browserActiveTheme === "light"
-      ? t("public.theme.light")
-      : t("public.theme.dark");
+      ? t("public.theme.dark")
+      : t("public.theme.light");
 
   const sceneVisible = hasFitted && fontsReady;
   const isLoading = !sceneVisible && !loadError;
@@ -709,6 +710,8 @@ export function PublishedSceneViewer({
               </Button>
               <Button
                 variant="ghost"
+                // A full document load: leaving /p's tighter CSP (see header).
+                // eslint-disable-next-line @next/next/no-html-link-for-pages -- crossing the /p CSP boundary must load a new document
                 render={<a href="/" />}
                 nativeButton={false}
               >

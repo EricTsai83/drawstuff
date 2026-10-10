@@ -111,6 +111,7 @@ export const SceneCard = memo(function SceneCard({
       if (currentSceneId === item.id) {
         clearCurrentScene();
       }
+      toast.success(t("toast.scene.deleted", { name: item.name }));
       await invalidateSceneQueries();
     },
     onError: (error) => {

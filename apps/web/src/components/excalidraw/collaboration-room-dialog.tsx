@@ -986,6 +986,8 @@ export function CollaborationRoomDialog({
                               <Button
                                 variant="ghost"
                                 size="icon-sm"
+                                // Touch needs a larger target than the compact row allows.
+                                className="pointer-coarse:size-10"
                                 disabled={managementPending}
                                 aria-label={t("collaboration.person.actions", {
                                   name: person.invite.email,

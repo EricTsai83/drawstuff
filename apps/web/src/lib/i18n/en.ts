@@ -91,6 +91,8 @@ export const en = {
   "labels.fileTitle": "File title",
   "labels.description": "Description",
   "labels.copy": "Copy",
+  "labels.copied": "Copied",
+  "labels.copyFailed": "Couldn't copy. Select the text and copy it manually.",
   "labels.share": "Share",
   "canvas.actions.quick": "Quick actions",
   "canvas.actions.closeQuick": "Close quick actions",
@@ -369,7 +371,7 @@ export const en = {
   "workspace.settings.description":
     "Edit workspace information and manage dangerous actions.",
   "workspace.settings.defaultCannotDelete":
-    "The default workspace cannot be deleted. Please select a different workspace.",
+    "The default workspace can't be deleted.",
   "workspace.settings.deleteWarningBody":
     "This action is permanent. All scenes in this workspace will be lost.",
   "workspace.settings.typeToConfirm": 'Type "{name}" to confirm deletion:',
@@ -381,10 +383,10 @@ export const en = {
   "workspace.settings.toast.deleteFailed": "Failed to delete workspace",
   "workspace.settings.toast.missing":
     "This workspace no longer exists. Returning to the dashboard.",
-  "workspace.settings.nameLabel": "Workspace Name",
+  "workspace.settings.nameLabel": "Workspace name",
   "workspace.settings.save": "Save",
   "workspace.settings.saving": "Saving",
-  "workspace.settings.dangerZone": "Danger Zone",
+  "workspace.settings.dangerZone": "Danger zone",
   "workspace.settings.dangerDescription":
     "Deleting a workspace will permanently remove all its scenes.",
   "workspace.settings.deleteThisWorkspace": "Delete this workspace",
@@ -422,10 +424,13 @@ export const en = {
   "category.manage.namePlaceholder": "Enter a category name",
   "category.manage.nameInvalid": "Please enter a valid category name",
   "category.manage.sceneCount": "{count} scenes",
+  "category.manage.sceneCountOne": "1 scene",
   "category.manage.rename": "Rename category",
   "category.manage.delete": "Delete category",
   "category.manage.deleteConfirm.description":
     'Are you sure you want to delete the category "{name}"? It will be removed from {count} scenes. The scenes themselves are not affected.',
+  "category.manage.deleteConfirm.descriptionOne":
+    'Are you sure you want to delete the category "{name}"? It will be removed from 1 scene. The scene itself is not affected.',
   "category.toast.created": 'Category "{name}" created',
   "category.toast.renamed": 'Category renamed to "{name}"',
   "category.toast.deleted": "Category deleted",
@@ -447,8 +452,8 @@ export const en = {
   "publish.toast.preparing": "Rendering the public version",
   "publish.toast.renderFailed":
     "Unable to render the public version of this scene. Please try again.",
-  "public.theme.light": "Use light theme",
-  "public.theme.dark": "Use dark theme",
+  "public.theme.light": "Switch to light theme",
+  "public.theme.dark": "Switch to dark theme",
   "public.viewer.loading": "Loading scene",
   "public.viewer.goHome": "Go to drawstuff",
   "public.viewer.loadError": "Failed to load this published scene.",
@@ -465,7 +470,7 @@ export const en = {
   "labels.updatedTimeAgo": "Updated {time}",
 
   // Storage / Stats
-  "stats.usedStorage": "Used Storage: {percent}% ({capacity})",
+  "stats.usedStorage": "Browser storage: {percent}% of {capacity}",
 
   // Images alt
   "images.bun.crying": "Crying bun",
@@ -554,6 +559,7 @@ export const en = {
   "toast.scene.remoteLoaded": "Loaded the latest remote scene.",
   "toast.scene.remoteLoadFailed": "Failed to load the remote scene. Try again.",
   "toast.scene.localCopySaved": "Saved local changes as a new scene.",
+  "toast.scene.deleted": "Deleted “{name}”.",
   "toast.scene.localCopyFailed": "Failed to save local changes as a new scene.",
   "toast.scene.loaded": "Scene loaded.",
   "toast.scene.loadFailed": "Failed to load scene.",

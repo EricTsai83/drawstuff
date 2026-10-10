@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { CopyIcon } from "lucide-react";
+import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { Button } from "@/components/ui/button";
 import { copyTextToSystemClipboard } from "@/lib/utils";
@@ -15,7 +16,12 @@ export function CopyButton({ textToCopy }: CopyButtonProps) {
   const { t } = useAppI18n();
 
   const handleCopy = async () => {
-    await copyTextToSystemClipboard(textToCopy);
+    try {
+      await copyTextToSystemClipboard(textToCopy);
+    } catch {
+      toast.error(t("labels.copyFailed"));
+      return;
+    }
     setCopied(true);
     setTimeout(() => setCopied(false), 1500);
   };
@@ -58,6 +64,10 @@ export function CopyButton({ textToCopy }: CopyButtonProps) {
             }}
           />
         </svg>
+      </span>
+      {/* The check mark is visual only; say it for screen readers too. */}
+      <span className="sr-only" aria-live="polite">
+        {copied ? t("labels.copied") : ""}
       </span>
     </Button>
   );

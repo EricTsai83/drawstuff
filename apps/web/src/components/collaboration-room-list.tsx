@@ -352,6 +352,8 @@ export function CollaborationRoomList() {
                   <Button
                     variant="ghost"
                     size="icon-sm"
+                    // Touch needs a larger target than the compact row allows.
+                    className="pointer-coarse:size-10"
                     disabled={busy}
                     aria-label={t("menu.moreOptions")}
                   >
