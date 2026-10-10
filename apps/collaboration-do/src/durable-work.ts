@@ -4,6 +4,17 @@ import {
   type DurableJob,
 } from "@drawstuff/collaboration/authority";
 
+import { createDoLogger } from "./logger.ts";
+
+/**
+ * How long one job may keep failing (or answering "not yet") before it is
+ * abandoned. Without a bound, a job the web adapter refuses forever would wake
+ * its Object by alarm once a minute indefinitely. Every job's local effect is
+ * already committed when it is queued; abandoning only stops the remote side
+ * from catching up, which the logged event makes visible.
+ */
+const WORK_ABANDON_MS = 24 * 60 * 60_000;
+
 type WorkRow = {
   id: string;
   body: string;
@@ -11,19 +22,51 @@ type WorkRow = {
   attempts: number;
   next_at: number;
   version: number;
+  first_at: number;
 };
 
 /** Shared local transaction/alarm pattern for Room and Lifecycle. No external I/O inside commit. */
 export class DurableWork {
-  constructor(private readonly storage: DurableObjectStorage) {
+  constructor(
+    private readonly storage: DurableObjectStorage,
+    /**
+     * Opts this queue into abandonment after `WORK_ABANDON_MS`, settling the
+     * local records an abandoned job would otherwise leave pending forever.
+     * Without it jobs retry indefinitely: Lifecycle retirement must finish
+     * deleting an account's data rather than give up.
+     */
+    private readonly onAbandon?: (job: DurableJob) => void,
+  ) {
     storage.sql.exec(`CREATE TABLE IF NOT EXISTS authority_work (
       id TEXT PRIMARY KEY, body TEXT NOT NULL, security INTEGER NOT NULL CHECK(security IN (0,1)),
       attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0), next_at INTEGER NOT NULL,
-      version INTEGER NOT NULL CHECK(version > 0), last_failure TEXT CHECK(last_failure IN ('delivery-failed'))
+      version INTEGER NOT NULL CHECK(version > 0), last_failure TEXT CHECK(last_failure IN ('delivery-failed')),
+      first_at INTEGER
     ); CREATE INDEX IF NOT EXISTS authority_work_due ON authority_work(security DESC,next_at,id);
     CREATE TABLE IF NOT EXISTS authority_results (
       id TEXT PRIMARY KEY, request TEXT NOT NULL, result TEXT NOT NULL, terminal_at INTEGER
     );`);
+    // Lifecycle Objects predate `first_at`; their queued jobs start the clock now.
+    if (
+      !storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(authority_work)")
+        .toArray()
+        .some((column) => column.name === "first_at")
+    )
+      storage.sql.exec(
+        "ALTER TABLE authority_work ADD COLUMN first_at INTEGER",
+      );
+    storage.sql.exec(
+      "UPDATE authority_work SET first_at=? WHERE first_at IS NULL",
+      Date.now(),
+    );
+  }
+
+  /** Jobs still queued, of any kind. */
+  pending(): number {
+    return this.storage.sql
+      .exec<{ count: number }>("SELECT count(*) AS count FROM authority_work")
+      .one().count;
   }
 
   async commit<T>(
@@ -59,9 +102,15 @@ export class DurableWork {
         return true;
       }
       // Only monotonic projections and fences may merge; content/cleanup identities never disappear.
-      if (job.kind !== "projection" && job.kind !== "fence")
+      if (
+        job.kind !== "projection" &&
+        job.kind !== "invite-projection" &&
+        job.kind !== "fence"
+      )
         throw new Error("job-mismatch");
       this.storage.sql.exec(
+        // `first_at` stays: a job that keeps being superseded during an outage
+        // is still the same undelivered work and must still be abandoned.
         "UPDATE authority_work SET body=?,version=?,next_at=min(next_at,?),attempts=0,last_failure=NULL WHERE id=?",
         body,
         version,
@@ -82,12 +131,13 @@ export class DurableWork {
     )
       return false;
     this.storage.sql.exec(
-      "INSERT INTO authority_work(id,body,security,next_at,version) VALUES (?,?,?,?,?)",
+      "INSERT INTO authority_work(id,body,security,next_at,version,first_at) VALUES (?,?,?,?,?,?)",
       id,
       body,
       Number(security),
       now,
       version,
+      now,
     );
     return true;
   }
@@ -95,19 +145,21 @@ export class DurableWork {
   /** One fixed room-wide fence survives exhausted reserve capacity. Caller durably denies the whole room. */
   emergencyFence(job: Extract<DurableJob, { kind: "fence" }>): void {
     this.storage.sql.exec(
-      `INSERT INTO authority_work(id,body,security,next_at,version) VALUES ('emergency-fence',?,1,?,?)
+      `INSERT INTO authority_work(id,body,security,next_at,version,first_at) VALUES ('emergency-fence',?,1,?,?,?)
       ON CONFLICT(id) DO UPDATE SET body=excluded.body,version=excluded.version,next_at=min(next_at,excluded.next_at)
       WHERE excluded.version>version`,
       JSON.stringify(job),
       Date.now(),
       job.authorityEpoch,
+      Date.now(),
     );
   }
 
   emergencyCleanup(job: Extract<DurableJob, { kind: "cleanup" }>): void {
     this.storage.sql.exec(
-      "INSERT OR IGNORE INTO authority_work(id,body,security,next_at,version) VALUES ('emergency-cleanup',?,1,?,1)",
+      "INSERT OR IGNORE INTO authority_work(id,body,security,next_at,version,first_at) VALUES ('emergency-cleanup',?,1,?,1,?)",
       JSON.stringify(durableJobSchema.parse(job)),
+      Date.now(),
       Date.now(),
     );
   }
@@ -203,6 +255,17 @@ export class DurableWork {
   ): Promise<void> {
     const started = Date.now();
     for (const row of this.due(started)) {
+      if (this.onAbandon && started - row.first_at >= WORK_ABANDON_MS) {
+        const job = durableJobSchema.parse(JSON.parse(row.body) as unknown);
+        createDoLogger().error("authority.work_abandoned", {
+          jobKind: job.kind,
+        });
+        await this.commit(() => {
+          this.onAbandon?.(job);
+          this.done(row.id, row.version);
+        }, extraDeadline);
+        continue;
+      }
       const remaining = AUTHORITY_LIMITS.alarmBudgetMs - (Date.now() - started);
       if (remaining <= 0) break;
       const controller = new AbortController();

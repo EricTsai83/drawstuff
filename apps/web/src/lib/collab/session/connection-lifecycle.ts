@@ -9,19 +9,8 @@ import type {
   DisconnectReason,
 } from "@drawstuff/collaboration/transport";
 
-/**
- * Credentials for one connection attempt.
- *
- * `authGeneration` travels with the token because it is what binds the token to
- * the key this session derived. If the owner rotates the generation while a
- * session is running, the next token comes back on the new generation — and the
- * session must stop rather than reconnect, because its derived key can no longer
- * open the room's ciphertext.
- */
-type JoinCredentials = {
-  token: string;
-  authGeneration: number;
-};
+/** Credentials for one connection attempt. */
+type JoinCredentials = { token: string };
 
 /**
  * Why the backend would not issue credentials, and what recovery does about it.
@@ -34,10 +23,9 @@ type JoinCredentials = {
  * it, and stopping on a blip abandons a session that was coming back.
  *
  * This is the authoritative split, not the relay's close code. The relay closes a
- * socket the moment the app withdraws its authorization, and it uses the same
- * code whether the member was removed or merely had their role changed — a role
- * change *requires* a reconnect, because the role travels in the token. Only the
- * next token request can distinguish them, so the terminal reasons live here.
+ * socket the moment access is withdrawn, but recovery retries that close once
+ * with a fresh identity proof; only the room's answer to that proof states that
+ * this account has no access, so the terminal reasons live here.
  */
 type JoinCredentialsRefusal =
   /**
@@ -55,10 +43,7 @@ type JoinCredentialsRefusal =
       retry: false;
       failure: Extract<
         UnrecoverableReason,
-        | "unauthorized"
-        | "membership-revoked"
-        | "room-ended"
-        | "generation-rotated"
+        "unauthorized" | "membership-revoked" | "room-ended"
       >;
     };
 
@@ -89,12 +74,6 @@ export type ConnectionLifecycle = {
 export const createConnectionLifecycle = (options: {
   transport: Pick<CollaborationTransport, "connect" | "disconnect">;
   roomId: RoomId;
-  /**
-   * The room's durable authorization generation this session's keys are derived
-   * from. Compared against every refreshed token so a rotation is detected as a
-   * rotation instead of as a stream of undecryptable frames.
-   */
-  authGeneration: number;
   /** Short-lived join token already minted for the first attempt. */
   initialToken: string;
   /**
@@ -121,10 +100,7 @@ export const createConnectionLifecycle = (options: {
   const { transport, recovery } = options;
 
   /** Credentials for the current attempt; replaced by every refresh. */
-  let credentials: JoinCredentials = {
-    token: options.initialToken,
-    authGeneration: options.authGeneration,
-  };
+  let credentials: JoinCredentials = { token: options.initialToken };
   let cancelReconnectTimer: (() => void) | undefined;
   /**
    * Invalidates an in-flight token refresh. A refresh that settles after the
@@ -228,17 +204,7 @@ export const createConnectionLifecycle = (options: {
         handleConnectionLoss("transient", refreshed.retryAfterMs);
         return;
       }
-      // The room's generation moved under us, so this session's derived keys can
-      // no longer open the room. Reconnecting would produce a client that is
-      // connected and permanently blind; a new link is the only fix.
-      if (refreshed.authGeneration !== options.authGeneration) {
-        failRecovery("generation-rotated");
-        return;
-      }
-      credentials = {
-        token: refreshed.token,
-        authGeneration: refreshed.authGeneration,
-      };
+      credentials = { token: refreshed.token };
       transport.connect({
         roomId: options.roomId,
         joinToken: credentials.token,

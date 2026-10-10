@@ -3,7 +3,6 @@ import type {
   SnapshotControlMessage,
 } from "@drawstuff/collaboration/protocol";
 import type { createOfflineChangeQueue } from "@drawstuff/collaboration/offline-queue";
-import type { UnrecoverableReason } from "@drawstuff/collaboration/recovery";
 import type {
   CollaborationTransport,
   SendError,
@@ -65,7 +64,6 @@ export const createScenePublisher = (options: {
     SyncBlockReporter,
     "noteSceneSendRefusedAsOversize" | "noteSceneSendAccepted"
   >;
-  failRecovery(reason: UnrecoverableReason): void;
 }): ScenePublisher => {
   const {
     context,
@@ -85,9 +83,6 @@ export const createScenePublisher = (options: {
   /**
    * Applies the send policy to a failed scene send.
    *
-   * `crypto-exhausted` is terminal and has to be treated as such: the derived key
-   * is per room generation, not per session, so reconnecting does not buy a fresh
-   * nonce budget and a session that keeps trying would drop every edit silently.
    * A full outbound queue self-heals — nothing was marked sent, so the next flush
    * re-extracts the same elements.
    *
@@ -101,10 +96,6 @@ export const createScenePublisher = (options: {
    * this branch exists to remove.
    */
   const handleSceneSendError = (error: SendError): void => {
-    if (error.code === "crypto-exhausted") {
-      options.failRecovery("crypto-exhausted");
-      return;
-    }
     if (error.code === "oversize-payload") {
       reporter.noteSceneSendRefusedAsOversize({
         byteLength: error.byteLength,

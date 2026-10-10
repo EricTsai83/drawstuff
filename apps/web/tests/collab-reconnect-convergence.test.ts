@@ -6,10 +6,10 @@ import type {
   SceneMessage,
 } from "@drawstuff/collaboration/protocol";
 import { createSeededRandom } from "@drawstuff/collaboration/testing";
-import type {
-  CollaborationTransport,
-  TransportSubscriber,
-} from "@drawstuff/collaboration/transport";
+import {
+  disconnectReasonForCloseCode,
+  RELAY_CLOSE_CODES,
+} from "@drawstuff/collaboration/relay-protocol";
 import type { OrderedExcalidrawElement } from "@drawstuff/excalidraw-adapter/types";
 
 import { FULL_SCENE_SYNC_INTERVAL_MS } from "@/lib/collab/collaboration-session";
@@ -61,39 +61,6 @@ const TEST_RECOVERY = {
 
 /** Comfortably past any scheduled retry in these tests. */
 const PAST_EVERY_TIMER_MS = 10_000;
-
-/**
- * A fake-network transport that can also deliver `onRoomUnreadable`.
- *
- * The fake network carries plaintext on purpose (see `testing.ts`), so it can
- * never produce the failed decryptions this verdict is derived from. Injecting
- * the verdict is the honest split: whether the transport reaches it from three
- * unopenable frames is settled against real Web Crypto in
- * `packages/collaboration/tests/relay-client.test.ts`; what the *session* does
- * with it is settled here.
- */
-function transportWithUnreadableProbe(inner: CollaborationTransport): {
-  transport: CollaborationTransport;
-  reportRoomUnreadable: () => void;
-} {
-  const subscribers = new Set<TransportSubscriber>();
-  return {
-    transport: {
-      ...inner,
-      subscribe(subscriber) {
-        subscribers.add(subscriber);
-        const unsubscribe = inner.subscribe(subscriber);
-        return () => {
-          subscribers.delete(subscriber);
-          unsubscribe();
-        };
-      },
-    },
-    reportRoomUnreadable() {
-      for (const subscriber of subscribers) subscriber.onRoomUnreadable?.();
-    },
-  };
-}
 
 /**
  * Complete scene of one client, as a comparable string.
@@ -500,11 +467,9 @@ describe("unrecoverable connection states", () => {
     expect(client.tokenRefreshCount).toBe(1);
   });
 
-  it("reconnects through a revoked-membership close, because a role change is one", async () => {
-    // The relay closes with `membership-revoked` whenever the app withdraws the
-    // authorization a socket holds — and changing a member's role does exactly
-    // that, on purpose, because the role travels in the token. Reading that close
-    // as terminal would strand every demoted or promoted member in `failed`.
+  it("reconnects through a revoked-membership close and lets the room decide", async () => {
+    // The close alone is never terminal: recovery asks for a fresh identity
+    // proof, and only the room's answer to it states that access is gone.
     const client = harness.createClient("client-role-changed", {
       recovery: TEST_RECOVERY,
     });
@@ -514,6 +479,29 @@ describe("unrecoverable connection states", () => {
     harness.settle();
 
     harness.network.setDisconnectReason("membership-revoked");
+    harness.network.dropConnection(client.transport);
+    expect(client.session.getRecoveryState()).toMatchObject({
+      phase: "waiting",
+    });
+
+    await harness.advanceAndSettle([client], PAST_EVERY_TIMER_MS);
+    expect(client.session.getRecoveryState()).toEqual({ phase: "live" });
+    expect(client.tokenRefreshCount).toBe(1);
+  });
+
+  it("reconnects after a role change close instead of failing", async () => {
+    // The room closes with `roleChanged` when the role it computes for a member
+    // changes; the client reconnects and the new socket carries the new role.
+    expect(disconnectReasonForCloseCode(RELAY_CLOSE_CODES.roleChanged)).toBe(
+      "transient",
+    );
+    const client = harness.createClient("client-role-changed", {
+      recovery: TEST_RECOVERY,
+    });
+    client.session.connect();
+    harness.settle();
+
+    harness.network.setDisconnectReason("transient");
     harness.network.dropConnection(client.transport);
     expect(client.session.getRecoveryState()).toMatchObject({
       phase: "waiting",
@@ -616,31 +604,6 @@ describe("unrecoverable connection states", () => {
     ]);
   });
 
-  it("stops for good when the room's generation was rotated", async () => {
-    const client = harness.createClient("client-rotated", {
-      recovery: TEST_RECOVERY,
-      refreshJoinToken: () =>
-        Promise.resolve({
-          ok: true as const,
-          token: "token-after-rotation",
-          // The owner rotated the generation, so this session's derived key can
-          // no longer open the room. Reconnecting would only look connected.
-          authGeneration: 99,
-        }),
-    });
-    client.session.connect();
-    harness.settle();
-
-    harness.network.dropConnection(client.transport);
-    await harness.advanceAndSettle([client], PAST_EVERY_TIMER_MS);
-
-    expect(client.session.getRecoveryState()).toEqual({
-      phase: "failed",
-      reason: "generation-rotated",
-    });
-    expect(client.timers.pendingCount).toBe(0);
-  });
-
   it("gives up with `retry-limit` once the retry budget is spent", async () => {
     const client = harness.createClient("client-hopeless", {
       recovery: TEST_RECOVERY,
@@ -713,11 +676,7 @@ describe("unrecoverable connection states", () => {
         attempts += 1;
         // An unreachable backend is not a revoked membership, so it is retried.
         if (attempts === 1) return Promise.reject(new Error("network down"));
-        return Promise.resolve({
-          ok: true as const,
-          token: "token-2",
-          authGeneration: 1,
-        });
+        return Promise.resolve({ ok: true as const, token: "token-2" });
       },
     });
     client.session.connect();
@@ -732,137 +691,6 @@ describe("unrecoverable connection states", () => {
 
     await harness.advanceAndSettle([client], PAST_EVERY_TIMER_MS);
     expect(client.session.getRecoveryState()).toEqual({ phase: "live" });
-  });
-
-  it("stops, and publishes nothing, when the room's snapshot cannot be read", async () => {
-    const backend = createSnapshotBackend();
-    backend.publish([]);
-    // A viewer, so no peer answers the join with a snapshot: the unreadable
-    // durable baseline is the only baseline this client can get, which is the
-    // situation a link with the wrong key is actually in.
-    const watcher = harness.createClient("client-watcher", {
-      role: "viewer",
-      recovery: TEST_RECOVERY,
-    });
-    watcher.session.connect();
-    harness.settle();
-    const seenByWatcher = observe(watcher);
-
-    const wrongKey = harness.createClient("client-wrong-key", {
-      recovery: TEST_RECOVERY,
-      snapshotStore: backend.createStore({ outcome: "wrong-key" }),
-    });
-    // The canvas already holds unrelated local content, which is precisely what
-    // must not be published into a room this client cannot read.
-    wrongKey.host.setElements([rect("local-only")]);
-    wrongKey.session.connect();
-    // Captured while the socket is up: the terminal verdict below disconnects
-    // the session, and a disconnected session has no peerId to ask for.
-    const wrongKeyPeerId = peerIdOf(wrongKey);
-    await harness.drainMicrotasks();
-    harness.settle();
-
-    expect(wrongKey.baselineOutcomes).toEqual(["unreadable-snapshot"]);
-    expect(wrongKey.session.getRecoveryState()).toEqual({
-      phase: "failed",
-      reason: "unreadable-room",
-    });
-    // Nothing was published, and nothing is left running.
-    expect(sceneMessages(seenByWatcher, wrongKeyPeerId)).toEqual([]);
-    expect(wrongKey.timers.pendingCount).toBe(0);
-    expect(wrongKey.session.getConnectionState().status).toBe("disconnected");
-  });
-
-  it("stops when no realtime frame opens in a room that has no stored snapshot", async () => {
-    // Plan 30. The snapshot oracle answers `empty` here — truthfully, the room has
-    // never been persisted — so it establishes nothing about the key, and before
-    // this the session would have sat connected, blank and silent forever.
-    const backend = createSnapshotBackend();
-    const watcher = harness.createClient("client-watcher-2", {
-      recovery: TEST_RECOVERY,
-    });
-    watcher.session.connect();
-    harness.settle();
-    const seenByWatcher = observe(watcher);
-
-    const probe = transportWithUnreadableProbe(
-      harness.network.createTransport(),
-    );
-    const wrongKey = harness.createClient("client-blind", {
-      recovery: TEST_RECOVERY,
-      transport: probe.transport,
-      snapshotStore: backend.createStore(),
-    });
-    wrongKey.session.connect();
-    await harness.drainMicrotasks();
-    harness.settle();
-
-    // The join itself looks entirely healthy, which is the whole problem: an
-    // empty room is a legitimate baseline, so the client publishes its canvas and
-    // goes live with no indication that nothing it sends can be read.
-    expect(wrongKey.baselineOutcomes).toEqual(["empty"]);
-    expect(wrongKey.session.getRecoveryState()).toEqual({ phase: "live" });
-    // Captured while live: the verdict below disconnects the session, and the
-    // messages already seen carry this connection's peerId.
-    const wrongKeyPeerId = peerIdOf(wrongKey);
-    const publishedBeforeVerdict = sceneMessages(
-      seenByWatcher,
-      wrongKeyPeerId,
-    ).length;
-
-    probe.reportRoomUnreadable();
-
-    expect(wrongKey.session.getRecoveryState()).toEqual({
-      phase: "failed",
-      reason: "unreadable-room",
-    });
-    // Same teardown as the snapshot detector: the socket goes, and nothing is
-    // left running to keep publishing into a room this client cannot read.
-    expect(wrongKey.session.getConnectionState().status).toBe("disconnected");
-    expect(wrongKey.timers.pendingCount).toBe(0);
-
-    // A second verdict from a transport that has not been unsubscribed yet must
-    // not re-report the same failure.
-    const reportedFailures = wrongKey.recoveryStates.length;
-    probe.reportRoomUnreadable();
-    expect(wrongKey.recoveryStates).toHaveLength(reportedFailures);
-
-    // And the editor keeps calling in after a terminal state, so the session has
-    // to stop publishing rather than merely stop reconnecting.
-    wrongKey.edit((elements) => [...elements, rect("drawn-after-verdict")]);
-    harness.settle();
-    expect(sceneMessages(seenByWatcher, wrongKeyPeerId)).toHaveLength(
-      publishedBeforeVerdict,
-    );
-  });
-
-  it("stops on the realtime verdict when the snapshot fetch keeps failing", async () => {
-    // The other room the snapshot oracle cannot cover: a baseline that never
-    // arrives. `snapshot-unavailable` is deliberately *not* terminal — it is
-    // transient and the session must survive it — so without the realtime verdict
-    // a wrong key here is as silent as in an unwritten room.
-    const backend = createSnapshotBackend();
-    backend.publish([]);
-    const probe = transportWithUnreadableProbe(
-      harness.network.createTransport(),
-    );
-    const client = harness.createClient("client-no-baseline", {
-      recovery: TEST_RECOVERY,
-      transport: probe.transport,
-      snapshotStore: backend.createStore({ outcome: "unavailable" }),
-    });
-    client.session.connect();
-    await harness.drainMicrotasks();
-    harness.settle();
-
-    expect(client.baselineOutcomes).toEqual(["snapshot-unavailable"]);
-    expect(client.session.getRecoveryState()).toEqual({ phase: "live" });
-
-    probe.reportRoomUnreadable();
-    expect(client.session.getRecoveryState()).toEqual({
-      phase: "failed",
-      reason: "unreadable-room",
-    });
   });
 
   it("does not retry a disconnect the caller asked for", () => {
@@ -884,8 +712,7 @@ describe("unrecoverable connection states", () => {
       recovery: TEST_RECOVERY,
       refreshJoinToken: () =>
         new Promise((resolve) => {
-          released = () =>
-            resolve({ ok: true, token: "late-token", authGeneration: 1 });
+          released = () => resolve({ ok: true, token: "late-token" });
         }),
     });
     client.session.connect();

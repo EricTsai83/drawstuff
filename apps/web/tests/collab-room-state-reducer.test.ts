@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   initialRoomState,
   roomStateReducer,
+  toCollaborationFailureReason,
   type JoinBlockedStatus,
   type RoomState,
   type RoomStateAction,
@@ -50,23 +51,11 @@ describe("roomStateReducer", () => {
     ],
     [{ type: "preparing-canvas" }, { status: "preparing" }],
     [
-      {
-        type: "failed",
-        reason: "membership-revoked",
-        errorMessage: "You were removed",
-      },
+      { type: "failed", reason: "no-access", errorMessage: "No access" },
       {
         status: "failed",
-        failureReason: "membership-revoked",
-        errorMessage: "You were removed",
-      },
-    ],
-    [
-      { type: "failed", reason: "wrong-key-link", errorMessage: "Bad key" },
-      {
-        status: "failed",
-        failureReason: "wrong-key-link",
-        errorMessage: "Bad key",
+        failureReason: "no-access",
+        errorMessage: "No access",
       },
     ],
     [{ type: "canvas-claimed" }, { ownsCanvas: true }],
@@ -108,7 +97,6 @@ describe("roomStateReducer", () => {
     "join-failed",
     "rate-limited",
     "cancelled",
-    "missing-room-key",
   ])("records a %s join block with its message", (status) => {
     const next = roomStateReducer(liveState, {
       type: "join-blocked",
@@ -210,7 +198,7 @@ describe("roomStateReducer", () => {
   it("starts a retry clean: a failed run's reason does not outlive it", () => {
     const retried = reduce(
       liveState,
-      { type: "failed", reason: "unreadable-room", errorMessage: "Bad key" },
+      { type: "failed", reason: "retry-limit", errorMessage: "Gave up" },
       { type: "join-started" },
     );
     expect(retried).toMatchObject({
@@ -218,6 +206,14 @@ describe("roomStateReducer", () => {
       failureReason: null,
       errorMessage: null,
     });
+  });
+
+  it("reports a refused proof as no access and keeps every other reason", () => {
+    expect(toCollaborationFailureReason("membership-revoked")).toBe(
+      "no-access",
+    );
+    expect(toCollaborationFailureReason("room-ended")).toBe("room-ended");
+    expect(toCollaborationFailureReason("unauthorized")).toBe("unauthorized");
   });
 
   it("does not guard transitions: a claim rollback after a failure still applies", () => {

@@ -10,11 +10,16 @@ import {
   createAuthorityParent,
 } from "@/server/collab/authority-registration";
 import { callAuthorityGateway } from "@/server/collab/authority-gateway";
-import { applyStorageFence } from "@/server/collab/authority-storage";
+import {
+  applyStorageFence,
+  cleanupAdapterRoom,
+} from "@/server/collab/authority-storage";
 import type { Database } from "@/server/collab/rooms";
 import {
+  collaborationCreationFence,
   collaborationLifecycleRegistration,
   collaborationLifecycleSubject,
+  collaborationProjectionTombstone,
   collaborationRoom,
   session,
   user,
@@ -60,6 +65,11 @@ async function fixture() {
     sceneId: null,
     create: true,
   };
+  // The fixture's parent row stands for the room this create made.
+  await db
+    .update(collaborationRoom)
+    .set({ createOperationId: registration.operationId })
+    .where(eq(collaborationRoom.roomId, roomId));
   return { ...f, sessionId, registration };
 }
 describe("formal identity and pre-activation registration", () => {
@@ -121,12 +131,13 @@ describe("formal identity and pre-activation registration", () => {
     const before = await storedVersion();
     expect(await registerAuthorityCommand(db, f.registration)).toEqual(receipt);
     expect(await storedVersion()).toEqual(before);
+    // Another create for a claimed roomId is refused before it can register.
     await expect(
       registerAuthorityCommand(db, {
         ...f.registration,
         operationId: crypto.randomUUID(),
       }),
-    ).rejects.toThrow("operation-mismatch");
+    ).rejects.toThrow("fence-mismatch");
     await db
       .update(collaborationLifecycleSubject)
       .set({ frozen: true })
@@ -261,12 +272,13 @@ describe("formal identity and pre-activation registration", () => {
       roomId: f.roomId,
       createOperationId: parent.createOperationId,
     });
+    // Another create for a claimed roomId is refused before it can register.
     await expect(
       registerAuthorityCommand(db, {
         ...f.registration,
         operationId: crypto.randomUUID(),
       }),
-    ).rejects.toThrow("operation-mismatch");
+    ).rejects.toThrow("fence-mismatch");
     await db
       .delete(collaborationRoom)
       .where(eq(collaborationRoom.roomId, f.roomId));
@@ -293,7 +305,6 @@ describe("formal identity and pre-activation registration", () => {
       action: "fence",
       roomId: f.roomId,
       authorityEpoch: 2,
-      authGeneration: 1,
       state: "ended",
     });
     await expect(
@@ -315,7 +326,7 @@ describe("formal identity and pre-activation registration", () => {
       }),
     ).toBeUndefined();
   });
-  it("checks source ownership and freeze and registers explicit grant targets", async () => {
+  it("checks source ownership and freeze, and the owner's live lifecycle for joiners", async () => {
     const f = await fixture();
     const [source] = await db
       .insert(scene)
@@ -330,31 +341,193 @@ describe("formal identity and pre-activation registration", () => {
     await expect(registerAuthorityCommand(db, linked)).rejects.toThrow(
       "fence-mismatch",
     );
-    const grant = { ...f.registration, create: false, targetSubject: f.guest };
     // Existing registration has a different optional source, so use another independent room identity.
-    const independent = {
-      ...grant,
+    const join = {
+      ...f.registration,
+      create: false,
       roomId: roomIdSchema.parse(`${f.roomId}-x`),
+      identity: {
+        subject: f.guest,
+        email: `${f.guest}@example.com`,
+        lifecycleVersion: 1,
+      },
     };
-    const receipt = await registerAuthorityCommand(db, independent);
-    expect(receipt).toMatchObject({ targetSubject: f.guest, targetVersion: 1 });
+    expect(await registerAuthorityCommand(db, join)).toMatchObject({
+      subject: f.guest,
+      lifecycleVersion: 1,
+    });
     await db
       .update(collaborationLifecycleSubject)
       .set({ frozen: true })
       .where(eq(collaborationLifecycleSubject.scope, `account:${f.owner}`));
+    await expect(registerAuthorityCommand(db, join)).rejects.toThrow(
+      "fence-mismatch",
+    );
+  });
+  it.each([
+    { status: "ended", storageState: "ready" },
+    { status: "ready", storageState: "ended" },
+  ] as const)(
+    "refuses even its own create retry once the room is ended (%o)",
+    async (ended) => {
+      const f = await fixture();
+      await registerAuthorityCommand(db, f.registration);
+      await db
+        .update(collaborationRoom)
+        .set(ended)
+        .where(eq(collaborationRoom.roomId, f.roomId));
+      await expect(
+        registerAuthorityCommand(db, f.registration),
+      ).rejects.toThrow("fence-mismatch");
+    },
+  );
+  it("refuses a late join registration once the room is ended, but still allows one before its parent exists", async () => {
+    const f = await fixture();
+    const join = {
+      ...f.registration,
+      create: false,
+      operationId: crypto.randomUUID(),
+      identity: {
+        subject: f.guest,
+        email: `${f.guest}@example.com`,
+        lifecycleVersion: 1,
+      },
+    };
+    for (const ended of [
+      { status: "ended", storageState: "ready" },
+      { status: "ready", storageState: "ended" },
+    ] as const) {
+      await db
+        .update(collaborationRoom)
+        .set(ended)
+        .where(eq(collaborationRoom.roomId, f.roomId));
+      await expect(registerAuthorityCommand(db, join)).rejects.toThrow(
+        "fence-mismatch",
+      );
+    }
+    expect(
+      await db
+        .select()
+        .from(collaborationLifecycleRegistration)
+        .where(eq(collaborationLifecycleRegistration.roomId, f.roomId)),
+    ).toEqual([]);
+    const preParent = { ...join, roomId: roomIdSchema.parse(`${f.roomId}-p`) };
+    expect(await registerAuthorityCommand(db, preParent)).toMatchObject({
+      subject: f.guest,
+    });
+  });
+  it("closes a room that ended before its parent: refuses late registrations and cleanup purges its parentless records", async () => {
+    const f = await fixture();
+    await db
+      .delete(collaborationRoom)
+      .where(eq(collaborationRoom.roomId, f.roomId));
+    await registerAuthorityCommand(db, f.registration);
+    await db
+      .insert(collaborationProjectionTombstone)
+      .values({ roomId: f.roomId, subject: f.guest, version: 2 });
+    // Another room's pre-parent registration must survive this room's cleanup.
+    const other = {
+      ...f.registration,
+      roomId: roomIdSchema.parse(`${f.roomId}-o`),
+      operationId: crypto.randomUUID(),
+    };
+    await registerAuthorityCommand(db, other);
+    await applyStorageFence(db, {
+      v: 1,
+      action: "fence",
+      roomId: f.roomId,
+      authorityEpoch: 2,
+      state: "ended",
+    });
+    const join = {
+      ...f.registration,
+      create: false,
+      operationId: crypto.randomUUID(),
+      identity: {
+        subject: f.guest,
+        email: `${f.guest}@example.com`,
+        lifecycleVersion: 1,
+      },
+    };
+    await expect(registerAuthorityCommand(db, join)).rejects.toThrow(
+      "fence-mismatch",
+    );
+    await expect(registerAuthorityCommand(db, f.registration)).rejects.toThrow(
+      "fence-mismatch",
+    );
+    const registered = (roomId: string) =>
+      db
+        .select({ subject: collaborationLifecycleRegistration.subject })
+        .from(collaborationLifecycleRegistration)
+        .where(eq(collaborationLifecycleRegistration.roomId, roomId));
+    expect(await registered(f.roomId)).toEqual([{ subject: f.owner }]);
+    expect(
+      await cleanupAdapterRoom(db, {
+        v: 1,
+        action: "cleanup",
+        roomId: f.roomId,
+        authorityEpoch: 2,
+      }),
+    ).toEqual({ cleaned: true });
+    expect(await registered(f.roomId)).toEqual([]);
+    expect(
+      await db
+        .select()
+        .from(collaborationProjectionTombstone)
+        .where(eq(collaborationProjectionTombstone.roomId, f.roomId)),
+    ).toEqual([]);
+    expect(await registered(other.roomId)).toEqual([{ subject: f.owner }]);
+    expect(
+      await db.query.collaborationRoom.findFirst({
+        where: eq(collaborationRoom.roomId, f.roomId),
+      }),
+    ).toBeUndefined();
+  });
+  it("refuses a create that reuses a roomId, but accepts a retry of the same create", async () => {
+    const f = await fixture();
+    const fresh = (roomId: string) => ({
+      ...f.registration,
+      roomId: roomIdSchema.parse(roomId),
+      operationId: crypto.randomUUID(),
+    });
+    // Retry of the create that made the existing parent row.
+    await registerAuthorityCommand(db, f.registration);
+    await expect(
+      registerAuthorityCommand(db, f.registration),
+    ).resolves.toMatchObject({ operationId: f.registration.operationId });
+    // A parent row (live or ended) made by another create.
+    await expect(registerAuthorityCommand(db, fresh(f.roomId))).rejects.toThrow(
+      "fence-mismatch",
+    );
+    // Another owner already claimed the id before its parent exists.
+    const claimed = fresh(`${f.roomId}-claimed`);
+    await registerAuthorityCommand(db, claimed);
     await expect(
       registerAuthorityCommand(db, {
-        ...independent,
-        identity: f.operation({
-          actor: {
-            subject: f.guest,
-            email: `${f.guest}@example.com`,
-            lifecycleVersion: 1,
-          },
-        }).actor,
-        targetSubject: undefined,
+        ...fresh(claimed.roomId),
+        identity: {
+          subject: f.guest,
+          email: `${f.guest}@example.com`,
+          lifecycleVersion: 1,
+        },
+        ownerId: f.guest,
       }),
     ).rejects.toThrow("fence-mismatch");
+    // An ended creation fence, even with no parent row or registration left.
+    const ended = fresh(`${f.roomId}-ended`);
+    await db
+      .insert(collaborationCreationFence)
+      .values({ roomId: ended.roomId, ended: true });
+    await expect(registerAuthorityCommand(db, ended)).rejects.toThrow(
+      "fence-mismatch",
+    );
+    const registered = (roomId: string) =>
+      db
+        .select({ subject: collaborationLifecycleRegistration.subject })
+        .from(collaborationLifecycleRegistration)
+        .where(eq(collaborationLifecycleRegistration.roomId, roomId));
+    expect(await registered(claimed.roomId)).toEqual([{ subject: f.owner }]);
+    expect(await registered(ended.roomId)).toEqual([]);
   });
   it("rejects caller-selected actors and lifecycle versions at the public contract", () => {
     const base = {

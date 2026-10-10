@@ -1,7 +1,7 @@
 /**
  * Shared Base64 / Base64URL codec for every collaboration text boundary:
- * share-link room keys, the room key-check value, join/control tokens, and
- * durable snapshot ciphertext travelling through tRPC.
+ * share-link keys, identity proofs, and durable snapshot bytes travelling
+ * through tRPC.
  *
  * This module is the wire-format precontract for the Durable Object relay
  * series: the same canonical semantics must hold in browsers, Vercel's Node

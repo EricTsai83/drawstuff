@@ -30,10 +30,11 @@ export type CollaborationRoomStatus =
   /** Recovery stopped for a stated reason; `errorMessage` carries it. */
   | "failed"
   /**
-   * The backend refused this account: only an `UNAUTHORIZED`/`FORBIDDEN`
-   * verdict lands here. Everything else that can break a join — an offline
-   * browser, a 5xx, a crypto failure — is `join-failed` below, because telling
-   * a user with a dropped connection to go ask for access is wrong twice.
+   * The backend refused this sign-in (`UNAUTHORIZED`), or the link is malformed.
+   * An account the room has no access for is `failed` with reason `no-access`.
+   * Everything else that can break a join — an offline browser, a 5xx — is
+   * `join-failed` below, because telling a user with a dropped connection to go
+   * ask for access is wrong twice.
    */
   | "unauthorized"
   /**
@@ -53,20 +54,24 @@ export type CollaborationRoomStatus =
    */
   | "rate-limited"
   /** The user declined to give up the current canvas, so no join happened. */
-  | "cancelled"
-  /** The link carries a room id but no usable end-to-end key. */
-  | "missing-room-key";
+  | "cancelled";
 
 /**
- * Why a session (or a join attempt) stopped for good. The recovery machine's
- * reasons plus the two verdicts only the pre-join key check can produce — a
- * link whose key fails the room's check value, and a room that has no check
- * value to verify against. Exposed alongside the human-readable message so UI
- * can key behaviour on the reason (the owner's snapshot-reset entry point
- * appears only for `unreadable-room`) without parsing message text.
+ * Why a session (or a join attempt) stopped for good: the recovery machine's
+ * reasons, with `membership-revoked` reported as `no-access`. Recovery only
+ * stops with it once the room refused a fresh identity proof — the relay's
+ * close alone is always retried — so it means "this account has no access to
+ * the room" whether the join never started or access was withdrawn mid-session.
+ * Exposed alongside the human-readable message so UI can key behaviour on the
+ * reason without parsing message text.
  */
 export type CollaborationFailureReason =
-  UnrecoverableReason | "wrong-key-link" | "missing-key-check";
+  Exclude<UnrecoverableReason, "membership-revoked"> | "no-access";
+
+export const toCollaborationFailureReason = (
+  reason: UnrecoverableReason,
+): CollaborationFailureReason =>
+  reason === "membership-revoked" ? "no-access" : reason;
 
 export type RoomState = {
   status: CollaborationRoomStatus;
@@ -84,7 +89,7 @@ export type RoomState = {
    */
   syncBlock: SceneSyncBlock | null;
   /**
-   * Set once the room turns out to hold images this link cannot open.
+   * Set once the room turns out to hold an image whose stored bytes are damaged.
    *
    * Its own state rather than part of `status` because the session is not
    * degraded: elements sync, the socket is fine, and calling this "共編中" is
@@ -96,7 +101,7 @@ export type RoomState = {
    * True from the moment the canvas is claimed until the session is torn down.
    *
    * Distinct from "connected", and that distinction is the point: the claim
-   * is taken *before* the join token is minted and the key derived, so a status of
+   * is taken *before* the session opens its socket, so a status of
    * "connected" would leave a window in which the canvas already belongs to the
    * room while the editor still offers the actions that replace it.
    */
@@ -105,14 +110,12 @@ export type RoomState = {
    * True once the app has withdrawn this connection's authorization and a new
    * grant has not arrived yet.
    *
-   * The relay closes with `membership-revoked` both when a member is removed and
-   * when their *role* is changed — a role change has to force a reconnect, because
-   * the role travels in the token. So during that reconnect the role this state is
-   * holding may no longer be the user's, and continuing to accept edits on the
-   * strength of it is how a demoted editor produces work the reconnected viewer can
-   * never publish: locally newer than the room, refused by the relay, permanently
-   * divergent. A transient drop is different — the role is unchanged, so editing
-   * continues and the offline queue carries it.
+   * The relay closes with `membership-revoked` when access is withdrawn, and the
+   * client still reconnects once to let the room confirm it. During that window
+   * the role this state is holding may no longer be the user's, and continuing to
+   * accept edits on the strength of it produces work the room will refuse. A
+   * transient drop (including the room's `roleChanged` close, which reconnects to
+   * pick up the new role) keeps editing, and the offline queue carries it.
    */
   roleWithdrawn: boolean;
 };
@@ -131,11 +134,7 @@ export const initialRoomState: RoomState = {
 /** The statuses a join can end in without a session or a failure reason. */
 export type JoinBlockedStatus = Extract<
   CollaborationRoomStatus,
-  | "unauthorized"
-  | "join-failed"
-  | "rate-limited"
-  | "cancelled"
-  | "missing-room-key"
+  "unauthorized" | "join-failed" | "rate-limited" | "cancelled"
 >;
 
 export type RoomStateAction =
@@ -145,7 +144,7 @@ export type RoomStateAction =
   | { type: "preparing-canvas" }
   /** The join stopped before a session existed, without a recovery reason. */
   | { type: "join-blocked"; status: JoinBlockedStatus; errorMessage: string }
-  /** Terminal: a recovery reason or a pre-join key-check verdict. */
+  /** Terminal: a recovery reason or a pre-join refusal. */
   | {
       type: "failed";
       reason: CollaborationFailureReason;

@@ -20,38 +20,28 @@ import {
   ASSET_GATEWAY_PATH,
   assetGatewayRequestSchema,
 } from "@drawstuff/collaboration/authority";
-import {
-  ROOM_KEY_GATEWAY_PATH,
-  roomKeyGatewayRequestSchema,
-} from "@drawstuff/collaboration/key-custody";
-import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 
-import {
-  closedJsonResponse,
-  INTERNAL_AUTH_GENERATION_HEADER,
-  INTERNAL_ROOM_ID_HEADER,
-  INTERNAL_AUTHORITY_SOCKET_HEADER,
-  parseSocketRouteIdentity,
-} from "./internal.ts";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import { closedJsonResponse, INTERNAL_ROOM_ID_HEADER } from "./internal.ts";
 import { createDoLogger, errorNameOf, type DoLogger } from "./logger.ts";
 
 /**
  * Thin gateway (CLAIM-MIG-1): Durable Objects accept no Internet requests, so
  * this Worker is the only ingress. It validates the public request shape,
- * resolves the routing identity, verifies control tokens, and hands one
+ * resolves the routing identity, verifies service capabilities, and hands one
  * Object one request via its binding. It is not a second backend: no data
  * authority, no proxying to arbitrary targets, no debug or storage surface.
  *
  * Fixed, versioned public surface — nothing else resolves:
  *
  *   GET  /healthz
- *   GET  /v1/rooms/:roomId/generations/:authGeneration/socket  (Upgrade only)
- *   GET  /v1/rooms/:roomId/socket                               (identity proof join)
- *   POST /v1/control                                           (Vercel only)
- *   POST /v1/authority                                         (Vercel only)
- *   POST /v1/snapshot                                          (Vercel only)
- *   POST /v1/assets                                            (Vercel only)
+ *   GET  /v1/rooms/:roomId/socket  (Upgrade only; identity-proof join)
+ *   POST /v1/authority             (Vercel only)
+ *   POST /v1/snapshot              (Vercel only)
+ *   POST /v1/assets                (Vercel only)
+ *   POST /v1/lifecycle             (Vercel only)
  */
 
 const HEALTH_PATH = "/healthz";
@@ -102,8 +92,6 @@ export async function handleGatewayRequest(
       return await handleSnapshot(request, env);
     if (url.pathname === ASSET_GATEWAY_PATH)
       return await handleAuthority(request, env, "assets");
-    if (url.pathname === ROOM_KEY_GATEWAY_PATH)
-      return await handleAuthority(request, env, "room-key");
     const authoritySocket = AUTHORITY_SOCKET_ROUTE_PATTERN.exec(url.pathname);
     if (authoritySocket)
       return await handleSocket(request, env, log, authoritySocket[1]!);
@@ -143,10 +131,10 @@ async function handleSocket(
   log: DoLogger,
   roomIdSegment: string,
 ): Promise<Response> {
-  // Identity segments are parsed with the canonical grammar before anything
-  // else; a malformed room or generation is an unknown resource, full stop.
-  const identity = parseSocketRouteIdentity(roomIdSegment, "1");
-  if (identity === undefined) return closedJsonResponse(404, "not-found");
+  // The room segment is parsed with the canonical grammar before anything
+  // else; a malformed room id is an unknown resource, full stop.
+  const roomId = roomIdSchema.safeParse(roomIdSegment);
+  if (!roomId.success) return closedJsonResponse(404, "not-found");
 
   if (request.method !== "GET") {
     return closedJsonResponse(405, "method-not-allowed", { Allow: "GET" });
@@ -157,8 +145,8 @@ async function handleSocket(
     });
   }
 
-  // Origin is defense-in-depth on top of the join token (which stays in the
-  // first bounded control frame — never in the query, path, cookie or logs).
+  // Origin is defense-in-depth on top of the identity proof (which stays in
+  // the first bounded control frame — never in the query, path, cookie or logs).
   // A misconfigured allowlist fails closed rather than open.
   const origins = allowedOrigins(env);
   if (origins === undefined) {
@@ -170,33 +158,25 @@ async function handleSocket(
     return closedJsonResponse(403, "forbidden");
   }
 
-  // Strip the internal metadata names off the public request, then forward
-  // the parsed identity under those names. The Object re-derives the
-  // canonical RoomChannelKey and compares it to its own ctx.id.name.
+  // Strip the internal metadata name off the public request, then forward
+  // the parsed room id under it. The Object compares it to its own
+  // ctx.id.name.
   const headers = new Headers(request.headers);
-  headers.delete(INTERNAL_ROOM_ID_HEADER);
-  headers.delete(INTERNAL_AUTH_GENERATION_HEADER);
-  headers.delete(INTERNAL_AUTHORITY_SOCKET_HEADER);
-  headers.set(INTERNAL_AUTHORITY_SOCKET_HEADER, "1");
-  headers.set(INTERNAL_ROOM_ID_HEADER, identity.roomId);
-  headers.set(INTERNAL_AUTH_GENERATION_HEADER, String(identity.authGeneration));
+  headers.set(INTERNAL_ROOM_ID_HEADER, roomId.data);
   const internalRequest = new Request(request, { headers });
 
-  // One RoomChannelKey, one Object (CLAIM-MIG-2): always getByName with the
-  // canonical key — never idFromString, newUniqueId or a client-named target.
-  const stub = env.COLLABORATION_ROOM.getByName(identity.channelKey);
+  // One roomId, one Object (CLAIM-MIG-2): always getByName with the canonical
+  // id — never idFromString, newUniqueId or a client-named target.
+  const stub = env.COLLABORATION_ROOM.getByName(roomId.data);
   try {
     return await stub.fetch(internalRequest);
   } catch (error) {
     // Retryable infrastructure failure maps to a closed 503; the WebSocket
     // upgrade is never retried at the gateway.
     //
-    // Deliberately no room identifiers: the join token is verified inside the
-    // Object, so at this point the route is still unverified client input.
-    // A room id and a room key share one alphabet and length range, so
-    // recording an unverified route id here would be an exfiltration path for
-    // anyone who can reach this endpoint (threat model, observability data
-    // classification). The Object logs the verified identity once it has one.
+    // Deliberately no room identifiers: the identity proof is verified inside
+    // the Object, so at this point the route is still unverified client input.
+    // The Object logs the verified identity once it has one.
     log.error("gateway.room_fetch_failed", {
       errorName: errorNameOf(error),
     });
@@ -255,7 +235,7 @@ async function handleSnapshot(request: Request, env: Env): Promise<Response> {
   const maximum =
     parsed.data.request.action === "write" &&
     parsed.data.request.operation.kind === "snapshot-put"
-      ? MAX_SNAPSHOT_CIPHERTEXT_BYTES
+      ? MAX_SNAPSHOT_BYTES
       : 0;
   if (Number(request.headers.get("content-length") ?? 0) > maximum)
     return closedJsonResponse(413, "payload-too-large");
@@ -331,7 +311,7 @@ async function handleSnapshot(request: Request, env: Env): Promise<Response> {
 async function handleAuthority(
   request: Request,
   env: Env,
-  kind: "authority" | "assets" | "room-key" = "authority",
+  kind: "authority" | "assets" = "authority",
 ): Promise<Response> {
   if (!serviceAuthorized(request, env))
     return closedJsonResponse(401, "unauthorized");
@@ -358,9 +338,7 @@ async function handleAuthority(
   const parsed =
     kind === "assets"
       ? assetGatewayRequestSchema.safeParse(body)
-      : kind === "room-key"
-        ? roomKeyGatewayRequestSchema.safeParse(body)
-        : authorityGatewayRequestSchema.safeParse(body);
+      : authorityGatewayRequestSchema.safeParse(body);
   if (!parsed.success) return closedJsonResponse(400, "malformed");
   if (!roomTokenSecretReady(env.COLLAB_IDENTITY_SECRET))
     return closedJsonResponse(503, "not-ready");
@@ -384,9 +362,7 @@ async function handleAuthority(
             parsed.data,
             request.headers.get(PERFORMANCE_PROBE_HEADER) === "1",
           )
-        : kind === "room-key"
-          ? await stub.applyRoomKeyV1(parsed.data)
-          : await stub.applyAuthorityV1(parsed.data);
+        : await stub.applyAuthorityV1(parsed.data);
     if (!result.ok)
       return closedJsonResponse(
         result.error === "unavailable"

@@ -2,22 +2,51 @@ import { createHash } from "node:crypto";
 import type {
   ContentOperation,
   ProjectionEvent,
+  InviteProjectionEvent,
   AdapterCommand,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { MIN_SNAPSHOT_SEALED_BYTES } from "@drawstuff/collaboration/snapshot";
-import { collaborationRoom, user } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
+import {
+  collaborationLifecycleRegistration,
+  collaborationOperation,
+  collaborationProjectionTombstone,
+  collaborationRoom,
+  collaborationRoomInvite,
+  collaborationRoomMember,
+  user,
+} from "@/server/db/schema";
 import type { Database } from "@/server/collab/rooms";
 
-export const testCiphertext = (
-  length = MIN_SNAPSHOT_SEALED_BYTES,
-): Uint8Array => {
-  const bytes = new Uint8Array(length).fill(7);
-  bytes[0] = 1;
-  return bytes;
-};
-export const ciphertextChecksum = (bytes: Uint8Array): string =>
+export const testSnapshotBytes = (length = 32): Uint8Array =>
+  new Uint8Array(length).fill(7);
+export const bytesChecksum = (bytes: Uint8Array): string =>
   createHash("sha256").update(bytes).digest("hex");
+/** Per-person and per-operation rows an ended room must not keep. */
+export async function endedRoomRecords(db: Database, roomId: string) {
+  const count = async (
+    table:
+      | typeof collaborationRoomMember
+      | typeof collaborationRoomInvite
+      | typeof collaborationProjectionTombstone
+      | typeof collaborationOperation
+      | typeof collaborationLifecycleRegistration,
+  ) => (await db.select().from(table).where(eq(table.roomId, roomId))).length;
+  return {
+    members: await count(collaborationRoomMember),
+    invites: await count(collaborationRoomInvite),
+    tombstones: await count(collaborationProjectionTombstone),
+    operations: await count(collaborationOperation),
+    registrations: await count(collaborationLifecycleRegistration),
+  };
+}
+export const NO_ROOM_RECORDS = {
+  members: 0,
+  invites: 0,
+  tombstones: 0,
+  operations: 0,
+  registrations: 0,
+};
 export async function adapterFixture(db: Database) {
   const owner = `adapter-${crypto.randomUUID()}`;
   const guest = `guest-${crypto.randomUUID()}`;
@@ -31,7 +60,7 @@ export async function adapterFixture(db: Database) {
     .values({ roomId, ownerId: owner, status: "ready", storageState: "ready" });
   const operation = (
     overrides: Partial<ContentOperation> = {},
-    bytes = testCiphertext(),
+    bytes = testSnapshotBytes(),
   ): ContentOperation => ({
     v: 1,
     operationId: crypto.randomUUID(),
@@ -43,27 +72,31 @@ export async function adapterFixture(db: Database) {
     },
     deadline: Date.now() + 55_000,
     kind: "snapshot-put",
-    authGeneration: 1,
     authorityEpoch: 1,
     expectedRevision: 0,
-    checksum: ciphertextChecksum(bytes),
+    checksum: bytesChecksum(bytes),
     ...overrides,
   });
+  /** Tombstones clear role (and access), as the contract requires. */
   const projection = (
     overrides: Partial<ProjectionEvent> = {},
-  ): ProjectionEvent => ({
-    v: 1,
-    roomId,
-    subject: guest,
-    version: 2,
-    status: "ready",
-    role: "editor",
-    tombstone: false,
-    label: "Independent",
-    sceneId: null,
-    listedAt: 100,
-    ...overrides,
-  });
+  ): ProjectionEvent => {
+    const event: ProjectionEvent = {
+      v: 1,
+      roomId,
+      subject: guest,
+      version: 2,
+      status: "ready",
+      role: "editor",
+      access: "invited",
+      tombstone: false,
+      label: "Independent",
+      sceneId: null,
+      listedAt: 100,
+      ...overrides,
+    };
+    return event.tombstone ? { ...event, role: null, access: null } : event;
+  };
   const fence = (
     authorityEpoch = 2,
     overrides: Partial<Extract<AdapterCommand, { action: "fence" }>> = {},
@@ -72,9 +105,26 @@ export async function adapterFixture(db: Database) {
     action: "fence",
     roomId,
     authorityEpoch,
-    authGeneration: 1,
     state: "ready",
     ...overrides,
   });
-  return { owner, guest, roomId, operation, projection, fence };
+  const invite = (
+    overrides: Partial<InviteProjectionEvent> = {},
+  ): InviteProjectionEvent => {
+    const event: InviteProjectionEvent = {
+      v: 1,
+      roomId,
+      email: `${guest}@example.com`,
+      version: 2,
+      status: "ready",
+      role: "editor",
+      tombstone: false,
+      label: "Independent",
+      sceneId: null,
+      listedAt: 100,
+      ...overrides,
+    };
+    return event.tombstone ? { ...event, role: null } : event;
+  };
+  return { owner, guest, roomId, operation, projection, invite, fence };
 }

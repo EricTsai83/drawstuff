@@ -6,18 +6,7 @@ import {
   type RoomId,
   type SyncedElement,
 } from "./messages.ts";
-import { deriveRoomKey, type RoomKey } from "./realtime-crypto.ts";
-import { roomAuthGenerationSchema, roomRoleCanEditScene } from "./room-auth.ts";
-import {
-  asBufferSource,
-  openEnvelope,
-  SEALED_ENVELOPE_HEADER_BYTES,
-  SEALED_ENVELOPE_OVERHEAD_BYTES,
-  sealEnvelope,
-  toHex,
-  utf8AdditionalData,
-  utf8Encoder,
-} from "./sealed-envelope.ts";
+import { roomRoleCanEditScene } from "./room-auth.ts";
 import type { RoomPeer } from "./transport.ts";
 
 /**
@@ -31,14 +20,10 @@ import type { RoomPeer } from "./transport.ts";
  * owner's saved scene is written by the owner on save, this is written by
  * whichever participant is elected to, and neither ever overwrites the other.
  *
- * Two properties make the storage side uninteresting to attack:
- *
- * - The server stores an opaque byte string. Sealing happens here, in the
- *   browser, under a key derived from the room key with purpose `snapshot`, so
- *   the snapshot key is not the realtime key and neither one unlocks the other.
- * - The metadata the server does see — crypto version, revision, byte length,
- *   ciphertext checksum — says nothing about the scene. The checksum is over
- *   *ciphertext*, so it cannot be used to confirm a guessed plaintext.
+ * The server stores the encoded snapshot as is. Rooms are protected the same
+ * way as owned scenes — sign-in plus the room's access rules — not by
+ * end-to-end encryption, so the checksum is over the plaintext bytes and only
+ * guards integrity in transit and at rest.
  *
  * What a snapshot contains is also narrower than what the realtime channel
  * carries: syncable elements only. Presence, viewport, selection, theme and the
@@ -53,36 +38,12 @@ export const COLLABORATION_SNAPSHOT_PROFILE = "collaboration-snapshot";
 export const COLLABORATION_SNAPSHOT_VERSION = 1;
 
 /**
- * Sealed snapshot envelope version. Independent from
- * `REALTIME_CRYPTO_VERSION`: the two formats are sealed under different derived
- * keys and evolve separately, so sharing a version number would couple them for
- * no reason.
+ * Byte ceiling for one encoded snapshot, on the wire and in storage. Larger
+ * than a realtime scene message (`MAX_SCENE_MESSAGE_BYTES`) because a snapshot
+ * is a whole scene rather than a delta, and bounded because an unbounded
+ * column is a way for an authorized member to grow the database without limit.
  */
-export const SNAPSHOT_CRYPTO_VERSION = 1;
-
-/**
- * Sealed snapshot layout — the shared sealed-envelope shape
- * (`./sealed-envelope.ts`), same as a realtime frame and for the same reason:
- * fixed size, no variable fields, no sender identity.
- */
-export const SNAPSHOT_SEALED_HEADER_BYTES = SEALED_ENVELOPE_HEADER_BYTES;
-
-export const SNAPSHOT_SEALED_OVERHEAD_BYTES = SEALED_ENVELOPE_OVERHEAD_BYTES;
-
-export const MIN_SNAPSHOT_SEALED_BYTES = SNAPSHOT_SEALED_OVERHEAD_BYTES + 1;
-
-/**
- * Plaintext ceiling for one snapshot. Larger than a realtime scene message
- * (`MAX_SCENE_MESSAGE_BYTES`) because a snapshot is a whole scene rather than a
- * delta, and bounded because the server has to accept it sight unseen: an
- * unbounded ciphertext column is a way for an authorized member to grow the
- * database without limit.
- */
-export const MAX_SNAPSHOT_PLAINTEXT_BYTES = 4 * 1_048_576;
-
-/** Wire/storage ceiling: the plaintext budget plus sealing overhead. */
-export const MAX_SNAPSHOT_CIPHERTEXT_BYTES =
-  MAX_SNAPSHOT_PLAINTEXT_BYTES + SNAPSHOT_SEALED_OVERHEAD_BYTES;
+export const MAX_SNAPSHOT_BYTES = 4 * 1_048_576;
 
 /**
  * Snapshot revisions start at 1 and advance by one per accepted write. A writer
@@ -104,7 +65,7 @@ export const expectedSnapshotRevisionSchema = z.union([
   snapshotRevisionSchema,
 ]);
 
-/** SHA-256 hex; the checksum the store keeps over the sealed bytes. */
+/** SHA-256 hex; the checksum the store keeps over the encoded bytes. */
 export const snapshotChecksumSchema = z.string().regex(/^[0-9a-f]{64}$/);
 
 /**
@@ -150,14 +111,18 @@ export type DecodeSnapshotResult =
   | { ok: true; snapshot: CollaborationSnapshot }
   | { ok: false; error: SnapshotCodecError };
 
-const encoder = utf8Encoder;
+const encoder = new TextEncoder();
 // Fatal so malformed UTF-8 is refused rather than repaired into a different
 // (possibly valid) snapshot via U+FFFD replacement.
 const decoder = new TextDecoder("utf-8", { fatal: true, ignoreBOM: false });
 
 const sha256Hex = async (bytes: Uint8Array): Promise<string> => {
-  const digest = await crypto.subtle.digest("SHA-256", asBufferSource(bytes));
-  return toHex(new Uint8Array(digest));
+  // Every view handed in comes from `TextEncoder` or a `fetch` body, never
+  // shared memory, so narrowing to `BufferSource` is sound.
+  const digest = await crypto.subtle.digest("SHA-256", bytes as BufferSource);
+  return Array.from(new Uint8Array(digest), (byte) =>
+    byte.toString(16).padStart(2, "0"),
+  ).join("");
 };
 
 export function encodeCollaborationSnapshot(input: {
@@ -195,13 +160,13 @@ export function encodeCollaborationSnapshot(input: {
       },
     };
   }
-  if (bytes.byteLength > MAX_SNAPSHOT_PLAINTEXT_BYTES) {
+  if (bytes.byteLength > MAX_SNAPSHOT_BYTES) {
     return {
       ok: false,
       error: {
         code: "oversize-snapshot",
         byteLength: bytes.byteLength,
-        maxByteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES,
+        maxByteLength: MAX_SNAPSHOT_BYTES,
       },
     };
   }
@@ -213,13 +178,13 @@ export function decodeCollaborationSnapshot(
   expected: { roomId: RoomId },
 ): DecodeSnapshotResult {
   // Bounded before parsing: oversize input is never decoded, whatever it holds.
-  if (bytes.byteLength > MAX_SNAPSHOT_PLAINTEXT_BYTES) {
+  if (bytes.byteLength > MAX_SNAPSHOT_BYTES) {
     return {
       ok: false,
       error: {
         code: "oversize-snapshot",
         byteLength: bytes.byteLength,
-        maxByteLength: MAX_SNAPSHOT_PLAINTEXT_BYTES,
+        maxByteLength: MAX_SNAPSHOT_BYTES,
       },
     };
   }
@@ -262,9 +227,8 @@ export function decodeCollaborationSnapshot(
       },
     };
   }
-  // The seal already binds the room id, so this can only fail on a snapshot
-  // sealed for another room under the same key material — impossible today, and
-  // still refused rather than applied to the wrong canvas.
+  // The store keys snapshots by room, so this can only fail on a misrouted
+  // read — still refused rather than applied to the wrong canvas.
   if (parsed.data.roomId !== expected.roomId) {
     return {
       ok: false,
@@ -298,152 +262,9 @@ export async function collaborationSnapshotDigest(
   return sha256Hex(encoder.encode(canonical));
 }
 
-/** Checksum the store keeps over the sealed bytes; reveals no plaintext. */
-export function snapshotCiphertextChecksum(
-  ciphertext: Uint8Array,
-): Promise<string> {
-  return sha256Hex(ciphertext);
-}
-
-/**
- * Derives the room's snapshot key. Separate purpose from realtime traffic, so a
- * leaked realtime key cannot open durable snapshots and vice versa, and bound to
- * the authorization generation, so rotating the generation makes every snapshot
- * written under the previous one unreadable.
- */
-export function deriveSnapshotKey(options: {
-  roomKey: RoomKey;
-  roomId: RoomId;
-  authGeneration: number;
-}): Promise<CryptoKey> {
-  return deriveRoomKey({ ...options, purpose: "snapshot" });
-}
-
-export type SnapshotCryptoError =
-  | { code: "malformed-sealed-snapshot"; detail: string }
-  | { code: "unknown-crypto-version"; receivedVersion: number | undefined }
-  /** Wrong key, tampered bytes, or metadata that does not match the seal. */
-  | { code: "authentication-failed" };
-
-export type SealSnapshotResult =
-  | { ok: true; ciphertext: Uint8Array }
-  | { ok: false; error: SnapshotCryptoError };
-
-export type OpenSnapshotResult =
-  | { ok: true; plaintext: Uint8Array }
-  | { ok: false; error: SnapshotCryptoError };
-
-/**
- * Authenticated metadata. Everything the store can see is bound to the
- * ciphertext: envelope version, room, authorization generation and revision.
- * Binding the revision is what stops a store from pairing revision N's bytes
- * with revision M's metadata — it can still serve an older (revision,
- * ciphertext) pair intact, which is the part no client-side check can rule
- * out, but it cannot fabricate a consistent-looking mix.
- *
- * Deliberately free of `COLLABORATION_PROTOCOL_VERSION`: that versions
- * transport messages, and a snapshot is durable state. It used to be bound
- * here as well, which made every stored snapshot unreadable after a purely
- * transport-side protocol bump; the snapshot's own envelope version is the
- * only format version that belongs in this seal.
- *
- * Exported so the "no transport version reaches durable authenticated data"
- * property is a pinned contract rather than a comment.
- */
-export function snapshotAdditionalDataLabel(params: {
-  roomId: RoomId;
-  authGeneration: number;
-  revision: number;
-}): string {
-  return `drawstuff-snapshot/v${SNAPSHOT_CRYPTO_VERSION}/${params.roomId}/g${roomAuthGenerationSchema.parse(
-    params.authGeneration,
-  )}/r${snapshotRevisionSchema.parse(params.revision)}`;
-}
-
-const snapshotAdditionalData = (params: {
-  roomId: RoomId;
-  authGeneration: number;
-  revision: number;
-}): BufferSource => utf8AdditionalData(snapshotAdditionalDataLabel(params));
-
-export async function sealCollaborationSnapshot(options: {
-  key: CryptoKey;
-  plaintext: Uint8Array;
-  roomId: RoomId;
-  authGeneration: number;
-  /** Revision this ciphertext will be stored under. */
-  revision: number;
-  /** Injectable only for deterministic tests; production uses Web Crypto. */
-  randomBytes?: (length: number) => Uint8Array;
-}): Promise<SealSnapshotResult> {
-  const sealed = await sealEnvelope({
-    version: SNAPSHOT_CRYPTO_VERSION,
-    key: options.key,
-    plaintext: options.plaintext,
-    additionalData: snapshotAdditionalData(options),
-    randomBytes: options.randomBytes,
-  });
-  if (!sealed.ok) {
-    // The error name, never the key or the plaintext: a caller may log this.
-    return {
-      ok: false,
-      error: {
-        code: "malformed-sealed-snapshot",
-        detail: sealed.failure.errorName,
-      },
-    };
-  }
-  return { ok: true, ciphertext: sealed.ciphertext };
-}
-
-export async function openCollaborationSnapshot(options: {
-  key: CryptoKey;
-  ciphertext: Uint8Array;
-  roomId: RoomId;
-  authGeneration: number;
-  revision: number;
-}): Promise<OpenSnapshotResult> {
-  const opened = await openEnvelope({
-    version: SNAPSHOT_CRYPTO_VERSION,
-    key: options.key,
-    ciphertext: options.ciphertext,
-    additionalData: snapshotAdditionalData(options),
-    minCiphertextBytes: MIN_SNAPSHOT_SEALED_BYTES,
-    maxCiphertextBytes: MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  });
-  if (opened.ok) return { ok: true, plaintext: opened.plaintext };
-  const { failure } = opened;
-  switch (failure.code) {
-    case "below-min-size":
-      return {
-        ok: false,
-        error: {
-          code: "malformed-sealed-snapshot",
-          detail: `Sealed snapshot must be at least ${failure.minByteLength} bytes, received ${failure.receivedByteLength}`,
-        },
-      };
-    case "above-max-size":
-      return {
-        ok: false,
-        error: {
-          code: "malformed-sealed-snapshot",
-          detail: `Sealed snapshot must be at most ${failure.maxByteLength} bytes, received ${failure.receivedByteLength}`,
-        },
-      };
-    case "unknown-version":
-      return {
-        ok: false,
-        error: {
-          code: "unknown-crypto-version",
-          receivedVersion: failure.receivedVersion,
-        },
-      };
-    case "authentication-failed":
-      // A wrong key, a rotated generation, tampered bytes and mismatched
-      // metadata are all the same answer: this is not a snapshot this reader
-      // can trust.
-      return { ok: false, error: { code: "authentication-failed" } };
-  }
+/** Checksum the store keeps over the encoded snapshot bytes. */
+export function snapshotChecksum(bytes: Uint8Array): Promise<string> {
+  return sha256Hex(bytes);
 }
 
 /**

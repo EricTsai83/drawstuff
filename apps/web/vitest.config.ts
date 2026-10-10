@@ -19,9 +19,6 @@ export default defineConfig({
     },
     env: {
       SKIP_ENV_VALIDATION: "1",
-      // Collaboration room tokens are signed with the real HMAC path in tests,
-      // so the room-auth env has to be present (never a production secret).
-      COLLAB_JOIN_TOKEN_SECRET: "web-test-room-token-secret-0123456789",
       COLLAB_CONTROL_URL: "http://127.0.0.1:3105",
       // Present so the shared rate-limit module can build its module-scope
       // client at import time. Constructing the Upstash REST client opens no

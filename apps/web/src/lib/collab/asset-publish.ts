@@ -1,7 +1,4 @@
-import {
-  encodeCollaborationAssetPayload,
-  type AssetCryptoCodec,
-} from "@drawstuff/collaboration/asset";
+import { encodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
 import type { BinaryFileData } from "@drawstuff/excalidraw-adapter/types";
 
@@ -15,7 +12,7 @@ import { AssetUploadPendingError } from "./asset-upload";
 import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 
 /**
- * Publish half of the asset store: sealing, uploading, and the bounded retry
+ * Publish half of the asset store: encoding, uploading, and the bounded retry
  * round for uploads that failed in a way a later attempt could fix.
  *
  * Everything here is driven through the context the store hands over — the
@@ -29,8 +26,6 @@ const MAX_PUBLISH_ATTEMPTS = 3;
 type AssetPublishContext = {
   upload: AssetApi["upload"];
   roomId: RoomId;
-  authGeneration: number;
-  codec: AssetCryptoCodec;
   signal: AbortSignal;
   isDestroyed: () => boolean;
   now: () => number;
@@ -70,8 +65,7 @@ type AssetPublisher = {
 export const createAssetPublisher = (
   context: AssetPublishContext,
 ): AssetPublisher => {
-  const { codec, isDestroyed, now, available, abandoned, resolved, abandon } =
-    context;
+  const { isDestroyed, now, available, abandoned, resolved, abandon } = context;
 
   const uploading = new Map<string, Promise<void>>();
   /**
@@ -133,23 +127,13 @@ export const createAssetPublisher = (
       abandon(file.id);
       return;
     }
-    const sealed = await codec.seal({
-      excalidrawFileId: file.id,
-      plaintext: encoded.bytes,
-    });
-    if (!sealed.ok) {
-      abandon(file.id);
-      return;
-    }
     if (isDestroyed()) return;
 
     try {
       await context.upload({
         roomId: context.roomId,
-        authGeneration: context.authGeneration,
         excalidrawFileId: file.id,
-        cryptoVersion: codec.cryptoVersion,
-        ciphertext: sealed.ciphertext,
+        payload: encoded.bytes,
         signal: context.signal,
       });
       available.add(file.id);
@@ -249,7 +233,7 @@ export const createAssetPublisher = (
     ]);
     // The local user's own images can be terminal too — too large to publish, an
     // unsupported type, or an upload budget that ran out — and until now that was
-    // as silent as an unopenable download.
+    // as silent as a damaged download.
     context.flushUnavailable();
   }
 

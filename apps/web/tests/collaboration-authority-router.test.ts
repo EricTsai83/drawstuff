@@ -9,7 +9,6 @@ const doubles = vi.hoisted(() => ({
   },
   identity: vi.fn(),
   gateway: vi.fn(),
-  roomKeyGateway: vi.fn(),
   limit: vi.fn(),
 }));
 vi.mock("@/env", () => ({ env: doubles.env }));
@@ -18,7 +17,6 @@ vi.mock("@/server/collab/authority-identity", () => ({
 }));
 vi.mock("@/server/collab/authority-gateway", () => ({
   callAuthorityGateway: doubles.gateway,
-  callRoomKeyGateway: doubles.roomKeyGateway,
 }));
 vi.mock("@/server/rate-limit/collaboration", () => ({
   enforceCollaborationRateLimit: doubles.limit,
@@ -168,56 +166,5 @@ describe("source scene display candidates", () => {
     expect(
       await caller("candidate-owner", testDb).findForScene(input),
     ).toBeNull();
-  });
-});
-
-describe("room key custody routes (plan 19)", () => {
-  const roomId = "authority-router-room";
-  const key = "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA";
-
-  it("returns Room's custody copy, or null when Room holds none", async () => {
-    doubles.roomKeyGateway.mockResolvedValueOnce({
-      status: "found",
-      roomId,
-      authGeneration: 2,
-      roomKey: key,
-    });
-    await expect(caller().roomKey({ roomId })).resolves.toEqual({
-      roomKey: key,
-      authGeneration: 2,
-    });
-    expect(doubles.roomKeyGateway).toHaveBeenCalledWith(
-      expect.objectContaining({ secret: doubles.env.COLLAB_AUTHORITY_SECRET }),
-      "live-proof",
-      expect.objectContaining({ action: "get-room-key", roomId }),
-    );
-    doubles.roomKeyGateway.mockResolvedValueOnce({
-      status: "absent",
-      roomId,
-      authGeneration: 2,
-    });
-    await expect(caller().roomKey({ roomId })).resolves.toBeNull();
-    // The generic authority route never carries a key.
-    expect(doubles.gateway).not.toHaveBeenCalled();
-  });
-
-  it("forwards an escrowed key under the caller's own proof", async () => {
-    doubles.roomKeyGateway.mockResolvedValueOnce({
-      status: "escrowed",
-      roomId,
-      authGeneration: 1,
-    });
-    await expect(
-      caller().escrowRoomKey({ roomId, roomKey: key }),
-    ).resolves.toEqual({ escrowed: true });
-    const sent = doubles.roomKeyGateway.mock.calls[0]?.[2] as Record<
-      string,
-      unknown
-    >;
-    expect(sent).toMatchObject({ action: "escrow-room-key", roomKey: key });
-    expect(sent).not.toHaveProperty("authGeneration");
-    await expect(caller(null).roomKey({ roomId })).rejects.toMatchObject({
-      code: "UNAUTHORIZED",
-    });
   });
 });

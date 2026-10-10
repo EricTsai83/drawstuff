@@ -5,7 +5,6 @@ import {
   type ManagementResult,
   authorityStateSchema,
 } from "@drawstuff/collaboration/authority";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
   AuthorityRoomError,
@@ -15,8 +14,6 @@ import {
   type AuthorityApi,
 } from "@/lib/collab/authority-client";
 import {
-  ASSET_CRYPTO_VERSION,
-  createAssetCryptoCodec,
   decodeCollaborationAssetPayload,
   type CollaborationAssetRecord,
 } from "@drawstuff/collaboration/asset";
@@ -29,6 +26,7 @@ import type { AssetApi } from "@/lib/collab/asset-store";
 import { createRoomInitialization } from "@/lib/collab/room-initialization";
 import type { SnapshotApi } from "@/lib/collab/snapshot-http";
 import { createCollaborationSnapshotStore } from "@/lib/collab/snapshot-store";
+import { decodeCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 import { binarySnapshotBackend } from "./support/binary-snapshot-backend";
 
 const sceneId = "12345678-1234-4234-8234-123456789abc";
@@ -45,27 +43,23 @@ function fixture() {
     sceneId,
     label: "",
     linkRole: "none",
-    authGeneration: 1,
     authRevision: 1,
     authorityEpoch: 1,
     initializationDeadline: Date.now() + AUTHORITY_LIMITS.initializationTtlMs,
-    keyCheck: null,
   });
   let storage = binarySnapshotBackend(state.roomId);
   const records = new Map<string, CollaborationAssetRecord>();
   const assetUploads = new Map<string, Uint8Array>();
   const assets: AssetApi = {
     upload: vi.fn<AssetApi["upload"]>(async (input) => {
-      assetUploads.set(input.excalidrawFileId, input.ciphertext.slice());
+      assetUploads.set(input.excalidrawFileId, input.payload.slice());
       records.set(input.excalidrawFileId, {
         excalidrawFileId: input.excalidrawFileId,
-        cryptoVersion: input.cryptoVersion,
-        byteLength: input.ciphertext.byteLength,
-        url: "https://storage.test/ciphertext",
+        byteLength: input.payload.byteLength,
+        url: "https://storage.test/asset",
       });
     }),
     resolve: vi.fn<AssetApi["resolve"]>(async ({ fileIds }) => ({
-      authGeneration: state.authGeneration,
       assets: fileIds.flatMap((id) =>
         records.get(id) ? [records.get(id)!] : [],
       ),
@@ -85,20 +79,7 @@ function fixture() {
     if (request.action === "create") {
       state = { ...state, roomId: request.roomId };
       storage = binarySnapshotBackend(request.roomId);
-    } else if (request.action === "rotate-generation") {
-      state = {
-        ...state,
-        state: "initializing",
-        authGeneration: request.expectedGeneration + 1,
-        authorityEpoch: state.authorityEpoch + 1,
-        keyCheck: null,
-      };
-      storage = binarySnapshotBackend(request.roomId);
-      storage.emptyAt(1, state.authGeneration, state.authorityEpoch);
-      records.clear();
-    } else if (request.action === "set-key-check")
-      state = { ...state, keyCheck: request.keyCheck };
-    else if (request.action === "complete-initialization") {
+    } else if (request.action === "complete-initialization") {
       const saved = await storage.api.read({
         ...authorityEnvelope(request.roomId),
         action: "read",
@@ -156,67 +137,26 @@ function fixture() {
 }
 
 describe("product Room authority initialization", () => {
-  it("rotates an existing Room through the full encrypted initialization before releasing its replacement key", async () => {
-    const f = fixture();
-    f.updateState({ state: "ready", authGeneration: 1 });
-    const roomId = f.state().roomId;
-    const initialization = createRoomInitialization({
-      authority: f.authority,
-      snapshots: f.snapshots,
-      assets: f.assets,
-      sceneId: null,
-      elements: [],
-      files: [],
-      rotate: { roomId, expectedGeneration: 1 },
-    });
-    const result = await initialization.start();
-    expect(result.roomId).toBe(roomId);
-    expect(result.roomKey).toBeTruthy();
-    // The completion receipt says whether "My rooms" may still lag.
-    expect(result.projectionPending).toBe(true);
-    expect(f.state()).toMatchObject({ state: "ready", authGeneration: 2 });
-    expect(f.execute.mock.calls.map(([request]) => request.action)).toContain(
-      "rotate-generation",
-    );
-    expect(
-      f.execute.mock.calls.map(([request]) => request.action),
-    ).not.toContain("create");
-  });
-  it("stops a reconnect on a changed generation even while the new generation is still initializing", async () => {
-    const f = fixture();
-    f.updateState({ state: "initializing", authGeneration: 2 });
-    await expect(
-      createAuthorityRoomBackend(f.authority).joinRoom({
-        roomId: f.state().roomId,
-        authGeneration: 1,
-      }),
-    ).rejects.toMatchObject({ code: "generation-mismatch" });
-    expect(f.authority.identity).not.toHaveBeenCalled();
-    const { classifyJoinFailure } = await import("@/lib/collab/join-failure");
-    expect(
-      classifyJoinFailure(new AuthorityRoomError("generation-mismatch")),
-    ).toEqual({ ok: false, retry: false, failure: "generation-rotated" });
-  });
   it("replays only a queried absent intent before its deadline and preserves the original request against caller mutation", async () => {
     const f = fixture();
     const request = {
       ...authorityEnvelope(f.state().roomId),
-      action: "set-key-check" as const,
-      expectedGeneration: 1,
-      keyCheck: Array.from({ length: KEYCHECK_CIPHERTEXT_BYTES }, () => 0),
+      action: "allow-email" as const,
+      email: "friend@example.com",
+      role: "viewer" as "viewer" | "editor",
     };
     const original = structuredClone(request);
     const run = createAuthorityOperation(f.authority, request);
     f.execute.mockRejectedValueOnce(new Error("offline"));
     await expect(run()).rejects.toThrow("offline");
-    request.keyCheck[0] = 1;
+    request.role = "editor";
     await expect(run()).resolves.toEqual({ projectionPending: true });
     // A confirmed operation answers from its receipt without another request.
     await expect(run()).resolves.toEqual({ projectionPending: true });
     expect(f.execute.mock.calls.map(([r]) => r.action)).toEqual([
-      "set-key-check",
+      "allow-email",
       "query",
-      "set-key-check",
+      "allow-email",
     ]);
     expect(f.execute.mock.calls[2]![0]).toEqual(original);
   });
@@ -243,7 +183,7 @@ describe("product Room authority initialization", () => {
     });
   });
 
-  it("stores an explicit encrypted empty snapshot before readiness, even while display projection is pending", async () => {
+  it("stores an explicit plain empty snapshot before readiness, even while display projection is pending", async () => {
     const f = fixture();
     const init = createRoomInitialization({
       authority: f.authority,
@@ -255,25 +195,31 @@ describe("product Room authority initialization", () => {
     expect(f.execute.mock.calls.map(([request]) => request.action)).toEqual([
       "create",
       "get-state",
-      "set-key-check",
       "complete-initialization",
       "get-state",
     ]);
     expect(f.state().state).toBe("ready");
-    const store = await createCollaborationSnapshotStore({
+    const complete = f.execute.mock.calls.find(
+      ([request]) => request.action === "complete-initialization",
+    )![0];
+    const [put, bytes] = f.storage().write.mock.calls[0]!;
+    expect(complete).toMatchObject({
+      manifest: { revision: 1, checksum: put.checksum, assetIds: [] },
+    });
+    expect(
+      decodeCollaborationSnapshot(bytes, { roomId: ready.roomId }),
+    ).toEqual(expect.objectContaining({ ok: true }));
+    const store = createCollaborationSnapshotStore({
       api: f.snapshots,
       roomId: ready.roomId,
-      roomKey: ready.roomKey,
-      authGeneration: 1,
     });
     expect(await store.load()).toMatchObject({
       status: "loaded",
       elements: [],
       revision: 1,
     });
-    expect(JSON.stringify(f.execute.mock.calls)).not.toContain(ready.roomKey);
   });
-  it("recovers a lost create reply with the original operation, room and key; never starts a second room", async () => {
+  it("recovers a lost create reply with the original operation and room; never starts a second room", async () => {
     const f = fixture();
     f.execute.mockImplementationOnce(async (request) => {
       await f.commit(request);
@@ -297,7 +243,7 @@ describe("product Room authority initialization", () => {
       operationId: create.operationId,
     });
   });
-  it("retains the exact initial capture and encrypted body after a lost snapshot reply", async () => {
+  it("retains the exact initial capture and body after a lost snapshot reply", async () => {
     const f = fixture();
     const elements = [
       { id: "first", version: 1, versionNonce: 1, isDeleted: false },
@@ -319,10 +265,9 @@ describe("product Room authority initialization", () => {
     elements[0]!.version = 2;
     const ready = await init.start();
     expect(write).toHaveBeenCalledTimes(1);
-    const store = await createCollaborationSnapshotStore({
+    const store = createCollaborationSnapshotStore({
       api: f.snapshots,
-      ...ready,
-      authGeneration: 1,
+      roomId: ready.roomId,
     });
     expect(await store.load()).toMatchObject({
       status: "loaded",
@@ -396,29 +341,6 @@ describe("product Room authority initialization", () => {
     await expect(init.cancel()).rejects.toMatchObject({ code: "pending" });
     await expect(started).rejects.toMatchObject({ code: "pending" });
   });
-  it("hands Room a custody copy of the new key, and still creates the room when that fails", async () => {
-    for (const outcome of ["accepted", "refused"] as const) {
-      const f = fixture();
-      const escrowRoomKey = vi.fn(() =>
-        outcome === "accepted"
-          ? Promise.resolve({ escrowed: true })
-          : Promise.reject(new Error("custody-unavailable")),
-      );
-      const init = createRoomInitialization({
-        authority: { ...f.authority, escrowRoomKey },
-        snapshots: f.snapshots,
-        sceneId,
-        elements: [],
-      });
-      const ready = await init.start();
-      expect(escrowRoomKey).toHaveBeenCalledOnce();
-      expect(escrowRoomKey).toHaveBeenCalledWith({
-        roomId: ready.roomId,
-        authGeneration: 1,
-        roomKey: ready.roomKey,
-      });
-    }
-  });
   it("does not share or mint identity credentials until the completion receipt is confirmed", async () => {
     const f = fixture();
     const commit = f.commit;
@@ -485,7 +407,7 @@ describe("product Room authority initialization", () => {
     expect(f.storage().write).not.toHaveBeenCalled();
   });
 
-  it("initializes an encrypted image and includes it in the ready manifest only after finalization", async () => {
+  it("initializes a plain image payload and includes it in the ready manifest only after finalization", async () => {
     const f = fixture();
     const file = initialFile();
     const initialization = createRoomInitialization({
@@ -505,19 +427,8 @@ describe("product Room authority initialization", () => {
     expect(complete).toMatchObject({
       manifest: { assetIds: [initialFile().id] },
     });
-    const codec = await createAssetCryptoCodec({
-      roomId: ready.roomId,
-      roomKey: ready.roomKey,
-      authGeneration: 1,
-    });
-    const opened = await codec.open({
-      excalidrawFileId: initialFile().id,
-      ciphertext: f.assetUploads.get(initialFile().id)!,
-    });
-    expect(opened.ok).toBe(true);
-    if (!opened.ok) throw new Error("unreadable-upload");
     expect(
-      decodeCollaborationAssetPayload(opened.plaintext, {
+      decodeCollaborationAssetPayload(f.assetUploads.get(initialFile().id)!, {
         roomId: ready.roomId,
         excalidrawFileId: initialFile().id,
       }),
@@ -525,7 +436,7 @@ describe("product Room authority initialization", () => {
     expect(f.storage().write).toHaveBeenCalledTimes(1);
   });
 
-  it("retains the same Room/key and withholds its snapshot/manifest while an attachment is missing", async () => {
+  it("retains the same Room and withholds its snapshot/manifest while an attachment is missing", async () => {
     const f = fixture();
     const original = f.assets.upload;
     f.assets.upload = vi.fn(async () => {
@@ -548,22 +459,16 @@ describe("product Room authority initialization", () => {
         ([request]) => request.action === "complete-initialization",
       ),
     ).toBe(false);
-    // The provider callback and Room recovery eventually finalize the original ciphertext.
+    // The provider callback and Room recovery eventually finalize the original upload.
     f.records.set(initialFile().id, {
       excalidrawFileId: initialFile().id,
-      cryptoVersion: ASSET_CRYPTO_VERSION,
       byteLength: 32,
-      url: "https://storage.test/ciphertext",
+      url: "https://storage.test/asset",
     });
     const ready = await initialization.start();
     expect(ready.roomId).toBe(f.state().roomId);
     expect(
       f.execute.mock.calls.filter(([request]) => request.action === "create"),
-    ).toHaveLength(1);
-    expect(
-      f.execute.mock.calls.filter(
-        ([request]) => request.action === "set-key-check",
-      ),
     ).toHaveLength(1);
     expect(original).not.toHaveBeenCalled();
   });
@@ -587,7 +492,7 @@ describe("product Room authority initialization", () => {
     expect(f.execute).not.toHaveBeenCalled();
   });
 
-  it("stops after disposal before a late creation reply can upload images or set a key check", async () => {
+  it("stops after disposal before a late creation reply can upload images or save a snapshot", async () => {
     const f = fixture();
     let finish: (() => void) | undefined;
     f.execute.mockImplementationOnce(async (request) => {
@@ -677,11 +582,7 @@ describe("product Room authority initialization", () => {
     const joined = await createAuthorityRoomBackend(f.authority).joinRoom({
       roomId: f.state().roomId,
     });
-    expect(joined).toMatchObject({
-      token: "identity-only",
-      role: "viewer",
-      authGeneration: 1,
-    });
+    expect(joined).toMatchObject({ token: "identity-only", role: "viewer" });
     expect(f.execute.mock.calls[0]![0]).toMatchObject({ action: "get-state" });
     expect(f.authority.identity).toHaveBeenCalledWith({
       roomId: f.state().roomId,

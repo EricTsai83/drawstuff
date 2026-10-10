@@ -10,7 +10,7 @@
 This document is the current architecture boundary for Drawstuff's Excalidraw integration. It
 defines ownership and compatibility rules; it is not an implementation history.
 
-The deployed protocol-6 implementation separates SQLite authorization from PostgreSQL storage fences and display projections. Every controlled content entry consults Room authority; scene/account cascades wait for durable Lifecycle enforcement. The paired schema/web/Worker cutover is recorded in the [deployment runbook](../deployment/collaboration-reset/README.md); current invariants are in the [authority contract](collaboration-authority.md).
+The protocol-7 implementation separates SQLite authorization from PostgreSQL storage fences and display projections. Every controlled content entry consults Room authority; scene/account cascades wait for durable Lifecycle enforcement. The paired schema/web/Worker cutover is recorded in the [deployment runbook](../deployment/collaboration-reset/README.md); current invariants are in the [authority contract](collaboration-authority.md).
 
 ## Ownership
 
@@ -18,8 +18,8 @@ The deployed protocol-6 implementation separates SQLite authorization from Postg
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `@drawstuff/excalidraw-adapter`  | The only upstream integration boundary, native document/Library restore, render bridge, reconciliation wrapper, and upstream contract tests | Product UI, transport, room lifecycle, user persistence, or another element model               |
 | `apps/web`                       | Product layout, dialogs, menus, user-scoped Library persistence, persistence UI, authentication, and collaboration composition              | A direct Excalidraw dependency, canvas engine, Library/scene merge algorithm, or history engine |
-| `@drawstuff/collaboration`       | Transport-neutral protocol, crypto, recovery, room/presence contracts, and collaboration orchestration                                      | React/Next.js UI, room runtime process, persistence, or canvas primitives                       |
-| `apps/collaboration-do`          | Thin Worker gateway (public request shape, Upgrade checks, identity-proof/service-capability verification, stable roomId routing), the `CollaborationRoom` Durable Object (hibernatable bounded fanout, SQLite authorization and coordination metadata, alarms), subject-scoped Lifecycle retirement, storage-fence orchestration and health | React, app code, adapter code, scene plaintext, room keys, or a second authoritative copy of durable canvas state |
+| `@drawstuff/collaboration`       | Transport-neutral protocol, identity-proof signing, snapshot/asset codecs, recovery, room/presence contracts, and collaboration orchestration | React/Next.js UI, room runtime process, persistence, or canvas primitives                       |
+| `apps/collaboration-do`          | Thin Worker gateway (public request shape, Upgrade checks, identity-proof/service-capability verification, stable roomId routing), the `CollaborationRoomV2` Durable Object (hibernatable bounded fanout, SQLite authorization and coordination metadata, alarms), subject-scoped Lifecycle retirement, storage-fence orchestration and health | React, app code, adapter code, stored scene content, or a second authoritative copy of durable canvas state |
 
 The allowed dependency graph is:
 

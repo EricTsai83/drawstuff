@@ -129,8 +129,8 @@ export const createRemoteApplier = (options: {
         // Presence never enters the barrier: it carries no scene state, so holding
         // it would only make other people's cursors lag behind the join.
         //
-        // Only from current members: presence settles asynchronously (decryption
-        // queue) while membership updates synchronously, so a frame queued before
+        // Only from current members: presence may settle asynchronously while
+        // membership updates synchronously, so a frame queued before
         // a peer left can land after the prune. Re-inserting it would resurrect
         // the departed cursor — and since a reconnect is a new peerId, nothing
         // would ever overwrite the stale key until the next membership change.

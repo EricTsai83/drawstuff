@@ -3,7 +3,7 @@
 // 即重新部署，與現行部署模型一致。政策由 `tests/security-headers.test.ts` 釘住。
 //
 // CSP 是 defense-in-depth，不是授權機制（CLAIM-CDB-3）：`connect-src` 收斂
-// 「把 room key 送出去」的出口，但不阻止送往 allowlist 內的 origin，也不使
+// 「把分享連結金鑰送出去」的出口，但不阻止送往 allowlist 內的 origin，也不使
 // E2EE 對抗能改動 bundle 的 operator 成立。
 
 import { EMBED_FRAME_SRC_HOSTS } from "./embed-allowlist";
@@ -237,7 +237,7 @@ export function buildSecurityHeaders(
       value: "max-age=63072000; includeSubDomains",
     },
     { key: "X-Content-Type-Options", value: "nosniff" },
-    // room key 在 fragment，不隨 Referer 送出；仍取最嚴格值縮小 URL 洩漏面
+    // 分享連結的金鑰在 fragment，不隨 Referer 送出；仍取最嚴格值縮小 URL 洩漏面
     { key: "Referrer-Policy", value: "no-referrer" },
     // 與 frame-ancestors 'none' 並存，涵蓋不支援 CSP 的舊代理/瀏覽器
     { key: "X-Frame-Options", value: "DENY" },

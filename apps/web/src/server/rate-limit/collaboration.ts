@@ -26,7 +26,7 @@ import {
  * That single sentence decides the failure mode: when Redis times out or
  * throws, the request is **allowed through** as `degraded` and the caller
  * continues into the checks that *are* boundaries — authentication, room role,
- * payload and batch bounds, the 512-assets-per-generation cap, and the
+ * payload and batch bounds, the 512-assets-per-room cap, and the
  * transactional invariants. Those stay fail-closed while this is degraded, so
  * Upstash cannot become the single point of failure for collaborating at all.
  *

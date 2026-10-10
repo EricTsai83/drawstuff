@@ -9,12 +9,6 @@ import {
   type SceneMessage,
   type SyncedElement,
 } from "../src/protocol.ts";
-import {
-  createRealtimeCryptoCodec,
-  roomKeySchema,
-  type RealtimeCryptoCodec,
-  type RealtimeCryptoCodecOptions,
-} from "../src/realtime-crypto.ts";
 import type {
   CollaborationTransport,
   ConnectionState,
@@ -23,25 +17,8 @@ import type {
 export const ROOM_ID = roomIdSchema.parse("room-alpha");
 export const PEER_A = peerIdSchema.parse("peer-a");
 export const PEER_B = peerIdSchema.parse("peer-b");
-/** Opaque placeholder: only the relay verifies token signatures. */
+/** Opaque placeholder: only the room verifies identity-proof signatures. */
 export const JOIN_TOKEN = "test-join-token";
-/** Shared room key: every peer in these tests is in the same room. */
-export const ROOM_KEY = roomKeySchema.parse(
-  "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
-);
-
-/** Codec for one peer; every peer in these tests shares the room key. */
-export function roomCodec(
-  overrides: Partial<RealtimeCryptoCodecOptions> = {},
-): Promise<RealtimeCryptoCodec> {
-  return createRealtimeCryptoCodec({
-    roomKey: ROOM_KEY,
-    roomId: ROOM_ID,
-    authGeneration: 1,
-    ...overrides,
-  });
-}
-
 let messageCounter = 0;
 const nextMessageId = (): string => `m-${++messageCounter}`;
 

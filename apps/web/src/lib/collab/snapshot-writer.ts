@@ -5,7 +5,7 @@ import {
   type SnapshotOperation,
 } from "./snapshot-http";
 
-/** One in-memory sealed payload; durable jobs retain only its immutable intent. */
+/** One in-memory encoded payload; durable jobs retain only its immutable intent. */
 export function createSnapshotWriter(api: SnapshotApi) {
   let pending:
     | { operation: SnapshotOperation; bytes: Uint8Array; fingerprint: string }

@@ -27,8 +27,11 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 [架構選型與新舊圖](learning/serverless-collaboration-production.html)、
 [持久待辦與 alarm](learning/durable-outbox-and-alarms.html)、
 [儲存與成本](learning/serverless-storage-and-cost.html)、
-[授權與金鑰](learning/collaboration-authorization-and-keys.html)；這四篇描述的目標設計尚未實作，
-現況仍以架構契約為準（現況見 [授權契約](architecture/collaboration-authority.md)，驗收證據見 [部署 runbook](deployment/collaboration-reset/README.md)）。
+[授權與金鑰](learning/collaboration-authorization-and-keys.html)；這四篇保留設計解說視角，其中房間加密與金鑰的
+部分已由 [plan 21](../plans/21-plain-rooms-google-docs-access.md) 取代（房間不加密，只有分享連結端對端加密）。
+現況以架構契約為準（見 [授權契約](architecture/collaboration-authority.md)），部署程序見
+[DO 部署 runbook](operations/collaboration-do-deployment.md)；18B 的歷史驗收證據見
+[重置紀錄](deployment/collaboration-reset/README.md)。
 
 兩份現況契約另有導讀，解釋每章為什麼存在但不重述數字：
 [協作系統設計怎麼讀](learning/collaboration-system-design.html)、
@@ -69,7 +72,7 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 **安全**
 
 7. [分層授權：每層一種機制、每跳重新驗證](./system-design/layered-authorization.md)
-8. [瀏覽器端 E2EE 與金鑰生命週期](./system-design/e2ee-key-lifecycle.md)
+8. [瀏覽器端 E2EE：分享連結](./system-design/e2ee-key-lifecycle.md)
    — [Excalidraw 原始碼對照與共享金鑰架構圖（HTML）](learning/browser-e2ee-excalidraw.html)
 9. [CSP 與 Code Delivery：以通道為單位收斂](./system-design/csp-and-code-delivery.md)
 10. [防禦性邊界：輸入界限、資源上限與 fail-open/fail-closed](./system-design/defensive-boundaries.md)
@@ -111,7 +114,7 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 | --- | --- |
 | 動 Excalidraw 整合 | [architecture contract](./architecture/architecture-contract.md) → [ADR 0001](./adr/0001-excalidraw-persistence-boundary.md) → [native UI integration contract](./architecture/native-ui-integration-contract.md) |
 | 動共編儲存／快取／另存 | [collaboration storage](./architecture/collaboration-storage.md) |
-| 動協作功能 | [collaboration system design](./architecture/collaboration-system-design.md) → [threat model](./architecture/collaboration-threat-model.md) → [SLO](./performance/collaboration-slo-capacity.md)；18B 本機原型見 [P0 儲存驗證](./performance/collaboration-storage-p0.md) |
+| 動協作功能 | [collaboration system design](./architecture/collaboration-system-design.md) → [threat model](./architecture/collaboration-threat-model.md) → [SLO](./performance/collaboration-slo-capacity.md)；本機儲存原型見 [P0 儲存驗證](./performance/collaboration-storage-p0.md) |
 | 動資料保留／刪除 | [data lifecycle](./architecture/data-lifecycle.md) |
 | 動 DB schema、清理舊碼 | [engineering conventions](./operations/engineering-conventions.md) |
 | 動 headers／CSP／embed | [web CSP design](./architecture/web-csp-design.md) → [ADR-0004](./adr/0004-code-delivery-trust-boundary.md) → [CSP 走查與部署](./operations/web-security-headers.md) |

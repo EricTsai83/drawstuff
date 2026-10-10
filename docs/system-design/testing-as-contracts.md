@@ -42,7 +42,7 @@
 
 協定／編解碼這類「必須在所有 runtime 行為一致」的模組，寫一套 framework-free 的
 黑箱 conformance suite，然後在每個宿主重跑：Node、真瀏覽器（Chromium 與 WebKit——
-Web Crypto 是不同實作）、edge runtime（釘住 compatibility date）、
+`crypto.subtle` digest、`TextDecoder`、base64 是不同實作）、edge runtime（釘住 compatibility date）、
 以及**對已部署服務遠端重跑**。無法遠端覆蓋的少數情境明文列出並委派給其他機制，
 不假裝有覆蓋。
 
@@ -51,7 +51,7 @@ Web Crypto 是不同實作）、edge runtime（釘住 compatibility date）、
 ```mermaid
 flowchart TD
     ALL["全部測試"] --> NODE["內圈：Node<br/>單元 + 契約測試（秒級，天天跑）"]
-    NODE --> BR["真瀏覽器：Chromium + WebKit<br/>只重跑依賴瀏覽器實作差異的套件<br/>（Web Crypto、codec）"]
+    NODE --> BR["真瀏覽器：Chromium + WebKit<br/>只重跑依賴瀏覽器實作差異的套件<br/>（digest、儲存格式 codec）"]
     NODE --> WK["Edge runtime：workerd<br/>只跑 wire 契約 + 實際 worker<br/>（釘住 compatibility date）"]
     BR --> E2E["E2E：Playwright<br/>只跑完整使用者路徑"]
     WK --> RMT["遠端 conformance<br/>對已部署服務重跑同一套 suite"]
@@ -60,7 +60,7 @@ flowchart TD
 | 層 | 執行環境 | 跑什麼 |
 | --- | --- | --- |
 | 內圈 | Node | 絕大多數單元／契約測試（快，天天跑） |
-| 真瀏覽器 | Chromium + WebKit | 只有依賴瀏覽器實作差異的套件（crypto、codec） |
+| 真瀏覽器 | Chromium + WebKit | 只有依賴瀏覽器實作差異的套件（digest、儲存格式 codec） |
 | Edge runtime | workerd | 只有 wire 契約與實際 worker |
 | E2E | Playwright | 只有整條使用者路徑（單 worker、明確的 webServer 配置） |
 
@@ -105,7 +105,8 @@ fixture 需要被其他 package 的測試使用時，開一個 `./testing` 公�
 - differential + 版本命名 fixture：`tests/reconcile-differential.test.ts`、
   `tests/fixtures/excalidraw-0.18.1/`。
 - conformance 多宿主：`packages/collaboration/src/protocol-conformance.ts`
-  （workerd 內 + 遠端對已部署 Worker）、browser project 只重跑 4 個 crypto 套件。
+  （workerd 內）與遠端 product harness（對已部署 Worker）；browser project 只重跑 3 個儲存格式套件
+  （snapshot、asset、base64）。
 - 效能預算與 fixture：[excalidraw baseline](../performance/excalidraw-baseline.md)、
   [reconciliation adapter](../performance/reconciliation-adapter.md)、
   `ENFORCE_EXCALIDRAW_PERFORMANCE_BUDGETS` opt-in。

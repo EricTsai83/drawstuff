@@ -3,79 +3,96 @@ import {
   runDurableObjectAlarm,
   runInDurableObject,
 } from "cloudflare:test";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { roomChannelKey } from "@drawstuff/collaboration/room-auth";
 
+import { INTERNAL_ROOM_ID_HEADER } from "../src/internal.ts";
 import {
-  INTERNAL_AUTH_GENERATION_HEADER,
-  INTERNAL_ROOM_ID_HEADER,
-} from "../src/internal.ts";
+  envelope,
+  identityProof,
+  installAdapterMock,
+  newIdentity,
+  openRoom,
+  readyRoom,
+  roomStub,
+  storageFootprint,
+  uniqueRoomId,
+} from "./support/room-socket.ts";
 
 const ROOM_A = roomIdSchema.parse("room-a");
 const ROOM_B = roomIdSchema.parse("room-b");
 
-const identityHeaders = (roomId: string, generation: string) => ({
+const identityHeaders = (roomId: string) => ({
   [INTERNAL_ROOM_ID_HEADER]: roomId,
-  [INTERNAL_AUTH_GENERATION_HEADER]: generation,
+  Upgrade: "websocket",
 });
 
-describe("RoomChannelKey object identity", () => {
-  it("maps one channel key to one deterministic object id", () => {
-    const key = roomChannelKey(ROOM_A, 1);
-    const first = env.COLLABORATION_ROOM.getByName(key);
-    const second = env.COLLABORATION_ROOM.getByName(key);
+beforeEach(() => {
+  installAdapterMock();
+});
+afterEach(() => {
+  vi.restoreAllMocks();
+});
+
+describe("roomId object identity", () => {
+  it("maps one roomId to one deterministic object id", () => {
+    const first = env.COLLABORATION_ROOM.getByName(ROOM_A);
+    const second = env.COLLABORATION_ROOM.getByName(ROOM_A);
     expect(first.id.toString()).toBe(second.id.toString());
   });
 
-  it("keeps a rotated generation in the same object", () => {
-    const generationOne = env.COLLABORATION_ROOM.getByName(
-      roomChannelKey(ROOM_A, 1),
-    );
-    const generationTwo = env.COLLABORATION_ROOM.getByName(
-      roomChannelKey(ROOM_A, 2),
-    );
-    expect(generationOne.id.toString()).toBe(generationTwo.id.toString());
-  });
-
   it("gives different rooms different objects", () => {
-    const roomA = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_A, 1));
-    const roomB = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_B, 1));
+    const roomA = env.COLLABORATION_ROOM.getByName(ROOM_A);
+    const roomB = env.COLLABORATION_ROOM.getByName(ROOM_B);
     expect(roomA.id.toString()).not.toBe(roomB.id.toString());
   });
 });
 
-describe("CollaborationRoom fetch identity check", () => {
+describe("CollaborationRoomV2 fetch identity check", () => {
   it("accepts a matching identity but still requires a WebSocket upgrade", async () => {
-    const stub = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_A, 1));
-    const response = await stub.fetch("https://room.internal/socket", {
-      headers: identityHeaders(ROOM_A, "1"),
-    });
+    const response = await roomStub(ROOM_A).fetch(
+      "https://room.internal/socket",
+      { headers: { [INTERNAL_ROOM_ID_HEADER]: ROOM_A } },
+    );
     // Identity passed; the runtime's own defense-in-depth upgrade check is
     // what refuses a plain fetch.
     expect(response.status).toBe(426);
   });
 
-  it("fails closed on a mismatched forwarded identity", async () => {
-    const stub = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_A, 1));
-    const response = await stub.fetch("https://room.internal/socket", {
-      headers: identityHeaders(ROOM_B, "1"),
+  it("accepts a matching upgrade only once the room is ready", async () => {
+    const roomId = uniqueRoomId("identity");
+    const stub = roomStub(roomId);
+    const before = await stub.fetch("https://room.internal/socket", {
+      headers: identityHeaders(roomId),
     });
+    expect(before.status).toBe(503);
+    expect(await before.json()).toEqual({
+      error: "authority-socket-unavailable",
+    });
+    await readyRoom(roomId, newIdentity("owner"));
+    const after = await stub.fetch("https://room.internal/socket", {
+      headers: identityHeaders(roomId),
+    });
+    expect(after.status).toBe(101);
+    after.webSocket?.accept();
+    after.webSocket?.close(1000, "test finished");
+  });
+
+  it("fails closed on a mismatched forwarded identity", async () => {
+    const { roomId } = await openRoom("mismatch");
+    const response = await roomStub(roomId).fetch(
+      "https://room.internal/socket",
+      { headers: identityHeaders(uniqueRoomId("other")) },
+    );
     expect(response.status).toBe(403);
   });
 
-  it("accepts another crypto generation on the same authority object", async () => {
-    const stub = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_A, 1));
-    const response = await stub.fetch("https://room.internal/socket", {
-      headers: identityHeaders(ROOM_A, "2"),
-    });
-    expect(response.status).toBe(426);
-  });
-
   it("fails closed without internal identity metadata", async () => {
-    const stub = env.COLLABORATION_ROOM.getByName(roomChannelKey(ROOM_A, 1));
-    const response = await stub.fetch("https://room.internal/socket");
+    const response = await roomStub(ROOM_A).fetch(
+      "https://room.internal/socket",
+      { headers: { Upgrade: "websocket" } },
+    );
     expect(response.status).toBe(403);
   });
 
@@ -84,25 +101,30 @@ describe("CollaborationRoom fetch identity check", () => {
       env.COLLABORATION_ROOM.newUniqueId(),
     );
     const response = await stub.fetch("https://room.internal/socket", {
-      headers: identityHeaders(ROOM_A, "1"),
+      headers: identityHeaders(ROOM_A),
+    });
+    expect(response.status).toBe(500);
+  });
+
+  it("fails closed on an object named with something other than a roomId", async () => {
+    const stub = env.COLLABORATION_ROOM.getByName("not a room id!");
+    const response = await stub.fetch("https://room.internal/socket", {
+      headers: identityHeaders(ROOM_A),
     });
     expect(response.status).toBe(500);
   });
 });
 
-describe("CollaborationRoom RPC identity", () => {
-  it("applies a control RPC only when the command derives its own name", async () => {
-    const key = roomChannelKey(ROOM_A, 7);
-    const stub = env.COLLABORATION_ROOM.getByName(key);
+describe("CollaborationRoomV2 RPC identity", () => {
+  it("answers authority RPC only for requests naming its own room", async () => {
+    const { roomId, owner } = await openRoom("rpc");
+    const other = uniqueRoomId("rpc-other");
     await expect(
-      stub.applyControlV1({
-        v: 1,
-        action: "end-room",
-        roomId: ROOM_A,
-        authGeneration: 1,
-        revision: 2,
+      roomStub(roomId).applyAuthorityV1({
+        proof: identityProof(other, owner),
+        request: { ...envelope(other), action: "get-state" },
       }),
-    ).resolves.toEqual({ appliedRevision: 2, closed: 0 });
+    ).resolves.toEqual({ ok: false, error: "not-found" });
   });
 
   it("rejects RPC on an unnamed object", async () => {
@@ -113,37 +135,22 @@ describe("CollaborationRoom RPC identity", () => {
     // would pass, but workerd then also reports the object-side throw as an
     // unhandled error and fails the run.
     await runInDurableObject(stub, async (instance) => {
-      await expect(
-        instance.applyControlV1({
-          v: 1,
-          action: "end-room",
-          roomId: ROOM_A,
-          authGeneration: 1,
-          revision: 2,
-        }),
-      ).rejects.toThrow("canonical RoomChannelKey");
+      await expect(instance.applyAuthorityV1({})).rejects.toThrow(
+        "canonical roomId",
+      );
     });
   });
 });
 
-describe("CollaborationRoom alarm identity", () => {
-  it("runs the scheduler on a named object without error", async () => {
-    const key = roomChannelKey(ROOM_A, 3);
-    const stub = env.COLLABORATION_ROOM.getByName(key);
+describe("CollaborationRoomV2 alarm identity", () => {
+  it("runs the scheduler on a named object and releases a roomless Object's storage", async () => {
+    const roomId = uniqueRoomId("alarm");
+    const stub = roomStub(roomId);
     await runInDurableObject(stub, async (_instance, state) => {
       // The helper forces execution; a short wall-clock deadline can fire first under suite load.
       await state.storage.setAlarm(Date.now() + 60_000);
     });
-    // No sockets, no cohort, no cutoffs: the scheduler treats the room as
-    // never joined and releases its storage entirely.
     await expect(runDurableObjectAlarm(stub)).resolves.toBe(true);
-    const tables = await runInDurableObject(stub, (_instance, state) =>
-      state.storage.sql
-        .exec<{ name: string }>(
-          "SELECT name FROM sqlite_master WHERE type = 'table' AND name IN ('room_meta', 'revocation_cutoffs')",
-        )
-        .toArray(),
-    );
-    expect(tables).toHaveLength(2);
+    expect(await storageFootprint(roomId)).toEqual({ tables: [], alarm: null });
   });
 });

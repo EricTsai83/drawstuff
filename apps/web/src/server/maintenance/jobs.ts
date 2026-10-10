@@ -5,7 +5,12 @@ import { and, eq, exists, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import {
   collaborationAsset,
+  collaborationLifecycleRegistration,
+  collaborationOperation,
+  collaborationProjectionTombstone,
   collaborationRoom,
+  collaborationRoomInvite,
+  collaborationRoomMember,
   collaborationSnapshot,
   deferredFileCleanup,
   fileRecord,
@@ -15,7 +20,8 @@ import {
 } from "@/server/db/schema";
 import { QUERIES } from "@/server/db/queries";
 import { retireAccount } from "@/server/admin/retirement";
-import { lockRoom } from "@/server/collab/rooms";
+import { lockRoom, lockRoomId } from "@/server/collab/rooms";
+import { purgeEndedRoomRecords } from "@/server/collab/authority-projection";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 import {
   collectUserStorageKeys,
@@ -417,7 +423,7 @@ export function createUnreferencedAssetGcJob(
 export const ROOM_RETENTION_CLEANUP_REASON = "collab-room-retention";
 
 export type RoomRetentionOptions = {
-  /** Grace period after an explicit end, before reclaiming encrypted room data. */
+  /** Grace period after an explicit end, before reclaiming room data. */
   graceMs?: number;
   /** Rooms reclaimed per run. */
   maxRooms?: number;
@@ -438,7 +444,7 @@ export type RoomRetentionOptions = {
 
 /**
  * Reclaims only explicitly ended rooms after the grace period. Active/initializing rooms
- * never expire. Snapshot deletion and encrypted object cleanup enqueue commit together;
+ * never expire. Snapshot deletion and object cleanup enqueue commit together;
  * bounded room/object budgets leave remaining work for the next run.
  */
 export function createRoomRetentionJob(
@@ -458,8 +464,10 @@ export function createRoomRetentionJob(
       // fragment has no column mapping, and the postgres-js driver refuses to
       // serialize it (PGlite in tests happens to accept it).
       const endedPastGrace = and(
-        eq(collaborationRoom.status, "ended"),
-        eq(collaborationRoom.storageState, "ended"),
+        or(
+          eq(collaborationRoom.status, "ended"),
+          eq(collaborationRoom.storageState, "ended"),
+        ),
         or(
           lt(collaborationRoom.endedAt, graceCutoff),
           and(
@@ -481,6 +489,52 @@ export function createRoomRetentionJob(
             .from(collaborationAsset)
             .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
         ),
+        // Per-person list rows and the room name the cleanup did not reach.
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationRoomMember)
+            .where(
+              eq(collaborationRoomMember.roomId, collaborationRoom.roomId),
+            ),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationRoomInvite)
+            .where(
+              eq(collaborationRoomInvite.roomId, collaborationRoom.roomId),
+            ),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationProjectionTombstone)
+            .where(
+              eq(
+                collaborationProjectionTombstone.roomId,
+                collaborationRoom.roomId,
+              ),
+            ),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationOperation)
+            .where(eq(collaborationOperation.roomId, collaborationRoom.roomId)),
+        ),
+        exists(
+          db
+            .select({ one: sql`1` })
+            .from(collaborationLifecycleRegistration)
+            .where(
+              eq(
+                collaborationLifecycleRegistration.roomId,
+                collaborationRoom.roomId,
+              ),
+            ),
+        ),
+        ne(collaborationRoom.label, ""),
       );
       // Ended rooms qualify only while they still hold data; reruns are idempotent.
       const candidates = await db
@@ -500,6 +554,8 @@ export function createRoomRetentionJob(
       type ReclaimOutcome =
         | {
             kind: "reclaimed";
+            /** List rows of an ended room; its name is cleared too. */
+            records: number;
             snapshots: number;
             snapshotBytes: number;
             assets: number;
@@ -515,6 +571,8 @@ export function createRoomRetentionJob(
         const now = deps.now();
         const outcome = await db.transaction(
           async (tx): Promise<ReclaimOutcome | null> => {
+            // Shared order: the roomId lock before the room row.
+            if (!dryRun) await lockRoomId(tx, candidate.roomId);
             const room = dryRun
               ? (
                   await tx
@@ -523,9 +581,10 @@ export function createRoomRetentionJob(
                     .where(eq(collaborationRoom.roomId, candidate.roomId))
                 )[0]
               : await lockRoom(tx, candidate.roomId);
+            // Either signal is final: Room may abandon an undelivered
+            // terminal fence, leaving storageState behind its ended projection.
             const eligible =
-              room?.status === "ended" &&
-              room.storageState === "ended" &&
+              (room?.status === "ended" || room?.storageState === "ended") &&
               (room.endedAt ?? room.updatedAt) < graceCutoff;
             if (!eligible) return null;
 
@@ -533,7 +592,7 @@ export function createRoomRetentionJob(
             // "candidates still hold data" idempotency — so the budget check
             // happens before touching anything. The run's first room may
             // exceed the budget on its own (per-room rows are bounded by the
-            // schema's per-generation asset cap); refusing it would starve it
+            // per-room asset cap); refusing it would starve it
             // forever.
             const [assetTally] = await tx
               .select({ count: sql<number>`count(*)::int` })
@@ -557,6 +616,20 @@ export function createRoomRetentionJob(
                 .where(eq(collaborationSnapshot.roomId, room.roomId));
               const snapshotCount = snapshotTally?.count ?? 0;
               const snapshotBytes = snapshotTally?.bytes ?? 0;
+              const [tally] = await tx
+                .select({
+                  count: sql<number>`(
+                    (select count(*) from ${collaborationRoomMember} where ${collaborationRoomMember.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationRoomInvite} where ${collaborationRoomInvite.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationProjectionTombstone} where ${collaborationProjectionTombstone.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationOperation} where ${collaborationOperation.roomId} = ${room.roomId}) +
+                    (select count(*) from ${collaborationLifecycleRegistration} where ${collaborationLifecycleRegistration.roomId} = ${room.roomId})
+                  )::int`,
+                })
+                .from(collaborationRoom)
+                .where(eq(collaborationRoom.roomId, room.roomId));
+              // A leftover name alone still makes the room reclaimable.
+              const records = (tally?.count ?? 0) + (room.label === "" ? 0 : 1);
               rooms.push({
                 roomId: room.roomId,
                 status: room.status,
@@ -566,6 +639,7 @@ export function createRoomRetentionJob(
               });
               return {
                 kind: "reclaimed",
+                records,
                 snapshots: snapshotCount,
                 snapshotBytes,
                 assets: assetCount,
@@ -579,27 +653,25 @@ export function createRoomRetentionJob(
             const assets = await tx
               .delete(collaborationAsset)
               .where(eq(collaborationAsset.roomId, room.roomId))
-              .returning({
-                utFileKey: collaborationAsset.utFileKey,
-                authGeneration: collaborationAsset.authGeneration,
-              });
+              .returning({ utFileKey: collaborationAsset.utFileKey });
             if (assets.length > 0) {
               await tx.insert(deferredFileCleanup).values(
                 assets.map((asset) => ({
                   utFileKey: asset.utFileKey,
                   reason: ROOM_RETENTION_CLEANUP_REASON,
-                  context: JSON.stringify({
-                    roomId: room.roomId,
-                    authGeneration: asset.authGeneration,
-                  }),
+                  context: JSON.stringify({ roomId: room.roomId }),
                   attempts: 0,
                   nextAttemptAt: now,
                   status: "pending" as const,
                 })),
               );
             }
+            const records =
+              (await purgeEndedRoomRecords(tx, room.roomId)) +
+              (room.label === "" ? 0 : 1);
             return {
               kind: "reclaimed",
+              records,
               snapshots: snapshots.length,
               snapshotBytes: snapshots.reduce(
                 (total, row) => total + row.byteLength,
@@ -616,7 +688,8 @@ export function createRoomRetentionJob(
         }
 
         // Count only rooms with reclaimed data.
-        if (outcome.snapshots > 0 || outcome.assets > 0) roomsReclaimed += 1;
+        if (outcome.snapshots > 0 || outcome.assets > 0 || outcome.records > 0)
+          roomsReclaimed += 1;
         deletedSnapshots += outcome.snapshots;
         deletedSnapshotBytes += outcome.snapshotBytes;
         enqueuedObjects += outcome.assets;

@@ -14,13 +14,13 @@ import {
   type ManagementResult,
   type RoomCommand,
   type TrustedIdentity,
+  type DurableJob,
   type ProjectionEvent,
+  type InviteProjectionEvent,
+  type RoomAccess,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema, type RoomId } from "@drawstuff/collaboration/protocol";
-import {
-  roomRoleSchema,
-  type RoomRole,
-} from "@drawstuff/collaboration/room-auth";
+import type { RoomRole } from "@drawstuff/collaboration/room-auth";
 
 import { DurableWork } from "./durable-work.ts";
 
@@ -34,23 +34,35 @@ type RoomRow = {
   auth_revision: number;
   authority_epoch: number;
   fenced_epoch: number;
-  auth_generation: number;
   create_operation: string;
   initialization_deadline: number;
   listed_at: number;
-  key_check: string | null;
   denied: number;
   projection_dirty: number;
   projection_cursor: string | null;
   parent_confirmed: number;
 };
+/** Who has opened the room (and the owner). Carries no role: roles are computed. */
 type MemberRow = {
   subject: string;
-  role: RoomRole;
-  revoked: number;
+  email_key: string;
   lifecycle_version: number;
-  email_key: string | null;
   last_joined_at: number | null;
+};
+type InvitationRow = {
+  email_key: string;
+  display_email: string;
+  role: "viewer" | "editor";
+};
+type Access = { role: RoomRole; access: RoomAccess };
+
+const ROLE_RANK: Record<RoomRole, number> = { viewer: 0, editor: 1, owner: 2 };
+const higherRole = (a: RoomRole, b: RoomRole | undefined): RoomRole =>
+  b !== undefined && ROLE_RANK[b] > ROLE_RANK[a] ? b : a;
+const LINK_RANK: Record<RoomRow["link_role"], number> = {
+  none: 0,
+  viewer: 1,
+  editor: 2,
 };
 
 /** Persistent authority primitives. P2 verifies service/proof and registration before invoking these. */
@@ -65,11 +77,11 @@ export class RoomAuthority {
     this.roomId = roomIdSchema.parse(objectName);
     storage.sql
       .exec(`CREATE TABLE IF NOT EXISTS authority_schema(version INTEGER NOT NULL);
-      INSERT INTO authority_schema SELECT 2 WHERE NOT EXISTS (SELECT 1 FROM authority_schema);`);
+      INSERT INTO authority_schema SELECT 3 WHERE NOT EXISTS (SELECT 1 FROM authority_schema);`);
     if (
       storage.sql
         .exec<{ version: number }>("SELECT version FROM authority_schema")
-        .one().version !== 2
+        .one().version !== 3
     )
       throw new Error("schema-skew");
     storage.sql.exec(`CREATE TABLE IF NOT EXISTS authority_room (
@@ -77,48 +89,27 @@ export class RoomAuthority {
       state TEXT NOT NULL CHECK(state IN ('initializing','ready','ended')),
       link_role TEXT NOT NULL CHECK(link_role IN ('none','viewer','editor')),
       auth_revision INTEGER NOT NULL CHECK(auth_revision>0), authority_epoch INTEGER NOT NULL CHECK(authority_epoch>0),
-      fenced_epoch INTEGER NOT NULL CHECK(fenced_epoch>0), auth_generation INTEGER NOT NULL CHECK(auth_generation>0),
+      fenced_epoch INTEGER NOT NULL CHECK(fenced_epoch>0),
       create_operation TEXT NOT NULL UNIQUE, initialization_deadline INTEGER NOT NULL, listed_at INTEGER NOT NULL,
-      key_check TEXT, denied INTEGER NOT NULL DEFAULT 0 CHECK(denied IN (0,1)), projection_dirty INTEGER NOT NULL DEFAULT 0 CHECK(projection_dirty IN (0,1)), projection_cursor TEXT,
+      denied INTEGER NOT NULL DEFAULT 0 CHECK(denied IN (0,1)), projection_dirty INTEGER NOT NULL DEFAULT 0 CHECK(projection_dirty IN (0,1)), projection_cursor TEXT,
       parent_confirmed INTEGER NOT NULL DEFAULT 0 CHECK(parent_confirmed IN (0,1))
     ); CREATE TABLE IF NOT EXISTS authority_members (
-      subject TEXT PRIMARY KEY, role TEXT NOT NULL CHECK(role IN ('owner','editor','viewer')),
-      revoked INTEGER NOT NULL DEFAULT 0 CHECK(revoked IN (0,1)), lifecycle_version INTEGER NOT NULL CHECK(lifecycle_version>0), email_key TEXT
-    ); CREATE TABLE IF NOT EXISTS authority_allowlist (
+      subject TEXT PRIMARY KEY, email_key TEXT NOT NULL,
+      lifecycle_version INTEGER NOT NULL CHECK(lifecycle_version>0), last_joined_at INTEGER
+    ); CREATE INDEX IF NOT EXISTS authority_members_email ON authority_members(email_key);
+    CREATE TABLE IF NOT EXISTS authority_allowlist (
       email_key TEXT PRIMARY KEY, display_email TEXT NOT NULL, role TEXT NOT NULL CHECK(role IN ('editor','viewer')),
-      created_by TEXT NOT NULL, created_at INTEGER NOT NULL, removed INTEGER NOT NULL DEFAULT 0 CHECK(removed IN (0,1))
+      created_by TEXT NOT NULL, created_at INTEGER NOT NULL
     ); CREATE TABLE IF NOT EXISTS authority_retired_subjects(subject TEXT PRIMARY KEY, version INTEGER NOT NULL CHECK(version>0));
-    CREATE TABLE IF NOT EXISTS authority_room_keys (
-      auth_generation INTEGER PRIMARY KEY CHECK(auth_generation>0), wrapped TEXT NOT NULL,
-      wrap_version INTEGER NOT NULL CHECK(wrap_version>0), escrowed_at INTEGER NOT NULL
-    );
     CREATE TABLE IF NOT EXISTS authority_content (
       id TEXT PRIMARY KEY, request TEXT NOT NULL, result TEXT NOT NULL, deadline INTEGER NOT NULL,
       terminal_at INTEGER
-    ); CREATE TABLE IF NOT EXISTS authority_initial_assets (
-      file_id TEXT PRIMARY KEY, auth_generation INTEGER NOT NULL CHECK(auth_generation>0)
-    );`);
-    if (
-      !storage.sql
-        .exec<{ name: string }>("PRAGMA table_info(authority_members)")
-        .toArray()
-        .some((column) => column.name === "last_joined_at")
-    )
-      storage.sql.exec(
-        "ALTER TABLE authority_members ADD COLUMN last_joined_at INTEGER",
-      );
-    // Custody release (plan 19): 0 none, 1 proved key possession, 2 granted by
-    // the owner. A link join alone earns nothing.
-    if (
-      !storage.sql
-        .exec<{ name: string }>("PRAGMA table_info(authority_members)")
-        .toArray()
-        .some((column) => column.name === "key_eligible")
-    )
-      storage.sql.exec(
-        "ALTER TABLE authority_members ADD COLUMN key_eligible INTEGER NOT NULL DEFAULT 0",
-      );
-    this.work = new DurableWork(storage);
+    ); CREATE TABLE IF NOT EXISTS authority_initial_assets (file_id TEXT PRIMARY KEY);`);
+    // Tombstones that could not be queued for keys whose rows are already gone.
+    storage.sql.exec(
+      "CREATE TABLE IF NOT EXISTS authority_projection_backlog(id TEXT PRIMARY KEY)",
+    );
+    this.work = new DurableWork(storage, (job) => this.abandon(job));
   }
 
   state(): RoomRow | undefined {
@@ -136,17 +127,20 @@ export class RoomAuthority {
     return room;
   }
 
-  private checkIdentity(identity: TrustedIdentity): void {
-    trustedIdentitySchema.parse(identity);
-    if (
+  private retired(subject: string): boolean {
+    return (
       this.storage.sql
         .exec(
           "SELECT subject FROM authority_retired_subjects WHERE subject=?",
-          identity.subject,
+          subject,
         )
-        .toArray().length
-    )
-      throw new Error("stale-proof");
+        .toArray().length > 0
+    );
+  }
+
+  private checkIdentity(identity: TrustedIdentity): void {
+    trustedIdentitySchema.parse(identity);
+    if (this.retired(identity.subject)) throw new Error("stale-proof");
     const member = this.member(identity.subject);
     if (member && identity.lifecycleVersion < member.lifecycle_version)
       throw new Error("stale-proof");
@@ -161,6 +155,35 @@ export class RoomAuthority {
       .toArray()[0];
   }
 
+  private invitation(emailKey: string): InvitationRow | undefined {
+    return this.storage.sql
+      .exec<InvitationRow>(
+        "SELECT email_key,display_email,role FROM authority_allowlist WHERE email_key=?",
+        emailKey,
+      )
+      .toArray()[0];
+  }
+
+  /**
+   * The single access rule (plan 21 §3). Lifecycle state (ended, denied,
+   * initializing) is the caller's concern; this answers only who the room's
+   * rules admit and why.
+   */
+  private access(
+    room: RoomRow,
+    subject: string,
+    emailKey: string,
+  ): Access | undefined {
+    if (room.owner === subject) return { role: "owner", access: "owned" };
+    const linkRole = room.link_role === "none" ? undefined : room.link_role;
+    const invited = this.invitation(emailKey);
+    // An invitation never lowers what general access already grants (D7).
+    if (invited)
+      return { role: higherRole(invited.role, linkRole), access: "invited" };
+    if (linkRole) return { role: linkRole, access: "link" };
+    return undefined;
+  }
+
   role(
     identity: TrustedIdentity,
     initializingOwner = false,
@@ -173,20 +196,7 @@ export class RoomAuthority {
       !(initializingOwner && room.owner === identity.subject)
     )
       return undefined;
-    if (room.owner === identity.subject) return "owner";
-    const member = this.member(identity.subject);
-    if (member)
-      return member.revoked ? undefined : roomRoleSchema.parse(member.role);
-    if (room.link_role !== "none") return room.link_role;
-    const allowed = this.storage.sql
-      .exec<{ role: RoomRole; removed: number }>(
-        "SELECT role,removed FROM authority_allowlist WHERE email_key=?",
-        identity.email,
-      )
-      .toArray()[0];
-    if (allowed)
-      return allowed.removed ? undefined : roomRoleSchema.parse(allowed.role);
-    return undefined;
+    return this.access(room, identity.subject, identity.email)?.role;
   }
 
   management(identity: TrustedIdentity, cursor = "", emailCursor = "") {
@@ -197,7 +207,8 @@ export class RoomAuthority {
       deadline: Date.now() + 1_000,
       action: "get-management",
     });
-    const owner = this.requireRoom().owner === identity.subject;
+    const room = this.requireRoom();
+    const owner = room.owner === identity.subject;
     const rows = owner
       ? this.storage.sql
           .exec<MemberRow>(
@@ -208,14 +219,8 @@ export class RoomAuthority {
       : [];
     const emails = owner
       ? this.storage.sql
-          .exec<{
-            email_key: string;
-            display_email: string;
-            role: "viewer" | "editor";
-            removed: number;
-            last_joined_at: number | null;
-          }>(
-            "SELECT email_key,display_email,role,removed,(SELECT max(last_joined_at) FROM authority_members WHERE authority_members.email_key=authority_allowlist.email_key) AS last_joined_at FROM authority_allowlist WHERE email_key>? ORDER BY email_key LIMIT 51",
+          .exec<InvitationRow & { last_joined_at: number | null }>(
+            "SELECT email_key,display_email,role,(SELECT max(last_joined_at) FROM authority_members WHERE authority_members.email_key=authority_allowlist.email_key) AS last_joined_at FROM authority_allowlist WHERE email_key>? ORDER BY email_key LIMIT 51",
             emailCursor,
           )
           .toArray()
@@ -223,16 +228,16 @@ export class RoomAuthority {
     return {
       members: rows.slice(0, 50).map((row) => ({
         userId: row.subject,
-        name: row.email_key,
-        role: roomRoleSchema.parse(row.role),
-        revoked: !!row.revoked,
+        email: row.email_key,
+        role: this.retired(row.subject)
+          ? null
+          : (this.access(room, row.subject, row.email_key)?.role ?? null),
         lastJoinedAt: row.last_joined_at,
       })),
       nextCursor: rows.length > 50 ? rows[49]!.subject : null,
       allowlist: emails.slice(0, 50).map((row) => ({
         email: row.display_email,
         role: row.role,
-        removed: !!row.removed,
         lastJoinedAt: row.last_joined_at,
       })),
       nextEmailCursor: emails.length > 50 ? emails[49]!.email_key : null,
@@ -247,10 +252,7 @@ export class RoomAuthority {
   async apply(input: RoomCommand): Promise<ManagementResult> {
     const command = roomCommandSchema.parse(input);
     if (command.roomId !== this.roomId) throw new Error("wrong-room");
-    // Byte arrays have a canonical metadata representation for immutable operation binding.
-    const request = JSON.stringify(command, (_key, value: unknown) =>
-      value instanceof Uint8Array ? Array.from(value) : value,
-    );
+    const request = JSON.stringify(command);
     return this.work.commit(
       () => {
         this.checkIdentity(command.actor);
@@ -262,11 +264,16 @@ export class RoomAuthority {
           throw new Error("expired-operation");
         let role: RoomRole | undefined;
         let needsFence = false;
+        // Rows whose list projection this command changes; projected once the
+        // new revision is known.
+        const subjects = new Set<string>([command.actor.subject]);
+        const emails = new Set<string>();
         if (command.action === "create") {
           if (this.state()) throw new Error("operation-mismatch");
           const now = Date.now();
           this.storage.sql.exec(
-            "INSERT INTO authority_room VALUES (?,?,?,?, 'initializing',?,1,1,1,1,?,?,?,NULL,0,0,NULL,0)",
+            `INSERT INTO authority_room(room_id,owner,scene_id,label,state,link_role,auth_revision,authority_epoch,fenced_epoch,create_operation,initialization_deadline,listed_at)
+             VALUES (?,?,?,?,'initializing',?,1,1,1,?,?,?)`,
             this.roomId,
             command.actor.subject,
             command.sceneId,
@@ -276,12 +283,7 @@ export class RoomAuthority {
             now + AUTHORITY_LIMITS.initializationTtlMs,
             now,
           );
-          this.upsertMember(
-            command.actor.subject,
-            "owner",
-            command.actor.lifecycleVersion,
-            command.actor.email,
-          );
+          this.recordMember(command.actor, null);
           if (
             !this.work.enqueue(
               `parent:${command.operationId}`,
@@ -319,17 +321,8 @@ export class RoomAuthority {
             if (!role) throw new Error("forbidden");
             if (command.registrationVersion !== command.actor.lifecycleVersion)
               throw new Error("stale-proof");
-            this.upsertMember(
-              command.actor.subject,
-              role,
-              command.registrationVersion,
-              command.actor.email,
-            );
-            this.storage.sql.exec(
-              "UPDATE authority_members SET last_joined_at=? WHERE subject=?",
-              Date.now(),
-              command.actor.subject,
-            );
+            // Records who opened the room and when; never a role (§3).
+            this.recordMember(command.actor, Date.now());
           } else if (command.action === "leave") {
             if (
               room.owner === command.actor.subject ||
@@ -337,60 +330,29 @@ export class RoomAuthority {
             )
               throw new Error("forbidden");
             this.storage.sql.exec(
-              "UPDATE authority_members SET revoked=1 WHERE subject=?",
+              "DELETE FROM authority_allowlist WHERE email_key=?",
+              command.actor.email,
+            );
+            this.storage.sql.exec(
+              "DELETE FROM authority_members WHERE subject=?",
               command.actor.subject,
             );
-            // A linked participant can leave before the join projection has arrived.
-            if (!this.member(command.actor.subject))
-              this.storage.sql.exec(
-                "INSERT INTO authority_members(subject,role,revoked,lifecycle_version,email_key) VALUES (?, 'viewer',1,?,?)",
-                command.actor.subject,
-                command.actor.lifecycleVersion,
-                command.actor.email,
-              );
+            this.addEmailRows(command.actor.email, subjects, emails);
             needsFence = true;
           } else {
             if (room.owner !== command.actor.subject)
               throw new Error("forbidden");
             switch (command.action) {
               case "set-link-role":
+                if (command.linkRole === room.link_role) break;
                 this.storage.sql.exec(
-                  "UPDATE authority_room SET link_role=?",
+                  "UPDATE authority_room SET link_role=?,projection_dirty=1,projection_cursor=NULL",
                   command.linkRole,
                 );
-                break;
-              case "set-member-role":
-                if (command.subject === room.owner)
-                  throw new Error("forbidden");
-                if (
-                  this.storage.sql
-                    .exec(
-                      "SELECT subject FROM authority_retired_subjects WHERE subject=?",
-                      command.subject,
-                    )
-                    .toArray().length
-                )
-                  throw new Error("stale-proof");
-                this.upsertMember(
-                  command.subject,
-                  command.role,
-                  command.registrationVersion,
-                );
-                // The owner chose this person; they may reopen from their list.
-                this.storage.sql.exec(
-                  "UPDATE authority_members SET key_eligible=2 WHERE subject=?",
-                  command.subject,
-                );
-                needsFence = true;
-                break;
-              case "revoke-member":
-                if (command.subject === room.owner)
-                  throw new Error("forbidden");
-                this.storage.sql.exec(
-                  "INSERT INTO authority_members(subject,role,revoked,lifecycle_version,email_key) VALUES (?,'viewer',1,1,NULL) ON CONFLICT(subject) DO UPDATE SET revoked=1",
-                  command.subject,
-                );
-                needsFence = true;
+                // Closing or narrowing general access must cut off link-only
+                // connections and in-flight writes at once.
+                needsFence =
+                  LINK_RANK[command.linkRole] < LINK_RANK[room.link_role];
                 break;
               case "allow-email": {
                 const key = normalizeAccountEmail(command.email);
@@ -402,74 +364,38 @@ export class RoomAuthority {
                   .one().count;
                 if (count >= AUTHORITY_LIMITS.allowlistEntries)
                   throw new Error("capacity");
+                // Only a downgrade can take write access away.
+                needsFence =
+                  this.invitation(key)?.role === "editor" &&
+                  command.role === "viewer";
                 this.storage.sql.exec(
-                  "INSERT INTO authority_allowlist VALUES (?,?,?,?,?,0) ON CONFLICT(email_key) DO UPDATE SET role=excluded.role,display_email=excluded.display_email,removed=0",
+                  "INSERT INTO authority_allowlist VALUES (?,?,?,?,?) ON CONFLICT(email_key) DO UPDATE SET role=excluded.role,display_email=excluded.display_email",
                   key,
                   command.email,
                   command.role,
                   command.actor.subject,
                   Date.now(),
                 );
+                this.addEmailRows(key, subjects, emails);
                 break;
               }
               case "remove-email": {
                 const key = normalizeAccountEmail(command.email);
-                // Keep the negative decision of a previously allowed address, within the same entry cap.
+                // Removal deletes the row; re-inviting restores access (D3).
                 this.storage.sql.exec(
-                  "UPDATE authority_allowlist SET removed=1 WHERE email_key=?",
+                  "DELETE FROM authority_allowlist WHERE email_key=?",
                   key,
                 );
-                this.storage.sql.exec(
-                  "UPDATE authority_members SET revoked=1 WHERE email_key=? AND subject!=?",
-                  key,
-                  room.owner,
-                );
-                this.storage.sql.exec(
-                  "UPDATE authority_room SET projection_dirty=1,projection_cursor=NULL",
-                );
+                this.addEmailRows(key, subjects, emails);
                 needsFence = true;
                 break;
               }
-              case "rotate-generation":
-                if (command.expectedGeneration !== room.auth_generation)
-                  throw new Error("generation-mismatch");
-                this.storage.sql.exec(
-                  "UPDATE authority_room SET auth_generation=auth_generation+1,key_check=NULL,state='initializing',initialization_deadline=?",
-                  Date.now() + AUTHORITY_LIMITS.initializationTtlMs,
-                );
-                this.storage.sql.exec("DELETE FROM authority_initial_assets");
-                // The old generation's key must not be released again, and a
-                // reset link exists to cut off the old one: people who earned
-                // custody only by holding it need the new link.
-                this.storage.sql.exec("DELETE FROM authority_room_keys");
-                this.storage.sql.exec(
-                  "UPDATE authority_members SET key_eligible=0 WHERE key_eligible=1",
-                );
-                needsFence = true;
-                break;
-              case "set-key-check":
-                if (command.expectedGeneration !== room.auth_generation)
-                  throw new Error("generation-mismatch");
-                if (
-                  room.key_check !== null &&
-                  room.key_check !==
-                    JSON.stringify(Array.from(command.keyCheck))
-                )
-                  throw new Error("operation-mismatch");
-                this.storage.sql.exec(
-                  "UPDATE authority_room SET key_check=?",
-                  JSON.stringify(Array.from(command.keyCheck)),
-                );
-                break;
               case "complete-initialization":
                 if (
                   room.state !== "initializing" ||
-                  !room.key_check ||
                   room.initialization_deadline <= Date.now()
                 )
                   throw new Error("initialization-incomplete");
-                if (command.manifest.authGeneration !== room.auth_generation)
-                  throw new Error("generation-mismatch");
                 if (
                   !this.work.enqueue(
                     `initialize:${command.operationId}`,
@@ -503,13 +429,12 @@ export class RoomAuthority {
         if (needsFence) this.fence();
         const room = this.requireRoom();
         if (room.state === "ended") this.cancelInitializationWork(room);
-        const projectionPending = this.project(
-          room,
-          command.action === "revoke-member" ||
-            command.action === "set-member-role"
-            ? command.subject
-            : command.actor.subject,
-        );
+        let projectionPending = false;
+        for (const subject of subjects)
+          projectionPending = this.project(room, subject) || projectionPending;
+        for (const email of emails)
+          projectionPending =
+            this.projectInvite(room, email) || projectionPending;
         const pending =
           needsFence ||
           command.action === "complete-initialization" ||
@@ -529,117 +454,23 @@ export class RoomAuthority {
     );
   }
 
-  /** Preflight locally before any external registration. Identity alone grants no owner capability. */
-  /**
-   * Who may receive the custodied room key (plan 19, decision D2): the owner,
-   * an allowlisted email, a member the owner granted a role, or a member who
-   * proved they hold the key by handing over one that matches the key check.
-   * The room's link role grants nothing, and neither does joining with it:
-   * a join needs no key, so knowing a room ID must not be enough to read it.
-   */
-  keyReleaseRole(identity: TrustedIdentity): RoomRole | undefined {
-    const holder = this.keyHolder(identity, false);
-    if (!holder) return undefined;
-    if (holder.via !== "member" || holder.keyEligible) return holder.role;
-    return undefined;
-  }
-
-  /**
-   * Who may hand Room the key: anyone the room admits — key possession is
-   * proven by the key check itself — and the owner while initializing.
-   */
-  keyEscrowRole(identity: TrustedIdentity): RoomRole | undefined {
-    return this.keyHolder(identity, true)?.role;
-  }
-
-  /** Records that this member proved key possession (custody level 1). */
-  markKeyProven(subject: string): void {
-    this.storage.sql.exec(
-      "UPDATE authority_members SET key_eligible=1 WHERE subject=? AND key_eligible=0",
-      subject,
-    );
-  }
-
-  private keyHolder(
-    identity: TrustedIdentity,
-    initializingOwner: boolean,
-  ):
-    | {
-        role: RoomRole;
-        via: "owner" | "member" | "allowlist";
-        keyEligible: boolean;
-      }
-    | undefined {
-    this.checkIdentity(identity);
-    const room = this.requireRoom();
-    if (room.denied || room.state === "ended") return undefined;
-    if (room.owner === identity.subject)
-      return room.state === "ready" || initializingOwner
-        ? { role: "owner", via: "owner", keyEligible: true }
-        : undefined;
-    if (room.state !== "ready") return undefined;
-    const allowed = this.storage.sql
-      .exec<{ role: RoomRole; removed: number }>(
-        "SELECT role,removed FROM authority_allowlist WHERE email_key=?",
-        identity.email,
-      )
-      .toArray()[0];
-    const member = this.storage.sql
-      .exec<{ role: string; revoked: number; key_eligible: number }>(
-        "SELECT role,revoked,key_eligible FROM authority_members WHERE subject=?",
-        identity.subject,
-      )
-      .toArray()[0];
-    if (member) {
-      if (member.revoked) return undefined;
-      // An invitation the owner made still counts for a member who joined.
-      if (allowed && !allowed.removed)
-        return {
-          role: roomRoleSchema.parse(member.role),
-          via: "allowlist",
-          keyEligible: true,
-        };
-      return {
-        role: roomRoleSchema.parse(member.role),
-        via: "member",
-        keyEligible: member.key_eligible > 0,
-      };
-    }
-    return allowed && !allowed.removed
-      ? {
-          role: roomRoleSchema.parse(allowed.role),
-          via: "allowlist",
-          keyEligible: true,
-        }
-      : undefined;
-  }
-
-  custodiedKey(
-    authGeneration: number,
-  ): { wrapped: string; wrap_version: number } | undefined {
-    return this.storage.sql
-      .exec<{ wrapped: string; wrap_version: number }>(
-        "SELECT wrapped,wrap_version FROM authority_room_keys WHERE auth_generation=?",
-        authGeneration,
-      )
-      .toArray()[0];
-  }
-
-  /** Write-once per generation; the caller has verified the key and any existing copy. */
-  custodyKey(
-    authGeneration: number,
-    wrapped: string,
-    wrapVersion: number,
+  /** An invitation change touches its invite row and every account opened under that email. */
+  private addEmailRows(
+    emailKey: string,
+    subjects: Set<string>,
+    emails: Set<string>,
   ): void {
-    this.storage.sql.exec(
-      "INSERT OR IGNORE INTO authority_room_keys VALUES (?,?,?,?)",
-      authGeneration,
-      wrapped,
-      wrapVersion,
-      Date.now(),
-    );
+    emails.add(emailKey);
+    for (const row of this.storage.sql
+      .exec<{ subject: string }>(
+        "SELECT subject FROM authority_members WHERE email_key=?",
+        emailKey,
+      )
+      .toArray())
+      subjects.add(row.subject);
   }
 
+  /** Preflight locally before any external registration. Identity alone grants no owner capability. */
   authorizeRequest(identity: TrustedIdentity, request: AuthorityRequest): void {
     this.checkIdentity(identity);
     const room = this.state();
@@ -656,7 +487,7 @@ export class RoomAuthority {
         )
         .toArray()[0];
       if (!row) throw new Error("not-found");
-      // Serialized key-check bytes are arrays; only the immutable actor is needed here.
+      // Only the immutable actor of the original command is needed here.
       const original: unknown = JSON.parse(row.request);
       if (!original || typeof original !== "object" || !("actor" in original))
         throw new Error("malformed");
@@ -716,55 +547,138 @@ export class RoomAuthority {
     );
   }
 
-  private upsertMember(
-    subject: string,
-    role: RoomRole,
-    version: number,
-    email: string | null = null,
+  private recordMember(
+    identity: TrustedIdentity,
+    joinedAt: number | null,
   ): void {
-    const old = this.member(subject);
-    if (old && version < old.lifecycle_version) throw new Error("stale-proof");
+    const old = this.member(identity.subject);
+    if (old && identity.lifecycleVersion < old.lifecycle_version)
+      throw new Error("stale-proof");
     this.storage.sql.exec(
-      "INSERT INTO authority_members(subject,role,revoked,lifecycle_version,email_key) VALUES (?,?,0,?,?) ON CONFLICT(subject) DO UPDATE SET role=excluded.role,revoked=0,lifecycle_version=excluded.lifecycle_version,email_key=coalesce(excluded.email_key,email_key)",
-      subject,
-      role,
-      version,
-      email,
+      "INSERT INTO authority_members(subject,email_key,lifecycle_version,last_joined_at) VALUES (?,?,?,?) ON CONFLICT(subject) DO UPDATE SET email_key=excluded.email_key,lifecycle_version=excluded.lifecycle_version,last_joined_at=coalesce(excluded.last_joined_at,last_joined_at)",
+      identity.subject,
+      identity.email,
+      identity.lifecycleVersion,
+      joinedAt,
     );
   }
 
-  private project(room: RoomRow, subject: string): boolean {
+  /**
+   * A subject's list row: live while the room is not ended, the account is not
+   * retired, it has an opened record (or owns the room), and the rules still
+   * admit it — so closing general access drops link visitors' rows (D4).
+   */
+  private memberEvent(room: RoomRow, subject: string): ProjectionEvent {
     const member = this.member(subject);
-    if (!member) return false;
-    const event: ProjectionEvent = {
+    const access =
+      member && room.state !== "ended" && !this.retired(subject)
+        ? this.access(room, subject, member.email_key)
+        : undefined;
+    return {
       v: 1,
       roomId: this.roomId,
       subject,
       version: room.auth_revision,
       status: room.state,
-      role: member.role,
-      tombstone: room.state === "ended" || member.revoked !== 0,
+      role: access?.role ?? null,
+      access: access?.access ?? null,
+      tombstone: !access,
       label: room.label,
       sceneId: room.scene_id,
       listedAt: room.listed_at,
     };
-    const accepted = this.work.enqueue(
-      `projection:${subject}`,
-      { kind: "projection", event },
-      false,
-      event.version,
-    );
-    if (!accepted) {
-      // Safety operations cannot fail merely because the ordinary projection queue is full.
-      if (room.authority_epoch > room.fenced_epoch || room.state === "ended") {
-        this.storage.sql.exec(
-          "UPDATE authority_room SET projection_dirty=1,projection_cursor=NULL",
-        );
-        return true;
-      }
-      throw new Error("capacity");
+  }
+
+  private inviteEvent(room: RoomRow, emailKey: string): InviteProjectionEvent {
+    const invited =
+      room.state === "ended" ? undefined : this.invitation(emailKey);
+    const linkRole = room.link_role === "none" ? undefined : room.link_role;
+    return {
+      v: 1,
+      roomId: this.roomId,
+      email: emailKey,
+      version: room.auth_revision,
+      status: room.state,
+      role: invited ? higherRole(invited.role, linkRole) : null,
+      tombstone: !invited,
+      label: room.label,
+      sceneId: room.scene_id,
+      listedAt: room.listed_at,
+    };
+  }
+
+  private project(room: RoomRow, subject: string): boolean {
+    const event = this.memberEvent(room, subject);
+    return this.enqueueProjection(room, `projection:${subject}`, {
+      kind: "projection",
+      event,
+    });
+  }
+
+  private projectInvite(room: RoomRow, emailKey: string): boolean {
+    const event = this.inviteEvent(room, emailKey);
+    return this.enqueueProjection(room, `invite:${emailKey}`, {
+      kind: "invite-projection",
+      event,
+    });
+  }
+
+  private enqueueProjection(
+    room: RoomRow,
+    id: string,
+    job: Extract<DurableJob, { kind: "projection" | "invite-projection" }>,
+  ): boolean {
+    if (this.work.enqueue(id, job, false, job.event.version)) return true;
+    // Safety operations cannot fail merely because the ordinary projection queue is full.
+    if (room.authority_epoch > room.fenced_epoch || room.state === "ended") {
+      // The row may already be deleted (remove-email, leave), so the repair
+      // walk would never see it; remember the key itself.
+      this.storage.sql.exec(
+        "INSERT OR IGNORE INTO authority_projection_backlog VALUES (?)",
+        id,
+      );
+      this.storage.sql.exec(
+        "UPDATE authority_room SET projection_dirty=1,projection_cursor=NULL",
+      );
+      return true;
     }
-    return true;
+    throw new Error("capacity");
+  }
+
+  /**
+   * Local follow-up when durable work is abandoned after its retry window.
+   * The remote outcome stays unknown, so nothing claims it happened; local
+   * records only become terminal so they expire instead of pinning capacity.
+   */
+  private abandon(job: DurableJob): void {
+    const now = Date.now();
+    if (job.kind === "settle-content") {
+      // Not "cancelled": the write may have landed. A client re-reads the
+      // snapshot revision before writing again either way.
+      this.storage.sql.exec(
+        "UPDATE authority_content SET result=?,terminal_at=? WHERE id=? AND terminal_at IS NULL",
+        JSON.stringify({ status: "refused" }),
+        now,
+        job.operation.operationId,
+      );
+    } else if (job.kind === "fence") {
+      // Results waiting on this fence keep their "pending" status but expire.
+      for (const row of this.storage.sql
+        .exec<{ id: string; result: string }>(
+          "SELECT id,result FROM authority_results WHERE terminal_at IS NULL",
+        )
+        .toArray()) {
+        const result = managementResultSchema.parse(
+          JSON.parse(row.result) as unknown,
+        );
+        if (result.authorityEpoch <= job.authorityEpoch)
+          this.storage.sql.exec(
+            "UPDATE authority_results SET terminal_at=? WHERE id=?",
+            now,
+            row.id,
+          );
+      }
+    }
   }
 
   private fence(): void {
@@ -786,8 +700,6 @@ export class RoomAuthority {
 
   private cancelInitializationWork(room: RoomRow): void {
     this.cancelCompletionWork();
-    // An ended room releases no key again; its content is being cleaned up.
-    this.storage.sql.exec("DELETE FROM authority_room_keys");
     const created = this.query(room.create_operation);
     if (created?.status === "pending") {
       const request = this.storage.sql
@@ -893,10 +805,6 @@ export class RoomAuthority {
           subject,
           version,
         );
-        this.storage.sql.exec(
-          "UPDATE authority_members SET revoked=1 WHERE subject=?",
-          subject,
-        );
         const room = this.state();
         if (!room) return; // Tombstone also protects a delayed create.
         if (room.owner === subject)
@@ -955,11 +863,8 @@ export class RoomAuthority {
           operation.deadline > Date.now() + AUTHORITY_LIMITS.operationTtlMs
         )
           throw new Error("expired-operation");
-        if (
-          operation.authorityEpoch !== room.authority_epoch ||
-          operation.authGeneration !== room.auth_generation
-        )
-          throw new Error("generation-mismatch");
+        if (operation.authorityEpoch !== room.authority_epoch)
+          throw new Error("epoch-mismatch");
         if (
           !this.work.enqueue(
             `content:${operation.operationId}`,
@@ -1010,7 +915,7 @@ export class RoomAuthority {
     const operation = contentOperationSchema.parse(
       JSON.parse(row.request) as unknown,
     );
-    const { excalidrawFileId, cryptoVersion, byteLength, ...intent } = input;
+    const { excalidrawFileId, byteLength, ...intent } = input;
     if (
       JSON.stringify(operation) !==
         JSON.stringify(
@@ -1021,7 +926,6 @@ export class RoomAuthority {
           }),
         ) ||
       operation.asset?.excalidrawFileId !== excalidrawFileId ||
-      operation.asset.cryptoVersion !== cryptoVersion ||
       operation.asset.byteLength !== byteLength
     )
       throw new Error("operation-mismatch");
@@ -1075,14 +979,10 @@ export class RoomAuthority {
           intent.asset &&
           room.state === "initializing" &&
           !room.denied &&
-          room.auth_generation === intent.authGeneration &&
           room.initialization_deadline > Date.now()
         ) {
           // Receipt and local manifest commit together, including recovery after a lost write reply.
-          this.insertInitialAsset(
-            intent.asset.excalidrawFileId,
-            intent.authGeneration,
-          );
+          this.insertInitialAsset(intent.asset.excalidrawFileId);
         }
         this.storage.sql.exec(
           "UPDATE authority_content SET result=?,terminal_at=? WHERE id=?",
@@ -1119,74 +1019,95 @@ export class RoomAuthority {
     return Number.isFinite(at) ? at : undefined;
   }
 
-  /** Bounded repair when a safety mutation outruns the ordinary projection queue. */
+  /**
+   * Bounded repair of every list row after a room-wide change (general access,
+   * end, readiness) or when a safety mutation outran the projection queue.
+   * The cursor walks members (`m:<subject>`) and then invitations
+   * (`e:<email>`), one alarm batch at a time.
+   */
   async repairProjections(): Promise<void> {
     await this.work.commit(
       () => {
         const room = this.state();
         if (!room?.projection_dirty) return;
-        const members = this.storage.sql
-          .exec<MemberRow>(
-            "SELECT * FROM authority_members WHERE subject>? ORDER BY subject LIMIT ?",
-            room.projection_cursor ?? "",
+        const backlog = this.storage.sql
+          .exec<{ id: string }>(
+            "SELECT id FROM authority_projection_backlog ORDER BY id LIMIT ?",
             AUTHORITY_LIMITS.alarmBatch,
           )
           .toArray();
-        for (const member of members) {
-          const event: ProjectionEvent = {
-            v: 1,
-            roomId: this.roomId,
-            subject: member.subject,
-            version: room.auth_revision,
-            status: room.state,
-            role: member.role,
-            tombstone: member.revoked !== 0 || room.state === "ended",
-            label: room.label,
-            sceneId: room.scene_id,
-            listedAt: room.listed_at,
-          };
-          if (
-            !this.work.enqueue(
-              `projection:${member.subject}`,
-              { kind: "projection", event },
-              false,
-              event.version,
-            )
-          )
-            return;
+        for (const { id } of backlog) {
+          const separator = id.indexOf(":");
+          const key = id.slice(separator + 1);
+          const accepted = id.startsWith("projection:")
+            ? this.work.enqueue(
+                id,
+                { kind: "projection", event: this.memberEvent(room, key) },
+                false,
+                room.auth_revision,
+              )
+            : this.work.enqueue(
+                id,
+                {
+                  kind: "invite-projection",
+                  event: this.inviteEvent(room, key),
+                },
+                false,
+                room.auth_revision,
+              );
+          if (!accepted) return;
           this.storage.sql.exec(
-            "UPDATE authority_room SET projection_cursor=?",
-            member.subject,
+            "DELETE FROM authority_projection_backlog WHERE id=?",
+            id,
           );
         }
-        if (members.length < AUTHORITY_LIMITS.alarmBatch)
+        if (backlog.length === AUTHORITY_LIMITS.alarmBatch) return;
+        const cursor = room.projection_cursor ?? "m:";
+        const members = cursor.startsWith("m:");
+        const rows = this.storage.sql
+          .exec<{ key: string }>(
+            members
+              ? "SELECT subject AS key FROM authority_members WHERE subject>? ORDER BY subject LIMIT ?"
+              : "SELECT email_key AS key FROM authority_allowlist WHERE email_key>? ORDER BY email_key LIMIT ?",
+            cursor.slice(2),
+            AUTHORITY_LIMITS.alarmBatch,
+          )
+          .toArray();
+        for (const { key } of rows) {
+          const accepted = members
+            ? this.work.enqueue(
+                `projection:${key}`,
+                { kind: "projection", event: this.memberEvent(room, key) },
+                false,
+                room.auth_revision,
+              )
+            : this.work.enqueue(
+                `invite:${key}`,
+                {
+                  kind: "invite-projection",
+                  event: this.inviteEvent(room, key),
+                },
+                false,
+                room.auth_revision,
+              );
+          if (!accepted) return;
           this.storage.sql.exec(
-            "UPDATE authority_room SET projection_dirty=0,projection_cursor=NULL",
+            "UPDATE authority_room SET projection_cursor=?",
+            `${members ? "m" : "e"}:${key}`,
+          );
+        }
+        if (rows.length < AUTHORITY_LIMITS.alarmBatch)
+          this.storage.sql.exec(
+            members
+              ? "UPDATE authority_room SET projection_cursor='e:'"
+              : "UPDATE authority_room SET projection_dirty=0,projection_cursor=NULL",
           );
       },
       () => this.nextDeadline(),
     );
   }
 
-  async recordInitialAsset(fileId: string, generation: number): Promise<void> {
-    initializationManifestSchema.shape.assetIds.element.parse(fileId);
-    await this.work.commit(
-      () => {
-        const room = this.requireRoom();
-        if (
-          room.state !== "initializing" ||
-          room.initialization_deadline <= Date.now() ||
-          room.denied ||
-          generation !== room.auth_generation
-        )
-          throw new Error("ended");
-        this.insertInitialAsset(fileId, generation);
-      },
-      () => this.nextDeadline(),
-    );
-  }
-
-  private insertInitialAsset(fileId: string, generation: number): void {
+  private insertInitialAsset(fileId: string): void {
     const count = this.storage.sql
       .exec<{ count: number }>(
         "SELECT count(*) AS count FROM authority_initial_assets WHERE file_id!=?",
@@ -1196,9 +1117,8 @@ export class RoomAuthority {
     if (count >= AUTHORITY_LIMITS.initializationAssets)
       throw new Error("capacity");
     this.storage.sql.exec(
-      "INSERT INTO authority_initial_assets VALUES (?,?) ON CONFLICT(file_id) DO UPDATE SET auth_generation=excluded.auth_generation",
+      "INSERT OR IGNORE INTO authority_initial_assets VALUES (?)",
       fileId,
-      generation,
     );
   }
 
@@ -1216,10 +1136,8 @@ export class RoomAuthority {
       !room.parent_confirmed ||
       room.state !== "initializing" ||
       room.denied ||
-      !room.key_check ||
       room.initialization_deadline <= Date.now() ||
-      room.authority_epoch !== result.authorityEpoch ||
-      room.auth_generation !== manifest.authGeneration
+      room.authority_epoch !== result.authorityEpoch
     )
       return false;
     const row = this.storage.sql
@@ -1235,10 +1153,7 @@ export class RoomAuthority {
     )
       throw new Error("operation-mismatch");
     const assets = this.storage.sql
-      .exec<{ file_id: string }>(
-        "SELECT file_id FROM authority_initial_assets WHERE auth_generation=?",
-        manifest.authGeneration,
-      )
+      .exec<{ file_id: string }>("SELECT file_id FROM authority_initial_assets")
       .toArray();
     return manifest.assetIds.every((id) =>
       assets.some((asset) => asset.file_id === id),

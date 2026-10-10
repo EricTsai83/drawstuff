@@ -69,7 +69,6 @@ export async function prepareAuthorityAssetUpload(
   if (
     !("status" in result) ||
     result.status !== "authorized" ||
-    result.authGeneration !== intent.authGeneration ||
     result.authorityEpoch !== intent.authorityEpoch
   )
     throw new Error("upload-not-authorized");
@@ -125,7 +124,6 @@ export async function finalizeAuthorityAssetUpload(
         intent: metadata.intent,
         asset: {
           excalidrawFileId: metadata.intent.excalidrawFileId,
-          cryptoVersion: metadata.intent.cryptoVersion,
           byteLength: file.size,
           url: file.ufsUrl,
           utFileKey: file.key,

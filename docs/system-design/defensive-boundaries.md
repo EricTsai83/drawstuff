@@ -48,8 +48,8 @@ replay cache、offline queue、重試次數、併發傳輸數、計時器。滿�
 
 ### 3. 上限的單一來源與推導鏈
 
-同一個界限往往要在多層執行（codec、加密封裝、傳輸框架、資料庫 constraint）。
-讓它們**從同一個常數推導**：`maxMessageBytes(channel)` → 加上封裝 overhead →
+同一個界限往往要在多層執行（codec、傳輸框架、資料庫 constraint）。
+讓它們**從同一個常數推導**：`maxMessageBytes(channel)` → 加上 frame header →
 傳輸層上限 → DB `check()` constraint 直接 import 同一個常數。目標性質是：
 「上層接受的資料，永遠不會被下層以大小為由拒絕」，並用契約測試把兩側釘在一起
 （client 的節流常數改了，server 預算的測試會 fail）。
@@ -60,7 +60,7 @@ replay cache、offline queue、重試次數、併發傳輸數、計時器。滿�
 
 | 類別 | 故障行為 | 例子 |
 | --- | --- | --- |
-| 授權、身分、世代、payload 界限 | fail **closed**：拒絕請求 | token 驗證不了、金鑰檢查缺失、配置解析失敗 |
+| 授權、身分、epoch、payload 界限 | fail **closed**：拒絕請求 | proof 驗證不了、帳號凍結或 email 未驗證、配置解析失敗 |
 | 容量與濫用防護 | fail **open**：放行 + 發出結構化降級事件 | 限流服務逾時、追蹤表滿載 |
 
 fail open 的兩個紀律：
@@ -135,7 +135,7 @@ flowchart TD
   base64 模組；[collaboration system design](../architecture/collaboration-system-design.md)。
 - bounded everything 清單與滿載策略：[threat model](../architecture/collaboration-threat-model.md)
   的 untrusted-input controls 表。
-- 上限推導鏈：`messages.ts → realtime-crypto.ts → relay-protocol.ts`，
+- 上限推導鏈：`messages.ts`（`maxMessageBytesFor`）→ `codec.ts` 與 `relay-protocol.ts`（加上 data frame header），
   DB `check()` constraint 直接 import 套件常數（`apps/web/src/server/db/schema.ts`）。
 - 共享限流、三態決策、finalization reserve、429 契約：
   [collaboration system design](../architecture/collaboration-system-design.md) 的

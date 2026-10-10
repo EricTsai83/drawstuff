@@ -17,11 +17,10 @@ import {
   type TrustedIdentity,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
 import { AdapterClient } from "../src/adapter-client.ts";
 import { RoomAuthority } from "../src/room-authority.ts";
 import { RoomDelivery } from "../src/room-delivery.ts";
-import { CollaborationRoom } from "../src/room.ts";
+import { CollaborationRoomV2 } from "../src/room.ts";
 
 const config = {
   COLLAB_ADAPTER_URL: "https://web.example/api/internal/collaboration/adapter",
@@ -57,12 +56,7 @@ function client(
     );
   });
 }
-const manifest = {
-  authGeneration: 1,
-  revision: 1,
-  checksum: "a".repeat(64),
-  assetIds: [],
-};
+const manifest = { revision: 1, checksum: "a".repeat(64), assetIds: [] };
 async function initialize(
   a: RoomAuthority,
   command: ReturnType<typeof fixture>["command"],
@@ -75,12 +69,6 @@ async function initialize(
     linkRole: "editor",
   });
   await a.confirmParent(a.state()!.create_operation);
-  await a.apply({
-    ...command("set-key-check"),
-    action: "set-key-check",
-    expectedGeneration: 1,
-    keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
-  });
   const complete = {
     ...command("complete-initialization"),
     action: "complete-initialization" as const,
@@ -111,7 +99,6 @@ describe("metadata adapter transport", () => {
         v: 1,
         action: "read-assets",
         roomId: fixture().roomId,
-        authGeneration: 1,
         authorityEpoch: 1,
         assetIds: [],
       },
@@ -141,7 +128,6 @@ describe("metadata adapter transport", () => {
           v: 1,
           action: "fence",
           roomId: fixture().roomId,
-          authGeneration: 1,
           authorityEpoch: 2,
           state: "ended",
         },
@@ -169,7 +155,6 @@ describe("metadata adapter transport", () => {
           v: 1,
           action: "fence",
           roomId: f.roomId,
-          authGeneration: 1,
           authorityEpoch: 2,
           state: "ended",
         },
@@ -203,7 +188,6 @@ describe("metadata adapter transport", () => {
           v: 1,
           action: "cleanup",
           roomId: fixture().roomId,
-          authGeneration: 1,
           authorityEpoch: 1,
         },
         z.unknown(),
@@ -234,7 +218,6 @@ describe("metadata adapter transport", () => {
             v: 1,
             action: "cleanup",
             roomId: f.roomId,
-            authGeneration: 1,
             authorityEpoch: 1,
           },
           z.unknown(),
@@ -274,7 +257,6 @@ describe("metadata adapter transport", () => {
           v: 1,
           action: "cleanup",
           roomId: f.roomId,
-          authGeneration: 1,
           authorityEpoch: 1,
         },
         z.unknown(),
@@ -300,7 +282,6 @@ describe("metadata adapter transport", () => {
           v: 1,
           action: "cleanup",
           roomId: f.roomId,
-          authGeneration: 1,
           authorityEpoch: 1,
         },
         z.strictObject({ cleaned: z.literal(true) }),
@@ -313,7 +294,7 @@ describe("metadata adapter transport", () => {
 describe("Room adapter delivery in workerd", () => {
   it("uses the configured client from the actual Room alarm handler", async () => {
     const { roomId, stub, command } = fixture();
-    let configuredRoom: CollaborationRoom | undefined;
+    let configuredRoom: CollaborationRoomV2 | undefined;
     let endId = "";
     await runInDurableObject(stub, async (_instance, state) => {
       const a = new RoomAuthority(state.storage, roomId);
@@ -327,7 +308,7 @@ describe("Room adapter delivery in workerd", () => {
       const end = { ...command("end-room"), action: "end-room" as const };
       endId = end.operationId;
       await a.apply(end);
-      configuredRoom = new CollaborationRoom(state, { ...env, ...config });
+      configuredRoom = new CollaborationRoomV2(state, { ...env, ...config });
       // Constructor's concurrency gate completes before the next Object event.
     });
     await runInDurableObject(stub, async (_instance, state) => {
@@ -419,6 +400,89 @@ describe("Room adapter delivery in workerd", () => {
     });
   });
 
+  it("delivers invitation rows through project-invite and member rows with role and access", async () => {
+    const { roomId, stub, command } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = new RoomAuthority(state.storage, roomId);
+      const complete = await initialize(a, command);
+      await a.confirmInitialization(complete.operationId, manifest);
+      const sent: AdapterCommand[] = [];
+      const d = new RoomDelivery(
+        a,
+        client((c) => {
+          sent.push(c);
+          if (c.action === "fence")
+            return Response.json({ authorityEpoch: c.authorityEpoch });
+          // applied=false is an obsolete-row decision, not a delivery failure.
+          if (c.action === "project-invite")
+            return Response.json({ applied: !c.event.tombstone });
+          if (c.action === "project") return Response.json({ applied: true });
+          throw new Error("unexpected-command");
+        }),
+      );
+      const drain = async () => {
+        state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+        await a.work.drain(
+          (job, _ms, s) => d.deliver(job, s),
+          () => a.nextDeadline(),
+        );
+      };
+      const row = { v: 1, roomId, status: "ready", label: "", sceneId: null };
+      await a.apply({
+        ...command("allow-email"),
+        action: "allow-email",
+        email: "Invitee@Example.com",
+        role: "viewer",
+      });
+      await drain();
+      // The invitation grants the higher of its role and general access (editor).
+      expect(sent).toContainEqual({
+        v: 1,
+        action: "project-invite",
+        event: expect.objectContaining({
+          ...row,
+          email: "invitee@example.com",
+          role: "editor",
+          tombstone: false,
+        }) as unknown,
+      });
+      expect(sent).toContainEqual({
+        v: 1,
+        action: "project",
+        event: expect.objectContaining({
+          ...row,
+          subject: actor.subject,
+          role: "owner",
+          access: "owned",
+          tombstone: false,
+        }) as unknown,
+      });
+      sent.length = 0;
+      await a.apply({
+        ...command("remove-email"),
+        action: "remove-email",
+        email: "invitee@example.com",
+      });
+      await drain();
+      expect(sent).toContainEqual({
+        v: 1,
+        action: "project-invite",
+        event: expect.objectContaining({
+          email: "invitee@example.com",
+          role: null,
+          tombstone: true,
+        }) as unknown,
+      });
+      expect(
+        state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT count(*) AS count FROM authority_work WHERE id LIKE 'invite:%'",
+          )
+          .one().count,
+      ).toBe(0);
+    });
+  });
+
   it("preserves a newer coalesced fence when an older response returns", async () => {
     const { roomId, stub, command } = fixture();
     await runInDurableObject(stub, async (_instance, state) => {
@@ -426,9 +490,9 @@ describe("Room adapter delivery in workerd", () => {
       const complete = await initialize(a, command);
       await a.confirmInitialization(complete.operationId, manifest);
       await a.apply({
-        ...command("revoke-member"),
-        action: "revoke-member",
-        subject: "guest",
+        ...command("set-link-role"),
+        action: "set-link-role",
+        linkRole: "viewer",
       });
       let mutated = false;
       const d = new RoomDelivery(
@@ -509,7 +573,6 @@ describe("Room adapter delivery in workerd", () => {
       const content: ContentOperation = {
         ...envelope,
         kind: "snapshot-put",
-        authGeneration: 1,
         authorityEpoch: 1,
         expectedRevision: 0,
         checksum: "a".repeat(64),
@@ -665,16 +728,14 @@ describe("Room adapter delivery in workerd", () => {
       const operation: ContentOperation = {
         ...envelope,
         kind: "asset-finalize",
-        authGeneration: 1,
         authorityEpoch: 1,
         expectedRevision: 0,
         checksum: "a".repeat(64),
         asset: {
           excalidrawFileId: "file-a",
-          cryptoVersion: 1,
           byteLength: 256,
           utFileKey: "provider-key",
-          url: "https://files.example/ciphertext",
+          url: "https://files.example/asset",
         },
       };
       operationId = operation.operationId;
@@ -702,24 +763,19 @@ describe("Room adapter delivery in workerd", () => {
     });
   });
 
-  it("cancels completion work invalidated by rotation or superseded by successful readiness", async () => {
+  it("cancels completion work invalidated by a fence or superseded by successful readiness", async () => {
     const { roomId, stub, command } = fixture();
     await runInDurableObject(stub, async (_instance, state) => {
       const a = new RoomAuthority(state.storage, roomId);
       const first = await initialize(a, command);
+      // Narrowing general access fences the room, which voids pending completion.
       await a.apply({
-        ...command("rotate-generation"),
-        action: "rotate-generation",
-        expectedGeneration: 1,
+        ...command("set-link-role"),
+        action: "set-link-role",
+        linkRole: "viewer",
       });
       expect(a.query(first.operationId)?.status).toBe("cancelled");
-      const nextManifest = { ...manifest, authGeneration: 2 };
-      await a.apply({
-        ...command("set-key-check"),
-        action: "set-key-check",
-        expectedGeneration: 2,
-        keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
-      });
+      const nextManifest = { ...manifest, revision: 2 };
       const complete = () => ({
         ...command("complete-initialization"),
         action: "complete-initialization" as const,

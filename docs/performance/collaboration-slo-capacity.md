@@ -15,8 +15,8 @@
 
 ## 0. 前提：internal limits 以 room（Object）為界
 
-Room state 是 per-room Durable Object 的內部狀態：一個 room generation 對應一個
-`CollaborationRoom` Object，fanout 不跨 Object，也沒有外部 pub/sub 依賴。「水平擴展」由
+Room state 是 per-room Durable Object 的內部狀態：一個 roomId 對應一個
+`CollaborationRoomV2` Object，fanout 不跨 Object，也沒有外部 pub/sub 依賴。「水平擴展」由
 平台以 room 為單位提供；單一 room 內部仍是 single-threaded、O(members) fanout。
 
 隨此模型成立的事：
@@ -31,7 +31,7 @@ Room state 是 per-room Durable Object 的內部狀態：一個 room generation 
 
 ## 1. 已鎖定、不在本文件範圍的數字
 
-以下是 protocol、crypto 與 snapshot contract 鎖定的數字，列出僅為讓 SLO 可推導；
+以下是 protocol、authority 與 snapshot contract 鎖定的數字，列出僅為讓 SLO 可推導；
 **不隨本文件調整**。
 
 | 契約                       | 值                  | 出處                             |
@@ -39,13 +39,12 @@ Room state 是 per-room Durable Object 的內部狀態：一個 room generation 
 | Scene message plaintext    | 1 MiB               | `MAX_SCENE_MESSAGE_BYTES`        |
 | Presence message plaintext | 16 KiB              | `MAX_PRESENCE_MESSAGE_BYTES`     |
 | Relay control frame        | 64 KiB              | `MAX_RELAY_CONTROL_FRAME_BYTES`  |
-| Relay control HTTP body    | 4 KiB               | `MAX_CONTROL_BODY_BYTES`         |
-| Snapshot plaintext         | 4 MiB               | `MAX_SNAPSHOT_PLAINTEXT_BYTES`   |
-| Asset data URL plaintext   | 3 MiB               | `MAX_ASSET_DATA_URL_BYTES`       |
-| Room assets／generation    | 512                 | `MAX_ROOM_ASSETS_PER_GENERATION` |
+| Snapshot                   | 4 MiB               | `MAX_SNAPSHOT_BYTES`             |
+| Asset data URL             | 3 MiB               | `MAX_ASSET_DATA_URL_BYTES`       |
+| Room assets／room          | 512                 | `MAX_ROOM_ASSETS`                |
 | Asset lookup batch         | 64                  | `MAX_ASSET_LOOKUP_BATCH`         |
-| Join token TTL             | 預設 60s／上限 300s | `room-auth.ts`                   |
-| Room TTL                   | 預設 12h／上限 24h  | `rooms.ts`                       |
+| 邀請名單／room             | 200                 | `AUTHORITY_LIMITS.allowlistEntries` |
+| Identity proof TTL         | 預設 60s／上限 300s | `room-auth.ts`                   |
 
 ## 2. Internal safety limits（非容量承諾）
 
@@ -69,18 +68,18 @@ correctness，等真實使用量或 overload/latency 指標顯示需要時才做
 
 | 分位 | 核准門檻 | 依據                                                                   |
 | ---- | -------- | ---------------------------------------------------------------------- |
-| p50  | ≤ 1 ms   | fanout 是同步迭代，不含 I/O、不含解密（room runtime 讀不懂 payload）   |
+| p50  | ≤ 1 ms   | fanout 是同步迭代，不含 I/O、不解碼 payload（room runtime 只轉發）     |
 | p95  | ≤ 5 ms   | 允許 GC 與 32 成員 room 的寫入放大                                 |
 | p99  | ≤ 20 ms  | 尾端留給 socket 寫入背壓                                           |
 
 ### 3.2 End-to-end room latency（client 端可測）
 
-定義：sender 的 flush 送出 → receiver 已把元素套進畫布。含 seal／open 與 reconcile，
+定義：sender 的 flush 送出 → receiver 已把元素套進畫布。含 encode／decode 與 reconcile，
 不含使用者網路變異，因此未來驗證必須在受控網路下量測。
 
 | 分位 | 核准門檻 | 依據                                                                                                             |
 | ---- | -------- | ---------------------------------------------------------------------------------------------------------------- |
-| p50  | ≤ 60 ms  | 已量測的 reconcile 成本極小（10-element delta into 10k：p95 2.918 ms），所以此值幾乎全由 RTT + 一次 AES-GCM 決定 |
+| p50  | ≤ 60 ms  | 已量測的 reconcile 成本極小（10-element delta into 10k：p95 2.918 ms），所以此值幾乎全由 RTT 決定                |
 | p95  | ≤ 200 ms | 含一次 animation-frame coalescing（最長 32 ms backstop）與 socket 排隊                                           |
 | p99  | ≤ 500 ms | 尾端                                                                                                             |
 
@@ -110,7 +109,7 @@ per-socket 結構與 outbound buffer。process 級的記憶體預算（RSS 目�
 
 | 項目                          | 核准值           | 依據                                                                                          |
 | ----------------------------- | ---------------- | --------------------------------------------------------------------------------------------- |
-| Scene 排水門檻（斷線）        | **4 MiB**        | 一個最大 scene frame 是 1 MiB + sealing overhead；4 MiB 給合法慢速消費者四個 frame 的排水空間 |
+| Scene 排水門檻（斷線）        | **4 MiB**        | 一個最大 scene frame 是 1 MiB + frame header；4 MiB 給合法慢速消費者四個 frame 的排水空間     |
 | Presence 丟棄門檻             | **256 KiB**      | presence 是 volatile，丟棄無成本                                                              |
 
 workerd 的 server-side WebSocket 型別不含 `bufferedAmount`；signal 存在時才套用上表門檻，
@@ -147,21 +146,20 @@ threat model T6 記錄的缺口：大小有界、速率無界。以下為**新�
 | 超限行為                               | **關閉連線（新增 close code），不靜默丟棄** | 靜默丟棄 scene frame 會製造收斂缺口；斷線由既有 recovery 修復。禁止 silent fallback（索引共同規則 7）                                                               |
 | Idle timeout（已 join 但無任何 frame） | **15 分鐘**                                 | 明顯長於任何互動間隔；heartbeat 只證明 socket 活著，不證明 session 仍在使用                                                                                         |
 | 連線嘗試／subject                      | **10 次／分鐘**                             | recovery 的 `DEFAULT_MAX_RECONNECT_ATTEMPTS` = 10，其 backoff 上限 30s，正常客戶端一分鐘內不會超過                                                                  |
-| `collaborationRoom.join`／使用者       | **20 次／分鐘**                             | 同上，含首次 join 與換裝置                                                                                                                                          |
+| 共編 identity／authority 指令（`join` limiter）／使用者 | **20 次／分鐘**                             | 同上，含首次 join 與換裝置                                                                                                                                          |
 | `collaborationSnapshot.put`／room      | **6 次／分鐘**                              | cadence 為 `SNAPSHOT_INTERVAL_MS` = 30s = 2 次／分鐘；6 次容納 leave flush 與 conflict retry                                                                        |
 | Snapshot finalization／使用者／room    | **2 次／分鐘**                              | 只在上述 room budget 已明確拒絕 `leave` 時使用；容納 final write 與一次 conflict retry，且 client 偽造 leave 也只能取得兩次額外 request                             |
-| Asset 上傳／使用者                     | **60 次／分鐘**                             | `MAX_ROOM_ASSETS_PER_GENERATION` = 512 已是總量上限；此值只擋速率                                                                                                   |
+| Asset 上傳／使用者                     | **60 次／分鐘**                             | `MAX_ROOM_ASSETS` = 512 已是總量上限；此值只擋速率                                                                                                                  |
 | `collaborationAsset.resolve`／使用者   | **120 次／分鐘**                            | 滿載 room 為 512 ÷ 64 = 8 batches；最多 4 輪 scheduled lookup = 32 calls／tab，120 可容納三個同時 cold-load 的滿載分頁並留餘裕                                      |
 
 ### 後端限制的失效模式：fail open（2026-08-08 核准）
 
-18B P2 未部署的 binary 入口另有 `snapshot-request` 每登入帳號 **120 次／分鐘** 的
+binary 快照入口（`/api/collaboration/snapshot`）另有 `snapshot-request` 每登入帳號 **120 次／分鐘** 的
 入口額度，供讀取、query/cancel 與寫入使用；不增加 room 寫入容量。寫入先經 Room
 role precheck，再檢查上述 6/minute room 額度，只有明確受限的 leave put 使用 2/minute
 預留。此來源端額度位於 live proof 簽發前；故 binary read/control 有一次 Redis decision，
 write 有兩次，啟用 leave 預留最多三次。每次 decision 仍不重試、degraded 仍 fail open，
-實際授權由 Room 及 lifecycle/storage fence 決定。此 P2 source 契約不代表現有 production
-入口已切換。
+實際授權由 Room 及 lifecycle/storage fence 決定。
 
 速率限制是額外的濫用與容量保護，不是 authorization boundary，這句話直接決定失效方向。
 Upstash timeout（明確設為 **750 ms**，不用 SDK 預設的 5 秒）、network failure 與 SDK
@@ -170,7 +168,7 @@ exception 一律 **fail open**：請求照常進入既有檢查，並記一筆�
 使相同故障可被聚合告警而不必逐筆 grep。
 
 `degraded` 不是 rate limited：不回 429，也不消耗 client 的 retry budget。降級期間，登入、
-room role、generation 是否為當前世代、payload／batch 大小、每 generation 512 assets，以及
+room role、authority epoch／storage fence、payload／batch 大小、每 room 512 assets，以及
 room runtime 既有 token bucket 全部維持 fail closed。每個 limiter decision 對 Redis **只呼叫一次**、
 不重試（在已經遲了 750 ms 的 decision 裡重試只會在故障當下放大延遲）。一般 request 只有一個
 decision；只有 `snapshot-put` 已明確拒絕的 leave request 會再檢查一次獨立的 finalization reserve，
@@ -206,7 +204,7 @@ frame 數不是資源上界（byte 才是）；它擋的是小 frame 洪水—�
 同時修正的兩個時鐘問題（不影響數字，只影響數字是否被正確量測）：token bucket 與 idle
 deadline 改用 monotonic 的 `performance.now()`，且 bucket 的時間戳只前進（high-water
 mark），因此 wall-clock 校正不會憑空發出 refill、也不會提早關閉活躍連線。Wall clock 仍用於
-token 與 room expiry——那兩個是絕對時間的主張。
+identity proof 的過期——那是絕對時間的主張。
 
 **已知限制**：newcomer handshake 的重複廣播本身是既有浪費——
 `scene-init` 是廣播而非單播，所以一份就能滿足當下所有等待中的 newcomer。合併它會改變 join
@@ -219,7 +217,7 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
 | Session 成功率（join → 至少一次 baseline resolved） | ≥ 99%                                | 只有 baseline resolved 才算成功；socket 開了就死不算                                                                                                   |
 | 非預期斷線率                                        | ≤ 0.5% of sessions                   | 計入 `protocolViolation`、`internalError`、`roomAtCapacity`、`slowConsumer`；不計入使用者主動離開、`roomEnded`、`membershipRevoked` |
 | `slowConsumer` 斷線率                               | ≤ 0.1% of sessions                   | 排水空間維持 4 MiB（§4.1／§9.3），因此此項應該稀少；持續偏高代表該重新檢視該決定                                                                       |
-| Decrypt failure                                     | **穩態應為 0**；任何持續非零即 alert | 非零代表金鑰不符、世代錯位或竄改，全都需要人介入而非自動修復                                                                                           |
+| Decode failure                                      | **穩態應為 0**；任何持續非零即 alert | 非零代表格式錯誤、儲存毀損或 client/server 版本錯位，需要人介入而非自動修復                                                                            |
 | Snapshot conflict 率                                | ≤ 5% of writes                       | writer election 應讓 conflict 稀少；持續偏高代表 election 失效                                                                                         |
 | 超限 block 發生率                                   | 僅記錄，不設門檻                     | 這是使用者的畫布大小，不是服務品質                                                                                                                     |
 
@@ -234,7 +232,7 @@ handshake 的時序，因此不在目前的 capacity contract 內調整；現行
   [collaboration system design](../architecture/collaboration-system-design.md) and
   [threat model](../architecture/collaboration-threat-model.md). WAF/edge rate limiting remains a
   possible future layer and is not part of this contract.
-- Session success, decrypt failure, and snapshot conflict occur outside the room runtime. Their carrier
+- Session success, decode failure, and snapshot conflict occur outside the room runtime. Their carrier
   contract is specified in the
   [DO observability contract](../observability/collaboration-do-observability.md) §8, but no
   client/backend telemetry implementation carries them, so the corresponding §6 thresholds cannot
@@ -334,7 +332,7 @@ zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernat
 | Client 可見語意 | terminate（無 close code → 1006 → `transient`） | close 1001（非 enumerated code → `transient`）                                                                              |
 
 兩者都落在 `disconnectReasonForCloseCode` 的 default（`transient`）：dead-peer 收割對 client
-是可重試事件，沒有第二套 reason 語意。idle 仍是 4010、room 過期仍是 4008，語意未曾改變。
+是可重試事件，沒有第二套 reason 語意。idle 仍是 4010、房間結束仍是 4008，語意未曾改變。
 
 ### 9.3 Durable Object operational safety notes
 
@@ -345,35 +343,25 @@ zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernat
 - Pending cap（32）與總 socket cap（64）是保守的 unauthenticated/resource safety bounds，不是
   通過 join-storm qualification 後的容量承諾。
 
-## 10. Control enforcement latency（durable outbox，2026-08-27）
+## 10. 收回權限的 enforcement latency
 
-授權變更（移除成員、end-room、generation rotation）的 DB 效果——拒絕新 join——在 mutation
-commit 當下即生效。**關閉已連線 socket** 則走 durable control outbox：commit 後先做一次同步
-best-effort dispatch（3 s timeout），失敗時事件留在 outbox，由獨立的分鐘級排程 drain：
-collaboration Worker 的 Cloudflare cron trigger（`* * * * *`，見
-`apps/collaboration-do/src/outbox-drain.ts`）帶專用的 `COLLAB_OUTBOX_CRON_SECRET` 打
-`/api/collaboration/control-outbox`（刻意不共用 maintenance 的 `CRON_SECRET`：交給
-Cloudflare 的 secret 權限僅止於觸發 idempotent drain）。排程器放在 Cloudflare 是因為 Vercel 部署維持 Hobby
-plan（cron 僅支援每日一次）；weekly storage cleanup 仍留在 Vercel cron。因此 UI 的
-`pending` 語意是「已提交、稍後強制」，不是「socket 已關閉」。
+收回權限的指令（收窄一般存取權、編輯邀請降為檢視、移除邀請、離開、結束房間）由 Room Object
+在自己的 SQLite 交易內套用：規則改變、推進 authority epoch（fence）並排入 durable job。
+**關閉已連線 socket 在同一個 Object 內同步完成**——失去存取權以 `membershipRevoked`、角色改變以
+`roleChanged`、結束以 `roomEnded` 關閉，不經過外部排程；新的 join 也立即依新規則計算。
 
-Cron ping 本身的失敗（Worker 到 web app 的 HTTP）只記 log（`cron.outbox_drain_failed`），
-由下一分鐘的 tick 補救；outbox 的 claim lease／backoff 使重複或延遲 drain 都安全。
-
-Worst-case enforcement latency 上界（provider 恢復可達後）：
+會延遲的只有 Neon 側：fence、列表投影與 cleanup 由 Object 的 alarm 送到 web adapter。指令結果
+在 fence 被 Neon 確認前是 `pending`（舊 epoch 的快照／資產寫入在確認後才被 storage fence
+拒絕），確認後為 `enforced`。
 
 ```text
-同步 dispatch 失敗 → 下一次 cron（≤ 60 s cadence）
-每次重試間隔 = min(5 s × 2^(attempts-1), 600 s) × jitter(0.75–1.25)
-claim lease = 300 s（drainer 中途死亡時事件最多晚 300 s 再變 due）
+每次重試間隔 = min(60 s, 1 s × 2^min(attempts, 6))
+房間 Object 的 job 從第一次排程起 24 h 仍未送達 → 放棄（authority.work_abandoned）
+CollaborationLifecycle 的退場 job 不放棄
 ```
 
-- 第一次修復嘗試：≤ 60 s（cron cadence）+ 首次 backoff ≤ 7.5 s。
-- 連續失敗 n 次後的下一次嘗試：≤ 60 s + min(600 s, 5 s × 2^(n-1)) × 1.25；backoff 上限使穩態
-  重試間隔 ≤ 約 12.5 分鐘 + cron cadence。
-- 攻擊面上界：10 次嘗試後事件進入 terminal `failed`（poison）狀態並保留 30 天可觀測；這代表
-  provider 持續不可達，需要人介入，而非無限重試。
-- 短效 token 是獨立的兜底：即使 enforcement 遲到，已發出的 join token 於 5 分鐘內過期，room
-  expiry（`rexp`）亦由 provider 自行關閉逾期 session。
+- 放棄只停止遠端追趕，本地效果早已 commit；本地紀錄收成終態，不聲稱遠端已完成。
+- identity proof 是獨立的兜底：預設 60 s、上限 300 s 過期，且 proof 不帶角色——角色每次加入時
+  由 Room 重算。
 
-此上界是 UI `pending` 語意與告警的依據；不得假設 outbox 近即時。
+此上界是 UI `pending` 語意與告警（`DoWorkAbandoned`）的依據；不得假設 Neon 投影近即時。

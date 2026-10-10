@@ -38,14 +38,6 @@
       "types": "./src/room-limits.ts",
       "default": "./src/room-limits.ts"
     },
-    "./keycheck": {
-      "types": "./src/keycheck.ts",
-      "default": "./src/keycheck.ts"
-    },
-    "./key-custody": {
-      "types": "./src/key-custody.ts",
-      "default": "./src/key-custody.ts"
-    },
     "./join-barrier": {
       "types": "./src/join-barrier.ts",
       "default": "./src/join-barrier.ts"
@@ -58,17 +50,9 @@
       "types": "./src/recovery.ts",
       "default": "./src/recovery.ts"
     },
-    "./realtime-crypto": {
-      "types": "./src/realtime-crypto.ts",
-      "default": "./src/realtime-crypto.ts"
-    },
     "./relay-client": {
       "types": "./src/relay-client.ts",
       "default": "./src/relay-client.ts"
-    },
-    "./relay-control": {
-      "types": "./src/relay-control.ts",
-      "default": "./src/relay-control.ts"
     },
     "./relay-protocol": {
       "types": "./src/relay-protocol.ts",

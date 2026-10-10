@@ -6,10 +6,9 @@ import {
   type SnapshotApi,
 } from "@/lib/collab/snapshot-http";
 
-/** Fake Room/storage effects; real store encryption and transport are tested around it. */
+/** Fake Room/storage effects; the real store codec and transport are tested around it. */
 export function binarySnapshotBackend(roomId: RoomId) {
   let revision = 0;
-  let authGeneration = 1;
   let authorityEpoch = 1;
   let snapshot:
     | Extract<Awaited<ReturnType<SnapshotApi["read"]>>, { found: true }>
@@ -21,7 +20,6 @@ export function binarySnapshotBackend(roomId: RoomId) {
     if (operation.deadline <= Date.now()) return { status: "refused" };
     if (
       operation.expectedRevision !== revision ||
-      operation.authGeneration !== authGeneration ||
       operation.authorityEpoch !== authorityEpoch
     ) {
       results.set(operation.operationId, { status: "conflict" });
@@ -36,10 +34,8 @@ export function binarySnapshotBackend(roomId: RoomId) {
             bytes: bytes.slice(),
             receipt: {
               roomId,
-              authGeneration,
               authorityEpoch,
               revision,
-              cryptoVersion: 1,
               byteLength: bytes.byteLength,
               checksum: operation.checksum,
             },
@@ -54,7 +50,7 @@ export function binarySnapshotBackend(roomId: RoomId) {
         snapshot ?? {
           found: false,
           bytes: null,
-          receipt: { roomId, authGeneration, authorityEpoch, revision },
+          receipt: { roomId, authorityEpoch, revision },
         },
     ),
     write,
@@ -78,13 +74,8 @@ export function binarySnapshotBackend(roomId: RoomId) {
     write,
     results,
     commit: write.getMockImplementation()!,
-    emptyAt(
-      nextRevision: number,
-      generation = authGeneration,
-      epoch = authorityEpoch,
-    ) {
+    emptyAt(nextRevision: number, epoch = authorityEpoch) {
       revision = nextRevision;
-      authGeneration = generation;
       authorityEpoch = epoch;
       snapshot = undefined;
     },

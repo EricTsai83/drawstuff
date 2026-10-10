@@ -6,6 +6,7 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
 const fake = vi.hoisted(() => ({
   identity: vi.fn(),
   gateway: vi.fn(),
+  list: vi.fn(),
   env: {
     COLLAB_IDENTITY_SECRET: "i".repeat(32),
     COLLAB_AUTHORITY_SECRET: "a".repeat(32),
@@ -19,14 +20,20 @@ vi.mock("@/server/collab/authority-identity", () => ({
 vi.mock("@/server/collab/authority-gateway", () => ({
   callAuthorityGateway: fake.gateway,
 }));
+vi.mock("@/server/collab/authority-projection", () => ({
+  listProjectedRooms: fake.list,
+}));
 import { collaborationRoomRouter } from "@/server/api/routers/collaboration-room";
 import type { createTRPCContext } from "@/server/api/trpc";
-function caller(subject: string | null = "owner") {
+function caller(
+  subject: string | null = "owner",
+  user: { email?: string; emailVerified?: boolean } = {},
+) {
   return collaborationRoomRouter.createCaller({
     db: {},
     headers: new Headers(),
     auth: subject
-      ? { user: { id: subject }, session: { id: "session" } }
+      ? { user: { id: subject, ...user }, session: { id: "session" } }
       : null,
   } as unknown as Awaited<ReturnType<typeof createTRPCContext>>);
 }
@@ -37,18 +44,21 @@ const state = {
   sceneId: null,
   label: "Independent",
   linkRole: "none",
-  authGeneration: 1,
   authRevision: 1,
   authorityEpoch: 1,
   initializationDeadline: Date.now() + 60_000,
-  keyCheck: null,
   members: [
     {
       userId: "owner",
-      name: "owner@example.com",
+      email: "owner@example.com",
       role: "owner",
-      revoked: false,
       lastJoinedAt: null,
+    },
+    {
+      userId: "former",
+      email: "former@example.com",
+      role: null,
+      lastJoinedAt: 1,
     },
   ],
   nextCursor: null,
@@ -94,6 +104,29 @@ describe("Room-authorized management reads", () => {
     fake.gateway.mockRejectedValue(new Error("forbidden"));
     await expect(caller().get({ roomId: "room-panel" })).rejects.toThrow(
       "forbidden",
+    );
+  });
+});
+describe("room list", () => {
+  it("matches invitations by the verified, normalized email only", async () => {
+    fake.list.mockResolvedValue({ rooms: [], nextCursor: null });
+    await caller("owner", {
+      email: " Owner@Example.com ",
+      emailVerified: true,
+    }).list({ section: "mine" });
+    expect(fake.list).toHaveBeenLastCalledWith(
+      {},
+      { subject: "owner", email: "owner@example.com" },
+      { section: "mine", limit: 30 },
+    );
+    await caller("owner", {
+      email: "owner@example.com",
+      emailVerified: false,
+    }).list({ section: "link" });
+    expect(fake.list).toHaveBeenLastCalledWith(
+      {},
+      { subject: "owner", email: null },
+      { section: "link", limit: 30 },
     );
   });
 });

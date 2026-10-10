@@ -3,7 +3,7 @@ import { defineConfig } from "vitest/config";
 
 /**
  * workerd correctness project (Plan 08): runs the shared Base64 codec vectors
- * and the fixed join/control token vectors inside the actual Workers runtime,
+ * and the fixed identity-proof vector inside the actual Workers runtime,
  * pinning the browser/Node/workerd wire contract independently of the Durable
  * Object suite. Deliberately separate from `vitest.config.ts` so the fast
  * inner loop stays workerd-free; run it with `pnpm test:workerd`.

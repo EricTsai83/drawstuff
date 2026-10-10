@@ -1,7 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Ellipsis, KeyRound, LogOut, Trash2 } from "lucide-react";
+import { Copy, Ellipsis, ListX, LogOut, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { Spinner } from "@/components/ui/spinner";
@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { useAppI18n } from "@/hooks/use-app-i18n";
-import { buildRoomInviteUrl } from "@/lib/collab/room-link";
+import { COLLABORATION_ROOM_PARAM } from "@/lib/collab/room-link";
 import {
   AuthorityRoomError,
   authorityEnvelope,
@@ -38,7 +38,6 @@ import {
 import { createBinarySnapshotClient } from "@/lib/collab/snapshot-http";
 import type { AppTranslationKey } from "@/lib/i18n";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
   roomRoleSchema,
   type RoomRole,
@@ -52,7 +51,9 @@ const ROLE_LABEL_KEY: Record<RoomRole, AppTranslationKey> = {
   viewer: "collaboration.role.viewer",
 };
 
+type RoomListSection = "mine" | "link";
 type ListedRoom = RouterOutputs["collaborationRoom"]["list"]["rooms"][number];
+type ListCursor = { listedAt: number; roomId: string };
 type RoomExit = "cancel-initialization" | "end-room" | "leave";
 
 const EXIT_DONE_KEY: Record<RoomExit, AppTranslationKey> = {
@@ -61,15 +62,44 @@ const EXIT_DONE_KEY: Record<RoomExit, AppTranslationKey> = {
   leave: "collaboration.rooms.left",
 };
 
-/** A projection is a locator only. Room decides access again in the editor; keys stay in the original invitation. */
+const SECTION_KEYS: Record<
+  RoomListSection,
+  { heading: AppTranslationKey; empty: AppTranslationKey }
+> = {
+  mine: {
+    heading: "collaboration.rooms.mineHeading",
+    empty: "collaboration.rooms.mineEmpty",
+  },
+  link: {
+    heading: "collaboration.rooms.linkHeading",
+    empty: "collaboration.rooms.linkEmpty",
+  },
+};
+
+/** Opening a room is a plain link; Room decides access again in the editor. */
+const roomUrl = (roomId: string) => {
+  const url = new URL("/", window.location.origin);
+  url.searchParams.set(COLLABORATION_ROOM_PARAM, roomId);
+  return url.href;
+};
+
+/** Two locator lists: rooms owned or invited to, and rooms opened via a link. */
 export function CollaborationRoomList() {
   const { t } = useAppI18n();
   const utils = api.useUtils();
   const router = useRouter();
-  const [cursor, setCursor] = useState<
-    { listedAt: number; roomId: string } | undefined
-  >();
-  const rooms = api.collaborationRoom.list.useQuery({ limit: 30, cursor });
+  const [mineCursor, setMineCursor] = useState<ListCursor | undefined>();
+  const [linkCursor, setLinkCursor] = useState<ListCursor | undefined>();
+  const mine = api.collaborationRoom.list.useQuery({
+    section: "mine",
+    limit: 30,
+    cursor: mineCursor,
+  });
+  const link = api.collaborationRoom.list.useQuery({
+    section: "link",
+    limit: 30,
+    cursor: linkCursor,
+  });
   const initializer = useRef<ReturnType<
     typeof createRoomInitialization
   > | null>(null);
@@ -97,8 +127,6 @@ export function CollaborationRoomList() {
             utils.client.collaborationAuthority.execute.mutate(input),
           identity: (input) =>
             utils.client.collaborationAuthority.identity.mutate(input),
-          escrowRoomKey: (input) =>
-            utils.client.collaborationAuthority.escrowRoomKey.mutate(input),
         },
         snapshots: createBinarySnapshotClient(),
         settleWithinMs: INITIALIZATION_SETTLE_MS,
@@ -113,12 +141,7 @@ export function CollaborationRoomList() {
       if (ready.projectionPending)
         toast.info(t("collaboration.toast.listSyncing"));
       await utils.collaborationRoom.list.invalidate();
-      router.push(
-        buildRoomInviteUrl({
-          currentUrl: new URL("/", window.location.origin).href,
-          ...ready,
-        }),
-      );
+      router.push(roomUrl(ready.roomId));
     } catch {
       // Only a creation that stopped part-way can be retried or cancelled.
       if (mounted.current) {
@@ -161,7 +184,11 @@ export function CollaborationRoomList() {
     roomId: string;
     action: "end-room" | "leave";
   } | null>(null);
-  const exitRoom = async (roomId: string, action: RoomExit) => {
+  const exitRoom = async (
+    roomId: string,
+    action: RoomExit,
+    doneKey: AppTranslationKey = EXIT_DONE_KEY[action],
+  ) => {
     if (busyRoomId) return;
     const key = `${action}:${roomId}`;
     let run = exits.current.get(key);
@@ -190,7 +217,7 @@ export function CollaborationRoomList() {
         if (mounted.current) setRecoverable(false);
       }
       if (!mounted.current) return;
-      toast.success(t(EXIT_DONE_KEY[action]));
+      toast.success(t(doneKey));
       if (projectionPending) toast.info(t("collaboration.toast.listSyncing"));
       await utils.collaborationRoom.list.invalidate();
     } catch (error) {
@@ -207,49 +234,19 @@ export function CollaborationRoomList() {
     }
   };
 
-  const [openingRoomId, setOpeningRoomId] = useState<string | null>(null);
-  /**
-   * Opens with Room's custody copy of the key when it has one (plan 19);
-   * otherwise the room asks for the complete link, as before.
-   */
-  const openRoom = async (roomId: string) => {
-    setOpeningRoomId(roomId);
-    let roomKey: RoomKey | null = null;
-    try {
-      const custodied =
-        await utils.client.collaborationAuthority.roomKey.mutate({
-          roomId: roomIdSchema.parse(roomId),
-        });
-      roomKey = custodied?.roomKey ?? null;
-    } catch {
-      // Opening without the key still works through the complete link.
-    }
-    if (!mounted.current) return;
-    setOpeningRoomId(null);
-    router.push(
-      buildRoomInviteUrl({
-        currentUrl: new URL("/", window.location.origin).href,
-        roomId,
-        roomKey,
-      }),
-    );
-  };
-
-  const roomList = rooms.data?.rooms ?? [];
-  // Unfinished creations need a decision; they lead the list.
-  const unfinished = roomList.filter((room) => room.status === "initializing");
-  const listed = roomList.filter((room) => room.status !== "initializing");
-
   const renderRow = (room: ListedRoom) => {
     // The projection stores the role as text; an unknown value gets no label.
     const role = roomRoleSchema.safeParse(room.role).data;
     const isOwner = role === "owner";
+    const viaLink = room.access === "link";
     const isUnfinished = room.status === "initializing";
     const busy = busyRoomId === room.roomId;
     // One management intent runs at a time, and never beside a creation.
     const managementLocked = busyRoomId !== null || pending;
     // Most rooms stand alone; only a scene-linked one says so.
     const kind = room.sceneId ? t("collaboration.rooms.sceneLinked") : null;
+    const invited =
+      room.access === "invited" ? t("collaboration.rooms.invited") : null;
     return (
       <li
         key={room.roomId}
@@ -269,7 +266,7 @@ export function CollaborationRoomList() {
             {room.label || room.roomId.slice(0, 8)}
           </span>
           <span className="text-muted-foreground truncate text-xs">
-            {[kind, role && t(ROLE_LABEL_KEY[role])]
+            {[kind, invited, role && t(ROLE_LABEL_KEY[role])]
               .filter(Boolean)
               .join(" · ")}
           </span>
@@ -299,8 +296,8 @@ export function CollaborationRoomList() {
             <Button
               variant="outline"
               size="sm"
-              disabled={busy || openingRoomId !== null}
-              onClick={() => void openRoom(room.roomId)}
+              disabled={busy}
+              onClick={() => router.push(roomUrl(room.roomId))}
             >
               {t("collaboration.rooms.open")}
             </Button>
@@ -330,46 +327,109 @@ export function CollaborationRoomList() {
                   <Copy aria-hidden="true" />
                   {t("collaboration.rooms.copyId")}
                 </DropdownMenuItem>
-                {isOwner && (
+                <DropdownMenuSeparator />
+                {viaLink ? (
+                  // Only forgets this room in the list; the link still opens
+                  // it (and lists it again) while general access allows.
                   <DropdownMenuItem
-                    onClick={() => {
-                      // Rotation re-encrypts the content, so it needs the
-                      // room opened with its key; the room asks for the link.
-                      toast.info(t("collaboration.rooms.rotateHint"));
-                      void openRoom(room.roomId);
-                    }}
+                    disabled={managementLocked}
+                    onClick={() =>
+                      void exitRoom(
+                        room.roomId,
+                        "leave",
+                        "collaboration.rooms.removed",
+                      )
+                    }
                   >
-                    <KeyRound aria-hidden="true" />
-                    {t("collaboration.rooms.rotate")}
+                    <ListX aria-hidden="true" />
+                    {t("collaboration.rooms.removeFromList")}
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem
+                    variant="destructive"
+                    disabled={managementLocked}
+                    onClick={() =>
+                      setConfirmExit({
+                        roomId: room.roomId,
+                        action: isOwner ? "end-room" : "leave",
+                      })
+                    }
+                  >
+                    {isOwner ? (
+                      <Trash2 aria-hidden="true" />
+                    ) : (
+                      <LogOut aria-hidden="true" />
+                    )}
+                    {t(
+                      isOwner
+                        ? "collaboration.rooms.end"
+                        : "collaboration.rooms.leave",
+                    )}
                   </DropdownMenuItem>
                 )}
-                <DropdownMenuSeparator />
-                <DropdownMenuItem
-                  variant="destructive"
-                  disabled={managementLocked}
-                  onClick={() =>
-                    setConfirmExit({
-                      roomId: room.roomId,
-                      action: isOwner ? "end-room" : "leave",
-                    })
-                  }
-                >
-                  {isOwner ? (
-                    <Trash2 aria-hidden="true" />
-                  ) : (
-                    <LogOut aria-hidden="true" />
-                  )}
-                  {t(
-                    isOwner
-                      ? "collaboration.rooms.end"
-                      : "collaboration.rooms.leave",
-                  )}
-                </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
           </>
         )}
       </li>
+    );
+  };
+
+  const renderSection = (
+    section: RoomListSection,
+    query: typeof mine,
+    cursor: ListCursor | undefined,
+    setCursor: (cursor: ListCursor | undefined) => void,
+  ) => {
+    const rooms = query.data?.rooms ?? [];
+    // Unfinished creations need a decision; they lead the list.
+    const ordered = [
+      ...rooms.filter((room) => room.status === "initializing"),
+      ...rooms.filter((room) => room.status !== "initializing"),
+    ];
+    const nextCursor = query.data?.nextCursor;
+    return (
+      <RoomGroup section={section} heading={t(SECTION_KEYS[section].heading)}>
+        {query.isPending && (
+          <p className="text-muted-foreground text-sm" role="status">
+            {t("collaboration.rooms.loading")}
+          </p>
+        )}
+        {/* A failed query is never shown as an empty list. */}
+        {query.isError && (
+          <div className="flex items-center gap-2" role="alert">
+            <p className="text-destructive text-sm">
+              {t("collaboration.rooms.loadFailed")}
+            </p>
+            <Button variant="outline" onClick={() => void query.refetch()}>
+              {t("buttons.retry")}
+            </Button>
+          </div>
+        )}
+        {/* A failed refetch keeps cached data; only a successful query may claim "empty". */}
+        {query.isSuccess && rooms.length === 0 && (
+          <p className="text-muted-foreground text-sm">
+            {t(SECTION_KEYS[section].empty)}
+          </p>
+        )}
+        {ordered.length > 0 && (
+          <ul className="divide-border flex flex-col divide-y overflow-hidden rounded-xl border">
+            {ordered.map(renderRow)}
+          </ul>
+        )}
+        {(cursor ?? nextCursor) && (
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={() => setCursor(undefined)}>
+              {t("collaboration.members.first")}
+            </Button>
+            {nextCursor && (
+              <Button variant="outline" onClick={() => setCursor(nextCursor)}>
+                {t("collaboration.members.next")}
+              </Button>
+            )}
+          </div>
+        )}
+      </RoomGroup>
     );
   };
 
@@ -412,63 +472,8 @@ export function CollaborationRoomList() {
           </Button>
         </div>
       </div>
-      {rooms.isPending && (
-        <p className="text-muted-foreground text-sm" role="status">
-          {t("collaboration.rooms.loading")}
-        </p>
-      )}
-      {/* A failed query is never shown as an empty list. */}
-      {rooms.isError && (
-        <div className="flex items-center gap-2" role="alert">
-          <p className="text-destructive text-sm">
-            {t("collaboration.rooms.loadFailed")}
-          </p>
-          <Button variant="outline" onClick={() => void rooms.refetch()}>
-            {t("buttons.retry")}
-          </Button>
-        </div>
-      )}
-      {/* A failed refetch keeps cached data; only a successful query may claim "empty". */}
-      {rooms.isSuccess && roomList.length === 0 && (
-        <p className="text-muted-foreground text-sm">
-          {t("collaboration.rooms.empty")}
-        </p>
-      )}
-      {unfinished.length > 0 && (
-        <RoomGroup
-          heading={t("collaboration.rooms.needsAttention")}
-          className="border-amber-500/40"
-        >
-          {unfinished.map(renderRow)}
-        </RoomGroup>
-      )}
-      {listed.length > 0 && (
-        // The heading only matters beside the "needs attention" group.
-        <RoomGroup
-          heading={
-            unfinished.length > 0
-              ? t("collaboration.rooms.listHeading")
-              : undefined
-          }
-        >
-          {listed.map(renderRow)}
-        </RoomGroup>
-      )}
-      {(cursor ?? rooms.data?.nextCursor) && (
-        <div className="flex gap-2">
-          <Button variant="outline" onClick={() => setCursor(undefined)}>
-            {t("collaboration.members.first")}
-          </Button>
-          {rooms.data?.nextCursor && (
-            <Button
-              variant="outline"
-              onClick={() => setCursor(rooms.data.nextCursor!)}
-            >
-              {t("collaboration.members.next")}
-            </Button>
-          )}
-        </div>
-      )}
+      {renderSection("mine", mine, mineCursor, setMineCursor)}
+      {renderSection("link", link, linkCursor, setLinkCursor)}
       <AlertDialog
         open={confirmExit !== null}
         onOpenChange={(open) => {
@@ -517,25 +522,19 @@ export function CollaborationRoomList() {
 }
 
 function RoomGroup(props: {
-  heading?: string;
-  className?: string;
+  section: RoomListSection;
+  heading: string;
   children: ReactNode;
 }) {
   return (
-    <div className="flex min-w-0 flex-col gap-2">
-      {props.heading && (
-        <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
-          {props.heading}
-        </h3>
-      )}
-      <ul
-        className={cn(
-          "divide-border flex flex-col divide-y overflow-hidden rounded-xl border",
-          props.className,
-        )}
-      >
-        {props.children}
-      </ul>
+    <div
+      className="flex min-w-0 flex-col gap-2"
+      data-room-section={props.section}
+    >
+      <h3 className="text-muted-foreground text-xs font-medium tracking-wide uppercase">
+        {props.heading}
+      </h3>
+      {props.children}
     </div>
   );
 }

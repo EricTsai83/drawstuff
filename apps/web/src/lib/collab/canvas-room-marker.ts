@@ -21,8 +21,8 @@ import { STORAGE_KEYS } from "@/config/app-constants";
  * - **Survives a reload.** Refreshing inside a room must not turn the canvas back
  *   into a private scene.
  *
- * Room links reload an empty, read-only canvas until authorization and an
- * encrypted baseline arrive. The personal draft is separately preserved per
+ * Room links reload an empty, read-only canvas until authorization and the
+ * stored baseline arrive. The personal draft is separately preserved per
  * tab, so another tab's personal cache cannot be published into this room.
  *
  * Release is centralized where it can be: the two scene-session storage writers

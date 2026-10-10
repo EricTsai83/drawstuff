@@ -1,17 +1,6 @@
 import { env, listDurableObjectIds, SELF } from "cloudflare:test";
 import { afterEach, describe, expect, it } from "vitest";
 
-import { roomIdSchema, type RoomId } from "@drawstuff/collaboration/protocol";
-import {
-  ROOM_TOKEN_AUDIENCES,
-  type RoomControlClaims,
-} from "@drawstuff/collaboration/room-auth";
-import {
-  createRoomTokenId,
-  signRoomControlToken,
-} from "@drawstuff/collaboration/room-token";
-
-import { TEST_ROOM_TOKEN_SECRET } from "./support/audit.ts";
 import { settleRoomEvents } from "./support/room-socket.ts";
 
 afterEach(settleRoomEvents);
@@ -28,30 +17,6 @@ const socketHeaders = (overrides?: Record<string, string>) => ({
 async function errorOf(response: Response): Promise<string> {
   const body = await response.json<{ error: string }>();
   return body.error;
-}
-
-function endRoomToken(options?: {
-  roomId?: RoomId;
-  secret?: string;
-  expired?: boolean;
-}): string {
-  const now =
-    Math.floor(Date.now() / 1000) - (options?.expired === true ? 3_600 : 0);
-  const claims: RoomControlClaims = {
-    v: 1,
-    jti: createRoomTokenId(),
-    iat: now,
-    exp: now + 30,
-    aud: ROOM_TOKEN_AUDIENCES.control,
-    rid: options?.roomId ?? roomIdSchema.parse("room-a"),
-    gen: 1,
-    arev: 1,
-    action: "end-room",
-  };
-  return signRoomControlToken(
-    claims,
-    options?.secret ?? TEST_ROOM_TOKEN_SECRET,
-  );
 }
 
 describe("/healthz", () => {
@@ -92,17 +57,66 @@ describe("unknown routes", () => {
 });
 
 describe("retired public ingress", () => {
-  it.each(["/v1/control", "/v1/rooms/room-a/generations/1/socket"])(
-    "refuses %s without creating an old Object",
-    async (path) => {
-      const response = await SELF.fetch(`${BASE}${path}`, {
-        method: path.endsWith("control") ? "POST" : "GET",
-        headers: socketHeaders(),
-        body: path.endsWith("control")
-          ? JSON.stringify({ token: endRoomToken() })
-          : undefined,
-      });
-      expect(response.status).toBe(404);
+  it.each([
+    "/v1/control",
+    "/v1/room-key",
+    "/v1/rooms/room-a/generations/1/socket",
+  ])("refuses %s without creating an old Object", async (path) => {
+    const response = await SELF.fetch(`${BASE}${path}`, {
+      method: path.endsWith("socket") ? "GET" : "POST",
+      headers: socketHeaders(),
+      body: path.endsWith("socket") ? undefined : JSON.stringify({}),
+    });
+    expect(response.status).toBe(404);
+    expect(await listDurableObjectIds(env.COLLABORATION_ROOM)).toHaveLength(0);
+  });
+});
+
+describe("socket route", () => {
+  const route = "/v1/rooms/room-a/socket";
+  it.each<[string, string, RequestInit, number, string]>([
+    [
+      "a malformed room id",
+      "/v1/rooms/a.b/socket",
+      { headers: socketHeaders() },
+      404,
+      "not-found",
+    ],
+    [
+      // Without the upgrade header: workerd delivers an upgrade request as GET.
+      "a non-GET method",
+      route,
+      { method: "POST", headers: { Origin: ALLOWED_ORIGIN } },
+      405,
+      "method-not-allowed",
+    ],
+    [
+      "a request without an upgrade",
+      route,
+      { headers: { Origin: ALLOWED_ORIGIN } },
+      426,
+      "upgrade-required",
+    ],
+    [
+      "an untrusted origin",
+      route,
+      { headers: socketHeaders({ Origin: "https://untrusted.test" }) },
+      403,
+      "forbidden",
+    ],
+    [
+      "a missing origin",
+      route,
+      { headers: { Upgrade: "websocket" } },
+      403,
+      "forbidden",
+    ],
+  ])(
+    "refuses %s before reaching an Object",
+    async (_label, path, init, status, error) => {
+      const response = await SELF.fetch(`${BASE}${path}`, init);
+      expect(response.status).toBe(status);
+      expect(await errorOf(response)).toBe(error);
       expect(await listDurableObjectIds(env.COLLABORATION_ROOM)).toHaveLength(
         0,
       );

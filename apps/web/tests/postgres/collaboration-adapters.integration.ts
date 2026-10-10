@@ -1,8 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import postgres from "postgres";
-import { readFileSync, unlinkSync } from "node:fs";
-import { execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
 import { drizzle } from "drizzle-orm/postgres-js";
 import {
   generateDrizzleJson,
@@ -31,20 +28,11 @@ import {
   applyLifecycleAdapter,
   retirementIntent,
 } from "@/server/collab/authority-lifecycle";
-import {
-  collaborationDDL,
-  resetDDL,
-} from "../../scripts/collaboration-reset-ddl";
-import {
-  inspectResetDatabase,
-  compareResetReports,
-} from "../../scripts/collaboration-reset-inspect";
-import * as legacy from "../support/legacy-collaboration-schema";
 import { lockRoom } from "@/server/collab/rooms";
 import {
   adapterFixture,
-  testCiphertext,
-  ciphertextChecksum,
+  testSnapshotBytes,
+  bytesChecksum,
 } from "../support/authority-adapter-fixtures";
 
 const url = process.env.COLLAB_ADAPTER_DATABASE_URL;
@@ -103,6 +91,16 @@ async function holdRoom(roomId: string) {
   return { release: unblock.release, finished };
 }
 
+/** Makes the fixture's parent row the product of a new create, so a retry of that create is not a reused roomId. */
+async function ownCreate(roomId: string) {
+  const operationId = crypto.randomUUID();
+  await db
+    .update(schema.collaborationRoom)
+    .set({ createOperationId: operationId })
+    .where(eq(schema.collaborationRoom.roomId, roomId));
+  return operationId;
+}
+
 describe("actual PostgreSQL adapter lock races", () => {
   it("waits for accepted writes before confirming a fence and refuses every late old-epoch write", async () => {
     const f = await adapterFixture(db);
@@ -112,7 +110,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       db,
       "write",
       operation,
-      testCiphertext(),
+      testSnapshotBytes(),
     );
     await waitForBlocked(1);
     let fenceFinished = false;
@@ -138,7 +136,7 @@ describe("actual PostgreSQL adapter lock races", () => {
         db,
         "write",
         f.operation(),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
     ).toEqual({ status: "refused" });
     expect(await executeStorageOperation(db, "query", operation)).toEqual(
@@ -155,7 +153,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       db,
       "write",
       operation,
-      testCiphertext(),
+      testSnapshotBytes(),
     );
     try {
       await waitForBlocked(2);
@@ -166,7 +164,12 @@ describe("actual PostgreSQL adapter lock races", () => {
     const [cancelled, written] = await Promise.all([cancel, write]);
     expect(cancelled).toEqual(written);
     expect(
-      await executeStorageOperation(db, "write", operation, testCiphertext()),
+      await executeStorageOperation(
+        db,
+        "write",
+        operation,
+        testSnapshotBytes(),
+      ),
     ).toEqual(cancelled);
     if (cancelled.status === "cancelled")
       expect(await readAdapterSnapshot(db, operation)).toBeNull();
@@ -177,8 +180,8 @@ describe("actual PostgreSQL adapter lock races", () => {
     const first = f.operation();
     const second = f.operation();
     const results = await Promise.all([
-      executeStorageOperation(db, "write", first, testCiphertext()),
-      executeStorageOperation(db, "write", second, testCiphertext()),
+      executeStorageOperation(db, "write", first, testSnapshotBytes()),
+      executeStorageOperation(db, "write", second, testSnapshotBytes()),
     ]);
     expect(results.map((result) => result.status).sort()).toEqual([
       "conflict",
@@ -189,21 +192,26 @@ describe("actual PostgreSQL adapter lock races", () => {
       db,
       "write",
       f.operation({ expectedRevision: 1 }),
-      testCiphertext(),
+      testSnapshotBytes(),
     );
     expect(
-      await executeStorageOperation(db, "write", winner, testCiphertext()),
+      await executeStorageOperation(db, "write", winner, testSnapshotBytes()),
     ).toEqual({ status: "written", revision: 1 });
     expect((await readAdapterSnapshot(db, winner))?.revision).toBe(2);
   });
   it("orders an absent-snapshot read after reset under the room lock and preserves its revision", async () => {
     const f = await adapterFixture(db);
-    await executeStorageOperation(db, "write", f.operation(), testCiphertext());
+    await executeStorageOperation(
+      db,
+      "write",
+      f.operation(),
+      testSnapshotBytes(),
+    );
     const held = await holdRoom(f.roomId);
     const reset = f.operation({
       kind: "snapshot-reset",
       expectedRevision: 1,
-      checksum: ciphertextChecksum(new Uint8Array()),
+      checksum: bytesChecksum(new Uint8Array()),
     });
     const resetting = executeStorageOperation(db, "write", reset);
     let reading: ReturnType<typeof readAdapterSnapshotState> | undefined;
@@ -223,7 +231,7 @@ describe("actual PostgreSQL adapter lock races", () => {
         db,
         "write",
         f.operation({ expectedRevision: state.revision }),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
     ).toEqual({ status: "written", revision: 3 });
   });
@@ -236,13 +244,13 @@ describe("actual PostgreSQL adapter lock races", () => {
         db,
         "write",
         a.operation({ operationId }),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
       executeStorageOperation(
         db,
         "write",
         b.operation({ operationId }),
-        testCiphertext(),
+        testSnapshotBytes(),
       ),
     ]);
     expect(
@@ -264,9 +272,8 @@ describe("actual PostgreSQL adapter lock races", () => {
     const asset = {
       excalidrawFileId: "callback-orphan",
       utFileKey: `orphan-${crypto.randomUUID()}`,
-      cryptoVersion: 1,
       byteLength: 32,
-      url: "https://storage.test/ciphertext",
+      url: "https://storage.test/asset",
     };
     const held = await holdRoom(f.roomId);
     const write = executeStorageOperation(
@@ -301,9 +308,8 @@ describe("actual PostgreSQL adapter lock races", () => {
     const asset = {
       excalidrawFileId: "callback-committed",
       utFileKey: `committed-${crypto.randomUUID()}`,
-      cryptoVersion: 1,
       byteLength: 32,
-      url: "https://storage.test/ciphertext",
+      url: "https://storage.test/asset",
     };
     const reached = gate(),
       unblock = gate();
@@ -350,7 +356,6 @@ describe("actual PostgreSQL adapter lock races", () => {
     const b = await adapterFixture(db);
     const asset = {
       excalidrawFileId: "file-shared-key",
-      cryptoVersion: 1,
       byteLength: 32,
       url: "https://files.example/key",
       utFileKey: `shared-${crypto.randomUUID()}`,
@@ -391,7 +396,9 @@ describe("actual PostgreSQL adapter lock races", () => {
       applyRoomProjection(db, f.projection({ version: 4, tombstone: true })),
       applyRoomProjection(db, f.projection({ version: 3, role: "viewer" })),
     ]);
-    expect((await listProjectedRooms(db, f.guest)).rooms).toEqual([]);
+    expect(
+      (await listProjectedRooms(db, { subject: f.guest, email: null })).rooms,
+    ).toEqual([]);
     expect(await applyRoomProjection(db, f.projection({ version: 3 }))).toEqual(
       { applied: false },
     );
@@ -399,7 +406,9 @@ describe("actual PostgreSQL adapter lock races", () => {
       applyRoomProjection(db, f.projection({ version: 5 })),
       db.delete(schema.user).where(eq(schema.user.id, f.guest)),
     ]);
-    expect((await listProjectedRooms(db, f.guest)).rooms).toEqual([]);
+    expect(
+      (await listProjectedRooms(db, { subject: f.guest, email: null })).rooms,
+    ).toEqual([]);
     expect(await applyRoomProjection(db, f.projection({ version: 6 }))).toEqual(
       { applied: false },
     );
@@ -414,6 +423,7 @@ describe("actual PostgreSQL adapter lock races", () => {
     await db
       .insert(schema.collaborationLifecycleSubject)
       .values({ scope, subject: f.owner, kind: "account" });
+    const operationId = await ownCreate(f.roomId);
     const reached = gate();
     const unblock = gate();
     const freezing = db.transaction(async (tx) => {
@@ -434,7 +444,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       v: 1,
       action: "register",
       roomId: f.roomId,
-      operationId: crypto.randomUUID(),
+      operationId,
       identity: f.operation().actor,
       ownerId: f.owner,
       sceneId: null,
@@ -519,7 +529,6 @@ describe("actual PostgreSQL adapter lock races", () => {
       action: "fence",
       roomId: f.roomId,
       authorityEpoch: 2,
-      authGeneration: 1,
       state: "ended",
     });
     try {
@@ -573,6 +582,7 @@ describe("actual PostgreSQL adapter lock races", () => {
         subject: f.owner,
       })
       .onConflictDoNothing();
+    const operationId = await ownCreate(f.roomId);
     const reached = gate(),
       unblock = gate();
     const held = db.transaction(async (tx) => {
@@ -597,7 +607,7 @@ describe("actual PostgreSQL adapter lock races", () => {
       v: 1,
       action: "register",
       roomId: f.roomId,
-      operationId: crypto.randomUUID(),
+      operationId,
       identity: f.operation().actor,
       ownerId: f.owner,
       sceneId: source!.id,
@@ -628,179 +638,5 @@ describe("actual PostgreSQL adapter lock races", () => {
         where: eq(schema.scene.id, source!.id),
       }),
     ).toBeDefined();
-  });
-  it("rehearses protocol-5 reset, upgrade and rollback while preserving personal, shared, published and Library bytes and attachment references", async () => {
-    const f = await adapterFixture(db);
-    const [source] = await db
-      .insert(schema.scene)
-      .values({
-        userId: f.owner,
-        name: "Preserve",
-        sceneData: "exact-personal-document",
-        thumbnailFileKey: "preserve-thumbnail",
-        isPublished: true,
-        publishedSlug: "preserve-fixture",
-        publishedSvgKey: "preserve-published",
-        publishedSvgUrl: "https://personal.test/artifact",
-      })
-      .returning();
-    await db.insert(schema.sharedScene).values({
-      sharedSceneId: "preserve-share",
-      ownerId: f.owner,
-      compressedData: new Uint8Array([3, 7, 11]),
-    });
-    await db.insert(schema.personalLibrary).values({
-      userId: f.owner,
-      compressedData: new Uint8Array([13, 17]),
-      byteLength: 2,
-      checksum: "a".repeat(64),
-    });
-    await db.insert(schema.fileRecord).values([
-      {
-        sceneId: source!.id,
-        ownerId: f.owner,
-        utFileKey: "preserve-asset",
-        excalidrawFileId: "personal-file",
-        size: 3,
-        url: "https://personal.test/asset",
-      },
-      {
-        sharedSceneId: "preserve-share",
-        ownerId: f.owner,
-        utFileKey: "preserve-shared",
-        excalidrawFileId: "shared-file",
-        size: 4,
-        url: "https://personal.test/shared",
-      },
-    ]);
-    const preserved = async () => ({
-      accounts: await db.select().from(schema.user).orderBy(schema.user.id),
-      scenes: await db.select().from(schema.scene).orderBy(schema.scene.id),
-      shared: await db
-        .select()
-        .from(schema.sharedScene)
-        .orderBy(schema.sharedScene.sharedSceneId),
-      files: await db
-        .select()
-        .from(schema.fileRecord)
-        .orderBy(schema.fileRecord.id),
-      library: await db
-        .select()
-        .from(schema.personalLibrary)
-        .orderBy(schema.personalLibrary.userId),
-    });
-    const before = await preserved();
-    const current = await collaborationDDL(schema),
-      previous = await collaborationDDL(legacy);
-    const names = [...current.names, ...previous.names];
-    const apply = async (statements: string[]) =>
-      client.begin(async (tx) => {
-        for (const statement of resetDDL(names, statements))
-          await tx.unsafe(statement);
-      });
-    await apply(previous.statements);
-    await client`INSERT INTO drawstuff_collaboration_room (room_id,scene_id,owner_id,expires_at,created_at,updated_at) VALUES ('old-fixture',${source!.id},${f.owner},now()+interval '1 day',now(),now())`;
-    // Restored production web can persist this state while dispatch is disabled.
-    await client`INSERT INTO drawstuff_collaboration_control_outbox (event_id,room_id,auth_generation,auth_revision,action,attempts,next_attempt_at,status,last_failure,created_at,updated_at) VALUES (${crypto.randomUUID()},'old-fixture',1,1,'end-room',0,now(),'pending','dispatch-disabled',now(),now())`;
-    await client`INSERT INTO drawstuff_collaboration_asset (room_id,auth_generation,excalidraw_file_id,crypto_version,byte_length,url,ut_file_key,registered_by,created_at) VALUES ('old-fixture',1,'old-file',1,128,'https://fixture.test/sealed','old-collab-key',${f.owner},now())`;
-    await client`INSERT INTO drawstuff_collaboration_asset (room_id,auth_generation,excalidraw_file_id,crypto_version,byte_length,url,ut_file_key,created_at) VALUES ('old-fixture',1,'colliding-file',1,128,'https://fixture.test/sealed','preserve-asset',now())`;
-    const manifestSQL = readFileSync(
-      new URL(
-        "../../../../docs/deployment/collaboration-reset/manifest.sql",
-        import.meta.url,
-      ),
-      "utf8",
-    )
-      .replace(/^--.*$/gm, "")
-      .split(";")
-      .map((statement) => statement.trim())
-      .filter(Boolean);
-    const manifest = await client.unsafe<{ ut_file_key: string }[]>(
-      manifestSQL[0]!,
-    );
-    expect(manifest.map((row) => row.ut_file_key)).toEqual(["old-collab-key"]);
-    const inspectionBefore = await inspectResetDatabase(
-      client,
-      url,
-      "before",
-      legacy,
-      manifestSQL,
-    );
-    expect(inspectionBefore.readOnly).toBe(true);
-    expect(inspectionBefore.objectKeys).toEqual(["old-collab-key"]);
-    expect(inspectionBefore.oldRoomNames).toEqual(["old-fixture-g1"]);
-    await expect(
-      inspectResetDatabase(client, url, "after", schema, manifestSQL),
-    ).rejects.toThrow("differ");
-    await client`CREATE TABLE public.external_reset_blocker (room_id varchar(64) REFERENCES drawstuff_collaboration_room(room_id))`;
-    await expect(
-      inspectResetDatabase(client, url, "before", legacy, manifestSQL),
-    ).rejects.toThrow("External foreign keys");
-    await client`DROP TABLE public.external_reset_blocker`;
-    const cli = fileURLToPath(
-      new URL("../../scripts/collaboration-reset-check.mjs", import.meta.url),
-    );
-    const runCheck = (args: string[]) =>
-      /Report: (.+)/.exec(
-        execFileSync(process.execPath, [cli, ...args], {
-          env: { ...process.env, COLLAB_RESET_DATABASE_URL: url },
-          encoding: "utf8",
-        }),
-      )![1]!;
-    const beforeReport = runCheck(["before"]);
-    await apply(current.statements);
-    let afterReport: string | undefined;
-    try {
-      afterReport = runCheck(["after", beforeReport]);
-      expect(JSON.parse(readFileSync(afterReport, "utf8"))).toMatchObject({
-        phase: "after",
-        readOnly: true,
-      });
-    } finally {
-      unlinkSync(beforeReport);
-      if (afterReport) unlinkSync(afterReport);
-    }
-    const inspectionAfter = await inspectResetDatabase(
-      client,
-      url,
-      "after",
-      schema,
-      manifestSQL,
-    );
-    expect(() =>
-      compareResetReports(inspectionBefore, inspectionAfter),
-    ).not.toThrow();
-    expect(() =>
-      compareResetReports(inspectionBefore, {
-        ...inspectionAfter,
-        target: "other-endpoint",
-      }),
-    ).toThrow("same database");
-    expect(() =>
-      compareResetReports(inspectionBefore, {
-        ...inspectionAfter,
-        personal: [],
-      }),
-    ).toThrow("changed");
-    expect(await preserved()).toEqual(before);
-    await db
-      .insert(schema.collaborationRoom)
-      .values({ roomId: "new-independent", ownerId: f.owner });
-    expect(
-      await db.query.collaborationRoom.findFirst({
-        where: eq(schema.collaborationRoom.roomId, "new-independent"),
-      }),
-    ).toMatchObject({ sceneId: null });
-    await apply(previous.statements);
-    expect(await preserved()).toEqual(before);
-    const columns = await client<
-      { column_name: string }[]
-    >`SELECT column_name FROM information_schema.columns WHERE table_name='drawstuff_collaboration_room'`;
-    expect(columns.map((row) => row.column_name)).toContain("expires_at");
-    expect(columns.map((row) => row.column_name)).not.toContain(
-      "authority_epoch",
-    );
-    await apply(current.statements);
-    expect(await preserved()).toEqual(before);
   });
 });

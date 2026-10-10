@@ -22,17 +22,13 @@ describe("@drawstuff/collaboration package contract", () => {
       "./base64",
       "./client-pacing",
       "./join-barrier",
-      "./key-custody",
-      "./keycheck",
       "./offline-queue",
       "./performance",
       "./protocol",
       "./protocol-conformance",
       "./rate-limit",
-      "./realtime-crypto",
       "./recovery",
       "./relay-client",
-      "./relay-control",
       "./relay-protocol",
       "./room-auth",
       "./room-limits",
@@ -72,14 +68,10 @@ describe("@drawstuff/collaboration package contract", () => {
       "@drawstuff/collaboration/authority": "authority.ts",
       "@drawstuff/collaboration/base64": "base64.ts",
       "@drawstuff/collaboration/join-barrier": "join-barrier.ts",
-      "@drawstuff/collaboration/key-custody": "key-custody.ts",
-      "@drawstuff/collaboration/keycheck": "keycheck.ts",
       "@drawstuff/collaboration/offline-queue": "offline-queue.ts",
       "@drawstuff/collaboration/protocol": "protocol.ts",
-      "@drawstuff/collaboration/realtime-crypto": "realtime-crypto.ts",
       "@drawstuff/collaboration/recovery": "recovery.ts",
       "@drawstuff/collaboration/relay-client": "relay-client.ts",
-      "@drawstuff/collaboration/relay-control": "relay-control.ts",
       "@drawstuff/collaboration/relay-protocol": "relay-protocol.ts",
       "@drawstuff/collaboration/room-auth": "room-auth.ts",
       "@drawstuff/collaboration/room-token": "room-token.ts",
@@ -98,7 +90,7 @@ describe("@drawstuff/collaboration package contract", () => {
   it("has no logging surface at all", () => {
     // Plan 14 step 3: reviewing every logging path is only durable if there are
     // none. A single `console.log` in the send/receive path would be enough to
-    // put plaintext elements, usernames, or cursors into a browser console or a
+    // put scene elements, usernames, or cursors into a browser console or a
     // captured error report, so the whole package is kept output-free and
     // callers decide what (if anything) to report.
     const offenders = listSourceFiles(sourceRoot).filter((filePath) =>
@@ -109,46 +101,20 @@ describe("@drawstuff/collaboration package contract", () => {
     expect(offenders).toEqual([]);
   });
 
-  it("confines room key material to the crypto modules", () => {
-    // The wire protocol, the relay client, and the token modules must never see
-    // a room key: that is what lets the relay verify tokens it cannot turn into
-    // a decryption key. Structural, so a future edit cannot quietly thread key
-    // material through an envelope, a control frame, or a token claim.
-    //
-    // Five runtime modules qualify, and only because they *are* the crypto
-    // boundary: `sealed-envelope.ts` is the shared seal/open primitive,
-    // `realtime-crypto.ts` owns key derivation and realtime frames, and
-    // `snapshot.ts`, `asset-crypto.ts` and `keycheck.ts` seal durable
-    // snapshots, binary assets and the room's key-check value under further
-    // purpose-bound keys they derive through it.
-    //
-    // `key-custody.ts` also qualifies (plan 19): it is the one wire schema
-    // that carries a room key, between a browser and Room's server custody,
-    // and it is kept off every other request, result and frame schema.
-    //
-    // One test-only module also qualifies: `protocol-conformance.ts` acts as
-    // a synthetic *client* pair in its E2EE passthrough case — it generates a
-    // room key that never leaves the test process and proves the backend
-    // routes the sealed bytes verbatim. That is the client side of the
-    // boundary this contract protects, not a leak across it; the module is
-    // imported exclusively from test files.
+  it("carries no room key material at all", () => {
+    // Rooms are protected by sign-in plus access rules, not end-to-end
+    // encryption (plan 21), so no wire schema, token or durable format may
+    // carry a room key. Share links stay end-to-end encrypted, and they live
+    // outside this package. `crypto.subtle` itself is allowed: the snapshot
+    // checksum is a plain SHA-256 digest.
     const withKeyMaterial = listSourceFiles(sourceRoot)
       .filter((filePath) =>
-        /roomKey|RoomKey|getRandomValues|subtle/.test(
+        /roomKey|RoomKey|getRandomValues|subtle\.(?:encrypt|decrypt|importKey|deriveKey|deriveBits)/.test(
           readFileSync(filePath, "utf8"),
         ),
       )
-      .map((filePath) => path.relative(sourceRoot, filePath))
-      .sort();
-    expect(withKeyMaterial).toEqual([
-      "asset-crypto.ts",
-      "key-custody.ts",
-      "keycheck.ts",
-      "protocol-conformance.ts",
-      "realtime-crypto.ts",
-      "sealed-envelope.ts",
-      "snapshot.ts",
-    ]);
+      .map((filePath) => path.relative(sourceRoot, filePath));
+    expect(withKeyMaterial).toEqual([]);
   });
 
   it("rejects package deep imports", () => {

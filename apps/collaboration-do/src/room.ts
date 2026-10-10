@@ -8,6 +8,7 @@ import { DurableObject } from "cloudflare:workers";
 import {
   COLLABORATION_PROTOCOL_VERSION,
   peerIdSchema,
+  roomIdSchema,
   type RoomId,
 } from "@drawstuff/collaboration/protocol";
 import {
@@ -33,19 +34,10 @@ import {
   ROOM_JOIN_TIMEOUT_MS,
 } from "@drawstuff/collaboration/room-limits";
 import {
-  MAX_JOIN_TOKEN_TTL_SECONDS,
-  roomChannelKey,
-  roomChannelKeySchema,
   roomRoleCanEditScene,
-  ROOM_TOKEN_CLOCK_SKEW_SECONDS,
-  type RoomChannelKey,
   type RoomRole,
 } from "@drawstuff/collaboration/room-auth";
-import {
-  assertRoomTokenSecret,
-  verifyJoinToken,
-  verifyIdentityProof,
-} from "@drawstuff/collaboration/room-token";
+import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 
 import {
   readRoomSocketAttachment,
@@ -53,17 +45,7 @@ import {
   type JoinedSocketAttachment,
   type RoomSocketAttachment,
 } from "./attachment.ts";
-import {
-  ControlRejectedError,
-  roomControlCommandV1Schema,
-  type RoomControlCommandV1,
-  type RoomControlResultV1,
-} from "./control.ts";
-import {
-  closedJsonResponse,
-  readInternalSocketIdentity,
-  INTERNAL_AUTHORITY_SOCKET_HEADER,
-} from "./internal.ts";
+import { closedJsonResponse, readInternalSocketRoomId } from "./internal.ts";
 import {
   AUTHORITY_LIMITS,
   type TrustedIdentity,
@@ -80,7 +62,6 @@ import {
 import { RoomAuthority } from "./room-authority.ts";
 import { AdapterClient } from "./adapter-client.ts";
 import { applyAuthorityEntry } from "./authority-entry.ts";
-import { applyRoomKeyEntry } from "./room-key-entry.ts";
 import { RoomDelivery } from "./room-delivery.ts";
 import { SnapshotEntry } from "./snapshot-entry.ts";
 import { applyAssetEntry } from "./asset-entry.ts";
@@ -90,14 +71,14 @@ import { applyAssetEntry } from "./asset-entry.ts";
 const SOCKET_OPEN = 1;
 
 /**
- * Current SQLite schema of one room Object. A stored version *newer* than
- * this is code-version skew (a rollback past a schema bump) and fails closed
- * in the constructor rather than letting old code reinterpret new rows.
+ * Current SQLite schema of one room Object. A stored version other than this
+ * is code-version skew (a rollback past a schema bump) and fails closed in the
+ * constructor rather than letting old code reinterpret new rows.
  *
- * v3: stable roomId identity, durable crypto generation and no room lifetime.
- * Requires the 18B reset; older SQLite schemas are not migrated in place.
+ * v4: plain rooms (plan 21) in a new Object class; no crypto generation, no
+ * legacy join-token cutoffs. Older schemas live only in the deleted class.
  */
-const ROOM_SCHEMA_VERSION = 3;
+const ROOM_SCHEMA_VERSION = 4;
 
 /**
  * The official runtime retries a failed alarm handler a bounded number of
@@ -109,21 +90,10 @@ const ROOM_SCHEMA_VERSION = 3;
 const ALARM_FINAL_RETRY_COUNT = 5;
 const ALARM_RETRY_BACKSTOP_MS = 60_000;
 
-/**
- * How long a revocation cutoff must be retained: once no token issued below
- * it could still be unexpired, the cutoff is redundant (same arithmetic as
- * the relay's session registry).
- */
-const CUTOFF_RETENTION_SECONDS =
-  MAX_JOIN_TOKEN_TTL_SECONDS + ROOM_TOKEN_CLOCK_SKEW_SECONDS;
-
 type RoomMeta = {
   schemaVersion: number;
   /** High-water session epoch; 0 until the first cohort forms. */
   roomEpoch: number;
-  authGeneration: number;
-  /** True once an `end-room` control has been durably applied. */
-  roomEnded: boolean;
 };
 
 type JoinedSocket = { ws: WebSocket; attachment: JoinedSocketAttachment };
@@ -147,9 +117,10 @@ const encoder = new TextEncoder();
 
 /**
  * Hibernatable room runtime: one stable roomId, one Object
- * (CLAIM-MIG-2), speaking the shared wire contract — join, membership
- * notices, role enforcement, opaque binary fanout, limits, backpressure and
- * close codes — plus the P6 keepalive auto-response.
+ * (CLAIM-MIG-2), speaking the shared wire contract — identity-proof join,
+ * membership notices, role enforcement, binary fanout, limits, backpressure
+ * and close codes — plus the P6 keepalive auto-response. Room authority
+ * (`./room-authority.ts`) decides every role.
  *
  * Recovery invariant: every event rebuilds what it needs from
  * `ctx.getWebSockets()` attachments and SQLite. Nothing before the
@@ -163,7 +134,7 @@ const encoder = new TextEncoder();
  * liveness is the keepalive auto-response judged lazily, and the contract's
  * home is protocol/token/limits in @drawstuff/collaboration.
  */
-export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
+export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
   /**
    * Rate buckets are keyed by socket object identity, which is stable while
    * the isolate lives and empty after hibernation — exactly the rebuild-full
@@ -186,8 +157,23 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   readonly constructedAt = Date.now();
 
   private readonly log: DoLogger;
-  private authority: RoomAuthority | undefined;
+  private authorityCache: RoomAuthority | undefined;
   private snapshotEntry: SnapshotEntry | undefined;
+  private activeEntries = 0;
+
+  /**
+   * Built on first use, so an Object whose storage was released (see
+   * `releaseStorage`) recreates its schema only if another request arrives.
+   */
+  private get authority(): RoomAuthority | undefined {
+    if (!this.authorityCache) {
+      const roomId = this.roomId();
+      if (!roomId) return undefined;
+      this.ensureSchema();
+      this.authorityCache = new RoomAuthority(this.ctx.storage, roomId);
+    }
+    return this.authorityCache;
+  }
 
   constructor(ctx: DurableObjectState, env: CollaborationRoomEnv) {
     super(ctx, env);
@@ -218,9 +204,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     this.ctx
       .blockConcurrencyWhile(() => {
         this.ensureSchema();
-        const identity = this.channelKey();
-        if (identity)
-          this.authority = new RoomAuthority(this.ctx.storage, identity);
+        void this.authority;
         return Promise.resolve();
       })
       .catch((error: unknown) => {
@@ -231,30 +215,59 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   }
 
   async applyAuthorityV1(input: unknown) {
-    this.requireChannelKey();
-    if (!this.authority) return { ok: false as const, error: "unavailable" };
-    const reply = await applyAuthorityEntry(this.authority, input, this.env);
-    this.enforceAuthoritySockets();
-    if (this.authority.state()) {
-      this.broadcastPeers();
-      await this.scheduleAfterMembershipChange();
+    return this.entry(() => this.applyAuthorityV1Impl(input));
+  }
+
+  async enforceRetirementV1(
+    input: Parameters<CollaborationRoomV2["enforceRetirementV1Impl"]>[0],
+  ) {
+    return this.entry(() => this.enforceRetirementV1Impl(input));
+  }
+
+  async endAuthorityV1(operationId: string) {
+    return this.entry(() => this.endAuthorityV1Impl(operationId));
+  }
+
+  async applySnapshotV1(request: Request, measure = false): Promise<Response> {
+    return this.entry(() => this.applySnapshotV1Impl(request, measure));
+  }
+
+  async applyAssetsV1(input: unknown, measure = false) {
+    return this.entry(() => this.applyAssetsV1Impl(input, measure));
+  }
+
+  /**
+   * Every RPC entry runs under this count, because entries await external I/O
+   * and other events interleave meanwhile: storage is never released under a
+   * request still in flight (e.g. a create awaiting adapter registration).
+   * The last one out releases an Object that ended up holding no room.
+   */
+  private async entry<T>(run: () => Promise<T>): Promise<T> {
+    this.activeEntries += 1;
+    try {
+      return await run();
+    } finally {
+      this.activeEntries -= 1;
+      await this.releaseIfAbsent();
     }
+  }
+
+  private async applyAuthorityV1Impl(input: unknown) {
+    this.requireRoomId();
+    const authority = this.authority;
+    if (!authority) return { ok: false as const, error: "unavailable" };
+    const reply = await applyAuthorityEntry(authority, input, this.env);
+    this.enforceAuthoritySockets();
+    if (authority.state()) await this.scheduleAfterMembershipChange();
     return reply;
   }
 
-  /** Room key custody (plan 19); reads or writes no membership, so nothing to fence. */
-  async applyRoomKeyV1(input: unknown) {
-    this.requireChannelKey();
-    if (!this.authority) return { ok: false as const, error: "unavailable" };
-    return applyRoomKeyEntry(this.authority, input, this.env);
-  }
-
-  async enforceRetirementV1(input: {
+  private async enforceRetirementV1Impl(input: {
     command: LifecycleCommand;
     version: number;
     room: { roomId: string; action: "end-room" | "revoke-member" };
   }) {
-    this.requireChannelKey();
+    this.requireRoomId();
     const authority = this.authority;
     if (input.room.roomId !== authority?.roomId) throw new Error("wrong-room");
     const { lifecycleCommandSchema, authorityVersionSchema } =
@@ -272,7 +285,8 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       throw new Error("wrong-subject");
     await authority.retireSubject(command.target.subject, version);
     this.enforceAuthoritySockets();
-    if (!authority.state()) return "enforced" as const; // Durable tombstone prevents delayed creation.
+    // Nothing to enforce without a room; the web side refuses a delayed creation.
+    if (!authority.state()) return "enforced" as const;
     const delivery = new RoomDelivery(authority, new AdapterClient(this.env));
     await authority.work.drain(
       (job, _timeoutMs, signal) => delivery.deliver(job, signal),
@@ -284,8 +298,8 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       : ("pending" as const);
   }
 
-  async endAuthorityV1(operationId: string) {
-    this.requireChannelKey();
+  private async endAuthorityV1Impl(operationId: string) {
+    this.requireRoomId();
     const authority = this.authority;
     if (!authority?.state()) throw new Error("not-found");
     const current = authority.state()!;
@@ -325,8 +339,11 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     };
   }
 
-  async applySnapshotV1(request: Request, measure = false): Promise<Response> {
-    this.requireChannelKey();
+  private async applySnapshotV1Impl(
+    request: Request,
+    measure = false,
+  ): Promise<Response> {
+    this.requireRoomId();
     if (!this.authority) return closedJsonResponse(503, "unavailable");
     this.snapshotEntry ??= new SnapshotEntry(this.authority, this.env);
     const timings: PerformanceTimings | undefined = measure ? {} : undefined;
@@ -340,8 +357,8 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     return response;
   }
 
-  async applyAssetsV1(input: unknown, measure = false) {
-    this.requireChannelKey();
+  private async applyAssetsV1Impl(input: unknown, measure = false) {
+    this.requireRoomId();
     if (!this.authority) return { ok: false as const, error: "unavailable" };
     const timings: PerformanceTimings | undefined = measure ? {} : undefined;
     const start = performance.now();
@@ -357,18 +374,17 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
   }
 
   override async fetch(request: Request): Promise<Response> {
-    const channelKey = this.channelKey();
+    const roomId = this.roomId();
     // Fail closed when the Object was not addressed via getByName with a
-    // canonical RoomChannelKey — no anonymous or malformed identity may ever
+    // canonical roomId — no anonymous or malformed identity may ever
     // coordinate a room.
-    if (channelKey === undefined) {
+    if (roomId === undefined) {
       this.log.error("room.invalid_object_identity");
       return closedJsonResponse(500, "invalid-object-identity");
     }
     // The gateway forwards the parsed route identity, but the Object never
-    // trusts it: the derived key must equal this Object's own name.
-    const identity = readInternalSocketIdentity(request.headers);
-    if (identity?.channelKey !== channelKey) {
+    // trusts it: it must equal this Object's own name.
+    if (readInternalSocketRoomId(request.headers) !== roomId) {
       return closedJsonResponse(403, "identity-mismatch");
     }
     // Defense-in-depth re-check; the gateway already answered 426 publicly.
@@ -378,13 +394,11 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       });
     }
 
-    const formal =
-      request.headers.get(INTERNAL_AUTHORITY_SOCKET_HEADER) === "1";
     const room = this.authority?.state();
-    if (formal && (room?.state !== "ready" || room.denied))
+    if (room?.state !== "ready" || room.denied) {
+      await this.releaseIfAbsent();
       return closedJsonResponse(503, "authority-socket-unavailable");
-    if (!formal && room)
-      return closedJsonResponse(503, "authority-socket-unavailable");
+    }
 
     // Pending and total caps are enforced before the socket exists, so an
     // unauthenticated flood can never hold room slots for the join deadline.
@@ -425,11 +439,10 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // Object between them.
     this.ctx.acceptWebSocket(server);
     writeRoomSocketAttachment(server, {
-      v: formal ? 3 : 2,
+      v: 4,
       state: "pending",
       acceptedAt: now,
-      roomId: identity.roomId,
-      authGeneration: formal ? room!.auth_generation : identity.authGeneration,
+      roomId,
     });
     await this.ensureAlarmAtMost(now + this.joinTimeoutMs);
     return new Response(null, { status: 101, webSocket: client });
@@ -461,11 +474,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     // have been a member whose attachment was corrupted after it appeared in
     // an earlier snapshot, and a redundant full-membership notice is
     // harmless while a suppressed one leaves survivors a phantom peer.
-    if (
-      attachment === undefined ||
-      (attachment.state === "joined" &&
-        attachment.authGeneration === this.currentGeneration())
-    ) {
+    if (attachment === undefined || attachment.state === "joined") {
       this.broadcastPeers();
     }
     await this.scheduleAfterMembershipChange();
@@ -501,20 +510,19 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
 
   private async runAlarmPass(): Promise<void> {
     // Identity stays load-bearing in every entry point.
-    this.requireChannelKey();
+    this.requireRoomId();
     const authority = this.authority;
     if (authority) {
       await authority.expireInitialization();
-      if (authority.state()) {
-        this.enforceAuthoritySockets();
-        this.broadcastPeers();
-      }
+      if (authority.state()) this.enforceAuthoritySockets();
       const delivery = new RoomDelivery(authority, new AdapterClient(this.env));
       await authority.work.drain(
         (job, _timeoutMs, signal) => delivery.deliver(job, signal),
         () => authority.nextDeadline(),
       );
       await authority.repairProjections();
+      // Released storage must not be recreated by the socket pass below.
+      if (await this.releaseIfSettled(authority)) return;
     }
     // External delivery may consume the alarm budget; reap sockets against the current time.
     const now = Date.now();
@@ -564,101 +572,6 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     await this.scheduleAfterMembershipChange();
   }
 
-  /**
-   * Versioned control RPC; replaces the original identity probe.
-   * The gateway has already verified the control token; this method still
-   * re-validates everything it is about to act on: the command schema, and
-   * that the command's room/generation derive exactly this Object's name.
-   *
-   * Ordering is the crash contract (P2): the cutoff upsert commits durably
-   * first, then matching live sockets are closed from the attachment
-   * snapshot. A crash between the two leaves a state where every join below
-   * the cutoff is already refused, and resending the same command finishes
-   * the closes without widening any side effect.
-   */
-  async applyControlV1(
-    command: RoomControlCommandV1,
-  ): Promise<RoomControlResultV1> {
-    if (this.authority?.state()) throw new Error("authority-entry-required");
-    const channelKey = this.requireChannelKey();
-    // Runtime re-validation despite the static type: gateway and Object may
-    // skew across a rollout, and an RPC payload is still input. Unknown
-    // fields are stripped (never refused) so a newer gateway's optional
-    // additions keep working against this build.
-    const parsed = roomControlCommandV1Schema.safeParse(command);
-    if (!parsed.success) {
-      throw new ControlRejectedError("malformed-command");
-    }
-    const control = parsed.data;
-    this.ensureSchema();
-    if (
-      roomChannelKey(control.roomId, control.authGeneration) !== channelKey ||
-      control.authGeneration !== this.readMeta().authGeneration
-    ) {
-      throw new ControlRejectedError("channel-mismatch");
-    }
-
-    const now = Date.now();
-    const scope =
-      control.action === "end-room" ? "channel" : `member:${control.subject}`;
-    // Durable first, inside one transaction: the cutoff only ever moves
-    // forward (same merge rule as the relay's session registry), so replays,
-    // duplicates and out-of-order deliveries are all idempotent and an older
-    // control can never regress a newer cutoff.
-    const appliedRevision = this.ctx.storage.transactionSync(() => {
-      this.ensureSchema();
-      this.ctx.storage.sql.exec(
-        `INSERT INTO revocation_cutoffs(scope, revision, recorded_at_s)
-         VALUES (?, ?, ?)
-         ON CONFLICT(scope) DO UPDATE
-           SET revision = excluded.revision,
-               recorded_at_s = excluded.recorded_at_s
-           WHERE excluded.revision > revision`,
-        scope,
-        control.revision,
-        Math.floor(now / 1_000),
-      );
-      if (control.action === "end-room") {
-        this.ctx.storage.sql.exec(
-          "UPDATE room_meta SET room_ended = 1 WHERE id = 1",
-        );
-      }
-      return this.ctx.storage.sql
-        .exec<{ revision: number }>(
-          "SELECT revision FROM revocation_cutoffs WHERE scope = ?",
-          scope,
-        )
-        .one().revision;
-    });
-
-    // Close from the attachment snapshot, strictly below the *command's*
-    // revision (relay parity): sockets a newer revision authorized are left
-    // alone even when this call is a replayed older control.
-    let closed = 0;
-    for (const { ws, attachment } of this.joinedSockets()) {
-      if (attachment.tokenRevision >= control.revision) continue;
-      if (
-        control.action === "revoke-member" &&
-        attachment.subject !== control.subject
-      ) {
-        continue;
-      }
-      this.closeSocket(
-        ws,
-        control.action === "end-room"
-          ? RELAY_CLOSE_CODES.roomEnded
-          : RELAY_CLOSE_CODES.membershipRevoked,
-        control.action === "end-room" ? "room ended" : "membership revoked",
-      );
-      closed += 1;
-    }
-    if (closed > 0) this.broadcastPeers();
-    // The new cutoff is schedulable work of its own (its retirement), and an
-    // ended room may now be one sweep away from terminal cleanup.
-    await this.scheduleAfterMembershipChange();
-    return { appliedRevision, closed };
-  }
-
   private async handleSocketMessage(
     ws: WebSocket,
     message: string | ArrayBuffer,
@@ -669,26 +582,21 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
       return;
     }
-    if (
-      this.authority?.state() &&
-      (attachment.v !== 3 ||
-        (attachment.state === "joined" &&
-          !this.authorizedSocket(ws, attachment)))
-    ) {
+    if (!this.authority?.state()) {
       this.closeSocket(
         ws,
         RELAY_CLOSE_CODES.membershipRevoked,
         "authority access required",
       );
-      this.broadcastPeers();
       return;
     }
-    if (attachment.v === 3 && !this.authority?.state()) {
-      this.closeSocket(
-        ws,
-        RELAY_CLOSE_CODES.membershipRevoked,
-        "authority access required",
-      );
+    // Access is recomputed per frame, so a role or access change since the
+    // join closes the socket here at the latest.
+    if (
+      attachment.state === "joined" &&
+      !this.authorizedSocket(ws, attachment)
+    ) {
+      this.broadcastPeers();
       return;
     }
     if (typeof message !== "string") {
@@ -749,181 +657,6 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     await this.handleJoin(ws, control.roomId, control.token);
   }
 
-  private async handleJoin(
-    ws: WebSocket,
-    declaredRoomId: RoomId,
-    token: string,
-  ): Promise<void> {
-    const pending = readRoomSocketAttachment(ws);
-    if (pending?.v === 3) {
-      await this.handleAuthorityJoin(ws, declaredRoomId, token);
-      return;
-    }
-    const now = Date.now();
-    const secret = this.env.COLLAB_JOIN_TOKEN_SECRET;
-    try {
-      assertRoomTokenSecret(secret);
-    } catch {
-      // Server misconfiguration is the server's fault; say so honestly.
-      this.log.error("room.secret_not_ready");
-      this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
-      return;
-    }
-    // Verify the schema before reading durable cutoffs and cohort state.
-    this.ensureSchema();
-
-    // Authorization precedes every routing decision, and the generation comes
-    // from the verified token only — a client cannot steer a token into
-    // another generation's channel.
-    const verified = verifyJoinToken({
-      token,
-      secret,
-      nowSeconds: Math.floor(now / 1000),
-      expectedRoomId: declaredRoomId,
-    });
-    if (!verified.ok) {
-      // Reason goes in the close reason like the relay; no unverified client
-      // strings are ever logged.
-      this.closeSocket(
-        ws,
-        RELAY_CLOSE_CODES.unauthorized,
-        `join rejected: ${verified.reason}`,
-      );
-      return;
-    }
-    const { role, gen, sub, arev } = verified.claims;
-    const attachment = readRoomSocketAttachment(ws);
-    if (attachment?.state !== "pending") throw new Error("invalid-attachment");
-
-    // Token claims must land on exactly this Object: the canonical channel
-    // key derived from the *verified* claims has to equal ctx.id.name. A
-    // token for another room or generation presented on this route is an
-    // authorization failure, not a routing accident.
-    if (
-      roomChannelKey(verified.claims.rid, gen) !== this.requireChannelKey() ||
-      gen !== attachment.authGeneration
-    ) {
-      this.closeSocket(
-        ws,
-        RELAY_CLOSE_CODES.unauthorized,
-        "join rejected: wrong-channel",
-      );
-      return;
-    }
-
-    // Cutoff check before any state is created or acknowledged. The durable
-    // control path writes these rows; join-side enforcement ensures a
-    // racing control action can never miss an already-authorized socket).
-    if (this.isJoinRefusedByCutoff(sub, arev)) {
-      this.closeSocket(
-        ws,
-        RELAY_CLOSE_CODES.membershipRevoked,
-        "authorization was revoked after this token was issued",
-      );
-      return;
-    }
-
-    const currentGeneration = this.readMeta().authGeneration;
-    if (gen < currentGeneration) {
-      this.closeSocket(
-        ws,
-        RELAY_CLOSE_CODES.unauthorized,
-        "join rejected: stale-generation",
-      );
-      return;
-    }
-    if (gen > currentGeneration) {
-      // The validated issuer's generation is retained inside the same Object.
-      // P2 replaces this issuer path with explicit RoomAuthority rotation.
-      this.ctx.storage.sql.exec(
-        "UPDATE room_meta SET auth_generation=? WHERE id=1",
-        gen,
-      );
-      for (const member of this.joinedSockets()) {
-        this.closeSocket(
-          member.ws,
-          RELAY_CLOSE_CODES.roomEnded,
-          "encryption generation changed",
-        );
-      }
-    }
-
-    let members = this.joinedSockets();
-    if (members.length >= MAX_CONNECTIONS_PER_ROOM) {
-      // A join against a full room is one of the lazy liveness moments: reap
-      // dead peers first so "tab crashed, reconnect immediately" is never
-      // blocked by the crashed tab's zombie socket.
-      for (const member of members) {
-        if (this.livenessExpired(member.ws, member.attachment, now)) {
-          this.closeSocket(member.ws, 1001, "liveness timeout");
-        }
-      }
-      members = this.joinedSockets();
-      if (members.length >= MAX_CONNECTIONS_PER_ROOM) {
-        this.closeSocket(
-          ws,
-          RELAY_CLOSE_CODES.roomAtCapacity,
-          "room at capacity",
-        );
-        return;
-      }
-    }
-
-    // First joined socket of a cohort mints the next epoch above the retained
-    // high-water inside one SQLite transaction; later joiners share it. An
-    // empty room never resets to 1 — the high-water survives until storage is
-    // legitimately deleted (see the alarm's cleanup gate).
-    const roomEpoch = this.acquireEpoch(members.length === 0);
-
-    const peerId = peerIdSchema.parse(`peer-${crypto.randomUUID()}`);
-    const joinedAttachment: JoinedSocketAttachment = {
-      v: 2,
-      state: "joined",
-      peerId,
-      subject: sub,
-      role,
-      tokenRevision: arev,
-      roomEpoch,
-      authGeneration: gen,
-      joinedAt: now,
-      // The idle budget starts at the join, not at the first frame: a socket
-      // that joins and then says nothing is exactly the case it bounds.
-      lastFrameAt: now,
-    };
-    // Serialized before the acknowledgment, so a control action racing this
-    // join finds the socket in the attachments rather than missing an
-    // already-authorized member.
-    writeRoomSocketAttachment(ws, joinedAttachment);
-    await this.ensureAlarmAtMost(
-      now + ROOM_IDLE_TIMEOUT_MS + LAST_FRAME_PERSIST_QUANTUM_MS,
-    );
-
-    const peers = this.currentPeers();
-    ws.send(
-      encodeRelayControl({
-        control: "joined",
-        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
-        roomId: verified.claims.rid,
-        peerId: joinedAttachment.peerId,
-        roomGeneration: roomEpoch,
-        role,
-        peers,
-      }),
-    );
-    // Existing members learn about the joiner here; the joiner already has
-    // the same snapshot in its acknowledgment.
-    this.broadcastPeers(ws);
-    // The session record: verified identifiers and bounded enums only. The
-    // token subject never lands in a log (threat model §5).
-    this.log.info("room.session_joined", {
-      roomId: verified.claims.rid,
-      authGeneration: gen,
-      peerId,
-      role,
-      members: peers.length,
-    });
-  }
-
   private handleBinaryFrame(
     ws: WebSocket,
     attachment: RoomSocketAttachment,
@@ -937,17 +670,9 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       );
       return;
     }
-    if (attachment.authGeneration !== this.currentGeneration()) {
-      this.closeSocket(
-        ws,
-        RELAY_CLOSE_CODES.roomEnded,
-        "encryption generation changed",
-      );
-      return;
-    }
     const now = Date.now();
-    // Shared frame parser and channel-size arithmetic; the payload stays
-    // opaque E2EE ciphertext the Object cannot decrypt.
+    // Shared frame parser and channel-size arithmetic; the payload is routed
+    // without decoding.
     const dataFrame = decodeRelayDataFrame(frame);
     if (!dataFrame) {
       this.closeSocket(
@@ -1099,56 +824,64 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     return members;
   }
 
-  private currentGeneration(): number {
-    return (
-      this.authority?.state()?.auth_generation ?? this.readMeta().authGeneration
-    );
-  }
-
-  /** Attachment identity survives hibernation; role copies never authorize formal traffic. */
+  /**
+   * Attachment identity survives hibernation; the role copy is valid only
+   * while authority still computes the same role. Lost access closes as
+   * revoked (or ended); a different role closes as `roleChanged` so the
+   * client rejoins with it.
+   */
   private authorizedSocket(
     ws: WebSocket,
     attachment: JoinedSocketAttachment,
   ): boolean {
     const room = this.authority?.state();
-    if (!room) return attachment.v === 2;
-    let allowed = false;
+    if (!room) return false;
+    let role: RoomRole | undefined;
     try {
-      allowed =
-        attachment.v === 3 &&
-        attachment.authGeneration === room.auth_generation &&
-        this.authority!.role({
-          subject: attachment.subject,
-          email: attachment.email,
-          lifecycleVersion: attachment.lifecycleVersion,
-        }) === attachment.role;
+      role = this.authority!.role({
+        subject: attachment.subject,
+        email: attachment.email,
+        lifecycleVersion: attachment.lifecycleVersion,
+      });
     } catch {
       /* retired or stale identity fails closed */
     }
-    if (!allowed)
-      this.closeSocket(
-        ws,
-        room.state === "ended"
-          ? RELAY_CLOSE_CODES.roomEnded
+    if (role === attachment.role) return true;
+    this.closeSocket(
+      ws,
+      room.state === "ended"
+        ? RELAY_CLOSE_CODES.roomEnded
+        : role
+          ? RELAY_CLOSE_CODES.roleChanged
           : RELAY_CLOSE_CODES.membershipRevoked,
-        "authority access changed",
-      );
-    return allowed;
+      "authority access changed",
+    );
+    return false;
   }
 
+  /**
+   * Re-checks every socket against current access and closes the ones it no
+   * longer admits. Survivors hear about it only when a member actually left,
+   * so a management command or alarm that changed nothing sends nothing.
+   */
   private enforceAuthoritySockets(): void {
     const room = this.authority?.state();
     if (!room) return;
+    let membersClosed = false;
     for (const ws of this.ctx.getWebSockets()) {
       const attachment = readRoomSocketAttachment(ws);
-      if (attachment?.state === "joined") {
-        this.authorizedSocket(ws, attachment);
-      } else if (
-        attachment?.v !== 3 ||
-        room.state !== "ready" ||
-        room.denied ||
-        attachment.authGeneration !== room.auth_generation
-      ) {
+      if (attachment === undefined) {
+        // Unreadable is this Object's own failure, not an access decision;
+        // it may have been a member, so survivors get a corrected list.
+        if (ws.readyState === SOCKET_OPEN) membersClosed = true;
+        this.closeSocket(ws, RELAY_CLOSE_CODES.internalError, "internal error");
+      } else if (attachment.state === "joined") {
+        if (
+          ws.readyState === SOCKET_OPEN &&
+          !this.authorizedSocket(ws, attachment)
+        )
+          membersClosed = true;
+      } else if (room.state !== "ready" || room.denied) {
         this.closeSocket(
           ws,
           room.state === "ended"
@@ -1158,9 +891,10 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
         );
       }
     }
+    if (membersClosed) this.broadcastPeers();
   }
 
-  private async handleAuthorityJoin(
+  private async handleJoin(
     ws: WebSocket,
     roomId: RoomId,
     proof: string,
@@ -1213,12 +947,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       Date.now() + ROOM_IDLE_TIMEOUT_MS + LAST_FRAME_PERSIST_QUANTUM_MS,
     );
     const pending = readRoomSocketAttachment(ws);
-    if (
-      ws.readyState !== SOCKET_OPEN ||
-      pending?.state !== "pending" ||
-      pending.v !== 3
-    )
-      return;
+    if (ws.readyState !== SOCKET_OPEN || pending?.state !== "pending") return;
     if (
       Date.now() - pending.acceptedAt >= this.joinTimeoutMs ||
       verified.claims.exp * 1000 <= Date.now()
@@ -1230,14 +959,13 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       );
       return;
     }
-    const room = authority.state()!;
     let role: RoomRole | undefined;
     try {
       role = authority.role(identity);
     } catch {
       /* lifecycle changed during I/O */
     }
-    if (!role || pending.authGeneration !== room.auth_generation) {
+    if (!role) {
       this.closeSocket(
         ws,
         RELAY_CLOSE_CODES.membershipRevoked,
@@ -1262,14 +990,12 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     }
     const now = Date.now();
     const attachment: JoinedSocketAttachment = {
-      v: 3,
+      v: 4,
       state: "joined",
       peerId: peerIdSchema.parse(`peer-${crypto.randomUUID()}`),
       subject: identity.subject,
       role,
-      tokenRevision: room.auth_revision,
       roomEpoch: this.acquireEpoch(members.length === 0),
-      authGeneration: room.auth_generation,
       joinedAt: now,
       lastFrameAt: now,
       email: identity.email,
@@ -1291,7 +1017,6 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     this.broadcastPeers(ws);
     this.log.info("room.session_joined", {
       roomId,
-      authGeneration: room.auth_generation,
       peerId: attachment.peerId,
       role,
       members: peers.length,
@@ -1379,20 +1104,12 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
 
   /**
    * Re-derives the next deadline after membership changed (a close, or an
-   * alarm pass). When nothing is left to wait for and the channel can never
-   * be legally rejoined, storage is deleted so the empty Object stops costing
-   * anything at all.
+   * alarm pass). When nothing is left to wait for, the alarm is cleared.
    */
   private async scheduleAfterMembershipChange(): Promise<void> {
-    const now = Date.now();
     // Bootstrap first: this runs from close events too, which may arrive
     // after this same instance deleted its storage.
     this.ensureSchema();
-    // Idempotent cleanup: cutoffs past the token horizon carry no
-    // information (and member cutoffs carry a subject id), so they are
-    // deleted here — on every scheduler pass, occupied room or not — rather
-    // than lingering until the room empties.
-    this.sweepRetiredCutoffs(now);
     const sockets = this.ctx.getWebSockets();
 
     let next: number | undefined;
@@ -1412,23 +1129,25 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
           LAST_FRAME_PERSIST_QUANTUM_MS,
       );
     }
-    // Cutoff retirement is schedulable work of its own, independent of
-    // sockets: when the earliest one fires, the sweep above removes it and
-    // this recomputation moves on to the next.
-    const cutoffRetirementMs = this.earliestCutoffRetirementMs();
-    if (cutoffRetirementMs !== undefined) consider(cutoffRetirementMs);
     const workDeadline = this.authority?.work.nextDeadline();
     if (workDeadline !== undefined) consider(workDeadline);
     const initializationDeadline = this.authority?.nextDeadline();
     if (initializationDeadline !== undefined) consider(initializationDeadline);
 
-    // No room TTL and no storage deletion: epoch and terminal authority survive empty cohorts.
+    // An ended room keeps one alarm until it has settled and released its
+    // storage (`releaseIfSettled`); a live room has no TTL.
+    if (this.authorityCache?.state()?.state === "ended")
+      consider(Date.now() + 60_000);
     if (next !== undefined) await this.ensureAlarmAtMost(next);
-    else await this.ctx.storage.deleteAlarm();
+    else {
+      await this.ctx.storage.deleteAlarm();
+      // A late close event after release just rebuilt the schema above.
+      if (sockets.length === 0) await this.releaseIfAbsent();
+    }
   }
 
   // ---------------------------------------------------------------------
-  // SQLite state: schema version, epoch high-water, crypto generation, cutoffs
+  // SQLite state: schema version and epoch high-water
   // ---------------------------------------------------------------------
 
   /**
@@ -1441,9 +1160,7 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       `CREATE TABLE IF NOT EXISTS room_meta(
          id INTEGER PRIMARY KEY CHECK (id = 1),
          schema_version INTEGER NOT NULL,
-         room_epoch INTEGER NOT NULL,
-         auth_generation INTEGER NOT NULL DEFAULT 1,
-         room_ended INTEGER NOT NULL DEFAULT 0
+         room_epoch INTEGER NOT NULL
        )`,
     );
     // Code-version skew check FIRST, before the seed statement:
@@ -1457,42 +1174,23 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
       )
       .toArray()[0]?.schema_version;
     if (storedVersion !== undefined && storedVersion !== ROOM_SCHEMA_VERSION) {
-      // Typed as a deterministic rejection: on the control RPC path the
-      // gateway must answer it non-retryably (only a roll-forward cures it);
-      // every other caller fails closed on any throw regardless of type.
-      throw new ControlRejectedError("schema-skew");
+      // Every caller fails closed on this throw; only a roll-forward cures it.
+      throw new Error("schema-skew");
     }
     this.ctx.storage.sql.exec(
-      `INSERT OR IGNORE INTO room_meta(id, schema_version, room_epoch, room_ended)
-       VALUES (1, ?, 0, 0)`,
+      `INSERT OR IGNORE INTO room_meta(id, schema_version, room_epoch)
+       VALUES (1, ?, 0)`,
       ROOM_SCHEMA_VERSION,
-    );
-    this.ctx.storage.sql.exec(
-      `CREATE TABLE IF NOT EXISTS revocation_cutoffs(
-         scope TEXT PRIMARY KEY,
-         revision INTEGER NOT NULL,
-         recorded_at_s INTEGER NOT NULL
-       )`,
     );
   }
 
   private readMeta(): RoomMeta {
     const row = this.ctx.storage.sql
-      .exec<{
-        schema_version: number;
-        room_epoch: number;
-        auth_generation: number;
-        room_ended: number;
-      }>(
-        "SELECT schema_version, room_epoch, auth_generation, room_ended FROM room_meta WHERE id = 1",
+      .exec<{ schema_version: number; room_epoch: number }>(
+        "SELECT schema_version, room_epoch FROM room_meta WHERE id = 1",
       )
       .one();
-    return {
-      schemaVersion: row.schema_version,
-      roomEpoch: row.room_epoch,
-      authGeneration: row.auth_generation,
-      roomEnded: row.room_ended !== 0,
-    };
+    return { schemaVersion: row.schema_version, roomEpoch: row.room_epoch };
   }
 
   /**
@@ -1515,67 +1213,63 @@ export class CollaborationRoom extends DurableObject<CollaborationRoomEnv> {
     });
   }
 
-  /**
-   * Join-time revocation check against the durable cutoffs. `applyControlV1`
-   * writes them (durably, before it closes anything), so a join racing a
-   * control action can never slip past a committed revocation.
-   */
-  private isJoinRefusedByCutoff(
-    subject: string,
-    tokenRevision: number,
-  ): boolean {
-    const rows = this.ctx.storage.sql
-      .exec<{ revision: number }>(
-        "SELECT revision FROM revocation_cutoffs WHERE scope = 'channel' OR scope = ?",
-        `member:${subject}`,
-      )
-      .toArray();
-    return (
-      this.readMeta().roomEnded ||
-      rows.some((row) => tokenRevision < row.revision)
-    );
-  }
+  // ---------------------------------------------------------------------
+  // Storage release: an Object keeps nothing once it has nothing to keep
+  // ---------------------------------------------------------------------
 
   /**
-   * Deletes cutoffs no unexpired token could still be below — the durable
-   * counterpart of the relay session registry's sweep. Runs on every
-   * scheduler pass so retired rows (member scopes carry a subject id) never
-   * outlive the token horizon just because the room stays occupied.
+   * An ended room whose fence and cleanup have been delivered (or abandoned)
+   * holds no information anyone still needs: the web side keeps the ended
+   * record, and its sockets are gone. Deleting everything stops all storage
+   * and alarm cost for good. Also covers an Object with no room at all.
    */
-  private sweepRetiredCutoffs(nowMs: number): void {
-    this.ctx.storage.sql.exec(
-      "DELETE FROM revocation_cutoffs WHERE recorded_at_s + ? <= ?",
-      CUTOFF_RETENTION_SECONDS,
-      Math.floor(nowMs / 1_000),
-    );
-  }
-
-  /** Earliest instant a remaining cutoff retires, or undefined when none. */
-  private earliestCutoffRetirementMs(): number | undefined {
-    const rows = this.ctx.storage.sql
-      .exec<{ recorded_at_s: number }>(
-        "SELECT recorded_at_s FROM revocation_cutoffs",
+  private async releaseIfSettled(authority: RoomAuthority): Promise<boolean> {
+    const room = authority.state();
+    if (room) {
+      // An undelivered fence or cleanup is still queued work (until abandoned).
+      if (
+        room.state !== "ended" ||
+        room.projection_dirty ||
+        authority.work.pending() > 0
       )
-      .toArray();
-    if (rows.length === 0) return undefined;
-    const earliest = Math.min(...rows.map((row) => row.recorded_at_s));
-    return (earliest + CUTOFF_RETENTION_SECONDS) * 1_000;
+        return false;
+    }
+    if (this.activeEntries > 0 || this.ctx.getWebSockets().length > 0)
+      return false;
+    await this.releaseStorage();
+    if (room) this.log.info("room.storage_released", { roomId: room.room_id });
+    return true;
   }
 
-  private channelKey(): RoomChannelKey | undefined {
+  /**
+   * A request that leaves no room behind (never created, a failed create, or
+   * a stray call after release) must not leave the schema it created either.
+   */
+  private async releaseIfAbsent(): Promise<void> {
+    const authority = this.authority;
+    if (!authority || authority.state()) return;
+    await this.releaseIfSettled(authority);
+  }
+
+  private async releaseStorage(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.authorityCache = undefined;
+    this.snapshotEntry = undefined;
+  }
+
+  private roomId(): RoomId | undefined {
     const name = this.ctx.id.name;
     if (name === undefined) return undefined;
-    const parsed = roomChannelKeySchema.safeParse(name);
+    const parsed = roomIdSchema.safeParse(name);
     return parsed.success ? parsed.data : undefined;
   }
 
-  private requireChannelKey(): RoomChannelKey {
-    const key = this.channelKey();
-    if (key === undefined) {
-      throw new Error(
-        "CollaborationRoom requires a canonical RoomChannelKey name",
-      );
+  private requireRoomId(): RoomId {
+    const roomId = this.roomId();
+    if (roomId === undefined) {
+      throw new Error("CollaborationRoomV2 requires a canonical roomId name");
     }
-    return key;
+    return roomId;
   }
 }

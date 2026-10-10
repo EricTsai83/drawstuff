@@ -52,6 +52,12 @@ vi.mock("@/server/db/index", () => ({ db: testDb }));
 import { eq } from "drizzle-orm";
 
 import * as schema from "@/server/db/schema";
+import { applyStorageFence } from "@/server/collab/authority-storage";
+import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+import {
+  NO_ROOM_RECORDS,
+  endedRoomRecords,
+} from "./support/authority-adapter-fixtures";
 import { registerTestDatabase } from "./support/pglite-db";
 import {
   createExpiredSharedScenesJob,
@@ -596,7 +602,7 @@ describe("collab room retention", () => {
   async function insertRoom(params: {
     roomId: string;
     status: "ready" | "ended";
-    storageState?: "ended";
+    storageState?: "ready" | "ended";
     endedAt?: Date;
   }) {
     const sceneId = await insertScene(null);
@@ -614,10 +620,8 @@ describe("collab room retention", () => {
   const insertSnapshot = (roomId: string, byteLength = 8) =>
     testDb.insert(schema.collaborationSnapshot).values({
       roomId,
-      authGeneration: 1,
       revision: 1,
-      cryptoVersion: 1,
-      ciphertext: new Uint8Array(byteLength),
+      data: new Uint8Array(byteLength),
       byteLength,
       checksum: "c".repeat(64),
     });
@@ -625,9 +629,7 @@ describe("collab room retention", () => {
   const insertAsset = (roomId: string, fileId: string, utFileKey: string) =>
     testDb.insert(schema.collaborationAsset).values({
       roomId,
-      authGeneration: 1,
       excalidrawFileId: fileId,
-      cryptoVersion: 1,
       utFileKey,
       url: `https://files.example/${utFileKey}`,
       byteLength: 16,
@@ -702,6 +704,152 @@ describe("collab room retention", () => {
     // Idempotent: the swept room no longer holds data, so a rerun finds nothing.
     const second = await createRoomRetentionJob().run(deps);
     expect(second).toMatchObject({ roomsReclaimed: 0, enqueuedObjects: 0 });
+  });
+
+  it("reclaims a room once either its projection or its storage fence has ended", async () => {
+    const endedAt = new Date(Date.now() - 8 * DAY_MS);
+    // Room may abandon an undelivered terminal fence, so status alone is final.
+    await insertRoom({
+      roomId: "room-status-ended",
+      status: "ended",
+      storageState: "ready",
+      endedAt,
+    });
+    await insertRoom({
+      roomId: "room-storage-ended",
+      status: "ready",
+      storageState: "ended",
+      endedAt,
+    });
+    for (const roomId of ["room-status-ended", "room-storage-ended"]) {
+      await insertSnapshot(roomId);
+      await insertAsset(roomId, FILE_A, `${roomId}-key`);
+    }
+
+    const { deps } = makeDeps();
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 2,
+      enqueuedObjects: 2,
+    });
+    for (const roomId of ["room-status-ended", "room-storage-ended"]) {
+      expect(await snapshotCount(roomId)).toBe(0);
+      expect(await assetCount(roomId)).toBe(0);
+    }
+  });
+
+  it("measures the grace period from a terminal fence, not from an old update", async () => {
+    await insertRoom({ roomId: "room-fenced-now", status: "ready" });
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ updatedAt: new Date(0) })
+      .where(eq(schema.collaborationRoom.roomId, "room-fenced-now"));
+    await insertSnapshot("room-fenced-now");
+    await applyStorageFence(testDb as unknown as Database, {
+      v: 1,
+      action: "fence",
+      roomId: roomIdSchema.parse("room-fenced-now"),
+      authorityEpoch: 2,
+      state: "ended",
+    });
+
+    const { deps } = makeDeps();
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 0,
+    });
+    expect(await snapshotCount("room-fenced-now")).toBe(1);
+  });
+
+  it("purges an ended room that holds only per-person records and a name", async () => {
+    await insertRoom({
+      roomId: "room-records-only",
+      status: "ended",
+      endedAt: new Date(Date.now() - 8 * DAY_MS),
+    });
+    await testDb
+      .update(schema.collaborationRoom)
+      .set({ label: "Secret plans" })
+      .where(eq(schema.collaborationRoom.roomId, "room-records-only"));
+    await testDb.insert(schema.collaborationRoomMember).values({
+      roomId: "room-records-only",
+      userId: OWNER,
+      role: "owner",
+      access: "owned",
+    });
+    await testDb.insert(schema.collaborationRoomInvite).values({
+      roomId: "room-records-only",
+      emailKey: "invitee@example.com",
+      role: "editor",
+      projectionVersion: 2,
+      listedAt: new Date(),
+    });
+
+    const { deps } = makeDeps();
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 1,
+      deletedSnapshots: 0,
+      enqueuedObjects: 0,
+    });
+    expect(
+      await endedRoomRecords(
+        testDb as unknown as Database,
+        "room-records-only",
+      ),
+    ).toEqual(NO_ROOM_RECORDS);
+    expect(await roomRow("room-records-only")).toMatchObject({
+      status: "ended",
+      label: "",
+    });
+    // Idempotent: nothing is left to purge.
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 0,
+    });
+  });
+
+  it("purges an ended room holding only tombstones, receipts and registrations", async () => {
+    const roomId = "room-receipts-only";
+    await insertRoom({
+      roomId,
+      status: "ended",
+      endedAt: new Date(Date.now() - 8 * DAY_MS),
+    });
+    await testDb
+      .insert(schema.collaborationProjectionTombstone)
+      .values({ roomId, subject: "someone-gone", version: 3 });
+    await testDb.insert(schema.collaborationOperation).values({
+      operationId: crypto.randomUUID(),
+      roomId,
+      actor: OWNER,
+      kind: "snapshot-put",
+      authorityEpoch: 1,
+      expectedRevision: 0,
+      checksum: "a".repeat(64),
+      requestFingerprint: "b".repeat(64),
+      deadline: new Date(),
+      status: "written",
+      revision: 1,
+      terminalAt: new Date(),
+    });
+    await testDb.insert(schema.collaborationLifecycleRegistration).values({
+      subject: OWNER,
+      roomId,
+      owner: true,
+      lifecycleVersion: 1,
+      operationId: crypto.randomUUID(),
+    });
+
+    const { deps } = makeDeps();
+    expect(
+      await createRoomRetentionJob({ dryRun: true }).run(deps),
+    ).toMatchObject({ roomsReclaimable: 1 });
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 1,
+    });
+    expect(
+      await endedRoomRecords(testDb as unknown as Database, roomId),
+    ).toEqual(NO_ROOM_RECORDS);
+    expect(await createRoomRetentionJob().run(deps)).toMatchObject({
+      roomsReclaimed: 0,
+    });
   });
 
   it("reports a dry run without ending or reclaiming anything", async () => {
@@ -942,9 +1090,7 @@ describe("user purge", () => {
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-intruder",
-      authGeneration: 1,
       excalidrawFileId: FILE_B,
-      cryptoVersion: 1,
       utFileKey: "room-key-x",
       url: "https://files.example/room-key-x",
       byteLength: 16,

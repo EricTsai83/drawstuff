@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import {
   env,
   runInDurableObject,
@@ -11,12 +12,11 @@ import {
   type AssetUploadIntent,
   type TrustedIdentity,
 } from "@drawstuff/collaboration/authority";
+import { encodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset";
 import {
-  ASSET_CRYPTO_VERSION,
-  MIN_ASSET_CIPHERTEXT_BYTES,
-} from "@drawstuff/collaboration/asset";
-import { KEYCHECK_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/keycheck";
-import { roomIdSchema } from "@drawstuff/collaboration/protocol";
+  COLLABORATION_PROTOCOL_VERSION,
+  roomIdSchema,
+} from "@drawstuff/collaboration/protocol";
 import { signIdentityProof } from "@drawstuff/collaboration/room-token";
 import { RoomAuthority } from "../src/room-authority.ts";
 import { AdapterClient } from "../src/adapter-client.ts";
@@ -38,9 +38,19 @@ const config: Env = {
 };
 const fileId = "a".repeat(40);
 const checksum = "a".repeat(64);
+const digest = (bytes: Uint8Array) =>
+  createHash("sha256").update(bytes).digest("hex");
 afterEach(() => vi.restoreAllMocks());
 function fixture() {
   const roomId = roomIdSchema.parse(`asset-${crypto.randomUUID()}`);
+  // UploadThing stores the encoded payload as is; the intent describes those bytes.
+  const payload = encodeCollaborationAssetPayload({
+    roomId,
+    excalidrawFileId: fileId,
+    mimeType: "image/png",
+    dataUrl: "data:image/png;base64,iVBORw0KGgo=",
+  });
+  if (!payload.ok) throw new Error(payload.error.code);
   const envelope = {
     v: 1 as const,
     roomId,
@@ -50,19 +60,16 @@ function fixture() {
   const intent: AssetUploadIntent = {
     ...envelope,
     kind: "asset-finalize",
-    authGeneration: 1,
     authorityEpoch: 1,
     expectedRevision: 0,
-    checksum,
+    checksum: digest(payload.bytes),
     excalidrawFileId: fileId,
-    cryptoVersion: ASSET_CRYPTO_VERSION,
-    byteLength: MIN_ASSET_CIPHERTEXT_BYTES,
+    byteLength: payload.bytes.byteLength,
   };
   const asset = {
     excalidrawFileId: fileId,
-    cryptoVersion: ASSET_CRYPTO_VERSION,
     byteLength: intent.byteLength,
-    url: "https://storage.test/ciphertext",
+    url: "https://storage.test/asset",
     utFileKey: "provider-key",
   };
   const proof = (actor = owner) => {
@@ -71,7 +78,7 @@ function fixture() {
       {
         v: 1,
         aud: "drawstuff-room-identity",
-        protocolVersion: 6,
+        protocolVersion: COLLABORATION_PROTOCOL_VERSION,
         roomId,
         identity: actor,
         jti: crypto.randomUUID(),
@@ -108,20 +115,7 @@ async function initialized(
     });
     await a.confirmParent(f.envelope.operationId);
     if (ready) {
-      await a.apply({
-        ...f.envelope,
-        actor: owner,
-        operationId: crypto.randomUUID(),
-        action: "set-key-check",
-        expectedGeneration: 1,
-        keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
-      });
-      const manifest = {
-        authGeneration: 1,
-        revision: 1,
-        checksum,
-        assetIds: [],
-      };
+      const manifest = { revision: 1, checksum, assetIds: [] };
       const complete = {
         ...f.envelope,
         actor: owner,
@@ -229,7 +223,7 @@ describe("Room attachment authority", () => {
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({
       ok: true,
-      result: { status: "authorized", authGeneration: 1 },
+      result: { status: "authorized", authorityEpoch: 1 },
     });
   });
   it("permits owner presign in initialization without accepting or staging content", async () => {
@@ -244,6 +238,44 @@ describe("Room attachment authority", () => {
       });
       expect(a.contentResult(f.intent.operationId)).toBeUndefined();
       expect(fetch).toHaveBeenCalledTimes(1);
+    });
+  });
+  it("prepares and finalizes a plain payload descriptor that carries no crypto version", async () => {
+    const f = fixture();
+    const commands = adapter();
+    await initialized(f, async (a) => {
+      expect(await call(a, f, { action: "prepare", intent: f.intent })).toEqual(
+        {
+          ok: true,
+          result: { status: "authorized", authorityEpoch: 1 },
+        },
+      );
+      expect(await call(a, f, finalize(f))).toEqual({
+        ok: true,
+        result: { status: "written", revision: 1 },
+      });
+      const write = commands.mock.calls
+        .map(([, init]) =>
+          adapterCommandSchema.parse(JSON.parse(jsonBody(init)) as unknown),
+        )
+        .find((command) => command.action === "write");
+      expect(write?.action === "write" && write.operation.asset).toEqual(
+        f.asset,
+      );
+      // The strict contract refuses a legacy crypto field outright.
+      expect(
+        await applyAssetEntry(
+          a,
+          {
+            proof: f.proof(),
+            request: {
+              action: "prepare",
+              intent: { ...f.intent, cryptoVersion: 1 },
+            },
+          },
+          config,
+        ),
+      ).toEqual({ ok: false, error: "malformed" });
     });
   });
   it("refuses a non-owner during initialization", async () => {
@@ -267,7 +299,7 @@ describe("Room attachment authority", () => {
       async (a) => {
         expect(await call(a, f, read(f), guest)).toMatchObject({
           ok: true,
-          result: { authGeneration: 1, missing: [] },
+          result: { roomId: f.roomId, missing: [] },
         });
         expect(
           await call(a, f, { action: "prepare", intent: f.intent }, guest),
@@ -304,20 +336,8 @@ describe("Room attachment authority", () => {
           asset: { ...f.asset, utFileKey: "replacement" },
         }),
       ).toEqual({ ok: false, error: "operation-mismatch" });
-      await a.apply({
-        ...f.envelope,
-        operationId: crypto.randomUUID(),
-        actor: owner,
-        action: "set-key-check",
-        expectedGeneration: 1,
-        keyCheck: new Uint8Array(KEYCHECK_CIPHERTEXT_BYTES),
-      });
-      const manifest = {
-        authGeneration: 1,
-        revision: 1,
-        checksum,
-        assetIds: [fileId],
-      };
+      // Completing initialization needs no key check: snapshot and assets only.
+      const manifest = { revision: 1, checksum, assetIds: [fileId] };
       const complete = {
         ...f.envelope,
         operationId: crypto.randomUUID(),
@@ -477,11 +497,9 @@ describe("Room attachment authority", () => {
           ok: true,
           result: {
             roomId: f.roomId,
-            authGeneration: 1,
             assets: [
               {
                 excalidrawFileId: fileId,
-                cryptoVersion: f.asset.cryptoVersion,
                 byteLength: f.asset.byteLength,
                 url: f.asset.url,
               },
@@ -493,7 +511,7 @@ describe("Room attachment authority", () => {
       true,
     );
   });
-  it("withholds discovered URLs when a generation rotates during storage I/O", async () => {
+  it("withholds discovered URLs when the authority epoch moves during storage I/O", async () => {
     const f = fixture();
     await initialized(
       f,
@@ -504,9 +522,11 @@ describe("Room attachment authority", () => {
           await a.apply({
             ...f.envelope,
             operationId: crypto.randomUUID(),
+            deadline: Date.now() + 55_000,
             actor: owner,
-            action: "rotate-generation",
-            expectedGeneration: 1,
+            // Removing an invitation always fences (moves the epoch).
+            action: "remove-email",
+            email: "someone-else@example.com",
           });
           return Response.json({
             assets: [{ ...f.asset, utFileKey: undefined }],
@@ -514,13 +534,13 @@ describe("Room attachment authority", () => {
         });
         expect(await call(a, f, read(f))).toEqual({
           ok: false,
-          error: "generation-mismatch",
+          error: "epoch-mismatch",
         });
       },
       true,
     );
   });
-  it("rejects mismatched descriptors and expired/wrong-generation presign before writing", async () => {
+  it("rejects mismatched descriptors and expired/wrong-epoch presign before writing", async () => {
     const f = fixture();
     adapter();
     await initialized(f, async (a) => {
@@ -534,9 +554,9 @@ describe("Room attachment authority", () => {
       expect(
         await call(a, f, {
           action: "prepare",
-          intent: { ...f.intent, authGeneration: 2 },
+          intent: { ...f.intent, authorityEpoch: 2 },
         }),
-      ).toEqual({ ok: false, error: "generation-mismatch" });
+      ).toEqual({ ok: false, error: "epoch-mismatch" });
       expect(
         await call(a, f, {
           action: "prepare",

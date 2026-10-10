@@ -38,7 +38,6 @@ vi.mock("@/server/collab/asset-authority", () => ({
     return {
       result: {
         roomId: request.roomId,
-        authGeneration: 1,
         assets: [],
         missing: request.fileIds,
       },

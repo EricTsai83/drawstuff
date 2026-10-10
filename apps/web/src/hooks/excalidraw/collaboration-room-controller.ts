@@ -1,6 +1,6 @@
 /**
- * React-free orchestration of one collaboration room join: room lookup and key
- * check, canvas handoff, token exchange, canvas claim, session start, and the
+ * React-free orchestration of one collaboration room join: room lookup, canvas
+ * handoff, token exchange, canvas claim, session start, and the
  * matching teardown. `useCollaborationRoom` owns the React side — reducer
  * state, refs, and the effect lifetime — and drives this through
  * `start()`/`stop()`. Every dependency that React would otherwise capture in a
@@ -13,14 +13,9 @@ import {
   isCanvasInitializedForRoom,
 } from "@/lib/collab/initialized-room-handoff";
 import { toast } from "sonner";
-import {
-  snapshotReadRequest,
-  SnapshotHttpError,
-} from "@/lib/collab/snapshot-http";
+import { snapshotReadRequest } from "@/lib/collab/snapshot-http";
 
-import { verifyRoomKeyCheck } from "@drawstuff/collaboration/keycheck";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
-import type { RoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 
 import type { CanvasHandoffOutcome } from "@/hooks/excalidraw/use-canvas-handoff";
@@ -35,17 +30,18 @@ import {
   FAILURE_MESSAGE_KEY,
   JOIN_RATE_LIMITED_MESSAGE_KEY,
   JOIN_RETRYABLE_MESSAGE_KEY,
-  MISSING_KEY_CHECK_MESSAGE_KEY,
   sceneSyncBlockMessage,
   UNREADABLE_ASSETS_MESSAGE_KEY,
-  WRONG_KEY_LINK_MESSAGE_KEY,
 } from "@/lib/collab/collaboration-messages";
 import type { JoinCredentialsResult } from "@/lib/collab/collaboration-session";
 import {
   classifyJoinFailure,
   joinWithRateLimitRetry,
 } from "@/lib/collab/join-failure";
-import type { RoomStateAction } from "@/lib/collab/room-state-reducer";
+import {
+  toCollaborationFailureReason,
+  type RoomStateAction,
+} from "@/lib/collab/room-state-reducer";
 import {
   startCollaborationRoomSession,
   toCollaborationUsername,
@@ -68,13 +64,10 @@ type RoomJoin = Awaited<
  * controller stays testable with four plain functions.
  */
 type CollaborationRoomBackend = {
-  /** Live Room metadata and its encrypted key check; never a DB role projection. */
+  /** Live Room metadata; never a DB role projection. */
   getRoom: (input: { roomId: RoomId }) => Promise<RoomLookup>;
   /** Gets a fresh identity proof; the socket grants the current Room role. */
-  joinRoom: (input: {
-    roomId: RoomId;
-    authGeneration?: number;
-  }) => Promise<RoomJoin>;
+  joinRoom: (input: { roomId: RoomId }) => Promise<RoomJoin>;
   snapshotApi: RoomSessionOptions["snapshotApi"];
   assetApi: RoomSessionOptions["assetApi"];
 };
@@ -82,8 +75,6 @@ type CollaborationRoomBackend = {
 export type CollaborationRoomControllerDeps = {
   excalidrawApi: ExcalidrawImperativeAPI;
   roomId: RoomId;
-  /** End-to-end room key from the URL fragment; never sent to the backend. */
-  roomKey: RoomKey;
   backend: CollaborationRoomBackend;
   /** Every status transition goes through the hook's reducer. */
   dispatch: (action: RoomStateAction) => void;
@@ -126,56 +117,24 @@ export type CollaborationRoomController = {
 export function createCollaborationRoomController(
   deps: CollaborationRoomControllerDeps,
 ): CollaborationRoomController {
-  const { excalidrawApi, roomId, roomKey, backend, dispatch } = deps;
+  const { excalidrawApi, roomId, backend, dispatch } = deps;
 
   let cancelled = false;
   let handle: CollaborationRoomHandle | undefined;
   let claimedDuringStart = false;
   /** Separates the first join from every reconnect after it. */
   let hasBeenLive = false;
-  let verifiedGeneration: number | undefined;
 
   /**
-   * Looks the room up and verifies the link's key against its stored check.
-   * Returns `null` once the join is over — cancelled, or a failure dispatched.
-   *
-   * The key check comes before anything else the join does: before the
-   * canvas is prepared (so a wrong-key link never clears the user's
-   * work), before the claim, and before any token is minted. A link that
-   * fails it could only ever produce a session that is blind to the room
-   * and — in an empty room — would poison it with a snapshot nobody else
-   * can open.
+   * Looks the room up. Returns `null` once the join is over (cancelled).
+   * Room refuses an account without access here, before the canvas is
+   * prepared, so a refused link never touches the user's work.
    */
   const lookUpRoom = async (): Promise<RoomLookup | null> => {
     // Which scene the room is for decides whether the canvas has to be
     // replaced at all: the owner already has it open.
     const room = await backend.getRoom({ roomId });
-    if (cancelled) return null;
-    if (room.keyCheckBase64 === null) {
-      dispatch({
-        type: "failed",
-        reason: "missing-key-check",
-        errorMessage: deps.getTranslate()(MISSING_KEY_CHECK_MESSAGE_KEY),
-      });
-      return null;
-    }
-    const keyCheckOk = await verifyRoomKeyCheck({
-      roomKey,
-      roomId,
-      authGeneration: room.authGeneration,
-      keyCheckBase64: room.keyCheckBase64,
-    });
-    if (cancelled) return null;
-    if (!keyCheckOk) {
-      dispatch({
-        type: "failed",
-        reason: "wrong-key-link",
-        errorMessage: deps.getTranslate()(WRONG_KEY_LINK_MESSAGE_KEY),
-      });
-      return null;
-    }
-    verifiedGeneration = room.authGeneration;
-    return room;
+    return cancelled ? null : room;
   };
 
   /**
@@ -242,9 +201,8 @@ export function createCollaborationRoomController(
     });
 
   /**
-   * Obtains a fresh identity proof after checking the current Room generation
-   * against the one the key was verified for. Returns `null` once the join is
-   * over — cancelled, rate-limited, or refused for a rotated generation.
+   * Obtains a fresh identity proof. Returns `null` once the join is over —
+   * cancelled or rate-limited.
    *
    * The token is fetched imperatively so it is minted immediately before
    * the socket opens: join tokens are short-lived by design.
@@ -252,10 +210,9 @@ export function createCollaborationRoomController(
    * Only this call is retried, never the surrounding bootstrap. Authorization
    * succeeds before canvas preparation or ownership can change.
    */
-  const joinRoom = async (room: RoomLookup): Promise<RoomJoin | null> => {
+  const joinRoom = async (): Promise<RoomJoin | null> => {
     const joinOutcome = await joinWithRateLimitRetry({
-      attempt: () =>
-        backend.joinRoom({ roomId, authGeneration: room.authGeneration }),
+      attempt: () => backend.joinRoom({ roomId }),
       isCancelled: () => cancelled,
       wait: waitBeforeRejoin,
     });
@@ -270,27 +227,7 @@ export function createCollaborationRoomController(
       });
       return null;
     }
-    const joined = joinOutcome.value;
-    // The key check was verified against the generation `get` reported, and
-    // the user may have sat in the canvas prompt between then and now — time
-    // enough for the owner to rotate. A join that comes back on a different
-    // generation would start a session whose key was never verified for it
-    // (and, in an empty generation, would seed a snapshot under that
-    // unverified key), so it is refused here. An equal generation is safe:
-    // the check value is immutable within a generation, and a rotation
-    // *after* this point disconnects the session, whose token refresh
-    // detects the moved generation.
-    if (joined.authGeneration !== room.authGeneration) {
-      dispatch({
-        type: "failed",
-        reason: "generation-rotated",
-        errorMessage: deps.getTranslate()(
-          FAILURE_MESSAGE_KEY["generation-rotated"],
-        ),
-      });
-      return null;
-    }
-    return joined;
+    return joinOutcome.value;
   };
 
   /**
@@ -305,15 +242,8 @@ export function createCollaborationRoomController(
    */
   const refreshJoinToken = async (): Promise<JoinCredentialsResult> => {
     try {
-      const refreshed = await backend.joinRoom({
-        roomId,
-        authGeneration: verifiedGeneration,
-      });
-      return {
-        ok: true,
-        token: refreshed.token,
-        authGeneration: refreshed.authGeneration,
-      };
+      const refreshed = await backend.joinRoom({ roomId });
+      return { ok: true, token: refreshed.token };
     } catch (error) {
       return classifyJoinFailure(error);
     }
@@ -324,15 +254,13 @@ export function createCollaborationRoomController(
    * canvas is already claimed when this runs, so the session's first inbound
    * frame lands on a canvas that is the room's.
    */
-  const openSession = (joined: RoomJoin): Promise<CollaborationRoomHandle> =>
+  const openSession = (joined: RoomJoin): CollaborationRoomHandle =>
     startCollaborationRoomSession({
       excalidrawApi,
       relayUrl: joined.relayUrl,
       roomId: joined.roomId,
       joinToken: joined.token,
       refreshJoinToken,
-      roomKey,
-      authGeneration: joined.authGeneration,
       username: toCollaborationUsername(deps.getUsername()),
       snapshotApi: backend.snapshotApi,
       assetApi: backend.assetApi,
@@ -352,6 +280,9 @@ export function createCollaborationRoomController(
           dispatch({ type: "role-granted", role: connectionState.role });
           return;
         }
+        // Access was withdrawn; the reconnect lets Room confirm it. A
+        // `roleChanged` close reads as transient and keeps the role until
+        // the reconnect grants the new one.
         if (
           connectionState.status === "disconnected" &&
           connectionState.reason === "membership-revoked"
@@ -393,12 +324,11 @@ export function createCollaborationRoomController(
       onRecoveryStateChange: (recoveryState) => {
         if (cancelled) return;
         if (recoveryState.phase === "failed") {
+          const reason = toCollaborationFailureReason(recoveryState.reason);
           dispatch({
             type: "failed",
-            reason: recoveryState.reason,
-            errorMessage: deps.getTranslate()(
-              FAILURE_MESSAGE_KEY[recoveryState.reason],
-            ),
+            reason,
+            errorMessage: deps.getTranslate()(FAILURE_MESSAGE_KEY[reason]),
           });
           return;
         }
@@ -436,29 +366,25 @@ export function createCollaborationRoomController(
     }
     // Classified the same way a reconnect refusal is, and never shown raw:
     // only a stated authorization verdict may read as one. Everything else
-    // — an offline browser, a 5xx, a failed key derivation — is retryable,
-    // and reporting it as `unauthorized` sends the user to ask for access
-    // they already have.
+    // — an offline browser, a 5xx — is retryable, and reporting it as a
+    // refusal sends the user to ask for access they already have.
     const refusal = classifyJoinFailure(error);
     if (!refusal.ok && !refusal.retry) {
-      if (
-        refusal.failure === "room-ended" ||
-        refusal.failure === "generation-rotated"
-      ) {
-        // The same terminal verdict recovery would report for this room.
+      if (refusal.failure === "unauthorized") {
         dispatch({
-          type: "failed",
-          reason: refusal.failure,
-          errorMessage: deps.getTranslate()(
-            FAILURE_MESSAGE_KEY[refusal.failure],
-          ),
+          type: "join-blocked",
+          status: "unauthorized",
+          errorMessage: deps.getTranslate()(FAILURE_MESSAGE_KEY.unauthorized),
         });
         return;
       }
+      // The same terminal verdict recovery would report for this room:
+      // `room-ended`, or `no-access` for an account Room refuses.
+      const reason = toCollaborationFailureReason(refusal.failure);
       dispatch({
-        type: "join-blocked",
-        status: "unauthorized",
-        errorMessage: deps.getTranslate()(FAILURE_MESSAGE_KEY[refusal.failure]),
+        type: "failed",
+        reason,
+        errorMessage: deps.getTranslate()(FAILURE_MESSAGE_KEY[reason]),
       });
       return;
     }
@@ -474,7 +400,7 @@ export function createCollaborationRoomController(
     try {
       const room = await lookUpRoom();
       if (!room) return;
-      const joined = await joinRoom(room);
+      const joined = await joinRoom();
       if (!joined || cancelled) return;
       const reloading = readCanvasRoomId() === roomId;
       const isOpenScene =
@@ -486,10 +412,8 @@ export function createCollaborationRoomController(
         snapshotReadRequest(roomId),
       );
       if (cancelled) return;
-      if (stored.receipt.authGeneration !== joined.authGeneration)
-        throw new SnapshotHttpError(409, "generation-mismatch");
       // Checked after every await before the handoff: an edited or replaced
-      // canvas is no longer the one this tab encrypted into the room.
+      // canvas is no longer the one this tab stored into the room.
       const initializedHere = isCanvasInitializedForRoom(
         roomId,
         toSyncedElements(excalidrawApi.getSceneElementsIncludingDeleted()),
@@ -507,23 +431,14 @@ export function createCollaborationRoomController(
         return;
       clearRoomInitializedFromCanvas(roomId);
       if (cancelled) return;
-      // Commit the canvas claim only after join and generation validation
-      // succeed. No socket exists yet, so this is still before the first
-      // inbound frame; a refused/exhausted join no longer leaves a tab in
-      // collaboration-owned mode without a session.
+      // Commit the canvas claim only after the join succeeds. No socket
+      // exists yet, so this is still before the first inbound frame; a
+      // refused/exhausted join no longer leaves a tab in collaboration-owned
+      // mode without a session.
       claimCanvasForRoom(roomId);
       claimedDuringStart = true;
       dispatch({ type: "canvas-claimed" });
-      // Key derivation is asynchronous, so the controller can be stopped while
-      // the session is still being built. Whatever comes back has to be
-      // destroyed in that case: the `handle` variable `stop()` reads is still
-      // undefined at that point.
-      const started = await openSession(joined);
-      if (cancelled) {
-        void started.destroy();
-        return;
-      }
-      handle = started;
+      handle = openSession(joined);
       deps.onHandleChange(handle);
     } catch (error) {
       reportStartFailure(error);

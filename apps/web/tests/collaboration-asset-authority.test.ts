@@ -18,10 +18,7 @@ import {
   contentOperationSchema,
   type AssetUploadIntent,
 } from "@drawstuff/collaboration/authority";
-import {
-  MIN_ASSET_CIPHERTEXT_BYTES,
-  ASSET_CRYPTO_VERSION,
-} from "@drawstuff/collaboration/asset";
+import { MIN_ASSET_BYTES } from "@drawstuff/collaboration/asset";
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 import {
   prepareAuthorityAssetUpload,
@@ -68,12 +65,11 @@ async function fixture() {
     kind: "asset-finalize",
     expectedRevision: 0,
     excalidrawFileId: "a".repeat(40),
-    cryptoVersion: ASSET_CRYPTO_VERSION,
-    byteLength: MIN_ASSET_CIPHERTEXT_BYTES,
+    byteLength: MIN_ASSET_BYTES,
   };
   const file = {
     key: `provider-${crypto.randomUUID()}`,
-    ufsUrl: "https://storage.test/ciphertext",
+    ufsUrl: "https://storage.test/asset",
     size: intent.byteLength,
   };
   const metadata = { intent, actor, sessionId };
@@ -81,7 +77,6 @@ async function fixture() {
     ...base,
     asset: {
       excalidrawFileId: intent.excalidrawFileId,
-      cryptoVersion: intent.cryptoVersion,
       byteLength: file.size,
       url: file.ufsUrl,
       utFileKey: file.key,
@@ -108,14 +103,13 @@ async function fixture() {
           ok: true,
           result: {
             roomId: f.roomId,
-            authGeneration: 1,
             assets: [],
             missing: input.request.fileIds,
           },
         });
       return Response.json({
         ok: true,
-        result: { status: "authorized", authGeneration: 1, authorityEpoch: 1 },
+        result: { status: "authorized", authorityEpoch: 1 },
       });
     });
   return {
@@ -306,7 +300,7 @@ describe("verified attachment server path", () => {
       }),
     ).toBeUndefined();
   });
-  it("refuses an actual ciphertext length mismatch before contacting Room and queues it", async () => {
+  it("refuses an actual payload length mismatch before contacting Room and queues it", async () => {
     const f = await fixture();
     await expect(
       finalizeAuthorityAssetUpload(db, f.metadata, {

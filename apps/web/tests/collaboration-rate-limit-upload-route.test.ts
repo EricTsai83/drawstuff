@@ -286,8 +286,8 @@ describe("what a refusal looks like", () => {
   });
 
   it("delegates when Redis is degraded, without ever returning 429", async () => {
-    // Fail open: the middleware's room access, role, generation and size checks
-    // and the 512-assets-per-generation cap all still run behind this.
+    // Fail open: the middleware's room access, role and size checks
+    // and the 512-assets-per-room cap all still run behind this.
     decision = { status: "degraded" };
     const response = await POST(presign());
     expect(response.status).toBe(200);

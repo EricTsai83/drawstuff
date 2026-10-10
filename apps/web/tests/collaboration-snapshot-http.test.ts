@@ -42,15 +42,10 @@ import {
   type ContentResult,
 } from "@drawstuff/collaboration/authority";
 import {
-  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  MAX_SNAPSHOT_PLAINTEXT_BYTES,
-  MIN_SNAPSHOT_SEALED_BYTES,
-  deriveSnapshotKey,
+  MAX_SNAPSHOT_BYTES,
   encodeCollaborationSnapshot,
   decodeCollaborationSnapshot,
-  sealCollaborationSnapshot,
-  openCollaborationSnapshot,
-  snapshotCiphertextChecksum,
+  snapshotChecksum,
 } from "@drawstuff/collaboration/snapshot";
 import {
   createBinarySnapshotClient,
@@ -59,7 +54,6 @@ import {
 } from "@/lib/collab/snapshot-http";
 import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { roomKeySchema } from "@drawstuff/collaboration/realtime-crypto";
 
 const roomId = roomIdSchema.parse("snapshot-http-room");
 const upstream = vi.fn<typeof fetch>();
@@ -70,11 +64,9 @@ const state = {
   sceneId: null,
   label: "",
   linkRole: "editor",
-  authGeneration: 1,
   authRevision: 1,
   authorityEpoch: 1,
   initializationDeadline: Date.now() + 900_000,
-  keyCheck: null,
 };
 const limited = {
   status: "limited" as const,
@@ -90,8 +82,7 @@ function read() {
     deadline: Date.now() + 55_000,
   };
 }
-async function write(bytes = new Uint8Array(MIN_SNAPSHOT_SEALED_BYTES)) {
-  bytes[0] = 1;
+async function write(bytes = new Uint8Array(32).fill(7)) {
   return {
     bytes,
     request: {
@@ -102,10 +93,9 @@ async function write(bytes = new Uint8Array(MIN_SNAPSHOT_SEALED_BYTES)) {
         operationId: crypto.randomUUID(),
         deadline: Date.now() + 55_000,
         kind: "snapshot-put" as const,
-        authGeneration: 1,
         authorityEpoch: 1,
         expectedRevision: 0,
-        checksum: await snapshotCiphertextChecksum(bytes),
+        checksum: await snapshotChecksum(bytes),
       },
     },
   };
@@ -135,12 +125,10 @@ async function binary(bytes: Uint8Array<ArrayBuffer>, overrides = {}) {
       "content-type": "application/octet-stream",
       [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
         roomId,
-        authGeneration: 1,
         authorityEpoch: 1,
         revision: 1,
-        cryptoVersion: 1,
         byteLength: bytes.byteLength,
-        checksum: await snapshotCiphertextChecksum(bytes),
+        checksum: await snapshotChecksum(bytes),
         ...overrides,
       }),
     },
@@ -223,7 +211,7 @@ describe("authenticated binary snapshot web ingress", () => {
     expect(pulls).toBe(0);
     expect(upstream).not.toHaveBeenCalled();
   });
-  it("uses the current session's live proof and forwards only private capability, strict intent and raw ciphertext", async () => {
+  it("uses the current session's live proof and forwards only private capability, strict intent and raw bytes", async () => {
     const f = await write();
     const response = await POST(
       http(f.request, f.bytes, {
@@ -272,7 +260,7 @@ describe("authenticated binary snapshot web ingress", () => {
       operation: {
         ...f.request.operation,
         kind: "snapshot-reset",
-        checksum: await snapshotCiphertextChecksum(new Uint8Array()),
+        checksum: await snapshotChecksum(new Uint8Array()),
       },
     };
     expect((await POST(http(reset))).status).toBe(403);
@@ -327,7 +315,7 @@ describe("authenticated binary snapshot web ingress", () => {
       operation: {
         ...f.request.operation,
         kind: "snapshot-reset",
-        checksum: await snapshotCiphertextChecksum(new Uint8Array()),
+        checksum: await snapshotChecksum(new Uint8Array()),
       },
     };
     expect((await POST(http(reset))).status).toBe(200);
@@ -338,12 +326,12 @@ describe("authenticated binary snapshot web ingress", () => {
     expect(refused.status).toBe(403);
     expect(await refused.json()).toEqual({ ok: false, code: "forbidden" });
   });
-  it("checks actual streamed bytes, checksum and envelope independently of Content-Length; controls cannot carry bytes", async () => {
+  it("checks actual streamed bytes, checksum and emptiness independently of Content-Length; controls cannot carry bytes", async () => {
     const f = await write();
     const cancelled = vi.fn();
     const oversized = new ReadableStream<Uint8Array>({
       start(controller) {
-        controller.enqueue(new Uint8Array(MAX_SNAPSHOT_CIPHERTEXT_BYTES));
+        controller.enqueue(new Uint8Array(MAX_SNAPSHOT_BYTES));
         controller.enqueue(new Uint8Array(1));
       },
       cancel: cancelled,
@@ -354,6 +342,8 @@ describe("authenticated binary snapshot web ingress", () => {
     ).toBe(413);
     expect(cancelled).toHaveBeenCalled();
     expect((await POST(http(f.request, f.bytes.slice(1)))).status).toBe(400);
+    const empty = await write(new Uint8Array());
+    expect((await POST(http(empty.request, empty.bytes))).status).toBe(400);
     expect(
       (
         await POST(
@@ -379,7 +369,6 @@ describe("authenticated binary snapshot web ingress", () => {
           headers: {
             [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
               roomId,
-              authGeneration: 2,
               authorityEpoch: 3,
               revision: 7,
             }),
@@ -391,7 +380,7 @@ describe("authenticated binary snapshot web ingress", () => {
     expect(response.status).toBe(404);
     expect(
       JSON.parse(response.headers.get(SNAPSHOT_RECEIPT_HEADER)!),
-    ).toMatchObject({ revision: 7, authGeneration: 2, authorityEpoch: 3 });
+    ).toMatchObject({ revision: 7, authorityEpoch: 3 });
     const f = await write();
     for (const action of ["query", "cancel"] as const) {
       upstream.mockResolvedValueOnce(Response.json({ status: "pending" }));
@@ -461,30 +450,14 @@ describe("authenticated binary snapshot web ingress", () => {
 });
 
 describe("binary snapshot browser transport", () => {
-  it("round-trips the maximum legal ciphertext through the real web handler without Base64", async () => {
-    const key = await deriveSnapshotKey({
-      roomKey: roomKeySchema.parse(
-        "T0PSTFR2c2hhcmVkLXRlc3Qtcm9vbS1rZXktMDAwMDA",
-      ),
-      roomId,
-      authGeneration: 1,
-    });
+  it("round-trips the maximum legal snapshot through the real web handler without Base64", async () => {
     const encoded = encodeCollaborationSnapshot({ roomId, elements: [] });
     if (!encoded.ok) throw new Error("invalid-fixture");
-    // JSON whitespace padding reaches the exact plaintext ceiling while
-    // remaining a valid snapshot that can be opened and decoded after transport.
-    const plaintext = new Uint8Array(MAX_SNAPSHOT_PLAINTEXT_BYTES).fill(32);
-    plaintext.set(encoded.bytes);
-    const sealed = await sealCollaborationSnapshot({
-      key,
-      plaintext,
-      roomId,
-      authGeneration: 1,
-      revision: 1,
-    });
-    if (!sealed.ok) throw new Error("invalid-fixture");
-    const f = await write(Uint8Array.from(sealed.ciphertext));
-    expect(f.bytes.byteLength).toBe(MAX_SNAPSHOT_CIPHERTEXT_BYTES);
+    // JSON whitespace padding reaches the exact byte ceiling while remaining
+    // a valid snapshot that can be decoded after transport.
+    const bytes = new Uint8Array(MAX_SNAPSHOT_BYTES).fill(32);
+    bytes.set(encoded.bytes);
+    const f = await write(bytes);
     const bridge: typeof fetch = (_url, init) =>
       POST(
         http(
@@ -508,22 +481,11 @@ describe("binary snapshot browser transport", () => {
     upstream.mockResolvedValueOnce(await binary(f.bytes));
     const result = await client.read(read());
     expect(result.found).toBe(true);
-    expect(result.bytes?.byteLength).toBe(f.bytes.byteLength);
-    expect(await snapshotCiphertextChecksum(result.bytes!)).toBe(
+    expect(result.bytes?.byteLength).toBe(MAX_SNAPSHOT_BYTES);
+    expect(await snapshotChecksum(result.bytes!)).toBe(
       f.request.operation.checksum,
     );
-    const opened = await openCollaborationSnapshot({
-      key,
-      ciphertext: result.bytes!,
-      roomId,
-      authGeneration: 1,
-      revision: 1,
-    });
-    if (!opened.ok) throw new Error("failed-decryption");
-    expect(await snapshotCiphertextChecksum(opened.plaintext)).toBe(
-      await snapshotCiphertextChecksum(plaintext),
-    );
-    expect(decodeCollaborationSnapshot(opened.plaintext, { roomId }).ok).toBe(
+    expect(decodeCollaborationSnapshot(result.bytes!, { roomId }).ok).toBe(
       true,
     );
   });
@@ -578,7 +540,6 @@ describe("binary snapshot browser transport", () => {
           headers: {
             [SNAPSHOT_RECEIPT_HEADER]: JSON.stringify({
               roomId,
-              authGeneration: 1,
               authorityEpoch: 2,
               revision: 3,
             }),
@@ -635,10 +596,7 @@ describe("binary snapshot browser transport", () => {
     const transport = vi.fn<typeof fetch>();
     const client = createBinarySnapshotClient(transport);
     await expect(
-      client.write(
-        f.request.operation,
-        new Uint8Array(MAX_SNAPSHOT_CIPHERTEXT_BYTES + 1),
-      ),
+      client.write(f.request.operation, new Uint8Array(MAX_SNAPSHOT_BYTES + 1)),
     ).rejects.toMatchObject({ status: 413 });
     expect(transport).not.toHaveBeenCalled();
     const cancelled = vi.fn();

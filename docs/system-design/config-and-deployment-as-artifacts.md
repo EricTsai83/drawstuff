@@ -23,8 +23,8 @@ Config 是系統裡最少被測試、卻最常引發事故的部分：一個 env
 
 ### 2. 憑證按爆炸半徑分離
 
-不同用途的 machine-to-machine secret 不共用：維運 cron 一把、佇列 drain 一把、
-token 簽章一把。任何一把外洩的影響範圍是清楚可述的。可選的 secret 未設定時
+不同用途的 machine-to-machine secret 不共用：維運 cron 一把、身分 proof 簽章一把、
+服務間入口一把、回呼 adapter 一把。任何一把外洩的影響範圍是清楚可述的。可選的 secret 未設定時
 fail closed（整個 endpoint 401），不是靜默停用驗證。
 
 ### 3. 部署設定檔是受測工件
@@ -106,7 +106,8 @@ kill switch／feature flag 讀取集中在一個具名函式；fail-closed 的�
   被 `next.config.ts` 頂部 import）；逃生門是 `SKIP_ENV_VALIDATION`（僅 Playwright E2E）。
 - 可逆自動／不可逆手動的具體工具：DB 走手動 `db:push`；worker 走 Cloudflare Workers Builds
   （自動）與手動 `wrangler deploy`；部署描述檔為 `wrangler.jsonc`。
-- 憑證分離：`CRON_SECRET` 與 `COLLAB_OUTBOX_CRON_SECRET` 分開（理由註在 env.ts）。
+- 憑證分離：`CRON_SECRET`、`COLLAB_IDENTITY_SECRET`、`COLLAB_AUTHORITY_SECRET`、`COLLAB_ADAPTER_SECRET`
+  各自獨立（理由註在 `apps/web/src/env.ts` 與 [DO 部署 runbook §2](../operations/collaboration-do-deployment.md#2-secrets)）。
 - config 稽核測試：`apps/collaboration-do/tests/config-audit.test.ts`
   （wrangler 官方 resolver 讀入、逐欄位釘住、`exports` 生命週期欄位即 review 訊號、
   test-only binding 禁入 production vars）。

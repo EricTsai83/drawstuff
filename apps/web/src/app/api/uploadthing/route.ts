@@ -145,8 +145,8 @@ async function POST(request: NextRequest): Promise<Response> {
   const decision = await budget.check(session.user.id);
   if (timings) timings.rateLimit = performance.now() - limitStart;
   // `degraded` delegates exactly like `allowed`: the middleware's ownership /
-  // room access, role, generation and size checks and the
-  // 512-assets-per-generation cap all still run, so a Redis outage costs the
+  // room access, role, epoch and size checks and the
+  // 512-assets-per-room cap all still run, so a Redis outage costs the
   // abuse ceiling and nothing else.
   if (decision.status !== "limited") {
     const start = performance.now();

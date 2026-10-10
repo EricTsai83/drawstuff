@@ -30,7 +30,7 @@ export type CollaborationSceneApi = {
     sceneData: Pick<SceneData, "elements" | "collaborators" | "captureUpdate">,
   ): void;
   /**
-   * The engine's binary file store. It is the session's cache of decrypted
+   * The engine's binary file store. It is the session's cache of decoded
    * assets — the asset store keeps ids only — so "which images do I still need"
    * and "which images can I publish" are both answered from here.
    */

@@ -25,8 +25,8 @@ class GoogleSignInError extends Error {
 /**
  * Where Google sign-in lands: back on the page that asked, so a room link
  * opened signed out returns to its room. The fragment is left behind on
- * purpose — it may hold a room key, and the callback URL is sent to the
- * server; Room's custody copy (plan 19) supplies the key after sign-in.
+ * purpose: the callback URL is sent to the server, and a fragment may hold a
+ * share link's key.
  */
 function signInReturnPath(): string {
   const { pathname, search } = window.location;

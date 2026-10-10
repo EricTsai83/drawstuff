@@ -9,16 +9,19 @@ import {
 import {
   collaborationLifecycleSubject as subjects,
   collaborationLifecycleRegistration as registrations,
+  collaborationProjectionTombstone,
+  collaborationRoom,
   scene,
   user,
   session,
 } from "@/server/db/schema";
+import { purgeEndedRoomRecords } from "./authority-projection";
 import {
   collectSceneStorageKeys,
   collectUserStorageKeys,
   enqueueStorageKeyCleanup,
 } from "@/server/storage/reclaim";
-import type { Database, RoomTransaction } from "./rooms";
+import { lockRoomId, type Database, type RoomTransaction } from "./rooms";
 import { AdapterError } from "./authority-storage";
 
 type Command = Extract<
@@ -119,6 +122,43 @@ export async function applyLifecycleAdapter(db: Database, input: Command) {
     }
     if (!row.retired) {
       // Only Lifecycle calls this after every registered Room's terminal storage fence ACK.
+      // Rooms about to cascade away first drop their records that have no
+      // room foreign key (registrations, projection tombstones). Their roomId
+      // locks come before any room row lock (shared order), sorted, after
+      // the account or scene row lock.
+      if (target.kind === "account")
+        await tx
+          .select({ id: user.id })
+          .from(user)
+          .where(eq(user.id, target.subject))
+          .for("update");
+      else
+        await tx
+          .select({ id: scene.id })
+          .from(scene)
+          .where(eq(scene.id, target.sceneId))
+          .for("update");
+      const cascading = await tx
+        .select({ roomId: collaborationRoom.roomId })
+        .from(collaborationRoom)
+        .where(
+          target.kind === "account"
+            ? eq(collaborationRoom.ownerId, target.subject)
+            : eq(collaborationRoom.sceneId, target.sceneId),
+        )
+        .orderBy(asc(collaborationRoom.roomId));
+      for (const { roomId } of cascading) await lockRoomId(tx, roomId);
+      for (const { roomId } of cascading)
+        await purgeEndedRoomRecords(tx, roomId);
+      if (target.kind === "account") {
+        // The account's own traces in other people's rooms.
+        await tx
+          .delete(registrations)
+          .where(eq(registrations.subject, target.subject));
+        await tx
+          .delete(collaborationProjectionTombstone)
+          .where(eq(collaborationProjectionTombstone.subject, target.subject));
+      }
       if (target.kind === "account") {
         await tx
           .select({ id: user.id })

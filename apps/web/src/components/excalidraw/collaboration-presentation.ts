@@ -22,7 +22,6 @@ const COLLABORATION_LABEL_KEY: Record<
   // join budget is spent, and it refills.
   "rate-limited": "collaboration.status.rateLimited",
   cancelled: "collaboration.status.cancelled",
-  "missing-room-key": "collaboration.status.missingRoomKey",
 };
 
 /**

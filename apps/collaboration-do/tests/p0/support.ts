@@ -12,7 +12,6 @@ export const fresh = async (
   operationId: crypto.randomUUID(),
   actor: "writer",
   epoch: 1,
-  authGeneration: 1,
   expectedRevision: 0,
   checksum: await checksum(bytes),
   deadline: Date.now() + 55_000,

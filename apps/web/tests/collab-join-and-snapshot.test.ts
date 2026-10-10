@@ -24,18 +24,15 @@ import {
   createSnapshotBackend,
   expectConverged,
   ROOM_ID,
-  ROOM_KEY,
 } from "./support/collab-session-harness";
 
 describe("binary snapshot cadence and reset watermarks", () => {
   async function client(initialRevision = 0) {
     const backend = binarySnapshotBackend(ROOM_ID);
     backend.emptyAt(initialRevision);
-    const store = await createCollaborationSnapshotStore({
+    const store = createCollaborationSnapshotStore({
       api: backend.api,
       roomId: ROOM_ID,
-      roomKey: ROOM_KEY,
-      authGeneration: 1,
     });
     const harness = createHarness();
     const alice = harness.createClient("client-alice", {
@@ -432,17 +429,17 @@ describe("join barrier", () => {
     );
   });
 
-  it("reports an unreadable snapshot instead of pretending the room is empty", async () => {
+  it("reports a damaged snapshot instead of pretending the room is empty", async () => {
     const backend = createSnapshotBackend();
     backend.publish(asSyncedElements([collabRectangle({ id: "r1" })]));
     const alice = harness.createClient("client-alice", {
-      snapshotStore: backend.createStore({ outcome: "wrong-key" }),
+      snapshotStore: backend.createStore({ outcome: "malformed" }),
     });
 
     alice.session.connect();
     await settle(harness);
 
-    expect(alice.baselineOutcomes).toEqual(["unreadable-snapshot"]);
+    expect(alice.baselineOutcomes).toEqual(["snapshot-unavailable"]);
     expect(alice.host.elements).toEqual([]);
   });
 
@@ -624,7 +621,7 @@ describe("durable snapshot cadence", () => {
     const backend = createSnapshotBackend();
     backend.publish(asSyncedElements([collabRectangle({ id: "r1" })]));
     const alice = harness.createClient("client-alice", {
-      snapshotStore: backend.createStore({ outcome: "wrong-key" }),
+      snapshotStore: backend.createStore({ outcome: "malformed" }),
     });
     alice.session.connect();
     await settle(harness);
@@ -1011,7 +1008,7 @@ describe("durable snapshot cadence", () => {
     await viewer.session.flushSnapshot();
 
     const blind = harness.createClient("client-blind", {
-      snapshotStore: backend.createStore({ outcome: "wrong-key" }),
+      snapshotStore: backend.createStore({ outcome: "malformed" }),
     });
     blind.session.connect();
     await settle(harness);
@@ -1075,48 +1072,28 @@ describe("durable snapshot cadence", () => {
     expect(backend.saves).toEqual([]);
   });
 
-  it("cleans up after a terminal failure without the transport's disconnect notice", async () => {
+  it("cleans up after the room refuses access on reconnect", async () => {
     const backend = createSnapshotBackend();
     backend.publish(asSyncedElements([collabRectangle({ id: "stored" })]));
-
-    // A transport that reports the drop asynchronously — which a terminated
-    // session never hears, because it unsubscribes as part of terminating. The
-    // session must clear its own state and timers rather than wait for a
-    // notification that relay-client happens to deliver synchronously today.
-    const inner = harness.network.createTransport();
-    const transport: typeof inner = {
-      ...inner,
-      subscribe: (subscriber) => {
-        let active = true;
-        const unsubscribe = inner.subscribe({
-          ...subscriber,
-          onConnectionStateChange: (state) => {
-            if (state.status !== "disconnected") {
-              subscriber.onConnectionStateChange?.(state);
-              return;
-            }
-            queueMicrotask(() => {
-              if (active) subscriber.onConnectionStateChange?.(state);
-            });
-          },
-        });
-        return () => {
-          active = false;
-          unsubscribe();
-        };
-      },
-    };
-
     const alice = harness.createClient("client-alice", {
-      transport,
-      snapshotStore: backend.createStore({ outcome: "wrong-key" }),
+      snapshotStore: backend.createStore(),
+      refreshJoinToken: () =>
+        Promise.resolve({
+          ok: false as const,
+          retry: false as const,
+          failure: "membership-revoked" as const,
+        }),
     });
     alice.session.connect();
     await settle(harness);
 
+    harness.network.setDisconnectReason("membership-revoked");
+    harness.network.dropConnection(alice.transport);
+    await harness.advanceAndSettle([alice], 60_000);
+
     expect(alice.recoveryStates.at(-1)).toMatchObject({
       phase: "failed",
-      reason: "unreadable-room",
+      reason: "membership-revoked",
     });
     // No cadence tick, join deadline or repair timer survives termination…
     expect(alice.timers.pendingCount).toBe(0);

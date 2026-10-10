@@ -22,7 +22,6 @@ import {
 } from "./support.ts";
 
 const bytes = new Uint8Array([1, 2, 3]);
-const keyHeaders = { "x-p0-key-check": "a".repeat(64) };
 const alarmNow = async (roomId: string) => {
   const stub = bindings.P0_ROOM.getByName(roomId);
   await runInDurableObject(stub, (_instance, state) =>
@@ -73,16 +72,14 @@ describe("P0 initialization, attachments and bounded recovery", () => {
       expect(await state.storage.getAlarm()).not.toBeNull();
     });
   });
-  it("blocks join until the declared ciphertext and every attachment are durable, then survives eviction", async () => {
+  it("blocks join until the declared snapshot and every attachment are durable, then survives eviction", async () => {
     const asset = await fresh({ actor: "owner" });
     const create = await fresh({
       actor: "owner",
       roomId: asset.roomId,
       assetIds: [asset.operationId],
     });
-    expect((await call("/create", create, undefined, keyHeaders)).status).toBe(
-      200,
-    );
+    expect((await call("/create", create)).status).toBe(200);
     const snapshot = await fresh({
       ...create,
       operationId: crypto.randomUUID(),
@@ -98,10 +95,7 @@ describe("P0 initialization, attachments and bounded recovery", () => {
       status: "pending",
       revision: null,
     });
-    expect(
-      (await call("/initialize-finish", snapshot, undefined, keyHeaders))
-        .status,
-    ).toBe(202);
+    expect((await call("/initialize-finish", snapshot)).status).toBe(202);
     expect(await result(call("/asset-finalize", asset))).toEqual({
       status: "written",
       revision: null,
@@ -110,24 +104,15 @@ describe("P0 initialization, attachments and bounded recovery", () => {
       status: "written",
       revision: 1,
     });
-    expect(
-      await (
-        await call("/initialize-finish", snapshot, undefined, keyHeaders)
-      ).json(),
-    ).toEqual({ status: "ready" });
+    expect(await (await call("/initialize-finish", snapshot)).json()).toEqual({
+      status: "ready",
+    });
     await evictDurableObject(bindings.P0_ROOM.getByName(create.roomId));
     expect(
       new Uint8Array(await (await call("/join", writer)).arrayBuffer()),
     ).toEqual(bytes);
     expect(
-      (
-        await call(
-          "/create",
-          { ...create, checksum: "b".repeat(64) },
-          undefined,
-          keyHeaders,
-        )
-      ).status,
+      (await call("/create", { ...create, checksum: "b".repeat(64) })).status,
     ).toBe(409);
   });
 
@@ -138,7 +123,7 @@ describe("P0 initialization, attachments and bounded recovery", () => {
       roomId: asset.roomId,
       assetIds: [asset.operationId],
     });
-    await call("/create", create, undefined, keyHeaders);
+    await call("/create", create);
     await direct("/asset-upload", asset, bytes);
     const other = await fresh({ actor: "owner" });
     await direct("/asset-upload", other, bytes);
@@ -151,9 +136,7 @@ describe("P0 initialization, attachments and bounded recovery", () => {
     await evictDurableObject(stub);
     await runDurableObjectAlarm(stub);
     expect((await call("/asset-finalize", asset)).status).toBe(403);
-    expect(
-      (await call("/initialize-finish", create, undefined, keyHeaders)).status,
-    ).toBe(403);
+    expect((await call("/initialize-finish", create)).status).toBe(403);
     await alarmNow(create.roomId);
     expect(await result(direct("/asset-upload", asset, bytes))).toEqual({
       status: "refused",
@@ -174,7 +157,7 @@ describe("P0 initialization, attachments and bounded recovery", () => {
       roomId: asset.roomId,
       assetIds: [asset.operationId],
     });
-    await call("/create", create, undefined, keyHeaders);
+    await call("/create", create);
     const gate = `upload:${asset.operationId}`;
     await control("hold", gate);
     const upload = direct("/asset-upload", asset, bytes);

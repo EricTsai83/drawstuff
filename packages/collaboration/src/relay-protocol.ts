@@ -3,10 +3,10 @@ import { z } from "zod";
 import type { MessageChannel } from "./codec.ts";
 import {
   COLLABORATION_PROTOCOL_VERSION,
+  maxMessageBytesFor,
   peerIdSchema,
   roomIdSchema,
 } from "./messages.ts";
-import { maxSealedFrameBytesFor } from "./realtime-crypto.ts";
 import { MAX_ROOM_TOKEN_BYTES, roomRoleSchema } from "./room-auth.ts";
 import type { DisconnectReason } from "./transport.ts";
 
@@ -18,10 +18,10 @@ import type { DisconnectReason } from "./transport.ts";
  * - Control frames are JSON text (`join`, `leave` from the client; `joined`,
  *   `peers` from the relay). They carry membership and authorization only,
  *   never scene state.
- * - Data frames are binary: a one-byte channel prefix followed by one sealed
- *   realtime frame (`./realtime-crypto.ts`). The relay routes data frames by
- *   room and channel without decoding the payload — and cannot decode it: the
- *   payload is AES-GCM ciphertext under a key that never leaves the clients.
+ * - Data frames are binary: a one-byte channel prefix followed by one encoded
+ *   collaboration message (`./codec.ts`). The relay routes data frames by room
+ *   and channel without decoding the payload; WSS protects it in transit, and
+ *   room access is the authorization boundary.
  */
 
 /**
@@ -40,10 +40,9 @@ export type RelayPeer = z.infer<typeof relayPeerSchema>;
 /**
  * Join request. The token is mandatory: the relay has no unauthenticated
  * join path, so an unauthorized client can neither subscribe to nor publish
- * into a room. The declared `roomId` must match the token claims, and the
- * formal v6 route uses an identity-only proof and derives role/generation from Room authority.
- * The legacy generation route still uses its role-bearing join token until P2 removes it. The join
- * deliberately carries no client-selected identity: session identity
+ * into a room. The token is an identity-only proof whose `roomId` must match
+ * the declared one; the room derives the role from its own access rules. The
+ * join deliberately carries no client-selected identity: session identity
  * is the relay-assigned `peerId`, so no client-provided string is ever signed
  * or recorded.
  */
@@ -114,13 +113,12 @@ const CHANNEL_BY_BYTE = new Map<number, MessageChannel>([
 export const RELAY_DATA_FRAME_HEADER_BYTES = 1;
 
 /**
- * Sealed-frame ceiling plus the frame header; the relay's transport-level
- * cap. Derived from the single channel budget in `./messages.ts` through the
- * sealed-frame arithmetic in `./realtime-crypto.ts`, so a message the codec
- * accepts can never be refused by the relay for size.
+ * Message ceiling plus the frame header; the relay's transport-level cap.
+ * Derived from the single channel budget in `./messages.ts`, so a message the
+ * codec accepts can never be refused by the relay for size.
  */
 export function maxRelayDataFrameBytesFor(channel: MessageChannel): number {
-  return maxSealedFrameBytesFor(channel) + RELAY_DATA_FRAME_HEADER_BYTES;
+  return maxMessageBytesFor(channel) + RELAY_DATA_FRAME_HEADER_BYTES;
 }
 
 export function encodeRelayDataFrame(
@@ -242,14 +240,14 @@ export const RELAY_CLOSE_CODES = {
   slowConsumer: 4003,
   /** The socket never sent a valid join within the join deadline. */
   joinTimeout: 4004,
-  /** No token, or a token that failed signature/audience/expiry/binding
-   *  verification. The client must obtain a fresh token from the app. */
+  /** No proof, or a proof that failed signature/expiry/binding
+   *  verification. The client must obtain a fresh proof from the app. */
   unauthorized: 4005,
   /** A viewer attempted to publish a scene mutation. */
   readOnlyRole: 4006,
   /** The member's room authorization was revoked while connected. */
   membershipRevoked: 4007,
-  /** The room generation was ended (or rotated) by its owner. */
+  /** The room was ended by its owner. */
   roomEnded: 4008,
   /**
    * The connection exceeded a published send-rate budget. Retryable on purpose:
@@ -293,6 +291,14 @@ export const RELAY_CLOSE_CODES = {
    * reason.
    */
   internalError: 4014,
+  /**
+   * The member still has access, but the role the room computes for them
+   * changed (an invitation or general access was edited). Roles are never
+   * frozen into a session, so the socket is closed and the client rejoins
+   * with the new one. Not enumerated in `disconnectReasonForCloseCode`: it
+   * reads as `transient`, which is exactly "reconnect now".
+   */
+  roleChanged: 4015,
 } as const;
 /**
  * Maps a WebSocket close code to the reason a client acts on.

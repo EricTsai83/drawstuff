@@ -9,7 +9,7 @@ import {
   COLLABORATION_PROTOCOL_VERSION,
   roomIdSchema,
 } from "@drawstuff/collaboration/protocol";
-import { DEFAULT_JOIN_TOKEN_TTL_SECONDS } from "@drawstuff/collaboration/room-auth";
+import { DEFAULT_IDENTITY_PROOF_TTL_SECONDS } from "@drawstuff/collaboration/room-auth";
 import { signIdentityProof } from "@drawstuff/collaboration/room-token";
 import { session, user } from "@/server/db/schema";
 import type { Database, RoomTransaction } from "./rooms";
@@ -79,7 +79,7 @@ export async function issueAuthorityIdentity(
       .for("key share");
     if (!activeSession) throw new AdapterError("not-found");
     const iat = Math.floor(Date.now() / 1000);
-    const exp = iat + DEFAULT_JOIN_TOKEN_TTL_SECONDS;
+    const exp = iat + DEFAULT_IDENTITY_PROOF_TTL_SECONDS;
     return {
       proof: signIdentityProof(
         {

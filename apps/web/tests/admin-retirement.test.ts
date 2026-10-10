@@ -48,7 +48,6 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
 }));
 vi.mock("@/env", () => ({
   env: {
-    COLLAB_JOIN_TOKEN_SECRET: "web-test-room-token-secret-0123456789",
     COLLAB_CONTROL_URL: "http://127.0.0.1:3105",
   },
 }));
@@ -268,9 +267,7 @@ describe("admin data retirement", () => {
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-scene",
-      authGeneration: 1,
       excalidrawFileId: "a".repeat(40),
-      cryptoVersion: 1,
       utFileKey: "room-asset-key",
       url: "https://example.com/room-asset",
       byteLength: 16,
@@ -390,9 +387,7 @@ describe("admin data retirement", () => {
     });
     await testDb.insert(schema.collaborationAsset).values({
       roomId: "room-account",
-      authGeneration: 1,
       excalidrawFileId: "a".repeat(40),
-      cryptoVersion: 1,
       utFileKey: "room-asset-key",
       url: "https://example.com/room-asset",
       byteLength: 16,

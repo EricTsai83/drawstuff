@@ -1,6 +1,6 @@
 # 21 — 共編房間改為不加密，存取改為 Google 文件模式
 
-- 狀態：§2 全部確認（2026-10-10），尚未開始實作；於 `plan-21` 分支開發，完成後一次合併（見 §8）。
+- 狀態：§2 全部確認（2026-10-10）；第 1～3 批（套件與 DO、web 伺服器與 DB、web 前端）已在 `plan-21` 分支完成，下一步第 4 批（資料清除與部署）。批次之間依擁有者指示先不跑檢查，最後一批一次驗證；每批都經 Codex review。
 - 執行方式：擁有者決定以 `claude-implement-with-gpt61-sol-review` 流程實作，至少第 1 批（存取規則）必須經獨立審查；在新的對話從 §8 第 1 批開始。
 - 取代：18C 剩餘驗收、19（服務端保管金鑰）、20（passkey 恢復端對端加密）。三份 plan 已於 2026-10-10 刪除（見 git history）；18C、19 已上線的程式與文件由本 plan 改寫。
 - 前置：[授權契約](../docs/architecture/collaboration-authority.md)、[共編儲存契約](../docs/architecture/collaboration-storage.md)、[威脅模型](../docs/architecture/collaboration-threat-model.md)、[ADR-0005](../docs/adr/0005-public-collaboration-assets.md)。
@@ -99,6 +99,13 @@ Plan 19 讓服務端保管房間金鑰後，房間已不是端對端加密：真
 
 不受影響：我的場景、分享連結、發布、Library、個人圖片、帳號與 workspace。
 
+### §7 補充（2026-10-10，擁有者確認）
+
+- **清除範圍**只限房間相關的表；保留 `drawstuff_collaboration_lifecycle_subject`（帳號／場景退場紀錄，不含房間資料、schema 未變，與不清除的 `CollaborationLifecycle` DO 成對）。完整程序見 [部署 runbook §6](../docs/operations/collaboration-do-deployment.md)。
+- **舊退場 Object**：plan 21 之前完成的退場沒有釋放時間；`CollaborationLifecycle` 被喚醒時會補排 1 小時後釋放，部署時用 `collaboration:wake-retirements` 一次喚醒全部。
+- **清除腳本** `pnpm --filter @drawstuff/web plan21:wipe uploads|tables|schema [--apply]`：每個子指令預設乾跑並把清單寫入 `.local/plan21/`；schema 以 DROP＋CREATE 房間表取代 `db:push`（只碰房間表），房間表有資料時拒絕。已在拋棄式 PostgreSQL 上以舊版樣貌驗證 tables／schema（UploadThing 子指令需正式 token，未在本機驗證）。schema `--apply` 在 transaction 內鎖表並重新確認為空；uploads 也刪除 `failed` 的房間延遲刪除（維護排程不重試），只把 `pending` 視為已排入。runbook 改成先部署 DO（tombstone 移除舊房間的寫入者）再清 UploadThing 與 Neon。
+- **18B 重置工具**（`collaboration-reset-*` 腳本、協定 5 schema 副本、整合測試的重置排練）已移除；`docs/deployment/collaboration-reset/` 保留為歷史紀錄。
+
 ## 8. 實作順序
 
 web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批上線會讓正式環境的共編在批次之間失效。因此在 `plan-21` 分支開發：每批 commit、`pnpm check` 並 push 分支（不觸發正式部署）；全部完成後依 §7 清除資料，再一次合併到 main 部署。
@@ -108,6 +115,46 @@ web 與 DO 之間的協定會改變，push 到 main 會自動部署 DO，逐批�
 3. **Web 前端**：拿掉金鑰流程與畫面、分享對話框與列表兩區、沒有權限畫面、文案。
 4. **資料清除與部署**（§7）。
 5. **文件**（§10），改寫文件中 18C／19 的現況描述。
+
+### 第 1 批實作決定（2026-10-10）
+
+- **舊 join-token 路徑整條移除**（擁有者決定「一次改到位」）：join／control token、`gen` claim、`/generations/` 路由、v2/v3 attachment、`applyControlV1`、`revocation_cutoffs`、P3 切換用的 maintenance worker 與腳本都拿掉；`protocol-conformance` 改成走 identity proof＋authority 房間（harness：建房、邀請、移除邀請、結束房間）。
+- **DO class**：新 class `CollaborationRoomV2`，舊 `CollaborationRoom` 在 `exports` 以 `state: "deleted"` tombstone 刪除；`CollaborationLifecycle` 不動（帳號退場的 `revoke-member` lifecycle 動作照舊，與已刪除的房間指令無關）。
+- **協定版本 7**：資料框是明文編碼訊息；identity proof 的 `protocolVersion` 也是 7。
+- **角色改變**：仍有存取權但計算出的角色不同時，連線以新的關閉碼 `roleChanged`（4015，client 視為暫時性、會重連拿新角色）關閉；失去存取權才用 `membershipRevoked`。
+- **fence**：只在可能收回權限時 fence——一般存取權收窄、編輯邀請降為檢視、移除邀請、離開、結束房間。
+- **離開房間（`leave`）**：刪除自己的邀請列與開啟紀錄；若一般存取權仍開放，之後仍可用連結進入。同一個指令也用來實作 D8（「透過連結開啟過的」手動移除）。
+- **列表投影**：以帳號為鍵的 `projection` 事件加上 `access`（`owned`／`invited`／`link`），失去存取權、離開、房間結束時為 tombstone；新增以正規化 email 為鍵的 `invite-projection` 事件（adapter 指令 `project-invite`），讓尚未開啟過的受邀房間也能出現在列表。第 2 批在 Neon 建對應的 email 投影表，列表查詢合併兩者並以 roomId 去重。
+- **移除邀請不需 adapter 註冊**：與舊 `revoke-member` 相同，web 暫時不可用時仍能收回權限。
+- **不留下計費殘留**（擁有者 2026-10-10 追加）：
+  - 房間 DO 的 durable 工作從第一次排程起 24 小時仍未送達就放棄（log `authority.work_abandoned`），不再無限每分鐘 alarm。`CollaborationLifecycle` 的退場工作不放棄、持續重試：帳號／場景退場必須完成資料刪除（Codex review pass 2）。
+  - 房間結束且投影、fence、cleanup 都已送達（或放棄）、沒有連線時，DO `deleteAll()` 並清掉 alarm（log `room.storage_released`）；從未建立成功的房間（建房註冊失敗、對不存在房間的請求）也不留 schema。
+  - 放棄工作時把本地紀錄收成終態（內容收據標 `refused`、等 fence 的管理結果補 `terminal_at`），不聲稱遠端已完成；釋放儲存前等進行中的 RPC 結束；佇列滿時被刪鍵的 tombstone 記在 backlog 表由 repair 補送（Codex review pass 1）。
+  - 釋放後遲到的 socket close 事件若重建 schema，排程結束時會再釋放（Codex review pass 2）。
+  - 因此 DO 不再保留「已結束」墓碑：**第 2 批必須確認 web 建房時拒絕已存在（含已結束）的 roomId**，防止同一 roomId 被重建。
+  - **待第 2 批處理**：`CollaborationLifecycle` 完成的退場紀錄目前永久保留；需與 web 端查詢方式一起改為完成後一段時間釋放。Neon／UploadThing 的房間資料在房間結束 cleanup 時刪除，第 2 批確認刪得乾淨。
+
+### 第 2 批實作決定（2026-10-10）
+
+- **Neon schema**：`collaboration_room` 拿掉 `auth_generation`、`key_check`、`storage_generation`；`collaboration_snapshot` 每個房間一列，存明文 `data`；`collaboration_asset` 以 (room, file id) 為鍵；`collaboration_operation` 拿掉世代。`collaboration_room_member` 加 `access`，tombstone 時 `role`／`access` 為 null；新增 `collaboration_room_invite`（以正規化 email 為鍵的邀請投影）。
+- **列表**：`collaborationRoom.list` 加 `section`（`mine`／`link`）。`mine` 合併帳號自己的 owned／invited 列與尚未開啟過的邀請（以已驗證 email 比對，已有自己的列就不重複）；`link` 是只靠連結開啟過的房間。
+- **拒絕重用 roomId**：建房註冊時若 creation fence 已結束、房間列屬於其他建立操作、或已有其他 owner 註冊，一律拒絕；同一建立操作重試可通過。房間結束後 Neon 保留房間列與 creation fence 作為墓碑（DO 不再保留）。
+- **storage fence**：不再有世代輪替；fence 只推進 epoch 與狀態。
+- **房間金鑰 API**：`collaborationAuthority.roomKey`／`escrowRoomKey` 移除。
+- **`CollaborationLifecycle` 釋放**：退場完成後保留 1 小時再 `deleteAll()`（擁有者決定；完成後遲到的 `begin` 會冪等重跑並再次完成，保留時間只讓重複請求直接拿到完成紀錄）（web 端在帳號／場景刪除後只查 Neon，不再詢問 DO）。既有、已完成且沒有 alarm 的舊退場物件不會自動釋放；數量極少，留待 §7 清除時一併確認。
+- **後備清除**：`maintenance` 的「回收已結束房間」工作仍會刪掉 cleanup 沒處理到的快照與圖片；`status` 或 `storageState` 任一為 ended 即符合（結束 fence 可能被放棄），寬限期從第一個結束訊號起算（storage fence 轉為 ended 時寫入 `endedAt`）。
+- **列表的兩種投影**：同一房間的帳號列與邀請列各自送達，以 `projectionVersion` 較新者決定是否列出、列在哪一區（同版本以帳號列為準），避免舊邀請讓已離開的房間復活、或連結列擋住新邀請（Codex review）。
+- **已結束房間不留個人資料**（擁有者 2026-10-10）：房間結束後，Neon 刪除該房間的成員投影、邀請投影、投影墓碑、內容操作紀錄與退場登記，並清空房間名稱；只保留房間列（`status='ended'`）與 creation fence，用來拒絕 roomId 重用。投影自我清理（結束事件與結束後才到的事件改為刪除該列）、adapter cleanup 與維護回收三處都會執行，不受到達順序影響。storage fence 第一次轉為 ended 時也把房間標成 ended 並清空名稱；結束房間的內容寫入與註冊一律拒絕且不留紀錄；帳號／場景刪除前先清掉即將 cascade 的房間沒有外鍵的紀錄；房間在建出父紀錄前就結束時，cleanup 也會清掉它的註冊。註冊、建立父紀錄、storage fence、cleanup、維護回收與退場刪除都先取得以 roomId 為鍵的 advisory lock（順序：帳號／場景 → roomId lock → 房間列），彼此序列化（Codex review 兩輪）。
+- **退場時移除邀請名單上的 email**、admin 異常檢視、退場卡住告警與退避：移到 [plan 22](22-admin-anomalies-and-account-removal-cleanup.md)。
+- **已結束房間不可用原 operationId 重建**：房間 `status` 或 `storageState` 為 ended 時，連同一建立操作的重試也拒絕（Codex review）。
+
+### 第 3 批實作決定（2026-10-10）
+
+- **邀請連結**只剩 `?collab-room=<id>`；舊連結的 `#collab-key=…` 片段會被忽略並從網址列移除。
+- **失敗狀態**：拿掉所有金鑰相關狀態；Room 拒絕這個帳號（FORBIDDEN／403，第一次加入或重連時）時為 `failed` + `no-access`，畫面顯示「你沒有這個房間的存取權」與「回到我的畫布」（離開前沿用未儲存變更的確認，Codex review）。伺服器在帳號凍結、email 未驗證或 session 失效時也回 FORBIDDEN，所以文案不斷言原因。`roleChanged` 關閉視為暫時性、直接重連。
+- **分享對話框**：邀請連結＋一般存取權（擁有者可改）；擁有者看得到邀請名單（改角色、移除、是否已加入）與透過連結加入的人；擁有者只剩「結束房間」，其他人只剩「離開房間」。
+- **房間列表**兩區；連結區每列有「從列表移除」（送 `leave`，不影響權限）。
+- **圖片無法讀取**的警告只在下載或解碼失敗時出現（每個 session 一次）。
 
 ## 9. 驗收矩陣
 

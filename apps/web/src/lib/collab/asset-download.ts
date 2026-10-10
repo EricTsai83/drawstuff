@@ -1,9 +1,8 @@
 import {
   decodeCollaborationAssetPayload,
   EXCALIDRAW_FILE_ID_PATTERN,
-  MAX_ASSET_CIPHERTEXT_BYTES,
+  MAX_ASSET_BYTES,
   MAX_ASSET_LOOKUP_BATCH,
-  type AssetCryptoCodec,
   type CollaborationAssetRecord,
 } from "@drawstuff/collaboration/asset";
 import type { RoomId } from "@drawstuff/collaboration/protocol";
@@ -14,7 +13,6 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 
 import type { AssetApi } from "@/lib/collab/asset-store";
-import type { UnreadableAssetVerdict } from "@/lib/collab/asset-unreadable-verdict";
 import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 import {
   createBoundedIdMap,
@@ -24,8 +22,8 @@ import {
 } from "@/lib/collab/bounded-containers";
 
 /**
- * Download half of the asset store: lookup batches, bounded ciphertext
- * fetches, opening, and the retry chain for assets that are merely not
+ * Download half of the asset store: lookup batches, bounded payload
+ * fetches, decoding, and the retry chain for assets that are merely not
  * uploaded yet.
  *
  * Everything here is driven through the context the store hands over — the
@@ -43,7 +41,7 @@ import {
  * the id again, and never sooner than the backoff ceiling after the last one.
  */
 const MAX_SCHEDULED_DOWNLOAD_ATTEMPTS = 4;
-/** Coalesce fast completions, but never retain a whole lookup of plaintext. */
+/** Coalesce fast completions, but never retain a whole lookup of images. */
 const MAX_DELIVERY_BATCH = 4;
 const DELIVERY_DELAY_MS = 32;
 
@@ -51,22 +49,12 @@ const DELIVERY_DELAY_MS = 32;
 type TransferOutcome =
   | "resolved"
   | "retry"
-  /** Retrying cannot fix it, and the reason is not the room key. */
-  | "abandon"
-  /**
-   * Abandoned because the ciphertext would not open under this room's derived
-   * key — a wrong key, a tampered body, or an envelope version this client does
-   * not implement. Handled exactly like `abandon`; it is split out only so the
-   * store can tell "this link cannot read the room's images" from every other
-   * reason an image never arrives.
-   */
-  | "undecryptable";
+  /** Retrying cannot fix it: the stored bytes are not a readable image. */
+  | "abandon";
 
 type AssetDownloadContext = {
   resolve: AssetApi["resolve"];
   roomId: RoomId;
-  authGeneration: number;
-  codec: AssetCryptoCodec;
   fetchImpl: typeof fetch;
   signal: AbortSignal;
   isDestroyed: () => boolean;
@@ -80,7 +68,7 @@ type AssetDownloadContext = {
   transfers: TransferGate;
   /** Ids already handed to the canvas; never downloaded twice. */
   resolved: BoundedIdSet;
-  /** Ids no retry can help: unopenable, undecodable, or out of attempts. */
+  /** Ids no retry can help: undecodable, or out of attempts. */
   abandoned: BoundedIdSet;
   /** Ids this client has uploaded or seen in the room. */
   available: BoundedIdSet;
@@ -88,7 +76,8 @@ type AssetDownloadContext = {
   abandon: (fileId: string) => void;
   /** Flushes the batched given-up ids to the canvas, once per request. */
   flushUnavailable: () => void;
-  verdict: UnreadableAssetVerdict;
+  /** A stored image failed to download intact or decode; the store reports it once. */
+  noteUnreadableAsset: () => void;
   /** Called with every batch of opened assets, for injection into the canvas. */
   onAssetsResolved: (files: readonly BinaryFileData[]) => void;
 };
@@ -103,7 +92,6 @@ export const createAssetDownloader = (
   context: AssetDownloadContext,
 ): AssetDownloader => {
   const {
-    codec,
     fetchImpl,
     isDestroyed,
     now,
@@ -111,7 +99,6 @@ export const createAssetDownloader = (
     abandoned,
     available,
     abandon,
-    verdict,
   } = context;
 
   /**
@@ -236,48 +223,26 @@ export const createAssetDownloader = (
   const openRecord = async (
     record: CollaborationAssetRecord,
   ): Promise<{ outcome: TransferOutcome; file?: BinaryFileData }> => {
-    // A record sealed under an envelope version this client does not implement is
-    // not a transient failure: nothing here can ever open it. Counted as
-    // undecryptable rather than merely abandoned — a version bump makes every
-    // pre-existing asset in the room unopenable at once, which is the "room full
-    // of images this link cannot show" case the user has to be told about.
-    if (record.cryptoVersion !== codec.cryptoVersion) {
-      return { outcome: "undecryptable" };
-    }
-    const limit = Math.min(record.byteLength, MAX_ASSET_CIPHERTEXT_BYTES);
+    const limit = Math.min(record.byteLength, MAX_ASSET_BYTES);
 
-    let ciphertext: Uint8Array | null;
+    let bytes: Uint8Array | null;
     try {
       const response = await fetchImpl(record.url, {
         signal: context.signal,
       });
       if (!response.ok) return { outcome: "retry" };
-      ciphertext = await readBoundedBody(response, limit);
+      bytes = await readBoundedBody(response, limit);
     } catch {
       // Abort included: the caller is gone, and the destroyed flag stops the retry.
       return { outcome: "retry" };
     }
     // A body that disagrees with its record is not this asset, whichever is
-    // wrong; a retry would fetch the same bytes. Not `undecryptable`: nothing was
-    // asked of the key here, so it is no evidence about the link.
-    if (ciphertext?.byteLength !== record.byteLength) {
+    // wrong; a retry would fetch the same bytes.
+    if (bytes?.byteLength !== record.byteLength) {
       return { outcome: "abandon" };
     }
 
-    const opened = await codec.open({
-      excalidrawFileId: record.excalidrawFileId,
-      ciphertext,
-    });
-    if (!opened.ok) return { outcome: "undecryptable" };
-    // Latched on the *open*, not on the resolve: authentication passing is what
-    // proves this link reads this room, whatever the plaintext then turns out to
-    // contain.
-    verdict.noteOpenedAsset();
-
-    // Authentication already succeeded, so the key is right and the room is
-    // readable — a payload this client cannot parse is a peer's protocol
-    // violation, and it stays as silent as it was.
-    const decoded = decodeCollaborationAssetPayload(opened.plaintext, {
+    const decoded = decodeCollaborationAssetPayload(bytes, {
       roomId: context.roomId,
       excalidrawFileId: record.excalidrawFileId,
     });
@@ -366,7 +331,7 @@ export const createAssetDownloader = (
       // id whose deadline has not arrived.
       armRetryTimer();
       // One canvas update per request rather than per id or per batch: a late
-      // joiner with ten unopenable images must not produce ten scene writes.
+      // joiner with ten damaged images must not produce ten scene writes.
       context.flushUnavailable();
     }
   }
@@ -380,7 +345,6 @@ export const createAssetDownloader = (
     });
     for (const fileId of wanted) downloading.set(fileId, claim);
 
-    const fetchId = verdict.beginFetch();
     try {
       for (
         let offset = 0;
@@ -403,14 +367,6 @@ export const createAssetDownloader = (
           continue;
         }
         if (isDestroyed()) return;
-        // The generation the records belong to is the one the key was derived
-        // for; a mismatch means the room rotated under us and these bytes are not
-        // ours to open. The session is torn down on rotation, so this only guards
-        // the window before that happens.
-        if (lookup.authGeneration !== context.authGeneration) {
-          for (const fileId of batch) abandon(fileId);
-          continue;
-        }
 
         for (const fileId of lookup.missing) deferRetry(fileId);
 
@@ -432,12 +388,7 @@ export const createAssetDownloader = (
                 deferRetry(record.excalidrawFileId);
                 return;
               }
-              // Both terminal outcomes drop the asset the same way; only the
-              // evidence flag distinguishes them, and it is judged store-wide
-              // once the armed cohort has drained (`verdict.settleFetch`).
-              if (result.outcome === "undecryptable") {
-                verdict.noteUndecryptableAsset();
-              }
+              context.noteUnreadableAsset();
               abandon(record.excalidrawFileId);
               forget(record.excalidrawFileId);
             }),
@@ -452,10 +403,6 @@ export const createAssetDownloader = (
       for (const fileId of wanted) {
         if (downloading.get(fileId) === claim) downloading.delete(fileId);
       }
-      // Judged only once the armed cohort has drained, so a readable asset in a
-      // lookup that was already running still gets to prove the link opens this
-      // room.
-      verdict.settleFetch(fetchId);
       settle();
     }
   }

@@ -9,12 +9,10 @@ import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
  * Turns a failed Room lookup or identity-proof request into the refusal recovery
  * acts on.
  *
- * This is the only place that can make the call. The relay closes a socket as soon
- * as the app withdraws the authorization it holds, and it uses one close code for
- * both "removed from the room" and "role changed" — and a role change *must*
- * reconnect, so the Room can grant the new role in its socket ACK. So the relay's close is always
- * retried, and this request is where a client that genuinely cannot come back is
- * stopped.
+ * This is the only place that can make the call. The relay's `membershipRevoked`
+ * and `unauthorized` closes are always retried once with a fresh identity proof,
+ * so this request is where a client that genuinely has no access is stopped
+ * (`membership-revoked`, reported to the UI as `no-access`).
  *
  * Read off the tRPC error code rather than the message, and deliberately
  * conservative: only the codes that state a refusal are terminal, so an
@@ -30,9 +28,7 @@ export function classifyJoinFailure(error: unknown): JoinCredentialsResult {
   if (error instanceof AuthorityRoomError)
     return error.code === "ended"
       ? { ok: false, retry: false, failure: "room-ended" }
-      : error.code === "generation-mismatch"
-        ? { ok: false, retry: false, failure: "generation-rotated" }
-        : { ok: false, retry: true };
+      : { ok: false, retry: true };
   if (error instanceof SnapshotHttpError) {
     if (error.status === 401)
       return { ok: false, retry: false, failure: "unauthorized" };

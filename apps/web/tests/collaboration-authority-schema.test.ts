@@ -75,7 +75,6 @@ describe("P1 PostgreSQL authority schema", () => {
       actor: owner,
       kind: "snapshot-put",
       authorityEpoch: 1,
-      authGeneration: 1,
       expectedRevision: 0,
       checksum: "a".repeat(64),
       requestFingerprint: "b".repeat(64),

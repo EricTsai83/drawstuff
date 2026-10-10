@@ -1,7 +1,5 @@
+import type { DurableJob } from "@drawstuff/collaboration/authority";
 import type { RoomRole } from "@drawstuff/collaboration/room-auth";
-import type { RoomTokenFailureReason } from "@drawstuff/collaboration/room-token";
-
-import type { ControlRejectionCode } from "./control.ts";
 
 /**
  * Structured Workers Logs for the gateway and the room Object, shaped by the
@@ -23,56 +21,43 @@ import type { ControlRejectionCode } from "./control.ts";
 type DoLogEvent =
   | "gateway.unhandled_failure"
   | "authority.entry_failed"
-  | "room_key.entry_failed"
+  /** A durable job kept failing past its retry window and was dropped. */
+  | "authority.work_abandoned"
+  /** An ended, fully settled room deleted all of its storage. */
+  | "room.storage_released"
   | "adapter.delivery_failed"
   /** COLLAB_ALLOWED_ORIGINS failed to parse; socket upgrades answer 503. */
   | "gateway.config_invalid"
-  | "gateway.secret_not_ready"
   | "gateway.room_fetch_failed"
-  | "gateway.control_token_rejected"
-  | "gateway.control_applied"
-  /** The Object refused the command deterministically; answered 422. */
-  | "gateway.control_rejected"
-  | "gateway.control_dispatch_failed"
-  /** The Object was addressed without a canonical RoomChannelKey name. */
+  /** The Object was addressed without a canonical roomId name. */
   | "room.invalid_object_identity"
   /** The constructor's schema bootstrap threw; the runtime resets the Object. */
   | "room.schema_bootstrap_failed"
   /** A frame handler threw; that connection was closed, never the Object. */
   | "room.frame_dispatch_failed"
   | "room.socket_error"
-  | "room.secret_not_ready"
   | "room.fanout_write_failed"
   | "room.session_joined"
   /** Every server-stated close, with its close-code verdict. */
-  | "room.session_closed"
-  /** The cron trigger fired but the drain secrets are missing. */
-  | "cron.outbox_drain_not_configured"
-  /** The outbox drain ping got no 2xx (or no response) from the web app. */
-  | "cron.outbox_drain_failed";
+  | "room.session_closed";
 
 type DoLogLevel = "info" | "warn" | "error";
 
 type DoLogFields = {
-  /** Opaque room id from the *verified* token or route; never pre-auth input. */
+  /** Opaque room id from the *verified* proof or route; never pre-auth input. */
   roomId?: string;
-  authGeneration?: number;
   /** Object-generated, opaque by construction. */
   peerId?: string;
   role?: RoomRole;
   closeCode?: number;
   /** Attachment state at close time; "unknown" for unreadable attachments. */
   socketState?: "pending" | "joined" | "unknown";
-  /** Enumerated verification failure; carries no part of the token. */
-  tokenFailure?: RoomTokenFailureReason;
-  controlAction?: "end-room" | "revoke-member";
-  /** Why the Object refused a control command; a closed enum. */
-  controlRejection?: ControlRejectionCode;
-  closedSessions?: number;
   /** Joined members after the change the record describes. */
   members?: number;
-  /** HTTP status of a failed server-to-server call (the drain ping). */
+  /** HTTP status of a failed server-to-server call. */
   status?: number;
+  /** Kind of an abandoned durable job; a closed enum. */
+  jobKind?: DurableJob["kind"];
   /** `Error` constructor name only — never `message`, which can embed input. */
   errorName?: string;
 };
@@ -83,17 +68,13 @@ type DoLogFields = {
  */
 const LOGGABLE_FIELDS: Record<keyof DoLogFields, true> = {
   roomId: true,
-  authGeneration: true,
   peerId: true,
   role: true,
   closeCode: true,
   socketState: true,
-  tokenFailure: true,
-  controlAction: true,
-  controlRejection: true,
-  closedSessions: true,
   members: true,
   status: true,
+  jobKind: true,
   errorName: true,
 };
 

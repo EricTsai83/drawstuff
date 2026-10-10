@@ -23,12 +23,15 @@
 寫這張表的過程會逼出所有沒人決定過的問題：這類資料誰擁有？什麼時候可以死？
 誰負責殺它？每一列的退場路徑必須是**具名的機制**，不是「應該會被清掉吧」。
 
-### 2. 世代分域的自我回收（self-bounding persistence）
+### 2. 自我回收（self-bounding persistence）
 
-複合主鍵 `(資源 id, 世代)` + 「新世代寫入成功那一刻，同交易刪除舊世代列」。
-儲存量天然有界（每資源至多一個活躍世代），不需要獨立的 reaper 掃描。
-特別適合密文資料：世代輪替後舊金鑰已撤銷，舊密文在密碼學上不可讀，
-留著只有成本沒有價值。
+讓儲存量由資料形狀本身封頂，而不是靠獨立的 reaper 掃描：
+
+- **一資源一列**：快照以資源 id 為主鍵，每次寫入覆蓋（optimistic revision），不累積歷史；
+- **結束即釋放**：資源結束、所有欠著的外部工作都送達（或明確放棄）且沒有連線時，承載它的
+  有狀態實例刪除自己的全部儲存；從未建立成功的資源也不留 schema；
+- **只留防重用的墓碑**：結束後只保留「這個 id 已用過」所需的最小紀錄（不含個人資料），
+  讓同一 id 不能被重建；其餘個人紀錄（成員、邀請、收據）在結束時清除。
 
 ### 3. 刪除的標準形狀（配合 transactional outbox）
 
@@ -122,13 +125,17 @@ flowchart TD
 
 - outbox + 排程器 + 稽核是固定的基礎設施成本；資料類型很少的專案可以先只做
   「刪除標準形狀」，矩陣等第三類資料出現再補。
-- 世代分域回收的前提是「舊世代確定無價值」；若產品需要歷史版本，這個 pattern
-  要換成明確的版本保留策略。
+- 自我回收的前提是「覆蓋掉的版本與結束的資源確定無價值」；若產品需要歷史版本或復原，
+  這個 pattern 要換成明確的版本保留策略。
 
 ## 本專案中的實例
 
 - 完整矩陣、刪除形狀、鎖設計、有界 job、復活競態、管理員稽核：
   [data lifecycle](../architecture/data-lifecycle.md)。
-- 世代分域快照／資產：[collaboration system design](../architecture/collaboration-system-design.md)。
+- 自我回收：房間快照每房一列（`collaboration_snapshot`）；結束且工作都已送達的房間 Durable
+  Object `deleteAll()`（`room.storage_released`）；結束後 Neon 只留房間列與
+  `collaboration_creation_fence` 以拒絕 roomId 重用。見
+  [collaboration storage](../architecture/collaboration-storage.md)、
+  [data lifecycle](../architecture/data-lifecycle.md)。
 - 縮圖 CAS、advisory lock 維運入口：`apps/web/src/server/maintenance/`、
   `apps/web/src/app/api/maintenance/cleanup/route.ts`。

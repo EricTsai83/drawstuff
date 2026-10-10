@@ -5,17 +5,12 @@ import {
 } from "cloudflare:test";
 import { expect, it } from "vitest";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
-import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import {
-  createAssetCryptoCodec,
   encodeCollaborationAssetPayload,
   decodeCollaborationAssetPayload,
 } from "@drawstuff/collaboration/asset";
 import {
-  deriveSnapshotKey,
-  sealCollaborationSnapshot,
-  openCollaborationSnapshot,
-  MAX_SNAPSHOT_PLAINTEXT_BYTES,
+  MAX_SNAPSHOT_BYTES,
   decodeCollaborationSnapshot,
 } from "@drawstuff/collaboration/snapshot";
 import { canvasFixture } from "./canvas-fixture.ts";
@@ -33,7 +28,7 @@ import {
 const SAMPLES = 200;
 const WARMUP = 20;
 const TYPICAL_BYTES = 256 * 1024;
-let assetPlaintextBytes = 0;
+let assetPayloadBytes = 0;
 const sleep = (ms: number) =>
   new Promise<void>((resolve) => setTimeout(resolve, ms));
 type Sample = {
@@ -41,7 +36,7 @@ type Sample = {
   status: "completed" | "pending" | "failed";
   localDenyMs?: number;
   presenceMs?: number;
-  cryptoMs?: number;
+  encodeMs?: number;
   initializationMs?: number;
   preparationMs?: number;
 };
@@ -65,7 +60,7 @@ const report = async (
   const stats = {
     name,
     payloadBytes: bytes,
-    assetPlaintextBytes: bytes ? assetPlaintextBytes : 0,
+    assetPayloadBytes: bytes ? assetPayloadBytes : 0,
     sampleCount: samples.length,
     warmup: WARMUP,
     completed: times.length,
@@ -77,9 +72,9 @@ const report = async (
     pendingRatio:
       samples.filter((sample) => sample.status === "pending").length /
       samples.length,
-    cryptoP95Ms: percentile(
+    encodeP95Ms: percentile(
       samples.flatMap((sample) =>
-        sample.cryptoMs === undefined ? [] : [sample.cryptoMs],
+        sample.encodeMs === undefined ? [] : [sample.encodeMs],
       ),
       0.95,
     ),
@@ -143,57 +138,29 @@ async function batch<T>(
 }
 async function fixture(size: number) {
   const roomId = roomIdSchema.parse(`p0-${crypto.randomUUID()}`);
-  const roomKey = generateRoomKey();
-  const key = await deriveSnapshotKey({ roomKey, roomId, authGeneration: 1 });
   const assetId = crypto.randomUUID();
-  const sealed = await sealCollaborationSnapshot({
-    key,
+  // Storage holds the encoded snapshot and asset payload as is.
+  const bytes = canvasFixture(roomId, size, assetId);
+  const png = atob(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT7sAAAAASUVORK5CYII=",
+  );
+  const encoded = encodeCollaborationAssetPayload({
     roomId,
-    authGeneration: 1,
-    revision: 1,
-    plaintext: canvasFixture(roomId, size, assetId),
-  });
-  if (!sealed.ok) throw new Error("fixture encryption failed");
-  const codec = await createAssetCryptoCodec({
-    roomKey,
-    roomId,
-    authGeneration: 1,
-  });
-  const assetBytes = await codec.seal({
     excalidrawFileId: assetId,
-    plaintext: (() => {
-      const png = atob(
-        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aT7sAAAAASUVORK5CYII=",
-      );
-      const encoded = encodeCollaborationAssetPayload({
-        roomId,
-        excalidrawFileId: assetId,
-        mimeType: "image/png",
-        dataUrl: "data:image/png;base64," + btoa(png + "\0".repeat(48 * 1024)),
-      });
-      if (!encoded.ok) throw new Error("fixture asset payload invalid");
-      assetPlaintextBytes = encoded.bytes.length;
-      return encoded.bytes;
-    })(),
+    mimeType: "image/png",
+    dataUrl: "data:image/png;base64," + btoa(png + "\0".repeat(48 * 1024)),
   });
-  if (!assetBytes.ok) throw new Error("fixture asset encryption failed");
+  if (!encoded.ok) throw new Error("fixture asset payload invalid");
+  assetPayloadBytes = encoded.bytes.length;
   const asset = await fresh(
     { actor: "owner", roomId, operationId: assetId },
-    assetBytes.ciphertext,
+    encoded.bytes,
   );
   const snapshot = await fresh(
     { actor: "owner", roomId, assetIds: [assetId] },
-    sealed.ciphertext,
+    bytes,
   );
-  return {
-    codec,
-    key,
-    roomId,
-    asset,
-    assetBytes: assetBytes.ciphertext,
-    snapshot,
-    bytes: sealed.ciphertext,
-  };
+  return { roomId, asset, assetBytes: encoded.bytes, snapshot, bytes };
 }
 async function save(item: Awaited<ReturnType<typeof fixture>>) {
   expect(
@@ -226,12 +193,9 @@ async function normalScenario(name: string, size: number, cold: boolean) {
   const run = async (): Promise<{ save: Sample; join: Sample }> => {
     const start = performance.now();
     const item = await fixture(size);
-    const cryptoMs = performance.now() - start;
+    const encodeMs = performance.now() - start;
     const create = { ...item.snapshot, operationId: crypto.randomUUID() };
-    const keyHeaders = { "x-p0-key-check": "a".repeat(64) };
-    expect((await call("/create", create, undefined, keyHeaders)).status).toBe(
-      200,
-    );
+    expect((await call("/create", create)).status).toBe(200);
     if (cold) {
       // Instantiate then evict; this measures a real SQLite rehydration, not a new empty name.
       await call("/asset-index", item.snapshot);
@@ -241,12 +205,10 @@ async function normalScenario(name: string, size: number, cold: boolean) {
     }
     const savingStart = performance.now();
     await save(item);
-    const saveMs = cryptoMs + performance.now() - savingStart;
+    const saveMs = encodeMs + performance.now() - savingStart;
     const initializationStart = performance.now();
     expect(
-      await (
-        await call("/initialize-finish", item.snapshot, undefined, keyHeaders)
-      ).json(),
+      await (await call("/initialize-finish", item.snapshot)).json(),
     ).toEqual({ status: "ready" });
     const initializationMs = performance.now() - initializationStart;
     if (cold) await evictDurableObject(bindings.P0_ROOM.getByName(item.roomId));
@@ -257,16 +219,9 @@ async function normalScenario(name: string, size: number, cold: boolean) {
         actor: "writer",
       });
       expect(response.status).toBe(200);
-      const opened = await openCollaborationSnapshot({
-        key: item.key,
-        roomId: item.roomId,
-        authGeneration: 1,
-        revision: 1,
-        ciphertext: new Uint8Array(await response.arrayBuffer()),
-      });
-      if (!opened.ok) throw new Error("fixture baseline did not decrypt");
-      expect(opened.plaintext.length).toBe(size);
-      const decoded = decodeCollaborationSnapshot(opened.plaintext, {
+      const baseline = new Uint8Array(await response.arrayBuffer());
+      expect(baseline).toEqual(item.bytes);
+      const decoded = decodeCollaborationSnapshot(baseline, {
         roomId: item.roomId,
       });
       if (!decoded.ok) throw new Error("baseline is not a valid canvas");
@@ -277,16 +232,14 @@ async function normalScenario(name: string, size: number, cold: boolean) {
       ).toBe(true);
       const assetResponse = await direct("/asset-read", item.asset);
       expect(assetResponse.status).toBe(200);
-      const asset = await item.codec.open({
-        excalidrawFileId: item.asset.operationId,
-        ciphertext: new Uint8Array(await assetResponse.arrayBuffer()),
-      });
-      if (!asset.ok) throw new Error("attachment did not decrypt");
       expect(
-        decodeCollaborationAssetPayload(asset.plaintext, {
-          roomId: item.roomId,
-          excalidrawFileId: item.asset.operationId,
-        }).ok,
+        decodeCollaborationAssetPayload(
+          new Uint8Array(await assetResponse.arrayBuffer()),
+          {
+            roomId: item.roomId,
+            excalidrawFileId: item.asset.operationId,
+          },
+        ).ok,
       ).toBe(true);
     }
     const joinMs = performance.now() - joinStart;
@@ -295,9 +248,9 @@ async function normalScenario(name: string, size: number, cold: boolean) {
       save: {
         ms: saveMs,
         status: "completed",
-        cryptoMs,
+        encodeMs,
         initializationMs,
-        preparationMs: savingStart - start - cryptoMs,
+        preparationMs: savingStart - start - encodeMs,
       },
       join: { ms: joinMs, status: "completed" },
     };
@@ -305,7 +258,7 @@ async function normalScenario(name: string, size: number, cold: boolean) {
   await batch(WARMUP, 2, run);
   const samples = await batch(SAMPLES, 2, run);
   const limits =
-    size === MAX_SNAPSHOT_PLAINTEXT_BYTES
+    size === MAX_SNAPSHOT_BYTES
       ? { p95: 8000, p99: 15000 }
       : { p95: 3000, p99: 8000 };
   await report(
@@ -323,7 +276,7 @@ async function normalScenario(name: string, size: number, cold: boolean) {
 }
 
 it("measures complete local saves, joins, revocation, slow attachments and outage recovery", async () => {
-  for (const size of [TYPICAL_BYTES, MAX_SNAPSHOT_PLAINTEXT_BYTES]) {
+  for (const size of [TYPICAL_BYTES, MAX_SNAPSHOT_BYTES]) {
     for (const cold of [false, true]) {
       await normalScenario(
         `${size === TYPICAL_BYTES ? "typical" : "maximum"}-${cold ? "cold" : "hot"}`,
@@ -487,7 +440,7 @@ it("measures complete local saves, joins, revocation, slow attachments and outag
     };
   });
   await report("db-outage-30s-recovery", 0, recovered.slice(WARMUP));
-  // Independently check provider-to-DO metadata contains no body/key artifacts.
+  // Independently check provider-to-DO metadata contains no body artifacts.
   const reference = await fresh();
   await call("/asset-index", reference);
   expect(await checksum(new Uint8Array([1, 2, 3]))).toBe(reference.checksum);

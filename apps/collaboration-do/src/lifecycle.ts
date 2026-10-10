@@ -14,6 +14,17 @@ import { z } from "zod";
 import { AdapterClient } from "./adapter-client.ts";
 import { DurableWork } from "./durable-work.ts";
 
+/**
+ * How long a completed retirement record outlives completion before the
+ * Object deletes its storage. Once the web side has deleted the account or
+ * scene and marked it retired in its own database, it answers status from
+ * there and never asks this Object again. Not a safety bound: a `begin` that
+ * was already in flight and arrives after release re-runs idempotently (the
+ * subject is frozen and retired, its registrations are gone) and completes.
+ * The window only lets such a duplicate see the existing completed record.
+ */
+const COMPLETED_RETENTION_MS = 60 * 60_000;
+
 type LifecycleRow = {
   operation_id: string;
   command: string;
@@ -65,8 +76,45 @@ export class LifecycleProgress {
     ); CREATE TABLE IF NOT EXISTS lifecycle_rooms (
       room_id TEXT PRIMARY KEY, action TEXT NOT NULL CHECK(action IN ('end-room','revoke-member')),
       enforced INTEGER NOT NULL DEFAULT 0 CHECK(enforced IN (0,1))
-    );`);
+    ); CREATE TABLE IF NOT EXISTS lifecycle_release (at INTEGER NOT NULL);`);
     this.work = new DurableWork(storage);
+  }
+
+  /** When this Object may delete all of its storage, once retirement completed. */
+  releaseAt(): number | undefined {
+    return this.storage.sql
+      .exec<{ at: number }>("SELECT at FROM lifecycle_release")
+      .toArray()[0]?.at;
+  }
+
+  /**
+   * A retirement that completed before release times existed gets one now, so
+   * waking an old Object (any `begin`/`query`) schedules its release too.
+   */
+  scheduleReleaseIfCompleted(now = Date.now()): number | undefined {
+    if (
+      this.storage.sql
+        .exec("SELECT 1 FROM lifecycle_progress WHERE phase='completed'")
+        .toArray().length > 0
+    )
+      this.storage.sql.exec(
+        "INSERT INTO lifecycle_release SELECT ? WHERE NOT EXISTS (SELECT 1 FROM lifecycle_release)",
+        now + COMPLETED_RETENTION_MS,
+      );
+    return this.releaseAt();
+  }
+
+  /** Never begun, or already released and only touched again by a lookup. */
+  empty(): boolean {
+    return (
+      this.storage.sql.exec("SELECT 1 FROM lifecycle_progress").toArray()
+        .length === 0 && this.work.pending() === 0
+    );
+  }
+
+  releasable(now = Date.now()): boolean {
+    const at = this.releaseAt();
+    return at !== undefined && at <= now && this.work.pending() === 0;
   }
 
   query(operationId: string) {
@@ -90,23 +138,30 @@ export class LifecycleProgress {
     if (lifecycleObjectName(command.target) !== this.objectName)
       throw new Error("wrong-subject");
     const request = JSON.stringify(command);
-    await this.work.commit(() => {
-      const row = this.storage.sql
-        .exec<LifecycleRow>("SELECT * FROM lifecycle_progress")
-        .toArray()[0];
-      if (row) {
-        if (row.operation_id !== command.operationId || row.command !== request)
-          throw new Error("operation-mismatch");
-        return;
-      }
-      this.storage.sql.exec(
-        "INSERT INTO lifecycle_progress(operation_id,command,phase,version,cursor) VALUES (?,?,'freezing',NULL,NULL)",
-        command.operationId,
-        request,
-      );
-      if (!this.work.enqueue("retirement", { kind: "retire", command }, true))
-        throw new Error("capacity");
-    });
+    await this.work.commit(
+      () => {
+        const row = this.storage.sql
+          .exec<LifecycleRow>("SELECT * FROM lifecycle_progress")
+          .toArray()[0];
+        if (row) {
+          if (
+            row.operation_id !== command.operationId ||
+            row.command !== request
+          )
+            throw new Error("operation-mismatch");
+          return;
+        }
+        this.storage.sql.exec(
+          "INSERT INTO lifecycle_progress(operation_id,command,phase,version,cursor) VALUES (?,?,'freezing',NULL,NULL)",
+          command.operationId,
+          request,
+        );
+        if (!this.work.enqueue("retirement", { kind: "retire", command }, true))
+          throw new Error("capacity");
+        // A late duplicate after completion must keep the release alarm armed.
+      },
+      () => this.releaseAt(),
+    );
     return this.query(command.operationId);
   }
 
@@ -219,12 +274,16 @@ export class LifecycleProgress {
       case "deleting":
         if (row.version === null) throw new Error("missing-freeze");
         await adapter.delete(command, row.version);
-        await this.transition(row, () =>
+        await this.transition(row, () => {
           this.storage.sql.exec(
             "UPDATE lifecycle_progress SET phase='completed' WHERE operation_id=? AND phase='deleting'",
             command.operationId,
-          ),
-        );
+          );
+          this.storage.sql.exec(
+            "INSERT INTO lifecycle_release SELECT ? WHERE NOT EXISTS (SELECT 1 FROM lifecycle_release)",
+            Date.now() + COMPLETED_RETENTION_MS,
+          );
+        });
         return true;
       case "completed":
         return true;
@@ -233,21 +292,54 @@ export class LifecycleProgress {
 }
 
 export class CollaborationLifecycle extends DurableObject<Env> {
-  private readonly progress: LifecycleProgress;
+  private progressCache: LifecycleProgress | undefined;
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
     if (!ctx.id.name) throw new Error("missing-subject");
-    this.progress = new LifecycleProgress(ctx.storage, ctx.id.name);
+  }
+
+  /** Built on use, so released storage is recreated only by another request. */
+  private get progress(): LifecycleProgress {
+    this.progressCache ??= new LifecycleProgress(
+      this.ctx.storage,
+      this.ctx.id.name!,
+    );
+    return this.progressCache;
   }
 
   // Private binding RPC; Gateway authenticates the service capability.
-  begin(command: LifecycleCommand) {
-    return this.progress.begin(command);
+  async begin(command: LifecycleCommand) {
+    const result = await this.progress.begin(command);
+    await this.armRelease();
+    return result;
   }
-  query(operationId: string) {
-    return this.progress.query(operationId);
+  async query(operationId: string) {
+    const result = this.progress.query(operationId);
+    // A lookup must not leave a schema behind on an empty Object.
+    if (this.progress.empty()) await this.release();
+    else await this.armRelease();
+    return result;
   }
+
+  private async armRelease(): Promise<void> {
+    const at = this.progress.scheduleReleaseIfCompleted();
+    if (at === undefined) return;
+    const current = await this.ctx.storage.getAlarm();
+    if (current === null || current > at)
+      await this.ctx.storage.setAlarm(Math.max(Date.now() + 1_000, at));
+  }
+
+  private async release(): Promise<void> {
+    await this.ctx.storage.deleteAlarm();
+    await this.ctx.storage.deleteAll();
+    this.progressCache = undefined;
+  }
+
   override async alarm(): Promise<void> {
+    if (this.progress.releasable()) {
+      await this.release();
+      return;
+    }
     await this.progress.work.drain(
       async (job: DurableJob, _timeoutMs: number, signal: AbortSignal) => {
         if (job.kind !== "retire") throw new Error("wrong-job");
@@ -288,6 +380,8 @@ export class CollaborationLifecycle extends DurableObject<Env> {
         };
         return this.progress.advance(command, adapter);
       },
+      // Keeps one alarm for the storage release after completion.
+      () => this.progress.releaseAt(),
     );
   }
 }

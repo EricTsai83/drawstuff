@@ -59,7 +59,7 @@ export const createAssetBridge = (options: {
      * happens to be the whole scene, so the same call covers the late-joiner and
      * page-refresh cases.
      *
-     * Fire-and-forget on purpose. A missing or unopenable asset must never hold
+     * Fire-and-forget on purpose. A missing or damaged asset must never hold
      * up element sync — the scene converges and the image either arrives later or
      * does not.
      */
@@ -78,7 +78,7 @@ export const createAssetBridge = (options: {
      *
      * Runs on the same coalesced flush as the outbound deltas, because that is
      * when a newly added image is first broadcast: peers receive the element and
-     * the ciphertext lands moments later. The store decides what is actually new,
+     * the image lands moments later. The store decides what is actually new,
      * so calling this repeatedly is how a failed upload is retried — and a scene
      * with no files at all never walks its elements.
      */

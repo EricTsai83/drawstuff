@@ -17,7 +17,7 @@ import {
   contentResultSchema,
 } from "@drawstuff/collaboration/authority";
 
-import { MAX_SNAPSHOT_CIPHERTEXT_BYTES } from "@drawstuff/collaboration/snapshot";
+import { MAX_SNAPSHOT_BYTES } from "@drawstuff/collaboration/snapshot";
 import { createDoLogger } from "./logger.ts";
 import {
   readSnapshotBody,
@@ -116,7 +116,7 @@ export class AdapterClient {
       new TextEncoder().encode(metadata).byteLength > ADAPTER_METADATA_MAX_BYTES
     )
       throw new Error("adapter-command-too-large");
-    if (bytes && bytes.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES)
+    if (bytes && bytes.byteLength > MAX_SNAPSHOT_BYTES)
       throw new Error("payload-too-large");
     signal.throwIfAborted();
     const started = performance.now();
@@ -187,7 +187,6 @@ export class AdapterClient {
       const receipt = parsed.receipt;
       if (
         receipt.roomId !== command.roomId ||
-        receipt.authGeneration !== command.authGeneration ||
         receipt.authorityEpoch !== command.authorityEpoch
       )
         throw new Error("adapter-invalid-response");
@@ -196,11 +195,11 @@ export class AdapterClient {
         return { ...parsed, bytes: null };
       }
       const snapshotReceipt = parsed.receipt;
-      if (snapshotReceipt.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES)
+      if (snapshotReceipt.byteLength > MAX_SNAPSHOT_BYTES)
         throw new Error("adapter-invalid-response");
       const bytes = await readSnapshotBody(
         response.body,
-        MAX_SNAPSHOT_CIPHERTEXT_BYTES,
+        MAX_SNAPSHOT_BYTES,
         signal,
       );
       if (bytes.byteLength !== snapshotReceipt.byteLength)

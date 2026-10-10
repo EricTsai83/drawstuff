@@ -1,8 +1,4 @@
 import { peerIdSchema, type RoomId } from "@drawstuff/collaboration/protocol";
-import {
-  createRealtimeCryptoCodec,
-  type RoomKey,
-} from "@drawstuff/collaboration/realtime-crypto";
 import type { RecoveryState } from "@drawstuff/collaboration/recovery";
 import { createRelayWebSocketTransport } from "@drawstuff/collaboration/relay-client";
 import type { ConnectionState } from "@drawstuff/collaboration/transport";
@@ -37,20 +33,12 @@ import {
 import { fitViewportToFollowBounds } from "@/lib/collab/follow-viewport";
 
 /**
- * Runtime wiring for one authorized collaboration room: realtime crypto codec +
- * relay transport + collaboration session + upstream-style idle detection.
- * Everything it needs to authorize the connection (room, join token) is
- * supplied by the caller, which obtained a proof from `collaborationAuthority.identity`;
- * this module never decides access and never sees the signing secret.
- *
- * The room key is the other half, and it comes from the other direction: the
- * caller reads it from the URL fragment, never from the backend. That split is
- * what makes the relay unable to read the room — it verifies tokens it cannot
- * turn into a decryption key.
- *
- * The durable snapshot store is wired up here for the same reason the transport
- * is: it needs both halves. The same room key stretches into a second,
- * purpose-bound key, so the app backend stores a baseline it cannot read either.
+ * Runtime wiring for one authorized collaboration room: relay transport +
+ * snapshot and asset stores + collaboration session + upstream-style idle
+ * detection. Everything it needs to authorize the connection (room, join token)
+ * is supplied by the caller, which obtained a proof from
+ * `collaborationAuthority.identity`; this module never decides access and never
+ * sees the signing secret.
  */
 
 /** Mirrors the upstream collab app's idle detection threshold. */
@@ -91,7 +79,7 @@ export function toCollaborationUsername(
   return rawName?.trim().slice(0, MAX_USERNAME_LENGTH) ?? "";
 }
 
-export async function startCollaborationRoomSession(options: {
+export function startCollaborationRoomSession(options: {
   excalidrawApi: ExcalidrawImperativeAPI;
   relayUrl: string;
   roomId: RoomId;
@@ -100,27 +88,18 @@ export async function startCollaborationRoomSession(options: {
   /**
    * Mints a token for a reconnect attempt. Separate from `joinToken` because the
    * first token was already minted by the caller (it is how the caller learned
-   * `relayUrl` and `authGeneration`), and because a reconnect needs a *fresh*
+   * `relayUrl`), and because a reconnect needs a *fresh*
    * one: tokens are short-lived, and re-asking the backend is what makes a
    * membership revoked while offline fail at authorization rather than loop
    * against the relay.
    */
   refreshJoinToken: () => Promise<JoinCredentialsResult>;
-  /** End-to-end room key from the URL fragment; never from the backend. */
-  roomKey: RoomKey;
-  /**
-   * The room's durable authorization generation, from live Room metadata.
-   * Key derivation is bound to it, so rotating the generation makes the previous
-   * generation's ciphertext unreadable.
-   */
-  authGeneration: number;
   username: string;
   /** Backend surface for the durable snapshot; the tRPC client satisfies it. */
   snapshotApi: SnapshotApi;
   /**
-   * Backend surface for encrypted assets: the tRPC client resolves where
-   * ciphertext lives, the upload route stores it. Both halves are authorization
-   * only — neither can read what they carry.
+   * Backend surface for room assets: the tRPC client resolves where an asset
+   * lives, the upload route stores it.
    */
   assetApi: AssetApi;
   wrapRemoteApply: (apply: () => void) => void;
@@ -154,68 +133,44 @@ export async function startCollaborationRoomSession(options: {
    */
   onSceneSyncBlockChange?: (block: SceneSyncBlock | null) => void;
   /**
-   * Reported once when the room turns out to hold images this link cannot open
-   * and none has ever opened. Separate from the recovery state on purpose: unlike
-   * an unreadable *scene*, unreadable images are not terminal — the elements
-   * still sync and the session is genuinely healthy — so this is a fact about the
-   * canvas's completeness, not about the connection.
+   * Reported once when a stored room image arrives damaged or will not decode.
+   * Separate from the recovery state on purpose: missing images are not
+   * terminal — the elements still sync and the session is genuinely healthy —
+   * so this is a fact about the canvas's completeness, not about the connection.
    */
   onAssetsUnreadable?: () => void;
-}): Promise<CollaborationRoomHandle> {
+}): CollaborationRoomHandle {
   const sceneApi: CollaborationSceneApi = options.excalidrawApi;
-  const transport = createRelayWebSocketTransport({
-    url: options.relayUrl,
-    crypto: await createRealtimeCryptoCodec({
-      roomKey: options.roomKey,
-      roomId: options.roomId,
-      authGeneration: options.authGeneration,
-    }),
-  });
+  const transport = createRelayWebSocketTransport({ url: options.relayUrl });
   const unsubscribe = transport.subscribe({
     onConnectionStateChange: options.onConnectionStateChange,
   });
 
-  // Late-bound on purpose: the store hands opened assets to the session, and the
+  // Late-bound on purpose: the store hands decoded assets to the session, and the
   // session needs the store to ask for them. A download settles long after the
   // element that referenced it was applied, so the dependency has to run in that
   // direction — the alternative is the session polling for bytes that may never
   // arrive.
   let assetTarget: CollaborationSession | undefined;
-  let assetStore: CollaborationAssetStore | undefined;
-  let snapshotStore: CollaborationSnapshotStore;
-  try {
-    assetStore = await createCollaborationAssetStore({
-      api: options.assetApi,
-      roomId: options.roomId,
-      roomKey: options.roomKey,
-      authGeneration: options.authGeneration,
-      onAssetsResolved: (files) => {
-        assetTarget?.applyRemoteAssets(files);
-      },
-      onAssetsUnreadable: options.onAssetsUnreadable,
-      onAssetsUnavailable: (fileIds) => {
-        assetTarget?.applyUnavailableAssets(fileIds);
-      },
-      onPublishRetryDue: () => {
-        assetTarget?.republishLocalAssets();
-      },
-    });
-    snapshotStore = await createCollaborationSnapshotStore({
+  const assetStore: CollaborationAssetStore = createCollaborationAssetStore({
+    api: options.assetApi,
+    roomId: options.roomId,
+    onAssetsResolved: (files) => {
+      assetTarget?.applyRemoteAssets(files);
+    },
+    onAssetsUnreadable: options.onAssetsUnreadable,
+    onAssetsUnavailable: (fileIds) => {
+      assetTarget?.applyUnavailableAssets(fileIds);
+    },
+    onPublishRetryDue: () => {
+      assetTarget?.republishLocalAssets();
+    },
+  });
+  const snapshotStore: CollaborationSnapshotStore =
+    createCollaborationSnapshotStore({
       api: options.snapshotApi,
       roomId: options.roomId,
-      roomKey: options.roomKey,
-      authGeneration: options.authGeneration,
     });
-  } catch (error) {
-    // Key derivation for either store can reject after the transport already
-    // exists. The caller's catch only releases the canvas claim, so what was
-    // built here has to be released here — otherwise the subscription, the
-    // asset store's abort controller and the socket all outlive the failed join.
-    unsubscribe();
-    assetStore?.destroy();
-    transport.close();
-    throw error;
-  }
 
   /**
    * Engine half of follow mode. It copies the leader's absolute zoom while
@@ -261,7 +216,6 @@ export async function startCollaborationRoomSession(options: {
     transport,
     roomId: options.roomId,
     joinToken: options.joinToken,
-    authGeneration: options.authGeneration,
     refreshJoinToken: options.refreshJoinToken,
     username: options.username,
     sceneApi,
@@ -275,7 +229,7 @@ export async function startCollaborationRoomSession(options: {
     onSceneSyncBlockChange: options.onSceneSyncBlockChange,
     onRecoveryStateChange: (state) => {
       // A terminal recovery state ends this room's work, and the session can only
-      // release what it owns. Everything wired up *around* it — the encrypted asset
+      // release what it owns. Everything wired up *around* it — the asset
       // transfers, their retry timer, the idle timer, the visibility listener, the
       // socket itself — is owned here, and the React effect that owns this handle
       // stays mounted while the failure is displayed. So the teardown runs here
@@ -308,7 +262,7 @@ export async function startCollaborationRoomSession(options: {
       session.setIdleState("away");
       // Switching away saves now instead of at the next tick; an unchanged
       // room writes nothing. A reload or a closed tab cannot finish the async
-      // seal in time, so the beforeunload prompt still guards those.
+      // write in time, so the beforeunload prompt still guards those.
       session.requestSave();
       return;
     }
@@ -329,7 +283,7 @@ export async function startCollaborationRoomSession(options: {
     document.removeEventListener("visibilitychange", handleVisibilityChange);
     unsubscribeUserFollow();
     unsubscribe();
-    assetStore?.destroy();
+    assetStore.destroy();
     assetTarget = undefined;
     transport.close();
   }

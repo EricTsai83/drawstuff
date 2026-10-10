@@ -37,12 +37,6 @@ export type TestBindings = {
 };
 
 /**
- * Test-fixture signing secret (32+ bytes). This is not a real credential —
- * real secrets exist only as Cloudflare secrets — it exists so token
- * verification paths can be exercised hermetically, mirroring the token
- * vectors in packages/collaboration.
- */
-/**
  * Join deadline the hermetic Worker (vitest workerd and harness-smoke) runs
  * with, via the `TEST_ROOM_JOIN_TIMEOUT_MS` binding. Short enough that the two
  * real-time deadline cases in the shared conformance suite cost seconds, long
@@ -50,5 +44,9 @@ export type TestBindings = {
  */
 export const TEST_ROOM_JOIN_TIMEOUT_MS = 1_000;
 
-export const TEST_ROOM_TOKEN_SECRET =
-  "drawstuff-collaboration-do-test-secret-0000000000000000";
+/**
+ * Test-fixture identity-proof secret (32+ bytes). Not a real credential —
+ * real secrets exist only as Cloudflare secrets — it exists so proof
+ * verification paths can be exercised hermetically.
+ */
+export const TEST_IDENTITY_SECRET = "test-identity-secret-purpose-only-0001";

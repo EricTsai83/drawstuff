@@ -24,7 +24,7 @@ export async function createPostgresAdapter(url: string) {
   // Only the wrapper-created disposable DB is accepted by the config.
   await sql`CREATE TABLE p0_room (id text PRIMARY KEY, epoch integer NOT NULL DEFAULT 1, revision integer NOT NULL DEFAULT 0, payload bytea, checksum text, ended boolean NOT NULL DEFAULT false)`;
   await sql`CREATE TABLE p0_result (room_id text NOT NULL REFERENCES p0_room(id), operation_id uuid NOT NULL, fingerprint text NOT NULL, status text NOT NULL, revision integer, PRIMARY KEY(room_id, operation_id))`;
-  // Provider ciphertext is held by the host fixture, never in DO SQLite.
+  // Provider payloads are held by the host fixture, never in DO SQLite.
   await sql`CREATE TABLE p0_asset (room_id text NOT NULL REFERENCES p0_room(id), id uuid NOT NULL, epoch integer NOT NULL, checksum text NOT NULL, payload bytea NOT NULL, finalized boolean NOT NULL DEFAULT false, PRIMARY KEY(room_id,id))`;
   const gates = new Map<string, Gate>();
   const dropped = new Set<string>();

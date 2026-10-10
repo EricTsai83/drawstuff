@@ -14,7 +14,7 @@ import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { requestAssetAuthority } from "@/server/collab/asset-authority";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
 
-/** Room authorizes discovery; acquired provider URLs still locate ciphertext. */
+/** Room authorizes discovery; the returned provider URLs are public, like owned-scene images. */
 export const collaborationAssetRouter = createTRPCRouter({
   resolve: protectedProcedure
     .input(

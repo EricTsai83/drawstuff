@@ -7,7 +7,7 @@
 <h1>瀏覽器端 E2EE：以 Excalidraw 理解共享金鑰架構</h1>
 <p class="deck">讓伺服器負責路由、轉發與儲存，讓參與者的瀏覽器持有解密能力。本文從共享白板出發，說明這個 pattern 的成立條件、Excalidraw 的實作，以及把它搬進有帳號與權限的產品時需要補上的設計。</p>
 <p class="note">學習文章・可轉移 pattern 解說，非本專案現況清單。資料查核基準：2026-09-22（上游連結已釘選 commit）。本專案現況契約見文末<a href="#existing">既有文件與圖</a>。</p>
-<p class="note">2026-10-09 更新：drawstuff 共編已不再是本文描述的 E2EE。依 plan 19 擁有者決定，Room DO 以 Worker secret 包裝保管房間金鑰並發給已授權成員，服務端在技術上可解密房間內容；本文仍作為 E2EE pattern 解說保留。</p>
+<p class="note">2026-10-10 更新：依 <a href="../../plans/21-plain-rooms-google-docs-access.md">plan 21</a>，drawstuff 協作房間不再端對端加密，改以登入加上類似 Google 文件的存取權保護（見<a href="../architecture/collaboration-authority.md">現行授權契約</a>）。本專案只有分享連結仍採用本文的 capability link E2EE；文中提到 Drawstuff 協作房間金鑰之處為歷史設計。</p>
 <nav aria-label="文章導覽"><a href="#model">架構模型</a><a href="#implementation">上游實作</a><a href="#production">產品化</a><a href="#existing">既有文件與圖</a></nav>
 <h2>先確定你要保護什麼</h2>
 <p>Alice 想把一張白板分享給 Bob，兩人會同時修改，也希望重新開啟連結時找回內容。服務必須傳遞更新、保存場景與圖片，但產品要求資料庫或 relay 的被動觀察者不能讀懂畫布。這是本文的運作條件；如果產品原本就必須在伺服器處理明文，應先重新確認需求。</p>
@@ -38,12 +38,12 @@
 <li><code>encryptData</code> 每次呼叫 <code>createIV</code>，透過 <code>crypto.getRandomValues</code> 產生 12 bytes（96 bits）IV，再呼叫 <code>subtle.encrypt</code>。這條 helper 沒有指定 AAD，也未指定 tagLength，使用 Web Crypto 的預設 128-bit tag。</li>
 <li><a href="https://github.com/excalidraw/excalidraw/blob/97c68dd371e13c017a8dcca49f8b3995ba7890a8/excalidraw-app/data/index.ts">data/index.ts</a> 的 <code>generateCollaborationLinkData</code> 產生 roomId 與 roomKey；<code>getCollaborationLink</code> 組成 fragment。這是預先共享秘密的連結模型，不是參與者互相做公開金鑰握手。</li>
 <li><a href="https://github.com/excalidraw/excalidraw/blob/97c68dd371e13c017a8dcca49f8b3995ba7890a8/excalidraw-app/collab/Portal.tsx">Portal.tsx</a> 的 <code>_broadcastSocketData</code> 加密 JSON；<a href="https://github.com/excalidraw/excalidraw/blob/97c68dd371e13c017a8dcca49f8b3995ba7890a8/excalidraw-app/collab/Collab.tsx">Collab.tsx</a> 的 <code>decryptPayload</code> 解密，<code>client-broadcast</code> handler 再交給場景合併邏輯。</li>
-<li><a href="https://github.com/excalidraw/excalidraw-room/blob/03ff435860b508d7cd9e005cfc90f7977ae2a593/src/index.ts">relay src/index.ts</a> 的 <code>join-room</code> 接受 roomId；<code>server-broadcast</code> 轉發 encryptedData 與 iv。這些 handler 未實作 Drawstuff 的登入 token、角色與世代授權。</li>
+<li><a href="https://github.com/excalidraw/excalidraw-room/blob/03ff435860b508d7cd9e005cfc90f7977ae2a593/src/index.ts">relay src/index.ts</a> 的 <code>join-room</code> 接受 roomId；<code>server-broadcast</code> 轉發 encryptedData 與 iv。這些 handler 未實作 Drawstuff 的登入身分與房間存取權。</li>
 <li><a href="https://github.com/excalidraw/excalidraw/blob/97c68dd371e13c017a8dcca49f8b3995ba7890a8/excalidraw-app/data/firebase.ts">firebase.ts</a> 的 <code>saveToFirebase</code> 在 client 端讀取舊密文、解密、合併，再寫入新密文。Firestore 協調 transaction；它不需要理解 elements。</li>
 <li><a href="https://github.com/excalidraw/excalidraw/blob/97c68dd371e13c017a8dcca49f8b3995ba7890a8/excalidraw-app/data/FileManager.ts">FileManager.ts</a> 與 <a href="https://github.com/excalidraw/excalidraw/blob/97c68dd371e13c017a8dcca49f8b3995ba7890a8/packages/excalidraw/data/encode.ts">encode.ts</a> 顯示圖片、內容 metadata 先打包，再 deflate、AES-GCM 加密。格式版本／壓縮方式等外層 encoding metadata 與 IV 仍可見；不是所有 metadata 都被隱藏。</li>
 </ul>
 <p>這裡最值得移植的分工是：<strong>內容語意留在 client，持久化的一致性與轉發留在 infrastructure</strong>。端到端加密不必要求 WebRTC 或純 P2P，也不必放棄 transaction；只是伺服器的 transaction 操作對象成為不透明的密文。</p>
-<p class="callout">128-bit 是此版本 Excalidraw 的事實，不是本文要求所有產品固定採用的位元數。Drawstuff 協作的 root key 是 32 bytes，還有用途衍生；不能把兩套實作的參數混用。上游也保留 legacy 分享格式解碼分支，其中有固定 IV 的相容處理；新的格式應遵守每次加密的新鮮 IV 規則。</p>
+<p class="callout">128-bit 是此版本 Excalidraw 的事實，不是本文要求所有產品固定採用的位元數。Drawstuff 的分享連結同樣以 Web Crypto 匯入 128-bit AES-GCM 金鑰；協作房間已不加密，不要把舊房間設計的參數與分享連結混用。上游也保留 legacy 分享格式解碼分支，其中有固定 IV 的相容處理；新的格式應遵守每次加密的新鮮 IV 規則。</p>
 <h2 id="production">搬進有權限的產品：再補上四份契約</h2>
 <p>如果 Alice 的白板屬於一個長期存在的團隊，有 owner、editor、viewer，也需要撤銷成員，就超出了「知道連結即可合作」的最小模型。下面是可移植的設計建議；不是宣稱 Excalidraw 上游已實作全部機制。</p>
 <h3>1. 把 API 授權與解密能力分開</h3>
@@ -77,12 +77,12 @@
 <h2 id="existing">本專案已有的 Markdown 與架構圖</h2>
 <p>Drawstuff 已有對應 pattern 與現況契約。以下連結相對於本文件；HTML 本身可獨立閱讀，查看 repo 文件則需要保留目錄結構。</p>
 <ul>
-<li><a href="../system-design/e2ee-key-lifecycle.md">瀏覽器端 E2EE 與金鑰生命週期</a>：已有三張 Mermaid 圖，分別是明文／密文資料流、HKDF 用途金鑰衍生，以及 key-check 後加入房間的時序。它描述 Drawstuff 萃取的 pattern，不是 Excalidraw 上游功能清單。</li>
+<li><a href="../system-design/e2ee-key-lifecycle.md">瀏覽器端 E2EE 與金鑰生命週期</a>：描述 Drawstuff 分享連結的金鑰與資料流，不是 Excalidraw 上游功能清單。</li>
 <li><a href="../system-design/system-overview.md">系統總覽</a>：已有整體 architecture 與端到端 data flow 的 Mermaid 圖，可把 E2EE 放回前端、後端與 realtime worker 的位置理解。</li>
-<li><a href="../architecture/collaboration-system-design.md">協作系統設計</a>：具體定義 32-byte root key、HKDF、格式 AAD、key-check 與快照／資產的現況契約。</li>
-<li><a href="../architecture/collaboration-threat-model.md">協作威脅模型</a>與 <a href="../adr/0004-code-delivery-trust-boundary.md">ADR-0004</a>：定義 fragment 與前端程式碼交付的信任邊界。</li>
+<li><a href="../architecture/collaboration-system-design.md">協作系統設計</a>與<a href="../architecture/collaboration-authority.md">授權契約</a>：協作房間的現況契約（明文房間，以登入與存取權保護）。</li>
+<li><a href="../architecture/collaboration-threat-model.md">協作威脅模型</a>與 <a href="../adr/0004-code-delivery-trust-boundary.md">ADR-0004</a>：定義分享連結 fragment 與前端程式碼交付的信任邊界。</li>
 </ul>
-<p>可從 <a href="../../packages/collaboration/src/asset-crypto.ts">asset-crypto.ts</a>、<a href="../../packages/collaboration/src/relay-client.ts">relay-client.ts</a> 與 <a href="../../apps/web/src/lib/collab/room-link.ts">room-link.ts</a> 追到本專案的協作實作。將這些用途隔離、授權與錯鑰防護視為產品化設計；Excalidraw 則提供了共享秘密、client 加密與不透明 relay 的具體參考。</p>
+<p>可從 <a href="../../apps/web/src/lib/encryption.ts">encryption.ts</a> 與 <a href="../../apps/web/src/lib/export-scene-to-backend.ts">export-scene-to-backend.ts</a> 追到本專案分享連結的加密實作。Excalidraw 提供了共享秘密、client 加密與不透明儲存的具體參考。</p>
 <p>設計時先回答三件事：誰應能讀明文、誰有權取得或寫入密文、金鑰遺失或成員離開後如何處理。這三個答案決定你需要簡單的 capability link、額外的 ACL，還是更完整的金鑰管理協定。</p>
 <section class="sources" aria-label="資料來源"><h2>版本與參考</h2><ul>
 <li>Excalidraw master：<code>97c68dd371e13c017a8dcca49f8b3995ba7890a8</code>；excalidraw-room master：<code>03ff435860b508d7cd9e005cfc90f7977ae2a593</code>。於 2026-09-22 更新本機 opensrc cache；本文所有上游程式連結固定於這兩個 revision。</li>

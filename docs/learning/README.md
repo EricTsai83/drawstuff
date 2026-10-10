@@ -14,27 +14,29 @@
 
 ## 協作架構學習系列（設計解說，保留歷史視角）
 
-建議按下列順序閱讀；每篇也提供背景，可單獨閱讀。Protocol 6 已部署；文章保留 2026-09-22 的設計解說，舊「現況／目標」比較不是目前部署狀態。現況以
-[授權契約](../architecture/collaboration-authority.md) 為準，驗收與限制見 [部署 runbook](../deployment/collaboration-reset/README.md)。
+建議按下列順序閱讀；每篇也提供背景，可單獨閱讀。文章保留 2026-09-22 的設計解說，舊「現況／目標」比較不是目前部署狀態。
+房間端對端加密與金鑰的設計已由 [plan 21](../../plans/21-plain-rooms-google-docs-access.md) 取代：協作房間改以登入加上類似
+Google 文件的存取權保護，只有分享連結仍是端對端加密；以此為主題的頁面頂端標有「歷史設計」。現況以
+[授權契約](../architecture/collaboration-authority.md) 為準，部署步驟見 [部署 runbook](../operations/collaboration-do-deployment.md)。
 
 | 文章 | 想解答的問題 |
 | --- | --- |
-| [協作架構選型](serverless-collaboration-production.html) | 現況與目標架構差在哪裡？為什麼選混合架構？包含兩張架構圖與 tldraw 對照。 |
+| [協作架構選型](serverless-collaboration-production.html) | 現況與目標架構差在哪裡？為什麼選混合架構？包含兩張架構圖與 tldraw 對照。（歷史設計：圖中的加密快照與附件已由 plan 21 改為明文） |
 | [持久待辦與 alarm](durable-outbox-and-alarms.html) | 程序結束後，工作如何恢復？為何不需要每分鐘查 Neon？ |
 | [Serverless 儲存與成本](serverless-storage-and-cost.html) | DO 多存什麼？Free 額度怎麼看？休眠為何不等於儲存免費？ |
-| [協作授權與金鑰](collaboration-authorization-and-keys.html) | 踢人如何涵蓋存檔／附件？有房間列表為何還需要金鑰？故障下能保證什麼？ |
+| [協作授權與金鑰](collaboration-authorization-and-keys.html) | 踢人如何涵蓋存檔／附件？故障下能保證什麼？（歷史設計：「列表之外還需要金鑰」一節已由 plan 21 取代） |
 
 ## 學習文章
 
 | 文章 | 主題 |
 | --- | --- |
-| [瀏覽器 E2EE 與 Excalidraw](browser-e2ee-excalidraw.html) | 共享金鑰的 capability link 與 opaque relay：成立條件、Excalidraw 上游實作對照，以及搬進有權限產品時要補的四份契約。 |
+| [瀏覽器 E2EE 與 Excalidraw](browser-e2ee-excalidraw.html) | 共享金鑰的 capability link 與 opaque relay：成立條件、Excalidraw 上游實作對照，以及搬進有權限產品時要補的四份契約。本專案只有分享連結仍採用這個 pattern。 |
 
 ## 導讀（不含數字，權威在 Markdown）
 
 | 導讀 | 被導讀的契約 | 回答什麼 |
 | --- | --- | --- |
-| [協作系統設計怎麼讀](collaboration-system-design.html) | [architecture/collaboration-system-design.md](../architecture/collaboration-system-design.md) | 責任怎麼分工、為什麼授權撤銷與密碼學撤銷分開、join 為什麼先訂閱再載入。 |
+| [協作系統設計怎麼讀](collaboration-system-design.html) | [architecture/collaboration-system-design.md](../architecture/collaboration-system-design.md) | 責任怎麼分工、join 為什麼先訂閱再載入。（歷史設計：依 plan 21 之前的契約撰寫，房間加密與密碼學撤銷的段落已不適用） |
 | [共編 SLO 與 capacity 怎麼讀](collaboration-slo-capacity.html) | [performance/collaboration-slo-capacity.md](../performance/collaboration-slo-capacity.md) | safety limit 為什麼不是容量承諾、上限為何以 room 為界、限流為何 fail open。 |
 
 ## 撰寫規則

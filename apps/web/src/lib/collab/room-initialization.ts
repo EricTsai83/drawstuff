@@ -3,15 +3,9 @@ import { encodeCollaborationAssetPayload } from "@drawstuff/collaboration/asset"
 import { TRPCClientError } from "@trpc/client";
 import { encodeCollaborationSnapshot } from "@drawstuff/collaboration/snapshot";
 import {
-  sealRoomKeyCheck,
-  verifyRoomKeyCheck,
-} from "@drawstuff/collaboration/keycheck";
-import { decodeBase64, encodeBase64 } from "@drawstuff/collaboration/base64";
-import {
   roomIdSchema,
   type SyncedElement,
 } from "@drawstuff/collaboration/protocol";
-import { generateRoomKey } from "@drawstuff/collaboration/realtime-crypto";
 import { collectReferencedFileIds } from "@drawstuff/excalidraw-adapter/codec";
 import {
   AuthorityRoomError,
@@ -41,12 +35,11 @@ export const INITIALIZATION_SETTLE_MS = 15_000;
 const SETTLE_FIRST_DELAY_MS = 250;
 const SETTLE_MAX_DELAY_MS = 2_000;
 
-/** Browser-only initialization. Unknown replies keep the room, key, captured elements and every intent. */
+/** Browser-only initialization. Unknown replies keep the room, captured elements and every intent. */
 export function createRoomInitialization(options: {
   authority: AuthorityApi;
   snapshots: SnapshotApi;
   sceneId: string | null;
-  rotate?: { roomId: string; expectedGeneration: number };
   elements: readonly SyncedElement[];
   files?: readonly BinaryFileData[];
   assets?: AssetApi;
@@ -69,10 +62,7 @@ export function createRoomInitialization(options: {
         assetIds.some((id) => !files.some((file) => file.id === id))))
   )
     throw new AuthorityRoomError("attachments-required");
-  const roomId = roomIdSchema.parse(
-    options.rotate?.roomId ?? crypto.randomUUID(),
-  );
-  const generation = options.rotate ? options.rotate.expectedGeneration + 1 : 1;
+  const roomId = roomIdSchema.parse(crypto.randomUUID());
   if (
     files.some(
       (file) =>
@@ -87,28 +77,19 @@ export function createRoomInitialization(options: {
     throw new AuthorityRoomError("attachments-required");
   if (!encodeCollaborationSnapshot({ roomId, elements }).ok)
     throw new Error("invalid-initial-snapshot");
-  const roomKey = generateRoomKey();
-  const creation = options.rotate
-    ? {
-        ...authorityEnvelope(roomId),
-        action: "rotate-generation" as const,
-        expectedGeneration: options.rotate.expectedGeneration,
-      }
-    : {
-        ...authorityEnvelope(roomId),
-        action: "create" as const,
-        sceneId: options.sceneId,
-        label: "",
-        linkRole: "none" as const,
-      };
+  const creation = {
+    ...authorityEnvelope(roomId),
+    action: "create" as const,
+    sceneId: options.sceneId,
+    label: "",
+    linkRole: "none" as const,
+  };
   const create = createAuthorityOperation(options.authority, creation);
-  let setCheck: ReturnType<typeof createAuthorityOperation> | undefined;
   let complete: ReturnType<typeof createAuthorityOperation> | undefined;
   let store: CollaborationSnapshotStore | undefined;
   let assets: CollaborationAssetStore | undefined;
   let expectedRevision: number | undefined;
   let stored: { revision: number; checksum: string } | undefined;
-  let escrowed = false;
   let disposed = false;
   const assertActive = () => {
     if (disposed) throw new AuthorityRoomError("cancelled");
@@ -130,59 +111,21 @@ export function createRoomInitialization(options: {
       const state = await readAuthorityState(options.authority, roomId);
       assertActive();
       if (state.state === "ended") throw new AuthorityRoomError("ended");
-      if (state.authGeneration !== generation)
-        throw new AuthorityRoomError("generation-mismatch");
-      if (!setCheck) {
-        const keyCheckBase64 = await sealRoomKeyCheck({
-          roomKey,
-          roomId,
-          authGeneration: generation,
-        });
-        const decoded = decodeBase64(keyCheckBase64, { maxBytes: 256 });
-        if (!decoded.ok) throw new Error("key-check-encoding-failed");
-        setCheck = createAuthorityOperation(options.authority, {
-          ...authorityEnvelope(roomId),
-          action: "set-key-check",
-          expectedGeneration: generation,
-          keyCheck: Array.from(decoded.bytes),
-        });
-      }
-      assertActive();
-      await setCheck();
-      assertActive();
-      // Room keeps a custody copy so members can reopen the room without its
-      // link (plan 19). Best effort: a failure leaves the room openable by
-      // link, and the next keyed join hands the key over again.
-      if (!escrowed && options.authority.escrowRoomKey) {
-        escrowed = await options.authority
-          .escrowRoomKey({ roomId, authGeneration: generation, roomKey })
-          .then(
-            () => true,
-            () => false,
-          );
-        assertActive();
-      }
       if (assetIds.length) {
-        assets ??= await createCollaborationAssetStore({
+        assets ??= createCollaborationAssetStore({
           api: options.assets!,
           roomId,
-          roomKey,
-          authGeneration: generation,
           onAssetsResolved: () => undefined,
         });
-        if (disposed) assets.destroy();
-        assertActive();
         await assets.publish(files);
         assertActive();
         if (!(await assets.areAvailable?.(assetIds)))
           throw new AuthorityRoomError("pending");
       }
       assertActive();
-      store ??= await createCollaborationSnapshotStore({
+      store ??= createCollaborationSnapshotStore({
         api: options.snapshots,
         roomId,
-        roomKey,
-        authGeneration: generation,
       });
       if (!stored) {
         if (expectedRevision === undefined) {
@@ -202,7 +145,7 @@ export function createRoomInitialization(options: {
       complete ??= createAuthorityOperation(options.authority, {
         ...authorityEnvelope(roomId),
         action: "complete-initialization",
-        manifest: { authGeneration: generation, ...stored, assetIds },
+        manifest: { ...stored, assetIds },
       });
       assertActive();
       const { projectionPending } = await complete();
@@ -210,19 +153,8 @@ export function createRoomInitialization(options: {
       const ready = await readAuthorityState(options.authority, roomId);
       assertActive();
       if (ready.state !== "ready") throw new AuthorityRoomError(ready.state);
-      if (
-        ready.authGeneration !== generation ||
-        !ready.keyCheck ||
-        !(await verifyRoomKeyCheck({
-          roomKey,
-          roomId,
-          authGeneration: generation,
-          keyCheckBase64: encodeBase64(new Uint8Array(ready.keyCheck)),
-        }))
-      )
-        throw new AuthorityRoomError("generation-mismatch");
       assets?.destroy();
-      return { roomId, roomKey, projectionPending };
+      return { roomId, projectionPending };
     } finally {
       active = false;
     }

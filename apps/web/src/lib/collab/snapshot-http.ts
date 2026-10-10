@@ -11,10 +11,8 @@ import {
   snapshotRequestSchema,
 } from "@drawstuff/collaboration/authority";
 import {
-  MAX_SNAPSHOT_CIPHERTEXT_BYTES,
-  MIN_SNAPSHOT_SEALED_BYTES,
-  SNAPSHOT_CRYPTO_VERSION,
-  snapshotCiphertextChecksum,
+  MAX_SNAPSHOT_BYTES,
+  snapshotChecksum,
 } from "@drawstuff/collaboration/snapshot";
 import { withCollaborationRequestDeadline } from "./request-deadline";
 
@@ -178,15 +176,14 @@ export function parseSnapshotHttpReceipt(response: Response, roomId: string) {
   if (
     response.status !== 200 ||
     receipt.roomId !== roomId ||
-    receipt.byteLength < MIN_SNAPSHOT_SEALED_BYTES ||
-    receipt.byteLength > MAX_SNAPSHOT_CIPHERTEXT_BYTES ||
+    receipt.byteLength > MAX_SNAPSHOT_BYTES ||
     response.headers.get("content-type") !== "application/octet-stream"
   )
     throw new SnapshotHttpError(503, "unavailable");
   return { found: true as const, receipt };
 }
 
-/** Transport only: callers retain the original operation and sealed bytes across retries. */
+/** Transport only: callers retain the original operation and encoded bytes across retries. */
 export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
   async function send(
     request: SnapshotRequest,
@@ -201,7 +198,7 @@ export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
       throw new SnapshotHttpError(400, "malformed");
     const put =
       request.action === "write" && request.operation.kind === "snapshot-put";
-    if (bytes.byteLength > (put ? MAX_SNAPSHOT_CIPHERTEXT_BYTES : 0))
+    if (bytes.byteLength > (put ? MAX_SNAPSHOT_BYTES : 0))
       throw new SnapshotHttpError(413, "payload-too-large");
     return waitForSnapshot(
       fetchImpl(SNAPSHOT_HTTP_PATH, {
@@ -287,9 +284,7 @@ export function createBinarySnapshotClient(fetchImpl: typeof fetch = fetch) {
           );
           if (
             bytes.byteLength !== result.receipt.byteLength ||
-            bytes[0] !== SNAPSHOT_CRYPTO_VERSION ||
-            (await snapshotCiphertextChecksum(bytes)) !==
-              result.receipt.checksum
+            (await snapshotChecksum(bytes)) !== result.receipt.checksum
           )
             throw new SnapshotHttpError(503, "unavailable");
           return { ...result, bytes };

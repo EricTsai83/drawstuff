@@ -4,7 +4,6 @@ const baseURL = process.env.DRAWSTUFF_TEST_BASE_URL ?? "http://127.0.0.1:3107";
 const safeDatabaseUrl =
   "postgres://drawstuff:drawstuff@127.0.0.1:65432/drawstuff_e2e";
 /** E2E never reaches the gateway: the room API is exercised by unit tests. */
-const e2eRoomTokenSecret = "playwright-room-token-secret-0123456789";
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -69,7 +68,6 @@ export default defineConfig({
       // strict by omitting env-derived origins that have no test credential.
       SKIP_ENV_VALIDATION: "1",
       NEXT_PUBLIC_BASE_URL: baseURL,
-      COLLAB_JOIN_TOKEN_SECRET: e2eRoomTokenSecret,
       COLLAB_CONTROL_URL: "http://127.0.0.1:65431",
     },
   },

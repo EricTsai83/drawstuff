@@ -65,33 +65,12 @@ import type { DisconnectReason } from "./transport.ts";
  * user to obtain a new link, ask for access, or reload.
  */
 export type UnrecoverableReason =
-  /** The app backend refused to issue a join token, or the relay refused it. */
+  /** The app backend refused to issue an identity proof, or the room refused it. */
   | "unauthorized"
   /** This member's room authorization was revoked. */
   | "membership-revoked"
-  /** The room generation was ended or rotated by its owner. */
+  /** The room was ended by its owner. */
   | "room-ended"
-  /**
-   * The room's authorization generation moved while this session was running, so
-   * the key this client derived can no longer open the room's ciphertext. A new
-   * link is required; reconnecting with the same key would produce a session
-   * that can neither read nor write.
-   */
-  | "generation-rotated"
-  /**
-   * This client cannot decrypt the room — a link carrying the wrong key.
-   * Terminal because snapshot, realtime and asset ciphertext are all sealed under
-   * keys derived from the same material, so the session would sit connected and
-   * permanently blind.
-   *
-   * Two independent detectors reach it, and both are needed: the stored snapshot
-   * failing to open, and every realtime frame that arrives failing to open while
-   * none ever has (`TransportSubscriber.onRoomUnreadable`). The snapshot is the
-   * faster and more certain oracle, but a room that has not been persisted yet
-   * does not have one at all — and that is precisely the room where a silent
-   * failure lasts forever.
-   */
-  | "unreadable-room"
   /** A wire-contract violation; reconnecting would repeat it. */
   | "protocol-violation"
   /**
@@ -100,12 +79,6 @@ export type UnrecoverableReason =
    * reload changes what version the client sends.
    */
   | "unsupported-protocol-version"
-  /**
-   * This session's end-to-end nonce budget is spent. Reconnecting does not
-   * refresh it — the key is derived per room generation, not per session — so the
-   * room generation has to be rotated.
-   */
-  | "crypto-exhausted"
   /** The retry budget is spent; the room did not come back. */
   | "retry-limit";
 
@@ -314,9 +287,8 @@ export interface RecoveryMachine {
    */
   lost(reason: DisconnectReason): RecoveryState;
   /**
-   * Terminates recovery for a reason the transport cannot express: a rotated
-   * generation, an unreadable room, a spent nonce budget, or a backend that
-   * refuses to authorize this client at all. Idempotent; the first reason wins,
+   * Terminates recovery for a reason the transport cannot express, such as a
+   * backend that refuses to authorize this client at all. Idempotent; the first reason wins,
    * because the first one is the cause and the rest are consequences.
    */
   fail(reason: UnrecoverableReason): RecoveryState;

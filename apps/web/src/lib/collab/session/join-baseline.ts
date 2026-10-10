@@ -4,10 +4,7 @@ import {
   type JoinBarrierOptions,
 } from "@drawstuff/collaboration/join-barrier";
 import type { createOfflineChangeQueue } from "@drawstuff/collaboration/offline-queue";
-import type {
-  createRecoveryMachine,
-  UnrecoverableReason,
-} from "@drawstuff/collaboration/recovery";
+import type { createRecoveryMachine } from "@drawstuff/collaboration/recovery";
 import type {
   SceneMessage,
   SyncedElement,
@@ -20,7 +17,7 @@ import type { SessionContext } from "@/lib/collab/session/session-context";
 /**
  * How the joining client obtained (or failed to obtain) the room's scene.
  * Reported once per connection so the UI can distinguish "this room is empty"
- * from "this link cannot read this room", which look identical on the canvas.
+ * from "the stored scene could not be loaded", which look identical on the canvas.
  */
 export type BaselineOutcome =
   /** An elected peer answered with a full-scene snapshot. */
@@ -30,16 +27,7 @@ export type BaselineOutcome =
   /** The room genuinely has no stored state yet. */
   | "empty"
   /**
-   * A durable snapshot exists but this session cannot open it — a link with the
-   * wrong key, or a generation rotated after the link was shared. Terminal for
-   * the baseline: the session stays connected and converges from live peers, but
-   * the room's stored history is unreadable here, and this client will not
-   * replace it.
-   */
-  | "unreadable-snapshot"
-  /**
-   * The stored baseline could not be fetched at all. Unlike the above this is
-   * transient, but the consequence for this session is the same: it does not
+   * The stored baseline could not be fetched or decoded. This session does not
    * know the baseline, so it must not overwrite it.
    */
   | "snapshot-unavailable";
@@ -59,12 +47,7 @@ type BaselineKnowledge =
    * Nothing was obtained. The whole canvas is published: it is the only state
    * this client can vouch for, and a full snapshot converges from anywhere.
    */
-  | "unknown"
-  /**
-   * The room has state this client cannot decrypt. Nothing is published — this
-   * canvas is not the room's scene, and sending it would claim that it is.
-   */
-  | "unreadable";
+  | "unknown";
 
 /** The durable-revision bookkeeping the baseline load feeds; the cadence owns it. */
 export type SnapshotBaselineSink = {
@@ -103,7 +86,7 @@ export type JoinBaselineGate = {
 export const createJoinBaselineGate = (options: {
   context: SessionContext;
   /**
-   * Durable baseline for this room generation. Absent means the session runs on
+   * Durable baseline for this room. Absent means the session runs on
    * live peers alone — used by tests that exercise peer sync in isolation.
    */
   snapshotStore: CollaborationSnapshotStore | undefined;
@@ -128,7 +111,6 @@ export const createJoinBaselineGate = (options: {
   armSceneRepair(): void;
   publishLocalAssets(): void;
   snapshotBaseline: SnapshotBaselineSink;
-  failRecovery(reason: UnrecoverableReason): void;
 }): JoinBaselineGate => {
   const { context, snapshotStore, offlineQueue, recovery, snapshotBaseline } =
     options;
@@ -165,10 +147,7 @@ export const createJoinBaselineGate = (options: {
     rejoin: boolean;
     knowledge: BaselineKnowledge;
   }): void => {
-    // The room holds state this client cannot read, so this canvas is not the
-    // room's scene and publishing it would claim otherwise.
-    if (params.knowledge === "unreadable") return;
-    // A terminal failure resolved during this join for any other reason.
+    // A terminal failure resolved during this join.
     if (recovery.state().phase === "failed") return;
     if (!context.connected || !context.canEditScene()) return;
     options.publishLocalAssets();
@@ -286,22 +265,8 @@ export const createJoinBaselineGate = (options: {
     // replacing a snapshot we could not read would destroy room history on the
     // strength of a canvas we have no reason to believe is complete.
     snapshotBaseline.markUnknown();
-    const unreadable = result.reason === "wrong-key";
-    if (barrier?.claimBaseline()) {
-      releaseBarrier(
-        unreadable ? "unreadable-snapshot" : "snapshot-unavailable",
-        unreadable ? "unreadable" : "unknown",
-      );
-    }
-    // A stored snapshot this client cannot open means the link's key cannot open
-    // the room at all — realtime frames are sealed under a key derived from the
-    // same material — so the session is terminal rather than merely stale. Failed
-    // after the barrier reports the outcome, so the user still learns *why*.
-    //
-    // This is the *fast* detector, not the only one: a room with nothing stored
-    // yet answers `empty` here and never reaches this branch, which is why the
-    // transport's `onRoomUnreadable` verdict exists alongside it.
-    if (unreadable) options.failRecovery("unreadable-room");
+    if (barrier?.claimBaseline())
+      releaseBarrier("snapshot-unavailable", "unknown");
   };
 
   return {

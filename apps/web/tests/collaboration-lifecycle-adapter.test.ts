@@ -219,6 +219,82 @@ describe("Lifecycle storage barriers", () => {
       operationId: command.operationId,
     });
   });
+  it.each(["account", "scene"] as const)(
+    "%s retirement leaves no per-person records for the cascaded rooms",
+    async (kind) => {
+      const source = await sceneFixture();
+      const doomed = `retire-${kind}-doomed`;
+      const other = `retire-${kind}-other`;
+      await db.insert(schema.collaborationRoom).values([
+        {
+          roomId: doomed,
+          ownerId: "owner",
+          sceneId: source.id,
+          status: "ended",
+          storageState: "ended",
+        },
+        { roomId: other, ownerId: "guest", status: "ready" },
+      ]);
+      // The guest's traces in the doomed room; the owner's in the guest's room.
+      for (const [roomId, subject] of [
+        [doomed, "guest"],
+        [other, "owner"],
+      ] as const) {
+        await db.insert(schema.collaborationLifecycleRegistration).values({
+          subject,
+          roomId,
+          owner: false,
+          lifecycleVersion: 1,
+          operationId: crypto.randomUUID(),
+        });
+        await db
+          .insert(schema.collaborationProjectionTombstone)
+          .values({ roomId, subject, version: 2 });
+      }
+      const command = await retirementIntent(
+        database,
+        kind === "account"
+          ? { kind, subject: "owner" }
+          : { kind, subject: "owner", sceneId: source.id },
+        "owner",
+      );
+      const frozen = await applyLifecycleAdapter(database, {
+        v: 1,
+        action: "lifecycle-freeze",
+        command,
+      });
+      if (!("version" in frozen)) throw new Error("missing-version");
+      expect(
+        await applyLifecycleAdapter(database, {
+          v: 1,
+          action: "lifecycle-delete",
+          command,
+          version: frozen.version,
+        }),
+      ).toEqual({ deleted: true });
+      const left = async (roomId: string) => ({
+        registrations: (
+          await db
+            .select()
+            .from(schema.collaborationLifecycleRegistration)
+            .where(eq(schema.collaborationLifecycleRegistration.roomId, roomId))
+        ).map((row) => row.subject),
+        tombstones: (
+          await db
+            .select()
+            .from(schema.collaborationProjectionTombstone)
+            .where(eq(schema.collaborationProjectionTombstone.roomId, roomId))
+        ).map((row) => row.subject),
+      });
+      expect(await left(doomed)).toEqual({ registrations: [], tombstones: [] });
+      // Only account retirement removes the account's traces elsewhere.
+      expect(await left(other)).toEqual(
+        kind === "account"
+          ? { registrations: [], tombstones: [] }
+          : { registrations: ["owner"], tombstones: ["owner"] },
+      );
+    },
+  );
   it("authorized entry points retain one intent across lost replies and never cascade on a pending response", async () => {
     const source = await sceneFixture();
     gateway.mockRejectedValueOnce(new Error("lost-reply"));
