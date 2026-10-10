@@ -19,7 +19,7 @@ export const FAILURE_MESSAGE_KEY: Record<
   AppTranslationKey
 > = {
   unauthorized: "collaboration.failure.unauthorized",
-  // The account has no access to this room (plan 21 §6).
+  // The account has no access to this room (docs/architecture/collaboration-authority.md).
   "no-access": "collaboration.failure.noAccess",
   "room-ended": "collaboration.failure.roomEnded",
   "protocol-violation": "collaboration.failure.protocolViolation",

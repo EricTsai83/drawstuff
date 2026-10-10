@@ -64,6 +64,46 @@ describe("Canvas product action presentations", () => {
     ).toBe(tooltip);
   });
 
+  it("shows only the room badge on mobile, and nothing outside a room", () => {
+    const actions = {
+      collaboration: {
+        status: "idle" as const,
+        isReadOnly: false,
+        onActivate: vi.fn(),
+      },
+      cloudSave: null,
+      share: null,
+    };
+    act(() =>
+      root.render(
+        withI18n(
+          <TopRightControls
+            actions={actions}
+            isMobile
+            onLibraryActivate={vi.fn()}
+            storageStatus={<span>desktop status</span>}
+            mobileStorageStatus={<span>room badge</span>}
+          />,
+        ),
+      ),
+    );
+    expect(container.textContent).toBe("room badge");
+    expect(container.querySelector('[aria-label="Quick actions"]')).toBeNull();
+    act(() =>
+      root.render(
+        withI18n(
+          <TopRightControls
+            actions={actions}
+            isMobile
+            onLibraryActivate={vi.fn()}
+            storageStatus={<span>desktop status</span>}
+          />,
+        ),
+      ),
+    );
+    expect(container.textContent).toBe("");
+  });
+
   it("groups save with the compact shortcut actions", async () => {
     const save = vi.fn();
     const collaborate = vi.fn();

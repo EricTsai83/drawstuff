@@ -364,6 +364,11 @@ export default function ExcalidrawEditor() {
           storageStatus={
             <EditorStorageStatus {...storageStatusProps} compact />
           }
+          mobileStorageStatus={
+            storageStatusProps.roomId ? (
+              <EditorStorageStatus {...storageStatusProps} compact />
+            ) : undefined
+          }
           isMobile={isMobile}
           onLibraryActivate={handleLibraryToggle}
           onSlotChange={setIsMobileCanvasSlot}
@@ -431,6 +436,16 @@ export default function ExcalidrawEditor() {
               compactPresentation={isMobileCanvasSlot !== false}
               storageStatus={<EditorStorageStatus {...storageStatusProps} />}
             />
+
+            {/* Mobile view mode has no toolbar row, so upstream never renders
+                the top-right slot; keep the room badge reachable on its own. */}
+            {isMobileCanvasSlot !== false &&
+              storageStatusProps.roomId &&
+              (isCollaborationReadOnly || isRoomInitializing) && (
+                <div className="fixed top-[calc(var(--app-safe-area-top)+0.75rem)] right-[calc(var(--app-safe-area-right)+0.75rem)] z-10">
+                  <EditorStorageStatus {...storageStatusProps} compact />
+                </div>
+              )}
 
             <SceneRenameDialog
               excalidrawAPI={excalidrawAPI}

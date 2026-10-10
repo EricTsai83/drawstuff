@@ -165,7 +165,7 @@ export class RoomAuthority {
   }
 
   /**
-   * The single access rule (plan 21 §3). Lifecycle state (ended, denied,
+   * The single access rule (docs/architecture/collaboration-authority.md). Lifecycle state (ended, denied,
    * initializing) is the caller's concern; this answers only who the room's
    * rules admit and why.
    */
