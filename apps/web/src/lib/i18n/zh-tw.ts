@@ -8,7 +8,6 @@ export const zhTW = {
   "storage.room.pending": "變更尚未儲存",
   "storage.room.saving": "儲存中",
   "storage.room.saved": "已儲存",
-  "storage.room.autosave": "每 {seconds} 秒自動儲存，離開房間時也會儲存。",
   "storage.room.failed": "儲存失敗",
   "storage.save": "儲存",
   "storage.saveRoom": "儲存房間",
@@ -17,21 +16,16 @@ export const zhTW = {
   "storage.updateSourceUnnamed": "更新我的原場景",
   "storage.download": "下載本機副本",
   "storage.exit": "回到我的畫布",
-  "storage.exitNotice": "房間會保留。",
   "storage.copyNotice":
     "共編房間不受影響；個人雲端副本不採端對端加密，不會自動公開。",
-  "storage.downloadNotice": "將 .excalidraw 檔存到這台裝置。",
   "storage.personalCopySaved": "已將副本儲存至我的場景；房間本身另外保存。",
-  "storage.keepRoom": "繼續編輯此房間",
-  "storage.keepRoomNotice": "保留房間內容，稍後再處理原場景的版本衝突。",
+  "storage.keepRoom": "繼續編輯房間，稍後再決定",
   "storage.originalSaved": "已更新原場景。",
   "storage.sourceConflict":
     "原場景已在其他地方更新。請另存個人副本，或離房並重新載入原稿後再更新。",
   "storage.leaveRisk": "房間尚有未確認保存的變更，離開可能遺失。仍要離開嗎？",
 
   "app.export.cloud.title": "上傳雲端",
-  "app.export.cloud.subtitle":
-    "儲存至個人雲端。個人雲端存檔不採端對端加密，不會自動公開。",
   "app.export.cloud.loading": "上傳中",
   "app.export.link.loading": "匯出中",
   "app.overwriteConfirm.action.uploadToCloud.button": "上傳雲端",
@@ -60,11 +54,7 @@ export const zhTW = {
 
   // 匯出對話卡片
   "exportDialog.disk_title": "儲存到磁碟",
-  "exportDialog.disk_details":
-    "將目前場景儲存為 .excalidraw 檔；匯出檔案未加密。",
   "exportDialog.link_title": "建立可分享連結",
-  "exportDialog.link_details":
-    "上傳加密的分享副本並取得連結；完整連結包含金鑰，持有完整連結者可解密。",
 
   // 歡迎畫面補充
   "welcomeScreen.app.center_heading": "繪製、協作、分享",
@@ -490,12 +480,9 @@ export const zhTW = {
   "scene.settings.confirmLabel": "儲存場景設定",
   "scene.conflict.title": "偵測到遠端變更",
   "scene.conflict.description": "你有本機變更時，此場景已在其他地方更新。",
-  "scene.conflict.load.title": "載入遠端版本",
-  "scene.conflict.load.description": "捨棄本機變更並使用最新遠端版本。",
-  "scene.conflict.save.title": "將本機版本另存為新場景",
-  "scene.conflict.save.description": "另存本機變更以保留兩個版本。",
-  "scene.conflict.keep.title": "暫時保留本機版本",
-  "scene.conflict.keep.description": "繼續在本機編輯，稍後再同步。",
+  "scene.conflict.load.title": "捨棄我的修改，載入最新版本",
+  "scene.conflict.save.title": "把我的修改另存為新場景",
+  "scene.conflict.keep.title": "先繼續編輯我的版本",
   "category.selector.placeholder": "輸入或建立分類",
   "category.selector.searching": "搜尋中",
   "category.selector.empty": "找不到結果。",

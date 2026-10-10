@@ -23,29 +23,37 @@ beforeEach(() => {
 });
 afterEach(() => act(() => root.unmount()));
 
-const render = (belowToolbar: boolean) =>
+const render = (toolsColumnButtons: number | null) =>
   act(() =>
     root.render(
-      <MobileRoomBadge belowToolbar={belowToolbar}>
-        <span>room badge</span>
+      <MobileRoomBadge toolsColumnButtons={toolsColumnButtons}>
+        <span>room</span>
       </MobileRoomBadge>,
     ),
   );
+const top = () => (container.firstElementChild as HTMLElement).style.top;
 
-/** The room badge stays reachable in Excalidraw's mobile layout only. */
+/** The room button stays reachable in Excalidraw's mobile layout only. */
 describe("MobileRoomBadge", () => {
-  it("shows the badge on mobile, below the tools in edit mode", () => {
+  it("sits right under upstream's tools column, lower when it grows", () => {
     device.editor.isMobile = true;
-    render(true);
-    expect(container.textContent).toBe("room badge");
-    expect(container.firstElementChild?.className).toContain("4.25rem");
-    render(false);
-    expect(container.firstElementChild?.className).toContain("0.75rem");
+    // 5rem top + 2.25rem library + 2rem per tool + 0.5rem gap.
+    render(2);
+    expect(container.textContent).toBe("room");
+    expect(top()).toContain("11.75rem");
+    render(3);
+    expect(top()).toContain("13.75rem");
+  });
+
+  it("takes the top-right corner when there is no tools column", () => {
+    device.editor.isMobile = true;
+    render(null);
+    expect(top()).toContain("0.75rem");
   });
 
   it("renders nothing in the desktop layout", () => {
     device.editor.isMobile = false;
-    render(true);
+    render(3);
     expect(container.textContent).toBe("");
   });
 });

@@ -220,10 +220,22 @@ export default function ExcalidrawEditor() {
     isRoomMode,
     hasCurrentCanvasContent,
   });
+  // Upstream state the mobile room button depends on, read from onChange
+  // (always mounted) and stored as primitives so unchanged values don't
+  // re-render the editor.
+  const [penDetected, setPenDetected] = useState(false);
+  const [mobileToolsHidden, setMobileToolsHidden] = useState(false);
   const handleEditorChange = useCallback<typeof handleCanvasChange>(
     (elements, appState, files) => {
       handleCanvasChange(elements, appState, files);
       observeSignedOutDraft(elements);
+      setPenDetected(appState.penDetected);
+      // The library sidebar covers the right edge; the link selector unmounts
+      // the whole mobile toolbar. Either way the room button steps aside.
+      setMobileToolsHidden(
+        appState.openSidebar !== null ||
+          appState.openDialog?.name === "elementLinkSelector",
+      );
     },
     [handleCanvasChange, observeSignedOutDraft],
   );
@@ -434,12 +446,25 @@ export default function ExcalidrawEditor() {
               cancelPendingSceneSave={cancelPendingSceneSave}
               productActions={productActions}
               compactPresentation={isMobileCanvasSlot !== false}
-              storageStatus={<EditorStorageStatus {...storageStatusProps} />}
+              // In a room the room button on the canvas carries this; the
+              // menu keeps only the personal canvas's detached-draft note.
+              storageStatus={
+                isRoomMode ? undefined : (
+                  <EditorStorageStatus {...storageStatusProps} />
+                )
+              }
             />
 
-            {storageStatusProps.roomId && (
+            {storageStatusProps.roomId && !mobileToolsHidden && (
               <MobileRoomBadge
-                belowToolbar={!(isCollaborationReadOnly || isRoomInitializing)}
+                // Below library: (pen), lock, hand. View mode shows no column.
+                toolsColumnButtons={
+                  isCollaborationReadOnly || isRoomInitializing
+                    ? null
+                    : penDetected
+                      ? 3
+                      : 2
+                }
               >
                 <EditorStorageStatus {...storageStatusProps} compact />
               </MobileRoomBadge>

@@ -28,7 +28,8 @@ it("a room source conflict offers a named copy or continued collaboration withou
     const dialog = document.querySelector('[role="dialog"]');
     const buttons = [...(dialog?.querySelectorAll("button") ?? [])];
     expect(buttons).toHaveLength(2);
-    expect(dialog?.textContent).toContain(en["storage.copyNotice"]);
+    expect(dialog?.textContent).toContain(en["storage.copy"]);
+    expect(dialog?.textContent).toContain(en["storage.keepRoom"]);
     expect(dialog?.textContent).not.toContain(en["scene.conflict.load.title"]);
     act(() => buttons[0]?.click());
     expect(choose).toHaveBeenLastCalledWith("saveAsNew");
