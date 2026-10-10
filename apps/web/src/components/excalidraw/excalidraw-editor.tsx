@@ -225,11 +225,15 @@ export default function ExcalidrawEditor() {
   // re-render the editor.
   const [penDetected, setPenDetected] = useState(false);
   const [mobileToolsHidden, setMobileToolsHidden] = useState(false);
+  // Upstream paints its own UI only once the scene has loaded; the room
+  // button waits for the same moment instead of appearing on an empty page.
+  const [editorUiReady, setEditorUiReady] = useState(false);
   const handleEditorChange = useCallback<typeof handleCanvasChange>(
     (elements, appState, files) => {
       handleCanvasChange(elements, appState, files);
       observeSignedOutDraft(elements);
       setPenDetected(appState.penDetected);
+      setEditorUiReady(!appState.isLoading);
       // The library sidebar covers the right edge; the link selector unmounts
       // the whole mobile toolbar. Either way the room button steps aside.
       setMobileToolsHidden(
@@ -460,20 +464,22 @@ export default function ExcalidrawEditor() {
               }
             />
 
-            {storageStatusProps.roomId && !mobileToolsHidden && (
-              <MobileRoomBadge
-                // Below library: (pen), lock, hand. View mode shows no column.
-                toolsColumnButtons={
-                  isCollaborationReadOnly || isRoomInitializing
-                    ? null
-                    : penDetected
-                      ? 3
-                      : 2
-                }
-              >
-                <EditorStorageStatus {...storageStatusProps} compact edge />
-              </MobileRoomBadge>
-            )}
+            {storageStatusProps.roomId &&
+              editorUiReady &&
+              !mobileToolsHidden && (
+                <MobileRoomBadge
+                  // Below library: (pen), lock, hand. View mode shows no column.
+                  toolsColumnButtons={
+                    isCollaborationReadOnly || isRoomInitializing
+                      ? null
+                      : penDetected
+                        ? 3
+                        : 2
+                  }
+                >
+                  <EditorStorageStatus {...storageStatusProps} compact edge />
+                </MobileRoomBadge>
+              )}
 
             {!isRoomMode && (
               <SceneRenameDialog

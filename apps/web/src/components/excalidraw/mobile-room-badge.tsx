@@ -43,7 +43,7 @@ export function MobileRoomBadge(props: {
     <div
       // Below upstream's sidebar and dialogs (z-index 5) when they open.
       // Flush with the right edge, like the tools column it continues.
-      className="fixed right-0 z-[4]"
+      className="animate-in fade-in fixed right-0 z-[4] duration-200"
       style={{ top }}
     >
       {props.children}

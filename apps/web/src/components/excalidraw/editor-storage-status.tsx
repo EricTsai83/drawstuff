@@ -79,10 +79,12 @@ export function EditorStorageStatus(props: {
   const sourceName = preservedSourceScene()?.name;
   // Nothing changed yet, a save that is no longer news, or a viewer (who
   // cannot change anything): no status.
+  // "Saved" appears once this client has saved something during the visit
+  // and then stays; the saved state found on arrival is not news.
   const statusLabel =
     props.showSaveStatus &&
     status !== "idle" &&
-    (status !== "saved" || justSaved)
+    (status !== "saved" || justSaved || props.state.localSaves > 0)
       ? t(`storage.room.${status}`)
       : null;
   const panel = (
@@ -90,12 +92,16 @@ export function EditorStorageStatus(props: {
       className="flex w-64 max-w-full flex-col"
       data-testid="editor-room-storage"
     >
-      <div className="flex items-start gap-2.5 px-1 pb-3">
-        <span className="bg-primary/10 text-primary mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md">
-          <Users className="size-3.5" aria-hidden="true" />
+      {/* Icon and name share one centre line; the status sits under the name. */}
+      <div className="flex items-center gap-3 px-1 pb-3">
+        <span className="bg-primary/10 text-primary flex size-10 shrink-0 items-center justify-center rounded-lg">
+          <Users className="size-5" aria-hidden="true" />
         </span>
-        <div className="flex min-w-0 flex-col gap-0.5">
-          <span className="truncate text-sm font-medium" title={props.roomId}>
+        <div className="flex min-w-0 flex-1 flex-col gap-0.5">
+          <span
+            className="truncate text-base leading-snug font-semibold"
+            title={roomLabel}
+          >
             {roomLabel}
           </span>
           <span
@@ -177,8 +183,10 @@ export function EditorStorageStatus(props: {
             "h-6 cursor-pointer gap-1.5 px-2.5 text-sm max-lg:px-1.5",
             // Mobile: the same square, edge-attached island as upstream's
             // tools column above it, not a floating pill.
+            // Upstream's own island tokens, so it reads as the next button of
+            // the tools column rather than a separate control.
             props.edge &&
-              "border-border bg-popover size-8 justify-center rounded-none rounded-l-lg border border-r-0 px-0 max-lg:px-0",
+              "h-8 w-[calc(2rem+1px)] justify-center gap-0 rounded-none rounded-l-[var(--border-radius-lg)] border border-r-0 border-[var(--sidebar-border-color)] bg-[var(--island-bg-color)] px-0 text-[var(--icon-fill-color)] hover:bg-[var(--button-hover-bg)] max-lg:px-0",
             statusLabel &&
               status === "failed" &&
               "bg-destructive/10 text-destructive",
@@ -186,6 +194,7 @@ export function EditorStorageStatus(props: {
           aria-label={statusLabel ? `${roomLabel} · ${statusLabel}` : roomLabel}
         >
           <BadgeStatusIcon
+            large={props.edge}
             justSaved={justSaved}
             state={props.state}
             showSaveStatus={props.showSaveStatus}
@@ -249,10 +258,13 @@ function SaveStatusIcon({ status }: { status: RoomSaveState["status"] }) {
 /**
  * The badge's status lives in its fixed-size leading icon, so a save never
  * changes the badge's width: a save in progress or a failure replaces the
- * room icon (people, not a lock: a lock reads as "canvas locked"), and a confirmed save shows a check for a moment before it returns. The words
- * stay in the panel, the tooltip and the live region.
+ * room icon (people, not a lock: a lock reads as "canvas locked"), and a
+ * confirmed save shows a check for a moment before it returns. The words stay
+ * in the panel, the tooltip and the live region.
  */
 function BadgeStatusIcon(props: {
+  /** Tool-sized (1rem) for the mobile edge button. */
+  large?: boolean;
   justSaved: boolean;
   state: RoomSaveState;
   showSaveStatus: boolean;
@@ -267,12 +279,15 @@ function BadgeStatusIcon(props: {
     (status === "saved" && !props.justSaved);
   return (
     <span
-      className="flex size-3 shrink-0 items-center justify-center"
+      className={cn(
+        "flex shrink-0 items-center justify-center",
+        props.large ? "size-4 [&_svg]:size-4" : "size-3",
+      )}
       data-status={settled ? "settled" : status}
       aria-hidden="true"
     >
       {settled ? (
-        <Users className="size-3" />
+        <Users className={props.large ? "size-4" : "size-3"} />
       ) : (
         <SaveStatusIcon status={status} />
       )}

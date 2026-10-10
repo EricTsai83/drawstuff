@@ -75,6 +75,16 @@ describe("editor storage status (18C §5)", () => {
     expect(badge?.getAttribute("aria-label")).toContain("Saved");
   });
 
+  it("keeps saying Saved once this client has saved during the visit", () => {
+    const container = renderStatus({
+      roomId: "room-alpha-1",
+      state: { status: "saved", revision: 3, checksum: null, localSaves: 1 },
+    });
+    expect(container.querySelector('[role="status"]')?.textContent).toBe(
+      "Saved",
+    );
+  });
+
   it("says nothing about saving before anything has changed", () => {
     const container = renderStatus({
       roomId: "room-alpha-1",
