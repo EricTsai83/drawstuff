@@ -330,9 +330,8 @@ describe("collaboration room creation", () => {
 
   it("does not start the room on an Enter that confirms an IME composition", async () => {
     renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "" });
-    const input = container!.querySelector<HTMLInputElement>(
-      "#collab-room-name",
-    )!;
+    const input =
+      container!.querySelector<HTMLInputElement>("#collab-room-name")!;
     await act(async () => {
       input.dispatchEvent(
         new KeyboardEvent("keydown", {
@@ -346,15 +345,22 @@ describe("collaboration room creation", () => {
   });
 
   it("keeps the typed name when the scene name changes while open", async () => {
-    renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "A" });
-    const input = container!.querySelector<HTMLInputElement>(
-      "#collab-room-name",
-    )!;
+    renderDialog({
+      isAuthenticated: true,
+      sceneId: null,
+      defaultRoomName: "A",
+    });
+    const input =
+      container!.querySelector<HTMLInputElement>("#collab-room-name")!;
     await act(async () => {
       Reflect.set(HTMLInputElement.prototype, "value", "Mine", input);
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
-    renderDialog({ isAuthenticated: true, sceneId: null, defaultRoomName: "B" });
+    renderDialog({
+      isAuthenticated: true,
+      sceneId: null,
+      defaultRoomName: "B",
+    });
     expect(input.value).toBe("Mine");
   });
 
