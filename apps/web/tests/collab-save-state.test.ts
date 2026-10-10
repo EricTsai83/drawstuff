@@ -57,6 +57,29 @@ describe("durable room save coverage", () => {
     expect(state.state().status).toBe("pending");
   });
 
+  it("counts only confirmed saves of this client's own edits", () => {
+    let current: readonly SyncedElement[] = [collabRectangle({ id: "a" })];
+    const state = createRoomSaveState({ currentElements: () => current });
+    // A baseline loaded on arrival is not this client's save.
+    state.changed();
+    state.confirm(1, current);
+    expect(state.state()).toMatchObject({ status: "saved", localSaves: 0 });
+    // Someone else's edit, saved by the writer: still not ours.
+    current = [collabRectangle({ id: "a", version: 2, versionNonce: 2 })];
+    state.changed();
+    state.confirm(2, current);
+    expect(state.state().localSaves).toBe(0);
+    // Our own edit, confirmed: one save to show.
+    current = [collabRectangle({ id: "a", version: 3, versionNonce: 3 })];
+    state.localChanged();
+    state.confirm(3, current);
+    expect(state.state()).toMatchObject({ status: "saved", localSaves: 1 });
+    // A later baseline without new edits of ours does not count again.
+    state.reset();
+    state.confirm(3, current);
+    expect(state.state().localSaves).toBe(1);
+  });
+
   it("warns on leaving only an editor with unconfirmed changes", () => {
     expect(roomExitLosesNothing({ canEdit: true, status: "pending" })).toBe(
       false,

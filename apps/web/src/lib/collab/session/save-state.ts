@@ -6,6 +6,12 @@ export type RoomSaveState = {
   status: RoomSaveStatus;
   revision: number | null;
   checksum: string | null;
+  /**
+   * Confirmed saves of this client's own edits during the session. A baseline
+   * loaded on arrival or after a reconnect, and other people's edits, never
+   * count — so "Saved" can be shown as news only when it is.
+   */
+  localSaves: number;
 };
 
 /**
@@ -45,6 +51,9 @@ export function createRoomSaveState(options: {
   let revision: number | null = null;
   let checksum: string | null = null;
   let activity: "idle" | "pending" | "saving" | "failed" = "idle";
+  /** This client edited since its last confirmed save. */
+  let localEditsPending = false;
+  let localSaves = 0;
   let lastState: RoomSaveState | undefined;
   const state = (): RoomSaveState => ({
     status:
@@ -54,6 +63,7 @@ export function createRoomSaveState(options: {
         : activity,
     revision,
     checksum,
+    localSaves,
   });
   const notify = (): void => {
     const next = state();
@@ -68,6 +78,12 @@ export function createRoomSaveState(options: {
       notify();
     },
     changed() {
+      if (activity !== "saving") activity = "pending";
+      notify();
+    },
+    /** A change made on this client (not applied from the room). */
+    localChanged() {
+      localEditsPending = true;
       if (activity !== "saving") activity = "pending";
       notify();
     },
@@ -89,6 +105,10 @@ export function createRoomSaveState(options: {
       checksum = nextChecksum ?? null;
       confirmedCoverage = snapshotCoverage(elements);
       activity = "pending";
+      if (localEditsPending && state().status === "saved") {
+        localSaves += 1;
+        localEditsPending = false;
+      }
       notify();
     },
     reset() {

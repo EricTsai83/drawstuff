@@ -714,7 +714,7 @@ export function createCollaborationSession(
       if (context.isStopped()) return;
       // A real edit means this client has something new to say, so the repair
       // budget is not being spent on a silent room.
-      cadence.onSceneChange();
+      cadence.onLocalSceneChange();
       repair.noteRoomActivity();
       presence.setSelection(appState.selectedElementIds);
       // The flush reads the live scene from the API at send time, so

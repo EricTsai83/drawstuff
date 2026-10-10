@@ -2,7 +2,6 @@
 
 import type { ReactNode } from "react";
 
-import { useTransientKey } from "@/hooks/use-transient-key";
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import {
   Check,
@@ -52,15 +51,14 @@ export function EditorStorageStatus(props: {
   compact?: boolean;
   /** Mobile: an edge-attached square matching upstream's tools column. */
   edge?: boolean;
+  /**
+   * This client's own edits were just confirmed saved (see `savedFlashKey`);
+   * computed once by the editor so every surface agrees.
+   */
+  justSaved: boolean;
 }) {
   const { t } = useAppI18n();
-  // "Saved" is news only right after a save made during this visit; the saved
-  // state found on arrival says nothing.
-  const justSaved = useTransientKey(
-    savedFlashKey(props.roomId, props.state),
-    SAVED_VISIBLE_MS,
-    props.roomId,
-  );
+  const justSaved = props.justSaved;
   if (!props.roomId) {
     // A personal canvas is the default and needs no label — unless it was
     // detached from a scene its edits are no longer in.
@@ -218,15 +216,16 @@ export function EditorStorageStatus(props: {
 export const SAVED_VISIBLE_MS = 3000;
 
 /**
- * Changes with each confirmed revision, so every new save flashes once. Scoped
- * to the room: another room's revision numbers must not count as already seen.
+ * Changes with each confirmed save of this client's own edits, so each flashes
+ * once; a baseline loaded on arrival or reconnect never does. Scoped to the
+ * room so another room's count is not mistaken for one already shown.
  */
 export function savedFlashKey(
   roomId: string | null,
   state: RoomSaveState,
 ): string | null {
-  return roomId && state.status === "saved"
-    ? `${roomId}:${state.revision ?? "none"}`
+  return roomId && state.status === "saved" && state.localSaves > 0
+    ? `${roomId}:${state.localSaves}`
     : null;
 }
 

@@ -54,6 +54,13 @@ export type {
   CollaborationRoomStatus,
 } from "@/lib/collab/room-state-reducer";
 
+const IDLE_SAVE_STATE: RoomSaveState = {
+  status: "idle",
+  revision: null,
+  checksum: null,
+  localSaves: 0,
+};
+
 /**
  * Drives one collaboration room from the editor: prepares the canvas, exchanges
  * the room id for a short-lived join token, starts the relay session, and mirrors
@@ -175,11 +182,14 @@ export function useCollaborationRoom(options: {
    * an effect, so the retry bumps a counter the effect depends on, which tears
    * the failed attempt down through the normal cleanup and starts over.
    */
-  const [saveState, setSaveState] = useState<RoomSaveState>({
-    status: "idle",
-    revision: null,
-    checksum: null,
-  });
+  // Tagged with the room it came from: when the room id changes, the previous
+  // room's state must not be read as the new room's for even one render.
+  const [saveHolder, setSaveHolder] = useState<{
+    roomId: string | null;
+    state: RoomSaveState;
+  }>({ roomId: null, state: IDLE_SAVE_STATE });
+  const saveState =
+    saveHolder.roomId === roomId ? saveHolder.state : IDLE_SAVE_STATE;
   const [sourceSceneId, setSourceSceneId] = useState<string | null>(null);
   const [roomLabel, setRoomLabel] = useState<string | null>(null);
   const [joinAttempt, setJoinAttempt] = useState(0);
@@ -286,7 +296,7 @@ export function useCollaborationRoom(options: {
         }),
       },
       dispatch,
-      onSaveStateChange: setSaveState,
+      onSaveStateChange: (state) => setSaveHolder({ roomId, state }),
       onSourceScene: setSourceSceneId,
       onRoomLabel: setRoomLabel,
       getTranslate: () => tRef.current,
@@ -315,7 +325,7 @@ export function useCollaborationRoom(options: {
         if (!handle) {
           setSourceSceneId(null);
           setRoomLabel(null);
-          setSaveState({ status: "idle", revision: null, checksum: null });
+          setSaveHolder({ roomId, state: IDLE_SAVE_STATE });
         }
       },
     });

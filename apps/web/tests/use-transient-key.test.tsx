@@ -10,14 +10,14 @@ import { useTransientKey } from "@/hooks/use-transient-key";
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 const seen: { value?: boolean } = {};
-function Probe(props: { keyValue: string | null; scope?: string | null }) {
-  seen.value = useTransientKey(props.keyValue, 1000, props.scope ?? "room-a");
+function Probe(props: { keyValue: string | null }) {
+  seen.value = useTransientKey(props.keyValue, 1000);
   return null;
 }
 
 let root: Root;
-const render = (keyValue: string | null, scope?: string | null) =>
-  act(() => root.render(<Probe keyValue={keyValue} scope={scope} />));
+const render = (keyValue: string | null) =>
+  act(() => root.render(<Probe keyValue={keyValue} />));
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -30,19 +30,9 @@ afterEach(() => {
 
 /** A save's check mark flashes once per confirmed save, then settles. */
 describe("useTransientKey", () => {
-  it("treats the state found on arrival as already shown", () => {
-    render(null);
-    render("saved:1");
-    expect(seen.value).toBe(false);
-    // A new room's first state is its arrival state too.
-    render("saved:7", "room-b");
-    expect(seen.value).toBe(false);
-  });
-
   it("is true briefly after each new key and false otherwise", () => {
     render(null);
     expect(seen.value).toBe(false);
-    render("saved:0");
     render("saved:1");
     expect(seen.value).toBe(true);
     act(() => {

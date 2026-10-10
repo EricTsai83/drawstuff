@@ -262,7 +262,6 @@ export default function ExcalidrawEditor() {
   const roomJustSaved = useTransientKey(
     savedFlashKey(collaborationRoomId, roomSaveState),
     SAVED_VISIBLE_MS,
-    collaborationRoomId,
   );
   const productActions = useMemo<CanvasProductActions>(
     () => ({
@@ -347,6 +346,7 @@ export default function ExcalidrawEditor() {
       roomId: isRoomMode && !isRoomTerminal ? collaborationRoomId : null,
       roomLabel: collaborationRoomLabel,
       state: roomSaveState,
+      justSaved: roomJustSaved,
       showSaveStatus: collaborationRole !== "viewer",
       sourceSceneId,
       onCopy: openCloudUploadDialog,
@@ -365,6 +365,7 @@ export default function ExcalidrawEditor() {
       collaborationRoomId,
       collaborationRoomLabel,
       roomSaveState,
+      roomJustSaved,
       collaborationRole,
       sourceSceneId,
       openCloudUploadDialog,
