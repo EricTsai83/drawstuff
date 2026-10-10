@@ -171,5 +171,5 @@ plan 21 拿掉房間加密並改變協定、Neon schema 與 DO class，舊房間
   分享連結仍可開啟（E2EE 不變）；個人場景、發布與 Library 不受影響；房間 UI 無房間金鑰／加密房間字樣。
   一度懷疑的「重新整理後第一個矩形遺失」在乾淨的單一分頁條件下無法重現，歸因於 computer use 多螢幕
   輸入失誤。
-- 後續（不屬 plan 21）：窄螢幕（<730px）版面曾隱藏房間 badge，另案處理；長時間與效能項目仍在
+- 後續（不屬 plan 21）：窄螢幕（<730px）的房間按鈕已於 PR #24、#29～#36 補上（Excalidraw 手機工具欄下方）；長時間與效能項目仍在
   [18D](../../plans/18d-collaboration-acceptance-follow-ups.md)。
