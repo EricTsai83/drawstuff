@@ -350,7 +350,6 @@ export default function ExcalidrawEditor() {
       roomId: isRoomMode && !isRoomTerminal ? collaborationRoomId : null,
       roomLabel: collaborationRoomLabel,
       state: roomSaveState,
-      justSaved: roomJustSaved,
       showSaveStatus: collaborationRole !== "viewer",
       sourceSceneId,
       onCopy: openCloudUploadDialog,
@@ -369,7 +368,6 @@ export default function ExcalidrawEditor() {
       collaborationRoomId,
       collaborationRoomLabel,
       roomSaveState,
-      roomJustSaved,
       collaborationRole,
       sourceSceneId,
       openCloudUploadDialog,
@@ -466,6 +464,11 @@ export default function ExcalidrawEditor() {
 
             {storageStatusProps.roomId &&
               editorUiReady &&
+              // While joining, upstream hides its tools (the canvas is not the
+              // room's yet); the button arrives with them, not before.
+              collaborationStatus !== "idle" &&
+              collaborationStatus !== "preparing" &&
+              collaborationStatus !== "joining" &&
               !mobileToolsHidden && (
                 <MobileRoomBadge
                   // Below library: (pen), lock, hand. View mode shows no column.

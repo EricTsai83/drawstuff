@@ -144,6 +144,43 @@ describe("durable room save coverage", () => {
     b.session.destroy();
   });
 
+  it("counts the writer's and a non-writer's own saved edits, not the baseline", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    const b = h.createClient("b", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    b.session.connect();
+    await settle(h);
+    expect(a.session.getSaveState().localSaves).toBe(0);
+    expect(b.session.getSaveState().localSaves).toBe(0);
+    b.edit(() => [collabRectangle({ id: "from-b" })]);
+    b.session.requestSave();
+    await settle(h);
+    b.timers.advance(1_000);
+    await settle(h);
+    expect(b.session.getSaveState()).toMatchObject({
+      status: "saved",
+      localSaves: 1,
+    });
+    // a only received b's edit: saved, but not a's save.
+    expect(a.session.getSaveState()).toMatchObject({
+      status: "saved",
+      localSaves: 0,
+    });
+    a.edit((elements) => [...elements, collabRectangle({ id: "from-a" })]);
+    a.session.requestSave();
+    await settle(h);
+    a.timers.advance(1_000);
+    await settle(h);
+    expect(a.session.getSaveState()).toMatchObject({
+      status: "saved",
+      localSaves: 1,
+    });
+    a.session.destroy();
+    b.session.destroy();
+  });
+
   it("a peer's invented receipt triggers an independent read and cannot mark edits saved", async () => {
     const h = createHarness();
     const backend = createSnapshotBackend();
