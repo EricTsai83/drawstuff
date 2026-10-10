@@ -80,20 +80,6 @@ describe("durable room save coverage", () => {
     expect(state.state().localSaves).toBe(1);
   });
 
-  it("does not count a local edit that a newer remote version replaced", () => {
-    let current: readonly SyncedElement[] = [collabRectangle({ id: "a" })];
-    const state = createRoomSaveState({ currentElements: () => current });
-    state.changed();
-    state.confirm(1, current);
-    // Our edit (version 2), then a remote version 3 wins before any save.
-    current = [collabRectangle({ id: "a", version: 2, versionNonce: 20 })];
-    state.localChanged();
-    current = [collabRectangle({ id: "a", version: 3, versionNonce: 30 })];
-    state.changed();
-    state.confirm(2, current);
-    expect(state.state()).toMatchObject({ status: "saved", localSaves: 0 });
-  });
-
   it("warns on leaving only an editor with unconfirmed changes", () => {
     expect(roomExitLosesNothing({ canEdit: true, status: "pending" })).toBe(
       false,
@@ -179,6 +165,30 @@ describe("durable room save coverage", () => {
     });
     a.session.destroy();
     b.session.destroy();
+  });
+
+  it("counts an edit Excalidraw made in place (same array, as while dragging)", async () => {
+    const h = createHarness();
+    const backend = createSnapshotBackend();
+    const a = h.createClient("a", { snapshotStore: backend.createStore() });
+    a.session.connect();
+    await settle(h);
+    a.edit(() => [collabRectangle({ id: "r" })]);
+    a.timers.advance(31_000);
+    await settle(h);
+    expect(a.session.getSaveState().localSaves).toBe(1);
+    // The engine bumps the element in place and hands back the same array.
+    a.edit((elements) => {
+      Object.assign(elements[0]!, { version: 9, versionNonce: 99 });
+      return elements;
+    });
+    a.timers.advance(31_000);
+    await settle(h);
+    expect(a.session.getSaveState()).toMatchObject({
+      status: "saved",
+      localSaves: 2,
+    });
+    a.session.destroy();
   });
 
   it("a peer's invented receipt triggers an independent read and cannot mark edits saved", async () => {

@@ -478,9 +478,9 @@ export const createSnapshotCadence = (options: {
       saveState.changed();
     },
     onLocalSceneChange() {
-      const elements = sceneApi.getSceneElementsIncludingDeleted();
-      if (elements === lastObservedElements) return;
-      lastObservedElements = elements;
+      // No identity shortcut here: Excalidraw mutates elements in place while
+      // dragging, so the array can stay the same across a real local edit.
+      lastObservedElements = sceneApi.getSceneElementsIncludingDeleted();
       saveState.localChanged();
     },
     getSaveState: () => saveState.state(),

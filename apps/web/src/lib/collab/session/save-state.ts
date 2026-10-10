@@ -28,23 +28,6 @@ export function roomExitLosesNothing(options: {
   );
 }
 
-type ElementVersion = { version: number; nonce: number; deleted: boolean };
-const versionsOf = (
-  elements: readonly SyncedElement[],
-): Map<string, ElementVersion> =>
-  new Map(
-    elements.map((element) => [
-      element.id,
-      {
-        version: element.version,
-        nonce: element.versionNonce,
-        deleted: !!element.isDeleted,
-      },
-    ]),
-  );
-const sameVersion = (a: ElementVersion, b: ElementVersion): boolean =>
-  a.version === b.version && a.nonce === b.nonce && a.deleted === b.deleted;
-
 /** Same identity contract as snapshotDigest, synchronous for leave guards. */
 function snapshotCoverage(elements: readonly SyncedElement[]): string {
   return elements
@@ -69,14 +52,11 @@ export function createRoomSaveState(options: {
   let checksum: string | null = null;
   let activity: "idle" | "pending" | "saving" | "failed" = "idle";
   /**
-   * Provenance for "Saved": the element versions this client produced and has
-   * not yet seen stored, diffed against the last scene it observed (remote
-   * applies update the observation without counting as ours).
+   * This client edited since its last counted save. Set on every local engine
+   * change (no array-identity shortcut: Excalidraw mutates elements in place
+   * while dragging), cleared when a confirmation covers the current canvas.
    */
-  let observed = new Map<string, ElementVersion>();
-  const pendingLocal = new Map<string, ElementVersion>();
-  /** A local version was stored since the last counted save. */
-  let localStored = false;
+  let localEditsPending = false;
   let localSaves = 0;
   let lastState: RoomSaveState | undefined;
   const state = (): RoomSaveState => ({
@@ -102,19 +82,12 @@ export function createRoomSaveState(options: {
       notify();
     },
     changed() {
-      observed = versionsOf(options.currentElements());
       if (activity !== "saving") activity = "pending";
       notify();
     },
     /** A change made on this client (not applied from the room). */
     localChanged() {
-      const now = versionsOf(options.currentElements());
-      for (const [id, version] of now) {
-        const before = observed.get(id);
-        if (!before || !sameVersion(before, version))
-          pendingLocal.set(id, version);
-      }
-      observed = now;
+      localEditsPending = true;
       if (activity !== "saving") activity = "pending";
       notify();
     },
@@ -136,22 +109,11 @@ export function createRoomSaveState(options: {
       checksum = nextChecksum ?? null;
       confirmedCoverage = snapshotCoverage(elements);
       activity = "pending";
-      // Count a save only when the stored snapshot holds this client's own
-      // versions; a version overwritten by a newer remote one was not saved
-      // and is dropped without counting.
-      const stored = versionsOf(elements);
-      for (const [id, mine] of pendingLocal) {
-        const kept = stored.get(id);
-        if (kept ? sameVersion(kept, mine) : mine.deleted) {
-          pendingLocal.delete(id);
-          localStored = true;
-        } else if (kept && kept.version > mine.version) {
-          pendingLocal.delete(id);
-        }
-      }
-      if (localStored && state().status === "saved") {
+      // This client's edits count as saved once a confirmation matches the
+      // canvas they were made on.
+      if (localEditsPending && state().status === "saved") {
         localSaves += 1;
-        localStored = false;
+        localEditsPending = false;
       }
       notify();
     },

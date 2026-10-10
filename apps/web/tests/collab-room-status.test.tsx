@@ -128,6 +128,12 @@ const OVERSIZE_DURABLE: SceneSyncBlock = {
 
 /** Callbacks the hook handed to the (mocked) room session. */
 type SessionCallbacks = {
+  onSaveStateChange?: (state: {
+    status: "idle" | "pending" | "saving" | "saved" | "failed";
+    revision: number | null;
+    checksum: string | null;
+    localSaves: number;
+  }) => void;
   onSceneSyncBlockChange: (block: SceneSyncBlock | null) => void;
   onRecoveryStateChange: (state: RecoveryState) => void;
   onAssetsUnreadable: () => void;
@@ -856,5 +862,22 @@ describe("joining a standalone room (18C §4)", () => {
     ] as SyncedElement[];
     await mountRoom();
     expect(skipPrompts()).toEqual([false]);
+  });
+});
+
+describe("room save state delivery", () => {
+  it("exposes the session's save state for the open room", async () => {
+    const started = await mountRoom();
+    expect(probe.result?.saveState.status).toBe("idle");
+    act(() => {
+      started.onSaveStateChange?.({
+        status: "pending",
+        revision: 1,
+        checksum: null,
+        localSaves: 0,
+      });
+    });
+    expect(probe.result?.saveState.status).toBe("pending");
+    unmountRoom();
   });
 });
