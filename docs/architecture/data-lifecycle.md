@@ -13,7 +13,7 @@ deletion must preserve their transaction boundary through the durable cleanup ou
 The collaboration schema includes nullable source scenes, initializing/ready/ended room metadata,
 immutable operation results, pre-activation subject registration, lifecycle records, account- and
 email-keyed list projections, and projection tombstones in PostgreSQL. Room content is stored in
-plaintext ([plan 21](../../plans/21-plain-rooms-google-docs-access.md)). Retention reclaims only
+plaintext (plan 21, deployed 2026-10-10). Retention reclaims only
 explicitly ended rooms; ready/initializing rooms never expire. Linked-room FKs still cascade, while
 NULL-source rooms are independent. Lifecycle terminal records survive account/scene deletion. All account/scene deletion callers use confirmed Lifecycle retirement before parent cascade. See the [authority contract](collaboration-authority.md).
 

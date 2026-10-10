@@ -3,7 +3,7 @@
 - 狀態：待排程；2026-10-08 依擁有者決定承接 18B 結案後的疑慮與未完成驗收。
 - 前置：[已部署授權契約](../docs/architecture/collaboration-authority.md)、[儲存契約](../docs/architecture/collaboration-storage.md)。
 - 證據入口：[部署與驗收 runbook](../docs/deployment/collaboration-reset/README.md)、[P0 測量契約](../docs/performance/collaboration-storage-p0.md)、[SLO](../docs/performance/collaboration-slo-capacity.md)。
-- 本 plan 不阻擋 [21](21-plain-rooms-google-docs-access.md)；21 改變房間內容格式與存取規則後，本 plan 的重測以 21 的實作為準。未授權立即執行本 plan 全部 scope。
+- plan 21（已完成，見 git history）已於 2026-10-10 部署，改變房間內容格式與存取規則；本 plan 的重測以目前 protocol 7 的實作為準（見 [授權契約](../docs/architecture/collaboration-authority.md)）。未授權立即執行本 plan 全部 scope。
 
 ## 1. 自然斷線與 presign 500（優先）
 

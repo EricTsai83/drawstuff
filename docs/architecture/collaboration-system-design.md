@@ -1,6 +1,6 @@
 # Collaboration system design
 
-- Status: Current (protocol 7, [plan 21](../../plans/21-plain-rooms-google-docs-access.md))
+- Status: Current (protocol 7, plan 21, deployed 2026-10-10)
 - Generalized patterns: [realtime room coordination](../system-design/realtime-room-coordination.md),
   [transactional outbox](../system-design/transactional-outbox.md),
   [defensive boundaries](../system-design/defensive-boundaries.md);

@@ -1,7 +1,7 @@
 # 22 — Admin 異常檢視與帳號移除的完整清除
 
-- 狀態：需求草案（2026-10-10），待 21 合併後排程；細節與擁有者決定待確認。
-- 前置：[21](21-plain-rooms-google-docs-access.md)（房間不加密、Google 文件模式存取、DO 釋放儲存、durable 工作放棄規則）。與 [17](17-collaboration-operations-follow-ups.md) 的長期 logs／metrics／告警協調：本 plan 只做 admin dashboard 內可查的異常，不建外部告警設施。
+- 狀態：需求草案（2026-10-10）；前置已完成，可排程，細節與擁有者決定待確認。
+- 前置：plan 21 已完成並於 2026-10-10 部署（房間不加密、Google 文件模式存取、DO 釋放儲存、durable 工作放棄規則；見 [共編授權契約](../docs/architecture/collaboration-authority.md)、[DO 部署 runbook §6](../docs/operations/collaboration-do-deployment.md)）。與 [17](17-collaboration-operations-follow-ups.md) 的長期 logs／metrics／告警協調：本 plan 只做 admin dashboard 內可查的異常，不建外部告警設施。
 - 目的：管理員能在 admin dashboard 看到需要介入的異常；移除使用者後，他的資源與個資清除乾淨。
 
 ## 0. 為什麼要做

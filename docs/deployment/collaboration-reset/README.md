@@ -1,8 +1,8 @@
 # 共編重置部署與驗收紀錄
 
 > **歷史紀錄**：本文記錄 18B 的加密房間設計（房間金鑰、密文快照／附件、世代、join／control token、
-> 維護 Worker 與 quiesce／cleanup 腳本）。該設計已由 [plan 21](../../../plans/21-plain-rooms-google-docs-access.md)
-> 取代：房間不再加密，舊房間資料依 plan 21 §7 整批清除，程序見
+> 維護 Worker 與 quiesce／cleanup 腳本）。該設計已由 plan 21（已完成，見 git history）
+> 取代：房間不再加密，舊房間資料已於 2026-10-10 整批清除，程序與執行紀錄見
 > [共編 DO 部署 runbook §6](../../operations/collaboration-do-deployment.md)。文中的 `quiesce`、`cleanup:legacy`、
 > `prepare:rollback`、`test:maintenance`／`preflight:maintenance` 與 `wrangler.maintenance.jsonc`／
 > `wrangler.bootstrap.jsonc` 已移除；本目錄的 SQL 與 `collaboration:reset-check` 以舊 schema 為基準，不要再執行。

@@ -1,6 +1,6 @@
 # ADR-0005：共編附件是 public 明文物件
 
-- Status: Accepted（2026-10-10，擁有者決定；[plan 21](../../plans/21-plain-rooms-google-docs-access.md) D6）
+- Status: Accepted（2026-10-10，擁有者決定；plan 21 D6）
 - 範圍：共編附件的儲存格式與 provider 存取契約；不改變附件索引或寫入授權。
 
 ## 決定

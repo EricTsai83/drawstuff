@@ -10,7 +10,7 @@
 <body><main><article><h1>導讀：協作系統設計契約怎麼讀</h1>
 <p class="deck">解釋契約裡每條邊界為什麼存在、哪些設計決定是刻意的，以及讀的時候最容易略過的幾個要點。具體規格、版本與上限只存在於 Markdown 契約本身。</p>
 <p class="note">導讀文章・不含規格數值。權威來源是 <a href="../architecture/collaboration-system-design.md">Collaboration system design</a>；本文與它不一致時，以該 Markdown 為準。</p>
-<div class="callout"><p><strong>歷史設計：</strong>本導讀依 plan 21 之前的契約撰寫，其中描述的房間端對端加密與金鑰設計（房間金鑰、完整連結、key check、服務端金鑰保管與世代輪替）已由 <a href="../../plans/21-plain-rooms-google-docs-access.md">plan 21</a> 取代：協作房間改以登入加上類似 Google 文件的存取權（邀請名單與一般存取權）保護，房間內容在服務端為明文；只有分享連結仍是端對端加密。現況以<a href="../architecture/collaboration-authority.md">現行授權契約</a>為準，以下內容保留為歷史設計解說。</p></div>
+<div class="callout"><p><strong>歷史設計：</strong>本導讀依 plan 21 之前的契約撰寫，其中描述的房間端對端加密與金鑰設計（房間金鑰、完整連結、key check、服務端金鑰保管與世代輪替）已由 plan 21 取代：協作房間改以登入加上類似 Google 文件的存取權（邀請名單與一般存取權）保護，房間內容在服務端為明文；只有分享連結仍是端對端加密。現況以<a href="../architecture/collaboration-authority.md">現行授權契約</a>為準，以下內容保留為歷史設計解說。</p></div>
 <nav aria-label="導讀導覽"><a href="README.md">學習索引</a><ol>
 <li><a href="#split">責任分工：誰能看到明文，誰只能搬 bytes</a></li>
 <li><a href="#revoke">授權撤銷與密碼學撤銷是兩件事</a></li>

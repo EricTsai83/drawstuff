@@ -8,7 +8,7 @@
 This document identifies trust boundaries, data that crosses them, implemented controls, and
 accepted gaps.
 
-Collaboration rooms are **not** end-to-end encrypted ([plan 21](../../plans/21-plain-rooms-google-docs-access.md),
+Collaboration rooms are **not** end-to-end encrypted (plan 21,
 owner decision 2026-10-10). Realtime frames, Neon snapshots and UploadThing room assets are
 plaintext at rest and in the relay; WSS/HTTPS protects them in transit. Rooms are protected the same
 way as "my scenes": sign-in plus the Room DO's access rules. There are no room keys. Only share links

@@ -3,9 +3,9 @@
 Room DO is the deployed authorization authority; PostgreSQL stores plaintext snapshots, asset
 records, fences and display projections. Source scenes are optional. See the
 [current authority contract](collaboration-authority.md). Rooms are not end-to-end encrypted
-([plan 21](../../plans/21-plain-rooms-google-docs-access.md)): like "my scenes", they are protected
+(plan 21, deployed 2026-10-10): like "my scenes", they are protected
 by sign-in and access rules, and WSS/HTTPS protects transport. There are no room keys. Production
-acceptance is tracked by plan 21 §9.
+acceptance passed on 2026-10-10; see the [DO deployment runbook §6](../operations/collaboration-do-deployment.md).
 
 ## Storage modes and destinations
 

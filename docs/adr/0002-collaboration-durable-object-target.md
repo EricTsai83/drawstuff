@@ -7,7 +7,7 @@
   Claims 依然有效；下段「現況是 Node relay」描述的是 ADR 撰寫當時，僅存歷史脈絡。
 - Update（2026-08-28，Plan 15）：Node relay infrastructure（`apps/collaboration-relay`）
   已退役刪除，CLAIM-DO-2 的終局狀態成立；本文所有 relay 敘述自此皆為歷史。
-- Update（2026-10-10，[Plan 21](../../plans/21-plain-rooms-google-docs-access.md)）：房間不再
+- Update（2026-10-10，Plan 21）：房間不再
   端對端加密，也不再有授權世代、join/control token 或 control 路徑。Object identity 是
   `roomId`（`CollaborationRoomV2`），唯一 socket 路由為 `GET /v1/rooms/:roomId/socket`，
   join frame 帶只含身分的 identity proof；Room SQLite 是房間權限唯一權威（見
