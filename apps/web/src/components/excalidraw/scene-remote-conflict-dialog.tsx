@@ -69,9 +69,6 @@ export function SceneRemoteConflictDialog({
                 <div className="text-sm font-medium">
                   {t("scene.conflict.load.title")}
                 </div>
-                <div className="text-xs font-normal opacity-80">
-                  {t("scene.conflict.load.description")}
-                </div>
               </div>
             </Button>
           )}
@@ -87,13 +84,6 @@ export function SceneRemoteConflictDialog({
               <div className="text-sm font-medium">
                 {t(roomSource ? "storage.copy" : "scene.conflict.save.title")}
               </div>
-              <div className="text-muted-foreground text-xs font-normal">
-                {t(
-                  roomSource
-                    ? "storage.copyNotice"
-                    : "scene.conflict.save.description",
-                )}
-              </div>
             </div>
           </Button>
           <Button
@@ -108,13 +98,6 @@ export function SceneRemoteConflictDialog({
               <div className="text-sm font-medium">
                 {t(
                   roomSource ? "storage.keepRoom" : "scene.conflict.keep.title",
-                )}
-              </div>
-              <div className="text-muted-foreground text-xs font-normal">
-                {t(
-                  roomSource
-                    ? "storage.keepRoomNotice"
-                    : "scene.conflict.keep.description",
                 )}
               </div>
             </div>

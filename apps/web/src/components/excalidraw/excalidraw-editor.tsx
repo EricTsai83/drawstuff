@@ -106,8 +106,6 @@ export default function ExcalidrawEditor() {
     openCloudUploadDialog,
   } = useEditorDialogs();
   const [isRoomInitializing, setIsRoomInitializing] = useState(false);
-  /** Upstream shows a pen-mode button (one more mobile tool) once a pen is used. */
-  const [penDetected, setPenDetected] = useState(false);
   const [isMobileCanvasSlot, setIsMobileCanvasSlot] = useState<boolean | null>(
     null,
   );
@@ -222,10 +220,22 @@ export default function ExcalidrawEditor() {
     isRoomMode,
     hasCurrentCanvasContent,
   });
+  // Upstream state the mobile room button depends on, read from onChange
+  // (always mounted) and stored as primitives so unchanged values don't
+  // re-render the editor.
+  const [penDetected, setPenDetected] = useState(false);
+  const [mobileToolsHidden, setMobileToolsHidden] = useState(false);
   const handleEditorChange = useCallback<typeof handleCanvasChange>(
     (elements, appState, files) => {
       handleCanvasChange(elements, appState, files);
       observeSignedOutDraft(elements);
+      setPenDetected(appState.penDetected);
+      // The library sidebar covers the right edge; the link selector unmounts
+      // the whole mobile toolbar. Either way the room button steps aside.
+      setMobileToolsHidden(
+        appState.openSidebar !== null ||
+          appState.openDialog?.name === "elementLinkSelector",
+      );
     },
     [handleCanvasChange, observeSignedOutDraft],
   );
@@ -364,11 +374,9 @@ export default function ExcalidrawEditor() {
   );
 
   const renderTopRightUI = useCallback(
-    (isMobile: boolean, appState: UIAppState) => {
+    (isMobile: boolean, _appState: UIAppState) => {
       return (
         <TopRightControls
-          penDetected={appState.penDetected}
-          onPenDetectedChange={setPenDetected}
           actions={productActions}
           storageStatus={
             <EditorStorageStatus {...storageStatusProps} compact />
@@ -447,15 +455,15 @@ export default function ExcalidrawEditor() {
               }
             />
 
-            {storageStatusProps.roomId && (
+            {storageStatusProps.roomId && !mobileToolsHidden && (
               <MobileRoomBadge
-                // Library, (pen), lock, hand; view mode shows no column.
+                // Below library: (pen), lock, hand. View mode shows no column.
                 toolsColumnButtons={
                   isCollaborationReadOnly || isRoomInitializing
                     ? null
                     : penDetected
-                      ? 4
-                      : 3
+                      ? 3
+                      : 2
                 }
               >
                 <EditorStorageStatus {...storageStatusProps} compact />

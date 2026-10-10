@@ -37,11 +37,12 @@ const top = () => (container.firstElementChild as HTMLElement).style.top;
 describe("MobileRoomBadge", () => {
   it("sits right under upstream's tools column, lower when it grows", () => {
     device.editor.isMobile = true;
-    render(3);
+    // 5rem top + 2.25rem library + 2rem per tool + 0.5rem gap.
+    render(2);
     expect(container.textContent).toBe("room");
-    expect(top()).toContain("11.5rem");
-    render(4);
-    expect(top()).toContain("13.5rem");
+    expect(top()).toContain("11.75rem");
+    render(3);
+    expect(top()).toContain("13.75rem");
   });
 
   it("takes the top-right corner when there is no tools column", () => {

@@ -33,7 +33,13 @@ export function ProductActionsItems({
         <MenuActionItem
           icon={<Users aria-hidden="true" />}
           label={t("collaboration.title")}
-          detail={collaboration.label}
+          // A second line only for a real state; idle would repeat the title.
+          detail={
+            actions.collaboration.status === "idle" &&
+            !actions.collaboration.isReadOnly
+              ? undefined
+              : collaboration.label
+          }
           busy={
             actions.collaboration.status === "joining" ||
             actions.collaboration.status === "preparing"
@@ -48,7 +54,9 @@ export function ProductActionsItems({
             label={t("storage.save")}
             detail={
               actions.cloudSave.statusLabel ??
-              t(`canvas.saveStatus.${actions.cloudSave.status}`)
+              (actions.cloudSave.status === "idle"
+                ? undefined
+                : t(`canvas.saveStatus.${actions.cloudSave.status}`))
             }
             disabled={actions.cloudSave.status === "uploading"}
             busy={actions.cloudSave.status === "uploading"}

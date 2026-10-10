@@ -7,8 +7,6 @@ export const en = {
   "storage.room.pending": "Changes not saved yet",
   "storage.room.saving": "Saving",
   "storage.room.saved": "Saved",
-  "storage.room.autosave":
-    "Saves automatically every {seconds} seconds and when you leave.",
   "storage.room.failed": "Save failed",
   "storage.save": "Save",
   "storage.saveRoom": "Save the room",
@@ -17,23 +15,17 @@ export const en = {
   "storage.updateSourceUnnamed": "Update my original scene",
   "storage.download": "Download a local copy",
   "storage.exit": "Back to my canvas",
-  "storage.exitNotice": "The room stays open.",
   "storage.copyNotice":
     "The room is unchanged. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
-  "storage.downloadNotice": "Saves a .excalidraw file to this device.",
   "storage.personalCopySaved":
     "Saved a copy to my scenes. The room itself saves separately.",
-  "storage.keepRoom": "Keep editing this room",
-  "storage.keepRoomNotice":
-    "Keep the room intact and resolve the original scene later.",
+  "storage.keepRoom": "Keep editing the room; decide later",
   "storage.originalSaved": "Original scene updated.",
   "storage.sourceConflict":
     "The original scene changed elsewhere. Save a personal copy, or leave the room and reload the original before updating it.",
   "storage.leaveRisk": "Unconfirmed room changes may be lost. Leave this room?",
 
   "app.export.cloud.title": "Cloud Upload",
-  "app.export.cloud.subtitle":
-    "Save to your personal cloud. Personal cloud saves are not end-to-end encrypted and are not automatically public.",
   "app.export.cloud.loading": "Uploading",
   "app.export.link.loading": "Exporting",
   "app.overwriteConfirm.action.uploadToCloud.button": "Upload to Cloud",
@@ -65,11 +57,7 @@ export const en = {
 
   // Export dialog cards
   "exportDialog.disk_title": "Save to disk",
-  "exportDialog.disk_details":
-    "Save the current scene as an .excalidraw file. The exported file is not encrypted.",
   "exportDialog.link_title": "Create shareable link",
-  "exportDialog.link_details":
-    "Upload an encrypted share copy and get a link. The complete link contains the key; anyone with it can decrypt the copy.",
 
   // Welcome screen additions
   "welcomeScreen.app.center_heading": "Draw, collaborate, and share",
@@ -534,14 +522,9 @@ export const en = {
   "scene.conflict.title": "Remote changes detected",
   "scene.conflict.description":
     "This scene was updated elsewhere while you have local changes.",
-  "scene.conflict.load.title": "Load remote version",
-  "scene.conflict.load.description":
-    "Discard local changes and use the latest remote version.",
-  "scene.conflict.save.title": "Save local as a new scene",
-  "scene.conflict.save.description":
-    "Keep both versions by saving local changes as a new scene.",
-  "scene.conflict.keep.title": "Keep local for now",
-  "scene.conflict.keep.description": "Continue editing locally and sync later.",
+  "scene.conflict.load.title": "Discard my changes and load the latest version",
+  "scene.conflict.save.title": "Save my changes as a new scene",
+  "scene.conflict.keep.title": "Keep editing my version for now",
   "category.selector.placeholder": "Type or create a category",
   "category.selector.searching": "Searching",
   "category.selector.empty": "No matching results.",

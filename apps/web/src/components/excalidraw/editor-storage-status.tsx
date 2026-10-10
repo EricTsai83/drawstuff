@@ -26,7 +26,6 @@ import type { RoomSaveState } from "@/lib/collab/session/save-state";
 import { getCurrentSceneSnapshot, saveSceneJsonToDisk } from "@/lib/excalidraw";
 import { preservedSourceScene } from "@/lib/collab/personal-draft";
 import { toast } from "sonner";
-import { SNAPSHOT_INTERVAL_MS } from "@/lib/collab/collaboration-session";
 import {
   Tooltip,
   TooltipContent,
@@ -76,11 +75,6 @@ export function EditorStorageStatus(props: {
     props.showSaveStatus && status !== "idle"
       ? t(`storage.room.${status}`)
       : null;
-  // How saving works lives in the panel, not only a hover tooltip, so touch
-  // users see it too.
-  const autosave = t("storage.room.autosave", {
-    seconds: String(SNAPSHOT_INTERVAL_MS / 1000),
-  });
   const panel = (
     <div
       className="flex w-64 max-w-full flex-col"
@@ -112,9 +106,6 @@ export function EditorStorageStatus(props: {
               </>
             )}
           </span>
-          {props.showSaveStatus && (
-            <span className="text-muted-foreground text-xs">{autosave}</span>
-          )}
         </div>
       </div>
       <div className="flex flex-col border-t pt-2">
@@ -138,7 +129,6 @@ export function EditorStorageStatus(props: {
         )}
         <PanelAction
           icon={Download}
-          hint={t("storage.downloadNotice")}
           onClick={() => {
             const scene = getCurrentSceneSnapshot(props.api);
             if (!scene) return;
@@ -153,11 +143,7 @@ export function EditorStorageStatus(props: {
         </PanelAction>
       </div>
       <div className="mt-2 flex flex-col border-t pt-2">
-        <PanelAction
-          icon={LogOut}
-          hint={t("storage.exitNotice")}
-          onClick={props.onExit}
-        >
+        <PanelAction icon={LogOut} onClick={props.onExit}>
           {t("storage.exit")}
         </PanelAction>
       </div>
@@ -283,7 +269,6 @@ function BadgeStatusIcon(props: {
 
 function PanelAction(props: {
   icon: LucideIcon;
-  hint?: string;
   onClick: () => void;
   children: ReactNode;
 }) {
@@ -292,18 +277,14 @@ function PanelAction(props: {
     <button
       type="button"
       onClick={props.onClick}
-      className="hover:bg-muted focus-visible:ring-ring/50 flex w-full items-start gap-2.5 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-3"
+      className="hover:bg-muted focus-visible:ring-ring/50 flex w-full items-center gap-2.5 rounded-md px-2 py-1.5 text-left text-sm outline-none focus-visible:ring-3"
     >
+      {/* The title says what happens; no second line of explanation. */}
       <Icon
-        className="text-muted-foreground mt-0.5 size-4 shrink-0"
+        className="text-muted-foreground size-4 shrink-0"
         aria-hidden="true"
       />
-      <span className="flex min-w-0 flex-col">
-        <span className="truncate">{props.children}</span>
-        {props.hint && (
-          <span className="text-muted-foreground text-xs">{props.hint}</span>
-        )}
-      </span>
+      <span className="min-w-0 truncate">{props.children}</span>
     </button>
   );
 }

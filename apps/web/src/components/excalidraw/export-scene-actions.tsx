@@ -57,9 +57,6 @@ export function ExportSceneActions({
   const configs: ExportActionConfig[] = [
     {
       title: t(isRoom ? "storage.download" : "exportDialog.disk_title"),
-      subtitle: t(
-        isRoom ? "storage.downloadNotice" : "exportDialog.disk_details",
-      ),
       buttonLabel: t(isRoom ? "storage.download" : "exportDialog.disk_title"),
       icon: <Download className="h-4 w-4" />,
       onClick: () => {
@@ -70,7 +67,6 @@ export function ExportSceneActions({
     },
     {
       title: t(isRoom ? "storage.copy" : "storage.savePersonal"),
-      subtitle: t(isRoom ? "storage.copyNotice" : "app.export.cloud.subtitle"),
       buttonLabel: t(isRoom ? "storage.copy" : "storage.savePersonal"),
       icon: <CloudUpload className="h-4 w-4" />,
       onClick: () => {
@@ -85,7 +81,6 @@ export function ExportSceneActions({
     },
     {
       title: t("exportDialog.link_title"),
-      subtitle: t("exportDialog.link_details"),
       buttonLabel: t("exportDialog.link_title"),
       icon: <LinkIcon className="h-4 w-4" />,
       onClick: () => {
@@ -132,7 +127,6 @@ export function ExportSceneActions({
 
 type ExportActionConfig = {
   title: string;
-  subtitle: string;
   buttonLabel: string;
   icon: ReactNode;
   onClick: () => void;
@@ -147,8 +141,6 @@ type ExportActionConfig = {
 
 function ExportAction({ config }: { config: ExportActionConfig }) {
   const {
-    title,
-    subtitle,
     buttonLabel,
     onClick,
     disabled,
@@ -158,13 +150,9 @@ function ExportAction({ config }: { config: ExportActionConfig }) {
   } = config;
 
   return (
+    // The icon and the button say what this does; a heading repeating the
+    // button and a paragraph under it only add reading.
     <div className="flex h-full flex-col">
-      <div className="flex flex-col gap-2">
-        <h3 className="text-foreground text-lg font-semibold">{title}</h3>
-        <p className="text-muted-foreground text-sm leading-relaxed">
-          {subtitle}
-        </p>
-      </div>
       <Button
         className={cn(
           "mt-auto flex h-14 w-full items-center justify-center gap-3 px-6 py-4 sm:h-12 sm:px-6 sm:py-2",

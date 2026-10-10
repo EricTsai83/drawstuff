@@ -9,9 +9,6 @@ type TopRightControlsProps = {
   isMobile: boolean;
   onLibraryActivate: () => void;
   onSlotChange?: (isMobile: boolean) => void;
-  /** Whether upstream shows its pen-mode button (one more tool on mobile). */
-  penDetected?: boolean;
-  onPenDetectedChange?: (penDetected: boolean) => void;
   storageStatus?: ReactNode;
 };
 
@@ -21,15 +18,10 @@ export function TopRightControls({
   onLibraryActivate,
   onSlotChange,
   storageStatus,
-  penDetected = false,
-  onPenDetectedChange,
 }: TopRightControlsProps) {
   useEffect(() => {
     onSlotChange?.(isMobile);
   }, [isMobile, onSlotChange]);
-  useEffect(() => {
-    onPenDetectedChange?.(penDetected);
-  }, [penDetected, onPenDetectedChange]);
 
   // The mobile toolbar row has no room to spare; the room badge is placed by
   // MobileRoomBadge and quick actions live in the main menu.
