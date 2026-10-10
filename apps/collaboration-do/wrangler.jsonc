@@ -45,8 +45,8 @@
   // with legacy `migrations` — do not add that key back for gradual rollouts).
   "exports": {
     "CollaborationLifecycle": { "type": "durable-object", "storage": "sqlite" },
-    // Plan 21: plain rooms live in a new class. The tombstone deletes the old
-    // class and every encrypted room's storage in the same deploy (§7).
+    // Plan 21: plain rooms live in a new class. The tombstone deleted the old
+    // class and every encrypted room's storage (§7; applied 2026-10-10).
     "CollaborationRoom": { "type": "durable-object", "state": "deleted" },
     "CollaborationRoomV2": {
       "type": "durable-object",

@@ -109,8 +109,11 @@ workspace。
    （[admin data retirement](./admin-data-retirement.md)），且直到步驟 6 驗證通過前都不要發起
    退場：步驟 4～5 之間 Neon 已是新 schema，web 與 Worker 卻還沒都換成 protocol 7。
 2. **Durable Object**：從 `plan-21` 分支 `pnpm cf:deploy`（手動，class lifecycle 變更）。
-   同一次部署新增 `CollaborationRoomV2` 並以 tombstone 刪除 `CollaborationRoom` 及所有舊房間
-   儲存；這是 CLAIM-MIG-4「lifecycle 變更單獨部署」的刻意例外，因為新 runtime 只認新 class。
+   新增 `CollaborationRoomV2` 並以 tombstone 刪除 `CollaborationRoom` 及所有舊房間儲存；這是
+   CLAIM-MIG-4「lifecycle 變更單獨部署」的刻意例外，因為新 runtime 只認新 class。Cloudflare 不允許
+   在 binding 仍指向舊 class 的部署上直接刪除（code 10086），所以實際分兩次 `wrangler deploy`：
+   先以暫時的空殼 `CollaborationRoom`（`exports` 保持 live）把 `COLLABORATION_ROOM` 換到 V2，
+   再部署 commit 中的 tombstone 設定。2026-10-10 已執行（version `02caadfe`）。
    **必須在清除之前**：kill switch 只擋瀏覽器入口，舊房間 Object 的 alarm 仍可能經 adapter 寫入
    Neon 或 UploadThing；tombstone 之後就沒有舊的寫入者。此時正式 web 仍是 protocol 6 的 adapter
    （要求 `authGeneration`），與新 Worker 不相容；kill switch 仍開著，所以瀏覽器不會觸發，

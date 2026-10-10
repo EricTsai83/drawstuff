@@ -12,7 +12,7 @@
     "build": "turbo run build",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm knip",
     "cf:conformance": "pnpm --filter @drawstuff/collaboration-do conformance:remote",
-    "cf:deploy": "pnpm --filter @drawstuff/collaboration-do deploy",
+    "cf:deploy": "pnpm --filter @drawstuff/collaboration-do run deploy",
     "cf:loadtest": "pnpm --filter @drawstuff/collaboration-do loadtest",
     "cf:preflight": "pnpm --filter @drawstuff/collaboration-do preflight",
     "cf:secrets": "pnpm --filter @drawstuff/collaboration-do secret:list",
