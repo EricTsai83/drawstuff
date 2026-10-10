@@ -50,7 +50,7 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 | `room.fanout_write_failed`     | warn  | fanout write 失敗（該 socket 關 1001）                                      | `errorName`                                                                          |
 | `room.session_joined`          | info  | join ack 送出後                                                             | `roomId`、`peerId`、`role`、`members`                                                |
 | `room.session_closed`          | info  | **每一次 server 主動 close**，帶 verdict                                    | `closeCode`、`socketState`、`peerId`（joined 才有）                                  |
-| `room.storage_released`        | info  | 已結束且工作都送達（或放棄）、沒有連線的房間 `deleteAll()`                  | `roomId`                                                                             |
+| `room.storage_released`        | info  | 已結束、工作都送達（或放棄）、沒有連線且過了 5 分鐘回執寬限的房間 `deleteAll()`                | `roomId`                                                                             |
 
 語意注意：
 

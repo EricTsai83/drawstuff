@@ -89,6 +89,12 @@ const ROOM_SCHEMA_VERSION = 4;
  */
 const ALARM_FINAL_RETRY_COUNT = 5;
 const ALARM_RETRY_BACKSTOP_MS = 60_000;
+/**
+ * A settled ended room keeps its storage this long before release, so a
+ * client still settling `end-room` (or any last command) can query its
+ * receipt instead of finding nothing and retrying into `not-found`.
+ */
+const ENDED_ROOM_RECEIPT_GRACE_MS = 5 * 60_000;
 
 type RoomMeta = {
   schemaVersion: number;
@@ -1233,6 +1239,8 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
         authority.work.pending() > 0
       )
         return false;
+      if (Date.now() < this.settledAt() + ENDED_ROOM_RECEIPT_GRACE_MS)
+        return false;
     }
     if (this.activeEntries > 0 || this.ctx.getWebSockets().length > 0)
       return false;
@@ -1249,6 +1257,24 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     const authority = this.authority;
     if (!authority || authority.state()) return;
     await this.releaseIfSettled(authority);
+  }
+
+  /** When this ended room was first seen settled; deleted with everything else. */
+  private settledAt(): number {
+    this.ctx.storage.sql.exec(
+      `CREATE TABLE IF NOT EXISTS room_release(
+         id INTEGER PRIMARY KEY CHECK (id = 1), settled_at INTEGER NOT NULL
+       )`,
+    );
+    this.ctx.storage.sql.exec(
+      "INSERT OR IGNORE INTO room_release(id, settled_at) VALUES (1, ?)",
+      Date.now(),
+    );
+    return this.ctx.storage.sql
+      .exec<{ settled_at: number }>(
+        "SELECT settled_at FROM room_release WHERE id = 1",
+      )
+      .one().settled_at;
   }
 
   private async releaseStorage(): Promise<void> {
