@@ -160,7 +160,9 @@ export function EditorStorageStatus(props: {
             />
           }
           className={cn(
-            "h-6 cursor-pointer gap-1.5 px-2.5 text-sm",
+            // Below lg the top row has room for the icon only; the name moves
+            // to the tooltip and the accessible label.
+            "h-6 cursor-pointer gap-1.5 px-2.5 text-sm max-lg:px-1.5",
             statusLabel &&
               status === "failed" &&
               "bg-destructive/10 text-destructive",
@@ -171,11 +173,12 @@ export function EditorStorageStatus(props: {
             state={props.state}
             showSaveStatus={props.showSaveStatus}
           />
-          {roomLabel}
+          <span className="max-lg:hidden">{roomLabel}</span>
         </TooltipTrigger>
         {/* How saving works, on demand rather than in the panel. */}
         <TooltipContent side="bottom" align="end" variant="default">
           <span className="flex flex-col gap-0.5">
+            <span className="font-medium lg:hidden">{roomLabel}</span>
             {statusLabel && <span className="font-medium">{statusLabel}</span>}
             <span className="text-muted-foreground">{autosave}</span>
           </span>

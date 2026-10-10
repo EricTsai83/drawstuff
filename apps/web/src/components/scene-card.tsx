@@ -538,11 +538,12 @@ export const SceneCard = memo(function SceneCard({
               </Tooltip>
             ) : null}
           </div>
-          <div>
+          {/* An empty description says nothing; the card stays quieter without it. */}
+          {item.description && (
             <p className="text-muted-foreground text-sm break-words">
-              {item.description || t("dashboard.descriptionPlaceholder")}
+              {item.description}
             </p>
-          </div>
+          )}
           <div className="flex flex-wrap gap-1">
             {item.categories.map((categoryItem) => (
               <Badge
@@ -557,8 +558,9 @@ export const SceneCard = memo(function SceneCard({
         </CardContent>
 
         <CardFooter className="mt-auto">
-          <div className="text-muted-foreground flex items-center text-xs">
-            <Clock data-icon="inline-start" aria-hidden="true" />
+          <div className="text-muted-foreground flex items-center gap-1 text-xs">
+            {/* data-icon sizing only applies inside a Button. */}
+            <Clock className="size-3 shrink-0" aria-hidden="true" />
             <span>{t("labels.updatedTimeAgo", { time: timeAgo })}</span>
           </div>
         </CardFooter>

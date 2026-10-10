@@ -19,7 +19,7 @@ export const en = {
   "storage.exitNotice": "The room stays open.",
   "storage.copyNotice":
     "The room is unchanged. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
-  "storage.downloadNotice": "The downloaded file is not encrypted.",
+  "storage.downloadNotice": "Saves a .excalidraw file to this device.",
   "storage.personalCopySaved":
     "Saved to my scenes. The room save status is unchanged.",
   "storage.keepRoom": "Keep editing this room",
@@ -309,7 +309,6 @@ export const en = {
   "dashboard.title": "Dashboard",
   "dashboard.recentlyModified": "Recently modified by you",
   "dashboard.yourScenes": "Your scenes",
-  "dashboard.descriptionPlaceholder": "No description.",
   "dashboard.loading": "Loading",
   "dashboard.noRecentlyModifiedScenes": "No recently modified scenes",
   "dashboard.reachedEnd": "You have reached the end.",
