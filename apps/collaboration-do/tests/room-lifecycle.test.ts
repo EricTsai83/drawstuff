@@ -433,6 +433,13 @@ describe("storage release", () => {
     const { roomId, owner } = await openRoom("release-grace");
     const end = { ...envelope(roomId), action: "end-room" as const };
     expect((await manage(roomId, owner, end)).status).toBe(200);
+    // Like web, refuse every registration once the room has ended.
+    vi.restoreAllMocks();
+    installAdapterMock((command) =>
+      command.action === "register"
+        ? Response.json({ error: "fence-mismatch" }, { status: 409 })
+        : defaultAdapterReply(command),
+    );
     // Deliver every job without moving the clock past the grace.
     for (let pass = 0; pass < 8; pass += 1) {
       if ((await queuedWork(roomId)).length === 0) break;
@@ -453,6 +460,13 @@ describe("storage release", () => {
     expect(await query.json()).toMatchObject({
       result: { operationId: end.operationId, status: "enforced" },
     });
+    // The owner reopening the room sees it ended, not unavailable.
+    const state = await manage(roomId, owner, {
+      ...envelope(roomId),
+      action: "get-state",
+    });
+    expect(state.status).toBe(200);
+    expect(await state.json()).toMatchObject({ result: { state: "ended" } });
     expect(await runDurableObjectAlarm(roomStub(roomId))).toBe(true);
     await alarmPasses(roomId);
     expect(await storageFootprint(roomId)).toEqual(RELEASED);

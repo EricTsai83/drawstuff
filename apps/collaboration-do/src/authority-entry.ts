@@ -52,25 +52,35 @@ export async function applyAuthorityEntry(
       };
     const room = authority.state();
     const creating = request.action === "create";
-    const registration = await new AdapterClient(env).call(
-      {
-        v: 1,
-        action: "register",
-        operationId: request.operationId,
-        roomId: authority.roomId,
-        identity,
-        ownerId: creating ? identity.subject : room!.owner,
-        sceneId: creating ? request.sceneId : room!.scene_id,
-        create: creating,
-      },
-      registrationReceiptSchema,
-      controller.signal,
-    );
+    // An ended room activates nothing, and web refuses every registration for
+    // it: its receipts and final state stay readable (until release) without one.
+    const readOnly =
+      request.action === "query" ||
+      request.action === "get-state" ||
+      request.action === "get-management";
+    const registration =
+      readOnly && room?.state === "ended"
+        ? undefined
+        : await new AdapterClient(env).call(
+            {
+              v: 1,
+              action: "register",
+              operationId: request.operationId,
+              roomId: authority.roomId,
+              identity,
+              ownerId: creating ? identity.subject : room!.owner,
+              sceneId: creating ? request.sceneId : room!.scene_id,
+              create: creating,
+            },
+            registrationReceiptSchema,
+            controller.signal,
+          );
     if (
-      registration.roomId !== authority.roomId ||
-      registration.operationId !== request.operationId ||
-      registration.subject !== identity.subject ||
-      registration.lifecycleVersion !== identity.lifecycleVersion
+      registration &&
+      (registration.roomId !== authority.roomId ||
+        registration.operationId !== request.operationId ||
+        registration.subject !== identity.subject ||
+        registration.lifecycleVersion !== identity.lifecycleVersion)
     )
       throw new Error("stale-proof");
     controller.signal.throwIfAborted();
@@ -115,7 +125,7 @@ export async function applyAuthorityEntry(
       ...request,
       actor: identity,
       ...(request.action === "join"
-        ? { registrationVersion: registration.lifecycleVersion }
+        ? { registrationVersion: registration?.lifecycleVersion }
         : {}),
     });
     return { ok: true as const, result: await authority.apply(command) };
