@@ -69,6 +69,8 @@ export function EditorStorageStatus(props: {
       ? roomName
       : t("storage.room", { roomId: props.roomId.slice(0, 8) });
   const { status } = props.state;
+  // Never a raw scene id: without a known name, the action says what it is.
+  const sourceName = preservedSourceScene()?.name;
   // Nothing changed yet (or a viewer, who cannot change anything): no status.
   const statusLabel =
     props.showSaveStatus && status !== "idle"
@@ -121,9 +123,9 @@ export function EditorStorageStatus(props: {
               void props.onUpdateSource(props.sourceSceneId)
             }
           >
-            {t("storage.updateSource", {
-              name: preservedSourceScene()?.name ?? props.sourceSceneId,
-            })}
+            {sourceName
+              ? t("storage.updateSource", { name: sourceName })
+              : t("storage.updateSourceUnnamed")}
           </PanelAction>
         )}
         <PanelAction

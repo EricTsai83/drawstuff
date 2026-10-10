@@ -14,6 +14,7 @@ export const en = {
   "storage.saveRoom": "Save the room",
   "storage.copy": "Save a copy to my scenes",
   "storage.updateSource": "Update my original scene “{name}”",
+  "storage.updateSourceUnnamed": "Update my original scene",
   "storage.download": "Download a local copy",
   "storage.exit": "Back to my canvas",
   "storage.exitNotice": "The room stays open.",
@@ -21,7 +22,7 @@ export const en = {
     "The room is unchanged. The personal cloud copy is not end-to-end encrypted and is not automatically public.",
   "storage.downloadNotice": "Saves a .excalidraw file to this device.",
   "storage.personalCopySaved":
-    "Saved to my scenes. The room save status is unchanged.",
+    "Saved a copy to my scenes. The room itself saves separately.",
   "storage.keepRoom": "Keep editing this room",
   "storage.keepRoomNotice":
     "Keep the room intact and resolve the original scene later.",
@@ -192,6 +193,10 @@ export const en = {
   "collaboration.dialogStatus.joinFailed": "Join failed. Try again.",
   "collaboration.dialogStatus.rateLimited": "Too many attempts. Try later.",
   "collaboration.dialogStatus.cancelled": "Join cancelled",
+  "collaboration.toast.stillConfirming":
+    "Still confirming. Check again in a moment.",
+  "collaboration.toast.creationStopped":
+    "The room wasn't finished. Try creating it again, or cancel it.",
   "collaboration.toast.enforcementPending":
     "Permissions updated. They may take a moment to apply.",
   "collaboration.toast.retryPrevious":
@@ -235,13 +240,14 @@ export const en = {
   "collaboration.members.next": "Next page",
   "collaboration.rooms.title": "Rooms",
   "collaboration.rooms.create": "New room",
-  "collaboration.rooms.retry": "Retry initialization",
+  "collaboration.rooms.retry": "Try creating again",
   "collaboration.rooms.open": "Open room",
   "collaboration.rooms.hint":
     "Rooms you own, were invited to, or opened with a link.",
   "collaboration.rooms.unfinished": "Setup didn't finish.",
-  "collaboration.rooms.copyId": "Copy room ID",
-  "collaboration.rooms.idCopied": "Room ID copied.",
+  "collaboration.rooms.copyLink": "Copy link",
+  "collaboration.rooms.linkCopied": "Link copied.",
+  "collaboration.rooms.copyFailed": "Couldn't copy the link.",
   "collaboration.rooms.end": "End room",
   "collaboration.rooms.endTitle": "End this room?",
   "collaboration.rooms.endDescription":
@@ -278,9 +284,9 @@ export const en = {
     "You don't have access to this room. Ask the owner for an invitation, or make sure you're signed in with the invited account.",
   "collaboration.failure.roomEnded": "This room has ended or doesn't exist.",
   "collaboration.failure.protocolViolation":
-    "The connection stopped because of a protocol error. Reload and report it if the problem continues.",
+    "The connection stopped unexpectedly. Reload the page; if it keeps happening, let us know.",
   "collaboration.failure.unsupportedProtocolVersion":
-    "This tab is running an outdated collaboration version. Refresh the page, then join again.",
+    "This tab is out of date. Refresh the page, then join again.",
   "collaboration.failure.retryLimit":
     "Reconnection failed repeatedly. Check your network and reload.",
   "collaboration.failure.rateLimited":
@@ -320,7 +326,11 @@ export const en = {
   "dashboard.recentlyModified": "Recently modified by you",
   "dashboard.yourScenes": "Your scenes",
   "dashboard.loading": "Loading",
-  "dashboard.noRecentlyModifiedScenes": "No recently modified scenes",
+  "dashboard.results": "Results",
+  "dashboard.noScenesYet": "No scenes yet",
+  "dashboard.noScenesYet.hint":
+    "Draw something in the editor and save it to your scenes; it will show up here.",
+  "dashboard.openEditor": "Open the editor",
   "dashboard.reachedEnd": "You have reached the end.",
   "dashboard.noScenesFound": "No scenes found",
   "dashboard.noScenesFound.hint":
@@ -440,6 +450,7 @@ export const en = {
   "public.theme.light": "Use light theme",
   "public.theme.dark": "Use dark theme",
   "public.viewer.loading": "Loading scene",
+  "public.viewer.goHome": "Go to drawstuff",
   "public.viewer.loadError": "Failed to load this published scene.",
   "public.viewer.zoomIn": "Zoom in",
   "public.viewer.zoomOut": "Zoom out",
@@ -483,7 +494,8 @@ export const en = {
   "validation.descriptionTooLong": "Description is too long",
   "share.scene.description": "Anyone with this link can view this scene.",
   "share.scene.link": "Link",
-  "share.scene.linkAccess": "Anyone with the link can view.",
+  "share.scene.linkAccess":
+    "Anyone with the link can view this version. Later edits won't appear.",
   "menu.moreOptions": "More options",
   "workspace.current": "Current workspace: {name}",
   "workspace.none": "None",

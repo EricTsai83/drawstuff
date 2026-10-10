@@ -454,7 +454,7 @@ describe("collaboration room list", () => {
       },
     });
     await createNamedRoom();
-    expect(buttonIn(container, "Retry initialization")).toBeDefined();
+    expect(buttonIn(container, "Try creating again")).toBeDefined();
     const row = container.querySelector("li")!;
     await act(async () => {
       buttonIn(row, "Cancel room creation")?.click();
@@ -464,7 +464,7 @@ describe("collaboration room list", () => {
       action: "cancel-initialization",
     });
     expect(creation.dispose).toHaveBeenCalled();
-    expect(buttonIn(container, "Retry initialization")).toBeUndefined();
+    expect(buttonIn(container, "Try creating again")).toBeUndefined();
     expect(buttonIn(container, "New room")).toBeDefined();
   });
 
@@ -488,7 +488,7 @@ describe("collaboration room list", () => {
     await createNamedRoom();
     const header = container.querySelector("section > div")!;
     expect(buttonIn(header, "Creating room")?.disabled).toBe(true);
-    expect(buttonIn(header, "Retry initialization")).toBeUndefined();
+    expect(buttonIn(header, "Try creating again")).toBeUndefined();
     expect(buttonIn(header, "Cancel room creation")).toBeUndefined();
   });
 
@@ -509,10 +509,10 @@ describe("collaboration room list", () => {
     await act(async () => {
       buttonIn(container.querySelector("li")!, "Cancel room creation")?.click();
     });
-    expect(buttonIn(header, "Retry initialization")?.disabled).toBe(true);
+    expect(buttonIn(header, "Try creating again")?.disabled).toBe(true);
     expect(buttonIn(header, "Cancel room creation")?.disabled).toBe(true);
     await act(async () => {
-      buttonIn(header, "Retry initialization")?.click();
+      buttonIn(header, "Try creating again")?.click();
       buttonIn(header, "Cancel room creation")?.click();
     });
     expect(creation.start).toHaveBeenCalledOnce();

@@ -186,7 +186,8 @@ export function CollaborationRoomList() {
       // Only a creation that stopped part-way can be retried or cancelled.
       if (mounted.current) {
         setRecoverable(true);
-        toast.info(t("collaboration.toast.initializationPending"));
+        // No canvas here: the dashboard's own wording, with what to do next.
+        toast.info(t("collaboration.toast.creationStopped"));
       }
     } finally {
       if (mounted.current) {
@@ -208,8 +209,7 @@ export function CollaborationRoomList() {
       setRecoverable(false);
       await utils.collaborationRoom.list.invalidate();
     } catch {
-      if (mounted.current)
-        toast.info(t("collaboration.toast.enforcementPending"));
+      if (mounted.current) toast.info(t("collaboration.toast.stillConfirming"));
     } finally {
       if (mounted.current) setPending(false);
     }
@@ -267,7 +267,7 @@ export function CollaborationRoomList() {
       if (expired) exits.current.delete(key);
       if (!mounted.current) return;
       if (error instanceof AuthorityRoomError && error.code === "pending")
-        toast.info(t("collaboration.toast.enforcementPending"));
+        toast.info(t("collaboration.toast.stillConfirming"));
       else toast.error(t("collaboration.error.operationFailed"));
     } finally {
       if (mounted.current) setBusyRoomId(null);
@@ -362,15 +362,18 @@ export function CollaborationRoomList() {
               <DropdownMenuContent align="end" className="w-60">
                 <DropdownMenuItem
                   onClick={() =>
+                    // The link is what anyone can use; a bare id is not.
                     void navigator.clipboard
-                      .writeText(room.roomId)
-                      .then(() =>
-                        toast.success(t("collaboration.rooms.idCopied")),
+                      .writeText(roomUrl(room.roomId))
+                      .then(
+                        () =>
+                          toast.success(t("collaboration.rooms.linkCopied")),
+                        () => toast.error(t("collaboration.rooms.copyFailed")),
                       )
                   }
                 >
                   <Copy aria-hidden="true" />
-                  {t("collaboration.rooms.copyId")}
+                  {t("collaboration.rooms.copyLink")}
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 {viaLink ? (
