@@ -445,7 +445,9 @@ describe("collaboration room creation", () => {
   it("shows sign-in UI and disables the room query for signed-out users", () => {
     renderDialog({ isAuthenticated: false, roomId: "room-from-link" });
 
-    expect(container?.textContent).toContain("Live collaboration");
+    // A link to an existing room names the room dialog, not a creation.
+    expect(container?.textContent).toContain("Collaboration room");
+    expect(container?.textContent).not.toContain("New collaboration room");
     expect(container?.textContent).toContain(
       "Sign in to create or join a collaboration room.",
     );
