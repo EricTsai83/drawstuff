@@ -1096,7 +1096,9 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
   private async ensureAlarmAtMost(deadlineMs: number): Promise<void> {
     const current = await this.ctx.storage.getAlarm();
     if (current === null || current > deadlineMs) {
-      await this.ctx.storage.setAlarm(deadlineMs);
+      // A deadline already past just means "now"; the platform rejects
+      // non-positive times, so never hand it one.
+      await this.ctx.storage.setAlarm(Math.max(deadlineMs, Date.now()));
     }
   }
 

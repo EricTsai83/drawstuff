@@ -44,7 +44,7 @@ Snapshot 以 binary 明文編碼傳輸，每房間一列並帶 checksum。寫入
 ## 資源釋放
 
 - Room DO 的 durable 工作從第一次排程起 24 小時仍未送達即放棄（log `authority.work_abandoned`），本地紀錄收成終態，不聲稱遠端已完成。`CollaborationLifecycle` 的退場工作不丟棄但也不無限重試：從開始起超過 1 小時仍在失敗時至多每小時記一次 `lifecycle.retirement_stuck`（error），超過 24 小時後失敗重試間隔由 1 分鐘上限改為 1 小時，滿 7 天暫停（`lifecycle.retirement_parked`）：工作保留、不再排程，直到 admin 在異常區塊重新觸發（開始新的 7 天窗口）。一個卡住的退場總共最多約 1,600 次喚醒。
-- 帳號退場時，Lifecycle 在凍結時取得帳號 email（正規化），列舉房間時除了 registration 也納入 Neon 邀請投影中仍有效的房間；各 Room 退場時同時把該 email 從邀請名單移除並撤回列表列，所以同 email 的新帳號不繼承任何邀請。這一步可重複執行。帳號在刪除前會再完整列舉一次（補上投影晚到的邀請；若凍結時沒取得 email，會重新凍結取得），且帳號凍結後 web 拒絕再邀請該 email。剩餘空窗：凍結前剛建立、投影晚於整個退場才送達的邀請。
+- 帳號退場時，Lifecycle 在凍結時取得帳號 email（正規化），列舉房間時除了 registration 也納入 Neon 邀請投影中仍有效的房間；各 Room 退場時同時把該 email 從邀請名單移除並撤回列表列，所以同 email 的新帳號不繼承任何邀請。這一步可重複執行。邀請既有帳號時，web 在轉送 `allow-email` 前先鎖住該帳號的 lifecycle 紀錄（與退場凍結同一把鎖）：未凍結就寫一筆該帳號在此房間的 registration，已凍結就拒絕；所以凍結前的每個邀請都已登記、退場一定列舉得到，不依賴最終一致的邀請投影。帳號在刪除前仍會再完整列舉一次（若凍結時沒取得 email，會重新凍結取得）。
 - Room 的開啟紀錄（`authority_members`）上限 256：新的人加入而已滿時，淘汰最久沒開啟、非受邀的連結訪客紀錄並撤回其列表列；擁有者與受邀者不淘汰。
 - 等待型重試也有上限：已結束房間的 cleanup 等 fence 時以失敗退避（最長 60 s）而非每秒輪詢；投影佇列滿時不另排 1 秒計時器；重複的退場會補排已被放棄的 fence。alarm handler 在 runtime 重試用完後的備援 alarm 由 1 分鐘指數拉長到 1 小時，連續 30 次（約 1 天）後停止並記 `alarm.given_up`，之後任何會 commit 工作的請求都會重新排程。
 - 房間結束且 fence、cleanup 都已送達（或放棄）、沒有連線與進行中的 RPC 時，DO `deleteAll()` 並清除 alarm（log `room.storage_released`）；從未建立成功的房間同樣不留儲存。

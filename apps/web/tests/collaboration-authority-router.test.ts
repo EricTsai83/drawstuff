@@ -204,4 +204,53 @@ describe("invitations to a retiring account", () => {
     await caller("owner", testDb).execute(invite("new@example.com"));
     expect(doubles.gateway).toHaveBeenCalledTimes(2);
   });
+
+  it("registers an invited account before the Room accepts the invitation", async () => {
+    await testDb.delete(schema.collaborationLifecycleRegistration);
+    await testDb.delete(schema.collaborationLifecycleSubject);
+    await testDb.delete(schema.collaborationRoom);
+    await testDb.delete(schema.user);
+    await testDb.insert(schema.user).values([
+      { id: "owner", name: "Owner", email: "owner@example.com" },
+      { id: "invitee", name: "Invitee", email: "Invitee@Example.com" },
+    ]);
+    await testDb.insert(schema.collaborationRoom).values({
+      roomId: "authority-router-room",
+      ownerId: "owner",
+      status: "ready",
+    });
+    const invite = (email: string) => ({
+      v: 1 as const,
+      action: "allow-email" as const,
+      roomId: "authority-router-room",
+      operationId: crypto.randomUUID(),
+      deadline: Date.now() + 55_000,
+      email,
+      role: "viewer" as const,
+    });
+
+    await caller("owner", testDb).execute(invite("invitee@example.com"));
+    // Inviting again is harmless; an address with no account registers nothing.
+    await caller("owner", testDb).execute(invite("invitee@example.com"));
+    await caller("owner", testDb).execute(invite("nobody@example.com"));
+
+    const rows = await testDb
+      .select()
+      .from(schema.collaborationLifecycleRegistration);
+    expect(rows).toEqual([
+      expect.objectContaining({
+        subject: "invitee",
+        roomId: "authority-router-room",
+        owner: false,
+        sceneId: null,
+      }),
+    ]);
+    // The registration was written under the account's lifecycle lock.
+    const [subject] = await testDb
+      .select()
+      .from(schema.collaborationLifecycleSubject)
+      .where(eq(schema.collaborationLifecycleSubject.scope, "account:invitee"));
+    expect(subject).toMatchObject({ frozen: false, retired: false });
+    expect(doubles.gateway).toHaveBeenCalledTimes(3);
+  });
 });
