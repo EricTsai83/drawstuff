@@ -76,7 +76,7 @@
     },
     "test:coverage": {
       "dependsOn": [
-        "^test:coverage"
+        "transit"
       ],
       "outputs": [
         "coverage/**"
@@ -84,7 +84,7 @@
     },
     "typecheck": {
       "dependsOn": [
-        "^typecheck"
+        "transit"
       ]
     },
     "db:push": {
