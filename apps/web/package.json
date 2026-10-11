@@ -18,6 +18,7 @@
     "start": "next start",
     "test": "vitest run",
     "test:adapters": "node scripts/test-collaboration-adapters.mjs",
+    "test:browser:remote": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/remote-browser-acceptance.mjs",
     "test:assets:remote": "node --env-file-if-exists=.env --conditions=react-server --import tsx scripts/test-remote-assets.mjs",
     "test:coverage": "vitest run --coverage",
     "test:e2e": "playwright test",

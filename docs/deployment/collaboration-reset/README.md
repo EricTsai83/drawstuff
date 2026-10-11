@@ -7,7 +7,7 @@
 > `prepare:rollback`、`test:maintenance`／`preflight:maintenance` 與 `wrangler.maintenance.jsonc`／
 > `wrangler.bootstrap.jsonc` 已移除；本目錄的 SQL 與 `collaboration:reset-check` 以舊 schema 為基準，不要再執行。
 
-2026-10-08 依擁有者決定收尾 18B。原 P3 的效能與部分 L3 驗收未全部通過，已移交 [18D 後續排查](../../../plans/18d-collaboration-acceptance-follow-ups.md)；18C 可依 [已部署契約](../../architecture/collaboration-authority.md) 繼續。以下按時間保留操作／失敗／清理證據，早期「仍待 18B 結案」的敘述屬當時狀態，未改寫失敗為成功。原破壞性重置步驟不是後續正式資料的例行操作。
+2026-10-08 依擁有者決定收尾 18B。原 P3 的效能與部分 L3 驗收未全部通過，已移交 18D 後續排查（結案見 [18D 結案](#18d-結案2026-10-12)）；18C 可依 [已部署契約](../../architecture/collaboration-authority.md) 繼續。以下按時間保留操作／失敗／清理證據，早期「仍待 18B 結案」的敘述屬當時狀態，未改寫失敗為成功。原破壞性重置步驟不是後續正式資料的例行操作。
 
 2026-10-07 已依使用者要求直接對 production 執行 `pnpm --filter @drawstuff/web db:push --verbose --strict`，未執行 SQL migration 檔。DB 已套用新版 schema；下列 SQL 維護清單保留供重新重置／回滾使用，**不要再對這次已完成的 DB push 執行 `upgrade.sql`**。2026-10-08 配套 web／Worker 已部署，protocol-6 remote smoke 通過，重置前清單中的舊 DO storage 清理已取得 ACK；完整 L3 驗收仍待完成。
 
@@ -136,7 +136,7 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --config wrangler
 
 用兩個真實、已驗證的測試帳號執行 `pnpm cf:smoke <https-gateway-origin>`。私下設定 `COLLAB_HARNESS_OWNER_SUBJECT/EMAIL/VERSION`、`COLLAB_HARNESS_GUEST_SUBJECT/EMAIL/VERSION`、identity／authority secret 與允許的 `COLLAB_SMOKE_ORIGIN`。工具不建立假帳號，也不刪帳號，只建立及結束測試 Room。覆蓋最大合法密文快照往返／解密、ready、正式 WebSocket、撤權關線與 end。
 
-`cf:loadtest` 是 30 次最大快照讀取樣本。真實附件、退休競態與三人／故障恢復的驗收證據見下節。join／保存／撤權 p95/p99、跨日重進、Neon autosuspend 與成本仍依 [後續驗收 plan](../../../plans/18d-collaboration-acceptance-follow-ups.md) 記錄 L3；pending 不算完成。個人場景、分享、發布、Library 與附件回歸仍須完成。
+`cf:loadtest` 是 30 次最大快照讀取樣本。真實附件、退休競態與三人／故障恢復的驗收證據見下節。join／保存／撤權 p95/p99、跨日重進、Neon autosuspend 與成本當時移交 18D（結案見 [18D 結案](#18d-結案2026-10-12)）；pending 不算完成。個人場景、分享、發布、Library 與附件回歸仍須完成。
 
 ### 真實附件自動驗收
 
@@ -194,8 +194,8 @@ caffeinate -i pnpm collab:assets:remote --performance-typical-hot
 
 2026-10-08 的 [3A 正式報告](../../performance/collaboration-production-3a.json) 完成 20 筆 warmup 與 200 筆正式配對樣本，請求失敗與初始 pending 均為零；**量測完成，但效能驗收未過**。
 
-| 項目 | p95 | p99 | 原門檻 p95／p99 | 結果 |
-| --- | --- | --- | --- | --- |
+| 項目     | p95         | p99         | 原門檻 p95／p99 | 結果     |
+| -------- | ----------- | ----------- | --------------- | -------- |
 | 典型保存 | 4,807.18 ms | 5,828.91 ms | 3,000／8,000 ms | p95 未過 |
 | 典型加入 | 3,553.04 ms | 4,480.95 ms | 3,000／5,000 ms | p95 未過 |
 
@@ -227,16 +227,16 @@ Provider／DB／DO 限定清理通過，正常 Worker 精確還原至 version `5
 
 2026-10-08 的 [provider 診斷報告](../../performance/collaboration-production-3a-provider.json) 完成 20 warmup／20 配對樣本，失敗與 pending 為零，報告基底 commit `2ef4b86`。
 
-| 客戶端量測段 | p50（ms） | p95（ms） |
-| --- | --- | --- |
-| Presign：headers 前 | 1,014.63 | 1,178.01 |
-| Presign：body | 0.64 | 1.29 |
-| PUT＋receipt：headers 前 | 2,026.11 | 2,127.62 |
-| PUT＋receipt：body | 0.62 | 0.83 |
-| 首次附件下載：headers 前 | 1,527.67 | 1,640.71 |
-| 首次附件下載：body | 207.67 | 398.81 |
-| 重讀附件：headers 前 | 926.47 | 1,098.33 |
-| 重讀附件：body | 208.23 | 230.72 |
+| 客戶端量測段             | p50（ms） | p95（ms） |
+| ------------------------ | --------- | --------- |
+| Presign：headers 前      | 1,014.63  | 1,178.01  |
+| Presign：body            | 0.64      | 1.29      |
+| PUT＋receipt：headers 前 | 2,026.11  | 2,127.62  |
+| PUT＋receipt：body       | 0.62      | 0.83      |
+| 首次附件下載：headers 前 | 1,527.67  | 1,640.71  |
+| 首次附件下載：body       | 207.67    | 398.81    |
+| 重讀附件：headers 前     | 926.47    | 1,098.33  |
+| 重讀附件：body           | 208.23    | 230.72    |
 
 首次完整下載 p50 1,762.44 ms、重讀 1,133.28 ms；解密／payload 解碼 p50 僅 1.07 ms。等待 headers 是主要量測段，重讀仍超過一秒，因此不能只歸因於首次傳輸或解密。首次與重讀各 20 筆全部為 `unreported`，沒有 HIT／MISS 證據；不能把第二次下載稱為已確認的熱 CDN 場景。不同分段的 p50／p95 不直接相加當總分位數。
 
@@ -292,21 +292,21 @@ pnpm --filter @drawstuff/collaboration-do exec wrangler deploy --cwd ../../.loca
 
 2026-10-08 的 [伺服器分段報告](../../performance/collaboration-production-3a-server.json) 完成 20 warmup／20 診斷樣本，失敗與初始 pending 均為零。產品與量測工具皆為已提交的 `20ba2b3`，Web 部署成功後使用 Worker version `c31a441f-199e-46ce-baac-49cd2b6583a6` 執行；報告含工具與正常 Worker hash。
 
-| 配對分段 | p50 ms | p95 ms |
-| --- | ---: | ---: |
-| 保存總耗時 | 4,357.60 | 7,377.30 |
-| 首次加入總耗時 | 3,488.34 | 4,516.58 |
-| 客戶端 presign | 1,116.12 | 1,290.57 |
-| presign route session／rate limit | 5.58／8.43 | 8.31／10.13 |
-| presign SDK handler（包含 middleware） | 937.04 | 1,064.74 |
-| presign identity／Gateway round trip | 9.30／246.40 | 10.49／352.52 |
-| presign DO handler／registration DB | 51.00／20.52 | 69.00／28.60 |
-| PUT＋callback receipt | 2,079.66 | 5,097.65 |
-| callback handler／Gateway round trip | 243.44／233.63 | 2,884.81／2,869.21 |
-| callback Gateway→DO RPC／DO handler | 183.00／139.00 | 2,854.00／181.00 |
-| callback adapter write／DB transaction | 90.00／46.05 | 122.00／51.15 |
-| 附件索引／read-assets DB | 275.70／13.31 | 327.32／28.49 |
-| 首次下載 headers 前／body | 1,528.86／204.64 | 2,081.73／434.21 |
+| 配對分段                               |           p50 ms |             p95 ms |
+| -------------------------------------- | ---------------: | -----------------: |
+| 保存總耗時                             |         4,357.60 |           7,377.30 |
+| 首次加入總耗時                         |         3,488.34 |           4,516.58 |
+| 客戶端 presign                         |         1,116.12 |           1,290.57 |
+| presign route session／rate limit      |       5.58／8.43 |        8.31／10.13 |
+| presign SDK handler（包含 middleware） |           937.04 |           1,064.74 |
+| presign identity／Gateway round trip   |     9.30／246.40 |      10.49／352.52 |
+| presign DO handler／registration DB    |     51.00／20.52 |       69.00／28.60 |
+| PUT＋callback receipt                  |         2,079.66 |           5,097.65 |
+| callback handler／Gateway round trip   |   243.44／233.63 | 2,884.81／2,869.21 |
+| callback Gateway→DO RPC／DO handler    |   183.00／139.00 |   2,854.00／181.00 |
+| callback adapter write／DB transaction |     90.00／46.05 |      122.00／51.15 |
+| 附件索引／read-assets DB               |    275.70／13.31 |      327.32／28.49 |
+| 首次下載 headers 前／body              | 1,528.86／204.64 |   2,081.73／434.21 |
 
 按**每筆配對**相減後再取分位數，SDK handler 扣除 middleware 的 session＋identity＋Gateway 區間，剩餘 p50 713.27 ms／p95 716.97 ms。這顯示 presign 還有 SDK 內部／外部 I/O 等待，但沒有 SDK outbound tracing，不能直接稱為 provider CPU 或純網路延遲。PUT＋receipt 扣除 callback handler，剩餘 p50 1,832.07 ms／p95 2,212.85 ms，仍混合上傳、provider 處理、callback dispatch 與回應傳輸。
 
@@ -328,17 +328,17 @@ UploadThing 7.7.4 的 `RouteHandlerConfig.handleDaemonPromise` 在 production �
 
 2026-10-08 的 [presign 改善後報告](../../performance/collaboration-production-3a-presign.json) 完成 20 warmup／20 組診斷，基底與工具 commit `426f297`，工具無未提交修改。真實 metadata registration、callback receipt、索引／首次下載／解密全部完成，失敗與初始 pending 均為零。
 
-| 分段 | 改善前 p50 ms | 本輪 p50 ms | 本輪 p95 ms |
-| --- | ---: | ---: | ---: |
-| 客戶端 presign | 1,116.12 | 474.43 | 745.06 |
-| SDK handler（包含 middleware） | 937.04 | 288.74 | 356.95 |
-| SDK handler 扣除每筆 middleware 區間 | 713.27 | 10.54 | 12.75 |
-| PUT＋callback receipt | 2,079.66 | 1,922.24 | 2,273.89 |
-| callback handler | 243.44 | 278.47 | 354.11 |
-| 保存總耗時 | 4,357.60 | 3,606.70 | 4,945.67 |
-| 首次加入總耗時 | 3,488.34 | 3,481.15 | 4,948.49 |
-| snapshot 保存 | 1,172.62 | 1,123.25 | 2,306.18 |
-| 首次附件下載 | 1,733.51 | 1,768.05 | 1,999.56 |
+| 分段                                 | 改善前 p50 ms | 本輪 p50 ms | 本輪 p95 ms |
+| ------------------------------------ | ------------: | ----------: | ----------: |
+| 客戶端 presign                       |      1,116.12 |      474.43 |      745.06 |
+| SDK handler（包含 middleware）       |        937.04 |      288.74 |      356.95 |
+| SDK handler 扣除每筆 middleware 區間 |        713.27 |       10.54 |       12.75 |
+| PUT＋callback receipt                |      2,079.66 |    1,922.24 |    2,273.89 |
+| callback handler                     |        243.44 |      278.47 |      354.11 |
+| 保存總耗時                           |      4,357.60 |    3,606.70 |    4,945.67 |
+| 首次加入總耗時                       |      3,488.34 |    3,481.15 |    4,948.49 |
+| snapshot 保存                        |      1,172.62 |    1,123.25 |    2,306.18 |
+| 首次附件下載                         |      1,733.51 |    1,768.05 |    1,999.56 |
 
 SDK 剩餘區間從約 713ms 降為 11ms，支持 metadata daemon 已移出 presign 的同步等待；PUT＋receipt 沒有在本輪出現等量增加，真實 receipt 仍完整。兩輪是不同時間窗口的 20 筆診斷，不是隨機 A/B；不能把所有尾端波動降低都歸因於這個設定，也不能宣稱 callback RPC handler 外等待的根因已修復。
 
@@ -358,18 +358,18 @@ Provider／DB／DO 清理與正常 Worker 精確還原通過，還原 version `e
 
 2026-10-08 的 [snapshot 配對報告](../../performance/collaboration-production-3a-snapshot.json) 完成 20 warmup／20 診斷樣本，基底與工具 commit `b87a6f4`；Web 部署成功後，使用 Worker version `f94d1e1f-a4bc-4f0d-b326-7f7a6e30e3a9` 開始量測。必要欄位皆存在，失敗、pending 與多次 write 嘗試均為零。
 
-| 分段 | p50 ms | p95 ms |
-| --- | ---: | ---: |
-| 保存／首次加入總耗時 | 3,107.81／3,185.77 | 4,515.52／3,738.21 |
-| client snapshot 保存 | 1,052.50 | 1,337.26 |
-| snapshot Gateway→DO RPC | 240.00 | 441.00 |
-| snapshot DO handler | 201.00 | 277.00 |
-| registration adapter／DB | 56.00／23.04 | 82.00／32.08 |
-| DO 接收密文 | 0.00 | 38.00 |
-| adapter write round trip／DB transaction | 133.00／74.39 | 195.00／106.37 |
-| adapter 接收密文 | 0.68 | 1.62 |
-| read Gateway→DO RPC／DO handler | 169.00／135.00 | 254.00／168.00 |
-| read adapter／DB transaction | 59.00／21.30 | 85.00／27.41 |
+| 分段                                     |             p50 ms |             p95 ms |
+| ---------------------------------------- | -----------------: | -----------------: |
+| 保存／首次加入總耗時                     | 3,107.81／3,185.77 | 4,515.52／3,738.21 |
+| client snapshot 保存                     |           1,052.50 |           1,337.26 |
+| snapshot Gateway→DO RPC                  |             240.00 |             441.00 |
+| snapshot DO handler                      |             201.00 |             277.00 |
+| registration adapter／DB                 |       56.00／23.04 |       82.00／32.08 |
+| DO 接收密文                              |               0.00 |              38.00 |
+| adapter write round trip／DB transaction |      133.00／74.39 |     195.00／106.37 |
+| adapter 接收密文                         |               0.68 |               1.62 |
+| read Gateway→DO RPC／DO handler          |     169.00／135.00 |     254.00／168.00 |
+| read adapter／DB transaction             |       59.00／21.30 |       85.00／27.41 |
 
 按每筆配對相減後再取分位數，client snapshot 耗時扣除 Gateway→DO RPC 的剩餘區間為 p50 775.14 ms／p95 913.02 ms；這仍包含 Gateway HTTP overhead、client／edge ingress、傳輸與回應解析，不能直接稱為純網路 RTT。RPC 扣除 DO handler 為 p50 30 ms／p95 183 ms；adapter write 扣除 DB 與 adapter body receipt 後為 p50 60.97 ms／p95 92.48 ms，亦可能包含 runtime output gate 等待，不單獨歸因於跨雲網路。
 
@@ -407,25 +407,24 @@ Neon CLI 已登入；正式專案屬 Vercel 管理的 organization，需以 `pro
 
 重跑的[第二份未完成報告](../../performance/collaboration-production-3a-http2-retry-incomplete.json)使用工具 commit `e08b835`、全新房間／帳號／provider 物件，亦完成 20 warmup／156 筆樣本；第 157 筆在 `provider-put` 階段解析 callback `serverData` 時發生 ZodError，owner socket 當時仍為 OPEN。Web／Gateway／provider 連線全為 h2，已完成 snapshot 全部只有一次 write 嘗試、完成樣本 pending 為零；失敗仍有記錄，`completed=false`、`gatePassed=false`。這不是前次 fanout 逾時的重現或修復證明。
 
-| 完成樣本的區間 | p50 ms | p95 ms | p99 ms |
-| --- | ---: | ---: | ---: |
-| 保存 | 2,705.95 | 3,961.53 | 4,560.22 |
-| 加入（持久內容完整恢復） | 3,236.44 | 4,255.83 | 4,537.47 |
-| Presign | 421.55 | 930.04 | 1,906.47 |
+| 完成樣本的區間                 |   p50 ms |   p95 ms |   p99 ms |
+| ------------------------------ | -------: | -------: | -------: |
+| 保存                           | 2,705.95 | 3,961.53 | 4,560.22 |
+| 加入（持久內容完整恢復）       | 3,236.44 | 4,255.83 | 4,537.47 |
+| Presign                        |   421.55 |   930.04 | 1,906.47 |
 | Provider PUT＋callback receipt | 1,346.38 | 1,774.62 | 2,747.16 |
-| Snapshot 保存 | 760.33 | 1,577.54 | 1,966.67 |
-| Join socket | 662.87 | 1,487.01 | 1,707.43 |
-| 首次附件下載 | 1,541.05 | 1,733.20 | 1,862.98 |
-| Snapshot Gateway→DO RPC | 282.00 | 744.00 | 1,529.00 |
-| Snapshot DO handler | 179.00 | 642.00 | 1,423.00 |
-| Snapshot DB write | 55.86 | 97.03 | 1,197.11 |
+| Snapshot 保存                  |   760.33 | 1,577.54 | 1,966.67 |
+| Join socket                    |   662.87 | 1,487.01 | 1,707.43 |
+| 首次附件下載                   | 1,541.05 | 1,733.20 | 1,862.98 |
+| Snapshot Gateway→DO RPC        |   282.00 |   744.00 | 1,529.00 |
+| Snapshot DO handler            |   179.00 |   642.00 | 1,423.00 |
+| Snapshot DB write              |    55.86 |    97.03 | 1,197.11 |
 
 最慢保存 8,312.90 ms 主要是 presign 3,377.21 ms、PUT＋receipt 4,066.01 ms，snapshot 僅 868.07 ms；callback RPC 244 ms、DO handler 146 ms、DB write 46.05 ms。逐筆 snapshot client 扣除 RPC 後，剩餘區間 p50 445.47 ms／p95 955.10 ms。不同樣本的瓶頸不同，不能只針對平均 DB 時間或單一協定宣稱根因；亦不能將兩輪差異全歸因於 HTTP/2，沒有同時間窗口的隨機對照。
 
 兩輪都在第 157 筆停止，應追查計數、工作佇列、callback／socket 錯誤與平台日誌，但目前尚未證明固定容量限制。現有 512 附件／generation、4,096 operation result 等上限不能直接解釋這個位置。產品 callback 在 outcome 不明時可回 `unknown`，客戶端保留原 intent 再 query；本輪未保存實際 status，因此不能認定 ZodError 就是 `unknown` 或直接修改恢復邏輯。工具已追加只含允許 status tag 與 Zod issue code 的診斷，不記 provider body、錯誤 message 或私人識別資訊。
 
 第二輪 provider／DB／DO 清理及正常 Worker 精確還原通過，還原 version `d4c2d247-1e58-4602-af7c-c9b2812f2a47`。再次唯讀核對測試前綴的帳號、Room、附件、快照、registration、tombstone、creation fence、lifecycle subject 全為零；runtime／journal／lock 已移除。沒有 DB push／migration、方案或 region 變更。下一步先補失敗 callback／fanout 的可定位證據與平台錯誤分類，確認原因後才修改產品或重跑完整 gate；不以放寬效能門檻掩蓋功能失敗，也不將兩輪合併成 200 筆。
-
 
 ### 即時觀測與部署干擾（2026-10-08）
 
@@ -437,18 +436,17 @@ Wrangler live tail 收到 734 個事件、51 個本輪 joined 紀錄與 2 個未
 
 測量工具接著補上 snapshot HTTP status、固定文句的 platform exception 分類與 outcome 計數；部署 guard 比較建立 fixture 前與清理前的 Worker deployment identity，變更或無法核對時 gate 一律 false。它不觀測 web deployment，也不證明 exception 的 fixture 歸屬。既有報告必須先保留到新檔名，工具會在建立 fixture 前拒絕覆寫。重跑時先 local commit 工具，待既有自動部署完成，量測與清理／還原結束後再 push main，避免此次 push 觸發部署干擾；不用改方案、環境或 DB schema。
 
-
 ### 穩定 Worker 部署下的 presign 500（2026-10-08）
 
 第四輪工具與證據先 local commit（measurement commit `1c6c12d`），量測／清理／還原結束前不 push。`docs/performance/collaboration-production-3a-http2-presign-incomplete.json` 保存 20 warmup＋152 formal 完整資料：第 153 筆 presign HTTP 500，owner socket 仍為 OPEN。建立 fixture 前與清理前 deployment identity 相同，沒有本輪期間的 Worker 部署變更；web deployment 未獨立觀測，仍不能宣稱整個平台版本固定。此輪 completed／gatePassed 均 false，不合併前幾輪樣本或覆寫原 gate。
 
-| 完成樣本（ms） | p50 | p95 | p99 | max |
-| --- | --- | --- | --- | --- |
-| 保存（附件＋快照） | 3,291.87 | 4,966.48 | 9,318.52 | 9,661.47 |
+| 完成樣本（ms）           | p50      | p95      | p99      | max      |
+| ------------------------ | -------- | -------- | -------- | -------- |
+| 保存（附件＋快照）       | 3,291.87 | 4,966.48 | 9,318.52 | 9,661.47 |
 | 加入（完整恢復＋fanout） | 3,564.84 | 4,818.70 | 5,230.96 | 8,344.10 |
-| Presign | 527.50 | 1,133.98 | 3,775.89 | 5,359.35 |
-| Snapshot 保存 | 1,151.16 | 1,799.79 | 2,036.65 | 7,643.58 |
-| 首次附件下載 | 1,001.91 | 1,373.31 | 1,398.08 | 1,592.11 |
+| Presign                  | 527.50   | 1,133.98 | 3,775.89 | 5,359.35 |
+| Snapshot 保存            | 1,151.16 | 1,799.79 | 2,036.65 | 7,643.58 |
+| 首次附件下載             | 1,001.91 | 1,373.31 | 1,398.08 | 1,592.11 |
 
 最後一筆完整保存 9,661.47 ms，snapshot 7,643.58 ms，其中 Gateway→DO 7,333 ms、DO handler 7,008 ms、registration DB 2,243.46 ms、snapshot DB write 4,176.52 ms。這證明該筆延遲有明顯 DB 區段，但不能認定下一筆 presign 500 同樣由 DB 造成，亦不能將時段差異全歸因於 HTTP/2。
 
@@ -460,7 +458,6 @@ Live tail 收到 2,254 個事件，0 platform exception；tail 可能漏送／�
 
 下一步先取得 presign 500 的安全回應分類與 web session／identity／Gateway 錯誤區段，並以相同測量契約的預設 HTTP transport 作對照，避免先把 HTTP/2 工具的特定行為判成產品根因。確認原因後再做產品修正及完整 200 筆 gate。功能失敗與效能超標仍存在，不能只放寬門檻；跨日／閒置／成本及其他 P3 scope 仍待驗收。本輪沒有 DB push／migration、方案／region 變更。
 
-
 ### 預設 transport 對照與 keepalive 補齊（2026-10-08）
 
 `collaboration-production-3a-transport-control-incomplete.json` 保存相同 20 warmup／200 formal 契約的 Node 預設 fetch 對照，未設定 HTTP/2 dispatcher。完成 144 筆後，第 145 筆 callback `written`、snapshot／附件恢復成功，fanout 時 owner socket 1006，guest 仍 OPEN。完成樣本 save p95／p99 5,019.64／7,805.21 ms，join p95／p99 4,803.65／6,666.47 ms；completed／gatePassed false。Worker deployment 前後相同，web alias 的人工前後核對亦相同，但不是持續觀測。不能據此證明斷線根因，也不能把失敗限定為 HTTP/2 行為。
@@ -469,26 +466,24 @@ Live tail 收到 2,251 events、0 platform exception；未收到不代表無錯�
 
 程式核對發現 shared transport 未送出既定的 15 秒 keepalive，Worker 已設定 byte-exact auto-response。現已補 client 在 joined 後送出 keepalive，disconnect、remote close、protocol failure 與 close 都清除 timer；送出失敗回報 transient，ACK 可省略、不作失敗判定。此訊息不經 crypto、不算 room activity、不延長 idle deadline。測量工具同步加入相同 keepalive 與安全的送出／ACK 計數，仍保留 5 秒 presence 以符合原 hot-DO 情境；不重試失敗樣本或修改 SLO。Transport lifecycle 測試已通過；是否改善正式環境斷線及完整 gate，必須由下一輪實測判定。
 
-
 ### 保活後的完整 200 筆對照（2026-10-08）
 
 `collaboration-production-3a-transport-control-keepalive.json`（commit `4f7172b`）在 09:10:30–09:40:16 UTC 完成 20 warmup＋200 formal，功能 failures 0、keepalive sent／ACK 118／118，通過前幾輪第 145／153／157 筆的位置。這證明本輪 Node harness 的保活與完整流程成功，並不證明先前 1006／presign 500 的全部根因，也不包含新版 web UI 實際操作驗收；client lifecycle 由 shared transport 測試驗證。
 
-| 完整樣本（ms） | p50 | p95 | p99 | max |
-| --- | --- | --- | --- | --- |
-| 保存（附件＋快照） | 3,874.12 | 4,916.57 | 6,048.45 | 7,545.12 |
+| 完整樣本（ms）           | p50      | p95      | p99      | max      |
+| ------------------------ | -------- | -------- | -------- | -------- |
+| 保存（附件＋快照）       | 3,874.12 | 4,916.57 | 6,048.45 | 7,545.12 |
 | 加入（完整恢復＋fanout） | 3,761.81 | 4,472.73 | 5,142.71 | 9,061.08 |
-| Presign | 459.08 | 759.30 | 1,668.82 | 3,291.07 |
-| PUT＋callback receipt | 2,010.64 | 2,457.43 | 3,069.20 | 3,478.33 |
-| Snapshot 保存 | 1,325.81 | 1,786.90 | 2,163.59 | 3,168.29 |
-| 首次附件下載 | 1,721.46 | 1,979.69 | 3,081.77 | 6,664.37 |
+| Presign                  | 459.08   | 759.30   | 1,668.82 | 3,291.07 |
+| PUT＋callback receipt    | 2,010.64 | 2,457.43 | 3,069.20 | 3,478.33 |
+| Snapshot 保存            | 1,325.81 | 1,786.90 | 2,163.59 | 3,168.29 |
+| 首次附件下載             | 1,721.46 | 1,979.69 | 3,081.77 | 6,664.37 |
 
 原 save p95 3,000／p99 8,000、join p95 3,000／p99 5,000 ms 門檻保持，`gatePassed=false`：保存 p95、加入 p95／p99 超標。最慢加入第 93 筆的 9,061.08 ms 中，附件下載 6,664.37 ms（headers 5,789.13 ms）；最慢保存第 69 筆 7,545.12 ms，presign 3,291.07 ms、PUT＋receipt 2,914.05 ms、snapshot 1,335.49 ms，web route upload handler 285.66 ms。不能把 presign client 剩餘時間全歸給特定 provider／網路，也不能把不同區段的 p95 相加。下一個效能 scope 優先核對產品 join 的可並行區段與 provider／網路往返，維持 free／sea1，仍不放寬 SLO。
 
 量測結束的 automated deployment guard 查詢失敗，原報告保留 `workerDeploymentUnchanged=null`，不回填或改 gate。清理後刷新 Wrangler credential，再查 deployments history：量測前最後 deployment 09:01:22.002850 UTC、第一個後續 deployment 為 09:41:54.550680 UTC 的本輪 cleaner，時段內無 deployment；補充記錄在 `postRunWorkerDeploymentHistory`。這是事後 Worker 歷史核對，web alias 僅事後觀測，不能證明整個平台持續固定。工具已在長測量後核對部署前重新取得 Wrangler credential，失敗時保留 initial deployment ID 與固定 HTTP status，不記 token／原始錯誤；本輪的 guard 失敗未保存狀態，不能斷言就是 token 過期。
 
 Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休前 221 assets／1 snapshot；退休後 content receipts 442、management receipts 225，normal／security jobs／pending content 全零，不是 failure-time occupancy。Provider／DB／DO 清理與正常 Worker exact module／bindings 還原通過，version `69902896-cc99-4b5c-a8b6-1cfea9f82c8b`。另行唯讀核對測試前綴 user／room／asset／snapshot／tombstone／registration／creation fence／lifecycle subject 全零；runtime／journal／lock 已移除。完整 `pnpm check` 通過；沒有 DB push／migration、方案／region 變更。P3 仍待效能門檻、3B／3C、跨日／閒置／成本及完整回歸結案。
-
 
 ### 多圖片加入的漸進載入（2026-10-08）
 
@@ -500,7 +495,6 @@ Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休�
 
 本輪完整 `pnpm check` 通過，附件測試 35／35、web 測試 912／912；僅保留現行測試與長期契約文件，暫存檢查日誌已移除。
 
-
 ### 保存加入背景附件上傳（2026-10-08）
 
 產品的 scene flush 會背景上傳新圖片；snapshot cadence 在保存前再次 `publish` 同一圖片。原 publisher 對 uploading ID 直接略過，導致第二個呼叫立刻完成，保存接著查索引時上傳尚未 finalized，可能提前失敗並等待後續重試。改為收集並等待既有 per-file upload claims，同時仍可開始本輪其他新圖片的上傳；保留共享四個 transfer slots、每檔重試與去重。
@@ -511,13 +505,11 @@ Tail 3,039 events、0 platform exception，仍有漏送／抽樣限制。退休�
 
 本輪完整 `pnpm check` 通過（附件 38／38、web 915／915），暫存測試／檢查日誌已移除，未新增拋棄式測試工具或 legacy 路徑。
 
-
 ### Lifecycle 熱路徑減少 DB 往返（2026-10-08）
 
 Identity proof 與 pre-activation registration 原本每次都先 insert lifecycle（on conflict do nothing），再 select for update；既有 account／scene 的 lifecycle 改為直接鎖定，只在缺少時 insert 並重新鎖定。重新讀取才能看到 concurrent initializer／freeze 的已提交狀態，不能採用初始預設值授權。保留帳號、session、scene 的鎖順序與 frozen／retired／version／ownership 檢查，不使用跨交易快取，也不略過 registration 屏障。
 
 15 個 identity／lifecycle 測試通過，SQL 記錄證明重複 source registration 加 identity issuance 只有三個 lifecycle select for update、沒有 lifecycle insert；初次建立與 frozen 拒絕由現行測試覆蓋。此改動每個既有主體少一個 DB query，尚未證明完整保存／加入 p95 降幅；正式 account／scene 退休競態待部署後核對，P3 SLO gate 保持未通過。
-
 
 Lifecycle fast path 的完整 `pnpm check` 通過（web 916／916）。修正 commit `3499dd2` 已部署，production alias 確認 `dpl_Fgxk91Yi9sp8tyehZN2dBWKzvipu` 為 READY 並指向同一 commit 後，依序執行 `pnpm collab:assets:remote --retire-account` 與 `--retire-scene`，直接使用正式 PostgreSQL／Gateway／adapter 及真實附件上傳、callback、下載、解密。
 
@@ -531,10 +523,10 @@ Lifecycle fast path 的完整 `pnpm check` 通過（web 916／916）。修正 co
 
 本輪 10:35:11–10:40:18 UTC 完成 20 warmup＋26 formal，在第 27 筆 fanout 前 owner socket 已關閉（1006），guest OPEN；附件 callback written、下載／解密已完成。Keepalive sent／ACK 19／19，Worker deployment identity 前後相同，automated guard 成功。原驗收未完成、功能 failures 1、gate false；不可把剩餘樣本排除或合併前輪報告。完整失敗證據保存於 `docs/performance/collaboration-production-3a-lifecycle-lock-incomplete.json`。
 
-| 26 筆完整樣本（非 200 筆驗收） | p50 ms | p95 ms | p99 ms |
-| --- | ---: | ---: | ---: |
-| 保存 | 3,309.99 | 4,249.95 | 4,546.85 |
-| 加入含附件／fanout | 3,347.91 | 3,637.80 | 3,656.62 |
+| 26 筆完整樣本（非 200 筆驗收） |   p50 ms |   p95 ms |   p99 ms |
+| ------------------------------ | -------: | -------: | -------: |
+| 保存                           | 3,309.99 | 4,249.95 | 4,546.85 |
+| 加入含附件／fanout             | 3,347.91 | 3,637.80 | 3,656.62 |
 
 兩項 p95 仍超過 3,000 ms，但 partial quantiles 不能證明整體改善幅度或完整 p99 通過。Lifecycle register storage 的 presign／callback／snapshot write p50 為 16.82／17.04／17.06 ms；不能以不同時段、不同樣本數的結果歸因全部延遲差異。失敗時間約五分鐘不是 TTL 根因證明：目前 joined socket 的 idle budget 為 15 分鐘，runner 另送 5 秒 presence；1006 未攜帶可辨識 server verdict。Live tail 收到 306 events、零 exception，但可能抽樣／丟事件，不能證明無平台錯誤或排除網路問題。下個 scope 應補 socket close／error 的安全時間軸與失敗時連線證據，先定位斷線，再重跑完整 gate；不因前輪 200 次成功就宣稱保活已解決所有斷線。
 
@@ -546,11 +538,11 @@ Provider／DB／DO 清理與正常 Worker module／bindings 精確還原全部�
 
 以 commit `7d12535` 的現行產品與測試執行以下驗收；本輪未修改產品、未新增臨時測試碼，不重跑 200 筆效能 gate，也不把既有 1006／500 的根因視為已修復。
 
-| 驗收層 | 命令／現行測試 | 結果與邊界 |
-| --- | --- | --- |
-| 產品 session／保存與 React hook | `pnpm --filter @drawstuff/web exec vitest run tests/collab-reconnect-convergence.test.ts tests/collab-save-state.test.ts tests/collab-room-status.test.tsx tests/collab-join-and-snapshot.test.ts tests/collab-asset-transfer.test.ts` | 5 files、164 tests 通過；可控 transport／backend，非正式瀏覽器操作 |
-| Dirty tracking／本機持久化鎖／room state | `pnpm --filter @drawstuff/web exec vitest run tests/collab-dirty-tracking-suppression.test.tsx tests/collab-local-persistence.test.tsx tests/collab-room-state-reducer.test.ts` | 3 files、35 tests 通過；涵蓋狀態與共編內容不得寫入個人快取 |
-| Production Gateway／DO／adapter／Neon／UploadThing | `caffeinate -i pnpm collab:assets:remote --access-recovery` | testPassed、cleanupPassed、restored 全 true；限本輪新建測試房間與三個測試主體 |
+| 驗收層                                             | 命令／現行測試                                                                                                                                                                                                                         | 結果與邊界                                                                    |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| 產品 session／保存與 React hook                    | `pnpm --filter @drawstuff/web exec vitest run tests/collab-reconnect-convergence.test.ts tests/collab-save-state.test.ts tests/collab-room-status.test.tsx tests/collab-join-and-snapshot.test.ts tests/collab-asset-transfer.test.ts` | 5 files、164 tests 通過；可控 transport／backend，非正式瀏覽器操作            |
+| Dirty tracking／本機持久化鎖／room state           | `pnpm --filter @drawstuff/web exec vitest run tests/collab-dirty-tracking-suppression.test.tsx tests/collab-local-persistence.test.tsx tests/collab-room-state-reducer.test.ts`                                                        | 3 files、35 tests 通過；涵蓋狀態與共編內容不得寫入個人快取                    |
+| Production Gateway／DO／adapter／Neon／UploadThing | `caffeinate -i pnpm collab:assets:remote --access-recovery`                                                                                                                                                                            | testPassed、cleanupPassed、restored 全 true；限本輪新建測試房間與三個測試主體 |
 
 本機 199 個測試涵蓋 transient drop 後 fresh token 重連、離線新增／修改／刪除重送、雙方離線編輯後完整畫布收斂、relay restart 後恢復、retry budget 耗盡與撤權／房間終止的停止語意。保存涵蓋回應遺失後 query、舊 capture 不清除新修改、延遲／偽造 receipt 不誤顯示 saved、附件 records 未出現時拒絕 snapshot 保存，以及背景 upload 未完成時維持 saving。這是現行產品邏輯與 React hook 的自動化證據，不是部署後整個瀏覽器 UI 的端到端證明。
 
@@ -571,3 +563,47 @@ Provider／DB／DO 清理與正常 Worker module／bindings 精確還原全部�
 長期契約歸位至 `docs/architecture/collaboration-authority.md`，active 18B plan 移除、引用更新，18C 依固定後端契約繼續。這輪僅整理文件，無 production fixtures、DB push／migration 或 Worker／provider 設定變更。
 
 結案整理後 `pnpm check` 通過（Turbo source checks 使用既有快取）；所有變更文件的本機連結核對通過、已無舊 18B plan 引用，暫存檢查日誌已移除。
+
+## 18D 結案（2026-10-12）
+
+擁有者決定完成 §2 正式瀏覽器恢復與 §5 回歸後收尾 18D；§3 效能與 §4 跨日／閒置／成本延後，待實際使用回報問題再處理。
+
+### 已完成
+
+- **§1 斷線與 presign 500**：server 端訊號（`collab.asset_presign.failed`、DO `room.peer_closed`，見 [observability](../../observability/collaboration-do-observability.md) §2／§6.2）與量測工具的失敗處理（[P0 測量契約](../../performance/collaboration-storage-p0.md)）已部署。2026-10-11 正式量測 20＋200 筆零失敗，未重現 1006／presign 500。之後被動分類：`/admin` 的 `asset-presign.failed:<stage>` 計數與 DO 的 `room.peer_closed`／`room.session_closed`，不再專程長測。
+- **§5 契約證據**：分支證據對照與首次建立競態的真實 PostgreSQL 測試見 [授權契約](../../architecture/collaboration-authority.md#分支證據對照2026-10-11)。
+- **protocol 7 正式重測（2026-10-11）**：`--access-recovery`、`--retire-account`、`--retire-scene` 皆 `testPassed`／`cleanupPassed`／`restored`。測量工具修正兩處：被鎖擋住的 snapshot 寫入回應未即時釋放 body，退休檢查超過 20 秒時 body 隨 request timeout 出錯；帳號退休多一輪 rescan 後退休時間超過 60 秒 intent TTL，晚到上傳必然帶過期 intent，改為記錄 `latePresignExpired`，仍要求 callback 回 `unknown` 並進 deferred cleanup。此輪兩種退休皆 `latePresignExpired: true`；未過期 intent 的晚到上傳由本機 `asset-entry` 測試涵蓋。
+- **§2／§5 正式瀏覽器驗收（2026-10-12）**：`pnpm collab:browser:remote` 以 Playwright Chromium 和兩個無個資 fixture 帳號操作 `draw.ericts.com`，15／15 步驟通過（含一個只記錄不判定的觀察步驟）。
+
+| 步驟                                           | 驗證內容                                                                                                                        |
+| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| 個人場景含圖片保存、清除本機後由雲端重開       | 元素與圖片檔一致                                                                                                                |
+| 分享連結、匿名開啟                             | 匿名瀏覽器載入相同元素                                                                                                          |
+| 發布                                           | `/p/<slug>` 匿名顯示成品                                                                                                        |
+| Library                                        | 加入矩形後 `personal_library` 落地（上游不支援把圖片加入 Library）                                                              |
+| 建房、guest 以連結加入                         | 兩端匯出的元素集合相同（guest 補齊圖片約十幾秒）                                                                                |
+| guest 斷網時新增、owner 同時編輯，恢復後       | 兩端收斂且都含雙方新增                                                                                                          |
+| WebSocket 異常關閉                             | 自動重連，之後的編輯同步                                                                                                        |
+| 寫入回 500                                     | 顯示「Save failed」；恢復後 query 404 再以原 intent 重寫，顯示「Saved」                                                         |
+| 寫入已到伺服器但回應遺失，query／cancel 也被擋 | 故障期間只有在 DB 已有新 revision 時才可顯示「Saved」（client 以 durable 讀取確認）；實測顯示「Save failed」，恢復後為「Saved」 |
+| 重新整理                                       | 以已確認快照恢復相同元素                                                                                                        |
+| 一般存取改為「僅受邀者」                       | guest 立即顯示存取已移除，重新整理後仍無權限                                                                                    |
+| 回到個人畫布                                   | 個人場景的 `scene_data` 與建房前相同                                                                                            |
+
+清理以產品的帳號退休完成（兩帳號 `completed`），刪除 fixture 的 provider 物件並結束其 deferred cleanup 列，再核對 fixture 列為零；全部輪次結束後殘留 fixture 帳號與房間為零。
+
+### 發現：死連線當選快照寫入者時保存停頓
+
+沒有送出 close frame 就斷掉的連線（筆電休眠、網路中斷）會留在房間成員名單，直到 lazy liveness 判定把它移除：門檻 65 秒，且只在下一個 alarm、fanout 寫入失敗或滿員加入時檢查（[SLO §9.2](../../performance/collaboration-slo-capacity.md)，既有設計）。驗收中 guest 每次重連，owner 看到的成員多一個，60 秒內未減少。新的影響在快照寫入者選舉：寫入者是可編輯者中 peerId 最小者，死連線當選時耐久保存停到它被移除，其他成員每 30 秒看到「Save failed」；房間沒有其他活動時可長達下一次 idle alarm（約 15 分鐘）。保存故障步驟排在斷線之後的幾輪，90 秒內沒有任何快照寫入。即時同步不受影響，離開時的強制寫入不經選舉。驗收腳本把保存故障步驟排在斷線步驟之前；處理方式待決定，見 [plan 24](../../../plans/24-collaboration-dead-peer-snapshot-writer.md)。
+
+### 方式與限制
+
+- 斷線與故障注入需要精確時序，改用 Playwright 自動化而不是 computer use；截圖與 JSON 報告存在 `.local/browser-acceptance-<runId>/`，不入版控。登入以 DB session cookie 取代，不涵蓋 Google OAuth。
+- routed WebSocket 由 Playwright 連線，不受瀏覽器 offline 影響，所以「斷網」同時關閉現有 socket 並拒絕新連線。DO 重啟的 server 端恢復由 `--access-recovery` 的 `ctx.abort()` 驗證；瀏覽器端與異常關閉走同一條重連路徑。
+- 房間快照由可編輯者中 peerId 最小的一方寫入；其他人送出保存請求，30 秒內未寫入即顯示失敗，故障注入因此同時套用在兩端。
+- 未涵蓋：viewer 角色的恢復分支、附件上傳失敗／records 缺失（本機測試涵蓋）、同帳號多裝置。
+
+### 延後與風險（擁有者接受）
+
+- **§3 效能**：保存 p95 6,349 ms、加入 p95 4,608 ms，未達 3 秒門檻；瓶頸是 UploadThing 上傳＋callback 與下載的跨雲往返，即時 fanout p95 308 ms。候選方向：保存不同步等待附件 callback、附件改存 R2，或分開背景保存與使用者等待的 SLO。門檻不變，gate 未通過。
+- **§4 跨日、閒置與成本**：跨日重進由日常使用覆蓋。主要風險是 Neon compute 無法休眠而用完免費額度、資料庫停擺到下個計費週期。2026-10-11 以 `neon` CLI 的 operations 紀錄推算：10/1–10/7 compute 全天未休眠，10/8 起每天醒 3–8 小時並正常休眠，月用量估 44–74 CU-hr（免費額度依 FAQ 為 100）；本期資料傳輸已 2.17 GB／5 GB。偶爾以 `neon projects get` 核對 compute 與傳輸用量，異常時再找出持續喚醒的來源。

@@ -29,11 +29,11 @@ Object class）承載全部 production 共編流量，與 `apps/web` 的部署�
 
 目前的 `exports`：
 
-| Class                    | 狀態                                                                                   |
-| ------------------------ | -------------------------------------------------------------------------------------- |
-| `CollaborationRoomV2`    | 房間（binding `COLLABORATION_ROOM`），plan 21 新增                                     |
+| Class                    | 狀態                                                                                         |
+| ------------------------ | -------------------------------------------------------------------------------------------- |
+| `CollaborationRoomV2`    | 房間（binding `COLLABORATION_ROOM`），plan 21 新增                                           |
 | `CollaborationRoom`      | `{ "type": "durable-object", "state": "deleted" }` tombstone：部署時刪除舊加密房間的全部儲存 |
-| `CollaborationLifecycle` | 帳號／場景退場（binding `COLLABORATION_LIFECYCLE`），不變                              |
+| `CollaborationLifecycle` | 帳號／場景退場（binding `COLLABORATION_LIFECYCLE`），不變                                    |
 
 **Protocol version bump 不需要部署順序。** `COLLABORATION_PROTOCOL_VERSION` 一起改動時，
 web（Vercel）與 Worker（Workers Builds）各自從同一個 `main` commit 自動部署，落地時間差幾分鐘、
@@ -50,11 +50,11 @@ web（Vercel）與 Worker（Workers Builds）各自從同一個 `main` commit �
 Origin allowlist 是一般 var `COLLAB_ALLOWED_ORIGINS`（只做 defense-in-depth）。沒有 cron
 （`triggers.crons` 為空），所以沒有 cron／drain 相關 secret。
 
-| Secret                    | 值／用途                                                                                                                 |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| `COLLAB_ADAPTER_URL`      | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect |
-| `COLLAB_ADAPTER_SECRET`   | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用其他 secret                               |
-| `COLLAB_IDENTITY_SECRET`  | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 只證明身分，不授予角色                                        |
+| Secret                    | 值／用途                                                                                                                  |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `COLLAB_ADAPTER_URL`      | 完整 `https://<web origin>/api/internal/collaboration/adapter`；不可含 query、fragment 或 URL credentials，禁止 redirect  |
+| `COLLAB_ADAPTER_SECRET`   | 與 web 端 `COLLAB_ADAPTER_SECRET` 相同的獨立服務憑證（至少 32 字元）；不可共用其他 secret                                 |
+| `COLLAB_IDENTITY_SECRET`  | 與 web 端同名值相同的登入 identity proof HMAC 憑證；proof 只證明身分，不授予角色                                          |
 | `COLLAB_AUTHORITY_SECRET` | 與 web 端同名值相同的 Vercel → Gateway 私有入口憑證（authority／snapshot／assets／lifecycle）；與 proof／adapter 憑證分開 |
 
 舊部署留下的 `COLLAB_ROOM_KEY_WRAP_SECRET`、`COLLAB_JOIN_TOKEN_SECRET`、`COLLAB_CRON_SECRET`、
@@ -74,6 +74,13 @@ Origin allowlist 是一般 var `COLLAB_ALLOWED_ORIGINS`（只做 defense-in-dept
    `COLLAB_SMOKE_ORIGIN` 與兩個已驗證測試帳號（`COLLAB_HARNESS_OWNER_*`／`COLLAB_HARNESS_GUEST_*`）；
    `pnpm cf:conformance <worker-url>` 目前跑同一個 harness；
 3. 記錄 version id 作為下次 rollback 的已知良好版本。
+
+重大變更後另可執行（會在正式環境建立並退休無個資 fixture 帳號，約 2 分鐘）：
+
+- `pnpm collab:browser:remote`：Playwright Chromium 跑個人場景、分享、發布、Library、建房加入、斷網、
+  異常關線、保存失敗／回應遺失、重新整理與撤權（[18D 結案](../deployment/collaboration-reset/README.md#18d-結案2026-10-12)）；
+- `pnpm collab:assets:remote --access-recovery`、`--retire-account`、`--retire-scene`：真實附件、故障恢復與退休競態，
+  會暫時部署限定 runtime 並精確還原 Worker。
 
 ## 4. Rollback
 
@@ -120,7 +127,7 @@ plan 21 拿掉房間加密並改變協定、Neon schema 與 DO class，舊房間
    （要求 `authGeneration`），與新 Worker 不相容；kill switch 仍開著，所以瀏覽器不會觸發，
    **先不要跑 §3 驗證**。
 3. **刪除房間圖片（UploadThing）**：`PLAN21_DATABASE_URL=… UPLOADTHING_TOKEN=… pnpm --filter
-   @drawstuff/web plan21:wipe uploads` 先乾跑：列出 UploadThing 物件總數、要刪除的房間物件
+@drawstuff/web plan21:wipe uploads` 先乾跑：列出 UploadThing 物件總數、要刪除的房間物件
    （`collaboration_asset`、已送出 finalize 的 `collaboration_operation` key，以及 `failed` 的房間
    `deferred_file_cleanup`——維護排程不會重試它們；排除仍被個人檔案、場景縮圖、發布成品引用或
    仍為 `pending` 的 key），以及**沒有任何已知引用**的物件；清單寫入 `.local/plan21/`。確認後加
@@ -149,8 +156,8 @@ plan 21 拿掉房間加密並改變協定、Neon schema 與 DO class，舊房間
    `pnpm cf:secrets` 應只剩 §2 的四個。
 9. **開放**：移除 `COLLAB_ROOMS_DISABLED` 並重新部署 web。
 10. **驗收**：依 plan 21 §9——擁有者建房並從列表重開、一般存取權三種設定、邀請／移除／重新邀請、
-   結束房間、快照與圖片重新整理後正確、分享連結仍可開啟。舊房間網址不能再進房。
-   步驟 7 喚醒的舊退場 Object 應在 1 小時後釋放儲存。
+    結束房間、快照與圖片重新整理後正確、分享連結仍可開啟。舊房間網址不能再進房。
+    步驟 7 喚醒的舊退場 Object 應在 1 小時後釋放儲存。
 
 ### 執行紀錄（2026-10-10）
 
@@ -172,5 +179,5 @@ plan 21 拿掉房間加密並改變協定、Neon schema 與 DO class，舊房間
   分享連結仍可開啟（E2EE 不變）；個人場景、發布與 Library 不受影響；房間 UI 無房間金鑰／加密房間字樣。
   一度懷疑的「重新整理後第一個矩形遺失」在乾淨的單一分頁條件下無法重現，歸因於 computer use 多螢幕
   輸入失誤。
-- 後續（不屬 plan 21）：窄螢幕（<730px）的房間按鈕已於 PR #24、#29～#36 補上（Excalidraw 手機工具欄下方）；長時間與效能項目仍在
-  [18D](../../plans/18d-collaboration-acceptance-follow-ups.md)。
+- 後續（不屬 plan 21）：窄螢幕（<730px）的房間按鈕已於 PR #24、#29～#36 補上（Excalidraw 手機工具欄下方）；長時間與效能項目的結案與延後決定見
+  [18D 結案](../deployment/collaboration-reset/README.md#18d-結案2026-10-12)。

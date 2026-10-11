@@ -3,7 +3,7 @@
 測試 class 只由 `vitest.p0.config.ts` 載入，不在正式 Worker 的入口或部署設定中。
 房間內容自 plan 21 起不加密（快照與附件以明文編碼保存，附件為 UploadThing public 物件），
 P0 fixture 已改為明文；下方 2026-10-07 的量測紀錄是加密設計時期的結果，保存與加入當時含瀏覽器加解密。
-本文件保留 P0 測量契約；現況見 [授權契約](../architecture/collaboration-authority.md)，未完成驗收見 [18D](../../plans/18d-collaboration-acceptance-follow-ups.md)。
+本文件保留 P0 測量契約；現況見 [授權契約](../architecture/collaboration-authority.md)，18D 的結案與延後決定見 [18D 結案](../deployment/collaboration-reset/README.md#18d-結案2026-10-12)。
 
 ## 本機命令
 

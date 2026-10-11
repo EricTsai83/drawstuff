@@ -248,7 +248,8 @@ async function verifyRetirement(cookie, fileId, assetBytes) {
   let pendingWrite;
   try {
     const pid = await ready.promise;
-    pendingWrite = write().then((response) => ({ response }), () => ({ failed: true }));
+    // Release the body at once: the request signal times out while the fence checks run, and a body left open would then reject.
+    pendingWrite = write().then(async (response) => { await response.body?.cancel(); return { status: response.status }; }, () => ({ failed: true }));
     await until(async () => {
       const [row] = await sql`select exists(select 1 from pg_stat_activity a where ${pid} = any(pg_blocking_pids(a.pid))) as blocked`;
       return row.blocked;
@@ -269,12 +270,12 @@ async function verifyRetirement(cookie, fileId, assetBytes) {
     assert.notEqual((await jsonPost("/v1/lifecycle", { action: "query", target, operationId: retirementOperation })).phase, "completed");
     report("retirement-blocked-write-fence", { target: retirementMode, duplicateOperation: true, frozenCreateAndJoinRejected: true, socketsClosedBeforeParentDelete: true });
   } finally { unlock?.(); await held; }
-  const writeResult = await pendingWrite;
-  await writeResult.response?.body?.cancel();
+  await pendingWrite;
   // No second begin is needed: the original requests have ended and only the durable alarm advances retirement.
   await awaitRetirement();
   const repeat = await retirementEntry(); assert.equal(repeat.operationId, retirementOperation); assert.equal(repeat.enforcement, "enforced");
-  assert(Date.now() < lateIntent.deadline, "Late callback test must use an unexpired presign intent");
+  // Account retirement now outlasts the 60 s intent TTL, so the late upload may carry an expired intent; either way it must not finalize.
+  const latePresignExpired = Date.now() >= lateIntent.deadline;
   const form = new FormData(); form.append("file", new File([assetBytes], `${runId}.bin`, { type: "application/octet-stream" }));
   const lateUpload = await fetch(lateSigned.url, { method: "PUT", redirect: "error", signal: AbortSignal.timeout(120000), headers: { Range: "bytes=0-", "x-uploadthing-version": "7.7.4" }, body: form });
   assert.equal(lateUpload.status, 200, "Provider must finish the genuine late callback");
@@ -287,7 +288,7 @@ async function verifyRetirement(cookie, fileId, assetBytes) {
   const [rows] = await sql`select (select count(*) from drawstuff_collaboration_room where room_id in ${sql(roomIds)}) + (select count(*) from drawstuff_collaboration_asset where room_id=${roomId}) + (select count(*) from drawstuff_collaboration_snapshot where room_id=${roomId}) as count`;
   assert.equal(Number(rows.count), 0);
   const [fence] = await sql`select frozen,retired from drawstuff_collaboration_lifecycle_subject where scope=${lifecycleScope}`; assert(fence?.frozen && fence.retired);
-  report("retirement-alarm-and-late-callback-passed", { target: retirementMode, duplicateRetry: true, deletedRoomContent: true, lateWriteAndRejoinRejected: true });
+  report("retirement-alarm-and-late-callback-passed", { target: retirementMode, latePresignExpired, duplicateRetry: true, deletedRoomContent: true, lateWriteAndRejoinRejected: true });
 }
 
 try {

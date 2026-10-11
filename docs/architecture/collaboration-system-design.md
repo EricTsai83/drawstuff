@@ -11,7 +11,7 @@
 - Security model: [collaboration threat model](./collaboration-threat-model.md)
 - Capacity contract: [collaboration SLO](../performance/collaboration-slo-capacity.md)
 - Deployment contract: [Durable Object deployment runbook](../operations/collaboration-do-deployment.md)
-- Open acceptance issues: [18D](../../plans/18d-collaboration-acceptance-follow-ups.md)
+- Acceptance closure and deferred items: [18D closure](../deployment/collaboration-reset/README.md#18d-結案2026-10-12)
 
 Collaboration rooms are protected like owned scenes: sign-in plus access rules. Realtime frames,
 Neon snapshots and room images are plaintext; WSS/HTTPS protects transport, and room images are
