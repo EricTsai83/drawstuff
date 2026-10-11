@@ -1,5 +1,15 @@
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, ilike, inArray, isNull, or } from "drizzle-orm";
+import {
+  and,
+  count,
+  desc,
+  eq,
+  ilike,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import {
@@ -19,6 +29,8 @@ import {
   runRoomRetention,
 } from "@/server/admin/anomalies";
 import { readMaintenanceStatus } from "@/server/admin/maintenance-status";
+import { readOpsControls } from "@/server/admin/ops-controls";
+import { COLLAB_ROOMS_DISABLED_KEY, writeOpsFlag } from "@/server/ops/settings";
 import {
   endRoom,
   resumeRetirement,
@@ -36,6 +48,7 @@ import {
   adminGrant,
   collaborationRoom,
   deferredFileCleanup,
+  opsSignal,
   scene,
   user,
 } from "@/server/db/schema";
@@ -245,6 +258,7 @@ export const adminRouter = createTRPCRouter({
       return { user: target, scenes: targetScenes, rooms: targetRooms, grant };
     }),
   anomalies: adminProcedure.query(({ ctx }) => listAdminAnomalies(ctx.db)),
+  opsControls: adminProcedure.query(({ ctx }) => readOpsControls(ctx.db)),
   maintenanceStatus: adminProcedure.query(({ ctx }) =>
     readMaintenanceStatus(ctx.db),
   ),
@@ -487,6 +501,44 @@ export const adminRouter = createTRPCRouter({
       targetType: "maintenance",
       targetId: "room-retention",
       run: runRoomRetention,
+    }),
+  ),
+  setCollabRoomsDisabled: adminProcedure
+    .input(z.object({ disabled: z.boolean() }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: input.disabled
+          ? "disable-collaboration"
+          : "enable-collaboration",
+        targetType: "maintenance",
+        targetId: COLLAB_ROOMS_DISABLED_KEY,
+        run: async () => {
+          await writeOpsFlag(
+            COLLAB_ROOMS_DISABLED_KEY,
+            input.disabled,
+            ctx.auth.user.id,
+          );
+          return { disabled: input.disabled };
+        },
+      }),
+    ),
+  resetOpsSignals: adminProcedure.mutation(({ ctx }) =>
+    audited({
+      db: ctx.db,
+      actorUserId: ctx.auth.user.id,
+      action: "reset-ops-signals",
+      targetType: "maintenance",
+      targetId: "ops-signals",
+      run: async () => {
+        // Resetting clears every counter on purpose.
+        const rows = await ctx.db
+          .delete(opsSignal)
+          .where(isNotNull(opsSignal.name))
+          .returning({ name: opsSignal.name });
+        return { reset: rows.length };
+      },
     }),
   ),
 });

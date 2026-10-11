@@ -214,6 +214,39 @@ const en = {
   "trigger.cron": "Weekly cron",
   "trigger.manual": "Manual request",
   "trigger.admin": "Admin console",
+  "controls.title": "Controls",
+  "controls.description":
+    "Runtime switches and signals that otherwise only appear in logs.",
+  "controls.loading": "Loading controls",
+  "controls.collab": "Collaboration",
+  "controls.collabDescription":
+    "When off, new rooms, joins, snapshot writes and image uploads are refused; personal editing is unaffected. Reaches every server within about 15 seconds.",
+  "controls.on": "On",
+  "controls.off": "Off",
+  "controls.envOverride":
+    "COLLAB_ROOMS_DISABLED is set in the environment and keeps collaboration off regardless of this switch.",
+  "controls.updated": "Changed {time} by {actor}",
+  "controls.disable": "Turn off collaboration",
+  "controls.enable": "Turn collaboration back on",
+  "controls.collabDisabled": "Collaboration turned off.",
+  "controls.collabEnabled": "Collaboration turned back on.",
+  "controls.signals": "Signals",
+  "controls.noSignals": "No rate-limit degradation recorded.",
+  "controls.signalCount": "{count} times · last {time}",
+  "controls.resetSignals": "Reset counters",
+  "controls.signalsReset": "Signal counters reset.",
+  "confirm.disableCollab.title": "Turn off collaboration?",
+  "confirm.disableCollab.description":
+    "Every collaboration request is refused until it is turned back on. Live sessions lose their next save or join.",
+  "confirm.enableCollab.title": "Turn collaboration back on?",
+  "confirm.enableCollab.description":
+    "Collaboration requests are accepted again within about 15 seconds (unless the environment override is set).",
+  "confirm.resetSignals.title": "Reset signal counters?",
+  "confirm.resetSignals.description":
+    "Clears the recorded counts so new occurrences stand out.",
+  "auditAction.disable-collaboration": "Turn off collaboration",
+  "auditAction.enable-collaboration": "Turn on collaboration",
+  "auditAction.reset-ops-signals": "Reset signal counters",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -421,6 +454,38 @@ const zhTW = {
   "trigger.cron": "每週 cron",
   "trigger.manual": "手動請求",
   "trigger.admin": "管理介面",
+  "controls.title": "控制項",
+  "controls.description": "執行期開關，以及原本只出現在 log 裡的訊號。",
+  "controls.loading": "載入控制項",
+  "controls.collab": "共編",
+  "controls.collabDescription":
+    "關閉時會拒絕建房、加入、儲存快照與上傳圖片；個人編輯不受影響。約 15 秒內套用到所有伺服器。",
+  "controls.on": "開啟",
+  "controls.off": "關閉",
+  "controls.envOverride":
+    "環境變數 COLLAB_ROOMS_DISABLED 已設定，無論此開關如何，共編都維持關閉。",
+  "controls.updated": "{actor} 於 {time} 變更",
+  "controls.disable": "關閉共編",
+  "controls.enable": "重新開啟共編",
+  "controls.collabDisabled": "已關閉共編。",
+  "controls.collabEnabled": "已重新開啟共編。",
+  "controls.signals": "訊號",
+  "controls.noSignals": "沒有 rate limit 失效紀錄。",
+  "controls.signalCount": "{count} 次 · 最近 {time}",
+  "controls.resetSignals": "重設計數",
+  "controls.signalsReset": "已重設訊號計數。",
+  "confirm.disableCollab.title": "關閉共編？",
+  "confirm.disableCollab.description":
+    "在重新開啟前，所有共編請求都會被拒絕；進行中的工作階段下一次儲存或加入會失敗。",
+  "confirm.enableCollab.title": "重新開啟共編？",
+  "confirm.enableCollab.description":
+    "約 15 秒內恢復接受共編請求（除非環境變數仍強制關閉）。",
+  "confirm.resetSignals.title": "重設訊號計數？",
+  "confirm.resetSignals.description":
+    "清除已記錄的次數，讓新的事件更容易看出來。",
+  "auditAction.disable-collaboration": "關閉共編",
+  "auditAction.enable-collaboration": "開啟共編",
+  "auditAction.reset-ops-signals": "重設訊號計數",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -475,6 +540,9 @@ const valueTranslationKeys = {
     "close-room-storage": "auditAction.close-room-storage",
     "run-room-retention": "auditAction.run-room-retention",
     "run-maintenance": "auditAction.run-maintenance",
+    "disable-collaboration": "auditAction.disable-collaboration",
+    "enable-collaboration": "auditAction.enable-collaboration",
+    "reset-ops-signals": "auditAction.reset-ops-signals",
   },
   targetType: {
     account: "targetType.account",

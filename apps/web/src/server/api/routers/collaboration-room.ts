@@ -28,7 +28,7 @@ export const collaborationRoomRouter = createTRPCRouter({
     )
     .query(async ({ ctx, input }) => {
       if (
-        collaborationRoomsDisabled() ||
+        (await collaborationRoomsDisabled()) ||
         !env.COLLAB_IDENTITY_SECRET ||
         !env.COLLAB_AUTHORITY_SECRET
       )

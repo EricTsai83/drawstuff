@@ -168,3 +168,18 @@ accidental zero-admin state during normal operation.
 - A lost sole-admin account is a break-glass database operation. Restore access only through a
   documented incident, recorded approval, verified Google identity, and a new audit record; do not
   weaken the normal bootstrap invariant to make recovery convenient.
+
+## Controls
+
+The **Controls** section (`admin.opsControls`):
+
+- **Collaboration switch** (`setCollabRoomsDisabled`, audited `disable-collaboration` /
+  `enable-collaboration`): stored in `ops_setting`, read by `collaborationRoomsDisabled()` with a
+  15 s per-instance cache, so it reaches every server within ~15 s without a redeploy. The
+  `COLLAB_ROOMS_DISABLED` env var stays the break-glass override and always wins; the console shows
+  when it is set.
+- **Signals**: counts of events that otherwise exist only in logs — today
+  `ratelimit.degraded:<operation>` (Upstash failing open). Written to `ops_signal` at most once a
+  minute per instance; *Reset counters* (audited `reset-ops-signals`) clears them.
+
+`ops_setting` and `ops_signal` are new tables: run `db:push` before deploying.
