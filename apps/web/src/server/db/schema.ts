@@ -108,36 +108,45 @@ export const personalLibrary = createTable(
   ],
 );
 
-export const session = createTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at").notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: timestamp("created_at").notNull(),
-  updatedAt: timestamp("updated_at").notNull(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-});
+export const session = createTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: timestamp("expires_at").notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  // Collaboration identity checks look sessions up by user on every proof.
+  (table) => [index("session_user_id_idx").on(table.userId)],
+);
 
-export const account = createTable("account", {
-  id: text("id").primaryKey(),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at").notNull(),
-  updatedAt: timestamp("updated_at").notNull(),
-});
+export const account = createTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (table) => [index("account_user_id_idx").on(table.userId)],
+);
 
 /** Durable privileged-role assignment. Email is never an authorization key. */
 export const adminGrant = createTable(
@@ -665,6 +674,8 @@ export const collaborationSnapshot = createTable(
       columns: [table.updatedBy],
       foreignColumns: [user.id],
     }).onDelete("set null"),
+    // User deletion nulls the column; without it that is a full scan.
+    index("collaboration_snapshot_updated_by_idx").on(table.updatedBy),
     check(
       "collaboration_snapshot_revision_positive",
       sql`${table.revision} >= 1`,
@@ -733,6 +744,10 @@ export const collaborationAsset = createTable(
       columns: [table.registeredBy],
       foreignColumns: [user.id],
     }).onDelete("set null"),
+    // Per-upload image quota sums by uploader; user deletion nulls it.
+    index("collaboration_asset_registered_by_idx").on(table.registeredBy),
+    // Registration and orphan cleanup check object identity across rooms.
+    index("collaboration_asset_ut_file_key_idx").on(table.utFileKey),
     primaryKey({
       name: "collaboration_asset_room_file_pk",
       columns: [table.roomId, table.excalidrawFileId],
@@ -786,6 +801,9 @@ export const collaborationOperation = createTable(
   },
   (table) => [
     index("collaboration_operation_terminal_idx").on(table.terminalAt),
+    // Snapshot writes and maintenance read a room's operations; room deletion
+    // cascades through them.
+    index("collaboration_operation_room_id_idx").on(table.roomId),
     check(
       "collaboration_operation_kind",
       sql`${table.kind} in ('snapshot-put','snapshot-reset','asset-finalize')`,
