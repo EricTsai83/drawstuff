@@ -25,6 +25,10 @@ type DoLogEvent =
   | "authority.work_abandoned"
   /** A never-abandoned retirement job is still failing an hour or more after it began. */
   | "lifecycle.retirement_stuck"
+  /** A retirement job failed for 7 days and stopped retrying until resumed. */
+  | "lifecycle.retirement_parked"
+  /** An alarm handler kept failing through every bounded backstop (~1 day). */
+  | "alarm.given_up"
   /** An ended, fully settled room deleted all of its storage. */
   | "room.storage_released"
   | "adapter.delivery_failed"

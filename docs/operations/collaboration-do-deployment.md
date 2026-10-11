@@ -104,7 +104,8 @@ plan 21 拿掉房間加密並改變協定、Neon schema 與 DO class，舊房間
 `main`（PR #19）。以下程序保留為執行紀錄；這是一次性清除，之後不得再對真實房間內容套用。
 不受影響：我的場景、分享連結、發布、Library、個人圖片、帳號與 workspace。
 
-1. **停止共編寫入**：在 Vercel production 設定 `COLLAB_ROOMS_DISABLED=1` 並重新部署 web，
+1. **停止共編寫入**：在 `/admin` 的「控制項」關閉共編（約 15 秒生效，記入稽核；需要在 web
+   無法登入時也生效的情況，改在 Vercel production 設定 `COLLAB_ROOMS_DISABLED=1` 並重新部署 web），
    等待已簽出的 proof 過期（≥5 分鐘）。確認沒有進行中的帳號／場景退場
    （[admin data retirement](./admin-data-retirement.md)），且直到步驟 6 驗證通過前都不要發起
    退場：步驟 4～5 之間 Neon 已是新 schema，web 與 Worker 卻還沒都換成 protocol 7。

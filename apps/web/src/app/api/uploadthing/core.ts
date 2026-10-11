@@ -24,8 +24,29 @@ import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 import { z } from "zod";
 import { getServerSession } from "@/lib/auth/server";
 import { UTApi } from "uploadthing/server";
+import { assertWithinQuota, QuotaExceededError } from "@/server/quota";
 
 const f = createUploadthing();
+
+/** Refuses an upload that would take the account past its image cap. */
+async function assertImageQuota(
+  userId: string,
+  files: readonly { size: number }[],
+): Promise<void> {
+  try {
+    await assertWithinQuota(
+      db,
+      userId,
+      "imageBytes",
+      files.reduce((total, file) => total + file.size, 0),
+    );
+  } catch (error) {
+    // Same shape as the other middleware refusals: the upload is rejected
+    // before any bytes reach storage.
+    if (error instanceof QuotaExceededError) throw new Error(error.message);
+    throw error;
+  }
+}
 
 // 輔助：刪檔重試，避免暫時性錯誤造成殘留
 async function deleteFileWithRetry(
@@ -93,7 +114,7 @@ export const uploadRouter = {
         excalidrawFileId: excalidrawFileIdSchema,
       }),
     )
-    .middleware(async ({ input }) => {
+    .middleware(async ({ input, files }) => {
       // This code runs on your server before upload
       const session = await getServerSession();
 
@@ -104,6 +125,7 @@ export const uploadRouter = {
       if (!ownerId || ownerId !== session.user.id) {
         throw new Error("Forbidden");
       }
+      await assertImageQuota(session.user.id, files);
 
       // Whatever is returned here is accessible in onUploadComplete as `metadata`
       return {
@@ -192,11 +214,12 @@ export const uploadRouter = {
         contentHash: z.string().regex(/^[a-f0-9]{64}$/),
       }),
     )
-    .middleware(async ({ input }) => {
+    .middleware(async ({ input, files }) => {
       const session = await getServerSession();
       if (!session) throw new Error("Unauthorized");
       const ownerId = await QUERIES.getSceneOwnerId(input.sceneId);
       if (!ownerId || ownerId !== session.user.id) throw new Error("Forbidden");
+      await assertImageQuota(session.user.id, files);
       return {
         userId: session.user.id,
         sceneId: input.sceneId,
@@ -263,7 +286,7 @@ export const uploadRouter = {
     },
   })
     .input(assetUploadIntentSchema)
-    .middleware(async ({ input, req }) => {
+    .middleware(async ({ input, req, files }) => {
       const timings: PerformanceTimings | undefined =
         performanceProbeAuthorized(req, env.COLLAB_AUTHORITY_SECRET)
           ? {}
@@ -272,6 +295,7 @@ export const uploadRouter = {
       const session = await getServerSession();
       if (timings) timings.session = performance.now() - sessionStart;
       if (!session) throw new Error("Unauthorized");
+      await assertImageQuota(session.user.id, files);
       const metadata = await prepareAuthorityAssetUpload(
         db,
         {

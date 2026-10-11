@@ -12,7 +12,9 @@ import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 
 import { z } from "zod";
 import { AdapterClient } from "./adapter-client.ts";
+import { runAlarmWithBackstop } from "./alarm-backstop.ts";
 import { DurableWork } from "./durable-work.ts";
+import { createDoLogger } from "./logger.ts";
 
 /**
  * How long a completed retirement record outlives completion before the
@@ -149,12 +151,9 @@ export class LifecycleProgress {
             row.command !== request
           )
             throw new Error("operation-mismatch");
-          // A repeated begin (an operator resuming a stuck retirement) retries
-          // now instead of waiting out the current backoff.
-          this.storage.sql.exec(
-            "UPDATE authority_work SET next_at=min(next_at,?) WHERE id='retirement'",
-            Date.now(),
-          );
+          // A repeated begin (an operator resuming a stuck or parked
+          // retirement) retries now with a fresh retry window.
+          this.work.resume("retirement");
           return;
         }
         this.storage.sql.exec(
@@ -341,7 +340,16 @@ export class CollaborationLifecycle extends DurableObject<Env> {
     this.progressCache = undefined;
   }
 
-  override async alarm(): Promise<void> {
+  override async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
+    await runAlarmWithBackstop(
+      this.ctx.storage,
+      alarmInfo,
+      createDoLogger(this.env.VERSION_METADATA),
+      () => this.runAlarmPass(),
+    );
+  }
+
+  private async runAlarmPass(): Promise<void> {
     if (this.progress.releasable()) {
       await this.release();
       return;
