@@ -98,3 +98,19 @@ Knip 的設定載入器無法執行 Wrangler 的 Miniflare 相依套件，因此
 同一工作樹的 `pnpm check`（格式、lint、typecheck、一般 tests、Knip）與 `git diff --check` 均通過。
 
 完整 harness 的測試資料及 PostgreSQL 容器已清除；沒有接觸 production DB、Worker 或 UploadThing 設定。此證據完成 18B **P0**，P1/P2 串接與 P3 部署驗收仍在主計畫中執行。
+
+### 正式環境 3A（18D 1c，2026-10-11）
+
+[`collaboration-production-3a-transport-control.json`](collaboration-production-3a-transport-control.json)（`schemaVersion: 2`，main `6fd25cc`、Worker `23556ded`）完成 20 warmup＋200 正式樣本，14:29–15:01 UTC。功能失敗 0、warmup 失敗 0、owner 重連 0，keepalive 126／126 ACK；Worker deployment 前後相同。Live tail 3,033 events、0 platform exception（可能抽樣／漏送）。
+
+| 正式樣本（ms）           |   p50 |   p95 |   p99 |
+| ------------------------ | ----: | ----: | ----: |
+| 保存（附件＋快照）       | 4,206 | 6,349 | 7,312 |
+| 加入（完整恢復＋fanout） | 3,683 | 4,608 | 5,413 |
+| Presign                  |   479 |   973 | 1,688 |
+| PUT＋callback receipt    | 2,269 | 4,143 | 5,545 |
+| Snapshot 保存            | 1,119 | 1,786 | 2,328 |
+| 首次附件下載             | 1,595 | 2,014 | 2,534 |
+| 即時 fanout              |   225 |   308 |   345 |
+
+`completed: true`、`gatePassed: false`：保存 p95 與加入 p95／p99 超過門檻，門檻不變。單一時段的一輪，不與 2026-10-08 的報告比較出改善或退步。Provider／DB／DO 清理與正常 Worker 精確還原通過（`f3df0787`）；沒有 DB push／migration、方案或 region 變更。
