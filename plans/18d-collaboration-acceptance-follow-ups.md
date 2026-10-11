@@ -16,7 +16,7 @@
 - [x] `collaborationAssetUploader` 失敗時寫一行 closed-schema JSON log：失敗階段封閉列舉＋`errorName`（constructor 名），沿用 observability 契約 §6.1 的形式；不記 message、URL、token、identifier。
 - [x] DO `webSocketClose` 對非 server 主動的關閉記一筆 closed-schema 事件（close code、`wasClean`、joined 才有的 `peerId`），與 `room.session_closed` 互斥；logger schema 測試與 observability 契約 §2 同步。
 - [x] 確認 callback `serverData` ZodError 屬測量工具或產品解析路徑：屬測量工具的嚴格解析。產品將無法解析的 callback 結果視為 pending 並以 query 恢復（`collaboration-asset-upload.test.ts`），不需修改；工具端隨 1b 記錄並繼續。
-- [ ] 部署 1a（事件名 `collab.asset_presign.failed`、`room.peer_closed`，契約見 [observability](../docs/observability/collaboration-do-observability.md) §2／§6.2）。
+- [x] 部署 1a（2026-10-11，PR #60／#61；Worker version `23556ded`、web `6fd25cc`）（事件名 `collab.asset_presign.failed`、`room.peer_closed`，契約見 [observability](../docs/observability/collaboration-do-observability.md) §2／§6.2）。
 
 ### 1b. 測量工具的斷線處理（擁有者已決定，2026-10-11）
 
@@ -26,8 +26,9 @@
 
 ### 1c. 部署後取得分類證據
 
-- [ ] 1a 部署後跑一輪正式量測（依 1b 決定的模式），把每次失敗分類為 server 主動關閉／DO 看到非主動關閉／DO 未看到，並對照 web 與 Worker 版本以排除部署干擾。
-- [ ] 依證據修正確認缺陷並補回歸測試；屬平台行為則記錄接受決定與觀測到的比率。沒有新線索時停止重複長測，記錄剩餘假設與下一個能區分原因的實驗。
+- [x] 1a 部署後跑一輪正式量測（2026-10-11，`--performance-transport-control`）：20 warmup＋200 正式樣本**零失敗**，未重現 1006／presign 500，因此沒有可分類的樣本；Worker deployment 前後相同。證據見 [P0 測量契約的驗證紀錄](../docs/performance/collaboration-storage-p0.md#正式環境-3a18d-1c2026-10-11)。
+- [x] 沒有新線索，停止專程重複長測。剩餘假設：DO／平台 runtime 重啟或網路中斷造成的低頻 1006、presign middleware 在 session／DB／Gateway 的偶發失敗；兩者現在都有 server 端訊號可分類。
+- [ ] 被動分類：下次自然發生時，以 `/admin` 的 `asset-presign.failed:<stage>` 計數、`collab.asset_presign.failed` log 與 DO `room.peer_closed`／`room.session_closed` 判讀並依證據修正；不再為此專程跑長測。
 - [ ] 瀏覽器自動恢復與未保存修改的驗收歸 §2，不在此重複。
 
 完成條件：1a 已部署並有測試；1c 的失敗皆已分類，且已修正缺陷有回歸驗證，或平台行為已記錄接受決定。未重現不視為根因已解決。
@@ -46,6 +47,8 @@
 ## 3. 效能與剩餘場景
 
 完整保活輪保存 p95 4,916.57 ms、加入 p95／p99 4,472.73／5,142.71 ms，超過原門檻。原 3A／後續 partial JSON 均保留，不合併樣本。擁有者接受暫不改善而收尾 18B；此決定沒有變更原 SLO 或使 gate 變 true。
+
+2026-10-11 的 1c 重測（保存 p95 6,349 ms、加入 p95 4,608 ms，即時 fanout p95 308 ms）後，擁有者決定維持現狀：目前單人使用，瓶頸在 UploadThing 上傳＋callback 與下載的跨雲往返。等實際使用者回報變慢再啟動本 scope；候選方向為保存不同步等待附件 callback，或附件改存 R2，另一選項是把背景保存與使用者等待時間分開定 SLO。此決定不變更原 SLO，gate 仍為未通過。
 
 - [ ] 依相同測量契約定位 provider upload＋callback、下載、snapshot 與跨雲等待，分開首次可見與完整加入，避免把 segment p95 相加。
 - [ ] 只對已確認瓶頸做有界改善，先定義預期效果與比較方法，再決定是否重跑原 20 warmup＋200 formal。
