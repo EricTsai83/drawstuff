@@ -8,7 +8,7 @@ import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
 import { useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 import { api } from "@/trpc/react";
-import { parseSharedSceneHash } from "@/lib/utils";
+import { parseSharedSceneHash } from "@/lib/shared-scene-link";
 import { decompressData } from "@/lib/encode";
 import type {
   BinaryFiles,

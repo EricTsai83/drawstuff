@@ -24,7 +24,7 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
-import { parseSharedSceneHash } from "@/lib/utils";
+import { parseSharedSceneHash } from "@/lib/shared-scene-link";
 import {
   EXCALIDRAW_MIME_TYPES,
   exportCanvasToBlob,

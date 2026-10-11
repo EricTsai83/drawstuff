@@ -40,7 +40,7 @@ import {
   TooltipTrigger,
   TooltipContent,
 } from "@/components/ui/tooltip";
-import { copyTextToSystemClipboard } from "@/lib/utils";
+import { copyTextToSystemClipboard } from "@/lib/clipboard";
 import { getPublishedSceneUrl } from "@/lib/published-scene";
 import { loadOwnedSceneForRender } from "@/lib/import-data-from-db";
 import { renderPublishedArtifacts } from "@/lib/render-published-artifacts";

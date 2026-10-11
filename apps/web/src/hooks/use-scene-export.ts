@@ -10,6 +10,7 @@ import { prepareSceneDataForExport } from "@/lib/export-scene-to-backend";
 import { handleSceneSave, rollbackSharedScene } from "@/server/actions";
 import { useUploadThing } from "@/lib/uploadthing";
 import { getBaseUrl } from "@/lib/base-url";
+import { buildSharedSceneUrl } from "@/lib/shared-scene-link";
 import { normalizeToArrayBuffer } from "@/lib/array-buffer";
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import { APP_ERROR } from "@/lib/errors";
@@ -127,10 +128,10 @@ export function useSceneExport() {
           }
         }
 
-        // window.location.origin on the client, so this always parses.
-        const shareUrl = new URL(getBaseUrl());
-        shareUrl.hash = `json=${sharedSceneId},${encryptionKey}`;
-        const shareableUrlString = shareUrl.toString();
+        const shareableUrlString = buildSharedSceneUrl(getBaseUrl(), {
+          id: sharedSceneId,
+          key: encryptionKey,
+        });
 
         setLatestShareableLink(shareableUrlString);
         setExportStatus("success");
