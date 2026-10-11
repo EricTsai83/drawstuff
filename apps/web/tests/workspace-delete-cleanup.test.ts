@@ -12,6 +12,8 @@ import {
 } from "vitest";
 
 vi.mock("server-only", () => ({}));
+/** Runs inside a scene retirement, i.e. between deletion's checks and its transaction. */
+const lifecycleHook: { onBegin?: () => Promise<void> } = {};
 vi.mock("@/server/collab/lifecycle-gateway", () => ({
   callLifecycleGateway: async (input: {
     action: string;
@@ -27,6 +29,7 @@ vi.mock("@/server/collab/lifecycle-gateway", () => ({
     }
     if (input.action !== "begin" || !input.command)
       throw new Error("unexpected");
+    await lifecycleHook.onBegin?.();
     const { applyLifecycleAdapter } =
       await import("@/server/collab/authority-lifecycle");
     const database = testDb as unknown as Database;
@@ -100,6 +103,7 @@ beforeAll(async () => {
 });
 afterAll(() => client.close());
 beforeEach(async () => {
+  lifecycleHook.onBegin = undefined;
   await testDb.delete(schema.collaborationLifecycleSubject);
   await testDb.delete(schema.collaborationLifecycleRegistration);
   await testDb.delete(schema.deferredFileCleanup);
@@ -221,5 +225,32 @@ describe("workspace.delete storage lifecycle", () => {
       callerFor("other-user").workspace.delete({ id: doomedId }),
     ).rejects.toMatchObject({ code: "NOT_FOUND" });
     expect(await testDb.select().from(schema.deferredFileCleanup)).toEqual([]);
+  });
+
+  it("re-points a last-active mapping that moved to the workspace mid-deletion", async () => {
+    const { defaultId, doomedId } = await seedWorkspaces();
+    await testDb.insert(schema.userLastActiveWorkspace).values({
+      userId: "owner-user",
+      workspaceId: defaultId,
+      updatedAt: new Date(),
+    });
+    await testDb.insert(schema.scene).values({
+      name: "Doomed scene",
+      userId: "owner-user",
+      workspaceId: doomedId,
+    });
+    // Another tab activates the doomed workspace while its scenes retire.
+    lifecycleHook.onBegin = () =>
+      callerFor("owner-user").workspace.setLastActive({
+        workspaceId: doomedId,
+      });
+
+    await expect(
+      callerFor("owner-user").workspace.delete({ id: doomedId }),
+    ).resolves.toEqual({ success: true });
+
+    expect(await testDb.select().from(schema.userLastActiveWorkspace)).toEqual([
+      expect.objectContaining({ workspaceId: defaultId }),
+    ]);
   });
 });
