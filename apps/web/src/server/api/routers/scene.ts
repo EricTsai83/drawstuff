@@ -306,51 +306,31 @@ export const sceneRouter = createTRPCRouter({
         },
       });
 
-      let hasMore = false;
-      let items = rows;
-      if (rows.length > limit) {
-        hasMore = true;
-        items = rows.slice(0, limit);
-      }
+      const hasMore = rows.length > limit;
+      const items = hasMore ? rows.slice(0, limit) : rows;
 
-      const mapped = items.map((s) => {
-        const revisionValue: unknown = s.revision;
-        return {
-          id: s.id,
-          name: s.name,
-          description: s.description ?? "",
-          createdAt: s.createdAt,
-          updatedAt: s.updatedAt,
-          revision:
-            typeof revisionValue === "number" && Number.isInteger(revisionValue)
-              ? revisionValue
-              : 1,
-          workspaceId: s.workspaceId ?? undefined,
-          workspaceName: s.workspace?.name ?? undefined,
-          thumbnail: s.thumbnailUrl ?? undefined,
-          isArchived: s.isArchived,
-          isPublished: s.isPublished,
-          publishedSlug: s.publishedSlug ?? undefined,
-          publishedAt: s.publishedAt ?? undefined,
-          categories: (s.sceneCategories ?? [])
-            .map((sc) => sc.category)
-            .filter(
-              (categoryRow): categoryRow is { id: string; name: string } =>
-                Boolean(categoryRow),
-            )
-            .map((categoryRow) => ({
-              id: categoryRow.id,
-              name: categoryRow.name,
-            })),
-        };
-      });
+      const mapped = items.map((s) => ({
+        id: s.id,
+        name: s.name,
+        description: s.description ?? "",
+        createdAt: s.createdAt,
+        updatedAt: s.updatedAt,
+        revision: s.revision,
+        workspaceId: s.workspaceId ?? undefined,
+        workspaceName: s.workspace?.name ?? undefined,
+        thumbnail: s.thumbnailUrl ?? undefined,
+        isArchived: s.isArchived,
+        isPublished: s.isPublished,
+        publishedSlug: s.publishedSlug ?? undefined,
+        publishedAt: s.publishedAt ?? undefined,
+        categories: s.sceneCategories.map(({ category }) => category),
+      }));
 
-      const nextCursor = hasMore
-        ? {
-            updatedAt: items[items.length - 1]!.updatedAt,
-            id: items[items.length - 1]!.id,
-          }
-        : undefined;
+      const last = items.at(-1);
+      const nextCursor =
+        hasMore && last
+          ? { updatedAt: last.updatedAt, id: last.id }
+          : undefined;
 
       return { items: mapped, nextCursor };
     }),
