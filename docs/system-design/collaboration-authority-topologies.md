@@ -128,9 +128,8 @@ flowchart TD
   這是加密房間時代的設計；plan 21（2026-10-10）把房間改成明文、只保留分享連結的端對端加密，
   選擇 A 的主要理由因此消失。
 - **已觀察到的 A 拓撲故障模式**：沒有 close frame 就斷掉的連線要等 lazy liveness 判定才移除，
-  它當選 writer 時耐久保存會停頓；正式驗收的證據與處理選項見
-  [18D 結案](../deployment/collaboration-reset/README.md#18d-結案2026-10-12) 與
-  [plan 24](../../plans/24-collaboration-dead-peer-snapshot-writer.md)。
+  它當選 writer 時耐久保存會停頓。正式驗收的證據、評估過的處理方式與「維持現狀」的決定見
+  [18D 結案](../deployment/collaboration-reset/README.md#18d-結案2026-10-12)。
 - **實測延遲的構成**：保存與加入的大頭是附件上傳、callback 與下載的跨雲往返，快照寫入本身較小
   （[P0 測量契約的驗證紀錄](../performance/collaboration-storage-p0.md)）。改成伺服器權威能縮短快照
   保存與加入基準的部分；附件延遲要另外靠儲存位置處理。

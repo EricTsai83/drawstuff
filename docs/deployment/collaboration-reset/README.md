@@ -594,7 +594,9 @@ Provider／DB／DO 清理與正常 Worker module／bindings 精確還原全部�
 
 ### 發現：死連線當選快照寫入者時保存停頓
 
-沒有送出 close frame 就斷掉的連線（筆電休眠、網路中斷）會留在房間成員名單，直到 lazy liveness 判定把它移除：門檻 65 秒，且只在下一個 alarm、fanout 寫入失敗或滿員加入時檢查（[SLO §9.2](../../performance/collaboration-slo-capacity.md)，既有設計）。驗收中 guest 每次重連，owner 看到的成員多一個，60 秒內未減少。新的影響在快照寫入者選舉：寫入者是可編輯者中 peerId 最小者，死連線當選時耐久保存停到它被移除，其他成員每 30 秒看到「Save failed」；房間沒有其他活動時可長達下一次 idle alarm（約 15 分鐘）。保存故障步驟排在斷線之後的幾輪，90 秒內沒有任何快照寫入。即時同步不受影響，離開時的強制寫入不經選舉。驗收腳本把保存故障步驟排在斷線步驟之前；處理方式待決定，見 [plan 24](../../../plans/24-collaboration-dead-peer-snapshot-writer.md)。
+沒有送出 close frame 就斷掉的連線（筆電休眠、網路中斷）會留在房間成員名單，直到 lazy liveness 判定把它移除：門檻 65 秒，且只在下一個 alarm、fanout 寫入失敗或滿員加入時檢查（[SLO §9.2](../../performance/collaboration-slo-capacity.md)，既有設計）。驗收中 guest 每次重連，owner 看到的成員多一個，60 秒內未減少。新的影響在快照寫入者選舉：寫入者是可編輯者中 peerId 最小者，死連線當選時耐久保存停到它被移除，其他成員每 30 秒看到「Save failed」；房間沒有其他活動時可長達下一次 idle alarm（約 15 分鐘）。保存故障步驟排在斷線之後的幾輪，90 秒內沒有任何快照寫入。即時同步不受影響，離開時的強制寫入不經選舉。驗收腳本把保存故障步驟排在斷線步驟之前。
+
+**決定（2026-10-12，擁有者）：維持現狀。** 目前只有擁有者使用，這種情況很少發生，而且不會遺失資料（即時同步照常、離開時的強制寫入不經選舉），影響只是最長約 15 分鐘的「Save failed」。曾評估的處理方式：room Object 依 liveness 期限排 alarm（約每分鐘喚醒一次，增加 DO duration）、client 在一個保存週期內沒寫入時自行後備寫入（需處理多人同時後備的衝突），以及根本解法改為伺服器權威（見 [共編的權威拓撲](../../system-design/collaboration-authority-topologies.md)）。實際多人使用並遇到時，優先考慮 client 後備寫入，再評估伺服器權威。
 
 ### 方式與限制
 

@@ -13,7 +13,6 @@ plan 21 已於 2026-10-10 合併部署並完成正式驗收：protocol 7、共�
 ## Active plans
 
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) — 長期 logs／metrics、client telemetry、告警與 dashboard；暫緩實現，目的地未定。
-- [24-collaboration-dead-peer-snapshot-writer.md](24-collaboration-dead-peer-snapshot-writer.md) — 待決定：靜默斷線的連線留在房間名單，當選快照寫入者時耐久保存停頓。
 
 ## 執行順序與交接
 
