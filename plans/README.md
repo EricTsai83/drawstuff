@@ -14,11 +14,11 @@ plan 21 已於 2026-10-10 合併部署並完成正式驗收：protocol 7、共�
 
 - [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) — 長期 logs／metrics、client telemetry、告警與 dashboard；暫緩實現，目的地未定。
 - [18d-collaboration-acceptance-follow-ups.md](18d-collaboration-acceptance-follow-ups.md) — 待排程：自然斷線／presign 500、正式瀏覽器恢復與保存狀態、效能 3A／3B／3C、跨日／閒置／autosuspend／成本及剩餘回歸。先定位再重測，一次一個 scope；重測以 protocol 7 的明文房間為準。
-- [22-admin-anomalies-and-account-removal-cleanup.md](22-admin-anomalies-and-account-removal-cleanup.md) — admin dashboard 異常檢視（退場卡住、storage 未關閉、清理失敗等）、退場卡住告警與退避、帳號移除的完整清除盤點與邀請名單移除。需求已確認（2026-10-11），可實作。
+- [22-admin-anomalies-and-account-removal-cleanup.md](22-admin-anomalies-and-account-removal-cleanup.md) — admin dashboard 異常檢視（退場卡住、storage 未關閉、清理失敗等）、退場卡住告警與退避、帳號移除的完整清除盤點與邀請名單移除。1.1、1.2、1.4 已部署（2026-10-11）；剩 1.3 帳號移除的清除盤點與邀請名單移除。
 
 ## 執行順序與交接
 
-22 細節已確認，下一個執行。18D 暫時保留作後續排查，不因索引更新自動啟動全部長測；重現功能缺陷時優先處理其穩定性 scope，純延遲超標依已接受限制排程。需要持續觀測設施時與 17 協調。
+22 剩 1.3，下一個執行。18D 暫時保留作後續排查，不因索引更新自動啟動全部長測；重現功能缺陷時優先處理其穩定性 scope，純延遲超標依已接受限制排程。需要持續觀測設施時與 17 協調。
 
 驗證分層見 [授權契約](../docs/architecture/collaboration-authority.md#驗證分層與後續使用)：本機產品／Worker 測試不替代真實 PostgreSQL 鎖競態或正式平台驗收。
 

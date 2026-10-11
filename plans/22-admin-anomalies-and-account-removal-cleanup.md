@@ -1,6 +1,6 @@
 # 22 — Admin 異常檢視與帳號移除的完整清除
 
-- 狀態：需求已確認（2026-10-11），可實作；決定見 §2。
+- 狀態：1.1、1.2、1.4 已於 2026-10-11 部署（PR #42–#45）；剩 1.3 帳號移除的清除範圍。決定見 §2。
 - 前置：plan 21 已完成並於 2026-10-10 部署（房間不加密、Google 文件模式存取、DO 釋放儲存、durable 工作放棄規則；見 [共編授權契約](../docs/architecture/collaboration-authority.md)、[DO 部署 runbook §6](../docs/operations/collaboration-do-deployment.md)）。與 [17](17-collaboration-operations-follow-ups.md) 的長期 logs／metrics／告警協調：本 plan 只做 admin dashboard 內可查的異常，不建外部告警設施。
 - 目的：管理員能在 admin dashboard 看到需要介入的異常；移除使用者後，他的資源與個資清除乾淨。
 
@@ -29,6 +29,8 @@ admin dashboard 已有使用者列表、退場帳號、退場場景、結束房�
 每項顯示數量、明細與最後發生時間；門檻見 §2。
 
 ### 1.2 退場卡住的告警與退避
+
+> 已實作（PR #43），並依擁有者後續要求改為有上限：卡滿 7 天暫停、可由 admin 重新觸發（PR #45）；現況見 [共編授權契約](../docs/architecture/collaboration-authority.md)。
 
 - 同一退場持續失敗超過 1 小時時記 `error` 等級的 `lifecycle.retirement_stuck` log，供 Workers Logs 查詢。
 - 卡超過 24 小時後，重試間隔由 1 分鐘拉長到 1 小時；仍不放棄、不釋放（退場等於刪除使用者資料）。

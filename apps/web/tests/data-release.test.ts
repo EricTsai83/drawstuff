@@ -12,8 +12,6 @@ vi.mock("@/server/rate-limit/collaboration", () => ({
 const { envDouble, storage } = vi.hoisted(() => ({
   envDouble: {
     COLLAB_CONTROL_URL: "http://127.0.0.1:3105",
-    CLOUDFLARE_ACCOUNT_ID: undefined as string | undefined,
-    CLOUDFLARE_OBSERVABILITY_TOKEN: undefined as string | undefined,
   },
   storage: {
     files: [] as {
@@ -59,7 +57,6 @@ import { is } from "drizzle-orm";
 import { PgTable } from "drizzle-orm/pg-core";
 
 import { DATA_RELEASE_CATALOG } from "@/server/admin/data-release";
-import { readWorkerErrorEvents } from "@/server/admin/worker-logs";
 import * as schema from "@/server/db/schema";
 import { createQueueDrainJob } from "@/server/maintenance/jobs";
 import { scanStorageOrphans } from "@/server/storage/orphans";
@@ -271,80 +268,5 @@ describe("storage orphan reconciliation", () => {
       action: "enqueue-storage-orphans",
       status: "succeeded",
     });
-  });
-});
-
-describe("Durable Object events from Workers Logs", () => {
-  it("is off without credentials and counts events with them", async () => {
-    await expect(readWorkerErrorEvents()).resolves.toEqual({
-      configured: false,
-    });
-
-    envDouble.CLOUDFLARE_ACCOUNT_ID = "account";
-    envDouble.CLOUDFLARE_OBSERVABILITY_TOKEN = "token";
-    const fetchMock = vi.fn((_url: string, init?: RequestInit) => {
-      const body = JSON.parse(init?.body as string) as {
-        view: string;
-        parameters: { groupBys: { value: string }[] };
-      };
-      expect(body.view).toBe("calculations");
-      expect(body.parameters.groupBys).toEqual([
-        { type: "string", value: "event" },
-      ]);
-      return Promise.resolve(
-        Response.json({
-          success: true,
-          result: {
-            calculations: [
-              {
-                aggregates: [
-                  {
-                    value: 3,
-                    groups: [{ key: "event", value: "alarm.given_up" }],
-                  },
-                ],
-              },
-            ],
-          },
-        }),
-      );
-    });
-    vi.stubGlobal("fetch", fetchMock);
-    try {
-      const now = Date.now();
-      const events = await readWorkerErrorEvents(now);
-      expect(events).toMatchObject({ configured: true, windowHours: 24 });
-      if (!("counts" in events)) throw new Error("expected counts");
-      expect(
-        events.counts.find((row) => row.event === "alarm.given_up")?.count,
-      ).toBe(3);
-      expect(
-        events.counts.find((row) => row.event === "authority.work_abandoned")
-          ?.count,
-      ).toBe(0);
-      expect(fetchMock.mock.calls[0]?.[0]).toBe(
-        "https://api.cloudflare.com/client/v4/accounts/account/workers/observability/telemetry/query",
-      );
-
-      // Cached for a minute, then an API refusal is reported without the token.
-      await readWorkerErrorEvents(now + 1_000);
-      expect(fetchMock).toHaveBeenCalledTimes(1);
-      fetchMock.mockImplementation(() =>
-        Promise.resolve(
-          Response.json(
-            { success: false, errors: [{ message: "Authentication error" }] },
-            { status: 403 },
-          ),
-        ),
-      );
-      await expect(readWorkerErrorEvents(now + 120_000)).resolves.toEqual({
-        configured: true,
-        error: "HTTP 403: Authentication error",
-      });
-    } finally {
-      vi.unstubAllGlobals();
-      envDouble.CLOUDFLARE_ACCOUNT_ID = undefined;
-      envDouble.CLOUDFLARE_OBSERVABILITY_TOKEN = undefined;
-    }
   });
 });

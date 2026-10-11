@@ -47,13 +47,6 @@ const parsedEnv = createEnv({
      */
     UPSTASH_REDIS_REST_URL: z.string().url(),
     UPSTASH_REDIS_REST_TOKEN: z.string().min(1),
-    /**
-     * Optional Cloudflare account and API token for reading the collaboration
-     * Worker's Workers Logs from the admin console (Durable Object error
-     * events). Unset hides that panel; nothing else depends on it.
-     */
-    CLOUDFLARE_ACCOUNT_ID: z.string().min(1).optional(),
-    CLOUDFLARE_OBSERVABILITY_TOKEN: z.string().min(1).optional(),
   },
 
   /**
@@ -89,8 +82,6 @@ const parsedEnv = createEnv({
     COLLAB_ROOMS_DISABLED: process.env.COLLAB_ROOMS_DISABLED,
     UPSTASH_REDIS_REST_URL: process.env.UPSTASH_REDIS_REST_URL,
     UPSTASH_REDIS_REST_TOKEN: process.env.UPSTASH_REDIS_REST_TOKEN,
-    CLOUDFLARE_ACCOUNT_ID: process.env.CLOUDFLARE_ACCOUNT_ID,
-    CLOUDFLARE_OBSERVABILITY_TOKEN: process.env.CLOUDFLARE_OBSERVABILITY_TOKEN,
     NEXT_PUBLIC_BASE_URL: process.env.NEXT_PUBLIC_BASE_URL,
   },
   /**

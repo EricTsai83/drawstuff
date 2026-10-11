@@ -206,6 +206,10 @@ const en = {
   "maintenance.queue": "Cleanup queue: {pending} pending, {due} due now",
   "maintenance.count": "Count",
   "maintenance.oldest": "Oldest",
+  "maintenance.logs": "Logs:",
+  "maintenance.logsDurableObjects":
+    "Durable Objects (Cloudflare Workers Logs) ↗",
+  "maintenance.logsWeb": "Web app (Vercel) ↗",
   "confirm.runMaintenance.title": "Run maintenance now?",
   "confirm.runMaintenance.description":
     "Runs the full routine set the weekly cron runs, including deleting queued storage objects. It can take up to five minutes.",
@@ -403,11 +407,6 @@ const en = {
   "release.rule.durableObjects":
     "Rooms and finished retirements delete their own storage; a parked retirement waits for an operator to resume it.",
   "auditAction.enqueue-storage-orphans": "Queue storage orphans",
-  "maintenance.workerEvents": "Durable Object events (last {hours} h)",
-  "maintenance.workerEventsOff":
-    "Durable Object events: set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_OBSERVABILITY_TOKEN to show them.",
-  "maintenance.workerEventsError":
-    "Durable Object events unavailable ({error})",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -607,6 +606,10 @@ const zhTW = {
   "maintenance.queue": "清理佇列：{pending} 筆待處理，{due} 筆已到期",
   "maintenance.count": "數量",
   "maintenance.oldest": "最舊",
+  "maintenance.logs": "Log：",
+  "maintenance.logsDurableObjects":
+    "Durable Objects（Cloudflare Workers Logs）↗",
+  "maintenance.logsWeb": "Web app（Vercel）↗",
   "confirm.runMaintenance.title": "立即執行維護？",
   "confirm.runMaintenance.description":
     "執行與每週 cron 相同的完整維護，包含刪除佇列中的儲存物件，最多需要五分鐘。",
@@ -798,10 +801,6 @@ const zhTW = {
   "release.rule.durableObjects":
     "房間與完成的退場會自行刪除儲存；暫停的退場等管理員重新觸發。",
   "auditAction.enqueue-storage-orphans": "排入孤兒物件刪除",
-  "maintenance.workerEvents": "Durable Object 事件（最近 {hours} 小時）",
-  "maintenance.workerEventsOff":
-    "Durable Object 事件：設定 CLOUDFLARE_ACCOUNT_ID 與 CLOUDFLARE_OBSERVABILITY_TOKEN 後顯示。",
-  "maintenance.workerEventsError": "無法取得 Durable Object 事件（{error}）",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
