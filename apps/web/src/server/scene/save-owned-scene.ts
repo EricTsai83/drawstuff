@@ -16,6 +16,7 @@ import type {
 import { DRAWSTUFF_DOCUMENT_VERSION } from "@drawstuff/excalidraw-adapter/codec";
 import { validateStoredV4Write } from "@/server/excalidraw/persistence-guard";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
+import { assertWithinQuota, QuotaExceededError } from "@/server/quota";
 
 type SaveOwnedSceneParams = {
   userId: string;
@@ -41,7 +42,8 @@ export type CreateOwnedSceneDraftResult =
       };
     }
   | { status: "forbidden"; message: string }
-  | { status: "validation_failed"; message: string };
+  | { status: "validation_failed"; message: string }
+  | { status: "quota_exceeded"; message: string };
 
 export type SaveOwnedSceneResult =
   | {
@@ -67,7 +69,22 @@ export type SaveOwnedSceneResult =
       };
     }
   | { status: "validation_failed"; message: string }
-  | { status: "missing_assets"; message: string; missingFileIds: string[] };
+  | { status: "missing_assets"; message: string; missingFileIds: string[] }
+  | { status: "quota_exceeded"; message: string };
+
+/** Runs a quota check, turning a refusal into the `quota_exceeded` result. */
+async function quotaRefusal(
+  check: () => Promise<void>,
+): Promise<{ status: "quota_exceeded"; message: string } | null> {
+  try {
+    await check();
+    return null;
+  } catch (error) {
+    if (error instanceof QuotaExceededError)
+      return { status: "quota_exceeded", message: error.message };
+    throw error;
+  }
+}
 
 /**
  * Raised inside the save transaction so the row write rolls back: a committed
@@ -115,6 +132,10 @@ export async function createOwnedSceneDraft({
   input,
   now = new Date(),
 }: CreateOwnedSceneDraftParams): Promise<CreateOwnedSceneDraftResult> {
+  const refused = await quotaRefusal(() =>
+    assertWithinQuota(db, userId, "scenes", 1),
+  );
+  if (refused) return refused;
   return await db.transaction(async (tx) => {
     if (input.workspaceId !== undefined) {
       const [ownedWorkspace] = await tx
@@ -189,6 +210,18 @@ export async function saveOwnedScene({
       message: "Scene data rejected: unreadable-document",
     };
   }
+
+  const refused = await quotaRefusal(async () => {
+    if (!input.id) await assertWithinQuota(db, userId, "scenes", 1);
+    await assertWithinQuota(
+      db,
+      userId,
+      "sceneDocumentBytes",
+      Buffer.byteLength(input.data),
+      { excludeSceneId: input.id },
+    );
+  });
+  if (refused) return refused;
 
   try {
     return await saveOwnedSceneInTransaction({

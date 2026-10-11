@@ -7,14 +7,16 @@ import type { Database } from "@/server/collab/rooms";
 import { isSwitchOn } from "@/server/collab/relay-routing";
 import { opsSetting, opsSignal } from "@/server/db/schema";
 import { COLLAB_ROOMS_DISABLED_KEY } from "@/server/ops/settings";
+import { QUOTA_DEFAULTS, readQuotas } from "@/server/quota";
 
 /** Runtime switches and log-only signals, as the admin console shows them. */
 export async function readOpsControls(db: Database) {
-  const [setting, signals] = await Promise.all([
+  const [setting, signals, quotas] = await Promise.all([
     db.query.opsSetting.findFirst({
       where: eq(opsSetting.key, COLLAB_ROOMS_DISABLED_KEY),
     }),
     db.select().from(opsSignal).orderBy(desc(opsSignal.lastAt)),
+    readQuotas(db),
   ]);
   return {
     collabRoomsDisabled: {
@@ -25,5 +27,10 @@ export async function readOpsControls(db: Database) {
       updatedBy: setting?.updatedBy ?? null,
     },
     signals,
+    quotas: Object.entries(quotas).map(([name, value]) => ({
+      name: name as keyof typeof QUOTA_DEFAULTS,
+      value,
+      defaultValue: QUOTA_DEFAULTS[name as keyof typeof QUOTA_DEFAULTS],
+    })),
   };
 }

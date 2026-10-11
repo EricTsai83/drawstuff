@@ -247,6 +247,167 @@ const en = {
   "auditAction.disable-collaboration": "Turn off collaboration",
   "auditAction.enable-collaboration": "Turn on collaboration",
   "auditAction.reset-ops-signals": "Reset signal counters",
+  "footprint.title": "Storage and exposure",
+  "footprint.description":
+    "What this account stores and has made reachable, with takedown actions.",
+  "footprint.loading": "Loading usage",
+  "footprint.images": "Scene and shared-link images",
+  "footprint.roomImages": "Room images uploaded",
+  "footprint.sceneDocuments": "Scene documents",
+  "footprint.sharedLinks": "Shared links",
+  "footprint.library": "Library",
+  "footprint.lifecycle": "Lifecycle",
+  "footprint.active": "Active",
+  "footprint.frozen": "Retiring since {time}",
+  "footprint.retired": "Retired",
+  "footprint.sessions": "{count} active sign-in session(s)",
+  "footprint.revokeSessions": "Sign out everywhere",
+  "footprint.publishedTitle": "Published scenes",
+  "footprint.unpublish": "Unpublish",
+  "footprint.sharedLinksTitle": "Shared links",
+  "footprint.deleteLink": "Delete link",
+  "confirm.revokeSessions.title": "Sign this account out everywhere?",
+  "confirm.revokeSessions.description":
+    "Every sign-in session is deleted. Collaboration proofs already issued stay valid for up to five minutes.",
+  "confirm.unpublishScene.title": "Unpublish this scene?",
+  "confirm.unpublishScene.description":
+    "The public page stops resolving and its rendered artifacts are queued for deletion. The scene itself is kept.",
+  "confirm.deleteSharedLink.title": "Delete this shared link?",
+  "confirm.deleteSharedLink.description":
+    "The link stops working immediately and its images are queued for deletion. This cannot be undone.",
+  "toast.sessionsRevoked": "Signed out of {count} session(s).",
+  "toast.sceneUnpublished": "Scene unpublished.",
+  "toast.sharedLinkDeleted": "Shared link deleted.",
+  "roomLookup.title": "Room lookup",
+  "roomLookup.loading": "Loading room",
+  "roomLookup.notFound": "No room with this ID.",
+  "roomLookup.deleted":
+    "This room was deleted; only its creation fence remains, so the ID stays unusable.",
+  "roomLookup.storage": "storage {state}",
+  "roomLookup.owner": "Owner",
+  "roomLookup.created": "Created",
+  "roomLookup.ended": "Ended",
+  "roomLookup.epoch": "Authority epoch",
+  "roomLookup.snapshot": "Snapshot",
+  "roomLookup.assets": "Images",
+  "roomLookup.registrations": "Lifecycle registrations",
+  "roomLookup.members": "People ({count})",
+  "roomLookup.invites": "Invitations ({count})",
+  "roomLookup.revoked": "revoked",
+  "users.operatorsOnly": "Administrators only",
+  "audit.filterAction": "All actions",
+  "audit.filterTarget": "Target ID",
+  "audit.filter": "Filter",
+  "auditAction.revoke-sessions": "Sign out everywhere",
+  "auditAction.unpublish-scene": "Unpublish scene",
+  "auditAction.delete-shared-link": "Delete shared link",
+  "targetType.shared-scene": "Shared link",
+  "controls.quotas": "Per-account limits",
+  "controls.quotasDescription":
+    "Hard caps checked before each write. Sizes in MiB. Changes reach every server within about 15 seconds.",
+  "controls.quotaDefault": "(default {value})",
+  "controls.save": "Save",
+  "controls.quotaSaved": "Limit saved.",
+  "confirm.setQuota.title": "Change this limit?",
+  "confirm.setQuota.description":
+    "{name} becomes {value} for every account. Accounts already above it keep their data but cannot add more.",
+  "quota.scenes": "Scenes",
+  "quota.sceneDocumentBytes": "Scene documents (MiB)",
+  "quota.sharedLinkBytes": "Shared links (MiB)",
+  "quota.imageBytes": "Images (MiB)",
+  "quota.activeRooms": "Live rooms",
+  "footprint.quotaTitle": "Against limits",
+  "auditAction.set-quota": "Change limit",
+  "release.title": "Data release",
+  "release.description":
+    "Every kind of data that accumulates and where it is released: automatically by a maintenance job, by an operator here, or kept on purpose.",
+  "release.loading": "Measuring stored data",
+  "release.neon": "Neon: {used} of {limit} (free tier)",
+  "release.uploadthing": "UploadThing: {used} of {limit} · {files} files",
+  "release.uploadthingUnavailable": "UploadThing usage unavailable ({error})",
+  "release.lastRun": "Last maintenance run: {time}",
+  "release.dataColumn": "Data",
+  "release.size": "Size",
+  "release.how": "Released by",
+  "release.jobs": "Last automatic run",
+  "release.scan": "Scan storage",
+  "release.scanResult":
+    "Objects {from}–{to}: {orphans} orphan(s), {bytes}, uploaded over 7 days ago with nothing in the database pointing at them.",
+  "release.scanNext": "Scan the next 10,000",
+  "release.rows": "{count} rows",
+  "release.neonSize": "Neon {size}",
+  "release.objectSize": "objects {size}",
+  "release.queueOrphans": "Queue orphans for deletion",
+  "release.orphansQueued":
+    "{count} orphan(s) queued; the next maintenance run deletes them.",
+  "confirm.queueOrphans.title": "Queue storage orphans for deletion?",
+  "confirm.queueOrphans.description":
+    "Storage is rescanned and every orphan is queued. The maintenance drain checks each key again before deleting, so anything referenced since is kept.",
+  "release.mode.auto": "Automatic",
+  "release.mode.manual": "Operator",
+  "release.mode.retained": "Kept on purpose",
+  "release.store.neon": "Neon",
+  "release.store.uploadthing": "UploadThing",
+  "release.store.durable-objects": "Durable Objects",
+  "release.place.user-page": "Users",
+  "release.place.room-lookup": "Room lookup",
+  "release.place.anomalies": "Needs attention",
+  "release.place.failed-cleanup": "Failed cleanup",
+  "release.place.controls": "Controls",
+  "release.data.accounts": "Accounts and their settings",
+  "release.data.scenes": "Scenes",
+  "release.data.sceneImages": "Scene and shared-link images",
+  "release.data.sharedLinks": "Shared links",
+  "release.data.liveRooms": "Collaboration rooms",
+  "release.data.roomContent": "Room snapshots and images",
+  "release.data.roomPeople": "Room people and invitations",
+  "release.data.operationReceipts": "Storage operation receipts",
+  "release.data.lifecycleSubjects": "Retirement records",
+  "release.data.creationFences": "Room creation fences",
+  "release.data.cleanupQueue": "File cleanup queue",
+  "release.data.sessions": "Sign-in sessions",
+  "release.data.auditLog": "Audit log",
+  "release.data.maintenanceRuns": "Maintenance run history",
+  "release.data.operatorSettings": "Operator settings and signals",
+  "release.data.storageOrphans": "Unreferenced storage objects",
+  "release.data.durableObjects": "Durable Object storage",
+  "release.rule.accounts":
+    "User content: only by retiring the account (user page), which deletes everything it owns.",
+  "release.rule.scenes":
+    "User content: never automatic; an operator retires a scene from the user page.",
+  "release.rule.sceneImages":
+    "Images no saved scene references go after a day; a shared link's go when it expires; all go with their scene or account.",
+  "release.rule.sharedLinks":
+    "Expire 30 days after creation; an operator can delete one earlier.",
+  "release.rule.liveRooms":
+    "Live rooms only end by hand (owner or operator); ended rows go 90 days after ending.",
+  "release.rule.roomContent":
+    "Deleted when a room ends, with a 7-day retention backstop.",
+  "release.rule.roomPeople":
+    "Purged when a room ends; revoked rows in live rooms go after 30 days.",
+  "release.rule.operationReceipts": "Deleted 24 hours after completing.",
+  "release.rule.lifecycleSubjects":
+    "Go 30 days after a retirement finishes; stuck ones are resumed from Needs attention.",
+  "release.rule.creationFences":
+    "One tiny row per room ever created, kept forever: it is the only thing that stops an ended room ID from being re-created.",
+  "release.rule.cleanupQueue":
+    "Drained weekly; finished rows go after 30 days; failed rows wait for an operator retry.",
+  "release.rule.sessions":
+    "Expired sessions and verifications go weekly; an operator can sign an account out.",
+  "release.rule.auditLog": "Kept 365 days.",
+  "release.rule.maintenanceRuns": "Kept 180 days.",
+  "release.rule.operatorSettings":
+    "Fixed keys; signal counters are reset by an operator.",
+  "release.rule.storageOrphans":
+    "Objects nothing points at (for example a lost upload callback): scanned and queued by an operator.",
+  "release.rule.durableObjects":
+    "Rooms and finished retirements delete their own storage; a parked retirement waits for an operator to resume it.",
+  "auditAction.enqueue-storage-orphans": "Queue storage orphans",
+  "maintenance.workerEvents": "Durable Object events (last {hours} h)",
+  "maintenance.workerEventsOff":
+    "Durable Object events: set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_OBSERVABILITY_TOKEN to show them.",
+  "maintenance.workerEventsError":
+    "Durable Object events unavailable ({error})",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -486,6 +647,161 @@ const zhTW = {
   "auditAction.disable-collaboration": "關閉共編",
   "auditAction.enable-collaboration": "開啟共編",
   "auditAction.reset-ops-signals": "重設訊號計數",
+  "footprint.title": "儲存與公開內容",
+  "footprint.description": "此帳號儲存的資料與公開出去的內容，以及下架動作。",
+  "footprint.loading": "載入用量",
+  "footprint.images": "場景與分享連結圖片",
+  "footprint.roomImages": "上傳到房間的圖片",
+  "footprint.sceneDocuments": "場景文件",
+  "footprint.sharedLinks": "分享連結",
+  "footprint.library": "Library",
+  "footprint.lifecycle": "生命週期",
+  "footprint.active": "正常",
+  "footprint.frozen": "自 {time} 起退場中",
+  "footprint.retired": "已退場",
+  "footprint.sessions": "{count} 個登入中的 session",
+  "footprint.revokeSessions": "登出所有裝置",
+  "footprint.publishedTitle": "已發布場景",
+  "footprint.unpublish": "取消發布",
+  "footprint.sharedLinksTitle": "分享連結",
+  "footprint.deleteLink": "刪除連結",
+  "confirm.revokeSessions.title": "讓此帳號登出所有裝置？",
+  "confirm.revokeSessions.description":
+    "所有登入 session 都會被刪除；已簽出的共編 proof 最多仍有效五分鐘。",
+  "confirm.unpublishScene.title": "取消發布此場景？",
+  "confirm.unpublishScene.description":
+    "公開頁面會失效，渲染成品排入刪除；場景本身保留。",
+  "confirm.deleteSharedLink.title": "刪除此分享連結？",
+  "confirm.deleteSharedLink.description":
+    "連結會立即失效，圖片排入刪除。此操作無法復原。",
+  "toast.sessionsRevoked": "已登出 {count} 個 session。",
+  "toast.sceneUnpublished": "已取消發布。",
+  "toast.sharedLinkDeleted": "已刪除分享連結。",
+  "roomLookup.title": "查詢房間",
+  "roomLookup.loading": "載入房間",
+  "roomLookup.notFound": "找不到此 ID 的房間。",
+  "roomLookup.deleted":
+    "此房間已刪除；只剩 creation fence，所以這個 ID 仍無法再使用。",
+  "roomLookup.storage": "storage {state}",
+  "roomLookup.owner": "擁有者",
+  "roomLookup.created": "建立時間",
+  "roomLookup.ended": "結束時間",
+  "roomLookup.epoch": "Authority epoch",
+  "roomLookup.snapshot": "快照",
+  "roomLookup.assets": "圖片",
+  "roomLookup.registrations": "Lifecycle 登記",
+  "roomLookup.members": "成員（{count}）",
+  "roomLookup.invites": "邀請（{count}）",
+  "roomLookup.revoked": "已撤銷",
+  "users.operatorsOnly": "只看管理員",
+  "audit.filterAction": "所有操作",
+  "audit.filterTarget": "目標 ID",
+  "audit.filter": "篩選",
+  "auditAction.revoke-sessions": "登出所有裝置",
+  "auditAction.unpublish-scene": "取消發布場景",
+  "auditAction.delete-shared-link": "刪除分享連結",
+  "targetType.shared-scene": "分享連結",
+  "controls.quotas": "每個帳號的用量上限",
+  "controls.quotasDescription":
+    "每次寫入前都會檢查的硬上限；大小以 MiB 為單位。約 15 秒內套用到所有伺服器。",
+  "controls.quotaDefault": "（預設 {value}）",
+  "controls.save": "儲存",
+  "controls.quotaSaved": "已儲存上限。",
+  "confirm.setQuota.title": "變更此上限？",
+  "confirm.setQuota.description":
+    "所有帳號的「{name}」改為 {value}。已超過的帳號保留現有資料，但不能再新增。",
+  "quota.scenes": "場景數",
+  "quota.sceneDocumentBytes": "場景文件（MiB）",
+  "quota.sharedLinkBytes": "分享連結（MiB）",
+  "quota.imageBytes": "圖片（MiB）",
+  "quota.activeRooms": "進行中的房間",
+  "footprint.quotaTitle": "用量 / 上限",
+  "auditAction.set-quota": "變更上限",
+  "release.title": "資料釋放",
+  "release.description":
+    "所有會累積的資料，以及它們在哪裡被釋放：由維護 job 自動清除、由管理員在這裡人工清除，或刻意保留。",
+  "release.loading": "計算儲存用量中",
+  "release.neon": "Neon：{used} / {limit}（free tier）",
+  "release.uploadthing": "UploadThing：{used} / {limit} · {files} 個檔案",
+  "release.uploadthingUnavailable": "無法取得 UploadThing 用量（{error}）",
+  "release.lastRun": "最近一次維護：{time}",
+  "release.dataColumn": "資料",
+  "release.size": "大小",
+  "release.how": "釋放方式",
+  "release.jobs": "最近一次自動清除",
+  "release.scan": "掃描儲存空間",
+  "release.scanResult":
+    "第 {from}–{to} 個物件：{orphans} 個孤兒物件，共 {bytes}（上傳超過 7 天且資料庫沒有任何引用）。",
+  "release.scanNext": "掃描下一批 10,000 個",
+  "release.rows": "{count} 列",
+  "release.neonSize": "Neon {size}",
+  "release.objectSize": "物件 {size}",
+  "release.queueOrphans": "將孤兒物件排入刪除",
+  "release.orphansQueued": "已排入 {count} 個孤兒物件，下一次維護會刪除。",
+  "confirm.queueOrphans.title": "將孤兒物件排入刪除？",
+  "confirm.queueOrphans.description":
+    "會重新掃描並排入所有孤兒物件。維護刪除前會再確認一次，期間被引用的物件會保留。",
+  "release.mode.auto": "自動",
+  "release.mode.manual": "人工",
+  "release.mode.retained": "刻意保留",
+  "release.store.neon": "Neon",
+  "release.store.uploadthing": "UploadThing",
+  "release.store.durable-objects": "Durable Objects",
+  "release.place.user-page": "使用者",
+  "release.place.room-lookup": "查詢房間",
+  "release.place.anomalies": "需要介入的異常",
+  "release.place.failed-cleanup": "檔案清理失敗",
+  "release.place.controls": "控制項",
+  "release.data.accounts": "帳號與其設定",
+  "release.data.scenes": "場景",
+  "release.data.sceneImages": "場景與分享連結圖片",
+  "release.data.sharedLinks": "分享連結",
+  "release.data.liveRooms": "協作房間",
+  "release.data.roomContent": "房間快照與圖片",
+  "release.data.roomPeople": "房間成員與邀請",
+  "release.data.operationReceipts": "Storage 操作回執",
+  "release.data.lifecycleSubjects": "退場紀錄",
+  "release.data.creationFences": "房間 creation fence",
+  "release.data.cleanupQueue": "檔案清理佇列",
+  "release.data.sessions": "登入 session",
+  "release.data.auditLog": "稽核紀錄",
+  "release.data.maintenanceRuns": "維護執行紀錄",
+  "release.data.operatorSettings": "管理設定與訊號",
+  "release.data.storageOrphans": "沒有引用的儲存物件",
+  "release.data.durableObjects": "Durable Object 儲存",
+  "release.rule.accounts":
+    "使用者內容：只能在使用者頁退場帳號，會刪除它擁有的一切。",
+  "release.rule.scenes":
+    "使用者內容：絕不自動清除；由管理員在使用者頁退場場景。",
+  "release.rule.sceneImages":
+    "沒有任何已存場景引用的圖片一天後清除；分享連結的圖片隨連結到期清除；場景或帳號刪除時一併清除。",
+  "release.rule.sharedLinks": "建立 30 天後到期；管理員可提早刪除。",
+  "release.rule.liveRooms":
+    "進行中的房間只能人工結束（擁有者或管理員）；已結束的 row 在結束 90 天後清除。",
+  "release.rule.roomContent": "房間結束時刪除，並有 7 天的回收備援。",
+  "release.rule.roomPeople":
+    "房間結束時清除；進行中房間的已撤銷紀錄 30 天後清除。",
+  "release.rule.operationReceipts": "完成 24 小時後刪除。",
+  "release.rule.lifecycleSubjects":
+    "退場完成 30 天後清除；卡住的在「需要介入的異常」重新觸發。",
+  "release.rule.creationFences":
+    "每間房一列很小的紀錄，永久保留：這是唯一能防止已結束的 roomId 被重新建立的機制。",
+  "release.rule.cleanupQueue":
+    "每週 drain；完成的列 30 天後清除；失敗的列等管理員重試。",
+  "release.rule.sessions":
+    "過期的 session 與驗證每週清除；管理員可讓帳號登出所有裝置。",
+  "release.rule.auditLog": "保留 365 天。",
+  "release.rule.maintenanceRuns": "保留 180 天。",
+  "release.rule.operatorSettings": "固定的 key；訊號計數由管理員重設。",
+  "release.rule.storageOrphans":
+    "沒有任何引用的物件（例如上傳 callback 遺失）：由管理員掃描後排入刪除。",
+  "release.rule.durableObjects":
+    "房間與完成的退場會自行刪除儲存；暫停的退場等管理員重新觸發。",
+  "auditAction.enqueue-storage-orphans": "排入孤兒物件刪除",
+  "maintenance.workerEvents": "Durable Object 事件（最近 {hours} 小時）",
+  "maintenance.workerEventsOff":
+    "Durable Object 事件：設定 CLOUDFLARE_ACCOUNT_ID 與 CLOUDFLARE_OBSERVABILITY_TOKEN 後顯示。",
+  "maintenance.workerEventsError": "無法取得 Durable Object 事件（{error}）",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -543,6 +859,11 @@ const valueTranslationKeys = {
     "disable-collaboration": "auditAction.disable-collaboration",
     "enable-collaboration": "auditAction.enable-collaboration",
     "reset-ops-signals": "auditAction.reset-ops-signals",
+    "revoke-sessions": "auditAction.revoke-sessions",
+    "unpublish-scene": "auditAction.unpublish-scene",
+    "delete-shared-link": "auditAction.delete-shared-link",
+    "set-quota": "auditAction.set-quota",
+    "enqueue-storage-orphans": "auditAction.enqueue-storage-orphans",
   },
   targetType: {
     account: "targetType.account",
@@ -550,6 +871,7 @@ const valueTranslationKeys = {
     room: "targetType.room",
     cleanup: "targetType.cleanup",
     maintenance: "targetType.maintenance",
+    "shared-scene": "targetType.shared-scene",
   },
 } as const satisfies Record<string, Record<string, AdminTranslationKey>>;
 
@@ -564,4 +886,13 @@ export function translateAdminValue(
   >;
   const key = keys[value];
   return key ? t(key) : value;
+}
+
+/** Every audited action with its label, for filtering the audit log. */
+export function auditActionOptions(
+  t: AdminTranslate,
+): { value: string; label: string }[] {
+  return Object.entries(valueTranslationKeys.auditAction).map(
+    ([value, key]) => ({ value, label: t(key) }),
+  );
 }

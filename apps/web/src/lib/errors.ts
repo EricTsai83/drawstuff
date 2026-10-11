@@ -8,5 +8,6 @@ export const APP_ERROR = {
   CREATE_FAILED: "CREATE_FAILED",
   SAVE_FAILED: "SAVE_FAILED",
   RATE_LIMITED: "RATE_LIMITED",
+  QUOTA_EXCEEDED: "QUOTA_EXCEEDED",
 } as const;
 export type AppErrorCode = (typeof APP_ERROR)[keyof typeof APP_ERROR];

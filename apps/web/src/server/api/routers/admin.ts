@@ -30,6 +30,20 @@ import {
 } from "@/server/admin/anomalies";
 import { readMaintenanceStatus } from "@/server/admin/maintenance-status";
 import { readOpsControls } from "@/server/admin/ops-controls";
+import { readDataRelease } from "@/server/admin/data-release";
+import {
+  enqueueStorageOrphans,
+  scanStorageOrphans,
+} from "@/server/storage/orphans";
+import { UTApi } from "uploadthing/server";
+import {
+  deleteSharedLink,
+  readRoom,
+  readUserFootprint,
+  revokeUserSessions,
+} from "@/server/admin/investigation";
+import { unpublishScene } from "@/server/scene/unpublish";
+import { QUOTA_DEFAULTS, writeQuota, type QuotaName } from "@/server/quota";
 import { COLLAB_ROOMS_DISABLED_KEY, writeOpsFlag } from "@/server/ops/settings";
 import {
   endRoom,
@@ -126,17 +140,34 @@ export const adminRouter = createTRPCRouter({
       z.object({
         search: z.string().trim().max(200).default(""),
         limit: z.number().int().min(1).max(50).default(25),
+        operatorsOnly: z.boolean().default(false),
       }),
     )
     .query(async ({ ctx, input }) => {
       const pattern = `%${input.search.replace(/[\\%_]/g, "\\$&")}%`;
-      const filter = input.search
-        ? or(
-            ilike(user.name, pattern),
-            ilike(user.email, pattern),
-            ilike(user.id, pattern),
-          )
-        : undefined;
+      const filter = and(
+        input.search
+          ? or(
+              ilike(user.name, pattern),
+              ilike(user.email, pattern),
+              ilike(user.id, pattern),
+            )
+          : undefined,
+        input.operatorsOnly
+          ? inArray(
+              user.id,
+              ctx.db
+                .select({ id: adminGrant.userId })
+                .from(adminGrant)
+                .where(
+                  and(
+                    eq(adminGrant.role, "operator"),
+                    isNull(adminGrant.revokedAt),
+                  ),
+                ),
+            )
+          : undefined,
+      );
 
       const targetUsers = await ctx.db
         .select({
@@ -259,6 +290,29 @@ export const adminRouter = createTRPCRouter({
     }),
   anomalies: adminProcedure.query(({ ctx }) => listAdminAnomalies(ctx.db)),
   opsControls: adminProcedure.query(({ ctx }) => readOpsControls(ctx.db)),
+  dataRelease: adminProcedure.query(({ ctx }) => readDataRelease(ctx.db)),
+  // Read-only, but a mutation: it pages through the storage provider and
+  // must only run when an operator asks, never on a refetch.
+  scanStorageOrphans: adminProcedure
+    .input(z.object({ offset: z.number().int().min(0).default(0) }))
+    .mutation(async ({ ctx, input }) => {
+      // The full key list stays on the server; the enqueue rescans anyway.
+      const scan = await scanStorageOrphans(ctx.db, new UTApi(), input.offset);
+      return {
+        offset: scan.offset,
+        scanned: scan.scanned,
+        nextOffset: scan.nextOffset,
+        orphans: scan.orphans,
+        orphanBytes: scan.orphanBytes,
+        sample: scan.sample,
+      };
+    }),
+  userFootprint: adminProcedure
+    .input(z.object({ userId: z.string().min(1) }))
+    .query(({ ctx, input }) => readUserFootprint(ctx.db, input.userId)),
+  getRoom: adminProcedure
+    .input(z.object({ roomId: roomIdInputSchema }))
+    .query(({ ctx, input }) => readRoom(ctx.db, input.roomId)),
   maintenanceStatus: adminProcedure.query(({ ctx }) =>
     readMaintenanceStatus(ctx.db),
   ),
@@ -284,7 +338,14 @@ export const adminRouter = createTRPCRouter({
     return { count: total[0]?.value ?? 0, items };
   }),
   recentAuditEvents: adminProcedure
-    .input(z.object({ limit: z.number().int().min(1).max(100).default(30) }))
+    .input(
+      z.object({
+        limit: z.number().int().min(1).max(100).default(30),
+        action: z.string().max(64).optional(),
+        targetId: z.string().max(200).optional(),
+        actorUserId: z.string().max(200).optional(),
+      }),
+    )
     .query(({ ctx, input }) =>
       ctx.db
         .select({
@@ -301,6 +362,17 @@ export const adminRouter = createTRPCRouter({
         })
         .from(adminAuditEvent)
         .leftJoin(user, eq(adminAuditEvent.actorUserId, user.id))
+        .where(
+          and(
+            input.action ? eq(adminAuditEvent.action, input.action) : undefined,
+            input.targetId
+              ? eq(adminAuditEvent.targetId, input.targetId)
+              : undefined,
+            input.actorUserId
+              ? eq(adminAuditEvent.actorUserId, input.actorUserId)
+              : undefined,
+          ),
+        )
         .orderBy(desc(adminAuditEvent.occurredAt))
         .limit(input.limit),
     ),
@@ -541,4 +613,96 @@ export const adminRouter = createTRPCRouter({
       },
     }),
   ),
+  revokeSessions: adminProcedure
+    .input(
+      z
+        .object({ userId: z.string().min(1), confirmUserId: z.string().min(1) })
+        .refine((value) => value.userId === value.confirmUserId, {
+          message: "Confirmation must match the target user ID.",
+          path: ["confirmUserId"],
+        }),
+    )
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "revoke-sessions",
+        targetType: "account",
+        targetId: input.userId,
+        run: async () => {
+          if (input.userId === ctx.auth.user.id)
+            throw new TRPCError({
+              code: "BAD_REQUEST",
+              message: "Sign yourself out from your own session instead.",
+            });
+          return revokeUserSessions(ctx.db, input.userId);
+        },
+      }),
+    ),
+  unpublishScene: adminProcedure
+    .input(z.object({ sceneId: z.uuid() }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "unpublish-scene",
+        targetType: "scene",
+        targetId: input.sceneId,
+        run: async () => {
+          const outcome = await unpublishScene(ctx.db, input.sceneId);
+          if (!outcome) throw notFound("Scene not found.");
+          return outcome;
+        },
+      }),
+    ),
+  deleteSharedLink: adminProcedure
+    .input(z.object({ sharedSceneId: z.string().min(1).max(64) }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "delete-shared-link",
+        targetType: "shared-scene",
+        targetId: input.sharedSceneId,
+        run: async () => {
+          const outcome = await deleteSharedLink(ctx.db, input.sharedSceneId);
+          if (!outcome.found) throw notFound("Shared link not found.");
+          return outcome;
+        },
+      }),
+    ),
+  setQuota: adminProcedure
+    .input(
+      z.object({
+        name: z.enum(
+          Object.keys(QUOTA_DEFAULTS) as [QuotaName, ...QuotaName[]],
+        ),
+        value: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
+      }),
+    )
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "set-quota",
+        targetType: "maintenance",
+        targetId: `quota:${input.name}`,
+        run: async () => {
+          await writeQuota(ctx.db, input.name, input.value, ctx.auth.user.id);
+          return { name: input.name, value: input.value };
+        },
+      }),
+    ),
+  enqueueStorageOrphans: adminProcedure
+    .input(z.object({ offset: z.number().int().min(0).default(0) }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "enqueue-storage-orphans",
+        targetType: "maintenance",
+        targetId: `storage-orphans@${input.offset}`,
+        run: () => enqueueStorageOrphans(ctx.db, new UTApi(), input.offset),
+      }),
+    ),
 });
