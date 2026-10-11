@@ -2,11 +2,11 @@
 
 這個目錄有三種性質不同的文件，讀之前先分清楚：
 
-| 目錄 | 性質 | 讀者 | 語言風格 |
-| --- | --- | --- | --- |
-| `learning/` | **HTML 學習文章與導讀**：按主題解說、比較與圖解。學習文章可包含明確標示的目標設計；導讀不重述契約數字 | 學習者與設計討論參與者 | 獨立可讀、解釋理由與取捨 |
-| `system-design/` | **可轉移的 System Design pattern**：從本專案萃取、以通用語言撰寫，目標是能套用到其他專案 | 任何工程師（不需要熟悉本 codebase） | 通用術語為主，只在文末連回本專案實例 |
-| `adr/`、`architecture/`、`observability/`、`operations/`、`performance/` | **本專案的現況契約**：具體到檔名、常數與門檻數字，是實作與 review 的依據 | 本專案的開發者 | 專案術語 |
+| 目錄                                                                     | 性質                                                                                                  | 讀者                                | 語言風格                             |
+| ------------------------------------------------------------------------ | ----------------------------------------------------------------------------------------------------- | ----------------------------------- | ------------------------------------ |
+| `learning/`                                                              | **HTML 學習文章與導讀**：按主題解說、比較與圖解。學習文章可包含明確標示的目標設計；導讀不重述契約數字 | 學習者與設計討論參與者              | 獨立可讀、解釋理由與取捨             |
+| `system-design/`                                                         | **可轉移的 System Design pattern**：從本專案萃取、以通用語言撰寫，目標是能套用到其他專案              | 任何工程師（不需要熟悉本 codebase） | 通用術語為主，只在文末連回本專案實例 |
+| `adr/`、`architecture/`、`observability/`、`operations/`、`performance/` | **本專案的現況契約**：具體到檔名、常數與門檻數字，是實作與 review 的依據                              | 本專案的開發者                      | 專案術語                             |
 
 另外，repo 根目錄的 `plans/` 只放**未完成**的範圍化工作；計畫完成後會回寫到
 `docs/` 的現況文件並刪除計畫檔（規則見
@@ -81,24 +81,25 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 
 11. [即時協作房間：Coordination Atom、Thin Gateway 與收斂式恢復](./system-design/realtime-room-coordination.md)
 12. [Client 寫入節奏與 writer 選舉：cadence cooldown、notBefore 與最後一筆寫入](./system-design/client-write-pacing-and-writer-election.md)
-13. [成本感知的有狀態服務：可休眠 actor 的 liveness](./system-design/cost-aware-stateful-services.md)
-14. [上限是防護，不是容量](./system-design/limits-as-protection-not-capacity.md)
-15. [隱私安全的 Observability](./system-design/privacy-safe-observability.md)
+13. [共編的權威拓撲：轉送＋client 持久化、伺服器權威與 CRDT](./system-design/collaboration-authority-topologies.md)
+14. [成本感知的有狀態服務：可休眠 actor 的 liveness](./system-design/cost-aware-stateful-services.md)
+15. [上限是防護，不是容量](./system-design/limits-as-protection-not-capacity.md)
+16. [隱私安全的 Observability](./system-design/privacy-safe-observability.md)
 
 **前端架構**
 
-16. [持久工作區與 URL-Addressable Overlay](./system-design/persistent-shell-overlay-routing.md)
-17. [遠端狀態回灌的重入抑制：引用計數的 dirty-tracking suppression](./system-design/reentrancy-suppression-for-echoed-remote-state.md)
-18. [Server 端解析狀態的 Hydration 邊界](./system-design/hydration-boundary-for-server-resolved-state.md)
-19. [以引擎的靜態匯出當唯讀 Viewer：隱含依賴、保真設定與手勢層](./system-design/static-export-as-read-only-viewer.md)
-20. [Render once, serve many：寫入端渲染成品，觀看端只下載與互動](./system-design/render-once-serve-many.md)
+17. [持久工作區與 URL-Addressable Overlay](./system-design/persistent-shell-overlay-routing.md)
+18. [遠端狀態回灌的重入抑制：引用計數的 dirty-tracking suppression](./system-design/reentrancy-suppression-for-echoed-remote-state.md)
+19. [Server 端解析狀態的 Hydration 邊界](./system-design/hydration-boundary-for-server-resolved-state.md)
+20. [以引擎的靜態匯出當唯讀 Viewer：隱含依賴、保真設定與手勢層](./system-design/static-export-as-read-only-viewer.md)
+21. [Render once, serve many：寫入端渲染成品，觀看端只下載與互動](./system-design/render-once-serve-many.md)
 
 **工程流程（橫切所有主題）**
 
-21. [Config 與部署是受測工件](./system-design/config-and-deployment-as-artifacts.md)
-22. [測試作為契約](./system-design/testing-as-contracts.md)
-23. [演進與清理紀律](./system-design/evolution-and-cleanup.md)
-24. [記錄下來的拒絕：把「刻意不做」寫成決策](./system-design/recorded-refusals.md)
+22. [Config 與部署是受測工件](./system-design/config-and-deployment-as-artifacts.md)
+23. [測試作為契約](./system-design/testing-as-contracts.md)
+24. [演進與清理紀律](./system-design/evolution-and-cleanup.md)
+25. [記錄下來的拒絕：把「刻意不做」寫成決策](./system-design/recorded-refusals.md)
 
 趕時間的話，最高槓桿的五篇：**模組邊界、Transactional Outbox、防禦性邊界、
 測試作為契約、記錄下來的拒絕**。（Adapter 邊界仍是本專案槓桿最大的單一決策，
@@ -110,18 +111,18 @@ Architecture 圖與端到端 data flow（前端 ↔ 後端 ↔ realtime worker �
 入口是 [architecture contract](./architecture/architecture-contract.md)：
 它定義模組所有權、依賴圖與上游邊界，其他文件都從它輻射出去。
 
-| 你要做的事 | 先讀 |
-| --- | --- |
-| 動 Excalidraw 整合 | [architecture contract](./architecture/architecture-contract.md) → [ADR 0001](./adr/0001-excalidraw-persistence-boundary.md) → [native UI integration contract](./architecture/native-ui-integration-contract.md) |
-| 動共編儲存／快取／另存 | [collaboration storage](./architecture/collaboration-storage.md) |
-| 動協作功能 | [collaboration system design](./architecture/collaboration-system-design.md) → [threat model](./architecture/collaboration-threat-model.md) → [SLO](./performance/collaboration-slo-capacity.md)；本機儲存原型見 [P0 儲存驗證](./performance/collaboration-storage-p0.md) |
-| 動資料保留／刪除 | [data lifecycle](./architecture/data-lifecycle.md) |
-| 動 DB schema、清理舊碼 | [engineering conventions](./operations/engineering-conventions.md) |
-| 動 headers／CSP／embed | [web CSP design](./architecture/web-csp-design.md) → [ADR-0004](./adr/0004-code-delivery-trust-boundary.md) → [CSP 走查與部署](./operations/web-security-headers.md) |
-| 動路由／overlay | [workspace overlay routing](./architecture/workspace-overlay-routing-system-design.md) |
-| 向別人介紹系統（面試、onboarding） | [以頁面與場景看 drawstuff](./architecture/pages-and-scenarios.md)：路由地圖 + 每個場景一張圖，並指回對應 pattern |
-| 動 DO 部署／監控 | [DO deployment](./operations/collaboration-do-deployment.md) → [DO observability](./observability/collaboration-do-observability.md) |
-| 動效能敏感路徑 | `performance/` 內對應的 budget 文件（數字的唯一來源） |
+| 你要做的事                         | 先讀                                                                                                                                                                                                                                                                      |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 動 Excalidraw 整合                 | [architecture contract](./architecture/architecture-contract.md) → [ADR 0001](./adr/0001-excalidraw-persistence-boundary.md) → [native UI integration contract](./architecture/native-ui-integration-contract.md)                                                         |
+| 動共編儲存／快取／另存             | [collaboration storage](./architecture/collaboration-storage.md)                                                                                                                                                                                                          |
+| 動協作功能                         | [collaboration system design](./architecture/collaboration-system-design.md) → [threat model](./architecture/collaboration-threat-model.md) → [SLO](./performance/collaboration-slo-capacity.md)；本機儲存原型見 [P0 儲存驗證](./performance/collaboration-storage-p0.md) |
+| 動資料保留／刪除                   | [data lifecycle](./architecture/data-lifecycle.md)                                                                                                                                                                                                                        |
+| 動 DB schema、清理舊碼             | [engineering conventions](./operations/engineering-conventions.md)                                                                                                                                                                                                        |
+| 動 headers／CSP／embed             | [web CSP design](./architecture/web-csp-design.md) → [ADR-0004](./adr/0004-code-delivery-trust-boundary.md) → [CSP 走查與部署](./operations/web-security-headers.md)                                                                                                      |
+| 動路由／overlay                    | [workspace overlay routing](./architecture/workspace-overlay-routing-system-design.md)                                                                                                                                                                                    |
+| 向別人介紹系統（面試、onboarding） | [以頁面與場景看 drawstuff](./architecture/pages-and-scenarios.md)：路由地圖 + 每個場景一張圖，並指回對應 pattern                                                                                                                                                          |
+| 動 DO 部署／監控                   | [DO deployment](./operations/collaboration-do-deployment.md) → [DO observability](./observability/collaboration-do-observability.md)                                                                                                                                      |
+| 動效能敏感路徑                     | `performance/` 內對應的 budget 文件（數字的唯一來源）                                                                                                                                                                                                                     |
 
 ADR 是決策紀錄（含被拒絕的替代方案），被取代時就地標注並指向後繼，不刪除；
 `architecture/` 是可執行的現況，會隨系統更新。兩者遇到衝突時，以

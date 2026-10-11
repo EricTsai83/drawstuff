@@ -1,10 +1,10 @@
 # Collaboration Durable Object — observability 訊號與監控契約
 
 Status: Current（既有 logger 與診斷工具已實作；production 監控鏈路、alerts／dashboards
-與 §8 client telemetry 尚待實現，由
-[`plans/17`](../../plans/17-collaboration-operations-follow-ups.md) 追蹤。
-目前單人使用且 web 部署於 Vercel Hobby，監控工作暫緩；目的地未定，可匯出至獨立服務，
-不要求在 Vercel／Cloudflare 建立告警。）
+與 §8 client telemetry 未實作，擁有者於 2026-10-12 接受延期且不另開 plan：目前單人使用，
+需要人工介入的狀態由 admin console 呈現（Neon 異常、maintenance、`/healthz`、限流降級計數），
+DO 事件到 Workers Logs 人工查詢，沒有主動通知。因此 §6 告警無法運作，§8 SLO 仍不可判定。
+日後需要監控時再依本契約開新 plan，目的地不限 Vercel／Cloudflare。）
 
 門檻來源：[collaboration SLO 文件](../performance/collaboration-slo-capacity.md) §2／§3／§6／§9。
 資料分級來源：[collaboration threat model](../architecture/collaboration-threat-model.md)
@@ -125,7 +125,7 @@ Worker 的 live smoke 在 plan 21 部署時重跑（[部署 runbook §6](../oper
 
 每一列都指回 SLO 節號或 threat model；本文件不提出新門檻。
 這些定義不代表已有可運作的告警。收集／匯出、規則評估與通知目的地仍未選定；
-sessions 分母、未指定的視窗、「持續」與無資料語意須依 Plan 17 補齊後才能驗收。
+sessions 分母、未指定的視窗、「持續」與無資料語意須在實作監控時補齊後才能驗收。
 
 | Alert                        | 資料來源                                                        | 條件                                    | 依據                                    |
 | ---------------------------- | --------------------------------------------------------------- | --------------------------------------- | --------------------------------------- |

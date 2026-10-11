@@ -12,12 +12,11 @@ plan 21 已於 2026-10-10 合併部署並完成正式驗收：protocol 7、共�
 
 ## Active plans
 
-- [17-collaboration-operations-follow-ups.md](17-collaboration-operations-follow-ups.md) — 長期 logs／metrics、client telemetry、告警與 dashboard；暫緩實現，目的地未定。
-- [24-collaboration-dead-peer-snapshot-writer.md](24-collaboration-dead-peer-snapshot-writer.md) — 待決定：靜默斷線的連線留在房間名單，當選快照寫入者時耐久保存停頓。
+目前沒有 active plan。
 
 ## 執行順序與交接
 
-18D 已於 2026-10-12 結案，延後的效能與跨日／閒置／成本項目見 [18D 結案](../docs/deployment/collaboration-reset/README.md#18d-結案2026-10-12)；之後重現功能缺陷時另開 plan。需要持續觀測設施時與 17 協調。
+18D 已於 2026-10-12 結案，延後的效能與跨日／閒置／成本項目見 [18D 結案](../docs/deployment/collaboration-reset/README.md#18d-結案2026-10-12)；之後重現功能缺陷時另開 plan。監控／告警已接受延期，缺口見 [observability 契約](../docs/observability/collaboration-do-observability.md)。
 
 驗證分層見 [授權契約](../docs/architecture/collaboration-authority.md#驗證分層與後續使用)：本機產品／Worker 測試不替代真實 PostgreSQL 鎖競態或正式平台驗收。
 

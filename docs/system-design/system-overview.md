@@ -93,14 +93,14 @@ sequenceDiagram
 
 ## 元件 × Pattern 對照
 
-| 元件 | 適用的 pattern 文件 |
-| --- | --- |
-| 引擎 Adapter | [第三方引擎 Adapter](./third-party-engine-adapter.md)、[模組邊界](./module-boundaries.md) |
-| Web App API 層 | [分層授權](./layered-authorization.md)、[封閉結果型別](./typed-results-and-pure-decisions.md)、[防禦性邊界](./defensive-boundaries.md)、[上限是防護不是容量](./limits-as-protection-not-capacity.md) |
-| 關聯式 DB | [Transactional outbox](./transactional-outbox.md)、[資料生命週期與 GC](./data-lifecycle-and-gc.md)、[版本與相容性](./versioning-and-compatibility.md) |
-| 共享計數器 | [防禦性邊界](./defensive-boundaries.md) §5、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md) §3 |
-| Gateway + Coordinator | [即時協作房間](./realtime-room-coordination.md)、[成本感知的有狀態服務](./cost-aware-stateful-services.md)、[上限是防護不是容量](./limits-as-protection-not-capacity.md)、[隱私安全 observability](./privacy-safe-observability.md) |
-| 協作 Session（client） | [即時協作房間](./realtime-room-coordination.md) §6、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)、[遠端狀態回灌的重入抑制](./reentrancy-suppression-for-echoed-remote-state.md) |
-| 分享連結 | [分享連結的 E2EE](./e2ee-key-lifecycle.md)、[以引擎的靜態匯出當唯讀 Viewer](./static-export-as-read-only-viewer.md) |
-| 瀏覽器 UI 殼 | [持久工作區與 overlay routing](./persistent-shell-overlay-routing.md)、[Server 端解析狀態的 hydration 邊界](./hydration-boundary-for-server-resolved-state.md) |
-| Headers／部署／CI | [CSP 與 code delivery](./csp-and-code-delivery.md)、[Config 與部署是受測工件](./config-and-deployment-as-artifacts.md)、[測試作為契約](./testing-as-contracts.md)、[演進與清理紀律](./evolution-and-cleanup.md)、[記錄下來的拒絕](./recorded-refusals.md) |
+| 元件                   | 適用的 pattern 文件                                                                                                                                                                                                                                                                            |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 引擎 Adapter           | [第三方引擎 Adapter](./third-party-engine-adapter.md)、[模組邊界](./module-boundaries.md)                                                                                                                                                                                                      |
+| Web App API 層         | [分層授權](./layered-authorization.md)、[封閉結果型別](./typed-results-and-pure-decisions.md)、[防禦性邊界](./defensive-boundaries.md)、[上限是防護不是容量](./limits-as-protection-not-capacity.md)                                                                                           |
+| 關聯式 DB              | [Transactional outbox](./transactional-outbox.md)、[資料生命週期與 GC](./data-lifecycle-and-gc.md)、[版本與相容性](./versioning-and-compatibility.md)                                                                                                                                          |
+| 共享計數器             | [防禦性邊界](./defensive-boundaries.md) §5、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md) §3                                                                                                                                                                   |
+| Gateway + Coordinator  | [即時協作房間](./realtime-room-coordination.md)、[共編的權威拓撲](./collaboration-authority-topologies.md)、[成本感知的有狀態服務](./cost-aware-stateful-services.md)、[上限是防護不是容量](./limits-as-protection-not-capacity.md)、[隱私安全 observability](./privacy-safe-observability.md) |
+| 協作 Session（client） | [即時協作房間](./realtime-room-coordination.md) §6、[Client 寫入節奏與 writer 選舉](./client-write-pacing-and-writer-election.md)、[遠端狀態回灌的重入抑制](./reentrancy-suppression-for-echoed-remote-state.md)                                                                               |
+| 分享連結               | [分享連結的 E2EE](./e2ee-key-lifecycle.md)、[以引擎的靜態匯出當唯讀 Viewer](./static-export-as-read-only-viewer.md)                                                                                                                                                                            |
+| 瀏覽器 UI 殼           | [持久工作區與 overlay routing](./persistent-shell-overlay-routing.md)、[Server 端解析狀態的 hydration 邊界](./hydration-boundary-for-server-resolved-state.md)                                                                                                                                 |
+| Headers／部署／CI      | [CSP 與 code delivery](./csp-and-code-delivery.md)、[Config 與部署是受測工件](./config-and-deployment-as-artifacts.md)、[測試作為契約](./testing-as-contracts.md)、[演進與清理紀律](./evolution-and-cleanup.md)、[記錄下來的拒絕](./recorded-refusals.md)                                      |
