@@ -2,7 +2,7 @@
 
 本文記錄政策的理由與取捨。Header 值及各來源用途以
 [security-headers.ts](../../apps/web/src/config/security-headers.ts) 為準，
-[政策測試](../../apps/web/tests/security-headers.test.ts) 防止未預期的放寬。
+[政策測試](../../apps/web/tests/platform/security-headers.test.ts) 防止未預期的放寬。
 操作步驟見 [CSP 走查與部署](../operations/web-security-headers.md)。
 
 ## 信任邊界

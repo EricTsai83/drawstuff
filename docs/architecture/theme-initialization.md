@@ -32,10 +32,10 @@ the first hydration error and provider remounts before changing dependencies.
 
 Regression coverage:
 
-- `apps/web/tests/theme-provider-script.test.tsx`: original server bootstrap,
+- `apps/web/tests/platform/theme-provider-script.test.tsx`: original server bootstrap,
   hydration, persistence, system changes, cross-tab synchronization, blocked
   storage, and the public viewer with the real provider.
-- `apps/web/tests/published-viewer-theme.test.tsx`: differing server/client themes
+- `apps/web/tests/publish/published-viewer-theme.test.tsx`: differing server/client themes
   and avoiding premature or incorrect SVG requests.
 
 Tests use hydration for the real root provider, matching the application's SSR

@@ -13,7 +13,7 @@
 // 未設路徑的 upstream 預設行為不變。prod chunk 是單行 minified 程式碼，所以
 // patch 檔很大，但實際改動只有一處條件判斷。
 //
-// 移除時機（tests/excalidraw-asset-path.test.ts 會釘住 patch 仍生效）：
+// 移除時機（tests/editor/excalidraw-asset-path.test.ts 會釘住 patch 仍生效）：
 // - upstream 提供關閉備援的選項，或設了 EXCALIDRAW_ASSET_PATH 就不再附加
 //   esm.sh（`packages/excalidraw/fonts/ExcalidrawFontFace.ts` 的 `createUrls`）；
 //   截至 2026-10 的 master 仍無條件附加。

@@ -1,7 +1,7 @@
 # Web CSP 驗證與部署
 
 政策值與來源用途見 [security-headers.ts](../../apps/web/src/config/security-headers.ts)，
-斷言見 [security-headers.test.ts](../../apps/web/tests/security-headers.test.ts)。
+斷言見 [security-headers.test.ts](../../apps/web/tests/platform/security-headers.test.ts)。
 設計理由見 [web CSP design](../architecture/web-csp-design.md)；信任邊界與不接
 `report-uri`／`report-to` 的決策見 [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)。
 

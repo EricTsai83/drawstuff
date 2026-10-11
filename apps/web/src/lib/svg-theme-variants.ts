@@ -66,7 +66,7 @@ function diffAttributes(light: Element, dark: Element): ThemeVariants | null {
  * they are expected to have identical structure; a divergence means the
  * engine started varying more than attributes by theme. That is reported and
  * the subtree is left at its light appearance rather than failing the
- * author's save. `tests/published-artifact-theme-drift.test.ts` fails on the
+ * author's save. `tests/publish/published-artifact-theme-drift.test.ts` fails on the
  * same condition, so an engine upgrade surfaces it before it ships.
  */
 export function mergeThemeVariants(

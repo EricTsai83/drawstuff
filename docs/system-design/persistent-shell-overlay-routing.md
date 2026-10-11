@@ -135,4 +135,4 @@ client 端的選取狀態與 disabled 按鈕不是授權控制。
 - 實作：Next.js parallel routes 的 `apps/web/src/app/@overlay/` 插槽（§3 的清空路由
   在這裡是三個檔案：根路徑 `page`、catch-all、硬導航 `default`）、
   `src/components/route-overlay.tsx`、路由身分的 discriminated union `src/lib/routes.ts`、
-  disk-walking 路由測試 `apps/web/tests/workspace-routes.test.ts`。
+  disk-walking 路由測試 `apps/web/tests/scene/workspace-routes.test.ts`。

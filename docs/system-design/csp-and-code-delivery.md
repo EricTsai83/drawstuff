@@ -121,7 +121,7 @@ flowchart TD
 - 決策與妥協記錄（CLAIM-CDB-1～4、字型自託管判準、embed 拒絕）：
   [ADR-0004](../adr/0004-code-delivery-trust-boundary.md)。
 - config 模組與測試：`apps/web/src/config/security-headers.ts`、
-  `apps/web/tests/security-headers.test.ts`、
+  `apps/web/tests/platform/security-headers.test.ts`、
   embed 單一來源 `apps/web/src/config/embed-allowlist.ts`。
 - 營運程序（report-only → enforce）：[CSP 走查與部署](../operations/web-security-headers.md)。
 - supply-chain 的具體清單（frozen lockfile、`allowBuilds` 拒絕 postinstall、Actions 釘 SHA、

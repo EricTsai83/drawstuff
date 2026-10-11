@@ -165,7 +165,7 @@ reset。主題切換時重新 export（`exportWithDarkMode`），其餘互動完
   保留作者資訊，長 scene／author name 由可量測的 header 可用寬度截斷。stage 擁有
   `touch-none` pan／zoom 與 overflow，不允許手勢變成 document scroll。
 
-pan/zoom 的數學是純函式，單元測試在 `apps/web/tests/svg-pan-zoom.test.ts`
+pan/zoom 的數學是純函式，單元測試在 `apps/web/tests/publish/svg-pan-zoom.test.ts`
 （zoom-at-point 不變量、clamp、fit 計算）。
 
 已知的行為差異（刻意接受）：published 頁沒有 in-scene search、Help dialog 與
@@ -193,7 +193,7 @@ social links menu，iframe embed 變成靜態畫面，原生手勢改由上述 h
 
 ### 測試要求
 
-- 每個 item 都要有獨立單元測試：`apps/web/tests/main-menu-items.test.tsx`。
+- 每個 item 都要有獨立單元測試：`apps/web/tests/editor/main-menu-items.test.tsx`。
 - 應用層字串由 `I18nProvider` 下發（見
   [應用層 i18n 架構](./i18n-architecture.md)），`useAppI18n` 不再經過 adapter 的
   `useI18n`，因此 item 在 Excalidraw 樹外也能單獨渲染：單元測試只要包一層
@@ -246,7 +246,7 @@ social links menu，iframe embed 變成靜態畫面，原生手勢改由上述 h
 - **移除條件**：upstream 自己給 trigger accessible name，或開放 host 傳入
   trigger。audit 測試的 `MainMenu` prop／slot pin 一變動就會失敗，那就是重新
   評估的時機。移除時同時刪掉 ESLint 例外。
-- **測試**：`apps/web/tests/main-menu-trigger-label.test.tsx`（單元）、
+- **測試**：`apps/web/tests/editor/main-menu-trigger-label.test.tsx`（單元）、
   `apps/web/tests/e2e/excalidraw-smoke.spec.ts`（accessible name 與 axe）。
 
 ### 2. Published viewer 的 zen-mode CSS override（**已解決，2026-08-01**）

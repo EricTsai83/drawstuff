@@ -251,7 +251,7 @@ The **Data release** section (`admin.dataRelease`, catalog in
 (`pg_total_relation_size`, rows plus indexes) and, where a column records it, the size of the
 UploadThing objects it points at (`file_record.size`, `collaboration_asset.byte_length`), the Neon database size against the 512 MiB free tier, UploadThing usage
 against its limit (`getUsageInfo`), how it is released, and the last outcome of each releasing job.
-`tests/data-release.test.ts` fails when a schema table is missing from the catalog, so a new table
+`tests/admin/data-release.test.ts` fails when a schema table is missing from the catalog, so a new table
 cannot ship without a decided release path. The only retained kind is
 `collaboration_creation_fence` (one tiny row per room; the sole guard against re-creating an ended
 room ID).

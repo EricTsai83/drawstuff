@@ -35,7 +35,7 @@ import { useSvgPanZoom } from "@/hooks/excalidraw/use-svg-pan-zoom";
  * The source is an interface rather than a fetch inlined here so the shell
  * stays testable and independent of where the SVG comes from.
  *
- * `tests/published-viewer-engine-free.test.ts` pins the import graph of this
+ * `tests/publish/published-viewer-engine-free.test.ts` pins the import graph of this
  * module to stay free of `@drawstuff/excalidraw-adapter/client`; that is what
  * keeps Excalidraw out of the visitor's bundle.
  */
