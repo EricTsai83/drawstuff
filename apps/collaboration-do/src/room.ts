@@ -1,3 +1,4 @@
+import { runAlarmWithBackstop } from "./alarm-backstop.ts";
 import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
 import {
   formatServerTimings,
@@ -80,15 +81,6 @@ const SOCKET_OPEN = 1;
  */
 const ROOM_SCHEMA_VERSION = 4;
 
-/**
- * The official runtime retries a failed alarm handler a bounded number of
- * times (currently documented as up to 6 attempts) with exponential backoff.
- * On the last retry the handler re-arms a backstop alarm before rethrowing:
- * an alarm that exhausts its retries with work still pending must never
- * leave the Object unscheduled.
- */
-const ALARM_FINAL_RETRY_COUNT = 5;
-const ALARM_RETRY_BACKSTOP_MS = 60_000;
 /**
  * A settled ended room keeps its storage this long before release, so a
  * client still settling `end-room` (or any last command) can query its
@@ -500,18 +492,12 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
    * At-least-once by construction: every pass re-derives its work, so a rerun
    * or a runtime retry only repeats idempotent closes and sweeps. When the
    * runtime's own retries are about to run out with the handler still
-   * failing, a backstop alarm is re-armed before the error propagates —
-   * pending deadlines must never die with the last retry.
+   * failing, a bounded backstop alarm is re-armed (see `alarm-backstop.ts`).
    */
   override async alarm(alarmInfo?: AlarmInvocationInfo): Promise<void> {
-    try {
-      await this.runAlarmPass();
-    } catch (error) {
-      if ((alarmInfo?.retryCount ?? 0) >= ALARM_FINAL_RETRY_COUNT) {
-        await this.ctx.storage.setAlarm(Date.now() + ALARM_RETRY_BACKSTOP_MS);
-      }
-      throw error;
-    }
+    await runAlarmWithBackstop(this.ctx.storage, alarmInfo, this.log, () =>
+      this.runAlarmPass(),
+    );
   }
 
   private async runAlarmPass(): Promise<void> {

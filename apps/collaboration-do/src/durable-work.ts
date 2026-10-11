@@ -15,6 +15,22 @@ import { createDoLogger } from "./logger.ts";
  */
 const WORK_ABANDON_MS = 24 * 60 * 60_000;
 
+/**
+ * Queues without abandonment (Lifecycle retirement) must not drop their job —
+ * that would leave user data undeleted — but must not retry forever either.
+ * Past `STUCK_AFTER_MS` each failure logs `lifecycle.retirement_stuck` at most
+ * once per `STUCK_LOG_INTERVAL_MS`; past `SLOW_RETRY_AFTER_MS` retries slow
+ * from the minute cap to `SLOW_RETRY_MS`; past `PARK_AFTER_MS` the job is
+ * parked: kept, but never scheduled again until `resume` (an operator
+ * re-sending the retirement). A stuck retirement therefore costs at most
+ * ~1,600 wakeups in total.
+ */
+const STUCK_AFTER_MS = 60 * 60_000;
+const STUCK_LOG_INTERVAL_MS = 60 * 60_000;
+const SLOW_RETRY_AFTER_MS = 24 * 60 * 60_000;
+const SLOW_RETRY_MS = 60 * 60_000;
+const PARK_AFTER_MS = 7 * 24 * 60 * 60_000;
+
 type WorkRow = {
   id: string;
   body: string;
@@ -23,6 +39,8 @@ type WorkRow = {
   next_at: number;
   version: number;
   first_at: number;
+  stuck_logged_at: number | null;
+  parked_at: number | null;
 };
 
 /** Shared local transaction/alarm pattern for Room and Lifecycle. No external I/O inside commit. */
@@ -41,20 +59,29 @@ export class DurableWork {
       id TEXT PRIMARY KEY, body TEXT NOT NULL, security INTEGER NOT NULL CHECK(security IN (0,1)),
       attempts INTEGER NOT NULL DEFAULT 0 CHECK(attempts >= 0), next_at INTEGER NOT NULL,
       version INTEGER NOT NULL CHECK(version > 0), last_failure TEXT CHECK(last_failure IN ('delivery-failed')),
-      first_at INTEGER
+      first_at INTEGER, stuck_logged_at INTEGER, parked_at INTEGER
     ); CREATE INDEX IF NOT EXISTS authority_work_due ON authority_work(security DESC,next_at,id);
     CREATE TABLE IF NOT EXISTS authority_results (
       id TEXT PRIMARY KEY, request TEXT NOT NULL, result TEXT NOT NULL, terminal_at INTEGER
     );`);
-    // Lifecycle Objects predate `first_at`; their queued jobs start the clock now.
-    if (
-      !storage.sql
+    const columns = new Set(
+      storage.sql
         .exec<{ name: string }>("PRAGMA table_info(authority_work)")
         .toArray()
-        .some((column) => column.name === "first_at")
-    )
+        .map((column) => column.name),
+    );
+    // Lifecycle Objects predate `first_at`; their queued jobs start the clock now.
+    if (!columns.has("first_at"))
       storage.sql.exec(
         "ALTER TABLE authority_work ADD COLUMN first_at INTEGER",
+      );
+    if (!columns.has("stuck_logged_at"))
+      storage.sql.exec(
+        "ALTER TABLE authority_work ADD COLUMN stuck_logged_at INTEGER",
+      );
+    if (!columns.has("parked_at"))
+      storage.sql.exec(
+        "ALTER TABLE authority_work ADD COLUMN parked_at INTEGER",
       );
     storage.sql.exec(
       "UPDATE authority_work SET first_at=? WHERE first_at IS NULL",
@@ -129,17 +156,7 @@ export class DurableWork {
       );
       return true;
     }
-    const count = this.storage.sql
-      .exec<{ count: number }>(
-        "SELECT count(*) AS count FROM authority_work WHERE security=? AND id NOT IN ('emergency-fence','emergency-cleanup')",
-        Number(security),
-      )
-      .one().count;
-    if (
-      count >=
-      (security ? AUTHORITY_LIMITS.securityJobs : AUTHORITY_LIMITS.normalJobs)
-    )
-      return false;
+    if (this.full(security)) return false;
     this.storage.sql.exec(
       "INSERT INTO authority_work(id,body,security,next_at,version,first_at) VALUES (?,?,?,?,?,?)",
       id,
@@ -236,10 +253,34 @@ export class DurableWork {
     );
   }
 
+  /** Whether the queue for this class of job has no room for another. */
+  full(security: boolean): boolean {
+    const count = this.storage.sql
+      .exec<{ count: number }>(
+        "SELECT count(*) AS count FROM authority_work WHERE security=? AND id NOT IN ('emergency-fence','emergency-cleanup')",
+        Number(security),
+      )
+      .one().count;
+    return (
+      count >=
+      (security ? AUTHORITY_LIMITS.securityJobs : AUTHORITY_LIMITS.normalJobs)
+    );
+  }
+
+  /** Restarts a job now with a fresh retry window, unparking it. */
+  resume(id: string, now = Date.now()): void {
+    this.storage.sql.exec(
+      "UPDATE authority_work SET next_at=?,first_at=?,attempts=0,stuck_logged_at=NULL,parked_at=NULL WHERE id=?",
+      now,
+      now,
+      id,
+    );
+  }
+
   due(now = Date.now()): WorkRow[] {
     return this.storage.sql
       .exec<WorkRow>(
-        "SELECT * FROM authority_work WHERE next_at<=? ORDER BY security DESC,next_at,id LIMIT ?",
+        "SELECT * FROM authority_work WHERE parked_at IS NULL AND next_at<=? ORDER BY security DESC,next_at,id LIMIT ?",
         now,
         AUTHORITY_LIMITS.alarmBatch,
       )
@@ -306,11 +347,38 @@ export class DurableWork {
             );
         }, extraDeadline);
       } catch {
+        const now = Date.now();
+        const age = now - row.first_at;
+        const neverAbandoned = !this.onAbandon;
+        const logStuck =
+          neverAbandoned &&
+          age >= STUCK_AFTER_MS &&
+          (row.stuck_logged_at === null ||
+            now - row.stuck_logged_at >= STUCK_LOG_INTERVAL_MS);
+        if (logStuck) {
+          const job = durableJobSchema.parse(JSON.parse(row.body) as unknown);
+          createDoLogger().error("lifecycle.retirement_stuck", {
+            jobKind: job.kind,
+            stuckHours: Math.floor(age / (60 * 60_000)),
+          });
+        }
+        const park = neverAbandoned && age >= PARK_AFTER_MS;
+        if (park) {
+          const job = durableJobSchema.parse(JSON.parse(row.body) as unknown);
+          createDoLogger().error("lifecycle.retirement_parked", {
+            jobKind: job.kind,
+          });
+        }
+        const delay =
+          neverAbandoned && age >= SLOW_RETRY_AFTER_MS
+            ? SLOW_RETRY_MS
+            : Math.min(60_000, 1_000 * 2 ** Math.min(row.attempts, 6));
         await this.commit(() => {
           this.storage.sql.exec(
-            "UPDATE authority_work SET attempts=attempts+1,next_at=?,last_failure='delivery-failed' WHERE id=? AND version=?",
-            Date.now() +
-              Math.min(60_000, 1_000 * 2 ** Math.min(row.attempts, 6)),
+            "UPDATE authority_work SET attempts=attempts+1,next_at=?,last_failure='delivery-failed',stuck_logged_at=coalesce(?,stuck_logged_at),parked_at=? WHERE id=? AND version=?",
+            now + delay,
+            logStuck ? now : null,
+            park ? now : null,
             row.id,
             row.version,
           );
@@ -327,7 +395,7 @@ export class DurableWork {
       this.storage.sql
         .exec<{ at: number | null }>(
           `SELECT min(at) AS at FROM (
-      SELECT min(next_at) AS at FROM authority_work UNION ALL
+      SELECT min(next_at) AS at FROM authority_work WHERE parked_at IS NULL UNION ALL
       SELECT min(terminal_at)+? AS at FROM authority_results WHERE terminal_at IS NOT NULL
     )`,
           AUTHORITY_LIMITS.resultRetentionMs,

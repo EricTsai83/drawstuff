@@ -995,6 +995,60 @@ export const fileRecord = createTable(
   ],
 );
 
+/**
+ * One row per maintenance run (cron, manual POST or admin), so an operator
+ * can see whether the weekly run happened and what each job did. `report` is
+ * the runner's JSON report; record retention keeps 180 days.
+ */
+export const maintenanceRun = createTable(
+  "maintenance_run",
+  {
+    id: uuid("id")
+      .primaryKey()
+      .$defaultFn(() => crypto.randomUUID()),
+    trigger: varchar("trigger", { length: 16 }).notNull(),
+    status: varchar("status", { length: 16 }).notNull(),
+    failedJobs: integer("failed_jobs").default(0).notNull(),
+    report: text("report"),
+    startedAt: timestamp("started_at").notNull(),
+    finishedAt: timestamp("finished_at")
+      .$defaultFn(() => new Date())
+      .notNull(),
+  },
+  (table) => [
+    index("maintenance_run_started_idx").on(table.startedAt),
+    check(
+      "maintenance_run_trigger_supported",
+      sql`${table.trigger} in ('cron', 'manual', 'admin')`,
+    ),
+    check(
+      "maintenance_run_status_supported",
+      sql`${table.status} in ('succeeded', 'failed', 'skipped')`,
+    ),
+  ],
+);
+
+/** Operator-controlled runtime settings (fixed keys, e.g. the collaboration kill switch). */
+export const opsSetting = createTable("ops_setting", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at")
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+/**
+ * Aggregated operational signals that otherwise exist only in logs (fixed
+ * names, e.g. rate-limit degradation per operation): a running count and the
+ * last occurrence, written at most once a minute per instance.
+ */
+export const opsSignal = createTable("ops_signal", {
+  name: varchar("name", { length: 64 }).primaryKey(),
+  count: integer("count").default(0).notNull(),
+  lastAt: timestamp("last_at").notNull(),
+});
+
 // 延遲清理任務表：記錄無法即時刪除的檔案
 export const deferredFileCleanup = createTable(
   "deferred_file_cleanup",
