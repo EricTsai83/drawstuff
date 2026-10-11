@@ -32,6 +32,19 @@ import {
 
 const f = createUploadthing();
 
+/**
+ * Exact per-file cap. The route's `maxFileSize` must be a power of two and may
+ * be looser (3 MiB becomes "4MB"), so the real limit is checked here.
+ */
+function assertFileSizes(
+  files: readonly { size: number }[],
+  maxBytes: number,
+): void {
+  if (files.some((file) => file.size > maxBytes)) {
+    throw new Error("File too large");
+  }
+}
+
 /** Refuses an upload that would take the account past its image cap. */
 async function assertImageQuota(
   userId: string,
@@ -133,10 +146,9 @@ export const uploadRouter = {
       }),
     )
     .middleware(async ({ input, files }) => {
-      // This code runs on your server before upload
+      assertFileSizes(files, FILE_UPLOAD_MAX_BYTES);
       const session = await getServerSession();
 
-      // If you throw, the user will not be able to upload
       if (!session) throw new Error("Unauthorized");
       const sharedSceneId = input.sharedSceneId;
       const ownerId = await QUERIES.getSharedSceneOwnerId(sharedSceneId);
@@ -209,6 +221,7 @@ export const uploadRouter = {
       }),
     )
     .middleware(async ({ input, files }) => {
+      assertFileSizes(files, FILE_UPLOAD_MAX_BYTES);
       const session = await requireSceneOwner(input.sceneId);
       await assertImageQuota(session.user.id, files);
       return {
@@ -307,7 +320,8 @@ export const uploadRouter = {
         sceneId: z.uuid(),
       }),
     )
-    .middleware(async ({ input }) => {
+    .middleware(async ({ input, files }) => {
+      assertFileSizes(files, FILE_UPLOAD_MAX_BYTES);
       const session = await requireSceneOwner(input.sceneId);
       return { userId: session.user.id, sceneId: input.sceneId } as const;
     })

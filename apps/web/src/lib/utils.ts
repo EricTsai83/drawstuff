@@ -28,33 +28,16 @@ export function nFormatter(num: number, digits: number): string {
   return `${formatted}${unit.symbol}`;
 }
 
-// Convert bytes to MB string for UploadThing
-export const getMaxFileSizeString = (
-  bytes: number,
-):
-  | "1MB"
-  | "2MB"
-  | "4MB"
-  | "8MB"
-  | "16MB"
-  | "32MB"
-  | "64MB"
-  | "128MB"
-  | "256MB"
-  | "512MB"
-  | "1GB" => {
-  const mb = Math.round(bytes / (1024 * 1024));
+const UPLOADTHING_MB_STEPS = [1, 2, 4, 8, 16, 32, 64, 128, 256, 512] as const;
+type UploadThingFileSize = `${(typeof UPLOADTHING_MB_STEPS)[number]}MB` | "1GB";
 
-  // Map to supported UploadThing values
-  if (mb <= 1) return "1MB";
-  if (mb <= 2) return "2MB";
-  if (mb <= 4) return "4MB";
-  if (mb <= 8) return "8MB";
-  if (mb <= 16) return "16MB";
-  if (mb <= 32) return "32MB";
-  if (mb <= 64) return "64MB";
-  if (mb <= 128) return "128MB";
-  if (mb <= 256) return "256MB";
-  if (mb <= 512) return "512MB";
-  return "1GB"; // Default fallback
-};
+/**
+ * UploadThing only accepts power-of-two size limits, so this returns the
+ * smallest one that still admits `bytes`. It can be looser than the real cap;
+ * enforce the exact byte limit separately.
+ */
+export function getMaxFileSizeString(bytes: number): UploadThingFileSize {
+  const mib = bytes / 2 ** 20;
+  const step = UPLOADTHING_MB_STEPS.find((candidate) => candidate >= mib);
+  return step === undefined ? "1GB" : `${step}MB`;
+}
