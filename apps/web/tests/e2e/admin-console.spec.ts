@@ -36,7 +36,6 @@ test.describe.configure({ mode: "serial" });
 test.skip(!enabled, "needs the disposable e2e PostgreSQL");
 
 let sessionToken = "";
-let publishedSceneId = "";
 
 test.beforeAll(async () => {
   if (!enabled) return;
@@ -87,17 +86,13 @@ test.beforeAll(async () => {
         updatedAt: now,
       },
     ]);
-    const [published] = await db
-      .insert(schema.scene)
-      .values({
-        userId: TARGET,
-        name: "E2E published scene",
-        isPublished: true,
-        publishedSlug: "e2e-published",
-        publishedAt: now,
-      })
-      .returning({ id: schema.scene.id });
-    publishedSceneId = published!.id;
+    await db.insert(schema.scene).values({
+      userId: TARGET,
+      name: "E2E published scene",
+      isPublished: true,
+      publishedSlug: "e2e-published",
+      publishedAt: now,
+    });
     await db.insert(schema.sharedScene).values({
       sharedSceneId: SHARED,
       ownerId: TARGET,
@@ -162,11 +157,22 @@ async function signIn(page: Page) {
   ]);
 }
 
-/** Types the target ID into the typed-confirmation dialog and confirms. */
+/** Types the target ID into the confirmation of an irreversible action. */
 async function confirmTyped(page: Page, targetId: string, label: string) {
   const dialog = page.getByRole("alertdialog");
   await expect(dialog).toBeVisible();
   await dialog.getByLabel("Enter the target ID to confirm").fill(targetId);
+  await dialog.getByRole("button", { name: label }).click();
+  await expect(dialog).toBeHidden();
+}
+
+/** Confirms a reversible action, which asks once without typing. */
+async function confirmOnce(page: Page, label: string) {
+  const dialog = page.getByRole("alertdialog");
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel("Enter the target ID to confirm")).toHaveCount(
+    0,
+  );
   await dialog.getByRole("button", { name: label }).click();
   await expect(dialog).toBeHidden();
 }
@@ -184,7 +190,6 @@ async function openPage(page: Page, name: string) {
     .getByRole("navigation", { name: "Admin pages" })
     .getByRole("link", { name, exact: true })
     .click();
-  await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
   await expect(
     page
       .getByRole("navigation", { name: "Admin pages" })
@@ -198,7 +203,7 @@ test("every page is reachable from the navigation with its sections", async ({
   await signIn(page);
   await page.goto("/admin");
   await expect(
-    page.getByRole("heading", { level: 1, name: "Overview" }),
+    page.getByRole("heading", { level: 1, name: "Operations" }),
   ).toBeVisible();
 
   const sections: [string, string[]][] = [
@@ -216,7 +221,13 @@ test("every page is reachable from the navigation with its sections", async ({
       await expect(
         page.getByRole("heading", { level: 2, name: heading, exact: true }),
       ).toBeVisible();
+    await page.screenshot({
+      path: test.info().outputPath(`page-${name.replace(" ", "-")}.png`),
+      fullPage: true,
+    });
   }
+  // The signed-in operator's internal ID is no longer printed on every page.
+  await expect(page.getByText(/administrator ID/i)).toHaveCount(0);
 
   await openPage(page, "Data");
 
@@ -229,6 +240,10 @@ test("every page is reachable from the navigation with its sections", async ({
     release.getByRole("row", { name: /Room creation fences/ }),
   ).toContainText("Kept on purpose");
   await expect(release.getByText(/^Neon: /)).toBeVisible();
+  // Sizes that Neon cannot measure say why instead of showing a dash.
+  await expect(
+    release.getByRole("row", { name: /Unreferenced storage objects/ }),
+  ).toContainText("Scan to measure");
 
   // Maintenance: the seeded run and an unreachable Worker in this sandbox.
   await openPage(page, "Maintenance");
@@ -238,7 +253,7 @@ test("every page is reachable from the navigation with its sections", async ({
   await expect(maintenance.getByText("drain-cleanup-queue")).toBeVisible();
   await expect(maintenance.getByText(/Unreachable/)).toBeVisible();
   await expect(
-    maintenance.getByRole("link", { name: /Cloudflare Workers Logs/ }),
+    maintenance.getByRole("link", { name: /Cloudflare events/ }),
   ).toHaveAttribute("href", /dash\.cloudflare\.com/);
 
   await openPage(page, "Data");
@@ -271,8 +286,14 @@ test("operators fix anomalies, toggle collaboration, and set limits", async ({
     has: page.locator("#failed-cleanup-heading"),
   });
   await failed.getByRole("button", { name: "Retry all" }).click();
-  await confirmTyped(page, "all", "Retry");
+  await confirmOnce(page, "Retry");
   await expect(failed.getByText("No failed cleanup tasks.")).toBeVisible();
+
+  // With both handled, the overview says so instead of listing zeros.
+  await openPage(page, "Overview");
+  await expect(
+    page.getByText("All clear. Nothing needs attention."),
+  ).toBeVisible();
 
   // Turn collaboration off and back on.
   await openPage(page, "Controls");
@@ -282,16 +303,12 @@ test("operators fix anomalies, toggle collaboration, and set limits", async ({
   await controls
     .getByRole("button", { name: "Turn off collaboration" })
     .click();
-  await confirmTyped(page, "collab-rooms-disabled", "Turn off collaboration");
+  await confirmOnce(page, "Turn off collaboration");
   await expect(controls.getByText("Off", { exact: true })).toBeVisible();
   await controls
     .getByRole("button", { name: "Turn collaboration back on" })
     .click();
-  await confirmTyped(
-    page,
-    "collab-rooms-disabled",
-    "Turn collaboration back on",
-  );
+  await confirmOnce(page, "Turn collaboration back on");
   await expect(controls.getByText("On", { exact: true })).toBeVisible();
 
   // Lower the live-room limit.
@@ -302,7 +319,7 @@ test("operators fix anomalies, toggle collaboration, and set limits", async ({
     .filter({ hasText: "Live rooms" })
     .getByRole("button", { name: "Save" })
     .click();
-  await confirmTyped(page, "quota:activeRooms", "Save");
+  await confirmOnce(page, "Save");
   await expect(page.getByText("Limit saved.")).toBeVisible();
   await expect(rooms).toHaveValue("3");
 
@@ -363,7 +380,7 @@ test("operators look up a room and take an account's content down", async ({
   await expect(page.getByText(SHARED)).toBeVisible();
 
   await page.getByRole("button", { name: "Unpublish" }).click();
-  await confirmTyped(page, publishedSceneId, "Unpublish");
+  await confirmOnce(page, "Unpublish");
   await expect(page.getByText("Scene unpublished.")).toBeVisible();
   await expect(page.getByText("/p/e2e-published")).toHaveCount(0);
 
@@ -372,7 +389,7 @@ test("operators look up a room and take an account's content down", async ({
   await expect(page.getByText("Shared link deleted.")).toBeVisible();
 
   await page.getByRole("button", { name: "Sign out everywhere" }).click();
-  await confirmTyped(page, TARGET, "Sign out everywhere");
+  await confirmOnce(page, "Sign out everywhere");
   await expect(page.getByText("Signed out of 1 session(s).")).toBeVisible();
 
   await page.screenshot({

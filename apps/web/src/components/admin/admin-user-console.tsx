@@ -110,12 +110,7 @@ export function AdminUserConsole({
   }, [t]);
 
   async function refresh() {
-    await Promise.all([
-      utils.admin.getUser.invalidate({ userId }),
-      utils.admin.listUsers.invalidate(),
-      utils.admin.overview.invalidate(),
-      utils.admin.recentAuditEvents.invalidate(),
-    ]);
+    await utils.admin.invalidate();
   }
 
   const grantOperator = api.admin.grantOperator.useMutation({

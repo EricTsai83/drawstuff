@@ -62,11 +62,7 @@ export function AdminDataRelease() {
       toast.success(t("release.orphansQueued", { count: enqueued }));
       setConfirming(false);
       setScan(null);
-      await Promise.all([
-        utils.admin.dataRelease.invalidate(),
-        utils.admin.maintenanceStatus.invalidate(),
-        utils.admin.recentAuditEvents.invalidate(),
-      ]);
+      await utils.admin.invalidate();
     },
     onError: (error) => toast.error(error.message),
   });
@@ -193,7 +189,13 @@ export function AdminDataRelease() {
                               )}
                             </>
                           ) : (
-                            "—"
+                            <span className="text-muted-foreground">
+                              {t(
+                                entry.key === "storageOrphans"
+                                  ? "release.sizeByScan"
+                                  : "release.sizeElsewhere",
+                              )}
+                            </span>
                           )}
                         </TableCell>
                         <TableCell className="max-w-96 min-w-64 whitespace-normal">

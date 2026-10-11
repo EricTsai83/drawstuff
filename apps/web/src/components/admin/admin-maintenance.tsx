@@ -61,13 +61,7 @@ export function AdminMaintenance() {
       );
     } finally {
       setRunning(false);
-      await Promise.all([
-        utils.admin.maintenanceStatus.invalidate(),
-        utils.admin.overview.invalidate(),
-        utils.admin.anomalies.invalidate(),
-        utils.admin.failedCleanups.invalidate(),
-        utils.admin.recentAuditEvents.invalidate(),
-      ]);
+      await utils.admin.invalidate();
     }
   }
 
@@ -268,6 +262,7 @@ export function AdminMaintenance() {
                 description: t("confirm.runMaintenance.description"),
                 targetId: RUN_TARGET,
                 confirmLabel: t("maintenance.runNow"),
+                requireTyping: false,
               }
             : null
         }

@@ -49,10 +49,7 @@ export function AdminControls() {
   async function done(message: string) {
     toast.success(message);
     setAction(null);
-    await Promise.all([
-      utils.admin.opsControls.invalidate(),
-      utils.admin.recentAuditEvents.invalidate(),
-    ]);
+    await utils.admin.invalidate();
   }
   const onError = (error: { message: string }) => toast.error(error.message);
   const setSwitch = api.admin.setCollabRoomsDisabled.useMutation({
@@ -248,6 +245,7 @@ export function AdminControls() {
                 }),
                 targetId: `quota:${pendingQuota.name}`,
                 confirmLabel: t("controls.save"),
+                requireTyping: false,
               }
             : null
         }
@@ -287,6 +285,8 @@ export function AdminControls() {
                       ? "controls.enable"
                       : "controls.resetSignals",
                 ),
+                // Reversible from the same screen; incidents need it fast.
+                requireTyping: false,
               }
         }
         pending={setSwitch.isPending || resetSignals.isPending}
