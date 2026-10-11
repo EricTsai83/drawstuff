@@ -178,25 +178,47 @@ test.beforeEach(({}, testInfo) => {
   );
 });
 
-test("the overview shows every operator section with seeded data", async ({
+/** Opens an admin page from the shared navigation, as an operator would. */
+async function openPage(page: Page, name: string) {
+  await page
+    .getByRole("navigation", { name: "Admin pages" })
+    .getByRole("link", { name, exact: true })
+    .click();
+  await expect(page.getByRole("heading", { level: 1, name })).toBeVisible();
+  await expect(
+    page
+      .getByRole("navigation", { name: "Admin pages" })
+      .getByRole("link", { name, exact: true }),
+  ).toHaveAttribute("aria-current", "page");
+}
+
+test("every page is reachable from the navigation with its sections", async ({
   page,
 }) => {
   await signIn(page);
   await page.goto("/admin");
+  await expect(
+    page.getByRole("heading", { level: 1, name: "Overview" }),
+  ).toBeVisible();
 
-  for (const heading of [
-    "Needs attention",
-    "Data release",
-    "Controls",
-    "Maintenance",
-    "Failed file cleanup",
-    "Room lookup",
-    "Users and permissions",
-    "Recent audit log",
-  ])
-    await expect(
-      page.getByRole("heading", { name: heading, exact: true }),
-    ).toBeVisible();
+  const sections: [string, string[]][] = [
+    ["Overview", ["System overview", "Needs attention"]],
+    ["Users", ["Users and permissions"]],
+    ["Rooms", ["Room lookup"]],
+    ["Data", ["Data release", "Failed file cleanup"]],
+    ["Maintenance", ["Maintenance"]],
+    ["Controls", ["Controls"]],
+    ["Audit log", ["Recent audit log"]],
+  ];
+  for (const [name, headings] of sections) {
+    await openPage(page, name);
+    for (const heading of headings)
+      await expect(
+        page.getByRole("heading", { level: 2, name: heading, exact: true }),
+      ).toBeVisible();
+  }
+
+  await openPage(page, "Data");
 
   // Data release: every kind is listed, the fence says why it is kept.
   const release = page.locator("section", {
@@ -209,6 +231,7 @@ test("the overview shows every operator section with seeded data", async ({
   await expect(release.getByText(/^Neon: /)).toBeVisible();
 
   // Maintenance: the seeded run and an unreachable Worker in this sandbox.
+  await openPage(page, "Maintenance");
   const maintenance = page.locator("section", {
     has: page.locator("#maintenance-heading"),
   });
@@ -218,8 +241,9 @@ test("the overview shows every operator section with seeded data", async ({
     maintenance.getByRole("link", { name: /Cloudflare Workers Logs/ }),
   ).toHaveAttribute("href", /dash\.cloudflare\.com/);
 
+  await openPage(page, "Data");
   await page.screenshot({
-    path: test.info().outputPath("admin-overview.png"),
+    path: test.info().outputPath("admin-data.png"),
     fullPage: true,
   });
 });
@@ -240,7 +264,9 @@ test("operators fix anomalies, toggle collaboration, and set limits", async ({
   await expect(page.getByText("Room storage closed.")).toBeVisible();
   await expect(anomalies.getByText(ROOM_OPEN)).toHaveCount(0);
 
-  // Retry the failed cleanup row.
+  // The anomaly links to the failed cleanup on the Data page; retry it there.
+  await anomalies.getByRole("link", { name: "View details" }).click();
+  await expect(page).toHaveURL(/\/admin\/data#failed-cleanup-heading$/);
   const failed = page.locator("section", {
     has: page.locator("#failed-cleanup-heading"),
   });
@@ -249,6 +275,7 @@ test("operators fix anomalies, toggle collaboration, and set limits", async ({
   await expect(failed.getByText("No failed cleanup tasks.")).toBeVisible();
 
   // Turn collaboration off and back on.
+  await openPage(page, "Controls");
   const controls = page.locator("section", {
     has: page.locator("#controls-heading"),
   });
@@ -280,6 +307,7 @@ test("operators fix anomalies, toggle collaboration, and set limits", async ({
   await expect(rooms).toHaveValue("3");
 
   // A storage scan with fake credentials fails visibly, not silently.
+  await openPage(page, "Data");
   const release = page.locator("section", {
     has: page.locator("#release-heading"),
   });
@@ -287,6 +315,7 @@ test("operators fix anomalies, toggle collaboration, and set limits", async ({
   await expect(page.locator("[data-sonner-toast]").last()).toBeVisible();
 
   // Every action above is in the audit log.
+  await openPage(page, "Audit log");
   const audit = page.locator("section", {
     has: page.locator("#audit-heading"),
   });
@@ -306,7 +335,7 @@ test("operators look up a room and take an account's content down", async ({
   page,
 }) => {
   await signIn(page);
-  await page.goto("/admin");
+  await page.goto("/admin/rooms");
 
   const lookup = page.locator("section", {
     has: page.locator("#room-lookup-heading"),
@@ -315,7 +344,18 @@ test("operators look up a room and take an account's content down", async ({
   await lookup.getByRole("button", { name: "Search" }).click();
   await expect(lookup.getByText("storage ended")).toBeVisible();
 
-  await page.goto(`/admin/users/${TARGET}`);
+  // From the user list to the user page; the Users tab stays current.
+  await openPage(page, "Users");
+  await page
+    .getByRole("row", { name: /E2E Target/ })
+    .getByRole("link", { name: "Manage" })
+    .click();
+  await expect(page).toHaveURL(new RegExp(`/admin/users/${TARGET}$`));
+  await expect(
+    page
+      .getByRole("navigation", { name: "Admin pages" })
+      .getByRole("link", { name: "Users", exact: true }),
+  ).toHaveAttribute("aria-current", "page");
   await expect(
     page.getByRole("heading", { name: "Storage and exposure" }),
   ).toBeVisible();

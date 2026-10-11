@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { toast } from "sonner";
 
 import { AdminConfirmDialog } from "@/components/admin/admin-confirm-dialog";
@@ -26,12 +27,13 @@ type Scan = RouterOutputs["admin"]["scanStorageOrphans"];
 /** Neon's free tier; shown as context, not enforced here. */
 const NEON_FREE_BYTES = 512 * 1024 * 1024;
 
-const PLACE_ANCHORS: Record<string, string> = {
-  "user-page": "#users-heading",
-  "room-lookup": "#room-lookup-heading",
-  anomalies: "#anomalies-heading",
-  "failed-cleanup": "#failed-cleanup-heading",
-  controls: "#controls-heading",
+/** The console page where an operator releases each kind by hand. */
+const PLACE_LINKS: Record<string, string> = {
+  "user-page": "/admin/users",
+  "room-lookup": "/admin/rooms",
+  anomalies: "/admin",
+  "failed-cleanup": "/admin/data#failed-cleanup-heading",
+  controls: "/admin/controls",
 };
 
 function formatBytes(value: number): string {
@@ -231,15 +233,15 @@ export function AdminDataRelease() {
                               {t("release.scan")}
                             </Button>
                           ) : place ? (
-                            <a
-                              href={PLACE_ANCHORS[place]}
+                            <Link
+                              href={PLACE_LINKS[place] ?? "/admin"}
                               className={buttonVariants({
                                 variant: "ghost",
                                 size: "sm",
                               })}
                             >
                               {t(`release.place.${place}`)}
-                            </a>
+                            </Link>
                           ) : null}
                         </TableCell>
                       </TableRow>

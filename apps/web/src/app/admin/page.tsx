@@ -1,6 +1,6 @@
 import type { Metadata } from "next";
 
-import { AdminConsole } from "@/components/admin/admin-console";
+import { AdminOverview } from "@/components/admin/admin-overview";
 import { requireAdminPageSession } from "@/server/admin/page-access";
 
 export const metadata: Metadata = {
@@ -9,15 +9,6 @@ export const metadata: Metadata = {
 };
 
 export default async function AdminPage() {
-  const session = await requireAdminPageSession();
-
-  return (
-    <AdminConsole
-      actor={{
-        id: session.user.id,
-        name: session.user.name,
-        email: session.user.email,
-      }}
-    />
-  );
+  await requireAdminPageSession();
+  return <AdminOverview />;
 }

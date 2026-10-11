@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import {
   ArrowLeftIcon,
   DoorClosedIcon,
-  ShieldCheckIcon,
   ShieldMinusIcon,
   ShieldPlusIcon,
   Trash2Icon,
@@ -27,7 +26,6 @@ import {
   formatAdminDate,
 } from "@/components/admin/admin-display";
 import { AdminUserFootprint } from "@/components/admin/admin-user-footprint";
-import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -203,44 +201,19 @@ export function AdminUserConsole({
   }
 
   return (
-    <main className="bg-muted/30 text-foreground min-h-screen">
-      <header className="bg-background/95 supports-backdrop-filter:bg-background/80 sticky top-0 z-20 border-b backdrop-blur">
-        <div className="mx-auto flex max-w-7xl flex-col gap-3 px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
-          <div className="flex min-w-0 items-center gap-3">
-            <DrawstuffLogo className="size-8 shrink-0" />
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <h1 className="truncate font-semibold">
-                  {t("user.pageTitle")}
-                </h1>
-                <Badge variant="outline">
-                  <ShieldCheckIcon
-                    data-icon="inline-start"
-                    aria-hidden="true"
-                  />
-                  {t("role.admin")}
-                </Badge>
-              </div>
-              <p className="text-muted-foreground truncate text-xs">
-                {actor.name} · {actor.email}
-              </p>
-            </div>
-          </div>
-          <Link
-            href="/admin"
-            className={buttonVariants({
-              variant: "outline",
-              size: "sm",
-              className: "self-end",
-            })}
-          >
-            <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
-            {t("navigation.backToOverview")}
-          </Link>
-        </div>
-      </header>
-
-      <div className="mx-auto flex max-w-7xl flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
+    <>
+      <Link
+        href="/admin/users"
+        className={buttonVariants({
+          variant: "ghost",
+          size: "sm",
+          className: "self-start",
+        })}
+      >
+        <ArrowLeftIcon data-icon="inline-start" aria-hidden="true" />
+        {t("navigation.backToUsers")}
+      </Link>
+      <div className="flex flex-col gap-4">
         {target.isPending ? (
           <Card>
             <CardHeader>
@@ -258,13 +231,13 @@ export function AdminUserConsole({
             <CardContent>
               <p className="text-destructive">{target.error.message}</p>
               <Link
-                href="/admin"
+                href="/admin/users"
                 className={buttonVariants({
                   variant: "outline",
                   className: "mt-4",
                 })}
               >
-                {t("navigation.backToOverview")}
+                {t("navigation.backToUsers")}
               </Link>
             </CardContent>
           </Card>
@@ -542,6 +515,6 @@ export function AdminUserConsole({
         }}
         onConfirm={executeAction}
       />
-    </main>
+    </>
   );
 }

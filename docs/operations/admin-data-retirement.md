@@ -84,6 +84,21 @@ active administrator already exists. After the first grant, bootstrap cannot pro
 account. An existing operator uses the audited grant/revoke procedures for later access changes;
 bootstrap is never reused as a general grant mechanism.
 
+## Console pages
+
+The console is split into pages under one navigation (`apps/web/src/components/admin/admin-shell.tsx`);
+every page authorizes the operator itself.
+
+| Page | Contents |
+| --- | --- |
+| `/admin` Overview | headline counts, Needs attention |
+| `/admin/users` Users | user search, administrators-only filter; `/admin/users/[userId]` for one account |
+| `/admin/rooms` Rooms | room lookup with End room / Close storage |
+| `/admin/data` Data | data release map, storage orphans, failed file cleanup |
+| `/admin/maintenance` Maintenance | Worker health, run history, cleanup queue, run now, log links |
+| `/admin/controls` Controls | collaboration switch, per-account limits, signals |
+| `/admin/audit` Audit log | audit events with action and target filters |
+
 ## Invoke retirement procedures
 
 Sign in as an active operator and open `/admin`. The management interface supports user search,
