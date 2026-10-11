@@ -1,15 +1,7 @@
 import type { LifecycleCommand } from "@drawstuff/collaboration/authority";
 import type { Database } from "@/server/collab/rooms";
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 /** Runs inside a scene retirement, i.e. between deletion's checks and its transaction. */
@@ -74,34 +66,15 @@ vi.mock("uploadthing/server", () => ({
   },
 }));
 
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import { eq } from "drizzle-orm";
-import { createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
 import * as schema from "@/server/db/schema";
+import { openTestDatabase } from "./support/pglite-db";
+import { testCaller } from "./support/trpc-caller";
 
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 
-function callerFor(userId: string) {
-  return createCaller({
-    db: testDb,
-    headers: new Headers(),
-    auth: { session: { id: `session-${userId}` }, user: { id: userId } },
-  } as unknown as TRPCContext);
-}
+const callerFor = (userId: string) => testCaller(testDb, userId);
 
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-afterAll(() => client.close());
 beforeEach(async () => {
   lifecycleHook.onBegin = undefined;
   await testDb.delete(schema.collaborationLifecycleSubject);

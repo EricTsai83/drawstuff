@@ -1,41 +1,17 @@
 // @vitest-environment node
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("server-only", () => ({}));
 
-import { PGlite } from "@electric-sql/pglite";
-import { drizzle } from "drizzle-orm/pglite";
-import { pushSchema } from "drizzle-kit/api";
 import * as schema from "@/server/db/schema";
-import { createCaller } from "@/server/api/root";
-import type { createTRPCContext } from "@/server/api/trpc";
+import { openTestDatabase } from "./support/pglite-db";
+import { testCaller } from "./support/trpc-caller";
 
-type TRPCContext = Awaited<ReturnType<typeof createTRPCContext>>;
-
-const client = new PGlite();
-const testDb = drizzle(client, { schema });
+const testDb = openTestDatabase();
 
 const USER_A = "user-a";
 
-function callerFor(userId: string) {
-  const ctx = {
-    db: testDb,
-    headers: new Headers(),
-    auth: {
-      session: { id: `session-${userId}` },
-      user: { id: userId },
-    },
-  } as unknown as TRPCContext;
-  return createCaller(ctx);
-}
+const callerFor = (userId: string) => testCaller(testDb, userId);
 
 async function createScene(
   userId: string,
@@ -54,18 +30,6 @@ async function createScene(
   if (!row) throw new Error("failed to insert scene");
   return row.id;
 }
-
-beforeAll(async () => {
-  const { apply } = await pushSchema(
-    schema,
-    testDb as unknown as Parameters<typeof pushSchema>[1],
-  );
-  await apply();
-});
-
-afterAll(async () => {
-  await client.close();
-});
 
 beforeEach(async () => {
   await testDb.delete(schema.scene);
