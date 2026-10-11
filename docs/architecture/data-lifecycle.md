@@ -207,6 +207,13 @@ The Room DO itself deletes all of its storage once an ended room's fence and cle
 (or abandoned after 24 hours) and no connection remains; completed Lifecycle retirement objects
 release their storage one hour after completion.
 
+## Release principle
+
+Every kind of accumulating data has a release path, listed in the admin console's **Data release**
+section: system garbage and bookkeeping are released by maintenance jobs, user content only by an
+operator (never automatically), and retained data states why. See
+[admin operations](../operations/admin-data-retirement.md#data-release).
+
 ## Record retention
 
 The weekly `record-retention` job (`apps/web/src/server/maintenance/jobs.ts`) deletes bookkeeping
@@ -216,6 +223,7 @@ deployment:
 | Rows | Deleted when | Why it is safe |
 | --- | --- | --- |
 | `admin_audit_event` | older than 365 days | audit has no other retention requirement |
+| `maintenance_run` | older than 180 days | operator history of runs only |
 | `collaboration_operation` | terminal over 24 h | receipts only replay within `resultRetentionMs`; pending rows stay |
 | `collaboration_lifecycle_subject` | account/scene row gone, and unfrozen or retired over 30 days ago | identity and registration also require the user/scene row; frozen, unretired subjects (retirements in flight) are never deleted |
 | `collaboration_room` (ended) | storage fenced, data reclaimed, ended over 90 days ago | the creation fence stays and alone refuses the roomId |

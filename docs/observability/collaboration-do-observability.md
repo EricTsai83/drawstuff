@@ -147,7 +147,7 @@ SLO §5 的後端入口限制與 snapshot finalization reserve 都 fail open，�
 
 | 項目 | 內容                                                                                                                                                                       |
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 載體 | `apps/web` 的一行 JSON structured log，`event: "collab.ratelimit.degraded"`（`src/server/rate-limit/collaboration.ts`）                                                    |
+| 載體 | `apps/web` 的一行 JSON structured log，`event: "collab.ratelimit.degraded"`（`src/server/rate-limit/collaboration.ts`）；同時以 `ratelimit.degraded:<operation>` 計數到 Neon `ops_signal`（每個 instance 每分鐘至多寫一次），顯示在 `/admin` 的「控制項」 |
 | 欄位 | `operation`（`join`／`snapshot-put`／`snapshot-finalize`／`asset-upload`／`asset-resolve`）、`cause`（`timeout`／`exception`）；**沒有其他欄位**                           |
 | 條件 | 任何持續發生（相同故障以兩個封閉列舉聚合成率，而不是逐筆 grep）                                                                                                            |
 | 禁止 | identifier（`userId`／`roomId`）、Upstash endpoint 或 token、原始 error payload——Upstash SDK 的 error message 內含 REST URL 與呼叫時的 token（threat model §5 禁止欄位）  |

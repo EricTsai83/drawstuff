@@ -29,6 +29,7 @@ import {
   collaborationSnapshot,
   deferredFileCleanup,
   fileRecord,
+  maintenanceRun,
   scene,
   sharedScene,
   user,
@@ -38,6 +39,10 @@ import { retireAccount } from "@/server/admin/retirement";
 import { lockRoom, lockRoomId } from "@/server/collab/rooms";
 import { purgeEndedRoomRecords } from "@/server/collab/authority-projection";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
+import {
+  referencedStorageKeys,
+  STORAGE_ORPHAN_REASON,
+} from "@/server/storage/orphans";
 import {
   collectUserStorageKeys,
   enqueueStorageKeyCleanup,
@@ -291,6 +296,7 @@ const purgeFinishedQueueRowsJob: MaintenanceJob = {
 /** How long each kind of bookkeeping row outlives its purpose. */
 const RECORD_RETENTION = {
   adminAuditEventsMs: 365 * DAY_MS,
+  maintenanceRunsMs: 180 * DAY_MS,
   /** Replay window of a storage operation receipt (`resultRetentionMs`). */
   operationReceiptsMs: DAY_MS,
   retiredSubjectsMs: 30 * DAY_MS,
@@ -339,6 +345,13 @@ export const recordRetentionJob: MaintenanceJob = {
         ),
       )
       .returning({ id: adminAuditEvent.id });
+
+    const maintenanceRuns = await db
+      .delete(maintenanceRun)
+      .where(
+        lt(maintenanceRun.startedAt, ago(RECORD_RETENTION.maintenanceRunsMs)),
+      )
+      .returning({ id: maintenanceRun.id });
 
     const operations = await db
       .delete(collaborationOperation)
@@ -450,6 +463,7 @@ export const recordRetentionJob: MaintenanceJob = {
 
     return {
       auditEvents: auditEvents.length,
+      maintenanceRuns: maintenanceRuns.length,
       operationReceipts: operations.length,
       lifecycleSubjects: retiredSubjects.length,
       endedRooms: endedRooms.length,
@@ -957,15 +971,16 @@ export function createQueueDrainJob(
       let processed = 0;
       let rescheduled = 0;
       let failed = 0;
+      let stillReferenced = 0;
       let exhaustedBudget = false;
 
-      outer: while (processed + rescheduled + failed < maxTasks) {
+      const handled = () => processed + rescheduled + failed + stillReferenced;
+      outer: while (handled() < maxTasks) {
         if (budgetSpent()) {
           exhaustedBudget = true;
           break;
         }
-        const remainingAllowance =
-          maxTasks - (processed + rescheduled + failed);
+        const remainingAllowance = maxTasks - handled();
         const tasks = await QUERIES.getDueDeferredCleanups(
           Math.min(batchSize, remainingAllowance),
           deps.now(),
@@ -979,6 +994,20 @@ export function createQueueDrainJob(
             break outer;
           }
           try {
+            // A reconciled orphan is only a guess made at scan time; anything
+            // that started pointing at the key since then wins.
+            if (
+              task.reason === STORAGE_ORPHAN_REASON &&
+              (
+                await referencedStorageKeys(db, [task.utFileKey], {
+                  forQueueTask: task.id,
+                })
+              ).size > 0
+            ) {
+              await QUERIES.markDeferredCleanupDone(task.id);
+              stillReferenced += 1;
+              continue;
+            }
             await deps.deleteStorageFile(task.utFileKey);
             await QUERIES.markDeferredCleanupDone(task.id);
             processed += 1;
@@ -1009,7 +1038,14 @@ export function createQueueDrainJob(
 
       // What a capped run leaves behind must be visible, not silent.
       const remaining = await QUERIES.countDueDeferredCleanups(deps.now());
-      return { processed, rescheduled, failed, remaining, exhaustedBudget };
+      return {
+        processed,
+        rescheduled,
+        failed,
+        stillReferenced,
+        remaining,
+        exhaustedBudget,
+      };
     },
   };
 }

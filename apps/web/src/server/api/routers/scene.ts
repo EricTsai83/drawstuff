@@ -31,15 +31,13 @@ import {
   type SaveOwnedSceneResult,
 } from "@/server/scene/save-owned-scene";
 import { retireScene } from "@/server/admin/retirement";
+import { unpublishScene } from "@/server/scene/unpublish";
 import { enforcePublicSceneReadRateLimit } from "@/server/rate-limit/shared-scene";
 import {
   applyPublishedArtifacts,
-  CLEARED_PUBLISHED_ARTIFACT_COLUMNS,
   publishedArtifactsInputSchema,
-  readPublishedArtifacts,
   type PublishedArtifactsOutcome,
 } from "@/server/scene/published-artifacts";
-import { enqueueStorageKeyCleanup } from "@/server/storage/reclaim";
 
 const publishMutationOutput = z.object({
   slug: z.string(),
@@ -671,41 +669,18 @@ export const sceneRouter = createTRPCRouter({
   unpublish: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .mutation(async ({ ctx, input }) => {
-      const now = new Date();
-      return await ctx.db.transaction(async (tx) => {
-        const [ownedScene] = await tx
-          .select({ id: scene.id })
-          .from(scene)
-          .where(
-            and(eq(scene.id, input.id), eq(scene.userId, ctx.auth.user.id)),
-          )
-          .for("update");
-        if (!ownedScene) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Scene not found",
-          });
-        }
-        // 成品只服務公開頁：撤回公開時清指標並把兩個物件排進 outbox。
-        const artifacts = await readPublishedArtifacts(tx, input.id);
-        await tx
-          .update(scene)
-          .set({
-            isPublished: false,
-            publishedSlug: null,
-            publishedAt: null,
-            updatedAt: now,
-            ...CLEARED_PUBLISHED_ARTIFACT_COLUMNS,
-          })
-          .where(eq(scene.id, input.id));
-        await enqueueStorageKeyCleanup(
-          tx,
-          artifacts?.keys ?? [],
-          "unpublish-scene",
-          { sceneId: input.id },
-        );
-        return { id: ownedScene.id };
-      });
+      const unpublished = await unpublishScene(
+        ctx.db,
+        input.id,
+        ctx.auth.user.id,
+      );
+      if (!unpublished) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "Scene not found",
+        });
+      }
+      return unpublished;
     }),
 
   getPublishedSceneBySlug: publicProcedure

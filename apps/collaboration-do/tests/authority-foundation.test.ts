@@ -1749,4 +1749,56 @@ describe("bounded retries", () => {
       expect(a.nextDeadline()).toBeUndefined();
     });
   });
+
+  it("caps opener records by evicting the least recently opened link visitor", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "viewer");
+      await send(a, {
+        action: "allow-email",
+        email: guest.email,
+        role: "editor",
+      });
+      // The invited guest is the oldest record but is never evicted.
+      state.storage.sql.exec(
+        "INSERT INTO authority_members VALUES (?,?,1,0)",
+        guest.subject,
+        guest.email,
+      );
+      for (let i = 0; i < 254; i += 1)
+        state.storage.sql.exec(
+          "INSERT INTO authority_members VALUES (?,?,1,?)",
+          `link-${i}`,
+          `link-${i}@example.com`,
+          i + 1,
+        );
+      const count = () =>
+        state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT count(*) AS count FROM authority_members",
+          )
+          .one().count;
+      expect(count()).toBe(256);
+
+      await join(a, {
+        subject: "newcomer",
+        email: "newcomer@example.com",
+        lifecycleVersion: 1,
+      });
+      expect(count()).toBe(256);
+      const subjects = state.storage.sql
+        .exec<{ subject: string }>("SELECT subject FROM authority_members")
+        .toArray()
+        .map((row) => row.subject);
+      expect(subjects).toContain("newcomer");
+      expect(subjects).toContain(guest.subject);
+      expect(subjects).toContain(owner.subject);
+      expect(subjects).not.toContain("link-0");
+      // The evicted visitor's list row is withdrawn.
+      expect(queuedProjections(state).members.get("link-0")).toMatchObject({
+        role: null,
+        access: null,
+      });
+    });
+  });
 });

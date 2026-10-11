@@ -17,9 +17,11 @@ import {
 } from "@/server/collab/relay-routing";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
 import { collaborationRoom, scene } from "@/server/db/schema";
+import { assertWithinQuota, QuotaExceededError } from "@/server/quota";
 
-function configured() {
-  if (collaborationRoomsDisabled()) throw collaborationRoomsDisabledError();
+async function configured() {
+  if (await collaborationRoomsDisabled())
+    throw collaborationRoomsDisabledError();
   if (!env.COLLAB_IDENTITY_SECRET || !env.COLLAB_AUTHORITY_SECRET)
     throw new TRPCError({ code: "SERVICE_UNAVAILABLE" });
   return {
@@ -43,7 +45,7 @@ export const collaborationAuthorityRouter = createTRPCRouter({
   findForScene: protectedProcedure
     .input(z.strictObject({ sceneId: z.uuid() }))
     .query(async ({ ctx, input }) => {
-      configured();
+      await configured();
       const source = await ctx.db.query.scene.findFirst({
         where: and(
           eq(scene.id, input.sceneId),
@@ -65,7 +67,7 @@ export const collaborationAuthorityRouter = createTRPCRouter({
   identity: protectedProcedure
     .input(z.strictObject({ roomId: roomIdSchema }))
     .mutation(async ({ ctx, input }) => {
-      const config = configured();
+      const config = await configured();
       await enforceCollaborationRateLimit({
         operation: "join",
         identifier: ctx.auth.user.id,
@@ -93,7 +95,18 @@ export const collaborationAuthorityRouter = createTRPCRouter({
   execute: protectedProcedure
     .input(authorityRequestSchema)
     .mutation(async ({ ctx, input }) => {
-      const config = configured();
+      const config = await configured();
+      if (input.action === "create") {
+        try {
+          await assertWithinQuota(ctx.db, ctx.auth.user.id, "activeRooms", 1);
+        } catch (error) {
+          if (!(error instanceof QuotaExceededError)) throw error;
+          throw new TRPCError({
+            code: "PRECONDITION_FAILED",
+            message: "Live room limit reached. End a room to create another.",
+          });
+        }
+      }
       await enforceCollaborationRateLimit({
         operation: "join",
         identifier: ctx.auth.user.id,

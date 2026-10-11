@@ -1361,6 +1361,7 @@ describe("record retention", () => {
     const { deps } = makeDeps();
     await expect(recordRetentionJob.run(deps)).resolves.toEqual({
       auditEvents: 1,
+      maintenanceRuns: 0,
       operationReceipts: 1,
       lifecycleSubjects: 2,
       endedRooms: 1,

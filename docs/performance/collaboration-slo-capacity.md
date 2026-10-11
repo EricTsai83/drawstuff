@@ -53,6 +53,7 @@ Room state 是 per-room Durable Object 的內部狀態：一個 roomId 對應一
 | 單一 room 成員數              | 32（`MAX_CONNECTIONS_PER_ROOM`）   | 保守的 abuse/resource bound；不是 32 人、120 Hz 或任何 workload shape 的支援保證           |
 | 未 join socket／Object        | 32（`MAX_PENDING_SOCKETS`，§9.3）  | unauthenticated 防護界；超限在 upgrade 前以 HTTP 503 拒絕                                  |
 | 總 socket／Object             | 64（`MAX_ROOM_SOCKETS`，§9.3）     | Object 資源防護界；超限在 upgrade 前以 HTTP 503 拒絕，先 reap 死連線再套 cap               |
+| 開啟紀錄／room                | 256（`MAX_MEMBER_RECORDS`）        | 每次全房變更（結束、改一般存取權）對每筆紀錄送一次列表投影（一次 web adapter 呼叫＋一次 Neon 寫入），所以紀錄數就是這類變更的成本上限；滿了淘汰最久沒開啟的「透過連結開啟」紀錄（存取權仍來自連結），擁有者與受邀者（上限 200）不淘汰 |
 
 Durable Object 可以維持大量低活動 WebSocket，但每個 Object 仍是 single-threaded，且本協定對每個
 accepted frame 做 O(members) fanout。連線平台上限不能推導為活躍共編容量；本專案只驗證小群組
