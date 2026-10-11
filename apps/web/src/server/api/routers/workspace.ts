@@ -14,18 +14,39 @@ import {
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
 
+const workspaceColumns = {
+  id: workspace.id,
+  name: workspace.name,
+  description: workspace.description,
+  createdAt: workspace.createdAt,
+  updatedAt: workspace.updatedAt,
+};
+
+type WorkspaceRow = Pick<
+  typeof workspace.$inferSelect,
+  keyof typeof workspaceColumns
+>;
+
+/** Wire shape: dates as ISO strings. */
+function toWorkspaceDto(row: WorkspaceRow) {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description,
+    createdAt: row.createdAt.toISOString(),
+    updatedAt: row.updatedAt.toISOString(),
+  };
+}
+
+const workspaceNotFound = () =>
+  new TRPCError({ code: "NOT_FOUND", message: "Workspace not found" });
+
 export const workspaceRouter = createTRPCRouter({
   getOwned: protectedProcedure
     .input(z.object({ id: z.uuid() }))
     .query(async ({ ctx, input }) => {
       const [ownedWorkspace] = await ctx.db
-        .select({
-          id: workspace.id,
-          name: workspace.name,
-          description: workspace.description,
-          createdAt: workspace.createdAt,
-          updatedAt: workspace.updatedAt,
-        })
+        .select(workspaceColumns)
         .from(workspace)
         .where(
           and(
@@ -35,58 +56,35 @@ export const workspaceRouter = createTRPCRouter({
         )
         .limit(1);
 
-      if (!ownedWorkspace) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Workspace not found",
-        });
-      }
-
-      return {
-        ...ownedWorkspace,
-        createdAt: ownedWorkspace.createdAt.toISOString(),
-        updatedAt: ownedWorkspace.updatedAt.toISOString(),
-      };
+      if (!ownedWorkspace) throw workspaceNotFound();
+      return toWorkspaceDto(ownedWorkspace);
     }),
 
   // 一次回傳清單與 meta（default / lastActive）
   listWithMeta: protectedProcedure.query(async ({ ctx }) => {
     const userId = ctx.auth.user.id;
 
-    const workspaceRows = await ctx.db
-      .select({
-        id: workspace.id,
-        name: workspace.name,
-        description: workspace.description,
-        createdAt: workspace.createdAt,
-        updatedAt: workspace.updatedAt,
-      })
-      .from(workspace)
-      .where(eq(workspace.userId, userId))
-      .orderBy(workspace.updatedAt);
-
-    const [defaultWorkspaceMapping] = await ctx.db
-      .select({ workspaceId: userDefaultWorkspace.workspaceId })
-      .from(userDefaultWorkspace)
-      .where(eq(userDefaultWorkspace.userId, userId))
-      .limit(1);
-
-    const [lastActiveWorkspaceMapping] = await ctx.db
-      .select({ workspaceId: userLastActiveWorkspace.workspaceId })
-      .from(userLastActiveWorkspace)
-      .where(eq(userLastActiveWorkspace.userId, userId))
-      .limit(1);
+    const [workspaceRows, [defaultMapping], [lastActiveMapping]] =
+      await Promise.all([
+        ctx.db
+          .select(workspaceColumns)
+          .from(workspace)
+          .where(eq(workspace.userId, userId))
+          .orderBy(workspace.updatedAt),
+        ctx.db
+          .select({ workspaceId: userDefaultWorkspace.workspaceId })
+          .from(userDefaultWorkspace)
+          .where(eq(userDefaultWorkspace.userId, userId)),
+        ctx.db
+          .select({ workspaceId: userLastActiveWorkspace.workspaceId })
+          .from(userLastActiveWorkspace)
+          .where(eq(userLastActiveWorkspace.userId, userId)),
+      ]);
 
     return {
-      workspaces: workspaceRows.map((workspaceRow) => ({
-        id: workspaceRow.id,
-        name: workspaceRow.name,
-        description: workspaceRow.description,
-        createdAt: workspaceRow.createdAt.toISOString(),
-        updatedAt: workspaceRow.updatedAt.toISOString(),
-      })),
-      defaultWorkspaceId: defaultWorkspaceMapping?.workspaceId ?? null,
-      lastActiveWorkspaceId: lastActiveWorkspaceMapping?.workspaceId ?? null,
+      workspaces: workspaceRows.map(toWorkspaceDto),
+      defaultWorkspaceId: defaultMapping?.workspaceId ?? null,
+      lastActiveWorkspaceId: lastActiveMapping?.workspaceId ?? null,
     };
   }),
 
@@ -100,20 +98,14 @@ export const workspaceRouter = createTRPCRouter({
           description: input.description,
           userId: ctx.auth.user.id,
         })
-        .returning();
+        .returning(workspaceColumns);
       if (!createdWorkspace) {
         throw new TRPCError({
           code: "INTERNAL_SERVER_ERROR",
           message: "Failed to create workspace",
         });
       }
-      return {
-        id: createdWorkspace.id,
-        name: createdWorkspace.name,
-        description: createdWorkspace.description,
-        createdAt: createdWorkspace.createdAt.toISOString(),
-        updatedAt: createdWorkspace.updatedAt.toISOString(),
-      };
+      return toWorkspaceDto(createdWorkspace);
     }),
 
   // 確保存在預設 workspace（不存在才建立）
@@ -205,10 +197,7 @@ export const workspaceRouter = createTRPCRouter({
         .where(eq(workspace.id, input.workspaceId))
         .limit(1);
       if (owned?.userId !== userId) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Workspace not found",
-        });
+        throw workspaceNotFound();
       }
 
       // UPSERT by userId（原子化，避免競態）
@@ -229,20 +218,6 @@ export const workspaceRouter = createTRPCRouter({
   update: protectedProcedure
     .input(workspaceUpdateSchema)
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.auth.user.id;
-
-      const [owned] = await ctx.db
-        .select({ userId: workspace.userId })
-        .from(workspace)
-        .where(eq(workspace.id, input.id))
-        .limit(1);
-      if (owned?.userId !== userId) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Workspace not found",
-        });
-      }
-
       const [updated] = await ctx.db
         .update(workspace)
         .set({
@@ -250,23 +225,15 @@ export const workspaceRouter = createTRPCRouter({
           description: input.description,
           updatedAt: new Date(),
         })
-        .where(eq(workspace.id, input.id))
-        .returning();
-
-      if (!updated) {
-        throw new TRPCError({
-          code: "INTERNAL_SERVER_ERROR",
-          message: "Failed to update workspace",
-        });
-      }
-
-      return {
-        id: updated.id,
-        name: updated.name,
-        description: updated.description,
-        createdAt: updated.createdAt.toISOString(),
-        updatedAt: updated.updatedAt.toISOString(),
-      };
+        .where(
+          and(
+            eq(workspace.id, input.id),
+            eq(workspace.userId, ctx.auth.user.id),
+          ),
+        )
+        .returning(workspaceColumns);
+      if (!updated) throw workspaceNotFound();
+      return toWorkspaceDto(updated);
     }),
 
   // 刪除 workspace（禁止刪除預設 workspace）。同時處理 lastActive 指向。
@@ -282,25 +249,16 @@ export const workspaceRouter = createTRPCRouter({
         .where(eq(workspace.id, input.id))
         .limit(1);
       if (target?.userId !== userId) {
-        throw new TRPCError({
-          code: "NOT_FOUND",
-          message: "Workspace not found",
-        });
+        throw workspaceNotFound();
       }
 
-      // 取預設與最後啟用對應
       const [defaultMapping] = await ctx.db
         .select({ workspaceId: userDefaultWorkspace.workspaceId })
         .from(userDefaultWorkspace)
         .where(eq(userDefaultWorkspace.userId, userId))
         .limit(1);
-      const [lastActiveMapping] = await ctx.db
-        .select({ workspaceId: userLastActiveWorkspace.workspaceId })
-        .from(userLastActiveWorkspace)
-        .where(eq(userLastActiveWorkspace.userId, userId))
-        .limit(1);
 
-      // 禁止刪除預設 workspace
+      // 禁止刪除預設 workspace（退休 scene 之前就要擋下）
       if (defaultMapping?.workspaceId === input.id) {
         throw new TRPCError({
           code: "BAD_REQUEST",
@@ -326,47 +284,39 @@ export const workspaceRouter = createTRPCRouter({
           });
       }
       await ctx.db.transaction(async (tx) => {
-        // 若 lastActive 指向此 workspace，事先調整
-        if (lastActiveMapping?.workspaceId === input.id) {
-          if (
-            defaultMapping?.workspaceId &&
-            defaultMapping.workspaceId !== input.id
-          ) {
-            await tx
-              .insert(userLastActiveWorkspace)
-              .values({
-                userId,
-                workspaceId: defaultMapping.workspaceId,
-                updatedAt: new Date(),
-              })
-              .onConflictDoUpdate({
-                target: userLastActiveWorkspace.userId,
-                set: {
-                  workspaceId: defaultMapping.workspaceId,
-                  updatedAt: new Date(),
-                },
-              });
-          } else {
-            // 若沒有 default 映射，直接刪除 lastActive 記錄以解除限制
-            await tx
-              .delete(userLastActiveWorkspace)
-              .where(eq(userLastActiveWorkspace.userId, userId));
-          }
-        }
-
-        // 先鎖 workspace row 再枚舉：move／create scene 進這個 workspace 需要
-        // 它的 FOREIGN KEY（KEY SHARE lock），會被 FOR UPDATE 擋住，所以枚舉後
-        // 不可能再有 scene 進來、逃過空白檢查。同時重新驗證歸屬。
+        // 先鎖 workspace row 再枚舉：move／create scene 進這個 workspace、
+        // 以及 setLastActive 指向它，都需要它的 FOREIGN KEY（KEY SHARE lock），
+        // 會被 FOR UPDATE 擋住，所以鎖後讀到的 scene 與 lastActive 不會再變。
+        // 同時重新驗證歸屬。
         const [lockedWorkspace] = await tx
           .select({ id: workspace.id })
           .from(workspace)
           .where(and(eq(workspace.id, input.id), eq(workspace.userId, userId)))
           .for("update");
         if (!lockedWorkspace) {
-          throw new TRPCError({
-            code: "NOT_FOUND",
-            message: "Workspace not found",
-          });
+          throw workspaceNotFound();
+        }
+
+        // lastActive 的 FK 是 restrict：指向此 workspace 時必須在刪除前改指
+        // default（沒有 default 就移除），否則 DELETE 會被 FK 擋下。
+        const [lastActiveMapping] = await tx
+          .select({ workspaceId: userLastActiveWorkspace.workspaceId })
+          .from(userLastActiveWorkspace)
+          .where(eq(userLastActiveWorkspace.userId, userId));
+        if (lastActiveMapping?.workspaceId === input.id) {
+          if (defaultMapping) {
+            await tx
+              .update(userLastActiveWorkspace)
+              .set({
+                workspaceId: defaultMapping.workspaceId,
+                updatedAt: new Date(),
+              })
+              .where(eq(userLastActiveWorkspace.userId, userId));
+          } else {
+            await tx
+              .delete(userLastActiveWorkspace)
+              .where(eq(userLastActiveWorkspace.userId, userId));
+          }
         }
 
         // 所有既有 scene 已經 Lifecycle 退休；只有鎖內仍空白才能安全刪 workspace。

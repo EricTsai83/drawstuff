@@ -159,7 +159,7 @@ rollout checklist and standing requirements live in
 - **Exfiltration-outlet convergence (CSP `connect-src`)**: the browser may open network
   connections only to the app origin, the relay origin, UploadThing's ingest/file hosts, and the
   official Excalidraw library host. `apps/web/src/config/security-headers.ts` is the single
-  source; `apps/web/tests/security-headers.test.ts` pins the allowlist, rejects wildcard
+  source; `apps/web/tests/platform/security-headers.test.ts` pins the allowlist, rejects wildcard
   origins, and keeps dev relaxations out of production. CSP does not stop exfiltration to an
   allowlisted origin, including our own.
 - **Asset self-hosting**: `window.EXCALIDRAW_ASSET_PATH` points canvas fonts and CJK subset

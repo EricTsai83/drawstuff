@@ -54,7 +54,7 @@ type OverlayChrome = {
 function getOverlayChrome(match: WorkspaceRouteMatch | null): OverlayChrome {
   if (!match) {
     // `@overlay/(modal)` 只放 match 得到的路由，正常不會走到這裡；
-    // tests/workspace-routes.test.ts 會擋住新增卻沒登記的 modal 路由。
+    // tests/scene/workspace-routes.test.ts 會擋住新增卻沒登記的 modal 路由。
     return {
       titleKey: "workspace.route.description",
       headerClassName: BANNER_HEADER_CLASSNAME,

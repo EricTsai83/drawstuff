@@ -246,7 +246,7 @@ not an acceptable substitute because it bypasses those guarantees.
 
 ### What account retirement removes
 
-`tests/account-retirement-inventory.test.ts` seeds an account across the schema, retires it, and
+`tests/admin/account-retirement-inventory.test.ts` seeds an account across the schema, retires it, and
 asserts that no user-ID column (`user_id`, `owner_id`, `subject`, `updated_by`, `registered_by`,
 `actor_user_id`, `granted_by_user_id`) still points at it except the retained record below.
 

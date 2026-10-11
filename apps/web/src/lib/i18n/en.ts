@@ -565,6 +565,8 @@ export const en = {
   "toast.export.fileSaveFailed": "Failed to save the file. Try again.",
   "toast.export.imageFailed": "Failed to export the image. Try again.",
   "errors.failedToExportScene": "Failed to export scene. Try again.",
+  "errors.sharedFilesDownloadFailed":
+    "{count} image(s) could not be downloaded. Reload the page to try again.",
   "errors.exportInProgress": "An export is already in progress.",
   "errors.emptyCanvas": "An empty canvas cannot be exported.",
 };

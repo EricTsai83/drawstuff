@@ -123,7 +123,7 @@ export async function handleSceneSave(
   }
 }
 
-// 回滾 shared scene：刪除已上傳的 UploadThing 檔案與 DB 紀錄
+// 回滾 shared scene：刪除 DB 紀錄，並把已上傳的物件交給 deferred cleanup outbox
 export async function rollbackSharedScene(sharedSceneId: string) {
   const session = await getServerSession();
 
@@ -135,37 +135,41 @@ export async function rollbackSharedScene(sharedSceneId: string) {
   }
 
   try {
-    const ownerId = await QUERIES.getSharedSceneOwnerId(sharedSceneId);
-    if (!ownerId || ownerId !== session.user.id) {
+    // Same shape as shared-scene expiry: lock the parent so no file-record
+    // insert (which needs its FOR KEY SHARE) slips in, enqueue the keys, then
+    // let the cascade delete the records. Once the rows are gone the outbox
+    // row is the only pointer to each object, so it must commit with them.
+    const deleted = await db.transaction(async (tx) => {
+      const [row] = await tx
+        .select({ ownerId: sharedScene.ownerId })
+        .from(sharedScene)
+        .where(eq(sharedScene.sharedSceneId, sharedSceneId))
+        .for("update");
+      if (row?.ownerId !== session.user.id) return false;
+
+      const records = await tx
+        .select({ key: fileRecord.utFileKey })
+        .from(fileRecord)
+        .where(eq(fileRecord.sharedSceneId, sharedSceneId));
+      await enqueueStorageKeyCleanup(
+        tx,
+        records.map((record) => record.key),
+        "sharedScene_rollback",
+        { sharedSceneId },
+      );
+      await tx
+        .delete(sharedScene)
+        .where(eq(sharedScene.sharedSceneId, sharedSceneId));
+      return true;
+    });
+
+    if (!deleted) {
       return {
         success: false,
         errorMessage:
           "Scene not found. It may have been deleted or you lack permission",
       } as const;
     }
-
-    // 尋找該 sharedScene 已建立的檔案紀錄，準備刪除遠端檔案
-    const records = await QUERIES.getFileRecordsBySharedSceneId(sharedSceneId);
-    const fileKeys = records.map((r) => r.utFileKey).filter(Boolean);
-
-    if (fileKeys.length > 0) {
-      try {
-        const utapi = new UTApi();
-        await utapi.deleteFiles(fileKeys);
-      } catch (deleteErr) {
-        console.error(
-          "Failed to delete uploaded files from UploadThing:",
-          deleteErr,
-        );
-        // 繼續回滾 DB，避免殘留無效資料
-      }
-    }
-
-    // 最後刪除 shared_scene（會連帶刪除 file_record）
-    await db
-      .delete(sharedScene)
-      .where(eq(sharedScene.sharedSceneId, sharedSceneId));
-
     return { success: true } as const;
   } catch (error) {
     console.error("Error during rollbackSharedScene:", error);
@@ -480,17 +484,20 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
       } as const;
     }
 
-    const utapi = new UTApi();
     // Only objects whose record is gone (or never existed) are removed; a
-    // retained record must keep its bytes.
-    for (const fileKey of plan.deletableKeys) {
+    // retained record must keep its bytes. One batched request; if it fails,
+    // the outbox drain retries every key (deleting a missing key is a no-op).
+    if (plan.deletableKeys.length > 0) {
       try {
-        await utapi.deleteFiles([fileKey]);
+        await new UTApi().deleteFiles(plan.deletableKeys);
       } catch (deleteErr) {
-        console.error("Failed to delete uploaded scene asset:", deleteErr);
-        await enqueueStorageKeyCleanup(db, [fileKey], "scene-save-aborted", {
-          sceneId,
-        });
+        console.error("Failed to delete uploaded scene assets:", deleteErr);
+        await enqueueStorageKeyCleanup(
+          db,
+          plan.deletableKeys,
+          "scene-save-aborted",
+          { sceneId },
+        );
       }
     }
 

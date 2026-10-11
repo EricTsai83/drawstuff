@@ -11,6 +11,7 @@
     "baseline:performance:e2e": "pnpm --filter @drawstuff/web baseline:performance:e2e",
     "build": "turbo run build",
     "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm knip",
+    "check:affected": "turbo run lint typecheck test --affected",
     "cf:conformance": "pnpm --filter @drawstuff/collaboration-do conformance:remote",
     "cf:deploy": "pnpm --filter @drawstuff/collaboration-do run deploy",
     "cf:loadtest": "pnpm --filter @drawstuff/collaboration-do loadtest",

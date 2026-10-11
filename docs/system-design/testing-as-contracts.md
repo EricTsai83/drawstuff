@@ -98,7 +98,7 @@ fixture 需要被其他 package 的測試使用時，開一個 `./testing` 公�
 ## 本專案中的實例
 
 - 契約測試群：`packages/collaboration/tests/package-contract.test.ts`、
-  `apps/web/tests/security-headers.test.ts`、`apps/web/tests/workspace-routes.test.ts`、
+  `apps/web/tests/platform/security-headers.test.ts`、`apps/web/tests/scene/workspace-routes.test.ts`、
   `apps/collaboration-do/tests/config-audit.test.ts`。
 - tripwire：`packages/excalidraw-adapter/tests/upstream-capability-audit.test.ts`、
   `room-policy.ts` 的 module-load assertion。

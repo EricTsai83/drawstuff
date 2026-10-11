@@ -5,6 +5,7 @@ import {
   compressData,
   decompressData,
 } from "@/lib/encode";
+import { sha256Hex } from "@/lib/sha256";
 
 export const PERSONAL_LIBRARY_FORMAT_VERSION = 1;
 export const PERSONAL_LIBRARY_MAX_COMPRESSED_BYTES = 3 * 1024 * 1024;
@@ -80,13 +81,8 @@ export function encodePersonalLibraryBase64(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export async function personalLibraryChecksum(
-  bytes: Uint8Array,
-): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes.slice().buffer);
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
+export function personalLibraryChecksum(bytes: Uint8Array): Promise<string> {
+  return sha256Hex(bytes);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

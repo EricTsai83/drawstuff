@@ -103,7 +103,7 @@ flowchart LR
   `scene.publish`）時，以 `src/lib/render-published-artifacts.ts` 產生**一份** SVG
   （`skipInliningFonts`、`exportBackground: true`、`exportEmbedScene: false`、連結硬化），上傳到
   與縮圖相同的 storage，`/p/[slug]` 下載這一份、以屬性切換主題，不載入 Excalidraw
-  （`tests/published-viewer-engine-free.test.ts` 釘住）。決策與 trade-off：
+  （`tests/publish/published-viewer-engine-free.test.ts` 釘住）。決策與 trade-off：
   - **儲存時渲染，發布補齊**（而非只在發布時）：公開頁語意不變（永遠是最新儲存），作者不必
     學「發布版本」；代價是已發布場景每次儲存多兩個上傳。要改「草稿／公開版分離」只需停止
     儲存時渲染，成品格式與 viewer 不變。
@@ -113,7 +113,7 @@ flowchart LR
     現在 `mergeThemeVariants` **比對引擎自己的兩份輸出**，把實際有差的屬性記進
     `data-theme-variants`，viewer 以 `applyArtifactTheme` 寫屬性切換，零網路。
     關鍵是不自行判斷哪些屬性跟主題有關——那是上游的決定，抄過來就會漂移；
-    `tests/published-artifact-theme-drift.test.ts` 跑真實引擎，
+    `tests/publish/published-artifact-theme-drift.test.ts` 跑真實引擎，
     上游哪天改成用結構差異表達深色模式就會紅。
   - **合併後才做後處理**：`mergeThemeVariants` 需要逐節點對齊引擎的兩棵樹，所以
     `hardenSvgLinks` 與 `convertImageFiltersToSvgFilters` 都在合併之後、對合併結果執行。

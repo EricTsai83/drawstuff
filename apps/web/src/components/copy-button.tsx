@@ -5,7 +5,7 @@ import { CopyIcon } from "lucide-react";
 import { toast } from "sonner";
 import { useAppI18n } from "@/hooks/use-app-i18n";
 import { Button } from "@/components/ui/button";
-import { copyTextToSystemClipboard } from "@/lib/utils";
+import { copyTextToSystemClipboard } from "@/lib/clipboard";
 
 type CopyButtonProps = {
   textToCopy: string;

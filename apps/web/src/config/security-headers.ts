@@ -1,6 +1,6 @@
 // Security headers 與 CSP 的單一來源（threat model B6/T16；ADR-0004）。
 // `next.config.ts` 的 `headers()` 在 build 時呼叫這裡，值凍結進部署——env 改變
-// 即重新部署，與現行部署模型一致。政策由 `tests/security-headers.test.ts` 釘住。
+// 即重新部署，與現行部署模型一致。政策由 `tests/platform/security-headers.test.ts` 釘住。
 //
 // CSP 是 defense-in-depth，不是授權機制（CLAIM-CDB-3）：`connect-src` 收斂
 // 「把分享連結金鑰送出去」的出口，但不阻止送往 allowlist 內的 origin，也不使

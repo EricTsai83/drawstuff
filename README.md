@@ -110,17 +110,19 @@ only the server-safe collaboration entries. See the
 
 ## Useful Scripts
 
-| Command                                         | Purpose                                                  |
-| ----------------------------------------------- | -------------------------------------------------------- |
-| `pnpm dev`                                      | Start the web development server                         |
-| `pnpm build`                                    | Build all workspaces                                     |
-| `pnpm check`                                    | Run formatting, lint, types, tests, and dead-code checks |
-| `pnpm lint`                                     | Run ESLint                                               |
-| `pnpm typecheck`                                | Run TypeScript checks                                    |
-| `pnpm test`                                     | Run unit tests                                           |
-| `pnpm test:e2e`                                 | Run Playwright tests                                     |
-| `pnpm db:push`                                  | Push the Drizzle schema to the configured database       |
-| `pnpm admin:bootstrap --email user@example.com` | Provision the first operator                             |
+| Command                                         | Purpose                                                   |
+| ----------------------------------------------- | --------------------------------------------------------- |
+| `pnpm dev`                                      | Start the web development server                          |
+| `pnpm build`                                    | Build all workspaces                                      |
+| `pnpm check`                                    | Run formatting, lint, types, tests, and dead-code checks  |
+| `pnpm lint`                                     | Run ESLint                                                |
+| `pnpm typecheck`                                | Run TypeScript checks                                     |
+| `pnpm test`                                     | Run unit tests                                            |
+| `pnpm check:affected`                           | Lint, typecheck, and test only packages changed vs `main` |
+| `pnpm --filter @drawstuff/web test:changed`     | Run only web tests that import files changed vs `main`    |
+| `pnpm test:e2e`                                 | Run Playwright tests                                      |
+| `pnpm db:push`                                  | Push the Drizzle schema to the configured database        |
+| `pnpm admin:bootstrap --email user@example.com` | Provision the first operator                              |
 
 Cloudflare commands such as `pnpm cf:preflight`, `pnpm cf:deploy`, and `pnpm cf:smoke` are described
 in the [Worker README](./apps/collaboration-do/README.md).

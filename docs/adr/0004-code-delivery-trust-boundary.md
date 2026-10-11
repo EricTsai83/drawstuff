@@ -55,7 +55,7 @@ origin（含自家 origin）。文件必須這樣描述，不得暗示 CSP 使 E
 CSP 與相關 headers 由 `apps/web/src/config/security-headers.ts` 產生、`next.config.ts`
 `headers()` 於 build 時凍結進部署，不在 Vercel dashboard 手動維護。allowlist 的每個
 origin 都有已盤點的觸發點；不得放寬成萬用網域（`*` 或 `https:`）。
-`apps/web/tests/security-headers.test.ts` 釘住：`connect-src` 精確等於核准清單、
+`apps/web/tests/platform/security-headers.test.ts` 釘住：`connect-src` 精確等於核准清單、
 UploadThing token 缺失時 fail build 而非退回 `*.ufs.sh`、dev 放寬不進 production、
 `frame-src` 精確等於 embed 決策、無 `report-uri`/`report-to`、esm.sh 不出現在任何
 directive。

@@ -51,4 +51,4 @@ server-resolved 狀態（主題、feature flag、A/B 分組）都適用。
 - 全套設計（含字典型別推導、dynamic import 分 chunk）：
   [i18n architecture](../architecture/i18n-architecture.md)。
 - 實作：`apps/web/src/lib/i18n/`、`src/hooks/i18n-context.tsx`、global error 頁；
-  測試 `tests/i18n-provider.test.tsx`、`tests/i18n-request-language.test.ts`。
+  測試 `tests/platform/i18n-provider.test.tsx`、`tests/platform/i18n-request-language.test.ts`。

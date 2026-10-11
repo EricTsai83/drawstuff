@@ -8,7 +8,7 @@ import { enforcePublicSceneReadRateLimit } from "@/server/rate-limit/shared-scen
 const sharedSceneIdInput = z.string().min(1).max(64);
 
 // 兩個 procedure 都是 public（分享連結本身就是 capability），按客戶端 IP 限流。
-// 依據 scene id 取得加密的場景資料（儲存在 scene.image）
+// 回傳的都是密文：解密金鑰只在連結的 URL fragment 裡。
 export const sharedSceneRouter = createTRPCRouter({
   getCompressedBySharedSceneId: publicProcedure
     .input(z.object({ sharedSceneId: sharedSceneIdInput }))
@@ -27,7 +27,7 @@ export const sharedSceneRouter = createTRPCRouter({
     .input(z.object({ sharedSceneId: sharedSceneIdInput }))
     .query(async ({ ctx, input }) => {
       await enforcePublicSceneReadRateLimit(ctx.headers);
-      const results = await ctx.db.query.fileRecord.findMany({
+      const files = await ctx.db.query.fileRecord.findMany({
         where: eq(fileRecord.sharedSceneId, input.sharedSceneId),
         // utFileKey 是 storage 層的內部身份，client 只需要 url：公開端點不再
         // 洩漏它。
@@ -38,12 +38,6 @@ export const sharedSceneRouter = createTRPCRouter({
         },
       });
 
-      return {
-        files: results.map((r) => ({
-          url: r.url,
-          excalidrawFileId: r.excalidrawFileId,
-          size: r.size,
-        })),
-      };
+      return { files };
     }),
 });

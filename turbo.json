@@ -1,6 +1,10 @@
 {
   "$schema": "https://turborepo.com/schema.json",
   "globalDependencies": [
+    ".github/**",
+    ".node-version",
+    ".npmrc",
+    "package.json",
     "eslint.config.ts",
     "eslint.shared.ts",
     "pnpm-workspace.yaml",
@@ -72,7 +76,7 @@
     },
     "test:coverage": {
       "dependsOn": [
-        "^test:coverage"
+        "transit"
       ],
       "outputs": [
         "coverage/**"
@@ -80,7 +84,7 @@
     },
     "typecheck": {
       "dependsOn": [
-        "^typecheck"
+        "transit"
       ]
     },
     "db:push": {

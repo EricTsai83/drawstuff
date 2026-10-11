@@ -6,17 +6,24 @@ import { dispatchLanguageChange } from "@/lib/events";
 export function useLanguagePreference() {
   const [langCode, setLangCode] = useState<string>(() => {
     if (typeof window === "undefined") return "en";
-    return (
-      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE) ??
-      getPreferredLanguage()
-    );
+    try {
+      const stored = localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE);
+      if (stored) return stored;
+    } catch {
+      // Blocked storage: fall back to the browser preference.
+    }
+    return getPreferredLanguage();
   });
 
   const handleLangCodeChange = useCallback(function handleLangCodeChange(
     lang: string,
   ): void {
     setLangCode(lang);
-    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, lang);
+    try {
+      localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_LANGUAGE, lang);
+    } catch {
+      // Not persisted (quota or blocked storage); the switch still applies.
+    }
     dispatchLanguageChange({ langCode: lang });
   }, []);
 

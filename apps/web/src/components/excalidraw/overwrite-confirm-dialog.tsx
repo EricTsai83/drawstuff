@@ -14,7 +14,7 @@ import { useAppI18n } from "@/hooks/use-app-i18n";
 import { getCurrentSceneSnapshot } from "@/lib/excalidraw";
 import { importFromLocalStorage } from "@/data/local-storage";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
-import { parseSharedSceneHash } from "@/lib/utils";
+import { parseSharedSceneHash } from "@/lib/shared-scene-link";
 import { importSharedSceneFilesBySharedSceneId } from "@/lib/import-data-from-db";
 import { WORKFLOW_DIALOG_CONTENT_CLASS_NAME } from "@/components/responsive-dialog-layout";
 

@@ -62,8 +62,8 @@ Invariants：
 
 ## 驗證
 
-- `apps/web/tests/i18n-request-language.test.ts`：cookie 優先、Accept-Language 回退、
+- `apps/web/tests/platform/i18n-request-language.test.ts`：cookie 優先、Accept-Language 回退、
   不支援語言回退 en。
-- `apps/web/tests/i18n-provider.test.tsx`：首次 render 沿用 server 語言（mismatch
+- `apps/web/tests/platform/i18n-provider.test.tsx`：首次 render 沿用 server 語言（mismatch
   防線）、切換事件換字典並寫 cookie。
 - key 對等性由 `pnpm typecheck` 保證（在 `zh-tw.ts` 刻意刪一個 key 必須失敗）。

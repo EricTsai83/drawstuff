@@ -5,7 +5,7 @@
 // （docs/system-design/static-export-as-read-only-viewer.md §1b）。
 //
 // 純函式（unicode-range 壓縮、CSS 組裝、結構檢查）與 IO（fontkit 讀檔）分開，
-// 讓 tests/excalidraw-fonts-css.test.ts 可以對套件目錄直接驗證。
+// 讓 tests/editor/excalidraw-fonts-css.test.ts 可以對套件目錄直接驗證。
 
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";

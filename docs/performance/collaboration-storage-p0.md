@@ -63,7 +63,7 @@ public storage URL 或 payload。`cf:loadtest` 的 WebSocket 數字不能代替�
 - 失敗後第一筆成功樣本照常計入並標記 `afterFailure`，不得事後排除。
 - 延遲分位數只用成功樣本。`gatePassed` 另要求正式失敗率（`failures／formalAttempts`）≤ 0.5%；失敗率計入 client 端觀察到的 1006 等所有功能失敗，比 SLO §6 只計 server close codes 嚴格。warmup 失敗另計，不進比率。
 - warmup＋正式累計 10 筆失敗即停止（`completed: false`），避免在已無法通過時繼續消耗額度。中斷與恢復失敗仍會結束整輪。
-- 判定邏輯在 `scripts/remote-performance-gate.mjs`，由 `tests/remote-performance-gate.test.ts` 鎖定。`schemaVersion: 1` 的舊報告不改寫，也不與新報告合併。
+- 判定邏輯在 `scripts/remote-performance-gate.mjs`，由 `tests/platform/remote-performance-gate.test.ts` 鎖定。`schemaVersion: 1` 的舊報告不改寫，也不與新報告合併。
 
 ## 驗證紀錄
 

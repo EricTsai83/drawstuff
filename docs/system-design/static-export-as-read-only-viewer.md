@@ -119,12 +119,12 @@ filter——顏色與濾鏡都來自匯出物本身，不在自己這邊重算�
   「觀看時匯出」已不存在於訪客頁面；`exportBackground: true` 等保真設定與匯出的隱含依賴
   清單搬到寫入端的 `src/lib/render-published-artifacts.ts`，仍然適用。手勢層：
   `src/hooks/excalidraw/use-svg-pan-zoom.ts`（`panEnabled`、手勢範圍的 `will-change`）；
-  純函式測試 `tests/svg-pan-zoom.test.ts`；`tests/published-viewer-engine-free.test.ts` 釘住
+  純函式測試 `tests/publish/svg-pan-zoom.test.ts`；`tests/publish/published-viewer-engine-free.test.ts` 釘住
   外殼與成品路徑的 import graph 不含引擎。
 - 字型（§1b 的實作）：`apps/web/scripts/excalidraw-fonts-css.mjs` 在 `sync-excalidraw-assets.mjs`
   複製字型後，以 fontkit 讀每個 woff2 的 cmap／OS/2，產生 `public/excalidraw-assets/fonts.css`
   （230 條 `@font-face`，Xiaolai 209、Excalifont 7；`font-display: block`）；家族名稱由
-  `CANVAS_FONT_FAMILY_BY_DIR` 對齊上游公開的 `FONT_FAMILY`，`tests/excalidraw-fonts-css.test.ts`
+  `CANVAS_FONT_FAMILY_BY_DIR` 對齊上游公開的 `FONT_FAMILY`，`tests/editor/excalidraw-fonts-css.test.ts`
   釘住集合相等。`app/p/[slug]/layout.tsx` 以 `<link rel="stylesheet" precedence>` 載入該 CSS，
   viewer 以 `skipInliningFonts: true` 匯出，並以 `document.fonts.load(font, chars)` 明確請求
   `<text>` 用到的家族與字元、到齊（或 3 秒 deadline）後才淡入——不用 `document.fonts.ready`，

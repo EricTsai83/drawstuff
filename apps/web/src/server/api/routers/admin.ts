@@ -67,20 +67,25 @@ import {
   user,
 } from "@/server/db/schema";
 
-async function audited<T>(params: {
-  db: Database;
-  actorUserId: string;
-  action: AdminAuditAction;
-  targetType: AdminAuditTargetType;
-  targetId: string;
-  run: () => Promise<T>;
-}): Promise<T> {
-  const { run, ...event } = params;
-  const auditId = await beginAdminAudit(event);
+/** Runs an operator action between a durable audit begin and its outcome. */
+async function audited<T>(
+  ctx: { db: Database; auth: { user: { id: string } } },
+  target: {
+    action: AdminAuditAction;
+    targetType: AdminAuditTargetType;
+    targetId: string;
+  },
+  run: () => Promise<T>,
+): Promise<T> {
+  const auditId = await beginAdminAudit({
+    db: ctx.db,
+    actorUserId: ctx.auth.user.id,
+    ...target,
+  });
   try {
     const result = await run();
     await completeAdminAudit({
-      db: params.db,
+      db: ctx.db,
       auditId,
       status: "succeeded",
     });
@@ -88,7 +93,7 @@ async function audited<T>(params: {
   } catch (error) {
     try {
       await completeAdminAudit({
-        db: params.db,
+        db: ctx.db,
         auditId,
         status: "failed",
         error,
@@ -100,6 +105,14 @@ async function audited<T>(params: {
     throw error;
   }
 }
+
+/** Destructive account actions require the target id typed twice. */
+const confirmedUserInput = z
+  .object({ userId: z.string().min(1), confirmUserId: z.string().min(1) })
+  .refine((value) => value.userId === value.confirmUserId, {
+    message: "Confirmation must match the target user ID.",
+    path: ["confirmUserId"],
+  });
 
 const notFound = (message: string) =>
   new TRPCError({ code: "NOT_FOUND", message });
@@ -377,63 +390,52 @@ export const adminRouter = createTRPCRouter({
         .limit(input.limit),
     ),
   grantOperator: adminProcedure
-    .input(
-      z
-        .object({ userId: z.string().min(1), confirmUserId: z.string().min(1) })
-        .refine((value) => value.userId === value.confirmUserId, {
-          message: "Confirmation must match the target user ID.",
-          path: ["confirmUserId"],
-        }),
-    )
+    .input(confirmedUserInput)
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "grant-admin",
-        targetType: "account",
-        targetId: input.userId,
-        run: () =>
+      audited(
+        ctx,
+        {
+          action: "grant-admin",
+          targetType: "account",
+          targetId: input.userId,
+        },
+        () =>
           grantOperator({
             db: ctx.db,
             actorUserId: ctx.auth.user.id,
             targetUserId: input.userId,
           }),
-      }),
+      ),
     ),
   revokeOperator: adminProcedure
-    .input(
-      z
-        .object({ userId: z.string().min(1), confirmUserId: z.string().min(1) })
-        .refine((value) => value.userId === value.confirmUserId, {
-          message: "Confirmation must match the target user ID.",
-          path: ["confirmUserId"],
-        }),
-    )
+    .input(confirmedUserInput)
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "revoke-admin",
-        targetType: "account",
-        targetId: input.userId,
-        run: () =>
+      audited(
+        ctx,
+        {
+          action: "revoke-admin",
+          targetType: "account",
+          targetId: input.userId,
+        },
+        () =>
           revokeOperator({
             db: ctx.db,
             actorUserId: ctx.auth.user.id,
             targetUserId: input.userId,
           }),
-      }),
+      ),
     ),
   retireScene: adminProcedure
     .input(z.object({ sceneId: z.uuid() }))
-    .mutation(async ({ ctx, input }) => {
-      const result = await audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "retire-scene",
-        targetType: "scene",
-        targetId: input.sceneId,
-        run: async () => {
+    .mutation(({ ctx, input }) =>
+      audited(
+        ctx,
+        {
+          action: "retire-scene",
+          targetType: "scene",
+          targetId: input.sceneId,
+        },
+        async () => {
           const outcome = await retireScene({
             db: ctx.db,
             sceneId: input.sceneId,
@@ -441,43 +443,32 @@ export const adminRouter = createTRPCRouter({
           if (!outcome.found) throw notFound("Scene not found.");
           return outcome;
         },
-      });
-      return result;
-    }),
+      ),
+    ),
   endRoom: adminProcedure
     .input(z.object({ roomId: roomIdInputSchema }))
-    .mutation(async ({ ctx, input }) => {
-      const result = await audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "end-room",
-        targetType: "room",
-        targetId: input.roomId,
-        run: async () => {
+    .mutation(({ ctx, input }) =>
+      audited(
+        ctx,
+        { action: "end-room", targetType: "room", targetId: input.roomId },
+        async () => {
           const outcome = await endRoom({ db: ctx.db, roomId: input.roomId });
           if (!outcome.found) throw notFound("Room not found.");
           return outcome;
         },
-      });
-      return result;
-    }),
+      ),
+    ),
   retireAccount: adminProcedure
-    .input(
-      z
-        .object({ userId: z.string().min(1), confirmUserId: z.string().min(1) })
-        .refine((value) => value.userId === value.confirmUserId, {
-          message: "Confirmation must match the target user ID.",
-          path: ["confirmUserId"],
-        }),
-    )
-    .mutation(async ({ ctx, input }) => {
-      const result = await audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "retire-account",
-        targetType: "account",
-        targetId: input.userId,
-        run: async () => {
+    .input(confirmedUserInput)
+    .mutation(({ ctx, input }) =>
+      audited(
+        ctx,
+        {
+          action: "retire-account",
+          targetType: "account",
+          targetId: input.userId,
+        },
+        async () => {
           if (input.userId === ctx.auth.user.id)
             throw new TRPCError({
               code: "BAD_REQUEST",
@@ -491,21 +482,21 @@ export const adminRouter = createTRPCRouter({
           if (!outcome.found) throw notFound("Account not found.");
           return outcome;
         },
-      });
-      return result;
-    }),
+      ),
+    ),
   // 改回 pending、attempts 歸零，由下一次維護 drain 重新處理；不在這裡直接刪
   // UploadThing，避免與 drain 同時處理同一筆。
   retryFailedCleanup: adminProcedure
     .input(z.object({ target: z.union([z.uuid(), z.literal("all")]) }))
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "retry-cleanup",
-        targetType: "cleanup",
-        targetId: input.target,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: "retry-cleanup",
+          targetType: "cleanup",
+          targetId: input.target,
+        },
+        async () => {
           const now = new Date();
           const rows = await ctx.db
             .update(deferredFileCleanup)
@@ -528,18 +519,19 @@ export const adminRouter = createTRPCRouter({
             throw notFound("Failed cleanup task not found.");
           return { retried: rows.length };
         },
-      }),
+      ),
     ),
   resumeRetirement: adminProcedure
     .input(z.object({ scope: z.string().min(1).max(160) }))
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "resume-retirement",
-        targetType: input.scope.startsWith("scene:") ? "scene" : "account",
-        targetId: input.scope,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: "resume-retirement",
+          targetType: input.scope.startsWith("scene:") ? "scene" : "account",
+          targetId: input.scope,
+        },
+        async () => {
           const outcome = await resumeRetirement({
             db: ctx.db,
             scope: input.scope,
@@ -547,46 +539,49 @@ export const adminRouter = createTRPCRouter({
           if (!outcome.found) throw notFound("No unfinished retirement.");
           return outcome;
         },
-      }),
+      ),
     ),
   closeRoomStorage: adminProcedure
     .input(z.object({ roomId: roomIdInputSchema }))
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "close-room-storage",
-        targetType: "room",
-        targetId: input.roomId,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: "close-room-storage",
+          targetType: "room",
+          targetId: input.roomId,
+        },
+        async () => {
           const outcome = await closeRoomStorage(ctx.db, input.roomId);
           if (!outcome.found) throw notFound("Room not found.");
           return outcome;
         },
-      }),
+      ),
     ),
   runRoomRetention: adminProcedure.mutation(({ ctx }) =>
-    audited({
-      db: ctx.db,
-      actorUserId: ctx.auth.user.id,
-      action: "run-room-retention",
-      targetType: "maintenance",
-      targetId: "room-retention",
-      run: runRoomRetention,
-    }),
+    audited(
+      ctx,
+      {
+        action: "run-room-retention",
+        targetType: "maintenance",
+        targetId: "room-retention",
+      },
+      runRoomRetention,
+    ),
   ),
   setCollabRoomsDisabled: adminProcedure
     .input(z.object({ disabled: z.boolean() }))
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: input.disabled
-          ? "disable-collaboration"
-          : "enable-collaboration",
-        targetType: "maintenance",
-        targetId: COLLAB_ROOMS_DISABLED_KEY,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: input.disabled
+            ? "disable-collaboration"
+            : "enable-collaboration",
+          targetType: "maintenance",
+          targetId: COLLAB_ROOMS_DISABLED_KEY,
+        },
+        async () => {
           await writeOpsFlag(
             COLLAB_ROOMS_DISABLED_KEY,
             input.disabled,
@@ -594,16 +589,17 @@ export const adminRouter = createTRPCRouter({
           );
           return { disabled: input.disabled };
         },
-      }),
+      ),
     ),
   resetOpsSignals: adminProcedure.mutation(({ ctx }) =>
-    audited({
-      db: ctx.db,
-      actorUserId: ctx.auth.user.id,
-      action: "reset-ops-signals",
-      targetType: "maintenance",
-      targetId: "ops-signals",
-      run: async () => {
+    audited(
+      ctx,
+      {
+        action: "reset-ops-signals",
+        targetType: "maintenance",
+        targetId: "ops-signals",
+      },
+      async () => {
         // Resetting clears every counter on purpose.
         const rows = await ctx.db
           .delete(opsSignal)
@@ -611,25 +607,19 @@ export const adminRouter = createTRPCRouter({
           .returning({ name: opsSignal.name });
         return { reset: rows.length };
       },
-    }),
+    ),
   ),
   revokeSessions: adminProcedure
-    .input(
-      z
-        .object({ userId: z.string().min(1), confirmUserId: z.string().min(1) })
-        .refine((value) => value.userId === value.confirmUserId, {
-          message: "Confirmation must match the target user ID.",
-          path: ["confirmUserId"],
-        }),
-    )
+    .input(confirmedUserInput)
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "revoke-sessions",
-        targetType: "account",
-        targetId: input.userId,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: "revoke-sessions",
+          targetType: "account",
+          targetId: input.userId,
+        },
+        async () => {
           if (input.userId === ctx.auth.user.id)
             throw new TRPCError({
               code: "BAD_REQUEST",
@@ -637,39 +627,41 @@ export const adminRouter = createTRPCRouter({
             });
           return revokeUserSessions(ctx.db, input.userId);
         },
-      }),
+      ),
     ),
   unpublishScene: adminProcedure
     .input(z.object({ sceneId: z.uuid() }))
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "unpublish-scene",
-        targetType: "scene",
-        targetId: input.sceneId,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: "unpublish-scene",
+          targetType: "scene",
+          targetId: input.sceneId,
+        },
+        async () => {
           const outcome = await unpublishScene(ctx.db, input.sceneId);
           if (!outcome) throw notFound("Scene not found.");
           return outcome;
         },
-      }),
+      ),
     ),
   deleteSharedLink: adminProcedure
     .input(z.object({ sharedSceneId: z.string().min(1).max(64) }))
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "delete-shared-link",
-        targetType: "shared-scene",
-        targetId: input.sharedSceneId,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: "delete-shared-link",
+          targetType: "shared-scene",
+          targetId: input.sharedSceneId,
+        },
+        async () => {
           const outcome = await deleteSharedLink(ctx.db, input.sharedSceneId);
           if (!outcome.found) throw notFound("Shared link not found.");
           return outcome;
         },
-      }),
+      ),
     ),
   setQuota: adminProcedure
     .input(
@@ -681,28 +673,30 @@ export const adminRouter = createTRPCRouter({
       }),
     )
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "set-quota",
-        targetType: "maintenance",
-        targetId: `quota:${input.name}`,
-        run: async () => {
+      audited(
+        ctx,
+        {
+          action: "set-quota",
+          targetType: "maintenance",
+          targetId: `quota:${input.name}`,
+        },
+        async () => {
           await writeQuota(ctx.db, input.name, input.value, ctx.auth.user.id);
           return { name: input.name, value: input.value };
         },
-      }),
+      ),
     ),
   enqueueStorageOrphans: adminProcedure
     .input(z.object({ offset: z.number().int().min(0).default(0) }))
     .mutation(({ ctx, input }) =>
-      audited({
-        db: ctx.db,
-        actorUserId: ctx.auth.user.id,
-        action: "enqueue-storage-orphans",
-        targetType: "maintenance",
-        targetId: `storage-orphans@${input.offset}`,
-        run: () => enqueueStorageOrphans(ctx.db, new UTApi(), input.offset),
-      }),
+      audited(
+        ctx,
+        {
+          action: "enqueue-storage-orphans",
+          targetType: "maintenance",
+          targetId: `storage-orphans@${input.offset}`,
+        },
+        () => enqueueStorageOrphans(ctx.db, new UTApi(), input.offset),
+      ),
     ),
 });

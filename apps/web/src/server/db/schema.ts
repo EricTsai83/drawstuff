@@ -108,36 +108,45 @@ export const personalLibrary = createTable(
   ],
 );
 
-export const session = createTable("session", {
-  id: text("id").primaryKey(),
-  expiresAt: timestamp("expires_at").notNull(),
-  token: text("token").notNull().unique(),
-  createdAt: timestamp("created_at").notNull(),
-  updatedAt: timestamp("updated_at").notNull(),
-  ipAddress: text("ip_address"),
-  userAgent: text("user_agent"),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-});
+export const session = createTable(
+  "session",
+  {
+    id: text("id").primaryKey(),
+    expiresAt: timestamp("expires_at").notNull(),
+    token: text("token").notNull().unique(),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+    ipAddress: text("ip_address"),
+    userAgent: text("user_agent"),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+  },
+  // Collaboration identity checks look sessions up by user on every proof.
+  (table) => [index("session_user_id_idx").on(table.userId)],
+);
 
-export const account = createTable("account", {
-  id: text("id").primaryKey(),
-  accountId: text("account_id").notNull(),
-  providerId: text("provider_id").notNull(),
-  userId: text("user_id")
-    .notNull()
-    .references(() => user.id, { onDelete: "cascade" }),
-  accessToken: text("access_token"),
-  refreshToken: text("refresh_token"),
-  idToken: text("id_token"),
-  accessTokenExpiresAt: timestamp("access_token_expires_at"),
-  refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
-  scope: text("scope"),
-  password: text("password"),
-  createdAt: timestamp("created_at").notNull(),
-  updatedAt: timestamp("updated_at").notNull(),
-});
+export const account = createTable(
+  "account",
+  {
+    id: text("id").primaryKey(),
+    accountId: text("account_id").notNull(),
+    providerId: text("provider_id").notNull(),
+    userId: text("user_id")
+      .notNull()
+      .references(() => user.id, { onDelete: "cascade" }),
+    accessToken: text("access_token"),
+    refreshToken: text("refresh_token"),
+    idToken: text("id_token"),
+    accessTokenExpiresAt: timestamp("access_token_expires_at"),
+    refreshTokenExpiresAt: timestamp("refresh_token_expires_at"),
+    scope: text("scope"),
+    password: text("password"),
+    createdAt: timestamp("created_at").notNull(),
+    updatedAt: timestamp("updated_at").notNull(),
+  },
+  (table) => [index("account_user_id_idx").on(table.userId)],
+);
 
 /** Durable privileged-role assignment. Email is never an authorization key. */
 export const adminGrant = createTable(
@@ -226,10 +235,7 @@ export const workspace = createTable(
       .$defaultFn(() => new Date())
       .notNull(),
   },
-  (table) => [
-    index("workspace_user_id_idx").on(table.userId),
-    index("workspace_name_idx").on(table.name),
-  ],
+  (table) => [index("workspace_user_id_idx").on(table.userId)],
 );
 
 // 使用者預設 workspace 對應表：每位使用者僅一筆
@@ -250,7 +256,6 @@ export const userDefaultWorkspace = createTable(
       columns: [table.workspaceId],
       foreignColumns: [workspace.id],
     }).onDelete("restrict"),
-    index("user_default_workspace_user_id_idx").on(table.userId),
     index("user_default_workspace_workspace_id_idx").on(table.workspaceId),
   ],
 );
@@ -276,7 +281,6 @@ export const userLastActiveWorkspace = createTable(
       columns: [table.workspaceId],
       foreignColumns: [workspace.id],
     }).onDelete("restrict"),
-    index("user_last_active_workspace_user_id_idx").on(table.userId),
     index("user_last_active_workspace_workspace_id_idx").on(table.workspaceId),
   ],
 );
@@ -296,8 +300,6 @@ export const category = createTable(
       .notNull(),
   },
   (table) => [
-    index("category_user_id_idx").on(table.userId),
-    index("category_name_idx").on(table.name),
     uniqueIndex("category_user_name_unique").on(table.userId, table.name),
   ],
 );
@@ -353,17 +355,17 @@ export const scene = createTable(
     publishedRenderedAt: timestamp("published_rendered_at"),
   },
   (table) => [
-    index("scene_user_id_idx").on(table.userId),
     index("scene_workspace_id_idx").on(table.workspaceId),
     // Dashboard keyset pagination：userId 等值 + (updatedAt, id) 降冪，cursor
-    // 條件走 index range。名稱／last_updated 的單欄索引已移除：搜尋是
-    // leading-wildcard ilike（用不到 btree），也沒有查詢以 last_updated 排序。
+    // 條件走 index range；它的前綴也服務所有 userId 等值查詢，所以沒有單獨的
+    // userId 索引。名稱／last_updated／isPublished 的單欄索引已移除：搜尋是
+    // leading-wildcard ilike（用不到 btree），沒有查詢以 last_updated 排序，
+    // isPublished 一律搭配 userId 或唯一的 publishedSlug 使用。
     index("scene_user_updated_idx").on(
       table.userId,
       table.updatedAt.desc(),
       table.id.desc(),
     ),
-    index("scene_published_idx").on(table.isPublished),
     uniqueIndex("scene_published_slug_unique").on(table.publishedSlug),
     check("scene_revision_positive", sql`${table.revision} >= 1`),
     // key 與 URL 同進同出：只有一邊等於沒有成品可指。
@@ -397,7 +399,6 @@ export const sceneCategory = createTable(
       .notNull(),
   },
   (table) => [
-    index("scene_category_scene_id_idx").on(table.sceneId),
     index("scene_category_category_id_idx").on(table.categoryId),
     uniqueIndex("unique_scene_category_idx").on(
       table.sceneId,
@@ -673,6 +674,8 @@ export const collaborationSnapshot = createTable(
       columns: [table.updatedBy],
       foreignColumns: [user.id],
     }).onDelete("set null"),
+    // User deletion nulls the column; without it that is a full scan.
+    index("collaboration_snapshot_updated_by_idx").on(table.updatedBy),
     check(
       "collaboration_snapshot_revision_positive",
       sql`${table.revision} >= 1`,
@@ -741,6 +744,10 @@ export const collaborationAsset = createTable(
       columns: [table.registeredBy],
       foreignColumns: [user.id],
     }).onDelete("set null"),
+    // Per-upload image quota sums by uploader; user deletion nulls it.
+    index("collaboration_asset_registered_by_idx").on(table.registeredBy),
+    // Registration and orphan cleanup check object identity across rooms.
+    index("collaboration_asset_ut_file_key_idx").on(table.utFileKey),
     primaryKey({
       name: "collaboration_asset_room_file_pk",
       columns: [table.roomId, table.excalidrawFileId],
@@ -794,6 +801,9 @@ export const collaborationOperation = createTable(
   },
   (table) => [
     index("collaboration_operation_terminal_idx").on(table.terminalAt),
+    // Snapshot writes and maintenance read a room's operations; room deletion
+    // cascades through them.
+    index("collaboration_operation_room_id_idx").on(table.roomId),
     check(
       "collaboration_operation_kind",
       sql`${table.kind} in ('snapshot-put','snapshot-reset','asset-finalize')`,
@@ -909,7 +919,6 @@ export const sharedScene = createTable(
       .notNull(),
   },
   (table) => [
-    index("shared_scene_id_idx").on(table.sharedSceneId),
     index("shared_scene_owner_id_idx").on(table.ownerId),
     index("shared_scene_created_at_idx").on(table.createdAt),
     check(
@@ -968,8 +977,6 @@ export const fileRecord = createTable(
       columns: [table.sharedSceneId],
       foreignColumns: [sharedScene.sharedSceneId],
     }).onDelete("cascade"),
-    index("file_record_scene_id_idx").on(table.sceneId),
-    index("file_record_shared_scene_id_idx").on(table.sharedSceneId),
     index("file_record_owner_id_idx").on(table.ownerId),
     index("file_record_ut_file_key_idx").on(table.utFileKey),
     // 身份唯一性，同時是上傳重試的冪等依據：同一個 file id 重試只會有一列。

@@ -32,6 +32,19 @@ import {
 
 const f = createUploadthing();
 
+/**
+ * Exact per-file cap. The route's `maxFileSize` must be a power of two and may
+ * be looser (3 MiB becomes "4MB"), so the real limit is checked here.
+ */
+function assertFileSizes(
+  files: readonly { size: number }[],
+  maxBytes: number,
+): void {
+  if (files.some((file) => file.size > maxBytes)) {
+    throw new Error("File too large");
+  }
+}
+
 /** Refuses an upload that would take the account past its image cap. */
 async function assertImageQuota(
   userId: string,
@@ -84,11 +97,16 @@ async function deleteFileWithRetry(
   return false;
 }
 
-async function enqueueDeferredCleanup(
+/**
+ * Removes an object nothing will reference: delete now, and fall back to the
+ * deferred-cleanup outbox when storage keeps failing.
+ */
+async function discardUploadedObject(
   fileKey: string,
   reason: string,
   context: Record<string, unknown>,
-) {
+): Promise<void> {
+  if (await deleteFileWithRetry(fileKey, { ...context, reason })) return;
   try {
     await enqueueStorageKeyCleanup(db, [fileKey], reason, context);
   } catch (err) {
@@ -99,6 +117,15 @@ async function enqueueDeferredCleanup(
       err,
     });
   }
+}
+
+/** Upload middleware gate: the caller must be signed in and own the scene. */
+async function requireSceneOwner(sceneId: string) {
+  const session = await getServerSession();
+  if (!session) throw new Error("Unauthorized");
+  const ownerId = await QUERIES.getSceneOwnerId(sceneId);
+  if (ownerId !== session.user.id) throw new Error("Forbidden");
+  return session;
 }
 
 // FileRouter for your app, can contain multiple FileRoutes
@@ -119,10 +146,9 @@ export const uploadRouter = {
       }),
     )
     .middleware(async ({ input, files }) => {
-      // This code runs on your server before upload
+      assertFileSizes(files, FILE_UPLOAD_MAX_BYTES);
       const session = await getServerSession();
 
-      // If you throw, the user will not be able to upload
       if (!session) throw new Error("Unauthorized");
       const sharedSceneId = input.sharedSceneId;
       const ownerId = await QUERIES.getSharedSceneOwnerId(sharedSceneId);
@@ -139,62 +165,38 @@ export const uploadRouter = {
       };
     })
     .onUploadComplete(async ({ metadata, file }) => {
-      // This code RUNS ON YOUR SERVER after upload
+      const { sharedSceneId, excalidrawFileId } = metadata;
       // 不記 URL 也不記整個 error：URL 是取得密文的 capability，而 Drizzle 的
       // 錯誤 message 內含 insert params（同樣含 url）。與 collaborationAssetUploader
       // 一致，失敗時只記 error.name。
-      // 僅處理 sharedScene 檔案紀錄（不處理縮圖、也不處理 scene 資產）
-      if (metadata.sharedSceneId) {
-        try {
-          const result = await QUERIES.createFileRecord({
-            sharedSceneId: metadata.sharedSceneId,
-            ownerId: metadata.userId,
-            utFileKey: file.key,
-            excalidrawFileId: metadata.excalidrawFileId,
-            size: file.size,
-            url: file.ufsUrl,
+      try {
+        const result = await QUERIES.createFileRecord({
+          sharedSceneId,
+          ownerId: metadata.userId,
+          utFileKey: file.key,
+          excalidrawFileId,
+          size: file.size,
+          url: file.ufsUrl,
+        });
+        if (result.length === 0) {
+          // 這個 sharedScene 已經有同一個 Excalidraw file id 的紀錄，代表這是
+          // 重試或重複上傳；剛上傳的 object 沒有引用者，刪掉。
+          await discardUploadedObject(file.key, "duplicate-file-id", {
+            sharedSceneId,
+            excalidrawFileId,
           });
-          if ((result as unknown[]).length === 0) {
-            // 這個 sharedScene 已經有同一個 Excalidraw file id 的紀錄，代表這是
-            // 重試或重複上傳；剛上傳的 object 沒有引用者，刪掉。
-            const ok = await deleteFileWithRetry(file.key, {
-              sharedSceneId: metadata.sharedSceneId,
-              excalidrawFileId: metadata.excalidrawFileId,
-              reason: "duplicate-file-id",
-            });
-            if (!ok) {
-              await enqueueDeferredCleanup(file.key, "duplicate-file-id", {
-                sharedSceneId: metadata.sharedSceneId,
-                excalidrawFileId: metadata.excalidrawFileId,
-              });
-            }
-            return {
-              uploadedBy: metadata.userId,
-              fileUrl: file.ufsUrl,
-              fileKey: file.key,
-            };
-          }
-        } catch (error) {
-          console.error("Error saving file record to database:", {
-            sharedSceneId: metadata.sharedSceneId,
-            error: error instanceof Error ? error.name : "unknown",
-          });
-          // 清理剛上傳的檔案
-          const ok = await deleteFileWithRetry(file.key, {
-            sharedSceneId: metadata.sharedSceneId,
-            reason: "db-write-failed",
-          });
-          if (!ok) {
-            await enqueueDeferredCleanup(file.key, "db-write-failed", {
-              sharedSceneId: metadata.sharedSceneId,
-            });
-          }
-          throw new Error("Failed to save uploaded file record");
         }
+      } catch (error) {
+        console.error("Error saving file record to database:", {
+          sharedSceneId,
+          error: error instanceof Error ? error.name : "unknown",
+        });
+        await discardUploadedObject(file.key, "db-write-failed", {
+          sharedSceneId,
+        });
+        throw new Error("Failed to save uploaded file record");
       }
-
-      // 對齊參考程式碼：返回檔案 ID 和 URL
-      // !!! Whatever is returned here is sent to the clientside `onClientUploadComplete` callback
+      // Sent to the client's `onClientUploadComplete`.
       return {
         uploadedBy: metadata.userId,
         fileUrl: file.ufsUrl,
@@ -219,10 +221,8 @@ export const uploadRouter = {
       }),
     )
     .middleware(async ({ input, files }) => {
-      const session = await getServerSession();
-      if (!session) throw new Error("Unauthorized");
-      const ownerId = await QUERIES.getSceneOwnerId(input.sceneId);
-      if (!ownerId || ownerId !== session.user.id) throw new Error("Forbidden");
+      assertFileSizes(files, FILE_UPLOAD_MAX_BYTES);
+      const session = await requireSceneOwner(input.sceneId);
       await assertImageQuota(session.user.id, files);
       return {
         userId: session.user.id,
@@ -244,35 +244,20 @@ export const uploadRouter = {
           size: file.size,
           url: file.ufsUrl,
         });
-        if ((result as unknown[]).length === 0) {
+        if (result.length === 0) {
           // 這個 scene 已經有同一個 Excalidraw file id 的紀錄：同一份位元組，
           // 既有那筆一樣有效，剛上傳的 object 沒有引用者，刪掉。
-          const ok = await deleteFileWithRetry(file.key, {
+          await discardUploadedObject(file.key, "duplicate-file-id", {
             sceneId,
-            reason: "duplicate-file-id",
             excalidrawFileId,
           });
-          if (!ok) {
-            await enqueueDeferredCleanup(file.key, "duplicate-file-id", {
-              sceneId,
-              excalidrawFileId,
-            });
-          }
         }
       } catch (error) {
         console.error("Error saving scene asset record:", {
           sceneId,
           error: error instanceof Error ? error.name : "unknown",
         });
-        const ok = await deleteFileWithRetry(file.key, {
-          sceneId,
-          reason: "db-write-failed",
-        });
-        if (!ok) {
-          await enqueueDeferredCleanup(file.key, "db-write-failed", {
-            sceneId,
-          });
-        }
+        await discardUploadedObject(file.key, "db-write-failed", { sceneId });
         throw new Error("Failed to save scene asset record");
       }
       return {
@@ -335,11 +320,9 @@ export const uploadRouter = {
         sceneId: z.uuid(),
       }),
     )
-    .middleware(async ({ input }) => {
-      const session = await getServerSession();
-      if (!session) throw new Error("Unauthorized");
-      const ownerId = await QUERIES.getSceneOwnerId(input.sceneId);
-      if (!ownerId || ownerId !== session.user.id) throw new Error("Forbidden");
+    .middleware(async ({ input, files }) => {
+      assertFileSizes(files, FILE_UPLOAD_MAX_BYTES);
+      const session = await requireSceneOwner(input.sceneId);
       return { userId: session.user.id, sceneId: input.sceneId } as const;
     })
     .onUploadComplete(async ({ metadata, file }) => {
@@ -359,15 +342,7 @@ export const uploadRouter = {
           sceneId,
           error: error instanceof Error ? error.name : "unknown",
         });
-        const ok = await deleteFileWithRetry(file.key, {
-          sceneId,
-          reason: "db-write-failed",
-        });
-        if (!ok) {
-          await enqueueDeferredCleanup(file.key, "db-write-failed", {
-            sceneId,
-          });
-        }
+        await discardUploadedObject(file.key, "db-write-failed", { sceneId });
         throw new Error("Failed to update scene thumbnail");
       }
       return {
@@ -398,10 +373,7 @@ export const uploadRouter = {
       }),
     )
     .middleware(async ({ input }) => {
-      const session = await getServerSession();
-      if (!session) throw new Error("Unauthorized");
-      const ownerId = await QUERIES.getSceneOwnerId(input.sceneId);
-      if (!ownerId || ownerId !== session.user.id) throw new Error("Forbidden");
+      const session = await requireSceneOwner(input.sceneId);
       return {
         userId: session.user.id,
         sceneId: input.sceneId,
@@ -421,12 +393,7 @@ export const uploadRouter = {
           ...context,
           error: error instanceof Error ? error.name : "unknown",
         });
-        const ok = await deleteFileWithRetry(file.key, {
-          ...context,
-          reason: "db-write-failed",
-        });
-        if (!ok)
-          await enqueueDeferredCleanup(file.key, "db-write-failed", context);
+        await discardUploadedObject(file.key, "db-write-failed", context);
         throw new Error("Failed to reserve published artifact");
       }
       return {

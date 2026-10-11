@@ -24,7 +24,7 @@ import type {
 } from "@drawstuff/excalidraw-adapter/types";
 import { loadScene, openConfirmModal } from "@/lib/initialize-scene";
 import { createJsonBlob, triggerBlobDownload } from "@/lib/download";
-import { parseSharedSceneHash } from "@/lib/utils";
+import { parseSharedSceneHash } from "@/lib/shared-scene-link";
 import {
   EXCALIDRAW_MIME_TYPES,
   exportCanvasToBlob,
@@ -225,9 +225,9 @@ export function saveData(data: {
     const cleanedFiles = cleanUnusedFiles(data.elements, data.files);
 
     // 使用 saveToLocalStorage 函數儲存數據（避免暫刪元素引用的檔案殘留）
-    saveToLocalStorage(data.elements, data.appState, cleanedFiles);
+    if (!saveToLocalStorage(data.elements, data.appState, cleanedFiles)) return;
 
-    // 更新版本時間戳
+    // 更新版本時間戳：只在場景真的寫入後，其他分頁才會據此重新載入
     localStorage.setItem(STORAGE_KEYS.VERSION_DATA_STATE, timestamp.toString());
     localStorage.setItem(STORAGE_KEYS.VERSION_FILES, timestamp.toString());
   } catch (error) {
@@ -299,29 +299,50 @@ export function hasCompleteSceneFileHydration(
   return [...referencedFileIds].every((fileId) => Boolean(files[fileId]));
 }
 
-// 將 excalidraw 狀態存入 localStorage
+/** 將 excalidraw 狀態存入 localStorage；回傳是否寫入（暫停或失敗時為 false）。 */
 export function saveToLocalStorage(
   elements: readonly ExcalidrawElement[],
   appState: Partial<AppState>,
   files: BinaryFiles,
-) {
-  if (isLocalScenePersistencePaused()) return;
+): boolean {
+  if (isLocalScenePersistencePaused()) return false;
+  // All or nothing: if a later key (usually the large files map) exceeds the
+  // quota, new elements beside old files would reload with missing images,
+  // so the keys already written are put back.
+  let previous: [key: string, value: string | null][] | undefined;
+  let written = 0;
   try {
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
-      JSON.stringify(elements),
-    );
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
-      JSON.stringify(appState),
-    );
-    localStorage.setItem(
-      STORAGE_KEYS.LOCAL_STORAGE_FILES,
-      JSON.stringify(files),
-    );
+    const writes: [key: string, value: string][] = [
+      [STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS, JSON.stringify(elements)],
+      [STORAGE_KEYS.LOCAL_STORAGE_APP_STATE, JSON.stringify(appState)],
+      [STORAGE_KEYS.LOCAL_STORAGE_FILES, JSON.stringify(files)],
+    ];
+    previous = writes.map(([key]) => [key, localStorage.getItem(key)]);
+    for (const [key, value] of writes) {
+      localStorage.setItem(key, value);
+      written += 1;
+    }
     dispatchLocalSceneSaved();
+    return true;
   } catch (error) {
-    console.error("beforeunload 儲存數據失敗:", error);
+    if (previous) restoreStorageKeys(previous.slice(0, written));
+    console.error("Failed to save the scene to localStorage:", error);
+    return false;
+  }
+}
+
+/**
+ * Removes every written key before writing any old value back, so a restore
+ * never needs more space than the values that fit before this save.
+ */
+function restoreStorageKeys(entries: [key: string, value: string | null][]) {
+  try {
+    for (const [key] of entries) localStorage.removeItem(key);
+    for (const [key, value] of entries) {
+      if (value !== null) localStorage.setItem(key, value);
+    }
+  } catch {
+    // Only reachable if storage itself became unavailable mid-save.
   }
 }
 

@@ -15,7 +15,7 @@ import type {
  * The published page does not mount the editor, so none of Excalidraw's own
  * viewport handling is available here. Every transform below is computed by a
  * pure function so the maths is unit-testable without a DOM
- * (`apps/web/tests/svg-pan-zoom.test.ts`); the hook only wires those functions
+ * (`apps/web/tests/publish/svg-pan-zoom.test.ts`); the hook only wires those functions
  * to pointer, wheel and resize events.
  */
 

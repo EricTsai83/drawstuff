@@ -260,12 +260,24 @@ export function CollaborationRoomDialog({
             title: "collaboration.noAccess.title",
             description: "collaboration.noAccess.description",
           };
-  const [emailCursor, setEmailCursor] = useState<string | undefined>();
-  const [memberCursor, setMemberCursor] = useState<string | undefined>();
-  useEffect(() => {
-    setMemberCursor(undefined);
-    setEmailCursor(undefined);
-  }, [roomId]);
+  // Page cursors belong to the room they were issued for. Keying them by room
+  // (instead of resetting in an effect) means a room switch never sends the
+  // previous room's cursor, not even for the first render.
+  const [pageCursors, setPageCursors] = useState<{
+    roomId?: string | null;
+    members?: string;
+    emails?: string;
+  }>({});
+  const roomCursors = pageCursors.roomId === roomId ? pageCursors : {};
+  const memberCursor = roomCursors.members;
+  const emailCursor = roomCursors.emails;
+  const setRoomCursor =
+    (key: "members" | "emails") => (cursor: string | undefined) =>
+      setPageCursors((prev) => ({
+        ...(prev.roomId === roomId ? prev : {}),
+        roomId,
+        [key]: cursor,
+      }));
   const roomQuery = api.collaborationRoom.get.useQuery(
     { roomId: roomId ?? "", cursor: memberCursor, emailCursor },
     // Fetched from entering the room, not from opening the dialog: the link
@@ -1129,13 +1141,13 @@ export function CollaborationRoomDialog({
                     key: "members",
                     cursor: memberCursor,
                     next: room.nextCursor,
-                    set: setMemberCursor,
+                    set: setRoomCursor("members"),
                   },
                   {
                     key: "emails",
                     cursor: emailCursor,
                     next: room.nextEmailCursor,
-                    set: setEmailCursor,
+                    set: setRoomCursor("emails"),
                   },
                 ].map(
                   (page) =>

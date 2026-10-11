@@ -86,7 +86,7 @@ const summedBytes = (db: Database, column: AnyColumn, table: PgTable) =>
     .then((rows) => rows[0]?.value ?? 0);
 
 /**
- * Every accumulating store and its release path. `tests/data-release.test.ts`
+ * Every accumulating store and its release path. `tests/admin/data-release.test.ts`
  * fails when a schema table is missing here, so a new table cannot ship
  * without a decided release path.
  */
