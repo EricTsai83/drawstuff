@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { inArray } from "drizzle-orm";
+import { inArray, or, sql } from "drizzle-orm";
 import { TRPCError } from "@trpc/server";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import {
@@ -57,24 +57,49 @@ export const collaborationRoomRouter = createTRPCRouter({
           },
         ),
       );
-      // Room returns members only to the owner; their names come from the
-      // accounts, so they reach no one who cannot already see the emails.
+      // Room returns members and invitations only to the owner. Names come from
+      // the accounts and reach only people who have opened the room, whose
+      // emails the owner already sees; an invitation looks its account up by
+      // email so the name does not depend on which member page is loaded.
       const ids = management.members.map((member) => member.userId);
-      const names = new Map(
-        ids.length
-          ? (
-              await ctx.db
-                .select({ id: user.id, name: user.name })
-                .from(user)
-                .where(inArray(user.id, ids))
-            ).map((row) => [row.id, row.name.trim() || null])
-          : [],
+      const joined = management.allowlist
+        .filter((invite) => invite.lastJoinedAt !== null)
+        .map((invite) => invite.email.toLowerCase());
+      const accounts =
+        ids.length || joined.length
+          ? await ctx.db
+              .select({ id: user.id, email: user.email, name: user.name })
+              .from(user)
+              .where(
+                or(
+                  ids.length ? inArray(user.id, ids) : undefined,
+                  joined.length
+                    ? inArray(sql`lower(${user.email})`, joined)
+                    : undefined,
+                ),
+              )
+          : [];
+      const byId = new Map(
+        accounts.map((row) => [row.id, row.name.trim() || null]),
+      );
+      const byEmail = new Map(
+        accounts.map((row) => [
+          row.email.toLowerCase(),
+          row.name.trim() || null,
+        ]),
       );
       return {
         ...management,
         members: management.members.map((member) => ({
           ...member,
-          name: names.get(member.userId) ?? null,
+          name: byId.get(member.userId) ?? null,
+        })),
+        allowlist: management.allowlist.map((invite) => ({
+          ...invite,
+          name:
+            invite.lastJoinedAt === null
+              ? null
+              : (byEmail.get(invite.email.toLowerCase()) ?? null),
         })),
       };
     }),
