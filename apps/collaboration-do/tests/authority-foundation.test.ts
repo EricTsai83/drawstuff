@@ -1445,6 +1445,32 @@ describe("Lifecycle durable progress", () => {
     });
   });
 
+  it("retries a resumed retirement now instead of waiting out its backoff", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(`account:${subject}`);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    const later = Date.now() + 60 * 60_000;
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE authority_work SET next_at=?", later);
+    });
+    const before = Date.now();
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const nextAt = state.storage.sql
+        .exec<{ next_at: number }>("SELECT next_at FROM authority_work")
+        .one().next_at;
+      expect(nextAt).toBeLessThan(later);
+      expect(nextAt).toBeGreaterThanOrEqual(before);
+      expect(await state.storage.getAlarm()).toBeLessThan(later);
+    });
+  });
+
   it("never abandons lifecycle work, however old", async () => {
     const subject = `user-${crypto.randomUUID()}`;
     const stub = env.COLLABORATION_LIFECYCLE.getByName(`account:${subject}`);
@@ -1470,6 +1496,70 @@ describe("Lifecycle durable progress", () => {
           .exec("SELECT id FROM authority_work WHERE id='retirement'")
           .toArray(),
       ).toHaveLength(1);
+    });
+  });
+  it("logs a stuck retirement at most hourly and slows its retries after 24 h", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const work = new LifecycleProgress(state.storage, name).work;
+      const age = (ms: number, stuckLoggedAt: number | null = null) =>
+        state.storage.sql.exec(
+          "UPDATE authority_work SET first_at=?, next_at=0, stuck_logged_at=?",
+          Date.now() - ms,
+          stuckLoggedAt,
+        );
+      const retryAt = () =>
+        state.storage.sql
+          .exec<{ next_at: number }>("SELECT next_at FROM authority_work")
+          .one().next_at;
+      const failing = () => Promise.reject(new Error("adapter down"));
+      const error = vi.spyOn(console, "error");
+      const stuck = () =>
+        error.mock.calls
+          .map((call): unknown => call[0])
+          .filter(
+            (record): record is object =>
+              typeof record === "object" &&
+              record !== null &&
+              Reflect.get(record, "event") === "lifecycle.retirement_stuck",
+          )
+          .map((record): unknown => Reflect.get(record, "stuckHours"));
+      try {
+        // Under an hour: an ordinary failure, no log.
+        age(59 * 60_000);
+        await work.drain(failing);
+        expect(stuck()).toEqual([]);
+
+        // Past an hour: logged once, retries stay at the minute cap.
+        age(60 * 60_000 + 1_000);
+        await work.drain(failing);
+        expect(stuck()).toEqual([1]);
+        expect(retryAt()).toBeLessThanOrEqual(Date.now() + 60_000);
+
+        // The next failure within the hour is not logged again.
+        state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+        await work.drain(failing);
+        expect(stuck()).toEqual([1]);
+
+        // Past 24 h: logged again after an hour, retries slow to an hour.
+        age(25 * 60 * 60_000, Date.now() - 60 * 60_000);
+        const before = Date.now();
+        await work.drain(failing);
+        expect(stuck()).toEqual([1, 25]);
+        expect(retryAt()).toBeGreaterThanOrEqual(before + 60 * 60_000);
+        expect(work.pending()).toBe(1);
+      } finally {
+        error.mockRestore();
+      }
     });
   });
   it("reschedules unconfigured delivery durably and binds the target and operation identity", async () => {
@@ -1563,6 +1653,152 @@ describe("Lifecycle wake-time release", () => {
     await runInDurableObject(stub, async (_instance, state) => {
       expect(userTables(state)).toEqual([]);
       expect(await state.storage.getAlarm()).toBeNull();
+    });
+  });
+});
+
+describe("bounded retries", () => {
+  it("parks a retirement failing for 7 days and resumes it on a repeated begin", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const work = new LifecycleProgress(state.storage, name).work;
+      state.storage.sql.exec(
+        "UPDATE authority_work SET first_at=?, next_at=0",
+        Date.now() - 7 * 24 * 60 * 60_000 - 1_000,
+      );
+      const error = vi.spyOn(console, "error");
+      try {
+        await work.drain(() => Promise.reject(new Error("adapter down")));
+        expect(
+          error.mock.calls.some(
+            ([record]: unknown[]) =>
+              typeof record === "object" &&
+              record !== null &&
+              Reflect.get(record, "event") === "lifecycle.retirement_parked",
+          ),
+        ).toBe(true);
+      } finally {
+        error.mockRestore();
+      }
+      // Kept, never due, and no alarm is armed for it.
+      expect(work.pending()).toBe(1);
+      expect(work.due(Number.MAX_SAFE_INTEGER)).toEqual([]);
+      expect(work.nextDeadline()).toBeUndefined();
+    });
+
+    await stub.begin(command);
+    await runInDurableObject(stub, (_instance, state) => {
+      const row = state.storage.sql
+        .exec<{ parked_at: number | null; first_at: number }>(
+          "SELECT parked_at,first_at FROM authority_work",
+        )
+        .one();
+      expect(row.parked_at).toBeNull();
+      expect(row.first_at).toBeGreaterThan(Date.now() - 60_000);
+    });
+  });
+
+  it("re-queues an abandoned fence when a retirement repeats", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "none");
+      await a.retireSubject(guest.subject, 2);
+      // The fence job was abandoned before it was delivered.
+      state.storage.sql.exec(
+        "DELETE FROM authority_work WHERE id='room-fence'",
+      );
+      await a.retireSubject(guest.subject, 2);
+      const room = a.state()!;
+      const fence = state.storage.sql
+        .exec<{ version: number }>(
+          "SELECT version FROM authority_work WHERE id='room-fence'",
+        )
+        .one();
+      expect(fence.version).toBe(room.authority_epoch);
+    });
+  });
+
+  it("does not poll every second while the projection queue is full", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "none");
+      state.storage.sql.exec("UPDATE authority_room SET projection_dirty=1");
+      expect(a.nextDeadline()).toBeLessThanOrEqual(Date.now() + 1_000);
+      await send(a, {
+        action: "allow-email",
+        email: guest.email,
+        role: "viewer",
+      });
+      // Fill the normal queue with copies of a real queued job.
+      for (let i = 0; !a.work.full(false); i += 1)
+        state.storage.sql.exec(
+          "INSERT INTO authority_work(id,body,security,next_at,version,first_at) SELECT ?,body,0,?,1,? FROM authority_work WHERE id LIKE 'invite:%' LIMIT 1",
+          `filler-${i}`,
+          Date.now() + 60_000,
+          Date.now(),
+        );
+      expect(a.nextDeadline()).toBeUndefined();
+    });
+  });
+
+  it("caps opener records by evicting the least recently opened link visitor", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "viewer");
+      await send(a, {
+        action: "allow-email",
+        email: guest.email,
+        role: "editor",
+      });
+      // The invited guest is the oldest record but is never evicted.
+      state.storage.sql.exec(
+        "INSERT INTO authority_members VALUES (?,?,1,0)",
+        guest.subject,
+        guest.email,
+      );
+      for (let i = 0; i < 254; i += 1)
+        state.storage.sql.exec(
+          "INSERT INTO authority_members VALUES (?,?,1,?)",
+          `link-${i}`,
+          `link-${i}@example.com`,
+          i + 1,
+        );
+      const count = () =>
+        state.storage.sql
+          .exec<{ count: number }>(
+            "SELECT count(*) AS count FROM authority_members",
+          )
+          .one().count;
+      expect(count()).toBe(256);
+
+      await join(a, {
+        subject: "newcomer",
+        email: "newcomer@example.com",
+        lifecycleVersion: 1,
+      });
+      expect(count()).toBe(256);
+      const subjects = state.storage.sql
+        .exec<{ subject: string }>("SELECT subject FROM authority_members")
+        .toArray()
+        .map((row) => row.subject);
+      expect(subjects).toContain("newcomer");
+      expect(subjects).toContain(guest.subject);
+      expect(subjects).toContain(owner.subject);
+      expect(subjects).not.toContain("link-0");
+      // The evicted visitor's list row is withdrawn.
+      expect(queuedProjections(state).members.get("link-0")).toMatchObject({
+        role: null,
+        access: null,
+      });
     });
   });
 });

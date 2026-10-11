@@ -153,8 +153,10 @@ export class RoomDelivery {
       case "cleanup":
         if (job.roomId !== this.authority.roomId || !room)
           throw new Error("wrong-room");
+        // Waiting on the fence backs off like a failure instead of polling
+        // every second while the fence itself retries.
         if (room.state !== "ended" || room.fenced_epoch < room.authority_epoch)
-          return false;
+          throw new Error("fence-pending");
         await this.adapter.call(
           {
             v: 1,

@@ -20,6 +20,8 @@ import {
   verification,
 } from "./schema";
 
+const DEFERRED_CLEANUP_RETRY_DELAY_MS = 60 * 60_000;
+
 export const QUERIES = {
   // 精簡查詢：只取擁有者 userId
   getSceneOwnerId: async function (id: string): Promise<string | undefined> {
@@ -211,8 +213,9 @@ export const QUERIES = {
     attempts: number,
     lastError?: unknown,
   ) {
-    const nextDelayMs = Math.min(60_000, 1_000 * 2 ** attempts); // 指數退避，上限 60s
-    const next = new Date(Date.now() + nextDelayMs);
+    // 維護 cron 每週一次：固定 1 小時保證同一輪 drain 不會重撈同一筆，
+    // 每次重試因此落在下一次執行，暫時性故障有數週可以恢復。
+    const next = new Date(Date.now() + DEFERRED_CLEANUP_RETRY_DELAY_MS);
     return await db
       .update(deferredFileCleanup)
       .set({

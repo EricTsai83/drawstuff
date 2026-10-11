@@ -54,7 +54,8 @@ asset records, storage fences and list projections; projections never authorize.
   results expire after 24 hours. Room work still undelivered 24 hours after it was first scheduled is
   abandoned (`authority.work_abandoned`): local records become terminal (content receipts
   `refused`, fence-waiting management results get `terminal_at`) without claiming remote success.
-  Lifecycle retirement work is never abandoned. No job stores snapshot or image bytes.
+  Lifecycle retirement work is never dropped, but after 7 days of failures it is parked (kept,
+  unscheduled) until an operator resumes it. No job stores snapshot or image bytes.
 - Ordinary work is capped at 128 jobs and safety reserve at 64. Exhausted reserve durably denies
   the whole room, retaining one emergency room fence and at most one emergency orphan-cleanup
   job. Safety mutations that outrun ordinary projections retain a dirty cursor and rebuild

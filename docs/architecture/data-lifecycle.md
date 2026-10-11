@@ -26,7 +26,7 @@ NULL-source rooms are independent. Lifecycle terminal records survive account/sc
 | Owned-scene asset      | scene id + `excalidraw_file_id`                  | While the committed document references it | Unreferenced-asset GC deletes the row and enqueues its storage key          |
 | Collaboration snapshot | room id                                          | One optimistic-revision row per room       | Room-end cleanup, ended-room retention backstop, or owner reset             |
 | Collaboration asset    | room id + `excalidraw_file_id`                   | At most 512 per room                       | Room-end cleanup or retention backstop deletes rows and enqueues storage keys |
-| Room metadata          | room id                                          | While active; an ended room keeps only its row (empty label) and creation fence | Active rooms never expire; per-person rows of ended rooms are purged; the row and fence stay to refuse roomId reuse |
+| Room metadata          | room id                                          | While active; an ended room keeps only its row (empty label) and creation fence | Active rooms never expire; per-person rows of ended rooms are purged; the row goes 90 days after the end, the fence stays to refuse roomId reuse |
 | Shared scene (link)    | shared scene id (nanoid)                         | 30 days from creation                      | Bounded maintenance job deletes rows after handling their storage objects   |
 | Published render artifacts | scene id + variant (light/dark); content-hashed immutable object | While the scene is published; the pair is replaced on every save of the scene | Unpublish and scene/workspace/account deletion enqueue both keys; an uploaded pair nobody claims expires from its reservation into the same queue |
 
@@ -113,15 +113,17 @@ document and asset records never leave the owner's endpoints.
 PostgreSQL and object storage cannot share one transaction. Any operation that makes an object
 orphaned therefore deletes the owning row and inserts its `ut_file_key` into
 `deferred_file_cleanup` in the same database transaction. The queue is the durable outbox; object
-deletion is retried independently and queue rows retain failure state.
+deletion is retried independently and queue rows retain failure state. The drain runs in the weekly
+maintenance cron: a failed deletion is retried after a fixed 1 h — so never twice in one drain, and
+in practice on the next weekly run — and after 5 retries (about five weeks) the row becomes
+`failed` and logs `cleanup.deferred_failed` (`error`, web server logs). The drain never picks up
+`failed` rows again; operators review them in the admin console's **Failed file cleanup** section,
+where retrying one or all (audited `retry-cleanup`) resets them to `pending` with zero attempts for
+the next run. `done` rows are purged after 30 days; `failed` rows are kept until retried, because
+each is the last pointer to an undeleted object.
 
-The same transactional-outbox shape covers realtime enforcement: every collaboration room mutation
-inserts its control intent into `collaboration_control_outbox` in the mutation's own transaction,
-a minute-level schedule (the collaboration Worker's Cloudflare cron trigger pinging the web drain
-endpoint) drains it to the room's Durable Object, and terminal rows (delivered after
-7 days, poison-failed after 30) are purged by a bounded weekly retention job. Pending rows are
-enforcement debt and are never purged. See the
-[collaboration system design](./collaboration-system-design.md) for delivery semantics.
+Realtime enforcement uses the same outbox shape inside each Durable Object (`authority_work`), not a
+PostgreSQL table; see the [collaboration authority](./collaboration-authority.md).
 
 Scene deletion, workspace deletion, account retirement, and the single-tenant purge all follow this
 shape: the deleting transaction collects every storage key its cascade will orphan — asset records,
@@ -204,6 +206,32 @@ remaining object work for the next run.
 The Room DO itself deletes all of its storage once an ended room's fence and cleanup are delivered
 (or abandoned after 24 hours) and no connection remains; completed Lifecycle retirement objects
 release their storage one hour after completion.
+
+## Release principle
+
+Every kind of accumulating data has a release path, listed in the admin console's **Data release**
+section: system garbage and bookkeeping are released by maintenance jobs, user content only by an
+operator (never automatically), and retained data states why. See
+[admin operations](../operations/admin-data-retirement.md#data-release).
+
+## Record retention
+
+The weekly `record-retention` job (`apps/web/src/server/maintenance/jobs.ts`) deletes bookkeeping
+rows nothing reads any more, at most 5,000 per kind per run, so no table grows for the life of the
+deployment:
+
+| Rows | Deleted when | Why it is safe |
+| --- | --- | --- |
+| `admin_audit_event` | older than 365 days | audit has no other retention requirement |
+| `maintenance_run` | older than 180 days | operator history of runs only |
+| `collaboration_operation` | terminal over 24 h | receipts only replay within `resultRetentionMs`; pending rows stay |
+| `collaboration_lifecycle_subject` | account/scene row gone, and unfrozen or retired over 30 days ago | identity and registration also require the user/scene row; frozen, unretired subjects (retirements in flight) are never deleted |
+| `collaboration_room` (ended) | storage fenced, data reclaimed, ended over 90 days ago | the creation fence stays and alone refuses the roomId |
+| revoked `collaboration_room_member` / `collaboration_room_invite` | revoked over 30 days ago | late projection events cannot outlive the Room's 24 h abandonment |
+
+`collaboration_creation_fence` rows (one tiny row per room ever created) are deliberately kept
+forever: the Room DO keeps no tombstone after release, so the fence is the only thing that stops a
+known ended roomId from being re-created.
 
 ## Operator retirement
 

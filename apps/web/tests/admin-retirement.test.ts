@@ -439,4 +439,65 @@ describe("admin data retirement", () => {
     // lifecycle bump would have produced.
     expect(relayCalls).toEqual([]);
   });
+
+  it("lists failed cleanup tasks and requeues one or all of them with an audit trail", async () => {
+    const [one, two] = await testDb
+      .insert(schema.deferredFileCleanup)
+      .values([
+        { utFileKey: "failed-1", reason: "t", status: "failed", attempts: 6 },
+        { utFileKey: "failed-2", reason: "t", status: "failed", attempts: 6 },
+        { utFileKey: "pending-1", reason: "t", attempts: 2 },
+      ])
+      .returning({ id: schema.deferredFileCleanup.id });
+    if (!one || !two) throw new Error("cleanup insert failed");
+
+    await expect(
+      callerFor("other-user").admin.retryFailedCleanup({ target: "all" }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    const admin = callerFor("admin-user").admin;
+    const listed = await admin.failedCleanups();
+    expect(listed.count).toBe(2);
+    expect(listed.items.map((task) => task.utFileKey).sort()).toEqual([
+      "failed-1",
+      "failed-2",
+    ]);
+
+    await expect(admin.retryFailedCleanup({ target: one.id })).resolves.toEqual(
+      { retried: 1 },
+    );
+    const retried = await testDb.query.deferredFileCleanup.findFirst({
+      where: eq(schema.deferredFileCleanup.id, one.id),
+    });
+    expect(retried).toMatchObject({ status: "pending", attempts: 0 });
+
+    // A task that is no longer failed cannot be requeued by id.
+    await expect(
+      admin.retryFailedCleanup({ target: one.id }),
+    ).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await expect(admin.retryFailedCleanup({ target: "all" })).resolves.toEqual({
+      retried: 1,
+    });
+    expect((await admin.failedCleanups()).count).toBe(0);
+    const pending = await testDb.query.deferredFileCleanup.findFirst({
+      where: eq(schema.deferredFileCleanup.utFileKey, "pending-1"),
+    });
+    expect(pending?.attempts).toBe(2);
+
+    const audits = await testDb
+      .select({
+        action: schema.adminAuditEvent.action,
+        targetId: schema.adminAuditEvent.targetId,
+        status: schema.adminAuditEvent.status,
+      })
+      .from(schema.adminAuditEvent);
+    expect(audits).toEqual(
+      expect.arrayContaining([
+        { action: "retry-cleanup", targetId: one.id, status: "succeeded" },
+        { action: "retry-cleanup", targetId: one.id, status: "failed" },
+        { action: "retry-cleanup", targetId: "all", status: "succeeded" },
+      ]),
+    );
+  });
 });
