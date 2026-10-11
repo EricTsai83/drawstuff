@@ -37,11 +37,7 @@ export function AdminRoomLookup() {
   async function done(message: string) {
     toast.success(message);
     setAction(null);
-    await Promise.all([
-      utils.admin.getRoom.invalidate(),
-      utils.admin.anomalies.invalidate(),
-      utils.admin.recentAuditEvents.invalidate(),
-    ]);
+    await utils.admin.invalidate();
   }
   const onError = (error: { message: string }) => toast.error(error.message);
   const endRoom = api.admin.endRoom.useMutation({
@@ -90,6 +86,13 @@ export function AdminRoomLookup() {
             </Button>
           </form>
         </CardHeader>
+        {roomId === null && (
+          <CardContent>
+            <p className="text-muted-foreground py-4 text-center text-sm">
+              {t("roomLookup.hint")}
+            </p>
+          </CardContent>
+        )}
         {roomId !== null && (
           <CardContent className="flex flex-col gap-4 text-sm">
             {room.isPending ? (

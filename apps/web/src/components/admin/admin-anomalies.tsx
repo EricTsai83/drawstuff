@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import Link from "next/link";
+import { CircleCheckIcon } from "lucide-react";
 import { toast } from "sonner";
 
 import {
@@ -74,15 +75,15 @@ function AnomalyGroup({
   children?: ReactNode;
 }) {
   const { t, langCode } = useAdminI18n();
+  // Only what needs an operator is shown; clear checks are summarized.
+  if (count === 0) return null;
   return (
     <div className="flex flex-col gap-2 border-b py-3 last:border-b-0">
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="min-w-0">
           <p className="flex items-center gap-2 font-medium">
             {title}
-            <Badge variant={count > 0 ? "destructive" : "secondary"}>
-              {count}
-            </Badge>
+            <Badge variant="destructive">{count}</Badge>
           </p>
           <p className="text-muted-foreground text-xs">{description}</p>
           {lastAt && (
@@ -93,11 +94,9 @@ function AnomalyGroup({
             </p>
           )}
         </div>
-        {count > 0 && action}
+        {action}
       </div>
-      {count > 0 && children && (
-        <ul className="flex flex-col gap-1">{children}</ul>
-      )}
+      {children && <ul className="flex flex-col gap-1">{children}</ul>}
     </div>
   );
 }
@@ -131,11 +130,7 @@ export function AdminAnomalies() {
   async function done(message: string) {
     toast.success(message);
     setAction(null);
-    await Promise.all([
-      utils.admin.anomalies.invalidate(),
-      utils.admin.overview.invalidate(),
-      utils.admin.recentAuditEvents.invalidate(),
-    ]);
+    await utils.admin.invalidate();
   }
   const onError = (error: { message: string }) => toast.error(error.message);
 
@@ -186,6 +181,16 @@ export function AdminAnomalies() {
 
   const date = (value: Date | null) => formatAdminDate(value, langCode);
   const data = anomalies.data;
+  /** How many of the five checks found nothing. */
+  const clearChecks = data
+    ? [
+        data.stuckRetirements.count,
+        data.unclosedStorage.count,
+        data.stuckInitializing.count,
+        data.failedCleanup.count,
+        data.endedWithData.count,
+      ].filter((count) => count === 0).length
+    : 0;
 
   return (
     <section aria-labelledby="anomalies-heading">
@@ -209,6 +214,15 @@ export function AdminAnomalies() {
             </p>
           ) : (
             <>
+              {clearChecks === 5 && (
+                <p className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
+                  <CircleCheckIcon
+                    className="size-4 text-emerald-600"
+                    aria-hidden="true"
+                  />
+                  {t("anomalies.allClear")}
+                </p>
+              )}
               <AnomalyGroup
                 title={t("anomalies.stuckRetirements.title")}
                 description={t("anomalies.stuckRetirements.description")}
@@ -353,6 +367,11 @@ export function AdminAnomalies() {
                   />
                 ))}
               </AnomalyGroup>
+              {clearChecks > 0 && clearChecks < 5 && (
+                <p className="text-muted-foreground pt-3 text-xs">
+                  {t("anomalies.cleared", { count: clearChecks })}
+                </p>
+              )}
             </>
           )}
         </CardContent>

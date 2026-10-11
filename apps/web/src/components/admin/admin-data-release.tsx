@@ -62,11 +62,7 @@ export function AdminDataRelease() {
       toast.success(t("release.orphansQueued", { count: enqueued }));
       setConfirming(false);
       setScan(null);
-      await Promise.all([
-        utils.admin.dataRelease.invalidate(),
-        utils.admin.maintenanceStatus.invalidate(),
-        utils.admin.recentAuditEvents.invalidate(),
-      ]);
+      await utils.admin.invalidate();
     },
     onError: (error) => toast.error(error.message),
   });

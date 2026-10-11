@@ -31,11 +31,7 @@ export function AdminFailedCleanups() {
     onSuccess: async ({ retried }) => {
       toast.success(t("toast.cleanupRetried", { count: retried }));
       setTarget(null);
-      await Promise.all([
-        utils.admin.failedCleanups.invalidate(),
-        utils.admin.overview.invalidate(),
-        utils.admin.recentAuditEvents.invalidate(),
-      ]);
+      await utils.admin.invalidate();
     },
     onError: (error) => toast.error(error.message),
   });
@@ -163,6 +159,7 @@ export function AdminFailedCleanups() {
                 description: t("confirm.retryCleanup.description"),
                 targetId: target,
                 confirmLabel: t("confirm.retryCleanup.action"),
+                requireTyping: false,
               }
         }
         pending={retry.isPending}

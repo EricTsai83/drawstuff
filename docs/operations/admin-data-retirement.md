@@ -103,8 +103,12 @@ every page authorizes the operator itself.
 
 Sign in as an active operator and open `/admin`. The management interface supports user search,
 operator grants, scene and account retirement, room termination, and recent audit inspection. Every
-user's **Manage** action opens `/admin/users/[userId]`, where high-risk actions require the immutable
-target ID to be typed before submission. The underlying audited procedures are:
+user's **Manage** action opens `/admin/users/[userId]`. Every action is audited and confirmed:
+irreversible ones (retirement, deleting a shared link, ending a room, closing storage, resuming a
+retirement, reclaiming room data, queueing storage orphans, granting or revoking admin) require the
+target ID to be typed; reversible ones (retrying cleanup, limits, the collaboration switch, signals,
+running maintenance, unpublishing, signing an account out) ask once. The underlying audited
+procedures are:
 
 - `admin.retireScene({ sceneId })`
 - `admin.endRoom({ roomId })`

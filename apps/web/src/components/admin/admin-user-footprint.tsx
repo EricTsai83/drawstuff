@@ -39,11 +39,13 @@ function getConfirmation(
       title: t("confirm.revokeSessions.title"),
       description: t("confirm.revokeSessions.description"),
       confirmLabel: t("footprint.revokeSessions"),
+      requireTyping: false,
     },
     "unpublish-scene": {
       title: t("confirm.unpublishScene.title"),
       description: t("confirm.unpublishScene.description"),
       confirmLabel: t("footprint.unpublish"),
+      requireTyping: false,
     },
     "delete-shared-link": {
       title: t("confirm.deleteSharedLink.title"),
@@ -73,11 +75,7 @@ export function AdminUserFootprint({
   async function done(message: string) {
     toast.success(message);
     setAction(null);
-    await Promise.all([
-      utils.admin.userFootprint.invalidate({ userId }),
-      utils.admin.getUser.invalidate({ userId }),
-      utils.admin.recentAuditEvents.invalidate(),
-    ]);
+    await utils.admin.invalidate();
   }
   const onError = (error: { message: string }) => toast.error(error.message);
   const revokeSessions = api.admin.revokeSessions.useMutation({
