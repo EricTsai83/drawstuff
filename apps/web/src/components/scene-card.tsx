@@ -323,7 +323,12 @@ export const SceneCard = memo(function SceneCard({
     (e: React.MouseEvent) => {
       e.stopPropagation();
       if (!item.publishedSlug) return;
-      window.open(getPublishedSceneUrl(item.publishedSlug), "_blank");
+      // window.open, unlike <a target="_blank">, keeps window.opener by default.
+      window.open(
+        getPublishedSceneUrl(item.publishedSlug),
+        "_blank",
+        "noopener,noreferrer",
+      );
     },
     [item.publishedSlug],
   );
