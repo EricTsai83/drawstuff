@@ -22,6 +22,14 @@ import { rateLimitRetryAfterMs } from "@/lib/collab/rate-limit";
 
 /** Attempts per upload, counting the first. */
 const MAX_PUBLISH_ATTEMPTS = 3;
+/**
+ * Receipt recoveries per upload. Recovering a pending receipt is not another
+ * provider upload, so it does not spend `MAX_PUBLISH_ATTEMPTS`, but it is a
+ * request all the same: without its own cap and backoff, a failing gateway
+ * would be queried about once a second for as long as the tab stays open.
+ * Ten backed-off recoveries span about three minutes.
+ */
+const MAX_RECEIPT_RECOVERIES = 10;
 
 type AssetPublishContext = {
   upload: AssetApi["upload"];
@@ -79,6 +87,7 @@ export const createAssetPublisher = (
    */
   const uploadRetrying = createBoundedIdMap<{
     attempts: number;
+    recoveries: number;
     notBefore: number;
   }>(context.maxTrackedIds);
   let cancelPublishRetry: (() => void) | undefined;
@@ -142,13 +151,16 @@ export const createAssetPublisher = (
       resolved.add(file.id);
       uploadRetrying.delete(file.id);
     } catch (error) {
-      // Receipt recovery is not another provider upload and must not spend the three-upload budget.
-      const previousAttempts = uploadRetrying.get(file.id)?.attempts ?? 0;
-      const attempts =
-        error instanceof AssetUploadPendingError
-          ? previousAttempts
-          : previousAttempts + 1;
-      if (attempts >= MAX_PUBLISH_ATTEMPTS) {
+      // Receipt recovery is not another provider upload and must not spend the
+      // three-upload budget; it has its own.
+      const previous = uploadRetrying.get(file.id);
+      const recovering = error instanceof AssetUploadPendingError;
+      const attempts = (previous?.attempts ?? 0) + (recovering ? 0 : 1);
+      const recoveries = (previous?.recoveries ?? 0) + (recovering ? 1 : 0);
+      if (
+        attempts >= MAX_PUBLISH_ATTEMPTS ||
+        recoveries >= MAX_RECEIPT_RECOVERIES
+      ) {
         abandon(file.id);
         uploadRetrying.delete(file.id);
         return;
@@ -158,12 +170,16 @@ export const createAssetPublisher = (
       // timer, so the timer never fires before the file it was armed for is
       // eligible.
       const delayMs = Math.max(
-        context.retryDelayMs(Math.max(1, attempts)),
+        context.retryDelayMs(Math.max(1, attempts, recoveries)),
         rateLimitRetryAfterMs(
           error instanceof AssetUploadPendingError ? error.cause : error,
         ) ?? 0,
       );
-      uploadRetrying.set(file.id, { attempts, notBefore: now() + delayMs });
+      uploadRetrying.set(file.id, {
+        attempts,
+        recoveries,
+        notBefore: now() + delayMs,
+      });
       // A timer, not "the next scene flush": a user who pastes an image and then
       // stops drawing produces no further flush, so a transient upload failure
       // would otherwise mean the image never reaches anybody. A rate limit is
