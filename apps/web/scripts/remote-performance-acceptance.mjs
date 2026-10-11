@@ -13,6 +13,7 @@ import { Agent, buildConnector } from "undici";
 import undiciPackage from "undici/package.json" with {type:"json"};
 import { PERFORMANCE_PROBE_HEADER, readServerTimings, performanceTimingsSchema } from "@drawstuff/collaboration/performance";
 import { issuePerformanceProbe } from "../src/server/collab/performance-probe.ts";
+import { MAX_FAILURE_RATIO, MAX_FAILURES, evaluateGate, failureRecord } from "./remote-performance-gate.mjs";
 
 const WARMUP = 20, SAMPLES = 200, TYPICAL_BYTES = 256 * 1024;
 const sha256 = bytes => createHash("sha256").update(bytes).digest("hex");
@@ -109,18 +110,21 @@ export async function runTypicalHotPerformance(c) {
     }
     return fetch(url,{...options,...(dispatcher ? {dispatcher} : {})});
   };
-  const jsonPost=(path,body,timings)=>c.jsonPost(path,body,timings,measuredFetch);
+  // Records the status of every gateway JSON request, since a refused one throws before returning it.
+  const jsonPost=(path,body,timings)=>c.jsonPost(path,body,timings,async(url,options)=>{
+    delete failureContext.httpStatus;const response=await measuredFetch(url,options);failureContext.httpStatus=response.status;return response;
+  });
   const samples = c.diagnostic ? 20 : SAMPLES;
-  const result={schemaVersion:1,scope:"3A",startedAt:new Date().toISOString(),warmup:WARMUP,requiredSamples:SAMPLES,
+  const result={schemaVersion:2,scope:"3A",startedAt:new Date().toISOString(),warmup:WARMUP,requiredSamples:SAMPLES,
     purpose:c.transportControl ? "default-transport-control" : c.http2 ? "http2-acceptance" : c.snapshotDiagnostic ? "snapshot-latency-diagnostic" : c.presignDiagnostic ? "presign-lifecycle-diagnostic" : c.serverDiagnostic ? "server-latency-diagnostic" : c.providerDiagnostic ? "provider-latency-diagnostic" : c.diagnostic ? "latency-diagnostic" : "acceptance",plannedSamples:samples,
     scenario:"typical-hot-real-upload",snapshotPlaintextBytes:TYPICAL_BYTES,assetPlaintextBytes:null,
     runtime:{client:process.version,bundledUndici:process.versions.undici,dispatcherUndici:c.http2 ? undiciPackage.version : null,httpTransport:transport,protocol:COLLABORATION_PROTOCOL_VERSION,fixtureConcurrency:1,initializationIngress:"production Vercel tRPC",uncommittedMeasurementTools:Boolean(c.toolsUncommitted)},
     measurementBoundary:"verified principals -> Gateway -> DO -> production adapter/Neon and genuine UploadThing callback; join includes baseline, asset download/decode and socket fanout",
     limitations:[c.serverDiagnostic ? "OAuth, web proof issuance and UI application are excluded; asset presign session and rate-limit spans are measured" : "OAuth, web proof issuance/rate-limit ingress and UI application are excluded", "hot DO maintained by live presence traffic; Vercel/Neon cold starts are not independently classified", c.snapshotDiagnostic ? "asset and snapshot service/DB spans are measured; snapshot response delivery, callback dispatch, RPC handler-external waiting and provider/network attribution remain unclassified" : c.serverDiagnostic ? "asset path records service and DB transaction spans; snapshot spans, callback dispatch and provider/network attribution remain unclassified" : "client segments are measured; DO->Vercel and adapter->Neon spans require subsequent instrumentation"],
     thresholdsMs:{save:{p95:3000,p99:8000},join:{p95:3000,p99:5000}},
-    records:[],warmupRecords:[],failures:0,gatePassed:false,completed:false};
+    records:[],warmupRecords:[],failures:0,warmupFailures:0,failureRecords:[],maxFailureRatio:MAX_FAILURE_RATIO,maxFailures:MAX_FAILURES,gatePassed:false,completed:false};
   c.observe(result);
-  const owner=await connect();let revision=1, heartbeatError=false;
+  let owner=await connect();let revision=1, heartbeatError=false;
   // Plain rooms (plan 21): the relay forwards payloads as sent.
   const presence=encodeRelayDataFrame("presence",new TextEncoder().encode("{}"));
   const heartbeat=setInterval(()=>{
@@ -130,6 +134,18 @@ export async function runTypicalHotPerformance(c) {
   result.keepalive={intervalMs:KEEPALIVE_INTERVAL_MS,sent:0,acknowledged:0};
   const onKeepaliveAck=data=>{if(data.toString()===RELAY_KEEPALIVE_RESPONSE)result.keepalive.acknowledged++;};
   owner.ws.on("message",onKeepaliveAck);
+  // After a failed sample: a dropped owner is replaced, and the revision is
+  // re-read because a write may have landed even though its sample failed.
+  const recover=async()=>{
+    heartbeatError=false;
+    if(owner.ws.readyState!==1) {
+      owner.ws.off("message",onKeepaliveAck);owner.ws.terminate();
+      owner=await connect();owner.ws.on("message",onKeepaliveAck);
+      result.ownerReconnects=(result.ownerReconnects??0)+1;
+    }
+    const response=await snapshotRequest({...envelope(),action:"read"});assert.equal(response.status,200);
+    revision=JSON.parse(response.headers.get(SNAPSHOT_RECEIPT_HEADER)).revision;await response.body?.cancel();
+  };
   const keepalive=setInterval(()=>{
     if(owner.ws.readyState!==1)return;
     try {owner.ws.send(RELAY_KEEPALIVE_REQUEST);result.keepalive.sent++;}
@@ -147,10 +163,15 @@ export async function runTypicalHotPerformance(c) {
     if(timings) Object.assign(timings,readServerTimings(response.headers.get("server-timing")));
     return response;
   };
+  let warmupDone=0, attempts=0, afterFailure=false;
   try {
-    for(let index=0;index<WARMUP+samples;index++) {
-      failureContext={warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,stage:"prepare"};
-      assert(!c.interrupted(),"Performance acceptance interrupted");assert(!heartbeatError);assert.equal(owner.ws.readyState,1);
+    while(warmupDone<WARMUP || result.records.length<samples) {
+      const warmup=warmupDone<WARMUP;attempts++;
+      failureContext={warmup,sample:warmup ? warmupDone+1 : result.records.length+1,attempt:attempts,stage:"prepare"};
+      assert(!c.interrupted(),"Performance acceptance interrupted");
+      let member;
+      try {
+      assert(!heartbeatError);assert.equal(owner.ws.readyState,1);
       const png=pngFixture(), fileId=createHash("sha1").update(png).digest("hex");
       const payload=encodeCollaborationAssetPayload({roomId,excalidrawFileId:fileId,mimeType:"image/png",dataUrl:`data:image/png;base64,${png.toString("base64")}`});assert(payload.ok);
       result.assetPlaintextBytes ??= payload.bytes.length;
@@ -191,6 +212,7 @@ export async function runTypicalHotPerformance(c) {
       const providerPutCallbackMs=performance.now()-providerStart;
       let initialPending=callback.status==="pending";
       const pendingStart=performance.now();
+      if(initialPending) enterStage("asset-pending");
       if(initialPending) await until(async()=>
         (await jsonPost("/v1/assets",{proof:proof(),request:{action:"query",intent}})).result.status==="written",
       60000);
@@ -210,8 +232,7 @@ export async function runTypicalHotPerformance(c) {
       const snapshotMs=performance.now()-saveStart;
       const saveMs=performance.now()-started;
       enterStage("join");
-      const joinStart=performance.now();let member;
-      try {
+      const joinStart=performance.now();
         member=await connect(guest);assert.equal(member.joined.role,"editor");
         const joinSocketMs=performance.now()-joinStart;
         const baselineStart=performance.now();
@@ -291,17 +312,25 @@ export async function runTypicalHotPerformance(c) {
             for(const [metric,value] of Object.entries(timings)) server[`${prefix}_${metric}Ms`]=value;
           }
         }
-        const row={saveMs,joinMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...(c.snapshotDiagnostic ? {snapshotAttempts} : {}),...repeated,...server};
-        (index<WARMUP ? result.warmupRecords : result.records).push(row);
-        report("performance-sample",{warmup:index<WARMUP,sample:index<WARMUP ? index+1 : index-WARMUP+1,saveMs:Math.round(saveMs),joinMs:Math.round(joinMs)});
+        const row={...(afterFailure ? {afterFailure} : {}),saveMs,joinMs,uploadMs,presignMs,presignHeadersMs,presignBodyMs,journalMs,providerPutCallbackMs,providerHeadersMs,providerReceiptBodyMs,assetPendingMs,snapshotMs,joinSocketMs,joinSnapshotMs,joinAssetsMs,assetIndexMs,assetDownloadMs,assetDownloadHeadersMs,assetDownloadBodyMs,assetDecodeMs,fanoutMs,initialPending,...(c.snapshotDiagnostic ? {snapshotAttempts} : {}),...repeated,...server};
+        (warmup ? result.warmupRecords : result.records).push(row);
+        if(warmup) warmupDone++;
+        afterFailure=false;
+        report("performance-sample",{warmup,sample:failureContext.sample,saveMs:Math.round(saveMs),joinMs:Math.round(joinMs)});
       } catch(error) {
-        result.failureDiagnostic={...failureContext,ownerSocketState:owner.ws.readyState,guestSocketState:member?.ws.readyState,ownerCloseCode:owner.closeCode,guestCloseCode:member?.closeCode};
-        throw error;
+        if(c.interrupted()) throw error;
+        const record=failureRecord(failureContext,error,{ownerSocketState:owner.ws.readyState,guestSocketState:member?.ws.readyState,ownerCloseCode:owner.closeCode,guestCloseCode:member?.closeCode ?? (Number.isInteger(error?.closeCode) ? error.closeCode : undefined)});
+        result.failureRecords.push(record);
+        if(warmup) result.warmupFailures++; else result.failures++;
+        report("performance-sample-failed",{warmup,sample:record.sample,stage:record.stage,errorName:record.errorName,httpStatus:record.httpStatus,ownerCloseCode:record.ownerCloseCode});
+        assert(result.failures+result.warmupFailures<MAX_FAILURES,"Performance failure limit reached");
+        afterFailure=true;
       } finally {member?.ws.terminate();if(member)await until(()=>Promise.resolve(member.ws.readyState===3));}
-      if(index%10===9)await pause(1000); // No parallel bursts or extra fixture rooms.
+      if(afterFailure) await recover();
+      if(attempts%10===0)await pause(1000); // No parallel bursts or extra fixture rooms.
     }
     result.completed=true;
-  } catch(error) {result.failures++;result.failureDiagnostic??={...failureContext,ownerSocketState:owner.ws.readyState,ownerCloseCode:owner.closeCode};if(error instanceof z.ZodError)result.failureDiagnostic.schemaIssueCodes=[...new Set(error.issues.map(issue=>issue.code))];throw error;}
+  } catch(error) {result.fatalStage=failureContext?.stage;throw error;}
   finally {
     clearInterval(heartbeat);clearInterval(keepalive);owner.ws.off("message",onKeepaliveAck);owner.ws.terminate();
     if(dispatcher) await dispatcher.destroy();
@@ -311,9 +340,8 @@ export async function runTypicalHotPerformance(c) {
     if(c.serverDiagnostic) fields.push(...new Set(result.records.flatMap(row=>Object.keys(row).filter(field=>/^(?:presignRoute|presign|callback|index|snapshotWrite|snapshotRead)_/.test(field)))));
     result.metrics=Object.fromEntries(fields.map(field=>[field,summary(result.records.map(row=>row[field]))]));
     result.pendingRatio=result.records.length ? result.records.filter(row=>row.initialPending).length/result.records.length : null;
-    result.failureRatio=result.failures/(result.records.length+result.failures || 1);
-    result.gatePassed=result.completed && result.records.length===SAMPLES && result.metrics.saveMs.p95<=3000 && result.metrics.saveMs.p99<=8000 && result.metrics.joinMs.p95<=3000 && result.metrics.joinMs.p99<=5000;
-    report("performance-summary",{completed:result.completed,gatePassed:result.gatePassed,save:result.metrics.saveMs,join:result.metrics.joinMs});
+    result.gatePassed=evaluateGate(result);
+    report("performance-summary",{completed:result.completed,gatePassed:result.gatePassed,failures:result.failures,failureRatio:result.failureRatio,save:result.metrics.saveMs,join:result.metrics.joinMs});
   }
   return result;
 }
