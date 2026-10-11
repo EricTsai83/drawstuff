@@ -23,11 +23,67 @@ env:
   TURBO_TEAM: ${{ vars.TURBO_TEAM }}
 
 jobs:
+  # Decides what the rest of the run tests. A pull request only checks the
+  # packages its diff affects (turbo follows workspace dependents and the
+  # root globalDependencies), so a docs-only PR skips every package job and a
+  # web-only PR skips the browser-image package suites. main always runs
+  # everything. A skipped job reports success, so required checks still pass.
+  changes:
+    name: Affected packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      all: ${{ steps.affected.outputs.all }}
+      packages: ${{ steps.affected.outputs.packages }}
+      web: ${{ steps.affected.outputs.web }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+
+      - name: Setup workspace
+        uses: ./.github/actions/setup
+
+      - name: Resolve affected packages
+        id: affected
+        env:
+          TURBO_SCM_BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = pull_request ]; then
+            affected=$(./node_modules/.bin/turbo ls --affected --output=json)
+          else
+            affected=$(./node_modules/.bin/turbo ls --output=json)
+          fi
+          # Fail loudly rather than select nothing if the output is not the
+          # expected JSON (the binary is called directly so pnpm cannot print
+          # to stdout first).
+          jq -e '.packages.items | type == "array"' <<<"$affected" >/dev/null
+          names() { jq -r "[.packages.items[].name | select($1)]" <<<"$affected"; }
+          filters() { names "$1" | jq -r 'map("--filter=" + .) | join(" ")'; }
+          echo "Affected: $(names true | jq -c .)"
+          {
+            echo "all=$(filters true)"
+            echo "packages=$(filters '. != "@drawstuff/web"')"
+            echo "web=$(names '. == "@drawstuff/web"' | jq 'length > 0')"
+          } >> "$GITHUB_OUTPUT"
+
   quality:
     name: Quality
+    needs: changes
+    # Runs even when `changes` failed, and then fails itself: otherwise a
+    # broken detector would skip every job, and skipped reads as passed.
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
+      - name: Require affected-package detection
+        if: needs.changes.result != 'success'
+        run: |
+          echo "::error::Affected-package detection did not succeed"
+          exit 1
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
@@ -40,10 +96,12 @@ jobs:
         run: pnpm format:check
 
       - name: Lint
-        run: pnpm lint
+        if: needs.changes.outputs.all != ''
+        run: pnpm exec turbo run lint ${{ needs.changes.outputs.all }}
 
       - name: Typecheck
-        run: pnpm typecheck
+        if: needs.changes.outputs.all != ''
+        run: pnpm exec turbo run typecheck ${{ needs.changes.outputs.all }}
 
       - name: Check unused production dependencies
         run: pnpm knip
@@ -56,6 +114,8 @@ jobs:
 
   test-web:
     name: Unit tests (web)
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -74,6 +134,8 @@ jobs:
 
   test-packages:
     name: Unit and browser tests (packages)
+    needs: changes
+    if: needs.changes.outputs.packages != ''
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # @drawstuff/collaboration exercises Web Crypto in real Chromium and WebKit.
@@ -96,10 +158,12 @@ jobs:
         uses: ./.github/actions/setup
 
       - name: Test
-        run: pnpm exec turbo run test --filter='!@drawstuff/web'
+        run: pnpm exec turbo run test ${{ needs.changes.outputs.packages }}
 
   e2e:
     name: Browser, mobile, and accessibility gates
+    needs: changes
+    if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     # See test-packages for why the browser image is used.
