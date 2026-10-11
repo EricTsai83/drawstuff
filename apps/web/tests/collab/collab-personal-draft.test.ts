@@ -82,6 +82,28 @@ function enterRoom() {
 }
 
 describe("room and personal cache separation", () => {
+  it("drops another tab's cached scene when restoring the draft cannot be cached", () => {
+    const h = enterRoom();
+    // Another tab cached its own scene in the shared localStorage meanwhile.
+    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS, "other-tab");
+    const setItem = localStorage.setItem.bind(localStorage);
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation((key, value) => {
+      if (key === STORAGE_KEYS.LOCAL_STORAGE_FILES) {
+        throw new DOMException("full", "QuotaExceededError");
+      }
+      setItem(key, value);
+    });
+    vi.spyOn(console, "error").mockImplementation(() => undefined);
+
+    restorePersonalDraft(h.api);
+
+    expect(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS),
+    ).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEYS.CURRENT_SCENE_ID)).toBe("source");
+    expect(h.elements.map((e) => e.id)).toEqual(["personal-draft"]);
+  });
+
   it("owner edits, delayed saves and unload writers cannot cache room contents", () => {
     const h = enterRoom();
     saveData({

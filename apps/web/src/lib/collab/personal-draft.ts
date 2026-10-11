@@ -1,7 +1,10 @@
 import type { ExcalidrawImperativeAPI } from "@drawstuff/excalidraw-adapter/types";
 import type { SceneIdentity } from "@/hooks/scene-session-context";
 import { STORAGE_KEYS } from "@/config/app-constants";
-import { importFromLocalStorage } from "@/data/local-storage";
+import {
+  clearLocalSceneContent,
+  importFromLocalStorage,
+} from "@/data/local-storage";
 import {
   isSigningOut,
   pauseLocalScenePersistence,
@@ -117,11 +120,19 @@ export function restorePersonalDraft(api: ExcalidrawImperativeAPI): boolean {
     else localStorage.setItem(key, value);
   }
   resumeLocalScenePersistence("collaboration-canvas");
-  saveToLocalStorage(
+  const cached = saveToLocalStorage(
     draft.canvas.elements,
     draft.canvas.appState ?? {},
     draft.canvas.files,
   );
+  if (!cached) {
+    // A failed save restores whatever the shared cache held (possibly another
+    // tab's scene); drop it so a reload fetches this identity from the cloud
+    // instead of showing that content under it. The draft is still cleared:
+    // a lingering one would block the next preservePersonalDraft capture and
+    // later replace newer work. The restored canvas stays on screen, dirty.
+    clearLocalSceneContent();
+  }
   clearPersonalDraft();
   return true;
 }

@@ -17,6 +17,7 @@ import {
 } from "@/lib/import-data-from-db";
 import { useSceneSession } from "@/hooks/scene-session-context";
 import { isLocalScenePersistencePaused } from "@/data/local-scene-persistence";
+import { clearLocalSceneContent } from "@/data/local-storage";
 import { releaseCanvasRoom } from "@/lib/collab/canvas-room-marker";
 
 type ApplyRemoteSceneParams = {
@@ -133,9 +134,15 @@ export function useApplyRemoteScene(
           fetchedFiles,
         );
 
-        if (filesComplete) {
-          // Full hydration: persist to localStorage so next cold-start is instant.
+        // Full hydration: persist to localStorage so next cold-start is instant.
+        const cached =
+          filesComplete &&
           saveToLocalStorage(elements, mergedAppState, fetchedFiles);
+        if (!cached) {
+          // The cache still holds the previous scene (a failed save restores
+          // it). Drop it before the identity below switches, or a reload would
+          // show the old content as this scene and a save could overwrite it.
+          clearLocalSceneContent();
         }
         // Always sync the session (id + revision) regardless of file completeness,
         // so the revision check keeps working.

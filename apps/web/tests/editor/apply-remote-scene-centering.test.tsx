@@ -7,15 +7,17 @@ import type {
   ExcalidrawImperativeAPI,
 } from "@drawstuff/excalidraw-adapter/types";
 
-const { importSceneData, importSceneFiles, session } = vi.hoisted(() => ({
-  importSceneData: vi.fn(),
-  importSceneFiles: vi.fn(),
-  session: {
-    suppressDirtyTracking: vi.fn(),
-    resumeDirtyTracking: vi.fn(),
-    syncCurrentScene: vi.fn(),
-  },
-}));
+const { importSceneData, importSceneFiles, saveToLocalStorage, session } =
+  vi.hoisted(() => ({
+    importSceneData: vi.fn(),
+    importSceneFiles: vi.fn(),
+    saveToLocalStorage: vi.fn(() => true),
+    session: {
+      suppressDirtyTracking: vi.fn(),
+      resumeDirtyTracking: vi.fn(),
+      syncCurrentScene: vi.fn(),
+    },
+  }));
 
 vi.mock("@/lib/import-data-from-db", () => ({
   importSceneDataBySceneId: importSceneData,
@@ -25,7 +27,7 @@ vi.mock("@/lib/import-data-from-db", () => ({
 /** Mocked so the hook imports no canvas machinery; hydration has its own tests. */
 vi.mock("@/lib/excalidraw", () => ({
   hasCompleteSceneFileHydration: () => true,
-  saveToLocalStorage: vi.fn(),
+  saveToLocalStorage,
 }));
 
 vi.mock("@/hooks/scene-session-context", () => ({
@@ -33,6 +35,7 @@ vi.mock("@/hooks/scene-session-context", () => ({
 }));
 
 import { useApplyRemoteScene } from "@/hooks/excalidraw/use-apply-remote-scene";
+import { STORAGE_KEYS } from "@/config/app-constants";
 
 (
   globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }
@@ -251,5 +254,39 @@ describe("useApplyRemoteScene centering", () => {
     expect(error).toHaveBeenCalledTimes(1);
     expect(spies.updateScene).not.toHaveBeenCalled();
     expect(vi.getTimerCount()).toBe(0);
+  });
+});
+
+describe("useApplyRemoteScene local cache", () => {
+  const seedPreviousScene = () => {
+    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS, "previous");
+    localStorage.setItem(STORAGE_KEYS.LOCAL_STORAGE_FILES, "previous-files");
+  };
+
+  it("drops the previous scene's cache when the new one cannot be cached", async () => {
+    seedPreviousScene();
+    saveToLocalStorage.mockReturnValueOnce(false);
+    const hook = mount(createApiStub().api);
+
+    await apply(hook, "scene-b");
+
+    expect(
+      localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS),
+    ).toBeNull();
+    expect(localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_FILES)).toBeNull();
+    expect(session.syncCurrentScene).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "scene-b" }),
+    );
+  });
+
+  it("keeps the cache the save just wrote", async () => {
+    seedPreviousScene();
+    const hook = mount(createApiStub().api);
+
+    await apply(hook, "scene-b");
+
+    expect(localStorage.getItem(STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS)).toBe(
+      "previous",
+    );
   });
 });

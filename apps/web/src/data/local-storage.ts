@@ -244,6 +244,28 @@ export function clearLocalSceneStorage(): void {
   }
 }
 
+/**
+ * Drops the cached canvas content (not the scene session). Used when a scene
+ * replaced the canvas but could not be cached: the old content must not be
+ * restored on reload under the new scene's identity.
+ */
+export function clearLocalSceneContent(): void {
+  if (!canUseLocalStorage()) return;
+  try {
+    for (const key of [
+      STORAGE_KEYS.LOCAL_STORAGE_ELEMENTS,
+      STORAGE_KEYS.LOCAL_STORAGE_APP_STATE,
+      STORAGE_KEYS.LOCAL_STORAGE_FILES,
+      STORAGE_KEYS.VERSION_DATA_STATE,
+      STORAGE_KEYS.VERSION_FILES,
+    ]) {
+      localStorage.removeItem(key);
+    }
+  } catch (error: unknown) {
+    console.error(error);
+  }
+}
+
 export function loadCurrentSceneRevisionFromStorage(): number | undefined {
   if (!canUseLocalStorage()) return undefined;
   try {
