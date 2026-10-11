@@ -696,7 +696,11 @@ export class RoomAuthority {
     this.storage.sql.exec(
       "UPDATE authority_room SET authority_epoch=authority_epoch+1",
     );
-    const room = this.requireRoom();
+    this.queueFence(this.requireRoom());
+  }
+
+  /** Queues the storage fence for the room's current epoch; idempotent. */
+  private queueFence(room: RoomRow): void {
     const job = {
       kind: "fence" as const,
       roomId: this.roomId,
@@ -809,7 +813,14 @@ export class RoomAuthority {
             subject,
           )
           .toArray()[0];
-        if (prior && prior.version >= version) return;
+        if (prior && prior.version >= version) {
+          // A repeat after the fence job was abandoned: without re-queueing
+          // it, enforcement would answer "pending" for good.
+          const room = this.state();
+          if (room && room.fenced_epoch < room.authority_epoch)
+            this.queueFence(room);
+          return;
+        }
         this.storage.sql.exec(
           "INSERT INTO authority_retired_subjects VALUES (?,?) ON CONFLICT(subject) DO UPDATE SET version=max(version,excluded.version)",
           subject,
@@ -1024,7 +1035,11 @@ export class RoomAuthority {
     const at = Math.min(
       this.initializationDeadline() ?? Infinity,
       retained ?? Infinity,
-      room?.projection_dirty ? Date.now() + 1_000 : Infinity,
+      // A full projection queue frees up only as its own jobs deliver, and
+      // every alarm pass repairs again, so a blocked repair needs no timer.
+      room?.projection_dirty && !this.work.full(false)
+        ? Date.now() + 1_000
+        : Infinity,
     );
     return Number.isFinite(at) ? at : undefined;
   }

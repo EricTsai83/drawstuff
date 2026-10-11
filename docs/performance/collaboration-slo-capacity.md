@@ -357,7 +357,7 @@ zombie socket 擋住）。沒有專屬高頻 liveness alarm（會抵銷 hibernat
 ```text
 每次重試間隔 = min(60 s, 1 s × 2^min(attempts, 6))
 房間 Object 的 job 從第一次排程起 24 h 仍未送達 → 放棄（authority.work_abandoned）
-CollaborationLifecycle 的退場 job 不放棄
+CollaborationLifecycle 的退場 job：24 h 後每小時重試，滿 7 天暫停（lifecycle.retirement_parked），等 admin 重新觸發
 ```
 
 - 放棄只停止遠端追趕，本地效果早已 commit；本地紀錄收成終態，不聲稱遠端已完成。

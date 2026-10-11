@@ -90,8 +90,8 @@ Drawstuff 用同一個 outbox 形狀承載兩種完全不同的外部系統：
   存取規則變更、fence、列表投影、cleanup 與帳號／場景退場，和 Object 的 SQLite 狀態在同一交易
   寫入 durable job，由 Object 自己的 alarm 以 backoff 送到 web adapter；投遞以 version 冪等。
   房間 Object 的工作從第一次排程起 24 小時仍未送達就放棄（`authority.work_abandoned`），
-  `CollaborationLifecycle` 的退場工作不放棄，卡住超過 1 小時記 `lifecycle.retirement_stuck`，
-  超過 24 小時重試改為每小時一次。見
+  `CollaborationLifecycle` 的退場工作不丟棄：卡住超過 1 小時記 `lifecycle.retirement_stuck`，
+  超過 24 小時重試改為每小時一次，滿 7 天暫停等 admin 重新觸發。見
   [collaboration authority](../architecture/collaboration-authority.md)。
 
 「誰來當時鐘」的實例：房間的投遞由 Durable Object alarm 驅動，不需要外部 cron；web 平台
