@@ -720,7 +720,7 @@ export const sceneRouter = createTRPCRouter({
         throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
       }
 
-      const results = await ctx.db.query.fileRecord.findMany({
+      const files = await ctx.db.query.fileRecord.findMany({
         where: eq(fileRecord.sceneId, input.id),
         columns: {
           utFileKey: true,
@@ -730,13 +730,6 @@ export const sceneRouter = createTRPCRouter({
         },
       });
 
-      return {
-        files: results.map((r) => ({
-          utFileKey: r.utFileKey,
-          url: r.url,
-          excalidrawFileId: r.excalidrawFileId,
-          size: r.size,
-        })),
-      } as const;
+      return { files };
     }),
 });
