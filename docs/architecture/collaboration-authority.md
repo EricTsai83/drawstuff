@@ -64,4 +64,21 @@ Lifecycle DO 按主體協調退休，先凍結登記與授權、確認撤權／�
 - 真實多連線 PostgreSQL（L2″）：鎖、fence 與並行競態；不得以 mock 取代。
 - 正式環境（L3）：真實 provider、部署後流程、多裝置、延遲、跨日、閒置與成本；本機測試不能替代。
 
+### 分支證據對照（2026-10-11）
+
+本機證據指現行自動測試；「正式」欄只計已部署環境的紀錄。10/8 的正式紀錄（[collaboration reset runbook](../deployment/collaboration-reset/README.md)）在 protocol 6 取得。protocol 7 上線後的正式證據是 `cf:smoke` 與 [部署 runbook](../operations/collaboration-do-deployment.md) §6 第 10 步的瀏覽器驗收：建房與重開、一般存取權、邀請／移除／重新邀請、結束房間；下表各分支的邊界情況不在其中。
+
+| 分支                                               | 本機證據                                                                                                                                                                                                                                      | 正式證據                                                                         |
+| -------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| initializing（只允許 owner、逾時結束、取消後晚到） | `authority-foundation`、`asset-entry`、`snapshot-entry`、`room-delivery` 的 initialization 案例                                                                                                                                               | 只有 owner 初始化到 ready 的正常路徑                                             |
+| NULL-scene 房間的登記與退休                        | `lifecycle-entry`、`collaboration-lifecycle-adapter`、`collaboration-authority-schema`                                                                                                                                                        | `--retire-account` 的房間沒有 scene（protocol 6）                                |
+| 投影亂序與刪除後晚到                               | `collaboration-projection-adapter`、`authority-foundation`、`room-delivery`；真實 PostgreSQL 的投影與父項刪除排序                                                                                                                             | 退休後晚到的 callback／寫入／重新加入遭拒（protocol 6）；沒有晚到投影            |
+| 最大 payload                                       | 最大合法快照往返、超限拒絕（`snapshot-entry`、`collaboration-snapshot-http`、`asset.test.ts`）                                                                                                                                                | 最大合法快照往返（protocol 7 `cf:smoke`）；沒有超限拒絕或 Vercel body 上限       |
+| queue 安全預算                                     | `authority-foundation` 的 reserve 案例、P0 原型                                                                                                                                                                                               | 無                                                                               |
+| generation／epoch 輪替                             | `room-lifecycle` 的新 cohort、`ordering`、`asset-entry` 的 epoch fence；真實 PostgreSQL 的 fence                                                                                                                                              | 撤權後舊 epoch 保存仍被隔離（protocol 6）                                        |
+| 未到期 presign 的晚到上傳                          | `asset-entry`、`collaboration-asset-authority`；真實 PostgreSQL 的 unknown callback                                                                                                                                                           | 退休與撤權後的真實晚到 callback 回 `unknown` 並進 deferred cleanup（protocol 6） |
+| 缺少 lifecycle row 的首次建立競態                  | 真實 PostgreSQL `actual PostgreSQL first lifecycle inserts`：登記與邀請一側（並行首建、freeze 先 commit、首建 rollback、scene 來源），以及退休一側（`retirementIntent` 沿用首建 row 與既有 operation、scene freeze 等待帳號首建並列舉其登記） | 無（2026-10-08 的退休重測不涵蓋所有首建排序）                                    |
+
+真實 PostgreSQL 測試由 `pnpm collab:adapters` 以拋棄式 Docker Postgres 執行，不在 `pnpm check` 或 CI 內，修改鎖或 lifecycle 路徑時須手動執行。
+
 已通過的測試證據及尚未證明的限制以 runbook 與後續 plan 為準。Plan 21 的存取、列表與明文儲存仍須完成其驗收矩陣的正式使用流程驗收。

@@ -30,6 +30,10 @@ import {
 } from "@/server/collab/authority-lifecycle";
 import { lockRoom } from "@/server/collab/rooms";
 import {
+  InviteeRetiringError,
+  registerInvitation,
+} from "@/server/collab/invite-registration";
+import {
   adapterFixture,
   testSnapshotBytes,
   bytesChecksum,
@@ -638,5 +642,375 @@ describe("actual PostgreSQL adapter lock races", () => {
         where: eq(schema.scene.id, source!.id),
       }),
     ).toBeDefined();
+  });
+});
+
+/**
+ * Every subject above starts with its lifecycle row already present. These
+ * start from a missing row, the case `lockOrCreateLifecycleSubject` handles by
+ * inserting and re-reading: a first creator holds an uncommitted insert, the
+ * product path's own insert waits on the primary key, and what it may do next
+ * depends only on what the first creator committed.
+ */
+describe("actual PostgreSQL first lifecycle inserts", () => {
+  type Subject = typeof schema.collaborationLifecycleSubject.$inferInsert;
+  /** Inserts a missing subject row and holds it uncommitted until settled. */
+  type Tx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+  async function holdFirstInsert(
+    row: Subject,
+    /** Writes the same first creator commits with it, e.g. a registration. */
+    also?: (tx: Tx) => Promise<unknown>,
+  ) {
+    const reached = gate();
+    const settle = gate();
+    let rollback = false;
+    const finished = db
+      .transaction(async (tx) => {
+        await tx.insert(schema.collaborationLifecycleSubject).values(row);
+        await also?.(tx);
+        reached.release();
+        await settle.wait;
+        if (rollback) throw new Error("first creator rolled back");
+      })
+      .catch((error: unknown) => {
+        if (!rollback) throw error;
+      });
+    await reached.wait;
+    return {
+      commit: () => settle.release(),
+      rollBack: () => {
+        rollback = true;
+        settle.release();
+      },
+      finished,
+    };
+  }
+  async function subjectRow(scope: string) {
+    return db.query.collaborationLifecycleSubject.findFirst({
+      where: eq(schema.collaborationLifecycleSubject.scope, scope),
+    });
+  }
+  async function registrationFixture() {
+    const f = await adapterFixture(db);
+    await db
+      .update(schema.user)
+      .set({ emailVerified: true })
+      .where(eq(schema.user.id, f.owner));
+    const operationId = await ownCreate(f.roomId);
+    const register = (sceneId: string | null = null) =>
+      registerAuthorityCommand(db, {
+        v: 1,
+        action: "register",
+        roomId: f.roomId,
+        operationId,
+        identity: f.operation().actor,
+        ownerId: f.owner,
+        sceneId,
+        create: true,
+      }).then(
+        () => "accepted",
+        () => "refused",
+      );
+    const registrations = () =>
+      db
+        .select()
+        .from(schema.collaborationLifecycleRegistration)
+        .where(
+          and(
+            eq(schema.collaborationLifecycleRegistration.subject, f.owner),
+            eq(schema.collaborationLifecycleRegistration.roomId, f.roomId),
+          ),
+        );
+    return { f, register, registrations };
+  }
+
+  it("adopts a concurrent first creator's committed account row", async () => {
+    const { f, register, registrations } = await registrationFixture();
+    const scope = `account:${f.owner}`;
+    expect(await subjectRow(scope)).toBeUndefined();
+    const first = await holdFirstInsert({
+      scope,
+      kind: "account",
+      subject: f.owner,
+    });
+    const outcome = register();
+    try {
+      await waitForBlocked(1);
+    } finally {
+      first.commit();
+    }
+    await first.finished;
+    expect(await outcome).toBe("accepted");
+    expect(await subjectRow(scope)).toMatchObject({
+      version: 1,
+      frozen: false,
+    });
+    expect(await registrations()).toHaveLength(1);
+  });
+
+  it("refuses when a freeze commits the missing account row first", async () => {
+    const { f, register, registrations } = await registrationFixture();
+    const scope = `account:${f.owner}`;
+    const freeze = await holdFirstInsert({
+      scope,
+      kind: "account",
+      subject: f.owner,
+      frozen: true,
+      version: 2,
+    });
+    const outcome = register();
+    try {
+      await waitForBlocked(1);
+    } finally {
+      freeze.commit();
+    }
+    await freeze.finished;
+    expect(await outcome).toBe("refused");
+    expect(await registrations()).toHaveLength(0);
+  });
+
+  it("creates the row itself when the first creator rolls back", async () => {
+    const { f, register, registrations } = await registrationFixture();
+    const scope = `account:${f.owner}`;
+    const first = await holdFirstInsert({
+      scope,
+      kind: "account",
+      subject: f.owner,
+      frozen: true,
+      version: 2,
+    });
+    const outcome = register();
+    try {
+      await waitForBlocked(1);
+    } finally {
+      first.rollBack();
+    }
+    await first.finished;
+    expect(await outcome).toBe("accepted");
+    expect(await subjectRow(scope)).toMatchObject({
+      version: 1,
+      frozen: false,
+    });
+    expect(await registrations()).toHaveLength(1);
+  });
+
+  it.each([
+    { frozen: false, expected: "accepted" },
+    { frozen: true, expected: "refused" },
+  ])(
+    "orders a source registration against a first scene insert (frozen: $frozen)",
+    async ({ frozen, expected }) => {
+      const { f, register, registrations } = await registrationFixture();
+      const [source] = await db
+        .insert(schema.scene)
+        .values({ userId: f.owner, name: "First insert source" })
+        .returning();
+      const sceneScope = `scene:${source!.id}`;
+      expect(await subjectRow(`account:${f.owner}`)).toBeUndefined();
+      expect(await subjectRow(sceneScope)).toBeUndefined();
+      const first = await holdFirstInsert({
+        scope: sceneScope,
+        kind: "scene",
+        subject: f.owner,
+        sceneId: source!.id,
+        frozen,
+        version: frozen ? 2 : 1,
+      });
+      // Creates the missing account row, then waits on the scene row.
+      const outcome = register(source!.id);
+      try {
+        await waitForBlocked(1);
+      } finally {
+        first.commit();
+      }
+      await first.finished;
+      expect(await outcome).toBe(expected);
+      expect(await registrations()).toHaveLength(frozen ? 0 : 1);
+      // A refused registration rolls back the account row it created.
+      expect(await subjectRow(`account:${f.owner}`)).toEqual(
+        frozen ? undefined : expect.objectContaining({ version: 1 }),
+      );
+    },
+  );
+
+  it("refuses an invitation when the invitee's freeze commits the missing row first", async () => {
+    const f = await adapterFixture(db);
+    const scope = `account:${f.guest}`;
+    const freeze = await holdFirstInsert({
+      scope,
+      kind: "account",
+      subject: f.guest,
+      frozen: true,
+      version: 2,
+    });
+    const invited = registerInvitation(db, {
+      roomId: f.roomId,
+      email: `${f.guest}@example.com`,
+      operationId: crypto.randomUUID(),
+    });
+    const outcome = invited.then(
+      () => "registered",
+      (error: unknown) =>
+        error instanceof InviteeRetiringError ? "retiring" : "other",
+    );
+    try {
+      await waitForBlocked(1);
+    } finally {
+      freeze.commit();
+    }
+    await freeze.finished;
+    expect(await outcome).toBe("retiring");
+    expect(
+      await db
+        .select()
+        .from(schema.collaborationLifecycleRegistration)
+        .where(eq(schema.collaborationLifecycleRegistration.subject, f.guest)),
+    ).toHaveLength(0);
+  });
+
+  it("registers an invitation on a concurrently created live row", async () => {
+    const f = await adapterFixture(db);
+    const scope = `account:${f.guest}`;
+    const first = await holdFirstInsert({
+      scope,
+      kind: "account",
+      subject: f.guest,
+    });
+    const invited = registerInvitation(db, {
+      roomId: f.roomId,
+      email: `${f.guest}@example.com`,
+      operationId: crypto.randomUUID(),
+    });
+    try {
+      await waitForBlocked(1);
+    } finally {
+      first.commit();
+    }
+    await first.finished;
+    await invited;
+    expect(
+      await db
+        .select()
+        .from(schema.collaborationLifecycleRegistration)
+        .where(eq(schema.collaborationLifecycleRegistration.subject, f.guest)),
+    ).toMatchObject([{ roomId: f.roomId, lifecycleVersion: 1 }]);
+  });
+
+  /** The first creator's registration, as `registerAuthorityCommand` commits it. */
+  const ownerRegistration =
+    (subject: string, roomId: string, sceneId: string | null) => (tx: Tx) =>
+      tx.insert(schema.collaborationLifecycleRegistration).values({
+        subject,
+        roomId,
+        sceneId,
+        owner: true,
+        lifecycleVersion: 1,
+        operationId: crypto.randomUUID(),
+      });
+
+  it("starts account retirement on a concurrently created row and enumerates its registration", async () => {
+    const f = await adapterFixture(db);
+    const scope = `account:${f.owner}`;
+    const first = await holdFirstInsert(
+      { scope, kind: "account", subject: f.owner },
+      ownerRegistration(f.owner, f.roomId, null),
+    );
+    const intent = retirementIntent(
+      db,
+      { kind: "account", subject: f.owner },
+      f.owner,
+    );
+    try {
+      await waitForBlocked(1);
+    } finally {
+      first.commit();
+    }
+    await first.finished;
+    const command = await intent;
+    expect(await subjectRow(scope)).toMatchObject({
+      version: 1,
+      frozen: false,
+      operationId: command.operationId,
+    });
+    expect(
+      await applyLifecycleAdapter(db, {
+        v: 1,
+        action: "lifecycle-freeze",
+        command,
+      }),
+    ).toMatchObject({ version: 2 });
+    expect(
+      await applyLifecycleAdapter(db, {
+        v: 1,
+        action: "lifecycle-list",
+        command,
+        version: 2,
+        cursor: null,
+      }),
+    ).toMatchObject({ rooms: [{ roomId: f.roomId, action: "end-room" }] });
+  });
+
+  it("adopts the operation of a retirement entry that created the row first", async () => {
+    const f = await adapterFixture(db);
+    const operationId = crypto.randomUUID();
+    const first = await holdFirstInsert({
+      scope: `account:${f.owner}`,
+      kind: "account",
+      subject: f.owner,
+      operationId,
+    });
+    const intent = retirementIntent(
+      db,
+      { kind: "account", subject: f.owner },
+      f.owner,
+    );
+    try {
+      await waitForBlocked(1);
+    } finally {
+      first.commit();
+    }
+    await first.finished;
+    expect((await intent).operationId).toBe(operationId);
+  });
+
+  it("freezes a scene after a registration creates the missing account row first", async () => {
+    const f = await adapterFixture(db);
+    const [source] = await db
+      .insert(schema.scene)
+      .values({ userId: f.owner, name: "First insert retirement" })
+      .returning();
+    const target = {
+      kind: "scene" as const,
+      subject: f.owner,
+      sceneId: source!.id,
+    };
+    // Creates only the scene row; the account row is still missing.
+    const command = await retirementIntent(db, target, f.owner);
+    expect(await subjectRow(`account:${f.owner}`)).toBeUndefined();
+    const first = await holdFirstInsert(
+      { scope: `account:${f.owner}`, kind: "account", subject: f.owner },
+      ownerRegistration(f.owner, f.roomId, source!.id),
+    );
+    const freeze = applyLifecycleAdapter(db, {
+      v: 1,
+      action: "lifecycle-freeze",
+      command,
+    });
+    try {
+      await waitForBlocked(1);
+    } finally {
+      first.commit();
+    }
+    await first.finished;
+    expect(await freeze).toEqual({ version: 2 });
+    expect(
+      await applyLifecycleAdapter(db, {
+        v: 1,
+        action: "lifecycle-list",
+        command,
+        version: 2,
+        cursor: null,
+      }),
+    ).toMatchObject({ rooms: [{ roomId: f.roomId, action: "end-room" }] });
   });
 });
