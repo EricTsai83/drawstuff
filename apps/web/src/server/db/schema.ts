@@ -451,10 +451,14 @@ export const collaborationRoom = createTable(
       .notNull()
       .unique(),
     initializationDeadline: timestamp("initialization_deadline")
-      .default(sql`now() + interval '15 minutes'`)
+      // Written as PostgreSQL stores it, so introspection compares equal.
+      .default(sql`(now() + '00:15:00'::interval)`)
       .notNull(),
     initializationAssetIds: text("initialization_asset_ids")
       .array()
+      // drizzle-kit 0.31 cannot parse an empty-array default back from the
+      // catalog, so every push lists a no-op SET DEFAULT for this column;
+      // it is the only expected diff.
       .default(sql`ARRAY[]::text[]`)
       .notNull(),
     initializationRevision: integer("initialization_revision"),
@@ -780,9 +784,7 @@ export const collaborationOperation = createTable(
   "collaboration_operation",
   {
     operationId: uuid("operation_id").primaryKey(),
-    roomId: varchar("room_id", { length: 64 })
-      .notNull()
-      .references(() => collaborationRoom.roomId, { onDelete: "cascade" }),
+    roomId: varchar("room_id", { length: 64 }).notNull(),
     actor: text("actor").notNull(),
     kind: varchar("kind", { length: 32 }).notNull(),
     authorityEpoch: integer("authority_epoch").notNull(),
@@ -800,6 +802,13 @@ export const collaborationOperation = createTable(
     terminalAt: timestamp("terminal_at"),
   },
   (table) => [
+    // Named explicitly: the generated name exceeds PostgreSQL's 63-byte limit,
+    // is truncated on create, and then never matches on the next push.
+    foreignKey({
+      name: "collaboration_operation_room_fk",
+      columns: [table.roomId],
+      foreignColumns: [collaborationRoom.roomId],
+    }).onDelete("cascade"),
     index("collaboration_operation_terminal_idx").on(table.terminalAt),
     // Snapshot writes and maintenance read a room's operations; room deletion
     // cascades through them.
@@ -871,7 +880,11 @@ export const collaborationLifecycleRegistration = createTable(
     operationId: uuid("operation_id").notNull(),
   },
   (table) => [
-    primaryKey({ columns: [table.subject, table.roomId] }),
+    // Named explicitly for the same 63-byte truncation reason.
+    primaryKey({
+      name: "collaboration_lifecycle_registration_pk",
+      columns: [table.subject, table.roomId],
+    }),
     index("collaboration_lifecycle_registration_scene_idx").on(
       table.sceneId,
       table.roomId,
