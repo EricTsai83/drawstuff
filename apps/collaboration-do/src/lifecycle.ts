@@ -149,6 +149,12 @@ export class LifecycleProgress {
             row.command !== request
           )
             throw new Error("operation-mismatch");
+          // A repeated begin (an operator resuming a stuck retirement) retries
+          // now instead of waiting out the current backoff.
+          this.storage.sql.exec(
+            "UPDATE authority_work SET next_at=min(next_at,?) WHERE id='retirement'",
+            Date.now(),
+          );
           return;
         }
         this.storage.sql.exec(

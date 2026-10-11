@@ -833,6 +833,8 @@ export const collaborationLifecycleSubject = createTable(
     frozen: boolean("frozen").default(false).notNull(),
     retired: boolean("retired").default(false).notNull(),
     operationId: uuid("operation_id"),
+    /** When retirement froze the subject; null on rows frozen before it was recorded. */
+    frozenAt: timestamp("frozen_at"),
   },
   (table) => [
     check(

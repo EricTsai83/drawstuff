@@ -14,6 +14,8 @@ admin dashboard 已有使用者列表、退場帳號、退場場景、結束房�
 
 ### 1.1 Admin 異常區塊
 
+> 已實作（plan 22 第 3 個 PR）；現況見 [admin runbook](../docs/operations/admin-data-retirement.md#anomalies)。
+
 全部從 Neon 計算，不需要讀 Cloudflare：
 
 | 項目 | 判斷 | 代表 | 動作 |

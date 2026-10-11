@@ -419,6 +419,66 @@ export function createUnreferencedAssetGcJob(
   };
 }
 
+/**
+ * A room still holding snapshot, asset, per-person list rows, operations,
+ * registrations, or a name — what room retention reclaims once it has ended.
+ */
+export function roomHoldsData() {
+  return or(
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(collaborationSnapshot)
+        .where(eq(collaborationSnapshot.roomId, collaborationRoom.roomId)),
+    ),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(collaborationAsset)
+        .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
+    ),
+    // Per-person list rows and the room name the cleanup did not reach.
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(collaborationRoomMember)
+        .where(eq(collaborationRoomMember.roomId, collaborationRoom.roomId)),
+    ),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(collaborationRoomInvite)
+        .where(eq(collaborationRoomInvite.roomId, collaborationRoom.roomId)),
+    ),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(collaborationProjectionTombstone)
+        .where(
+          eq(collaborationProjectionTombstone.roomId, collaborationRoom.roomId),
+        ),
+    ),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(collaborationOperation)
+        .where(eq(collaborationOperation.roomId, collaborationRoom.roomId)),
+    ),
+    exists(
+      db
+        .select({ one: sql`1` })
+        .from(collaborationLifecycleRegistration)
+        .where(
+          eq(
+            collaborationLifecycleRegistration.roomId,
+            collaborationRoom.roomId,
+          ),
+        ),
+    ),
+    ne(collaborationRoom.label, ""),
+  );
+}
+
 /** Reason recorded on cleanup tasks room retention schedules. */
 export const ROOM_RETENTION_CLEANUP_REASON = "collab-room-retention";
 
@@ -476,66 +536,7 @@ export function createRoomRetentionJob(
           ),
         ),
       );
-      const holdsData = or(
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(collaborationSnapshot)
-            .where(eq(collaborationSnapshot.roomId, collaborationRoom.roomId)),
-        ),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(collaborationAsset)
-            .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
-        ),
-        // Per-person list rows and the room name the cleanup did not reach.
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(collaborationRoomMember)
-            .where(
-              eq(collaborationRoomMember.roomId, collaborationRoom.roomId),
-            ),
-        ),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(collaborationRoomInvite)
-            .where(
-              eq(collaborationRoomInvite.roomId, collaborationRoom.roomId),
-            ),
-        ),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(collaborationProjectionTombstone)
-            .where(
-              eq(
-                collaborationProjectionTombstone.roomId,
-                collaborationRoom.roomId,
-              ),
-            ),
-        ),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(collaborationOperation)
-            .where(eq(collaborationOperation.roomId, collaborationRoom.roomId)),
-        ),
-        exists(
-          db
-            .select({ one: sql`1` })
-            .from(collaborationLifecycleRegistration)
-            .where(
-              eq(
-                collaborationLifecycleRegistration.roomId,
-                collaborationRoom.roomId,
-              ),
-            ),
-        ),
-        ne(collaborationRoom.label, ""),
-      );
+      const holdsData = roomHoldsData();
       // Ended rooms qualify only while they still hold data; reruns are idempotent.
       const candidates = await db
         .select({ roomId: collaborationRoom.roomId })

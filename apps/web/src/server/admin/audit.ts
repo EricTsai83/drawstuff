@@ -11,9 +11,13 @@ export type AdminAuditAction =
   | "retire-scene"
   | "end-room"
   | "retire-account"
-  | "retry-cleanup";
+  | "retry-cleanup"
+  | "resume-retirement"
+  | "close-room-storage"
+  | "run-room-retention";
 
-export type AdminAuditTargetType = "scene" | "room" | "account" | "cleanup";
+export type AdminAuditTargetType =
+  "scene" | "room" | "account" | "cleanup" | "maintenance";
 
 export async function beginAdminAudit(params: {
   db: Database;

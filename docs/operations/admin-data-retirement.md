@@ -98,6 +98,28 @@ target ID to be typed before submission. The underlying audited procedures are:
 - `admin.revokeOperator({ userId, confirmUserId: userId })`
 - `admin.retryFailedCleanup({ target: taskId | "all" })` — requeues `failed`
   `deferred_file_cleanup` rows for the next maintenance drain
+- `admin.resumeRetirement({ scope })` — re-sends `begin` for a frozen, unretired subject
+  (`account:<id>` / `scene:<id>`) with its recorded operation; the Lifecycle Object retries now
+- `admin.closeRoomStorage({ roomId })` — writes the terminal storage fence an ended room never
+  delivered (no-op unless `status=ended` and `storage_state≠ended`)
+- `admin.runRoomRetention()` — one routine room-retention pass with its usual caps
+
+## Anomalies
+
+The **Needs attention** section of `/admin` is computed from Neon only (`admin.anomalies`); each group
+shows its total, most recent occurrence, and up to 50 oldest rows. Thresholds are owner decisions
+(plan 22) in `apps/web/src/server/admin/anomalies.ts`.
+
+| Group | Condition | Action |
+| --- | --- | --- |
+| Stuck retirement | lifecycle subject `frozen`, not `retired`, `frozen_at` over 1 h ago (or null: frozen before the column existed) | Resume (`resumeRetirement`); link to the user |
+| Ended room, storage open | `status=ended`, `storage_state≠ended`, ended over 1 h ago | Close storage (`closeRoomStorage`) |
+| Stuck initializing | `status=initializing` 15 min past `initialization_deadline` | End room (`endRoom`) |
+| Failed file cleanup | `deferred_file_cleanup.status=failed` | Retry in the failed-cleanup section |
+| Ended room still holding data | ended over 8 days ago (retention grace is 7) with any retention-reclaimable data | Run reclaim (`runRoomRetention`) |
+
+`collaboration_lifecycle_subject.frozen_at` is a nullable column added for this view: run `db:push`
+before deploying code that reads it.
 
 Account retirement rejects the currently authenticated administrator. Do not replace these calls
 with SQL deletion. After an operation, verify its `admin_audit_event` status and inspect

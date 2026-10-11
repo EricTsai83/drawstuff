@@ -13,7 +13,17 @@ import {
   grantOperator,
   revokeOperator,
 } from "@/server/admin/access";
-import { endRoom, retireAccount, retireScene } from "@/server/admin/retirement";
+import {
+  closeRoomStorage,
+  listAdminAnomalies,
+  runRoomRetention,
+} from "@/server/admin/anomalies";
+import {
+  endRoom,
+  resumeRetirement,
+  retireAccount,
+  retireScene,
+} from "@/server/admin/retirement";
 import {
   adminProcedure,
   createTRPCRouter,
@@ -233,6 +243,7 @@ export const adminRouter = createTRPCRouter({
 
       return { user: target, scenes: targetScenes, rooms: targetRooms, grant };
     }),
+  anomalies: adminProcedure.query(({ ctx }) => listAdminAnomalies(ctx.db)),
   failedCleanups: adminProcedure.query(async ({ ctx }) => {
     const failed = eq(deferredFileCleanup.status, "failed");
     const [total, items] = await Promise.all([
@@ -429,4 +440,49 @@ export const adminRouter = createTRPCRouter({
         },
       }),
     ),
+  resumeRetirement: adminProcedure
+    .input(z.object({ scope: z.string().min(1).max(160) }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "resume-retirement",
+        targetType: input.scope.startsWith("scene:") ? "scene" : "account",
+        targetId: input.scope,
+        run: async () => {
+          const outcome = await resumeRetirement({
+            db: ctx.db,
+            scope: input.scope,
+          });
+          if (!outcome.found) throw notFound("No unfinished retirement.");
+          return outcome;
+        },
+      }),
+    ),
+  closeRoomStorage: adminProcedure
+    .input(z.object({ roomId: roomIdInputSchema }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "close-room-storage",
+        targetType: "room",
+        targetId: input.roomId,
+        run: async () => {
+          const outcome = await closeRoomStorage(ctx.db, input.roomId);
+          if (!outcome.found) throw notFound("Room not found.");
+          return outcome;
+        },
+      }),
+    ),
+  runRoomRetention: adminProcedure.mutation(({ ctx }) =>
+    audited({
+      db: ctx.db,
+      actorUserId: ctx.auth.user.id,
+      action: "run-room-retention",
+      targetType: "maintenance",
+      targetId: "room-retention",
+      run: runRoomRetention,
+    }),
+  ),
 });

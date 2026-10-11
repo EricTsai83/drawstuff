@@ -141,6 +141,52 @@ const en = {
     "{count} cleanup task(s) queued for the next maintenance run.",
   "auditAction.retry-cleanup": "Retry file cleanup",
   "targetType.cleanup": "Cleanup task",
+  "anomalies.title": "Needs attention",
+  "anomalies.description":
+    "States that should have resolved on their own. Every action is audited.",
+  "anomalies.loading": "Checking for anomalies",
+  "anomalies.lastAt": "Most recent: {time}",
+  "anomalies.frozenAt": "Frozen {time}",
+  "anomalies.endedAt": "Ended {time}",
+  "anomalies.deadline": "Initialization deadline {time}",
+  "anomalies.resume": "Resume",
+  "anomalies.closeStorage": "Close storage",
+  "anomalies.viewDetails": "View details",
+  "anomalies.runRetention": "Run reclaim",
+  "anomalies.stuckRetirements.title": "Stuck retirements",
+  "anomalies.stuckRetirements.description":
+    "Frozen for over an hour and still not retired: the account or scene data is not fully deleted.",
+  "anomalies.unclosedStorage.title": "Ended rooms with open storage",
+  "anomalies.unclosedStorage.description":
+    "Ended over an hour ago, but the terminal storage fence never arrived.",
+  "anomalies.stuckInitializing.title": "Rooms stuck initializing",
+  "anomalies.stuckInitializing.description":
+    "Still initializing 15 minutes past the initialization deadline.",
+  "anomalies.failedCleanup.title": "Failed file cleanup",
+  "anomalies.failedCleanup.description":
+    "Storage deletions that exhausted their retries; details are listed below.",
+  "anomalies.endedWithData.title": "Ended rooms still holding data",
+  "anomalies.endedWithData.description":
+    "Ended over 8 days ago with snapshots, images, or list rows that room retention has not reclaimed.",
+  "confirm.resumeRetirement.title": "Resume this retirement?",
+  "confirm.resumeRetirement.description":
+    "Re-sends the same retirement operation and retries it immediately. It only continues deleting data already scheduled for deletion.",
+  "confirm.resumeRetirement.action": "Resume",
+  "confirm.closeRoomStorage.title": "Close this room's storage?",
+  "confirm.closeRoomStorage.description":
+    "Applies the terminal storage fence the room never delivered. No further snapshots or images can be written for this room.",
+  "confirm.closeRoomStorage.action": "Close storage",
+  "confirm.runRoomRetention.title": "Run room reclaim now?",
+  "confirm.runRoomRetention.description":
+    "Runs one room-retention pass with its usual caps: rooms ended over 7 days ago lose their snapshots and list rows, and their images are queued for deletion.",
+  "confirm.runRoomRetention.action": "Run reclaim",
+  "toast.retirementResumed": "Retirement resumed.",
+  "toast.roomStorageClosed": "Room storage closed.",
+  "toast.roomRetentionRan": "Room reclaim finished: {count} room(s) reclaimed.",
+  "auditAction.resume-retirement": "Resume retirement",
+  "auditAction.close-room-storage": "Close room storage",
+  "auditAction.run-room-retention": "Run room reclaim",
+  "targetType.maintenance": "Maintenance",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -275,6 +321,52 @@ const zhTW = {
   "toast.cleanupRetried": "已將 {count} 筆清理任務排入下一次維護執行。",
   "auditAction.retry-cleanup": "重試檔案清理",
   "targetType.cleanup": "清理任務",
+  "anomalies.title": "需要介入的異常",
+  "anomalies.description":
+    "這些狀態原本應該自行恢復；所有動作都會記入審計紀錄。",
+  "anomalies.loading": "檢查異常中",
+  "anomalies.lastAt": "最近一筆：{time}",
+  "anomalies.frozenAt": "凍結於 {time}",
+  "anomalies.endedAt": "結束於 {time}",
+  "anomalies.deadline": "初始化期限 {time}",
+  "anomalies.resume": "重新觸發",
+  "anomalies.closeStorage": "關閉 storage",
+  "anomalies.viewDetails": "查看明細",
+  "anomalies.runRetention": "執行回收",
+  "anomalies.stuckRetirements.title": "退場卡住",
+  "anomalies.stuckRetirements.description":
+    "凍結超過 1 小時仍未完成退場：帳號或場景資料尚未刪完。",
+  "anomalies.unclosedStorage.title": "房間已結束但 storage 未關閉",
+  "anomalies.unclosedStorage.description":
+    "結束超過 1 小時，結束 fence 仍未送達。",
+  "anomalies.stuckInitializing.title": "房間卡在建立中",
+  "anomalies.stuckInitializing.description":
+    "超過初始化期限 15 分鐘仍在建立中。",
+  "anomalies.failedCleanup.title": "檔案清理失敗",
+  "anomalies.failedCleanup.description":
+    "重試次數用完仍未刪除的儲存物件；明細見下方。",
+  "anomalies.endedWithData.title": "已結束房間仍有資料",
+  "anomalies.endedWithData.description":
+    "結束超過 8 天，仍留有快照、圖片或列表資料，房間回收沒有處理到。",
+  "confirm.resumeRetirement.title": "重新觸發這個退場？",
+  "confirm.resumeRetirement.description":
+    "重送同一個退場操作並立即重試；只會繼續刪除原本就要刪除的資料。",
+  "confirm.resumeRetirement.action": "重新觸發",
+  "confirm.closeRoomStorage.title": "關閉此房間的 storage？",
+  "confirm.closeRoomStorage.description":
+    "補上房間沒送達的結束 fence；之後此房間不能再寫入快照或圖片。",
+  "confirm.closeRoomStorage.action": "關閉 storage",
+  "confirm.runRoomRetention.title": "立即執行房間回收？",
+  "confirm.runRoomRetention.description":
+    "以平常的上限執行一次房間回收：結束超過 7 天的房間會刪除快照與列表資料，圖片排入刪除佇列。",
+  "confirm.runRoomRetention.action": "執行回收",
+  "toast.retirementResumed": "已重新觸發退場。",
+  "toast.roomStorageClosed": "已關閉房間 storage。",
+  "toast.roomRetentionRan": "房間回收完成：回收 {count} 個房間。",
+  "auditAction.resume-retirement": "重新觸發退場",
+  "auditAction.close-room-storage": "關閉房間 storage",
+  "auditAction.run-room-retention": "執行房間回收",
+  "targetType.maintenance": "維護",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -319,12 +411,16 @@ const valueTranslationKeys = {
     "end-room": "auditAction.end-room",
     "retire-account": "auditAction.retire-account",
     "retry-cleanup": "auditAction.retry-cleanup",
+    "resume-retirement": "auditAction.resume-retirement",
+    "close-room-storage": "auditAction.close-room-storage",
+    "run-room-retention": "auditAction.run-room-retention",
   },
   targetType: {
     account: "targetType.account",
     scene: "targetType.scene",
     room: "targetType.room",
     cleanup: "targetType.cleanup",
+    maintenance: "targetType.maintenance",
   },
 } as const satisfies Record<string, Record<string, AdminTranslationKey>>;
 

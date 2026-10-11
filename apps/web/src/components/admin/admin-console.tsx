@@ -12,6 +12,7 @@ import {
   UsersIcon,
 } from "lucide-react";
 
+import { AdminAnomalies } from "@/components/admin/admin-anomalies";
 import { AdminFailedCleanups } from "@/components/admin/admin-failed-cleanups";
 import {
   AdminStatusBadge,
@@ -154,6 +155,8 @@ export function AdminConsole({
             ))}
           </div>
         </section>
+
+        <AdminAnomalies />
 
         <AdminFailedCleanups />
 

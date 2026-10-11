@@ -1445,6 +1445,32 @@ describe("Lifecycle durable progress", () => {
     });
   });
 
+  it("retries a resumed retirement now instead of waiting out its backoff", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(`account:${subject}`);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    const later = Date.now() + 60 * 60_000;
+    await runInDurableObject(stub, (_instance, state) => {
+      state.storage.sql.exec("UPDATE authority_work SET next_at=?", later);
+    });
+    const before = Date.now();
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const nextAt = state.storage.sql
+        .exec<{ next_at: number }>("SELECT next_at FROM authority_work")
+        .one().next_at;
+      expect(nextAt).toBeLessThan(later);
+      expect(nextAt).toBeGreaterThanOrEqual(before);
+      expect(await state.storage.getAlarm()).toBeLessThan(later);
+    });
+  });
+
   it("never abandons lifecycle work, however old", async () => {
     const subject = `user-${crypto.randomUUID()}`;
     const stub = env.COLLABORATION_LIFECYCLE.getByName(`account:${subject}`);
