@@ -31,6 +31,7 @@ import {
 } from "@/lib/collab/personal-draft";
 import { collectReferencedFileIds } from "@drawstuff/excalidraw-adapter/codec";
 import { getSceneMetaBySceneId } from "@/lib/import-data-from-db";
+import { sha256Hex } from "@/lib/sha256";
 
 function formatMegabytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
@@ -347,12 +348,7 @@ export function useCloudUpload(
             }
             const perFileUploads = files.map(
               async ({ file, excalidrawFileId }) => {
-                const buf = await file.arrayBuffer();
-                const digest = await crypto.subtle.digest("SHA-256", buf);
-                const hashArray = Array.from(new Uint8Array(digest));
-                const contentHash = hashArray
-                  .map((b) => b.toString(16).padStart(2, "0"))
-                  .join("");
+                const contentHash = await sha256Hex(file);
                 const uploadResult = await startAssetUpload([file], {
                   sceneId: sceneIdForCommit,
                   excalidrawFileId,

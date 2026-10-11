@@ -6,19 +6,10 @@ import { useUploadThing } from "@/lib/uploadthing";
 import { readSingleUploadedFile } from "@/lib/uploadthing-result";
 import type { RenderedPublishedArtifacts } from "@/lib/render-published-artifacts";
 import type { RouterInputs } from "@/trpc/react";
+import { sha256Hex } from "@/lib/sha256";
 
 export type PublishedArtifactsInput =
   RouterInputs["scene"]["setPublishedArtifacts"]["artifacts"];
-
-async function sha256Hex(blob: Blob): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    await blob.arrayBuffer(),
-  );
-  return Array.from(new Uint8Array(digest), (byte) =>
-    byte.toString(16).padStart(2, "0"),
-  ).join("");
-}
 
 /**
  * Uploads the rendered artifact through `publishedArtifactUploader` and

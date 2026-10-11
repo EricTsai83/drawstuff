@@ -17,6 +17,7 @@ import {
   type AuthorityApi,
 } from "./authority-client";
 import type { AssetApi } from "./asset-store";
+import { sha256Hex } from "@/lib/sha256";
 
 const { uploadFiles } = genUploader<UploadRouter>();
 
@@ -126,16 +127,7 @@ export function createAuthorityAssetApi(options: {
         const state = await watermark;
         if (state.state === "ended") throw new AuthorityRoomError("ended");
         input.signal.throwIfAborted();
-        const checksum = Array.from(
-          new Uint8Array(
-            await crypto.subtle.digest(
-              "SHA-256",
-              normalizeToArrayBuffer(input.payload),
-            ),
-          ),
-        )
-          .map((byte) => byte.toString(16).padStart(2, "0"))
-          .join("");
+        const checksum = await sha256Hex(input.payload);
         intent = assetUploadIntentSchema.parse({
           ...authorityEnvelope(roomIdSchema.parse(input.roomId)),
           kind: "asset-finalize",
