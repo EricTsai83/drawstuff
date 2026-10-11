@@ -40,6 +40,10 @@ import { lockRoom, lockRoomId } from "@/server/collab/rooms";
 import { purgeEndedRoomRecords } from "@/server/collab/authority-projection";
 import { readReferencedSceneAssetIds } from "@/server/scene/referenced-assets";
 import {
+  referencedStorageKeys,
+  STORAGE_ORPHAN_REASON,
+} from "@/server/storage/orphans";
+import {
   collectUserStorageKeys,
   enqueueStorageKeyCleanup,
 } from "@/server/storage/reclaim";
@@ -967,15 +971,16 @@ export function createQueueDrainJob(
       let processed = 0;
       let rescheduled = 0;
       let failed = 0;
+      let stillReferenced = 0;
       let exhaustedBudget = false;
 
-      outer: while (processed + rescheduled + failed < maxTasks) {
+      const handled = () => processed + rescheduled + failed + stillReferenced;
+      outer: while (handled() < maxTasks) {
         if (budgetSpent()) {
           exhaustedBudget = true;
           break;
         }
-        const remainingAllowance =
-          maxTasks - (processed + rescheduled + failed);
+        const remainingAllowance = maxTasks - handled();
         const tasks = await QUERIES.getDueDeferredCleanups(
           Math.min(batchSize, remainingAllowance),
           deps.now(),
@@ -989,6 +994,20 @@ export function createQueueDrainJob(
             break outer;
           }
           try {
+            // A reconciled orphan is only a guess made at scan time; anything
+            // that started pointing at the key since then wins.
+            if (
+              task.reason === STORAGE_ORPHAN_REASON &&
+              (
+                await referencedStorageKeys(db, [task.utFileKey], {
+                  forQueueTask: task.id,
+                })
+              ).size > 0
+            ) {
+              await QUERIES.markDeferredCleanupDone(task.id);
+              stillReferenced += 1;
+              continue;
+            }
             await deps.deleteStorageFile(task.utFileKey);
             await QUERIES.markDeferredCleanupDone(task.id);
             processed += 1;
@@ -1019,7 +1038,14 @@ export function createQueueDrainJob(
 
       // What a capped run leaves behind must be visible, not silent.
       const remaining = await QUERIES.countDueDeferredCleanups(deps.now());
-      return { processed, rescheduled, failed, remaining, exhaustedBudget };
+      return {
+        processed,
+        rescheduled,
+        failed,
+        stillReferenced,
+        remaining,
+        exhaustedBudget,
+      };
     },
   };
 }

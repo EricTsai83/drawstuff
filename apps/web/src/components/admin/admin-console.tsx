@@ -14,6 +14,7 @@ import {
 
 import { AdminAnomalies } from "@/components/admin/admin-anomalies";
 import { AdminControls } from "@/components/admin/admin-controls";
+import { AdminDataRelease } from "@/components/admin/admin-data-release";
 import { AdminFailedCleanups } from "@/components/admin/admin-failed-cleanups";
 import { AdminMaintenance } from "@/components/admin/admin-maintenance";
 import {
@@ -173,6 +174,8 @@ export function AdminConsole({
         </section>
 
         <AdminAnomalies />
+
+        <AdminDataRelease />
 
         <AdminControls />
 

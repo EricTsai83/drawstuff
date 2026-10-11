@@ -318,6 +318,96 @@ const en = {
   "quota.activeRooms": "Live rooms",
   "footprint.quotaTitle": "Against limits",
   "auditAction.set-quota": "Change limit",
+  "release.title": "Data release",
+  "release.description":
+    "Every kind of data that accumulates and where it is released: automatically by a maintenance job, by an operator here, or kept on purpose.",
+  "release.loading": "Measuring stored data",
+  "release.neon": "Neon: {used} of {limit} (free tier)",
+  "release.uploadthing": "UploadThing: {used} of {limit} · {files} files",
+  "release.uploadthingUnavailable": "UploadThing usage unavailable ({error})",
+  "release.lastRun": "Last maintenance run: {time}",
+  "release.dataColumn": "Data",
+  "release.size": "Size",
+  "release.how": "Released by",
+  "release.jobs": "Last automatic run",
+  "release.scan": "Scan storage",
+  "release.scanResult":
+    "Objects {from}–{to}: {orphans} orphan(s), {bytes}, uploaded over 7 days ago with nothing in the database pointing at them.",
+  "release.scanNext": "Scan the next 10,000",
+  "release.rows": "{count} rows",
+  "release.neonSize": "Neon {size}",
+  "release.objectSize": "objects {size}",
+  "release.queueOrphans": "Queue orphans for deletion",
+  "release.orphansQueued":
+    "{count} orphan(s) queued; the next maintenance run deletes them.",
+  "confirm.queueOrphans.title": "Queue storage orphans for deletion?",
+  "confirm.queueOrphans.description":
+    "Storage is rescanned and every orphan is queued. The maintenance drain checks each key again before deleting, so anything referenced since is kept.",
+  "release.mode.auto": "Automatic",
+  "release.mode.manual": "Operator",
+  "release.mode.retained": "Kept on purpose",
+  "release.store.neon": "Neon",
+  "release.store.uploadthing": "UploadThing",
+  "release.store.durable-objects": "Durable Objects",
+  "release.place.user-page": "Users",
+  "release.place.room-lookup": "Room lookup",
+  "release.place.anomalies": "Needs attention",
+  "release.place.failed-cleanup": "Failed cleanup",
+  "release.place.controls": "Controls",
+  "release.data.accounts": "Accounts and their settings",
+  "release.data.scenes": "Scenes",
+  "release.data.sceneImages": "Scene and shared-link images",
+  "release.data.sharedLinks": "Shared links",
+  "release.data.liveRooms": "Collaboration rooms",
+  "release.data.roomContent": "Room snapshots and images",
+  "release.data.roomPeople": "Room people and invitations",
+  "release.data.operationReceipts": "Storage operation receipts",
+  "release.data.lifecycleSubjects": "Retirement records",
+  "release.data.creationFences": "Room creation fences",
+  "release.data.cleanupQueue": "File cleanup queue",
+  "release.data.sessions": "Sign-in sessions",
+  "release.data.auditLog": "Audit log",
+  "release.data.maintenanceRuns": "Maintenance run history",
+  "release.data.operatorSettings": "Operator settings and signals",
+  "release.data.storageOrphans": "Unreferenced storage objects",
+  "release.data.durableObjects": "Durable Object storage",
+  "release.rule.accounts":
+    "User content: only by retiring the account (user page), which deletes everything it owns.",
+  "release.rule.scenes":
+    "User content: never automatic; an operator retires a scene from the user page.",
+  "release.rule.sceneImages":
+    "Images no saved scene references go after a day; a shared link's go when it expires; all go with their scene or account.",
+  "release.rule.sharedLinks":
+    "Expire 30 days after creation; an operator can delete one earlier.",
+  "release.rule.liveRooms":
+    "Live rooms only end by hand (owner or operator); ended rows go 90 days after ending.",
+  "release.rule.roomContent":
+    "Deleted when a room ends, with a 7-day retention backstop.",
+  "release.rule.roomPeople":
+    "Purged when a room ends; revoked rows in live rooms go after 30 days.",
+  "release.rule.operationReceipts": "Deleted 24 hours after completing.",
+  "release.rule.lifecycleSubjects":
+    "Go 30 days after a retirement finishes; stuck ones are resumed from Needs attention.",
+  "release.rule.creationFences":
+    "One tiny row per room ever created, kept forever: it is the only thing that stops an ended room ID from being re-created.",
+  "release.rule.cleanupQueue":
+    "Drained weekly; finished rows go after 30 days; failed rows wait for an operator retry.",
+  "release.rule.sessions":
+    "Expired sessions and verifications go weekly; an operator can sign an account out.",
+  "release.rule.auditLog": "Kept 365 days.",
+  "release.rule.maintenanceRuns": "Kept 180 days.",
+  "release.rule.operatorSettings":
+    "Fixed keys; signal counters are reset by an operator.",
+  "release.rule.storageOrphans":
+    "Objects nothing points at (for example a lost upload callback): scanned and queued by an operator.",
+  "release.rule.durableObjects":
+    "Rooms and finished retirements delete their own storage; a parked retirement waits for an operator to resume it.",
+  "auditAction.enqueue-storage-orphans": "Queue storage orphans",
+  "maintenance.workerEvents": "Durable Object events (last {hours} h)",
+  "maintenance.workerEventsOff":
+    "Durable Object events: set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_OBSERVABILITY_TOKEN to show them.",
+  "maintenance.workerEventsError":
+    "Durable Object events unavailable ({error})",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -627,6 +717,91 @@ const zhTW = {
   "quota.activeRooms": "進行中的房間",
   "footprint.quotaTitle": "用量 / 上限",
   "auditAction.set-quota": "變更上限",
+  "release.title": "資料釋放",
+  "release.description":
+    "所有會累積的資料，以及它們在哪裡被釋放：由維護 job 自動清除、由管理員在這裡人工清除，或刻意保留。",
+  "release.loading": "計算儲存用量中",
+  "release.neon": "Neon：{used} / {limit}（free tier）",
+  "release.uploadthing": "UploadThing：{used} / {limit} · {files} 個檔案",
+  "release.uploadthingUnavailable": "無法取得 UploadThing 用量（{error}）",
+  "release.lastRun": "最近一次維護：{time}",
+  "release.dataColumn": "資料",
+  "release.size": "大小",
+  "release.how": "釋放方式",
+  "release.jobs": "最近一次自動清除",
+  "release.scan": "掃描儲存空間",
+  "release.scanResult":
+    "第 {from}–{to} 個物件：{orphans} 個孤兒物件，共 {bytes}（上傳超過 7 天且資料庫沒有任何引用）。",
+  "release.scanNext": "掃描下一批 10,000 個",
+  "release.rows": "{count} 列",
+  "release.neonSize": "Neon {size}",
+  "release.objectSize": "物件 {size}",
+  "release.queueOrphans": "將孤兒物件排入刪除",
+  "release.orphansQueued": "已排入 {count} 個孤兒物件，下一次維護會刪除。",
+  "confirm.queueOrphans.title": "將孤兒物件排入刪除？",
+  "confirm.queueOrphans.description":
+    "會重新掃描並排入所有孤兒物件。維護刪除前會再確認一次，期間被引用的物件會保留。",
+  "release.mode.auto": "自動",
+  "release.mode.manual": "人工",
+  "release.mode.retained": "刻意保留",
+  "release.store.neon": "Neon",
+  "release.store.uploadthing": "UploadThing",
+  "release.store.durable-objects": "Durable Objects",
+  "release.place.user-page": "使用者",
+  "release.place.room-lookup": "查詢房間",
+  "release.place.anomalies": "需要介入的異常",
+  "release.place.failed-cleanup": "檔案清理失敗",
+  "release.place.controls": "控制項",
+  "release.data.accounts": "帳號與其設定",
+  "release.data.scenes": "場景",
+  "release.data.sceneImages": "場景與分享連結圖片",
+  "release.data.sharedLinks": "分享連結",
+  "release.data.liveRooms": "協作房間",
+  "release.data.roomContent": "房間快照與圖片",
+  "release.data.roomPeople": "房間成員與邀請",
+  "release.data.operationReceipts": "Storage 操作回執",
+  "release.data.lifecycleSubjects": "退場紀錄",
+  "release.data.creationFences": "房間 creation fence",
+  "release.data.cleanupQueue": "檔案清理佇列",
+  "release.data.sessions": "登入 session",
+  "release.data.auditLog": "稽核紀錄",
+  "release.data.maintenanceRuns": "維護執行紀錄",
+  "release.data.operatorSettings": "管理設定與訊號",
+  "release.data.storageOrphans": "沒有引用的儲存物件",
+  "release.data.durableObjects": "Durable Object 儲存",
+  "release.rule.accounts":
+    "使用者內容：只能在使用者頁退場帳號，會刪除它擁有的一切。",
+  "release.rule.scenes":
+    "使用者內容：絕不自動清除；由管理員在使用者頁退場場景。",
+  "release.rule.sceneImages":
+    "沒有任何已存場景引用的圖片一天後清除；分享連結的圖片隨連結到期清除；場景或帳號刪除時一併清除。",
+  "release.rule.sharedLinks": "建立 30 天後到期；管理員可提早刪除。",
+  "release.rule.liveRooms":
+    "進行中的房間只能人工結束（擁有者或管理員）；已結束的 row 在結束 90 天後清除。",
+  "release.rule.roomContent": "房間結束時刪除，並有 7 天的回收備援。",
+  "release.rule.roomPeople":
+    "房間結束時清除；進行中房間的已撤銷紀錄 30 天後清除。",
+  "release.rule.operationReceipts": "完成 24 小時後刪除。",
+  "release.rule.lifecycleSubjects":
+    "退場完成 30 天後清除；卡住的在「需要介入的異常」重新觸發。",
+  "release.rule.creationFences":
+    "每間房一列很小的紀錄，永久保留：這是唯一能防止已結束的 roomId 被重新建立的機制。",
+  "release.rule.cleanupQueue":
+    "每週 drain；完成的列 30 天後清除；失敗的列等管理員重試。",
+  "release.rule.sessions":
+    "過期的 session 與驗證每週清除；管理員可讓帳號登出所有裝置。",
+  "release.rule.auditLog": "保留 365 天。",
+  "release.rule.maintenanceRuns": "保留 180 天。",
+  "release.rule.operatorSettings": "固定的 key；訊號計數由管理員重設。",
+  "release.rule.storageOrphans":
+    "沒有任何引用的物件（例如上傳 callback 遺失）：由管理員掃描後排入刪除。",
+  "release.rule.durableObjects":
+    "房間與完成的退場會自行刪除儲存；暫停的退場等管理員重新觸發。",
+  "auditAction.enqueue-storage-orphans": "排入孤兒物件刪除",
+  "maintenance.workerEvents": "Durable Object 事件（最近 {hours} 小時）",
+  "maintenance.workerEventsOff":
+    "Durable Object 事件：設定 CLOUDFLARE_ACCOUNT_ID 與 CLOUDFLARE_OBSERVABILITY_TOKEN 後顯示。",
+  "maintenance.workerEventsError": "無法取得 Durable Object 事件（{error}）",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -688,6 +863,7 @@ const valueTranslationKeys = {
     "unpublish-scene": "auditAction.unpublish-scene",
     "delete-shared-link": "auditAction.delete-shared-link",
     "set-quota": "auditAction.set-quota",
+    "enqueue-storage-orphans": "auditAction.enqueue-storage-orphans",
   },
   targetType: {
     account: "targetType.account",
