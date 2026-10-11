@@ -23,6 +23,7 @@ import {
   workspace,
 } from "@/server/db/schema";
 import { TRPCError } from "@trpc/server";
+import { isUniqueViolation } from "@/server/db/errors";
 import { QUERIES } from "@/server/db/queries";
 import { saveSceneSchema, sceneNameSchema } from "@/lib/schemas/scene";
 import { nanoid } from "nanoid";
@@ -70,17 +71,6 @@ const publicSceneOutput = z.object({
   publishedAt: z.date().optional(),
   authorName: z.string().optional(),
 });
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "cause" in error &&
-    typeof error.cause === "object" &&
-    error.cause !== null &&
-    "code" in error.cause &&
-    (error.cause as { code?: string }).code === "23505"
-  );
-}
 
 function normalizeSearchTerm(search: string | undefined): string | null {
   const trimmed = search?.trim();

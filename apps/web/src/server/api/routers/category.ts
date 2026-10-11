@@ -9,6 +9,7 @@ import {
   categoryRenameSchema,
 } from "@/lib/schemas/category";
 import { TRPCError } from "@trpc/server";
+import { isUniqueViolation } from "@/server/db/errors";
 
 const categorySummary = z.object({
   id: z.uuid(),
@@ -20,17 +21,6 @@ const categoryListOutput = z.array(
     sceneCount: z.number().int().min(0),
   }),
 );
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "cause" in error &&
-    typeof error.cause === "object" &&
-    error.cause !== null &&
-    "code" in error.cause &&
-    (error.cause as { code?: string }).code === "23505"
-  );
-}
 
 export const categoryRouter = createTRPCRouter({
   // 使用者的所有分類（含使用中的場景數），依名稱排序
