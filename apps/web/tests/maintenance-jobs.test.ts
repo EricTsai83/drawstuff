@@ -67,6 +67,7 @@ import {
   createUserPurgeJob,
   expiredSessionsJob,
   MaintenanceJobError,
+  recordRetentionJob,
   ROOM_RETENTION_CLEANUP_REASON,
   routineMaintenanceJobs,
   runMaintenanceJobs,
@@ -1207,5 +1208,228 @@ describe("user purge", () => {
     const drain = await createQueueDrainJob().run(deps);
     expect(drain).toMatchObject({ processed: 3, remaining: 0 });
     expect(deletedKeys.sort()).toEqual(["key-x", "room-key-x", "thumb-x"]);
+  });
+});
+
+describe("record retention", () => {
+  const ago = (ms: number) => new Date(Date.now() - ms);
+  const hex = "a".repeat(64);
+
+  beforeEach(async () => {
+    await testDb.delete(schema.adminAuditEvent);
+    await testDb.delete(schema.collaborationRoomMember);
+    await testDb.delete(schema.collaborationRoomInvite);
+    await testDb.delete(schema.collaborationOperation);
+    await testDb.delete(schema.collaborationCreationFence);
+  });
+
+  it("deletes only bookkeeping rows past their retention", async () => {
+    await testDb.insert(schema.adminAuditEvent).values([
+      {
+        action: "end-room",
+        targetType: "room",
+        targetId: "old",
+        occurredAt: ago(400 * DAY_MS),
+      },
+      { action: "end-room", targetType: "room", targetId: "recent" },
+    ]);
+
+    await testDb.insert(schema.collaborationRoom).values([
+      { roomId: "room-live", ownerId: OWNER, status: "ready" },
+      {
+        roomId: "room-ended-old",
+        ownerId: OWNER,
+        status: "ended",
+        storageState: "ended",
+        endedAt: ago(91 * DAY_MS),
+      },
+      {
+        roomId: "room-ended-unfenced",
+        ownerId: OWNER,
+        status: "ended",
+        storageState: "ready",
+        endedAt: ago(91 * DAY_MS),
+      },
+      {
+        roomId: "room-ended-with-data",
+        ownerId: OWNER,
+        status: "ended",
+        storageState: "ended",
+        endedAt: ago(91 * DAY_MS),
+        label: "not reclaimed",
+      },
+      {
+        roomId: "room-ended-recent",
+        ownerId: OWNER,
+        status: "ended",
+        storageState: "ended",
+        endedAt: ago(30 * DAY_MS),
+      },
+    ]);
+    await testDb
+      .insert(schema.collaborationCreationFence)
+      .values({ roomId: "room-ended-old", ended: true });
+
+    const operation = (operationId: string, terminalAt: Date | null) => ({
+      operationId,
+      roomId: "room-live",
+      actor: OWNER,
+      kind: "snapshot-put",
+      authorityEpoch: 1,
+      expectedRevision: 0,
+      checksum: hex,
+      requestFingerprint: hex,
+      deadline: new Date(),
+      status: terminalAt ? "written" : "pending",
+      revision: terminalAt ? 1 : null,
+      terminalAt,
+    });
+    const oldOp = crypto.randomUUID();
+    const recentOp = crypto.randomUUID();
+    const pendingOp = crypto.randomUUID();
+    await testDb
+      .insert(schema.collaborationOperation)
+      .values([
+        operation(oldOp, ago(2 * DAY_MS)),
+        operation(recentOp, ago(60_000)),
+        operation(pendingOp, null),
+      ]);
+
+    const sceneId = crypto.randomUUID();
+    await testDb.insert(schema.collaborationLifecycleSubject).values([
+      // Account gone, retired over 30 days ago.
+      {
+        scope: "account:gone-old",
+        kind: "account",
+        subject: "gone-old",
+        frozen: true,
+        retired: true,
+        frozenAt: ago(31 * DAY_MS),
+      },
+      // Account gone, retired recently: kept for duplicate begins.
+      {
+        scope: "account:gone-recent",
+        kind: "account",
+        subject: "gone-recent",
+        frozen: true,
+        retired: true,
+        frozenAt: ago(DAY_MS),
+      },
+      // A retirement still in flight is never touched.
+      {
+        scope: "account:in-flight",
+        kind: "account",
+        subject: "in-flight",
+        frozen: true,
+        frozenAt: ago(60 * DAY_MS),
+      },
+      // A live account's version counter stays.
+      { scope: `account:${OWNER}`, kind: "account", subject: OWNER },
+      // Scene gone, never frozen.
+      {
+        scope: `scene:${sceneId}`,
+        kind: "scene",
+        subject: OWNER,
+        sceneId,
+      },
+    ]);
+
+    await testDb.insert(schema.collaborationRoomMember).values([
+      {
+        roomId: "room-live",
+        userId: OWNER,
+        revokedAt: ago(31 * DAY_MS),
+      },
+    ]);
+    await testDb.insert(schema.collaborationRoomInvite).values([
+      {
+        roomId: "room-live",
+        emailKey: "old@example.com",
+        projectionVersion: 1,
+        listedAt: new Date(),
+        revokedAt: ago(31 * DAY_MS),
+      },
+      {
+        roomId: "room-live",
+        emailKey: "live@example.com",
+        role: "viewer",
+        projectionVersion: 1,
+        listedAt: new Date(),
+      },
+    ]);
+
+    const { deps } = makeDeps();
+    await expect(recordRetentionJob.run(deps)).resolves.toEqual({
+      auditEvents: 1,
+      operationReceipts: 1,
+      lifecycleSubjects: 2,
+      endedRooms: 1,
+      revokedMembers: 1,
+      revokedInvites: 1,
+    });
+
+    expect(
+      (await testDb.select().from(schema.adminAuditEvent)).map(
+        (event) => event.targetId,
+      ),
+    ).toEqual(["recent"]);
+    expect(
+      (await testDb.select().from(schema.collaborationOperation))
+        .map((row) => row.operationId)
+        .sort(),
+    ).toEqual([recentOp, pendingOp].sort());
+    expect(
+      (await testDb.select().from(schema.collaborationLifecycleSubject))
+        .map((row) => row.scope)
+        .sort(),
+    ).toEqual(
+      ["account:gone-recent", "account:in-flight", `account:${OWNER}`].sort(),
+    );
+    expect(
+      (await testDb.select().from(schema.collaborationRoom))
+        .map((row) => row.roomId)
+        .sort(),
+    ).toEqual([
+      "room-ended-recent",
+      "room-ended-unfenced",
+      "room-ended-with-data",
+      "room-live",
+    ]);
+    // The fence outlives the room, so the roomId is still refused.
+    expect(
+      await testDb.select().from(schema.collaborationCreationFence),
+    ).toEqual([{ roomId: "room-ended-old", ended: true }]);
+    expect(
+      (await testDb.select().from(schema.collaborationRoomInvite)).map(
+        (row) => row.emailKey,
+      ),
+    ).toEqual(["live@example.com"]);
+  });
+
+  it("keeps failed cleanup rows for review and purges finished ones", async () => {
+    await testDb.insert(schema.deferredFileCleanup).values([
+      {
+        utFileKey: "done-old",
+        reason: "t",
+        status: "done",
+        updatedAt: ago(31 * DAY_MS),
+      },
+      {
+        utFileKey: "failed-old",
+        reason: "t",
+        status: "failed",
+        updatedAt: ago(90 * DAY_MS),
+      },
+    ]);
+    const purge = routineMaintenanceJobs().find(
+      (job) => job.name === "purge-finished-queue-rows",
+    );
+    const { deps } = makeDeps();
+    await purge?.run(deps);
+    expect(
+      (await testDb.select().from(schema.deferredFileCleanup)).map(
+        (row) => row.utFileKey,
+      ),
+    ).toEqual(["failed-old"]);
   });
 });

@@ -132,6 +132,7 @@ describe("maintenance cleanup route", () => {
       "expired-sessions",
       "expired-verifications",
       "purge-finished-queue-rows",
+      "record-retention",
       "drain-cleanup-queue",
     ]);
     expect(await testDb.select().from(schema.user)).toHaveLength(2);
@@ -150,6 +151,7 @@ describe("maintenance cleanup route", () => {
       "expired-sessions",
       "expired-verifications",
       "purge-finished-queue-rows",
+      "record-retention",
       "drain-cleanup-queue",
     ]);
     expect(lockState.released).toBe(1);

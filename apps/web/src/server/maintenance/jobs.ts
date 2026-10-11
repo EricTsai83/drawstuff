@@ -1,11 +1,26 @@
 import "server-only";
 
-import { and, eq, exists, inArray, isNull, lt, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  lt,
+  ne,
+  not,
+  notExists,
+  or,
+  sql,
+  type SQL,
+} from "drizzle-orm";
 
 import { db } from "@/server/db";
 import {
+  adminAuditEvent,
   collaborationAsset,
   collaborationLifecycleRegistration,
+  collaborationLifecycleSubject,
   collaborationOperation,
   collaborationProjectionTombstone,
   collaborationRoom,
@@ -257,15 +272,190 @@ const expiredVerificationsJob: MaintenanceJob = {
   },
 };
 
+/**
+ * Only `done` rows: a `failed` row is the last pointer to a storage object
+ * that was never deleted, so it stays — listed in the admin console — until an
+ * operator retries it. Failed rows exist only after five weeks of refusals.
+ */
 const purgeFinishedQueueRowsJob: MaintenanceJob = {
   name: "purge-finished-queue-rows",
   run: async (deps) => {
     const cutoff = new Date(deps.now().getTime() - 30 * DAY_MS);
     const purged = await QUERIES.purgeDeferredFileCleanupOlderThan(cutoff, [
       "done",
-      "failed",
     ]);
     return { purgedRows: purged.length };
+  },
+};
+
+/** How long each kind of bookkeeping row outlives its purpose. */
+const RECORD_RETENTION = {
+  adminAuditEventsMs: 365 * DAY_MS,
+  /** Replay window of a storage operation receipt (`resultRetentionMs`). */
+  operationReceiptsMs: DAY_MS,
+  retiredSubjectsMs: 30 * DAY_MS,
+  endedRoomsMs: 90 * DAY_MS,
+  revokedListRowsMs: 30 * DAY_MS,
+} as const;
+/** Rows deleted per kind per run; a backlog drains over later runs. */
+const RECORD_RETENTION_BATCH = 5_000;
+
+/**
+ * Deletes bookkeeping rows that nothing reads any more, so no table grows for
+ * the life of the deployment. Each rule keeps what an invariant still needs:
+ *
+ * - Operation receipts only replay within 24 h; pending ones stay.
+ * - A lifecycle subject goes once its account or scene row is gone and it is
+ *   either unfrozen or retired 30 days ago. Without the row, identity and
+ *   registration still refuse (they require the user or scene row), and a
+ *   frozen, unretired subject — a retirement in flight — is never touched.
+ * - An ended room row goes 90 days after it ended, once its storage is fenced
+ *   and retention has reclaimed its data. Its creation fence stays: a fence
+ *   without a room still refuses the roomId (`refuseUsedRoomId`).
+ * - Revoked member and invitation list rows go 30 days after revocation; late
+ *   projection events they refuse cannot outlive the Room's 24 h abandonment.
+ */
+export const recordRetentionJob: MaintenanceJob = {
+  name: "record-retention",
+  run: async (deps) => {
+    const ago = (ms: number) => new Date(deps.now().getTime() - ms);
+    const B = RECORD_RETENTION_BATCH;
+
+    const auditEvents = await db
+      .delete(adminAuditEvent)
+      .where(
+        inArray(
+          adminAuditEvent.id,
+          db
+            .select({ id: adminAuditEvent.id })
+            .from(adminAuditEvent)
+            .where(
+              lt(
+                adminAuditEvent.occurredAt,
+                ago(RECORD_RETENTION.adminAuditEventsMs),
+              ),
+            )
+            .limit(B),
+        ),
+      )
+      .returning({ id: adminAuditEvent.id });
+
+    const operations = await db
+      .delete(collaborationOperation)
+      .where(
+        inArray(
+          collaborationOperation.operationId,
+          db
+            .select({ id: collaborationOperation.operationId })
+            .from(collaborationOperation)
+            .where(
+              lt(
+                collaborationOperation.terminalAt,
+                ago(RECORD_RETENTION.operationReceiptsMs),
+              ),
+            )
+            .limit(B),
+        ),
+      )
+      .returning({ id: collaborationOperation.operationId });
+
+    const subjects = collaborationLifecycleSubject;
+    const targetGone = or(
+      and(
+        eq(subjects.kind, "account"),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(user)
+            .where(eq(user.id, subjects.subject)),
+        ),
+      ),
+      and(
+        eq(subjects.kind, "scene"),
+        notExists(
+          db
+            .select({ one: sql`1` })
+            .from(scene)
+            .where(eq(scene.id, subjects.sceneId)),
+        ),
+      ),
+    );
+    const settled = or(
+      eq(subjects.frozen, false),
+      and(
+        eq(subjects.retired, true),
+        or(
+          isNull(subjects.frozenAt),
+          lt(subjects.frozenAt, ago(RECORD_RETENTION.retiredSubjectsMs)),
+        ),
+      ),
+    );
+    const retiredSubjects = await db
+      .delete(subjects)
+      .where(
+        inArray(
+          subjects.scope,
+          db
+            .select({ scope: subjects.scope })
+            .from(subjects)
+            .where(and(targetGone, settled))
+            .limit(B),
+        ),
+      )
+      .returning({ scope: subjects.scope });
+
+    const endedRooms = await db
+      .delete(collaborationRoom)
+      .where(
+        inArray(
+          collaborationRoom.roomId,
+          db
+            .select({ roomId: collaborationRoom.roomId })
+            .from(collaborationRoom)
+            .where(
+              and(
+                eq(collaborationRoom.status, "ended"),
+                eq(collaborationRoom.storageState, "ended"),
+                lt(
+                  collaborationRoom.endedAt,
+                  ago(RECORD_RETENTION.endedRoomsMs),
+                ),
+                not(roomHoldsData()),
+              ),
+            )
+            .limit(B),
+        ),
+      )
+      .returning({ roomId: collaborationRoom.roomId });
+
+    const revokedCutoff = ago(RECORD_RETENTION.revokedListRowsMs);
+    const revokedMembers = await db
+      .delete(collaborationRoomMember)
+      .where(
+        inArray(
+          collaborationRoomMember.id,
+          db
+            .select({ id: collaborationRoomMember.id })
+            .from(collaborationRoomMember)
+            .where(lt(collaborationRoomMember.revokedAt, revokedCutoff))
+            .limit(B),
+        ),
+      )
+      .returning({ id: collaborationRoomMember.id });
+    // Composite key, so unbatched; live invitations per room are capped at 200.
+    const revokedInvites = await db
+      .delete(collaborationRoomInvite)
+      .where(lt(collaborationRoomInvite.revokedAt, revokedCutoff))
+      .returning({ roomId: collaborationRoomInvite.roomId });
+
+    return {
+      auditEvents: auditEvents.length,
+      operationReceipts: operations.length,
+      lifecycleSubjects: retiredSubjects.length,
+      endedRooms: endedRooms.length,
+      revokedMembers: revokedMembers.length,
+      revokedInvites: revokedInvites.length,
+    };
   },
 };
 
@@ -423,59 +613,64 @@ export function createUnreferencedAssetGcJob(
  * A room still holding snapshot, asset, per-person list rows, operations,
  * registrations, or a name — what room retention reclaims once it has ended.
  */
-export function roomHoldsData() {
-  return or(
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(collaborationSnapshot)
-        .where(eq(collaborationSnapshot.roomId, collaborationRoom.roomId)),
-    ),
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(collaborationAsset)
-        .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
-    ),
-    // Per-person list rows and the room name the cleanup did not reach.
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(collaborationRoomMember)
-        .where(eq(collaborationRoomMember.roomId, collaborationRoom.roomId)),
-    ),
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(collaborationRoomInvite)
-        .where(eq(collaborationRoomInvite.roomId, collaborationRoom.roomId)),
-    ),
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(collaborationProjectionTombstone)
-        .where(
-          eq(collaborationProjectionTombstone.roomId, collaborationRoom.roomId),
-        ),
-    ),
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(collaborationOperation)
-        .where(eq(collaborationOperation.roomId, collaborationRoom.roomId)),
-    ),
-    exists(
-      db
-        .select({ one: sql`1` })
-        .from(collaborationLifecycleRegistration)
-        .where(
-          eq(
-            collaborationLifecycleRegistration.roomId,
-            collaborationRoom.roomId,
+export function roomHoldsData(): SQL {
+  return (
+    or(
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(collaborationSnapshot)
+          .where(eq(collaborationSnapshot.roomId, collaborationRoom.roomId)),
+      ),
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(collaborationAsset)
+          .where(eq(collaborationAsset.roomId, collaborationRoom.roomId)),
+      ),
+      // Per-person list rows and the room name the cleanup did not reach.
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(collaborationRoomMember)
+          .where(eq(collaborationRoomMember.roomId, collaborationRoom.roomId)),
+      ),
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(collaborationRoomInvite)
+          .where(eq(collaborationRoomInvite.roomId, collaborationRoom.roomId)),
+      ),
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(collaborationProjectionTombstone)
+          .where(
+            eq(
+              collaborationProjectionTombstone.roomId,
+              collaborationRoom.roomId,
+            ),
           ),
-        ),
-    ),
-    ne(collaborationRoom.label, ""),
+      ),
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(collaborationOperation)
+          .where(eq(collaborationOperation.roomId, collaborationRoom.roomId)),
+      ),
+      exists(
+        db
+          .select({ one: sql`1` })
+          .from(collaborationLifecycleRegistration)
+          .where(
+            eq(
+              collaborationLifecycleRegistration.roomId,
+              collaborationRoom.roomId,
+            ),
+          ),
+      ),
+      ne(collaborationRoom.label, ""),
+    ) ?? sql`false`
   );
 }
 
@@ -919,6 +1114,7 @@ export function routineMaintenanceJobs(
     expiredSessionsJob,
     expiredVerificationsJob,
     purgeFinishedQueueRowsJob,
+    recordRetentionJob,
     // Sized to the producers' bounded aggregate per-run maximum — ~500 from
     // expired shared scenes (plus its permitted first-scene overshoot), 500
     // from the asset GC, and 512 from room retention's permitted first-room
