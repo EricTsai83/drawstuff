@@ -42,6 +42,7 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 | `gateway.room_fetch_failed`    | error | DO stub fetch 失敗（upgrade 回 503）                                        | `errorName`（**不含 room 識別碼**：此時 identity proof 尚未驗證，route 仍是未驗證輸入） |
 | `authority.entry_failed`       | warn  | authority 入口拋出非契約內的錯誤（回 `unavailable`）                        | `errorName`                                                                          |
 | `authority.work_abandoned`     | error | 房間 Object 的 durable job 從第一次排程起 24 小時仍未送達，被放棄            | `jobKind`（`DurableJob["kind"]` 封閉 enum）                                          |
+| `lifecycle.retirement_stuck`   | error | 退場（Lifecycle）工作從開始起超過 1 小時仍在失敗；同一工作至多每小時一筆，24 小時後重試改為每小時一次 | `jobKind`、`stuckHours`（已卡住的整小時數）                                          |
 | `adapter.delivery_failed`      | warn  | Object → web adapter 回非 2xx 或非 JSON（durable job 會依 backoff 重試）    | `status`                                                                             |
 | `room.invalid_object_identity` | error | Object 被非 canonical 名稱定址                                              | —                                                                                    |
 | `room.schema_bootstrap_failed` | error | constructor schema bootstrap 拋出（runtime 重置該 Object）                  | `errorName`                                                                          |
@@ -62,7 +63,7 @@ Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的
 ## 3. 資料分級（threat model §5 逐項對照）
 
 - 允許且使用：驗證後的 `roomId`、Object 產生的 `peerId`、role、close code、HTTP `status`
-  與 bounded enums（`socketState`、`jobKind`）、計數（`members`）。
+  與 bounded enums（`socketState`、`jobKind`）、計數（`members`、`stuckHours`）。
 - **subject 永不落地**：raw subject 被 §5 禁止；退役的 relay 曾用 48-bit per-process HMAC
   pseudonym，DO 版 logger 連 pseudonym salt 都不保留；email 與邀請名單同樣沒有對應欄位。
 - **error 內容不落地**：`errorName` 取 **constructor 名**（`TypeError`…），不讀可變的
@@ -123,6 +124,7 @@ sessions 分母、未指定的視窗、「持續」與無資料語意須依 Plan
 | `DoUnexpectedDisconnectRate` | Logs：`room.session_closed` 依 `closeCode` 分組                 | (4000+4014+4002+4003) / sessions > 0.5% | SLO §6                                 |
 | `DoSlowConsumerRate`         | Logs：`closeCode = 4003`                                        | > 0.1% sessions                         | SLO §6                                 |
 | `DoWorkAbandoned`            | Logs：`authority.work_abandoned`                                | 任何一筆                                | 遠端（Neon 投影／fence／cleanup）未追上 |
+| `DoRetirementStuck`          | Logs：`lifecycle.retirement_stuck`                              | 任何一筆                                | 帳號／場景資料尚未刪完，需人工介入     |
 | `DoAdapterDeliveryFailed`    | Logs：`adapter.delivery_failed`                                 | 1h 內持續發生                           | web adapter 或 adapter 憑證故障         |
 | `DoLogFieldsRejected`        | Logs：`rejectedFields` 存在                                     | 任何一筆                                | §2（allowlist 缺陷）                   |
 | `DoNamespaceErrors`          | DO namespace metrics                                            | error rate 持續非零                     | SLO §6                                 |

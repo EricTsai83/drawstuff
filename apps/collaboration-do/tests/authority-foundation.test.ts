@@ -1498,6 +1498,70 @@ describe("Lifecycle durable progress", () => {
       ).toHaveLength(1);
     });
   });
+  it("logs a stuck retirement at most hourly and slows its retries after 24 h", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const work = new LifecycleProgress(state.storage, name).work;
+      const age = (ms: number, stuckLoggedAt: number | null = null) =>
+        state.storage.sql.exec(
+          "UPDATE authority_work SET first_at=?, next_at=0, stuck_logged_at=?",
+          Date.now() - ms,
+          stuckLoggedAt,
+        );
+      const retryAt = () =>
+        state.storage.sql
+          .exec<{ next_at: number }>("SELECT next_at FROM authority_work")
+          .one().next_at;
+      const failing = () => Promise.reject(new Error("adapter down"));
+      const error = vi.spyOn(console, "error");
+      const stuck = () =>
+        error.mock.calls
+          .map((call): unknown => call[0])
+          .filter(
+            (record): record is object =>
+              typeof record === "object" &&
+              record !== null &&
+              Reflect.get(record, "event") === "lifecycle.retirement_stuck",
+          )
+          .map((record): unknown => Reflect.get(record, "stuckHours"));
+      try {
+        // Under an hour: an ordinary failure, no log.
+        age(59 * 60_000);
+        await work.drain(failing);
+        expect(stuck()).toEqual([]);
+
+        // Past an hour: logged once, retries stay at the minute cap.
+        age(60 * 60_000 + 1_000);
+        await work.drain(failing);
+        expect(stuck()).toEqual([1]);
+        expect(retryAt()).toBeLessThanOrEqual(Date.now() + 60_000);
+
+        // The next failure within the hour is not logged again.
+        state.storage.sql.exec("UPDATE authority_work SET next_at=0");
+        await work.drain(failing);
+        expect(stuck()).toEqual([1]);
+
+        // Past 24 h: logged again after an hour, retries slow to an hour.
+        age(25 * 60 * 60_000, Date.now() - 60 * 60_000);
+        const before = Date.now();
+        await work.drain(failing);
+        expect(stuck()).toEqual([1, 25]);
+        expect(retryAt()).toBeGreaterThanOrEqual(before + 60 * 60_000);
+        expect(work.pending()).toBe(1);
+      } finally {
+        error.mockRestore();
+      }
+    });
+  });
   it("reschedules unconfigured delivery durably and binds the target and operation identity", async () => {
     const subject = `user-${crypto.randomUUID()}`;
     const stub = env.COLLABORATION_LIFECYCLE.getByName(`account:${subject}`);

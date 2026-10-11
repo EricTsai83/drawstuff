@@ -43,7 +43,7 @@ Snapshot 以 binary 明文編碼傳輸，每房間一列並帶 checksum。寫入
 
 ## 資源釋放
 
-- Room DO 的 durable 工作從第一次排程起 24 小時仍未送達即放棄（log `authority.work_abandoned`），本地紀錄收成終態，不聲稱遠端已完成。`CollaborationLifecycle` 的退場工作不放棄。
+- Room DO 的 durable 工作從第一次排程起 24 小時仍未送達即放棄（log `authority.work_abandoned`），本地紀錄收成終態，不聲稱遠端已完成。`CollaborationLifecycle` 的退場工作不放棄：從開始起超過 1 小時仍在失敗時至多每小時記一次 `lifecycle.retirement_stuck`（error），超過 24 小時後失敗重試間隔由 1 分鐘上限改為 1 小時。
 - 房間結束且 fence、cleanup 都已送達（或放棄）、沒有連線與進行中的 RPC 時，DO `deleteAll()` 並清除 alarm（log `room.storage_released`）；從未建立成功的房間同樣不留儲存。
 - 完成的 Lifecycle 退場物件保留 1 小時後釋放；之後遲到的 `begin` 會冪等重跑。
 - 房間結束後 Neon 只保留房間列（`status='ended'`、清空名稱）與 creation fence，用來拒絕 roomId 重用；成員／邀請投影、投影墓碑、操作紀錄與退場登記都刪除。註冊、建立父紀錄、storage fence、cleanup 與回收以 roomId advisory lock 序列化。
