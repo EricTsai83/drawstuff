@@ -484,17 +484,20 @@ export async function cleanupSceneAssetUploadsAction(raw: unknown) {
       } as const;
     }
 
-    const utapi = new UTApi();
     // Only objects whose record is gone (or never existed) are removed; a
-    // retained record must keep its bytes.
-    for (const fileKey of plan.deletableKeys) {
+    // retained record must keep its bytes. One batched request; if it fails,
+    // the outbox drain retries every key (deleting a missing key is a no-op).
+    if (plan.deletableKeys.length > 0) {
       try {
-        await utapi.deleteFiles([fileKey]);
+        await new UTApi().deleteFiles(plan.deletableKeys);
       } catch (deleteErr) {
-        console.error("Failed to delete uploaded scene asset:", deleteErr);
-        await enqueueStorageKeyCleanup(db, [fileKey], "scene-save-aborted", {
-          sceneId,
-        });
+        console.error("Failed to delete uploaded scene assets:", deleteErr);
+        await enqueueStorageKeyCleanup(
+          db,
+          plan.deletableKeys,
+          "scene-save-aborted",
+          { sceneId },
+        );
       }
     }
 

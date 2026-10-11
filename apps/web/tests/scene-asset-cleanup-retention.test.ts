@@ -10,13 +10,16 @@ const OWNER = "user-owner";
  * provider at module scope, so all three are redirected here. The database has
  * to exist before any module that reads `db` at import time is evaluated.
  */
-const { pgClient, testDb, deletedObjectKeys } = await vi.hoisted(async () => {
-  const { createTestDatabase } = await import("./support/pglite-db");
-  return {
-    ...createTestDatabase(),
-    deletedObjectKeys: [] as string[],
-  };
-});
+const { pgClient, testDb, deletedObjectKeys, storage } = await vi.hoisted(
+  async () => {
+    const { createTestDatabase } = await import("./support/pglite-db");
+    return {
+      ...createTestDatabase(),
+      deletedObjectKeys: [] as string[],
+      storage: { failing: false, calls: 0 },
+    };
+  },
+);
 
 vi.mock("@/server/db/index", () => ({ db: testDb }));
 vi.mock("@/lib/auth/server", () => ({
@@ -25,6 +28,8 @@ vi.mock("@/lib/auth/server", () => ({
 vi.mock("uploadthing/server", () => ({
   UTApi: class {
     deleteFiles(keys: string[]) {
+      storage.calls += 1;
+      if (storage.failing) return Promise.reject(new Error("storage down"));
       deletedObjectKeys.push(...keys);
       return Promise.resolve({ success: true });
     }
@@ -220,6 +225,8 @@ describe("cleanupSceneAssetUploadsAction", () => {
 
   beforeEach(async () => {
     deletedObjectKeys.length = 0;
+    storage.failing = false;
+    storage.calls = 0;
     await testDb.delete(schema.fileRecord);
     await testDb.delete(schema.deferredFileCleanup);
     await testDb.delete(schema.scene);
@@ -290,6 +297,26 @@ describe("cleanupSceneAssetUploadsAction", () => {
     expect(result).toEqual({ success: true, retainedFileKeys: ["key-a"] });
     expect(await remainingKeys(sceneId)).toEqual(["key-a"]);
     expect(deletedObjectKeys).toEqual(["key-b"]);
+  });
+
+  it("deletes in one request and queues every key when storage fails", async () => {
+    const sceneId = await sceneWith([]);
+    await record(sceneId, FILE_A, "key-a");
+    await record(sceneId, FILE_B, "key-b");
+    storage.failing = true;
+
+    const result = await cleanupSceneAssetUploadsAction({
+      sceneId,
+      fileKeys: ["key-a", "key-b"],
+    });
+
+    expect(result).toEqual({ success: true, retainedFileKeys: [] });
+    expect(storage.calls).toBe(1);
+    const queued = await testDb.select().from(schema.deferredFileCleanup);
+    expect(queued.map((row) => [row.utFileKey, row.reason]).sort()).toEqual([
+      ["key-a", "scene-save-aborted"],
+      ["key-b", "scene-save-aborted"],
+    ]);
   });
 
   it("removes a refused duplicate upload that never became a record", async () => {
