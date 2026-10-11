@@ -6,7 +6,6 @@ import {
 } from "@/lib/collab/canvas-room-marker";
 import {
   mocks,
-  hook,
   mountProbe,
   unmountProbe,
   upload,
