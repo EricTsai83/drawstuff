@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { api } from "@/trpc/react";
 import { parseSharedSceneHash } from "@/lib/shared-scene-link";
 import { decompressData } from "@/lib/encode";
+import { useAppI18n } from "@/hooks/use-app-i18n";
 import type {
   BinaryFiles,
   DataURL,
@@ -47,11 +48,26 @@ const BASE_DELAY_MS = 1000;
 const BACKOFF_FACTOR = 2;
 const JITTER_MS = 250;
 
+/** Counts one more failed attempt and schedules the next by backoff + jitter. */
+function recordFailedAttempt(retries: Map<string, RetryInfo>, url: string) {
+  const attempts = (retries.get(url)?.attempts ?? 0) + 1;
+  const delay =
+    BASE_DELAY_MS * BACKOFF_FACTOR ** (attempts - 1) +
+    Math.floor(Math.random() * JITTER_MS);
+  retries.set(url, { attempts, nextRetryAt: Date.now() + delay });
+}
+
 // 核心 Hook：載入分享場景的檔案並注入到 Excalidraw
 export function useFetchAndInjectSharedSceneFiles(
   excalidrawAPI: ExcalidrawImperativeAPI | null,
 ) {
   const shareHashParams = useMemo(() => parseSharedSceneHash(), []);
+  const { t } = useAppI18n();
+  // Read at notification time so a language switch does not restart loading.
+  const tRef = useRef(t);
+  useEffect(() => {
+    tRef.current = t;
+  }, [t]);
 
   const filesBySharedSceneIdQuery =
     api.sharedScene.getFileRecordsBySharedSceneId.useQuery(
@@ -128,16 +144,7 @@ export function useFetchAndInjectSharedSceneFiles(
               // 將 AbortController 的 signal 傳入，讓請求可以在清理時被中止
               const response = await fetch(url, { signal: controller.signal });
               if (!response.ok) {
-                // 非 2xx：累加重試次數並計算下一次嘗試的時間（指數退避 + 抖動）
-                const prev = sceneRetryMap.get(url);
-                const attempts = (prev?.attempts ?? 0) + 1;
-                const delay =
-                  BASE_DELAY_MS * Math.pow(BACKOFF_FACTOR, attempts - 1) +
-                  Math.floor(Math.random() * JITTER_MS);
-                sceneRetryMap.set(url, {
-                  attempts,
-                  nextRetryAt: Date.now() + delay,
-                });
+                recordFailedAttempt(sceneRetryMap, url);
                 return;
               }
 
@@ -172,22 +179,9 @@ export function useFetchAndInjectSharedSceneFiles(
                 sceneRetryMap.delete(url);
               }
             } catch (err: unknown) {
-              if (!(
-                err &&
-                typeof err === "object" &&
-                "name" in err &&
-                (err as { name?: string }).name === "AbortError"
-              )) {
-                // 例外但非中止：同樣按指數退避規則排定下一次嘗試
-                const prev = sceneRetryMap.get(url);
-                const attempts = (prev?.attempts ?? 0) + 1;
-                const delay =
-                  BASE_DELAY_MS * Math.pow(BACKOFF_FACTOR, attempts - 1) +
-                  Math.floor(Math.random() * JITTER_MS);
-                sceneRetryMap.set(url, {
-                  attempts,
-                  nextRetryAt: Date.now() + delay,
-                });
+              // 例外但非中止：同樣按指數退避規則排定下一次嘗試
+              if (!(err instanceof Error && err.name === "AbortError")) {
+                recordFailedAttempt(sceneRetryMap, url);
               }
             }
           },
@@ -234,9 +228,9 @@ export function useFetchAndInjectSharedSceneFiles(
         }
         if (reachedLimitUrls.length > 0) {
           toast.error(
-            reachedLimitUrls.length === 1
-              ? "1 file failed to download and reached the retry limit."
-              : `${reachedLimitUrls.length} files failed to download and reached the retry limit.`,
+            tRef.current("errors.sharedFilesDownloadFailed", {
+              count: reachedLimitUrls.length,
+            }),
           );
           // 清理已達上限的記錄
           for (const url of reachedLimitUrls) {

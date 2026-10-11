@@ -521,6 +521,8 @@ export const zhTW = {
   "toast.export.fileSaveFailed": "儲存檔案失敗，請再試一次。",
   "toast.export.imageFailed": "匯出圖片失敗，請再試一次。",
   "errors.failedToExportScene": "匯出場景失敗，請再試一次。",
+  "errors.sharedFilesDownloadFailed":
+    "有 {count} 張圖片無法下載，請重新整理頁面再試一次。",
   "errors.exportInProgress": "已有匯出作業正在進行。",
   "errors.emptyCanvas": "空白畫布無法匯出。",
 } satisfies AppDictionary;
