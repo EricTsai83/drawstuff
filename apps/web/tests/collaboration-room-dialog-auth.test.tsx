@@ -710,10 +710,12 @@ describe("share room dialog", () => {
       managed({
         members: base.members.map((member) => ({
           ...member,
-          name:
-            { "u-owner": "Olivia", "u-lin": "Lin", "u-amy": "Amy" }[
-              member.userId
-            ] ?? null,
+          name: { "u-owner": "Olivia", "u-lin": "Lin" }[member.userId] ?? null,
+        })),
+        // The server names an opened invitation itself, whatever member page is loaded.
+        allowlist: base.allowlist.map((invite) => ({
+          ...invite,
+          name: invite.lastJoinedAt ? "Amy" : null,
         })),
       }),
     );

@@ -7,7 +7,7 @@ const fake = vi.hoisted(() => ({
   identity: vi.fn(),
   gateway: vi.fn(),
   list: vi.fn(),
-  names: [] as { id: string; name: string }[],
+  names: [] as { id: string; email: string; name: string }[],
   env: {
     COLLAB_IDENTITY_SECRET: "i".repeat(32),
     COLLAB_AUTHORITY_SECRET: "a".repeat(32),
@@ -113,13 +113,33 @@ describe("Room-authorized management reads", () => {
   });
   it("names members from their accounts, leaving a blank name as email only", async () => {
     fake.names = [
-      { id: "owner", name: " Ada Owner " },
-      { id: "former", name: "  " },
+      { id: "owner", email: "owner@example.com", name: " Ada Owner " },
+      { id: "former", email: "former@example.com", name: "  " },
     ];
     const { members } = await caller().get({ roomId: "room-panel" });
     expect(members.map(({ userId, name }) => ({ userId, name }))).toEqual([
       { userId: "owner", name: "Ada Owner" },
       { userId: "former", name: null },
+    ]);
+  });
+  it("names an opened invitation by its account email, whatever member page is loaded", async () => {
+    fake.gateway.mockResolvedValue({
+      ...state,
+      members: [],
+      allowlist: [
+        { email: "Amy@Example.com", role: "editor", lastJoinedAt: 1 },
+        { email: "bob@example.com", role: "viewer", lastJoinedAt: null },
+      ],
+    });
+    fake.names = [
+      { id: "amy", email: "amy@example.com", name: "Amy" },
+      { id: "bob", email: "bob@example.com", name: "Bob" },
+    ];
+    const { allowlist } = await caller().get({ roomId: "room-panel" });
+    // Bob has not opened the room, so his account name stays private.
+    expect(allowlist.map(({ email, name }) => ({ email, name }))).toEqual([
+      { email: "Amy@Example.com", name: "Amy" },
+      { email: "bob@example.com", name: null },
     ]);
   });
   it("never falls back to the display DB when Room refuses", async () => {

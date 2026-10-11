@@ -663,16 +663,7 @@ export function CollaborationRoomDialog({
     );
     return [
       ...owners.map((member): Person => ({ kind: "member", member })),
-      // An invitation someone has opened shows their account name, when that
-      // member is on the current page.
-      ...room.allowlist.map((invite): Person => ({
-        kind: "invite",
-        invite,
-        name:
-          room.members.find(
-            (member) => member.email === invite.email.toLowerCase(),
-          )?.name ?? null,
-      })),
+      ...room.allowlist.map((invite): Person => ({ kind: "invite", invite })),
       ...viaLink.map((member): Person => ({ kind: "member", member })),
     ];
   }, [room, isOwner]);
@@ -1039,9 +1030,9 @@ export function CollaborationRoomDialog({
                     person.kind === "invite" ? (
                       <PersonRow
                         key={`invite:${person.invite.email}`}
-                        label={person.name ?? person.invite.email}
+                        label={person.invite.name ?? person.invite.email}
                         status={[
-                          person.name && person.invite.email,
+                          person.invite.name && person.invite.email,
                           person.invite.lastJoinedAt
                             ? t("collaboration.person.joinedAt", {
                                 date: new Date(
@@ -1258,11 +1249,7 @@ export function CollaborationRoomDialog({
 type RoomManagement = RouterOutputs["collaborationRoom"]["get"];
 type Person =
   | { kind: "member"; member: RoomManagement["members"][number] }
-  | {
-      kind: "invite";
-      invite: RoomManagement["allowlist"][number];
-      name: string | null;
-    };
+  | { kind: "invite"; invite: RoomManagement["allowlist"][number] };
 
 /** One person on the invitation list or in the room; controls are the children. */
 function PersonRow(props: {
