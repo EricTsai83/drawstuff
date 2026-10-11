@@ -164,13 +164,6 @@ export const QUERIES = {
       .filter((id): id is string => id !== null);
   },
 
-  getFileRecordsBySharedSceneId: async function (sharedSceneId: string) {
-    return await db
-      .select()
-      .from(fileRecord)
-      .where(eq(fileRecord.sharedSceneId, sharedSceneId));
-  },
-
   // 延遲清理任務相關
   getDueDeferredCleanups: async function (limit = 50, now = new Date()) {
     return await db

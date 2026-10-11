@@ -93,6 +93,12 @@ const listSceneAssets = (sceneId: string) =>
     .from(schema.fileRecord)
     .where(eq(schema.fileRecord.sceneId, sceneId));
 
+const listSharedSceneAssets = (sharedSceneId: string) =>
+  testDb
+    .select()
+    .from(schema.fileRecord)
+    .where(eq(schema.fileRecord.sharedSceneId, sharedSceneId));
+
 registerTestDatabase({ pgClient, testDb });
 
 beforeEach(async () => {
@@ -195,7 +201,7 @@ describe("scene asset identity", () => {
     expect(await insert(FILE_A, "shared-key-2")).toEqual([]);
     expect(await insert(FILE_B, "shared-key-3")).toHaveLength(1);
 
-    const rows = await QUERIES.getFileRecordsBySharedSceneId(sharedSceneId);
+    const rows = await listSharedSceneAssets(sharedSceneId);
     expect(rows.map((row) => row.excalidrawFileId).sort()).toEqual([
       FILE_A,
       FILE_B,
@@ -253,8 +259,6 @@ describe("scene asset identity", () => {
     await testDb
       .delete(schema.sharedScene)
       .where(eq(schema.sharedScene.sharedSceneId, sharedSceneId));
-    expect(await QUERIES.getFileRecordsBySharedSceneId(sharedSceneId)).toEqual(
-      [],
-    );
+    expect(await listSharedSceneAssets(sharedSceneId)).toEqual([]);
   });
 });
