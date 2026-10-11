@@ -210,6 +210,7 @@ const renderDialog = (
         open
         onOpenChange={params.onOpenChange ?? (() => undefined)}
         isAuthenticated={params.isAuthenticated}
+        authIdentity={params.authIdentity}
         isAuthenticationPending={params.isAuthenticationPending ?? false}
         sceneId={params.sceneId === undefined ? "scene-1" : params.sceneId}
         getInitialElements={params.getInitialElements ?? (() => [])}
@@ -663,6 +664,72 @@ describe("share room dialog", () => {
       roomId: "room-a",
       linkRole: "editor",
     });
+  });
+
+  it("lets the owner rename the room beside its name with set-label", async () => {
+    roomGetUseQuery.mockReturnValue(managed({ label: "Plans" }));
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    expect(container!.textContent).toContain("Plans");
+    await act(async () => {
+      container!
+        .querySelector('[aria-label="Rename room"]')!
+        .dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    });
+    const input = container!.querySelector<HTMLInputElement>(
+      'input[aria-label="Room name"]',
+    )!;
+    expect(input.value).toBe("Plans");
+    await act(async () => {
+      Reflect.set(HTMLInputElement.prototype, "value", "  Roadmap ", input);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    await vi.waitFor(() => expect(executeMutate).toHaveBeenCalled());
+    expect(executeMutate.mock.calls[0]?.[0]).toMatchObject({
+      action: "set-label",
+      roomId: "room-a",
+      label: "Roadmap",
+    });
+  });
+
+  it("offers no rename to anyone but the owner", () => {
+    roomGetUseQuery.mockReturnValue(managed({ role: "editor" }));
+    renderDialog({ isAuthenticated: true, roomId: "room-a" });
+    expect(container!.querySelector('[aria-label="Rename room"]')).toBeNull();
+  });
+
+  it("names people by account name with their email, and marks you", () => {
+    const base = managed();
+    roomGetUseQuery.mockReturnValue(
+      managed({
+        members: base.members.map((member) => ({
+          ...member,
+          name:
+            { "u-owner": "Olivia", "u-lin": "Lin", "u-amy": "Amy" }[
+              member.userId
+            ] ?? null,
+        })),
+      }),
+    );
+    renderDialog({
+      isAuthenticated: true,
+      roomId: "room-a",
+      authIdentity: "u-owner",
+    });
+    const rows = people().map((row) => row.textContent ?? "");
+    expect(rows[0]).toContain("Olivia (you)");
+    expect(rows[0]).toContain("owner@example.com");
+    // Amy opened her invitation: her name leads, the invitation stays.
+    expect(rows[1]).toContain("Amy");
+    expect(rows[1]).toContain("Amy@example.com · Joined");
+    expect(rows[3]).toContain("Lin");
+    expect(rows[3]).toContain("lin@example.com · Joined with the link");
   });
 
   it("lists the owner, the invitation list, then people who joined with the link", () => {

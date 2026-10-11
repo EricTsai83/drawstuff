@@ -1,7 +1,15 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import { Copy, Ellipsis, ListX, LogOut, Trash2, Users } from "lucide-react";
+import {
+  Copy,
+  Ellipsis,
+  ListX,
+  LogOut,
+  Pencil,
+  Trash2,
+  Users,
+} from "lucide-react";
 import { toast } from "sonner";
 import { api, type RouterOutputs } from "@/trpc/react";
 import { Spinner } from "@/components/ui/spinner";
@@ -66,12 +74,18 @@ type RoomListSection = "mine" | "link";
 type ListedRoom = RouterOutputs["collaborationRoom"]["list"]["rooms"][number];
 type ListCursor = { listedAt: number; roomId: string };
 type RoomExit = "cancel-initialization" | "end-room" | "leave";
+type RoomAction = { action: RoomExit } | { action: "set-label"; label: string };
 
-const EXIT_DONE_KEY: Record<RoomExit, AppTranslationKey> = {
+const DONE_KEY: Record<RoomAction["action"], AppTranslationKey> = {
   "cancel-initialization": "collaboration.rooms.creationCancelled",
   "end-room": "collaboration.rooms.ended",
   leave: "collaboration.rooms.left",
+  "set-label": "collaboration.rooms.renamed",
 };
+
+/** What a room is called wherever it is named: an unnamed one by its short id. */
+const roomName = (room: { label: string; roomId: string }) =>
+  room.label || room.roomId.slice(0, 8);
 
 /**
  * Other people change this list (an invitation, a removal, an ended room), and
@@ -215,43 +229,80 @@ export function CollaborationRoomList() {
     }
   };
 
-  // One retained intent per room and action, so a retry queries the original
-  // operation instead of sending a second one.
-  const exits = useRef(
-    new Map<string, ReturnType<typeof createAuthorityOperation>>(),
+  // One retained intent per room and request, so a retry queries the
+  // original operation instead of sending a second one. A room has at most one
+  // rename: an unconfirmed one must settle before another name is sent, or a
+  // later rename back to it would only re-read its old receipt.
+  const intents = useRef(
+    new Map<
+      string,
+      {
+        request: RoomAction;
+        run: ReturnType<typeof createAuthorityOperation>;
+      }
+    >(),
   );
+  const intentKey = (roomId: string, request: RoomAction) =>
+    JSON.stringify([
+      roomId,
+      request.action === "set-label" ? request.action : request,
+    ]);
+  /** The name of a rename whose outcome is unknown, so reopening retries it. */
+  const retainedLabel = (roomId: string) => {
+    const retained = intents.current.get(
+      intentKey(roomId, { action: "set-label", label: "" }),
+    )?.request;
+    return retained?.action === "set-label" ? retained.label : undefined;
+  };
   const [confirmExit, setConfirmExit] = useState<{
     roomId: string;
+    name: string;
     action: "end-room" | "leave";
   } | null>(null);
-  const exitRoom = async (
+  /** The room being renamed and the name typed so far; null while closed. */
+  const [rename, setRename] = useState<{
+    roomId: string;
+    label: string;
+  } | null>(null);
+  const runRoomAction = async (
     roomId: string,
-    action: RoomExit,
-    doneKey: AppTranslationKey = EXIT_DONE_KEY[action],
+    request: RoomAction,
+    doneKey: AppTranslationKey = DONE_KEY[request.action],
   ) => {
     if (busyRoomId) return;
-    const key = `${action}:${roomId}`;
-    let run = exits.current.get(key);
-    if (!run) {
-      run = createAuthorityOperation(
+    const { action } = request;
+    const key = intentKey(roomId, request);
+    const retained = intents.current.get(key);
+    if (
+      retained &&
+      JSON.stringify(retained.request) !== JSON.stringify(request)
+    ) {
+      toast.warning(t("collaboration.toast.retryPrevious"));
+      return;
+    }
+    const run =
+      retained?.run ??
+      createAuthorityOperation(
         {
           execute: (input) =>
             utils.client.collaborationAuthority.execute.mutate(input),
         },
-        { ...authorityEnvelope(roomIdSchema.parse(roomId)), action },
+        { ...authorityEnvelope(roomIdSchema.parse(roomId)), ...request },
       );
-      exits.current.set(key, run);
-    }
+    intents.current.set(key, { request, run });
     setBusyRoomId(roomId);
     try {
       const { projectionPending } = await settleAuthorityOperation(
         run,
         INITIALIZATION_SETTLE_MS,
       );
-      exits.current.delete(key);
+      intents.current.delete(key);
       // The room this session was creating is gone; drop its retry so the
       // header offers a fresh creation again.
-      if (action !== "leave" && initializer.current?.roomId === roomId) {
+      if (
+        (action === "end-room" || action === "cancel-initialization") &&
+        initializer.current?.roomId === roomId
+      ) {
         initializer.current.dispose();
         initializer.current = null;
         if (mounted.current) setRecoverable(false);
@@ -264,7 +315,7 @@ export function CollaborationRoomList() {
       const expired =
         error instanceof AuthorityRoomError &&
         error.code === "expired-operation";
-      if (expired) exits.current.delete(key);
+      if (expired) intents.current.delete(key);
       if (!mounted.current) return;
       if (error instanceof AuthorityRoomError && error.code === "pending")
         toast.info(t("collaboration.toast.stillConfirming"));
@@ -283,10 +334,24 @@ export function CollaborationRoomList() {
     const busy = busyRoomId === room.roomId;
     // One management intent runs at a time, and never beside a creation.
     const managementLocked = busyRoomId !== null || pending;
-    // Most rooms stand alone; only a scene-linked one says so.
-    const kind = room.sceneId ? t("collaboration.rooms.sceneLinked") : null;
+    // Most rooms stand alone; only a scene-linked one says so, by name for
+    // its owner (the scene is theirs).
+    const kind = room.sceneName
+      ? t("collaboration.rooms.fromScene", { name: room.sceneName })
+      : room.sceneId
+        ? t("collaboration.rooms.sceneLinked")
+        : null;
+    const owner =
+      !isOwner && room.ownerName
+        ? t("collaboration.rooms.ownedBy", { name: room.ownerName })
+        : null;
     const invited =
       room.access === "invited" ? t("collaboration.rooms.invited") : null;
+    const opened = room.openedAt
+      ? t("collaboration.rooms.openedAt", {
+          date: new Date(room.openedAt).toLocaleDateString(),
+        })
+      : t("collaboration.rooms.notOpened");
     return (
       <li
         key={room.roomId}
@@ -308,10 +373,10 @@ export function CollaborationRoomList() {
             className={cn("truncate text-sm", !room.label && "font-mono")}
             title={room.label || room.roomId}
           >
-            {room.label || room.roomId.slice(0, 8)}
+            {roomName(room)}
           </span>
           <span className="text-muted-foreground truncate text-xs">
-            {[kind, invited, role && t(ROLE_LABEL_KEY[role])]
+            {[owner, kind, invited, role && t(ROLE_LABEL_KEY[role]), opened]
               .filter(Boolean)
               .join(" · ")}
           </span>
@@ -330,7 +395,9 @@ export function CollaborationRoomList() {
               // Refused by Room once the room is ready, so a creation that
               // finished meanwhile is never ended from here.
               onClick={() =>
-                void exitRoom(room.roomId, "cancel-initialization")
+                void runRoomAction(room.roomId, {
+                  action: "cancel-initialization",
+                })
               }
             >
               {t("collaboration.action.cancelInitialization")}
@@ -377,6 +444,20 @@ export function CollaborationRoomList() {
                   <Copy aria-hidden="true" />
                   {t("collaboration.rooms.copyLink")}
                 </DropdownMenuItem>
+                {isOwner && (
+                  <DropdownMenuItem
+                    disabled={managementLocked}
+                    onClick={() =>
+                      setRename({
+                        roomId: room.roomId,
+                        label: retainedLabel(room.roomId) ?? room.label,
+                      })
+                    }
+                  >
+                    <Pencil aria-hidden="true" />
+                    {t("collaboration.room.rename")}
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {viaLink ? (
                   // Only forgets this room in the list; the link still opens
@@ -384,9 +465,9 @@ export function CollaborationRoomList() {
                   <DropdownMenuItem
                     disabled={managementLocked}
                     onClick={() =>
-                      void exitRoom(
+                      void runRoomAction(
                         room.roomId,
-                        "leave",
+                        { action: "leave" },
                         "collaboration.rooms.removed",
                       )
                     }
@@ -401,6 +482,7 @@ export function CollaborationRoomList() {
                     onClick={() =>
                       setConfirmExit({
                         roomId: room.roomId,
+                        name: roomName(room),
                         action: isOwner ? "end-room" : "leave",
                       })
                     }
@@ -608,6 +690,65 @@ export function CollaborationRoomList() {
           </form>
         </DialogContent>
       </Dialog>
+      <Dialog
+        open={rename !== null}
+        onOpenChange={(open) => {
+          if (!open) setRename(null);
+        }}
+      >
+        <DialogContent className="sm:max-w-sm">
+          <form
+            className="flex flex-col gap-4"
+            onSubmit={(event) => {
+              event.preventDefault();
+              if (!rename) return;
+              setRename(null);
+              void runRoomAction(rename.roomId, {
+                action: "set-label",
+                label: rename.label.trim() || t("collaboration.room.untitled"),
+              });
+            }}
+          >
+            <DialogHeader>
+              <DialogTitle>{t("collaboration.room.rename")}</DialogTitle>
+              <DialogDescription>
+                {t("collaboration.room.nameHint")}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="flex flex-col gap-1.5">
+              <Label htmlFor="rename-room-name">
+                {t("collaboration.room.name")}
+              </Label>
+              <Input
+                id="rename-room-name"
+                type="text"
+                autoFocus
+                value={rename?.label ?? ""}
+                maxLength={ROOM_LABEL_MAX_LENGTH}
+                placeholder={t("collaboration.room.untitled")}
+                onChange={(event) =>
+                  setRename(
+                    (current) =>
+                      current && { ...current, label: event.target.value },
+                  )
+                }
+              />
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setRename(null)}
+              >
+                {t("buttons.cancel")}
+              </Button>
+              <Button type="submit" disabled={busyRoomId !== null}>
+                {t("buttons.save")}
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
       <AlertDialog
         open={confirmExit !== null}
         onOpenChange={(open) => {
@@ -621,6 +762,7 @@ export function CollaborationRoomList() {
                 confirmExit?.action === "leave"
                   ? "collaboration.rooms.leaveTitle"
                   : "collaboration.rooms.endTitle",
+                { name: confirmExit?.name ?? "" },
               )}
             </AlertDialogTitle>
             <AlertDialogDescription>
@@ -638,7 +780,9 @@ export function CollaborationRoomList() {
               variant="danger"
               onClick={() => {
                 if (confirmExit)
-                  void exitRoom(confirmExit.roomId, confirmExit.action);
+                  void runRoomAction(confirmExit.roomId, {
+                    action: confirmExit.action,
+                  });
                 setConfirmExit(null);
               }}
             >

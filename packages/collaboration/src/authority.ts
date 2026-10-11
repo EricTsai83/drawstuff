@@ -118,6 +118,12 @@ export const roomCommandSchema = z.discriminatedUnion("action", [
     action: z.literal("set-link-role"),
     linkRole: linkRoleSchema,
   }),
+  /** Owner only. Renames the room for everyone's list and label. */
+  z.strictObject({
+    ...envelope,
+    action: z.literal("set-label"),
+    label: z.string().max(120),
+  }),
   z.strictObject({
     ...envelope,
     action: z.literal("allow-email"),
@@ -149,6 +155,7 @@ const [
   createCommand,
   joinCommand,
   setLinkRoleCommand,
+  setLabelCommand,
   allowEmailCommand,
   removeEmailCommand,
   completeInitializationCommand,
@@ -161,6 +168,7 @@ export const authorityRequestSchema = z.discriminatedUnion("action", [
   createCommand.omit({ actor: true }),
   joinCommand.omit({ actor: true, registrationVersion: true }),
   setLinkRoleCommand.omit({ actor: true }),
+  setLabelCommand.omit({ actor: true }),
   allowEmailCommand.omit({ actor: true }),
   removeEmailCommand.omit({ actor: true }),
   completeInitializationCommand.omit({ actor: true }),
@@ -432,6 +440,8 @@ export const projectionEventSchema = z
     subject: subjectSchema,
     role: roomRoleSchema.nullable(),
     access: roomAccessSchema.nullable(),
+    /** When this account last opened the room; absent from events queued before it existed. */
+    openedAt: z.int().nonnegative().nullable().optional(),
   })
   .refine(
     (event) =>

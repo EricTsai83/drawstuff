@@ -20,6 +20,7 @@ import {
   collaborationRoom,
   collaborationRoomInvite,
   collaborationRoomMember,
+  scene,
   user,
 } from "@/server/db/schema";
 import {
@@ -171,6 +172,10 @@ export async function applyRoomProjection(
       access: negativeEvent ? null : event.access,
       revokedAt: negativeEvent ? now : null,
       projectionVersion: event.version,
+      // An event from before Room sent it leaves the stored time alone.
+      ...(event.openedAt !== undefined && {
+        lastOpenedAt: event.openedAt === null ? null : new Date(event.openedAt),
+      }),
     };
     await tx
       .insert(collaborationRoomMember)
@@ -252,10 +257,15 @@ type ListedRoom = {
   roomId: string;
   label: string;
   sceneId: string | null;
+  /** The source scene's name, only for its owner: it is their personal scene. */
+  sceneName: string | null;
+  ownerName: string | null;
   status: string;
   role: RoomRole;
   access: RoomAccess;
   listedAt: number;
+  /** When this account last opened the room; `null` if never. */
+  openedAt: number | null;
 };
 
 const newestFirst = (a: ListedRoom, b: ListedRoom) =>
@@ -313,21 +323,29 @@ export async function listProjectedRooms(
     ? sql`not exists (select 1 from ${collaborationRoomInvite} where ${collaborationRoomInvite.roomId} = ${collaborationRoomMember.roomId} and ${collaborationRoomInvite.emailKey} = ${emailKey} and ${collaborationRoomInvite.projectionVersion} > ${collaborationRoomMember.projectionVersion})`
     : undefined;
   const inviteIsCurrent = sql`not exists (select 1 from ${collaborationRoomMember} where ${collaborationRoomMember.roomId} = ${collaborationRoomInvite.roomId} and ${collaborationRoomMember.userId} = ${account.subject} and ${collaborationRoomMember.projectionVersion} >= ${collaborationRoomInvite.projectionVersion})`;
+  const roomContext = {
+    roomId: collaborationRoom.roomId,
+    label: collaborationRoom.label,
+    sceneId: collaborationRoom.sceneId,
+    sceneName: scene.name,
+    ownerName: user.name,
+    status: collaborationRoom.status,
+  };
   const members = await db
     .select({
-      roomId: collaborationRoom.roomId,
-      label: collaborationRoom.label,
-      sceneId: collaborationRoom.sceneId,
-      status: collaborationRoom.status,
+      ...roomContext,
       role: collaborationRoomMember.role,
       access: collaborationRoomMember.access,
       listedAt: collaborationRoomMember.listedAt,
+      openedAt: collaborationRoomMember.lastOpenedAt,
     })
     .from(collaborationRoomMember)
     .innerJoin(
       collaborationRoom,
       eq(collaborationRoom.roomId, collaborationRoomMember.roomId),
     )
+    .leftJoin(user, eq(user.id, collaborationRoom.ownerId))
+    .leftJoin(scene, eq(scene.id, collaborationRoom.sceneId))
     .leftJoin(
       collaborationProjectionTombstone,
       and(
@@ -370,10 +388,7 @@ export async function listProjectedRooms(
     section === "mine" && emailKey
       ? await db
           .select({
-            roomId: collaborationRoom.roomId,
-            label: collaborationRoom.label,
-            sceneId: collaborationRoom.sceneId,
-            status: collaborationRoom.status,
+            ...roomContext,
             role: collaborationRoomInvite.role,
             listedAt: collaborationRoomInvite.listedAt,
           })
@@ -382,6 +397,8 @@ export async function listProjectedRooms(
             collaborationRoom,
             eq(collaborationRoom.roomId, collaborationRoomInvite.roomId),
           )
+          .leftJoin(user, eq(user.id, collaborationRoom.ownerId))
+          .leftJoin(scene, eq(scene.id, collaborationRoom.sceneId))
           .where(
             and(
               eq(collaborationRoomInvite.emailKey, emailKey),
@@ -402,17 +419,21 @@ export async function listProjectedRooms(
     if (row.role && row.access)
       listed.set(row.roomId, {
         ...row,
+        sceneName: row.role === "owner" ? row.sceneName : null,
         role: row.role as RoomRole,
         access: row.access as RoomAccess,
         listedAt: row.listedAt.getTime(),
+        openedAt: row.openedAt?.getTime() ?? null,
       });
   for (const row of invites)
     if (row.role && !listed.has(row.roomId))
       listed.set(row.roomId, {
         ...row,
+        sceneName: null,
         role: row.role as RoomRole,
         access: "invited",
         listedAt: row.listedAt.getTime(),
+        openedAt: null,
       });
   const rows = [...listed.values()].sort(newestFirst);
   const page = rows.slice(0, limit);

@@ -47,6 +47,7 @@
     }
   },
   "devDependencies": {
+    "@types/node": "catalog:",
     "eslint": "catalog:",
     "eslint-plugin-drizzle": "catalog:",
     "jiti": "^2.7.0",

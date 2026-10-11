@@ -38,7 +38,7 @@ asset records, storage fences and list projections; projections never authorize.
   and `last_joined_at`; they never store a role.
 - The role is computed on every check: ended or denied → none; initializing → owner only; owner →
   `owner`; invited email → the higher of the invitation role and general access; otherwise general
-  access. Commands are `create`, `join`, `set-link-role`, `allow-email`, `remove-email`,
+  access. Commands are `create`, `join`, `set-link-role`, `set-label`, `allow-email`, `remove-email`,
   `complete-initialization`, `cancel-initialization`, `end-room` and `leave`; the full contract is
   in the [authority contract](./collaboration-authority.md). Only changes that can shrink access
   advance the storage epoch (fence): narrowing general access, downgrading an editor invitation,

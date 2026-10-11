@@ -354,6 +354,15 @@ export class RoomAuthority {
                 needsFence =
                   LINK_RANK[command.linkRole] < LINK_RANK[room.link_role];
                 break;
+              case "set-label":
+                if (command.label === room.label) break;
+                // The room's display row in Neon follows the newest projection
+                // of any account, so the owner's row carries the new name.
+                this.storage.sql.exec(
+                  "UPDATE authority_room SET label=?",
+                  command.label,
+                );
+                break;
               case "allow-email": {
                 const key = normalizeAccountEmail(command.email);
                 const count = this.storage.sql
@@ -586,6 +595,7 @@ export class RoomAuthority {
       label: room.label,
       sceneId: room.scene_id,
       listedAt: room.listed_at,
+      openedAt: member?.last_joined_at ?? null,
     };
   }
 

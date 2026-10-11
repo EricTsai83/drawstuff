@@ -7,6 +7,7 @@ const fake = vi.hoisted(() => ({
   identity: vi.fn(),
   gateway: vi.fn(),
   list: vi.fn(),
+  names: [] as { id: string; name: string }[],
   env: {
     COLLAB_IDENTITY_SECRET: "i".repeat(32),
     COLLAB_AUTHORITY_SECRET: "a".repeat(32),
@@ -25,12 +26,18 @@ vi.mock("@/server/collab/authority-projection", () => ({
 }));
 import { collaborationRoomRouter } from "@/server/api/routers/collaboration-room";
 import type { createTRPCContext } from "@/server/api/trpc";
+/** Answers only the member-name lookup; every other read goes through Room. */
+const db = {
+  select: () => ({
+    from: () => ({ where: () => Promise.resolve(fake.names) }),
+  }),
+};
 function caller(
   subject: string | null = "owner",
   user: { email?: string; emailVerified?: boolean } = {},
 ) {
   return collaborationRoomRouter.createCaller({
-    db: {},
+    db,
     headers: new Headers(),
     auth: subject
       ? { user: { id: subject, ...user }, session: { id: "session" } }
@@ -69,6 +76,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   fake.identity.mockResolvedValue({ proof: "fresh-session-proof" });
   fake.gateway.mockResolvedValue(state);
+  fake.names = [];
 });
 describe("Room-authorized management reads", () => {
   it("refuses anonymous users and has no DB permission writers or legacy token issuer", async () => {
@@ -81,9 +89,12 @@ describe("Room-authorized management reads", () => {
     expect(fake.identity).not.toHaveBeenCalled();
   });
   it("uses a fresh session identity and the Room even while initializing", async () => {
-    expect(await caller().get({ roomId: "room-panel" })).toEqual(state);
+    expect(await caller().get({ roomId: "room-panel" })).toEqual({
+      ...state,
+      members: state.members.map((member) => ({ ...member, name: null })),
+    });
     expect(fake.identity).toHaveBeenCalledWith(
-      {},
+      db,
       { subject: "owner", sessionId: "session", roomId: "room-panel" },
       fake.env.COLLAB_IDENTITY_SECRET,
     );
@@ -100,6 +111,17 @@ describe("Room-authorized management reads", () => {
     fake.gateway.mockResolvedValue({ ...state, role: "admin" });
     await expect(caller().get({ roomId: "room-panel" })).rejects.toThrow();
   });
+  it("names members from their accounts, leaving a blank name as email only", async () => {
+    fake.names = [
+      { id: "owner", name: " Ada Owner " },
+      { id: "former", name: "  " },
+    ];
+    const { members } = await caller().get({ roomId: "room-panel" });
+    expect(members.map(({ userId, name }) => ({ userId, name }))).toEqual([
+      { userId: "owner", name: "Ada Owner" },
+      { userId: "former", name: null },
+    ]);
+  });
   it("never falls back to the display DB when Room refuses", async () => {
     fake.gateway.mockRejectedValue(new Error("forbidden"));
     await expect(caller().get({ roomId: "room-panel" })).rejects.toThrow(
@@ -115,7 +137,7 @@ describe("room list", () => {
       emailVerified: true,
     }).list({ section: "mine" });
     expect(fake.list).toHaveBeenLastCalledWith(
-      {},
+      db,
       { subject: "owner", email: "owner@example.com" },
       { section: "mine", limit: 30 },
     );
@@ -124,7 +146,7 @@ describe("room list", () => {
       emailVerified: false,
     }).list({ section: "link" });
     expect(fake.list).toHaveBeenLastCalledWith(
-      {},
+      db,
       { subject: "owner", email: null },
       { section: "link", limit: 30 },
     );

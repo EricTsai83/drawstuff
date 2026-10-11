@@ -19,7 +19,12 @@ const { listQuery, push, refetch, execute, invalidate, toast } = vi.hoisted(
       }),
     ),
     invalidate: vi.fn(() => Promise.resolve()),
-    toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
+    toast: {
+      info: vi.fn(),
+      success: vi.fn(),
+      error: vi.fn(),
+      warning: vi.fn(),
+    },
   }),
 );
 
@@ -352,6 +357,116 @@ describe("collaboration room list", () => {
     expect(toast.success).toHaveBeenCalledWith("Room creation cancelled.");
   });
 
+  it("says whose room it is, where it came from, and when it was last opened", async () => {
+    render({
+      isSuccess: true,
+      data: {
+        rooms: [
+          room({
+            label: "Plans",
+            sceneId: "s-1",
+            sceneName: "Roadmap",
+            openedAt: null,
+          }),
+          room({
+            roomId: "a1b2c3d4-0000-4000-8000-000000000000",
+            label: "Theirs",
+            role: "editor",
+            access: "invited",
+            ownerName: "Ada",
+            sceneId: "s-2",
+            sceneName: null,
+            openedAt: Date.UTC(2026, 0, 2),
+          }),
+        ],
+        nextCursor: null,
+      },
+    });
+    const [mine, theirs] = Array.from(container.querySelectorAll("li"));
+    expect(mine!.textContent).toContain("From “Roadmap”");
+    expect(mine!.textContent).toContain("Not opened yet");
+    expect(mine!.textContent).not.toContain("Owner:");
+    expect(theirs!.textContent).toContain("Owner: Ada");
+    expect(theirs!.textContent).toContain("From a scene");
+    expect(theirs!.textContent).toContain(
+      `Opened ${new Date(Date.UTC(2026, 0, 2)).toLocaleDateString()}`,
+    );
+    const item = await openMenu(mine!);
+    await act(async () => item("End room")?.click());
+    expect(document.body.textContent).toContain("End “Plans”?");
+  });
+
+  const renameTo = async (name: string) => {
+    const item = await openMenu(container.querySelector("li")!);
+    await act(async () => item("Rename room")?.click());
+    const input =
+      document.querySelector<HTMLInputElement>("#rename-room-name")!;
+    const opened = input.value;
+    await act(async () => {
+      Reflect.set(HTMLInputElement.prototype, "value", name, input);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    await act(async () => {
+      input
+        .closest("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        );
+    });
+    return opened;
+  };
+
+  it("lets the owner rename a room from its menu with set-label", async () => {
+    render({
+      isSuccess: true,
+      data: { rooms: [room({ label: "Plans" })], nextCursor: null },
+    });
+    expect(await renameTo(" Roadmap ")).toBe("Plans");
+    await vi.waitFor(() => expect(invalidate).toHaveBeenCalled());
+    expect(execute.mock.calls[0]?.[0]).toMatchObject({
+      action: "set-label",
+      label: "Roadmap",
+    });
+    expect(toast.success).toHaveBeenCalledWith("Room renamed.");
+  });
+
+  it("offers no rename to anyone but the owner", async () => {
+    render({
+      isSuccess: true,
+      data: {
+        rooms: [room({ role: "editor", access: "invited" })],
+        nextCursor: null,
+      },
+    });
+    const item = await openMenu(container.querySelector("li")!);
+    expect(item("Rename room")).toBeUndefined();
+  });
+
+  it("settles an unconfirmed rename before sending a different name", async () => {
+    render({
+      isSuccess: true,
+      data: { rooms: [room({ label: "Plans" })], nextCursor: null },
+    });
+    // The rename to A may have committed; its answer was lost.
+    execute.mockRejectedValueOnce(new Error("offline"));
+    await renameTo("A");
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalled());
+    const first = execute.mock.calls[0]?.[0];
+    // A different name waits: sending it could be overtaken by A's receipt.
+    await renameTo("B");
+    expect(toast.warning).toHaveBeenCalledWith(
+      "Your last change isn't confirmed yet. Retry it first.",
+    );
+    expect(execute).toHaveBeenCalledOnce();
+    // Reopening offers A again, and saving re-checks A's own operation.
+    expect(await renameTo("A")).toBe("A");
+    await vi.waitFor(() => expect(toast.success).toHaveBeenCalled());
+    expect(execute.mock.calls[1]?.[0]).toMatchObject({
+      action: "query",
+      operationId: first?.operationId,
+    });
+  });
+
   it("ends an owned room only after confirming", async () => {
     render({ isSuccess: true, data: { rooms: [room({})], nextCursor: null } });
     const item = await openMenu(container.querySelector("li")!);
@@ -359,7 +474,7 @@ describe("collaboration room list", () => {
     expect(item("Reset link")).toBeUndefined();
     await act(async () => item("End room")?.click());
     expect(execute).not.toHaveBeenCalled();
-    expect(document.body.textContent).toContain("End this room?");
+    expect(document.body.textContent).toContain("End “");
     await act(async () => {
       buttonIn(document.body, "End room")?.click();
     });
@@ -382,7 +497,7 @@ describe("collaboration room list", () => {
     expect(item("End room")).toBeUndefined();
     expect(item("Remove from list")).toBeUndefined();
     await act(async () => item("Leave room")?.click());
-    expect(document.body.textContent).toContain("Leave this room?");
+    expect(document.body.textContent).toContain("Leave “");
     await act(async () => {
       buttonIn(
         document.querySelector('[role="alertdialog"]')!,

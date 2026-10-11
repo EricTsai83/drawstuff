@@ -98,7 +98,17 @@ export class DurableWork {
     if (existing) {
       if (version < existing.version) return true;
       if (version === existing.version) {
-        if (existing.body !== body) throw new Error("job-mismatch");
+        if (existing.body === body) return true;
+        // A list projection at the same revision describes the same Room
+        // state; a different body only comes from a newer build adding a field
+        // (e.g. `openedAt`), so the newer shape replaces the queued one.
+        if (job.kind !== "projection" && job.kind !== "invite-projection")
+          throw new Error("job-mismatch");
+        this.storage.sql.exec(
+          "UPDATE authority_work SET body=? WHERE id=?",
+          body,
+          id,
+        );
         return true;
       }
       // Only monotonic projections and fences may merge; content/cleanup identities never disappear.
