@@ -67,7 +67,12 @@ globalThis.fetch = async (input, init) => {
     return json({ applied: true });
   if (command.action === "lifecycle-freeze") {
     freezes.set(command.command.target.subject, 2);
-    return json({ version: 2 });
+    // Like the web adapter: accounts always carry their email field.
+    return json(
+      command.command.target.kind === "account"
+        ? { version: 2, email: null }
+        : { version: 2 },
+    );
   }
   if (command.action === "lifecycle-list")
     return json({

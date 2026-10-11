@@ -24,6 +24,8 @@ beforeEach(async () => {
   await db.delete(schema.collaborationLifecycleSubject);
   await db.delete(schema.collaborationLifecycleRegistration);
   await db.delete(schema.deferredFileCleanup);
+  await db.delete(schema.collaborationRoomInvite);
+  await db.delete(schema.collaborationRoom);
   await db.delete(schema.user);
   await db.insert(schema.user).values([
     {
@@ -156,6 +158,89 @@ describe("Lifecycle storage barriers", () => {
     if (!("rooms" in last)) throw new Error("not-page");
     expect(last.rooms).toHaveLength(2);
     expect(last.cursor).toBeNull();
+  });
+  it("includes rooms that only invited the account, so their invitations are withdrawn", async () => {
+    const target = { kind: "account" as const, subject: "guest" };
+    const command = await retirementIntent(database, target, "admin");
+    await db.insert(schema.collaborationLifecycleRegistration).values(
+      ["room-00", "room-01", "room-02"].map((roomId) => ({
+        subject: "guest",
+        roomId,
+        owner: false,
+        lifecycleVersion: 1,
+        operationId: crypto.randomUUID(),
+        sceneId: null,
+      })),
+    );
+    // Rooms owned by someone else that invited the guest by email; one of
+    // them is also registered, one invitation was already removed, and one
+    // room invited a different address.
+    const invitedRooms = [
+      ...Array.from(
+        { length: 20 },
+        (_, i) => `inv-${String(i).padStart(2, "0")}`,
+      ),
+      "room-01",
+      "inv-revoked",
+      "inv-other",
+    ];
+    await db.insert(schema.collaborationRoom).values(
+      invitedRooms.map((roomId) => ({
+        roomId,
+        ownerId: "owner",
+        status: "ready",
+      })),
+    );
+    await db.insert(schema.collaborationRoomInvite).values(
+      invitedRooms.map((roomId) => ({
+        roomId,
+        emailKey:
+          roomId === "inv-other" ? "other@example.com" : "guest@example.com",
+        role: roomId === "inv-revoked" ? null : "viewer",
+        revokedAt: roomId === "inv-revoked" ? new Date() : null,
+        projectionVersion: 1,
+        listedAt: new Date(),
+      })),
+    );
+
+    await expect(
+      applyLifecycleAdapter(database, {
+        v: 1,
+        action: "lifecycle-freeze",
+        command,
+      }),
+    ).resolves.toEqual({ version: 2, email: "guest@example.com" });
+
+    const pages: { roomId: string; action: string }[][] = [];
+    let cursor: string | null = null;
+    do {
+      const page = lifecyclePageSchema.parse(
+        await applyLifecycleAdapter(database, {
+          v: 1,
+          action: "lifecycle-list",
+          command,
+          version: 2,
+          cursor: cursor ? roomIdSchema.parse(cursor) : null,
+        }),
+      );
+      pages.push(page.rooms);
+      cursor = page.cursor;
+    } while (cursor);
+
+    expect(pages.map((page) => page.length)).toEqual([16, 7]);
+    const rooms = pages.flat();
+    expect(rooms.map((room) => room.roomId)).toEqual([
+      ...Array.from(
+        { length: 20 },
+        (_, i) => `inv-${String(i).padStart(2, "0")}`,
+      ),
+      "room-00",
+      "room-01",
+      "room-02",
+    ]);
+    expect(new Set(rooms.map((room) => room.action))).toEqual(
+      new Set(["revoke-member"]),
+    );
   });
   it("requires the same freeze version and atomically retains personal asset cleanup keys with a scene cascade", async () => {
     const source = await sceneFixture();

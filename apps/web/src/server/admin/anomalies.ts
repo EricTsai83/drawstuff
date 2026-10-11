@@ -18,7 +18,7 @@ import {
 
 const HOUR_MS = 60 * 60_000;
 
-/** Owner decisions (plan 22): how long each state may last before it needs an operator. */
+/** Owner decisions (2026-10-11): how long each state may last before it needs an operator. */
 const ANOMALY_THRESHOLDS = {
   retirementStuckMs: HOUR_MS,
   storageOpenAfterEndMs: HOUR_MS,

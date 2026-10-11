@@ -843,31 +843,55 @@ export class RoomAuthority {
     );
   }
 
-  async retireSubject(subject: string, version: number): Promise<void> {
+  /**
+   * Retires `subject` here at `version`. For an account, `email` also
+   * withdraws its invitation, so a later account with the same address
+   * inherits nothing; that part is idempotent and applies even on a repeat.
+   */
+  async retireSubject(
+    subject: string,
+    version: number,
+    email?: string,
+  ): Promise<void> {
     await this.work.commit(
       () => {
+        const emailKey =
+          email === undefined ? undefined : normalizeAccountEmail(email);
+        const invited =
+          emailKey !== undefined &&
+          this.storage.sql
+            .exec(
+              "SELECT 1 FROM authority_allowlist WHERE email_key=?",
+              emailKey,
+            )
+            .toArray().length > 0;
+        if (invited)
+          this.storage.sql.exec(
+            "DELETE FROM authority_allowlist WHERE email_key=?",
+            emailKey,
+          );
         const prior = this.storage.sql
           .exec<{ version: number }>(
             "SELECT version FROM authority_retired_subjects WHERE subject=?",
             subject,
           )
           .toArray()[0];
-        if (prior && prior.version >= version) {
-          // A repeat after the fence job was abandoned: without re-queueing
-          // it, enforcement would answer "pending" for good.
-          const room = this.state();
-          if (room && room.fenced_epoch < room.authority_epoch)
-            this.queueFence(room);
-          return;
-        }
-        this.storage.sql.exec(
-          "INSERT INTO authority_retired_subjects VALUES (?,?) ON CONFLICT(subject) DO UPDATE SET version=max(version,excluded.version)",
-          subject,
-          version,
-        );
+        const repeat = prior !== undefined && prior.version >= version;
+        if (!repeat)
+          this.storage.sql.exec(
+            "INSERT INTO authority_retired_subjects VALUES (?,?) ON CONFLICT(subject) DO UPDATE SET version=max(version,excluded.version)",
+            subject,
+            version,
+          );
         const room = this.state();
         if (!room) return; // Tombstone also protects a delayed create.
-        if (room.owner === subject)
+        if (repeat && !invited) {
+          // A repeat after the fence job was abandoned: without re-queueing
+          // it, enforcement would answer "pending" for good.
+          if (room.fenced_epoch < room.authority_epoch) this.queueFence(room);
+          return;
+        }
+        if (!repeat && room.owner === subject)
           this.storage.sql.exec(
             "UPDATE authority_room SET state='ended',projection_dirty=1,projection_cursor=NULL",
           );
@@ -875,9 +899,13 @@ export class RoomAuthority {
           "UPDATE authority_room SET auth_revision=auth_revision+1",
         );
         this.fence();
-        if (this.requireRoom().state === "ended")
-          this.cancelInitializationWork(this.requireRoom());
-        this.project(this.requireRoom(), subject);
+        const current = this.requireRoom();
+        if (current.state === "ended") this.cancelInitializationWork(current);
+        const subjects = new Set([subject]);
+        const emails = new Set<string>();
+        if (invited) this.addEmailRows(emailKey, subjects, emails);
+        for (const member of subjects) this.project(current, member);
+        for (const key of emails) this.projectInvite(current, key);
       },
       () => this.nextDeadline(),
     );

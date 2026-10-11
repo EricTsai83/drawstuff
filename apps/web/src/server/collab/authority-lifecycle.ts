@@ -1,8 +1,9 @@
 import "server-only";
-import { and, asc, eq, gt } from "drizzle-orm";
+import { and, asc, eq, isNull, sql, type AnyColumn } from "drizzle-orm";
 import {
   AUTHORITY_LIMITS,
   lifecycleObjectName,
+  normalizeAccountEmail,
   type AdapterCommand,
   type LifecycleTarget,
 } from "@drawstuff/collaboration/authority";
@@ -11,6 +12,7 @@ import {
   collaborationLifecycleRegistration as registrations,
   collaborationProjectionTombstone,
   collaborationRoom,
+  collaborationRoomInvite,
   scene,
   user,
   session,
@@ -68,6 +70,32 @@ async function lockTarget(tx: RoomTransaction, input: Command) {
     throw new AdapterError("operation-mismatch");
   return row;
 }
+/**
+ * Room-ID order and cursor comparison in the C collation, so pages from two
+ * sources merge exactly regardless of the database's default collation.
+ */
+const byRoom = (column: AnyColumn) => sql`${column} collate "C"`;
+const afterRoom = (column: AnyColumn, cursor: string) =>
+  sql`${column} collate "C" > ${cursor}`;
+
+/** The account's normalized email while its row exists; undefined after. */
+async function accountEmailKey(
+  tx: RoomTransaction,
+  userId: string,
+): Promise<string | undefined> {
+  const [row] = await tx
+    .select({ email: user.email })
+    .from(user)
+    .where(eq(user.id, userId));
+  if (!row) return undefined;
+  try {
+    return normalizeAccountEmail(row.email);
+  } catch {
+    // An address the collaboration contract cannot carry was never invited.
+    return undefined;
+  }
+}
+
 export async function applyLifecycleAdapter(db: Database, input: Command) {
   return db.transaction(async (tx) => {
     const row = await lockTarget(tx, input);
@@ -86,7 +114,18 @@ export async function applyLifecycleAdapter(db: Database, input: Command) {
           .where(eq(subjects.scope, row.scope));
       if (target.kind === "account")
         await tx.delete(session).where(eq(session.userId, target.subject));
-      return { version: row.frozen ? row.version : row.version + 1 };
+      const version = row.frozen ? row.version : row.version + 1;
+      // The account's email lets Lifecycle withdraw its invitations from
+      // rooms it never joined (no registration points there).
+      const email =
+        target.kind === "account"
+          ? await accountEmailKey(tx, target.subject)
+          : undefined;
+      // Accounts always carry the field: `null` says "no usable email",
+      // which Lifecycle tells apart from an older build that omits it.
+      return target.kind === "account"
+        ? { version, email: email ?? null }
+        : { version };
     }
     if (
       !row.frozen ||
@@ -95,7 +134,8 @@ export async function applyLifecycleAdapter(db: Database, input: Command) {
     )
       throw new AdapterError("fence-mismatch");
     if (input.action === "lifecycle-list") {
-      const rows = await tx
+      const batch = AUTHORITY_LIMITS.alarmBatch;
+      const registered = await tx
         .select()
         .from(registrations)
         .where(
@@ -106,19 +146,49 @@ export async function applyLifecycleAdapter(db: Database, input: Command) {
                   eq(registrations.sceneId, target.sceneId),
                   eq(registrations.owner, true),
                 ),
-            input.cursor ? gt(registrations.roomId, input.cursor) : undefined,
+            input.cursor
+              ? afterRoom(registrations.roomId, input.cursor)
+              : undefined,
           ),
         )
-        .orderBy(asc(registrations.roomId))
-        .limit(AUTHORITY_LIMITS.alarmBatch + 1);
-      const page = rows.slice(0, AUTHORITY_LIMITS.alarmBatch);
+        .orderBy(byRoom(registrations.roomId))
+        .limit(batch + 1);
+      // An account is also on the invitation lists of rooms it never opened.
+      const email =
+        target.kind === "account"
+          ? await accountEmailKey(tx, target.subject)
+          : undefined;
+      const invited =
+        email === undefined
+          ? []
+          : await tx
+              .select({ roomId: collaborationRoomInvite.roomId })
+              .from(collaborationRoomInvite)
+              .where(
+                and(
+                  eq(collaborationRoomInvite.emailKey, email),
+                  isNull(collaborationRoomInvite.revokedAt),
+                  input.cursor
+                    ? afterRoom(collaborationRoomInvite.roomId, input.cursor)
+                    : undefined,
+                ),
+              )
+              .orderBy(byRoom(collaborationRoomInvite.roomId))
+              .limit(batch + 1);
+      // Both sources hold `batch + 1` rows past the cursor, so the first
+      // `batch` of their sorted union is exactly this page.
+      const actions = new Map<string, "end-room" | "revoke-member">();
+      for (const room of invited) actions.set(room.roomId, "revoke-member");
+      for (const room of registered)
+        actions.set(room.roomId, room.owner ? "end-room" : "revoke-member");
+      // Binary order on both sides: the SQL pages above sort and compare with
+      // the C collation, which matches this code-point sort for room IDs.
+      const merged = [...actions.keys()].sort();
+      const page = merged.slice(0, batch);
       return {
         version: row.version,
-        rooms: page.map((room) => ({
-          roomId: room.roomId,
-          action: room.owner ? "end-room" : "revoke-member",
-        })),
-        cursor: rows.length > page.length ? page.at(-1)!.roomId : null,
+        rooms: page.map((roomId) => ({ roomId, action: actions.get(roomId)! })),
+        cursor: merged.length > page.length ? page.at(-1)! : null,
       };
     }
     if (!row.retired) {

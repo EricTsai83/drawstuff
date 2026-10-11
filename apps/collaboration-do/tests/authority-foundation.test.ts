@@ -1269,7 +1269,7 @@ describe("Lifecycle durable progress", () => {
       let lists = 0;
       let deletes = 0;
       const adapter: LifecycleAdapter = {
-        freeze: async () => 2,
+        freeze: async () => ({ version: 2, email: null }),
         list: () =>
           ++lists === 1
             ? new Promise((resolve) => {
@@ -1283,9 +1283,11 @@ describe("Lifecycle durable progress", () => {
       };
       await p.advance(command, adapter);
       const late = p.advance(command, adapter);
-      await p.advance(command, adapter);
-      await p.advance(command, adapter);
-      await p.advance(command, adapter);
+      // An account takes a second enumeration pass before deletion.
+      for (let step = 0; step < 10; step += 1) {
+        if (p.query(command.operationId)?.phase === "completed") break;
+        await p.advance(command, adapter);
+      }
       expect(p.query(command.operationId)?.phase).toBe("completed");
       release?.(page);
       await late;
@@ -1310,7 +1312,7 @@ describe("Lifecycle durable progress", () => {
       let enforced = false;
       let deleted = 0;
       const adapter: LifecycleAdapter = {
-        freeze: async () => 2,
+        freeze: async () => ({ version: 2, email: null }),
         list: async () => ({
           version: 2,
           rooms: [{ roomId: "room-retire", action: "end-room" }],
@@ -1329,8 +1331,12 @@ describe("Lifecycle durable progress", () => {
       expect(p.query(command.operationId)?.phase).toBe("enforcing");
       expect(deleted).toBe(0);
       enforced = true;
-      await p.advance(command, adapter);
-      await p.advance(command, adapter);
+      // Enforce, then the account's second enumeration pass, then deleting.
+      for (let step = 0; step < 10; step += 1) {
+        if (p.query(command.operationId)?.phase === "deleting") break;
+        await p.advance(command, adapter);
+        expect(deleted).toBe(0);
+      }
       expect(p.query(command.operationId)?.phase).toBe("deleting");
       expect(await p.advance(command, adapter)).toBe(true);
       expect(deleted).toBe(1);
@@ -1354,7 +1360,7 @@ describe("Lifecycle durable progress", () => {
       async (_instance, state) => {
         const p = new LifecycleProgress(state.storage, name);
         const adapter: LifecycleAdapter = {
-          freeze: async () => 2,
+          freeze: async () => ({ version: 2, email: null }),
           list: async () => ({ version: 2, rooms: [], cursor: null }),
           enforce: async () => "enforced",
           delete: () => Promise.resolve(),
@@ -1600,7 +1606,7 @@ describe("Lifecycle wake-time release", () => {
     await runInDurableObject(stub, async (_instance, state) => {
       const p = new LifecycleProgress(state.storage, name);
       const adapter: LifecycleAdapter = {
-        freeze: async () => 2,
+        freeze: async () => ({ version: 2, email: null }),
         list: async () => ({ version: 2, rooms: [], cursor: null }),
         enforce: async () => "enforced",
         delete: () => Promise.resolve(),
@@ -1799,6 +1805,206 @@ describe("bounded retries", () => {
         role: null,
         access: null,
       });
+    });
+  });
+});
+
+describe("retirement withdraws invitations", () => {
+  it("removes a retired account's invitation so a new account with the email inherits nothing", async () => {
+    const { roomId, stub } = fixture();
+    await runInDurableObject(stub, async (_instance, state) => {
+      const a = await readyAuthority(state, roomId, "none");
+      await send(a, {
+        action: "allow-email",
+        email: guest.email,
+        role: "editor",
+      });
+      const epoch = a.state()!.authority_epoch;
+
+      // The guest never opened the room: only its invitation is here.
+      await a.retireSubject(guest.subject, 2, guest.email.toUpperCase());
+
+      expect(
+        state.storage.sql.exec("SELECT * FROM authority_allowlist").toArray(),
+      ).toEqual([]);
+      expect(a.state()!.authority_epoch).toBeGreaterThan(epoch);
+      expect(queuedProjections(state).invites.get(guest.email)).toMatchObject({
+        role: null,
+      });
+      const newcomer: TrustedIdentity = {
+        subject: "new-account-same-email",
+        email: guest.email,
+        lifecycleVersion: 1,
+      };
+      expect(a.role(newcomer)).toBeUndefined();
+
+      // Idempotent, and a repeat still withdraws an invitation added since.
+      await a.retireSubject(guest.subject, 2, guest.email);
+      await send(a, {
+        action: "allow-email",
+        email: guest.email,
+        role: "viewer",
+      });
+      await a.retireSubject(guest.subject, 2, guest.email);
+      expect(
+        state.storage.sql.exec("SELECT * FROM authority_allowlist").toArray(),
+      ).toEqual([]);
+    });
+  });
+
+  it("carries the account email from freeze to every room it enforces", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const p = new LifecycleProgress(state.storage, name);
+      const enforced: (string | undefined)[] = [];
+      const adapter: LifecycleAdapter = {
+        freeze: async () => ({ version: 2, email: "Guest@Example.com" }),
+        list: async () => ({
+          version: 2,
+          rooms: [{ roomId: "room-invited", action: "revoke-member" }],
+          cursor: null,
+        }),
+        enforce: async (_command, _version, _room, email) => {
+          enforced.push(email);
+          return "enforced";
+        },
+        delete: async () => undefined,
+      };
+      while (!(await p.advance(command, adapter)));
+      // Once per pass: the second pass before deletion re-enforces it.
+      expect(enforced).toEqual(["guest@example.com", "guest@example.com"]);
+      expect(p.query(command.operationId)?.phase).toBe("completed");
+    });
+  });
+
+  it("recovers a missing email before deletion and withdraws invitations on the second pass", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const p = new LifecycleProgress(state.storage, name);
+      let freezes = 0;
+      const enforced: (string | undefined)[] = [];
+      const adapter: LifecycleAdapter = {
+        // First answer like an older web build; the refreeze carries it.
+        freeze: async () =>
+          ++freezes === 1 ? 2 : { version: 2, email: "late@example.com" },
+        list: async () => ({
+          version: 2,
+          rooms: [{ roomId: "room-invited", action: "revoke-member" }],
+          cursor: null,
+        }),
+        enforce: async (_command, _version, _room, email) => {
+          enforced.push(email);
+          return "enforced";
+        },
+        delete: async () => undefined,
+      };
+      while (!(await p.advance(command, adapter)));
+      expect(freezes).toBe(2);
+      expect(enforced).toEqual([undefined, "late@example.com"]);
+    });
+  });
+
+  it("waits for an email-capable web build instead of finishing without one", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const p = new LifecycleProgress(state.storage, name);
+      let upgraded = false;
+      let deletes = 0;
+      const adapter: LifecycleAdapter = {
+        // An older web build omits the field entirely.
+        freeze: async () =>
+          upgraded ? { version: 2, email: "late@example.com" } : 2,
+        list: async () => ({ version: 2, rooms: [], cursor: null }),
+        enforce: async () => "enforced",
+        delete: async () => {
+          deletes++;
+        },
+      };
+      await p.advance(command, adapter); // freeze
+      await p.advance(command, adapter); // enumerate
+      await expect(p.advance(command, adapter)).rejects.toThrow(
+        "adapter-email-pending",
+      );
+      expect(deletes).toBe(0);
+      upgraded = true;
+      while (!(await p.advance(command, adapter)));
+      expect(deletes).toBe(1);
+      expect(
+        state.storage.sql
+          .exec<{ email: string | null }>(
+            "SELECT email FROM lifecycle_progress",
+          )
+          .one().email,
+      ).toBe("late@example.com");
+    });
+  });
+
+  it("sends an account already at deleting through the pass first", async () => {
+    const subject = `user-${crypto.randomUUID()}`;
+    const name = `account:${subject}`;
+    const stub = env.COLLABORATION_LIFECYCLE.getByName(name);
+    const command: LifecycleCommand = {
+      v: 1,
+      operationId: crypto.randomUUID(),
+      actor: "admin",
+      target: { kind: "account", subject },
+    };
+    await stub.begin(command);
+    await runInDurableObject(stub, async (_instance, state) => {
+      const p = new LifecycleProgress(state.storage, name);
+      // As left by code that predates the pass: frozen, no email, deleting.
+      state.storage.sql.exec(
+        "UPDATE lifecycle_progress SET phase='deleting',version=2,email=NULL,rescanned=NULL",
+      );
+      const enforced: (string | undefined)[] = [];
+      let deletes = 0;
+      const adapter: LifecycleAdapter = {
+        freeze: async () => ({ version: 2, email: "kept@example.com" }),
+        list: async () => ({
+          version: 2,
+          rooms: [{ roomId: "room-invited", action: "revoke-member" }],
+          cursor: null,
+        }),
+        enforce: async (_command, _version, _room, email) => {
+          enforced.push(email);
+          return "enforced";
+        },
+        delete: async () => {
+          deletes++;
+        },
+      };
+      await p.advance(command, adapter);
+      expect(deletes).toBe(0);
+      while (!(await p.advance(command, adapter)));
+      expect(enforced).toEqual(["kept@example.com"]);
+      expect(deletes).toBe(1);
     });
   });
 });

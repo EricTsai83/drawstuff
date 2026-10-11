@@ -264,6 +264,8 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     command: LifecycleCommand;
     version: number;
     room: { roomId: string; action: "end-room" | "revoke-member" };
+    /** The retired account's email: its invitation here is withdrawn too. */
+    email?: string;
   }) {
     this.requireRoomId();
     const authority = this.authority;
@@ -281,7 +283,11 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
           state.scene_id !== command.target.sceneId))
     )
       throw new Error("wrong-subject");
-    await authority.retireSubject(command.target.subject, version);
+    await authority.retireSubject(
+      command.target.subject,
+      version,
+      command.target.kind === "account" ? input.email : undefined,
+    );
     this.enforceAuthoritySockets();
     // Nothing to enforce without a room; the web side refuses a delayed creation.
     if (!authority.state()) return "enforced" as const;

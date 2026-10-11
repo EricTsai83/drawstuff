@@ -38,7 +38,7 @@ describe("private Lifecycle entry and real Room retirement RPC", () => {
       const inputCommand = adapterCommandSchema.parse(await request.json());
       if (inputCommand.action === "lifecycle-freeze") {
         freezeCalls++;
-        return Response.json({ version: 2 });
+        return Response.json({ version: 2, email: "owner@example.com" });
       }
       if (inputCommand.action === "lifecycle-list")
         return Response.json({
@@ -129,9 +129,11 @@ describe("private Lifecycle entry and real Room retirement RPC", () => {
     await runInDurableObject(room, (_instance, state) => {
       state.storage.sql.exec("UPDATE authority_work SET next_at=0");
     });
-    await advance();
-    await advance();
-    await advance();
+    for (let step = 0; step < 10; step += 1) {
+      if ((await lifecycle.query(command.operationId))?.phase === "completed")
+        break;
+      await advance();
+    }
     expect((await lifecycle.query(command.operationId))?.phase).toBe(
       "completed",
     );
