@@ -103,6 +103,12 @@ target ID to be typed before submission. The underlying audited procedures are:
 - `admin.closeRoomStorage({ roomId })` — writes the terminal storage fence an ended room never
   delivered (no-op unless `status=ended` and `storage_state≠ended`)
 - `admin.runRoomRetention()` — one routine room-retention pass with its usual caps
+- `admin.revokeSessions({ userId, confirmUserId: userId })` — signs an account out everywhere
+  without retiring it (not allowed on yourself; issued collaboration proofs live ≤ 5 min)
+- `admin.unpublishScene({ sceneId })` — takes a scene off its public page and queues both render
+  artifacts (shared with the owner's own unpublish, `server/scene/unpublish.ts`)
+- `admin.deleteSharedLink({ sharedSceneId })` — deletes a shared link before its 30-day expiry and
+  queues its images, exactly like the expiry job
 
 ## Anomalies
 
@@ -183,3 +189,14 @@ The **Controls** section (`admin.opsControls`):
   minute per instance; *Reset counters* (audited `reset-ops-signals`) clears them.
 
 `ops_setting` and `ops_signal` are new tables: run `db:push` before deploying.
+
+## Investigation
+
+- **User page → Storage and exposure** (`admin.userFootprint`): bytes per store (scene and
+  shared-link images, room images uploaded, scene documents, shared links, Library), live sessions,
+  published scenes and shared links with their takedown actions, and the account's lifecycle state.
+- **Room lookup** (`admin.getRoom`): any room by ID — status, storage fence, epoch, snapshot and
+  image totals, people, invitations — with *End room* / *Close storage*. A room deleted by record
+  retention shows that only its creation fence remains.
+- **Users → Administrators only** (`listUsers` `operatorsOnly`) for access review, and the audit log
+  filters by action and target ID (`recentAuditEvents`).

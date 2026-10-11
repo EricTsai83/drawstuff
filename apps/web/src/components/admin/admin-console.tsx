@@ -21,9 +21,11 @@ import {
   formatAdminDate,
 } from "@/components/admin/admin-display";
 import {
+  auditActionOptions,
   translateAdminValue,
   useAdminI18n,
 } from "@/components/admin/admin-i18n";
+import { AdminRoomLookup } from "@/components/admin/admin-room-lookup";
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -50,10 +52,22 @@ export function AdminConsole({
   const { t, langCode } = useAdminI18n();
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  const [operatorsOnly, setOperatorsOnly] = useState(false);
+  const [auditAction, setAuditAction] = useState("");
+  const [auditTargetInput, setAuditTargetInput] = useState("");
+  const [auditTarget, setAuditTarget] = useState("");
 
   const overview = api.admin.overview.useQuery();
-  const users = api.admin.listUsers.useQuery({ search, limit: 25 });
-  const audits = api.admin.recentAuditEvents.useQuery({ limit: 30 });
+  const users = api.admin.listUsers.useQuery({
+    search,
+    limit: 25,
+    operatorsOnly,
+  });
+  const audits = api.admin.recentAuditEvents.useQuery({
+    limit: 30,
+    action: auditAction || undefined,
+    targetId: auditTarget || undefined,
+  });
 
   useEffect(() => {
     document.title = `${t("overview.pageTitle")} | drawstuff`;
@@ -201,6 +215,18 @@ export function AdminConsole({
                   <SearchIcon data-icon="inline-start" aria-hidden="true" />
                   {t("users.search")}
                 </Button>
+                <Button
+                  type="button"
+                  variant={operatorsOnly ? "secondary" : "ghost"}
+                  aria-pressed={operatorsOnly}
+                  onClick={() => setOperatorsOnly((value) => !value)}
+                >
+                  <ShieldCheckIcon
+                    data-icon="inline-start"
+                    aria-hidden="true"
+                  />
+                  {t("users.operatorsOnly")}
+                </Button>
               </form>
             </CardHeader>
             <CardContent>
@@ -281,6 +307,8 @@ export function AdminConsole({
           </Card>
         </section>
 
+        <AdminRoomLookup />
+
         <section aria-labelledby="audit-heading">
           <Card>
             <CardHeader className="border-b">
@@ -290,6 +318,37 @@ export function AdminConsole({
               <p className="text-muted-foreground text-sm">
                 {t("audit.description")}
               </p>
+              <form
+                className="mt-3 flex flex-wrap items-end gap-2"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  setAuditTarget(auditTargetInput.trim());
+                }}
+              >
+                <select
+                  aria-label={t("audit.filterAction")}
+                  className="border-input bg-background h-9 rounded-md border px-2 text-sm"
+                  value={auditAction}
+                  onChange={(event) => setAuditAction(event.target.value)}
+                >
+                  <option value="">{t("audit.filterAction")}</option>
+                  {auditActionOptions(t).map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </select>
+                <Input
+                  aria-label={t("audit.filterTarget")}
+                  className="max-w-xs"
+                  value={auditTargetInput}
+                  placeholder={t("audit.filterTarget")}
+                  onChange={(event) => setAuditTargetInput(event.target.value)}
+                />
+                <Button type="submit" variant="secondary">
+                  {t("audit.filter")}
+                </Button>
+              </form>
             </CardHeader>
             <CardContent>
               {audits.isPending ? (

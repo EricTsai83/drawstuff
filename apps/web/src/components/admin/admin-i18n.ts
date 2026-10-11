@@ -247,6 +247,61 @@ const en = {
   "auditAction.disable-collaboration": "Turn off collaboration",
   "auditAction.enable-collaboration": "Turn on collaboration",
   "auditAction.reset-ops-signals": "Reset signal counters",
+  "footprint.title": "Storage and exposure",
+  "footprint.description":
+    "What this account stores and has made reachable, with takedown actions.",
+  "footprint.loading": "Loading usage",
+  "footprint.images": "Scene and shared-link images",
+  "footprint.roomImages": "Room images uploaded",
+  "footprint.sceneDocuments": "Scene documents",
+  "footprint.sharedLinks": "Shared links",
+  "footprint.library": "Library",
+  "footprint.lifecycle": "Lifecycle",
+  "footprint.active": "Active",
+  "footprint.frozen": "Retiring since {time}",
+  "footprint.retired": "Retired",
+  "footprint.sessions": "{count} active sign-in session(s)",
+  "footprint.revokeSessions": "Sign out everywhere",
+  "footprint.publishedTitle": "Published scenes",
+  "footprint.unpublish": "Unpublish",
+  "footprint.sharedLinksTitle": "Shared links",
+  "footprint.deleteLink": "Delete link",
+  "confirm.revokeSessions.title": "Sign this account out everywhere?",
+  "confirm.revokeSessions.description":
+    "Every sign-in session is deleted. Collaboration proofs already issued stay valid for up to five minutes.",
+  "confirm.unpublishScene.title": "Unpublish this scene?",
+  "confirm.unpublishScene.description":
+    "The public page stops resolving and its rendered artifacts are queued for deletion. The scene itself is kept.",
+  "confirm.deleteSharedLink.title": "Delete this shared link?",
+  "confirm.deleteSharedLink.description":
+    "The link stops working immediately and its images are queued for deletion. This cannot be undone.",
+  "toast.sessionsRevoked": "Signed out of {count} session(s).",
+  "toast.sceneUnpublished": "Scene unpublished.",
+  "toast.sharedLinkDeleted": "Shared link deleted.",
+  "roomLookup.title": "Room lookup",
+  "roomLookup.loading": "Loading room",
+  "roomLookup.notFound": "No room with this ID.",
+  "roomLookup.deleted":
+    "This room was deleted; only its creation fence remains, so the ID stays unusable.",
+  "roomLookup.storage": "storage {state}",
+  "roomLookup.owner": "Owner",
+  "roomLookup.created": "Created",
+  "roomLookup.ended": "Ended",
+  "roomLookup.epoch": "Authority epoch",
+  "roomLookup.snapshot": "Snapshot",
+  "roomLookup.assets": "Images",
+  "roomLookup.registrations": "Lifecycle registrations",
+  "roomLookup.members": "People ({count})",
+  "roomLookup.invites": "Invitations ({count})",
+  "roomLookup.revoked": "revoked",
+  "users.operatorsOnly": "Administrators only",
+  "audit.filterAction": "All actions",
+  "audit.filterTarget": "Target ID",
+  "audit.filter": "Filter",
+  "auditAction.revoke-sessions": "Sign out everywhere",
+  "auditAction.unpublish-scene": "Unpublish scene",
+  "auditAction.delete-shared-link": "Delete shared link",
+  "targetType.shared-scene": "Shared link",
 } as const;
 
 type AdminTranslationKey = keyof typeof en;
@@ -486,6 +541,60 @@ const zhTW = {
   "auditAction.disable-collaboration": "關閉共編",
   "auditAction.enable-collaboration": "開啟共編",
   "auditAction.reset-ops-signals": "重設訊號計數",
+  "footprint.title": "儲存與公開內容",
+  "footprint.description": "此帳號儲存的資料與公開出去的內容，以及下架動作。",
+  "footprint.loading": "載入用量",
+  "footprint.images": "場景與分享連結圖片",
+  "footprint.roomImages": "上傳到房間的圖片",
+  "footprint.sceneDocuments": "場景文件",
+  "footprint.sharedLinks": "分享連結",
+  "footprint.library": "Library",
+  "footprint.lifecycle": "生命週期",
+  "footprint.active": "正常",
+  "footprint.frozen": "自 {time} 起退場中",
+  "footprint.retired": "已退場",
+  "footprint.sessions": "{count} 個登入中的 session",
+  "footprint.revokeSessions": "登出所有裝置",
+  "footprint.publishedTitle": "已發布場景",
+  "footprint.unpublish": "取消發布",
+  "footprint.sharedLinksTitle": "分享連結",
+  "footprint.deleteLink": "刪除連結",
+  "confirm.revokeSessions.title": "讓此帳號登出所有裝置？",
+  "confirm.revokeSessions.description":
+    "所有登入 session 都會被刪除；已簽出的共編 proof 最多仍有效五分鐘。",
+  "confirm.unpublishScene.title": "取消發布此場景？",
+  "confirm.unpublishScene.description":
+    "公開頁面會失效，渲染成品排入刪除；場景本身保留。",
+  "confirm.deleteSharedLink.title": "刪除此分享連結？",
+  "confirm.deleteSharedLink.description":
+    "連結會立即失效，圖片排入刪除。此操作無法復原。",
+  "toast.sessionsRevoked": "已登出 {count} 個 session。",
+  "toast.sceneUnpublished": "已取消發布。",
+  "toast.sharedLinkDeleted": "已刪除分享連結。",
+  "roomLookup.title": "查詢房間",
+  "roomLookup.loading": "載入房間",
+  "roomLookup.notFound": "找不到此 ID 的房間。",
+  "roomLookup.deleted":
+    "此房間已刪除；只剩 creation fence，所以這個 ID 仍無法再使用。",
+  "roomLookup.storage": "storage {state}",
+  "roomLookup.owner": "擁有者",
+  "roomLookup.created": "建立時間",
+  "roomLookup.ended": "結束時間",
+  "roomLookup.epoch": "Authority epoch",
+  "roomLookup.snapshot": "快照",
+  "roomLookup.assets": "圖片",
+  "roomLookup.registrations": "Lifecycle 登記",
+  "roomLookup.members": "成員（{count}）",
+  "roomLookup.invites": "邀請（{count}）",
+  "roomLookup.revoked": "已撤銷",
+  "users.operatorsOnly": "只看管理員",
+  "audit.filterAction": "所有操作",
+  "audit.filterTarget": "目標 ID",
+  "audit.filter": "篩選",
+  "auditAction.revoke-sessions": "登出所有裝置",
+  "auditAction.unpublish-scene": "取消發布場景",
+  "auditAction.delete-shared-link": "刪除分享連結",
+  "targetType.shared-scene": "分享連結",
 } as const satisfies Record<AdminTranslationKey, string>;
 
 const translations: Record<
@@ -543,6 +652,9 @@ const valueTranslationKeys = {
     "disable-collaboration": "auditAction.disable-collaboration",
     "enable-collaboration": "auditAction.enable-collaboration",
     "reset-ops-signals": "auditAction.reset-ops-signals",
+    "revoke-sessions": "auditAction.revoke-sessions",
+    "unpublish-scene": "auditAction.unpublish-scene",
+    "delete-shared-link": "auditAction.delete-shared-link",
   },
   targetType: {
     account: "targetType.account",
@@ -550,6 +662,7 @@ const valueTranslationKeys = {
     room: "targetType.room",
     cleanup: "targetType.cleanup",
     maintenance: "targetType.maintenance",
+    "shared-scene": "targetType.shared-scene",
   },
 } as const satisfies Record<string, Record<string, AdminTranslationKey>>;
 
@@ -564,4 +677,13 @@ export function translateAdminValue(
   >;
   const key = keys[value];
   return key ? t(key) : value;
+}
+
+/** Every audited action with its label, for filtering the audit log. */
+export function auditActionOptions(
+  t: AdminTranslate,
+): { value: string; label: string }[] {
+  return Object.entries(valueTranslationKeys.auditAction).map(
+    ([value, key]) => ({ value, label: t(key) }),
+  );
 }

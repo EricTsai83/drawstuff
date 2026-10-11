@@ -18,10 +18,13 @@ export type AdminAuditAction =
   | "run-maintenance"
   | "disable-collaboration"
   | "enable-collaboration"
-  | "reset-ops-signals";
+  | "reset-ops-signals"
+  | "revoke-sessions"
+  | "unpublish-scene"
+  | "delete-shared-link";
 
 export type AdminAuditTargetType =
-  "scene" | "room" | "account" | "cleanup" | "maintenance";
+  "scene" | "room" | "account" | "cleanup" | "maintenance" | "shared-scene";
 
 export async function beginAdminAudit(params: {
   db: Database;
