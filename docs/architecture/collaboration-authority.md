@@ -1,6 +1,6 @@
 # 共編授權、儲存與退休契約
 
-- 狀態：protocol 7；存取模型與明文房間依 plan 21，2026-10-10 部署並完成正式驗收（plan 已完成，見 git history；部署與驗收紀錄見 [DO 部署 runbook §6](../operations/collaboration-do-deployment.md)）。18B 已於 2026-10-08 依擁有者決定收尾。
+- 狀態：protocol 7；存取模型與明文房間依 plan 21，2026-10-10 部署並完成正式驗收（plan 已完成，見 git history；部署與驗收紀錄見 [DO 部署 runbook §6](../operations/collaboration-do-deployment.md)）。房間改名與列表脈絡（plan 23）2026-10-11 部署：`last_opened_at` 以 `db:push` 新增，正式環境以兩個帳號驗收——非擁有者 `set-label` 得 403 `forbidden`，擁有者改名後 Neon 房間列與兩人的列表同為新名稱，受邀者的 `last_opened_at` 已投影、未開啟的擁有者為 null。18B 已於 2026-10-08 依擁有者決定收尾。
 - 驗收證據與結案決定：[部署 runbook](../deployment/collaboration-reset/README.md)。
 - 未完成驗收與疑慮：[後續排查 plan](../../plans/18d-collaboration-acceptance-follow-ups.md)。
 
