@@ -25,6 +25,9 @@ catalog:
   react-dom: 19.2.8
   typescript: ^6.0.3
   vitest: ^4.1.11
+  # Exact pin: @cloudflare/vitest-plugin requires this exact wrangler as a
+  # peer, so deploys use the same runtime the workerd tests ran under.
+  wrangler: 4.148.0
   zod: ^4.4.3
 
 publicHoistPattern:
