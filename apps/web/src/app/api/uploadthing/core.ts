@@ -25,6 +25,10 @@ import { z } from "zod";
 import { getServerSession } from "@/lib/auth/server";
 import { UTApi } from "uploadthing/server";
 import { assertWithinQuota, QuotaExceededError } from "@/server/quota";
+import {
+  reportPresignFailure,
+  type PresignFailureStage,
+} from "./presign-failure";
 
 const f = createUploadthing();
 
@@ -287,25 +291,33 @@ export const uploadRouter = {
   })
     .input(assetUploadIntentSchema)
     .middleware(async ({ input, req, files }) => {
-      const timings: PerformanceTimings | undefined =
-        performanceProbeAuthorized(req, env.COLLAB_AUTHORITY_SECRET)
-          ? {}
-          : undefined;
-      const sessionStart = performance.now();
-      const session = await getServerSession();
-      if (timings) timings.session = performance.now() - sessionStart;
-      if (!session) throw new Error("Unauthorized");
-      await assertImageQuota(session.user.id, files);
-      const metadata = await prepareAuthorityAssetUpload(
-        db,
-        {
-          subject: session.user.id,
-          sessionId: session.session.id,
-        },
-        input,
-        timings,
-      );
-      return timings ? { ...metadata, performance: timings } : metadata;
+      let stage: PresignFailureStage = "session";
+      try {
+        const timings: PerformanceTimings | undefined =
+          performanceProbeAuthorized(req, env.COLLAB_AUTHORITY_SECRET)
+            ? {}
+            : undefined;
+        const sessionStart = performance.now();
+        const session = await getServerSession();
+        if (timings) timings.session = performance.now() - sessionStart;
+        if (!session) throw new Error("Unauthorized");
+        stage = "quota";
+        await assertImageQuota(session.user.id, files);
+        stage = "authority";
+        const metadata = await prepareAuthorityAssetUpload(
+          db,
+          {
+            subject: session.user.id,
+            sessionId: session.session.id,
+          },
+          input,
+          timings,
+        );
+        return timings ? { ...metadata, performance: timings } : metadata;
+      } catch (error) {
+        reportPresignFailure(stage, error);
+        throw error;
+      }
     })
     .onUploadComplete(async ({ metadata, file }) =>
       finalizeAuthorityAssetUpload(db, metadata, file),

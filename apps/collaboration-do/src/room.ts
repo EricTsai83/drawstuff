@@ -41,6 +41,8 @@ import {
 import { verifyIdentityProof } from "@drawstuff/collaboration/room-token";
 
 import {
+  isRoomSocketServerClosed,
+  markRoomSocketServerClosed,
   readRoomSocketAttachment,
   writeRoomSocketAttachment,
   type JoinedSocketAttachment,
@@ -470,9 +472,26 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     }
   }
 
-  override async webSocketClose(ws: WebSocket): Promise<void> {
+  override async webSocketClose(
+    ws: WebSocket,
+    code: number,
+    _reason: string,
+    wasClean: boolean,
+  ): Promise<void> {
     this.rateLimiters.delete(ws);
     const attachment = readRoomSocketAttachment(ws);
+    // The server-stated closes are already `room.session_closed`; this is the
+    // only record of the rest — a client leave, or a link that dropped (1006)
+    // without either side choosing to. The reason string is client-supplied
+    // and never logged.
+    if (!isRoomSocketServerClosed(ws)) {
+      this.log.info("room.peer_closed", {
+        closeCode: code,
+        wasClean,
+        socketState: attachment === undefined ? "unknown" : attachment.state,
+        peerId: attachment?.state === "joined" ? attachment.peerId : undefined,
+      });
+    }
     // A member's departure is broadcast from the surviving attachments. An
     // *unreadable* attachment broadcasts too, deliberately: the socket may
     // have been a member whose attachment was corrupted after it appeared in
@@ -1066,6 +1085,9 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     // re-deriving its work, a control action racing a close). The disconnect
     // rate in SLO §6 is read off these records, so a duplicate inflates it.
     const wasOpen = ws.readyState === SOCKET_OPEN;
+    // Marked in the attachment before closing: a dead peer never answers, and
+    // its close callback can arrive after a hibernation.
+    if (wasOpen) markRoomSocketServerClosed(ws);
     try {
       ws.close(code, reason);
     } catch {
@@ -1076,7 +1098,7 @@ export class CollaborationRoomV2 extends DurableObject<CollaborationRoomEnv> {
     if (!wasOpen) return;
     // Every server-stated close verdict, as a bounded enum. The SLO §6
     // disconnect-rate breakdown reads this event; client-initiated departures
-    // surface through the membership change, not through a log line.
+    // and dropped links surface as `room.peer_closed` in `webSocketClose`.
     this.log.info("room.session_closed", {
       closeCode: code,
       socketState: attachment === undefined ? "unknown" : attachment.state,

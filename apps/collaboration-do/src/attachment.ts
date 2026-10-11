@@ -27,12 +27,19 @@ import { roomRoleSchema } from "@drawstuff/collaboration/room-auth";
 
 const epochMillisSchema = z.int().nonnegative();
 
+/**
+ * Set when this Object closed the socket and logged its verdict, so a close
+ * callback arriving after a hibernation is not logged again as a peer close.
+ */
+const serverClosedSchema = z.literal(true).optional();
+
 /** Accepted socket that has not presented a valid join control yet. */
 const pendingAttachmentSchema = z.strictObject({
   v: z.literal(4),
   state: z.literal("pending"),
   acceptedAt: epochMillisSchema,
   roomId: roomIdSchema,
+  serverClosed: serverClosedSchema,
 });
 
 /** Authorized member; the fields the room runtime needs per socket. */
@@ -59,6 +66,7 @@ const joinedAttachmentSchema = z.strictObject({
    * ever delay a close, never cause an early one.
    */
   lastFrameAt: epochMillisSchema,
+  serverClosed: serverClosedSchema,
 });
 
 export const roomSocketAttachmentSchema = z.discriminatedUnion("state", [
@@ -76,7 +84,7 @@ export type RoomSocketAttachment = z.infer<typeof roomSocketAttachmentSchema>;
  * unnoticed.
  */
 export const roomSocketAttachmentKeys = {
-  pending: ["v", "state", "acceptedAt", "roomId"],
+  pending: ["v", "state", "acceptedAt", "roomId", "serverClosed"],
   joined: [
     "v",
     "state",
@@ -88,6 +96,7 @@ export const roomSocketAttachmentKeys = {
     "roomEpoch",
     "joinedAt",
     "lastFrameAt",
+    "serverClosed",
   ],
 } as const;
 
@@ -107,6 +116,34 @@ export function readRoomSocketAttachment(
   }
   const parsed = roomSocketAttachmentSchema.safeParse(raw);
   return parsed.success ? parsed.data : undefined;
+}
+
+/**
+ * Marks a socket this Object closed, whatever its attachment holds. A readable
+ * attachment keeps its state; an unreadable one becomes the bare mark, which
+ * stays unreadable (so still fail-closed) but survives hibernation.
+ */
+export function markRoomSocketServerClosed(ws: WebSocket): void {
+  const attachment = readRoomSocketAttachment(ws);
+  ws.serializeAttachment(
+    attachment === undefined
+      ? { serverClosed: true }
+      : { ...attachment, serverClosed: true },
+  );
+}
+
+/** Whether `markRoomSocketServerClosed` ran, read without the schema. */
+export function isRoomSocketServerClosed(ws: WebSocket): boolean {
+  try {
+    const raw: unknown = ws.deserializeAttachment();
+    return (
+      typeof raw === "object" &&
+      raw !== null &&
+      Reflect.get(raw, "serverClosed") === true
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function writeRoomSocketAttachment(

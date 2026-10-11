@@ -679,3 +679,80 @@ describe("keepalive", () => {
     member.connection.close();
   });
 });
+
+describe("close records", () => {
+  it("records a close the client chose as a peer close, never as a verdict", async () => {
+    const info = vi.spyOn(console, "info");
+    const { roomId } = await openRoom("peer-close");
+    const member = await joinRoom(roomId, newIdentity());
+    member.connection.close();
+    await settleRoomEvents();
+    const [record, ...rest] = logged(info, "room.peer_closed");
+    expect(rest).toEqual([]);
+    expect(record).toMatchObject({
+      socketState: "joined",
+      peerId: member.joined.peerId,
+    });
+    expect(typeof record?.closeCode).toBe("number");
+    expect(typeof record?.wasClean).toBe("boolean");
+    expect(logged(info, "room.session_closed")).toEqual([]);
+  });
+
+  it("records a server-stated close once, as its verdict only", async () => {
+    const info = vi.spyOn(console, "info");
+    const { roomId, owner } = await openRoom("verdict-close");
+    const member = await joinRoom(roomId, newIdentity());
+    await endRoom(roomId, owner);
+    await expectClose(member.connection, RELAY_CLOSE_CODES.roomEnded);
+    member.connection.close();
+    await settleRoomEvents();
+    expect(logged(info, "room.session_closed")).toEqual([
+      expect.objectContaining({
+        closeCode: RELAY_CLOSE_CODES.roomEnded,
+        peerId: member.joined.peerId,
+      }),
+    ]);
+    expect(logged(info, "room.peer_closed")).toEqual([]);
+  });
+
+  it("keeps a server-stated close out of the peer records after a hibernation", async () => {
+    // A dead peer never answers a server close, so its callback can arrive in
+    // a fresh instance whose in-memory marks are gone. The attachment mark
+    // is what survives; this socket carries it with an empty in-memory set.
+    const info = vi.spyOn(console, "info");
+    const { roomId } = await openRoom("hibernated-close");
+    const member = await joinRoom(roomId, newIdentity());
+    await mutateJoinedAttachment(
+      roomStub(roomId),
+      member.joined.peerId,
+      (attachment) => ({ ...attachment, serverClosed: true }),
+    );
+    member.connection.close();
+    await settleRoomEvents();
+    expect(logged(info, "room.peer_closed")).toEqual([]);
+  });
+
+  it("marks a fail-closed socket even when its attachment is unreadable", async () => {
+    // The mark lives only in the attachment, so it must be written over a
+    // corrupted one too — and leave it unreadable, still failing closed.
+    const info = vi.spyOn(console, "info");
+    const { roomId } = await openRoom("unreadable-close");
+    const member = await joinRoom(roomId, newIdentity());
+    await mutateJoinedAttachment(
+      roomStub(roomId),
+      member.joined.peerId,
+      (attachment) => ({ ...attachment, v: 99 }),
+    );
+    member.connection.send(Uint8Array.from([2, 1, 2, 3]));
+    await expectClose(member.connection, RELAY_CLOSE_CODES.internalError);
+    member.connection.close();
+    await settleRoomEvents();
+    expect(logged(info, "room.session_closed")).toEqual([
+      expect.objectContaining({
+        closeCode: RELAY_CLOSE_CODES.internalError,
+        socketState: "unknown",
+      }),
+    ]);
+    expect(logged(info, "room.peer_closed")).toEqual([]);
+  });
+});

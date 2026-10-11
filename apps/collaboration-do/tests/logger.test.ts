@@ -159,6 +159,7 @@ describe("DO structured logger", () => {
         "socketState",
         "status",
         "stuckHours",
+        "wasClean",
       ].sort(),
     );
   });
