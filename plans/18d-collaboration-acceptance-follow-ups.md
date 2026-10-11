@@ -71,8 +71,8 @@
 ## 5. 剩餘回歸與契約核對
 
 - [ ] 個人場景、分享、發布、Library 及附件的 production 回歸，確認共編／個人副本不互相覆寫，內容與清理一致。
-- [ ] 核對已部署授權／儲存／退休契約，為尚缺證據的 initializing／NULL-scene／投影亂序與刪後晚到、最大 payload、queue 安全預算、generation rotation 與未到期 presign 等分支取得對應證據；已有本機／正式證據可引用，勿重跑全部。
-- [ ] 確認 account／scene 缺少 lifecycle row 的首次建立競態排程；既有 blocked-write 退休測試不代表所有 first-insert 排程。
+- [x] 核對已部署授權／儲存／退休契約，為尚缺證據的 initializing／NULL-scene／投影亂序與刪後晚到、最大 payload、queue 安全預算、generation rotation 與未到期 presign 等分支取得對應證據：本機皆有測試，對照表見 [授權契約](../docs/architecture/collaboration-authority.md#分支證據對照2026-10-11)。正式證據多為 protocol 6，protocol 7 的退休與撤權重測（`--retire-account`、`--retire-scene`、`--access-recovery`）併入下面的正式回歸。
+- [x] 確認 account／scene 缺少 lifecycle row 的首次建立競態排程：真實 PostgreSQL 新增 10 個從缺少 row 開始的案例：登記與邀請一側（並行首建、freeze 先 commit、首建 rollback、scene 來源、邀請），以及退休一側（`retirementIntent` 沿用首建 row 與既有 operation、scene freeze 等待帳號首建並列舉其登記）。改壞重讀或 operation 沿用時對應案例會失敗；以 `pnpm collab:adapters` 執行。
 - [ ] 每個 scope 的修正執行必要檢查，最後 `pnpm check` 與文件核對；不以 repo check 替代正式驗收。
 
 ## 執行與清理規則
