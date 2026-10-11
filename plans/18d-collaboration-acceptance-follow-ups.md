@@ -9,12 +9,28 @@
 
 已補 keepalive，曾有完整 200 筆零功能失敗；後續仍於第 27 筆發生 owner 1006、guest OPEN，19／19 keepalive ACK，Worker identity 未變。另有 presign 500、fanout timeout／callback schema 錯誤的獨立失敗紀錄。這些不等同單純延遲，尚無完整根因。
 
-- [ ] 補安全的 client close／error／reconnect 時間軸、最後 keepalive／frame 時間與有界錯誤分類，不記 token、密文內容、金鑰或物件 URL。
-- [ ] 關聯 web session／identity／Gateway／DO 的故障區段，監測測量期間 web 與 Worker 版本，區分部署干擾、平台／網路與程式缺陷。
-- [ ] 依證據修正確認缺陷；沒有新線索時停止重複長測，記錄剩餘假設與下一個能區分原因的實驗。
-- [ ] 確認恢復後不丟同 session 的未保存修改、不誤報 saved、不恢復已撤權角色，並保存故障案例與重測結果。
+目標是讓每次斷線／500 都可分類並確認產品能恢復，而不是追求零 1006：DO 重啟與平台 runtime 更新本來就會切斷 WebSocket。兩個 server 端缺口使現有證據無法分類：presign middleware 拋錯時沒有任何 application log（Vercel 只見空 message 的 500），DO `webSocketClose` 對非 server 主動的關閉不記錄。瀏覽器端 telemetry 屬 [17](17-collaboration-operations-follow-ups.md) §8 carrier，本 scope 不在產品 client 另建通道。
 
-完成條件：可定位的故障／恢復證據，確認缺陷有回歸驗證；未重現不視為根因已解決。
+### 1a. Server 端有界失敗訊號（只改程式碼，不碰正式環境）
+
+- [x] `collaborationAssetUploader` 失敗時寫一行 closed-schema JSON log：失敗階段封閉列舉＋`errorName`（constructor 名），沿用 observability 契約 §6.1 的形式；不記 message、URL、token、identifier。
+- [x] DO `webSocketClose` 對非 server 主動的關閉記一筆 closed-schema 事件（close code、`wasClean`、joined 才有的 `peerId`），與 `room.session_closed` 互斥；logger schema 測試與 observability 契約 §2 同步。
+- [x] 確認 callback `serverData` ZodError 屬測量工具或產品解析路徑：屬測量工具的嚴格解析。產品將無法解析的 callback 結果視為 pending 並以 query 恢復（`collaboration-asset-upload.test.ts`），不需修改；工具端隨 1b 記錄並繼續。
+- [ ] 部署 1a（事件名 `collab.asset_presign.failed`、`room.peer_closed`，契約見 [observability](../docs/observability/collaboration-do-observability.md) §2／§6.2）。
+
+### 1b. 測量工具的斷線處理（擁有者已決定，2026-10-11）
+
+原 runner 任一 socket close 即中止整輪，已有四輪在第 27–157 筆被單次斷線作廢延遲樣本。改為記錄失敗樣本（階段、close code、時間）後重連繼續，直到收滿 200 筆成功樣本：延遲分位數只用成功樣本，`gatePassed` 另要求失敗率 ≤ 0.5%。失敗率計入 client 端觀察到的 1006 等所有功能失敗，比 SLO §6 只計 server close codes 嚴格。重連後第一筆照常計入並標記，不得事後排除。
+
+- [ ] 依上述契約修改 `remote-performance-acceptance.mjs` 與報告欄位，更新 [P0 測量契約](../docs/performance/collaboration-storage-p0.md)；舊報告不改寫。
+
+### 1c. 部署後取得分類證據
+
+- [ ] 1a 部署後跑一輪正式量測（依 1b 決定的模式），把每次失敗分類為 server 主動關閉／DO 看到非主動關閉／DO 未看到，並對照 web 與 Worker 版本以排除部署干擾。
+- [ ] 依證據修正確認缺陷並補回歸測試；屬平台行為則記錄接受決定與觀測到的比率。沒有新線索時停止重複長測，記錄剩餘假設與下一個能區分原因的實驗。
+- [ ] 瀏覽器自動恢復與未保存修改的驗收歸 §2，不在此重複。
+
+完成條件：1a 已部署並有測試；1c 的失敗皆已分類，且已修正缺陷有回歸驗證，或平台行為已記錄接受決定。未重現不視為根因已解決。
 
 ## 2. 正式瀏覽器恢復與未保存體驗
 

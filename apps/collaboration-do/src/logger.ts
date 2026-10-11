@@ -45,7 +45,12 @@ type DoLogEvent =
   | "room.fanout_write_failed"
   | "room.session_joined"
   /** Every server-stated close, with its close-code verdict. */
-  | "room.session_closed";
+  | "room.session_closed"
+  /**
+   * A close the server did not state: a client leave or a dropped connection.
+   * Never logged for a socket that already has a `room.session_closed`.
+   */
+  | "room.peer_closed";
 
 type DoLogLevel = "info" | "warn" | "error";
 
@@ -56,6 +61,8 @@ type DoLogFields = {
   peerId?: string;
   role?: RoomRole;
   closeCode?: number;
+  /** Whether the closing handshake completed; `false` for a dropped link. */
+  wasClean?: boolean;
   /** Attachment state at close time; "unknown" for unreadable attachments. */
   socketState?: "pending" | "joined" | "unknown";
   /** Joined members after the change the record describes. */
@@ -79,6 +86,7 @@ const LOGGABLE_FIELDS: Record<keyof DoLogFields, true> = {
   peerId: true,
   role: true,
   closeCode: true,
+  wasClean: true,
   socketState: true,
   members: true,
   status: true,

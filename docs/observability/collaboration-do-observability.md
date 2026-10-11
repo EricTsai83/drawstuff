@@ -35,37 +35,45 @@ Cloudflare 原生面組成，本文件是它們的契約：
 Envelope（每筆都有）：`event`、`versionId`、`versionTag`（未標記的 deploy 省略）。
 `versionId`/`versionTag` 來自 `version_metadata` binding，是 canary 比較的分組鍵。
 
-| event                          | level | 何時                                                                        | 主要欄位                                                                             |
-| ------------------------------ | ----- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------ |
-| `gateway.unhandled_failure`    | error | gateway 頂層 exception boundary                                             | `errorName`                                                                          |
-| `gateway.config_invalid`       | error | `COLLAB_ALLOWED_ORIGINS` 解析失敗（socket 503）                             | —                                                                                    |
-| `gateway.room_fetch_failed`    | error | DO stub fetch 失敗（upgrade 回 503）                                        | `errorName`（**不含 room 識別碼**：此時 identity proof 尚未驗證，route 仍是未驗證輸入） |
-| `authority.entry_failed`       | warn  | authority 入口拋出非契約內的錯誤（回 `unavailable`）                        | `errorName`                                                                          |
-| `authority.work_abandoned`     | error | 房間 Object 的 durable job 從第一次排程起 24 小時仍未送達，被放棄            | `jobKind`（`DurableJob["kind"]` 封閉 enum）                                          |
-| `lifecycle.retirement_stuck`   | error | 退場（Lifecycle）工作從開始起超過 1 小時仍在失敗；同一工作至多每小時一筆，24 小時後重試改為每小時一次 | `jobKind`、`stuckHours`（已卡住的整小時數）                                          |
-| `lifecycle.retirement_parked`  | error | 退場工作連續失敗滿 7 天，暫停排程（保留，等 admin 重新觸發）                  | `jobKind`                                                                            |
-| `alarm.given_up`               | error | alarm handler 連續失敗，30 次有上限的備援 alarm（約 1 天）都用完，停止重排      | —                                                                                    |
-| `adapter.delivery_failed`      | warn  | Object → web adapter 回非 2xx 或非 JSON（durable job 會依 backoff 重試）    | `status`                                                                             |
-| `room.invalid_object_identity` | error | Object 被非 canonical 名稱定址                                              | —                                                                                    |
-| `room.schema_bootstrap_failed` | error | constructor schema bootstrap 拋出（runtime 重置該 Object）                  | `errorName`                                                                          |
-| `room.frame_dispatch_failed`   | error | frame handler 拋出（該連線關 4014）                                         | `errorName`                                                                          |
-| `room.socket_error`            | warn  | socket transport error                                                      | `errorName`                                                                          |
-| `room.fanout_write_failed`     | warn  | fanout write 失敗（該 socket 關 1001）                                      | `errorName`                                                                          |
-| `room.session_joined`          | info  | join ack 送出後                                                             | `roomId`、`peerId`、`role`、`members`                                                |
-| `room.session_closed`          | info  | **每一次 server 主動 close**，帶 verdict                                    | `closeCode`、`socketState`、`peerId`（joined 才有）                                  |
-| `room.storage_released`        | info  | 已結束、工作都送達（或放棄）、沒有連線且過了 5 分鐘回執寬限的房間 `deleteAll()`                | `roomId`                                                                             |
+| event                          | level | 何時                                                                                                  | 主要欄位                                                                                |
+| ------------------------------ | ----- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `gateway.unhandled_failure`    | error | gateway 頂層 exception boundary                                                                       | `errorName`                                                                             |
+| `gateway.config_invalid`       | error | `COLLAB_ALLOWED_ORIGINS` 解析失敗（socket 503）                                                       | —                                                                                       |
+| `gateway.room_fetch_failed`    | error | DO stub fetch 失敗（upgrade 回 503）                                                                  | `errorName`（**不含 room 識別碼**：此時 identity proof 尚未驗證，route 仍是未驗證輸入） |
+| `authority.entry_failed`       | warn  | authority 入口拋出非契約內的錯誤（回 `unavailable`）                                                  | `errorName`                                                                             |
+| `authority.work_abandoned`     | error | 房間 Object 的 durable job 從第一次排程起 24 小時仍未送達，被放棄                                     | `jobKind`（`DurableJob["kind"]` 封閉 enum）                                             |
+| `lifecycle.retirement_stuck`   | error | 退場（Lifecycle）工作從開始起超過 1 小時仍在失敗；同一工作至多每小時一筆，24 小時後重試改為每小時一次 | `jobKind`、`stuckHours`（已卡住的整小時數）                                             |
+| `lifecycle.retirement_parked`  | error | 退場工作連續失敗滿 7 天，暫停排程（保留，等 admin 重新觸發）                                          | `jobKind`                                                                               |
+| `alarm.given_up`               | error | alarm handler 連續失敗，30 次有上限的備援 alarm（約 1 天）都用完，停止重排                            | —                                                                                       |
+| `adapter.delivery_failed`      | warn  | Object → web adapter 回非 2xx 或非 JSON（durable job 會依 backoff 重試）                              | `status`                                                                                |
+| `room.invalid_object_identity` | error | Object 被非 canonical 名稱定址                                                                        | —                                                                                       |
+| `room.schema_bootstrap_failed` | error | constructor schema bootstrap 拋出（runtime 重置該 Object）                                            | `errorName`                                                                             |
+| `room.frame_dispatch_failed`   | error | frame handler 拋出（該連線關 4014）                                                                   | `errorName`                                                                             |
+| `room.socket_error`            | warn  | socket transport error                                                                                | `errorName`                                                                             |
+| `room.fanout_write_failed`     | warn  | fanout write 失敗（該 socket 關 1001）                                                                | `errorName`                                                                             |
+| `room.session_joined`          | info  | join ack 送出後                                                                                       | `roomId`、`peerId`、`role`、`members`                                                   |
+| `room.session_closed`          | info  | **每一次 server 主動 close**，帶 verdict                                                              | `closeCode`、`socketState`、`peerId`（joined 才有）                                     |
+| `room.peer_closed`             | info  | 非 server 主動的 close（client leave／斷線 1006），與 `session_closed` 互斥                           | `closeCode`、`wasClean`、`socketState`、`peerId`（joined 才有）                         |
+| `room.storage_released`        | info  | 已結束、工作都送達（或放棄）、沒有連線且過了 5 分鐘回執寬限的房間 `deleteAll()`                       | `roomId`                                                                                |
 
 語意注意：
 
 - `room.session_closed` 只涵蓋 server 主動陳述的 close（join timeout、idle、liveness 1001、
   roomEnded、membershipRevoked、roleChanged、protocol violations、rateLimited、slowConsumer、
-  leave 的 1000…）。client 自行斷線不產生 log 行——它以 membership 變化與平台 WebSocket 指標呈現。
+  leave 的 1000…）。
+- `room.peer_closed` 記其餘到達 `webSocketClose` 的關閉：client 自行關閉，或連線中斷
+  （`wasClean: false`，通常 1006）。用來把 client 端觀察到的斷線分成「server 主動」、
+  「DO 看到非主動關閉」、「DO 沒看到」三類；client 送的 close reason 不記錄。
+- 互斥靠標記：server 主動 close 記錄 verdict 前，在 socket attachment 寫入 `serverClosed`
+  （跨 hibernation 保留；attachment 無法讀取時改寫成只含此標記、仍無法讀取的值），其後的
+  `webSocketClose` 不再記 `peer_closed`。死掉的 peer 不回 close，callback 可能在 hibernation
+  後才到，所以標記不能只放記憶體。
 - 同一 socket 至多一筆 `session_closed`：重複 close 會 throw 並在記錄前返回。
 
 ## 3. 資料分級（threat model §5 逐項對照）
 
-- 允許且使用：驗證後的 `roomId`、Object 產生的 `peerId`、role、close code、HTTP `status`
-  與 bounded enums（`socketState`、`jobKind`）、計數（`members`、`stuckHours`）。
+- 允許且使用：驗證後的 `roomId`、Object 產生的 `peerId`、role、close code、`wasClean`、
+  HTTP `status` 與 bounded enums（`socketState`、`jobKind`）、計數（`members`、`stuckHours`）。
 - **subject 永不落地**：raw subject 被 §5 禁止；退役的 relay 曾用 48-bit per-process HMAC
   pseudonym，DO 版 logger 連 pseudonym salt 都不保留；email 與邀請名單同樣沒有對應欄位。
 - **error 內容不落地**：`errorName` 取 **constructor 名**（`TypeError`…），不讀可變的
@@ -119,20 +127,20 @@ Worker 的 live smoke 在 plan 21 部署時重跑（[部署 runbook §6](../oper
 這些定義不代表已有可運作的告警。收集／匯出、規則評估與通知目的地仍未選定；
 sessions 分母、未指定的視窗、「持續」與無資料語意須依 Plan 17 補齊後才能驗收。
 
-| Alert                        | 資料來源                                                        | 條件                                    | 依據                                   |
-| ---------------------------- | --------------------------------------------------------------- | --------------------------------------- | -------------------------------------- |
-| `DoConfigInvalid`            | Logs：`gateway.config_invalid`；`/healthz` `ok:false`           | 任何一筆                                | fail-closed 配置壞掉即斷線             |
-| `DoInternalError`            | Logs：`room.frame_dispatch_failed`、`gateway.unhandled_failure` | 1h 內 > 0                               | SLO §6（internalError 計入非預期斷線） |
-| `DoUnexpectedDisconnectRate` | Logs：`room.session_closed` 依 `closeCode` 分組                 | (4000+4014+4002+4003) / sessions > 0.5% | SLO §6                                 |
-| `DoSlowConsumerRate`         | Logs：`closeCode = 4003`                                        | > 0.1% sessions                         | SLO §6                                 |
+| Alert                        | 資料來源                                                        | 條件                                    | 依據                                    |
+| ---------------------------- | --------------------------------------------------------------- | --------------------------------------- | --------------------------------------- |
+| `DoConfigInvalid`            | Logs：`gateway.config_invalid`；`/healthz` `ok:false`           | 任何一筆                                | fail-closed 配置壞掉即斷線              |
+| `DoInternalError`            | Logs：`room.frame_dispatch_failed`、`gateway.unhandled_failure` | 1h 內 > 0                               | SLO §6（internalError 計入非預期斷線）  |
+| `DoUnexpectedDisconnectRate` | Logs：`room.session_closed` 依 `closeCode` 分組                 | (4000+4014+4002+4003) / sessions > 0.5% | SLO §6                                  |
+| `DoSlowConsumerRate`         | Logs：`closeCode = 4003`                                        | > 0.1% sessions                         | SLO §6                                  |
 | `DoWorkAbandoned`            | Logs：`authority.work_abandoned`                                | 任何一筆                                | 遠端（Neon 投影／fence／cleanup）未追上 |
-| `DoRetirementStuck`          | Logs：`lifecycle.retirement_stuck`                              | 任何一筆                                | 帳號／場景資料尚未刪完，需人工介入     |
+| `DoRetirementStuck`          | Logs：`lifecycle.retirement_stuck`                              | 任何一筆                                | 帳號／場景資料尚未刪完，需人工介入      |
 | `DoRetirementParked`         | Logs：`lifecycle.retirement_parked`                             | 任何一筆                                | 退場已停止重試，需在 admin 重新觸發     |
-| `DoAlarmGivenUp`             | Logs：`alarm.given_up`                                          | 任何一筆                                | Object 的 alarm 持續拋錯，排程已停止   |
+| `DoAlarmGivenUp`             | Logs：`alarm.given_up`                                          | 任何一筆                                | Object 的 alarm 持續拋錯，排程已停止    |
 | `DoAdapterDeliveryFailed`    | Logs：`adapter.delivery_failed`                                 | 1h 內持續發生                           | web adapter 或 adapter 憑證故障         |
-| `DoLogFieldsRejected`        | Logs：`rejectedFields` 存在                                     | 任何一筆                                | §2（allowlist 缺陷）                   |
-| `DoNamespaceErrors`          | DO namespace metrics                                            | error rate 持續非零                     | SLO §6                                 |
-| `DoOverload`                 | namespace metrics／`overloaded` errors                          | 任何持續發生                            | `overloaded` 不 retry                  |
+| `DoLogFieldsRejected`        | Logs：`rejectedFields` 存在                                     | 任何一筆                                | §2（allowlist 缺陷）                    |
+| `DoNamespaceErrors`          | DO namespace metrics                                            | error rate 持續非零                     | SLO §6                                  |
+| `DoOverload`                 | namespace metrics／`overloaded` errors                          | 任何持續發生                            | `overloaded` 不 retry                   |
 
 Dashboard 面板組：requests/errors（Worker 與 namespace 分開）、duration GB-s 與
 hibernation 比率、WebSocket connections/messages、`session_closed` close-code 分佈、
@@ -145,12 +153,24 @@ SLO §5 的後端入口限制與 snapshot finalization reserve 都 fail open，�
 在生效」是一個**不會自己顯現**的狀態——請求照常成功，只是上界暫時消失了。這正是它必須
 被觀測的原因（`DoRateLimitDegraded`）：
 
-| 項目 | 內容                                                                                                                                                                       |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 項目 | 內容                                                                                                                                                                                                                                                      |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | 載體 | `apps/web` 的一行 JSON structured log，`event: "collab.ratelimit.degraded"`（`src/server/rate-limit/collaboration.ts`）；同時以 `ratelimit.degraded:<operation>` 計數到 Neon `ops_signal`（每個 instance 每分鐘至多寫一次），顯示在 `/admin` 的「控制項」 |
-| 欄位 | `operation`（`join`／`snapshot-put`／`snapshot-finalize`／`asset-upload`／`asset-resolve`）、`cause`（`timeout`／`exception`）；**沒有其他欄位**                           |
-| 條件 | 任何持續發生（相同故障以兩個封閉列舉聚合成率，而不是逐筆 grep）                                                                                                            |
-| 禁止 | identifier（`userId`／`roomId`）、Upstash endpoint 或 token、原始 error payload——Upstash SDK 的 error message 內含 REST URL 與呼叫時的 token（threat model §5 禁止欄位）  |
+| 欄位 | `operation`（`join`／`snapshot-put`／`snapshot-finalize`／`asset-upload`／`asset-resolve`）、`cause`（`timeout`／`exception`）；**沒有其他欄位**                                                                                                          |
+| 條件 | 任何持續發生（相同故障以兩個封閉列舉聚合成率，而不是逐筆 grep）                                                                                                                                                                                           |
+| 禁止 | identifier（`userId`／`roomId`）、Upstash endpoint 或 token、原始 error payload——Upstash SDK 的 error message 內含 REST URL 與呼叫時的 token（threat model §5 禁止欄位）                                                                                  |
+
+### 6.2 共編附件 presign 失敗（已實作訊號，在 `apps/web`）
+
+UploadThing 把 middleware 的任何 throw 都回成 500，且不留可用的 application log，
+因此 presign 500 無法定位。`collaborationAssetUploader` middleware 失敗時寫一行：
+
+| 項目 | 內容                                                                                                                                                                                                                           |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 載體 | `event: "collab.asset_presign.failed"` JSON log（`src/app/api/uploadthing/presign-failure.ts`）；同時以 `asset-presign.failed:<stage>` 計數到 Neon `ops_signal`，顯示在 `/admin` 的「控制項」（Hobby runtime logs 保留時間短） |
+| 欄位 | `stage`（`session`／`quota`／`authority`）、`errorName`（封閉列舉：`TRPCError`／`AdapterError`／內建錯誤種類／`Error`／`typeof`）、`code`（只取 `TRPCError`／`AdapterError` 且必須在各自的 code 白名單內）；**沒有其他欄位**   |
+| 判讀 | `session`／`quota` 多為預期拒絕；`authority` 加 `SERVICE_UNAVAILABLE` 表示 Gateway／DO 不可用或結果未知，`AdapterError` 表示 identity issuance 的 DB 前置檢查                                                                  |
+| 禁止 | error message、identifier、URL、token                                                                                                                                                                                          |
 
 ## 7. 已知缺口
 
@@ -158,8 +178,9 @@ SLO §5 的後端入口限制與 snapshot finalization reserve 都 fail open，�
   現有平台 logs／metrics 與手動工具不等於完整營運監控。
 - `session_closed` 是 log 行不是 metric series；比率依賴收集完整性與查詢視窗。
   必須確認 head sampling = 1 及下游取樣／遺失行為；取樣會漏失低頻事件並影響比率判讀。
-- sessions 分母尚未完整定義：容量拒絕可能早於成功加入，且 client 自行斷線不產生
-  server close log，不能將 `session_joined`／`session_closed` 直接當成完整 session SLO。
+- sessions 分母尚未完整定義：容量拒絕可能早於成功加入；`peer_closed` 只涵蓋到達
+  `webSocketClose` 的關閉，不能將 `session_joined`／`session_closed`／`peer_closed` 直接當成
+  完整 session SLO。
 - overload 可辨識來源與 hibernation 比率公式仍須驗證；不能從一般 `errorName` 或
   duration GB-s 直接推導。Vercel Hobby 的 web log 匯出路徑亦待選型。
 - client-side session success、decode failure、snapshot conflict 的 bounded
@@ -193,7 +214,7 @@ snapshot 讀不到或格式錯（`apps/web/src/lib/collab/snapshot-store.ts` →
   或 session 結束時送一次。**不得每次失敗送一次**——那會讓解碼失敗變成後端的放大器。
 - **允許欄位**：`roomId`、`peerId`，加上分類計數
   `{ realtimeDecodeFailures, snapshotDecodeFailures, assetDecodeFailures,
-  snapshotConflicts, snapshotWrites, sessionsStarted, baselinesResolved }`。
+snapshotConflicts, snapshotWrites, sessionsStarted, baselinesResolved }`。
   **只有計數，沒有任何 payload、checksum、內容片段、訊息 id 或 element id。**兩個分母缺一
   不可：`snapshotWrites` 供 SLO §6 的 conflict 率，`sessionsStarted`／`baselinesResolved`
   供 session 成功率（「成功」= baseline resolved，只有 client 知道）。

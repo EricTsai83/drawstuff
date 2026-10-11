@@ -35,6 +35,7 @@ const maxPending: PendingSocketAttachment = {
   state: "pending",
   acceptedAt: MAX_EPOCH_MS,
   roomId: roomIdSchema.parse(MAX_ID),
+  serverClosed: true,
 };
 
 const maxJoined: JoinedSocketAttachment = {
@@ -50,6 +51,7 @@ const maxJoined: JoinedSocketAttachment = {
   roomEpoch: 2_147_483_647,
   joinedAt: MAX_EPOCH_MS,
   lastFrameAt: MAX_EPOCH_MS,
+  serverClosed: true,
 };
 
 const encoder = new TextEncoder();
