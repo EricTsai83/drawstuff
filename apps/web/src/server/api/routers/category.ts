@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { and, asc, count, eq } from "drizzle-orm";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
+import type { db as database } from "@/server/db";
 import { category, scene, sceneCategory } from "@/server/db/schema";
 import {
   categoryAssignmentSchema,
@@ -21,6 +22,35 @@ const categoryListOutput = z.array(
     sceneCount: z.number().int().min(0),
   }),
 );
+
+/**
+ * Both rows must belong to the caller. The lookups run concurrently, but the
+ * scene is reported first so the error does not depend on query timing.
+ */
+async function assertOwnsSceneAndCategory(
+  db: typeof database,
+  userId: string,
+  input: { sceneId: string; categoryId: string },
+): Promise<void> {
+  const [[ownedScene], [ownedCategory]] = await Promise.all([
+    db
+      .select({ id: scene.id })
+      .from(scene)
+      .where(and(eq(scene.id, input.sceneId), eq(scene.userId, userId))),
+    db
+      .select({ id: category.id })
+      .from(category)
+      .where(
+        and(eq(category.id, input.categoryId), eq(category.userId, userId)),
+      ),
+  ]);
+  if (!ownedScene) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
+  }
+  if (!ownedCategory) {
+    throw new TRPCError({ code: "FORBIDDEN", message: "Invalid category" });
+  }
+}
 
 export const categoryRouter = createTRPCRouter({
   // 使用者的所有分類（含使用中的場景數），依名稱排序
@@ -114,27 +144,7 @@ export const categoryRouter = createTRPCRouter({
   assignToScene: protectedProcedure
     .input(categoryAssignmentSchema)
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.auth.user.id;
-
-      const [ownedScene] = await ctx.db
-        .select({ id: scene.id })
-        .from(scene)
-        .where(and(eq(scene.id, input.sceneId), eq(scene.userId, userId)))
-        .limit(1);
-      if (!ownedScene) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
-      }
-
-      const [ownedCategory] = await ctx.db
-        .select({ id: category.id })
-        .from(category)
-        .where(
-          and(eq(category.id, input.categoryId), eq(category.userId, userId)),
-        )
-        .limit(1);
-      if (!ownedCategory) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid category" });
-      }
+      await assertOwnsSceneAndCategory(ctx.db, ctx.auth.user.id, input);
 
       // 冪等：重複指派不報錯
       await ctx.db
@@ -150,27 +160,7 @@ export const categoryRouter = createTRPCRouter({
   unassignFromScene: protectedProcedure
     .input(categoryAssignmentSchema)
     .mutation(async ({ ctx, input }) => {
-      const userId = ctx.auth.user.id;
-
-      const [ownedScene] = await ctx.db
-        .select({ id: scene.id })
-        .from(scene)
-        .where(and(eq(scene.id, input.sceneId), eq(scene.userId, userId)))
-        .limit(1);
-      if (!ownedScene) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid scene" });
-      }
-
-      const [ownedCategory] = await ctx.db
-        .select({ id: category.id })
-        .from(category)
-        .where(
-          and(eq(category.id, input.categoryId), eq(category.userId, userId)),
-        )
-        .limit(1);
-      if (!ownedCategory) {
-        throw new TRPCError({ code: "FORBIDDEN", message: "Invalid category" });
-      }
+      await assertOwnsSceneAndCategory(ctx.db, ctx.auth.user.id, input);
 
       await ctx.db
         .delete(sceneCategory)
