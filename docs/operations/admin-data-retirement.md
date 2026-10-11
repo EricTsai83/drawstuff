@@ -265,7 +265,7 @@ with reason `storage-orphan`. The drain re-checks every such key against all key
 a pending published-artifact reservation as a reference, but not the task itself or another
 deletion — and skips (marks done) any that gained one (`stillReferenced` in the drain report).
 
-**Logs**: the Maintenance section links to the collaboration Worker's Workers Logs in the Cloudflare
+**Logs**: the Maintenance section links to the collaboration Worker's events (Workers Logs) in the Cloudflare
 dashboard (Durable Object events such as `alarm.given_up`, `authority.work_abandoned`) and to the
 web app's Vercel logs (e.g. `cleanup.deferred_failed`); the URLs live in
 `apps/web/src/config/ops-links.ts`. The console holds no log-reading credential and the Objects get

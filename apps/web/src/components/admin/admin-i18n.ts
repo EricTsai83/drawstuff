@@ -205,8 +205,7 @@ const en = {
   "maintenance.count": "Count",
   "maintenance.oldest": "Oldest",
   "maintenance.logs": "Logs:",
-  "maintenance.logsDurableObjects":
-    "Durable Objects (Cloudflare Workers Logs) ↗",
+  "maintenance.logsDurableObjects": "Durable Objects (Cloudflare events) ↗",
   "maintenance.logsWeb": "Web app (Vercel) ↗",
   "confirm.runMaintenance.title": "Run maintenance now?",
   "confirm.runMaintenance.description":
@@ -332,6 +331,8 @@ const en = {
   "release.rows": "{count} rows",
   "release.neonSize": "Neon {size}",
   "release.objectSize": "objects {size}",
+  "release.sizeByScan": "Scan to measure",
+  "release.sizeElsewhere": "Kept in Cloudflare",
   "release.queueOrphans": "Queue orphans for deletion",
   "release.orphansQueued": "{count} queued for the next maintenance run.",
   "confirm.queueOrphans.title": "Queue storage orphans for deletion?",
@@ -577,8 +578,7 @@ const zhTW = {
   "maintenance.count": "數量",
   "maintenance.oldest": "最舊",
   "maintenance.logs": "Log：",
-  "maintenance.logsDurableObjects":
-    "Durable Objects（Cloudflare Workers Logs）↗",
+  "maintenance.logsDurableObjects": "Durable Objects（Cloudflare 事件）↗",
   "maintenance.logsWeb": "Web app（Vercel）↗",
   "confirm.runMaintenance.title": "立即執行維護？",
   "confirm.runMaintenance.description": "立即執行每週清理，最多約 5 分鐘。",
@@ -700,6 +700,8 @@ const zhTW = {
   "release.rows": "{count} 列",
   "release.neonSize": "Neon {size}",
   "release.objectSize": "物件 {size}",
+  "release.sizeByScan": "掃描後才知道",
+  "release.sizeElsewhere": "存在 Cloudflare",
   "release.queueOrphans": "將孤兒物件排入刪除",
   "release.orphansQueued": "已排入 {count} 個，下次維護時刪除。",
   "confirm.queueOrphans.title": "將孤兒物件排入刪除？",

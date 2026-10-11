@@ -189,7 +189,13 @@ export function AdminDataRelease() {
                               )}
                             </>
                           ) : (
-                            "—"
+                            <span className="text-muted-foreground">
+                              {t(
+                                entry.key === "storageOrphans"
+                                  ? "release.sizeByScan"
+                                  : "release.sizeElsewhere",
+                              )}
+                            </span>
                           )}
                         </TableCell>
                         <TableCell className="max-w-96 min-w-64 whitespace-normal">

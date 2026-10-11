@@ -240,6 +240,10 @@ test("every page is reachable from the navigation with its sections", async ({
     release.getByRole("row", { name: /Room creation fences/ }),
   ).toContainText("Kept on purpose");
   await expect(release.getByText(/^Neon: /)).toBeVisible();
+  // Sizes that Neon cannot measure say why instead of showing a dash.
+  await expect(
+    release.getByRole("row", { name: /Unreferenced storage objects/ }),
+  ).toContainText("Scan to measure");
 
   // Maintenance: the seeded run and an unreachable Worker in this sandbox.
   await openPage(page, "Maintenance");
@@ -249,7 +253,7 @@ test("every page is reachable from the navigation with its sections", async ({
   await expect(maintenance.getByText("drain-cleanup-queue")).toBeVisible();
   await expect(maintenance.getByText(/Unreachable/)).toBeVisible();
   await expect(
-    maintenance.getByRole("link", { name: /Cloudflare Workers Logs/ }),
+    maintenance.getByRole("link", { name: /Cloudflare events/ }),
   ).toHaveAttribute("href", /dash\.cloudflare\.com/);
 
   await openPage(page, "Data");
