@@ -246,8 +246,9 @@ with reason `storage-orphan`. The drain re-checks every such key against all key
 a pending published-artifact reservation as a reference, but not the task itself or another
 deletion — and skips (marks done) any that gained one (`stillReferenced` in the drain report).
 
-**Durable Object events**: the Maintenance section counts the DO error events of the last 24 h
-from Workers Logs through the Cloudflare observability query API when `CLOUDFLARE_ACCOUNT_ID` and
-`CLOUDFLARE_OBSERVABILITY_TOKEN` are set (the API requires the Workers Observability permission;
-cached 60 s per instance). The Objects get no admin route: state that needs an operator is already
-mirrored in Neon (Needs attention), and the rest is read from the logs.
+**Logs**: the Maintenance section links to the collaboration Worker's Workers Logs in the Cloudflare
+dashboard (Durable Object events such as `alarm.given_up`, `authority.work_abandoned`) and to the
+web app's Vercel logs (e.g. `cleanup.deferred_failed`); the URLs live in
+`apps/web/src/config/ops-links.ts`. The console holds no log-reading credential and the Objects get
+no admin route: state that needs an operator is mirrored into Neon (Needs attention), raw logs are
+read in each platform's own dashboard, and push alerting is plan 17's job.

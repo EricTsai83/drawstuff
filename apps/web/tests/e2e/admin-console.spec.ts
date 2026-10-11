@@ -215,8 +215,8 @@ test("the overview shows every operator section with seeded data", async ({
   await expect(maintenance.getByText("drain-cleanup-queue")).toBeVisible();
   await expect(maintenance.getByText(/Unreachable/)).toBeVisible();
   await expect(
-    maintenance.getByText(/set CLOUDFLARE_ACCOUNT_ID/),
-  ).toBeVisible();
+    maintenance.getByRole("link", { name: /Cloudflare Workers Logs/ }),
+  ).toHaveAttribute("href", /dash\.cloudflare\.com/);
 
   await page.screenshot({
     path: test.info().outputPath("admin-overview.png"),

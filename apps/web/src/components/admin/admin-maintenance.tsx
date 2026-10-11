@@ -25,7 +25,8 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { api, type RouterOutputs } from "@/trpc/react";
+import { OPS_LOG_LINKS } from "@/config/ops-links";
+import { api } from "@/trpc/react";
 
 const RUN_TARGET = "routine";
 
@@ -138,7 +139,25 @@ export function AdminMaintenance() {
                 )}
               </div>
 
-              <WorkerEvents events={data.workerEvents} />
+              <p className="text-muted-foreground flex flex-wrap gap-x-4 gap-y-1 text-xs">
+                <span>{t("maintenance.logs")}</span>
+                <a
+                  href={OPS_LOG_LINKS.durableObjects}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-foreground underline underline-offset-2"
+                >
+                  {t("maintenance.logsDurableObjects")}
+                </a>
+                <a
+                  href={OPS_LOG_LINKS.web}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-foreground underline underline-offset-2"
+                >
+                  {t("maintenance.logsWeb")}
+                </a>
+              </p>
 
               <div>
                 <h3 className="mb-2 font-medium">{t("maintenance.lastRun")}</h3>
@@ -268,42 +287,4 @@ function summarize(detail: Record<string, unknown> | undefined): string {
     .filter(([, value]) => typeof value === "number" || value === true)
     .map(([key, value]) => `${key} ${String(value)}`)
     .join(" · ");
-}
-
-function WorkerEvents({
-  events,
-}: {
-  events: RouterOutputs["admin"]["maintenanceStatus"]["workerEvents"];
-}) {
-  const { t } = useAdminI18n();
-  if (!events.configured)
-    return (
-      <p className="text-muted-foreground text-xs">
-        {t("maintenance.workerEventsOff")}
-      </p>
-    );
-  if ("error" in events)
-    return (
-      <p className="text-destructive text-xs">
-        {t("maintenance.workerEventsError", { error: events.error })}
-      </p>
-    );
-  return (
-    <div>
-      <h3 className="mb-2 font-medium">
-        {t("maintenance.workerEvents", { hours: events.windowHours })}
-      </h3>
-      <ul className="grid gap-1 text-xs sm:grid-cols-2">
-        {events.counts.map(({ event, count }) => (
-          <li
-            key={event}
-            className={`bg-muted/40 flex justify-between gap-2 rounded-md px-3 py-1 ${count > 0 ? "text-destructive" : "text-muted-foreground"}`}
-          >
-            <span className="font-mono">{event}</span>
-            <span className="tabular-nums">{count}</span>
-          </li>
-        ))}
-      </ul>
-    </div>
-  );
 }
