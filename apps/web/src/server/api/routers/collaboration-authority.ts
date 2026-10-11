@@ -1,22 +1,29 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 import {
   authorityRequestSchema,
   authoritySocketPath,
+  normalizeAccountEmail,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 import { env } from "@/env";
 import { createTRPCRouter, protectedProcedure } from "@/server/api/trpc";
 import { issueAuthorityIdentity } from "@/server/collab/authority-identity";
 import { callAuthorityGateway } from "@/server/collab/authority-gateway";
+import type { Database } from "@/server/collab/rooms";
 import { AdapterError } from "@/server/collab/authority-storage";
 import {
   collaborationRoomsDisabled,
   collaborationRoomsDisabledError,
 } from "@/server/collab/relay-routing";
 import { enforceCollaborationRateLimit } from "@/server/rate-limit/collaboration";
-import { collaborationRoom, scene } from "@/server/db/schema";
+import {
+  collaborationLifecycleSubject,
+  collaborationRoom,
+  scene,
+  user,
+} from "@/server/db/schema";
 import { assertWithinQuota, QuotaExceededError } from "@/server/quota";
 
 async function configured() {
@@ -40,6 +47,34 @@ function identityError(error: unknown): TRPCError {
         message: "Identity verification is temporarily unavailable.",
       });
 }
+/**
+ * Whether `email` belongs to an account whose retirement has frozen it. Its
+ * retirement withdraws the account's invitations from every room it can
+ * find; refusing new ones from then on keeps a later account with the same
+ * address from inheriting an invitation created during the retirement.
+ */
+async function emailBelongsToRetiringAccount(
+  db: Database,
+  email: string,
+): Promise<boolean> {
+  const key = normalizeAccountEmail(email);
+  const [row] = await db
+    .select({ frozen: collaborationLifecycleSubject.frozen })
+    .from(user)
+    .innerJoin(
+      collaborationLifecycleSubject,
+      eq(collaborationLifecycleSubject.scope, sql`'account:' || ${user.id}`),
+    )
+    .where(
+      and(
+        eq(sql`lower(trim(${user.email}))`, key),
+        eq(collaborationLifecycleSubject.frozen, true),
+      ),
+    )
+    .limit(1);
+  return row !== undefined;
+}
+
 export const collaborationAuthorityRouter = createTRPCRouter({
   /** A display candidate only. The browser must ask Room before opening it. */
   findForScene: protectedProcedure
@@ -107,6 +142,14 @@ export const collaborationAuthorityRouter = createTRPCRouter({
           });
         }
       }
+      if (
+        input.action === "allow-email" &&
+        (await emailBelongsToRetiringAccount(ctx.db, input.email))
+      )
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This account is being removed and cannot be invited.",
+        });
       await enforceCollaborationRateLimit({
         operation: "join",
         identifier: ctx.auth.user.id,

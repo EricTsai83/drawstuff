@@ -133,7 +133,7 @@ procedures are:
 
 The **Needs attention** section of `/admin` is computed from Neon only (`admin.anomalies`); each group
 shows its total, most recent occurrence, and up to 50 oldest rows. Thresholds are owner decisions
-(plan 22) in `apps/web/src/server/admin/anomalies.ts`.
+(2026-10-11) in `apps/web/src/server/admin/anomalies.ts`.
 
 | Group | Condition | Action |
 | --- | --- | --- |

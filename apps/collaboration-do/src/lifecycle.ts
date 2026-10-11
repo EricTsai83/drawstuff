@@ -7,6 +7,8 @@ import {
   type LifecycleCommand,
   type DurableJob,
   authorityVersionSchema,
+  emailKeySchema,
+  normalizeAccountEmail,
 } from "@drawstuff/collaboration/authority";
 import { roomIdSchema } from "@drawstuff/collaboration/protocol";
 
@@ -34,6 +36,10 @@ type LifecycleRow = {
   version: number | null;
   cursor: string | null;
   revision: number;
+  /** The retired account's normalized email, recorded at freeze; null for scenes. */
+  email: string | null;
+  /** 1 once an account's rooms were enumerated again just before deletion. */
+  rescanned: number | null;
 };
 type RoomProgress = {
   room_id: string;
@@ -43,7 +49,13 @@ type RoomProgress = {
 
 /** P2 supplies authenticated adapters; the state machine itself never performs a direct cascade. */
 export interface LifecycleAdapter {
-  freeze(command: LifecycleCommand): Promise<number>;
+  /**
+   * Freezes the subject. An account also returns its normalized email, so its
+   * invitations can be withdrawn from rooms it never joined.
+   */
+  freeze(
+    command: LifecycleCommand,
+  ): Promise<number | { version: number; email?: string | null }>;
   list(
     command: LifecycleCommand,
     version: number,
@@ -53,6 +65,7 @@ export interface LifecycleAdapter {
     command: LifecycleCommand,
     version: number,
     room: { roomId: string; action: "end-room" | "revoke-member" },
+    email?: string,
   ): Promise<"pending" | "enforced">;
   delete(command: LifecycleCommand, version: number): Promise<void>;
 }
@@ -79,6 +92,19 @@ export class LifecycleProgress {
       room_id TEXT PRIMARY KEY, action TEXT NOT NULL CHECK(action IN ('end-room','revoke-member')),
       enforced INTEGER NOT NULL DEFAULT 0 CHECK(enforced IN (0,1))
     ); CREATE TABLE IF NOT EXISTS lifecycle_release (at INTEGER NOT NULL);`);
+    // Objects that predate invitation withdrawal gain the columns in place.
+    const columns = new Set(
+      storage.sql
+        .exec<{ name: string }>("PRAGMA table_info(lifecycle_progress)")
+        .toArray()
+        .map((column) => column.name),
+    );
+    if (!columns.has("email"))
+      storage.sql.exec("ALTER TABLE lifecycle_progress ADD COLUMN email TEXT");
+    if (!columns.has("rescanned"))
+      storage.sql.exec(
+        "ALTER TABLE lifecycle_progress ADD COLUMN rescanned INTEGER",
+      );
     this.work = new DurableWork(storage);
   }
 
@@ -205,12 +231,15 @@ export class LifecycleProgress {
       throw new Error("operation-mismatch");
     switch (lifecyclePhaseSchema.parse(row.phase)) {
       case "freezing": {
-        const version = await adapter.freeze(command);
+        const frozen = await adapter.freeze(command);
+        const { version, email } =
+          typeof frozen === "number" ? { version: frozen } : frozen;
         lifecyclePageSchema.shape.version.parse(version);
         await this.transition(row, () =>
           this.storage.sql.exec(
-            "UPDATE lifecycle_progress SET version=?,phase='enumerating' WHERE operation_id=? AND phase='freezing'",
+            "UPDATE lifecycle_progress SET version=?,email=?,phase='enumerating' WHERE operation_id=? AND phase='freezing'",
             version,
+            email ? normalizeAccountEmail(email) : null,
             command.operationId,
           ),
         );
@@ -250,10 +279,12 @@ export class LifecycleProgress {
           )
           .toArray()[0];
         if (room) {
-          const result = await adapter.enforce(command, row.version, {
-            roomId: roomIdSchema.parse(room.room_id),
-            action: room.action,
-          });
+          const result = await adapter.enforce(
+            command,
+            row.version,
+            { roomId: roomIdSchema.parse(room.room_id), action: room.action },
+            row.email ?? undefined,
+          );
           if (result !== "enforced") throw new Error("enforcement-pending");
           await this.transition(row, () =>
             this.storage.sql.exec(
@@ -261,6 +292,43 @@ export class LifecycleProgress {
               room.room_id,
             ),
           );
+        } else if (
+          row.cursor === null &&
+          command.target.kind === "account" &&
+          !row.rescanned
+        ) {
+          // One more full pass before deleting an account: it picks up
+          // invitations whose projection reached the web side after the
+          // first pass, and an email this operation never recorded (a
+          // retirement already past freezing when this code shipped, or one
+          // frozen by an older web build) is fetched again from the
+          // idempotent freeze. Re-enforcing a room is a no-op repeat.
+          let email = row.email;
+          if (email === null) {
+            const frozen = await adapter.freeze(command);
+            const refrozen =
+              typeof frozen === "number" ? { version: frozen } : frozen;
+            if (refrozen.version !== row.version)
+              throw new Error("fence-mismatch");
+            // A web build that predates invitation withdrawal omits the
+            // field; wait for it (retried with backoff) rather than finishing
+            // with the account's invitations intact. `null` is a real answer.
+            if (refrozen.email === undefined)
+              throw new Error("adapter-email-pending");
+            email = refrozen.email
+              ? normalizeAccountEmail(refrozen.email)
+              : null;
+          }
+          await this.transition(row, () => {
+            this.storage.sql.exec(
+              "DELETE FROM lifecycle_rooms WHERE enforced=1",
+            );
+            this.storage.sql.exec(
+              "UPDATE lifecycle_progress SET phase='enumerating',cursor=NULL,rescanned=1,email=? WHERE operation_id=?",
+              email,
+              command.operationId,
+            );
+          });
         } else {
           await this.transition(row, () => {
             // Completed page progress can be discarded; the terminal subject fence remains.
@@ -278,6 +346,16 @@ export class LifecycleProgress {
       }
       case "deleting":
         if (row.version === null) throw new Error("missing-freeze");
+        if (command.target.kind === "account" && !row.rescanned) {
+          // Reached deleting before this pass existed: run the pass first.
+          await this.transition(row, () =>
+            this.storage.sql.exec(
+              "UPDATE lifecycle_progress SET phase='enforcing',cursor=NULL WHERE operation_id=?",
+              command.operationId,
+            ),
+          );
+          return false;
+        }
         await adapter.delete(command, row.version);
         await this.transition(row, () => {
           this.storage.sql.exec(
@@ -361,13 +439,14 @@ export class CollaborationLifecycle extends DurableObject<Env> {
         const command = job.command;
         const adapter: LifecycleAdapter = {
           freeze: async () =>
-            (
-              await client.call(
-                { v: 1, action: "lifecycle-freeze", command },
-                z.strictObject({ version: authorityVersionSchema }),
-                signal,
-              )
-            ).version,
+            client.call(
+              { v: 1, action: "lifecycle-freeze", command },
+              z.strictObject({
+                version: authorityVersionSchema,
+                email: emailKeySchema.nullable().optional(),
+              }),
+              signal,
+            ),
           list: async (_command, version, cursor) =>
             client.call(
               {
@@ -380,10 +459,10 @@ export class CollaborationLifecycle extends DurableObject<Env> {
               lifecyclePageSchema,
               signal,
             ),
-          enforce: async (_command, version, room) =>
+          enforce: async (_command, version, room, email) =>
             this.env.COLLABORATION_ROOM.getByName(
               room.roomId,
-            ).enforceRetirementV1({ command, version, room }),
+            ).enforceRetirementV1({ command, version, room, email }),
           delete: async (_command, version) => {
             await client.call(
               { v: 1, action: "lifecycle-delete", command, version },

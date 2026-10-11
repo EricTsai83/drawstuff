@@ -244,6 +244,28 @@ key, enqueue it, and cascade-delete the parent row in a single transaction — n
 per-object round trips, so a large account cannot time out half-retired. Direct SQL deletion is
 not an acceptable substitute because it bypasses those guarantees.
 
+### What account retirement removes
+
+`tests/account-retirement-inventory.test.ts` seeds an account across the schema, retires it, and
+asserts that no user-ID column (`user_id`, `owner_id`, `subject`, `updated_by`, `registered_by`,
+`actor_user_id`, `granted_by_user_id`) still points at it except the retained record below.
+
+| Where | What happens |
+| --- | --- |
+| Neon, cascaded from `user` | sessions, OAuth accounts, its own admin grant, Personal Library, workspaces and defaults, categories, scenes and their category links, shared links, file records, owned rooms with their snapshots, assets, members and invites, and the account's member rows in other rooms |
+| Neon, deleted by Lifecycle | lifecycle registrations and projection tombstones for the account; ended-room records of rooms that cascade |
+| Neon, set to null | `collaboration_snapshot.updated_by` and `collaboration_asset.registered_by` in other people's rooms (that content stays with the room), and `admin_grant.granted_by_user_id` on grants it made |
+| UploadThing | every owned key (scene images, thumbnails, published artifacts, shared-link files, owned rooms' images) is queued in `deferred_file_cleanup` in the same transaction |
+| Room Durable Objects | owned rooms end and later release their storage; in other rooms the account is retired (membership revoked) and **its email is removed from the invitation list**, including rooms it never opened — Lifecycle finds those through the Neon invite projection (and lists them once more right before deleting), the web refuses new invitations to the email once the account is frozen, a Lifecycle Object that only gets an answer without the email field (an older web build) retries instead of finishing, and a new account with the same email inherits no invitation |
+| Lifecycle Durable Object | releases its storage one hour after completion |
+
+Retained, without user content: the `collaboration_lifecycle_subject` row (`account:<id>`,
+retired; answers a duplicate retirement, deleted by record retention 30 days later),
+`collaboration_creation_fence` rows of rooms that existed (room IDs only), `admin_audit_event` rows
+naming the account as actor or target (kept 365 days), the `deferred_file_cleanup` rows that carry
+the user ID in their context until the queue's `done` rows are purged after 30 days, and revoked
+invitation rows in other rooms until record retention removes them after 30 days.
+
 Administrative authorization is DB-backed. Better Auth authenticates the caller, then
 `adminProcedure` requires an active `operator` row in `admin_grant` keyed by the internal user ID.
 Email is used only by the locked, first-admin bootstrap command to locate a verified Google-linked

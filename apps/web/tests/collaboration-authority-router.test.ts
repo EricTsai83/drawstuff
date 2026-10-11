@@ -168,3 +168,40 @@ describe("source scene display candidates", () => {
     ).toBeNull();
   });
 });
+
+describe("invitations to a retiring account", () => {
+  it("refuses to invite the email of an account whose retirement froze it", async () => {
+    await testDb.delete(schema.collaborationLifecycleSubject);
+    await testDb.delete(schema.user);
+    await testDb.insert(schema.user).values([
+      { id: "owner", name: "Owner", email: "owner@example.com" },
+      { id: "leaving", name: "Leaving", email: "Leaving@Example.com" },
+      { id: "staying", name: "Staying", email: "staying@example.com" },
+    ]);
+    await testDb.insert(schema.collaborationLifecycleSubject).values({
+      scope: "account:leaving",
+      kind: "account",
+      subject: "leaving",
+      frozen: true,
+    });
+    const invite = (email: string) => ({
+      v: 1 as const,
+      action: "allow-email" as const,
+      roomId: "authority-router-room",
+      operationId: crypto.randomUUID(),
+      deadline: Date.now() + 55_000,
+      email,
+      role: "editor" as const,
+    });
+
+    await expect(
+      caller("owner", testDb).execute(invite("leaving@example.com")),
+    ).rejects.toMatchObject({ code: "PRECONDITION_FAILED" });
+    expect(doubles.gateway).not.toHaveBeenCalled();
+
+    // Anyone else, including an address nobody has registered, is unaffected.
+    await caller("owner", testDb).execute(invite("staying@example.com"));
+    await caller("owner", testDb).execute(invite("new@example.com"));
+    expect(doubles.gateway).toHaveBeenCalledTimes(2);
+  });
+});
