@@ -22,7 +22,8 @@ export type AdminAuditAction =
   | "revoke-sessions"
   | "unpublish-scene"
   | "delete-shared-link"
-  | "set-quota";
+  | "set-quota"
+  | "enqueue-storage-orphans";
 
 export type AdminAuditTargetType =
   "scene" | "room" | "account" | "cleanup" | "maintenance" | "shared-scene";

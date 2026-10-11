@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { env } from "@/env";
 import type { Database } from "@/server/collab/rooms";
+import { readWorkerErrorEvents } from "@/server/admin/worker-logs";
 import { deferredFileCleanup, maintenanceRun } from "@/server/db/schema";
 
 const RUN_HISTORY = 10;
@@ -31,6 +32,16 @@ const healthSchema = z.object({
   ready: z.record(z.string(), z.boolean()),
 });
 
+/** Per-job outcomes of a stored run report; empty when unreadable. */
+export function parseMaintenanceReport(report: string | null) {
+  if (!report) return [];
+  try {
+    return reportSchema.parse(JSON.parse(report)).jobs ?? [];
+  } catch {
+    return [];
+  }
+}
+
 /** The collaboration Worker's public `/healthz`; never throws. */
 async function collaborationHealth() {
   try {
@@ -53,7 +64,7 @@ async function collaborationHealth() {
 /** Recent maintenance runs, the cleanup queue backlog, and Worker health. */
 export async function readMaintenanceStatus(db: Database, now = new Date()) {
   const pending = eq(deferredFileCleanup.status, "pending");
-  const [runs, backlog, due, health] = await Promise.all([
+  const [runs, backlog, due, health, workerEvents] = await Promise.all([
     db
       .select()
       .from(maintenanceRun)
@@ -75,12 +86,13 @@ export async function readMaintenanceStatus(db: Database, now = new Date()) {
       .from(deferredFileCleanup)
       .where(and(pending, lte(deferredFileCleanup.nextAttemptAt, now))),
     collaborationHealth(),
+    readWorkerErrorEvents(now.getTime()),
   ]);
 
   return {
     runs: runs.map(({ report, ...run }) => ({
       ...run,
-      jobs: report ? (reportSchema.parse(JSON.parse(report)).jobs ?? []) : [],
+      jobs: parseMaintenanceReport(report),
     })),
     backlog: {
       byReason: backlog,
@@ -88,5 +100,6 @@ export async function readMaintenanceStatus(db: Database, now = new Date()) {
       due: due[0]?.count ?? 0,
     },
     health,
+    workerEvents,
   };
 }

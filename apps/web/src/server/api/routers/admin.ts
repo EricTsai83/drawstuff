@@ -30,6 +30,12 @@ import {
 } from "@/server/admin/anomalies";
 import { readMaintenanceStatus } from "@/server/admin/maintenance-status";
 import { readOpsControls } from "@/server/admin/ops-controls";
+import { readDataRelease } from "@/server/admin/data-release";
+import {
+  enqueueStorageOrphans,
+  scanStorageOrphans,
+} from "@/server/storage/orphans";
+import { UTApi } from "uploadthing/server";
 import {
   deleteSharedLink,
   readRoom,
@@ -284,6 +290,23 @@ export const adminRouter = createTRPCRouter({
     }),
   anomalies: adminProcedure.query(({ ctx }) => listAdminAnomalies(ctx.db)),
   opsControls: adminProcedure.query(({ ctx }) => readOpsControls(ctx.db)),
+  dataRelease: adminProcedure.query(({ ctx }) => readDataRelease(ctx.db)),
+  // Read-only, but a mutation: it pages through the storage provider and
+  // must only run when an operator asks, never on a refetch.
+  scanStorageOrphans: adminProcedure
+    .input(z.object({ offset: z.number().int().min(0).default(0) }))
+    .mutation(async ({ ctx, input }) => {
+      // The full key list stays on the server; the enqueue rescans anyway.
+      const scan = await scanStorageOrphans(ctx.db, new UTApi(), input.offset);
+      return {
+        offset: scan.offset,
+        scanned: scan.scanned,
+        nextOffset: scan.nextOffset,
+        orphans: scan.orphans,
+        orphanBytes: scan.orphanBytes,
+        sample: scan.sample,
+      };
+    }),
   userFootprint: adminProcedure
     .input(z.object({ userId: z.string().min(1) }))
     .query(({ ctx, input }) => readUserFootprint(ctx.db, input.userId)),
@@ -668,6 +691,18 @@ export const adminRouter = createTRPCRouter({
           await writeQuota(ctx.db, input.name, input.value, ctx.auth.user.id);
           return { name: input.name, value: input.value };
         },
+      }),
+    ),
+  enqueueStorageOrphans: adminProcedure
+    .input(z.object({ offset: z.number().int().min(0).default(0) }))
+    .mutation(({ ctx, input }) =>
+      audited({
+        db: ctx.db,
+        actorUserId: ctx.auth.user.id,
+        action: "enqueue-storage-orphans",
+        targetType: "maintenance",
+        targetId: `storage-orphans@${input.offset}`,
+        run: () => enqueueStorageOrphans(ctx.db, new UTApi(), input.offset),
       }),
     ),
 });
