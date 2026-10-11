@@ -15,10 +15,18 @@ export type AdminAuditAction =
   | "resume-retirement"
   | "close-room-storage"
   | "run-room-retention"
-  | "run-maintenance";
+  | "run-maintenance"
+  | "disable-collaboration"
+  | "enable-collaboration"
+  | "reset-ops-signals"
+  | "revoke-sessions"
+  | "unpublish-scene"
+  | "delete-shared-link"
+  | "set-quota"
+  | "enqueue-storage-orphans";
 
 export type AdminAuditTargetType =
-  "scene" | "room" | "account" | "cleanup" | "maintenance";
+  "scene" | "room" | "account" | "cleanup" | "maintenance" | "shared-scene";
 
 export async function beginAdminAudit(params: {
   db: Database;

@@ -207,6 +207,13 @@ The Room DO itself deletes all of its storage once an ended room's fence and cle
 (or abandoned after 24 hours) and no connection remains; completed Lifecycle retirement objects
 release their storage one hour after completion.
 
+## Release principle
+
+Every kind of accumulating data has a release path, listed in the admin console's **Data release**
+section: system garbage and bookkeeping are released by maintenance jobs, user content only by an
+operator (never automatically), and retained data states why. See
+[admin operations](../operations/admin-data-retirement.md#data-release).
+
 ## Record retention
 
 The weekly `record-retention` job (`apps/web/src/server/maintenance/jobs.ts`) deletes bookkeeping

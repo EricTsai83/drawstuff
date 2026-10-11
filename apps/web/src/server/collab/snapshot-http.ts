@@ -123,7 +123,7 @@ export async function handleSnapshotHttp(request: Request): Promise<Response> {
     )
       throw new SnapshotHttpError(403, "forbidden");
     if (
-      collaborationRoomsDisabled() ||
+      (await collaborationRoomsDisabled()) ||
       !env.COLLAB_IDENTITY_SECRET ||
       !env.COLLAB_AUTHORITY_SECRET
     )

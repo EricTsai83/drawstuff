@@ -1028,6 +1028,27 @@ export const maintenanceRun = createTable(
   ],
 );
 
+/** Operator-controlled runtime settings (fixed keys, e.g. the collaboration kill switch). */
+export const opsSetting = createTable("ops_setting", {
+  key: varchar("key", { length: 64 }).primaryKey(),
+  value: text("value").notNull(),
+  updatedBy: text("updated_by"),
+  updatedAt: timestamp("updated_at")
+    .$defaultFn(() => new Date())
+    .notNull(),
+});
+
+/**
+ * Aggregated operational signals that otherwise exist only in logs (fixed
+ * names, e.g. rate-limit degradation per operation): a running count and the
+ * last occurrence, written at most once a minute per instance.
+ */
+export const opsSignal = createTable("ops_signal", {
+  name: varchar("name", { length: 64 }).primaryKey(),
+  count: integer("count").default(0).notNull(),
+  lastAt: timestamp("last_at").notNull(),
+});
+
 // 延遲清理任務表：記錄無法即時刪除的檔案
 export const deferredFileCleanup = createTable(
   "deferred_file_cleanup",
