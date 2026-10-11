@@ -26,6 +26,7 @@ import {
   AdminStatusBadge,
   formatAdminDate,
 } from "@/components/admin/admin-display";
+import { AdminUserFootprint } from "@/components/admin/admin-user-footprint";
 import { DrawstuffLogo } from "@/components/icons/drawstuff-logo";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -375,6 +376,8 @@ export function AdminUserConsole({
                 </dl>
               </CardContent>
             </Card>
+
+            <AdminUserFootprint userId={userId} isSelf={userId === actor.id} />
 
             <div className="grid gap-4 xl:grid-cols-2">
               <Card>

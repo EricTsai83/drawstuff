@@ -158,6 +158,7 @@ describe("DO structured logger", () => {
         "roomId",
         "socketState",
         "status",
+        "stuckHours",
       ].sort(),
     );
   });

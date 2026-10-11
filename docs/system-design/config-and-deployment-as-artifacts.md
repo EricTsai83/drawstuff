@@ -115,4 +115,5 @@ kill switch／feature flag 讀取集中在一個具名函式；fail-closed 的�
 - 可逆自動／不可逆手動、單一環境決策：
   [collaboration DO deployment](../operations/collaboration-do-deployment.md)、
   [engineering conventions](../operations/engineering-conventions.md) 的 DB 章節。
-- kill switch：`COLLAB_ROOMS_DISABLED`（`apps/web/src/server/collab/relay-routing.ts`）。
+- kill switch：`/admin` 的執行期開關（Neon `ops_setting`，每個 instance 快取 15 秒），以
+  `COLLAB_ROOMS_DISABLED` env 作為優先的 break-glass（`apps/web/src/server/collab/relay-routing.ts`）。

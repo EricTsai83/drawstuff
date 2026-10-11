@@ -107,6 +107,28 @@ export async function retireAccount(params: { db: Database; userId: string }) {
     })),
   };
 }
+/**
+ * Re-sends `begin` for a frozen, unfinished retirement, built from its durable
+ * subject row so it also works once the scene or account row is gone. The
+ * Lifecycle Object treats it as the same operation and retries it now.
+ */
+export async function resumeRetirement(params: {
+  db: Database;
+  scope: string;
+}) {
+  const row = await params.db.query.collaborationLifecycleSubject.findFirst({
+    where: eq(collaborationLifecycleSubject.scope, params.scope),
+  });
+  if (!row?.frozen || row.retired) return { found: false as const };
+  const target: LifecycleTarget =
+    row.kind === "scene" && row.sceneId
+      ? { kind: "scene", subject: row.subject, sceneId: row.sceneId }
+      : { kind: "account", subject: row.subject };
+  return {
+    found: true as const,
+    ...(await beginRetirement(params.db, target)),
+  };
+}
 export async function endRoom(params: {
   db: Database;
   roomId: string;

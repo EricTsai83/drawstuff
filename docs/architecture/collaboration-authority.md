@@ -43,7 +43,9 @@ Snapshot 以 binary 明文編碼傳輸，每房間一列並帶 checksum。寫入
 
 ## 資源釋放
 
-- Room DO 的 durable 工作從第一次排程起 24 小時仍未送達即放棄（log `authority.work_abandoned`），本地紀錄收成終態，不聲稱遠端已完成。`CollaborationLifecycle` 的退場工作不放棄。
+- Room DO 的 durable 工作從第一次排程起 24 小時仍未送達即放棄（log `authority.work_abandoned`），本地紀錄收成終態，不聲稱遠端已完成。`CollaborationLifecycle` 的退場工作不丟棄但也不無限重試：從開始起超過 1 小時仍在失敗時至多每小時記一次 `lifecycle.retirement_stuck`（error），超過 24 小時後失敗重試間隔由 1 分鐘上限改為 1 小時，滿 7 天暫停（`lifecycle.retirement_parked`）：工作保留、不再排程，直到 admin 在異常區塊重新觸發（開始新的 7 天窗口）。一個卡住的退場總共最多約 1,600 次喚醒。
+- Room 的開啟紀錄（`authority_members`）上限 256：新的人加入而已滿時，淘汰最久沒開啟、非受邀的連結訪客紀錄並撤回其列表列；擁有者與受邀者不淘汰。
+- 等待型重試也有上限：已結束房間的 cleanup 等 fence 時以失敗退避（最長 60 s）而非每秒輪詢；投影佇列滿時不另排 1 秒計時器；重複的退場會補排已被放棄的 fence。alarm handler 在 runtime 重試用完後的備援 alarm 由 1 分鐘指數拉長到 1 小時，連續 30 次（約 1 天）後停止並記 `alarm.given_up`，之後任何會 commit 工作的請求都會重新排程。
 - 房間結束且 fence、cleanup 都已送達（或放棄）、沒有連線與進行中的 RPC 時，DO `deleteAll()` 並清除 alarm（log `room.storage_released`）；從未建立成功的房間同樣不留儲存。
 - 完成的 Lifecycle 退場物件保留 1 小時後釋放；之後遲到的 `begin` 會冪等重跑。
 - 房間結束後 Neon 只保留房間列（`status='ended'`、清空名稱）與 creation fence，用來拒絕 roomId 重用；成員／邀請投影、投影墓碑、操作紀錄與退場登記都刪除。註冊、建立父紀錄、storage fence、cleanup 與回收以 roomId advisory lock 序列化。

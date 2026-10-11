@@ -79,6 +79,7 @@ export async function applyLifecycleAdapter(db: Database, input: Command) {
           .update(subjects)
           .set({
             frozen: true,
+            frozenAt: new Date(),
             version: row.version + 1,
             operationId: command.operationId,
           })

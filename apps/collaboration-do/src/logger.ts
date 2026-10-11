@@ -23,6 +23,12 @@ type DoLogEvent =
   | "authority.entry_failed"
   /** A durable job kept failing past its retry window and was dropped. */
   | "authority.work_abandoned"
+  /** A never-abandoned retirement job is still failing an hour or more after it began. */
+  | "lifecycle.retirement_stuck"
+  /** A retirement job failed for 7 days and stopped retrying until resumed. */
+  | "lifecycle.retirement_parked"
+  /** An alarm handler kept failing through every bounded backstop (~1 day). */
+  | "alarm.given_up"
   /** An ended, fully settled room deleted all of its storage. */
   | "room.storage_released"
   | "adapter.delivery_failed"
@@ -58,6 +64,8 @@ type DoLogFields = {
   status?: number;
   /** Kind of an abandoned durable job; a closed enum. */
   jobKind?: DurableJob["kind"];
+  /** Whole hours a stuck retirement job has been pending. */
+  stuckHours?: number;
   /** `Error` constructor name only — never `message`, which can embed input. */
   errorName?: string;
 };
@@ -75,6 +83,7 @@ const LOGGABLE_FIELDS: Record<keyof DoLogFields, true> = {
   members: true,
   status: true,
   jobKind: true,
+  stuckHours: true,
   errorName: true,
 };
 
